@@ -1,5 +1,5 @@
 /*
- *  video_sdl.cpp - Video/graphics emulation, SDL specific stuff
+ *  video_sdl.cpp - Video/graphics emulation, SDL 1.x specific stuff
  *
  *  Basilisk II (C) 1997-2008 Christian Bauer
  *
@@ -39,9 +39,9 @@
  *  - Backport hw cursor acceleration to Basilisk II?
  *  - Factor out code
  */
-
 #include "sysdeps.h"
 
+#ifdef ENABLE_SDL1
 #include <SDL.h>
 #include <SDL_mutex.h>
 #include <SDL_thread.h>
@@ -455,7 +455,7 @@ static inline int sdl_display_height(void)
 	return height;
 }
 
-// Check wether specified mode is available
+// Check whether specified mode is available
 static bool has_mode(int type, int width, int height, int depth)
 {
 #ifdef SHEEPSHAVER
@@ -582,6 +582,16 @@ static void migrate_screen_prefs(void)
 		PrefsReplaceString("screen", str);
 	}
 #endif
+}
+
+void update_sdl_video(SDL_Surface *screen, Sint32 x, Sint32 y, Sint32 w, Sint32 h)
+{
+	SDL_UpdateRect(screen, x, y, w, h);
+}
+
+void update_sdl_video(SDL_Surface *screen, int numrects, SDL_Rect *rects)
+{
+	SDL_UpdateRects(screen, numrects, rects);
 }
 
 
@@ -2269,3 +2279,4 @@ void video_set_dirty_area(int x, int y, int w, int h)
 	// XXX handle dirty bounding boxes for non-VOSF modes
 }
 #endif
+#endif //ifdef ENABLE_SDL1
