@@ -1,0 +1,29 @@
+SRC = $(PROJECT_DIR)/../uae_cpu_2021
+DST = $(BUILT_PRODUCTS_DIR)/gencpu_output_2021
+VPATH = $(SRC) $(SRC)/compiler
+CFLAGS = -DUSE_XCODE=1 -DUSE_JIT_FPU -I. -I../uae_cpu_2021 -I../UNIX
+CXXFLAGS = -stdlib=libc++ $(CFLAGS)
+
+all: $(DST)/gencpu $(DST)/gencomp
+	cd $(DST); ./gencpu; ./gencomp
+
+$(DST)/gencpu: $(addprefix $(DST)/, defs68k.o readcpu.o gencpu.o)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(DST)/gencomp: $(addprefix $(DST)/, defs68k.o readcpu.o gencomp.o)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(DST)/%.o: %.c
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+$(DST)/%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -o $@ -c $<
+
+$(DST)/defs68k.c: $(DST)/build68k
+	$< < $(SRC)/table68k > $@
+
+$(DST)/build68k: $(SRC)/build68k.c
+	mkdir -p $(DST)
+	$(CC) $(CFLAGS) -o $@ $<
+
+clean:; rm -fr $(DST)
