@@ -125,6 +125,7 @@
 #ifdef USE_SDL
 #include <SDL.h>
 #include <string>
+#include <SDL_main.h>
 #endif
 
 #ifndef USE_SDL_VIDEO
@@ -148,6 +149,13 @@
 #include "mon.h"
 #endif
 
+#if TARGET_OS_IPHONE
+extern "C" {
+bool SS_ShowiOSPreferences(void);
+}
+#endif
+
+#define SHOW_IOS_PREFS_ON_LAUNCH 1
 
 // Enable emulation of unaligned lmw/stmw?
 #define EMULATE_UNALIGNED_LOADSTORE_MULTIPLE 1
@@ -196,7 +204,7 @@ uint8 *RAMBaseHost;		// Base address of Mac RAM (host address space)
 uint8 *ROMBaseHost;		// Base address of Mac ROM (host address space)
 uint32 ROMEnd;
 
-#if defined(__APPLE__) && defined(__x86_64__)
+#if defined(__APPLE__)
 uint8 gZeroPage[0x3000], gKernelData[0x2000];
 #endif
 
@@ -254,7 +262,7 @@ uintptr SheepMem::data;						// Top of SheepShaver data (stack like storage)
 
 
 // Prototypes
-#if !defined(__APPLE__) || !defined(__x86_64__)
+#if (!defined(__APPLE__) || !defined(__x86_64__)) && !defined(TARGET_OS_IPHONE)
 static bool kernel_data_init(void);
 static bool shm_map_address(int kernel_area, uint32 addr);
 #endif
@@ -625,6 +633,16 @@ static bool load_mac_rom(void)
 	return true;
 }
 
+#if TARGET_OS_IPHONE
+static bool check_prefs(void)
+{
+#if SHOW_IOS_PREFS_ON_LAUNCH
+	SS_ShowiOSPreferences();		// This works.
+#endif
+	return true;
+}
+#endif
+
 static bool install_signal_handlers(void)
 {
 	char str[256];
@@ -732,7 +750,12 @@ static bool init_sdl()
 }
 #endif
 
-int main(int argc, char **argv)
+extern "C" {
+#if TARGET_OS_IPHONE
+int main_ios(int argc, char* argv[])
+#else
+int main(int argc, char *argv[])
+#endif
 {
 #if defined(ENABLE_GTK) && !defined(GDK_WINDOWING_QUARTZ) && !defined(GDK_WINDOWING_WAYLAND)
 	XInitThreads();
@@ -922,7 +945,7 @@ int main(int argc, char **argv)
 		goto quit;
 	}
 
-#if !defined(__APPLE__) || !defined(__x86_64__)
+#if (!defined(__APPLE__) || !defined(__x86_64__)) && !defined(TARGET_OS_IPHONE)
 	// Create areas for Kernel Data
 	if (!kernel_data_init())
 		goto quit;
@@ -1063,6 +1086,11 @@ int main(int argc, char **argv)
 	if (!load_mac_rom())
 		goto quit;
 
+#if TARGET_OS_IPHONE
+	if (!check_prefs())
+		goto quit;
+#endif
+
 	// Initialize everything
 	if (!InitAll(vmdir))
 		goto quit;
@@ -1126,7 +1154,7 @@ quit:
 	return 0;
 }
 
-
+}	// extern "C"
 /*
  *  Cleanup and quit
  */
@@ -1227,7 +1255,7 @@ static void Quit(void)
 	exit(0);
 }
 
-#if !defined(__APPLE__) || !defined(__x86_64__)
+#if (!defined(__APPLE__) || !defined(__x86_64__)) && !defined(TARGET_OS_IPHONE)
 /*
  *  Initialize Kernel Data segments
  */

@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 45;
+	objectVersion = 52;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -82,6 +82,137 @@
 		5DE93B46247C71F200B2C821 /* adb.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D3967BF2328D315003925D6 /* adb.cpp */; };
 		5DF4CB7F22B5BD5D00512A86 /* audio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4CB7E22B5BD5D00512A86 /* audio.cpp */; };
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
+		E204B90228BC3B640081FDCA /* ppc-dyngen-ops-x86_32.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F881E0624D100A3ADAB /* ppc-dyngen-ops-x86_32.hpp */; };
+		E204B90328BC3B640081FDCA /* basic-dyngen-ops.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F871E0624D100A3ADAB /* basic-dyngen-ops.hpp */; };
+		E204B90428BC3B640081FDCA /* basic-dyngen-ops-x86_64_macos.hpp in Headers */ = {isa = PBXBuildFile; fileRef = E4C9A03D1FD55CDC00CABBF9 /* basic-dyngen-ops-x86_64_macos.hpp */; };
+		E204B90528BC3B640081FDCA /* bincue.h in Headers */ = {isa = PBXBuildFile; fileRef = 5D2143D424B2DD90008BB372 /* bincue.h */; };
+		E204B90628BC3B640081FDCA /* ppc-dyngen-ops-x86_64_macos.hpp in Headers */ = {isa = PBXBuildFile; fileRef = E4C9A03F1FD55CE700CABBF9 /* ppc-dyngen-ops-x86_64_macos.hpp */; };
+		E204B90728BC3B640081FDCA /* dis-asm.h in Headers */ = {isa = PBXBuildFile; fileRef = 08163337158C121000C449F9 /* dis-asm.h */; };
+		E204B90828BC3B640081FDCA /* basic-dyngen-ops-x86_32.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F851E0624D100A3ADAB /* basic-dyngen-ops-x86_32.hpp */; };
+		E204B90928BC3B640081FDCA /* ppc-dyngen-ops.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F8A1E0624D100A3ADAB /* ppc-dyngen-ops.hpp */; };
+		E204B90B28BC3B640081FDCA /* ieeefp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDF714A99EEF000B1711 /* ieeefp.cpp */; };
+		E204B90C28BC3B640081FDCA /* mathlib.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDFD14A99EEF000B1711 /* mathlib.cpp */; };
+		E204B90D28BC3B640081FDCA /* utils-cpuinfo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE0214A99EEF000B1711 /* utils-cpuinfo.cpp */; };
+		E204B90E28BC3B640081FDCA /* ppc-translate.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDF014A99EEF000B1711 /* ppc-translate.cpp */; };
+		E204B90F28BC3B640081FDCA /* ppc-jit.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDEB14A99EEF000B1711 /* ppc-jit.cpp */; };
+		E204B91028BC3B640081FDCA /* ppc-execute.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDE814A99EEF000B1711 /* ppc-execute.cpp */; };
+		E204B91128BC3B640081FDCA /* ppc-dyngen.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDE614A99EEF000B1711 /* ppc-dyngen.cpp */; };
+		E204B91228BC3B640081FDCA /* ppc-decode.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDE414A99EEF000B1711 /* ppc-decode.cpp */; };
+		E204B91328BC3B640081FDCA /* ppc-cpu.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDE214A99EEF000B1711 /* ppc-cpu.cpp */; };
+		E204B91428BC3B640081FDCA /* jit-cache.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDCD14A99EEF000B1711 /* jit-cache.cpp */; };
+		E204B91528BC3B640081FDCA /* basic-dyngen.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDC514A99EEF000B1711 /* basic-dyngen.cpp */; };
+		E204B91628BC3B640081FDCA /* sheepshaver_glue.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDBB14A99EEF000B1711 /* sheepshaver_glue.cpp */; };
+		E204B91728BC3B640081FDCA /* ppc-dis.c in Sources */ = {isa = PBXBuildFile; fileRef = 08163338158C121000C449F9 /* ppc-dis.c */; };
+		E204B92228BC3D640081FDCA /* SDL2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204B92128BC3D640081FDCA /* SDL2.xcframework */; };
+		E204B92E28BC3EBE0081FDCA /* SheepShaver.icns in Resources */ = {isa = PBXBuildFile; fileRef = 0856CE8314A99EF0000B1711 /* SheepShaver.icns */; };
+		E204B93028BC3EBE0081FDCA /* SheepVM.icns in Resources */ = {isa = PBXBuildFile; fileRef = 3D2C25B4221092BA00B635DE /* SheepVM.icns */; };
+		E204B93328BC3EBE0081FDCA /* adb.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D3967BF2328D315003925D6 /* adb.cpp */; };
+		E204B93428BC3EBE0081FDCA /* debug.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45E920D262AE000583AE /* debug.c */; };
+		E204B93528BC3EBE0081FDCA /* tcp_subr.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45EA20D262AE000583AE /* tcp_subr.c */; };
+		E204B93628BC3EBE0081FDCA /* ip_output.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C460120D262AF000583AE /* ip_output.c */; };
+		E204B93728BC3EBE0081FDCA /* tcp_output.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C460420D262AF000583AE /* tcp_output.c */; };
+		E204B93828BC3EBE0081FDCA /* disk.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD7D14A99EEF000B1711 /* disk.cpp */; };
+		E204B93928BC3EBE0081FDCA /* scsi_dummy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8414A99EEF000B1711 /* scsi_dummy.cpp */; };
+		E204B93A28BC3EBE0081FDCA /* sbuf.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45ED20D262AE000583AE /* sbuf.c */; };
+		E204B93B28BC3EBE0081FDCA /* emul_op.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8614A99EEF000B1711 /* emul_op.cpp */; };
+		E204B93C28BC3EBE0081FDCA /* ether.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8914A99EEF000B1711 /* ether.cpp */; };
+		E204B93D28BC3EBE0081FDCA /* audio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4CB7E22B5BD5D00512A86 /* audio.cpp */; };
+		E204B93E28BC3EBE0081FDCA /* extfs.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8C14A99EEF000B1711 /* extfs.cpp */; };
+		E204B93F28BC3EBE0081FDCA /* gfxaccel.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8D14A99EEF000B1711 /* gfxaccel.cpp */; };
+		E204B94028BC3EBE0081FDCA /* macos_util.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE0514A99EEF000B1711 /* macos_util.cpp */; };
+		E204B94328BC3EBE0081FDCA /* if.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C460220D262AF000583AE /* if.c */; };
+		E204B94528BC3EBE0081FDCA /* tftp.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45DC20D262AD000583AE /* tftp.c */; };
+		E204B94628BC3EBE0081FDCA /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE8814A99EF0000B1711 /* main.cpp */; };
+		E204B94728BC3EBE0081FDCA /* misc.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45E620D262AE000583AE /* misc.c */; };
+		E204B94828BC3EBE0081FDCA /* tcp_timer.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45F520D262AF000583AE /* tcp_timer.c */; };
+		E204B94928BC3EBE0081FDCA /* name_registry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE8914A99EF0000B1711 /* name_registry.cpp */; };
+		E204B94A28BC3EBE0081FDCA /* pict.c in Sources */ = {isa = PBXBuildFile; fileRef = E444DC1420C8F06700DD29C9 /* pict.c */; };
+		E204B94B28BC3EBE0081FDCA /* prefs_items.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE8A14A99EF0000B1711 /* prefs_items.cpp */; };
+		E204B94C28BC3EBE0081FDCA /* udp.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45EB20D262AE000583AE /* udp.c */; };
+		E204B94D28BC3EBE0081FDCA /* ip_input.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C460020D262AF000583AE /* ip_input.c */; };
+		E204B94E28BC3EBE0081FDCA /* bootp.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45FF20D262AF000583AE /* bootp.c */; };
+		E204B94F28BC3EBE0081FDCA /* prefs.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE8B14A99EF0000B1711 /* prefs.cpp */; };
+		E204B95028BC3EBE0081FDCA /* cdrom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D55CB3F225584D000FF8E81 /* cdrom.cpp */; };
+		E204B95128BC3EBE0081FDCA /* rom_patches.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE8C14A99EF0000B1711 /* rom_patches.cpp */; };
+		E204B95228BC3EBE0081FDCA /* rsrc_patches.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE8D14A99EF0000B1711 /* rsrc_patches.cpp */; };
+		E204B95328BC3EBE0081FDCA /* scsi.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE8E14A99EF0000B1711 /* scsi.cpp */; };
+		E204B95428BC3EBE0081FDCA /* audio_sdl.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE9014A99EF0000B1711 /* audio_sdl.cpp */; };
+		E204B95528BC3EBE0081FDCA /* serial.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE9514A99EF0000B1711 /* serial.cpp */; };
+		E204B95828BC3EBE0081FDCA /* sony.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CEC014A99EF0000B1711 /* sony.cpp */; };
+		E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CEC114A99EF0000B1711 /* thunks.cpp */; };
+		E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CEC214A99EF0000B1711 /* timer.cpp */; };
+		E204B95B28BC3EBE0081FDCA /* about_window_unix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CEC414A99EF0000B1711 /* about_window_unix.cpp */; };
+		E204B95C28BC3EBE0081FDCA /* ip_icmp.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45DF20D262AD000583AE /* ip_icmp.c */; };
+		E204B95D28BC3EBE0081FDCA /* video_sdl.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E4CBF46020CFC451009F40CC /* video_sdl.cpp */; };
+		E204B95E28BC3EBE0081FDCA /* ether_unix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CEE314A99EF0000B1711 /* ether_unix.cpp */; };
+		E204B95F28BC3EBE0081FDCA /* main_unix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CEFB14A99EF0000B1711 /* main_unix.cpp */; };
+		E204B96028BC3EBE0081FDCA /* video_sdl2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */; };
+		E204B96128BC3EBE0081FDCA /* prefs_unix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CF5A14A99EF0000B1711 /* prefs_unix.cpp */; };
+		E204B96228BC3EBE0081FDCA /* rpc_unix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CF5C14A99EF0000B1711 /* rpc_unix.cpp */; };
+		E204B96328BC3EBE0081FDCA /* serial_unix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CF5E14A99EF0000B1711 /* serial_unix.cpp */; };
+		E204B96428BC3EBE0081FDCA /* sshpty.c in Sources */ = {isa = PBXBuildFile; fileRef = 0856CF6414A99EF0000B1711 /* sshpty.c */; };
+		E204B96528BC3EBE0081FDCA /* strlcpy.c in Sources */ = {isa = PBXBuildFile; fileRef = 0856CF6614A99EF0000B1711 /* strlcpy.c */; };
+		E204B96628BC3EBE0081FDCA /* sys_unix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CF6814A99EF0000B1711 /* sys_unix.cpp */; };
+		E204B96728BC3EBE0081FDCA /* cksum.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C460320D262AF000583AE /* cksum.c */; };
+		E204B96828BC3EBE0081FDCA /* timer_unix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CF6A14A99EF0000B1711 /* timer_unix.cpp */; };
+		E204B96928BC3EBE0081FDCA /* bincue.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D35961024B8F5FA0081EC8A /* bincue.cpp */; };
+		E204B96A28BC3EBE0081FDCA /* user_strings_unix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CF6C14A99EF0000B1711 /* user_strings_unix.cpp */; };
+		E204B96B28BC3EBE0081FDCA /* slirp.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45F120D262AE000583AE /* slirp.c */; };
+		E204B96C28BC3EBE0081FDCA /* xpram_unix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CF7614A99EF0000B1711 /* xpram_unix.cpp */; };
+		E204B96D28BC3EBE0081FDCA /* user_strings.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CF7714A99EF0000B1711 /* user_strings.cpp */; };
+		E204B96E28BC3EBE0081FDCA /* tcp_input.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45E520D262AE000583AE /* tcp_input.c */; };
+		E204B96F28BC3EBE0081FDCA /* video.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CF7814A99EF0000B1711 /* video.cpp */; };
+		E204B97028BC3EBE0081FDCA /* SDLMain.m in Sources */ = {isa = PBXBuildFile; fileRef = E41936C320CFE64D003A7654 /* SDLMain.m */; };
+		E204B97128BC3EBE0081FDCA /* socket.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45FC20D262AF000583AE /* socket.c */; };
+		E204B97228BC3EBE0081FDCA /* xpram.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CFC014A99EF0000B1711 /* xpram.cpp */; };
+		E204B97428BC3EBE0081FDCA /* mbuf.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45DD20D262AD000583AE /* mbuf.c */; };
+		E204B97528BC3EBE0081FDCA /* prefs_editor_dummy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 082AC22C14AA52E900071F5E /* prefs_editor_dummy.cpp */; };
+		E204B97728BC3EBE0081FDCA /* disk_sparsebundle.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 083E370A16EFE85000CCCA59 /* disk_sparsebundle.cpp */; };
+		E204B97828BC3EBE0081FDCA /* tinyxml2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 083E372016EFE87200CCCA59 /* tinyxml2.cpp */; };
+		E204B97928BC3EBE0081FDCA /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
+		E204B97A28BC3EBE0081FDCA /* sigsegv.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 087B91B71B780FFC00825F7F /* sigsegv.cpp */; };
+		E204B97B28BC3EBE0081FDCA /* video_blit.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 087B91B91B780FFC00825F7F /* video_blit.cpp */; };
+		E204B97C28BC3EBE0081FDCA /* vm_alloc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 087B91BC1B780FFC00825F7F /* vm_alloc.cpp */; };
+		E204B97F28BC3EBE0081FDCA /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E420260424125182000508DF /* Security.framework */; };
+		E204B98228BC3EBE0081FDCA /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E447066F25D904D500EA2C14 /* Metal.framework */; };
+		E204B9C628BC7BF10081FDCA /* SSPreferencesIOViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B99B28BC7BF00081FDCA /* SSPreferencesIOViewController.mm */; };
+		E204B9C728BC7BF10081FDCA /* SSPreferencesViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = E204B99C28BC7BF00081FDCA /* SSPreferencesViewController.xib */; };
+		E204B9C828BC7BF10081FDCA /* SSPreferencesDisksViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = E204B99D28BC7BF00081FDCA /* SSPreferencesDisksViewController.xib */; };
+		E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */; };
+		E204B9CA28BC7BF10081FDCA /* SSGestureRecognizerManager.m in Sources */ = {isa = PBXBuildFile; fileRef = E204B99F28BC7BF00081FDCA /* SSGestureRecognizerManager.m */; };
+		E204B9CB28BC7BF10081FDCA /* SSPreferencesViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9A128BC7BF10081FDCA /* SSPreferencesViewController.mm */; };
+		E204B9CD28BC7BF10081FDCA /* SSDiskTableViewCell.m in Sources */ = {isa = PBXBuildFile; fileRef = E204B9A328BC7BF10081FDCA /* SSDiskTableViewCell.m */; };
+		E204B9CE28BC7BF10081FDCA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E204B9A428BC7BF10081FDCA /* Assets.xcassets */; };
+		E204B9CF28BC7BF10081FDCA /* happy mac 512x512.png in Resources */ = {isa = PBXBuildFile; fileRef = E204B9A528BC7BF10081FDCA /* happy mac 512x512.png */; };
+		E204B9D028BC7BF10081FDCA /* ViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = E204B9A628BC7BF10081FDCA /* ViewController.m */; };
+		E204B9D128BC7BF10081FDCA /* SceneDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = E204B9A728BC7BF10081FDCA /* SceneDelegate.m */; };
+		E204B9D228BC7BF10081FDCA /* SSPreferencesHardwareViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9A828BC7BF10081FDCA /* SSPreferencesHardwareViewController.mm */; };
+		E204B9D328BC7BF10081FDCA /* SSPreferencesAVViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9A928BC7BF10081FDCA /* SSPreferencesAVViewController.mm */; };
+		E204B9D428BC7BF10081FDCA /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E204B9AA28BC7BF10081FDCA /* LaunchScreen.storyboard */; };
+		E204B9D528BC7BF10081FDCA /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E204B9AC28BC7BF10081FDCA /* Main.storyboard */; };
+		E204B9D628BC7BF10081FDCA /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9AE28BC7BF10081FDCA /* main.mm */; };
+		E204B9D728BC7BF10081FDCA /* SSPreferencesDisksViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9AF28BC7BF10081FDCA /* SSPreferencesDisksViewController.mm */; };
+		E204B9D828BC7BF10081FDCA /* SSPreferencesHardwareViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = E204B9B128BC7BF10081FDCA /* SSPreferencesHardwareViewController.xib */; };
+		E204B9D928BC7BF10081FDCA /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = E204B9B328BC7BF10081FDCA /* AppDelegate.m */; };
+		E204B9DA28BC7BF10081FDCA /* UIView+SDCAutoLayout.m in Sources */ = {isa = PBXBuildFile; fileRef = E204B9B828BC7BF10081FDCA /* UIView+SDCAutoLayout.m */; };
+		E204B9DB28BC7BF10081FDCA /* Default.png in Resources */ = {isa = PBXBuildFile; fileRef = E204B9BA28BC7BF10081FDCA /* Default.png */; };
+		E204B9DC28BC7BF10081FDCA /* SSPreferencesAVViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = E204B9BC28BC7BF10081FDCA /* SSPreferencesAVViewController.xib */; };
+		E204B9E028BC7BF10081FDCA /* SSPreferencesIOViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = E204B9C528BC7BF10081FDCA /* SSPreferencesIOViewController.xib */; };
+		E204B9E828BC7CE80081FDCA /* clip_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9E728BC7CE80081FDCA /* clip_ios.mm */; };
+		E204B9EC28BC7CF20081FDCA /* prefs_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9EB28BC7CF20081FDCA /* prefs_ios.mm */; };
+		E204B9F228BC7D020081FDCA /* utils_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9EF28BC7D010081FDCA /* utils_ios.mm */; };
+		E204B9F328BC7D020081FDCA /* sys_darwin_ios.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E204B9F028BC7D010081FDCA /* sys_darwin_ios.cpp */; };
+		E204BA0028BC816E0081FDCA /* SDL2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204B92128BC3D640081FDCA /* SDL2.xcframework */; };
+		E204BA0128BC816E0081FDCA /* SDL2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E204B92128BC3D640081FDCA /* SDL2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E204BA0928BC83620081FDCA /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA0828BC83620081FDCA /* AVFoundation.framework */; };
+		E204BA0B28BC83700081FDCA /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA0A28BC83700081FDCA /* GameController.framework */; };
+		E204BA0D28BC837D0081FDCA /* CoreAudioKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA0C28BC837D0081FDCA /* CoreAudioKit.framework */; };
+		E204BA0F28BC83B60081FDCA /* CoreHaptics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA0E28BC83B60081FDCA /* CoreHaptics.framework */; };
+		E204BA1128BC83C20081FDCA /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA1028BC83C20081FDCA /* CoreMotion.framework */; };
+		E204BA1328BC83E40081FDCA /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA1228BC83E40081FDCA /* AudioToolbox.framework */; };
+		E204BA1428BC841D0081FDCA /* libkpx_cpu_ios.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */; };
+		E204BA3128BD47610081FDCA /* runtool.c in Sources */ = {isa = PBXBuildFile; fileRef = E4202602241250EE000508DF /* runtool.c */; };
+		E204BA3628BD49260081FDCA /* extfs_macosx.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE2D14A99EF0000B1711 /* extfs_macosx.cpp */; };
 		E413A40320CF7E6D00FBE967 /* video_sdl2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */; };
 		E4150D1220D557820077C51A /* SDL2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E4150D1120D557820077C51A /* SDL2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E41936C420CFE64D003A7654 /* SDLMain.m in Sources */ = {isa = PBXBuildFile; fileRef = E41936C320CFE64D003A7654 /* SDLMain.m */; };
@@ -125,9 +256,27 @@
 			remoteGlobalIDString = 0846E49914B124DE00574779;
 			remoteInfo = kpx_cpu;
 		};
+		E204BA0628BC82FC0081FDCA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0856CCAE14A99DE0000B1711 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E204B90028BC3B640081FDCA;
+			remoteInfo = kpx_cpu_ios;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		E204B98528BC3EBE0081FDCA /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				E204BA0128BC816E0081FDCA /* SDL2.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E413A40820CF7EF800FBE967 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -338,6 +487,59 @@
 		5DF4CB7E22B5BD5D00512A86 /* audio.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = audio.cpp; path = ../../../BasiliskII/src/audio.cpp; sourceTree = "<group>"; };
 		A7B1921218C35D4700791D8D /* DiskType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DiskType.h; sourceTree = "<group>"; };
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
+		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
+		E204B98A28BC3EBE0081FDCA /* SheepShaveriOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SheepShaveriOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E204B98B28BC3EBF0081FDCA /* SheepShaver copy-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "SheepShaver copy-Info.plist"; path = "/Users/tom/Code/macemu/SheepShaver/src/MacOSX/SheepShaver copy-Info.plist"; sourceTree = "<absolute>"; };
+		E204B99B28BC7BF00081FDCA /* SSPreferencesIOViewController.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = SSPreferencesIOViewController.mm; sourceTree = "<group>"; };
+		E204B99C28BC7BF00081FDCA /* SSPreferencesViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = SSPreferencesViewController.xib; sourceTree = "<group>"; };
+		E204B99D28BC7BF00081FDCA /* SSPreferencesDisksViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = SSPreferencesDisksViewController.xib; sourceTree = "<group>"; };
+		E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; path = "iOS Launch Screen.storyboard"; sourceTree = "<group>"; };
+		E204B99F28BC7BF00081FDCA /* SSGestureRecognizerManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = SSGestureRecognizerManager.m; sourceTree = "<group>"; };
+		E204B9A028BC7BF00081FDCA /* AppDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
+		E204B9A128BC7BF10081FDCA /* SSPreferencesViewController.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = SSPreferencesViewController.mm; sourceTree = "<group>"; };
+		E204B9A228BC7BF10081FDCA /* Mac OS ROM */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = "Mac OS ROM"; sourceTree = "<group>"; };
+		E204B9A328BC7BF10081FDCA /* SSDiskTableViewCell.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = SSDiskTableViewCell.m; sourceTree = "<group>"; };
+		E204B9A428BC7BF10081FDCA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E204B9A528BC7BF10081FDCA /* happy mac 512x512.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "happy mac 512x512.png"; sourceTree = "<group>"; };
+		E204B9A628BC7BF10081FDCA /* ViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = ViewController.m; sourceTree = "<group>"; };
+		E204B9A728BC7BF10081FDCA /* SceneDelegate.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = SceneDelegate.m; sourceTree = "<group>"; };
+		E204B9A828BC7BF10081FDCA /* SSPreferencesHardwareViewController.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = SSPreferencesHardwareViewController.mm; sourceTree = "<group>"; };
+		E204B9A928BC7BF10081FDCA /* SSPreferencesAVViewController.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = SSPreferencesAVViewController.mm; sourceTree = "<group>"; };
+		E204B9AB28BC7BF10081FDCA /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		E204B9AD28BC7BF10081FDCA /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		E204B9AE28BC7BF10081FDCA /* main.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		E204B9AF28BC7BF10081FDCA /* SSPreferencesDisksViewController.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = SSPreferencesDisksViewController.mm; sourceTree = "<group>"; };
+		E204B9B028BC7BF10081FDCA /* SSPreferencesHardwareViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SSPreferencesHardwareViewController.h; sourceTree = "<group>"; };
+		E204B9B128BC7BF10081FDCA /* SSPreferencesHardwareViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = SSPreferencesHardwareViewController.xib; sourceTree = "<group>"; };
+		E204B9B228BC7BF10081FDCA /* SSGestureRecognizerManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SSGestureRecognizerManager.h; sourceTree = "<group>"; };
+		E204B9B328BC7BF10081FDCA /* AppDelegate.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
+		E204B9B428BC7BF10081FDCA /* SSPreferencesIOViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SSPreferencesIOViewController.h; sourceTree = "<group>"; };
+		E204B9B528BC7BF10081FDCA /* SSPreferencesAVViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SSPreferencesAVViewController.h; sourceTree = "<group>"; };
+		E204B9B628BC7BF10081FDCA /* SSDiskTableViewCell.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SSDiskTableViewCell.h; sourceTree = "<group>"; };
+		E204B9B828BC7BF10081FDCA /* UIView+SDCAutoLayout.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = "UIView+SDCAutoLayout.m"; sourceTree = "<group>"; };
+		E204B9B928BC7BF10081FDCA /* UIView+SDCAutoLayout.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "UIView+SDCAutoLayout.h"; sourceTree = "<group>"; };
+		E204B9BA28BC7BF10081FDCA /* Default.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Default.png; sourceTree = "<group>"; };
+		E204B9BB28BC7BF10081FDCA /* SSPreferencesViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SSPreferencesViewController.h; sourceTree = "<group>"; };
+		E204B9BC28BC7BF10081FDCA /* SSPreferencesAVViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = SSPreferencesAVViewController.xib; sourceTree = "<group>"; };
+		E204B9BF28BC7BF10081FDCA /* LICENSE */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		E204B9C028BC7BF10081FDCA /* README.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		E204B9C128BC7BF10081FDCA /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E204B9C228BC7BF10081FDCA /* ViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ViewController.h; sourceTree = "<group>"; };
+		E204B9C328BC7BF10081FDCA /* SceneDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SceneDelegate.h; sourceTree = "<group>"; };
+		E204B9C428BC7BF10081FDCA /* SSPreferencesDisksViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SSPreferencesDisksViewController.h; sourceTree = "<group>"; };
+		E204B9C528BC7BF10081FDCA /* SSPreferencesIOViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = SSPreferencesIOViewController.xib; sourceTree = "<group>"; };
+		E204B9E728BC7CE80081FDCA /* clip_ios.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = clip_ios.mm; sourceTree = "<group>"; };
+		E204B9EB28BC7CF20081FDCA /* prefs_ios.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = prefs_ios.mm; sourceTree = "<group>"; };
+		E204B9EF28BC7D010081FDCA /* utils_ios.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = utils_ios.mm; sourceTree = "<group>"; };
+		E204B9F028BC7D010081FDCA /* sys_darwin_ios.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = sys_darwin_ios.cpp; sourceTree = "<group>"; };
+		E204B9F128BC7D020081FDCA /* utils_ios.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = utils_ios.h; sourceTree = "<group>"; };
+		E204BA0828BC83620081FDCA /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.4.sdk/System/Library/Frameworks/AVFoundation.framework; sourceTree = DEVELOPER_DIR; };
+		E204BA0A28BC83700081FDCA /* GameController.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameController.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.4.sdk/System/Library/Frameworks/GameController.framework; sourceTree = DEVELOPER_DIR; };
+		E204BA0C28BC837D0081FDCA /* CoreAudioKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAudioKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.4.sdk/System/Library/Frameworks/CoreAudioKit.framework; sourceTree = DEVELOPER_DIR; };
+		E204BA0E28BC83B60081FDCA /* CoreHaptics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreHaptics.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.4.sdk/System/Library/Frameworks/CoreHaptics.framework; sourceTree = DEVELOPER_DIR; };
+		E204BA1028BC83C20081FDCA /* CoreMotion.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMotion.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.4.sdk/System/Library/Frameworks/CoreMotion.framework; sourceTree = DEVELOPER_DIR; };
+		E204BA1228BC83E40081FDCA /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.4.sdk/System/Library/Frameworks/AudioToolbox.framework; sourceTree = DEVELOPER_DIR; };
 		E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = video_sdl2.cpp; path = ../../../BasiliskII/src/SDL/video_sdl2.cpp; sourceTree = "<group>"; };
 		E4150D1120D557820077C51A /* SDL2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SDL2.framework; path = /Library/Frameworks/SDL2.framework; sourceTree = "<group>"; };
 		E41936C220CFE64D003A7654 /* SDLMain.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SDLMain.h; path = ../../../BasiliskII/src/SDL/SDLMain.h; sourceTree = "<group>"; };
@@ -419,6 +621,31 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E204B91828BC3B640081FDCA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E204B92228BC3D640081FDCA /* SDL2.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E204B97D28BC3EBE0081FDCA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E204BA1428BC841D0081FDCA /* libkpx_cpu_ios.a in Frameworks */,
+				E204BA0028BC816E0081FDCA /* SDL2.xcframework in Frameworks */,
+				E204B98228BC3EBE0081FDCA /* Metal.framework in Frameworks */,
+				E204BA0928BC83620081FDCA /* AVFoundation.framework in Frameworks */,
+				E204BA0B28BC83700081FDCA /* GameController.framework in Frameworks */,
+				E204BA0D28BC837D0081FDCA /* CoreAudioKit.framework in Frameworks */,
+				E204BA0F28BC83B60081FDCA /* CoreHaptics.framework in Frameworks */,
+				E204BA1328BC83E40081FDCA /* AudioToolbox.framework in Frameworks */,
+				E204B97F28BC3EBE0081FDCA /* Security.framework in Frameworks */,
+				E204BA1128BC83C20081FDCA /* CoreMotion.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -447,11 +674,13 @@
 		0856CCAC14A99DE0000B1711 = {
 			isa = PBXGroup;
 			children = (
+				E204B92128BC3D640081FDCA /* SDL2.xcframework */,
 				E4150D1120D557820077C51A /* SDL2.framework */,
 				0856CCC814A99E30000B1711 /* Sources */,
 				08CD42DF14B7B865009CA2A2 /* Frameworks */,
 				0856CCC214A99E1C000B1711 /* Products */,
 				E420260924125403000508DF /* Generated */,
+				E204B98B28BC3EBF0081FDCA /* SheepShaver copy-Info.plist */,
 			);
 			sourceTree = "<group>";
 		};
@@ -460,6 +689,8 @@
 			children = (
 				0856CCC114A99E1C000B1711 /* SheepShaver.app */,
 				0846E49A14B124DE00574779 /* libkpx_cpu.a */,
+				E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */,
+				E204B98A28BC3EBE0081FDCA /* SheepShaveriOS.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -467,6 +698,7 @@
 		0856CCC814A99E30000B1711 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				E204B99A28BC7BF00081FDCA /* SheepShaveriOS */,
 				087B91B11B780EC900825F7F /* CrossPlatform */,
 				5D3967BF2328D315003925D6 /* adb.cpp */,
 				5DF4CB7E22B5BD5D00512A86 /* audio.cpp */,
@@ -895,6 +1127,12 @@
 		08CD42DF14B7B865009CA2A2 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				E204BA1228BC83E40081FDCA /* AudioToolbox.framework */,
+				E204BA1028BC83C20081FDCA /* CoreMotion.framework */,
+				E204BA0E28BC83B60081FDCA /* CoreHaptics.framework */,
+				E204BA0C28BC837D0081FDCA /* CoreAudioKit.framework */,
+				E204BA0A28BC83700081FDCA /* GameController.framework */,
+				E204BA0828BC83620081FDCA /* AVFoundation.framework */,
 				E447066F25D904D500EA2C14 /* Metal.framework */,
 				E420260424125182000508DF /* Security.framework */,
 				E420910020D0C4FA0094654F /* SDL2.framework */,
@@ -903,6 +1141,80 @@
 				0856D21414A9A6C6000B1711 /* IOKit.framework */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		E204B99A28BC7BF00081FDCA /* SheepShaveriOS */ = {
+			isa = PBXGroup;
+			children = (
+				E204B9A028BC7BF00081FDCA /* AppDelegate.h */,
+				E204B9B328BC7BF10081FDCA /* AppDelegate.m */,
+				E204B9A428BC7BF10081FDCA /* Assets.xcassets */,
+				E204B9B728BC7BF10081FDCA /* Auto Layout */,
+				E204B9E728BC7CE80081FDCA /* clip_ios.mm */,
+				E204B9BA28BC7BF10081FDCA /* Default.png */,
+				E204B9A528BC7BF10081FDCA /* happy mac 512x512.png */,
+				E204B9C128BC7BF10081FDCA /* Info.plist */,
+				E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */,
+				E204B9AA28BC7BF10081FDCA /* LaunchScreen.storyboard */,
+				E204B9A228BC7BF10081FDCA /* Mac OS ROM */,
+				E204B9AE28BC7BF10081FDCA /* main.mm */,
+				E204B9AC28BC7BF10081FDCA /* Main.storyboard */,
+				E204B9EB28BC7CF20081FDCA /* prefs_ios.mm */,
+				E204B9C328BC7BF10081FDCA /* SceneDelegate.h */,
+				E204B9A728BC7BF10081FDCA /* SceneDelegate.m */,
+				E204B9BD28BC7BF10081FDCA /* SDCAutoLayout */,
+				E204B9B628BC7BF10081FDCA /* SSDiskTableViewCell.h */,
+				E204B9A328BC7BF10081FDCA /* SSDiskTableViewCell.m */,
+				E204B9B228BC7BF10081FDCA /* SSGestureRecognizerManager.h */,
+				E204B99F28BC7BF00081FDCA /* SSGestureRecognizerManager.m */,
+				E204B9B528BC7BF10081FDCA /* SSPreferencesAVViewController.h */,
+				E204B9A928BC7BF10081FDCA /* SSPreferencesAVViewController.mm */,
+				E204B9BC28BC7BF10081FDCA /* SSPreferencesAVViewController.xib */,
+				E204B9C428BC7BF10081FDCA /* SSPreferencesDisksViewController.h */,
+				E204B9AF28BC7BF10081FDCA /* SSPreferencesDisksViewController.mm */,
+				E204B99D28BC7BF00081FDCA /* SSPreferencesDisksViewController.xib */,
+				E204B9B028BC7BF10081FDCA /* SSPreferencesHardwareViewController.h */,
+				E204B9A828BC7BF10081FDCA /* SSPreferencesHardwareViewController.mm */,
+				E204B9B128BC7BF10081FDCA /* SSPreferencesHardwareViewController.xib */,
+				E204B9B428BC7BF10081FDCA /* SSPreferencesIOViewController.h */,
+				E204B99B28BC7BF00081FDCA /* SSPreferencesIOViewController.mm */,
+				E204B9C528BC7BF10081FDCA /* SSPreferencesIOViewController.xib */,
+				E204B9BB28BC7BF10081FDCA /* SSPreferencesViewController.h */,
+				E204B9A128BC7BF10081FDCA /* SSPreferencesViewController.mm */,
+				E204B99C28BC7BF00081FDCA /* SSPreferencesViewController.xib */,
+				E204B9F028BC7D010081FDCA /* sys_darwin_ios.cpp */,
+				E204B9F128BC7D020081FDCA /* utils_ios.h */,
+				E204B9EF28BC7D010081FDCA /* utils_ios.mm */,
+				E204B9C228BC7BF10081FDCA /* ViewController.h */,
+				E204B9A628BC7BF10081FDCA /* ViewController.m */,
+			);
+			path = SheepShaveriOS;
+			sourceTree = "<group>";
+		};
+		E204B9B728BC7BF10081FDCA /* Auto Layout */ = {
+			isa = PBXGroup;
+			children = (
+				E204B9B828BC7BF10081FDCA /* UIView+SDCAutoLayout.m */,
+				E204B9B928BC7BF10081FDCA /* UIView+SDCAutoLayout.h */,
+			);
+			path = "Auto Layout";
+			sourceTree = "<group>";
+		};
+		E204B9BD28BC7BF10081FDCA /* SDCAutoLayout */ = {
+			isa = PBXGroup;
+			children = (
+				E204B9BE28BC7BF10081FDCA /* AutoLayout */,
+				E204B9BF28BC7BF10081FDCA /* LICENSE */,
+				E204B9C028BC7BF10081FDCA /* README.md */,
+			);
+			path = SDCAutoLayout;
+			sourceTree = "<group>";
+		};
+		E204B9BE28BC7BF10081FDCA /* AutoLayout */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = AutoLayout;
 			sourceTree = "<group>";
 		};
 		E420260924125403000508DF /* Generated */ = {
@@ -928,6 +1240,21 @@
 				08163339158C121000C449F9 /* dis-asm.h in Headers */,
 				08003F8C1E0624D100A3ADAB /* basic-dyngen-ops-x86_32.hpp in Headers */,
 				08003F911E0624D100A3ADAB /* ppc-dyngen-ops.hpp in Headers */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E204B90128BC3B640081FDCA /* Headers */ = {
+			isa = PBXHeadersBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E204B90228BC3B640081FDCA /* ppc-dyngen-ops-x86_32.hpp in Headers */,
+				E204B90328BC3B640081FDCA /* basic-dyngen-ops.hpp in Headers */,
+				E204B90428BC3B640081FDCA /* basic-dyngen-ops-x86_64_macos.hpp in Headers */,
+				E204B90528BC3B640081FDCA /* bincue.h in Headers */,
+				E204B90628BC3B640081FDCA /* ppc-dyngen-ops-x86_64_macos.hpp in Headers */,
+				E204B90728BC3B640081FDCA /* dis-asm.h in Headers */,
+				E204B90828BC3B640081FDCA /* basic-dyngen-ops-x86_32.hpp in Headers */,
+				E204B90928BC3B640081FDCA /* ppc-dyngen-ops.hpp in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -972,6 +1299,42 @@
 			productReference = 0856CCC114A99E1C000B1711 /* SheepShaver.app */;
 			productType = "com.apple.product-type.application";
 		};
+		E204B90028BC3B640081FDCA /* kpx_cpu_ios */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E204B91928BC3B640081FDCA /* Build configuration list for PBXNativeTarget "kpx_cpu_ios" */;
+			buildPhases = (
+				E204B90128BC3B640081FDCA /* Headers */,
+				E204B90A28BC3B640081FDCA /* Sources */,
+				E204B91828BC3B640081FDCA /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = kpx_cpu_ios;
+			productName = kpx_cpu;
+			productReference = E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */;
+			productType = "com.apple.product-type.library.static";
+		};
+		E204B92728BC3EBE0081FDCA /* SheepShaveriOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E204B98728BC3EBE0081FDCA /* Build configuration list for PBXNativeTarget "SheepShaveriOS" */;
+			buildPhases = (
+				E204B93228BC3EBE0081FDCA /* Sources */,
+				E204B97D28BC3EBE0081FDCA /* Frameworks */,
+				E204B92B28BC3EBE0081FDCA /* Resources */,
+				E204B98528BC3EBE0081FDCA /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E204BA0728BC82FC0081FDCA /* PBXTargetDependency */,
+			);
+			name = SheepShaveriOS;
+			productName = SheepShaver;
+			productReference = E204B98A28BC3EBE0081FDCA /* SheepShaveriOS.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -989,6 +1352,7 @@
 				Japanese,
 				French,
 				German,
+				Base,
 			);
 			mainGroup = 0856CCAC14A99DE0000B1711;
 			productRefGroup = 0856CCC214A99E1C000B1711 /* Products */;
@@ -997,6 +1361,8 @@
 			targets = (
 				0856CCC014A99E1C000B1711 /* SheepShaver */,
 				0846E49914B124DE00574779 /* kpx_cpu */,
+				E204B92728BC3EBE0081FDCA /* SheepShaveriOS */,
+				E204B90028BC3B640081FDCA /* kpx_cpu_ios */,
 			);
 		};
 /* End PBXProject section */
@@ -1012,6 +1378,26 @@
 				E44C460F20D262B0000583AE /* COPYRIGHT in Resources */,
 				3D2C25B5221092BA00B635DE /* SheepVM.icns in Resources */,
 				0856D33514A9A704000B1711 /* VMSettingsWindow.nib in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E204B92B28BC3EBE0081FDCA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E204B9CE28BC7BF10081FDCA /* Assets.xcassets in Resources */,
+				E204B9DB28BC7BF10081FDCA /* Default.png in Resources */,
+				E204B9CF28BC7BF10081FDCA /* happy mac 512x512.png in Resources */,
+				E204B9C828BC7BF10081FDCA /* SSPreferencesDisksViewController.xib in Resources */,
+				E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */,
+				E204B92E28BC3EBE0081FDCA /* SheepShaver.icns in Resources */,
+				E204B9E028BC7BF10081FDCA /* SSPreferencesIOViewController.xib in Resources */,
+				E204B9D528BC7BF10081FDCA /* Main.storyboard in Resources */,
+				E204B9D428BC7BF10081FDCA /* LaunchScreen.storyboard in Resources */,
+				E204B9D828BC7BF10081FDCA /* SSPreferencesHardwareViewController.xib in Resources */,
+				E204B9DC28BC7BF10081FDCA /* SSPreferencesAVViewController.xib in Resources */,
+				E204B9C728BC7BF10081FDCA /* SSPreferencesViewController.xib in Resources */,
+				E204B93028BC3EBE0081FDCA /* SheepVM.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1153,6 +1539,118 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E204B90A28BC3B640081FDCA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E204B90B28BC3B640081FDCA /* ieeefp.cpp in Sources */,
+				E204B90C28BC3B640081FDCA /* mathlib.cpp in Sources */,
+				E204B90D28BC3B640081FDCA /* utils-cpuinfo.cpp in Sources */,
+				E204B90E28BC3B640081FDCA /* ppc-translate.cpp in Sources */,
+				E204B90F28BC3B640081FDCA /* ppc-jit.cpp in Sources */,
+				E204B91028BC3B640081FDCA /* ppc-execute.cpp in Sources */,
+				E204B91128BC3B640081FDCA /* ppc-dyngen.cpp in Sources */,
+				E204B91228BC3B640081FDCA /* ppc-decode.cpp in Sources */,
+				E204B91328BC3B640081FDCA /* ppc-cpu.cpp in Sources */,
+				E204B91428BC3B640081FDCA /* jit-cache.cpp in Sources */,
+				E204B91528BC3B640081FDCA /* basic-dyngen.cpp in Sources */,
+				E204B91628BC3B640081FDCA /* sheepshaver_glue.cpp in Sources */,
+				E204B91728BC3B640081FDCA /* ppc-dis.c in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E204B93228BC3EBE0081FDCA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E204B93328BC3EBE0081FDCA /* adb.cpp in Sources */,
+				E204B93428BC3EBE0081FDCA /* debug.c in Sources */,
+				E204B93528BC3EBE0081FDCA /* tcp_subr.c in Sources */,
+				E204B93628BC3EBE0081FDCA /* ip_output.c in Sources */,
+				E204B93728BC3EBE0081FDCA /* tcp_output.c in Sources */,
+				E204B93828BC3EBE0081FDCA /* disk.cpp in Sources */,
+				E204B93928BC3EBE0081FDCA /* scsi_dummy.cpp in Sources */,
+				E204B93A28BC3EBE0081FDCA /* sbuf.c in Sources */,
+				E204B93B28BC3EBE0081FDCA /* emul_op.cpp in Sources */,
+				E204B93C28BC3EBE0081FDCA /* ether.cpp in Sources */,
+				E204B93D28BC3EBE0081FDCA /* audio.cpp in Sources */,
+				E204B93E28BC3EBE0081FDCA /* extfs.cpp in Sources */,
+				E204B93F28BC3EBE0081FDCA /* gfxaccel.cpp in Sources */,
+				E204B94028BC3EBE0081FDCA /* macos_util.cpp in Sources */,
+				E204B9EC28BC7CF20081FDCA /* prefs_ios.mm in Sources */,
+				E204B9DA28BC7BF10081FDCA /* UIView+SDCAutoLayout.m in Sources */,
+				E204B9D928BC7BF10081FDCA /* AppDelegate.m in Sources */,
+				E204B94328BC3EBE0081FDCA /* if.c in Sources */,
+				E204B94528BC3EBE0081FDCA /* tftp.c in Sources */,
+				E204B94628BC3EBE0081FDCA /* main.cpp in Sources */,
+				E204B9D728BC7BF10081FDCA /* SSPreferencesDisksViewController.mm in Sources */,
+				E204B94728BC3EBE0081FDCA /* misc.c in Sources */,
+				E204B94828BC3EBE0081FDCA /* tcp_timer.c in Sources */,
+				E204B94928BC3EBE0081FDCA /* name_registry.cpp in Sources */,
+				E204B94A28BC3EBE0081FDCA /* pict.c in Sources */,
+				E204B94B28BC3EBE0081FDCA /* prefs_items.cpp in Sources */,
+				E204B94C28BC3EBE0081FDCA /* udp.c in Sources */,
+				E204B94D28BC3EBE0081FDCA /* ip_input.c in Sources */,
+				E204B94E28BC3EBE0081FDCA /* bootp.c in Sources */,
+				E204B94F28BC3EBE0081FDCA /* prefs.cpp in Sources */,
+				E204B95028BC3EBE0081FDCA /* cdrom.cpp in Sources */,
+				E204B95128BC3EBE0081FDCA /* rom_patches.cpp in Sources */,
+				E204B95228BC3EBE0081FDCA /* rsrc_patches.cpp in Sources */,
+				E204B95328BC3EBE0081FDCA /* scsi.cpp in Sources */,
+				E204B95428BC3EBE0081FDCA /* audio_sdl.cpp in Sources */,
+				E204B9D328BC7BF10081FDCA /* SSPreferencesAVViewController.mm in Sources */,
+				E204B95528BC3EBE0081FDCA /* serial.cpp in Sources */,
+				E204B9D228BC7BF10081FDCA /* SSPreferencesHardwareViewController.mm in Sources */,
+				E204B95828BC3EBE0081FDCA /* sony.cpp in Sources */,
+				E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */,
+				E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */,
+				E204B9D028BC7BF10081FDCA /* ViewController.m in Sources */,
+				E204B9CD28BC7BF10081FDCA /* SSDiskTableViewCell.m in Sources */,
+				E204B95B28BC3EBE0081FDCA /* about_window_unix.cpp in Sources */,
+				E204B95C28BC3EBE0081FDCA /* ip_icmp.c in Sources */,
+				E204B9E828BC7CE80081FDCA /* clip_ios.mm in Sources */,
+				E204B95D28BC3EBE0081FDCA /* video_sdl.cpp in Sources */,
+				E204B95E28BC3EBE0081FDCA /* ether_unix.cpp in Sources */,
+				E204B9CB28BC7BF10081FDCA /* SSPreferencesViewController.mm in Sources */,
+				E204B95F28BC3EBE0081FDCA /* main_unix.cpp in Sources */,
+				E204B9F228BC7D020081FDCA /* utils_ios.mm in Sources */,
+				E204B96028BC3EBE0081FDCA /* video_sdl2.cpp in Sources */,
+				E204B96128BC3EBE0081FDCA /* prefs_unix.cpp in Sources */,
+				E204BA3628BD49260081FDCA /* extfs_macosx.cpp in Sources */,
+				E204B96228BC3EBE0081FDCA /* rpc_unix.cpp in Sources */,
+				E204B96328BC3EBE0081FDCA /* serial_unix.cpp in Sources */,
+				E204B96428BC3EBE0081FDCA /* sshpty.c in Sources */,
+				E204B96528BC3EBE0081FDCA /* strlcpy.c in Sources */,
+				E204B9CA28BC7BF10081FDCA /* SSGestureRecognizerManager.m in Sources */,
+				E204B96628BC3EBE0081FDCA /* sys_unix.cpp in Sources */,
+				E204B96728BC3EBE0081FDCA /* cksum.c in Sources */,
+				E204B96828BC3EBE0081FDCA /* timer_unix.cpp in Sources */,
+				E204B9F328BC7D020081FDCA /* sys_darwin_ios.cpp in Sources */,
+				E204B96928BC3EBE0081FDCA /* bincue.cpp in Sources */,
+				E204B9D628BC7BF10081FDCA /* main.mm in Sources */,
+				E204B96A28BC3EBE0081FDCA /* user_strings_unix.cpp in Sources */,
+				E204B96B28BC3EBE0081FDCA /* slirp.c in Sources */,
+				E204B96C28BC3EBE0081FDCA /* xpram_unix.cpp in Sources */,
+				E204B96D28BC3EBE0081FDCA /* user_strings.cpp in Sources */,
+				E204B96E28BC3EBE0081FDCA /* tcp_input.c in Sources */,
+				E204BA3128BD47610081FDCA /* runtool.c in Sources */,
+				E204B96F28BC3EBE0081FDCA /* video.cpp in Sources */,
+				E204B9C628BC7BF10081FDCA /* SSPreferencesIOViewController.mm in Sources */,
+				E204B97028BC3EBE0081FDCA /* SDLMain.m in Sources */,
+				E204B9D128BC7BF10081FDCA /* SceneDelegate.m in Sources */,
+				E204B97128BC3EBE0081FDCA /* socket.c in Sources */,
+				E204B97228BC3EBE0081FDCA /* xpram.cpp in Sources */,
+				E204B97428BC3EBE0081FDCA /* mbuf.c in Sources */,
+				E204B97528BC3EBE0081FDCA /* prefs_editor_dummy.cpp in Sources */,
+				E204B97728BC3EBE0081FDCA /* disk_sparsebundle.cpp in Sources */,
+				E204B97828BC3EBE0081FDCA /* tinyxml2.cpp in Sources */,
+				E204B97928BC3EBE0081FDCA /* DiskType.m in Sources */,
+				E204B97A28BC3EBE0081FDCA /* sigsegv.cpp in Sources */,
+				E204B97B28BC3EBE0081FDCA /* video_blit.cpp in Sources */,
+				E204B97C28BC3EBE0081FDCA /* vm_alloc.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -1160,6 +1658,11 @@
 			isa = PBXTargetDependency;
 			target = 0846E49914B124DE00574779 /* kpx_cpu */;
 			targetProxy = 0846E4A614B1253500574779 /* PBXContainerItemProxy */;
+		};
+		E204BA0728BC82FC0081FDCA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E204B90028BC3B640081FDCA /* kpx_cpu_ios */;
+			targetProxy = E204BA0628BC82FC0081FDCA /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -1170,6 +1673,22 @@
 				0856D30814A9A704000B1711 /* English */,
 			);
 			name = VMSettingsWindow.nib;
+			sourceTree = "<group>";
+		};
+		E204B9AA28BC7BF10081FDCA /* LaunchScreen.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				E204B9AB28BC7BF10081FDCA /* Base */,
+			);
+			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		E204B9AC28BC7BF10081FDCA /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				E204B9AD28BC7BF10081FDCA /* Base */,
+			);
+			name = Main.storyboard;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */
@@ -1321,7 +1840,10 @@
 				INFOPLIST_PREFIX_HEADER = "";
 				INFOPLIST_PREPROCESS = NO;
 				INSTALL_PATH = "$(HOME)/Applications";
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 10.7;
 				OTHER_CFLAGS = "";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
@@ -1388,7 +1910,10 @@
 				INFOPLIST_PREFIX_HEADER = "";
 				INFOPLIST_PREPROCESS = NO;
 				INSTALL_PATH = "$(HOME)/Applications";
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 10.7;
 				OTHER_CFLAGS = "";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
@@ -1402,6 +1927,302 @@
 				PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = net.cebix.sheepshaver;
 				PRODUCT_NAME = SheepShaver;
+				VALID_ARCHS = "x86_64 arm64";
+			};
+			name = Release;
+		};
+		E204B91A28BC3B640081FDCA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULE_DEBUGGING = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_ENABLE_FIX_AND_CONTINUE = YES;
+				GCC_OPTIMIZATION_LEVEL = 3;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DATADIR=",
+					HAVE_CONFIG_H,
+					"_GNU_SOURCE=1",
+					_THREAD_SAFE,
+					_REENTRANT,
+				);
+				HEADER_SEARCH_PATHS = (
+					"./SDL2.xcframework/**",
+					./config/,
+					../Unix,
+					../MacOSX/Launcher,
+					../slirp,
+					../kpx_cpu/src,
+					../kpx_cpu/include,
+					../include,
+					../Unix/dyngen_precompiled,
+				);
+				INSTALL_PATH = /usr/local/lib;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
+				MACOSX_DEPLOYMENT_TARGET = 10.7;
+				OTHER_CFLAGS = "-DKPX_IOS=1";
+				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				VALID_ARCHS = "x86_64 arm64";
+			};
+			name = Debug;
+		};
+		E204B91B28BC3B640081FDCA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULE_DEBUGGING = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
+				GCC_DYNAMIC_NO_PIC = YES;
+				GCC_ENABLE_FIX_AND_CONTINUE = NO;
+				GCC_OPTIMIZATION_LEVEL = 3;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DATADIR=",
+					HAVE_CONFIG_H,
+					"_GNU_SOURCE=1",
+					_THREAD_SAFE,
+					_REENTRANT,
+				);
+				HEADER_SEARCH_PATHS = (
+					"./SDL2.xcframework/**",
+					./config/,
+					../Unix,
+					../MacOSX/Launcher,
+					../slirp,
+					../kpx_cpu/src,
+					../kpx_cpu/include,
+					../include,
+					../Unix/dyngen_precompiled,
+				);
+				INSTALL_PATH = /usr/local/lib;
+				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
+				MACOSX_DEPLOYMENT_TARGET = 10.7;
+				OTHER_CFLAGS = "-DKPX_IOS=1";
+				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				VALID_ARCHS = "x86_64 arm64";
+			};
+			name = Release;
+		};
+		E204B98828BC3EBE0081FDCA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = "Happy mac";
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_ENTITLEMENTS = SheepShaver.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEVELOPMENT_TEAM = 9DSE6N75KE;
+				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
+				FRAMEWORK_SEARCH_PATHS = "./SDL2.xcframework/**";
+				GCC_CW_ASM_SYNTAX = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_ENABLE_FIX_AND_CONTINUE = NO;
+				GCC_ENABLE_PASCAL_STRINGS = NO;
+				GCC_ENABLE_TRIGRAPHS = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PRECOMPILE_PREFIX_HEADER = NO;
+				GCC_PREFIX_HEADER = "";
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					ENABLE_MACOSX_ETHERHELPER,
+					"DATADIR=",
+					HAVE_CONFIG_H,
+					"_GNU_SOURCE=1",
+					_THREAD_SAFE,
+					_REENTRANT,
+					"BINCUE=1",
+					"USE_SDL_AUDIO=1",
+				);
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = (
+					./config/,
+					../Unix,
+					../MacOSX/Launcher,
+					../slirp,
+					../kpx_cpu/src,
+					../kpx_cpu/include,
+					../include,
+					../CrossPlatform,
+					"./SDL2.xcframework/**",
+					.,
+				);
+				INFOPLIST_FILE = SheepShaveriOS/Info.plist;
+				INFOPLIST_PREFIX_HEADER = "";
+				INFOPLIST_PREPROCESS = NO;
+				INSTALL_PATH = "$(HOME)/Applications";
+				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = "";
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				OTHER_CFLAGS = "-DKPX_IOS=1";
+				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
+				OTHER_LDFLAGS = "";
+				PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = net.cebix.sheepshaver;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+				VALID_ARCHS = "x86_64 arm64";
+				WARNING_LDFLAGS = "";
+			};
+			name = Debug;
+		};
+		E204B98928BC3EBE0081FDCA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = "Happy mac";
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_ENTITLEMENTS = SheepShaver.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = NO;
+				DEVELOPMENT_TEAM = 9DSE6N75KE;
+				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
+				FRAMEWORK_SEARCH_PATHS = "./SDL2.xcframework/**";
+				GCC_CW_ASM_SYNTAX = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = YES;
+				GCC_ENABLE_FIX_AND_CONTINUE = NO;
+				GCC_ENABLE_PASCAL_STRINGS = NO;
+				GCC_ENABLE_TRIGRAPHS = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 3;
+				GCC_PRECOMPILE_PREFIX_HEADER = NO;
+				GCC_PREFIX_HEADER = "";
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					ENABLE_MACOSX_ETHERHELPER,
+					"DATADIR=",
+					HAVE_CONFIG_H,
+					"_GNU_SOURCE=1",
+					_THREAD_SAFE,
+					_REENTRANT,
+					"BINCUE=1",
+					"USE_SDL_AUDIO=1",
+				);
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = (
+					./config/,
+					../Unix,
+					../MacOSX/Launcher,
+					../slirp,
+					../kpx_cpu/src,
+					../kpx_cpu/include,
+					../include,
+					../CrossPlatform,
+					"./SDL2.xcframework/**",
+					.,
+				);
+				INFOPLIST_EXPAND_BUILD_SETTINGS = NO;
+				INFOPLIST_FILE = SheepShaveriOS/Info.plist;
+				INFOPLIST_PREFIX_HEADER = "";
+				INFOPLIST_PREPROCESS = NO;
+				INSTALL_PATH = "$(HOME)/Applications";
+				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = "";
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				OTHER_CFLAGS = "-DKPX_IOS=1";
+				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
+				OTHER_LDFLAGS = "";
+				PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = net.cebix.sheepshaver;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
 				VALID_ARCHS = "x86_64 arm64";
 			};
 			name = Release;
@@ -1432,6 +2253,24 @@
 			buildConfigurations = (
 				0856CCC514A99E1C000B1711 /* Debug */,
 				0856CCC614A99E1C000B1711 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E204B91928BC3B640081FDCA /* Build configuration list for PBXNativeTarget "kpx_cpu_ios" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E204B91A28BC3B640081FDCA /* Debug */,
+				E204B91B28BC3B640081FDCA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E204B98728BC3EBE0081FDCA /* Build configuration list for PBXNativeTarget "SheepShaveriOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E204B98828BC3EBE0081FDCA /* Debug */,
+				E204B98928BC3EBE0081FDCA /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -8,7 +8,11 @@
 #ifndef _SDLMain_h_
 #define _SDLMain_h_
 
+#if TARGET_OS_IPHONE
+#import <UIKit/UIKit.h>
+#else
 #import <Cocoa/Cocoa.h>
+#endif
 
 @interface SDLMain : NSObject
 @end

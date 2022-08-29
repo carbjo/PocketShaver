@@ -62,7 +62,7 @@ struct tcphdr {
 	u_char	th_off:4,		/* data offset */
 		th_x2:4;		/* (unused) */
 #else
-	u_char	th_x2:4,		/* (unused) */
+	unsigned int	th_x2:4,		/* (unused) */
 		th_off:4;		/* data offset */
 #endif
 	u_int8_t	th_flags;

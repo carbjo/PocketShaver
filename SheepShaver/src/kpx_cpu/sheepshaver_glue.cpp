@@ -780,6 +780,11 @@ sigsegv_return_t sigsegv_handler(sigsegv_info_t *sip)
 	if ((addr - (uintptr)ROMBaseHost) < ROM_SIZE)
 		return SIGSEGV_RETURN_SKIP_INSTRUCTION;
 
+	if (!ppc_cpu) {
+		// Haven't even gotten started yet?
+		return SIGSEGV_RETURN_FAILURE;
+	}
+
 	// Get program counter of target CPU
 	sheepshaver_cpu * const cpu = ppc_cpu;
 	const uint32 pc = cpu->pc();

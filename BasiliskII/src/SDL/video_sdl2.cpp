@@ -54,6 +54,10 @@
 #include "utils_macosx.h"
 #endif
 
+#if TARGET_OS_IPHONE
+#include "utils_ios.h"
+#endif
+
 #ifdef WIN32
 #include <malloc.h> /* alloca() */
 #endif
@@ -95,7 +99,7 @@ static int display_type = DISPLAY_WINDOW;			// See enum above
 #endif
 
 // Constants
-#if defined(__MACOSX__) || defined(WIN32)
+#if defined(__MACOSX__) || defined(WIN32) || defined(TARGET_OS_IPHONE)
 const char KEYCODE_FILE_NAME[] = "keycodes";
 const char KEYCODE_FILE_NAME2[] = "BasiliskII_keycodes";
 #else
@@ -736,6 +740,8 @@ static SDL_Surface * init_sdl_video(int width, int height, int bpp, Uint32 flags
 		window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 		window_width = desktop_mode.w;
 		window_height = desktop_mode.h;
+#elif TARGET_OS_IPHONE
+		window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 #else
 		window_flags |= SDL_WINDOW_FULLSCREEN;
 #endif
@@ -794,6 +800,8 @@ static SDL_Surface * init_sdl_video(int width, int height, int bpp, Uint32 flags
 			SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
 #elif defined(__MACOSX__) && SDL_VERSION_ATLEAST(2,0,14)
 			SDL_SetHint(SDL_HINT_RENDER_DRIVER, window_flags & SDL_WINDOW_METAL ? "metal" : "opengl");
+#elif TARGET_OS_IPHONE
+			SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
 #else
 			SDL_SetHint(SDL_HINT_RENDER_DRIVER, "");
 #endif
@@ -1400,6 +1408,11 @@ bool VideoInit(bool classic)
 		mode_str = "win/512/342";
 	else
 		mode_str = PrefsFindString("screen");
+#if TARGET_OS_IPHONE
+	if (!mode_str) {
+		mode_str = "win/1024/768";
+	}
+#endif
 
 	// Determine display type and default dimensions
 	int default_width, default_height;
@@ -1634,6 +1647,7 @@ void VideoQuitFullScreen(void)
 }
 
 static void ApplyGammaRamp() {
+#if !TARGET_OS_IPHONE
 	if (sdl_window) {
 		int result;
 		if (!init_gamma_valid) {
@@ -1651,6 +1665,7 @@ static void ApplyGammaRamp() {
 		if (result < 0)
 			fprintf(stderr, "SDL_SetWindowGammaRamp returned %d, SDL error: %s\n", result, SDL_GetError());
 	}
+#endif
 }
 
 static void do_toggle_fullscreen(void)
