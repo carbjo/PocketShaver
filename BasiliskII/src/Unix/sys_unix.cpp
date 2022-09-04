@@ -71,7 +71,7 @@
 #include "bincue.h"
 #endif
 
-#if defined(TARGET_OS_IPHONE)
+#if TARGET_OS_IPHONE
 const char* document_directory();
 #endif
 
@@ -550,7 +550,7 @@ static mac_file_handle *open_filehandle(const char *name)
 
 void *Sys_open(const char *name, bool read_only)
 {
-#if defined(TARGET_OS_IPHONE)
+#if TARGET_OS_IPHONE
 	char nameInCurrentDir [1024] = "";
 	bool is_absolute = strncmp(name, "/", 1) == 0;
 	if (!is_absolute) {
@@ -656,11 +656,11 @@ void *Sys_open(const char *name, bool read_only)
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__MACOSX__)
 	open_flags |= (is_cdrom ? O_NONBLOCK : 0);
 #endif
-#if defined(__MACOSX__) || defined(TARGET_OS_IPHONE)
+#if defined(__MACOSX__) || (TARGET_OS_IPHONE)
 	open_flags |= (is_file ? O_EXLOCK | O_NONBLOCK : 0);
 #endif
 	int fd = open(name, open_flags);
-#if defined(__MACOSX__) || defined(TARGET_OS_IPHONE)
+#if defined(__MACOSX__) || (TARGET_OS_IPHONE)
 	if (fd < 0 && (open_flags & O_EXLOCK)) {
 		if (errno == EOPNOTSUPP) {
 			// File system does not support locking. Try again without.

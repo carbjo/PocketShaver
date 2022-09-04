@@ -27,6 +27,12 @@
 
 #include "prefs.h"
 
+#ifdef __APPLE__
+#include "TargetConditionals.h"
+#if TARGET_OS_IPHONE
+#include "utils_ios.h"
+#endif
+#endif
 
 // Platform-specific preferences items
 prefs_desc platform_prefs_items[] = {
@@ -74,12 +80,17 @@ void LoadPrefs(const char *vmdir)
 	else {
 		// Construct prefs path
 		prefs_path[0] = 0;
+#if TARGET_OS_IPHONE
+		const char* home = document_directory();
+#else
 		char *home = getenv("HOME");
+#endif
 		if (home != NULL && strlen(home) < 1000) {
 			strncpy(prefs_path, home, 1000);
 			strcat(prefs_path, "/");
 		}
 		strcat(prefs_path, PREFS_FILE_NAME);
+		printf("Looking for prefs_path: %s\n", prefs_path);
 	}
 
 	// Read preferences from settings file
@@ -89,8 +100,10 @@ void LoadPrefs(const char *vmdir)
 		// Prefs file found, load settings
 		LoadPrefsFromStream(f);
 		fclose(f);
+		printf("Successfully read from prefs_path: %s\n", prefs_path);
 
 	} else {
+		printf("Failed to read from prefs_path: %s\n", prefs_path);
 #ifdef __linux__
 		PrefsAddString("cdrom", "/dev/cdrom");
 #endif

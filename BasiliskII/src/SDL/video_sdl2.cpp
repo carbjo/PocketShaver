@@ -54,6 +54,10 @@
 #include "utils_macosx.h"
 #endif
 
+#ifdef __APPLE__
+#include "TargetConditionals.h"
+#endif
+
 #if TARGET_OS_IPHONE
 #include "utils_ios.h"
 #endif
@@ -237,7 +241,7 @@ extern void SysMountFirstFloppy(void);
 
 static void *vm_acquire_framebuffer(uint32 size)
 {
-#if defined(HAVE_MACH_VM) || defined(HAVE_MMAP_VM) && defined(__aarch64__)
+#ifdef HAVE_MACH_VM
 	return vm_acquire_reserved(size);
 #else
 	// always try to reallocate framebuffer at the same address
@@ -258,7 +262,7 @@ static void *vm_acquire_framebuffer(uint32 size)
 
 static inline void vm_release_framebuffer(void *fb, uint32 size)
 {
-#if !(defined(HAVE_MACH_VM) || defined(HAVE_MMAP_VM) && defined(__aarch64__))
+#ifndef HAVE_MACH_VM
 	vm_release(fb, size);
 #endif
 }

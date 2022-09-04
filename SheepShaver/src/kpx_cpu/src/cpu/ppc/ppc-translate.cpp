@@ -33,7 +33,7 @@
 
 #include <stdio.h>
 
-#define DEBUG 1
+#define DEBUG 0
 #include "debug.h"
 
 #if ENABLE_MON

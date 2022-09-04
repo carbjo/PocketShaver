@@ -10,25 +10,37 @@
 #import "UIView+SDCAutoLayout.h"
 
 #include "SSGestureRecognizerManager.h"
+#include "utils_ios.h"
 
 #define int32 int32_t
 #import "prefs.h"
+
+#define DEBUG_PREFS 1
+
+#if DEBUG_PREFS
+#define NSLOG(...) NSLog(__VA_ARGS__)
+#else
+#define NSLOG(...)
+#endif
 
 SSPreferencesViewController* gPrefsController;
 UIWindow* gPrefsWindow;
 
 enum EPrefsPanes {
-	EPrefsPanes_Hardware = 0,
+	EPrefsPanes_BootROM = 0,
 	EPrefsPanes_Disks,
 	EPrefsPanes_AV,
-	EPrefsPanes_IO
+	EPrefsPanes_IO,
+	EPrefsPanes_Hardware,
+	
+	EPrefsPanes_NumPrefsPanes		// always last
 } EPrefsPanes;
 
 UIWindow* prefsWindow()
 {
 	if (!gPrefsWindow) {
 		gPrefsWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-		NSLog (@"%s [UIScreen mainScreen].bounds: %@", __PRETTY_FUNCTION__, NSStringFromCGRect([UIScreen mainScreen].bounds));
+//		NSLog (@"%s [UIScreen mainScreen].bounds: %@", __PRETTY_FUNCTION__, NSStringFromCGRect([UIScreen mainScreen].bounds));
 		gPrefsWindow.rootViewController = [UIViewController new];
 	}
 	return gPrefsWindow;
@@ -55,6 +67,67 @@ bool SS_ShowiOSPreferences(void)
 	prefsWindow().hidden = YES;
 
 	return true;
+}
+
+int SS_ShowBootROMChooser()
+{
+	[SSPreferencesViewController sharedPreferencesViewController].showBootROMPaneInitially = YES;
+
+	SS_ShowiOSPreferences();
+	
+	int rom_fd = open(PrefsFindString("rom"), O_RDONLY);
+
+	if (rom_fd < 0) {
+		NSLOG (@"%s rom_fd < 0 after open(): %d, errno: %d, %s", __PRETTY_FUNCTION__, rom_fd, errno, strerror(errno));
+		NSLOG (@" at path: %s", PrefsFindString("rom"));
+	}
+
+	return rom_fd;
+}
+
+// returns file descriptor or error
+int SS_ChooseiOSBootRom(const char* inFileName)
+{
+	// First try the given file path. If that doesn't work, use "rom". If that doesn't work, see if we have any likely
+	// ROM files at all. If none, ask the user to go get one (and quit). If exactly one, use it and continue booting. If more than
+	// one, ask the user to choose.
+	
+	// Ah one...
+	int rom_fd = -1;
+	if (inFileName && *inFileName) {
+		rom_fd = open(inFileName, O_RDONLY);
+		if (rom_fd >= 0) {
+			PrefsReplaceString("rom", inFileName, 0);		// 0 == first string found
+		}
+	}
+	
+	// And ah two...
+	if ((rom_fd < 0) ) {
+		// See if the current pref is valid, if so, use that.
+		rom_fd = open(PrefsFindString("rom"), O_RDONLY);
+	}
+	
+	// And ah three...
+	if (rom_fd < 0) {
+		// See if we have any viable rom files. If it turns out we have exactly one, use it.
+		if ([[SSPreferencesBootROMViewController romFilePaths] count] == 1) {
+			NSString* aSelectedPath = [[SSPreferencesBootROMViewController romFilePaths] firstObject];
+			PrefsReplaceString("rom", [aSelectedPath UTF8String], 0);		// 0 == first string found
+			rom_fd = open(PrefsFindString("rom"), O_RDONLY);				// update the "rom" choice since it was clearly wrong
+		}
+	}
+	
+	if ((rom_fd < 0) && ([[SSPreferencesBootROMViewController romFilePaths] count] > 1)) {
+		// More than one viable file, and the "rom" choice wasn't among them. Ask the user to choose a ROM file.
+		rom_fd = SS_ShowBootROMChooser();
+	}
+	
+	if ((rom_fd < 0) && ([[SSPreferencesBootROMViewController romFilePaths] count] == 0)) {
+		// Put up an alert that there are no viable ROM files, please go get one.
+		NSLOG (@"%s rom_fd < 0 after open(): %d, errno: %d, %s", __PRETTY_FUNCTION__, rom_fd, errno, strerror(errno));
+	}
+	
+	return rom_fd;
 }
 
 @interface UIView (subviews)
@@ -118,25 +191,32 @@ bool SS_ShowiOSPreferences(void)
 	self.disksPaneViewController = [[SSPreferencesDisksViewController alloc] initWithNibName:@"SSPreferencesDisksViewController" bundle:[NSBundle mainBundle]];
 	self.avPaneViewController = [[SSPreferencesAVViewController alloc] initWithNibName:@"SSPreferencesAVViewController" bundle:[NSBundle mainBundle]];
 	self.ioPaneViewController = [[SSPreferencesIOViewController alloc] initWithNibName:@"SSPreferencesIOViewController" bundle:[NSBundle mainBundle]];
-		
+	self.bootROMPaneViewController = [[SSPreferencesBootROMViewController alloc] initWithNibName:@"SSPreferencesBootROMViewController" bundle:[NSBundle mainBundle]];
+
 	self.paneScroller.layer.borderWidth = 1;
 	self.paneScroller.layer.borderColor = [UIColor lightGrayColor].CGColor;
 	self.paneScroller.layer.cornerRadius = 4;
 
-	// Start with the hardware view. This looks fine on launch with either orientation, though the hardware view for
-	// some reason is much too tall.
 	for (UIView* aSubView in [self.scrollerContentView subviews]) {
 		[aSubView removeFromSuperview];
 	}
 
-	NSLog (@"paneScroller: %@", self.paneScroller);
-	[self.scrollerContentView addSubview:self.hardwarePaneViewController.view];
-	[self.hardwarePaneViewController.view sdc_alignEdgesWithSuperview:UIRectEdgeLeft + UIRectEdgeRight insets:UIEdgeInsetsMake(1, 1, 0, 0)];
+	NSLOG (@"paneScroller: %@", self.paneScroller);
+
+	// Start with the hardware view unless we are to go directly to the boot ROM view. This looks fine on launch with
+	// either orientation, though the hardware view for some reason is much too tall.
+	if (self.showBootROMPaneInitially) {
+		[self.paneSelector setSelectedSegmentIndex:EPrefsPanes_BootROM];
+	} else {
+		[self.paneSelector setSelectedSegmentIndex:EPrefsPanes_Hardware];
+	}
+	[self paneSelectorHit:self.paneSelector];
+	
+	self.showBootROMPaneInitially = NO;
+	
 //	CGFloat aHeight = [self.hardwarePaneViewController.view lowestSubviewY];
 //	NSLog (@"Lowest point of %@: %f", self.hardwarePaneViewController.view, aHeight);
 //	[self.hardwarePaneViewController.view sdc_pinHeight:aHeight];
-	
-	[self.paneScroller setContentSize:self.hardwarePaneViewController.view.frame.size];
 }
 
 -(void)viewDidAppear:(BOOL)animated
@@ -184,8 +264,14 @@ bool SS_ShowiOSPreferences(void)
 		case EPrefsPanes_IO:
 			[self.scrollerContentView addSubview:self.ioPaneViewController.view];
 			[self.ioPaneViewController.view sdc_alignEdgesWithSuperview:aRectEdges insets:aOnePixelInsets];
-//			[self.ioPaneViewController.view sdc_horizontallyCenterInSuperview];
+			//			[self.ioPaneViewController.view sdc_horizontallyCenterInSuperview];
 			[self.paneScroller setContentSize:self.ioPaneViewController.view.frame.size];
+			break;
+		case EPrefsPanes_BootROM:
+			[self.scrollerContentView addSubview:self.bootROMPaneViewController.view];
+			[self.bootROMPaneViewController.view sdc_alignEdgesWithSuperview:aRectEdges insets:aOnePixelInsets];
+			//			[self.bootROMPaneViewController.view sdc_horizontallyCenterInSuperview];
+			[self.paneScroller setContentSize:self.bootROMPaneViewController.view.frame.size];
 			break;
 		default:
 			break;
@@ -207,7 +293,9 @@ bool SS_ShowiOSPreferences(void)
 	}
 //	PrefsReplaceInt32("ramsize", 64 * 1024 * 1024);
 	PrefsReplaceString("disk", "MacOS9.dsk");
-	PrefsReplaceInt32("frameskip", 0);
+	PrefsReplaceInt32("frameskip", 1);		// 1 == 60 Hz, 0 == as fast as possible, which burns up CPU and makes the OS grumpy.
+	
+	PrefsReplaceString("extfs",document_directory());
 	
 	int aWidth = [UIScreen mainScreen].bounds.size.width;
 	int aHeight = [UIScreen mainScreen].bounds.size.height;

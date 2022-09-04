@@ -103,9 +103,7 @@
 		E204B91528BC3B640081FDCA /* basic-dyngen.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDC514A99EEF000B1711 /* basic-dyngen.cpp */; };
 		E204B91628BC3B640081FDCA /* sheepshaver_glue.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CDBB14A99EEF000B1711 /* sheepshaver_glue.cpp */; };
 		E204B91728BC3B640081FDCA /* ppc-dis.c in Sources */ = {isa = PBXBuildFile; fileRef = 08163338158C121000C449F9 /* ppc-dis.c */; };
-		E204B92228BC3D640081FDCA /* SDL2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204B92128BC3D640081FDCA /* SDL2.xcframework */; };
 		E204B92E28BC3EBE0081FDCA /* SheepShaver.icns in Resources */ = {isa = PBXBuildFile; fileRef = 0856CE8314A99EF0000B1711 /* SheepShaver.icns */; };
-		E204B93028BC3EBE0081FDCA /* SheepVM.icns in Resources */ = {isa = PBXBuildFile; fileRef = 3D2C25B4221092BA00B635DE /* SheepVM.icns */; };
 		E204B93328BC3EBE0081FDCA /* adb.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D3967BF2328D315003925D6 /* adb.cpp */; };
 		E204B93428BC3EBE0081FDCA /* debug.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45E920D262AE000583AE /* debug.c */; };
 		E204B93528BC3EBE0081FDCA /* tcp_subr.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45EA20D262AE000583AE /* tcp_subr.c */; };
@@ -213,6 +211,8 @@
 		E204BA1428BC841D0081FDCA /* libkpx_cpu_ios.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */; };
 		E204BA3128BD47610081FDCA /* runtool.c in Sources */ = {isa = PBXBuildFile; fileRef = E4202602241250EE000508DF /* runtool.c */; };
 		E204BA3628BD49260081FDCA /* extfs_macosx.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE2D14A99EF0000B1711 /* extfs_macosx.cpp */; };
+		E204BA4728BDB4260081FDCA /* SSPreferencesBootROMViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204BA4528BDB4250081FDCA /* SSPreferencesBootROMViewController.mm */; };
+		E204BA4828BDB4260081FDCA /* SSPreferencesBootROMViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = E204BA4628BDB4260081FDCA /* SSPreferencesBootROMViewController.xib */; };
 		E413A40320CF7E6D00FBE967 /* video_sdl2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */; };
 		E4150D1220D557820077C51A /* SDL2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E4150D1120D557820077C51A /* SDL2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E41936C420CFE64D003A7654 /* SDLMain.m in Sources */ = {isa = PBXBuildFile; fileRef = E41936C320CFE64D003A7654 /* SDLMain.m */; };
@@ -540,6 +540,9 @@
 		E204BA0E28BC83B60081FDCA /* CoreHaptics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreHaptics.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.4.sdk/System/Library/Frameworks/CoreHaptics.framework; sourceTree = DEVELOPER_DIR; };
 		E204BA1028BC83C20081FDCA /* CoreMotion.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMotion.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.4.sdk/System/Library/Frameworks/CoreMotion.framework; sourceTree = DEVELOPER_DIR; };
 		E204BA1228BC83E40081FDCA /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.4.sdk/System/Library/Frameworks/AudioToolbox.framework; sourceTree = DEVELOPER_DIR; };
+		E204BA4428BDB4250081FDCA /* SSPreferencesBootROMViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSPreferencesBootROMViewController.h; sourceTree = "<group>"; };
+		E204BA4528BDB4250081FDCA /* SSPreferencesBootROMViewController.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SSPreferencesBootROMViewController.mm; sourceTree = "<group>"; };
+		E204BA4628BDB4260081FDCA /* SSPreferencesBootROMViewController.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = SSPreferencesBootROMViewController.xib; sourceTree = "<group>"; };
 		E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = video_sdl2.cpp; path = ../../../BasiliskII/src/SDL/video_sdl2.cpp; sourceTree = "<group>"; };
 		E4150D1120D557820077C51A /* SDL2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SDL2.framework; path = /Library/Frameworks/SDL2.framework; sourceTree = "<group>"; };
 		E41936C220CFE64D003A7654 /* SDLMain.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SDLMain.h; path = ../../../BasiliskII/src/SDL/SDLMain.h; sourceTree = "<group>"; };
@@ -625,7 +628,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E204B92228BC3D640081FDCA /* SDL2.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1170,6 +1172,9 @@
 				E204B9B528BC7BF10081FDCA /* SSPreferencesAVViewController.h */,
 				E204B9A928BC7BF10081FDCA /* SSPreferencesAVViewController.mm */,
 				E204B9BC28BC7BF10081FDCA /* SSPreferencesAVViewController.xib */,
+				E204BA4428BDB4250081FDCA /* SSPreferencesBootROMViewController.h */,
+				E204BA4528BDB4250081FDCA /* SSPreferencesBootROMViewController.mm */,
+				E204BA4628BDB4260081FDCA /* SSPreferencesBootROMViewController.xib */,
 				E204B9C428BC7BF10081FDCA /* SSPreferencesDisksViewController.h */,
 				E204B9AF28BC7BF10081FDCA /* SSPreferencesDisksViewController.mm */,
 				E204B99D28BC7BF00081FDCA /* SSPreferencesDisksViewController.xib */,
@@ -1397,7 +1402,7 @@
 				E204B9D828BC7BF10081FDCA /* SSPreferencesHardwareViewController.xib in Resources */,
 				E204B9DC28BC7BF10081FDCA /* SSPreferencesAVViewController.xib in Resources */,
 				E204B9C728BC7BF10081FDCA /* SSPreferencesViewController.xib in Resources */,
-				E204B93028BC3EBE0081FDCA /* SheepVM.icns in Resources */,
+				E204BA4828BDB4260081FDCA /* SSPreferencesBootROMViewController.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1611,6 +1616,7 @@
 				E204B9E828BC7CE80081FDCA /* clip_ios.mm in Sources */,
 				E204B95D28BC3EBE0081FDCA /* video_sdl.cpp in Sources */,
 				E204B95E28BC3EBE0081FDCA /* ether_unix.cpp in Sources */,
+				E204BA4728BDB4260081FDCA /* SSPreferencesBootROMViewController.mm in Sources */,
 				E204B9CB28BC7BF10081FDCA /* SSPreferencesViewController.mm in Sources */,
 				E204B95F28BC3EBE0081FDCA /* main_unix.cpp in Sources */,
 				E204B9F228BC7D020081FDCA /* utils_ios.mm in Sources */,
@@ -1941,6 +1947,10 @@
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"./SDL2.xcframework/**",
+				);
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_ENABLE_FIX_AND_CONTINUE = YES;
 				GCC_OPTIMIZATION_LEVEL = 3;
@@ -1983,6 +1993,10 @@
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"./SDL2.xcframework/**",
+				);
 				GCC_DYNAMIC_NO_PIC = YES;
 				GCC_ENABLE_FIX_AND_CONTINUE = NO;
 				GCC_OPTIMIZATION_LEVEL = 3;
@@ -2052,20 +2066,25 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEVELOPMENT_TEAM = 9DSE6N75KE;
+				ENABLE_TESTABILITY = YES;
 				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
-				FRAMEWORK_SEARCH_PATHS = "./SDL2.xcframework/**";
-				GCC_CW_ASM_SYNTAX = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"./SDL2.xcframework/**",
+				);
+				GCC_CW_ASM_SYNTAX = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_ENABLE_FIX_AND_CONTINUE = NO;
-				GCC_ENABLE_PASCAL_STRINGS = NO;
+				GCC_ENABLE_PASCAL_STRINGS = YES;
 				GCC_ENABLE_TRIGRAPHS = NO;
-				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PRECOMPILE_PREFIX_HEADER = NO;
 				GCC_PREFIX_HEADER = "";
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
+					"$(inherited)",
 					ENABLE_MACOSX_ETHERHELPER,
 					"DATADIR=",
 					HAVE_CONFIG_H,
@@ -2077,7 +2096,7 @@
 				);
 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
@@ -2157,17 +2176,21 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 9DSE6N75KE;
+				ENABLE_TESTABILITY = YES;
 				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
-				FRAMEWORK_SEARCH_PATHS = "./SDL2.xcframework/**";
-				GCC_CW_ASM_SYNTAX = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"./SDL2.xcframework/**",
+				);
+				GCC_CW_ASM_SYNTAX = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
-				GCC_DYNAMIC_NO_PIC = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_ENABLE_FIX_AND_CONTINUE = NO;
-				GCC_ENABLE_PASCAL_STRINGS = NO;
+				GCC_ENABLE_PASCAL_STRINGS = YES;
 				GCC_ENABLE_TRIGRAPHS = NO;
-				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = YES;
 				GCC_OPTIMIZATION_LEVEL = 3;
 				GCC_PRECOMPILE_PREFIX_HEADER = NO;
 				GCC_PREFIX_HEADER = "";
@@ -2183,7 +2206,7 @@
 				);
 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
@@ -2199,7 +2222,7 @@
 					"./SDL2.xcframework/**",
 					.,
 				);
-				INFOPLIST_EXPAND_BUILD_SETTINGS = NO;
+				INFOPLIST_EXPAND_BUILD_SETTINGS = YES;
 				INFOPLIST_FILE = SheepShaveriOS/Info.plist;
 				INFOPLIST_PREFIX_HEADER = "";
 				INFOPLIST_PREPROCESS = NO;

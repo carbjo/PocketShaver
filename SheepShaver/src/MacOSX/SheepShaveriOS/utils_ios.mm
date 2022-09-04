@@ -96,10 +96,16 @@ void set_current_directory()
 const char* document_directory()
 {
 	NSArray* aDirs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+	//	NSLog (@"%s Found dirs: %@", __PRETTY_FUNCTION__, aDirs);
 	if ([aDirs count]) {
 		return [[aDirs firstObject] UTF8String];
 	}
 	return "";
+}
+
+const char* home_directory()
+{
+	return [NSHomeDirectory() UTF8String];
 }
 
 bool MetalIsAvailable() {

@@ -152,6 +152,7 @@
 #if TARGET_OS_IPHONE
 extern "C" {
 bool SS_ShowiOSPreferences(void);
+int SS_ChooseiOSBootRom(const char* inFileName);	// returns file descriptor or error
 }
 #endif
 
@@ -169,6 +170,8 @@ bool SS_ShowiOSPreferences(void);
 // Interrupts in native mode?
 #define INTERRUPTS_IN_NATIVE_MODE 1
 
+// Debugging:
+#define SHOW_WARNING_BEFORE_LOADING_ROM (TARGET_OS_IPHONE && 0)
 
 // Constants
 const char ROM_FILE_NAME[] = "ROM";
@@ -604,7 +607,18 @@ static bool load_mac_rom(void)
 	uint32 rom_size, actual;
 	uint8 *rom_tmp;
 	const char *rom_path = PrefsFindString("rom");
+	
+	if (rom_path) {
+		printf ("%s rom_path: %s\n", __PRETTY_FUNCTION__, rom_path);
+	}
+	printf ("%s ROM_FILE_NAME: %s\n", __PRETTY_FUNCTION__, ROM_FILE_NAME);
+	printf ("%s ROM_FILE_NAME2: %s\n", __PRETTY_FUNCTION__, ROM_FILE_NAME2);
+	
+#if TARGET_OS_IPHONE
+	int rom_fd = SS_ChooseiOSBootRom(rom_path);
+#else
 	int rom_fd = open(rom_path && *rom_path ? rom_path : ROM_FILE_NAME, O_RDONLY);
+#endif
 	if (rom_fd < 0) {
 		rom_fd = open(ROM_FILE_NAME2, O_RDONLY);
 		if (rom_fd < 0) {
@@ -612,6 +626,28 @@ static bool load_mac_rom(void)
 			return false;
 		}
 	}
+	
+#if SHOW_WARNING_BEFORE_LOADING_ROM
+	// This works.
+	SDL_MessageBoxButtonData aButtonData;
+	aButtonData.buttonid = 0;
+	aButtonData.text = "OK";
+	aButtonData.flags = SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT;
+
+	SDL_MessageBoxData aMessageBoxData;
+	aMessageBoxData.message = "About to load Mac ROM...";
+	aMessageBoxData.title = "Loading ROM";
+	aMessageBoxData.numbuttons = 1;
+	aMessageBoxData.flags = SDL_MESSAGEBOX_INFORMATION;
+	aMessageBoxData.window = NULL;
+	aMessageBoxData.colorScheme = NULL;
+	aMessageBoxData.buttons = &aButtonData;
+		
+	int aButtonID = -1;
+//	UIKit_ShowMessageBox(&aMessageBoxData, &aButtonID);
+	SDL_ShowMessageBox(&aMessageBoxData, &aButtonID);
+#endif
+	
 	printf("%s", GetString(STR_READING_ROM_FILE));
 	rom_size = lseek(rom_fd, 0, SEEK_END);
 	lseek(rom_fd, 0, SEEK_SET);
@@ -1090,7 +1126,7 @@ int main(int argc, char *argv[])
 	if (!check_prefs())
 		goto quit;
 #endif
-
+	
 	// Initialize everything
 	if (!InitAll(vmdir))
 		goto quit;
@@ -1526,8 +1562,10 @@ static void *tick_func(void *arg)
 		}
 	}
 
-	D(uint64 end = GetTicks_usec());
+#if DEBUG
+	uint64 end = GetTicks_usec();
 	D(bug("%lld ticks in %lld usec = %f ticks/sec\n", ticks, end - start, ticks * 1000000.0 / (end - start)));
+#endif
 	return NULL;
 }
 

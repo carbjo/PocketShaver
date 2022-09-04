@@ -27,6 +27,7 @@
 #include "sys.h"
 #include "prefs.h"
 
+#define DUMP_PREFS 1
 
 // Prefs items are stored in a linked list of these nodes
 struct prefs_node {
@@ -41,7 +42,7 @@ static prefs_node *the_prefs = NULL;
 
 // Prototypes
 static const prefs_desc *find_prefs_desc(const char *name);
-
+void dump_prefs (void);
 
 /*
  *  Initialize preferences
@@ -232,6 +233,11 @@ static const prefs_desc *find_prefs_desc(const char *name)
 
 static void add_data(const char *name, prefs_type type, void *data, int size)
 {
+#if DUMP_PREFS
+	if (strncmp(name, "ramsize", 7) == 0) {
+		printf ("Setting ramsize to %s\n", data);
+	}
+#endif
 	void *d = malloc(size);
 	if (d == NULL)
 		return;
@@ -246,8 +252,13 @@ static void add_data(const char *name, prefs_type type, void *data, int size)
 		while (prev->next)
 			prev = prev->next;
 		prev->next = p;
-	} else
+	} else {
 		the_prefs = p;
+}
+
+#if DUMP_PREFS
+	dump_prefs();
+#endif
 }
 
 void PrefsAddString(const char *name, const char *s)
@@ -269,6 +280,30 @@ void PrefsAddInt32(const char *name, int32 val)
 /*
  *  Replace prefs items
  */
+
+void dump_prefs (void)
+{
+	printf ("Prefs:\n");
+	prefs_node *p = the_prefs;
+	int i = 0;
+	while (p) {
+		switch (p->type) {
+			case TYPE_BOOLEAN:
+				printf ("BOOLEAN: %s: %s\n", p->name, ((*(bool*)(p->data) == false) ? "false" : "true"));
+				break;
+			case TYPE_STRING:
+				printf ("STRING:  %s: %s\n", p->name, p->data);
+				break;
+			case TYPE_INT32:
+				printf ("INT32:   %s: %d\n", p->name, *(int32_t*)(p->data));
+				break;
+			default:
+				printf ("Unknown prefs type: %d\n", p->type);
+				break;
+		}
+		p = p->next;
+	}
+}
 
 static prefs_node *find_node(const char *name, prefs_type type, int index = 0)
 {
@@ -386,6 +421,9 @@ void PrefsRemoveItem(const char *name, int index)
 
 void LoadPrefsFromStream(FILE *f)
 {
+#if DUMP_PREFS
+	printf ("LoadPrefsFromStream:\n");
+#endif
 	char line[256];
 	while(fgets(line, sizeof(line), f)) {
 		// Remove newline, if present
@@ -438,6 +476,9 @@ void LoadPrefsFromStream(FILE *f)
 				break;
 		}
 	}
+#if DUMP_PREFS
+	dump_prefs();
+#endif
 }
 
 
@@ -473,4 +514,8 @@ void SavePrefsToStream(FILE *f)
 {
 	write_prefs(f, common_prefs_items);
 	write_prefs(f, platform_prefs_items);
+#if DUMP_PREFS
+	dump_prefs();
+#endif
+
 }

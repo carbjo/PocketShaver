@@ -28,9 +28,6 @@
 #define _UINT64
 
 #include <UIKit/UIKit.h>
-#if 0
-#include "VMSettingsControlleriOS.h"
-#endif
 #include <SDL.h>
 
 @interface SheepShaverMain : NSObject

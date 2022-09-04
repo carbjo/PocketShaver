@@ -28,6 +28,8 @@
 void NSAutoReleasePool_wrap(void (*fn)(void));
 
 #ifdef USE_SDL
+#include <SDL.h>
+#include "SDL_version.h"
 #if SDL_VERSION_ATLEAST(2,0,0)
 void disable_SDL2_macosx_menu_bar_keyboard_shortcuts();
 bool is_fullscreen_osx(SDL_Window * window);
@@ -37,6 +39,7 @@ bool is_fullscreen_osx(SDL_Window * window);
 void set_menu_bar_visible_osx(bool visible);
 
 void set_current_directory();
+const char* home_directory();
 const char* document_directory();
 
 bool MetalIsAvailable();

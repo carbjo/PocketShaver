@@ -2,6 +2,7 @@
 <document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="17701" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
     <device id="retina3_5" orientation="portrait" appearance="light"/>
     <dependencies>
+        <deployment identifier="iOS"/>
         <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="17703"/>
         <capability name="Safe area layout guides" minToolsVersion="9.0"/>
         <capability name="System colors in document resources" minToolsVersion="11.0"/>
@@ -22,15 +23,16 @@
             <rect key="frame" x="0.0" y="0.0" width="320" height="480"/>
             <subviews>
                 <segmentedControl opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="left" contentVerticalAlignment="top" apportionsSegmentWidthsByContent="YES" segmentControlStyle="plain" selectedSegmentIndex="0" translatesAutoresizingMaskIntoConstraints="NO" id="8Fe-oJ-rxl">
-                    <rect key="frame" x="55.5" y="49" width="209" height="32"/>
+                    <rect key="frame" x="14.5" y="49" width="291" height="32"/>
                     <constraints>
                         <constraint firstAttribute="height" constant="31" id="uhj-N1-saO"/>
                     </constraints>
                     <segments>
-                        <segment title="Hardware"/>
+                        <segment title="Boot ROM"/>
                         <segment title="Disks"/>
                         <segment title="A/V"/>
                         <segment title="I/O"/>
+                        <segment title="Hardware"/>
                     </segments>
                     <connections>
                         <action selector="paneSelectorHit:" destination="-1" eventType="valueChanged" id="3Q4-7X-hl4"/>
