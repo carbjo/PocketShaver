@@ -11,6 +11,7 @@
     <objects>
         <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner" customClass="SSPreferencesAVViewController">
             <connections>
+                <outlet property="audioDisableSwitch" destination="l0h-aV-N6U" id="Ljc-dC-7uf"/>
                 <outlet property="rateLabel" destination="2kW-VQ-Mhv" id="WrN-rG-Rxu"/>
                 <outlet property="rateStepper" destination="gti-JM-fW6" id="KP1-C6-tFA"/>
                 <outlet property="view" destination="i5M-Pr-FkT" id="sfx-zR-JGt"/>
@@ -48,17 +49,40 @@
                     <nil key="textColor"/>
                     <nil key="highlightedColor"/>
                 </label>
+                <switch opaque="NO" contentMode="scaleToFill" horizontalHuggingPriority="750" verticalHuggingPriority="750" contentHorizontalAlignment="center" contentVerticalAlignment="center" on="YES" translatesAutoresizingMaskIntoConstraints="NO" id="l0h-aV-N6U">
+                    <rect key="frame" x="122.5" y="55" width="49" height="31"/>
+                    <constraints>
+                        <constraint firstAttribute="width" constant="47" id="1iX-CQ-uy6"/>
+                        <constraint firstAttribute="height" constant="31" id="ktJ-mm-Ft8"/>
+                    </constraints>
+                    <connections>
+                        <action selector="audioDisableSwitchHit:" destination="-1" eventType="valueChanged" id="8xk-h4-bff"/>
+                    </connections>
+                </switch>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Disable Audio:" textAlignment="right" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="yJX-vi-gww">
+                    <rect key="frame" x="5.5" y="60" width="109" height="21"/>
+                    <constraints>
+                        <constraint firstAttribute="height" constant="21" id="BlJ-Wt-9kq"/>
+                    </constraints>
+                    <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                    <nil key="textColor"/>
+                    <nil key="highlightedColor"/>
+                </label>
             </subviews>
             <viewLayoutGuide key="safeArea" id="Q5M-cg-NOt"/>
             <color key="backgroundColor" systemColor="systemBackgroundColor"/>
             <constraints>
+                <constraint firstItem="l0h-aV-N6U" firstAttribute="leading" secondItem="gti-JM-fW6" secondAttribute="leading" id="8c5-n5-sWo"/>
                 <constraint firstItem="2kW-VQ-Mhv" firstAttribute="top" secondItem="i5M-Pr-FkT" secondAttribute="top" constant="20" symbolic="YES" id="Ajl-ur-WSj"/>
                 <constraint firstAttribute="trailing" secondItem="2kW-VQ-Mhv" secondAttribute="trailing" constant="20" symbolic="YES" id="J8A-6s-ai6"/>
+                <constraint firstItem="l0h-aV-N6U" firstAttribute="leading" secondItem="yJX-vi-gww" secondAttribute="trailing" constant="8" symbolic="YES" id="PoB-dT-gmE"/>
+                <constraint firstItem="yJX-vi-gww" firstAttribute="top" secondItem="zat-fe-qdP" secondAttribute="bottom" constant="19" id="R3W-ME-gsQ"/>
                 <constraint firstItem="gti-JM-fW6" firstAttribute="centerX" secondItem="i5M-Pr-FkT" secondAttribute="centerX" priority="200" id="SRr-6B-NRG"/>
                 <constraint firstItem="zat-fe-qdP" firstAttribute="leading" secondItem="i5M-Pr-FkT" secondAttribute="leading" constant="12" id="SpN-Ql-ZPx"/>
                 <constraint firstItem="gti-JM-fW6" firstAttribute="top" secondItem="i5M-Pr-FkT" secondAttribute="top" constant="15" id="ipP-vB-Kd2"/>
                 <constraint firstItem="gti-JM-fW6" firstAttribute="leading" secondItem="zat-fe-qdP" secondAttribute="trailing" constant="8" symbolic="YES" id="jrL-XI-Oso"/>
                 <constraint firstItem="zat-fe-qdP" firstAttribute="top" secondItem="i5M-Pr-FkT" secondAttribute="top" constant="20" symbolic="YES" id="rSy-kD-stT"/>
+                <constraint firstItem="l0h-aV-N6U" firstAttribute="top" secondItem="gti-JM-fW6" secondAttribute="bottom" constant="8" symbolic="YES" id="tFB-b1-jUj"/>
                 <constraint firstItem="2kW-VQ-Mhv" firstAttribute="leading" secondItem="gti-JM-fW6" secondAttribute="trailing" constant="8" symbolic="YES" id="yyL-3R-LuR"/>
             </constraints>
             <nil key="simulatedTopBarMetrics"/>

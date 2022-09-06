@@ -13,8 +13,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (readwrite, nonatomic) IBOutlet UIStepper* rateStepper;
 @property (readwrite, nonatomic) IBOutlet UILabel* rateLabel;
+@property (readwrite, nonatomic) IBOutlet UISwitch* audioDisableSwitch;
 
 - (IBAction)rateStepperHit:(id)sender;
+- (IBAction)audioDisableSwitchHit:(id)sender;
 
 @end
 

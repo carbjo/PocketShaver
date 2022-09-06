@@ -40,8 +40,7 @@ UIWindow* prefsWindow()
 {
 	if (!gPrefsWindow) {
 		gPrefsWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-//		NSLog (@"%s [UIScreen mainScreen].bounds: %@", __PRETTY_FUNCTION__, NSStringFromCGRect([UIScreen mainScreen].bounds));
-//		gPrefsWindow.rootViewController = [UIViewController new];
+//		NSLOG (@"%s [UIScreen mainScreen].bounds: %@", __PRETTY_FUNCTION__, NSStringFromCGRect([UIScreen mainScreen].bounds));
 	}
 	return gPrefsWindow;
 }
@@ -52,7 +51,6 @@ bool SS_ShowiOSPreferences(void)
 	prefsWindow().windowLevel = UIWindowLevelNormal;
 	[prefsWindow() makeKeyAndVisible];
 	
-	//[prefsWindow().rootViewController presentViewController:[SSPreferencesViewController sharedPreferencesViewController] animated:NO completion:nil];
 	prefsWindow().rootViewController = [SSPreferencesViewController sharedPreferencesViewController];
 	[SSPreferencesViewController sharedPreferencesViewController].prefsDone = NO;
 	
@@ -65,7 +63,6 @@ bool SS_ShowiOSPreferences(void)
 		}
 	}
 
-//	[prefsWindow().rootViewController dismissViewControllerAnimated:NO completion:nil];
 	[[SSPreferencesViewController sharedPreferencesViewController] removeFromParentViewController];
 	prefsWindow().rootViewController = nil;
 	prefsWindow().hidden = YES;
@@ -233,6 +230,7 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 	return rom_fd;
 }
 
+// Do we uses these any more?
 @interface UIView (subviews)
 - (UIView*) lowestSubview;		// recursively finds the view with the greatest origin.y + size.height. Can return nil if there are no subviews.
 - (CGFloat) lowestSubviewY;		// Returns the Y location of the lowest edge of the lowest subview, if there is one. Otherwise returns lowest point of self.
@@ -397,6 +395,16 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 	}
 	PrefsReplaceString("disk", "MacOS9.dsk");
 	
+	while (PrefsFindString("cdrom") != 0) {
+		PrefsRemoveItem("cdrom");
+	}
+	PrefsAddString("cdrom", "/dev/poll/cdrom");		// This is also added in sys_unix.cpp.
+	
+	// No UI for these yet, as they don't work yet:
+	PrefsAddString("seriala", "/dev/null");
+	PrefsAddString("serialb", "/dev/null");
+	PrefsAddString("ether", "slirp");
+	
 	// There are no options for screen dimensions, SDL can only do fullscreen on iOS and cannot handle rotation, so
 	// whatever the current dimensions are will be the ones we always use for this launch. If the device is rotated
 	// to landscape, then SS will launch in landscape.
@@ -412,8 +420,8 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 
 	// These will always be constant for iOS.
 	PrefsReplaceString("sdlrender", "metal");
-	PrefsReplaceString("extfs",document_directory());
-
+	PrefsReplaceString("extfs", document_directory());
+	
 	// We have prefs for these now.
 	//	PrefsReplaceInt32("frameskip", 1);		// 1 == 60 Hz, 0 == as fast as possible, which burns up CPU and makes the OS grumpy.
 	//	PrefsReplaceInt32("ramsize", 64 * 1024 * 1024);

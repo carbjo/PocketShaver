@@ -90,7 +90,7 @@ void AddPrefsDefaults(void)
 #endif
 	PrefsAddInt32("bootdriver", 0);
 	PrefsAddInt32("bootdrive", 0);
-#if TARGET_OS_IPHONE || 1
+#if TARGET_OS_IPHONE
 	PrefsReplaceInt32("ramsize", 64 * 1024 * 1024);
 	PrefsReplaceInt32("frameskip", 1);
 #else
@@ -118,35 +118,6 @@ void AddPrefsDefaults(void)
 
 #ifdef __APPLE__
 	PrefsAddBool("swap_opt_cmd", false);
-
-	// TEMP
-//	PrefsReplaceString("disk", "MacOS9.dsk");
-//	PrefsReplaceString("screen", "dga/1024/768");			// on iOS, dga is all that matters here, it causes the app to be full screen with no status bar.
-//	PrefsReplaceInt32("ramsize", 256 * 1024 * 1024);
-
-#if TARGET_OS_IPHONE
-	/*
-	 STRING:  serialb: /dev/null
-	 STRING:  disk: MacOS9.dsk
-	 STRING:  cdrom: /dev/poll/cdrom
-	 STRING:  screen: win/1024/768
-	 STRING:  seriala:
-	 STRING:  rom: Mac OS ROM
-	 STRING:  ether: slirp
-	 STRING:  keycodefile:
-	 */
-	// Just in case these matter, from the Mac:
-	while (PrefsFindString("cdrom") != 0) {
-		PrefsRemoveItem("cdrom");
-	}
-	PrefsAddString("seriala", "/dev/null");
-	PrefsAddString("serialb", "/dev/null");
-	PrefsAddString("cdrom", "/dev/poll/cdrom");		// This is also added in sys_unix.cpp.
-	PrefsAddString("screen", "win/1024/768");
-	PrefsAddString("ether", "slirp");
-	PrefsAddString("disk", "MacOS9.dsk");
-	
-#endif
 #else
 	PrefsAddBool("swap_opt_cmd", true);
 #endif

@@ -62,11 +62,18 @@
 	[self rateStepperHit:self.rateStepper];
 }
 
+- (void) _setUpAudioUI
+{
+	[self.audioDisableSwitch setOn:PrefsFindBool("nosound")];
+	[self audioDisableSwitchHit:self.audioDisableSwitch];
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     // Do any additional setup after loading the view from its nib.
 	
 	[self _setUpRateUI];
+	[self _setUpAudioUI];
 }
 
 - (void) rateStepperHit:(id)sender
@@ -81,6 +88,12 @@
 	PrefsReplaceInt32("frameskip", aFrameSkip);
 	
 	NSLOG (@"%s wrote frameskip: %d", __PRETTY_FUNCTION__, aFrameSkip);
+}
+
+- (IBAction)audioDisableSwitchHit:(id)sender
+{
+	NSLOG (@"%s Audio disable: %@", __PRETTY_FUNCTION__, self.audioDisableSwitch.isOn ? @"YES" : @"NO");
+	PrefsReplaceBool("nosound", self.audioDisableSwitch.isOn);
 }
 
 /*
