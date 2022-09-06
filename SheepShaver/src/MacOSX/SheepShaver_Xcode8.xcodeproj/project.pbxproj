@@ -213,6 +213,7 @@
 		E204BA3628BD49260081FDCA /* extfs_macosx.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CE2D14A99EF0000B1711 /* extfs_macosx.cpp */; };
 		E204BA4728BDB4260081FDCA /* SSPreferencesBootROMViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204BA4528BDB4250081FDCA /* SSPreferencesBootROMViewController.mm */; };
 		E204BA4828BDB4260081FDCA /* SSPreferencesBootROMViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = E204BA4628BDB4260081FDCA /* SSPreferencesBootROMViewController.xib */; };
+		E2F38C2328C470CC00FB98B4 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = E2F38C2228C470CC00FB98B4 /* Localizable.strings */; };
 		E413A40320CF7E6D00FBE967 /* video_sdl2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */; };
 		E4150D1220D557820077C51A /* SDL2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E4150D1120D557820077C51A /* SDL2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E41936C420CFE64D003A7654 /* SDLMain.m in Sources */ = {isa = PBXBuildFile; fileRef = E41936C320CFE64D003A7654 /* SDLMain.m */; };
@@ -543,6 +544,7 @@
 		E204BA4428BDB4250081FDCA /* SSPreferencesBootROMViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSPreferencesBootROMViewController.h; sourceTree = "<group>"; };
 		E204BA4528BDB4250081FDCA /* SSPreferencesBootROMViewController.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SSPreferencesBootROMViewController.mm; sourceTree = "<group>"; };
 		E204BA4628BDB4260081FDCA /* SSPreferencesBootROMViewController.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = SSPreferencesBootROMViewController.xib; sourceTree = "<group>"; };
+		E2F38C2228C470CC00FB98B4 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Localizable.strings; sourceTree = "<group>"; };
 		E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = video_sdl2.cpp; path = ../../../BasiliskII/src/SDL/video_sdl2.cpp; sourceTree = "<group>"; };
 		E4150D1120D557820077C51A /* SDL2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SDL2.framework; path = /Library/Frameworks/SDL2.framework; sourceTree = "<group>"; };
 		E41936C220CFE64D003A7654 /* SDLMain.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SDLMain.h; path = ../../../BasiliskII/src/SDL/SDLMain.h; sourceTree = "<group>"; };
@@ -1151,13 +1153,13 @@
 				E204B9A028BC7BF00081FDCA /* AppDelegate.h */,
 				E204B9B328BC7BF10081FDCA /* AppDelegate.m */,
 				E204B9A428BC7BF10081FDCA /* Assets.xcassets */,
-				E204B9B728BC7BF10081FDCA /* Auto Layout */,
 				E204B9E728BC7CE80081FDCA /* clip_ios.mm */,
 				E204B9BA28BC7BF10081FDCA /* Default.png */,
 				E204B9A528BC7BF10081FDCA /* happy mac 512x512.png */,
 				E204B9C128BC7BF10081FDCA /* Info.plist */,
 				E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */,
 				E204B9AA28BC7BF10081FDCA /* LaunchScreen.storyboard */,
+				E2F38C2228C470CC00FB98B4 /* Localizable.strings */,
 				E204B9A228BC7BF10081FDCA /* Mac OS ROM */,
 				E204B9AE28BC7BF10081FDCA /* main.mm */,
 				E204B9AC28BC7BF10081FDCA /* Main.storyboard */,
@@ -1196,15 +1198,6 @@
 			path = SheepShaveriOS;
 			sourceTree = "<group>";
 		};
-		E204B9B728BC7BF10081FDCA /* Auto Layout */ = {
-			isa = PBXGroup;
-			children = (
-				E204B9B828BC7BF10081FDCA /* UIView+SDCAutoLayout.m */,
-				E204B9B928BC7BF10081FDCA /* UIView+SDCAutoLayout.h */,
-			);
-			path = "Auto Layout";
-			sourceTree = "<group>";
-		};
 		E204B9BD28BC7BF10081FDCA /* SDCAutoLayout */ = {
 			isa = PBXGroup;
 			children = (
@@ -1218,6 +1211,8 @@
 		E204B9BE28BC7BF10081FDCA /* AutoLayout */ = {
 			isa = PBXGroup;
 			children = (
+				E204B9B828BC7BF10081FDCA /* UIView+SDCAutoLayout.m */,
+				E204B9B928BC7BF10081FDCA /* UIView+SDCAutoLayout.h */,
 			);
 			path = AutoLayout;
 			sourceTree = "<group>";
@@ -1391,6 +1386,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E204B9CE28BC7BF10081FDCA /* Assets.xcassets in Resources */,
+				E2F38C2328C470CC00FB98B4 /* Localizable.strings in Resources */,
 				E204B9DB28BC7BF10081FDCA /* Default.png in Resources */,
 				E204B9CF28BC7BF10081FDCA /* happy mac 512x512.png in Resources */,
 				E204B9C828BC7BF10081FDCA /* SSPreferencesDisksViewController.xib in Resources */,

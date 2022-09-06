@@ -41,7 +41,7 @@ UIWindow* prefsWindow()
 	if (!gPrefsWindow) {
 		gPrefsWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
 //		NSLog (@"%s [UIScreen mainScreen].bounds: %@", __PRETTY_FUNCTION__, NSStringFromCGRect([UIScreen mainScreen].bounds));
-		gPrefsWindow.rootViewController = [UIViewController new];
+//		gPrefsWindow.rootViewController = [UIViewController new];
 	}
 	return gPrefsWindow;
 }
@@ -49,11 +49,13 @@ UIWindow* prefsWindow()
 bool SS_ShowiOSPreferences(void)
 {
 	// This can be called multiple times, we will reuse the same window, root view controller, and prefs view controller.
-	prefsWindow().windowLevel = UIWindowLevelAlert;
+	prefsWindow().windowLevel = UIWindowLevelNormal;
 	[prefsWindow() makeKeyAndVisible];
 	
-	[prefsWindow().rootViewController presentViewController:[SSPreferencesViewController sharedPreferencesViewController] animated:NO completion:nil];
+	//[prefsWindow().rootViewController presentViewController:[SSPreferencesViewController sharedPreferencesViewController] animated:NO completion:nil];
+	prefsWindow().rootViewController = [SSPreferencesViewController sharedPreferencesViewController];
 	[SSPreferencesViewController sharedPreferencesViewController].prefsDone = NO;
+	
 	
 	@autoreleasepool {
 		/* Run the main event loop until the alert has finished */
@@ -63,7 +65,9 @@ bool SS_ShowiOSPreferences(void)
 		}
 	}
 
-	[prefsWindow().rootViewController dismissViewControllerAnimated:NO completion:nil];
+//	[prefsWindow().rootViewController dismissViewControllerAnimated:NO completion:nil];
+	[[SSPreferencesViewController sharedPreferencesViewController] removeFromParentViewController];
+	prefsWindow().rootViewController = nil;
 	prefsWindow().hidden = YES;
 
 	return true;
@@ -83,6 +87,71 @@ int SS_ShowBootROMChooser()
 	}
 
 	return rom_fd;
+}
+
+void SS_ShowROMRequestAlert(BOOL* outTryAgain)
+{
+	UIAlertController* anAlert = [UIAlertController alertControllerWithTitle:NSLocalizedString(@"ROMRequestAlertTitle", nil) message:NSLocalizedString(@"ROMRequestAlertMessage", nil) preferredStyle:UIAlertControllerStyleAlert];
+	
+	BOOL __block anAlertDone = NO;
+	[anAlert addAction:[UIAlertAction actionWithTitle:NSLocalizedString(@"Try again", nil) style:UIAlertActionStyleCancel handler:^(UIAlertAction* _Nonnull inAction) {
+		if (outTryAgain) {
+			*outTryAgain = YES;
+		}
+		anAlertDone = YES;
+	}]];
+	
+	[anAlert addAction:[UIAlertAction actionWithTitle:NSLocalizedString(@"Quit", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction* _Nonnull inAction) {
+		if (outTryAgain) {
+			*outTryAgain = NO;
+		}
+		anAlertDone = YES;
+	}]];
+	
+	prefsWindow().windowLevel = UIWindowLevelAlert;
+	[prefsWindow() makeKeyAndVisible];
+	
+	[prefsWindow().rootViewController presentViewController:anAlert animated:NO completion:nil];
+	prefsWindow().hidden = NO;
+
+	@autoreleasepool {
+		/* Run the main event loop until the alert has finished */
+		/* Note that this needs to be done on the main thread */
+		while (!anAlertDone) {
+			[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
+		}
+	}
+	
+	[prefsWindow().rootViewController dismissViewControllerAnimated:NO completion:nil];
+	prefsWindow().hidden = YES;
+}
+
+void SS_ShowROMLoadFailure(NSString* aROMName)
+{
+	NSString* aMessage = [NSString stringWithFormat:NSLocalizedString(@"ROMFailureAlertMessage", nil), aROMName];
+	UIAlertController* anAlert = [UIAlertController alertControllerWithTitle:NSLocalizedString(@"ROMFailureAlertTitle", nil) message:aMessage preferredStyle:UIAlertControllerStyleAlert];
+	
+	BOOL __block anAlertDone = NO;
+	[anAlert addAction:[UIAlertAction actionWithTitle:NSLocalizedString(@"Quit", nil) style:UIAlertActionStyleDefault handler:^(UIAlertAction* _Nonnull inAction) {
+		anAlertDone = YES;
+	}]];
+	
+	prefsWindow().windowLevel = UIWindowLevelAlert;
+	[prefsWindow() makeKeyAndVisible];
+	
+	[prefsWindow().rootViewController presentViewController:anAlert animated:NO completion:nil];
+	prefsWindow().hidden = NO;
+	
+	@autoreleasepool {
+		/* Run the main event loop until the alert has finished */
+		/* Note that this needs to be done on the main thread */
+		while (!anAlertDone) {
+			[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
+		}
+	}
+	
+	[prefsWindow().rootViewController dismissViewControllerAnimated:NO completion:nil];
+	prefsWindow().hidden = YES;
 }
 
 // returns file descriptor or error
@@ -106,25 +175,49 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 		// See if the current pref is valid, if so, use that.
 		rom_fd = open(PrefsFindString("rom"), O_RDONLY);
 	}
-	
+
 	// And ah three...
+	if ([[SSPreferencesBootROMViewController romFilePaths] count] == 1) {
+		NSString* aSelectedPath = [[SSPreferencesBootROMViewController romFilePaths] firstObject];
+		PrefsReplaceString("rom", [aSelectedPath UTF8String], 0);		// 0 == first string found
+		rom_fd = open(PrefsFindString("rom"), O_RDONLY);				// update the "rom" choice since it was clearly wrong
+	}
+	
+	// Automatic search for the ROM file didn't work. Ask the user what to do.
 	if (rom_fd < 0) {
-		// See if we have any viable rom files. If it turns out we have exactly one, use it.
-		if ([[SSPreferencesBootROMViewController romFilePaths] count] == 1) {
-			NSString* aSelectedPath = [[SSPreferencesBootROMViewController romFilePaths] firstObject];
-			PrefsReplaceString("rom", [aSelectedPath UTF8String], 0);		// 0 == first string found
-			rom_fd = open(PrefsFindString("rom"), O_RDONLY);				// update the "rom" choice since it was clearly wrong
+		BOOL aTryAgain = NO;
+		do {
+			// See if we have any viable rom files. If it turns out we have exactly one, use it.
+			if ([[SSPreferencesBootROMViewController romFilePaths] count] == 0) {
+				// Put up an alert that there are no viable ROM files, please go get one. If the user chooses not to
+				// try again, we will still have a bad rom_fd, and so we will exit.
+				NSLOG (@"%s rom_fd < 0 after open(): %d, errno: %d, %s", __PRETTY_FUNCTION__, rom_fd, errno, strerror(errno));
+				SS_ShowROMRequestAlert(&aTryAgain);
+				if (aTryAgain) {
+					[SSPreferencesBootROMViewController rescanForRomFiles];
+				}
+			} else if ([[SSPreferencesBootROMViewController romFilePaths] count] == 1) {
+				NSString* aSelectedPath = [[SSPreferencesBootROMViewController romFilePaths] firstObject];
+				PrefsReplaceString("rom", [aSelectedPath UTF8String], 0);		// 0 == first string found
+				rom_fd = open(PrefsFindString("rom"), O_RDONLY);				// update the "rom" choice since it was clearly wrong
+				aTryAgain = NO;
+			} else if ([[SSPreferencesBootROMViewController romFilePaths] count] > 1) {
+				// More than one viable file, and the "rom" choice wasn't among them. Ask the user to choose a ROM file.
+				rom_fd = SS_ShowBootROMChooser();
+				aTryAgain = NO;
+			}
+		} while (aTryAgain && (rom_fd < 0));
+		
+		return rom_fd;
+	}
+	
+	// The choice for ROM file could not be opened for whatever reason. Tell the user what happened and bail.
+	if (rom_fd < 0) {
+		NSString* aROMName = [NSString stringWithCString:PrefsFindString("rom") encoding:NSUTF8StringEncoding];
+		if (([aROMName length] == 0) && (inFileName)) {
+			aROMName = [NSString stringWithCString:inFileName encoding:NSUTF8StringEncoding];
 		}
-	}
-	
-	if ((rom_fd < 0) && ([[SSPreferencesBootROMViewController romFilePaths] count] > 1)) {
-		// More than one viable file, and the "rom" choice wasn't among them. Ask the user to choose a ROM file.
-		rom_fd = SS_ShowBootROMChooser();
-	}
-	
-	if ((rom_fd < 0) && ([[SSPreferencesBootROMViewController romFilePaths] count] == 0)) {
-		// Put up an alert that there are no viable ROM files, please go get one.
-		NSLOG (@"%s rom_fd < 0 after open(): %d, errno: %d, %s", __PRETTY_FUNCTION__, rom_fd, errno, strerror(errno));
+		SS_ShowROMLoadFailure(aROMName);
 	}
 	
 	return rom_fd;
@@ -313,6 +406,26 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 	NSLog (@"%s", __PRETTY_FUNCTION__);
 	
 	[self _initGestures];
+}
+
+// This is hit when we start to scroll the view off the screen.
+- (void) viewWillDisappear:(BOOL)animated
+{
+	[super viewWillDisappear:animated];
+	NSLOG (@"%s", __PRETTY_FUNCTION__);
+}
+
+- (void) viewDidDisappear:(BOOL)animated
+{
+	[super viewDidDisappear:animated];
+	NSLOG (@"%s", __PRETTY_FUNCTION__);
+}
+
+// This does not stop view from being scrolled away.
+- (BOOL) shouldPerformSegueWithIdentifier:(NSString *)identifier sender:(id)sender
+{
+	NSLOG (@"%s", __PRETTY_FUNCTION__);
+	return NO;
 }
 
 /*

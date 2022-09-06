@@ -723,13 +723,15 @@ handleExceptions(void *priv)
 	msg = (mach_msg_header_t *)msgbuf;
 	reply = (mach_msg_header_t *)replybuf;
 	
+#if defined(DUMP_EXCEPTION_HEADERS)
 	static int sExceptionMessageCount = 0;
-
+#endif
 	for (;;) {
 		krc = mach_msg(msg, MACH_RCV_MSG, MSG_SIZE, MSG_SIZE,
 				_exceptionPort, 0, MACH_PORT_NULL);
 		MACH_CHECK_ERROR(mach_msg, krc);
 		
+#if defined(DUMP_EXCEPTION_HEADERS)
 		sExceptionMessageCount++;
 		printf ("%s macemu exception message count: %d\n", __PRETTY_FUNCTION__, sExceptionMessageCount);
 
@@ -743,7 +745,7 @@ handleExceptions(void *priv)
 		for (int anOffset = sizeof(mach_msg_header_t); anOffset < msg->msgh_size; anOffset += 4) {
 			printf ("    0x%X\n", *(int*)(((uint8_t*)msg) + anOffset));
 		}
-		
+#endif
 		if (!mach_exc_server(msg, reply)) {
 			fprintf(stderr, "exc_server hated the message\n");
 			exit(1);

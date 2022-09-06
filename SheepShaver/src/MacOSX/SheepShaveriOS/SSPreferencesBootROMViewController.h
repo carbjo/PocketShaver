@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readwrite, nonatomic) IBOutlet UITableView* bootROMTable;
 
 + (NSArray*) romFilePaths;
++ (void) rescanForRomFiles;
 
 @end
 

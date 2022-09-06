@@ -562,8 +562,8 @@ void *Sys_open(const char *name, bool read_only)
 		strncpy(nameInCurrentDir + aSlashLoc + 1, name, strlen(name));
 		name = nameInCurrentDir;
 		
-		printf ("Current dir: %s\n", aCurrDir);
-		printf ("Name in current dir: %s\n", name);
+//		printf ("Current dir: %s\n", aCurrDir);
+//		printf ("Name in current dir: %s\n", name);
 	}
 #endif
 	bool is_file = strncmp(name, "/dev/", 5) != 0;

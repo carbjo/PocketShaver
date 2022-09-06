@@ -136,12 +136,16 @@ void AddPrefsDefaults(void)
 	 STRING:  keycodefile:
 	 */
 	// Just in case these matter, from the Mac:
+	while (PrefsFindString("cdrom") != 0) {
+		PrefsRemoveItem("cdrom");
+	}
 	PrefsAddString("seriala", "/dev/null");
 	PrefsAddString("serialb", "/dev/null");
-	PrefsAddString("cdrom", "/dev/poll/cdrom");
+	PrefsAddString("cdrom", "/dev/poll/cdrom");		// This is also added in sys_unix.cpp.
 	PrefsAddString("screen", "win/1024/768");
 	PrefsAddString("ether", "slirp");
 	PrefsAddString("disk", "MacOS9.dsk");
+	
 #endif
 #else
 	PrefsAddBool("swap_opt_cmd", true);

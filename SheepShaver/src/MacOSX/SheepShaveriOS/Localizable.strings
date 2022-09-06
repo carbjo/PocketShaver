@@ -1,0 +1,25 @@
+/* 
+  SheepShaveriOS.strings
+  SheepShaver_Xcode8
+
+  Created by Tom Padula on 9/3/22.
+  
+*/
+
+"ROMRequestAlertTitle" =
+	"No Boot ROM";
+
+"ROMRequestAlertMessage" =
+	"No Mac boot ROM files were found. Please obtain one from your legally-owned classic Mac, and use the Finder or iTunes File Sharing to put it into SheepShaver's file folder on your iOS device.";
+
+"Try again" =
+	"Try Again";
+
+"Quit" =
+	"Quit";
+
+"ROMFailureAlertTitle" =
+	"ROM Failure";
+
+"ROMFailureAlertMessage" =
+	"The ROM file at %@ failed to load. The SheepShaver emulator cannot be launched.";

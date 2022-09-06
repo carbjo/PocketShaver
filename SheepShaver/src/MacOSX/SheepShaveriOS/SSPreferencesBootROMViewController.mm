@@ -276,6 +276,12 @@ NSArray* gBootROMFilePaths;
 	return SSPreferencesBootROMViewController.bootROMFilePaths;
 }
 
++ (void) rescanForRomFiles
+{
+	// Just clear out the current list, the next call will load it again.
+	SSPreferencesBootROMViewController.bootROMFilePaths = nil;
+}
+
 + (NSArray*)bootROMFilePaths
 {
 	return gBootROMFilePaths;
