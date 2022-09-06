@@ -10,6 +10,14 @@
 #define int32 int32_t
 #import "prefs.h"
 
+#define DEBUG_HARDWARE_PREFS 1
+
+#if DEBUG_HARDWARE_PREFS
+#define NSLOG(...) NSLog(__VA_ARGS__)
+#else
+#define NSLOG(...)
+#endif
+
 @interface SSPreferencesHardwareViewController ()
 
 @property (readwrite, nonatomic) NSArray* ramValueArray;
@@ -79,7 +87,7 @@
 {
 	NSNumber* aNewRamSize = [self.ramValueArray objectAtIndex:self.ramStepper.value];
 	NSString* aNewRamSizeString = [NSString stringWithFormat:@"%@ MB", aNewRamSize];
-	NSLog (@"ramStepperHit, %@", aNewRamSizeString);
+	NSLOG (@"ramStepperHit, %@", aNewRamSizeString);
 	
 	[self.ramSizeLabel setText:aNewRamSizeString];
 	

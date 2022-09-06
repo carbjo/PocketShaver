@@ -111,6 +111,9 @@ void SS_ShowROMRequestAlert(BOOL* outTryAgain)
 	prefsWindow().windowLevel = UIWindowLevelAlert;
 	[prefsWindow() makeKeyAndVisible];
 	
+	if (!prefsWindow().rootViewController) {
+		prefsWindow().rootViewController = [UIViewController new];
+	}
 	[prefsWindow().rootViewController presentViewController:anAlert animated:NO completion:nil];
 	prefsWindow().hidden = NO;
 
@@ -124,6 +127,8 @@ void SS_ShowROMRequestAlert(BOOL* outTryAgain)
 	
 	[prefsWindow().rootViewController dismissViewControllerAnimated:NO completion:nil];
 	prefsWindow().hidden = YES;
+	
+	[prefsWindow().rootViewController removeFromParentViewController];
 }
 
 void SS_ShowROMLoadFailure(NSString* aROMName)
@@ -139,6 +144,9 @@ void SS_ShowROMLoadFailure(NSString* aROMName)
 	prefsWindow().windowLevel = UIWindowLevelAlert;
 	[prefsWindow() makeKeyAndVisible];
 	
+	if (!prefsWindow().rootViewController) {
+		prefsWindow().rootViewController = [UIViewController new];
+	}
 	[prefsWindow().rootViewController presentViewController:anAlert animated:NO completion:nil];
 	prefsWindow().hidden = NO;
 	
@@ -152,6 +160,8 @@ void SS_ShowROMLoadFailure(NSString* aROMName)
 	
 	[prefsWindow().rootViewController dismissViewControllerAnimated:NO completion:nil];
 	prefsWindow().hidden = YES;
+
+	[prefsWindow().rootViewController removeFromParentViewController];
 }
 
 // returns file descriptor or error
@@ -381,25 +391,33 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 
 - (IBAction)doneButtonHit:(id)sender
 {
+	// Still need a pref for this and for cdrom:
 	while (PrefsFindString("disk") != 0) {
 		PrefsRemoveItem("disk");
 	}
-//	PrefsReplaceInt32("ramsize", 64 * 1024 * 1024);
 	PrefsReplaceString("disk", "MacOS9.dsk");
-	PrefsReplaceInt32("frameskip", 1);		// 1 == 60 Hz, 0 == as fast as possible, which burns up CPU and makes the OS grumpy.
 	
-	PrefsReplaceString("extfs",document_directory());
-	
+	// There are no options for screen dimensions, SDL can only do fullscreen on iOS and cannot handle rotation, so
+	// whatever the current dimensions are will be the ones we always use for this launch. If the device is rotated
+	// to landscape, then SS will launch in landscape.
 	int aWidth = [UIScreen mainScreen].bounds.size.width;
 	int aHeight = [UIScreen mainScreen].bounds.size.height;
 	char aScreenString[256];
 	sprintf(aScreenString, "dga/%d/%d", aWidth, aHeight);
 	PrefsReplaceString("screen", aScreenString);
-//	PrefsReplaceString("screen", "dga/1024/768");			// on iOS, dga is all that matters here, it causes the app to be full screen with no status bar.
+	
+	// These don't do anything when screen scale is 1:1.
 //	PrefsReplaceBool("scale_nearest", true);
 //	PrefsReplaceBool("scale_integer", true);
-//	PrefsReplaceBool("sdl_vsync", true);
+
+	// These will always be constant for iOS.
 	PrefsReplaceString("sdlrender", "metal");
+	PrefsReplaceString("extfs",document_directory());
+
+	// We have prefs for these now.
+	//	PrefsReplaceInt32("frameskip", 1);		// 1 == 60 Hz, 0 == as fast as possible, which burns up CPU and makes the OS grumpy.
+	//	PrefsReplaceInt32("ramsize", 64 * 1024 * 1024);
+
 	SavePrefs();
 	self.prefsDone = YES;
 	
