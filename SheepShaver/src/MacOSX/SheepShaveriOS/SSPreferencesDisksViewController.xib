@@ -60,7 +60,7 @@
                         <constraint firstAttribute="height" constant="31" id="tmp-KM-tHD"/>
                     </constraints>
                     <connections>
-                        <action selector="bootFromCDROMFirstSwitchHit:" destination="-1" eventType="valueChanged" id="uaj-BG-LLW"/>
+                        <action selector="bootFromCDROMFirstSwitchHit:" destination="-1" eventType="valueChanged" id="Huc-Gy-U67"/>
                     </connections>
                 </switch>
                 <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="L3F-Cp-r6a" userLabel="Separator View">

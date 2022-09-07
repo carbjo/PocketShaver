@@ -38,9 +38,7 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	
 	self.diskArray = [NSMutableArray new];
 	
-		
-//	[self.diskTable registerClass:[SSDiskTableViewCell class] forCellReuseIdentifier:@"diskCell"];
-//	[self.diskTable registerNib:[UINib nibWithNibName:@"SSPreferencesDisksViewController" bundle:[NSBundle mainBundle]] forCellReuseIdentifier:@"diskCell"];
+	//	[self.diskTable registerClass:[SSDiskTableViewCell class] forCellReuseIdentifier:@"diskCell"];
 	
 	[self _setUpDiskTableUI];
 	[self _setUpBootFromUI];
@@ -52,11 +50,6 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	
 	self.diskTable.delegate = self;
 	self.diskTable.dataSource = self;
-	
-	// Select the first disk
-	if (self.diskArray.count > 0) {
-		[self.diskTable selectRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0] animated:NO scrollPosition:UITableViewScrollPositionTop];
-	}
 }
 
 - (void) _setUpBootFromUI
@@ -183,7 +176,11 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 		if (!aFoundIt) {
 			DiskTypeiOS *disk = [DiskTypeiOS new];
 			[disk setPath:anExistingDiskPath];
-			[disk setIsCDROM:NO];
+			if ([anExistingDiskPath.pathExtension compare:@"cdr" options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+				[disk setIsCDROM:YES];
+			} else {
+				[disk setIsCDROM:NO];
+			}
 			[disk setDisable:YES];
 			
 			[self.diskArray addObject:disk];
@@ -195,7 +192,7 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	if (self.diskArray.count == 1) {
 		self.diskArray.firstObject.disable = NO;
 	}
-	
+		
 	NSLOG (@"%s Disk array after adding disabled real disks: %@", __PRETTY_FUNCTION__, self.diskArray);
 	
 	[self _writePrefs];
@@ -208,14 +205,35 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	while (PrefsFindString("disk") != 0) {
 		PrefsRemoveItem("disk");
 	}
+	while (PrefsFindString("cdrom") != 0) {
+		PrefsRemoveItem("cdrom");
+	}
+	
 	if (self.diskArray.count == 1) {
-		PrefsAddString("disk", [self.diskArray.firstObject.path UTF8String]);		// even if it is disabled, since it's the only one
+		PrefsAddString(self.diskArray.firstObject.isCDROM ? "cdrom" : "disk", [self.diskArray.firstObject.path UTF8String]);		// even if it is disabled, since it's the only one
 	} else {
 		for (DiskTypeiOS* aDiskType in self.diskArray) {
 			if (aDiskType.disable == NO) {
 				PrefsAddString(aDiskType.isCDROM ? "cdrom" : "disk", [aDiskType.path UTF8String]);
 			}
 		}
+	}
+	
+	// Ensure that /dev/poll/cdrom is present exactly once.
+	const char* aPollCDROM = nil;
+	int anIndex = 0;
+	do {
+		aPollCDROM = PrefsFindString("cdrom", anIndex++);
+		if (!aPollCDROM) {
+			break;
+		}
+		if (strlen(aPollCDROM) != strlen("/dev/poll/cdrom")) {
+			continue;
+		}
+	}
+	while (strncmp (aPollCDROM, "/dev/poll/cdrom", strlen(aPollCDROM)) != 0);
+	if (!aPollCDROM) {
+		PrefsAddString("cdrom", "/dev/poll/cdrom");		// This is also added in sys_unix.cpp.
 	}
 	
 	NSLOG (@"%s write %lu new disk paths:", __PRETTY_FUNCTION__, (unsigned long)self.diskArray.count);
@@ -235,16 +253,23 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	return 1;
 }
 
+- (BOOL) tableView:(UITableView *)tableView shouldHighlightRowAtIndexPath:(NSIndexPath *)indexPath
+{
+	return NO;
+}
+
+// This should never be hit, selection is turned off.
 - (void) tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
 	NSLOG (@"%s selected row at index path: %@", __PRETTY_FUNCTION__, indexPath);
 	NSLOG (@"    tableView.visibleCells: %@", tableView.visibleCells);
-	
 }
 
 // Row display. Implementers should *always* try to reuse cells by setting each cell's reuseIdentifier and querying for available reusable cells with dequeueReusableCellWithIdentifier:
 // Cell gets various attributes set automatically based on table (separators) and data source (accessory views, editing controls)
-
+//
+// This table is rarely updated while the app is running and is small. There is little chance that any cell would actually be reused
+// and IB (Xcode 12.4) is having indigestion again. So we do it the old way.
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
 {
 	NSLOG (@"%s index path row: %ld", __PRETTY_FUNCTION__, (long)indexPath.row);
@@ -259,6 +284,7 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 		aCell = [[SSDiskTableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"diskCell"];
 	}
 	aCell.disksViewController = self;
+	aCell.disk = [self.diskArray objectAtIndex:indexPath.row];
 	
 	if (tableView.rowHeight == UITableViewAutomaticDimension) {
 		tableView.rowHeight = 44;
@@ -282,12 +308,13 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	NSLOG (@"    aCell.contentView: %@", aCell.contentView);
 	NSLOG (@"    aCell.contentView.subviews: %@", aCell.contentView.subviews);
 
-	[aCell setSelectionStyle:UITableViewCellSelectionStyleBlue];
+	[aCell setSelectionStyle:UITableViewCellSelectionStyleNone];
 	[aCell setUserInteractionEnabled:YES];
 	
 	return aCell;
 }
 
+// These are belt-and-suspenders, they should default to NO anyway.
 - (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath
 {
 	return NO;

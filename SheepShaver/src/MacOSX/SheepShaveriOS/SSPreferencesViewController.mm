@@ -389,17 +389,6 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 
 - (IBAction)doneButtonHit:(id)sender
 {
-	// Still need a pref for this and for cdrom:
-	while (PrefsFindString("disk") != 0) {
-		PrefsRemoveItem("disk");
-	}
-	PrefsReplaceString("disk", "MacOS9.dsk");
-	
-	while (PrefsFindString("cdrom") != 0) {
-		PrefsRemoveItem("cdrom");
-	}
-	PrefsAddString("cdrom", "/dev/poll/cdrom");		// This is also added in sys_unix.cpp.
-	
 	// No UI for these yet, as they don't work yet:
 	PrefsAddString("seriala", "/dev/null");
 	PrefsAddString("serialb", "/dev/null");
@@ -423,8 +412,17 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 	PrefsReplaceString("extfs", document_directory());
 	
 	// We have prefs for these now.
-	//	PrefsReplaceInt32("frameskip", 1);		// 1 == 60 Hz, 0 == as fast as possible, which burns up CPU and makes the OS grumpy.
-	//	PrefsReplaceInt32("ramsize", 64 * 1024 * 1024);
+//	PrefsReplaceInt32("frameskip", 1);		// 1 == 60 Hz, 0 == as fast as possible, which burns up CPU and makes the OS grumpy.
+//	PrefsReplaceInt32("ramsize", 64 * 1024 * 1024);
+//	while (PrefsFindString("disk") != 0) {
+//		PrefsRemoveItem("disk");
+//	}
+//	PrefsReplaceString("disk", "MacOS9.dsk");
+//
+//	while (PrefsFindString("cdrom") != 0) {
+//		PrefsRemoveItem("cdrom");
+//	}
+//	PrefsAddString("cdrom", "/dev/poll/cdrom");		// This is also added in sys_unix.cpp.
 
 	SavePrefs();
 	self.prefsDone = YES;

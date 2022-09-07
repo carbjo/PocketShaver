@@ -9,13 +9,17 @@
 
 #import "UIView+SDCAutoLayout.h"
 
+@interface SSPreferencesDisksViewController(SSDiskTableViewCell)
+
+- (void) _writePrefs;
+
+@end
+
 @implementation SSDiskTableViewCell
 
 - (void)awakeFromNib {
     [super awakeFromNib];
     // Initialization code
-	
-//	self.diskMountEnableSwitch = [UISwitch new];
 }
 
 - (instancetype) initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier
@@ -31,52 +35,59 @@
 		[self.contentView addSubview:self.isCDROMSwitch];
 		[self.contentView addSubview:self.diskNameLabel];
 		
-//		[self setAutoresizingMask:UIViewAutoresizingNone];
-//		[self.contentView setAutoresizingMask:UIViewAutoresizingNone];
-//		[self.diskMountEnableSwitch setAutoresizingMask:UIViewAutoresizingNone];
-//		[self.isCDROMSwitch setAutoresizingMask:UIViewAutoresizingNone];
-//		[self.diskNameLabel setAutoresizingMask:UIViewAutoresizingNone];
-		
+		[self.diskMountEnableSwitch addTarget:self action:@selector(diskMountEnableSwitchHit:) forControlEvents:UIControlEventValueChanged];
+		[self.isCDROMSwitch addTarget:self action:@selector(isCDROMSwitchHit:) forControlEvents:UIControlEventValueChanged];
+
 		CGRect aContentFrame = self.contentView.frame;
 		
+		// CDROM switch on the far right.
 		CGRect aCDROMFrame = self.isCDROMSwitch.frame;
 		aCDROMFrame.origin.x = (aContentFrame.origin.x + aContentFrame.size.width) - aCDROMFrame.size.width - 16;
 		aCDROMFrame.origin.y = (aContentFrame.size.height / 2) - (aCDROMFrame.size.height / 2);
 		[self.isCDROMSwitch setFrame:aCDROMFrame];
 		
+		// Mount enable switch to the left of CDROM switch.
 		CGRect aMountFrame = self.diskMountEnableSwitch.frame;
 		aMountFrame.origin.x = aCDROMFrame.origin.x - aMountFrame.size.width - 12;
 		aMountFrame.origin.y = (aContentFrame.size.height / 2) - (aMountFrame.size.height / 2);
 		[self.diskMountEnableSwitch setFrame:aMountFrame];
 		
+		// Label gets the rest of the space from the left edge to the mount enable switch.
 		CGRect aFileNameFrame = self.diskNameLabel.frame;
 		aFileNameFrame.size.width = aMountFrame.origin.x - 12;
 		aFileNameFrame.size.height = 21;
 		aFileNameFrame.origin.x = 8;
 		aFileNameFrame.origin.y = (aContentFrame.size.height / 2) - (aFileNameFrame.size.height / 2);
 		[self.diskNameLabel setFrame:aFileNameFrame];
-
-//		[self.isCDROMSwitch sdc_alignEdge:UIRectEdgeRight withEdge:UIRectEdgeRight ofView:self.isCDROMSwitch.superview inset:30];
-//		[self.isCDROMSwitch sdc_alignEdge:UIRectEdgeBottom withEdge:UIRectEdgeBottom ofView:self.isCDROMSwitch.superview inset:6];
-
 	}
+	
 	return self;
-}
-
-- (void)setSelected:(BOOL)selected animated:(BOOL)animated {
-    [super setSelected:selected animated:animated];
-
-    // Configure the view for the selected state
 }
 
 - (IBAction)diskMountEnableSwitchHit:(id)sender
 {
-	
+	if ([self.disksViewController.diskArray count] != 1) {
+		self.disk.disable = !self.diskMountEnableSwitch.isOn;
+		[self.disksViewController _writePrefs];
+	}
 }
 
 - (IBAction)isCDROMSwitchHit:(id)sender
 {
-	
+	self.disk.isCDROM = self.isCDROMSwitch.isOn;
+	[self.disksViewController _writePrefs];
 }
 
+// This will probably never be called, but just for completeness:
+- (void) prepareForReuse
+{
+	self.diskMountEnableSwitch = nil;
+	self.diskNameLabel = nil;
+	self.isCDROMSwitch = nil;
+	
+	self.disksViewController = nil;
+	self.disk = nil;
+	
+	[super prepareForReuse];
+}
 @end
