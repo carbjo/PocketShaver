@@ -10,13 +10,16 @@
 #define int32 int32_t
 #import "prefs.h"
 
-#define DEBUG_AV_PREFS 1
+#define DEBUG_AV_PREFS 0
 
 #if DEBUG_AV_PREFS
 #define NSLOG(...) NSLog(__VA_ARGS__)
 #else
 #define NSLOG(...)
 #endif
+
+// This will set the default rate to 30Hz, which is a frameskip of 2.
+const int kDefaultFrameRateIndex = 4;
 
 @interface SSPreferencesAVViewController ()
 
@@ -53,8 +56,8 @@
 		}
 	}
 	if (([aRateValue intValue] == 0) || (anIndex >= self.frameSkipValueArray.count)) {		// didn't find it?
-		aRateValue = self.rateValueArray.lastObject;		// Use 60 Hz
-		anIndex = (int)self.rateValueArray.count - 1;
+		aRateValue = [self.rateValueArray objectAtIndex:kDefaultFrameRateIndex];		// Use 30 Hz
+		anIndex = kDefaultFrameRateIndex;
 	}
 	PrefsReplaceInt32("frameskip", [self.frameSkipValueArray[anIndex] intValue]);
 	self.rateStepper.value = anIndex;

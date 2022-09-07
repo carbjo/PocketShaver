@@ -10,7 +10,7 @@
 #define int32 int32_t
 #import "prefs.h"
 
-#define DEBUG_ROM_PREFS 1
+#define DEBUG_ROM_PREFS 0
 
 #if DEBUG_ROM_PREFS
 #define NSLOG(...) NSLog(__VA_ARGS__)
@@ -50,7 +50,7 @@ NSArray* gBootROMFilePaths;
 		}
 		
 		if (anIndex < [[SSPreferencesBootROMViewController romFilePaths] count]) {
-			[self.bootROMTable selectRowAtIndexPath:[NSIndexPath indexPathForRow:anIndex inSection:0] animated:NO scrollPosition:UITableViewScrollPositionMiddle];
+			[self.bootROMTable selectRowAtIndexPath:[NSIndexPath indexPathForRow:anIndex inSection:0] animated:NO scrollPosition:UITableViewScrollPositionTop];
 		}
 	}
 }
@@ -156,7 +156,7 @@ NSArray* gBootROMFilePaths;
 			NSString* anElementPath = [aDocsDirectory stringByAppendingPathComponent:anElementName];
 			BOOL aIsDirectory = NO;
 			if (![[NSFileManager defaultManager] fileExistsAtPath:anElementPath isDirectory:&aIsDirectory] || (aIsDirectory)) {
-				NSLOG (@"%s File doesn't exist or is a direcotry, continuing: %@", __PRETTY_FUNCTION__, anElementName);
+				NSLOG (@"%s File doesn't exist or is a directory, continuing: %@", __PRETTY_FUNCTION__, anElementName);
 				continue;
 			}
 			

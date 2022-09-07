@@ -7,34 +7,239 @@
 
 #import "SSPreferencesDisksViewController.h"
 
+#import "DiskTypeiOS.h"
+#import "SSDiskTableHeaderView.h"
+#import "SSDiskTableViewCell.h"
+
 #define int32 int32_t
 #import "prefs.h"
 
+#define DEBUG_DISK_PREFS 1
+
+#if DEBUG_DISK_PREFS
+#define NSLOG(...) NSLog(__VA_ARGS__)
+#else
+#define NSLOG(...)
+#endif
+
+const int kCDROMRefNum = -62;			// RefNum of driver
+
 @interface SSPreferencesDisksViewController ()
+
+@property (readwrite, nonatomic) NSMutableArray<DiskTypeiOS*>* diskArray;
 
 @end
 
 @implementation SSPreferencesDisksViewController
 
 - (void)viewDidLoad {
-    [super viewDidLoad];
-    // Do any additional setup after loading the view from its nib.
+	[super viewDidLoad];
+	// Do any additional setup after loading the view from its nib.
+	
+	self.diskArray = [NSMutableArray new];
+	
+		
+//	[self.diskTable registerClass:[SSDiskTableViewCell class] forCellReuseIdentifier:@"diskCell"];
+//	[self.diskTable registerNib:[UINib nibWithNibName:@"SSPreferencesDisksViewController" bundle:[NSBundle mainBundle]] forCellReuseIdentifier:@"diskCell"];
+	
+	[self _setUpDiskTableUI];
+	[self _setUpBootFromUI];
 }
 
-/*
-#pragma mark - Navigation
-
-// In a storyboard-based application, you will often want to do a little preparation before navigation
-- (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender {
-    // Get the new view controller using [segue destinationViewController].
-    // Pass the selected object to the new view controller.
+- (void) _setUpDiskTableUI
+{
+	[self _loadDiskData];
+	
+	self.diskTable.delegate = self;
+	self.diskTable.dataSource = self;
+	
+	// Select the first disk
+	if (self.diskArray.count > 0) {
+		[self.diskTable selectRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0] animated:NO scrollPosition:UITableViewScrollPositionTop];
+	}
 }
-*/
+
+- (void) _setUpBootFromUI
+{
+	BOOL aBootFromCDROMFirst = NO;
+	if (PrefsFindInt32("bootdriver") == kCDROMRefNum) {
+		aBootFromCDROMFirst = YES;
+	}
+	[self.bootFromCDROMFirstSwitch setOn:aBootFromCDROMFirst];
+}
+
+- (void) _loadDiskData
+{
+	// First we scan for all available disks in the Documents directory. Then we reconcile that
+	// with the "disk" prefs, eliminating any existing prefs that we can't find in the Documents
+	// directory. This we use to populate diskArray.
+	const char *dsk;
+	int index = 0;
+	while ((dsk = PrefsFindString("disk", index++)) != NULL) {
+		DiskTypeiOS *disk = [DiskTypeiOS new];
+		[disk setPath:[NSString stringWithUTF8String: dsk ]];
+		[disk setIsCDROM:NO];
+		
+		[self.diskArray addObject:disk];
+	}
+	
+	/* Fetch all CDROMs */
+	index = 0;
+	while ((dsk = PrefsFindString("cdrom", index++)) != NULL) {
+		NSString *path = [NSString stringWithUTF8String: dsk ];
+		if (![path hasPrefix:@"/dev/"]) {
+			DiskTypeiOS *disk = [DiskTypeiOS new];
+			[disk setPath:[NSString stringWithUTF8String: dsk ]];
+			[disk setIsCDROM:YES];
+			
+			[self.diskArray addObject:disk];
+		}
+	}
+	
+	NSLOG (@"%s Array from cdrom prefs: %@", __PRETTY_FUNCTION__, self.diskArray);
+
+	// Ok, we have a list of disks that the prefs know about. Get the actual files in the Documents directory.
+	
+	NSString* aDocsDirectory = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+	NSError* anError = nil;
+	NSArray* anAllElements = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:aDocsDirectory error:&anError];
+	if (anError) {
+		NSLOG (@"%s contents of directory at path: %@ returned error: %@", __PRETTY_FUNCTION__, aDocsDirectory, anError);
+		
+		// Should we clear the list completely here?
+		
+		return;
+	}
+	NSLOG (@"%s All elements in directory: %@\n%@", __PRETTY_FUNCTION__, aDocsDirectory, anAllElements);
+
+	NSMutableArray* aDiskCandidateFiles = [NSMutableArray new];
+	for (NSString* anElementName in anAllElements) {
+		NSString* anElementPath = [aDocsDirectory stringByAppendingPathComponent:anElementName];
+		BOOL aIsDirectory = NO;
+		if (![[NSFileManager defaultManager] fileExistsAtPath:anElementPath isDirectory:&aIsDirectory] || (aIsDirectory)) {
+			NSLOG (@"%s File doesn't exist or is a directory, continuing: %@", __PRETTY_FUNCTION__, anElementName);
+			continue;
+		}
+
+		// Ok, we have a file (as opposed to a directory) and it exists. See if it has an extension that's not a disk file.
+		if (anElementPath.pathExtension.length > 0) {
+			if ([anElementPath.pathExtension compare:@"dsk" options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+				// Extension exists and is "dsk".
+				[aDiskCandidateFiles addObject:anElementPath];
+			} else if ([anElementPath.pathExtension compare:@"dmg" options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+				[aDiskCandidateFiles addObject:anElementPath];
+			} else if ([anElementPath.pathExtension compare:@"cdr" options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+				[aDiskCandidateFiles addObject:anElementPath];
+			} else {
+				NSLOG (@"%s Extension %@ is unknown: %@", __PRETTY_FUNCTION__, anElementPath.pathExtension, anElementName);
+			}
+		}
+	}
+	
+	NSLOG (@"%s Disk candidate files: %@", __PRETTY_FUNCTION__, aDiskCandidateFiles);
+
+	// Compare the lists. For any disk that we have that doesn't actually exist, eliminate it from the disks list.
+	// For any disk that actually exists that we don't already know about, create an entry but mark it disabled.
+	
+	// First look for the ones in the prefs that don't actually exist. Since we will be eliminating things from the
+	// array, we have to be careful not to invalidate iterators.
+	int aDiskArrayIndex = 0;
+	while (aDiskArrayIndex < self.diskArray.count) {
+		// Starting at the top, search for a path in the disk array from within the disk files. If something doesn't
+		// match, we can eliminate it. Otherwise, bump the index and continue.
+		DiskTypeiOS* aSearchDisk = [self.diskArray objectAtIndex:aDiskArrayIndex];
+		NSString* aSearchPath = [aSearchDisk path];
+		
+		BOOL aFoundIt = NO;
+		for (int aDiskCandidateIndex = 0; aDiskCandidateIndex < aDiskCandidateFiles.count; aDiskCandidateIndex++) {
+			if ([aSearchPath compare:[aDiskCandidateFiles objectAtIndex:aDiskCandidateIndex] options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+				aFoundIt = YES;
+				break;
+			}
+		}
+		if (aFoundIt) {
+			aDiskArrayIndex++;
+		} else {
+			[self.diskArray removeObjectAtIndex:aDiskArrayIndex];		// note do not increment index.
+		}
+	}
+	
+	NSLOG (@"%s Disk array after eliminating phantoms: %@", __PRETTY_FUNCTION__, self.diskArray);
+
+	// Ok, now self.diskArray contains only things that actually exist, let's see if there is anything else to add to it,
+	// that is, files that exist that aren't already accounted for.
+	int aDiskCandidateIndex = 0;
+	while (aDiskCandidateIndex < aDiskCandidateFiles.count) {
+		NSString* anExistingDiskPath = [aDiskCandidateFiles objectAtIndex:aDiskCandidateIndex];
+		BOOL aFoundIt = NO;
+		for (aDiskArrayIndex = 0; aDiskArrayIndex < self.diskArray.count; aDiskArrayIndex++) {
+			DiskTypeiOS* aSearchDisk = [self.diskArray objectAtIndex:aDiskArrayIndex];
+			NSString* aSearchPath = [aSearchDisk path];
+			if ([aSearchPath compare:anExistingDiskPath options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+				aFoundIt = YES;
+				break;
+			}
+		}
+		if (!aFoundIt) {
+			DiskTypeiOS *disk = [DiskTypeiOS new];
+			[disk setPath:anExistingDiskPath];
+			[disk setIsCDROM:NO];
+			[disk setDisable:YES];
+			
+			[self.diskArray addObject:disk];
+		}
+		aDiskCandidateIndex++;
+	}
+	
+	// If there is but one disk, make sure it is enabled.
+	if (self.diskArray.count == 1) {
+		self.diskArray.firstObject.disable = NO;
+	}
+	
+	NSLOG (@"%s Disk array after adding disabled real disks: %@", __PRETTY_FUNCTION__, self.diskArray);
+	
+	[self _writePrefs];
+}
+
+- (void) _writePrefs
+{
+	// Clear the prefs and rewrite them. If there is but one real disk and no remaining prefs disks, we should just
+	// set the one as the prefs disk without bothering the user.
+	while (PrefsFindString("disk") != 0) {
+		PrefsRemoveItem("disk");
+	}
+	if (self.diskArray.count == 1) {
+		PrefsAddString("disk", [self.diskArray.firstObject.path UTF8String]);		// even if it is disabled, since it's the only one
+	} else {
+		for (DiskTypeiOS* aDiskType in self.diskArray) {
+			if (aDiskType.disable == NO) {
+				PrefsAddString(aDiskType.isCDROM ? "cdrom" : "disk", [aDiskType.path UTF8String]);
+			}
+		}
+	}
+	
+	NSLOG (@"%s write %lu new disk paths:", __PRETTY_FUNCTION__, (unsigned long)self.diskArray.count);
+	for (DiskTypeiOS* aDiskType in self.diskArray) {
+		NSLOG (@"    %@", aDiskType.path);
+	}
+}
 
 // UITableViewDataSource
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
-	return 0;
+	return self.diskArray.count;
+}
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView
+{
+	return 1;
+}
+
+- (void) tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
+{
+	NSLOG (@"%s selected row at index path: %@", __PRETTY_FUNCTION__, indexPath);
+	NSLOG (@"    tableView.visibleCells: %@", tableView.visibleCells);
+	
 }
 
 // Row display. Implementers should *always* try to reuse cells by setting each cell's reuseIdentifier and querying for available reusable cells with dequeueReusableCellWithIdentifier:
@@ -42,8 +247,74 @@
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
 {
+	NSLOG (@"%s index path row: %ld", __PRETTY_FUNCTION__, (long)indexPath.row);
+	if (indexPath.row >= self.diskArray.count) {
+		return nil;
+	}
+	
+	SSDiskTableViewCell* aCell = nil;
+	
+//	aCell = [tableView dequeueReusableCellWithIdentifier:@"diskCell" forIndexPath:indexPath];
+	if (!aCell) {
+		aCell = [[SSDiskTableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"diskCell"];
+	}
+	aCell.disksViewController = self;
+	
+	if (tableView.rowHeight == UITableViewAutomaticDimension) {
+		tableView.rowHeight = 44;
+	}
+	CGRect aFrame = CGRectMake(0, 0, tableView.contentSize.width, tableView.rowHeight);
+	[aCell.contentView setFrame:aFrame];
+	[aCell setFrame:aFrame];
+	
+	NSLOG (@"%s SSDiskTableViewCell frame: %@", __PRETTY_FUNCTION__, NSStringFromCGRect(aFrame));
+	
+	// No need to show the whole path.
+	DiskTypeiOS* aDisk = [self.diskArray objectAtIndex:indexPath.row];
+	[aCell.diskNameLabel setText:[aDisk.path lastPathComponent]];
+	[aCell.isCDROMSwitch setOn:aDisk.isCDROM];
+	[aCell.diskMountEnableSwitch setOn:!aDisk.disable];
+	
+	NSLOG (@"    aCell: %@", aCell);
+	NSLOG (@"    aCell.diskNameLabel: %@", aCell.diskNameLabel);
+	NSLOG (@"    aCell.isCDROMSwitch: %@", aCell.isCDROMSwitch);
+	NSLOG (@"    aCell.diskMountEnableSwitch: %@", aCell.diskMountEnableSwitch);
+	NSLOG (@"    aCell.contentView: %@", aCell.contentView);
+	NSLOG (@"    aCell.contentView.subviews: %@", aCell.contentView.subviews);
+
+	[aCell setSelectionStyle:UITableViewCellSelectionStyleBlue];
+	[aCell setUserInteractionEnabled:YES];
+	
+	return aCell;
+}
+
+- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath
+{
+	return NO;
+}
+
+- (BOOL)tableView:(UITableView *)tableView canMoveRowAtIndexPath:(NSIndexPath *)indexPath
+{
+	return NO;
+}
+
+- (nullable NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section
+{
 	return nil;
 }
 
+- (nullable NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section
+{
+	return nil;
+}
+
+- (IBAction)bootFromCDROMFirstSwitchHit:(id)sender
+{
+	if (self.bootFromCDROMFirstSwitch.isOn) {
+		PrefsReplaceInt32("bootdriver", kCDROMRefNum);
+	} else {
+		PrefsReplaceInt32("bootdriver", 0);
+	}
+}
 
 @end
