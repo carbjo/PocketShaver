@@ -215,6 +215,8 @@
 		E204BA4828BDB4260081FDCA /* SSPreferencesBootROMViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = E204BA4628BDB4260081FDCA /* SSPreferencesBootROMViewController.xib */; };
 		E2A5817728C7C633005C7373 /* DiskTypeiOS.m in Sources */ = {isa = PBXBuildFile; fileRef = E2A5817628C7C633005C7373 /* DiskTypeiOS.m */; };
 		E2A5817C28C7F987005C7373 /* SSDiskTableHeaderView.m in Sources */ = {isa = PBXBuildFile; fileRef = E2A5817B28C7F987005C7373 /* SSDiskTableHeaderView.m */; };
+		E2A5818428C9427B005C7373 /* SSCreateDiskViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = E2A5818228C9427A005C7373 /* SSCreateDiskViewController.m */; };
+		E2A5818528C9427B005C7373 /* SSCreateDiskViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = E2A5818328C9427A005C7373 /* SSCreateDiskViewController.xib */; };
 		E2F38C2328C470CC00FB98B4 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = E2F38C2228C470CC00FB98B4 /* Localizable.strings */; };
 		E413A40320CF7E6D00FBE967 /* video_sdl2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */; };
 		E4150D1220D557820077C51A /* SDL2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E4150D1120D557820077C51A /* SDL2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -550,6 +552,9 @@
 		E2A5817628C7C633005C7373 /* DiskTypeiOS.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DiskTypeiOS.m; sourceTree = "<group>"; };
 		E2A5817A28C7F987005C7373 /* SSDiskTableHeaderView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSDiskTableHeaderView.h; sourceTree = "<group>"; };
 		E2A5817B28C7F987005C7373 /* SSDiskTableHeaderView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SSDiskTableHeaderView.m; sourceTree = "<group>"; };
+		E2A5818128C9427A005C7373 /* SSCreateDiskViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSCreateDiskViewController.h; sourceTree = "<group>"; };
+		E2A5818228C9427A005C7373 /* SSCreateDiskViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SSCreateDiskViewController.m; sourceTree = "<group>"; };
+		E2A5818328C9427A005C7373 /* SSCreateDiskViewController.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = SSCreateDiskViewController.xib; sourceTree = "<group>"; };
 		E2F38C2228C470CC00FB98B4 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Localizable.strings; sourceTree = "<group>"; };
 		E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = video_sdl2.cpp; path = ../../../BasiliskII/src/SDL/video_sdl2.cpp; sourceTree = "<group>"; };
 		E4150D1120D557820077C51A /* SDL2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SDL2.framework; path = /Library/Frameworks/SDL2.framework; sourceTree = "<group>"; };
@@ -1175,6 +1180,9 @@
 				E204B9C328BC7BF10081FDCA /* SceneDelegate.h */,
 				E204B9A728BC7BF10081FDCA /* SceneDelegate.m */,
 				E204B9BD28BC7BF10081FDCA /* SDCAutoLayout */,
+				E2A5818128C9427A005C7373 /* SSCreateDiskViewController.h */,
+				E2A5818228C9427A005C7373 /* SSCreateDiskViewController.m */,
+				E2A5818328C9427A005C7373 /* SSCreateDiskViewController.xib */,
 				E2A5817A28C7F987005C7373 /* SSDiskTableHeaderView.h */,
 				E2A5817B28C7F987005C7373 /* SSDiskTableHeaderView.m */,
 				E204B9B628BC7BF10081FDCA /* SSDiskTableViewCell.h */,
@@ -1409,6 +1417,7 @@
 				E204B9DC28BC7BF10081FDCA /* SSPreferencesAVViewController.xib in Resources */,
 				E204B9C728BC7BF10081FDCA /* SSPreferencesViewController.xib in Resources */,
 				E204BA4828BDB4260081FDCA /* SSPreferencesBootROMViewController.xib in Resources */,
+				E2A5818528C9427B005C7373 /* SSCreateDiskViewController.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1634,6 +1643,7 @@
 				E204B96228BC3EBE0081FDCA /* rpc_unix.cpp in Sources */,
 				E204B96328BC3EBE0081FDCA /* serial_unix.cpp in Sources */,
 				E204B96428BC3EBE0081FDCA /* sshpty.c in Sources */,
+				E2A5818428C9427B005C7373 /* SSCreateDiskViewController.m in Sources */,
 				E204B96528BC3EBE0081FDCA /* strlcpy.c in Sources */,
 				E204B9CA28BC7BF10081FDCA /* SSGestureRecognizerManager.m in Sources */,
 				E204B96628BC3EBE0081FDCA /* sys_unix.cpp in Sources */,

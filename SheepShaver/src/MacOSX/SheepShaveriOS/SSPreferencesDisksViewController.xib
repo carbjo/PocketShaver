@@ -12,6 +12,7 @@
         <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner" customClass="SSPreferencesDisksViewController">
             <connections>
                 <outlet property="bootFromCDROMFirstSwitch" destination="YA8-y7-dGe" id="o53-8V-HNN"/>
+                <outlet property="createNewDiskButton" destination="cpt-gD-vlZ" id="LQw-XF-gDk"/>
                 <outlet property="diskTable" destination="Fvq-JN-ILU" id="9av-xc-Oxw"/>
                 <outlet property="view" destination="i5M-Pr-FkT" id="sfx-zR-JGt"/>
             </connections>
@@ -21,11 +22,11 @@
             <rect key="frame" x="0.0" y="0.0" width="320" height="480"/>
             <subviews>
                 <tableView clipsSubviews="YES" contentMode="scaleToFill" alwaysBounceVertical="YES" style="plain" separatorStyle="default" rowHeight="-1" estimatedRowHeight="-1" sectionHeaderHeight="28" sectionFooterHeight="28" translatesAutoresizingMaskIntoConstraints="NO" id="Fvq-JN-ILU">
-                    <rect key="frame" x="16" y="97" width="288" height="363"/>
+                    <rect key="frame" x="16" y="143" width="288" height="317"/>
                     <color key="backgroundColor" systemColor="systemBackgroundColor"/>
                 </tableView>
                 <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="File Name" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="V8f-il-QYF">
-                    <rect key="frame" x="30" y="68" width="145" height="21"/>
+                    <rect key="frame" x="30" y="114" width="145" height="21"/>
                     <constraints>
                         <constraint firstAttribute="height" constant="21" id="KVr-Sc-RUa"/>
                     </constraints>
@@ -34,7 +35,7 @@
                     <nil key="highlightedColor"/>
                 </label>
                 <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="CDROM" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="heK-lp-J36">
-                    <rect key="frame" x="242" y="68" width="61" height="21"/>
+                    <rect key="frame" x="242" y="114" width="61" height="21"/>
                     <constraints>
                         <constraint firstAttribute="height" constant="21" id="3CH-B4-Vra"/>
                         <constraint firstAttribute="width" constant="61" id="jK4-rW-6b2"/>
@@ -44,7 +45,7 @@
                     <nil key="highlightedColor"/>
                 </label>
                 <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Mount" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="6jO-bN-ISs">
-                    <rect key="frame" x="183" y="68" width="51" height="21"/>
+                    <rect key="frame" x="183" y="114" width="51" height="21"/>
                     <constraints>
                         <constraint firstAttribute="width" constant="51" id="htx-DT-qSG"/>
                         <constraint firstAttribute="height" constant="21" id="ksw-ER-QKk"/>
@@ -53,8 +54,8 @@
                     <nil key="textColor"/>
                     <nil key="highlightedColor"/>
                 </label>
-                <switch opaque="NO" contentMode="scaleToFill" horizontalHuggingPriority="750" verticalHuggingPriority="750" contentHorizontalAlignment="center" contentVerticalAlignment="center" on="YES" translatesAutoresizingMaskIntoConstraints="NO" id="YA8-y7-dGe">
-                    <rect key="frame" x="257" y="12" width="49" height="31"/>
+                <switch opaque="NO" contentMode="scaleToFill" horizontalHuggingPriority="750" verticalHuggingPriority="750" misplaced="YES" contentHorizontalAlignment="center" contentVerticalAlignment="center" on="YES" translatesAutoresizingMaskIntoConstraints="NO" id="YA8-y7-dGe" userLabel="Boot from CDROM switch">
+                    <rect key="frame" x="223" y="58" width="49" height="31"/>
                     <constraints>
                         <constraint firstAttribute="width" constant="47" id="0T2-FA-Ufv"/>
                         <constraint firstAttribute="height" constant="31" id="tmp-KM-tHD"/>
@@ -63,45 +64,58 @@
                         <action selector="bootFromCDROMFirstSwitchHit:" destination="-1" eventType="valueChanged" id="Huc-Gy-U67"/>
                     </connections>
                 </switch>
-                <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="L3F-Cp-r6a" userLabel="Separator View">
-                    <rect key="frame" x="16" y="51" width="288" height="1"/>
-                    <color key="backgroundColor" systemColor="systemGray2Color"/>
+                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" horizontalCompressionResistancePriority="1000" text="Boot from CDROM First:" textAlignment="right" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="ljo-uM-FEW">
+                    <rect key="frame" x="29" y="63" width="186" height="21"/>
                     <constraints>
-                        <constraint firstAttribute="height" constant="1" id="fRg-c3-hWh"/>
-                        <constraint firstAttribute="height" relation="greaterThanOrEqual" constant="1" id="j21-qS-5GG"/>
-                    </constraints>
-                </view>
-                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Boot from CDROM First:" textAlignment="right" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="ljo-uM-FEW">
-                    <rect key="frame" x="16" y="17" width="233" height="21"/>
-                    <constraints>
+                        <constraint firstAttribute="width" constant="186" id="TGH-kd-Pye"/>
                         <constraint firstAttribute="height" constant="21" id="eVF-N9-vH1"/>
                     </constraints>
                     <fontDescription key="fontDescription" type="system" pointSize="17"/>
                     <nil key="textColor"/>
                     <nil key="highlightedColor"/>
                 </label>
+                <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="L3F-Cp-r6a" userLabel="Separator View">
+                    <rect key="frame" x="16" y="97" width="288" height="1"/>
+                    <color key="backgroundColor" systemColor="systemGray2Color"/>
+                    <constraints>
+                        <constraint firstAttribute="height" constant="1" id="fRg-c3-hWh"/>
+                        <constraint firstAttribute="height" relation="greaterThanOrEqual" constant="1" id="j21-qS-5GG"/>
+                    </constraints>
+                </view>
+                <button opaque="NO" contentMode="scaleToFill" horizontalCompressionResistancePriority="100" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="cpt-gD-vlZ">
+                    <rect key="frame" x="96" y="20" width="128" height="30"/>
+                    <constraints>
+                        <constraint firstAttribute="height" constant="30" id="lgy-bQ-AuI"/>
+                        <constraint firstAttribute="width" relation="greaterThanOrEqual" constant="128" id="ym4-HV-uYl"/>
+                    </constraints>
+                    <state key="normal" title="Create New Disk..."/>
+                    <connections>
+                        <action selector="createNewDiskButtonHit:" destination="-1" eventType="touchDown" id="B3H-1O-75i"/>
+                    </connections>
+                </button>
             </subviews>
             <viewLayoutGuide key="safeArea" id="Q5M-cg-NOt"/>
             <color key="backgroundColor" systemColor="systemBackgroundColor"/>
             <constraints>
-                <constraint firstItem="Q5M-cg-NOt" firstAttribute="trailing" secondItem="YA8-y7-dGe" secondAttribute="trailing" constant="16" id="0ig-Pg-hNf"/>
-                <constraint firstItem="ljo-uM-FEW" firstAttribute="leading" secondItem="Q5M-cg-NOt" secondAttribute="leading" constant="16" id="3me-6Q-CWj"/>
-                <constraint firstItem="ljo-uM-FEW" firstAttribute="top" secondItem="Q5M-cg-NOt" secondAttribute="top" constant="17" id="4SG-he-pPb"/>
-                <constraint firstItem="6jO-bN-ISs" firstAttribute="top" secondItem="Q5M-cg-NOt" secondAttribute="top" constant="68" id="5tu-Wx-Fs2"/>
+                <constraint firstItem="ljo-uM-FEW" firstAttribute="top" secondItem="Q5M-cg-NOt" secondAttribute="top" constant="63" id="4SG-he-pPb"/>
+                <constraint firstItem="6jO-bN-ISs" firstAttribute="top" secondItem="Q5M-cg-NOt" secondAttribute="top" constant="114" id="5tu-Wx-Fs2"/>
                 <constraint firstItem="Q5M-cg-NOt" firstAttribute="bottom" secondItem="Fvq-JN-ILU" secondAttribute="bottom" constant="20" id="Ecu-i6-Rfa"/>
                 <constraint firstItem="heK-lp-J36" firstAttribute="leading" secondItem="6jO-bN-ISs" secondAttribute="trailing" constant="8" symbolic="YES" id="Ee0-3L-f0N"/>
                 <constraint firstItem="V8f-il-QYF" firstAttribute="leading" secondItem="Q5M-cg-NOt" secondAttribute="leading" constant="30" id="PUg-mY-1Sw"/>
                 <constraint firstItem="Q5M-cg-NOt" firstAttribute="trailing" secondItem="Fvq-JN-ILU" secondAttribute="trailing" constant="16" id="cRN-Lz-Z7z"/>
                 <constraint firstItem="L3F-Cp-r6a" firstAttribute="leading" secondItem="i5M-Pr-FkT" secondAttribute="leading" constant="16" id="f3s-Cl-ntZ"/>
                 <constraint firstItem="YA8-y7-dGe" firstAttribute="leading" secondItem="ljo-uM-FEW" secondAttribute="trailing" constant="8" symbolic="YES" id="gGT-pg-bUV"/>
+                <constraint firstItem="cpt-gD-vlZ" firstAttribute="centerX" secondItem="i5M-Pr-FkT" secondAttribute="centerX" id="h2x-Wz-b39"/>
                 <constraint firstItem="6jO-bN-ISs" firstAttribute="leading" secondItem="V8f-il-QYF" secondAttribute="trailing" constant="8" symbolic="YES" id="iZ0-8K-oqW"/>
                 <constraint firstItem="L3F-Cp-r6a" firstAttribute="top" secondItem="YA8-y7-dGe" secondAttribute="bottom" constant="8" symbolic="YES" id="iw3-fg-gln"/>
                 <constraint firstItem="Q5M-cg-NOt" firstAttribute="trailing" secondItem="heK-lp-J36" secondAttribute="trailing" constant="17" id="jTX-Yr-GO3"/>
-                <constraint firstItem="heK-lp-J36" firstAttribute="top" secondItem="Q5M-cg-NOt" secondAttribute="top" constant="68" id="nrx-KS-Ipt"/>
-                <constraint firstItem="V8f-il-QYF" firstAttribute="top" secondItem="Q5M-cg-NOt" secondAttribute="top" constant="68" id="oaT-88-tM5"/>
+                <constraint firstItem="ljo-uM-FEW" firstAttribute="centerX" secondItem="i5M-Pr-FkT" secondAttribute="centerX" constant="-38" id="nYo-dt-qhb"/>
+                <constraint firstItem="heK-lp-J36" firstAttribute="top" secondItem="Q5M-cg-NOt" secondAttribute="top" constant="114" id="nrx-KS-Ipt"/>
+                <constraint firstItem="V8f-il-QYF" firstAttribute="top" secondItem="Q5M-cg-NOt" secondAttribute="top" constant="114" id="oaT-88-tM5"/>
                 <constraint firstAttribute="trailing" secondItem="L3F-Cp-r6a" secondAttribute="trailing" constant="16" id="p0b-bo-LNG"/>
-                <constraint firstItem="YA8-y7-dGe" firstAttribute="top" secondItem="i5M-Pr-FkT" secondAttribute="top" constant="12" id="rxo-E5-eqK"/>
-                <constraint firstItem="Fvq-JN-ILU" firstAttribute="top" secondItem="Q5M-cg-NOt" secondAttribute="top" constant="97" id="vlG-aJ-V1f"/>
+                <constraint firstItem="YA8-y7-dGe" firstAttribute="top" secondItem="i5M-Pr-FkT" secondAttribute="top" constant="58" id="rxo-E5-eqK"/>
+                <constraint firstItem="cpt-gD-vlZ" firstAttribute="top" secondItem="Q5M-cg-NOt" secondAttribute="top" constant="20" id="v7g-Kd-HVu"/>
+                <constraint firstItem="Fvq-JN-ILU" firstAttribute="top" secondItem="Q5M-cg-NOt" secondAttribute="top" constant="143" id="vlG-aJ-V1f"/>
                 <constraint firstItem="Fvq-JN-ILU" firstAttribute="leading" secondItem="Q5M-cg-NOt" secondAttribute="leading" constant="16" id="vxh-qR-iBr"/>
             </constraints>
             <point key="canvasLocation" x="140.625" y="93.75"/>

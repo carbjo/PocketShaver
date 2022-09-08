@@ -8,8 +8,12 @@
 #import "SSPreferencesDisksViewController.h"
 
 #import "DiskTypeiOS.h"
+#import "SSCreateDiskViewController.h"
 #import "SSDiskTableHeaderView.h"
 #import "SSDiskTableViewCell.h"
+
+#import <stdio.h>
+#import <unistd.h>
 
 #define int32 int32_t
 #import "prefs.h"
@@ -27,6 +31,7 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 @interface SSPreferencesDisksViewController ()
 
 @property (readwrite, nonatomic) NSMutableArray<DiskTypeiOS*>* diskArray;
+@property (readwrite, nonatomic) SSCreateDiskViewController* createDiskViewController;
 
 @end
 
@@ -42,6 +47,7 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	
 	[self _setUpDiskTableUI];
 	[self _setUpBootFromUI];
+	[self _setUpCreateDiskUI];
 }
 
 - (void) _setUpDiskTableUI
@@ -59,6 +65,14 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 		aBootFromCDROMFirst = YES;
 	}
 	[self.bootFromCDROMFirstSwitch setOn:aBootFromCDROMFirst];
+}
+
+- (void) _setUpCreateDiskUI
+{
+//	self.createNewDiskButton.layer.borderColor = self.createNewDiskButton.titleLabel.textColor.CGColor;
+//	self.createNewDiskButton.layer.borderWidth = 1;
+//	self.createNewDiskButton.layer.cornerRadius = 4;
+//	self.createNewDiskButton.contentEdgeInsets = UIEdgeInsetsMake(4, 4, 4, 4);
 }
 
 - (void) _loadDiskData
@@ -105,7 +119,7 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	}
 	NSLOG (@"%s All elements in directory: %@\n%@", __PRETTY_FUNCTION__, aDocsDirectory, anAllElements);
 
-	NSMutableArray* aDiskCandidateFiles = [NSMutableArray new];
+	NSMutableArray<NSString*>* aDiskCandidateFiles = [NSMutableArray new];
 	for (NSString* anElementName in anAllElements) {
 		NSString* anElementPath = [aDocsDirectory stringByAppendingPathComponent:anElementName];
 		BOOL aIsDirectory = NO;
@@ -133,6 +147,8 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 
 	// Compare the lists. For any disk that we have that doesn't actually exist, eliminate it from the disks list.
 	// For any disk that actually exists that we don't already know about, create an entry but mark it disabled.
+	// Note that we compare last path components only, because the path to the file may change as installations
+	// on devices change.
 	
 	// First look for the ones in the prefs that don't actually exist. Since we will be eliminating things from the
 	// array, we have to be careful not to invalidate iterators.
@@ -145,7 +161,7 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 		
 		BOOL aFoundIt = NO;
 		for (int aDiskCandidateIndex = 0; aDiskCandidateIndex < aDiskCandidateFiles.count; aDiskCandidateIndex++) {
-			if ([aSearchPath compare:[aDiskCandidateFiles objectAtIndex:aDiskCandidateIndex] options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+			if ([aSearchPath.lastPathComponent compare:[aDiskCandidateFiles objectAtIndex:aDiskCandidateIndex].lastPathComponent options:NSCaseInsensitiveSearch] == NSOrderedSame) {
 				aFoundIt = YES;
 				break;
 			}
@@ -168,7 +184,7 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 		for (aDiskArrayIndex = 0; aDiskArrayIndex < self.diskArray.count; aDiskArrayIndex++) {
 			DiskTypeiOS* aSearchDisk = [self.diskArray objectAtIndex:aDiskArrayIndex];
 			NSString* aSearchPath = [aSearchDisk path];
-			if ([aSearchPath compare:anExistingDiskPath options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+			if ([aSearchPath.lastPathComponent compare:anExistingDiskPath.lastPathComponent options:NSCaseInsensitiveSearch] == NSOrderedSame) {
 				aFoundIt = YES;
 				break;
 			}
@@ -209,12 +225,17 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 		PrefsRemoveItem("cdrom");
 	}
 	
+	// Update the paths with the current documents directory. This isn't normally a big deal, but during development the identity of
+	// the document directory can change.
+	NSString* aDocsDirectory = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
 	if (self.diskArray.count == 1) {
 		PrefsAddString(self.diskArray.firstObject.isCDROM ? "cdrom" : "disk", [self.diskArray.firstObject.path UTF8String]);		// even if it is disabled, since it's the only one
 	} else {
 		for (DiskTypeiOS* aDiskType in self.diskArray) {
 			if (aDiskType.disable == NO) {
-				PrefsAddString(aDiskType.isCDROM ? "cdrom" : "disk", [aDiskType.path UTF8String]);
+				NSString* aFileName = aDiskType.path.lastPathComponent;
+				NSString* aFilePath = [aDocsDirectory stringByAppendingPathComponent:aFileName];
+				PrefsAddString(aDiskType.isCDROM ? "cdrom" : "disk", [aFilePath UTF8String]);
 			}
 		}
 	}
@@ -335,6 +356,14 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	return nil;
 }
 
+- (IBAction)createNewDiskButtonHit:(id)sender
+{
+	self.createDiskViewController.disksViewController = self;
+	[self presentViewController:self.createDiskViewController animated:YES completion:^(void){
+		
+	}];
+}
+
 - (IBAction)bootFromCDROMFirstSwitchHit:(id)sender
 {
 	if (self.bootFromCDROMFirstSwitch.isOn) {
@@ -342,6 +371,56 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	} else {
 		PrefsReplaceInt32("bootdriver", 0);
 	}
+}
+
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator
+{
+	NSLOG (@"%s new size: %@", __PRETTY_FUNCTION__, NSStringFromCGSize(size));
+
+	[super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+	
+	[self.diskTable performSelectorOnMainThread:@selector(reloadData) withObject:nil waitUntilDone:NO];
+}
+
+- (SSCreateDiskViewController*)createDiskViewController
+{
+	if (!_createDiskViewController) {
+		_createDiskViewController = [SSCreateDiskViewController new];
+	}
+	return _createDiskViewController;
+}
+
+- (void) _createDiskWithName:(NSString*)inName size:(int)inSizeInMB
+{
+	NSLOG (@"%s Name: %@, size: %d MB", __PRETTY_FUNCTION__, inName, inSizeInMB);
+	
+	NSString* aDocsDirectory = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+	NSString* aFilePath = [aDocsDirectory stringByAppendingPathComponent:inName];
+	
+	// If this file already exists, give the user the option to replace it. For now, just do nothing.
+	if ([[NSFileManager defaultManager] fileExistsAtPath:aFilePath isDirectory:nil]) {
+		NSLOG (@"%s Name %@ already exists, bailing out.", __PRETTY_FUNCTION__, inName);
+		return;
+	}
+	
+	// Use the file manager to create the file, then use truncate to set the length.
+	char aBytes[1024];
+	bzero (aBytes, 1024);
+	NSData* aData = [NSData dataWithBytes:aBytes length:1024];
+	BOOL aSuccess = [[NSFileManager defaultManager] createFileAtPath:aFilePath contents:aData attributes:@{NSFileType: NSFileTypeRegular, NSFileSize: @(inSizeInMB << 20)}];
+	NSLOG (@" aSuccess: %@", aSuccess ? @"YES" : @"NO");
+			
+	off_t aLength = inSizeInMB << 20;
+	int aFileDescriptor = truncate(aFilePath.UTF8String, aLength);
+	NSLOG(@"%s truncate file: %s, descriptor: %d", __PRETTY_FUNCTION__, aFilePath.UTF8String, aFileDescriptor);
+	if (aFileDescriptor < 0) {
+		NSLOG (@"    error: %d, %s", errno, strerror(errno));
+	}
+	
+	// Force a rebuild of the disk list.
+	self.diskArray = [NSMutableArray new];
+	[self _loadDiskData];
+	[self.diskTable performSelectorOnMainThread:@selector(reloadData) withObject:nil waitUntilDone:NO];
 }
 
 @end

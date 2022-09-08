@@ -9,6 +9,14 @@
 
 #import "UIView+SDCAutoLayout.h"
 
+#define DEBUG_TABLEVIEWCELL 0
+
+#if DEBUG_TABLEVIEWCELL
+#define NSLOG(...) NSLog(__VA_ARGS__)
+#else
+#define NSLOG(...)
+#endif
+
 @interface SSPreferencesDisksViewController(SSDiskTableViewCell)
 
 - (void) _writePrefs;
@@ -39,26 +47,7 @@
 		[self.isCDROMSwitch addTarget:self action:@selector(isCDROMSwitchHit:) forControlEvents:UIControlEventValueChanged];
 
 		CGRect aContentFrame = self.contentView.frame;
-		
-		// CDROM switch on the far right.
-		CGRect aCDROMFrame = self.isCDROMSwitch.frame;
-		aCDROMFrame.origin.x = (aContentFrame.origin.x + aContentFrame.size.width) - aCDROMFrame.size.width - 16;
-		aCDROMFrame.origin.y = (aContentFrame.size.height / 2) - (aCDROMFrame.size.height / 2);
-		[self.isCDROMSwitch setFrame:aCDROMFrame];
-		
-		// Mount enable switch to the left of CDROM switch.
-		CGRect aMountFrame = self.diskMountEnableSwitch.frame;
-		aMountFrame.origin.x = aCDROMFrame.origin.x - aMountFrame.size.width - 12;
-		aMountFrame.origin.y = (aContentFrame.size.height / 2) - (aMountFrame.size.height / 2);
-		[self.diskMountEnableSwitch setFrame:aMountFrame];
-		
-		// Label gets the rest of the space from the left edge to the mount enable switch.
-		CGRect aFileNameFrame = self.diskNameLabel.frame;
-		aFileNameFrame.size.width = aMountFrame.origin.x - 12;
-		aFileNameFrame.size.height = 21;
-		aFileNameFrame.origin.x = 8;
-		aFileNameFrame.origin.y = (aContentFrame.size.height / 2) - (aFileNameFrame.size.height / 2);
-		[self.diskNameLabel setFrame:aFileNameFrame];
+		[self _resizeToNewSize:aContentFrame.size];
 	}
 	
 	return self;
@@ -90,4 +79,36 @@
 	
 	[super prepareForReuse];
 }
+
+- (void) setFrame:(CGRect)frame
+{
+	[super setFrame:frame];
+	[self _resizeToNewSize:frame.size];
+}
+
+- (void) _resizeToNewSize:(CGSize)inSize
+{
+	NSLOG (@"%s new size: %@", __PRETTY_FUNCTION__, NSStringFromCGSize(inSize));
+	
+	// CDROM switch on the far right.
+	CGRect aCDROMFrame = self.isCDROMSwitch.frame;
+	aCDROMFrame.origin.x = (/*aContentFrame.origin.x + */inSize.width) - aCDROMFrame.size.width - 16;
+	aCDROMFrame.origin.y = (inSize.height / 2) - (aCDROMFrame.size.height / 2);
+	[self.isCDROMSwitch setFrame:aCDROMFrame];
+	
+	// Mount enable switch to the left of CDROM switch.
+	CGRect aMountFrame = self.diskMountEnableSwitch.frame;
+	aMountFrame.origin.x = aCDROMFrame.origin.x - aMountFrame.size.width - 12;
+	aMountFrame.origin.y = (inSize.height / 2) - (aMountFrame.size.height / 2);
+	[self.diskMountEnableSwitch setFrame:aMountFrame];
+	
+	// Label gets the rest of the space from the left edge to the mount enable switch.
+	CGRect aFileNameFrame = self.diskNameLabel.frame;
+	aFileNameFrame.size.width = aMountFrame.origin.x - 12;
+	aFileNameFrame.size.height = 21;
+	aFileNameFrame.origin.x = 8;
+	aFileNameFrame.origin.y = (inSize.height / 2) - (aFileNameFrame.size.height / 2);
+	[self.diskNameLabel setFrame:aFileNameFrame];
+}
+
 @end
