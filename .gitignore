@@ -37,3 +37,4 @@ project.xcworkspace/
 # JetBrains IDE settings
 #
 *.idea
+SheepShaver/src/MacOSX/Launcher/English.lproj/VMSettingsWindow.nib/designable.nib

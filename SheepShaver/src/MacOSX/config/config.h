@@ -1,4 +1,8 @@
-#if defined(KPX_IOS)
+#if defined(__APPLE__)
+#include "TargetConditionals.h"
+#endif
+
+#if TARGET_OS_IPHONE
 	#if defined(__x86_64__)
 		#include "config-ios-x86_64.h"
 	#elif defined(__aarch64__)

@@ -190,6 +190,9 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 		rom_fd = open(PrefsFindString("rom"), O_RDONLY);				// update the "rom" choice since it was clearly wrong
 	}
 	
+	NSArray* aDirs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+	NSLog (@"Document dirs: %@", aDirs);
+
 	// Automatic search for the ROM file didn't work. Ask the user what to do.
 	if (rom_fd < 0) {
 		BOOL aTryAgain = NO;

@@ -24,6 +24,8 @@
 // Invokes the specified function with an NSAutoReleasePool in place.
 void NSAutoReleasePool_wrap(void (*fn)(void));
 
+extern "C" {
+
 #ifdef USE_SDL
 #if SDL_VERSION_ATLEAST(2,0,0)
 void disable_SDL2_macosx_menu_bar_keyboard_shortcuts();
@@ -38,3 +40,6 @@ void set_current_directory();
 bool MetalIsAvailable();
 
 #endif
+
+}	// extern "C"
+

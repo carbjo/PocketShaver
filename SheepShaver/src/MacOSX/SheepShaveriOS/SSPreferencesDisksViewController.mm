@@ -40,9 +40,7 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 - (void)viewDidLoad {
 	[super viewDidLoad];
 	// Do any additional setup after loading the view from its nib.
-	
-	self.diskArray = [NSMutableArray new];
-	
+		
 	//	[self.diskTable registerClass:[SSDiskTableViewCell class] forCellReuseIdentifier:@"diskCell"];
 	
 	[self _setUpDiskTableUI];
@@ -77,6 +75,8 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 
 - (void) _loadDiskData
 {
+	self.diskArray = [NSMutableArray new];
+
 	// First we scan for all available disks in the Documents directory. Then we reconcile that
 	// with the "disk" prefs, eliminating any existing prefs that we can't find in the Documents
 	// directory. This we use to populate diskArray.
@@ -418,7 +418,6 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	}
 	
 	// Force a rebuild of the disk list.
-	self.diskArray = [NSMutableArray new];
 	[self _loadDiskData];
 	[self.diskTable performSelectorOnMainThread:@selector(reloadData) withObject:nil waitUntilDone:NO];
 }

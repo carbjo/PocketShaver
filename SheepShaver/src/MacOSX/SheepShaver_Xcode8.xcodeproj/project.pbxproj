@@ -555,6 +555,9 @@
 		E2A5818128C9427A005C7373 /* SSCreateDiskViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSCreateDiskViewController.h; sourceTree = "<group>"; };
 		E2A5818228C9427A005C7373 /* SSCreateDiskViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SSCreateDiskViewController.m; sourceTree = "<group>"; };
 		E2A5818328C9427A005C7373 /* SSCreateDiskViewController.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = SSCreateDiskViewController.xib; sourceTree = "<group>"; };
+		E2A5818A28C980C2005C7373 /* config-ios-x86_64.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "config-ios-x86_64.h"; sourceTree = "<group>"; };
+		E2A5818B28C980C3005C7373 /* config-ios-aarch64.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "config-ios-aarch64.h"; sourceTree = "<group>"; };
+		E2A5819228CA60CB005C7373 /* libresolv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libresolv.tbd; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.4.sdk/usr/lib/libresolv.tbd; sourceTree = DEVELOPER_DIR; };
 		E2F38C2228C470CC00FB98B4 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Localizable.strings; sourceTree = "<group>"; };
 		E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = video_sdl2.cpp; path = ../../../BasiliskII/src/SDL/video_sdl2.cpp; sourceTree = "<group>"; };
 		E4150D1120D557820077C51A /* SDL2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SDL2.framework; path = /Library/Frameworks/SDL2.framework; sourceTree = "<group>"; };
@@ -1116,6 +1119,8 @@
 		0873A76514ABD151004F12B7 /* config */ = {
 			isa = PBXGroup;
 			children = (
+				E2A5818B28C980C3005C7373 /* config-ios-aarch64.h */,
+				E2A5818A28C980C2005C7373 /* config-ios-x86_64.h */,
 				E4989F3224DE4438004D43E2 /* config-macosx-aarch64.h */,
 				0879BD8515A891EC00DC277D /* config-macosx-ppc_32.h */,
 				0879BD8615A891EC00DC277D /* config-macosx-x86_32.h */,
@@ -1142,6 +1147,7 @@
 		08CD42DF14B7B865009CA2A2 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				E2A5819228CA60CB005C7373 /* libresolv.tbd */,
 				E204BA1228BC83E40081FDCA /* AudioToolbox.framework */,
 				E204BA1028BC83C20081FDCA /* CoreMotion.framework */,
 				E204BA0E28BC83B60081FDCA /* CoreHaptics.framework */,
@@ -2145,7 +2151,7 @@
 				MTL_FAST_MATH = YES;
 				OTHER_CFLAGS = "-DKPX_IOS=1";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
-				OTHER_LDFLAGS = "";
+				OTHER_LDFLAGS = "-lresolv";
 				PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = net.cebix.sheepshaver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -2256,7 +2262,7 @@
 				MTL_FAST_MATH = YES;
 				OTHER_CFLAGS = "-DKPX_IOS=1";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
-				OTHER_LDFLAGS = "";
+				OTHER_LDFLAGS = "-lresolv";
 				PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = net.cebix.sheepshaver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
