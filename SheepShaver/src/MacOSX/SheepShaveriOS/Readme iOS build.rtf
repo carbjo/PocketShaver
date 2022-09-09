@@ -1,0 +1,49 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2513
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 HelveticaNeue;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;\red255\green255\blue255;}
+{\*\expandedcolortbl;;\csgenericrgb\c0\c0\c0\c85000;\csgenericrgb\c100000\c100000\c100000;}
+\margl1440\margr1440\vieww9000\viewh8400\viewkind0
+\deftab543
+\pard\tx543\pardeftab543\pardirnatural\partightenfactor0
+
+\f0\fs26 \cf2 \cb3 Alpha testers, here's how this works:\
+\
+If you know how to use Xcode to build and install an iOS app on your device, please do so. Otherwise, I can register a small number of your test devices (a couple dozen, max) able to launch a binary build from me. This is using Apple's field-testing capability for apps, and is OK with Apple. It will not work forever, the app will expire roughly a year after device registration. This is also a very manual process, so I would like it to be used by the most frequent users of SS. Please don't make me jump through hoops just so you can see what it's like.\
+\
+This has been built and tested on both an Intel Mac running Catalina and an M1 Apple Silicon Mac running Monterey. It builds under Xcode 11, 12, and 13. You can run it in the Simulator or on a real device. It requires iOS 13.6 or later. Devices used include an iPhone 6s and an iPad Pro 3rd generation.\
+\
+Getting going:\
+\
+Installing the ROM is straightforward. Once you launch the app, it will appear in iTunes File Sharing (Mac or Windows) or in the Finder. Drag-and-drop your ROM file into the app's files directory in iTunes/Finder (this can take a while to copy). That's it. You can hit "Try Again" in the warning dialog, or just relaunch. If the name is recognizable or the app can figure out that there is a ROM file, it will just pick it up without bothering you about it. Otherwise, or if there are two or more ROM files, it will pop up the prefs asking you to pick the ROM file in the Preferences ==> ROM pane. If that list is blank but you are certain that your ROM file works and is in the app's files section, please let me know.\
+\
+You can create a disk and install Mac OS 9 on it, but the fastest way to get going is just to copy a working .dsk file in to the app's files. The app recognizes .dsk files as disks, and .dmg and .cdr files as CDROMs. You can make sure the app sees your disks in the Preferences ==> Disks pane. By default it will mount all disks it can find in the files directory, you can disable disks in the Disks pane if you like.\
+\
+The Preferences panes should be fairly obvious, and the preferences view will always come up on launch. As on the desktop, changes to these prefs don't take effect until the next time the emulator is launched.\
+\
+Important things to know:\
+\
+- You have to launch the app once (and get the "No ROM" warning) in order for SS's Documents directory to show on the Mac desktop or iTunes File Sharing. Once that happens, you can put the Mac OS Rom file and a boot disk file (.dsk) there. \
+- You can select bootable (and non-bootable) disks once they are copied to the Documents directory.\
+- The 'UNIX' folder points to the app's Documents folder, which is what can be mounted through iTunes sharing or the Finder on a host machine. This is a flat directory as far as iTunes and the Finder are concerned - if you create folders there from SS, then you won't be able to access the folders' contents via iTunes or the Finder. Also, you will see your ROM file and your disk files there - do not delete them or modify them from within SS. You have been warned.\
+- Do not remove files via iTunes/Finder while SS is running.\
+- iPad with a bluetooth keyboard and mouse is the best workable platform. You need to turn on "iPad Mouse Detect" in the I/O pane of the Preferences and enable Assistive Touch on the iPad. This requires iOS 13.6 or later.\
+- While iPhone can have a mouse hooked up, iOS does not send us mouse events on the phone, so the user is stuck using the touch screen (and no, Assistive Touch does not help). There is nothing to be done for this unless and until Apple allows the phone to pass Assistive Touch events to user apps like the iPad does.\
+- Apple's app signing security means there is a very limited number of installations that are allowed on non-developer devices (and it's a pain), so if you want to play with this it is best if you know how to use Xcode to build and install an iOS app on a device (no, I will not provide a tutorial on this). It might be OK on a jailbroken device, but that hasn't been tested and is unlikely to be part of the official build tests. I cannot fix bugs that only show up on jailbroken devices.\
+- Disks are expected to have the .dsk path extension. CDROMs can be .cdr or .dmg. For now.\
+\
+Caveats, so far:\
+\
+- We do not have an on-screen keyboard yet, you have to use a Bluetooth keyboard (OK on both iPad and iPhone).\
+- Command-Q gets trapped somewhere, for now you have to use the File menu to quit apps.\
+- No serial devices.\
+- No screen scaling yet (and maybe never).\
+- The proper way to shut down is to use the Shut Down menu item in Mac OS 9. If you quit SS without shutting down from within SS, you will get the 'Did not shut down properly' disk alert next time you launch, because it would be the same as if you pulled the plug on the emulated Mac. Maybe we can make this do the Right Thing\'99 someday, maybe not.\
+- Screen rotation is ignored after emulator launch. Whatever the orientation is when the emulator is first booted, you're stuck with, but at least you can boot it in landscape mode if you like. Screen rotation probably will never happen.\
+- We sometimes crash on launch, there is a random problem in which we cannot allocate memory. Just relaunch.\
+- Putting SS into the background does not (yet) play nice with the CPU load, so iOS may just kill it after a while (a few minutes, perhaps). Briefly switching out to another app and then coming back to SS is OK.\
+\
+And the biggest caveat of all:\
+\
+- Apple may not allow this in the App Store. Even if we ship with no ROM file and no boot disk, Apple may still not accept it. They don't accept Apple ][ emulators, for instance. This is possibly because the Apple ][ ROMs are built-in and so represent Apple's private IP, and objecting to redistributing that would certainly be reasonable from a legal standpoint. OTOH, they may just not want SS in the iOS store on general principle. Or they may get upset that the user needs to copy the ROMs and boot disk in, even if the user legally owns an old Mac and an old install CD (like me).\
+\
+}

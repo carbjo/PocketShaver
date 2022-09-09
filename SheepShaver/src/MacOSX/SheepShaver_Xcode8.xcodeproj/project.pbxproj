@@ -217,6 +217,7 @@
 		E2A5817C28C7F987005C7373 /* SSDiskTableHeaderView.m in Sources */ = {isa = PBXBuildFile; fileRef = E2A5817B28C7F987005C7373 /* SSDiskTableHeaderView.m */; };
 		E2A5818428C9427B005C7373 /* SSCreateDiskViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = E2A5818228C9427A005C7373 /* SSCreateDiskViewController.m */; };
 		E2A5818528C9427B005C7373 /* SSCreateDiskViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = E2A5818328C9427A005C7373 /* SSCreateDiskViewController.xib */; };
+		E2A5819828CAC275005C7373 /* Readme iOS build.rtf in Resources */ = {isa = PBXBuildFile; fileRef = E2A5819728CAC275005C7373 /* Readme iOS build.rtf */; };
 		E2F38C2328C470CC00FB98B4 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = E2F38C2228C470CC00FB98B4 /* Localizable.strings */; };
 		E413A40320CF7E6D00FBE967 /* video_sdl2.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */; };
 		E4150D1220D557820077C51A /* SDL2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E4150D1120D557820077C51A /* SDL2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -558,6 +559,7 @@
 		E2A5818A28C980C2005C7373 /* config-ios-x86_64.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "config-ios-x86_64.h"; sourceTree = "<group>"; };
 		E2A5818B28C980C3005C7373 /* config-ios-aarch64.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "config-ios-aarch64.h"; sourceTree = "<group>"; };
 		E2A5819228CA60CB005C7373 /* libresolv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libresolv.tbd; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.4.sdk/usr/lib/libresolv.tbd; sourceTree = DEVELOPER_DIR; };
+		E2A5819728CAC275005C7373 /* Readme iOS build.rtf */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; path = "Readme iOS build.rtf"; sourceTree = "<group>"; };
 		E2F38C2228C470CC00FB98B4 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; path = Localizable.strings; sourceTree = "<group>"; };
 		E413A40220CF7E6D00FBE967 /* video_sdl2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = video_sdl2.cpp; path = ../../../BasiliskII/src/SDL/video_sdl2.cpp; sourceTree = "<group>"; };
 		E4150D1120D557820077C51A /* SDL2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SDL2.framework; path = /Library/Frameworks/SDL2.framework; sourceTree = "<group>"; };
@@ -1218,6 +1220,7 @@
 				E204B9EF28BC7D010081FDCA /* utils_ios.mm */,
 				E204B9C228BC7BF10081FDCA /* ViewController.h */,
 				E204B9A628BC7BF10081FDCA /* ViewController.m */,
+				E2A5819728CAC275005C7373 /* Readme iOS build.rtf */,
 			);
 			path = SheepShaveriOS;
 			sourceTree = "<group>";
@@ -1416,6 +1419,7 @@
 				E204B9C828BC7BF10081FDCA /* SSPreferencesDisksViewController.xib in Resources */,
 				E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */,
 				E204B92E28BC3EBE0081FDCA /* SheepShaver.icns in Resources */,
+				E2A5819828CAC275005C7373 /* Readme iOS build.rtf in Resources */,
 				E204B9E028BC7BF10081FDCA /* SSPreferencesIOViewController.xib in Resources */,
 				E204B9D528BC7BF10081FDCA /* Main.storyboard in Resources */,
 				E204B9D428BC7BF10081FDCA /* LaunchScreen.storyboard in Resources */,
