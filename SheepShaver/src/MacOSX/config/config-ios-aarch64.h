@@ -406,10 +406,12 @@
 /* #undef HOST_FLOAT_WORDS_BIG_ENDIAN */
 
 /* Define constant offset for Mac address translation: macosx-aarch64 is always 64bit */
-//#define NATMEM_OFFSET 0x400000000000
-// This works.
+#if TARGET_OS_SIMULATOR
+#define NATMEM_OFFSET 0x400000000000
+#else
+// This works for arm devices
 #define NATMEM_OFFSET 0x000100000000
-//#define NATMEM_OFFSET 0x010000000000
+#endif
 
 /* Define to the address where bug reports for this package should be sent. */
 #define PACKAGE_BUGREPORT "Christian.Bauer@uni-mainz.de"
