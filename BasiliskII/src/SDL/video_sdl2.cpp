@@ -42,7 +42,7 @@
 #include "sysdeps.h"
 
 #include <SDL.h>
-#if SDL_VERSION_ATLEAST(2,0,0)
+#if SDL_VERSION_ATLEAST(2, 0, 0) && !SDL_VERSION_ATLEAST(3, 0, 0)
 
 #include <SDL_mutex.h>
 #include <SDL_thread.h>

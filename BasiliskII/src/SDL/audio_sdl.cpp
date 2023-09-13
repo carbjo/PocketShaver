@@ -31,6 +31,8 @@
 #include <SDL_version.h>
 #include <SDL_timer.h>
 
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
+
 #define DEBUG 0
 #include "debug.h"
 
@@ -402,3 +404,5 @@ void PlayStartupSound() {
     // Not implemented
 }
 #endif
+#endif	// SDL_VERSION_ATLEAST
+
