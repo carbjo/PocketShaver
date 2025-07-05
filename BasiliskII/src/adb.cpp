@@ -41,6 +41,9 @@
 #define DEBUG 0
 #include "debug.h"
 
+#include <unistd.h>
+#include <cmath>
+
 
 // Global variables
 static int mouse_x = 0, mouse_y = 0;							// Mouse position
@@ -238,10 +241,15 @@ void ADBOp(uint8 op, uint8 *data)
 
 void ADBMouseMoved(int x, int y)
 {
+	int tolerance = 8;
 	B2_lock_mutex(mouse_lock);
 	if (relative_mouse) {
 		mouse_x += x; mouse_y += y;
 	} else {
+		if (abs(mouse_x - x) <= tolerance && abs(mouse_y - y) <= tolerance) {
+			B2_unlock_mutex(mouse_lock);
+			return;
+		}
 		mouse_x = x; mouse_y = y;
 	}
 	B2_unlock_mutex(mouse_lock);
@@ -256,6 +264,7 @@ void ADBMouseMoved(int x, int y)
 
 void ADBMouseDown(int button)
 {
+	usleep(20000);
     // O2S: Add button to buffer
     button_buffer[button_write_ptr] = button;
     button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
@@ -272,6 +281,7 @@ void ADBMouseDown(int button)
 
 void ADBMouseUp(int button)
 {
+	usleep(20000);
     // O2S: Add button to buffer
     button_buffer[button_write_ptr] = button | 0x80;
     button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
