@@ -413,7 +413,9 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 	// These will always be constant for iOS.
 	PrefsReplaceString("sdlrender", "metal");
 	PrefsReplaceString("extfs", document_directory());
-	
+	NSString *diskPath = [NSString stringWithFormat:@"%s/New.dsk", document_directory()];
+	PrefsReplaceString("disk", diskPath.cString);
+
 	// We have prefs for these now.
 //	PrefsReplaceInt32("frameskip", 1);		// 1 == 60 Hz, 0 == as fast as possible, which burns up CPU and makes the OS grumpy.
 //	PrefsReplaceInt32("ramsize", 64 * 1024 * 1024);
