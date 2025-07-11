@@ -154,6 +154,7 @@ extern "C" {
 bool SS_ShowiOSPreferences(void);
 int SS_ChooseiOSBootRom(const char* inFileName);	// returns file descriptor or error
 }
+#import "OverlayViewControllerObjC.h"
 #endif
 
 #define SHOW_IOS_PREFS_ON_LAUNCH 1
@@ -1131,6 +1132,10 @@ int main(int argc, char *argv[])
 	if (!InitAll(vmdir))
 		goto quit;
 	D(bug("Initialization complete\n"));
+
+#if TARGET_OS_IPHONE
+	objc_initOverlayViewController();
+#endif
 
 	// Clear caches (as we loaded and patched code) and write protect ROM
 #if !EMULATED_PPC

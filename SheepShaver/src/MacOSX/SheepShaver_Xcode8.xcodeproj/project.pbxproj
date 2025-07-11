@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 52;
+	objectVersion = 54;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -82,6 +82,9 @@
 		5DE93B46247C71F200B2C821 /* adb.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D3967BF2328D315003925D6 /* adb.cpp */; };
 		5DF4CB7F22B5BD5D00512A86 /* audio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4CB7E22B5BD5D00512A86 /* audio.cpp */; };
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
+		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
+		C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */; };
+		C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */; };
 		E204B90228BC3B640081FDCA /* ppc-dyngen-ops-x86_32.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F881E0624D100A3ADAB /* ppc-dyngen-ops-x86_32.hpp */; };
 		E204B90328BC3B640081FDCA /* basic-dyngen-ops.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F871E0624D100A3ADAB /* basic-dyngen-ops.hpp */; };
 		E204B90428BC3B640081FDCA /* basic-dyngen-ops-x86_64_macos.hpp in Headers */ = {isa = PBXBuildFile; fileRef = E4C9A03D1FD55CDC00CABBF9 /* basic-dyngen-ops-x86_64_macos.hpp */; };
@@ -494,6 +497,10 @@
 		5DF4CB7E22B5BD5D00512A86 /* audio.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = audio.cpp; path = ../../../BasiliskII/src/audio.cpp; sourceTree = "<group>"; };
 		A7B1921218C35D4700791D8D /* DiskType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DiskType.h; sourceTree = "<group>"; };
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
+		C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OverlayViewControllerObjC.mm; sourceTree = "<group>"; };
+		C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OverlayViewControllerObjC.h; sourceTree = "<group>"; };
+		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
+		C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDLKey.swift; sourceTree = "<group>"; };
 		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
 		E204B98A28BC3EBE0081FDCA /* SheepShaveriOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SheepShaveriOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -505,7 +512,6 @@
 		E204B99F28BC7BF00081FDCA /* SSGestureRecognizerManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = SSGestureRecognizerManager.m; sourceTree = "<group>"; };
 		E204B9A028BC7BF00081FDCA /* AppDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		E204B9A128BC7BF10081FDCA /* SSPreferencesViewController.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = SSPreferencesViewController.mm; sourceTree = "<group>"; };
-		E204B9A228BC7BF10081FDCA /* Mac OS ROM */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = "Mac OS ROM"; sourceTree = "<group>"; };
 		E204B9A328BC7BF10081FDCA /* SSDiskTableViewCell.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = SSDiskTableViewCell.m; sourceTree = "<group>"; };
 		E204B9A428BC7BF10081FDCA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E204B9A528BC7BF10081FDCA /* happy mac 512x512.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "happy mac 512x512.png"; sourceTree = "<group>"; };
@@ -1170,9 +1176,29 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		C7E2AFB72E16C54E00CF50D4 /* Overlay */ = {
+			isa = PBXGroup;
+			children = (
+				C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */,
+				C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */,
+				C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */,
+			);
+			path = Overlay;
+			sourceTree = "<group>";
+		};
+		C7E2AFBE2E19629100CF50D4 /* Swift */ = {
+			isa = PBXGroup;
+			children = (
+				C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */,
+				C7E2AFB72E16C54E00CF50D4 /* Overlay */,
+			);
+			path = Swift;
+			sourceTree = "<group>";
+		};
 		E204B99A28BC7BF00081FDCA /* SheepShaveriOS */ = {
 			isa = PBXGroup;
 			children = (
+				C7E2AFBE2E19629100CF50D4 /* Swift */,
 				E204B9A028BC7BF00081FDCA /* AppDelegate.h */,
 				E204B9B328BC7BF10081FDCA /* AppDelegate.m */,
 				E204B9A428BC7BF10081FDCA /* Assets.xcassets */,
@@ -1185,7 +1211,6 @@
 				E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */,
 				E204B9AA28BC7BF10081FDCA /* LaunchScreen.storyboard */,
 				E2F38C2228C470CC00FB98B4 /* Localizable.strings */,
-				E204B9A228BC7BF10081FDCA /* Mac OS ROM */,
 				E204B9AE28BC7BF10081FDCA /* main.mm */,
 				E204B9AC28BC7BF10081FDCA /* Main.storyboard */,
 				E204B9EB28BC7CF20081FDCA /* prefs_ios.mm */,
@@ -1373,6 +1398,11 @@
 			isa = PBXProject;
 			attributes = {
 				LastUpgradeCheck = 0820;
+				TargetAttributes = {
+					E204B92728BC3EBE0081FDCA = {
+						LastSwiftMigration = 1620;
+					};
+				};
 			};
 			buildConfigurationList = 0856CCB114A99DE0000B1711 /* Build configuration list for PBXProject "SheepShaver_Xcode8" */;
 			compatibilityVersion = "Xcode 3.0";
@@ -1606,6 +1636,7 @@
 				E204B93928BC3EBE0081FDCA /* scsi_dummy.cpp in Sources */,
 				E204B93A28BC3EBE0081FDCA /* sbuf.c in Sources */,
 				E204B93B28BC3EBE0081FDCA /* emul_op.cpp in Sources */,
+				C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */,
 				E204B93C28BC3EBE0081FDCA /* ether.cpp in Sources */,
 				E204B93D28BC3EBE0081FDCA /* audio.cpp in Sources */,
 				E204B93E28BC3EBE0081FDCA /* extfs.cpp in Sources */,
@@ -1637,6 +1668,7 @@
 				E204B95528BC3EBE0081FDCA /* serial.cpp in Sources */,
 				E204B9D228BC7BF10081FDCA /* SSPreferencesHardwareViewController.mm in Sources */,
 				E204B95828BC3EBE0081FDCA /* sony.cpp in Sources */,
+				C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */,
 				E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */,
 				E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */,
 				E204B9D028BC7BF10081FDCA /* ViewController.m in Sources */,
@@ -1682,6 +1714,7 @@
 				E204B97528BC3EBE0081FDCA /* prefs_editor_dummy.cpp in Sources */,
 				E204B97728BC3EBE0081FDCA /* disk_sparsebundle.cpp in Sources */,
 				E204B97828BC3EBE0081FDCA /* tinyxml2.cpp in Sources */,
+				C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */,
 				E204B97928BC3EBE0081FDCA /* DiskType.m in Sources */,
 				E204B97A28BC3EBE0081FDCA /* sigsegv.cpp in Sources */,
 				E204B97B28BC3EBE0081FDCA /* video_blit.cpp in Sources */,
@@ -2071,6 +2104,7 @@
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
 				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = NO;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
@@ -2097,7 +2131,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = NO;
-				DEVELOPMENT_TEAM = 9DSE6N75KE;
+				DEVELOPMENT_TEAM = 7K4RY698N6;
 				ENABLE_TESTABILITY = YES;
 				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
 				FRAMEWORK_SEARCH_PATHS = (
@@ -2148,7 +2182,7 @@
 				INFOPLIST_PREFIX_HEADER = "";
 				INFOPLIST_PREPROCESS = NO;
 				INSTALL_PATH = "$(HOME)/Applications";
-				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -2165,6 +2199,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
 				VALID_ARCHS = "x86_64 arm64";
@@ -2182,6 +2218,7 @@
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
 				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = NO;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
@@ -2208,7 +2245,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = NO;
-				DEVELOPMENT_TEAM = 9DSE6N75KE;
+				DEVELOPMENT_TEAM = 7K4RY698N6;
 				ENABLE_TESTABILITY = YES;
 				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
 				FRAMEWORK_SEARCH_PATHS = (
@@ -2258,7 +2295,7 @@
 				INFOPLIST_PREFIX_HEADER = "";
 				INFOPLIST_PREPROCESS = NO;
 				INSTALL_PATH = "$(HOME)/Applications";
-				IPHONEOS_DEPLOYMENT_TARGET = 13.4;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -2275,6 +2312,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
 				VALID_ARCHS = "x86_64 arm64";
