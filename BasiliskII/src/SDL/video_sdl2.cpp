@@ -60,6 +60,7 @@
 
 #if TARGET_OS_IPHONE
 #include "utils_ios.h"
+#import "OverlayViewControllerObjC.h"
 #endif
 
 #ifdef WIN32
@@ -2010,6 +2011,10 @@ void SDL_monitor_desc::switch_to_current_mode(void)
 	video_close();
 	video_open();
 	UNLOCK_EVENTS;
+
+#if TARGET_OS_IPHONE
+	objc_initOverlayViewController();
+#endif
 
 	if (drv == NULL) {
 		ErrorAlert(STR_OPEN_WINDOW_ERR);
