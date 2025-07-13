@@ -514,9 +514,11 @@ static bool has_mode(int type, int width, int height, int depth)
 // Add mode to list of supported modes
 static void add_mode(int type, int width, int height, int resolution_id, int bytes_per_row, int depth)
 {
+#if !TARGET_OS_IPHONE
 	// Filter out unsupported modes
 	if (!has_mode(type, width, height, depth))
 		return;
+#endif
 
 	// Fill in VideoMode entry
 	VIDEO_MODE mode;
@@ -1518,8 +1520,10 @@ bool VideoInit(bool classic)
 		for (int i = 0; video_modes[i].w != 0; i++) {
 			const int w = video_modes[i].w;
 			const int h = video_modes[i].h;
+#if !TARGET_OS_IPHONE
 			if (i > 0 && (w >= default_width || h >= default_height))
 				continue;
+#endif
 			for (int d = VIDEO_DEPTH_1BIT; d <= default_depth; d++)
 				add_mode(display_type, w, h, video_modes[i].resolution_id, TrivialBytesPerRow(w, (video_depth)d), d);
 		}
