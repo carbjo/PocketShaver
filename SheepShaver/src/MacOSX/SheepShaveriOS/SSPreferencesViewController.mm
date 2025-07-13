@@ -269,6 +269,8 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 
 @interface SSPreferencesViewController ()
 
+@property (readwrite, nonatomic) BOOL shouldShowIoSegement;
+
 @end
 
 @implementation SSPreferencesViewController
@@ -321,6 +323,14 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 //	CGFloat aHeight = [self.hardwarePaneViewController.view lowestSubviewY];
 //	NSLog (@"Lowest point of %@: %f", self.hardwarePaneViewController.view, aHeight);
 //	[self.hardwarePaneViewController.view sdc_pinHeight:aHeight];
+
+	UIUserInterfaceIdiom anIdiom = [UIDevice currentDevice].userInterfaceIdiom;
+	if (anIdiom == UIUserInterfaceIdiomPhone) {
+		// Hide IO segment for iPhone users. Since it has no relevant controls, for now.
+		[self.paneSelector removeSegmentAtIndex:EPrefsPanes_AV animated:NO];
+	} else {
+		self.shouldShowIoSegement = YES;
+	}
 }
 
 -(void)viewDidAppear:(BOOL)animated
@@ -347,11 +357,11 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 	// These successfully switch subviews, but the edges of the views don't get set properly. The IO, AV, and Disks should be
 	// centered when the bounds are set, but the size isn't changed for whatever reason.
 	switch (self.paneSelector.selectedSegmentIndex) {
-		case EPrefsPanes_Hardware:
-			[self.scrollerContentView addSubview:self.hardwarePaneViewController.view];
-			[self.hardwarePaneViewController.view sdc_alignEdgesWithSuperview:aRectEdges insets:aOnePixelInsets];
-//			[self.hardwarePaneViewController.view sdc_horizontallyCenterInSuperview];
-			[self.paneScroller setContentSize:self.hardwarePaneViewController.view.frame.size];
+		case EPrefsPanes_BootROM:
+			[self.scrollerContentView addSubview:self.bootROMPaneViewController.view];
+			[self.bootROMPaneViewController.view sdc_alignEdgesWithSuperview:aRectEdges insets:aOnePixelInsets];
+			//			[self.bootROMPaneViewController.view sdc_horizontallyCenterInSuperview];
+			[self.paneScroller setContentSize:self.bootROMPaneViewController.view.frame.size];
 			break;
 		case EPrefsPanes_Disks:
 			[self.scrollerContentView addSubview:self.disksPaneViewController.view];
@@ -362,20 +372,22 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 		case EPrefsPanes_AV:
 			[self.scrollerContentView addSubview:self.avPaneViewController.view];
 			[self.avPaneViewController.view sdc_alignEdgesWithSuperview:aRectEdges insets:aOnePixelInsets];
-//			[self.avPaneViewController.view sdc_horizontallyCenterInSuperview];
+			//			[self.avPaneViewController.view sdc_horizontallyCenterInSuperview];
 			[self.paneScroller setContentSize:self.avPaneViewController.view.frame.size];
 			break;
 		case EPrefsPanes_IO:
-			[self.scrollerContentView addSubview:self.ioPaneViewController.view];
-			[self.ioPaneViewController.view sdc_alignEdgesWithSuperview:aRectEdges insets:aOnePixelInsets];
-			//			[self.ioPaneViewController.view sdc_horizontallyCenterInSuperview];
-			[self.paneScroller setContentSize:self.ioPaneViewController.view.frame.size];
-			break;
-		case EPrefsPanes_BootROM:
-			[self.scrollerContentView addSubview:self.bootROMPaneViewController.view];
-			[self.bootROMPaneViewController.view sdc_alignEdgesWithSuperview:aRectEdges insets:aOnePixelInsets];
-			//			[self.bootROMPaneViewController.view sdc_horizontallyCenterInSuperview];
-			[self.paneScroller setContentSize:self.bootROMPaneViewController.view.frame.size];
+			if (self.shouldShowIoSegement) {
+				[self.scrollerContentView addSubview:self.ioPaneViewController.view];
+				[self.ioPaneViewController.view sdc_alignEdgesWithSuperview:aRectEdges insets:aOnePixelInsets];
+				//			[self.ioPaneViewController.view sdc_horizontallyCenterInSuperview];
+				[self.paneScroller setContentSize:self.ioPaneViewController.view.frame.size];
+				break;
+			}
+		case EPrefsPanes_Hardware:
+			[self.scrollerContentView addSubview:self.hardwarePaneViewController.view];
+			[self.hardwarePaneViewController.view sdc_alignEdgesWithSuperview:aRectEdges insets:aOnePixelInsets];
+//			[self.hardwarePaneViewController.view sdc_horizontallyCenterInSuperview];
+			[self.paneScroller setContentSize:self.hardwarePaneViewController.view.frame.size];
 			break;
 		default:
 			break;

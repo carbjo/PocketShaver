@@ -12,10 +12,8 @@ NS_ASSUME_NONNULL_BEGIN
 @interface SSPreferencesIOViewController : UIViewController
 
 @property (readwrite, nonatomic) IBOutlet UISwitch* useiPadMousePassthroughSwitch;
-@property (readwrite, nonatomic) IBOutlet UISwitch* anotherSwitch;
 
 - (IBAction)useiPadMousePassthroughSwitchHit:(id)sender;
-- (IBAction)anotherSwitchHit:(id)sender;
 
 @end
 

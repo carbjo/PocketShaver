@@ -60,8 +60,4 @@
 	NSLog (@"%s Passthrough on: %@", __PRETTY_FUNCTION__, (self.useiPadMousePassthroughSwitch.isOn ? @"YES" : @"NO"));
 }
 
-- (IBAction)anotherSwitchHit:(id)sender
-{
-	NSLog (@"%s switch on: %@", __PRETTY_FUNCTION__, (self.anotherSwitch.isOn ? @"YES" : @"NO"));
-}
 @end
