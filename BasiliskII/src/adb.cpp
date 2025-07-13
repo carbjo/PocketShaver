@@ -51,6 +51,7 @@ static int old_mouse_x = 0, old_mouse_y = 0;
 static bool mouse_button[3] = {false, false, false};			// Mouse button states
 static bool old_mouse_button[3] = {false, false, false};
 static bool relative_mouse = false;
+static bool touch_input = false;
 
 static uint8 key_states[16];				// Key states (Mac keycodes)
 #define MATRIX(code) (key_states[code >> 3] & (1 << (~code & 7)))
@@ -246,7 +247,11 @@ void ADBMouseMoved(int x, int y)
 	if (relative_mouse) {
 		mouse_x += x; mouse_y += y;
 	} else {
-		if (abs(mouse_x - x) <= tolerance && abs(mouse_y - y) <= tolerance) {
+		if (touch_input &&
+			abs(mouse_x - x) <= tolerance &&
+			abs(mouse_y - y) <= tolerance) {
+			// Avoid very small mouse movements with touch input, since they are
+			// usually unintentional and prevents proper double-click functionality
 			B2_unlock_mutex(mouse_lock);
 			return;
 		}
@@ -264,7 +269,9 @@ void ADBMouseMoved(int x, int y)
 
 void ADBMouseDown(int button)
 {
-	usleep(20000);
+	if (touch_input)
+		usleep(20000); // To eliminate the simultanious "move mouse and click" race condition
+
     // O2S: Add button to buffer
     button_buffer[button_write_ptr] = button;
     button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
@@ -281,7 +288,9 @@ void ADBMouseDown(int button)
 
 void ADBMouseUp(int button)
 {
-	usleep(20000);
+	if (touch_input)
+		usleep(20000); // To eliminate the simultanious "move mouse and click" race condition
+
     // O2S: Add button to buffer
     button_buffer[button_write_ptr] = button | 0x80;
     button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
@@ -304,6 +313,12 @@ void ADBSetRelMouseMode(bool relative)
     }
 }
 
+/*
+ * Set touch input on or off
+ */
+void ADBSetTouchInput(bool is_on) {
+	touch_input = is_on;
+}
 
 /*
  *  Key pressed ("code" is the Mac key code)

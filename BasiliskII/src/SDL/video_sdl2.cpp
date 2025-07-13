@@ -1406,7 +1406,11 @@ bool VideoInit(bool classic)
 	mouse_wheel_lines = PrefsFindInt32("mousewheellines");
 	mouse_wheel_reverse = mouse_wheel_lines < 0;
 	if (mouse_wheel_reverse) mouse_wheel_lines = -mouse_wheel_lines;
-
+#if TARGET_OS_IPHONE
+	bool touch_input = !PrefsFindBool("ipadmousepassthrough");
+	ADBSetTouchInput(touch_input);
+#endif
+	
 	// Get screen mode from preferences
 	migrate_screen_prefs();
 	const char *mode_str = NULL;

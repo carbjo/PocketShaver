@@ -36,5 +36,6 @@ extern void ADBKeyUp(int code);
 extern void ADBInterrupt(void);
 
 extern void ADBSetRelMouseMode(bool relative);
+extern void ADBSetTouchInput(bool is_on);
 
 #endif
