@@ -11,6 +11,8 @@
 
 #import "DiskTypeiOS.h"
 
+typedef void(^WritePrefsBlock)(void);
+
 NS_ASSUME_NONNULL_BEGIN
 
 // This class has no apparent connection to the class of the same name in IB, nor to the class registered
@@ -21,7 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readwrite, nonatomic)  IBOutlet UISwitch* _Nullable isCDROMSwitch;
 @property (readwrite, nonatomic)  IBOutlet UISwitch* _Nullable diskMountEnableSwitch;
 
-@property (readwrite, nonatomic) SSPreferencesDisksViewController* _Nullable disksViewController;
+@property (nonatomic, nullable) WritePrefsBlock writePrefs;
 @property (readwrite, nonatomic) DiskTypeiOS* _Nullable disk;
 
 - (IBAction)diskMountEnableSwitchHit:(UISwitch*)sender;

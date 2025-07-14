@@ -17,11 +17,6 @@
 #define NSLOG(...)
 #endif
 
-@interface SSPreferencesDisksViewController(SSDiskTableViewCell)
-
-- (void) _writePrefs;
-
-@end
 
 @implementation SSDiskTableViewCell
 
@@ -55,16 +50,14 @@
 
 - (IBAction)diskMountEnableSwitchHit:(id)sender
 {
-	if ([self.disksViewController.diskArray count] != 1) {
-		self.disk.disable = !self.diskMountEnableSwitch.isOn;
-		[self.disksViewController _writePrefs];
-	}
+	self.disk.disable = !self.diskMountEnableSwitch.isOn;
+	self.writePrefs();
 }
 
 - (IBAction)isCDROMSwitchHit:(id)sender
 {
 	self.disk.isCDROM = self.isCDROMSwitch.isOn;
-	[self.disksViewController _writePrefs];
+	self.writePrefs();
 }
 
 // This will probably never be called, but just for completeness:
@@ -73,8 +66,8 @@
 	self.diskMountEnableSwitch = nil;
 	self.diskNameLabel = nil;
 	self.isCDROMSwitch = nil;
-	
-	self.disksViewController = nil;
+
+	self.writePrefs = nil;
 	self.disk = nil;
 	
 	[super prepareForReuse];

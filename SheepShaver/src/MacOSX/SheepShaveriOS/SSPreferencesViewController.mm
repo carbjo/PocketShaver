@@ -15,6 +15,8 @@
 #define int32 int32_t
 #import "prefs.h"
 
+#import "SSDiskManager.h"
+
 #define DEBUG_PREFS 1
 
 #if DEBUG_PREFS
@@ -270,6 +272,7 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 @interface SSPreferencesViewController ()
 
 @property (readwrite, nonatomic) BOOL shouldShowIoSegement;
+@property (readwrite, nonatomic) SSDiskManager *diskManager;
 
 @end
 
@@ -291,13 +294,17 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_didRotate:) name:UIDeviceOrientationDidChangeNotification object:nil];
 //	NSArray* aDirs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
 //	NSLog (@"Document dirs:\n%@", aDirs);
-	
+
+	self.diskManager = [SSDiskManager new];
+
 	// Create the view panes.
 	self.hardwarePaneViewController = [[SSPreferencesHardwareViewController alloc] initWithNibName:@"SSPreferencesHardwareViewController" bundle:[NSBundle mainBundle]];
 	self.disksPaneViewController = [[SSPreferencesDisksViewController alloc] initWithNibName:@"SSPreferencesDisksViewController" bundle:[NSBundle mainBundle]];
 	self.avPaneViewController = [[SSPreferencesAVViewController alloc] initWithNibName:@"SSPreferencesAVViewController" bundle:[NSBundle mainBundle]];
 	self.ioPaneViewController = [[SSPreferencesIOViewController alloc] initWithNibName:@"SSPreferencesIOViewController" bundle:[NSBundle mainBundle]];
 	self.bootROMPaneViewController = [[SSPreferencesBootROMViewController alloc] initWithNibName:@"SSPreferencesBootROMViewController" bundle:[NSBundle mainBundle]];
+
+	[self.disksPaneViewController injectDiskManager:self.diskManager];
 
 	self.paneScroller.layer.borderWidth = 1;
 	self.paneScroller.layer.borderColor = [UIColor lightGrayColor].CGColor;
@@ -331,6 +338,8 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 	} else {
 		self.shouldShowIoSegement = YES;
 	}
+
+	[self.diskManager loadDiskData];
 }
 
 -(void)viewDidAppear:(BOOL)animated
@@ -425,8 +434,6 @@ int SS_ChooseiOSBootRom(const char* inFileName)
 	// These will always be constant for iOS.
 	PrefsReplaceString("sdlrender", "metal");
 	PrefsReplaceString("extfs", document_directory());
-	NSString *diskPath = [NSString stringWithFormat:@"%s/New.dsk", document_directory()];
-	PrefsReplaceString("disk", diskPath.cString);
 
 	// We have prefs for these now.
 //	PrefsReplaceInt32("frameskip", 1);		// 1 == 60 Hz, 0 == as fast as possible, which burns up CPU and makes the OS grumpy.

@@ -8,6 +8,7 @@
 #import <UIKit/UIKit.h>
 
 #import "DiskTypeiOS.h"
+#import "SSDiskManager.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -17,8 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readwrite, nonatomic) IBOutlet UISwitch* bootFromCDROMFirstSwitch;
 @property (readwrite, nonatomic) IBOutlet UITableView* diskTable;
 
-@property (readonly, nonatomic) NSMutableArray<DiskTypeiOS*>* diskArray;
-
+- (void)injectDiskManager:(SSDiskManager*) diskManager;
 - (IBAction)createNewDiskButtonHit:(id)sender;
 - (IBAction)bootFromCDROMFirstSwitchHit:(id)sender;
 
