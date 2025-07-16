@@ -11,34 +11,71 @@ import UIKit
 @objc(OverlayViewController)
 public class OverlayViewController: UIViewController {
 
+	private lazy var overlayView: OverlayView = {
+		let view = OverlayView {
+			self.buttonLayerView.isHidden = !self.buttonLayerView.isHidden
+		}
+		view.translatesAutoresizingMaskIntoConstraints = false
+		return view
+	}()
+
+	private lazy var overlayViewGestureRecognizer: UISwipeGestureRecognizer = {
+		let gesture = UISwipeGestureRecognizer()
+		gesture.direction = .down
+		gesture.numberOfTouchesRequired = 3
+		gesture.addTarget(self, action: #selector(hideKeyboard))
+		gesture.delegate = self
+
+		return gesture
+	}()
+
 	private lazy var leftStack: UIStackView = {
-		let stack = UIStackView()
-		stack.translatesAutoresizingMaskIntoConstraints = false
+		let stack = UIStackView.withoutConstraints()
 		stack.axis = .horizontal
 
 		return stack
 	}()
 
 	private lazy var rightStack: UIStackView = {
-		let stack = UIStackView()
-		stack.translatesAutoresizingMaskIntoConstraints = false
+		let stack = UIStackView.withoutConstraints()
 		stack.axis = .horizontal
 
 		return stack
 	}()
 
-	private lazy var blockGestureRecognizer: UITapGestureRecognizer = {
-		let gesture = UITapGestureRecognizer()
-		gesture.numberOfTouchesRequired = 2
-		gesture.addTarget(self, action: #selector(toggleBlockActivated))
+	private lazy var buttonLayerView: UIView = {
+		let view = UIView.withoutConstraints()
+		view.isHidden = true
+		return view
+	}()
+
+	private lazy var buttonLayerViewGestureRecognizer: UISwipeGestureRecognizer = {
+		let gesture = UISwipeGestureRecognizer()
+		gesture.direction = .up
+		gesture.numberOfTouchesRequired = 3
+		gesture.addTarget(self, action: #selector(showKeyboard))
 		gesture.delegate = self
 
 		return gesture
 	}()
 
+	private lazy var hiddenInputField: UITextField = {
+		let field = UITextField.withoutConstraints()
+		field.autocapitalizationType = .none
+		field.text = " "
+		field.delegate = self.hiddenInputFieldDelegate
+		return field
+	}()
+
+	private lazy var hiddenInputFieldDelegate: HiddenInputFieldDelegate = {
+		let delegate = HiddenInputFieldDelegate { output in
+			self.handle(hiddenInputFieldOutput: output)
+		}
+		return delegate
+	}()
+
 	private var testKeyboardLabel: UILabel!
 
-	private var overlayView: OverlayView!
 	private let testPushed: ((SDLKey) -> Void)
 	private let testReleased: ((SDLKey) -> Void)
 	private let testRaw: ((Int) -> Void)
@@ -98,18 +135,30 @@ public class OverlayViewController: UIViewController {
 	public override func viewDidLoad() {
 		super.viewDidLoad()
 
-		overlayView = OverlayView()
-		overlayView.translatesAutoresizingMaskIntoConstraints = false
 		view.addSubview(overlayView)
+		view.addSubview(buttonLayerView)
 
 		NSLayoutConstraint.activate([
 			overlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
 			overlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 			overlayView.topAnchor.constraint(equalTo: view.topAnchor),
-			overlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+			overlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+			buttonLayerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+			buttonLayerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+			buttonLayerView.topAnchor.constraint(equalTo: view.topAnchor),
+			buttonLayerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
 		])
 
-		overlayView.addGestureRecognizer(blockGestureRecognizer)
+		overlayView.addGestureRecognizer(overlayViewGestureRecognizer)
+		overlayView.addGestureRecognizer(buttonLayerViewGestureRecognizer)
+
+		overlayView.addSubview(hiddenInputField)
+
+		NSLayoutConstraint.activate([
+			hiddenInputField.centerXAnchor.constraint(equalTo: overlayView.centerXAnchor),
+			hiddenInputField.bottomAnchor.constraint(equalTo: overlayView.topAnchor)
+		])
 
 //		let cmdQButton = createButton()
 //		cmdQButton.setTitle("⌘Q", for: .normal)
@@ -124,12 +173,18 @@ public class OverlayViewController: UIViewController {
 //		leftStack.addArrangedSubview(createButton(for: .up))
 //		leftStack.addArrangedSubview(createButton(for: .shift))
 //		leftStack.addArrangedSubview(createButton(for: .z))
+		leftStack.addArrangedSubview(createButton(for: .down))
+		leftStack.addArrangedSubview(createButton(for: .space))
+		leftStack.addArrangedSubview(createButton(for: .up))
 
 //		rightStack.addArrangedSubview(createButton(for: .minus))
 //		rightStack.addArrangedSubview(createButton(for: .return))
 //		rightStack.addArrangedSubview(createButton(for: .down))
-//		rightStack.addArrangedSubview(createButton(for: .left))
-//		rightStack.addArrangedSubview(createButton(for: .right))
+		rightStack.addArrangedSubview(createButton(for: .ctrl))
+		rightStack.addArrangedSubview(createButton(for: .alt))
+		rightStack.addArrangedSubview(createButton(for: .tab))
+		rightStack.addArrangedSubview(createButton(for: .left))
+		rightStack.addArrangedSubview(createButton(for: .right))
 //		rightStack.addArrangedSubview(createButton(for: .slash))
 
 //		let testKeyboardButton = createButton()
@@ -139,21 +194,20 @@ public class OverlayViewController: UIViewController {
 //
 //		rightStack.addArrangedSubview(createTestKeyboardView())
 
-		overlayView.addSubview(leftStack)
-		overlayView.addSubview(rightStack)
+		buttonLayerView.addSubview(leftStack)
+		buttonLayerView.addSubview(rightStack)
 
 		NSLayoutConstraint.activate([
-			leftStack.leadingAnchor.constraint(equalTo: overlayView.leadingAnchor, constant: 64),
-			leftStack.bottomAnchor.constraint(equalTo: overlayView.safeAreaLayoutGuide.bottomAnchor),
+			leftStack.leadingAnchor.constraint(equalTo: buttonLayerView.leadingAnchor, constant: 64),
+			leftStack.bottomAnchor.constraint(equalTo: buttonLayerView.safeAreaLayoutGuide.bottomAnchor),
 
-			rightStack.trailingAnchor.constraint(equalTo: overlayView.trailingAnchor, constant: -80),
-			rightStack.bottomAnchor.constraint(equalTo: overlayView.safeAreaLayoutGuide.bottomAnchor)
+			rightStack.trailingAnchor.constraint(equalTo: buttonLayerView.trailingAnchor, constant: -64),
+			rightStack.bottomAnchor.constraint(equalTo: buttonLayerView.safeAreaLayoutGuide.bottomAnchor)
 		])
 	}
 
 	private func createButton() -> UIButton {
-		let button = UIButton()
-		button.translatesAutoresizingMaskIntoConstraints = false
+		let button = UIButton.withoutConstraints()
 		button.backgroundColor = .gray.withAlphaComponent(0.3)
 
 		NSLayoutConstraint.activate([
@@ -176,12 +230,10 @@ public class OverlayViewController: UIViewController {
 	}
 
 	private func createTestKeyboardView() -> UIView {
-		let view = UIView()
-		view.translatesAutoresizingMaskIntoConstraints = false
+		let view = UIView.withoutConstraints()
 		view.backgroundColor = .gray.withAlphaComponent(0.3)
 
-		let label = UILabel()
-		label.translatesAutoresizingMaskIntoConstraints = false
+		let label = UILabel.withoutConstraints()
 		label.textColor = .white
 
 		view.addSubview(label)
@@ -199,8 +251,20 @@ public class OverlayViewController: UIViewController {
 		return view
 	}
 
+	@objc
+	func showKeyboard() {
+		hiddenInputField.becomeFirstResponder()
+	}
+
+	@objc
+	func hideKeyboard() {
+		hiddenInputField.resignFirstResponder()
+	}
+
 	@objc func toggleBlockActivated() {
-		overlayView.toggleBlockActivated()
+		hiddenInputField.becomeFirstResponder()
+
+//		buttonLayerView.isHidden = !buttonLayerView.isHidden
 	}
 
 	@objc func testButtonPushed(sender: UIButton) {
@@ -229,6 +293,27 @@ public class OverlayViewController: UIViewController {
 		testReleased(.cmd)
 	}
 
+	private func handle(hiddenInputFieldOutput: HiddenInputFieldOutput) {
+		if hiddenInputFieldOutput.withShift {
+			testPushed(.shift)
+			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
+				guard let self else { return }
+				self.testPushed(hiddenInputFieldOutput.key)
+			}
+			DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
+				guard let self else { return }
+				self.testReleased(.shift)
+				self.testReleased(hiddenInputFieldOutput.key)
+			}
+		} else {
+			testPushed(hiddenInputFieldOutput.key)
+			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
+				guard let self else { return }
+				self.testReleased(hiddenInputFieldOutput.key)
+			}
+		}
+	}
+
 	@objc
 	private func testKeyboardButtonPushed() {
 		Task {
@@ -252,21 +337,45 @@ extension OverlayViewController: UIGestureRecognizerDelegate {
 }
 
 private class OverlayView: UIView {
-	private var isBlockActivated: Bool = false
+//	private var isBlockActivated: Bool = false
+	private let overlayViewRecievedTwoFingerTap: (() -> Void)
+
+	init(overlayViewRecievedTwoFingerTap: @escaping (() -> Void)) {
+		self.overlayViewRecievedTwoFingerTap = overlayViewRecievedTwoFingerTap
+
+		super.init(frame: .zero)
+	}
+	
+	required init?(coder: NSCoder) { fatalError() }
 
 	override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-		if !isBlockActivated {
+//		if !isBlockActivated {
 			super.touchesBegan(touches, with: event)
-		}
+//		}
 	}
 
 	func toggleBlockActivated() {
-		if isBlockActivated {
-			print("block enabled")
-			isBlockActivated = false
-		} else {
-			print("block disabled")
-			isBlockActivated = true
-		}
+		print("-- did recieve gesture")
+		overlayViewRecievedTwoFingerTap()
+//		if isBlockActivated {
+//			print("block enabled")
+//			isBlockActivated = false
+//		} else {
+//			print("block disabled")
+//			isBlockActivated = true
+//		}
+	}
+}
+
+private class ButtonLayerView: UIView {
+//	override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+//	}
+}
+
+extension UIView {
+	static func withoutConstraints() -> Self {
+		let view = Self()
+		view.translatesAutoresizingMaskIntoConstraints = false
+		return view
 	}
 }

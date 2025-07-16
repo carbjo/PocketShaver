@@ -83,6 +83,7 @@
 		5DF4CB7F22B5BD5D00512A86 /* audio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4CB7E22B5BD5D00512A86 /* audio.cpp */; };
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
 		C7BC1A5F2E2562DC006F95CB /* SSDiskManager.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */; };
+		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
 		C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */; };
 		C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */; };
@@ -500,6 +501,7 @@
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
 		C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SSDiskManager.mm; sourceTree = "<group>"; };
 		C7BC1A602E2562E1006F95CB /* SSDiskManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSDiskManager.h; sourceTree = "<group>"; };
+		C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldDelegate.swift; sourceTree = "<group>"; };
 		C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OverlayViewControllerObjC.mm; sourceTree = "<group>"; };
 		C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OverlayViewControllerObjC.h; sourceTree = "<group>"; };
 		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
@@ -1183,6 +1185,7 @@
 			isa = PBXGroup;
 			children = (
 				C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */,
+				C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */,
 				C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */,
 				C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */,
 			);
@@ -1689,6 +1692,7 @@
 				E204B9CB28BC7BF10081FDCA /* SSPreferencesViewController.mm in Sources */,
 				E204B95F28BC3EBE0081FDCA /* main_unix.cpp in Sources */,
 				E204B9F228BC7D020081FDCA /* utils_ios.mm in Sources */,
+				C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */,
 				E204B96028BC3EBE0081FDCA /* video_sdl2.cpp in Sources */,
 				E204B96128BC3EBE0081FDCA /* prefs_unix.cpp in Sources */,
 				E204BA3628BD49260081FDCA /* extfs_macosx.cpp in Sources */,
