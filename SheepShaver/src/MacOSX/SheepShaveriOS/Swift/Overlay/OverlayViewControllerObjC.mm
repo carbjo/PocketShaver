@@ -13,12 +13,12 @@
 #include "adb.h"
 
 void objc_initOverlayViewController(void) {
-	[OverlayViewController injectOverlayViewControllerWithTestPushed:^(SDLKey key){
+	[OverlayViewController injectOverlayViewControllerWithTestPushed:^(NSInteger key){
 		NSLog(@"push down");
 		
 		ADBKeyDown((int)key);
 
-	} testReleased:^(SDLKey key){
+	} testReleased:^(NSInteger key){
 		NSLog(@"release");
 
 		ADBKeyUp((int)key);

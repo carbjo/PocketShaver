@@ -76,14 +76,14 @@ public class OverlayViewController: UIViewController {
 
 	private var testKeyboardLabel: UILabel!
 
-	private let testPushed: ((SDLKey) -> Void)
-	private let testReleased: ((SDLKey) -> Void)
+	private let testPushed: ((Int) -> Void)
+	private let testReleased: ((Int) -> Void)
 	private let testRaw: ((Int) -> Void)
 
 	@objc
 	public static func injectOverlayViewController(
-		testPushed: @escaping ((SDLKey) -> Void),
-		testReleased: @escaping ((SDLKey) -> Void),
+		testPushed: @escaping ((Int) -> Void),
+		testReleased: @escaping ((Int) -> Void),
 		testRaw: @escaping ((Int) -> Void)
 	) {
 		guard let window = UIApplication.shared.delegate?.window,
@@ -114,8 +114,8 @@ public class OverlayViewController: UIViewController {
 
 	init(
 		sdlVC: UIViewController,
-		testPushed: @escaping ((SDLKey) -> Void),
-		testReleased: @escaping ((SDLKey) -> Void),
+		testPushed: @escaping ((Int) -> Void),
+		testReleased: @escaping ((Int) -> Void),
 		testRaw: @escaping ((Int) -> Void)
 	) {
 		self.sdlVC = sdlVC
@@ -130,7 +130,7 @@ public class OverlayViewController: UIViewController {
 
 	private weak var sdlVC: UIViewController!
 
-	private var pushedKeys = Set<SDLKey>()
+	private var pushedKeys = Set<Int>()
 
 	public override func viewDidLoad() {
 		super.viewDidLoad()
@@ -173,25 +173,25 @@ public class OverlayViewController: UIViewController {
 //		leftStack.addArrangedSubview(createButton(for: .up))
 //		leftStack.addArrangedSubview(createButton(for: .shift))
 //		leftStack.addArrangedSubview(createButton(for: .z))
-		leftStack.addArrangedSubview(createButton(for: .down))
-		leftStack.addArrangedSubview(createButton(for: .space))
-		leftStack.addArrangedSubview(createButton(for: .up))
+//		leftStack.addArrangedSubview(createButton(for: .down))
+//		leftStack.addArrangedSubview(createButton(for: .space))
+//		leftStack.addArrangedSubview(createButton(for: .up))
 
 //		rightStack.addArrangedSubview(createButton(for: .minus))
 //		rightStack.addArrangedSubview(createButton(for: .return))
 //		rightStack.addArrangedSubview(createButton(for: .down))
-		rightStack.addArrangedSubview(createButton(for: .ctrl))
-		rightStack.addArrangedSubview(createButton(for: .alt))
-		rightStack.addArrangedSubview(createButton(for: .tab))
-		rightStack.addArrangedSubview(createButton(for: .left))
-		rightStack.addArrangedSubview(createButton(for: .right))
+//		rightStack.addArrangedSubview(createButton(for: .ctrl))
+//		rightStack.addArrangedSubview(createButton(for: .alt))
+//		rightStack.addArrangedSubview(createButton(for: .tab))
+//		rightStack.addArrangedSubview(createButton(for: .left))
+//		rightStack.addArrangedSubview(createButton(for: .right))
 //		rightStack.addArrangedSubview(createButton(for: .slash))
 
 //		let testKeyboardButton = createButton()
 //		testKeyboardButton.setTitle("Start", for: .normal)
 //		testKeyboardButton.addTarget(self, action: #selector(testKeyboardButtonPushed), for: .touchUpInside)
 //		leftStack.addArrangedSubview(testKeyboardButton)
-//
+////
 //		rightStack.addArrangedSubview(createTestKeyboardView())
 
 		buttonLayerView.addSubview(leftStack)
@@ -224,7 +224,7 @@ public class OverlayViewController: UIViewController {
 		button.addTarget(self, action: #selector(testButtonPushed), for: .touchDown)
 		button.addTarget(self, action: #selector(testButtonReleased), for: .touchUpInside)
 		button.addTarget(self, action: #selector(testButtonReleased), for: .touchUpOutside)
-		button.tag = key.rawValue
+		button.tag = key.svValue
 
 		return button
 	}
@@ -268,7 +268,7 @@ public class OverlayViewController: UIViewController {
 	}
 
 	@objc func testButtonPushed(sender: UIButton) {
-		let key = SDLKey(rawValue: sender.tag)!
+		let key = sender.tag
 		guard !pushedKeys.contains(key) else {
 			return
 		}
@@ -280,36 +280,36 @@ public class OverlayViewController: UIViewController {
 	}
 
 	@objc func testButtonReleased(sender: UIButton) {
-		let key = SDLKey(rawValue: sender.tag)!
+		let key = sender.tag
 		testReleased(key)
 
 		pushedKeys.remove(key)
 	}
 
 	@objc func cmdQpushed() {
-		testPushed(.cmd)
-		testPushed(.q)
-		testReleased(.q)
-		testReleased(.cmd)
+		testPushed(SDLKey.cmd.enValue)
+		testPushed(SDLKey.q.enValue)
+		testReleased(SDLKey.q.enValue)
+		testReleased(SDLKey.cmd.enValue)
 	}
 
 	private func handle(hiddenInputFieldOutput: HiddenInputFieldOutput) {
 		if hiddenInputFieldOutput.withShift {
-			testPushed(.shift)
+			testPushed(SDLKey.shift.enValue)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
 				guard let self else { return }
-				self.testPushed(hiddenInputFieldOutput.key)
+				self.testPushed(hiddenInputFieldOutput.value)
 			}
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
 				guard let self else { return }
-				self.testReleased(.shift)
-				self.testReleased(hiddenInputFieldOutput.key)
+				self.testReleased(SDLKey.shift.enValue)
+				self.testReleased(hiddenInputFieldOutput.value)
 			}
 		} else {
-			testPushed(hiddenInputFieldOutput.key)
+			testPushed(hiddenInputFieldOutput.value)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
 				guard let self else { return }
-				self.testReleased(hiddenInputFieldOutput.key)
+				self.testReleased(hiddenInputFieldOutput.value)
 			}
 		}
 	}
