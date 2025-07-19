@@ -61,6 +61,7 @@
 #if TARGET_OS_IPHONE
 #include "utils_ios.h"
 #import "OverlayViewControllerObjC.h"
+#import "MonitorResolutionsObjC.h"
 #endif
 
 #ifdef WIN32
@@ -524,7 +525,9 @@ static void add_mode(int type, int width, int height, int resolution_id, int byt
 	// Fill in VideoMode entry
 	VIDEO_MODE mode;
 #ifdef SHEEPSHAVER
+#ifndef TARGET_OS_IPHONE
 	resolution_id = find_apple_resolution(width, height);
+#endif
 	mode.viType = type;
 #endif
 	VIDEO_MODE_X = width;
@@ -1522,16 +1525,22 @@ bool VideoInit(bool classic)
 			}
 		}
 	} else if (display_type == DISPLAY_SCREEN) {
+#if TARGET_OS_IPHONE
+		std::vector<MonitorResolution> ios_resolutions = objc_getAllMonitorResolutions();
+		for(const MonitorResolution& resolution : ios_resolutions) {
+			for (int d = VIDEO_DEPTH_1BIT; d <= default_depth; d++)
+				add_mode(display_type, resolution.width, resolution.height, resolution.index, TrivialBytesPerRow(resolution.width, (video_depth)d), d);
+		}
+#else
 		for (int i = 0; video_modes[i].w != 0; i++) {
 			const int w = video_modes[i].w;
 			const int h = video_modes[i].h;
-#if !TARGET_OS_IPHONE
 			if (i > 0 && (w >= default_width || h >= default_height))
 				continue;
-#endif
 			for (int d = VIDEO_DEPTH_1BIT; d <= default_depth; d++)
 				add_mode(display_type, w, h, video_modes[i].resolution_id, TrivialBytesPerRow(w, (video_depth)d), d);
 		}
+#endif
 	}
 
 	if (VideoModes.empty()) {

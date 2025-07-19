@@ -5,7 +5,7 @@
 //  Created by Carl Björkman on 2025-07-05.
 //
 
-public enum SDLKey {
+enum SDLKey {
 	case a
 	case b
 	case c

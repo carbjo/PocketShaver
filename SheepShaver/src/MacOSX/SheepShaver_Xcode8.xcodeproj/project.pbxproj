@@ -84,6 +84,8 @@
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
 		C7BC1A5F2E2562DC006F95CB /* SSDiskManager.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */; };
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
+		C7BC1A642E2A84B2006F95CB /* MonitorResolutions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutions.swift */; };
+		C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */; };
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
 		C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */; };
 		C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */; };
@@ -502,6 +504,9 @@
 		C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SSDiskManager.mm; sourceTree = "<group>"; };
 		C7BC1A602E2562E1006F95CB /* SSDiskManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSDiskManager.h; sourceTree = "<group>"; };
 		C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldDelegate.swift; sourceTree = "<group>"; };
+		C7BC1A632E2A84AA006F95CB /* MonitorResolutions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorResolutions.swift; sourceTree = "<group>"; };
+		C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MonitorResolutionsObjC.mm; sourceTree = "<group>"; };
+		C7BC1A682E2A879C006F95CB /* MonitorResolutionsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MonitorResolutionsObjC.h; sourceTree = "<group>"; };
 		C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OverlayViewControllerObjC.mm; sourceTree = "<group>"; };
 		C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OverlayViewControllerObjC.h; sourceTree = "<group>"; };
 		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
@@ -1181,6 +1186,16 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		C7BC1A652E2A8776006F95CB /* Monitor Resolutions */ = {
+			isa = PBXGroup;
+			children = (
+				C7BC1A632E2A84AA006F95CB /* MonitorResolutions.swift */,
+				C7BC1A682E2A879C006F95CB /* MonitorResolutionsObjC.h */,
+				C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */,
+			);
+			path = "Monitor Resolutions";
+			sourceTree = "<group>";
+		};
 		C7E2AFB72E16C54E00CF50D4 /* Overlay */ = {
 			isa = PBXGroup;
 			children = (
@@ -1196,6 +1211,7 @@
 			isa = PBXGroup;
 			children = (
 				C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */,
+				C7BC1A652E2A8776006F95CB /* Monitor Resolutions */,
 				C7E2AFB72E16C54E00CF50D4 /* Overlay */,
 			);
 			path = Swift;
@@ -1639,6 +1655,7 @@
 				E204B93428BC3EBE0081FDCA /* debug.c in Sources */,
 				E204B93528BC3EBE0081FDCA /* tcp_subr.c in Sources */,
 				E204B93628BC3EBE0081FDCA /* ip_output.c in Sources */,
+				C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */,
 				E204B93728BC3EBE0081FDCA /* tcp_output.c in Sources */,
 				E204B93828BC3EBE0081FDCA /* disk.cpp in Sources */,
 				C7BC1A5F2E2562DC006F95CB /* SSDiskManager.mm in Sources */,
@@ -1715,6 +1732,7 @@
 				E204B96E28BC3EBE0081FDCA /* tcp_input.c in Sources */,
 				E204BA3128BD47610081FDCA /* runtool.c in Sources */,
 				E204B96F28BC3EBE0081FDCA /* video.cpp in Sources */,
+				C7BC1A642E2A84B2006F95CB /* MonitorResolutions.swift in Sources */,
 				E204B9C628BC7BF10081FDCA /* SSPreferencesIOViewController.mm in Sources */,
 				E204B97028BC3EBE0081FDCA /* SDLMain.m in Sources */,
 				E204B9D128BC7BF10081FDCA /* SceneDelegate.m in Sources */,

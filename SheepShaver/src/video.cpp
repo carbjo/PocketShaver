@@ -802,6 +802,13 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			}
 			WriteMacInt32(param + csRIDisplayModeID, work_id);
 			WriteMacInt16(param + csMaxDepthMode, max_depth(work_id));
+#ifdef TARGET_OS_IPHONE
+			uint32 x, y;
+			get_size_of_resolution(work_id, x, y);
+			WriteMacInt32(param + csHorizontalPixels, x);
+			WriteMacInt32(param + csVerticalLines, y);
+			WriteMacInt32(param + csRefreshRate, 75<<16);
+#else
 			switch (work_id) {
 				case APPLE_640x480:
 					WriteMacInt32(param + csHorizontalPixels, 640);
@@ -857,6 +864,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 					break;
 				}
 			}
+#endif
 			return noErr;
 		}
 
