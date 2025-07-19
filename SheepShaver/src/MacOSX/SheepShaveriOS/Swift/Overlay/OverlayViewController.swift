@@ -63,7 +63,12 @@ public class OverlayViewController: UIViewController {
 		let field = UITextField.withoutConstraints()
 		field.autocapitalizationType = .none
 		field.text = " "
+		field.autocorrectionType = .no
+		field.spellCheckingType = .no
 		field.delegate = self.hiddenInputFieldDelegate
+		let accessoryView = HiddenInputFieldKeyboardAccessoryView.withoutConstraints()
+		accessoryView.configure(pushKey: pushKey, releaseKey: releaseKey)
+		field.inputAccessoryView = accessoryView
 		return field
 	}()
 
@@ -76,15 +81,15 @@ public class OverlayViewController: UIViewController {
 
 	private var testKeyboardLabel: UILabel!
 
-	private let testPushed: ((Int) -> Void)
-	private let testReleased: ((Int) -> Void)
-	private let testRaw: ((Int) -> Void)
+	private let pushKey: ((Int) -> Void)
+	private let releaseKey: ((Int) -> Void)
+	private let pushAndReleaseKey: ((Int) -> Void)
 
 	@objc
 	public static func injectOverlayViewController(
-		testPushed: @escaping ((Int) -> Void),
-		testReleased: @escaping ((Int) -> Void),
-		testRaw: @escaping ((Int) -> Void)
+		pushKey: @escaping ((Int) -> Void),
+		releaseKey: @escaping ((Int) -> Void),
+		pushAndReleaseKey: @escaping ((Int) -> Void)
 	) {
 		guard let window = UIApplication.shared.delegate?.window,
 		let sdlVC = window?.rootViewController else {
@@ -93,9 +98,9 @@ public class OverlayViewController: UIViewController {
 
 		let vc = OverlayViewController(
 			sdlVC: sdlVC,
-			testPushed: testPushed,
-			testReleased: testReleased,
-			testRaw: testRaw
+			testPushed: pushKey,
+			testReleased: releaseKey,
+			testRaw: pushAndReleaseKey
 		)
 
 		vc.willMove(toParent: sdlVC)
@@ -119,9 +124,9 @@ public class OverlayViewController: UIViewController {
 		testRaw: @escaping ((Int) -> Void)
 	) {
 		self.sdlVC = sdlVC
-		self.testPushed = testPushed
-		self.testReleased = testReleased
-		self.testRaw = testRaw
+		self.pushKey = testPushed
+		self.releaseKey = testReleased
+		self.pushAndReleaseKey = testRaw
 
 		super.init(nibName: nil, bundle: nil)
 	}
@@ -276,40 +281,40 @@ public class OverlayViewController: UIViewController {
 
 		UIImpactFeedbackGenerator(style: .light).impactOccurred()
 
-		testPushed(key)
+		pushKey(key)
 	}
 
 	@objc func testButtonReleased(sender: UIButton) {
 		let key = sender.tag
-		testReleased(key)
+		releaseKey(key)
 
 		pushedKeys.remove(key)
 	}
 
 	@objc func cmdQpushed() {
-		testPushed(SDLKey.cmd.enValue)
-		testPushed(SDLKey.q.enValue)
-		testReleased(SDLKey.q.enValue)
-		testReleased(SDLKey.cmd.enValue)
+		pushKey(SDLKey.cmd.enValue)
+		pushKey(SDLKey.q.enValue)
+		releaseKey(SDLKey.q.enValue)
+		releaseKey(SDLKey.cmd.enValue)
 	}
 
 	private func handle(hiddenInputFieldOutput: HiddenInputFieldOutput) {
 		if hiddenInputFieldOutput.withShift {
-			testPushed(SDLKey.shift.enValue)
+			pushKey(SDLKey.shift.enValue)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
 				guard let self else { return }
-				self.testPushed(hiddenInputFieldOutput.value)
+				self.pushKey(hiddenInputFieldOutput.value)
 			}
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
 				guard let self else { return }
-				self.testReleased(SDLKey.shift.enValue)
-				self.testReleased(hiddenInputFieldOutput.value)
+				self.releaseKey(SDLKey.shift.enValue)
+				self.releaseKey(hiddenInputFieldOutput.value)
 			}
 		} else {
-			testPushed(hiddenInputFieldOutput.value)
+			pushKey(hiddenInputFieldOutput.value)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
 				guard let self else { return }
-				self.testReleased(hiddenInputFieldOutput.value)
+				self.releaseKey(hiddenInputFieldOutput.value)
 			}
 		}
 	}
@@ -322,7 +327,7 @@ public class OverlayViewController: UIViewController {
 				Task { @MainActor in
 					self.testKeyboardLabel.text = hexString
 				}
-				testRaw(i)
+				pushAndReleaseKey(i)
 				let mSec: UInt64 = 1000 * 1000
 				try await Task.sleep(nanoseconds: 250 * mSec)
 			}
