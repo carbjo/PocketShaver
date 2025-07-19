@@ -173,15 +173,11 @@
 	// Update the paths with the current documents directory. This isn't normally a big deal, but during development the identity of
 	// the document directory can change.
 	NSString* aDocsDirectory = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
-	if (self.diskArray.count == 1) {
-		PrefsAddString(self.diskArray.firstObject.isCDROM ? "cdrom" : "disk", [self.diskArray.firstObject.path UTF8String]);		// even if it is disabled, since it's the only one
-	} else {
-		for (DiskTypeiOS* aDiskType in self.diskArray) {
-			if (aDiskType.disable == NO) {
-				NSString* aFileName = aDiskType.path.lastPathComponent;
-				NSString* aFilePath = [aDocsDirectory stringByAppendingPathComponent:aFileName];
-				PrefsAddString(aDiskType.isCDROM ? "cdrom" : "disk", [aFilePath UTF8String]);
-			}
+	for (DiskTypeiOS* aDiskType in self.diskArray) {
+		if (aDiskType.disable == NO) {
+			NSString* aFileName = aDiskType.path.lastPathComponent;
+			NSString* aFilePath = [aDocsDirectory stringByAppendingPathComponent:aFileName];
+			PrefsAddString(aDiskType.isCDROM ? "cdrom" : "disk", [aFilePath UTF8String]);
 		}
 	}
 
