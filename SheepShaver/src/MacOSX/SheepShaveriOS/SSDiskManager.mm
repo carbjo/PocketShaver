@@ -82,6 +82,8 @@
 				[aDiskCandidateFiles addObject:anElementPath];
 			} else if ([anElementPath.pathExtension compare:@"cdr" options:NSCaseInsensitiveSearch] == NSOrderedSame) {
 				[aDiskCandidateFiles addObject:anElementPath];
+			} else if ([anElementPath.pathExtension compare:@"iso" options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+				[aDiskCandidateFiles addObject:anElementPath];
 			} else {
 				NSLog (@"%s Extension %@ is unknown: %@", __PRETTY_FUNCTION__, anElementPath.pathExtension, anElementName);
 			}
