@@ -41,7 +41,8 @@ public class OverlayViewController: UIViewController {
 		return view
 	}()
 
-	private lazy var overlaySwipeDownGestureRecognizer: UISwipeGestureRecognizer = {
+	private lazy var overlaySwipeDownGestureRecognizer: UISwipeGestureRecognizer = { [weak self] in
+		guard let self else { fatalError() }
 		let gesture = UISwipeGestureRecognizer()
 		gesture.direction = .down
 		gesture.numberOfTouchesRequired = 3
@@ -53,7 +54,8 @@ public class OverlayViewController: UIViewController {
 		return gesture
 	}()
 
-	private lazy var overlaySwipeUpGestureRecognizer: UISwipeGestureRecognizer = {
+	private lazy var overlaySwipeUpGestureRecognizer: UISwipeGestureRecognizer = { [weak self] in
+		guard let self else { fatalError() }
 		let gesture = UISwipeGestureRecognizer()
 		gesture.direction = .up
 		gesture.numberOfTouchesRequired = 3
@@ -65,7 +67,8 @@ public class OverlayViewController: UIViewController {
 		return gesture
 	}()
 
-	private lazy var gamepadSwipeUpGestureRecognizer: UISwipeGestureRecognizer = {
+	private lazy var gamepadSwipeUpGestureRecognizer: UISwipeGestureRecognizer = { [weak self] in
+		guard let self else { fatalError() }
 		let gesture = UISwipeGestureRecognizer()
 		gesture.direction = .up
 		gesture.numberOfTouchesRequired = 3
@@ -77,7 +80,8 @@ public class OverlayViewController: UIViewController {
 		return gesture
 	}()
 
-	private lazy var hiddenInputField: UITextField = {
+	private lazy var hiddenInputField: UITextField = { [weak self] in
+		guard let self else { fatalError() }
 		let field = UITextField.withoutConstraints()
 		field.autocapitalizationType = .none
 		field.text = " "
@@ -123,6 +127,7 @@ public class OverlayViewController: UIViewController {
 			testRaw: pushAndReleaseKey
 		)
 
+
 		vc.willMove(toParent: sdlVC)
 		sdlVC.view.addSubview(vc.view)
 
@@ -147,10 +152,6 @@ public class OverlayViewController: UIViewController {
 		self.pushAndReleaseKey = testRaw
 
 		super.init(nibName: nil, bundle: nil)
-	}
-
-	deinit {
-		print("")
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
