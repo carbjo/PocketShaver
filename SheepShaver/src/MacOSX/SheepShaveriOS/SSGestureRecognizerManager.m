@@ -81,8 +81,8 @@ UIWindow* gSDLWindow;
 		self.keyboardGesture.delaysTouchesBegan = YES;		// These don't help.
 		self.keyboardGesture.delaysTouchesEnded = YES;
 		
-		[aMainWindow.rootViewController.view addGestureRecognizer:self.preferencesGesture];
-		[aMainWindow.rootViewController.view addGestureRecognizer:self.keyboardGesture];
+//		[aMainWindow.rootViewController.view addGestureRecognizer:self.preferencesGesture];
+//		[aMainWindow.rootViewController.view addGestureRecognizer:self.keyboardGesture];
 		[aMainWindow.rootViewController.view setUserInteractionEnabled:YES];
 		
 		gSDLWindow = aMainWindow;
