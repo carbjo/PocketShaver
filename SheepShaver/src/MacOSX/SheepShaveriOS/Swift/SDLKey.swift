@@ -50,8 +50,8 @@ enum SDLKey {
 	case plus
 	case minus
 	case equals
-	case leftbracket
-	case rightbracket
+	case leftsquarebracket
+	case rightsquarebracket
 	case backslash
 	case semicolon
 	case quote
@@ -177,8 +177,8 @@ extension SDLKey {
 		case .plus: return "+"
 		case .minus: return "-"
 		case .equals: return "="
-		case .leftbracket: return "["
-		case .rightbracket: return "]"
+		case .leftsquarebracket: return "["
+		case .rightsquarebracket: return "]"
 		case .backslash: return "\\"
 		case .semicolon: return ":"
 		case .quote: return "'"
@@ -302,8 +302,8 @@ extension SDLKey {
 		case .backquote: return 0x32
 		case .minus: return 0x1b
 		case .equals: return 0x18
-		case .leftbracket: return 0x21
-		case .rightbracket: return 0x1e
+		case .leftsquarebracket: return 0x21
+		case .rightsquarebracket: return 0x1e
 		case .backslash: return 0x2a
 		case .semicolon: return 0x29
 		case .quote: return 0x27
