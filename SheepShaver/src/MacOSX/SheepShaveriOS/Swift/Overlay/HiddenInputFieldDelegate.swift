@@ -18,15 +18,7 @@ struct HiddenInputFieldOutput {
 }
 
 class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
-	private let didInputSDLKey: ((HiddenInputFieldOutput) -> Void)
-
-	init(
-		didInputSDLKey: @escaping ((HiddenInputFieldOutput) -> Void)
-	) {
-		self.didInputSDLKey = didInputSDLKey
-
-		super.init()
-	}
+	var didInputSDLKey: ((HiddenInputFieldOutput) -> Void)?
 
 	func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
 		var keyboard: Keyboard?
@@ -35,7 +27,7 @@ class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
 		}
 
 		if let key = sdlKey(for: string, keyboard: keyboard) {
-			didInputSDLKey(key)
+			didInputSDLKey?(key)
 		} else {
 			print("Could not find SDLKey for \(string)")
 		}

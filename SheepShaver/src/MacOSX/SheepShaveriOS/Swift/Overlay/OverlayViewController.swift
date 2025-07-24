@@ -7,6 +7,7 @@
 
 import UIKit
 
+@MainActor fileprivate var globalState: OverlayViewController.State = .normal
 
 @objc(OverlayViewController)
 public class OverlayViewController: UIViewController {
@@ -29,6 +30,20 @@ public class OverlayViewController: UIViewController {
 	}()
 
 	private lazy var rightStack: UIStackView = {
+		let stack = UIStackView.withoutConstraints()
+		stack.axis = .horizontal
+		stack.spacing = 4
+		return stack
+	}()
+
+	private lazy var leftUpperStack: UIStackView = {
+		let stack = UIStackView.withoutConstraints()
+		stack.axis = .horizontal
+		stack.spacing = 4
+		return stack
+	}()
+
+	private lazy var rightUpperStack: UIStackView = {
 		let stack = UIStackView.withoutConstraints()
 		stack.axis = .horizontal
 		stack.spacing = 4
@@ -95,11 +110,7 @@ public class OverlayViewController: UIViewController {
 	}()
 
 	private lazy var hiddenInputFieldDelegate: HiddenInputFieldDelegate = {
-		let delegate = HiddenInputFieldDelegate { [weak self] output in
-			guard let self else { return }
-			self.handle(hiddenInputFieldOutput: output)
-		}
-		return delegate
+		HiddenInputFieldDelegate()
 	}()
 
 	private var testKeyboardLabel: UILabel!
@@ -107,8 +118,6 @@ public class OverlayViewController: UIViewController {
 	private let pushKey: ((Int) -> Void)
 	private let releaseKey: ((Int) -> Void)
 	private let pushAndReleaseKey: ((Int) -> Void)
-
-	private var state: State = .normal
 
 	@objc
 	public static func injectOverlayViewController(
@@ -181,6 +190,10 @@ public class OverlayViewController: UIViewController {
 		gamepadLayerView.addGestureRecognizer(gamepadSwipeUpGestureRecognizer)
 
 		overlayView.addSubview(hiddenInputField)
+		hiddenInputFieldDelegate.didInputSDLKey = { [weak self] output in
+			guard let self else { return }
+			self.handle(hiddenInputFieldOutput: output)
+		}
 
 		NSLayoutConstraint.activate([
 			hiddenInputField.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -196,18 +209,25 @@ public class OverlayViewController: UIViewController {
 //		leftStack.addArrangedSubview(createButton(for: .up))
 //		leftStack.addArrangedSubview(createButton(for: .shift))
 //		leftStack.addArrangedSubview(createButton(for: .z))
-		leftStack.addArrangedSubview(createButton(for: .down))
+//		leftStack.addArrangedSubview(createButton(for: .down))
 		leftStack.addArrangedSubview(createButton(for: .space))
-		leftStack.addArrangedSubview(createButton(for: .up))
+		leftStack.addArrangedSubview(createButton(for: .x))
+		leftStack.addArrangedSubview(createButton(for: .shift))
+		leftUpperStack.addArrangedSubview(createButton(for: .a))
+		leftUpperStack.addArrangedSubview(createButton(for: .s))
+//		leftStack.addArrangedSubview(createButton(for: .up))
 
 //		rightStack.addArrangedSubview(createButton(for: .minus))
 //		rightStack.addArrangedSubview(createButton(for: .return))
 //		rightStack.addArrangedSubview(createButton(for: .down))
-		rightStack.addArrangedSubview(createButton(for: .ctrl))
-		rightStack.addArrangedSubview(createButton(for: .alt))
-		rightStack.addArrangedSubview(createButton(for: .tab))
+//		rightStack.addArrangedSubview(createButton(for: .ctrl))
+//		rightStack.addArrangedSubview(createButton(for: .alt))
+//		rightStack.addArrangedSubview(createButton(for: .tab))
+
 		rightStack.addArrangedSubview(createButton(for: .left))
 		rightStack.addArrangedSubview(createButton(for: .right))
+		rightUpperStack.addArrangedSubview(createButton(for: .down))
+		rightUpperStack.addArrangedSubview(createButton(for: .up))
 //		rightStack.addArrangedSubview(createButton(for: .slash))
 
 //		let testKeyboardButton = createButton()
@@ -220,18 +240,30 @@ public class OverlayViewController: UIViewController {
 		gamepadLayerView.addSubview(leftStack)
 		gamepadLayerView.addSubview(rightStack)
 
+		gamepadLayerView.addSubview(leftUpperStack)
+		gamepadLayerView.addSubview(rightUpperStack)
+
 		NSLayoutConstraint.activate([
 			leftStack.leadingAnchor.constraint(equalTo: gamepadLayerView.leadingAnchor, constant: 64),
 			leftStack.bottomAnchor.constraint(equalTo: gamepadLayerView.safeAreaLayoutGuide.bottomAnchor),
 
+			leftUpperStack.leadingAnchor.constraint(equalTo: gamepadLayerView.leadingAnchor, constant: 64),
+			leftUpperStack.bottomAnchor.constraint(equalTo: leftStack.topAnchor, constant: -8),
+
 			rightStack.trailingAnchor.constraint(equalTo: gamepadLayerView.trailingAnchor, constant: -64),
-			rightStack.bottomAnchor.constraint(equalTo: gamepadLayerView.safeAreaLayoutGuide.bottomAnchor)
+			rightStack.bottomAnchor.constraint(equalTo: gamepadLayerView.safeAreaLayoutGuide.bottomAnchor),
+
+			rightUpperStack.trailingAnchor.constraint(equalTo: gamepadLayerView.trailingAnchor, constant: -64),
+			rightUpperStack.bottomAnchor.constraint(equalTo: rightStack.topAnchor, constant: -8)
 		])
+
+		if globalState != .normal {
+			transition(to: globalState)
+		}
 	}
 
 	private func createButton() -> UIButton {
 		let button = UIButton.withoutConstraints()
-//		button.backgroundColor = .gray.withAlphaComponent(0.3)
 		button.configuration = buttonConfig()
 
 		NSLayoutConstraint.activate([
@@ -255,7 +287,7 @@ public class OverlayViewController: UIViewController {
 
 	private func createTestKeyboardView() -> UIView {
 		let view = UIView.withoutConstraints()
-		view.backgroundColor = .gray.withAlphaComponent(0.3)
+		view.backgroundColor = .gray.withAlphaComponent(0.05)
 
 		let label = UILabel.withoutConstraints()
 		label.textColor = .white
@@ -275,35 +307,44 @@ public class OverlayViewController: UIViewController {
 		return view
 	}
 
-	@objc
-	private func overlaySwipeDown() {
+	private func transition(to state: State) {
+		globalState = state
 		switch state {
 		case .normal:
-			state = .showingGamepad
+			gamepadLayerView.isHidden = true
+			hiddenInputField.resignFirstResponder()
+		case .showingGamepad:
 			gamepadLayerView.isHidden = false
 		case .showingKeyboard:
-			state = .normal
-			hiddenInputField.resignFirstResponder()
+			hiddenInputField.becomeFirstResponder()
+		}
+	}
+
+	@objc
+	private func overlaySwipeDown() {
+		switch globalState {
+		case .normal:
+			transition(to: .showingGamepad)
+		case .showingKeyboard:
+			transition(to: .normal)
 		default: break
 		}
 	}
 
 	@objc
 	private func overlaySwipeUp() {
-		switch state {
+		switch globalState {
 		case .normal:
-			state = .showingKeyboard
-			hiddenInputField.becomeFirstResponder()
+			transition(to: .showingKeyboard)
 		default: break
 		}
 	}
 
 	@objc
 	private func gamepadSwipeUp() {
-		switch state {
+		switch globalState {
 		case .showingGamepad:
-			state = .normal
-			gamepadLayerView.isHidden = true
+			transition(to: .normal)
 		default: break
 		}
 	}
@@ -375,6 +416,10 @@ public class OverlayViewController: UIViewController {
 			}
 		}
 	}
+
+	@objc private func resignKeyboard() {
+		hiddenInputField.resignFirstResponder()
+	}
 }
 
 extension OverlayViewController: UIGestureRecognizerDelegate {
@@ -424,6 +469,12 @@ extension UIView {
 		let view = Self()
 		view.translatesAutoresizingMaskIntoConstraints = false
 		return view
+	}
+}
+
+extension NSObject {
+	var ptrString: String {
+		"\(Unmanaged.passUnretained(self).toOpaque())"
 	}
 }
 
