@@ -18,40 +18,13 @@ public class OverlayViewController: UIViewController {
 		case showingGamepad
 	}
 
-	private lazy var overlayView: OverlayView = {
-		OverlayView.withoutConstraints()
+	private lazy var overlayView: UIView = {
+		UIView.withoutConstraints()
 	}()
 
-	private lazy var leftStack: UIStackView = {
-		let stack = UIStackView.withoutConstraints()
-		stack.axis = .horizontal
-		stack.spacing = 4
-		return stack
-	}()
-
-	private lazy var rightStack: UIStackView = {
-		let stack = UIStackView.withoutConstraints()
-		stack.axis = .horizontal
-		stack.spacing = 4
-		return stack
-	}()
-
-	private lazy var leftUpperStack: UIStackView = {
-		let stack = UIStackView.withoutConstraints()
-		stack.axis = .horizontal
-		stack.spacing = 4
-		return stack
-	}()
-
-	private lazy var rightUpperStack: UIStackView = {
-		let stack = UIStackView.withoutConstraints()
-		stack.axis = .horizontal
-		stack.spacing = 4
-		return stack
-	}()
-
-	private lazy var gamepadLayerView: UIView = {
-		let view = UIView.withoutConstraints()
+	private lazy var gamepadLayerView: ButtonLayerView = {
+		let view = ButtonLayerView(pushKey: self.pushKey, releaseKey: self.releaseKey)
+		view.translatesAutoresizingMaskIntoConstraints = false
 		view.isHidden = true
 		return view
 	}()
@@ -113,52 +86,18 @@ public class OverlayViewController: UIViewController {
 		HiddenInputFieldDelegate()
 	}()
 
-	private var testKeyboardLabel: UILabel!
-
 	private let pushKey: ((Int) -> Void)
 	private let releaseKey: ((Int) -> Void)
 	private let pushAndReleaseKey: ((Int) -> Void)
 
-	@objc
-	public static func injectOverlayViewController(
+	init(
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void),
 		pushAndReleaseKey: @escaping ((Int) -> Void)
 	) {
-		guard let window = UIApplication.shared.delegate?.window,
-		let sdlVC = window?.rootViewController else {
-			return
-		}
-
-		let vc = OverlayViewController(
-			testPushed: pushKey,
-			testReleased: releaseKey,
-			testRaw: pushAndReleaseKey
-		)
-
-
-		vc.willMove(toParent: sdlVC)
-		sdlVC.view.addSubview(vc.view)
-
-		NSLayoutConstraint.activate([
-			vc.view.leadingAnchor.constraint(equalTo: sdlVC.view.leadingAnchor),
-			vc.view.trailingAnchor.constraint(equalTo: sdlVC.view.trailingAnchor),
-			vc.view.topAnchor.constraint(equalTo: sdlVC.view.topAnchor),
-			vc.view.bottomAnchor.constraint(equalTo: sdlVC.view.bottomAnchor)
-		])
-
-		sdlVC.addChild(vc)
-		vc.didMove(toParent: sdlVC)
-	}
-
-	init(
-		testPushed: @escaping ((Int) -> Void),
-		testReleased: @escaping ((Int) -> Void),
-		testRaw: @escaping ((Int) -> Void)
-	) {
-		self.pushKey = testPushed
-		self.releaseKey = testReleased
-		self.pushAndReleaseKey = testRaw
+		self.pushKey = pushKey
+		self.releaseKey = releaseKey
+		self.pushAndReleaseKey = pushAndReleaseKey
 
 		super.init(nibName: nil, bundle: nil)
 	}
@@ -200,111 +139,9 @@ public class OverlayViewController: UIViewController {
 			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor)
 		])
 
-
-//		leftStack.addArrangedSubview(createButton(for: .ctrl))
-//		leftStack.addArrangedSubview(createButton(for: .up))
-//		leftStack.addArrangedSubview(createButton(for: .space))
-//		leftStack.addArrangedSubview(createButton(for: .escape))
-//		leftStack.addArrangedSubview(cmdQButton)
-//		leftStack.addArrangedSubview(createButton(for: .up))
-//		leftStack.addArrangedSubview(createButton(for: .shift))
-//		leftStack.addArrangedSubview(createButton(for: .z))
-//		leftStack.addArrangedSubview(createButton(for: .down))
-		leftStack.addArrangedSubview(createButton(for: .space))
-		leftStack.addArrangedSubview(createButton(for: .x))
-		leftStack.addArrangedSubview(createButton(for: .shift))
-		leftUpperStack.addArrangedSubview(createButton(for: .a))
-		leftUpperStack.addArrangedSubview(createButton(for: .s))
-//		leftStack.addArrangedSubview(createButton(for: .up))
-
-//		rightStack.addArrangedSubview(createButton(for: .minus))
-//		rightStack.addArrangedSubview(createButton(for: .return))
-//		rightStack.addArrangedSubview(createButton(for: .down))
-//		rightStack.addArrangedSubview(createButton(for: .ctrl))
-//		rightStack.addArrangedSubview(createButton(for: .alt))
-//		rightStack.addArrangedSubview(createButton(for: .tab))
-
-		rightStack.addArrangedSubview(createButton(for: .left))
-		rightStack.addArrangedSubview(createButton(for: .right))
-		rightUpperStack.addArrangedSubview(createButton(for: .down))
-		rightUpperStack.addArrangedSubview(createButton(for: .up))
-//		rightStack.addArrangedSubview(createButton(for: .slash))
-
-//		let testKeyboardButton = createButton()
-//		testKeyboardButton.setTitle("Start", for: .normal)
-//		testKeyboardButton.addTarget(self, action: #selector(testKeyboardButtonPushed), for: .touchUpInside)
-//		leftStack.addArrangedSubview(testKeyboardButton)
-////
-//		rightStack.addArrangedSubview(createTestKeyboardView())
-
-		gamepadLayerView.addSubview(leftStack)
-		gamepadLayerView.addSubview(rightStack)
-
-		gamepadLayerView.addSubview(leftUpperStack)
-		gamepadLayerView.addSubview(rightUpperStack)
-
-		NSLayoutConstraint.activate([
-			leftStack.leadingAnchor.constraint(equalTo: gamepadLayerView.leadingAnchor, constant: 64),
-			leftStack.bottomAnchor.constraint(equalTo: gamepadLayerView.safeAreaLayoutGuide.bottomAnchor),
-
-			leftUpperStack.leadingAnchor.constraint(equalTo: gamepadLayerView.leadingAnchor, constant: 64),
-			leftUpperStack.bottomAnchor.constraint(equalTo: leftStack.topAnchor, constant: -8),
-
-			rightStack.trailingAnchor.constraint(equalTo: gamepadLayerView.trailingAnchor, constant: -64),
-			rightStack.bottomAnchor.constraint(equalTo: gamepadLayerView.safeAreaLayoutGuide.bottomAnchor),
-
-			rightUpperStack.trailingAnchor.constraint(equalTo: gamepadLayerView.trailingAnchor, constant: -64),
-			rightUpperStack.bottomAnchor.constraint(equalTo: rightStack.topAnchor, constant: -8)
-		])
-
 		if globalState != .normal {
 			transition(to: globalState)
 		}
-	}
-
-	private func createButton() -> UIButton {
-		let button = UIButton.withoutConstraints()
-		button.configuration = buttonConfig()
-
-		NSLayoutConstraint.activate([
-			button.widthAnchor.constraint(equalToConstant: 80),
-			button.heightAnchor.constraint(equalToConstant: 80)
-		])
-
-		return button
-	}
-
-	private func createButton(for key: SDLKey) -> UIButton {
-		let button = createButton()
-		button.setTitle(key.label, for: .normal)
-		button.addTarget(self, action: #selector(testButtonPushed), for: .touchDown)
-		button.addTarget(self, action: #selector(testButtonReleased), for: .touchUpInside)
-		button.addTarget(self, action: #selector(testButtonReleasedOutside), for: .touchUpOutside)
-		button.tag = key.svValue
-
-		return button
-	}
-
-	private func createTestKeyboardView() -> UIView {
-		let view = UIView.withoutConstraints()
-		view.backgroundColor = .gray.withAlphaComponent(0.05)
-
-		let label = UILabel.withoutConstraints()
-		label.textColor = .white
-
-		view.addSubview(label)
-
-		NSLayoutConstraint.activate([
-			label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-			label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-
-			view.widthAnchor.constraint(equalToConstant: 80),
-			view.heightAnchor.constraint(equalToConstant: 80)
-		])
-
-		testKeyboardLabel = label
-
-		return view
 	}
 
 	private func transition(to state: State) {
@@ -349,37 +186,6 @@ public class OverlayViewController: UIViewController {
 		}
 	}
 
-	@objc func testButtonPushed(sender: UIButton) {
-		let key = sender.tag
-		guard !pushedKeys.contains(key) else {
-			return
-		}
-		pushedKeys.insert(key)
-
-		UIImpactFeedbackGenerator(style: .light).impactOccurred()
-
-		print(String(format:"-- push %02X", key))
-		pushKey(key)
-	}
-
-	@objc func testButtonReleased(sender: UIButton) {
-		let key = sender.tag
-
-		print(String(format:"-- release %02X", key))
-		releaseKey(key)
-
-		pushedKeys.remove(key)
-	}
-
-	@objc func testButtonReleasedOutside(sender: UIButton) {
-		let key = sender.tag
-
-		print(String(format:"-- release outside %02X", key))
-		releaseKey(key)
-
-		pushedKeys.remove(key)
-	}
-
 	private func handle(hiddenInputFieldOutput: HiddenInputFieldOutput) {
 		if hiddenInputFieldOutput.withShift {
 			pushKey(SDLKey.shift.enValue)
@@ -401,24 +207,41 @@ public class OverlayViewController: UIViewController {
 		}
 	}
 
-	@objc
-	private func testKeyboardButtonPushed() {
-		Task { [weak self] in
-			guard let self else { return }
-			for i in 0..<0x7f {
-				let hexString = String(format:"%02X", i)
-				Task { @MainActor in
-					self.testKeyboardLabel.text = hexString
-				}
-				pushAndReleaseKey(i)
-				let mSec: UInt64 = 1000 * 1000
-				try await Task.sleep(nanoseconds: 250 * mSec)
-			}
-		}
-	}
-
 	@objc private func resignKeyboard() {
 		hiddenInputField.resignFirstResponder()
+	}
+}
+
+extension OverlayViewController {
+	@objc
+	public static func injectOverlayViewController(
+		pushKey: @escaping ((Int) -> Void),
+		releaseKey: @escaping ((Int) -> Void),
+		pushAndReleaseKey: @escaping ((Int) -> Void)
+	) {
+		guard let window = UIApplication.shared.delegate?.window,
+		let sdlVC = window?.rootViewController else {
+			return
+		}
+
+		let vc = OverlayViewController(
+			pushKey: pushKey,
+			releaseKey: releaseKey,
+			pushAndReleaseKey: pushAndReleaseKey
+		)
+
+		vc.willMove(toParent: sdlVC)
+		sdlVC.view.addSubview(vc.view)
+
+		NSLayoutConstraint.activate([
+			vc.view.leadingAnchor.constraint(equalTo: sdlVC.view.leadingAnchor),
+			vc.view.trailingAnchor.constraint(equalTo: sdlVC.view.trailingAnchor),
+			vc.view.topAnchor.constraint(equalTo: sdlVC.view.topAnchor),
+			vc.view.bottomAnchor.constraint(equalTo: sdlVC.view.bottomAnchor)
+		])
+
+		sdlVC.addChild(vc)
+		vc.didMove(toParent: sdlVC)
 	}
 }
 
@@ -426,63 +249,4 @@ extension OverlayViewController: UIGestureRecognizerDelegate {
 	public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
 		return true
 	}
-}
-
-private class OverlayView: UIView {
-//	private var isBlockActivated: Bool = false
-//	private let overlayViewRecievedTwoFingerTap: (() -> Void)
-
-	init() {
-//		self.overlayViewRecievedTwoFingerTap = overlayViewRecievedTwoFingerTap
-
-		super.init(frame: .zero)
-	}
-	
-	required init?(coder: NSCoder) { fatalError() }
-
-	override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-//		if !isBlockActivated {
-			super.touchesBegan(touches, with: event)
-//		}
-	}
-
-	func toggleBlockActivated() {
-		print("-- did recieve gesture")
-//		overlayViewRecievedTwoFingerTap()
-//		if isBlockActivated {
-//			print("block enabled")
-//			isBlockActivated = false
-//		} else {
-//			print("block disabled")
-//			isBlockActivated = true
-//		}
-	}
-}
-
-private class ButtonLayerView: UIView {
-//	override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-//	}
-}
-
-extension UIView {
-	static func withoutConstraints() -> Self {
-		let view = Self()
-		view.translatesAutoresizingMaskIntoConstraints = false
-		return view
-	}
-}
-
-extension NSObject {
-	var ptrString: String {
-		"\(Unmanaged.passUnretained(self).toOpaque())"
-	}
-}
-
-private func buttonConfig() -> UIButton.Configuration {
-	var configuration = UIButton.Configuration.filled()
-	configuration.baseForegroundColor = .white
-	configuration.baseBackgroundColor = .lightGray.withAlphaComponent(0.5)
-	configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
-	configuration.background.cornerRadius = 8
-	return configuration
 }
