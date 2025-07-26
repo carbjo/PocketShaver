@@ -27,7 +27,9 @@ class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
 		}
 
 		if let key = sdlKey(for: string, keyboard: keyboard) {
-			didInputSDLKey?(key)
+			Task { @MainActor [weak self] in
+				self?.didInputSDLKey?(key)
+			}
 		} else {
 			print("Could not find SDLKey for \(string)")
 		}
@@ -103,7 +105,7 @@ class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
 		case "9": key = .n9
 		case "0": key = .n0
 		case " ": key = .space
-		case "\n": key = .a
+		case "\n": key = .return
 		case "": key = .backspace
 		case "+": key = .kpPlus
 		case "-": key = .minus
