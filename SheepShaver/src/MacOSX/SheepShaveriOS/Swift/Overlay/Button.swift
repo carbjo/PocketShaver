@@ -35,9 +35,11 @@ class Button: UIButton {
 		configuration = buttonConfig
 		setTitle(key.label, for: .normal)
 
+		let length: CGFloat = UIDevice.hasNotch ? 80 : 64
+
 		NSLayoutConstraint.activate([
-			widthAnchor.constraint(equalToConstant: 80),
-			heightAnchor.constraint(equalToConstant: 80)
+			widthAnchor.constraint(equalToConstant: length),
+			heightAnchor.constraint(equalToConstant: length)
 		])
 
 		addTarget(self, action: #selector(keyDown), for: .touchDown)

@@ -50,24 +50,24 @@ class ButtonLayerView: UIView {
 		addSubview(leftUpperStack)
 		addSubview(rightUpperStack)
 
+		let sideMargin: CGFloat = UIDevice.hasNotch ? 64 : 8
+
 		NSLayoutConstraint.activate([
-			leftStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 64),
+			leftStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin),
 			leftStack.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
-			leftUpperStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 64),
+			leftUpperStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin),
 			leftUpperStack.bottomAnchor.constraint(equalTo: leftStack.topAnchor, constant: -8),
 
-			rightStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -64),
+			rightStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideMargin),
 			rightStack.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
-			rightUpperStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -64),
+			rightUpperStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideMargin),
 			rightUpperStack.bottomAnchor.constraint(equalTo: rightStack.topAnchor, constant: -8)
 		])
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
-
-
 }
 
 extension ButtonLayerView {
