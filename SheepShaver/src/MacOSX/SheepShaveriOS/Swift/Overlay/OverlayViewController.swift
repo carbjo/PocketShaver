@@ -7,18 +7,18 @@
 
 import UIKit
 
-@objc(OverlayViewController)
+@objc
 public class OverlayViewController: UIViewController {
 
-	enum State {
+	private enum State {
 		case normal
 		case showingKeyboard
 		case showingGamepad
 	}
 
-	@MainActor static var globalState: State = .normal
+	@MainActor private static var globalState: State = .normal
 
-	var globalState: State {
+	private var state: State {
 		get {
 			Self.globalState
 		}
@@ -58,7 +58,7 @@ public class OverlayViewController: UIViewController {
 	private let releaseKey: ((Int) -> Void)
 	private let pushAndReleaseKey: ((Int) -> Void)
 
-	init(
+	private init(
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void),
 		pushAndReleaseKey: @escaping ((Int) -> Void)
@@ -71,8 +71,6 @@ public class OverlayViewController: UIViewController {
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
-
-	private var pushedKeys = Set<Int>()
 
 	public override func viewDidLoad() {
 		super.viewDidLoad()
@@ -104,21 +102,21 @@ public class OverlayViewController: UIViewController {
 
 		setupOverlayView()
 
-		if globalState != .normal {
-			transition(to: globalState)
+		if state != .normal {
+			transition(to: state)
 		}
 	}
 
 	public override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
 
-		if globalState != .showingGamepad {
+		if state != .showingGamepad {
 			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 		}
 	}
 
 	private func transition(to state: State) {
-		globalState = state
+		self.state = state
 		switch state {
 		case .normal:
 			hiddenInputField.resignFirstResponder()
@@ -141,10 +139,10 @@ public class OverlayViewController: UIViewController {
 				triggerGamepadLayerViewTranslationHapticFeedback()
 			}
 
-			if globalState != .showingKeyboard {
+			if state != .showingKeyboard {
 
 				var y = overlayDragYDelta
-				if globalState == .normal {
+				if state == .normal {
 					y -= self.view.frame.size.height
 				}
 
@@ -166,9 +164,8 @@ public class OverlayViewController: UIViewController {
 				delay: 0.0,
 				usingSpringWithDamping: 0.6,
 				initialSpringVelocity: 1.5,
-				options: [],
 				animations: {
-					switch self.globalState {
+					switch self.state {
 					case .normal:
 						if self.overlayDragYDelta > threshold {
 							self.transition(to: .showingGamepad)
@@ -218,10 +215,6 @@ public class OverlayViewController: UIViewController {
 		}
 	}
 
-	@objc private func resignKeyboard() {
-		hiddenInputField.resignFirstResponder()
-	}
-
 	private func triggerGamepadLayerViewTranslationHapticFeedback() {
 		overlayDragHapticFeedbackGenerator.impactOccurred()
 		overlayDragYDeltaSinceLatestHapticFeedback = 0
@@ -258,11 +251,5 @@ extension OverlayViewController {
 
 		sdlVC.addChild(vc)
 		vc.didMove(toParent: sdlVC)
-	}
-}
-
-extension OverlayViewController: UIGestureRecognizerDelegate {
-	public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-		return true
 	}
 }

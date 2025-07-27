@@ -87,6 +87,8 @@
 		C73660E22E34C9190055AA91 /* Button.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E12E34C9170055AA91 /* Button.swift */; };
 		C73660E42E34DCE40055AA91 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E32E34DCE30055AA91 /* Extensions.swift */; };
 		C73660E82E34ED4F0055AA91 /* OverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E72E34ED4A0055AA91 /* OverlayView.swift */; };
+		C73660EA2E36434C0055AA91 /* ButtonStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E92E3643430055AA91 /* ButtonStackView.swift */; };
+		C73660EE2E3649900055AA91 /* UnassignedButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660ED2E36498D0055AA91 /* UnassignedButton.swift */; };
 		C7BC1A5F2E2562DC006F95CB /* SSDiskManager.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */; };
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
 		C7BC1A642E2A84B2006F95CB /* MonitorResolutions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutions.swift */; };
@@ -511,6 +513,8 @@
 		C73660E12E34C9170055AA91 /* Button.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Button.swift; sourceTree = "<group>"; };
 		C73660E32E34DCE30055AA91 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
 		C73660E72E34ED4A0055AA91 /* OverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayView.swift; sourceTree = "<group>"; };
+		C73660E92E3643430055AA91 /* ButtonStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonStackView.swift; sourceTree = "<group>"; };
+		C73660ED2E36498D0055AA91 /* UnassignedButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnassignedButton.swift; sourceTree = "<group>"; };
 		C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SSDiskManager.mm; sourceTree = "<group>"; };
 		C7BC1A602E2562E1006F95CB /* SSDiskManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSDiskManager.h; sourceTree = "<group>"; };
 		C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldDelegate.swift; sourceTree = "<group>"; };
@@ -1196,6 +1200,26 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		C73660EB2E3647600055AA91 /* Gamepad */ = {
+			isa = PBXGroup;
+			children = (
+				C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */,
+				C73660E92E3643430055AA91 /* ButtonStackView.swift */,
+				C73660E12E34C9170055AA91 /* Button.swift */,
+				C73660ED2E36498D0055AA91 /* UnassignedButton.swift */,
+			);
+			path = Gamepad;
+			sourceTree = "<group>";
+		};
+		C73660EC2E36478B0055AA91 /* Hidden input field */ = {
+			isa = PBXGroup;
+			children = (
+				C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */,
+				C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */,
+			);
+			path = "Hidden input field";
+			sourceTree = "<group>";
+		};
 		C7BC1A652E2A8776006F95CB /* Monitor Resolutions */ = {
 			isa = PBXGroup;
 			children = (
@@ -1211,10 +1235,8 @@
 			children = (
 				C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */,
 				C73660E72E34ED4A0055AA91 /* OverlayView.swift */,
-				C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */,
-				C73660E12E34C9170055AA91 /* Button.swift */,
-				C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */,
-				C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */,
+				C73660EB2E3647600055AA91 /* Gamepad */,
+				C73660EC2E36478B0055AA91 /* Hidden input field */,
 				C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */,
 				C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */,
 			);
@@ -1727,6 +1749,7 @@
 				E204B95F28BC3EBE0081FDCA /* main_unix.cpp in Sources */,
 				E204B9F228BC7D020081FDCA /* utils_ios.mm in Sources */,
 				C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */,
+				C73660EE2E3649900055AA91 /* UnassignedButton.swift in Sources */,
 				E204B96028BC3EBE0081FDCA /* video_sdl2.cpp in Sources */,
 				E204B96128BC3EBE0081FDCA /* prefs_unix.cpp in Sources */,
 				E204BA3628BD49260081FDCA /* extfs_macosx.cpp in Sources */,
@@ -1747,6 +1770,7 @@
 				E204B96A28BC3EBE0081FDCA /* user_strings_unix.cpp in Sources */,
 				E204B96B28BC3EBE0081FDCA /* slirp.c in Sources */,
 				E204B96C28BC3EBE0081FDCA /* xpram_unix.cpp in Sources */,
+				C73660EA2E36434C0055AA91 /* ButtonStackView.swift in Sources */,
 				E204B96D28BC3EBE0081FDCA /* user_strings.cpp in Sources */,
 				E204B96E28BC3EBE0081FDCA /* tcp_input.c in Sources */,
 				E204BA3128BD47610081FDCA /* runtool.c in Sources */,
