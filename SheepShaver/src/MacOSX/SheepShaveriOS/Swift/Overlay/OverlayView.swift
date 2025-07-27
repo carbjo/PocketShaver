@@ -11,8 +11,8 @@ class OverlayView: UIView {
 	private var touchDictionary = [UITouch: CGFloat]()
 	private var isDragging: Bool = false
 
-
 	var reportDragProgress: ((CGFloat) -> Void)?
+	var didBeginGesture: (() -> Void)?
 	var didReleaseGesture: (() -> Void)?
 
 	init() {
@@ -26,14 +26,12 @@ class OverlayView: UIView {
 	override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
 		super.touchesBegan(touches, with: event)
 
-//		print("-- touchesBegan")
-
 		for touch in touches {
 			touchDictionary[touch] = touch.location(in: self).y
 		}
 		if touchDictionary.count >= 3 {
-//			print("-- recognized")
 			isDragging = true
+			didBeginGesture?()
 		}
 	}
 
@@ -65,7 +63,7 @@ class OverlayView: UIView {
 
 	override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
 		super.touchesEnded(touches, with: event)
-//		print("-- touchesEnded \(touches.count)")
+
 		for touch in touches {
 			touchDictionary[touch] = nil
 		}
@@ -77,7 +75,7 @@ class OverlayView: UIView {
 
 	override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
 		super.touchesCancelled(touches, with: event)
-//		print("-- touchesCancelled \(touches.count)")
+		
 		for touch in touches {
 			touchDictionary[touch] = nil
 		}
