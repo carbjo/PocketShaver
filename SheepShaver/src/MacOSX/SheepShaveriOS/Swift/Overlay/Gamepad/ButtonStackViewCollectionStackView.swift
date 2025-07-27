@@ -10,7 +10,7 @@ import UIKit
 class ButtonStackViewCollectionStackView: UIStackView {
 
 	init(
-		alignment: UIStackView.Alignment,
+		isRightHandSide: Bool,
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void)
 	) {
@@ -18,27 +18,33 @@ class ButtonStackViewCollectionStackView: UIStackView {
 
 		translatesAutoresizingMaskIntoConstraints = false
 		axis = .vertical
-		self.alignment = alignment
+		alignment = isRightHandSide ? .trailing : .leading
 		spacing = 8
 
-		setupStackViews(pushKey: pushKey, releaseKey: releaseKey)
+		setupStackViews(
+			isRightHandSide: isRightHandSide,
+			pushKey: pushKey,
+			releaseKey: releaseKey
+		)
 	}
 	
 	required init(coder: NSCoder) { fatalError() }
 
 	private func setupStackViews(
+		isRightHandSide: Bool,
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void)
 	) {
-		let screenHeight = UIScreen.main.nativeBounds.height
+		let screenHeight = UIScreen.main.bounds.height
 		let length: CGFloat = UIDevice.hasNotch ? 80 : 64
-		let stackViewHeight: CGFloat = length + 16
+		let stackViewHeight: CGFloat = length + (spacing * 2)
 
 		let numberOfStackViews = Int(floor(screenHeight / stackViewHeight))
 
 		for _ in 0..<numberOfStackViews {
 			addArrangedSubview(
 				ButtonStackView(
+					isRightHandSide: isRightHandSide,
 					pushKey: pushKey,
 					releaseKey: releaseKey
 				)
@@ -46,15 +52,15 @@ class ButtonStackViewCollectionStackView: UIStackView {
 		}
 	}
 
-	func add(_ key: SDLKey, row: Int) {
-		let index = arrangedSubviews.count - 1 - row
-		guard index >= 0,
-			  let stackView = arrangedSubviews[index] as? ButtonStackView else {
+	func set(_ key: SDLKey, row: Int, index: Int) {
+		let orientationCorrectedIndex = arrangedSubviews.count - 1 - row // Build from bottom to top
+		guard orientationCorrectedIndex >= 0,
+			  let stackView = arrangedSubviews[orientationCorrectedIndex] as? ButtonStackView else {
 			print("-- unexpected")
 			return
 		}
 
-		stackView.add(key)
+		stackView.set(key, at: index)
 	}
 
 	override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {

@@ -8,13 +8,16 @@
 import UIKit
 
 class ButtonStackView: UIStackView {
+	private let isRightHandSide: Bool
 	private let pushKey: ((Int) -> Void)
 	private let releaseKey: ((Int) -> Void)
 	
 	init(
+		isRightHandSide: Bool,
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void)
 	) {
+		self.isRightHandSide = isRightHandSide
 		self.pushKey = pushKey
 		self.releaseKey = releaseKey
 
@@ -23,17 +26,41 @@ class ButtonStackView: UIStackView {
 		translatesAutoresizingMaskIntoConstraints = false
 		axis = .horizontal
 		spacing = 4
+
+		setupButtons()
 	}
 	
 	required init(coder: NSCoder) { fatalError() }
 
-	func add(_ key: SDLKey) {
-		addArrangedSubview(
+	private func setupButtons() {
+		let screenWidth = UIScreen.main.bounds.width
+		let sideMargin: CGFloat = UIDevice.hasNotch ? 64 : 8
+		let availableWidth = (screenWidth / 2) - sideMargin
+		let buttonLength: CGFloat = UIDevice.hasNotch ? 80 : 64
+		let elementWidth = buttonLength + (spacing * 2)
+
+		let numberOfButtons = Int(floor(availableWidth / elementWidth))
+
+		print("-- numberOfButtons \(numberOfButtons)")
+
+		for _ in 0..<numberOfButtons {
+			addArrangedSubview(UnassignedButton())
+		}
+	}
+
+	func set(_ key: SDLKey, at index: Int) {
+		let sideCorrectedIndex = isRightHandSide ? (arrangedSubviews.count - 1 - index) : index
+		let oldView = arrangedSubviews[sideCorrectedIndex]
+		removeArrangedSubview(oldView)
+		oldView.removeFromSuperview()
+
+		insertArrangedSubview(
 			Button(
 				key: key,
 				pushKey: pushKey,
 				releaseKey: releaseKey
-			)
+			),
+			at: sideCorrectedIndex
 		)
 	}
 

@@ -11,7 +11,7 @@ class GamepadLayerView: UIView {
 	
 	private lazy var leftCollectionStackView: ButtonStackViewCollectionStackView = {
 		ButtonStackViewCollectionStackView(
-			alignment: .leading,
+			isRightHandSide: false,
 			pushKey: pushKey,
 			releaseKey: releaseKey
 		)
@@ -19,7 +19,7 @@ class GamepadLayerView: UIView {
 
 	private lazy var rightCollectionStackView: ButtonStackViewCollectionStackView = {
 		ButtonStackViewCollectionStackView(
-			alignment: .trailing,
+			isRightHandSide: true,
 			pushKey: pushKey,
 			releaseKey: releaseKey
 		)
@@ -42,23 +42,14 @@ class GamepadLayerView: UIView {
 		addSubview(leftCollectionStackView)
 		addSubview(rightCollectionStackView)
 
-//		addSubview(leftUpperStack)
-//		addSubview(rightUpperStack)
-
 		let sideMargin: CGFloat = UIDevice.hasNotch ? 64 : 8
 
 		NSLayoutConstraint.activate([
 			leftCollectionStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin),
 			leftCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
-//			leftUpperStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin),
-//			leftUpperStack.bottomAnchor.constraint(equalTo: leftStack.topAnchor, constant: -8),
-
 			rightCollectionStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideMargin),
-			rightCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
-
-//			rightUpperStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideMargin),
-//			rightUpperStack.bottomAnchor.constraint(equalTo: rightStack.topAnchor, constant: -8)
+			rightCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor)
 		])
 	}
 
@@ -82,58 +73,58 @@ extension GamepadLayerView {
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void)
 	) {
-		leftCollectionStackView.add(.space, row: 0)
-		leftCollectionStackView.add(.x, row: 0)
-		leftCollectionStackView.add(.shift, row: 0)
-		leftCollectionStackView.add(.a, row: 1)
-		leftCollectionStackView.add(.s, row: 1)
+		leftCollectionStackView.set(.space, row: 0, index: 0)
+		leftCollectionStackView.set(.x, row: 0, index: 1)
+		leftCollectionStackView.set(.shift, row: 0, index: 2)
+		leftCollectionStackView.set(.a, row: 1, index: 0)
+		leftCollectionStackView.set(.s, row: 1, index: 1)
 
-		rightCollectionStackView.add(.left, row: 0)
-		rightCollectionStackView.add(.right, row: 0)
-		rightCollectionStackView.add(.down, row: 1)
-		rightCollectionStackView.add(.up, row: 1)
+		rightCollectionStackView.set(.left, row: 0, index: 0)
+		rightCollectionStackView.set(.right, row: 0, index: 1)
+		rightCollectionStackView.set(.down, row: 1, index: 0)
+		rightCollectionStackView.set(.up, row: 1, index: 1)
 	}
 
 	func buttonLayout2(
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void)
 	) {
-		leftCollectionStackView.add(.down, row: 0)
-		leftCollectionStackView.add(.up, row: 0)
-		leftCollectionStackView.add(.space, row: 0)
+		leftCollectionStackView.set(.down, row: 0, index: 0)
+		leftCollectionStackView.set(.up, row: 0, index: 1)
+		leftCollectionStackView.set(.space, row: 0, index: 2)
 
-		rightCollectionStackView.add(.alt, row: 0)
-		rightCollectionStackView.add(.tab, row: 0)
-		rightCollectionStackView.add(.left, row: 0)
-		rightCollectionStackView.add(.right, row: 0)
+		rightCollectionStackView.set(.alt, row: 0, index: 3)
+		rightCollectionStackView.set(.tab, row: 0, index: 2)
+		rightCollectionStackView.set(.left, row: 0, index: 1)
+		rightCollectionStackView.set(.right, row: 0, index: 0)
 
-		leftCollectionStackView.add(.q, row: 1)
-		rightCollectionStackView.add(.cmd, row: 1)
+		leftCollectionStackView.set(.q, row: 1, index: 0)
+		rightCollectionStackView.set(.cmd, row: 1, index: 0)
 	}
 
 	func buttonLayout3(
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void)
 	) {
-		leftCollectionStackView.add(.up, row: 0)
-		leftCollectionStackView.add(.ctrl, row: 0)
-		leftCollectionStackView.add(.down, row: 0)
-		leftCollectionStackView.add(.space, row: 1)
+		leftCollectionStackView.set(.up, row: 0, index: 0)
+		leftCollectionStackView.set(.ctrl, row: 0, index: 1)
+		leftCollectionStackView.set(.down, row: 0, index: 2)
+		leftCollectionStackView.set(.space, row: 1, index: 0)
 
-		rightCollectionStackView.add(.escape, row: 0)
-		rightCollectionStackView.add(.left, row: 0)
-		rightCollectionStackView.add(.right, row: 0)
-		rightCollectionStackView.add(.a, row: 1)
+		rightCollectionStackView.set(.escape, row: 0, index: 0)
+		rightCollectionStackView.set(.left, row: 0, index: 1)
+		rightCollectionStackView.set(.right, row: 0, index: 2)
+		rightCollectionStackView.set(.a, row: 1, index: 0)
 	}
 
 	func buttonLayout4(
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void)
 	) {
-		leftCollectionStackView.add(.up, row: 0)
-		leftCollectionStackView.add(.ctrl, row: 0)
+		leftCollectionStackView.set(.up, row: 0, index: 0)
+		leftCollectionStackView.set(.ctrl, row: 0, index: 1)
 
-		rightCollectionStackView.add(.left, row: 0)
-		rightCollectionStackView.add(.right, row: 0)
+		rightCollectionStackView.set(.left, row: 0, index: 0)
+		rightCollectionStackView.set(.right, row: 0, index: 1)
 	}
 }
