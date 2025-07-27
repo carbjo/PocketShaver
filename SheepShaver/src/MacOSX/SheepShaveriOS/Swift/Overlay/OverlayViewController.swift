@@ -191,19 +191,6 @@ public class OverlayViewController: UIViewController {
 		}
 	}
 
-	@objc
-	private func gamepadSwipeUp() {
-		switch globalState {
-		case .showingGamepad:
-			UIView.animate(withDuration: 0.2) {
-				self.gamepadLayerView.transform = .init(translationX: 0, y: -self.view.frame.size.height)
-				self.gamepadLayerViewYDelta = 0
-			}
-			transition(to: .normal)
-		default: break
-		}
-	}
-
 	private func handle(hiddenInputFieldOutput: HiddenInputFieldOutput) {
 		if hiddenInputFieldOutput.withShift {
 			pushKey(SDLKey.shift.enValue)
