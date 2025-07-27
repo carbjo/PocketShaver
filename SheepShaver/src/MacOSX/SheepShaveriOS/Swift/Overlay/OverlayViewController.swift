@@ -18,29 +18,16 @@ public class OverlayViewController: UIViewController {
 		case showingGamepad
 	}
 
-	private lazy var overlayView: UIView = {
-		UIView.withoutConstraints()
-	}()
+	private let overlayView = OverlayView.withoutConstraints()
 
-	private lazy var gamepadLayerView: ButtonLayerView = {
-		let view = ButtonLayerView(pushKey: self.pushKey, releaseKey: self.releaseKey)
+	private lazy var gamepadLayerView: GamepadLayerView = {
+		let view = GamepadLayerView(pushKey: self.pushKey, releaseKey: self.releaseKey)
 		view.translatesAutoresizingMaskIntoConstraints = false
-		view.isHidden = true
 		return view
 	}()
-
-	private lazy var overlaySwipeDownGestureRecognizer: UISwipeGestureRecognizer = { [weak self] in
-		guard let self else { fatalError() }
-		let gesture = UISwipeGestureRecognizer()
-		gesture.direction = .down
-		gesture.numberOfTouchesRequired = 3
-		gesture.delaysTouchesBegan = false
-		gesture.delaysTouchesEnded = false
-		gesture.addTarget(self, action: #selector(overlaySwipeDown))
-		gesture.delegate = self
-
-		return gesture
-	}()
+	private var gamepadLayerViewYDelta: CGFloat = 0
+	private var gamepadLayerViewYDeltaSinceLatestHapticFeedback: CGFloat = 0
+	private var gamepadLayerViewTranslationHapticFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
 	private lazy var overlaySwipeUpGestureRecognizer: UISwipeGestureRecognizer = { [weak self] in
 		guard let self else { fatalError() }
@@ -50,19 +37,6 @@ public class OverlayViewController: UIViewController {
 		gesture.delaysTouchesBegan = false
 		gesture.delaysTouchesEnded = false
 		gesture.addTarget(self, action: #selector(overlaySwipeUp))
-		gesture.delegate = self
-
-		return gesture
-	}()
-
-	private lazy var gamepadSwipeUpGestureRecognizer: UISwipeGestureRecognizer = { [weak self] in
-		guard let self else { fatalError() }
-		let gesture = UISwipeGestureRecognizer()
-		gesture.direction = .up
-		gesture.numberOfTouchesRequired = 3
-		gesture.delaysTouchesBegan = false
-		gesture.delaysTouchesEnded = false
-		gesture.addTarget(self, action: #selector(gamepadSwipeUp))
 		gesture.delegate = self
 
 		return gesture
@@ -82,9 +56,7 @@ public class OverlayViewController: UIViewController {
 		return field
 	}()
 
-	private lazy var hiddenInputFieldDelegate: HiddenInputFieldDelegate = {
-		HiddenInputFieldDelegate()
-	}()
+	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
 
 	private let pushKey: ((Int) -> Void)
 	private let releaseKey: ((Int) -> Void)
@@ -124,47 +96,89 @@ public class OverlayViewController: UIViewController {
 			gamepadLayerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
 		])
 
-		overlayView.addGestureRecognizer(overlaySwipeUpGestureRecognizer)
-		overlayView.addGestureRecognizer(overlaySwipeDownGestureRecognizer)
-		gamepadLayerView.addGestureRecognizer(gamepadSwipeUpGestureRecognizer)
+//		overlayView.addGestureRecognizer(overlaySwipeUpGestureRecognizer)
 
 		overlayView.addSubview(hiddenInputField)
-		hiddenInputFieldDelegate.didInputSDLKey = { [weak self] output in
-			guard let self else { return }
-			self.handle(hiddenInputFieldOutput: output)
-		}
 
 		NSLayoutConstraint.activate([
 			hiddenInputField.centerXAnchor.constraint(equalTo: view.centerXAnchor),
 			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor)
 		])
 
+		hiddenInputFieldDelegate.didInputSDLKey = { [weak self] output in
+			guard let self else { return }
+			self.handle(hiddenInputFieldOutput: output)
+		}
+
+		setupOverlayView()
+
 		if globalState != .normal {
 			transition(to: globalState)
 		}
+	}
+
+	public override func viewDidAppear(_ animated: Bool) {
+		super.viewDidAppear(animated)
+
+		gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 	}
 
 	private func transition(to state: State) {
 		globalState = state
 		switch state {
 		case .normal:
-			gamepadLayerView.isHidden = true
 			hiddenInputField.resignFirstResponder()
 		case .showingGamepad:
-			gamepadLayerView.isHidden = false
+			break
 		case .showingKeyboard:
 			hiddenInputField.becomeFirstResponder()
 		}
 	}
 
-	@objc
-	private func overlaySwipeDown() {
-		switch globalState {
-		case .normal:
-			transition(to: .showingGamepad)
-		case .showingKeyboard:
-			transition(to: .normal)
-		default: break
+	private func setupOverlayView() {
+		overlayView.reportDragProgress = { [weak self] deltaY in
+			guard let self else { return }
+
+			gamepadLayerViewYDelta += deltaY
+			gamepadLayerViewYDeltaSinceLatestHapticFeedback += deltaY
+
+			var y = gamepadLayerViewYDelta
+			if globalState == .normal {
+				y -= self.view.frame.size.height
+			}
+
+			gamepadLayerView.transform = .init(translationX: 0, y: y)
+
+			if abs(gamepadLayerViewYDeltaSinceLatestHapticFeedback) > 60 {
+				triggerGamepadLayerViewTranslationHapticFeedback()
+			}
+//			print("-- yPos \(yPos)")
+		}
+
+		overlayView.didReleaseGesture = { [weak self] in
+			guard let self else { return }
+
+			let threshold: CGFloat
+			switch globalState {
+			case .normal:
+				threshold = self.gamepadLayerView.frame.height / 2
+			case .showingGamepad:
+				threshold = -self.gamepadLayerView.frame.height / 2
+			case .showingKeyboard:
+				fatalError()
+			}
+
+			UIView.animate(withDuration: 0.15) {
+				if self.gamepadLayerViewYDelta > threshold {
+					self.gamepadLayerView.transform = .identity
+					self.transition(to: .showingGamepad)
+				} else {
+					self.gamepadLayerView.transform = .init(translationX: 0, y: -self.view.frame.size.height)
+					self.transition(to: .normal)
+				}
+			}
+
+			self.gamepadLayerViewYDelta = 0
 		}
 	}
 
@@ -181,6 +195,10 @@ public class OverlayViewController: UIViewController {
 	private func gamepadSwipeUp() {
 		switch globalState {
 		case .showingGamepad:
+			UIView.animate(withDuration: 0.2) {
+				self.gamepadLayerView.transform = .init(translationX: 0, y: -self.view.frame.size.height)
+				self.gamepadLayerViewYDelta = 0
+			}
 			transition(to: .normal)
 		default: break
 		}
@@ -209,6 +227,11 @@ public class OverlayViewController: UIViewController {
 
 	@objc private func resignKeyboard() {
 		hiddenInputField.resignFirstResponder()
+	}
+
+	private func triggerGamepadLayerViewTranslationHapticFeedback() {
+		gamepadLayerViewTranslationHapticFeedbackGenerator.impactOccurred()
+		gamepadLayerViewYDeltaSinceLatestHapticFeedback = 0
 	}
 }
 

@@ -83,9 +83,10 @@
 		5DF4CB7F22B5BD5D00512A86 /* audio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4CB7E22B5BD5D00512A86 /* audio.cpp */; };
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
 		C72739C92E2BAA6500B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */; };
-		C73660E02E34C85D0055AA91 /* ButtonLayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660DF2E34C8590055AA91 /* ButtonLayerView.swift */; };
+		C73660E02E34C85D0055AA91 /* GamepadLayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */; };
 		C73660E22E34C9190055AA91 /* Button.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E12E34C9170055AA91 /* Button.swift */; };
 		C73660E42E34DCE40055AA91 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E32E34DCE30055AA91 /* Extensions.swift */; };
+		C73660E82E34ED4F0055AA91 /* OverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E72E34ED4A0055AA91 /* OverlayView.swift */; };
 		C7BC1A5F2E2562DC006F95CB /* SSDiskManager.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */; };
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
 		C7BC1A642E2A84B2006F95CB /* MonitorResolutions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutions.swift */; };
@@ -506,9 +507,10 @@
 		A7B1921218C35D4700791D8D /* DiskType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DiskType.h; sourceTree = "<group>"; };
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
 		C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldKeyboardAccessoryView.swift; sourceTree = "<group>"; };
-		C73660DF2E34C8590055AA91 /* ButtonLayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonLayerView.swift; sourceTree = "<group>"; };
+		C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadLayerView.swift; sourceTree = "<group>"; };
 		C73660E12E34C9170055AA91 /* Button.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Button.swift; sourceTree = "<group>"; };
 		C73660E32E34DCE30055AA91 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
+		C73660E72E34ED4A0055AA91 /* OverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayView.swift; sourceTree = "<group>"; };
 		C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SSDiskManager.mm; sourceTree = "<group>"; };
 		C7BC1A602E2562E1006F95CB /* SSDiskManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSDiskManager.h; sourceTree = "<group>"; };
 		C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldDelegate.swift; sourceTree = "<group>"; };
@@ -1208,7 +1210,8 @@
 			isa = PBXGroup;
 			children = (
 				C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */,
-				C73660DF2E34C8590055AA91 /* ButtonLayerView.swift */,
+				C73660E72E34ED4A0055AA91 /* OverlayView.swift */,
+				C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */,
 				C73660E12E34C9170055AA91 /* Button.swift */,
 				C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */,
 				C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */,
@@ -1683,7 +1686,7 @@
 				E204B9EC28BC7CF20081FDCA /* prefs_ios.mm in Sources */,
 				E204B9DA28BC7BF10081FDCA /* UIView+SDCAutoLayout.m in Sources */,
 				E204B9D928BC7BF10081FDCA /* AppDelegate.m in Sources */,
-				C73660E02E34C85D0055AA91 /* ButtonLayerView.swift in Sources */,
+				C73660E02E34C85D0055AA91 /* GamepadLayerView.swift in Sources */,
 				E204B94328BC3EBE0081FDCA /* if.c in Sources */,
 				E204B94528BC3EBE0081FDCA /* tftp.c in Sources */,
 				E2A5817728C7C633005C7373 /* DiskTypeiOS.m in Sources */,
@@ -1738,6 +1741,7 @@
 				E204B96728BC3EBE0081FDCA /* cksum.c in Sources */,
 				E204B96828BC3EBE0081FDCA /* timer_unix.cpp in Sources */,
 				E204B9F328BC7D020081FDCA /* sys_darwin_ios.cpp in Sources */,
+				C73660E82E34ED4F0055AA91 /* OverlayView.swift in Sources */,
 				E204B96928BC3EBE0081FDCA /* bincue.cpp in Sources */,
 				E204B9D628BC7BF10081FDCA /* main.mm in Sources */,
 				E204B96A28BC3EBE0081FDCA /* user_strings_unix.cpp in Sources */,

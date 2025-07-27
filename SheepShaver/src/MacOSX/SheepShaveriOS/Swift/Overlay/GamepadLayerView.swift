@@ -1,5 +1,5 @@
 //
-//  ButtonLayerView.swift
+//  GamepadLayerView.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-07-26.
@@ -7,7 +7,7 @@
 
 import UIKit
 
-class ButtonLayerView: UIView {
+class GamepadLayerView: UIView {
 	private lazy var leftStack: UIStackView = {
 		let stack = UIStackView.withoutConstraints()
 		stack.axis = .horizontal
@@ -68,9 +68,21 @@ class ButtonLayerView: UIView {
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
+
+	override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+		var isInside = false
+		for view in subviews {
+			let pointInSubviewCoordinateSpace = view.convert(point, from: self)
+			if view.point(inside: pointInSubviewCoordinateSpace, with: event) {
+				isInside = true
+			}
+		}
+		
+		return isInside
+	}
 }
 
-extension ButtonLayerView {
+extension GamepadLayerView {
 	// To be removed. WIP
 	func buttonLayout1(
 		pushKey: @escaping ((Int) -> Void),
