@@ -1,5 +1,5 @@
 //
-//  OverlayView.swift
+//  GestureInputView.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-07-26.
@@ -7,9 +7,9 @@
 
 import UIKit
 
-class OverlayView: UIView {
+class GestureInputView: UIView {
 	private var touchDictionary = [UITouch: CGFloat]()
-	private var isDragging: Bool = false
+	private(set) var isDragging: Bool = false
 
 	var reportDragProgress: ((CGFloat) -> Void)?
 	var didBeginGesture: (() -> Void)?
@@ -36,6 +36,8 @@ class OverlayView: UIView {
 	}
 
 	override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+		super.touchesMoved(touches, with: event)
+
 		if isDragging {
 			var totalDeltaYUp: CGFloat = 0
 			var totalDeltaYDown: CGFloat = 0
@@ -56,8 +58,6 @@ class OverlayView: UIView {
 			}
 			let totalDeltaY = totalDeltaYUp + totalDeltaYDown
 			reportDragProgress?(totalDeltaY)
-		} else {
-			super.touchesMoved(touches, with: event)
 		}
 	}
 

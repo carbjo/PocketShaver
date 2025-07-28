@@ -8,18 +8,26 @@
 import UIKit
 
 class ButtonStackView: UIStackView {
-	private let isRightHandSide: Bool
+	private let side: GamepadSide
+	private let row: Int
 	private let pushKey: ((Int) -> Void)
 	private let releaseKey: ((Int) -> Void)
-	
+	private let didRequestAssignmentAtIndex: ((Int) -> Void)
+
+	private var isEditing: Bool = false
+
 	init(
-		isRightHandSide: Bool,
+		side: GamepadSide,
+		row: Int,
 		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void)
+		releaseKey: @escaping ((Int) -> Void),
+		didRequestAssignmentAtIndex: @escaping ((Int) -> Void)
 	) {
-		self.isRightHandSide = isRightHandSide
+		self.side = side
+		self.row = row
 		self.pushKey = pushKey
 		self.releaseKey = releaseKey
+		self.didRequestAssignmentAtIndex = didRequestAssignmentAtIndex
 
 		super.init(frame: .zero)
 
@@ -41,27 +49,62 @@ class ButtonStackView: UIStackView {
 
 		let numberOfButtons = Int(floor(availableWidth / elementWidth))
 
-		print("-- numberOfButtons \(numberOfButtons)")
+		for index in 0..<numberOfButtons {
+			let sideCorrectedIndex = side == .right ? (numberOfButtons - 1 - index) : index
 
-		for _ in 0..<numberOfButtons {
-			addArrangedSubview(UnassignedButton())
+			addArrangedSubview(createUnassignedButton(forIndex: sideCorrectedIndex))
 		}
 	}
 
 	func set(_ key: SDLKey, at index: Int) {
-		let sideCorrectedIndex = isRightHandSide ? (arrangedSubviews.count - 1 - index) : index
+		let sideCorrectedIndex = side == .right ? (arrangedSubviews.count - 1 - index) : index
 		let oldView = arrangedSubviews[sideCorrectedIndex]
 		removeArrangedSubview(oldView)
 		oldView.removeFromSuperview()
 
+		let button = Button(
+			key: key,
+			index: index,
+			isEditing: isEditing,
+			pushKey: pushKey,
+			releaseKey: releaseKey
+		) { [weak self] index in
+			guard let self else { return }
+			didRequestAssignmentAtIndex(index)
+		}
+
 		insertArrangedSubview(
-			Button(
-				key: key,
-				pushKey: pushKey,
-				releaseKey: releaseKey
-			),
+			button,
 			at: sideCorrectedIndex
 		)
+	}
+
+	func set(isEditing: Bool) {
+		self.isEditing = isEditing
+
+		for button in arrangedSubviews {
+			if let button = button as? Button {
+				button.set(isEditing: isEditing)
+			} else if let button = button as? UnassignedButton {
+				button.set(isEditing: isEditing)
+			}
+		}
+	}
+
+	func reset() {
+		let numberOfButtons = arrangedSubviews.count
+
+		for (index, button) in arrangedSubviews.enumerated() {
+			if let button = button as? Button {
+				let sideCorrectedIndex = side == .right ? (numberOfButtons - 1 - index) : index
+				removeArrangedSubview(button)
+				button.removeFromSuperview()
+				insertArrangedSubview(
+					createUnassignedButton(forIndex: sideCorrectedIndex),
+					at: index
+				)
+			}
+		}
 	}
 
 	override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
@@ -70,15 +113,26 @@ class ButtonStackView: UIStackView {
 		// Ie. not when touching the spaces between the buttons or spacing cells.
 
 		for view in arrangedSubviews {
-			guard let button = view as? Button else {
+			guard view is Button || isEditing else {
 				continue
 			}
-			let pointInSubviewCoordinateSpace = button.convert(point, from: self)
-			if button.point(inside: pointInSubviewCoordinateSpace, with: event) {
+
+			let pointInSubviewCoordinateSpace = view.convert(point, from: self)
+			if view.point(inside: pointInSubviewCoordinateSpace, with: event) {
 				return true
 			}
 		}
 
 		return false
+	}
+
+	private func createUnassignedButton(forIndex index: Int) -> UnassignedButton {
+		UnassignedButton(
+			index: index,
+			isEditing: isEditing
+		) { [weak self] index in
+			guard let self else { return }
+			didRequestAssignmentAtIndex(index)
+		}
 	}
 }

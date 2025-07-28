@@ -11,33 +11,42 @@ class GamepadLayerView: UIView {
 	
 	private lazy var leftCollectionStackView: ButtonStackViewCollectionStackView = {
 		ButtonStackViewCollectionStackView(
-			isRightHandSide: false,
+			side: .left,
 			pushKey: pushKey,
 			releaseKey: releaseKey
-		)
+		) { [weak self] row, index in
+			guard let self else { return }
+			didRequestAssignmentAt(.init(side: .left, row: row, index: index))
+		}
 	}()
 
 	private lazy var rightCollectionStackView: ButtonStackViewCollectionStackView = {
 		ButtonStackViewCollectionStackView(
-			isRightHandSide: true,
+			side: .right,
 			pushKey: pushKey,
 			releaseKey: releaseKey
-		)
+		) { [weak self] row, index in
+			guard let self else { return }
+			didRequestAssignmentAt(.init(side: .right, row: row, index: index))
+		}
 	}()
 
 	private let pushKey: ((Int) -> Void)
 	private let releaseKey: ((Int) -> Void)
+	private let didRequestAssignmentAt: ((GamepadButtonPosition) -> Void)
 
 	init(
 		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void)
+		releaseKey: @escaping ((Int) -> Void),
+		didRequestAssignmentAt: @escaping ((GamepadButtonPosition) -> Void)
 	) {
 		self.pushKey = pushKey
 		self.releaseKey = releaseKey
+		self.didRequestAssignmentAt = didRequestAssignmentAt
 
 		super.init(frame: .zero)
 
-		buttonLayout2(pushKey: pushKey, releaseKey: releaseKey)
+		translatesAutoresizingMaskIntoConstraints = false
 
 		addSubview(leftCollectionStackView)
 		addSubview(rightCollectionStackView)
@@ -65,66 +74,23 @@ class GamepadLayerView: UIView {
 
 		return false
 	}
-}
 
-extension GamepadLayerView {
-	// To be removed. WIP
-	func buttonLayout1(
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void)
-	) {
-		leftCollectionStackView.set(.space, row: 0, index: 0)
-		leftCollectionStackView.set(.x, row: 0, index: 1)
-		leftCollectionStackView.set(.shift, row: 0, index: 2)
-		leftCollectionStackView.set(.a, row: 1, index: 0)
-		leftCollectionStackView.set(.s, row: 1, index: 1)
+	func load(config: GamepadConfig) {
+		leftCollectionStackView.reset()
+		rightCollectionStackView.reset()
 
-		rightCollectionStackView.set(.left, row: 0, index: 0)
-		rightCollectionStackView.set(.right, row: 0, index: 1)
-		rightCollectionStackView.set(.down, row: 1, index: 0)
-		rightCollectionStackView.set(.up, row: 1, index: 1)
+		for assignment in config.assignments {
+			switch assignment.position.side {
+			case .left:
+				leftCollectionStackView.set(assignment.key, row: assignment.position.row, index: assignment.position.index)
+			case .right:
+				rightCollectionStackView.set(assignment.key, row: assignment.position.row, index: assignment.position.index)
+			}
+		}
 	}
 
-	func buttonLayout2(
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void)
-	) {
-		leftCollectionStackView.set(.down, row: 0, index: 0)
-		leftCollectionStackView.set(.up, row: 0, index: 1)
-		leftCollectionStackView.set(.space, row: 0, index: 2)
-
-		rightCollectionStackView.set(.alt, row: 0, index: 3)
-		rightCollectionStackView.set(.tab, row: 0, index: 2)
-		rightCollectionStackView.set(.left, row: 0, index: 1)
-		rightCollectionStackView.set(.right, row: 0, index: 0)
-
-		leftCollectionStackView.set(.q, row: 1, index: 0)
-		rightCollectionStackView.set(.cmd, row: 1, index: 0)
-	}
-
-	func buttonLayout3(
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void)
-	) {
-		leftCollectionStackView.set(.up, row: 0, index: 0)
-		leftCollectionStackView.set(.ctrl, row: 0, index: 1)
-		leftCollectionStackView.set(.down, row: 0, index: 2)
-		leftCollectionStackView.set(.space, row: 1, index: 0)
-
-		rightCollectionStackView.set(.escape, row: 0, index: 0)
-		rightCollectionStackView.set(.left, row: 0, index: 1)
-		rightCollectionStackView.set(.right, row: 0, index: 2)
-		rightCollectionStackView.set(.a, row: 1, index: 0)
-	}
-
-	func buttonLayout4(
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void)
-	) {
-		leftCollectionStackView.set(.up, row: 0, index: 0)
-		leftCollectionStackView.set(.ctrl, row: 0, index: 1)
-
-		rightCollectionStackView.set(.left, row: 0, index: 0)
-		rightCollectionStackView.set(.right, row: 0, index: 1)
+	func set(isEditing: Bool) {
+		leftCollectionStackView.set(isEditing: isEditing)
+		rightCollectionStackView.set(isEditing: isEditing)
 	}
 }

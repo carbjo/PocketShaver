@@ -9,20 +9,25 @@ import UIKit
 
 class ButtonStackViewCollectionStackView: UIStackView {
 
+	private let didRequestAssignmentAtRowAndIndex: ((Int, Int) -> Void)
+
 	init(
-		isRightHandSide: Bool,
+		side: GamepadSide,
 		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void)
+		releaseKey: @escaping ((Int) -> Void),
+		didRequestAssignmentAtRowAndIndex: @escaping ((Int, Int) -> Void)
 	) {
+		self.didRequestAssignmentAtRowAndIndex = didRequestAssignmentAtRowAndIndex
+
 		super.init(frame: .zero)
 
 		translatesAutoresizingMaskIntoConstraints = false
 		axis = .vertical
-		alignment = isRightHandSide ? .trailing : .leading
+		alignment = side == .right ? .trailing : .leading
 		spacing = 8
 
 		setupStackViews(
-			isRightHandSide: isRightHandSide,
+			side: side,
 			pushKey: pushKey,
 			releaseKey: releaseKey
 		)
@@ -31,7 +36,7 @@ class ButtonStackViewCollectionStackView: UIStackView {
 	required init(coder: NSCoder) { fatalError() }
 
 	private func setupStackViews(
-		isRightHandSide: Bool,
+		side: GamepadSide,
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void)
 	) {
@@ -41,26 +46,53 @@ class ButtonStackViewCollectionStackView: UIStackView {
 
 		let numberOfStackViews = Int(floor(screenHeight / stackViewHeight))
 
-		for _ in 0..<numberOfStackViews {
+		for row in 0..<numberOfStackViews {
+			let orientationCorrectedRow = numberOfStackViews - 1 - row // Build from bottom to top
+
 			addArrangedSubview(
 				ButtonStackView(
-					isRightHandSide: isRightHandSide,
+					side: side,
+					row: row,
 					pushKey: pushKey,
 					releaseKey: releaseKey
-				)
+				) { [weak self] index in
+					guard let self else { return }
+					didRequestAssignmentAtRowAndIndex(orientationCorrectedRow, index)
+				}
 			)
 		}
 	}
 
 	func set(_ key: SDLKey, row: Int, index: Int) {
-		let orientationCorrectedIndex = arrangedSubviews.count - 1 - row // Build from bottom to top
-		guard orientationCorrectedIndex >= 0,
-			  let stackView = arrangedSubviews[orientationCorrectedIndex] as? ButtonStackView else {
+		let orientationCorrectedRow = arrangedSubviews.count - 1 - row // Build from bottom to top
+		guard orientationCorrectedRow >= 0,
+			  let stackView = arrangedSubviews[orientationCorrectedRow] as? ButtonStackView else {
 			print("-- unexpected")
 			return
 		}
 
 		stackView.set(key, at: index)
+	}
+
+	func set(isEditing: Bool) {
+		for stackView in arrangedSubviews {
+			guard let stackView = stackView as? ButtonStackView else {
+				print("-- unexpected")
+				continue
+			}
+			stackView.set(isEditing: isEditing)
+		}
+	}
+
+	func reset() {
+		for stackView in arrangedSubviews {
+			guard let stackView = stackView as? ButtonStackView else {
+				print("-- unexpected")
+				continue
+			}
+
+			stackView.reset()
+		}
 	}
 
 	override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {

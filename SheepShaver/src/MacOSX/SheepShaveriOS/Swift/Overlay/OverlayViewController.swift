@@ -14,6 +14,7 @@ public class OverlayViewController: UIViewController {
 		case normal
 		case showingKeyboard
 		case showingGamepad
+		case editingGamepad
 	}
 
 	@MainActor private static var globalState: State = .normal
@@ -27,29 +28,25 @@ public class OverlayViewController: UIViewController {
 		}
 	}
 
-	private let overlayView = OverlayView.withoutConstraints()
-	private var overlayDragYDelta: CGFloat = 0
-	private var overlayDragYDeltaSinceLatestHapticFeedback: CGFloat = 0
-	private var overlayDragHapticFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
+	private let gestureInputView = GestureInputView.withoutConstraints()
+	private var gestureDragYDelta: CGFloat = 0
+	private var gestureDragYDeltaSinceLatestHapticFeedback: CGFloat = 0
+	private var gestureDragHapticFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
 	private lazy var gamepadLayerView: GamepadLayerView = {
-		let view = GamepadLayerView(pushKey: self.pushKey, releaseKey: self.releaseKey)
-		view.translatesAutoresizingMaskIntoConstraints = false
-		return view
+		GamepadLayerView(pushKey: pushKey, releaseKey: releaseKey) { [weak self] position in
+			guard let self else { return }
+			presentAlertForEditingButtonMapping(at: position)
+		}
 	}()
 
 	private lazy var hiddenInputField: UITextField = { [weak self] in
 		guard let self else { fatalError() }
-		let field = UITextField.withoutConstraints()
-		field.autocapitalizationType = .none
-		field.text = " "
-		field.autocorrectionType = .no
-		field.spellCheckingType = .no
-		field.delegate = self.hiddenInputFieldDelegate
-		let accessoryView = HiddenInputFieldKeyboardAccessoryView.withoutConstraints()
-		accessoryView.configure(pushKey: pushKey, releaseKey: releaseKey)
-		field.inputAccessoryView = accessoryView
-		return field
+		return HiddenInputField(
+			pushKey: pushKey,
+			releaseKey: releaseKey,
+			hiddenInputFieldDelegate: hiddenInputFieldDelegate
+		)
 	}()
 
 	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
@@ -57,6 +54,8 @@ public class OverlayViewController: UIViewController {
 	private let pushKey: ((Int) -> Void)
 	private let releaseKey: ((Int) -> Void)
 	private let pushAndReleaseKey: ((Int) -> Void)
+
+	private var gamepadConfig = GamepadConfig.current
 
 	private init(
 		pushKey: @escaping ((Int) -> Void),
@@ -75,21 +74,21 @@ public class OverlayViewController: UIViewController {
 	public override func viewDidLoad() {
 		super.viewDidLoad()
 
-		view.addSubview(overlayView)
-		view.addSubview(gamepadLayerView)
+		view.addSubview(gestureInputView)
+		gestureInputView.addSubview(gamepadLayerView)
 
-		overlayView.addSubview(hiddenInputField)
+		gestureInputView.addSubview(hiddenInputField)
 
 		NSLayoutConstraint.activate([
-			overlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			overlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			overlayView.topAnchor.constraint(equalTo: view.topAnchor),
-			overlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+			gestureInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+			gestureInputView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+			gestureInputView.topAnchor.constraint(equalTo: view.topAnchor),
+			gestureInputView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-			gamepadLayerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			gamepadLayerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			gamepadLayerView.topAnchor.constraint(equalTo: view.topAnchor),
-			gamepadLayerView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+			gamepadLayerView.leadingAnchor.constraint(equalTo: gestureInputView.leadingAnchor),
+			gamepadLayerView.trailingAnchor.constraint(equalTo: gestureInputView.trailingAnchor),
+			gamepadLayerView.topAnchor.constraint(equalTo: gestureInputView.topAnchor),
+			gamepadLayerView.bottomAnchor.constraint(equalTo: gestureInputView.bottomAnchor),
 
 			hiddenInputField.centerXAnchor.constraint(equalTo: view.centerXAnchor),
 			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor)
@@ -100,11 +99,13 @@ public class OverlayViewController: UIViewController {
 			self.handle(hiddenInputFieldOutput: output)
 		}
 
-		setupOverlayView()
+		setupGestureInputView()
 
 		if state != .normal {
 			transition(to: state)
 		}
+
+		gamepadLayerView.load(config: gamepadConfig)
 	}
 
 	public override func viewDidAppear(_ animated: Bool) {
@@ -122,42 +123,48 @@ public class OverlayViewController: UIViewController {
 			hiddenInputField.resignFirstResponder()
 			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 		case .showingGamepad:
-			self.gamepadLayerView.transform = .identity
+			gamepadLayerView.transform = .identity
+			gamepadLayerView.set(isEditing: false)
 		case .showingKeyboard:
 			hiddenInputField.becomeFirstResponder()
+			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+		case .editingGamepad:
+			gamepadLayerView.set(isEditing: true)
+			gamepadLayerView.transform = .identity
 		}
 	}
 
-	private func setupOverlayView() {
-		overlayView.reportDragProgress = { [weak self] deltaY in
+	private func setupGestureInputView() {
+		gestureInputView.reportDragProgress = { [weak self] deltaY in
 			guard let self else { return }
 
-			overlayDragYDelta += deltaY
-			overlayDragYDeltaSinceLatestHapticFeedback += deltaY
+			gestureDragYDelta += deltaY
+			gestureDragYDeltaSinceLatestHapticFeedback += deltaY
 
-			if abs(overlayDragYDeltaSinceLatestHapticFeedback) > 60 {
+			if abs(gestureDragYDeltaSinceLatestHapticFeedback) > 60 {
 				triggerGamepadLayerViewTranslationHapticFeedback()
 			}
 
-			if state != .showingKeyboard {
-
-				var y = overlayDragYDelta
-				if state == .normal {
-					y -= self.view.frame.size.height
-				}
-
+			switch state {
+			case .normal:
+				let y = gestureDragYDelta - self.view.frame.size.height
 				gamepadLayerView.transform = .init(translationX: 0, y: y)
+			case .showingGamepad, .editingGamepad:
+				let y = gestureDragYDelta
+				gamepadLayerView.transform = .init(translationX: 0, y: y)
+			default:
+				break
 			}
 		}
 
-		overlayView.didBeginGesture = {
+		gestureInputView.didBeginGesture = {
 			UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
 		}
 
-		overlayView.didReleaseGesture = { [weak self] in
+		gestureInputView.didReleaseGesture = { [weak self] in
 			guard let self else { return }
 
-			let threshold = view.frame.height / 3
+			let threshold = view.frame.height / 6
 
 			UIView.animate(
 				withDuration: 0.28,
@@ -167,30 +174,38 @@ public class OverlayViewController: UIViewController {
 				animations: {
 					switch self.state {
 					case .normal:
-						if self.overlayDragYDelta > threshold {
+						if self.gestureDragYDelta > threshold {
 							self.transition(to: .showingGamepad)
-						} else if self.overlayDragYDelta < -threshold {
+						} else if self.gestureDragYDelta < -threshold {
 							self.transition(to: .showingKeyboard)
 						} else {
 							self.transition(to: .normal)
 						}
 					case .showingGamepad:
-						if self.overlayDragYDelta < -threshold {
+						if self.gestureDragYDelta > threshold {
+							self.transition(to: .editingGamepad)
+						} else if self.gestureDragYDelta < -threshold {
 							self.transition(to: .normal)
 						} else {
 							self.transition(to: .showingGamepad)
 						}
 					case .showingKeyboard:
-						if self.overlayDragYDelta > threshold / 2 {
+						if self.gestureDragYDelta > threshold {
 							self.transition(to: .normal)
 						} else {
 							self.transition(to: .showingKeyboard)
+						}
+					case .editingGamepad:
+						if self.gestureDragYDelta < -threshold {
+							self.transition(to: .showingGamepad)
+						} else {
+							self.transition(to: .editingGamepad)
 						}
 					}
 				}
 			)
 
-			overlayDragYDelta = 0
+			gestureDragYDelta = 0
 		}
 	}
 
@@ -216,8 +231,40 @@ public class OverlayViewController: UIViewController {
 	}
 
 	private func triggerGamepadLayerViewTranslationHapticFeedback() {
-		overlayDragHapticFeedbackGenerator.impactOccurred()
-		overlayDragYDeltaSinceLatestHapticFeedback = 0
+		gestureDragHapticFeedbackGenerator.impactOccurred()
+		gestureDragYDeltaSinceLatestHapticFeedback = 0
+	}
+
+	private func presentAlertForEditingButtonMapping(at position: GamepadButtonPosition) {
+		guard !gestureInputView.isDragging else {
+			return
+		}
+		
+		let alertVC = UIAlertController(title: "Assign", message: nil, preferredStyle: .alert)
+		alertVC.addTextField()
+		alertVC.addAction(.init(title: "Cancel", style: .cancel))
+		alertVC.addAction(.init(title: "OK", style: .default, handler: { [weak self] _ in
+			guard let self,
+			let text = alertVC.textFields?[0].text else {
+				return
+			}
+
+			if text.isEmpty {
+				gamepadConfig = gamepadConfig.removingAssignment(at: position)
+			} else {
+				guard let key = SDLKey(rawValue: text) else {
+					print("-- could not map \(text)")
+					return
+				}
+
+				gamepadConfig = gamepadConfig.replacing(key: key, at: position)
+			}
+
+			gamepadLayerView.load(config: gamepadConfig)
+			gamepadConfig.saveAsCurrent()
+		}))
+
+		present(alertVC, animated: true)
 	}
 }
 
