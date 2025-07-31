@@ -225,11 +225,14 @@ const int kCDROMRefNum = -62;			// RefNum of driver
 	char aBytes[1024];
 	bzero (aBytes, 1024);
 	NSData* aData = [NSData dataWithBytes:aBytes length:1024];
-	BOOL aSuccess = [[NSFileManager defaultManager] createFileAtPath:aFilePath contents:aData attributes:@{NSFileType: NSFileTypeRegular, NSFileSize: @(inSizeInMB << 20)}];
-	NSLOG (@" aSuccess: %@", aSuccess ? @"YES" : @"NO");
-			
-	off_t aLength = inSizeInMB << 20;
-	int aFileDescriptor = truncate(aFilePath.UTF8String, aLength);
+	NSNumber *fileSizeInMB = @(inSizeInMB);
+	NSNumber *oneMB = @(1048576);
+	NSNumber *fileSizeInBytes = @(fileSizeInMB.longValue * oneMB.longValue);
+	NSLog(@"fileSize %@ inSizeInMB %d", fileSizeInBytes, inSizeInMB);
+	BOOL fileCreationSuccesful = [[NSFileManager defaultManager] createFileAtPath:aFilePath contents:aData attributes:@{NSFileType: NSFileTypeRegular}];
+	NSLOG (@" fileCreationSuccesful: %@", fileCreationSuccesful ? @"YES" : @"NO");
+
+	int aFileDescriptor = truncate(aFilePath.UTF8String, fileSizeInBytes.longValue);
 	NSLOG(@"%s truncate file: %s, descriptor: %d", __PRETTY_FUNCTION__, aFilePath.UTF8String, aFileDescriptor);
 	if (aFileDescriptor < 0) {
 		NSLOG (@"    error: %d, %s", errno, strerror(errno));

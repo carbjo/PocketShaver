@@ -84,6 +84,10 @@
 				[aDiskCandidateFiles addObject:anElementPath];
 			} else if ([anElementPath.pathExtension compare:@"iso" options:NSCaseInsensitiveSearch] == NSOrderedSame) {
 				[aDiskCandidateFiles addObject:anElementPath];
+			} else if ([anElementPath.pathExtension compare:@"toast" options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+				[aDiskCandidateFiles addObject:anElementPath];
+			} else if ([anElementPath.pathExtension compare:@"img" options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+				[aDiskCandidateFiles addObject:anElementPath];
 			} else {
 				NSLog (@"%s Extension %@ is unknown: %@", __PRETTY_FUNCTION__, anElementPath.pathExtension, anElementName);
 			}
