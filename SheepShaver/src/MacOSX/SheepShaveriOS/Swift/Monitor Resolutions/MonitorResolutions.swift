@@ -38,7 +38,8 @@ public class MonitorResolutions: NSObject {
 
 	@objc @MainActor
 	public static func getAllMonitorResolutions() -> [MonitorResolutionElement] {
-		let screenSize = UIScreen.main.bounds
+		let mainScreen = UIScreen.main
+		let screenSize = mainScreen.bounds
 
 		var resolutions = [Resolution]()
 		resolutions.append( // The native resolution, with native scaling must appear first
@@ -48,7 +49,9 @@ public class MonitorResolutions: NSObject {
 			)
 		)
 
-		resolutions.append(contentsOf: standardResolutions)
+		let nativePixelHeight = Int(screenSize.height * mainScreen.scale)
+		let filteredStandardResolutions = standardResolutions.filter({ $0.height <= nativePixelHeight })
+		resolutions.append(contentsOf: filteredStandardResolutions)
 
 		// The rest of the pixel aligned, full screen resolutions, in addition to the native resolution - native scale one
 		resolutions.append(contentsOf: getAdditionalPixelAlignedResolutions())
