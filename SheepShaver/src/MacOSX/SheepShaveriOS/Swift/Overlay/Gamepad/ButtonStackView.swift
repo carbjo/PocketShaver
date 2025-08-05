@@ -58,6 +58,10 @@ class ButtonStackView: UIStackView {
 
 	func set(_ key: SDLKey, at index: Int) {
 		let sideCorrectedIndex = side == .right ? (arrangedSubviews.count - 1 - index) : index
+		guard sideCorrectedIndex >= 0,
+			  sideCorrectedIndex < arrangedSubviews.count else {
+			return
+		}
 		let oldView = arrangedSubviews[sideCorrectedIndex]
 		removeArrangedSubview(oldView)
 		oldView.removeFromSuperview()
