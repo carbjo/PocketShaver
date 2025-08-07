@@ -8,15 +8,6 @@
 import UIKit
 
 class Button: UIButton {
-	private lazy var buttonConfig: UIButton.Configuration = {
-		var configuration = UIButton.Configuration.filled()
-	 configuration.baseForegroundColor = .white
-	 configuration.baseBackgroundColor = .lightGray.withAlphaComponent(0.5)
-	 configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
-	 configuration.background.cornerRadius = 8
-	 return configuration
- }()
-
 	private let key: SDLKey
 	private let index: Int
 	private let pushKey: ((Int) -> Void)
@@ -41,8 +32,8 @@ class Button: UIButton {
 
 		super.init(frame: .zero)
 
-		configuration = buttonConfig
-		
+		configuration = .defaultConfig
+
 		setTitle(key.label, for: .normal)
 
 		let length: CGFloat = UIDevice.hasNotch ? 80 : 64

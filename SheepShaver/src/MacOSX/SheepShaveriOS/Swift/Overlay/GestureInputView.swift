@@ -8,10 +8,10 @@
 import UIKit
 
 class GestureInputView: UIView {
-	private var touchDictionary = [UITouch: CGFloat]()
+	private var touchDictionary = [UITouch: CGPoint]()
 	private(set) var isDragging: Bool = false
 
-	var reportDragProgress: ((CGFloat) -> Void)?
+	var reportDragProgress: ((CGVector) -> Void)?
 	var didBeginGesture: (() -> Void)?
 	var didReleaseGesture: (() -> Void)?
 
@@ -27,7 +27,7 @@ class GestureInputView: UIView {
 		super.touchesBegan(touches, with: event)
 
 		for touch in touches {
-			touchDictionary[touch] = touch.location(in: self).y
+			touchDictionary[touch] = touch.location(in: self)
 		}
 		if touchDictionary.count >= 3 {
 			isDragging = true
@@ -39,25 +39,38 @@ class GestureInputView: UIView {
 		super.touchesMoved(touches, with: event)
 
 		if isDragging {
+			var totalDeltaXUp: CGFloat = 0
+			var totalDeltaXDown: CGFloat = 0
 			var totalDeltaYUp: CGFloat = 0
 			var totalDeltaYDown: CGFloat = 0
 
 			for touch in touches {
-				guard let previousYPos = touchDictionary[touch] else {
+				guard let previousPos = touchDictionary[touch] else {
 					print("-- unexpected")
 					continue
 				}
+				let newXPos = touch.location(in: self).x
+				let deltaX = newXPos - previousPos.x
+				if deltaX < 0 {
+					totalDeltaXUp = min(deltaX, totalDeltaXUp)
+				} else {
+					totalDeltaXDown = max(deltaX, totalDeltaXDown)
+				}
+
 				let newYPos = touch.location(in: self).y
-				let deltaY = newYPos - previousYPos
+				let deltaY = newYPos - previousPos.y
 				if deltaY < 0 {
 					totalDeltaYUp = min(deltaY, totalDeltaYUp)
 				} else {
 					totalDeltaYDown = max(deltaY, totalDeltaYDown)
 				}
-				touchDictionary[touch] = newYPos
+
+
+				touchDictionary[touch] = .init(x: newXPos, y: newYPos)
 			}
+			let totalDeltaX = totalDeltaXUp + totalDeltaXDown
 			let totalDeltaY = totalDeltaYUp + totalDeltaYDown
-			reportDragProgress?(totalDeltaY)
+			reportDragProgress?(.init(dx: totalDeltaX, dy: totalDeltaY))
 		}
 	}
 

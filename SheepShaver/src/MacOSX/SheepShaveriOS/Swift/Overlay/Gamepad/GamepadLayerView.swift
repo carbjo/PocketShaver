@@ -31,18 +31,32 @@ class GamepadLayerView: UIView {
 		}
 	}()
 
+	private lazy var settingsButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		var configuration = UIButton.Configuration.defaultConfig
+		configuration.contentInsets = .zero
+		configuration.baseBackgroundColor = .lightGray.withAlphaComponent(0.9)
+		button.configuration = configuration
+		button.setImage(UIImage(resource: .gearshape), for: .normal)
+		button.isHidden = true
+		return button
+	}()
+
 	private let pushKey: ((Int) -> Void)
 	private let releaseKey: ((Int) -> Void)
 	private let didRequestAssignmentAt: ((GamepadButtonPosition) -> Void)
+	private let didRequestLayoutSettings: (() -> Void)
 
 	init(
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void),
-		didRequestAssignmentAt: @escaping ((GamepadButtonPosition) -> Void)
+		didRequestAssignmentAt: @escaping ((GamepadButtonPosition) -> Void),
+		didRequestLayoutSettings: @escaping (() -> Void)
 	) {
 		self.pushKey = pushKey
 		self.releaseKey = releaseKey
 		self.didRequestAssignmentAt = didRequestAssignmentAt
+		self.didRequestLayoutSettings = didRequestLayoutSettings
 
 		super.init(frame: .zero)
 
@@ -50,16 +64,28 @@ class GamepadLayerView: UIView {
 
 		addSubview(leftCollectionStackView)
 		addSubview(rightCollectionStackView)
+		addSubview(settingsButton)
 
-		let sideMargin: CGFloat = UIDevice.hasNotch ? 64 : 8
+		let sideMargin: CGFloat = UIDevice.sideMarginForButtons
 
 		NSLayoutConstraint.activate([
 			leftCollectionStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin),
 			leftCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
 			rightCollectionStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideMargin),
-			rightCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor)
+			rightCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+
+			settingsButton.centerXAnchor.constraint(equalTo: centerXAnchor),
+			settingsButton.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -UIScreen.main.bounds.size.height / 4),
+			settingsButton.widthAnchor.constraint(equalToConstant: 44),
+			settingsButton.heightAnchor.constraint(equalToConstant: 44)
 		])
+
+		settingsButton.addTarget(self, action: #selector(didTapSettingsButton), for: .touchUpInside)
+	}
+
+	convenience init() {
+		self.init(pushKey: {_ in }, releaseKey: {_ in }, didRequestAssignmentAt: {_ in }, didRequestLayoutSettings: {})
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
@@ -92,5 +118,10 @@ class GamepadLayerView: UIView {
 	func set(isEditing: Bool) {
 		leftCollectionStackView.set(isEditing: isEditing)
 		rightCollectionStackView.set(isEditing: isEditing)
+		settingsButton.isHidden = !isEditing
+	}
+
+	@objc private func didTapSettingsButton() {
+		didRequestLayoutSettings()
 	}
 }
