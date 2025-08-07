@@ -42,10 +42,11 @@ class ButtonStackView: UIStackView {
 
 	private func setupButtons() {
 		let screenWidth = UIScreen.main.bounds.width
-		let sideMargin: CGFloat = UIDevice.hasNotch ? 64 : 8
-		let availableWidth = (screenWidth / 2) - sideMargin
+		let sideMargin: CGFloat = UIDevice.sideMarginForButtons
+		let halfSettingsButtonWithPaddingWidth: CGFloat = 44/2 + 4
+		let availableWidth = (screenWidth / 2) - sideMargin - halfSettingsButtonWithPaddingWidth
 		let buttonLength: CGFloat = UIDevice.hasNotch ? 80 : 64
-		let elementWidth = buttonLength + (spacing * 2)
+		let elementWidth = buttonLength + spacing
 
 		let numberOfButtons = Int(floor(availableWidth / elementWidth))
 

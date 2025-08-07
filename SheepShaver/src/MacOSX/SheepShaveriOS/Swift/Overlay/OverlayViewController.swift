@@ -29,15 +29,33 @@ public class OverlayViewController: UIViewController {
 	}
 
 	private let gestureInputView = GestureInputView.withoutConstraints()
-	private var gestureDragYDelta: CGFloat = 0
-	private var gestureDragYDeltaSinceLatestHapticFeedback: CGFloat = 0
+	private var gestureDragDelta: CGVector = .zero
+	private var gestureDragDeltaSinceLatestHapticFeedback: CGVector = .zero
 	private var gestureDragHapticFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
 	private lazy var gamepadLayerView: GamepadLayerView = {
-		GamepadLayerView(pushKey: pushKey, releaseKey: releaseKey) { [weak self] position in
-			guard let self else { return }
-			presentAlertForEditingButtonMapping(at: position)
-		}
+		GamepadLayerView(
+			pushKey: pushKey,
+			releaseKey: releaseKey,
+			didRequestAssignmentAt: { [weak self] position in
+				self?.presentAlertForEditingButtonMapping(at: position)
+			},
+			didRequestLayoutSettings: { [weak self] in
+				self?.presentLayoutSettings()
+			}
+		)
+	}()
+
+	private lazy var previousGamepadLayerView: GamepadLayerView = {
+		let view = GamepadLayerView()
+		view.isUserInteractionEnabled = false
+		return view
+	}()
+
+	private lazy var nextGamepadLayerView: GamepadLayerView = {
+		let view = GamepadLayerView()
+		view.isUserInteractionEnabled = false
+		return view
 	}()
 
 	private lazy var hiddenInputField: UITextField = { [weak self] in
@@ -49,13 +67,28 @@ public class OverlayViewController: UIViewController {
 		)
 	}()
 
+	private lazy var informationView: InformationView = {
+		let view = InformationView.withoutConstraints()
+		view.isHidden = true
+		view.alpha = 0
+		view.set(text: gamepadSettings.config.name)
+		return view
+	}()
+
 	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
 
 	private let pushKey: ((Int) -> Void)
 	private let releaseKey: ((Int) -> Void)
 	private let pushAndReleaseKey: ((Int) -> Void)
 
-	private var gamepadConfig = GamepadConfig.current
+	private var gamepadSettings = GamepadSettings.current
+	private var upcomingGamepadSettings: GamepadSettings? {
+		didSet {
+			if let upcomingGamepadSettings {
+				informationView.set(text: upcomingGamepadSettings.config.name)
+			}
+		}
+	}
 
 	private init(
 		pushKey: @escaping ((Int) -> Void),
@@ -76,8 +109,12 @@ public class OverlayViewController: UIViewController {
 
 		view.addSubview(gestureInputView)
 		gestureInputView.addSubview(gamepadLayerView)
+		gestureInputView.addSubview(previousGamepadLayerView)
+		gestureInputView.addSubview(nextGamepadLayerView)
 
 		gestureInputView.addSubview(hiddenInputField)
+
+		view.addSubview(informationView)
 
 		NSLayoutConstraint.activate([
 			gestureInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -90,8 +127,21 @@ public class OverlayViewController: UIViewController {
 			gamepadLayerView.topAnchor.constraint(equalTo: gestureInputView.topAnchor),
 			gamepadLayerView.bottomAnchor.constraint(equalTo: gestureInputView.bottomAnchor),
 
+			previousGamepadLayerView.widthAnchor.constraint(equalTo: gamepadLayerView.widthAnchor),
+			previousGamepadLayerView.heightAnchor.constraint(equalTo: gamepadLayerView.heightAnchor),
+			previousGamepadLayerView.centerYAnchor.constraint(equalTo: gamepadLayerView.centerYAnchor),
+			previousGamepadLayerView.trailingAnchor.constraint(equalTo: gamepadLayerView.leadingAnchor),
+
+			nextGamepadLayerView.widthAnchor.constraint(equalTo: gamepadLayerView.widthAnchor),
+			nextGamepadLayerView.heightAnchor.constraint(equalTo: gamepadLayerView.heightAnchor),
+			nextGamepadLayerView.centerYAnchor.constraint(equalTo: gamepadLayerView.centerYAnchor),
+			nextGamepadLayerView.leadingAnchor.constraint(equalTo: gamepadLayerView.trailingAnchor),
+
 			hiddenInputField.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor)
+			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor),
+
+			informationView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+			informationView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -UIScreen.main.bounds.size.height / 4)
 		])
 
 		hiddenInputFieldDelegate.didInputSDLKey = { [weak self] output in
@@ -105,7 +155,7 @@ public class OverlayViewController: UIViewController {
 			transition(to: state)
 		}
 
-		gamepadLayerView.load(config: gamepadConfig)
+		loadGamepadSettings()
 	}
 
 	public override func viewDidAppear(_ animated: Bool) {
@@ -116,42 +166,64 @@ public class OverlayViewController: UIViewController {
 		}
 	}
 
+	private func loadGamepadSettings() {
+		gamepadLayerView.load(config: gamepadSettings.config)
+		previousGamepadLayerView.load(config: gamepadSettings.previoius.config)
+		nextGamepadLayerView.load(config: gamepadSettings.next.config)
+	}
+
 	private func transition(to state: State) {
 		self.state = state
 		switch state {
 		case .normal:
 			hiddenInputField.resignFirstResponder()
 			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+			previousGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+			nextGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 		case .showingGamepad:
 			gamepadLayerView.transform = .identity
+			previousGamepadLayerView.transform = .identity
+			nextGamepadLayerView.transform = .identity
 			gamepadLayerView.set(isEditing: false)
 		case .showingKeyboard:
 			hiddenInputField.becomeFirstResponder()
 			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+			previousGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+			nextGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 		case .editingGamepad:
 			gamepadLayerView.set(isEditing: true)
 			gamepadLayerView.transform = .identity
+			previousGamepadLayerView.transform = .identity
+			nextGamepadLayerView.transform = .identity
 		}
 	}
 
 	private func setupGestureInputView() {
-		gestureInputView.reportDragProgress = { [weak self] deltaY in
+		gestureInputView.reportDragProgress = { [weak self] delta in
 			guard let self else { return }
 
-			gestureDragYDelta += deltaY
-			gestureDragYDeltaSinceLatestHapticFeedback += deltaY
+			gestureDragDelta += delta
+			gestureDragDeltaSinceLatestHapticFeedback += delta
 
-			if abs(gestureDragYDeltaSinceLatestHapticFeedback) > 60 {
+			if gestureDragDeltaSinceLatestHapticFeedback.abs > 60 {
 				triggerGamepadLayerViewTranslationHapticFeedback()
 			}
 
 			switch state {
 			case .normal:
-				let y = gestureDragYDelta - self.view.frame.size.height
-				gamepadLayerView.transform = .init(translationX: 0, y: y)
-			case .showingGamepad, .editingGamepad:
-				let y = gestureDragYDelta
-				gamepadLayerView.transform = .init(translationX: 0, y: y)
+				let x = gestureDragDelta.dx
+				let y = gestureDragDelta.dy - self.view.frame.size.height
+				gamepadLayerView.transform = .init(translationX: x, y: y)
+			case .showingGamepad:
+				let x = gestureDragDelta.dx
+				let y = gestureDragDelta.dy
+				gamepadLayerView.transform = .init(translationX: x, y: y)
+				previousGamepadLayerView.transform = .init(translationX: x, y: y)
+				nextGamepadLayerView.transform = .init(translationX: x, y: y)
+			case .editingGamepad:
+				let x = gestureDragDelta.dx
+				let y = gestureDragDelta.dy
+				gamepadLayerView.transform = .init(translationX: x, y: y)
 			default:
 				break
 			}
@@ -166,47 +238,107 @@ public class OverlayViewController: UIViewController {
 
 			let threshold = view.frame.height / 6
 
+			var willTranslateInLongAxis = false
+			if self.state == .showingGamepad {
+				let absDx = abs(self.gestureDragDelta.dx)
+				let absDy = abs(self.gestureDragDelta.dy)
+				willTranslateInLongAxis = UIDevice.isPortraitMode ? absDx < absDy : absDx > absDy
+			}
+
 			UIView.animate(
-				withDuration: 0.28,
+				withDuration: willTranslateInLongAxis ? 0.6 : 0.28,
 				delay: 0.0,
 				usingSpringWithDamping: 0.6,
 				initialSpringVelocity: 1.5,
 				animations: {
 					switch self.state {
 					case .normal:
-						if self.gestureDragYDelta > threshold {
+						if self.gestureDragDelta.dy > threshold {
 							self.transition(to: .showingGamepad)
-						} else if self.gestureDragYDelta < -threshold {
+						} else if self.gestureDragDelta.dy < -threshold {
 							self.transition(to: .showingKeyboard)
 						} else {
 							self.transition(to: .normal)
 						}
 					case .showingGamepad:
-						if self.gestureDragYDelta > threshold {
-							self.transition(to: .editingGamepad)
-						} else if self.gestureDragYDelta < -threshold {
-							self.transition(to: .normal)
+						if abs(self.gestureDragDelta.dy) > abs(self.gestureDragDelta.dx) {
+							if self.gestureDragDelta.dy > threshold {
+								self.transition(to: .editingGamepad)
+							} else if self.gestureDragDelta.dy < -threshold {
+								self.transition(to: .normal)
+							} else {
+								self.transition(to: .showingGamepad)
+							}
 						} else {
-							self.transition(to: .showingGamepad)
+							if self.gestureDragDelta.dx > threshold {
+								self.transitToPreviousGamepadLayout()
+							} else if self.gestureDragDelta.dx < -threshold {
+								self.transitToNextGamepadLayout()
+							} else {
+								self.transition(to: .showingGamepad)
+							}
 						}
 					case .showingKeyboard:
-						if self.gestureDragYDelta > threshold {
+						if self.gestureDragDelta.dy > threshold {
 							self.transition(to: .normal)
 						} else {
 							self.transition(to: .showingKeyboard)
 						}
 					case .editingGamepad:
-						if self.gestureDragYDelta < -threshold {
+						if self.gestureDragDelta.dy < -threshold {
 							self.transition(to: .showingGamepad)
 						} else {
 							self.transition(to: .editingGamepad)
 						}
 					}
+
+					if self.state == .showingGamepad {
+						self.flashInformationLabel()
+					}
+				},
+				completion: { _ in
+					if let upcomingGamepadSettings = self.upcomingGamepadSettings {
+						upcomingGamepadSettings.saveAsCurrent()
+						self.gamepadSettings = upcomingGamepadSettings
+						self.upcomingGamepadSettings = nil
+						self.loadGamepadSettings()
+						self.transition(to: .showingGamepad)
+					}
 				}
 			)
 
-			gestureDragYDelta = 0
+			gestureDragDelta = .zero
+
 		}
+	}
+
+	func flashInformationLabel() {
+		informationView.alpha = 0
+		informationView.isHidden = false
+
+		UIView.animate(withDuration: 0.6, animations: {
+			self.informationView.alpha = 1
+		}) { _ in
+			UIView.animate(withDuration: 0.6, delay: 0.15, animations: {
+				self.informationView.alpha = 0
+			}) { _ in
+				self.informationView.isHidden = false
+			}
+		}
+	}
+
+	func transitToNextGamepadLayout() {
+		upcomingGamepadSettings = gamepadSettings.next
+		gamepadLayerView.transform = .init(translationX: -view.frame.size.width, y: 0)
+		previousGamepadLayerView.transform = .init(translationX: -view.frame.size.width, y: 0)
+		nextGamepadLayerView.transform = .init(translationX: -view.frame.size.width, y: 0)
+	}
+
+	func transitToPreviousGamepadLayout() {
+		upcomingGamepadSettings = gamepadSettings.previoius
+		gamepadLayerView.transform = .init(translationX: view.frame.size.width, y: 0)
+		previousGamepadLayerView.transform = .init(translationX: view.frame.size.width, y: 0)
+		nextGamepadLayerView.transform = .init(translationX: view.frame.size.width, y: 0)
 	}
 
 	private func handle(hiddenInputFieldOutput: HiddenInputFieldOutput) {
@@ -232,7 +364,7 @@ public class OverlayViewController: UIViewController {
 
 	private func triggerGamepadLayerViewTranslationHapticFeedback() {
 		gestureDragHapticFeedbackGenerator.impactOccurred()
-		gestureDragYDeltaSinceLatestHapticFeedback = 0
+		gestureDragDeltaSinceLatestHapticFeedback = .zero
 	}
 
 	private func presentAlertForEditingButtonMapping(at position: GamepadButtonPosition) {
@@ -249,6 +381,8 @@ public class OverlayViewController: UIViewController {
 				return
 			}
 
+			var gamepadConfig = gamepadSettings.config
+
 			if text.isEmpty {
 				gamepadConfig = gamepadConfig.removingAssignment(at: position)
 			} else {
@@ -261,7 +395,35 @@ public class OverlayViewController: UIViewController {
 			}
 
 			gamepadLayerView.load(config: gamepadConfig)
-			gamepadConfig.saveAsCurrent()
+			gamepadSettings = gamepadSettings.replaceCurrentConfig(with: gamepadConfig)
+		}))
+
+		present(alertVC, animated: true)
+	}
+
+	private func presentLayoutSettings() {
+		guard !gestureInputView.isDragging else {
+			return
+		}
+
+		let alertVC = UIAlertController(title: "Name layout", message: nil, preferredStyle: .alert)
+		alertVC.addTextField()
+		alertVC.addAction(.init(title: "Cancel", style: .cancel))
+		alertVC.addAction(.init(title: "OK", style: .default, handler: { [weak self] _ in
+			guard let self,
+				  let text = alertVC.textFields?[0].text,
+			!text.isEmpty else {
+				return
+			}
+
+			var gamepadConfig = gamepadSettings.config
+
+			gamepadConfig = gamepadConfig.renaming(text)
+
+			gamepadLayerView.load(config: gamepadConfig)
+			gamepadSettings = gamepadSettings.replaceCurrentConfig(with: gamepadConfig)
+
+			informationView.set(text: text)
 		}))
 
 		present(alertVC, animated: true)
