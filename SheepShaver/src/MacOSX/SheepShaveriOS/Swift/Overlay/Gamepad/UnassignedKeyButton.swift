@@ -1,5 +1,5 @@
 //
-//  UnassignedButton.swift
+//  UnassignedKeyButton.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-07-27.
@@ -7,7 +7,7 @@
 
 import UIKit
 
-class UnassignedButton: UIView {
+class UnassignedKeyButton: UIView {
 	
 	private lazy var label: UILabel = {
 		let label = UILabel.withoutConstraints()

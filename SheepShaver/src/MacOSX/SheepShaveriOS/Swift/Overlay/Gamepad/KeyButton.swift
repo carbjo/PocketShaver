@@ -1,5 +1,5 @@
 //
-//  Button.swift
+//  KeyButton.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-07-26.
@@ -7,7 +7,7 @@
 
 import UIKit
 
-class Button: UIButton {
+class KeyButton: UIButton {
 	private let key: SDLKey
 	private let index: Int
 	private let pushKey: ((Int) -> Void)

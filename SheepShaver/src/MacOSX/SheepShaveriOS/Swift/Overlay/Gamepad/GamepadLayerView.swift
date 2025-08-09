@@ -9,8 +9,8 @@ import UIKit
 
 class GamepadLayerView: UIView {
 	
-	private lazy var leftCollectionStackView: ButtonStackViewCollectionStackView = {
-		ButtonStackViewCollectionStackView(
+	private lazy var leftCollectionStackView: KeyButtonStackViewCollectionStackView = {
+		KeyButtonStackViewCollectionStackView(
 			side: .left,
 			pushKey: pushKey,
 			releaseKey: releaseKey
@@ -20,8 +20,8 @@ class GamepadLayerView: UIView {
 		}
 	}()
 
-	private lazy var rightCollectionStackView: ButtonStackViewCollectionStackView = {
-		ButtonStackViewCollectionStackView(
+	private lazy var rightCollectionStackView: KeyButtonStackViewCollectionStackView = {
+		KeyButtonStackViewCollectionStackView(
 			side: .right,
 			pushKey: pushKey,
 			releaseKey: releaseKey

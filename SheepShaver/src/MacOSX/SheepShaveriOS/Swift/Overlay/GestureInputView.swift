@@ -10,6 +10,7 @@ import UIKit
 class GestureInputView: UIView {
 	private var touchDictionary = [UITouch: CGPoint]()
 	private(set) var isDragging: Bool = false
+	private(set) var isEditing: Bool = false
 
 	var reportDragProgress: ((CGVector) -> Void)?
 	var didBeginGesture: (() -> Void)?
@@ -19,12 +20,15 @@ class GestureInputView: UIView {
 		super.init(frame: .zero)
 
 		isMultipleTouchEnabled = true
+		backgroundColor = .darkGray.withAlphaComponent(0)
 	}
 	
 	required init?(coder: NSCoder) { fatalError() }
 
 	override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-		super.touchesBegan(touches, with: event)
+		if !isEditing {
+			super.touchesBegan(touches, with: event)
+		}
 
 		for touch in touches {
 			touchDictionary[touch] = touch.location(in: self)
@@ -98,6 +102,21 @@ class GestureInputView: UIView {
 		if touchDictionary.isEmpty {
 			isDragging = false
 			didReleaseGesture?()
+		}
+	}
+
+	func set(isEditing: Bool) {
+		let wasEditing = self.isEditing
+		self.isEditing = isEditing
+
+		if !wasEditing && isEditing {
+			UIView.animate(withDuration: 0.3) {
+				self.backgroundColor = .darkGray.withAlphaComponent(0.8)
+			}
+		} else if wasEditing && !isEditing {
+			UIView.animate(withDuration: 0.3) {
+				self.backgroundColor = .darkGray.withAlphaComponent(0)
+			}
 		}
 	}
 }
