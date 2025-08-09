@@ -1,5 +1,5 @@
 //
-//  ButtonStackView.swift
+//  KeyButtonStackView.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-07-27.
@@ -7,7 +7,7 @@
 
 import UIKit
 
-class ButtonStackView: UIStackView {
+class KeyButtonStackView: UIStackView {
 	private let side: GamepadSide
 	private let row: Int
 	private let pushKey: ((Int) -> Void)
@@ -67,7 +67,7 @@ class ButtonStackView: UIStackView {
 		removeArrangedSubview(oldView)
 		oldView.removeFromSuperview()
 
-		let button = Button(
+		let button = KeyButton(
 			key: key,
 			index: index,
 			isEditing: isEditing,
@@ -88,9 +88,9 @@ class ButtonStackView: UIStackView {
 		self.isEditing = isEditing
 
 		for button in arrangedSubviews {
-			if let button = button as? Button {
+			if let button = button as? KeyButton {
 				button.set(isEditing: isEditing)
-			} else if let button = button as? UnassignedButton {
+			} else if let button = button as? UnassignedKeyButton {
 				button.set(isEditing: isEditing)
 			}
 		}
@@ -100,7 +100,7 @@ class ButtonStackView: UIStackView {
 		let numberOfButtons = arrangedSubviews.count
 
 		for (index, button) in arrangedSubviews.enumerated() {
-			if let button = button as? Button {
+			if let button = button as? KeyButton {
 				let sideCorrectedIndex = side == .right ? (numberOfButtons - 1 - index) : index
 				removeArrangedSubview(button)
 				button.removeFromSuperview()
@@ -118,7 +118,7 @@ class ButtonStackView: UIStackView {
 		// Ie. not when touching the spaces between the buttons or spacing cells.
 
 		for view in arrangedSubviews {
-			guard view is Button || isEditing else {
+			guard view is KeyButton || isEditing else {
 				continue
 			}
 
@@ -131,8 +131,8 @@ class ButtonStackView: UIStackView {
 		return false
 	}
 
-	private func createUnassignedButton(forIndex index: Int) -> UnassignedButton {
-		UnassignedButton(
+	private func createUnassignedButton(forIndex index: Int) -> UnassignedKeyButton {
+		UnassignedKeyButton(
 			index: index,
 			isEditing: isEditing
 		) { [weak self] index in

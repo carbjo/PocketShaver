@@ -185,16 +185,18 @@ public class OverlayViewController: UIViewController {
 			previousGamepadLayerView.transform = .identity
 			nextGamepadLayerView.transform = .identity
 			gamepadLayerView.set(isEditing: false)
+			gestureInputView.set(isEditing: false)
 		case .showingKeyboard:
 			hiddenInputField.becomeFirstResponder()
 			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 			previousGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 			nextGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 		case .editingGamepad:
-			gamepadLayerView.set(isEditing: true)
 			gamepadLayerView.transform = .identity
 			previousGamepadLayerView.transform = .identity
 			nextGamepadLayerView.transform = .identity
+			gamepadLayerView.set(isEditing: true)
+			gestureInputView.set(isEditing: true)
 		}
 	}
 

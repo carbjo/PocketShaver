@@ -1,5 +1,5 @@
 //
-//  ButtonStackViewCollectionStackView.swift
+//  KeyButtonStackViewCollectionStackView.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-07-27.
@@ -7,7 +7,7 @@
 
 import UIKit
 
-class ButtonStackViewCollectionStackView: UIStackView {
+class KeyButtonStackViewCollectionStackView: UIStackView {
 
 	private let didRequestAssignmentAtRowAndIndex: ((Int, Int) -> Void)
 
@@ -50,7 +50,7 @@ class ButtonStackViewCollectionStackView: UIStackView {
 			let orientationCorrectedRow = numberOfStackViews - 1 - row // Build from bottom to top
 
 			addArrangedSubview(
-				ButtonStackView(
+				KeyButtonStackView(
 					side: side,
 					row: row,
 					pushKey: pushKey,
@@ -66,7 +66,7 @@ class ButtonStackViewCollectionStackView: UIStackView {
 	func set(_ key: SDLKey, row: Int, index: Int) {
 		let orientationCorrectedRow = arrangedSubviews.count - 1 - row // Build from bottom to top
 		guard orientationCorrectedRow >= 0,
-			  let stackView = arrangedSubviews[orientationCorrectedRow] as? ButtonStackView else {
+			  let stackView = arrangedSubviews[orientationCorrectedRow] as? KeyButtonStackView else {
 			print("-- unexpected")
 			return
 		}
@@ -76,7 +76,7 @@ class ButtonStackViewCollectionStackView: UIStackView {
 
 	func set(isEditing: Bool) {
 		for stackView in arrangedSubviews {
-			guard let stackView = stackView as? ButtonStackView else {
+			guard let stackView = stackView as? KeyButtonStackView else {
 				print("-- unexpected")
 				continue
 			}
@@ -86,7 +86,7 @@ class ButtonStackViewCollectionStackView: UIStackView {
 
 	func reset() {
 		for stackView in arrangedSubviews {
-			guard let stackView = stackView as? ButtonStackView else {
+			guard let stackView = stackView as? KeyButtonStackView else {
 				print("-- unexpected")
 				continue
 			}
