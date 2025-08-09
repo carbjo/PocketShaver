@@ -81,8 +81,11 @@ class GestureInputView: UIView {
 			touchDictionary[touch] = nil
 		}
 		if touchDictionary.isEmpty {
+			let wasDragging = isDragging
 			isDragging = false
-			didReleaseGesture?()
+			if wasDragging {
+				didReleaseGesture?()
+			}
 		}
 	}
 
