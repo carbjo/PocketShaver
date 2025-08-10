@@ -1,5 +1,5 @@
 //
-//  KeyButtonStackViewCollectionStackView.swift
+//  GamepadButtonStackViewCollectionStackView.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-07-27.
@@ -7,14 +7,14 @@
 
 import UIKit
 
-class KeyButtonStackViewCollectionStackView: UIStackView {
+class GamepadButtonStackViewCollectionStackView: UIStackView {
 
 	private let didRequestAssignmentAtRowAndIndex: ((Int, Int) -> Void)
 
 	init(
 		side: GamepadSide,
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void),
+		keyInteraction: @escaping ((Int, Bool) -> Void),
+		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
 		didRequestAssignmentAtRowAndIndex: @escaping ((Int, Int) -> Void)
 	) {
 		self.didRequestAssignmentAtRowAndIndex = didRequestAssignmentAtRowAndIndex
@@ -28,8 +28,8 @@ class KeyButtonStackViewCollectionStackView: UIStackView {
 
 		setupStackViews(
 			side: side,
-			pushKey: pushKey,
-			releaseKey: releaseKey
+			keyInteraction: keyInteraction,
+			specialButtonInteraction: specialButtonInteraction
 		)
 	}
 	
@@ -37,8 +37,8 @@ class KeyButtonStackViewCollectionStackView: UIStackView {
 
 	private func setupStackViews(
 		side: GamepadSide,
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void)
+		keyInteraction: @escaping ((Int, Bool) -> Void),
+		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void)
 	) {
 		let screenHeight = UIScreen.main.bounds.height
 		let length: CGFloat = UIDevice.hasNotch ? 80 : 64
@@ -50,11 +50,11 @@ class KeyButtonStackViewCollectionStackView: UIStackView {
 			let orientationCorrectedRow = numberOfStackViews - 1 - row // Build from bottom to top
 
 			addArrangedSubview(
-				KeyButtonStackView(
+				GamepadButtonStackView(
 					side: side,
 					row: row,
-					pushKey: pushKey,
-					releaseKey: releaseKey
+					keyInteraction: keyInteraction,
+					specialButtonInteraction: specialButtonInteraction
 				) { [weak self] index in
 					guard let self else { return }
 					didRequestAssignmentAtRowAndIndex(orientationCorrectedRow, index)
@@ -63,20 +63,24 @@ class KeyButtonStackViewCollectionStackView: UIStackView {
 		}
 	}
 
-	func set(_ key: SDLKey, row: Int, index: Int) {
-		let orientationCorrectedRow = arrangedSubviews.count - 1 - row // Build from bottom to top
-		guard orientationCorrectedRow >= 0,
-			  let stackView = arrangedSubviews[orientationCorrectedRow] as? KeyButtonStackView else {
+	func set(_ assignment: GamepadButtonAssignment, row: Int, index: Int) {
+		guard let orientationCorrectedRow = getOrientationCorrectedRow(for: row),
+			  let stackView = arrangedSubviews[orientationCorrectedRow] as? GamepadButtonStackView else {
 			print("-- unexpected")
 			return
 		}
 
-		stackView.set(key, at: index)
+		switch assignment {
+		case .key(let key):
+			stackView.set(key, at: index)
+		case .specialButton(let specialButton):
+			stackView.set(specialButton, at: index)
+		}
 	}
 
 	func set(isEditing: Bool) {
 		for stackView in arrangedSubviews {
-			guard let stackView = stackView as? KeyButtonStackView else {
+			guard let stackView = stackView as? GamepadButtonStackView else {
 				print("-- unexpected")
 				continue
 			}
@@ -86,7 +90,7 @@ class KeyButtonStackViewCollectionStackView: UIStackView {
 
 	func reset() {
 		for stackView in arrangedSubviews {
-			guard let stackView = stackView as? KeyButtonStackView else {
+			guard let stackView = stackView as? GamepadButtonStackView else {
 				print("-- unexpected")
 				continue
 			}
@@ -104,5 +108,16 @@ class KeyButtonStackViewCollectionStackView: UIStackView {
 		}
 
 		return false
+	}
+
+	private func getOrientationCorrectedRow(for row: Int) -> Int? {
+		let orientationCorrectedRow = arrangedSubviews.count - 1 - row // Build from bottom to top
+		guard orientationCorrectedRow >= 0,
+			  let stackView = arrangedSubviews[orientationCorrectedRow] as? GamepadButtonStackView else {
+			print("-- unexpected")
+			return nil
+		}
+
+		return orientationCorrectedRow
 	}
 }

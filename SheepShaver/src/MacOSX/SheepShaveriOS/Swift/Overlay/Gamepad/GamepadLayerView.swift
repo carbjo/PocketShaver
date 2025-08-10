@@ -9,22 +9,22 @@ import UIKit
 
 class GamepadLayerView: UIView {
 	
-	private lazy var leftCollectionStackView: KeyButtonStackViewCollectionStackView = {
-		KeyButtonStackViewCollectionStackView(
+	private lazy var leftCollectionStackView: GamepadButtonStackViewCollectionStackView = {
+		GamepadButtonStackViewCollectionStackView(
 			side: .left,
-			pushKey: pushKey,
-			releaseKey: releaseKey
+			keyInteraction: keyInteraction,
+			specialButtonInteraction: specialButtonInteraction
 		) { [weak self] row, index in
 			guard let self else { return }
 			didRequestAssignmentAt(.init(side: .left, row: row, index: index))
 		}
 	}()
 
-	private lazy var rightCollectionStackView: KeyButtonStackViewCollectionStackView = {
-		KeyButtonStackViewCollectionStackView(
+	private lazy var rightCollectionStackView: GamepadButtonStackViewCollectionStackView = {
+		GamepadButtonStackViewCollectionStackView(
 			side: .right,
-			pushKey: pushKey,
-			releaseKey: releaseKey
+			keyInteraction: keyInteraction,
+			specialButtonInteraction: specialButtonInteraction
 		) { [weak self] row, index in
 			guard let self else { return }
 			didRequestAssignmentAt(.init(side: .right, row: row, index: index))
@@ -42,19 +42,19 @@ class GamepadLayerView: UIView {
 		return button
 	}()
 
-	private let pushKey: ((Int) -> Void)
-	private let releaseKey: ((Int) -> Void)
+	private let keyInteraction: ((Int, Bool) -> Void)
+	private let specialButtonInteraction: ((SpecialButton, Bool) -> Void)
 	private let didRequestAssignmentAt: ((GamepadButtonPosition) -> Void)
 	private let didRequestLayoutSettings: (() -> Void)
 
 	init(
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void),
+		keyInteraction: @escaping ((Int, Bool) -> Void),
+		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
 		didRequestAssignmentAt: @escaping ((GamepadButtonPosition) -> Void),
 		didRequestLayoutSettings: @escaping (() -> Void)
 	) {
-		self.pushKey = pushKey
-		self.releaseKey = releaseKey
+		self.keyInteraction = keyInteraction
+		self.specialButtonInteraction = specialButtonInteraction
 		self.didRequestAssignmentAt = didRequestAssignmentAt
 		self.didRequestLayoutSettings = didRequestLayoutSettings
 
@@ -85,7 +85,12 @@ class GamepadLayerView: UIView {
 	}
 
 	convenience init() {
-		self.init(pushKey: {_ in }, releaseKey: {_ in }, didRequestAssignmentAt: {_ in }, didRequestLayoutSettings: {})
+		self.init(
+			keyInteraction: {_, _ in },
+			specialButtonInteraction: {_, _ in },
+			didRequestAssignmentAt: {_ in },
+			didRequestLayoutSettings: {}
+		)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
@@ -105,12 +110,12 @@ class GamepadLayerView: UIView {
 		leftCollectionStackView.reset()
 		rightCollectionStackView.reset()
 
-		for assignment in config.assignments {
-			switch assignment.position.side {
+		for mapping in config.mappings {
+			switch mapping.position.side {
 			case .left:
-				leftCollectionStackView.set(assignment.key, row: assignment.position.row, index: assignment.position.index)
+				leftCollectionStackView.set(mapping.assignment, row: mapping.position.row, index: mapping.position.index)
 			case .right:
-				rightCollectionStackView.set(assignment.key, row: assignment.position.row, index: assignment.position.index)
+				rightCollectionStackView.set(mapping.assignment, row: mapping.position.row, index: mapping.position.index)
 			}
 		}
 	}

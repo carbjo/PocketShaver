@@ -35,8 +35,8 @@ public class OverlayViewController: UIViewController {
 
 	private lazy var gamepadLayerView: GamepadLayerView = {
 		GamepadLayerView(
-			pushKey: pushKey,
-			releaseKey: releaseKey,
+			keyInteraction: keyInteraction,
+			specialButtonInteraction: specialButtonInteraction,
 			didRequestAssignmentAt: { [weak self] position in
 				self?.presentAlertForEditingButtonMapping(at: position)
 			},
@@ -61,8 +61,12 @@ public class OverlayViewController: UIViewController {
 	private lazy var hiddenInputField: UITextField = { [weak self] in
 		guard let self else { fatalError() }
 		return HiddenInputField(
-			pushKey: pushKey,
-			releaseKey: releaseKey,
+			pushKey: { [weak self] key in
+				self?.keyInteraction(key, true)
+			},
+			releaseKey: { [weak self] key in
+				self?.keyInteraction(key, false)
+			},
 			hiddenInputFieldDelegate: hiddenInputFieldDelegate
 		)
 	}()
@@ -77,9 +81,8 @@ public class OverlayViewController: UIViewController {
 
 	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
 
-	private let pushKey: ((Int) -> Void)
-	private let releaseKey: ((Int) -> Void)
-	private let pushAndReleaseKey: ((Int) -> Void)
+	private let keyInteraction: ((Int, Bool) -> Void)
+	private let specialButtonInteraction: ((SpecialButton, Bool) -> Void)
 
 	private var gamepadSettings = GamepadSettings.current
 	private var upcomingGamepadSettings: GamepadSettings? {
@@ -91,13 +94,11 @@ public class OverlayViewController: UIViewController {
 	}
 
 	private init(
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void),
-		pushAndReleaseKey: @escaping ((Int) -> Void)
+		keyInteraction: @escaping ((Int, Bool) -> Void),
+		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void)
 	) {
-		self.pushKey = pushKey
-		self.releaseKey = releaseKey
-		self.pushAndReleaseKey = pushAndReleaseKey
+		self.keyInteraction = keyInteraction
+		self.specialButtonInteraction = specialButtonInteraction
 
 		super.init(nibName: nil, bundle: nil)
 	}
@@ -345,21 +346,21 @@ public class OverlayViewController: UIViewController {
 
 	private func handle(hiddenInputFieldOutput: HiddenInputFieldOutput) {
 		if hiddenInputFieldOutput.withShift {
-			pushKey(SDLKey.shift.enValue)
+			self.keyInteraction(SDLKey.shift.enValue, true)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
 				guard let self else { return }
-				self.pushKey(hiddenInputFieldOutput.value)
+				self.keyInteraction(hiddenInputFieldOutput.value, true)
 			}
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
 				guard let self else { return }
-				self.releaseKey(SDLKey.shift.enValue)
-				self.releaseKey(hiddenInputFieldOutput.value)
+				self.keyInteraction(SDLKey.shift.enValue, false)
+				self.keyInteraction(hiddenInputFieldOutput.value, false)
 			}
 		} else {
-			pushKey(hiddenInputFieldOutput.value)
+			self.keyInteraction(hiddenInputFieldOutput.value, true)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
 				guard let self else { return }
-				self.releaseKey(hiddenInputFieldOutput.value)
+				self.keyInteraction(hiddenInputFieldOutput.value, false)
 			}
 		}
 	}
@@ -387,13 +388,19 @@ public class OverlayViewController: UIViewController {
 
 			if text.isEmpty {
 				gamepadConfig = gamepadConfig.removingAssignment(at: position)
+			} else if text == "hover" {
+				gamepadConfig = gamepadConfig.replacing(with: SpecialButton.hover, at: position)
+			} else if text == "hoverab" {
+				gamepadConfig = gamepadConfig.replacing(with: SpecialButton.hoverAbove, at: position)
+			} else if text == "hoverbe" {
+				gamepadConfig = gamepadConfig.replacing(with: SpecialButton.hoverBelow, at: position)
 			} else {
 				guard let key = SDLKey(rawValue: text) else {
 					print("-- could not map \(text)")
 					return
 				}
 
-				gamepadConfig = gamepadConfig.replacing(key: key, at: position)
+				gamepadConfig = gamepadConfig.replacing(with: key, at: position)
 			}
 
 			gamepadLayerView.load(config: gamepadConfig)
@@ -435,9 +442,8 @@ public class OverlayViewController: UIViewController {
 extension OverlayViewController {
 	@objc
 	public static func injectOverlayViewController(
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void),
-		pushAndReleaseKey: @escaping ((Int) -> Void)
+		keyInteraction: @escaping ((Int, Bool) -> Void),
+		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void)
 	) {
 		guard let window = UIApplication.shared.delegate?.window,
 		let sdlVC = window?.rootViewController else {
@@ -445,9 +451,8 @@ extension OverlayViewController {
 		}
 
 		let vc = OverlayViewController(
-			pushKey: pushKey,
-			releaseKey: releaseKey,
-			pushAndReleaseKey: pushAndReleaseKey
+			keyInteraction: keyInteraction,
+			specialButtonInteraction: specialButtonInteraction
 		)
 
 		vc.willMove(toParent: sdlVC)

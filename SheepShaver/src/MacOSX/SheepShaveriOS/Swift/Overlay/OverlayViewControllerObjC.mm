@@ -13,21 +13,35 @@
 
 void objc_initOverlayViewController(void) {
 	@autoreleasepool {
-		[OverlayViewController injectOverlayViewControllerWithPushKey:^(NSInteger key){
 
-			ADBKeyDown((int)key);
-
-		} releaseKey:^(NSInteger key){
-
-			ADBKeyUp((int)key);
-
-		} pushAndReleaseKey:^(NSInteger key){
-
-			ADBKeyDown((int)key);
-			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1 * NSEC_PER_SEC), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+		[OverlayViewController injectOverlayViewControllerWithKeyInteraction:^(NSInteger key, BOOL isDown){
+			if (isDown) {
+				ADBKeyDown((int)key);
+			} else {
 				ADBKeyUp((int)key);
-			});
-
+			}
+		} specialButtonInteraction:^(enum SpecialButton button, BOOL isDown) {
+			switch (button) {
+				case SpecialButtonHover:
+					ADBSetHover(isDown);
+					break;
+				case SpecialButtonHoverAbove:
+					ADBSetHover(isDown);
+					if (isDown) {
+						ADBSetHoverMode(Above);
+					} else {
+						ADBSetHoverMode(Regular);
+					}
+					break;
+				case SpecialButtonHoverBelow:
+					ADBSetHover(isDown);
+					if (isDown) {
+						ADBSetHoverMode(Below);
+					} else {
+						ADBSetHoverMode(Regular);
+					}
+					break;
+			}
 		}];
 	}
 }

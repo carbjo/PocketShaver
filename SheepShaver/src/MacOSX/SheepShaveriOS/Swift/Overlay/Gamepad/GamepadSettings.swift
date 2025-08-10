@@ -18,57 +18,72 @@ struct GamepadButtonPosition: Codable, Equatable {
 	let index: Int
 }
 
-struct GamepadButtonAssignment: Codable, Equatable {
+enum GamepadButtonAssignment: Equatable, Codable {
+	case key(SDLKey)
+	case specialButton(SpecialButton)
+}
+
+struct GamepadButtonMapping: Codable, Equatable {
 	let position: GamepadButtonPosition
-	let key: SDLKey
+	let assignment: GamepadButtonAssignment
 }
 
 struct GamepadConfig: Codable, Equatable {
 	let name: String
-	let assignments: [GamepadButtonAssignment]
+	let mappings: [GamepadButtonMapping]
 
-	func replacing(key: SDLKey, at position: GamepadButtonPosition) -> GamepadConfig {
-		var assignments = removingAssignment(at: position).assignments
-		assignments.append(.init(position: position, key: key))
+	func replacing(with key: SDLKey, at position: GamepadButtonPosition) -> GamepadConfig {
+		var assignments = removingAssignment(at: position).mappings
+		assignments.append(.init(position: position, assignment: .key(key)))
 
 		return .init(
 			name: name,
-			assignments: assignments
+			mappings: assignments
+		)
+	}
+
+	func replacing(with specialButton: SpecialButton, at position: GamepadButtonPosition) -> GamepadConfig {
+		var assignments = removingAssignment(at: position).mappings
+		assignments.append(.init(position: position, assignment: .specialButton(specialButton)))
+
+		return .init(
+			name: name,
+			mappings: assignments
 		)
 	}
 
 	func removingAssignment(at position: GamepadButtonPosition) -> GamepadConfig {
-		var assignments = assignments
+		var assignments = mappings
 		if let oldIndex = assignments.firstIndex(where: { $0.position == position }) {
 			assignments.remove(at: oldIndex)
 		}
 
 		return .init(
 			name: name,
-			assignments: assignments
+			mappings: assignments
 		)
 	}
 
 	func renaming(_ newName: String) -> GamepadConfig {
 		.init(
 			name: newName,
-			assignments: assignments
+			mappings: mappings
 		)
 	}
 
 	static var exampleConfig: GamepadConfig {
 		.init(
 			name: "Example layout",
-			assignments: [
-				.init(position: .init(side: .left, row: 0, index: 0), key: .down),
-				.init(position: .init(side: .left, row: 0, index: 1), key: .up),
-				.init(position: .init(side: .left, row: 0, index: 2), key: .space),
-				.init(position: .init(side: .left, row: 1, index: 0), key: .q),
-				.init(position: .init(side: .right, row: 0, index: 2), key: .tab),
-				.init(position: .init(side: .right, row: 0, index: 1), key: .left),
-				.init(position: .init(side: .right, row: 0, index: 0), key: .right),
-				.init(position: .init(side: .right, row: 1, index: 1), key: .alt),
-				.init(position: .init(side: .right, row: 1, index: 0), key: .cmd)
+			mappings: [
+				.init(position: .init(side: .left, row: 0, index: 0), assignment: .key(.down)),
+				.init(position: .init(side: .left, row: 0, index: 1), assignment: .key(.up)),
+				.init(position: .init(side: .left, row: 0, index: 2), assignment: .key(.space)),
+				.init(position: .init(side: .left, row: 1, index: 0), assignment: .key(.q)),
+				.init(position: .init(side: .right, row: 0, index: 2), assignment: .key(.tab)),
+				.init(position: .init(side: .right, row: 0, index: 1), assignment: .key(.left)),
+				.init(position: .init(side: .right, row: 0, index: 0), assignment: .key(.right)),
+				.init(position: .init(side: .right, row: 1, index: 1), assignment: .key(.alt)),
+				.init(position: .init(side: .right, row: 1, index: 0), assignment: .key(.cmd))
 			]
 		)
 	}
