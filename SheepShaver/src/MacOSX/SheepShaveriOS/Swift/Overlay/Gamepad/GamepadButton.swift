@@ -1,5 +1,5 @@
 //
-//  KeyButton.swift
+//  Gamepad.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-07-26.
@@ -7,34 +7,44 @@
 
 import UIKit
 
-class KeyButton: UIButton {
-	private let key: SDLKey
-	private let index: Int
-	private let pushKey: ((Int) -> Void)
-	private let releaseKey: ((Int) -> Void)
-	private let didRequestAssignmentAtIndex: ((Int) -> Void)
+@objc public enum SpecialButton: Int, Codable {
+	case hover
+	case hoverAbove
+	case hoverBelow
+
+	var label: String {
+		switch self {
+		case .hover: return "Hover"
+		case .hoverAbove: return "Hover above"
+		case .hoverBelow: return "Hover below"
+		}
+	}
+}
+
+class GamepadButton: UIButton {
+	private let didPush: (() -> Void)
+	private let didRelease: (() -> Void)
+	private let didRequestAssignment: (() -> Void)
 
 	private var isEditing: Bool = false
 
 	init(
-		key: SDLKey,
-		index: Int,
+		text: String,
 		isEditing: Bool,
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void),
-		didRequestAssignmentAtIndex: @escaping ((Int) -> Void)
+		pushKey: @escaping (() -> Void),
+		releaseKey: @escaping (() -> Void),
+		didRequestAssignment: @escaping (() -> Void)
 	) {
-		self.key = key
-		self.index = index
-		self.pushKey = pushKey
-		self.releaseKey = releaseKey
-		self.didRequestAssignmentAtIndex = didRequestAssignmentAtIndex
+		self.didPush = pushKey
+		self.didRelease = releaseKey
+		self.didRequestAssignment = didRequestAssignment
 
 		super.init(frame: .zero)
 
 		configuration = .defaultConfig
 
-		setTitle(key.label, for: .normal)
+		setTitle(text, for: .normal)
+		titleLabel?.textAlignment = .center
 
 		let length: CGFloat = UIDevice.hasNotch ? 80 : 64
 
@@ -62,20 +72,18 @@ class KeyButton: UIButton {
 	@objc private func keyDown() {
 		guard !isEditing else { return }
 
-		// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
-		// Should not assume EN layout, specifically
-		pushKey(key.enValue)
+		didPush()
 	}
 
 	@objc private func keyUp() {
 		guard !isEditing else { return }
 		
-		releaseKey(key.enValue)
+		didRelease()
 	}
 
 	@objc private func didTap() {
 		if isEditing {
-			didRequestAssignmentAtIndex(index)
+			didRequestAssignment()
 		}
 	}
 }

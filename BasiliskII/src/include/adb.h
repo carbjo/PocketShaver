@@ -18,6 +18,8 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#import "HoverMode.h"
+
 #ifndef ADB_H
 #define ADB_H
 
@@ -37,5 +39,7 @@ extern void ADBInterrupt(void);
 
 extern void ADBSetRelMouseMode(bool relative);
 extern void ADBSetTouchInput(bool is_on);
+extern void ADBSetHover(bool is_on);
+extern void ADBSetHoverMode(HoverMode mode);
 
 #endif

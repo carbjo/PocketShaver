@@ -52,6 +52,9 @@ static bool mouse_button[3] = {false, false, false};			// Mouse button states
 static bool old_mouse_button[3] = {false, false, false};
 static bool relative_mouse = false;
 static bool touch_input = false;
+static bool hover = false;
+static HoverMode hover_mode = Regular;
+static bool mouse_down = false;
 
 static uint8 key_states[16];				// Key states (Mac keycodes)
 #define MATRIX(code) (key_states[code >> 3] & (1 << (~code & 7)))
@@ -248,6 +251,8 @@ void ADBMouseMoved(int x, int y)
 		mouse_x += x; mouse_y += y;
 	} else {
 		if (touch_input &&
+			!mouse_down &&
+			!hover &&
 			abs(mouse_x - x) <= tolerance &&
 			abs(mouse_y - y) <= tolerance) {
 			// Avoid very small mouse movements with touch input, since they are
@@ -255,7 +260,17 @@ void ADBMouseMoved(int x, int y)
 			B2_unlock_mutex(mouse_lock);
 			return;
 		}
-		mouse_x = x; mouse_y = y;
+
+		int offset = 0;
+		if (hover) {
+			if (hover_mode == Above) {
+				offset = -70;
+			} else if (hover_mode == Below)  {
+				offset = 70;
+			}
+		}
+
+		mouse_x = x; mouse_y = y + offset;
 	}
 	B2_unlock_mutex(mouse_lock);
 	SetInterruptFlag(INTFLAG_ADB);
@@ -269,6 +284,9 @@ void ADBMouseMoved(int x, int y)
 
 void ADBMouseDown(int button)
 {
+	if (hover)
+		return;
+
 	if (touch_input)
 		usleep(20000); // To eliminate the simultanious "move mouse and click" race condition
 
@@ -279,6 +297,8 @@ void ADBMouseDown(int button)
     // O2S: mouse_button[button] = true;
 	SetInterruptFlag(INTFLAG_ADB);
 	TriggerInterrupt();
+
+	mouse_down = true;
 }
 
 
@@ -298,6 +318,8 @@ void ADBMouseUp(int button)
     // O2S: mouse_button[button] = false;
 	SetInterruptFlag(INTFLAG_ADB);
 	TriggerInterrupt();
+
+	mouse_down = false;
 }
 
 
@@ -318,6 +340,24 @@ void ADBSetRelMouseMode(bool relative)
  */
 void ADBSetTouchInput(bool is_on) {
 	touch_input = is_on;
+}
+
+/*
+ *  Set mouse mode (absolute or relative)
+ */
+
+void ADBSetHover(bool is_on)
+{
+	hover = is_on;
+}
+
+/*
+ *  Set mouse mode (absolute or relative)
+ */
+
+void ADBSetHoverMode(HoverMode mode)
+{
+	hover_mode = mode;
 }
 
 /*

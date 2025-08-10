@@ -1,5 +1,5 @@
 //
-//  UnassignedKeyButton.swift
+//  UnassignedGamepadButton.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-07-27.
@@ -7,7 +7,7 @@
 
 import UIKit
 
-class UnassignedKeyButton: UIView {
+class UnassignedGamepadButton: UIView {
 	
 	private lazy var label: UILabel = {
 		let label = UILabel.withoutConstraints()
@@ -18,17 +18,14 @@ class UnassignedKeyButton: UIView {
 		return label
 	}()
 
-	private let index: Int
-	private let didRequestAssignmentAtIndex: ((Int) -> Void)
+	private let didRequestAssignment: (() -> Void)
 	private var isEditing: Bool = false
 
 	init(
-		index: Int,
 		isEditing: Bool,
-		didRequestAssignmentAtIndex: @escaping ((Int) -> Void)
+		didRequestAssignment: @escaping (() -> Void)
 	) {
-		self.index = index
-		self.didRequestAssignmentAtIndex = didRequestAssignmentAtIndex
+		self.didRequestAssignment = didRequestAssignment
 
 		super.init(frame: .zero)
 		
@@ -82,7 +79,7 @@ class UnassignedKeyButton: UIView {
 			}
 
 			if isInside {
-				didRequestAssignmentAtIndex(index)
+				didRequestAssignment()
 			}
 		}
 	}

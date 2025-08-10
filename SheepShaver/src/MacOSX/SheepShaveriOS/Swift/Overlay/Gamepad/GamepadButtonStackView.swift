@@ -1,5 +1,5 @@
 //
-//  KeyButtonStackView.swift
+//  GamepadButtonStackView.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-07-27.
@@ -7,11 +7,11 @@
 
 import UIKit
 
-class KeyButtonStackView: UIStackView {
+class GamepadButtonStackView: UIStackView {
 	private let side: GamepadSide
 	private let row: Int
-	private let pushKey: ((Int) -> Void)
-	private let releaseKey: ((Int) -> Void)
+	private let keyInteraction: ((Int, Bool) -> Void)
+	private let specialButtonInteraction: ((SpecialButton, Bool) -> Void)
 	private let didRequestAssignmentAtIndex: ((Int) -> Void)
 
 	private var isEditing: Bool = false
@@ -19,14 +19,14 @@ class KeyButtonStackView: UIStackView {
 	init(
 		side: GamepadSide,
 		row: Int,
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void),
+		keyInteraction: @escaping ((Int, Bool) -> Void),
+		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
 		didRequestAssignmentAtIndex: @escaping ((Int) -> Void)
 	) {
 		self.side = side
 		self.row = row
-		self.pushKey = pushKey
-		self.releaseKey = releaseKey
+		self.keyInteraction = keyInteraction
+		self.specialButtonInteraction = specialButtonInteraction
 		self.didRequestAssignmentAtIndex = didRequestAssignmentAtIndex
 
 		super.init(frame: .zero)
@@ -58,25 +58,60 @@ class KeyButtonStackView: UIStackView {
 	}
 
 	func set(_ key: SDLKey, at index: Int) {
-		let sideCorrectedIndex = side == .right ? (arrangedSubviews.count - 1 - index) : index
-		guard sideCorrectedIndex >= 0,
-			  sideCorrectedIndex < arrangedSubviews.count else {
+		guard let sideCorrectedIndex = getSideCorrectedIndex(for: index) else {
 			return
 		}
+
 		let oldView = arrangedSubviews[sideCorrectedIndex]
 		removeArrangedSubview(oldView)
 		oldView.removeFromSuperview()
 
-		let button = KeyButton(
-			key: key,
-			index: index,
+		let button = GamepadButton(
+			text: key.label,
 			isEditing: isEditing,
-			pushKey: pushKey,
-			releaseKey: releaseKey
-		) { [weak self] index in
-			guard let self else { return }
-			didRequestAssignmentAtIndex(index)
+			pushKey: { [weak self] in
+				// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
+				// Should not assume EN layout, specifically
+				self?.keyInteraction(key.enValue, true)
+			},
+			releaseKey: { [weak self] in
+				self?.keyInteraction(key.enValue, false)
+			},
+			didRequestAssignment:  { [weak self] in
+				self?.didRequestAssignmentAtIndex(index)
+			}
+		)
+
+		insertArrangedSubview(
+			button,
+			at: sideCorrectedIndex
+		)
+	}
+
+	func set(_ specialButton: SpecialButton, at index: Int) {
+		guard let sideCorrectedIndex = getSideCorrectedIndex(for: index) else {
+			return
 		}
+
+		let oldView = arrangedSubviews[sideCorrectedIndex]
+		removeArrangedSubview(oldView)
+		oldView.removeFromSuperview()
+
+		let button = GamepadButton(
+			text: specialButton.label,
+			isEditing: isEditing,
+			pushKey: { [weak self] in
+				// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
+				// Should not assume EN layout, specifically
+				self?.specialButtonInteraction(specialButton, true)
+			},
+			releaseKey: { [weak self] in
+				self?.specialButtonInteraction(specialButton, false)
+			},
+			didRequestAssignment:  { [weak self] in
+				self?.didRequestAssignmentAtIndex(index)
+			}
+		)
 
 		insertArrangedSubview(
 			button,
@@ -88,9 +123,9 @@ class KeyButtonStackView: UIStackView {
 		self.isEditing = isEditing
 
 		for button in arrangedSubviews {
-			if let button = button as? KeyButton {
+			if let button = button as? GamepadButton {
 				button.set(isEditing: isEditing)
-			} else if let button = button as? UnassignedKeyButton {
+			} else if let button = button as? UnassignedGamepadButton {
 				button.set(isEditing: isEditing)
 			}
 		}
@@ -100,7 +135,7 @@ class KeyButtonStackView: UIStackView {
 		let numberOfButtons = arrangedSubviews.count
 
 		for (index, button) in arrangedSubviews.enumerated() {
-			if let button = button as? KeyButton {
+			if let button = button as? GamepadButton {
 				let sideCorrectedIndex = side == .right ? (numberOfButtons - 1 - index) : index
 				removeArrangedSubview(button)
 				button.removeFromSuperview()
@@ -118,7 +153,7 @@ class KeyButtonStackView: UIStackView {
 		// Ie. not when touching the spaces between the buttons or spacing cells.
 
 		for view in arrangedSubviews {
-			guard view is KeyButton || isEditing else {
+			guard view is GamepadButton || isEditing else {
 				continue
 			}
 
@@ -131,13 +166,21 @@ class KeyButtonStackView: UIStackView {
 		return false
 	}
 
-	private func createUnassignedButton(forIndex index: Int) -> UnassignedKeyButton {
-		UnassignedKeyButton(
-			index: index,
+	private func createUnassignedButton(forIndex index: Int) -> UnassignedGamepadButton {
+		UnassignedGamepadButton(
 			isEditing: isEditing
-		) { [weak self] index in
-			guard let self else { return }
-			didRequestAssignmentAtIndex(index)
+		) { [weak self] in
+			self?.didRequestAssignmentAtIndex(index)
 		}
+	}
+
+	private func getSideCorrectedIndex(for index: Int) -> Int? {
+		let sideCorrectedIndex = side == .right ? (arrangedSubviews.count - 1 - index) : index
+		guard sideCorrectedIndex >= 0,
+			  sideCorrectedIndex < arrangedSubviews.count else {
+			return nil
+		}
+
+		return sideCorrectedIndex
 	}
 }

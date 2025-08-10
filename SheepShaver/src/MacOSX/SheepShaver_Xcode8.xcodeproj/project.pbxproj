@@ -85,12 +85,12 @@
 		C71F9B162E3A1D010088601A /* Storage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F9B152E3A1CFE0088601A /* Storage.swift */; };
 		C72739C92E2BAA6500B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */; };
 		C73660E02E34C85D0055AA91 /* GamepadLayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */; };
-		C73660E22E34C9190055AA91 /* KeyButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E12E34C9170055AA91 /* KeyButton.swift */; };
+		C73660E22E34C9190055AA91 /* GamepadButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E12E34C9170055AA91 /* GamepadButton.swift */; };
 		C73660E42E34DCE40055AA91 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E32E34DCE30055AA91 /* Extensions.swift */; };
 		C73660E82E34ED4F0055AA91 /* GestureInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E72E34ED4A0055AA91 /* GestureInputView.swift */; };
-		C73660EA2E36434C0055AA91 /* KeyButtonStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E92E3643430055AA91 /* KeyButtonStackView.swift */; };
-		C73660EE2E3649900055AA91 /* UnassignedKeyButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660ED2E36498D0055AA91 /* UnassignedKeyButton.swift */; };
-		C73660F02E364DDF0055AA91 /* KeyButtonStackViewCollectionStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660EF2E364DCE0055AA91 /* KeyButtonStackViewCollectionStackView.swift */; };
+		C73660EA2E36434C0055AA91 /* GamepadButtonStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E92E3643430055AA91 /* GamepadButtonStackView.swift */; };
+		C73660EE2E3649900055AA91 /* UnassignedGamepadButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660ED2E36498D0055AA91 /* UnassignedGamepadButton.swift */; };
+		C73660F02E364DDF0055AA91 /* GamepadButtonStackViewCollectionStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */; };
 		C73660F22E37815E0055AA91 /* HiddenInputField.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F12E3781570055AA91 /* HiddenInputField.swift */; };
 		C73660F42E37B5C80055AA91 /* GamepadSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F32E37B5C50055AA91 /* GamepadSettings.swift */; };
 		C792C17E2E47618A0016DDAF /* InformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C792C17D2E4761830016DDAF /* InformationView.swift */; };
@@ -516,12 +516,12 @@
 		C71F9B152E3A1CFE0088601A /* Storage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage.swift; sourceTree = "<group>"; };
 		C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldKeyboardAccessoryView.swift; sourceTree = "<group>"; };
 		C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadLayerView.swift; sourceTree = "<group>"; };
-		C73660E12E34C9170055AA91 /* KeyButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyButton.swift; sourceTree = "<group>"; };
+		C73660E12E34C9170055AA91 /* GamepadButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButton.swift; sourceTree = "<group>"; };
 		C73660E32E34DCE30055AA91 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
 		C73660E72E34ED4A0055AA91 /* GestureInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureInputView.swift; sourceTree = "<group>"; };
-		C73660E92E3643430055AA91 /* KeyButtonStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyButtonStackView.swift; sourceTree = "<group>"; };
-		C73660ED2E36498D0055AA91 /* UnassignedKeyButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnassignedKeyButton.swift; sourceTree = "<group>"; };
-		C73660EF2E364DCE0055AA91 /* KeyButtonStackViewCollectionStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyButtonStackViewCollectionStackView.swift; sourceTree = "<group>"; };
+		C73660E92E3643430055AA91 /* GamepadButtonStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButtonStackView.swift; sourceTree = "<group>"; };
+		C73660ED2E36498D0055AA91 /* UnassignedGamepadButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnassignedGamepadButton.swift; sourceTree = "<group>"; };
+		C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButtonStackViewCollectionStackView.swift; sourceTree = "<group>"; };
 		C73660F12E3781570055AA91 /* HiddenInputField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputField.swift; sourceTree = "<group>"; };
 		C73660F32E37B5C50055AA91 /* GamepadSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadSettings.swift; sourceTree = "<group>"; };
 		C792C17D2E4761830016DDAF /* InformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationView.swift; sourceTree = "<group>"; };
@@ -535,6 +535,7 @@
 		C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OverlayViewControllerObjC.h; sourceTree = "<group>"; };
 		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
 		C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDLKey.swift; sourceTree = "<group>"; };
+		C7F6DF5E2E4B9BB300ED272A /* HoverMode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HoverMode.h; sourceTree = "<group>"; };
 		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
 		E204B98A28BC3EBE0081FDCA /* SheepShaveriOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SheepShaveriOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1214,10 +1215,10 @@
 			isa = PBXGroup;
 			children = (
 				C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */,
-				C73660EF2E364DCE0055AA91 /* KeyButtonStackViewCollectionStackView.swift */,
-				C73660E92E3643430055AA91 /* KeyButtonStackView.swift */,
-				C73660E12E34C9170055AA91 /* KeyButton.swift */,
-				C73660ED2E36498D0055AA91 /* UnassignedKeyButton.swift */,
+				C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */,
+				C73660E92E3643430055AA91 /* GamepadButtonStackView.swift */,
+				C73660E12E34C9170055AA91 /* GamepadButton.swift */,
+				C73660ED2E36498D0055AA91 /* UnassignedGamepadButton.swift */,
 				C73660F32E37B5C50055AA91 /* GamepadSettings.swift */,
 			);
 			path = Gamepad;
@@ -1290,6 +1291,7 @@
 				E204B9EB28BC7CF20081FDCA /* prefs_ios.mm */,
 				E204B9C328BC7BF10081FDCA /* SceneDelegate.h */,
 				E204B9A728BC7BF10081FDCA /* SceneDelegate.m */,
+				C7F6DF5E2E4B9BB300ED272A /* HoverMode.h */,
 				C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */,
 				C7BC1A602E2562E1006F95CB /* SSDiskManager.h */,
 				E204B9BD28BC7BF10081FDCA /* SDCAutoLayout */,
@@ -1718,7 +1720,7 @@
 				E204B93C28BC3EBE0081FDCA /* ether.cpp in Sources */,
 				E204B93D28BC3EBE0081FDCA /* audio.cpp in Sources */,
 				E204B93E28BC3EBE0081FDCA /* extfs.cpp in Sources */,
-				C73660F02E364DDF0055AA91 /* KeyButtonStackViewCollectionStackView.swift in Sources */,
+				C73660F02E364DDF0055AA91 /* GamepadButtonStackViewCollectionStackView.swift in Sources */,
 				E204B93F28BC3EBE0081FDCA /* gfxaccel.cpp in Sources */,
 				E204B94028BC3EBE0081FDCA /* macos_util.cpp in Sources */,
 				E204B9EC28BC7CF20081FDCA /* prefs_ios.mm in Sources */,
@@ -1748,7 +1750,7 @@
 				E204B9D328BC7BF10081FDCA /* SSPreferencesAVViewController.mm in Sources */,
 				E204B95528BC3EBE0081FDCA /* serial.cpp in Sources */,
 				E204B9D228BC7BF10081FDCA /* SSPreferencesHardwareViewController.mm in Sources */,
-				C73660E22E34C9190055AA91 /* KeyButton.swift in Sources */,
+				C73660E22E34C9190055AA91 /* GamepadButton.swift in Sources */,
 				E204B95828BC3EBE0081FDCA /* sony.cpp in Sources */,
 				C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */,
 				E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */,
@@ -1767,7 +1769,7 @@
 				E204B95F28BC3EBE0081FDCA /* main_unix.cpp in Sources */,
 				E204B9F228BC7D020081FDCA /* utils_ios.mm in Sources */,
 				C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */,
-				C73660EE2E3649900055AA91 /* UnassignedKeyButton.swift in Sources */,
+				C73660EE2E3649900055AA91 /* UnassignedGamepadButton.swift in Sources */,
 				E204B96028BC3EBE0081FDCA /* video_sdl2.cpp in Sources */,
 				E204B96128BC3EBE0081FDCA /* prefs_unix.cpp in Sources */,
 				E204BA3628BD49260081FDCA /* extfs_macosx.cpp in Sources */,
@@ -1788,7 +1790,7 @@
 				E204B96A28BC3EBE0081FDCA /* user_strings_unix.cpp in Sources */,
 				E204B96B28BC3EBE0081FDCA /* slirp.c in Sources */,
 				E204B96C28BC3EBE0081FDCA /* xpram_unix.cpp in Sources */,
-				C73660EA2E36434C0055AA91 /* KeyButtonStackView.swift in Sources */,
+				C73660EA2E36434C0055AA91 /* GamepadButtonStackView.swift in Sources */,
 				E204B96D28BC3EBE0081FDCA /* user_strings.cpp in Sources */,
 				E204B96E28BC3EBE0081FDCA /* tcp_input.c in Sources */,
 				E204BA3128BD47610081FDCA /* runtool.c in Sources */,
