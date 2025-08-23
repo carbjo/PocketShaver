@@ -155,6 +155,7 @@ bool SS_ShowiOSPreferences(void);
 int SS_ChooseiOSBootRom(const char* inFileName);	// returns file descriptor or error
 }
 #import "OverlayViewControllerObjC.h"
+#import "RamAllocFailedAlertViewControllerObjC.h"
 #endif
 
 #define SHOW_IOS_PREFS_ON_LAUNCH 1
@@ -1065,7 +1066,7 @@ int main(int argc, char *argv[])
 		if (vm_mac_acquire_fixed(RAM_BASE, RAMSize) < 0) {
 			sprintf(str, GetString(STR_RAM_MMAP_ERR), strerror(errno));
 			ErrorAlert(str);
-			goto quit;
+			objc_displayRamAllocFailedAlert();
 		}
 		RAMBase = RAM_BASE;
 		RAMBaseHost = Mac2HostAddr(RAMBase);
