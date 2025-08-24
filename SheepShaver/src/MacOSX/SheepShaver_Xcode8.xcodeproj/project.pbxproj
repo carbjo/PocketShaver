@@ -93,16 +93,31 @@
 		C73660F02E364DDF0055AA91 /* GamepadButtonStackViewCollectionStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */; };
 		C73660F22E37815E0055AA91 /* HiddenInputField.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F12E3781570055AA91 /* HiddenInputField.swift */; };
 		C73660F42E37B5C80055AA91 /* GamepadSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F32E37B5C50055AA91 /* GamepadSettings.swift */; };
+		C750737A2E65E14F00D1E374 /* DiskCreation.mm in Sources */ = {isa = PBXBuildFile; fileRef = C75073792E65E14700D1E374 /* DiskCreation.mm */; };
+		C750737D2E67440900D1E374 /* PreferencesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750737C2E67440800D1E374 /* PreferencesModel.swift */; };
+		C75A604F2E62D04600253CA3 /* PreferencesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75A604E2E62D04000253CA3 /* PreferencesManager.swift */; };
 		C792C17E2E47618A0016DDAF /* InformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C792C17D2E4761830016DDAF /* InformationView.swift */; };
+		C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79A69272E62040300F582A6 /* RomPathObjC.mm */; };
 		C7BC1A5F2E2562DC006F95CB /* SSDiskManager.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */; };
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
 		C7BC1A642E2A84B2006F95CB /* MonitorResolutions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutions.swift */; };
 		C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */; };
+		C7C64B2B2E617DF200163200 /* DiskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2A2E617DF000163200 /* DiskManager.swift */; };
+		C7C64B2D2E617FB100163200 /* PrefsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */; };
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
 		C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */; };
 		C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */; };
 		C7F42CCC2E5A0C8200FA7169 /* RamAllocFailedAlertViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCB2E5A0C6D00FA7169 /* RamAllocFailedAlertViewController.swift */; };
 		C7F42CCE2E5A0F6F00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCD2E5A0F6B00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm */; };
+		C7F42CD22E5B1BC700FA7169 /* PreferencesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CD12E5B1BC000FA7169 /* PreferencesViewController.swift */; };
+		C7F42CD42E5B202000FA7169 /* PreferencesViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CD32E5B201B00FA7169 /* PreferencesViewControllerObjC.mm */; };
+		C7F42CD82E5B384F00FA7169 /* PreferencesGeneralViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CD72E5B384700FA7169 /* PreferencesGeneralViewController.swift */; };
+		C7F42CDD2E5B3C5F00FA7169 /* PreferencesResolutionsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CDC2E5B3C5800FA7169 /* PreferencesResolutionsViewController.swift */; };
+		C7F42CDF2E5B3C6D00FA7169 /* PreferencesGamepadViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CDE2E5B3C6700FA7169 /* PreferencesGamepadViewController.swift */; };
+		C7F42CE12E5B3C7700FA7169 /* PreferencesAdvancedViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CE02E5B3C7300FA7169 /* PreferencesAdvancedViewController.swift */; };
+		C7F42CE32E5B448C00FA7169 /* PreferencesGeneralCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CE22E5B448A00FA7169 /* PreferencesGeneralCells.swift */; };
+		C7F42CE52E5B4C0100FA7169 /* PreferencesGeneralModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CE42E5B4BFD00FA7169 /* PreferencesGeneralModel.swift */; };
+		C7F42CE72E5B4E9200FA7169 /* PreferencesROMValidator.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CE62E5B4E8600FA7169 /* PreferencesROMValidator.mm */; };
 		E204B90228BC3B640081FDCA /* ppc-dyngen-ops-x86_32.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F881E0624D100A3ADAB /* ppc-dyngen-ops-x86_32.hpp */; };
 		E204B90328BC3B640081FDCA /* basic-dyngen-ops.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F871E0624D100A3ADAB /* basic-dyngen-ops.hpp */; };
 		E204B90428BC3B640081FDCA /* basic-dyngen-ops-x86_64_macos.hpp in Headers */ = {isa = PBXBuildFile; fileRef = E4C9A03D1FD55CDC00CABBF9 /* basic-dyngen-ops-x86_64_macos.hpp */; };
@@ -526,13 +541,22 @@
 		C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButtonStackViewCollectionStackView.swift; sourceTree = "<group>"; };
 		C73660F12E3781570055AA91 /* HiddenInputField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputField.swift; sourceTree = "<group>"; };
 		C73660F32E37B5C50055AA91 /* GamepadSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadSettings.swift; sourceTree = "<group>"; };
+		C75073792E65E14700D1E374 /* DiskCreation.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = DiskCreation.mm; sourceTree = "<group>"; };
+		C750737B2E65E15200D1E374 /* DiskCreation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DiskCreation.h; sourceTree = "<group>"; };
+		C750737C2E67440800D1E374 /* PreferencesModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesModel.swift; sourceTree = "<group>"; };
+		C75A604E2E62D04000253CA3 /* PreferencesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesManager.swift; sourceTree = "<group>"; };
 		C792C17D2E4761830016DDAF /* InformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationView.swift; sourceTree = "<group>"; };
+		C79A69272E62040300F582A6 /* RomPathObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomPathObjC.mm; sourceTree = "<group>"; };
+		C79A69292E62043100F582A6 /* RomPathObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomPathObjC.h; sourceTree = "<group>"; };
 		C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SSDiskManager.mm; sourceTree = "<group>"; };
 		C7BC1A602E2562E1006F95CB /* SSDiskManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSDiskManager.h; sourceTree = "<group>"; };
 		C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldDelegate.swift; sourceTree = "<group>"; };
 		C7BC1A632E2A84AA006F95CB /* MonitorResolutions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorResolutions.swift; sourceTree = "<group>"; };
 		C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MonitorResolutionsObjC.mm; sourceTree = "<group>"; };
 		C7BC1A682E2A879C006F95CB /* MonitorResolutionsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MonitorResolutionsObjC.h; sourceTree = "<group>"; };
+		C7C64B2A2E617DF000163200 /* DiskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskManager.swift; sourceTree = "<group>"; };
+		C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PrefsObjC.mm; sourceTree = "<group>"; };
+		C7C64B2E2E617FC200163200 /* PrefsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PrefsObjC.h; sourceTree = "<group>"; };
 		C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OverlayViewControllerObjC.mm; sourceTree = "<group>"; };
 		C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OverlayViewControllerObjC.h; sourceTree = "<group>"; };
 		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
@@ -540,6 +564,18 @@
 		C7F42CCB2E5A0C6D00FA7169 /* RamAllocFailedAlertViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RamAllocFailedAlertViewController.swift; sourceTree = "<group>"; };
 		C7F42CCD2E5A0F6B00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RamAllocFailedAlertViewControllerObjC.mm; sourceTree = "<group>"; };
 		C7F42CCF2E5A0F7200FA7169 /* RamAllocFailedAlertViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RamAllocFailedAlertViewControllerObjC.h; sourceTree = "<group>"; };
+		C7F42CD12E5B1BC000FA7169 /* PreferencesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesViewController.swift; sourceTree = "<group>"; };
+		C7F42CD32E5B201B00FA7169 /* PreferencesViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PreferencesViewControllerObjC.mm; sourceTree = "<group>"; };
+		C7F42CD52E5B202400FA7169 /* PreferencesViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PreferencesViewControllerObjC.h; sourceTree = "<group>"; };
+		C7F42CD72E5B384700FA7169 /* PreferencesGeneralViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGeneralViewController.swift; sourceTree = "<group>"; };
+		C7F42CDC2E5B3C5800FA7169 /* PreferencesResolutionsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesResolutionsViewController.swift; sourceTree = "<group>"; };
+		C7F42CDE2E5B3C6700FA7169 /* PreferencesGamepadViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGamepadViewController.swift; sourceTree = "<group>"; };
+		C7F42CE02E5B3C7300FA7169 /* PreferencesAdvancedViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesAdvancedViewController.swift; sourceTree = "<group>"; };
+		C7F42CE22E5B448A00FA7169 /* PreferencesGeneralCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGeneralCells.swift; sourceTree = "<group>"; };
+		C7F42CE42E5B4BFD00FA7169 /* PreferencesGeneralModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGeneralModel.swift; sourceTree = "<group>"; };
+		C7F42CE62E5B4E8600FA7169 /* PreferencesROMValidator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PreferencesROMValidator.mm; sourceTree = "<group>"; };
+		C7F42CE82E5B4E9800FA7169 /* PreferencesROMValidator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PreferencesROMValidator.h; sourceTree = "<group>"; };
+		C7F42CEA2E5B4FF700FA7169 /* SheepShaveriOS-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SheepShaveriOS-Bridging-Header.h"; sourceTree = "<group>"; };
 		C7F6DF5E2E4B9BB300ED272A /* HoverMode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HoverMode.h; sourceTree = "<group>"; };
 		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
@@ -746,6 +782,7 @@
 				E204B92128BC3D640081FDCA /* SDL2.xcframework */,
 				E4150D1120D557820077C51A /* SDL2.framework */,
 				0856CCC814A99E30000B1711 /* Sources */,
+				C7F42CE92E5B4FEA00FA7169 /* Supporting files */,
 				08CD42DF14B7B865009CA2A2 /* Frameworks */,
 				0856CCC214A99E1C000B1711 /* Products */,
 				E420260924125403000508DF /* Generated */,
@@ -1239,6 +1276,37 @@
 			path = "Hidden input field";
 			sourceTree = "<group>";
 		};
+		C75073742E65E0CC00D1E374 /* Rom Handling */ = {
+			isa = PBXGroup;
+			children = (
+				C7F42CE62E5B4E8600FA7169 /* PreferencesROMValidator.mm */,
+				C7F42CE82E5B4E9800FA7169 /* PreferencesROMValidator.h */,
+				C79A69272E62040300F582A6 /* RomPathObjC.mm */,
+				C79A69292E62043100F582A6 /* RomPathObjC.h */,
+			);
+			path = "Rom Handling";
+			sourceTree = "<group>";
+		};
+		C75073752E65E0F100D1E374 /* Disk Handling */ = {
+			isa = PBXGroup;
+			children = (
+				C7C64B2A2E617DF000163200 /* DiskManager.swift */,
+				C75073792E65E14700D1E374 /* DiskCreation.mm */,
+				C750737B2E65E15200D1E374 /* DiskCreation.h */,
+			);
+			path = "Disk Handling";
+			sourceTree = "<group>";
+		};
+		C75073782E65E12800D1E374 /* Preferences Handling */ = {
+			isa = PBXGroup;
+			children = (
+				C75A604E2E62D04000253CA3 /* PreferencesManager.swift */,
+				C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */,
+				C7C64B2E2E617FC200163200 /* PrefsObjC.h */,
+			);
+			path = "Preferences Handling";
+			sourceTree = "<group>";
+		};
 		C7BC1A652E2A8776006F95CB /* Monitor Resolutions */ = {
 			isa = PBXGroup;
 			children = (
@@ -1271,6 +1339,7 @@
 				C71F9B152E3A1CFE0088601A /* Storage.swift */,
 				C7BC1A652E2A8776006F95CB /* Monitor Resolutions */,
 				C7E2AFB72E16C54E00CF50D4 /* Overlay */,
+				C7F42CD02E5B1BB100FA7169 /* Preferences */,
 				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
 			);
 			path = Swift;
@@ -1284,6 +1353,66 @@
 				C7F42CCF2E5A0F7200FA7169 /* RamAllocFailedAlertViewControllerObjC.h */,
 			);
 			path = "Ram Alloc Failed Alert";
+			sourceTree = "<group>";
+		};
+		C7F42CD02E5B1BB100FA7169 /* Preferences */ = {
+			isa = PBXGroup;
+			children = (
+				C750737C2E67440800D1E374 /* PreferencesModel.swift */,
+				C7F42CD12E5B1BC000FA7169 /* PreferencesViewController.swift */,
+				C7F42CD32E5B201B00FA7169 /* PreferencesViewControllerObjC.mm */,
+				C7F42CD52E5B202400FA7169 /* PreferencesViewControllerObjC.h */,
+				C7F42CD62E5B383B00FA7169 /* General */,
+				C7F42CD92E5B3C2300FA7169 /* Resolutions */,
+				C7F42CDA2E5B3C3400FA7169 /* Gamepad */,
+				C7F42CDB2E5B3C4000FA7169 /* Advanced */,
+				C75073782E65E12800D1E374 /* Preferences Handling */,
+			);
+			path = Preferences;
+			sourceTree = "<group>";
+		};
+		C7F42CD62E5B383B00FA7169 /* General */ = {
+			isa = PBXGroup;
+			children = (
+				C7F42CE42E5B4BFD00FA7169 /* PreferencesGeneralModel.swift */,
+				C7F42CD72E5B384700FA7169 /* PreferencesGeneralViewController.swift */,
+				C7F42CE22E5B448A00FA7169 /* PreferencesGeneralCells.swift */,
+				C75073742E65E0CC00D1E374 /* Rom Handling */,
+				C75073752E65E0F100D1E374 /* Disk Handling */,
+			);
+			path = General;
+			sourceTree = "<group>";
+		};
+		C7F42CD92E5B3C2300FA7169 /* Resolutions */ = {
+			isa = PBXGroup;
+			children = (
+				C7F42CDC2E5B3C5800FA7169 /* PreferencesResolutionsViewController.swift */,
+			);
+			path = Resolutions;
+			sourceTree = "<group>";
+		};
+		C7F42CDA2E5B3C3400FA7169 /* Gamepad */ = {
+			isa = PBXGroup;
+			children = (
+				C7F42CDE2E5B3C6700FA7169 /* PreferencesGamepadViewController.swift */,
+			);
+			path = Gamepad;
+			sourceTree = "<group>";
+		};
+		C7F42CDB2E5B3C4000FA7169 /* Advanced */ = {
+			isa = PBXGroup;
+			children = (
+				C7F42CE02E5B3C7300FA7169 /* PreferencesAdvancedViewController.swift */,
+			);
+			path = Advanced;
+			sourceTree = "<group>";
+		};
+		C7F42CE92E5B4FEA00FA7169 /* Supporting files */ = {
+			isa = PBXGroup;
+			children = (
+				C7F42CEA2E5B4FF700FA7169 /* SheepShaveriOS-Bridging-Header.h */,
+			);
+			path = "Supporting files";
 			sourceTree = "<group>";
 		};
 		E204B99A28BC7BF00081FDCA /* SheepShaveriOS */ = {
@@ -1742,17 +1871,22 @@
 				E204B9EC28BC7CF20081FDCA /* prefs_ios.mm in Sources */,
 				E204B9DA28BC7BF10081FDCA /* UIView+SDCAutoLayout.m in Sources */,
 				E204B9D928BC7BF10081FDCA /* AppDelegate.m in Sources */,
+				C7F42CE72E5B4E9200FA7169 /* PreferencesROMValidator.mm in Sources */,
 				C73660E02E34C85D0055AA91 /* GamepadLayerView.swift in Sources */,
 				E204B94328BC3EBE0081FDCA /* if.c in Sources */,
 				E204B94528BC3EBE0081FDCA /* tftp.c in Sources */,
 				E2A5817728C7C633005C7373 /* DiskTypeiOS.m in Sources */,
 				E204B94628BC3EBE0081FDCA /* main.cpp in Sources */,
 				E204B9D728BC7BF10081FDCA /* SSPreferencesDisksViewController.mm in Sources */,
+				C7F42CDD2E5B3C5F00FA7169 /* PreferencesResolutionsViewController.swift in Sources */,
 				E204B94728BC3EBE0081FDCA /* misc.c in Sources */,
 				C71F9B162E3A1D010088601A /* Storage.swift in Sources */,
+				C750737D2E67440900D1E374 /* PreferencesModel.swift in Sources */,
 				E204B94828BC3EBE0081FDCA /* tcp_timer.c in Sources */,
 				E204B94928BC3EBE0081FDCA /* name_registry.cpp in Sources */,
+				C75A604F2E62D04600253CA3 /* PreferencesManager.swift in Sources */,
 				E204B94A28BC3EBE0081FDCA /* pict.c in Sources */,
+				C7F42CE12E5B3C7700FA7169 /* PreferencesAdvancedViewController.swift in Sources */,
 				E204B94B28BC3EBE0081FDCA /* prefs_items.cpp in Sources */,
 				E204B94C28BC3EBE0081FDCA /* udp.c in Sources */,
 				E204B94D28BC3EBE0081FDCA /* ip_input.c in Sources */,
@@ -1760,11 +1894,14 @@
 				E204B94F28BC3EBE0081FDCA /* prefs.cpp in Sources */,
 				E204B95028BC3EBE0081FDCA /* cdrom.cpp in Sources */,
 				C7F42CCC2E5A0C8200FA7169 /* RamAllocFailedAlertViewController.swift in Sources */,
+				C750737A2E65E14F00D1E374 /* DiskCreation.mm in Sources */,
+				C7C64B2B2E617DF200163200 /* DiskManager.swift in Sources */,
 				E204B95128BC3EBE0081FDCA /* rom_patches.cpp in Sources */,
 				E204B95228BC3EBE0081FDCA /* rsrc_patches.cpp in Sources */,
 				E204B95328BC3EBE0081FDCA /* scsi.cpp in Sources */,
 				E204B95428BC3EBE0081FDCA /* audio_sdl.cpp in Sources */,
 				E204B9D328BC7BF10081FDCA /* SSPreferencesAVViewController.mm in Sources */,
+				C7F42CD22E5B1BC700FA7169 /* PreferencesViewController.swift in Sources */,
 				E204B95528BC3EBE0081FDCA /* serial.cpp in Sources */,
 				E204B9D228BC7BF10081FDCA /* SSPreferencesHardwareViewController.mm in Sources */,
 				C73660E22E34C9190055AA91 /* GamepadButton.swift in Sources */,
@@ -1783,6 +1920,7 @@
 				E204B95D28BC3EBE0081FDCA /* video_sdl.cpp in Sources */,
 				E204B95E28BC3EBE0081FDCA /* ether_unix.cpp in Sources */,
 				E204BA4728BDB4260081FDCA /* SSPreferencesBootROMViewController.mm in Sources */,
+				C7F42CD82E5B384F00FA7169 /* PreferencesGeneralViewController.swift in Sources */,
 				E204B9CB28BC7BF10081FDCA /* SSPreferencesViewController.mm in Sources */,
 				E204B95F28BC3EBE0081FDCA /* main_unix.cpp in Sources */,
 				E204B9F228BC7D020081FDCA /* utils_ios.mm in Sources */,
@@ -1790,6 +1928,7 @@
 				C73660EE2E3649900055AA91 /* UnassignedGamepadButton.swift in Sources */,
 				E204B96028BC3EBE0081FDCA /* video_sdl2.cpp in Sources */,
 				E204B96128BC3EBE0081FDCA /* prefs_unix.cpp in Sources */,
+				C7F42CE52E5B4C0100FA7169 /* PreferencesGeneralModel.swift in Sources */,
 				E204BA3628BD49260081FDCA /* extfs_macosx.cpp in Sources */,
 				E204B96228BC3EBE0081FDCA /* rpc_unix.cpp in Sources */,
 				C72739C92E2BAA6500B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift in Sources */,
@@ -1807,6 +1946,7 @@
 				E204B9D628BC7BF10081FDCA /* main.mm in Sources */,
 				E204B96A28BC3EBE0081FDCA /* user_strings_unix.cpp in Sources */,
 				E204B96B28BC3EBE0081FDCA /* slirp.c in Sources */,
+				C7F42CDF2E5B3C6D00FA7169 /* PreferencesGamepadViewController.swift in Sources */,
 				E204B96C28BC3EBE0081FDCA /* xpram_unix.cpp in Sources */,
 				C73660EA2E36434C0055AA91 /* GamepadButtonStackView.swift in Sources */,
 				E204B96D28BC3EBE0081FDCA /* user_strings.cpp in Sources */,
@@ -1814,6 +1954,7 @@
 				E204BA3128BD47610081FDCA /* runtool.c in Sources */,
 				E204B96F28BC3EBE0081FDCA /* video.cpp in Sources */,
 				C7BC1A642E2A84B2006F95CB /* MonitorResolutions.swift in Sources */,
+				C7F42CD42E5B202000FA7169 /* PreferencesViewControllerObjC.mm in Sources */,
 				E204B9C628BC7BF10081FDCA /* SSPreferencesIOViewController.mm in Sources */,
 				E204B97028BC3EBE0081FDCA /* SDLMain.m in Sources */,
 				C73660F22E37815E0055AA91 /* HiddenInputField.swift in Sources */,
@@ -1825,11 +1966,14 @@
 				E204B97728BC3EBE0081FDCA /* disk_sparsebundle.cpp in Sources */,
 				E204B97828BC3EBE0081FDCA /* tinyxml2.cpp in Sources */,
 				C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */,
+				C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */,
 				C73660E42E34DCE40055AA91 /* Extensions.swift in Sources */,
 				E204B97928BC3EBE0081FDCA /* DiskType.m in Sources */,
 				E204B97A28BC3EBE0081FDCA /* sigsegv.cpp in Sources */,
+				C7C64B2D2E617FB100163200 /* PrefsObjC.mm in Sources */,
 				C792C17E2E47618A0016DDAF /* InformationView.swift in Sources */,
 				E204B97B28BC3EBE0081FDCA /* video_blit.cpp in Sources */,
+				C7F42CE32E5B448C00FA7169 /* PreferencesGeneralCells.swift in Sources */,
 				E204B97C28BC3EBE0081FDCA /* vm_alloc.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2311,6 +2455,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
+				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/SheepShaveriOS-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -2424,6 +2569,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
+				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/SheepShaveriOS-Bridging-Header.h";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;

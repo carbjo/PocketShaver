@@ -12,10 +12,7 @@
 
 void objc_displayRamAllocFailedAlert(void) {
 	@autoreleasepool {
-
-		uint32 requestedRamMB = PrefsFindInt32("ramsize");
-
-		[RamAllocFailedAlertViewController presentWithRequestedRamMB:requestedRamMB];
+		[RamAllocFailedAlertViewController present];
 
 		while (true) {
 			[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
