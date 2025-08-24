@@ -40,6 +40,10 @@ extension UIDevice {
 			return hasNotch ? 64 : 8
 		}
 	}
+
+	static var isIPad: Bool {
+		current.userInterfaceIdiom == .pad
+	}
 }
 
 extension CGVector {
@@ -64,5 +68,93 @@ extension UIButton.Configuration {
 		configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
 		configuration.background.cornerRadius = 8
 		return configuration
+	}
+
+	static var primaryActionConfig: Self {
+		var config = defaultConfig
+		config.baseBackgroundColor = .orange.withAlphaComponent(0.85)
+		return config
+	}
+
+	static var secondaryActionConfig: Self {
+		var config = defaultConfig
+		config.baseBackgroundColor = .lightGray.withAlphaComponent(0.9)
+		return config
+	}
+}
+
+extension FileManager {
+	static var documentUrl: URL {
+		Self.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+	}
+}
+
+extension UIAlertController {
+	static func withMessage(_ message: String) -> Self {
+		let alertVC = Self(title: nil, message: message, preferredStyle: .alert)
+		alertVC.addAction(.init(title: "Ok", style: .default))
+		return alertVC
+	}
+
+	static func withError(_ error: Error) -> Self {
+		return withMessage("Soemthing went wrong: \(error.localizedDescription)")
+	}
+}
+
+extension String {
+	var lastPathComponent: String {
+		(self as NSString).lastPathComponent
+	}
+
+	var pathExtension: String {
+		(self as NSString).pathExtension
+	}
+
+	func hasSuffixMatchingSuffixes(in suffixes: [String]) -> Bool {
+		for fileExtension in suffixes {
+			if hasSuffix(fileExtension) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+extension UIColor {
+	static var veryLightGreen: Self {
+		Self(red: 0.92, green: 1, blue: 0.9, alpha: 1)
+	}
+}
+
+extension NSLayoutConstraint {
+	func withPriority(_ priority: UILayoutPriority) -> Self {
+		self.priority = priority
+
+		return self
+	}
+}
+
+extension UITableViewCell {
+	func hideSeparator() {
+		separatorInset = .init(top: 0, left: 4000, bottom: 0, right: 0)
+	}
+}
+
+extension UNUserNotificationCenter {
+	func scheduleRebootNotificationAndQuit() async {
+		let content = UNMutableNotificationContent()
+		content.body = "Tap to restart SheepShaver"
+
+		let oneSecondIntoTheFuture = Date(timeInterval: 1, since: Date())
+		let trigger = UNTimeIntervalNotificationTrigger(timeInterval: oneSecondIntoTheFuture.timeIntervalSinceNow, repeats: false)
+
+
+		let request = UNNotificationRequest(identifier: "reboot", content: content, trigger: trigger)
+		do {
+			try await self.add(request)
+			exit(0)
+		} catch {
+			print("schedule error \(error)")
+		}
 	}
 }

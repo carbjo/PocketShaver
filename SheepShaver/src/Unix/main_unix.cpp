@@ -156,6 +156,8 @@ int SS_ChooseiOSBootRom(const char* inFileName);	// returns file descriptor or e
 }
 #import "OverlayViewControllerObjC.h"
 #import "RamAllocFailedAlertViewControllerObjC.h"
+#import "PreferencesViewControllerObjC.h"
+#import "RomPathObjC.h"
 #endif
 
 #define SHOW_IOS_PREFS_ON_LAUNCH 1
@@ -617,10 +619,9 @@ static bool load_mac_rom(void)
 	printf ("%s ROM_FILE_NAME2: %s\n", __PRETTY_FUNCTION__, ROM_FILE_NAME2);
 	
 #if TARGET_OS_IPHONE
-	int rom_fd = SS_ChooseiOSBootRom(rom_path);
-#else
-	int rom_fd = open(rom_path && *rom_path ? rom_path : ROM_FILE_NAME, O_RDONLY);
+	rom_path = objc_romPath();
 #endif
+	int rom_fd = open(rom_path && *rom_path ? rom_path : ROM_FILE_NAME, O_RDONLY);
 	if (rom_fd < 0) {
 		rom_fd = open(ROM_FILE_NAME2, O_RDONLY);
 		if (rom_fd < 0) {
@@ -675,7 +676,8 @@ static bool load_mac_rom(void)
 static bool check_prefs(void)
 {
 #if SHOW_IOS_PREFS_ON_LAUNCH
-	SS_ShowiOSPreferences();		// This works.
+//	SS_ShowiOSPreferences();		// This works.
+	objc_displayPreferences();
 #endif
 	return true;
 }
@@ -1119,16 +1121,16 @@ int main(int argc, char *argv[])
 		ErrorAlert(str);
 		goto quit;
 	}
-	
-	// Load Mac ROM
-	if (!load_mac_rom())
-		goto quit;
 
 #if TARGET_OS_IPHONE
 	if (!check_prefs())
 		goto quit;
 #endif
-	
+
+	// Load Mac ROM
+	if (!load_mac_rom())
+		goto quit;
+
 	// Initialize everything
 	if (!InitAll(vmdir))
 		goto quit;
