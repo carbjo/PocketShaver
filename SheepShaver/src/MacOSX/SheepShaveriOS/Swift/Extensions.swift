@@ -13,11 +13,26 @@ extension UIView {
 		view.translatesAutoresizingMaskIntoConstraints = false
 		return view
 	}
+
+	static func keyWindowSafeAreaInsets(from view: UIView) -> UIEdgeInsets {
+		guard let windows = view.window?.windowScene?.windows,
+			  let keyWindow = windows.first(where: \.isKeyWindow) else {
+			return .zero
+		}
+
+		return keyWindow.safeAreaInsets
+	}
 }
 
 extension NSObject {
 	var ptrString: String {
 		"\(Unmanaged.passUnretained(self).toOpaque())"
+	}
+}
+
+extension UIScreen {
+	static var isPortraitMode: Bool {
+		main.bounds.height > UIScreen.main.bounds.width
 	}
 }
 
@@ -29,12 +44,8 @@ extension UIDevice {
 		return !notchlessDevicesHeights.contains(screenHeight)
 	}
 
-	static var isPortraitMode: Bool {
-		!current.orientation.isLandscape
-	}
-
 	static var sideMarginForButtons: CGFloat {
-		if isPortraitMode {
+		if UIScreen.isPortraitMode {
 			return 8
 		} else {
 			return hasNotch ? 64 : 8
@@ -86,6 +97,10 @@ extension UIButton.Configuration {
 extension FileManager {
 	static var documentUrl: URL {
 		Self.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+	}
+
+	static var appSupportUrl: URL {
+		Self.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
 	}
 }
 

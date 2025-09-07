@@ -115,9 +115,26 @@ public class PreferencesViewController: UIViewController {
 		listenToChanges()
 	}
 
+	public override func viewDidAppear(_ animated: Bool) {
+		super.viewDidAppear(animated)
+
+		if MonitorResolutionManager.shared.registerSafeAreaInsets(view.safeAreaInsets) {
+			resolutionsVC.tableView.reloadData()
+		}
+	}
+
+	public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+		super.traitCollectionDidChange(previousTraitCollection)
+
+		if MonitorResolutionManager.shared.registerSafeAreaInsets(view.safeAreaInsets) {
+			resolutionsVC.tableView.reloadData()
+		}
+	}
+
 	public override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
 		DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-			self?.updateBottomButton()
+			guard let self else { return }
+			updateBottomButton()
 		}
 	}
 
@@ -165,7 +182,7 @@ public class PreferencesViewController: UIViewController {
 			return
 		}
 
-		let title = UIDevice.isPortraitMode ? "Boot (portrait mode)" : "Boot (landscape mode)"
+		let title = UIScreen.isPortraitMode ? "Boot (portrait mode)" : "Boot (landscape mode)"
 		bottomButton.setTitle(title, for: .normal)
 	}
 

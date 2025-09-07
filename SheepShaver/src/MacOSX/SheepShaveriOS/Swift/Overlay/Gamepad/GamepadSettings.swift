@@ -18,7 +18,7 @@ struct GamepadButtonPosition: Codable, Equatable {
 	let index: Int
 }
 
-enum GamepadButtonAssignment: Equatable, Codable {
+enum GamepadButtonAssignment: Codable, Equatable {
 	case key(SDLKey)
 	case specialButton(SpecialButton)
 }

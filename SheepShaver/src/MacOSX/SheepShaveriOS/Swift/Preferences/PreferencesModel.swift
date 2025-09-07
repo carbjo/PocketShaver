@@ -25,6 +25,10 @@ class PreferencesModel {
 
 	init() {
 		objc_update_sdl_ipad_mouse_setting()
+		
+		Task { @MainActor in
+			MonitorResolutionManager.shared
+		}
 	}
 
 	@MainActor
