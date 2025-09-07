@@ -47,6 +47,7 @@ public class RamAllocFailedAlertViewController: UIViewController {
 		alertVC.addAction(.init(title: "Lower RAM and restart", style: .destructive, handler: { _ in
 			Task { @MainActor in
 				PreferencesGeneralRamSetting.current = .n128
+				PreferencesManager.shared.writePreferences()
 				await UNUserNotificationCenter.current().scheduleRebootNotificationAndQuit()
 			}
 		}))

@@ -245,7 +245,7 @@ public class OverlayViewController: UIViewController {
 			if self.state == .showingGamepad {
 				let absDx = abs(self.gestureDragDelta.dx)
 				let absDy = abs(self.gestureDragDelta.dy)
-				willTranslateInLongAxis = UIDevice.isPortraitMode ? absDx < absDy : absDx > absDy
+				willTranslateInLongAxis = UIScreen.isPortraitMode ? absDx < absDy : absDx > absDy
 			}
 
 			UIView.animate(

@@ -21,7 +21,7 @@ enum PreferencesGeneralRamSetting: Int, CaseIterable {
 	case n64
 	case n128
 	case n256
-	case n512 // Maximum that Mac OS 9.0.2 recognizes
+	case n512 // Maximum that Mac OS 9.0.4 recognizes
 }
 
 class PreferencesGeneralModel {

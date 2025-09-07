@@ -93,6 +93,7 @@
 		C73660F02E364DDF0055AA91 /* GamepadButtonStackViewCollectionStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */; };
 		C73660F22E37815E0055AA91 /* HiddenInputField.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F12E3781570055AA91 /* HiddenInputField.swift */; };
 		C73660F42E37B5C80055AA91 /* GamepadSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F32E37B5C50055AA91 /* GamepadSettings.swift */; };
+		C7393CCD2E6DC6A200D06705 /* PreferencesResolutionsCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */; };
 		C750737A2E65E14F00D1E374 /* DiskCreation.mm in Sources */ = {isa = PBXBuildFile; fileRef = C75073792E65E14700D1E374 /* DiskCreation.mm */; };
 		C750737D2E67440900D1E374 /* PreferencesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750737C2E67440800D1E374 /* PreferencesModel.swift */; };
 		C75A604F2E62D04600253CA3 /* PreferencesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75A604E2E62D04000253CA3 /* PreferencesManager.swift */; };
@@ -100,7 +101,7 @@
 		C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79A69272E62040300F582A6 /* RomPathObjC.mm */; };
 		C7BC1A5F2E2562DC006F95CB /* SSDiskManager.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */; };
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
-		C7BC1A642E2A84B2006F95CB /* MonitorResolutions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutions.swift */; };
+		C7BC1A642E2A84B2006F95CB /* MonitorResolutionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */; };
 		C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */; };
 		C7C64B2B2E617DF200163200 /* DiskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2A2E617DF000163200 /* DiskManager.swift */; };
 		C7C64B2D2E617FB100163200 /* PrefsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */; };
@@ -541,6 +542,7 @@
 		C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButtonStackViewCollectionStackView.swift; sourceTree = "<group>"; };
 		C73660F12E3781570055AA91 /* HiddenInputField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputField.swift; sourceTree = "<group>"; };
 		C73660F32E37B5C50055AA91 /* GamepadSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadSettings.swift; sourceTree = "<group>"; };
+		C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesResolutionsCells.swift; sourceTree = "<group>"; };
 		C75073792E65E14700D1E374 /* DiskCreation.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = DiskCreation.mm; sourceTree = "<group>"; };
 		C750737B2E65E15200D1E374 /* DiskCreation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DiskCreation.h; sourceTree = "<group>"; };
 		C750737C2E67440800D1E374 /* PreferencesModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesModel.swift; sourceTree = "<group>"; };
@@ -551,7 +553,7 @@
 		C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SSDiskManager.mm; sourceTree = "<group>"; };
 		C7BC1A602E2562E1006F95CB /* SSDiskManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSDiskManager.h; sourceTree = "<group>"; };
 		C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldDelegate.swift; sourceTree = "<group>"; };
-		C7BC1A632E2A84AA006F95CB /* MonitorResolutions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorResolutions.swift; sourceTree = "<group>"; };
+		C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorResolutionManager.swift; sourceTree = "<group>"; };
 		C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MonitorResolutionsObjC.mm; sourceTree = "<group>"; };
 		C7BC1A682E2A879C006F95CB /* MonitorResolutionsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MonitorResolutionsObjC.h; sourceTree = "<group>"; };
 		C7C64B2A2E617DF000163200 /* DiskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskManager.swift; sourceTree = "<group>"; };
@@ -1276,6 +1278,16 @@
 			path = "Hidden input field";
 			sourceTree = "<group>";
 		};
+		C7393CCB2E6DB3F000D06705 /* Monitor Resolution Handling */ = {
+			isa = PBXGroup;
+			children = (
+				C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */,
+				C7BC1A682E2A879C006F95CB /* MonitorResolutionsObjC.h */,
+				C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */,
+			);
+			path = "Monitor Resolution Handling";
+			sourceTree = "<group>";
+		};
 		C75073742E65E0CC00D1E374 /* Rom Handling */ = {
 			isa = PBXGroup;
 			children = (
@@ -1307,16 +1319,6 @@
 			path = "Preferences Handling";
 			sourceTree = "<group>";
 		};
-		C7BC1A652E2A8776006F95CB /* Monitor Resolutions */ = {
-			isa = PBXGroup;
-			children = (
-				C7BC1A632E2A84AA006F95CB /* MonitorResolutions.swift */,
-				C7BC1A682E2A879C006F95CB /* MonitorResolutionsObjC.h */,
-				C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */,
-			);
-			path = "Monitor Resolutions";
-			sourceTree = "<group>";
-		};
 		C7E2AFB72E16C54E00CF50D4 /* Overlay */ = {
 			isa = PBXGroup;
 			children = (
@@ -1337,7 +1339,6 @@
 				C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */,
 				C73660E32E34DCE30055AA91 /* Extensions.swift */,
 				C71F9B152E3A1CFE0088601A /* Storage.swift */,
-				C7BC1A652E2A8776006F95CB /* Monitor Resolutions */,
 				C7E2AFB72E16C54E00CF50D4 /* Overlay */,
 				C7F42CD02E5B1BB100FA7169 /* Preferences */,
 				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
@@ -1387,6 +1388,8 @@
 			isa = PBXGroup;
 			children = (
 				C7F42CDC2E5B3C5800FA7169 /* PreferencesResolutionsViewController.swift */,
+				C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */,
+				C7393CCB2E6DB3F000D06705 /* Monitor Resolution Handling */,
 			);
 			path = Resolutions;
 			sourceTree = "<group>";
@@ -1896,6 +1899,7 @@
 				C7F42CCC2E5A0C8200FA7169 /* RamAllocFailedAlertViewController.swift in Sources */,
 				C750737A2E65E14F00D1E374 /* DiskCreation.mm in Sources */,
 				C7C64B2B2E617DF200163200 /* DiskManager.swift in Sources */,
+				C7393CCD2E6DC6A200D06705 /* PreferencesResolutionsCells.swift in Sources */,
 				E204B95128BC3EBE0081FDCA /* rom_patches.cpp in Sources */,
 				E204B95228BC3EBE0081FDCA /* rsrc_patches.cpp in Sources */,
 				E204B95328BC3EBE0081FDCA /* scsi.cpp in Sources */,
@@ -1953,7 +1957,7 @@
 				E204B96E28BC3EBE0081FDCA /* tcp_input.c in Sources */,
 				E204BA3128BD47610081FDCA /* runtool.c in Sources */,
 				E204B96F28BC3EBE0081FDCA /* video.cpp in Sources */,
-				C7BC1A642E2A84B2006F95CB /* MonitorResolutions.swift in Sources */,
+				C7BC1A642E2A84B2006F95CB /* MonitorResolutionManager.swift in Sources */,
 				C7F42CD42E5B202000FA7169 /* PreferencesViewControllerObjC.mm in Sources */,
 				E204B9C628BC7BF10081FDCA /* SSPreferencesIOViewController.mm in Sources */,
 				E204B97028BC3EBE0081FDCA /* SDLMain.m in Sources */,

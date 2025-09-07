@@ -16,11 +16,11 @@ MonitorResolution::MonitorResolution(int inp_width, int inp_height, int inp_inde
 }
 
 std::vector<MonitorResolution> objc_getAllMonitorResolutions(void) {
-	NSArray<MonitorResolutionElement *> * monitorResolutions = [MonitorResolutions getAllMonitorResolutions];
+	NSArray<SDLVideoMonitorResolutionElement *> * monitorResolutions = [[MonitorResolutionManager shared] getAllSDLVideoMonitorResolutionElements];
 
 	std::vector<MonitorResolution> outputResolutions = std::vector<MonitorResolution>();
 
-	for (MonitorResolutionElement * resolution in monitorResolutions) {
+	for (SDLVideoMonitorResolutionElement * resolution in monitorResolutions) {
 		outputResolutions.push_back(
 									MonitorResolution(
 													  (int)resolution.width,

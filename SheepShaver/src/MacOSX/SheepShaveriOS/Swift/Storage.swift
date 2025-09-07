@@ -12,12 +12,14 @@ class Storage {
 
 	enum File: String {
 		case gamepad
+		case portraitResolutions
+		case landscapeResolutions
 	}
 
-	private let appSupportUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+	private let appSupportUrl = FileManager.appSupportUrl
 
 	init() {
-		if !FileManager.default.fileExists(atPath: appSupportUrl.absoluteString) {
+		if !FileManager.default.fileExists(atPath: appSupportUrl.path) {
 			do {
 				try FileManager.default.createDirectory(at: appSupportUrl, withIntermediateDirectories: true, attributes: nil)
 			} catch {
@@ -43,6 +45,15 @@ class Storage {
 		} catch {
 			print("-- failed to load data from file \(file.rawValue) error: \(error)")
 			return nil
+		}
+	}
+
+	func delete(file: File) {
+		let url = appSupportUrl.appendingPathComponent(file.rawValue)
+		do {
+			try FileManager.default.removeItem(atPath: url.path)
+		} catch {
+			print("-- failed to delete file \(file.rawValue) error: \(error)")
 		}
 	}
 }
