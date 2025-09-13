@@ -67,6 +67,7 @@ class GamepadLayerView: UIView {
 		addSubview(settingsButton)
 
 		let sideMargin: CGFloat = UIDevice.sideMarginForButtons
+		let settingsButtonLength: CGFloat = UIDevice.isSmallScreenSize ? 36 : 44
 
 		NSLayoutConstraint.activate([
 			leftCollectionStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin),
@@ -77,8 +78,8 @@ class GamepadLayerView: UIView {
 
 			settingsButton.centerXAnchor.constraint(equalTo: centerXAnchor),
 			settingsButton.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -UIScreen.main.bounds.size.height / 4),
-			settingsButton.widthAnchor.constraint(equalToConstant: 44),
-			settingsButton.heightAnchor.constraint(equalToConstant: 44)
+			settingsButton.widthAnchor.constraint(equalToConstant: settingsButtonLength),
+			settingsButton.heightAnchor.constraint(equalToConstant: settingsButtonLength)
 		])
 
 		settingsButton.addTarget(self, action: #selector(didTapSettingsButton), for: .touchUpInside)

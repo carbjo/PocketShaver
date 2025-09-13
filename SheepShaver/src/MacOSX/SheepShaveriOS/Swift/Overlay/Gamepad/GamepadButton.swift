@@ -7,7 +7,7 @@
 
 import UIKit
 
-@objc public enum SpecialButton: Int, Codable {
+@objc public enum SpecialButton: Int, Codable, CaseIterable {
 	case hover
 	case hoverAbove
 	case hoverBelow
@@ -22,6 +22,13 @@ import UIKit
 }
 
 class GamepadButton: UIButton {
+	static var length: CGFloat {
+		if UIDevice.isSmallScreenSize {
+			return 64
+		}
+		return UIScreen.isPortraitMode ? 78 : 80
+	}
+
 	private let didPush: (() -> Void)
 	private let didRelease: (() -> Void)
 	private let didRequestAssignment: (() -> Void)
@@ -46,7 +53,7 @@ class GamepadButton: UIButton {
 		setTitle(text, for: .normal)
 		titleLabel?.textAlignment = .center
 
-		let length: CGFloat = UIDevice.hasNotch ? 80 : 64
+		let length = GamepadButton.length
 
 		NSLayoutConstraint.activate([
 			widthAnchor.constraint(equalToConstant: length),

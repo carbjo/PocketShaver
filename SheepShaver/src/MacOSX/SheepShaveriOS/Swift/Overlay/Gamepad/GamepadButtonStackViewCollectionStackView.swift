@@ -41,7 +41,7 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void)
 	) {
 		let screenHeight = UIScreen.main.bounds.height
-		let length: CGFloat = UIDevice.hasNotch ? 80 : 64
+		let length = GamepadButton.length
 		let stackViewHeight: CGFloat = length + (spacing * 2)
 
 		let numberOfStackViews = Int(floor(screenHeight / stackViewHeight))

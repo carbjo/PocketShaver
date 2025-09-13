@@ -5,7 +5,7 @@
 //  Created by Carl Björkman on 2025-07-05.
 //
 
-enum SDLKey: String, Codable {
+enum SDLKey: String, Codable, CaseIterable {
 	case a
 	case b
 	case c

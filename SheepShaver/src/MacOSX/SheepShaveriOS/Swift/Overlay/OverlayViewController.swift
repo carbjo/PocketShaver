@@ -374,40 +374,50 @@ public class OverlayViewController: UIViewController {
 		guard !gestureInputView.isDragging else {
 			return
 		}
-		
-		let alertVC = UIAlertController(title: "Assign", message: nil, preferredStyle: .alert)
-		alertVC.addTextField()
-		alertVC.addAction(.init(title: "Cancel", style: .cancel))
-		alertVC.addAction(.init(title: "OK", style: .default, handler: { [weak self] _ in
-			guard let self,
-			let text = alertVC.textFields?[0].text else {
-				return
-			}
 
-			var gamepadConfig = gamepadSettings.config
+		let vc = GamepadAssignButtonViewController(
+			dismissRequestCallback: { [weak self] vc, result in
+				guard let self else { return }
 
-			if text.isEmpty {
-				gamepadConfig = gamepadConfig.removingAssignment(at: position)
-			} else if text == "hover" {
-				gamepadConfig = gamepadConfig.replacing(with: SpecialButton.hover, at: position)
-			} else if text == "hoverab" {
-				gamepadConfig = gamepadConfig.replacing(with: SpecialButton.hoverAbove, at: position)
-			} else if text == "hoverbe" {
-				gamepadConfig = gamepadConfig.replacing(with: SpecialButton.hoverBelow, at: position)
-			} else {
-				guard let key = SDLKey(rawValue: text) else {
-					print("-- could not map \(text)")
-					return
+				vc.removeFromParent()
+				vc.view.removeFromSuperview()
+
+				var gamepadConfig = gamepadSettings.config
+
+				switch result {
+				case .assignment(let assignment):
+					switch assignment {
+					case .specialButton(let specialButton):
+						gamepadConfig = gamepadConfig.replacing(with: specialButton, at: position)
+					case .key(let key):
+						gamepadConfig = gamepadConfig.replacing(with: key, at: position)
+					}
+				case .unassign:
+					gamepadConfig = gamepadConfig.removingAssignment(at: position)
+				default:
+					break
 				}
 
-				gamepadConfig = gamepadConfig.replacing(with: key, at: position)
+				gamepadLayerView.load(config: gamepadConfig)
+				gamepadSettings = gamepadSettings.replaceCurrentConfig(with: gamepadConfig)
 			}
+		)
 
-			gamepadLayerView.load(config: gamepadConfig)
-			gamepadSettings = gamepadSettings.replaceCurrentConfig(with: gamepadConfig)
-		}))
+		vc.willMove(toParent: self)
 
-		present(alertVC, animated: true)
+		addChild(vc)
+		view.addSubview(vc.view)
+
+		NSLayoutConstraint.activate([
+			vc.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+			vc.view.topAnchor.constraint(equalTo: view.topAnchor),
+			vc.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+			vc.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+		])
+
+		vc.didMove(toParent: self)
+
+		vc.animatePresent()
 	}
 
 	private func presentLayoutSettings() {
