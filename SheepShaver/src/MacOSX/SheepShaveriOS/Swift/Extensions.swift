@@ -52,8 +52,21 @@ extension UIDevice {
 		}
 	}
 
+	static var isSmallScreenSize: Bool {
+		if isIPad {
+			return false
+		}
+
+		return !hasNotch
+	}
+
 	static var isIPad: Bool {
 		current.userInterfaceIdiom == .pad
+	}
+
+	static var isNarrowWidth: Bool {
+		let deviceWidth = UIScreen.main.nativeBounds.width
+		return deviceWidth == 640
 	}
 }
 
@@ -72,21 +85,29 @@ extension CGVector {
 }
 
 extension UIButton.Configuration {
+	@MainActor
 	static var defaultConfig: Self {
 		var configuration = UIButton.Configuration.filled()
 		configuration.baseForegroundColor = .white
 		configuration.baseBackgroundColor = .lightGray.withAlphaComponent(0.5)
-		configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+		let horizontalInsets: CGFloat = UIDevice.isSmallScreenSize ? 8 : 16
+		configuration.contentInsets = NSDirectionalEdgeInsets(
+			top: 0,
+			leading: horizontalInsets,
+			bottom: 0, trailing: horizontalInsets
+		)
 		configuration.background.cornerRadius = 8
 		return configuration
 	}
 
+	@MainActor
 	static var primaryActionConfig: Self {
 		var config = defaultConfig
 		config.baseBackgroundColor = .orange.withAlphaComponent(0.85)
 		return config
 	}
 
+	@MainActor
 	static var secondaryActionConfig: Self {
 		var config = defaultConfig
 		config.baseBackgroundColor = .lightGray.withAlphaComponent(0.9)
@@ -105,6 +126,12 @@ extension FileManager {
 }
 
 extension UIAlertController {
+	static func with(title: String, message: String) -> Self {
+		let alertVC = Self(title: title, message: message, preferredStyle: .alert)
+		alertVC.addAction(.init(title: "Ok", style: .default))
+		return alertVC
+	}
+
 	static func withMessage(_ message: String) -> Self {
 		let alertVC = Self(title: nil, message: message, preferredStyle: .alert)
 		alertVC.addAction(.init(title: "Ok", style: .default))
@@ -171,5 +198,17 @@ extension UNUserNotificationCenter {
 		} catch {
 			print("schedule error \(error)")
 		}
+	}
+}
+
+extension UITableViewCell {
+	static var reuseIdentifier: String {
+		NSStringFromClass(self)
+	}
+}
+
+extension UITableViewCell {
+	static func register(in tableView: UITableView) {
+		tableView.register(self, forCellReuseIdentifier: reuseIdentifier)
 	}
 }

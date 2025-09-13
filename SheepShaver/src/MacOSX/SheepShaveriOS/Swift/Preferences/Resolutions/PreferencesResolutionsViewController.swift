@@ -66,7 +66,7 @@ extension PreferencesResolutionsViewController { // UITableViewDataSource
 		case .information:
 			return nil
 		case .standardResolutions:
-			return "Common Mac OS classic resolutions"
+			return "Common Classic Mac OS resolutions"
 		case .pixelAlignedResolutions:
 			return "Pixel aligned resolutions"
 		case .standardWidthOrHeightResolutions:

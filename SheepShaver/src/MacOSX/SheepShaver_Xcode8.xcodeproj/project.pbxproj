@@ -103,6 +103,12 @@
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
 		C7BC1A642E2A84B2006F95CB /* MonitorResolutionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */; };
 		C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */; };
+		C7C3D2682E7557940018DB8B /* PreferencesGamepadCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2672E7557930018DB8B /* PreferencesGamepadCells.swift */; };
+		C7C3D26A2E75B9F80018DB8B /* PreferencesGamepadEditConfigViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2692E75B9EC0018DB8B /* PreferencesGamepadEditConfigViewController.swift */; };
+		C7C3D26C2E75C4690018DB8B /* PreferencesGamepadEditConfigCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D26B2E75C4670018DB8B /* PreferencesGamepadEditConfigCells.swift */; };
+		C7C3D26E2E76F3BC0018DB8B /* GamepadAssignButtonViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D26D2E76F3B20018DB8B /* GamepadAssignButtonViewController.swift */; };
+		C7C3D2712E76F8710018DB8B /* GamepadAssignButtonCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2702E76F86F0018DB8B /* GamepadAssignButtonCells.swift */; };
+		C7C3D2732E76FA7C0018DB8B /* GamepadAssignButtonModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2722E76FA7A0018DB8B /* GamepadAssignButtonModel.swift */; };
 		C7C64B2B2E617DF200163200 /* DiskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2A2E617DF000163200 /* DiskManager.swift */; };
 		C7C64B2D2E617FB100163200 /* PrefsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */; };
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
@@ -556,6 +562,12 @@
 		C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorResolutionManager.swift; sourceTree = "<group>"; };
 		C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MonitorResolutionsObjC.mm; sourceTree = "<group>"; };
 		C7BC1A682E2A879C006F95CB /* MonitorResolutionsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MonitorResolutionsObjC.h; sourceTree = "<group>"; };
+		C7C3D2672E7557930018DB8B /* PreferencesGamepadCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGamepadCells.swift; sourceTree = "<group>"; };
+		C7C3D2692E75B9EC0018DB8B /* PreferencesGamepadEditConfigViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGamepadEditConfigViewController.swift; sourceTree = "<group>"; };
+		C7C3D26B2E75C4670018DB8B /* PreferencesGamepadEditConfigCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGamepadEditConfigCells.swift; sourceTree = "<group>"; };
+		C7C3D26D2E76F3B20018DB8B /* GamepadAssignButtonViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadAssignButtonViewController.swift; sourceTree = "<group>"; };
+		C7C3D2702E76F86F0018DB8B /* GamepadAssignButtonCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadAssignButtonCells.swift; sourceTree = "<group>"; };
+		C7C3D2722E76FA7A0018DB8B /* GamepadAssignButtonModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadAssignButtonModel.swift; sourceTree = "<group>"; };
 		C7C64B2A2E617DF000163200 /* DiskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskManager.swift; sourceTree = "<group>"; };
 		C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PrefsObjC.mm; sourceTree = "<group>"; };
 		C7C64B2E2E617FC200163200 /* PrefsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PrefsObjC.h; sourceTree = "<group>"; };
@@ -1264,6 +1276,7 @@
 				C73660E12E34C9170055AA91 /* GamepadButton.swift */,
 				C73660ED2E36498D0055AA91 /* UnassignedGamepadButton.swift */,
 				C73660F32E37B5C50055AA91 /* GamepadSettings.swift */,
+				C7C3D26F2E76F8560018DB8B /* Assign Button */,
 			);
 			path = Gamepad;
 			sourceTree = "<group>";
@@ -1317,6 +1330,16 @@
 				C7C64B2E2E617FC200163200 /* PrefsObjC.h */,
 			);
 			path = "Preferences Handling";
+			sourceTree = "<group>";
+		};
+		C7C3D26F2E76F8560018DB8B /* Assign Button */ = {
+			isa = PBXGroup;
+			children = (
+				C7C3D26D2E76F3B20018DB8B /* GamepadAssignButtonViewController.swift */,
+				C7C3D2722E76FA7A0018DB8B /* GamepadAssignButtonModel.swift */,
+				C7C3D2702E76F86F0018DB8B /* GamepadAssignButtonCells.swift */,
+			);
+			path = "Assign Button";
 			sourceTree = "<group>";
 		};
 		C7E2AFB72E16C54E00CF50D4 /* Overlay */ = {
@@ -1398,6 +1421,9 @@
 			isa = PBXGroup;
 			children = (
 				C7F42CDE2E5B3C6700FA7169 /* PreferencesGamepadViewController.swift */,
+				C7C3D2672E7557930018DB8B /* PreferencesGamepadCells.swift */,
+				C7C3D2692E75B9EC0018DB8B /* PreferencesGamepadEditConfigViewController.swift */,
+				C7C3D26B2E75C4670018DB8B /* PreferencesGamepadEditConfigCells.swift */,
 			);
 			path = Gamepad;
 			sourceTree = "<group>";
@@ -1864,6 +1890,7 @@
 				E204B93928BC3EBE0081FDCA /* scsi_dummy.cpp in Sources */,
 				E204B93A28BC3EBE0081FDCA /* sbuf.c in Sources */,
 				E204B93B28BC3EBE0081FDCA /* emul_op.cpp in Sources */,
+				C7C3D2682E7557940018DB8B /* PreferencesGamepadCells.swift in Sources */,
 				C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */,
 				E204B93C28BC3EBE0081FDCA /* ether.cpp in Sources */,
 				E204B93D28BC3EBE0081FDCA /* audio.cpp in Sources */,
@@ -1873,6 +1900,7 @@
 				E204B94028BC3EBE0081FDCA /* macos_util.cpp in Sources */,
 				E204B9EC28BC7CF20081FDCA /* prefs_ios.mm in Sources */,
 				E204B9DA28BC7BF10081FDCA /* UIView+SDCAutoLayout.m in Sources */,
+				C7C3D2712E76F8710018DB8B /* GamepadAssignButtonCells.swift in Sources */,
 				E204B9D928BC7BF10081FDCA /* AppDelegate.m in Sources */,
 				C7F42CE72E5B4E9200FA7169 /* PreferencesROMValidator.mm in Sources */,
 				C73660E02E34C85D0055AA91 /* GamepadLayerView.swift in Sources */,
@@ -1881,6 +1909,7 @@
 				E2A5817728C7C633005C7373 /* DiskTypeiOS.m in Sources */,
 				E204B94628BC3EBE0081FDCA /* main.cpp in Sources */,
 				E204B9D728BC7BF10081FDCA /* SSPreferencesDisksViewController.mm in Sources */,
+				C7C3D2732E76FA7C0018DB8B /* GamepadAssignButtonModel.swift in Sources */,
 				C7F42CDD2E5B3C5F00FA7169 /* PreferencesResolutionsViewController.swift in Sources */,
 				E204B94728BC3EBE0081FDCA /* misc.c in Sources */,
 				C71F9B162E3A1D010088601A /* Storage.swift in Sources */,
@@ -1913,6 +1942,7 @@
 				C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */,
 				C7F42CCE2E5A0F6F00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm in Sources */,
 				E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */,
+				C7C3D26E2E76F3BC0018DB8B /* GamepadAssignButtonViewController.swift in Sources */,
 				E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */,
 				E204B9D028BC7BF10081FDCA /* ViewController.m in Sources */,
 				E204B9CD28BC7BF10081FDCA /* SSDiskTableViewCell.m in Sources */,
@@ -1923,6 +1953,7 @@
 				E2A5817C28C7F987005C7373 /* SSDiskTableHeaderView.m in Sources */,
 				E204B95D28BC3EBE0081FDCA /* video_sdl.cpp in Sources */,
 				E204B95E28BC3EBE0081FDCA /* ether_unix.cpp in Sources */,
+				C7C3D26A2E75B9F80018DB8B /* PreferencesGamepadEditConfigViewController.swift in Sources */,
 				E204BA4728BDB4260081FDCA /* SSPreferencesBootROMViewController.mm in Sources */,
 				C7F42CD82E5B384F00FA7169 /* PreferencesGeneralViewController.swift in Sources */,
 				E204B9CB28BC7BF10081FDCA /* SSPreferencesViewController.mm in Sources */,
@@ -1936,6 +1967,7 @@
 				E204BA3628BD49260081FDCA /* extfs_macosx.cpp in Sources */,
 				E204B96228BC3EBE0081FDCA /* rpc_unix.cpp in Sources */,
 				C72739C92E2BAA6500B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift in Sources */,
+				C7C3D26C2E75C4690018DB8B /* PreferencesGamepadEditConfigCells.swift in Sources */,
 				E204B96328BC3EBE0081FDCA /* serial_unix.cpp in Sources */,
 				E204B96428BC3EBE0081FDCA /* sshpty.c in Sources */,
 				E2A5818428C9427B005C7373 /* SSCreateDiskViewController.m in Sources */,

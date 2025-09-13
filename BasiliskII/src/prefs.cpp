@@ -27,7 +27,7 @@
 #include "sys.h"
 #include "prefs.h"
 
-#define DUMP_PREFS 1
+#define DUMP_PREFS 0
 
 // Prefs items are stored in a linked list of these nodes
 struct prefs_node {

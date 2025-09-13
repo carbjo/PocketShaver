@@ -43,12 +43,14 @@ class GamepadButtonStackView: UIStackView {
 	private func setupButtons() {
 		let screenWidth = UIScreen.main.bounds.width
 		let sideMargin: CGFloat = UIDevice.sideMarginForButtons
-		let halfSettingsButtonWithPaddingWidth: CGFloat = 44/2 + 4
-		let availableWidth = (screenWidth / 2) - sideMargin - halfSettingsButtonWithPaddingWidth
-		let buttonLength: CGFloat = UIDevice.hasNotch ? 80 : 64
+
+		let settingsButtonLength: CGFloat = UIDevice.isSmallScreenSize ? 36 : 44
+		let halfSettingsButton: CGFloat = settingsButtonLength/2
+		let availableWidth = (screenWidth / 2) - sideMargin - halfSettingsButton
+		let buttonLength = GamepadButton.length
 		let elementWidth = buttonLength + spacing
 
-		let numberOfButtons = Int(floor(availableWidth / elementWidth))
+		let numberOfButtons = max(2, Int(floor(availableWidth / elementWidth)))
 
 		for index in 0..<numberOfButtons {
 			let sideCorrectedIndex = side == .right ? (numberOfButtons - 1 - index) : index

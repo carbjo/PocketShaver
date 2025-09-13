@@ -379,11 +379,11 @@ extension MonitorResolutionCategory {
 				.pixelAlignedLandscape:
 			"Resolutions that are pixel aligned with your device screen, for maximum crispness"
 		case .standardResolution:
-			"The most common Mac OS classic resolutions, for maximum compatibility"
+			"The most common Classic Mac OS resolutions, for maximum compatibility"
 		case .standardHeightLandscape:
-			"Resolutions with the most common Mac OS classic screen heights, but fullscreen width"
+			"Resolutions with the most common Classic Mac OS screen heights, but fullscreen width"
 		case .standardWidthPortrait:
-			"Resolutions with the most common Mac OS classic screen widths, but fullscreen height"
+			"Resolutions with the most common Classic Mac OS screen widths, but fullscreen height"
 		}
 	}
 }

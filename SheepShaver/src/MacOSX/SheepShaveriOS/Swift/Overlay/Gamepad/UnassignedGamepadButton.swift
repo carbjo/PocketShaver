@@ -32,7 +32,11 @@ class UnassignedGamepadButton: UIView {
 		translatesAutoresizingMaskIntoConstraints = false
 		layer.cornerRadius = 8
 
-		let length: CGFloat = UIDevice.hasNotch ? 80 : 64
+		let length = GamepadButton.length
+
+		if UIDevice.isSmallScreenSize {
+			label.font = .systemFont(ofSize: 16)
+		}
 
 		addSubview(label)
 
