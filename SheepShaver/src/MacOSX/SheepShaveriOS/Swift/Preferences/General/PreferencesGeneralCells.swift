@@ -7,11 +7,147 @@
 
 import UIKit
 
+class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
+	enum Mode {
+		case general
+		case advanced
+	}
+
+	private lazy var containerView: UIView = {
+		let view = UIView.withoutConstraints()
+		view.layer.cornerRadius = 8
+		view.backgroundColor = UIColor(red: 0, green: 0, blue: 0, alpha: 0.06)
+		return view
+	}()
+
+	private lazy var titleLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.lineBreakMode = .byWordWrapping
+		label.font = .systemFont(ofSize: 14)
+		label.textColor = .darkGray
+
+		var string = "Read initial setup instructions if you plan to install Classic Mac OS from scratch. Contains crucial tip on how to <b>not get stuck in installation progress</b> and <b>get audio working</b>, after intallation."
+		if mode == .general {
+			string += "\n\nThe instructions can still be accessed from Advanced tab, after dismissal."
+		}
+		label.attributedText = string
+			.withBoldTagsReplacedWith(
+				font: .boldSystemFont(ofSize: 14),
+				color: .black
+			)
+
+		return label
+	}()
+
+	private lazy var closeButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.setImage(.init(resource: .xmarkCircleFill), for: .normal)
+		button.tintColor = .darkGray
+		button.addTarget(self, action: #selector(closeButtonPushed), for: .touchUpInside)
+		return button
+	}()
+
+	private lazy var readButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.configuration = .secondaryActionConfig
+		button.setTitle("Read instructions", for: .normal)
+		button.addTarget(self, action: #selector(readButtonPushed), for: .touchUpInside)
+		return button
+	}()
+
+	private let mode: Mode
+	private let didTapReadButton: (() -> Void)
+	private let didTapCloseButton: (() -> Void)
+
+	init(
+		mode: Mode,
+		didTapReadButton: @escaping (() -> Void),
+		didTapCloseButton: @escaping (() -> Void)
+	) {
+		self.mode = mode
+		self.didTapReadButton = didTapReadButton
+		self.didTapCloseButton = didTapCloseButton
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		hideSeparator()
+
+		titleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+		closeButton.setContentHuggingPriority(.required, for: .horizontal)
+		titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+		closeButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+		containerView.addSubview(titleLabel)
+		if mode == .general {
+			containerView.addSubview(closeButton)
+		}
+		containerView.addSubview(readButton)
+		contentView.addSubview(containerView)
+
+		NSLayoutConstraint.activate([
+			titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
+
+			readButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			readButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+			readButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+			readButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
+			readButton.heightAnchor.constraint(equalToConstant: 44),
+
+			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
+		])
+		switch mode {
+		case .general:
+			NSLayoutConstraint.activate([
+				closeButton.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
+				closeButton.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
+				closeButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16)
+			])
+		case .advanced:
+			NSLayoutConstraint.activate([
+				titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16)
+			])
+		}
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	@objc
+	private func readButtonPushed() {
+		didTapReadButton()
+	}
+
+	@objc
+	private func closeButtonPushed() {
+		didTapCloseButton()
+	}
+}
+
 class PreferencesGeneralRomCell: UITableViewCell {
+	private lazy var containerView: UIView = {
+		let view = UIView.withoutConstraints()
+		view.layer.cornerRadius = 8
+		view.backgroundColor = UIColor(red: 0, green: 0, blue: 0, alpha: 0.06)
+		return view
+	}()
+
+	private lazy var titleLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.font = .systemFont(ofSize: 14)
+		label.textColor = .darkGray
+		label.text = "Tap button below to select ROM File. Alternativetly, you can place a ROM file named 'Mac OS ROM' in the root of SheepShaver share folder. After a ROM is set, it can be changed later in Advanced tab."
+		return label
+	}()
+
 	private lazy var selectRomFileButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .primaryActionConfig
-		button.setTitle("Tap to select ROM file", for: .normal)
+		button.setTitle("Select ROM file", for: .normal)
 		button.addTarget(self, action: #selector(selectRomFileButtonPushed), for: .touchUpInside)
 		return button
 	}()
@@ -31,15 +167,6 @@ class PreferencesGeneralRomCell: UITableViewCell {
 		return imageView
 	}()
 
-	private lazy var subtitleLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
-		label.text = "Alternativetly, you can place a ROM file named \"Mac OS ROM\" in the root of SheepShaver share folder. After a ROM is set, it can be changed later in Advanced tab."
-		return label
-	}()
-
 	private let didTapSelectRomButton: (() -> Void)
 
 	init(
@@ -51,24 +178,30 @@ class PreferencesGeneralRomCell: UITableViewCell {
 
 		hideSeparator()
 
-		contentView.addSubview(checkmarkIconImageView)
-		contentView.addSubview(selectRomFileButton)
-		contentView.addSubview(subtitleLabel)
+		contentView.addSubview(containerView)
+
+		containerView.addSubview(titleLabel)
+		containerView.addSubview(checkmarkIconImageView)
+		containerView.addSubview(selectRomFileButton)
 
 		NSLayoutConstraint.activate([
 			checkmarkIconImageView.centerXAnchor.constraint(equalTo: selectRomFileButton.centerXAnchor),
 			checkmarkIconImageView.centerYAnchor.constraint(equalTo: selectRomFileButton.centerYAnchor),
 
-			selectRomFileButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-			selectRomFileButton.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			selectRomFileButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+			titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
+			titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+
+			selectRomFileButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			selectRomFileButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+			selectRomFileButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
 			selectRomFileButton.heightAnchor.constraint(equalToConstant: 44),
+			selectRomFileButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
 
-
-			subtitleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			subtitleLabel.topAnchor.constraint(equalTo: selectRomFileButton.bottomAnchor, constant: 16),
-			subtitleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-			subtitleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
+			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
 		])
 	}
 
@@ -472,7 +605,6 @@ class PreferencesGeneralRamStepperCell: UITableViewCell {
 		NSLayoutConstraint.activate([
 			stepper.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
 			stepper.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-
 
 			stepperLabel.centerYAnchor.constraint(equalTo: stepper.centerYAnchor),
 			stepperLabel.leadingAnchor.constraint(equalTo: stepper.trailingAnchor, constant: 16),

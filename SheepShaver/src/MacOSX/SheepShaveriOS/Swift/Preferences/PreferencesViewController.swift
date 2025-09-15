@@ -148,6 +148,7 @@ public class PreferencesViewController: UIViewController {
 			contentView.bringSubviewToFront(gamepadVC.view)
 		case .advanced:
 			contentView.bringSubviewToFront(advancedVC.view)
+			advancedVC.tableView.reloadData()
 		}
 	}
 

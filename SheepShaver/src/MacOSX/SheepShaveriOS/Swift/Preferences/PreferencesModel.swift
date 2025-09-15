@@ -17,8 +17,6 @@ enum PreferencesChange {
 }
 
 class PreferencesModel {
-	static let romFilename = "Mac OS ROM"
-
 	let changeSubject = PassthroughSubject<PreferencesChange, Never>()
 
 	var needsRestart = false
@@ -33,7 +31,7 @@ class PreferencesModel {
 
 	@MainActor
 	func validate() throws {
-		let romUrl = FileManager.documentUrl.appendingPathComponent(Self.romFilename)
+		let romUrl = FileManager.documentUrl.appendingPathComponent(RomManager.romFilename)
 		let hasRomFile = FileManager.default.fileExists(atPath: romUrl.path)
 		guard hasRomFile else {
 			throw PreferencesError.romFileMissing

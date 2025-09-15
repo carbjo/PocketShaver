@@ -157,6 +157,20 @@ public class OverlayViewController: UIViewController {
 		}
 
 		loadGamepadSettings()
+
+		becomeFirstResponder()
+	}
+
+	public override var canBecomeFirstResponder: Bool {
+		get {
+			return true
+		}
+	}
+
+	public override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
+		if motion == .motionShake {
+			transition(to: .editingGamepad)
+		}
 	}
 
 	public override func viewDidAppear(_ animated: Bool) {

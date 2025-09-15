@@ -62,7 +62,7 @@ class DiskManager {
 		let allElements = (try? FileManager.default.contentsOfDirectory(atPath: FileManager.documentUrl.path)) ?? []
 
 		let candidateFilePaths = allElements.filter({
-			$0.hasSuffixMatchingSuffixes(in: Self.supportedFileExtensions)
+			$0.lowercased().hasSuffixMatchingSuffixes(in: Self.supportedFileExtensions)
 		})
 
 		// Compare the lists. For any disk that we have that doesn't actually exist, eliminate it from the disks list.

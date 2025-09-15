@@ -14,6 +14,7 @@ class Storage {
 		case gamepad
 		case portraitResolutions
 		case landscapeResolutions
+		case miscellaneous
 	}
 
 	private let appSupportUrl = FileManager.appSupportUrl
