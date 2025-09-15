@@ -212,3 +212,34 @@ extension UITableViewCell {
 		tableView.register(self, forCellReuseIdentifier: reuseIdentifier)
 	}
 }
+
+
+extension String {
+	func withBoldTagsReplacedWith(font: UIFont, color: UIColor) -> NSAttributedString {
+		let attrString = NSMutableAttributedString()
+		var workString = self
+
+		while let beginningTagIndex = workString.range(of: "<b>"),
+			  let endTagIndex = workString.range(of: "</b>") {
+			let prefix = String(workString[workString.startIndex..<beginningTagIndex.lowerBound])
+			let boldPart = String(workString[beginningTagIndex.upperBound..<endTagIndex.lowerBound])
+
+			attrString.append(.init(string: prefix))
+			attrString.append(
+				.init(
+					string: boldPart,
+					attributes: [
+						.font: font,
+						.foregroundColor: color
+					]
+				)
+			)
+
+			workString = String(workString[endTagIndex.upperBound..<workString.endIndex])
+		}
+
+		attrString.append(.init(string: workString))
+
+		return attrString
+	}
+}

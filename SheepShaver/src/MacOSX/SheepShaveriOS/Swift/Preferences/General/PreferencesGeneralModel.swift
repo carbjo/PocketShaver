@@ -9,7 +9,6 @@ import Foundation
 import Combine
 
 enum PreferencesGeneralError: Error {
-	case couldNotValidateRom
 	case fileWithFilenameAleadyExists
 	case fileCreationFailedOtherError
 	case fileCreationInvalidSize
@@ -28,15 +27,17 @@ class PreferencesGeneralModel {
 
 	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
 
-	private let romFilename = PreferencesModel.romFilename
-	private let tmpRomFilename = ".tmp_rom"
-
 	var isDisplayingRomFileMissingError = false
 	var isDisplayingNoDiskFilesError = false
 
+	@MainActor
+	var hasDismissedSetupInstructions: Bool {
+		MiscellaneousSettings.current.hasDismissedSetupInstructions
+	}
+
+	@MainActor
 	var hasRomFile: Bool {
-		let romUrl = FileManager.documentUrl.appendingPathComponent(romFilename)
-		return FileManager.default.fileExists(atPath: romUrl.path)
+		RomManager.shared.hasRomFile
 	}
 
 	@MainActor
@@ -74,59 +75,19 @@ class PreferencesGeneralModel {
 		self.changeSubject = changeSubject
 	}
 
-	func didSelectRomCandidate(url: URL) async throws {
-		var error: NSError?
-		let success = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
-			NSFileCoordinator().coordinate(readingItemAt: url, error: &error) { srcURL in
-
-				let docsUrl = FileManager.documentUrl
-
-				let tmpURL = docsUrl.appendingPathComponent(tmpRomFilename)
-
-				do {
-					if FileManager.default.fileExists(atPath: tmpURL.path) {
-						try FileManager.default.removeItem(at: tmpURL)
-					}
-					try FileManager.default.moveItem(at: srcURL, to: tmpURL)
-				} catch {
-					print("-- write fail \(error)")
-					continuation.resume(throwing: error)
-				}
-
-				let isRomValid = validateROM(tmpURL.path)
-
-				if isRomValid {
-					var destURL = tmpURL.deletingLastPathComponent()
-					destURL = destURL.appendingPathComponent(romFilename)
-					do {
-						try FileManager.default.moveItem(at: tmpURL, to: destURL)
-						print("all good")
-						continuation.resume(returning: true)
-					} catch {
-						print("-- write fail \(error)")
-						continuation.resume(throwing: error)
-					}
-				} else {
-					continuation.resume(returning: false)
-				}
-			}
-		}
-
-		if !success {
-			throw PreferencesGeneralError.couldNotValidateRom
-		}
+	@MainActor
+	func reportHasDismissedSetupInstructions() {
+		MiscellaneousSettings.current.reportHasDismissedSetupInstructions()
 	}
 
+	@MainActor
+	func didSelectRomCandidate(url: URL) async throws {
+		try await RomManager.shared.didSelectRomCandidate(url: url)
+	}
+
+	@MainActor
 	func forceSelectTmpRom() throws {
-		let tmpURL = FileManager.documentUrl.appendingPathComponent(tmpRomFilename)
-		var destURL = tmpURL.deletingLastPathComponent()
-		destURL = destURL.appendingPathComponent(romFilename)
-		do {
-			try FileManager.default.moveItem(at: tmpURL, to: destURL)
-			print("all good")
-		} catch {
-			print("-- write fail \(error)")
-		}
+		try RomManager.shared.forceSelectTmpRom()
 	}
 
 	@MainActor
@@ -152,7 +113,7 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	func didSelectFileImport(url: URL) async throws -> DiskDataChange {
-		guard url.path.hasSuffixMatchingSuffixes(in: DiskManager.supportedFileExtensions) else {
+		guard url.path.lowercased().hasSuffixMatchingSuffixes(in: DiskManager.supportedFileExtensions) else {
 			throw PreferencesGeneralError.fileImportWrongSuffix
 		}
 

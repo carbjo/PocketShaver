@@ -137,42 +137,41 @@ struct GamepadSettings: Codable {
 
 	@MainActor
 	static var current: GamepadSettings {
-		if let data = Storage.shared.load(from: .gamepad) {
-			do {
-				let settings = try JSONDecoder().decode(Self.self, from: data)
+		
+		if let data = Storage.shared.load(from: .gamepad),
+		   let settings = try? JSONDecoder().decode(Self.self, from: data) {
 
-				if settings.config.visibilitySetting == .landscapeOnly && UIScreen.isPortraitMode {
-					if let compatibleConfigIndex = settings.configurations.firstIndex(where: { $0.visibilitySetting == .both || $0.visibilitySetting == .portraitOnly }) {
-						return .init(
-							currentPortraitConfigIndex: compatibleConfigIndex,
-							currentLandscapeConfigIndex: settings.currentLandscapeConfigIndex,
-							configurations: settings.configurations
-						)
-					} else {
-						return .init(
-							currentPortraitConfigIndex: 0,
-							currentLandscapeConfigIndex: settings.currentLandscapeConfigIndex,
-							configurations: settings.configurations
-						)
-					}
-				} else if settings.config.visibilitySetting == .portraitOnly && !UIScreen.isPortraitMode {
-					if let compatibleConfigIndex = settings.configurations.firstIndex(where: { $0.visibilitySetting == .both || $0.visibilitySetting == .landscapeOnly }) {
-						return .init(
-							currentPortraitConfigIndex: settings.currentPortraitConfigIndex,
-							currentLandscapeConfigIndex: compatibleConfigIndex,
-							configurations: settings.configurations
-						)
-					} else {
-						return .init(
-							currentPortraitConfigIndex: settings.currentPortraitConfigIndex,
-							currentLandscapeConfigIndex: 0,
-							configurations: settings.configurations
-						)
-					}
+			if settings.config.visibilitySetting == .landscapeOnly && UIScreen.isPortraitMode {
+				if let compatibleConfigIndex = settings.configurations.firstIndex(where: { $0.visibilitySetting == .both || $0.visibilitySetting == .portraitOnly }) {
+					return .init(
+						currentPortraitConfigIndex: compatibleConfigIndex,
+						currentLandscapeConfigIndex: settings.currentLandscapeConfigIndex,
+						configurations: settings.configurations
+					)
+				} else {
+					return .init(
+						currentPortraitConfigIndex: 0,
+						currentLandscapeConfigIndex: settings.currentLandscapeConfigIndex,
+						configurations: settings.configurations
+					)
 				}
+			} else if settings.config.visibilitySetting == .portraitOnly && !UIScreen.isPortraitMode {
+				if let compatibleConfigIndex = settings.configurations.firstIndex(where: { $0.visibilitySetting == .both || $0.visibilitySetting == .landscapeOnly }) {
+					return .init(
+						currentPortraitConfigIndex: settings.currentPortraitConfigIndex,
+						currentLandscapeConfigIndex: compatibleConfigIndex,
+						configurations: settings.configurations
+					)
+				} else {
+					return .init(
+						currentPortraitConfigIndex: settings.currentPortraitConfigIndex,
+						currentLandscapeConfigIndex: 0,
+						configurations: settings.configurations
+					)
+				}
+			}
 
-				return settings
-			} catch {}
+			return settings
 		}
 
 		return .init(currentPortraitConfigIndex: 0, currentLandscapeConfigIndex: 0, configurations: [])

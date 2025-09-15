@@ -10,6 +10,7 @@ import Combine
 
 class PreferencesGeneralViewController: UITableViewController {
 	enum SectionType: Int, CaseIterable {
+		case setupInstructions
 		case rom
 		case disks
 		case ramStepper
@@ -96,15 +97,15 @@ class PreferencesGeneralViewController: UITableViewController {
 		present(pickerVC, animated: true)
 	}
 
-	private func animateRomFound() {
-		guard let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 0)) as? PreferencesGeneralRomCell else {
+	private func animateRomFound(at indexPath: IndexPath) {
+		guard let cell = tableView.cellForRow(at: indexPath) as? PreferencesGeneralRomCell else {
 			return
 		}
 
 		cell.displayCheckmark()
 
 		DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-			self.tableView.deleteSections(IndexSet([0]), with: .fade)
+			self.tableView.deleteSections(IndexSet([indexPath.section]), with: .fade)
 		}
 	}
 
@@ -119,8 +120,10 @@ class PreferencesGeneralViewController: UITableViewController {
 		alertVC.addAction(.init(title: "Use anyway", style: .destructive, handler: { [weak self] _ in
 			guard let self else { return }
 			do {
+				let romSectionIndexBeforeChange = SectionType.rom.sectionIndex(model: model)
+				let romIndexPathBeforeChange = IndexPath(row: 0, section: romSectionIndexBeforeChange)
 				try model.forceSelectTmpRom()
-				animateRomFound()
+				animateRomFound(at: romIndexPathBeforeChange)
 			} catch {
 				let forceSelectFailedAlertVC = UIAlertController.withError(error)
 				present(forceSelectFailedAlertVC, animated: true)
@@ -307,6 +310,8 @@ extension PreferencesGeneralViewController {
 	override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
 		let sectionType = SectionType(sectionIndex: section, model: model)
 		switch sectionType {
+		case .setupInstructions:
+			return nil
 		case .rom:
 			return "ROM selection"
 		case .disks:
@@ -321,6 +326,8 @@ extension PreferencesGeneralViewController {
 	override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
 		let sectionType = SectionType(sectionIndex: section, model: model)
 		switch sectionType {
+		case .setupInstructions:
+			return 1
 		case .rom:
 			return 1 + (model.isDisplayingRomFileMissingError ? 1 : 0)
 		case .disks:
@@ -335,6 +342,24 @@ extension PreferencesGeneralViewController {
 	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
 		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
 		switch sectionType {
+		case .setupInstructions:
+			return PreferencesGeneralSetupInstructionsCell(
+				mode: .general,
+				didTapReadButton: { [weak self] in
+					guard let self else { return }
+					let vc = PreferencesSetupInstructionsViewController()
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
+				},
+				didTapCloseButton: { [weak self] in
+					guard let self else { return }
+					let setupInstructionsSectionIndexBeforeChange = SectionType.setupInstructions.sectionIndex(model: model)
+					model.reportHasDismissedSetupInstructions()
+					tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
+				}
+			)
 		case .rom:
 			if indexPath.row == 0 {
 				return PreferencesGeneralRomCell(
@@ -416,9 +441,11 @@ extension PreferencesGeneralViewController: UIDocumentPickerDelegate {
 			Task { [weak self, model] in
 				guard let self else { return }
 				do {
+					let romSectionIndexBeforeChange = SectionType.rom.sectionIndex(model: model)
+					let romIndexPathBeforeChange = IndexPath(row: 0, section: romSectionIndexBeforeChange)
 					try await model.didSelectRomCandidate(url: url)
-					animateRomFound()
-				} catch PreferencesGeneralError.couldNotValidateRom {
+					animateRomFound(at: romIndexPathBeforeChange)
+				} catch RomError.couldNotValidateRom {
 					displayForceSelectRomDialogue()
 				} catch {
 					let errorVC = UIAlertController.withError(error)
@@ -469,6 +496,10 @@ extension PreferencesGeneralViewController.SectionType {
 	@MainActor
 	private static func availableSections(with model: PreferencesGeneralModel) -> [Self] {
 		var sections = allCases
+		if model.hasDismissedSetupInstructions,
+		   let setupInstructionsSectionIndex = sections.firstIndex(of: .setupInstructions) {
+			sections.remove(at: setupInstructionsSectionIndex)
+		}
 		if model.hasRomFile,
 		   let romSectionIndex = sections.firstIndex(of: .rom) {
 			sections.remove(at: romSectionIndex)
