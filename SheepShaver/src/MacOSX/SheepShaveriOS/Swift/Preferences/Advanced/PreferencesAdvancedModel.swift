@@ -37,9 +37,9 @@ class PreferencesAdvancedModel {
 
 	init() {
 		let options: [Option] = [
-			.init(title: "Allow CPU To Idle:", prefsIdentifier: "idlewait"),
-			.init(title: "Ignore Illegal Instructions:", prefsIdentifier: "ignoreillegal"),
-			.init(title: "Ignore Illegal Memory:", prefsIdentifier: "ignoresegv")
+			.init(title: "Allow CPU To Idle", prefsIdentifier: "idlewait"),
+			.init(title: "Ignore Illegal Instructions", prefsIdentifier: "ignoreillegal"),
+			.init(title: "Ignore Illegal Memory", prefsIdentifier: "ignoresegv")
 			]
 		var optionsInitialStates = [OptionInitialState]()
 

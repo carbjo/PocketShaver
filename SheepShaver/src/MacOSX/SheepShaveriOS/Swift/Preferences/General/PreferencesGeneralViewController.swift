@@ -15,6 +15,7 @@ class PreferencesGeneralViewController: UITableViewController {
 		case disks
 		case ramStepper
 		case iPadMouse
+		case hints
 	}
 
 	enum CreateDiskFieldIndex: Int {
@@ -320,6 +321,8 @@ extension PreferencesGeneralViewController {
 			return "RAM setting"
 		case .iPadMouse:
 			return "Input mode"
+		case .hints:
+			return "Hints"
 		}
 	}
 
@@ -336,6 +339,8 @@ extension PreferencesGeneralViewController {
 			return 1
 		case .iPadMouse:
 			return 1
+		case .hints:
+			return 2
 		}
 	}
 
@@ -414,6 +419,16 @@ extension PreferencesGeneralViewController {
 				initialIPadMouseSetting: model.isIPadMouseEnabled
 			) { [weak self] newValue in
 				self?.model.isIPadMouseEnabled = newValue
+			}
+		case .hints:
+			if indexPath.row == 0 {
+				return PreferencesGeneralHintsSettingCell(
+					isOn: MiscellaneousSettings.current.showHints
+				) { isOn in
+					MiscellaneousSettings.current.set(showHints: isOn)
+				}
+			} else {
+				return PreferencesGeneralHintsFooterCell()
 			}
 		}
 	}
