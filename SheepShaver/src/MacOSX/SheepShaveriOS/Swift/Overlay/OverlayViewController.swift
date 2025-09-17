@@ -75,7 +75,6 @@ public class OverlayViewController: UIViewController {
 		let view = InformationView.withoutConstraints()
 		view.isHidden = true
 		view.alpha = 0
-		view.set(text: gamepadSettings.config.name)
 		return view
 	}()
 
@@ -85,12 +84,9 @@ public class OverlayViewController: UIViewController {
 	private let specialButtonInteraction: ((SpecialButton, Bool) -> Void)
 
 	private var gamepadSettings = GamepadSettings.current
-	private var upcomingGamepadSettings: GamepadSettings? {
-		didSet {
-			if let upcomingGamepadSettings {
-				informationView.set(text: upcomingGamepadSettings.config.name)
-			}
-		}
+	private var upcomingGamepadSettings: GamepadSettings?
+	private var gamepadSettingsName: String {
+		upcomingGamepadSettings?.config.name ?? gamepadSettings.config.name
 	}
 
 	private init(
@@ -142,7 +138,9 @@ public class OverlayViewController: UIViewController {
 			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor),
 
 			informationView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-			informationView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -UIScreen.main.bounds.size.height / 4)
+			informationView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -UIScreen.main.bounds.size.height / 4),
+			informationView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 8),
+			informationView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -8)
 		])
 
 		hiddenInputFieldDelegate.didInputSDLKey = { [weak self] output in
@@ -158,26 +156,30 @@ public class OverlayViewController: UIViewController {
 
 		loadGamepadSettings()
 
-		becomeFirstResponder()
+//		becomeFirstResponder()
 	}
 
-	public override var canBecomeFirstResponder: Bool {
-		get {
-			return true
-		}
-	}
-
-	public override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
-		if motion == .motionShake {
-			transition(to: .editingGamepad)
-		}
-	}
+//	public override var canBecomeFirstResponder: Bool {
+//		get {
+//			return true
+//		}
+//	}
+//
+//	public override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
+//		if motion == .motionShake {
+//			transition(to: .editingGamepad)
+//		}
+//	}
 
 	public override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
 
 		if state != .showingGamepad {
 			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+		}
+
+		if state == .normal {
+			flashInformation(for: .normal, atBottom: true)
 		}
 	}
 
@@ -262,6 +264,49 @@ public class OverlayViewController: UIViewController {
 				willTranslateInLongAxis = UIScreen.isPortraitMode ? absDx < absDy : absDx > absDy
 			}
 
+			let resultingState: State
+			switch self.state {
+			case .normal:
+				if self.gestureDragDelta.dy > threshold {
+					resultingState = .showingGamepad
+				} else if self.gestureDragDelta.dy < -threshold {
+					resultingState = .showingKeyboard
+				} else {
+					resultingState = .normal
+				}
+			case .showingGamepad:
+				if abs(self.gestureDragDelta.dy) > abs(self.gestureDragDelta.dx) {
+					if self.gestureDragDelta.dy > threshold {
+						resultingState = .editingGamepad
+					} else if self.gestureDragDelta.dy < -threshold {
+						resultingState = .normal
+					} else {
+						resultingState = .showingGamepad
+					}
+				} else {
+					if self.gestureDragDelta.dx > threshold {
+						self.upcomingGamepadSettings = self.gamepadSettings.previoius
+					} else if self.gestureDragDelta.dx < -threshold {
+						self.upcomingGamepadSettings = self.gamepadSettings.next
+					}
+					resultingState = .showingGamepad
+				}
+			case .showingKeyboard:
+				if self.gestureDragDelta.dy > threshold {
+					resultingState = .normal
+				} else {
+					resultingState = .showingKeyboard
+				}
+			case .editingGamepad:
+				if self.gestureDragDelta.dy < -threshold {
+					resultingState = .showingGamepad
+				} else {
+					resultingState = .editingGamepad
+				}
+			}
+
+			flashInformation(for: resultingState)
+
 			UIView.animate(
 				withDuration: willTranslateInLongAxis ? 0.6 : 0.28,
 				delay: 0.0,
@@ -269,24 +314,8 @@ public class OverlayViewController: UIViewController {
 				initialSpringVelocity: 1.5,
 				animations: {
 					switch self.state {
-					case .normal:
-						if self.gestureDragDelta.dy > threshold {
-							self.transition(to: .showingGamepad)
-						} else if self.gestureDragDelta.dy < -threshold {
-							self.transition(to: .showingKeyboard)
-						} else {
-							self.transition(to: .normal)
-						}
 					case .showingGamepad:
-						if abs(self.gestureDragDelta.dy) > abs(self.gestureDragDelta.dx) {
-							if self.gestureDragDelta.dy > threshold {
-								self.transition(to: .editingGamepad)
-							} else if self.gestureDragDelta.dy < -threshold {
-								self.transition(to: .normal)
-							} else {
-								self.transition(to: .showingGamepad)
-							}
-						} else {
+						if abs(self.gestureDragDelta.dy) <= abs(self.gestureDragDelta.dx) {
 							if self.gestureDragDelta.dx > threshold {
 								self.transitToPreviousGamepadLayout()
 							} else if self.gestureDragDelta.dx < -threshold {
@@ -294,23 +323,11 @@ public class OverlayViewController: UIViewController {
 							} else {
 								self.transition(to: .showingGamepad)
 							}
-						}
-					case .showingKeyboard:
-						if self.gestureDragDelta.dy > threshold {
-							self.transition(to: .normal)
 						} else {
-							self.transition(to: .showingKeyboard)
+							self.transition(to: resultingState)
 						}
-					case .editingGamepad:
-						if self.gestureDragDelta.dy < -threshold {
-							self.transition(to: .showingGamepad)
-						} else {
-							self.transition(to: .editingGamepad)
-						}
-					}
-
-					if self.state == .showingGamepad {
-						self.flashInformationLabel()
+					default:
+						self.transition(to: resultingState)
 					}
 				},
 				completion: { _ in
@@ -329,30 +346,13 @@ public class OverlayViewController: UIViewController {
 		}
 	}
 
-	func flashInformationLabel() {
-		informationView.alpha = 0
-		informationView.isHidden = false
-
-		UIView.animate(withDuration: 0.6, animations: {
-			self.informationView.alpha = 1
-		}) { _ in
-			UIView.animate(withDuration: 0.6, delay: 0.15, animations: {
-				self.informationView.alpha = 0
-			}) { _ in
-				self.informationView.isHidden = false
-			}
-		}
-	}
-
 	func transitToNextGamepadLayout() {
-		upcomingGamepadSettings = gamepadSettings.next
 		gamepadLayerView.transform = .init(translationX: -view.frame.size.width, y: 0)
 		previousGamepadLayerView.transform = .init(translationX: -view.frame.size.width, y: 0)
 		nextGamepadLayerView.transform = .init(translationX: -view.frame.size.width, y: 0)
 	}
 
 	func transitToPreviousGamepadLayout() {
-		upcomingGamepadSettings = gamepadSettings.previoius
 		gamepadLayerView.transform = .init(translationX: view.frame.size.width, y: 0)
 		previousGamepadLayerView.transform = .init(translationX: view.frame.size.width, y: 0)
 		nextGamepadLayerView.transform = .init(translationX: view.frame.size.width, y: 0)
@@ -382,6 +382,36 @@ public class OverlayViewController: UIViewController {
 	private func triggerGamepadLayerViewTranslationHapticFeedback() {
 		gestureDragHapticFeedbackGenerator.impactOccurred()
 		gestureDragDeltaSinceLatestHapticFeedback = .zero
+	}
+
+	private func flashInformation(
+		for state: State,
+		atBottom: Bool = false
+	) {
+		if MiscellaneousSettings.current.showHints {
+			switch state {
+			case .normal:
+				informationView.show(hint: "Three finger swipe ↓ for Gamepad mode, ↑ for Keyboard mode", atBottom: atBottom)
+			case .showingGamepad:
+				informationView.show(
+					title: gamepadSettingsName,
+					hint: "Three finger swipe ↓ to edit, ← or → to switch layout, ↑ to dismiss",
+					atBottom: atBottom
+				)
+			case .editingGamepad:
+				informationView.show(
+					title: "Editing \(gamepadSettingsName)",
+					hint: "Three finger swipe ↑ to exit edit mode", atBottom: atBottom
+				)
+			case .showingKeyboard:
+				informationView.show(hint: "Three finger swipe ↓ to dismiss", atBottom: atBottom)
+			}
+		} else if state == .showingGamepad {
+			informationView.show(
+				title: gamepadSettingsName,
+				atBottom: atBottom
+			)
+		}
 	}
 
 	private func presentAlertForEditingButtonMapping(at position: GamepadButtonPosition) {
@@ -440,7 +470,9 @@ public class OverlayViewController: UIViewController {
 		}
 
 		let alertVC = UIAlertController(title: "Name layout", message: nil, preferredStyle: .alert)
-		alertVC.addTextField()
+		alertVC.addTextField() { textField in
+			textField.autocapitalizationType = .words
+		}
 		alertVC.addAction(.init(title: "Cancel", style: .cancel))
 		alertVC.addAction(.init(title: "OK", style: .default, handler: { [weak self] _ in
 			guard let self,
@@ -455,8 +487,6 @@ public class OverlayViewController: UIViewController {
 
 			gamepadLayerView.load(config: gamepadConfig)
 			gamepadSettings = gamepadSettings.replaceCurrentConfig(with: gamepadConfig)
-
-			informationView.set(text: text)
 		}))
 
 		present(alertVC, animated: true)

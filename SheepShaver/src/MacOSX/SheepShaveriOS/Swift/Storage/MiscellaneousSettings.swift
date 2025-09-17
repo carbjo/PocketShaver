@@ -6,16 +6,12 @@
 //
 
 class MiscellaneousSettings: Codable {
-	var hasDismissedSetupInstructions: Bool
+	private(set) var hasDismissedSetupInstructions: Bool
+	private(set) var showHints: Bool
 
 	init() {
 		hasDismissedSetupInstructions = false
-	}
-
-	private init(
-		hasDismissedSetupInstructions: Bool
-	) {
-		self.hasDismissedSetupInstructions = hasDismissedSetupInstructions
+		showHints = true
 	}
 
 	@MainActor
@@ -39,6 +35,13 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func reportHasDismissedSetupInstructions() {
 		hasDismissedSetupInstructions = true
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(showHints: Bool) {
+		self.showHints = showHints
 
 		saveAsCurrent()
 	}

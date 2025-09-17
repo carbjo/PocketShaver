@@ -681,3 +681,98 @@ class PreferencesGeneralIPadMouseCell: UITableViewCell {
 		didChangeSelection(isOn)
 	}
 }
+
+class PreferencesGeneralHintsSettingCell: UITableViewCell {
+	private lazy var enabledIndicationView: UIView = {
+		UIView.withoutConstraints()
+	}()
+
+	private lazy var titleLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.lineBreakMode = .byWordWrapping
+		label.text = "Show hints"
+		return label
+	}()
+
+	private lazy var enabledSwitch: UISwitch = {
+		let uiSwitch = UISwitch.withoutConstraints()
+		uiSwitch.addTarget(self, action: #selector(enabledValueChanged), for: .touchUpInside)
+		return uiSwitch
+	}()
+
+	private let didSetIsEnabled: ((Bool) -> Void)
+
+	init(
+		isOn: Bool,
+		didSetIsEnabled: @escaping ((Bool) -> Void)
+	) {
+		self.didSetIsEnabled = didSetIsEnabled
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		enabledSwitch.isOn = isOn
+
+		contentView.addSubview(enabledIndicationView)
+		contentView.addSubview(titleLabel)
+		contentView.addSubview(enabledSwitch)
+
+		NSLayoutConstraint.activate([
+			enabledIndicationView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+			enabledIndicationView.topAnchor.constraint(equalTo: contentView.topAnchor),
+			enabledIndicationView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+			enabledIndicationView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+
+			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+
+			enabledSwitch.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 12),
+			enabledSwitch.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+			enabledSwitch.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+			enabledSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8)
+		])
+
+		updateEnabledIndicationView()
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	private func updateEnabledIndicationView() {
+		enabledIndicationView.backgroundColor = enabledSwitch.isOn ? .veryLightGreen : .white
+	}
+
+	@objc private func enabledValueChanged() {
+		updateEnabledIndicationView()
+
+		didSetIsEnabled(enabledSwitch.isOn)
+	}
+}
+
+class PreferencesGeneralHintsFooterCell: UITableViewCell {
+	private lazy var informationLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.lineBreakMode = .byWordWrapping
+		label.font = .systemFont(ofSize: 14)
+		label.textColor = .darkGray
+		label.text = "Gamepad layout names are shown even when hints are turned off."
+		return label
+	}()
+
+	init() {
+		super.init(style: .default, reuseIdentifier: nil)
+
+		hideSeparator()
+
+		contentView.addSubview(informationLabel)
+
+		NSLayoutConstraint.activate([
+			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
+		])
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+}
