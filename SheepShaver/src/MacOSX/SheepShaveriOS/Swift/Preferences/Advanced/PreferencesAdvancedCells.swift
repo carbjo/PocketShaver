@@ -15,20 +15,20 @@ class PreferencesAdvancedRomCell: UITableViewCell {
 		return view
 	}()
 
+	private lazy var titleLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.font = .systemFont(ofSize: 15)
+		label.textColor = .darkGray
+		return label
+	}()
+
 	private lazy var selectRomFileButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .primaryActionConfig
 		button.setTitle("Change ROM file", for: .normal)
 		button.addTarget(self, action: #selector(selectRomFileButtonPushed), for: .touchUpInside)
 		return button
-	}()
-
-	private lazy var subtitleLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.font = .systemFont(ofSize: 15)
-		label.textColor = .darkGray
-		return label
 	}()
 
 	private let didTapSelectRomButton: (() -> Void)
@@ -45,18 +45,19 @@ class PreferencesAdvancedRomCell: UITableViewCell {
 
 		contentView.addSubview(containerView)
 		containerView.addSubview(selectRomFileButton)
-		containerView.addSubview(subtitleLabel)
+		containerView.addSubview(titleLabel)
 
 		NSLayoutConstraint.activate([
+			titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
+			titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+
+
 			selectRomFileButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			selectRomFileButton.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
+			selectRomFileButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
 			selectRomFileButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
 			selectRomFileButton.heightAnchor.constraint(equalToConstant: 44),
-
-			subtitleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			subtitleLabel.topAnchor.constraint(equalTo: selectRomFileButton.bottomAnchor, constant: 16),
-			subtitleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-			subtitleLabel.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
+			selectRomFileButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
 
 			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
 			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
@@ -71,7 +72,7 @@ class PreferencesAdvancedRomCell: UITableViewCell {
 
 	func configure(with romType: RomType) {
 		if romType == .invalid {
-			subtitleLabel.attributedText = NSAttributedString(string: "Current '\(RomManager.romFilename)' file does not pass validation")
+			titleLabel.attributedText = NSAttributedString(string: "Current '\(RomManager.romFilename)' file does not pass validation")
 			return
 		}
 
@@ -86,7 +87,7 @@ class PreferencesAdvancedRomCell: UITableViewCell {
 		)
 		attributedString.append(attributedRomTypeString)
 
-		subtitleLabel.attributedText = attributedString
+		titleLabel.attributedText = attributedString
 	}
 
 	@objc
