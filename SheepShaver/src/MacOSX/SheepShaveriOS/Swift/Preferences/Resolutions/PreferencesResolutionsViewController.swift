@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import Combine
 
 class PreferencesResolutionsViewController: UITableViewController {
 	@MainActor
@@ -15,6 +16,16 @@ class PreferencesResolutionsViewController: UITableViewController {
 		case pixelAlignedResolutions
 		case standardWidthOrHeightResolutions
 	}
+
+	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
+
+	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
+		self.changeSubject = changeSubject
+
+		super.init(nibName: nil, bundle: nil)
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
@@ -142,11 +153,14 @@ extension PreferencesResolutionsViewController { // UITableViewDataSource
 					present(alertVC, animated: true)
 				}
 			) { [weak self] newOption, setIsOn in
+				guard let self else { return }
+
 				MonitorResolutionManager.shared.setIsResolutionEnabled(
 					newOption,
 					isEnabled: setIsOn
 				)
-				self?.updateInformationCellResolutionCount()
+				updateInformationCellResolutionCount()
+				changeSubject.send(.changeRequiringRestartAfterBootMade)
 			}
 		}
 	}

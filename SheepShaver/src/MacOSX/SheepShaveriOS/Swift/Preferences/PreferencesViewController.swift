@@ -14,6 +14,11 @@ import Combine
 
 @objc
 public class PreferencesViewController: UIViewController {
+	enum Mode {
+		case startup
+		case duringEmulation
+	}
+
 	enum Tab: Int, CaseIterable {
 		case general
 		case resolutions
@@ -59,23 +64,31 @@ public class PreferencesViewController: UIViewController {
 	}()
 
 	private lazy var resolutionsVC: PreferencesResolutionsViewController = {
-		PreferencesResolutionsViewController()
+		PreferencesResolutionsViewController(changeSubject: model.changeSubject)
 	}()
 
 	private lazy var gamepadVC: PreferencesGamepadViewController = {
-		PreferencesGamepadViewController()
+		PreferencesGamepadViewController(changeSubject: model.changeSubject)
 	}()
 
 	private lazy var advancedVC: PreferencesAdvancedViewController = {
-		PreferencesAdvancedViewController()
+		PreferencesAdvancedViewController(changeSubject: model.changeSubject)
 	}()
 
 	private var anyCancellables = Set<AnyCancellable>()
 
-	@objc
-	public private(set) var isDone: Bool = false
+	private let mode: Mode
+	@objc public private(set) var isDone: Bool = false
 
 	private var displayedViewController: UIViewController?
+
+	init(mode: Mode) {
+		self.mode = mode
+
+		super.init(nibName: nil, bundle: nil)
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
 
 	public override func viewDidLoad() {
 		super.viewDidLoad()
@@ -171,20 +184,32 @@ public class PreferencesViewController: UIViewController {
 		model.changeSubject.sink{ [weak self] change in
 			guard let self else { return }
 			switch change {
-			case .changeRequiringRestartMade:
+			case .changeRequiringRestartBeforeBootMade:
 				model.needsRestart = true
-				bottomButton.setTitle("Restart", for: .normal)
+				updateBottomButton()
+			case .changeRequiringRestartAfterBootMade:
+				if mode == .duringEmulation {
+					model.needsRestart = true
+					updateBottomButton()
+				}
 			}
 		}.store(in: &anyCancellables)
 	}
 
 	private func updateBottomButton() {
-		guard !model.needsRestart else {
+		if model.needsRestart {
+			bottomButton.setTitle("Restart", for: .normal)
 			return
 		}
 
-		let title = UIScreen.isPortraitMode ? "Boot (portrait mode)" : "Boot (landscape mode)"
-		bottomButton.setTitle(title, for: .normal)
+		switch mode {
+		case .startup:
+			let title = UIScreen.isPortraitMode ? "Boot (portrait mode)" : "Boot (landscape mode)"
+			bottomButton.setTitle(title, for: .normal)
+		case .duringEmulation:
+			let title = "Done"
+			bottomButton.setTitle(title, for: .normal)
+		}
 	}
 
 	private func boot() {
@@ -217,11 +242,16 @@ public class PreferencesViewController: UIViewController {
 			message: "SheepShaver needs to restart for the changes to take effect",
 			preferredStyle: .alert
 		)
-		alertVC.addAction(.init(title: "Ok", style: .default, handler: { _ in
-			Task {
+		alertVC.addAction(.init(title: "Restart", style: .default, handler: { _ in
+			Task { @MainActor in
 				await UNUserNotificationCenter.current().scheduleRebootNotificationAndQuit()
 			}
 		}))
+		if mode == .duringEmulation {
+			alertVC.addAction(.init(title: "Later", style: .cancel, handler: { [weak self] _ in
+				self?.dismiss(animated: true)
+			}))
+		}
 		present(alertVC, animated: true)
 	}
 
@@ -234,16 +264,22 @@ public class PreferencesViewController: UIViewController {
 	private func bottomButtonTapped() {
 		PreferencesManager.shared.writePreferences()
 
-		if !model.needsRestart {
-			boot()
-		} else {
+		if model.needsRestart {
 			displayNeedsRestartDialogue()
+			return
+		}
+
+		switch mode {
+		case .startup:
+			boot()
+		case .duringEmulation:
+			dismiss(animated: true)
 		}
 	}
 
 	@objc
-	public static func present() -> Self {
-		let vc = Self()
+	public static func present() -> PreferencesViewController {
+		let vc = PreferencesViewController(mode: .startup)
 
 		prefsWindow.windowLevel = .normal
 		prefsWindow.makeKeyAndVisible()
@@ -251,5 +287,11 @@ public class PreferencesViewController: UIViewController {
 		prefsWindow.rootViewController = vc
 
 		return vc
+	}
+
+	@objc
+	public static func resetPrefsWindow() {
+		prefsWindow.rootViewController = nil
+		prefsWindow.isHidden = true
 	}
 }
