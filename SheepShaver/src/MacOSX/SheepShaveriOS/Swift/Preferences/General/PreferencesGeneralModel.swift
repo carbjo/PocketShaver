@@ -57,7 +57,7 @@ class PreferencesGeneralModel {
 		set {
 			PreferencesGeneralRamSetting.current = newValue
 			
-			changeSubject.send(.changeRequiringRestartMade)
+			changeSubject.send(.changeRequiringRestartBeforeBootMade)
 		}
 	}
 
@@ -68,6 +68,8 @@ class PreferencesGeneralModel {
 		set {
 			objc_replaceBool("ipadmousepassthrough", newValue)
 			objc_update_sdl_ipad_mouse_setting()
+
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
@@ -83,11 +85,13 @@ class PreferencesGeneralModel {
 	@MainActor
 	func didSelectRomCandidate(url: URL) async throws {
 		try await RomManager.shared.didSelectRomCandidate(url: url)
+		changeSubject.send(.changeRequiringRestartAfterBootMade)
 	}
 
 	@MainActor
 	func forceSelectTmpRom() throws {
 		try RomManager.shared.forceSelectTmpRom()
+		changeSubject.send(.changeRequiringRestartAfterBootMade)
 	}
 
 	@MainActor
@@ -163,6 +167,8 @@ class PreferencesGeneralModel {
 
 		disk.isEnabled = isEnabled
 		DiskManager.shared.set(disk)
+
+		changeSubject.send(.changeRequiringRestartAfterBootMade)
 	}
 
 	@MainActor
@@ -173,6 +179,8 @@ class PreferencesGeneralModel {
 
 		disk.isCdRom = isCdRom
 		DiskManager.shared.set(disk)
+
+		changeSubject.send(.changeRequiringRestartAfterBootMade)
 	}
 }
 

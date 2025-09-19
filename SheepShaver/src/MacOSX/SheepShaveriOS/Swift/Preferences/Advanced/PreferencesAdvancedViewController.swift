@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import Combine
 
 class PreferencesAdvancedViewController: UITableViewController {
 	enum SectionType: CaseIterable {
@@ -14,7 +15,15 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case setupInstructions
 	}
 
-	private let model = PreferencesAdvancedModel()
+	private let model: PreferencesAdvancedModel
+
+	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
+		model = .init(changeSubject: changeSubject)
+
+		super.init(nibName: nil, bundle: nil)
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
