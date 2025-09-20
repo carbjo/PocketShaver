@@ -12,6 +12,7 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		let stackView = UIStackView.withoutConstraints()
 		stackView.axis = .horizontal
 		stackView.spacing = 8
+		stackView.distribution = .fill
 		return stackView
 	}()
 
@@ -29,6 +30,19 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 	private lazy var leftShiftButton: UIButton = {
 		createButton(title: "⇧")
+	}()
+
+	private lazy var preferencesButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.setImage(
+			.init(resource: .gearshape).applyingSymbolConfiguration(.init(pointSize: 12)),
+			for: .normal
+		)
+		button.configuration = buttonConfig()
+		button.backgroundColor = .gray
+		button.layer.cornerRadius = 8
+		button.addTarget(self, action: #selector(preferencesButtonPushed), for: .touchUpInside)
+		return button
 	}()
 
 	private lazy var rightStackView: UIStackView = {
@@ -56,6 +70,7 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 	private var pushKey: ((Int) -> Void)?
 	private var releaseKey: ((Int) -> Void)?
+	private var didTapPreferencesButton: (() -> Void)?
 
 	init() {
 		super.init(
@@ -69,16 +84,25 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		)
 
 		addSubview(leftStackView)
-		leftStackView.addArrangedSubview(leftCmdButton)
-		leftStackView.addArrangedSubview(leftOptButton)
-		leftStackView.addArrangedSubview(leftCtrlButton)
-		leftStackView.addArrangedSubview(leftShiftButton)
-
 		addSubview(rightStackView)
-		rightStackView.addArrangedSubview(rightShiftButton)
-		rightStackView.addArrangedSubview(rightCtrlButton)
-		rightStackView.addArrangedSubview(rightOptButton)
-		rightStackView.addArrangedSubview(rightCmdButton)
+
+
+		if UIScreen.isPortraitMode {
+			leftStackView.addArrangedSubview(leftCmdButton)
+			leftStackView.addArrangedSubview(leftOptButton)
+			rightStackView.addArrangedSubview(preferencesButton)
+			rightStackView.addArrangedSubview(rightCtrlButton)
+			rightStackView.addArrangedSubview(rightShiftButton)
+		} else {
+			leftStackView.addArrangedSubview(leftCmdButton)
+			leftStackView.addArrangedSubview(leftOptButton)
+			leftStackView.addArrangedSubview(leftCtrlButton)
+			leftStackView.addArrangedSubview(leftShiftButton)
+
+			rightStackView.addArrangedSubview(preferencesButton)
+			rightStackView.addArrangedSubview(rightShiftButton)
+			rightStackView.addArrangedSubview(rightCmdButton)
+		}
 
 		NSLayoutConstraint.activate([
 			leftStackView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 16),
@@ -123,10 +147,12 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 	func configure(
 		pushKey: ((Int) -> Void)?,
-		releaseKey: ((Int) -> Void)?
+		releaseKey: ((Int) -> Void)?,
+		didTapPreferencesButton: (() -> Void)?
 	) {
 		self.pushKey = pushKey
 		self.releaseKey = releaseKey
+		self.didTapPreferencesButton = didTapPreferencesButton
 	}
 
 	@objc private func cmdPushed() {
@@ -159,6 +185,10 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 	@objc private func shiftReleased() {
 		releaseKey?(SDLKey.shift.enValue)
+	}
+
+	@objc private func preferencesButtonPushed() {
+		didTapPreferencesButton?()
 	}
 
 	private func createButton(title: String) -> UIButton {
