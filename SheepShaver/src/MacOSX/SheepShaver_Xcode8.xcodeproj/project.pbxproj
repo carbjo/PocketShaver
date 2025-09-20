@@ -83,6 +83,7 @@
 		5DF4CB7F22B5BD5D00512A86 /* audio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4CB7E22B5BD5D00512A86 /* audio.cpp */; };
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
 		C70B65E52E7A7BEA0039680A /* MiscellaneousSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */; };
+		C7158EBD2E7EA050006D06CC /* SheepShaver.png in Resources */ = {isa = PBXBuildFile; fileRef = C7158EBC2E7EA050006D06CC /* SheepShaver.png */; };
 		C71F9B162E3A1D010088601A /* Storage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F9B152E3A1CFE0088601A /* Storage.swift */; };
 		C72739C92E2BAA6500B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */; };
 		C73660E02E34C85D0055AA91 /* GamepadLayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */; };
@@ -229,7 +230,6 @@
 		E204B9CB28BC7BF10081FDCA /* SSPreferencesViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9A128BC7BF10081FDCA /* SSPreferencesViewController.mm */; };
 		E204B9CD28BC7BF10081FDCA /* SSDiskTableViewCell.m in Sources */ = {isa = PBXBuildFile; fileRef = E204B9A328BC7BF10081FDCA /* SSDiskTableViewCell.m */; };
 		E204B9CE28BC7BF10081FDCA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E204B9A428BC7BF10081FDCA /* Assets.xcassets */; };
-		E204B9CF28BC7BF10081FDCA /* happy mac 512x512.png in Resources */ = {isa = PBXBuildFile; fileRef = E204B9A528BC7BF10081FDCA /* happy mac 512x512.png */; };
 		E204B9D028BC7BF10081FDCA /* ViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = E204B9A628BC7BF10081FDCA /* ViewController.m */; };
 		E204B9D128BC7BF10081FDCA /* SceneDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = E204B9A728BC7BF10081FDCA /* SceneDelegate.m */; };
 		E204B9D228BC7BF10081FDCA /* SSPreferencesHardwareViewController.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9A828BC7BF10081FDCA /* SSPreferencesHardwareViewController.mm */; };
@@ -543,6 +543,7 @@
 		A7B1921218C35D4700791D8D /* DiskType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DiskType.h; sourceTree = "<group>"; };
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
 		C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiscellaneousSettings.swift; sourceTree = "<group>"; };
+		C7158EBC2E7EA050006D06CC /* SheepShaver.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = SheepShaver.png; sourceTree = "<group>"; };
 		C71F9B152E3A1CFE0088601A /* Storage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage.swift; sourceTree = "<group>"; };
 		C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldKeyboardAccessoryView.swift; sourceTree = "<group>"; };
 		C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadLayerView.swift; sourceTree = "<group>"; };
@@ -614,7 +615,6 @@
 		E204B9A128BC7BF10081FDCA /* SSPreferencesViewController.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = SSPreferencesViewController.mm; sourceTree = "<group>"; };
 		E204B9A328BC7BF10081FDCA /* SSDiskTableViewCell.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = SSDiskTableViewCell.m; sourceTree = "<group>"; };
 		E204B9A428BC7BF10081FDCA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		E204B9A528BC7BF10081FDCA /* happy mac 512x512.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "happy mac 512x512.png"; sourceTree = "<group>"; };
 		E204B9A628BC7BF10081FDCA /* ViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = ViewController.m; sourceTree = "<group>"; };
 		E204B9A728BC7BF10081FDCA /* SceneDelegate.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = SceneDelegate.m; sourceTree = "<group>"; };
 		E204B9A828BC7BF10081FDCA /* SSPreferencesHardwareViewController.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = SSPreferencesHardwareViewController.mm; sourceTree = "<group>"; };
@@ -1494,8 +1494,8 @@
 				E204B9BA28BC7BF10081FDCA /* Default.png */,
 				E2A5817528C7C633005C7373 /* DiskTypeiOS.h */,
 				E2A5817628C7C633005C7373 /* DiskTypeiOS.m */,
-				E204B9A528BC7BF10081FDCA /* happy mac 512x512.png */,
 				E204B9C128BC7BF10081FDCA /* Info.plist */,
+				C7158EBC2E7EA050006D06CC /* SheepShaver.png */,
 				E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */,
 				E204B9AA28BC7BF10081FDCA /* LaunchScreen.storyboard */,
 				E2F38C2228C470CC00FB98B4 /* Localizable.strings */,
@@ -1737,10 +1737,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C7158EBD2E7EA050006D06CC /* SheepShaver.png in Resources */,
 				E204B9CE28BC7BF10081FDCA /* Assets.xcassets in Resources */,
 				E2F38C2328C470CC00FB98B4 /* Localizable.strings in Resources */,
 				E204B9DB28BC7BF10081FDCA /* Default.png in Resources */,
-				E204B9CF28BC7BF10081FDCA /* happy mac 512x512.png in Resources */,
 				E204B9C828BC7BF10081FDCA /* SSPreferencesDisksViewController.xib in Resources */,
 				E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */,
 				E204B92E28BC3EBE0081FDCA /* SheepShaver.icns in Resources */,
@@ -2435,7 +2435,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = "$(ARCHS_STANDARD)";
-				ASSETCATALOG_COMPILER_APPICON_NAME = "Happy mac";
+				ASSETCATALOG_COMPILER_APPICON_NAME = SheepShaverAppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -2550,7 +2550,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = "$(ARCHS_STANDARD)";
-				ASSETCATALOG_COMPILER_APPICON_NAME = "Happy mac";
+				ASSETCATALOG_COMPILER_APPICON_NAME = SheepShaverAppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
