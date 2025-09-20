@@ -47,7 +47,8 @@ extension GamepadButtonAssignment {
 		case .key(let sdlKey):
 			switch sdlKey {
 			case .tab: return "TAB"
-			case .return: return "RETURN"
+			case .enter: return "ENTER"
+			case .space: return "SPACE"
 			case .backspace: return "BACKSPACE"
 			case .delete: return "DELETE"
 			case .shift: return "SHIFT"

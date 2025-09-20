@@ -23,10 +23,9 @@ class PreferencesModel {
 	var needsRestart = false
 
 	init() {
-		objc_update_sdl_ipad_mouse_setting()
-		
 		Task { @MainActor in
-			MonitorResolutionManager.shared
+			_ = MonitorResolutionManager.shared
+			objc_update_sdl_ipad_mouse_setting(MiscellaneousSettings.current.iPadMousePassthrough)
 		}
 	}
 
