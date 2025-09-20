@@ -55,7 +55,7 @@ void objc_replaceBool(NSString * _Nonnull name, BOOL value);
 #ifdef __cplusplus
 extern "C"
 #endif
-void objc_update_sdl_ipad_mouse_setting(void);
+void objc_update_sdl_ipad_mouse_setting(BOOL);
 
 #ifdef __cplusplus
 extern "C"

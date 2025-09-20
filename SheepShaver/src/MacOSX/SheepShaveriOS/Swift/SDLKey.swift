@@ -60,7 +60,7 @@ enum SDLKey: String, Codable, CaseIterable {
 	case slash
 
 	case tab
-	case `return`
+	case enter
 	case space
 	case backspace
 
@@ -186,7 +186,7 @@ extension SDLKey {
 		case .period: return "."
 		case .slash: return "/"
 		case .tab: return "⇥"
-		case .`return`: return "⏎"
+		case .enter: return "⏎"
 		case .space: return "␣"
 		case .backspace: return "⌫"
 		case .delete: return "⌦"
@@ -312,7 +312,7 @@ extension SDLKey {
 		case .slash: return 0x2c
 
 		case .tab: return 0x30
-		case .`return`: return 0x24
+		case .enter: return 0x24
 		case .space: return 0x31
 		case .backspace: return 0x33
 
