@@ -67,6 +67,9 @@ public class OverlayViewController: UIViewController {
 			releaseKey: { [weak self] key in
 				self?.keyInteraction(key, false)
 			},
+			didTapPreferencesButton: { [weak self] in
+				self?.presentPreferences()
+			},
 			hiddenInputFieldDelegate: hiddenInputFieldDelegate
 		)
 	}()
@@ -412,6 +415,11 @@ public class OverlayViewController: UIViewController {
 				atBottom: atBottom
 			)
 		}
+	}
+
+	private func presentPreferences() {
+		let vc = PreferencesViewController(mode: .duringEmulation)
+		present(vc, animated: true)
 	}
 
 	private func presentAlertForEditingButtonMapping(at position: GamepadButtonPosition) {

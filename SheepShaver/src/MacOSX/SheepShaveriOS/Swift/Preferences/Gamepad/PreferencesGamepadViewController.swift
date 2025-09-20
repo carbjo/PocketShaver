@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import Combine
 
 class PreferencesGamepadViewController: UITableViewController {
 	@MainActor
@@ -17,6 +18,16 @@ class PreferencesGamepadViewController: UITableViewController {
 	private var gamepadConfigs: [GamepadConfig] {
 		GamepadSettings.current.configurations
 	}
+
+	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
+
+	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
+		self.changeSubject = changeSubject
+
+		super.init(nibName: nil, bundle: nil)
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
 
 	override func viewDidLoad() {
 		super.viewDidLoad()

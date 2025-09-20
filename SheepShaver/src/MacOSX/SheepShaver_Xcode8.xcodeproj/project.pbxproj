@@ -1281,9 +1281,18 @@
 			isa = PBXGroup;
 			children = (
 				C71F9B152E3A1CFE0088601A /* Storage.swift */,
-				C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */,
 			);
 			path = Storage;
+			sourceTree = "<group>";
+		};
+		C7158EB22E7E7D8C006D06CC /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */,
+				C70B65E32E7A7BD00039680A /* Storage */,
+				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
+			);
+			path = Utils;
 			sourceTree = "<group>";
 		};
 		C73660EB2E3647600055AA91 /* Gamepad */ = {
@@ -1391,8 +1400,7 @@
 				C73660E32E34DCE30055AA91 /* Extensions.swift */,
 				C7E2AFB72E16C54E00CF50D4 /* Overlay */,
 				C7F42CD02E5B1BB100FA7169 /* Preferences */,
-				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
-				C70B65E32E7A7BD00039680A /* Storage */,
+				C7158EB22E7E7D8C006D06CC /* Utils */,
 			);
 			path = Swift;
 			sourceTree = "<group>";

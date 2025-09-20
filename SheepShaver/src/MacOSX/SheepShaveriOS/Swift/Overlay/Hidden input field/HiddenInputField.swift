@@ -11,6 +11,7 @@ class HiddenInputField: UITextField {
 	init(
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void),
+		didTapPreferencesButton: @escaping (() -> Void),
 		hiddenInputFieldDelegate: HiddenInputFieldDelegate
 	) {
 		super.init(frame: .zero)
@@ -22,7 +23,11 @@ class HiddenInputField: UITextField {
 		spellCheckingType = .no
 		delegate = hiddenInputFieldDelegate
 		let accessoryView = HiddenInputFieldKeyboardAccessoryView.withoutConstraints()
-		accessoryView.configure(pushKey: pushKey, releaseKey: releaseKey)
+		accessoryView.configure(
+			pushKey: pushKey,
+			releaseKey: releaseKey,
+			didTapPreferencesButton: didTapPreferencesButton
+		)
 		inputAccessoryView = accessoryView
 	}
 	

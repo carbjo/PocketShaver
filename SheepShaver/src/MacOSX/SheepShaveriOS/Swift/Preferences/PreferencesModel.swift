@@ -13,7 +13,8 @@ enum PreferencesError: Error {
 }
 
 enum PreferencesChange {
-	case changeRequiringRestartMade
+	case changeRequiringRestartBeforeBootMade
+	case changeRequiringRestartAfterBootMade
 }
 
 class PreferencesModel {

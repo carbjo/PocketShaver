@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 
 class PreferencesAdvancedModel {
 	struct Option {
@@ -17,6 +18,8 @@ class PreferencesAdvancedModel {
 		let option: Option
 		let isOn: Bool
 	}
+
+	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
 
 	let optionsInitialStates: [OptionInitialState]
 
@@ -35,7 +38,7 @@ class PreferencesAdvancedModel {
 		RomManager.shared.currentRomFileType
 	}
 
-	init() {
+	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
 		let options: [Option] = [
 			.init(title: "Allow CPU To Idle", prefsIdentifier: "idlewait"),
 			.init(title: "Ignore Illegal Instructions", prefsIdentifier: "ignoreillegal"),
@@ -52,20 +55,24 @@ class PreferencesAdvancedModel {
 			)
 		}
 
+		self.changeSubject = changeSubject
 		self.optionsInitialStates = optionsInitialStates
 	}
 
 	@MainActor
 	func didSelectRomCandidate(url: URL) async throws {
 		try await RomManager.shared.didSelectRomCandidate(url: url)
+		changeSubject.send(.changeRequiringRestartAfterBootMade)
 	}
 
 	@MainActor
 	func forceSelectTmpRom() throws {
 		try RomManager.shared.forceSelectTmpRom()
+		changeSubject.send(.changeRequiringRestartAfterBootMade)
 	}
 
 	func didSet(option: Option, isOn: Bool) {
 		objc_replaceBool(option.prefsIdentifier, isOn)
+		changeSubject.send(.changeRequiringRestartAfterBootMade)
 	}
 }

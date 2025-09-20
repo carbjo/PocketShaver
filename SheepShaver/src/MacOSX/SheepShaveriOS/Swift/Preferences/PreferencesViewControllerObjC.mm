@@ -9,21 +9,14 @@
 #import "SheepShaveriOS-Swift.h"
 
 void objc_displayPreferences(void) {
-	__weak __typeof(PreferencesViewController) *vc = [PreferencesViewController present];
-
 	@autoreleasepool {
+		__weak __typeof(PreferencesViewController) *vc = [PreferencesViewController present];
+
 		while (!vc.isDone) {
 			[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
 		}
+
+		[vc removeFromParentViewController];
+		[PreferencesViewController resetPrefsWindow];
 	}
-
-	NSLog(@"- Went past while loop \n");
-
-	/**
-
-	 [[SSPreferencesViewController sharedPreferencesViewController] removeFromParentViewController];
-	 prefsWindow().rootViewController = nil;
-	 prefsWindow().hidden = YES;
-
-	 */
 }
