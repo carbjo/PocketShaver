@@ -8,10 +8,12 @@
 class MiscellaneousSettings: Codable {
 	private(set) var hasDismissedSetupInstructions: Bool
 	private(set) var showHints: Bool
+	private(set) var iPadMousePassthrough: Bool
 
 	init() {
 		hasDismissedSetupInstructions = false
 		showHints = true
+		iPadMousePassthrough = false
 	}
 
 	@MainActor
@@ -42,6 +44,13 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(showHints: Bool) {
 		self.showHints = showHints
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(iPadMousePassthrough: Bool) {
+		self.iPadMousePassthrough = iPadMousePassthrough
 
 		saveAsCurrent()
 	}

@@ -105,7 +105,7 @@ class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
 		case "9": key = .n9
 		case "0": key = .n0
 		case " ": key = .space
-		case "\n": key = .return
+		case "\n": key = .enter
 		case "": key = .backspace
 		case "+": key = .kpPlus
 		case "-": key = .minus

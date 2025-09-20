@@ -38,7 +38,7 @@ class DiskManager {
 	@MainActor static let shared = DiskManager()
 
 	static let supportedFileExtensions = ["dsk", "dmg", "cdr", "iso", "toast", "img"]
-	static let assumedCdRomFileExtensions = ["cdr", "toast"]
+	static let assumedCdRomFileExtensions = ["iso", "cdr", "toast"]
 
 	private(set) var diskArray = [Disk]()
 

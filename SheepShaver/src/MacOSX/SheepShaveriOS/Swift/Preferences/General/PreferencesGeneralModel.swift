@@ -61,13 +61,14 @@ class PreferencesGeneralModel {
 		}
 	}
 
+	@MainActor
 	var isIPadMouseEnabled: Bool {
 		get {
-			objc_findBool("ipadmousepassthrough")
+			MiscellaneousSettings.current.iPadMousePassthrough
 		}
 		set {
-			objc_replaceBool("ipadmousepassthrough", newValue)
-			objc_update_sdl_ipad_mouse_setting()
+			MiscellaneousSettings.current.set(iPadMousePassthrough: newValue)
+			objc_update_sdl_ipad_mouse_setting(newValue)
 
 			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
