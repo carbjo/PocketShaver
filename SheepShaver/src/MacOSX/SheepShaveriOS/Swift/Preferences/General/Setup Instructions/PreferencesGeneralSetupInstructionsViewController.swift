@@ -26,7 +26,7 @@ class PreferencesSetupInstructionsCell: UITableViewCell {
 
 5. Critical for when installing Mac OS 8.0 or higher: In the Mac OS Installer app, at <b>Install software</b> step (not 'Select destination' step), Click button <b>Options...</b> and uncheck <b>Update Apple Hard Disk Drivers</b>. If you do not do this, there is a high risk the installation will get completely stuck in the beginning on a phase with title 'Updating Apple Hard Disk Drivers'.
 
-6. Restart SheepShaver, un-toggle Mount for Mac OS installation CD and boot.
+6. Restart PocketShaver, un-toggle Mount for Mac OS installation CD and boot.
 
 7. If audio is not working, you have to explicitly select <b>Built-in</b> as Sound out option in the <b>Sound</b> control panel (not 'Sound and monitors'), which, depending on Mac OS version, is either in <b>System Folder → Control Panels</b> or <b>Apple Extras → Sound Control Panel</b>.
 """.withBoldTagsReplacedWith(
