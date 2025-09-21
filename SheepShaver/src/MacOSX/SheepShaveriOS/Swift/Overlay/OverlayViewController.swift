@@ -7,19 +7,19 @@
 
 import UIKit
 
+enum OverlayState {
+	case normal
+	case showingKeyboard
+	case showingGamepad
+	case editingGamepad
+}
+
 @objc
 public class OverlayViewController: UIViewController {
 
-	private enum State {
-		case normal
-		case showingKeyboard
-		case showingGamepad
-		case editingGamepad
-	}
+	@MainActor private static var globalState: OverlayState = .normal
 
-	@MainActor private static var globalState: State = .normal
-
-	private var state: State {
+	private var state: OverlayState {
 		get {
 			Self.globalState
 		}
@@ -28,10 +28,19 @@ public class OverlayViewController: UIViewController {
 		}
 	}
 
-	private let gestureInputView = GestureInputView.withoutConstraints()
-	private var gestureDragDelta: CGVector = .zero
-	private var gestureDragDeltaSinceLatestHapticFeedback: CGVector = .zero
-	private var gestureDragHapticFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
+	private lazy var gestureInputView: GestureInputView = {
+		let view = GestureInputView(state: state)
+		view.translatesAutoresizingMaskIntoConstraints = false
+		return view
+	}()
+
+	private var threeFingerGestureDragDelta: CGVector = .zero
+	private var threeFingerGestureDragDeltaSinceLatestHapticFeedback: CGVector = .zero
+
+	private var sdlViewVerticalOffset: CGFloat = .zero
+	private var twoFingerGestureDragDeltaSinceLatestHapticFeedback: CGFloat = .zero
+
+	private var dragHapticFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
 	private lazy var gamepadLayerView: GamepadLayerView = {
 		GamepadLayerView(
@@ -192,116 +201,120 @@ public class OverlayViewController: UIViewController {
 		nextGamepadLayerView.load(config: gamepadSettings.next.config)
 	}
 
-	private func transition(to state: State) {
+	private func transition(to state: OverlayState) {
 		self.state = state
 		switch state {
 		case .normal:
+			sdlViewVerticalOffset = .zero
+			offsetSDLViewVertically(sdlViewVerticalOffset)
 			hiddenInputField.resignFirstResponder()
 			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 			previousGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 			nextGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+			gestureInputView.set(state: state)
 		case .showingGamepad:
 			gamepadLayerView.transform = .identity
 			previousGamepadLayerView.transform = .identity
 			nextGamepadLayerView.transform = .identity
 			gamepadLayerView.set(isEditing: false)
-			gestureInputView.set(isEditing: false)
+			gestureInputView.set(state: state)
 		case .showingKeyboard:
 			hiddenInputField.becomeFirstResponder()
 			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 			previousGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 			nextGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+			gestureInputView.set(state: state)
 		case .editingGamepad:
 			gamepadLayerView.transform = .identity
 			previousGamepadLayerView.transform = .identity
 			nextGamepadLayerView.transform = .identity
 			gamepadLayerView.set(isEditing: true)
-			gestureInputView.set(isEditing: true)
+			gestureInputView.set(state: state)
 		}
 	}
 
 	private func setupGestureInputView() {
-		gestureInputView.reportDragProgress = { [weak self] delta in
+		gestureInputView.reportThreeFingerDragProgress = { [weak self] delta in
 			guard let self else { return }
 
-			gestureDragDelta += delta
-			gestureDragDeltaSinceLatestHapticFeedback += delta
+			threeFingerGestureDragDelta += delta
+			threeFingerGestureDragDeltaSinceLatestHapticFeedback += delta
 
-			if gestureDragDeltaSinceLatestHapticFeedback.abs > 60 {
-				triggerGamepadLayerViewTranslationHapticFeedback()
+			if threeFingerGestureDragDeltaSinceLatestHapticFeedback.abs > 60 {
+				triggerDragHapticFeedback()
 			}
 
 			switch state {
 			case .normal:
-				let x = gestureDragDelta.dx
-				let y = gestureDragDelta.dy - self.view.frame.size.height
+				let x = threeFingerGestureDragDelta.dx
+				let y = threeFingerGestureDragDelta.dy - self.view.frame.size.height
 				gamepadLayerView.transform = .init(translationX: x, y: y)
 			case .showingGamepad:
-				let x = gestureDragDelta.dx
-				let y = gestureDragDelta.dy
+				let x = threeFingerGestureDragDelta.dx
+				let y = threeFingerGestureDragDelta.dy
 				gamepadLayerView.transform = .init(translationX: x, y: y)
 				previousGamepadLayerView.transform = .init(translationX: x, y: y)
 				nextGamepadLayerView.transform = .init(translationX: x, y: y)
 			case .editingGamepad:
-				let x = gestureDragDelta.dx
-				let y = gestureDragDelta.dy
+				let x = threeFingerGestureDragDelta.dx
+				let y = threeFingerGestureDragDelta.dy
 				gamepadLayerView.transform = .init(translationX: x, y: y)
 			default:
 				break
 			}
 		}
 
-		gestureInputView.didBeginGesture = {
+		gestureInputView.didBeginThreeFingerGesture = {
 			UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
 		}
 
-		gestureInputView.didReleaseGesture = { [weak self] in
+		gestureInputView.didReleaseThreeFingerGesture = { [weak self] in
 			guard let self else { return }
 
 			let threshold = view.frame.height / 6
 
 			var willTranslateInLongAxis = false
 			if self.state == .showingGamepad {
-				let absDx = abs(self.gestureDragDelta.dx)
-				let absDy = abs(self.gestureDragDelta.dy)
+				let absDx = abs(self.threeFingerGestureDragDelta.dx)
+				let absDy = abs(self.threeFingerGestureDragDelta.dy)
 				willTranslateInLongAxis = UIScreen.isPortraitMode ? absDx < absDy : absDx > absDy
 			}
 
-			let resultingState: State
+			let resultingState: OverlayState
 			switch self.state {
 			case .normal:
-				if self.gestureDragDelta.dy > threshold {
+				if self.threeFingerGestureDragDelta.dy > threshold {
 					resultingState = .showingGamepad
-				} else if self.gestureDragDelta.dy < -threshold {
+				} else if self.threeFingerGestureDragDelta.dy < -threshold {
 					resultingState = .showingKeyboard
 				} else {
 					resultingState = .normal
 				}
 			case .showingGamepad:
-				if abs(self.gestureDragDelta.dy) > abs(self.gestureDragDelta.dx) {
-					if self.gestureDragDelta.dy > threshold {
+				if abs(self.threeFingerGestureDragDelta.dy) > abs(self.threeFingerGestureDragDelta.dx) {
+					if self.threeFingerGestureDragDelta.dy > threshold {
 						resultingState = .editingGamepad
-					} else if self.gestureDragDelta.dy < -threshold {
+					} else if self.threeFingerGestureDragDelta.dy < -threshold {
 						resultingState = .normal
 					} else {
 						resultingState = .showingGamepad
 					}
 				} else {
-					if self.gestureDragDelta.dx > threshold {
+					if self.threeFingerGestureDragDelta.dx > threshold {
 						self.upcomingGamepadSettings = self.gamepadSettings.previoius
-					} else if self.gestureDragDelta.dx < -threshold {
+					} else if self.threeFingerGestureDragDelta.dx < -threshold {
 						self.upcomingGamepadSettings = self.gamepadSettings.next
 					}
 					resultingState = .showingGamepad
 				}
 			case .showingKeyboard:
-				if self.gestureDragDelta.dy > threshold {
+				if self.threeFingerGestureDragDelta.dy > threshold {
 					resultingState = .normal
 				} else {
 					resultingState = .showingKeyboard
 				}
 			case .editingGamepad:
-				if self.gestureDragDelta.dy < -threshold {
+				if self.threeFingerGestureDragDelta.dy < -threshold {
 					resultingState = .showingGamepad
 				} else {
 					resultingState = .editingGamepad
@@ -318,10 +331,10 @@ public class OverlayViewController: UIViewController {
 				animations: {
 					switch self.state {
 					case .showingGamepad:
-						if abs(self.gestureDragDelta.dy) <= abs(self.gestureDragDelta.dx) {
-							if self.gestureDragDelta.dx > threshold {
+						if abs(self.threeFingerGestureDragDelta.dy) <= abs(self.threeFingerGestureDragDelta.dx) {
+							if self.threeFingerGestureDragDelta.dx > threshold {
 								self.transitToPreviousGamepadLayout()
-							} else if self.gestureDragDelta.dx < -threshold {
+							} else if self.threeFingerGestureDragDelta.dx < -threshold {
 								self.transitToNextGamepadLayout()
 							} else {
 								self.transition(to: .showingGamepad)
@@ -344,8 +357,21 @@ public class OverlayViewController: UIViewController {
 				}
 			)
 
-			gestureDragDelta = .zero
+			threeFingerGestureDragDelta = .zero
 
+		}
+
+		gestureInputView.reportTwoFingerDragProgress = { [weak self] delta in
+			guard let self else { return }
+
+			sdlViewVerticalOffset += delta
+			twoFingerGestureDragDeltaSinceLatestHapticFeedback += delta
+
+			if abs(twoFingerGestureDragDeltaSinceLatestHapticFeedback) > 60 {
+				triggerDragHapticFeedback()
+			}
+
+			offsetSDLViewVertically(sdlViewVerticalOffset)
 		}
 	}
 
@@ -382,13 +408,14 @@ public class OverlayViewController: UIViewController {
 		}
 	}
 
-	private func triggerGamepadLayerViewTranslationHapticFeedback() {
-		gestureDragHapticFeedbackGenerator.impactOccurred()
-		gestureDragDeltaSinceLatestHapticFeedback = .zero
+	private func triggerDragHapticFeedback() {
+		dragHapticFeedbackGenerator.impactOccurred()
+		twoFingerGestureDragDeltaSinceLatestHapticFeedback = .zero
+		threeFingerGestureDragDeltaSinceLatestHapticFeedback = .zero
 	}
 
 	private func flashInformation(
-		for state: State,
+		for state: OverlayState,
 		atBottom: Bool = false
 	) {
 		if MiscellaneousSettings.current.showHints {
@@ -407,7 +434,7 @@ public class OverlayViewController: UIViewController {
 					hint: "Three finger swipe ↑ to exit edit mode", atBottom: atBottom
 				)
 			case .showingKeyboard:
-				informationView.show(hint: "Three finger swipe ↓ to dismiss", atBottom: atBottom)
+				informationView.show(hint: "Two finger swipe ↑ or ↓ to scroll screen\nThree finger swipe ↓ to dismiss", atBottom: atBottom)
 			}
 		} else if state == .showingGamepad {
 			informationView.show(
@@ -498,6 +525,24 @@ public class OverlayViewController: UIViewController {
 		}))
 
 		present(alertVC, animated: true)
+	}
+
+	private func offsetSDLViewVertically(_ offset: CGFloat) {
+		let sdlView = self.view.superview!
+
+		let screenHeight = UIScreen.main.bounds.height
+		let y: CGFloat
+		if offset > 0 {
+			y = 0
+		} else if offset < -screenHeight/2 {
+			y = -screenHeight/2
+		} else {
+			y = offset
+		}
+
+		let transform = CGAffineTransform(translationX: 0, y: y)
+		sdlView.transform = transform
+		self.view.transform = transform.inverted()
 	}
 }
 

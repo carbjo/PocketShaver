@@ -8,15 +8,30 @@
 import UIKit
 
 class GestureInputView: UIView {
+	enum DraggingMode {
+		case none
+		case twoFingers
+		case threeFingers
+	}
+
 	private var touchDictionary = [UITouch: CGPoint]()
-	private(set) var isDragging: Bool = false
-	private(set) var isEditing: Bool = false
+	private var draggingMode: DraggingMode = .none
+	private var state: OverlayState
 
-	var reportDragProgress: ((CGVector) -> Void)?
-	var didBeginGesture: (() -> Void)?
-	var didReleaseGesture: (() -> Void)?
+	var isDragging: Bool {
+		draggingMode != .none
+	}
 
-	init() {
+	var reportTwoFingerDragProgress: ((CGFloat) -> Void)?
+
+	var reportThreeFingerDragProgress: ((CGVector) -> Void)?
+	var didBeginThreeFingerGesture: (() -> Void)?
+	var didReleaseThreeFingerGesture: (() -> Void)?
+
+
+	init(state: OverlayState) {
+		self.state = state
+
 		super.init(frame: .zero)
 
 		isMultipleTouchEnabled = true
@@ -26,23 +41,27 @@ class GestureInputView: UIView {
 	required init?(coder: NSCoder) { fatalError() }
 
 	override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-		if !isEditing {
+		if state != .editingGamepad {
 			super.touchesBegan(touches, with: event)
 		}
 
 		for touch in touches {
 			touchDictionary[touch] = touch.location(in: self)
 		}
+
 		if touchDictionary.count >= 3 {
-			isDragging = true
-			didBeginGesture?()
-		}
+			draggingMode = .threeFingers
+			didBeginThreeFingerGesture?()
+		} else if state == .showingKeyboard,
+				  touchDictionary.count >= 2 {
+			draggingMode = .twoFingers
+		 }
 	}
 
 	override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
 		super.touchesMoved(touches, with: event)
 
-		if isDragging {
+		if draggingMode != .none {
 			var totalDeltaXUp: CGFloat = 0
 			var totalDeltaXDown: CGFloat = 0
 			var totalDeltaYUp: CGFloat = 0
@@ -72,9 +91,18 @@ class GestureInputView: UIView {
 
 				touchDictionary[touch] = .init(x: newXPos, y: newYPos)
 			}
+			
 			let totalDeltaX = totalDeltaXUp + totalDeltaXDown
 			let totalDeltaY = totalDeltaYUp + totalDeltaYDown
-			reportDragProgress?(.init(dx: totalDeltaX, dy: totalDeltaY))
+
+			switch draggingMode {
+			case .twoFingers:
+				reportTwoFingerDragProgress?(totalDeltaY)
+			case .threeFingers:
+				reportThreeFingerDragProgress?(.init(dx: totalDeltaX, dy: totalDeltaY))
+			default:
+				fatalError()
+			}
 		}
 	}
 
@@ -85,10 +113,10 @@ class GestureInputView: UIView {
 			touchDictionary[touch] = nil
 		}
 		if touchDictionary.isEmpty {
-			let wasDragging = isDragging
-			isDragging = false
-			if wasDragging {
-				didReleaseGesture?()
+			let wasThreeFingerDragging = draggingMode == .threeFingers
+			draggingMode = .none
+			if wasThreeFingerDragging {
+				didReleaseThreeFingerGesture?()
 			}
 		}
 	}
@@ -100,20 +128,23 @@ class GestureInputView: UIView {
 			touchDictionary[touch] = nil
 		}
 		if touchDictionary.isEmpty {
-			isDragging = false
-			didReleaseGesture?()
+			let wasThreeFingerDragging = draggingMode == .threeFingers
+			draggingMode = .none
+			if wasThreeFingerDragging {
+				didReleaseThreeFingerGesture?()
+			}
 		}
 	}
 
-	func set(isEditing: Bool) {
-		let wasEditing = self.isEditing
-		self.isEditing = isEditing
+	func set(state: OverlayState) {
+		let previousState = self.state
+		self.state = state
 
-		if !wasEditing && isEditing {
+		if previousState != .editingGamepad && state == .editingGamepad {
 			UIView.animate(withDuration: 0.3) {
 				self.backgroundColor = .darkGray.withAlphaComponent(0.8)
 			}
-		} else if wasEditing && !isEditing {
+		} else if previousState == .editingGamepad && state != .editingGamepad {
 			UIView.animate(withDuration: 0.3) {
 				self.backgroundColor = .darkGray.withAlphaComponent(0)
 			}
