@@ -512,6 +512,10 @@ extension OverlayViewController {
 			return
 		}
 
+		guard !sdlVC.children.contains(where: { $0 is OverlayViewController }) else {
+			return
+		}
+
 		let vc = OverlayViewController(
 			keyInteraction: keyInteraction,
 			specialButtonInteraction: specialButtonInteraction
