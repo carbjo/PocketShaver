@@ -83,7 +83,6 @@
 		5DF4CB7F22B5BD5D00512A86 /* audio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4CB7E22B5BD5D00512A86 /* audio.cpp */; };
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
 		C70B65E52E7A7BEA0039680A /* MiscellaneousSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */; };
-		C7158EBD2E7EA050006D06CC /* SheepShaver.png in Resources */ = {isa = PBXBuildFile; fileRef = C7158EBC2E7EA050006D06CC /* SheepShaver.png */; };
 		C71F9B162E3A1D010088601A /* Storage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F9B152E3A1CFE0088601A /* Storage.swift */; };
 		C72739C92E2BAA6500B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */; };
 		C73660E02E34C85D0055AA91 /* GamepadLayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */; };
@@ -120,6 +119,7 @@
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
 		C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */; };
 		C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */; };
+		C7F3E6F62E7FD2D300F9089E /* sheepicon.png in Resources */ = {isa = PBXBuildFile; fileRef = C7F3E6F52E7FD2D300F9089E /* sheepicon.png */; };
 		C7F42CCC2E5A0C8200FA7169 /* RamAllocFailedAlertViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCB2E5A0C6D00FA7169 /* RamAllocFailedAlertViewController.swift */; };
 		C7F42CCE2E5A0F6F00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCD2E5A0F6B00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm */; };
 		C7F42CD22E5B1BC700FA7169 /* PreferencesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CD12E5B1BC000FA7169 /* PreferencesViewController.swift */; };
@@ -543,7 +543,6 @@
 		A7B1921218C35D4700791D8D /* DiskType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DiskType.h; sourceTree = "<group>"; };
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
 		C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiscellaneousSettings.swift; sourceTree = "<group>"; };
-		C7158EBC2E7EA050006D06CC /* SheepShaver.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = SheepShaver.png; sourceTree = "<group>"; };
 		C71F9B152E3A1CFE0088601A /* Storage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage.swift; sourceTree = "<group>"; };
 		C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldKeyboardAccessoryView.swift; sourceTree = "<group>"; };
 		C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadLayerView.swift; sourceTree = "<group>"; };
@@ -586,6 +585,7 @@
 		C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OverlayViewControllerObjC.h; sourceTree = "<group>"; };
 		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
 		C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDLKey.swift; sourceTree = "<group>"; };
+		C7F3E6F52E7FD2D300F9089E /* sheepicon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = sheepicon.png; sourceTree = "<group>"; };
 		C7F42CCB2E5A0C6D00FA7169 /* RamAllocFailedAlertViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RamAllocFailedAlertViewController.swift; sourceTree = "<group>"; };
 		C7F42CCD2E5A0F6B00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RamAllocFailedAlertViewControllerObjC.mm; sourceTree = "<group>"; };
 		C7F42CCF2E5A0F7200FA7169 /* RamAllocFailedAlertViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RamAllocFailedAlertViewControllerObjC.h; sourceTree = "<group>"; };
@@ -1495,8 +1495,8 @@
 				E2A5817528C7C633005C7373 /* DiskTypeiOS.h */,
 				E2A5817628C7C633005C7373 /* DiskTypeiOS.m */,
 				E204B9C128BC7BF10081FDCA /* Info.plist */,
-				C7158EBC2E7EA050006D06CC /* SheepShaver.png */,
 				E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */,
+				C7F3E6F52E7FD2D300F9089E /* sheepicon.png */,
 				E204B9AA28BC7BF10081FDCA /* LaunchScreen.storyboard */,
 				E2F38C2228C470CC00FB98B4 /* Localizable.strings */,
 				E204B9AE28BC7BF10081FDCA /* main.mm */,
@@ -1737,12 +1737,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C7158EBD2E7EA050006D06CC /* SheepShaver.png in Resources */,
 				E204B9CE28BC7BF10081FDCA /* Assets.xcassets in Resources */,
 				E2F38C2328C470CC00FB98B4 /* Localizable.strings in Resources */,
 				E204B9DB28BC7BF10081FDCA /* Default.png in Resources */,
 				E204B9C828BC7BF10081FDCA /* SSPreferencesDisksViewController.xib in Resources */,
 				E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */,
+				C7F3E6F62E7FD2D300F9089E /* sheepicon.png in Resources */,
 				E204B92E28BC3EBE0081FDCA /* SheepShaver.icns in Resources */,
 				E2A5819828CAC275005C7373 /* Readme iOS build.rtf in Resources */,
 				E204B9E028BC7BF10081FDCA /* SSPreferencesIOViewController.xib in Resources */,
@@ -2186,6 +2186,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_PARAMETER = NO;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				SKIP_INSTALL = YES;
 			};
 			name = Debug;
 		};
@@ -2198,6 +2199,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_PARAMETER = NO;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				SKIP_INSTALL = YES;
 			};
 			name = Release;
 		};
@@ -2531,10 +2533,11 @@
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				OTHER_LDFLAGS = "-lresolv";
 				PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = NO;
-				PRODUCT_BUNDLE_IDENTIFIER = net.cebix.sheepshaver;
+				PRODUCT_BUNDLE_IDENTIFIER = com.carbjo.pocketshaver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
+				SKIP_INSTALL = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/SheepShaveriOS-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 6.0;
@@ -2645,10 +2648,11 @@
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				OTHER_LDFLAGS = "-lresolv";
 				PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = NO;
-				PRODUCT_BUNDLE_IDENTIFIER = net.cebix.sheepshaver;
+				PRODUCT_BUNDLE_IDENTIFIER = com.carbjo.pocketshaver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
+				SKIP_INSTALL = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/SheepShaveriOS-Bridging-Header.h";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

@@ -10,7 +10,7 @@
 	"No Boot ROM";
 
 "ROMRequestAlertMessage" =
-	"No Mac boot ROM files were found. Please obtain one from your legally-owned classic Mac, and use the Finder or iTunes File Sharing to put it into SheepShaver's file folder on your iOS device.";
+	"No Mac boot ROM files were found. Please obtain one from your legally-owned classic Mac, and use the Finder or iTunes File Sharing to put it into PocketShaver's file folder on your iOS device.";
 
 "Try again" =
 	"Try Again";

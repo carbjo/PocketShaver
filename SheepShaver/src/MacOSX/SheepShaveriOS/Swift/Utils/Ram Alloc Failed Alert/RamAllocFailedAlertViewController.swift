@@ -34,7 +34,7 @@ public class RamAllocFailedAlertViewController: UIViewController {
 
 		let alertVC = UIAlertController(
 			title: "The operating system refused the RAM memory allocation",
-			message: "The request for allocating \(sizeString) of RAM memory failed. SheepShaver needs to restart.\n\nUsually, one or two restarts will result in the operating system granting the RAM allocation.\n If not, consider lowering the amount of RAM in the settings.",
+			message: "The request for allocating \(sizeString) of RAM memory failed. PocketShaver needs to restart.\n\nUsually, one or two restarts will result in the operating system granting the RAM allocation.\n If not, consider lowering the amount of RAM in the settings.",
 			preferredStyle: .alert
 		)
 

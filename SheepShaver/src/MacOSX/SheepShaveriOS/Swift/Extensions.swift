@@ -185,7 +185,7 @@ extension UITableViewCell {
 extension UNUserNotificationCenter {
 	func scheduleRebootNotificationAndQuit() async {
 		let content = UNMutableNotificationContent()
-		content.body = "Tap to restart SheepShaver"
+		content.body = "Tap to restart PocketShaver"
 
 		let oneSecondIntoTheFuture = Date(timeInterval: 1, since: Date())
 		let trigger = UNTimeIntervalNotificationTrigger(timeInterval: oneSecondIntoTheFuture.timeIntervalSinceNow, repeats: false)
