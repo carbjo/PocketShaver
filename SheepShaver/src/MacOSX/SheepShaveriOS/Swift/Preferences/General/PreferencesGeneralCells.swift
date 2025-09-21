@@ -140,7 +140,7 @@ class PreferencesGeneralRomCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = .darkGray
-		label.text = "Tap button below to select ROM File. Alternativetly, you can place a ROM file named 'Mac OS ROM' in the root of SheepShaver share folder. After a ROM is set, it can be changed later in Advanced tab."
+		label.text = "Tap button below to select ROM File. Alternativetly, you can place a ROM file named 'Mac OS ROM' in the root of PocketShaver share folder. After a ROM is set, it can be changed later in Advanced tab."
 		return label
 	}()
 
@@ -433,7 +433,7 @@ class PreferencesGeneralDiskSectionActionsCell: UITableViewCell {
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = .darkGray
 		let supportedFormatsString = DiskManager.supportedFileExtensions.map({ ".\($0)" }).joined(separator: ", ")
-		label.text = "Disks placed in the root of SheepShaver share folder will appear here. Supported formats: \(supportedFormatsString)."
+		label.text = "Disks placed in the root of PocketShaver share folder will appear here. Supported formats: \(supportedFormatsString)."
 		return label
 	}()
 
@@ -584,7 +584,7 @@ class PreferencesGeneralRamStepperCell: UITableViewCell {
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = .darkGray
-		label.text = "Changes in RAM value requires SheepShaver to restart"
+		label.text = "Changes in RAM value requires PocketShaver to restart"
 		return label
 	}()
 
