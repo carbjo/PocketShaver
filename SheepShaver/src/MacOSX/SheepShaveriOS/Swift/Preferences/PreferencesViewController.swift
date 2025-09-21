@@ -239,7 +239,7 @@ public class PreferencesViewController: UIViewController {
 	private func displayNeedsRestartDialogue() {
 		let alertVC = UIAlertController(
 			title: "Restart needed",
-			message: "SheepShaver needs to restart for the changes to take effect",
+			message: "PocketShaver needs to restart for the changes to take effect",
 			preferredStyle: .alert
 		)
 		alertVC.addAction(.init(title: "Restart", style: .default, handler: { _ in
