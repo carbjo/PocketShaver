@@ -57,6 +57,12 @@ user_string_def common_strings[] = {
 	{STR_START_BUTTON, "Start"},
 	{STR_QUIT_BUTTON, "Quit"},
 	{STR_CANCEL_BUTTON, "Cancel"},
+	{STR_CONTINUE_BUTTON, "Continue"},
+	{STR_SELECT_BUTTON, "Select"},
+	{STR_CREATE_BUTTON, "Create"},
+	{STR_APP_NAME, "BasiliskII"},
+	{STR_APP_DISPLAY_NAME, "Basilisk II"},
+	{STR_APP_ID, "net.cebix.BasiliskII"},
 
 	{STR_NO_MEM_ERR, "Not enough free memory."},
 	{STR_NOT_ENOUGH_MEMORY_ERR, "Your computer does not have enough memory to run Basilisk II."},
@@ -91,6 +97,9 @@ user_string_def common_strings[] = {
 	{STR_CREATE_VOLUME_BUTTON, "Create" ELLIPSIS},
 	{STR_EDIT_VOLUME_BUTTON, "Edit" ELLIPSIS},
 	{STR_REMOVE_VOLUME_BUTTON, "Remove"},
+	{STR_VOL_HEADING_LOCATION, "Location"},
+	{STR_VOL_HEADING_CDROM, "CD-ROM"},
+	{STR_VOL_HEADING_SIZE, "Size"},
 	{STR_ADD_VOLUME_PANEL_BUTTON, "Add"},
 	{STR_CREATE_VOLUME_PANEL_BUTTON, "Create"},
 	{STR_CDROM_DRIVE_CTRL, "CD-ROM Drive"},
@@ -102,7 +111,7 @@ user_string_def common_strings[] = {
 	{STR_DEVICE_CTRL, "Device"},
 	{STR_UNIT_CTRL, "Unit"},
 	{STR_ADD_VOLUME_TITLE, "Add Volume"},
-	{STR_CREATE_VOLUME_TITLE, "Create Hardfile"},
+	{STR_CREATE_VOLUME_TITLE, "Create Volume File"},
 	{STR_EDIT_VOLUME_TITLE, "Edit Volume"},
 	{STR_HARDFILE_SIZE_CTRL, "Size (MB)"},
 	{STR_VOL_READONLY_CTRL, "Read-Only"},
@@ -183,6 +192,10 @@ user_string_def common_strings[] = {
 	{STR_DIRECT3D_LAB, "Direct3D"},
 	{STR_GRAPHICS_SDL_VSYNC_CTRL, "Vertical Sync (Software)"},
 	{STR_DEFAULT_LAB, "Default"},
+	{STR_SDL_SCALING, "Scaling (SDL)"},
+	{STR_SCALE_FACTOR, "Scale factor:"},
+	{STR_SCALE_NEAREST, "Nearest"},
+	{STR_SCALE_INTEGER, "Integer Scaling"},
 
 	{STR_SERIAL_NETWORK_PANE_TITLE, "Serial/Network"},
 	{STR_SERIALA_CTRL, "Modem Port"},
@@ -231,16 +244,20 @@ user_string_def common_strings[] = {
 	{STR_JIT_FOLLOW_CONST_JUMPS, "Translate through constant jumps (inline blocks)"},
 
 	{STR_WINDOW_TITLE, "Basilisk II"},
-	{STR_WINDOW_TITLE_GRABBED0, " (mouse grabbed, press "},
-	{STR_WINDOW_TITLE_GRABBED1, "Ctrl-"},
+	{STR_WINDOW_TITLE_GRABBED_PRE, " (mouse grabbed, press "},
+	{STR_WINDOW_TITLE_GRABBED1, "Ctrl+"},
 #ifdef __APPLE__
-	{STR_WINDOW_TITLE_GRABBED2, "Opt-"},
-	{STR_WINDOW_TITLE_GRABBED3, "Cmd-"},
+	{STR_WINDOW_TITLE_GRABBED2, "Opt+"},
+	{STR_WINDOW_TITLE_GRABBED4, "Cmd+"},
 #else
-	{STR_WINDOW_TITLE_GRABBED2, "Alt-"},
-	{STR_WINDOW_TITLE_GRABBED3, "Win-"},
+	{STR_WINDOW_TITLE_GRABBED2, "Alt+"},
 #endif
-	{STR_WINDOW_TITLE_GRABBED4, "F5 to release)"},
+#ifdef __WIN32__
+	{STR_WINDOW_TITLE_GRABBED4, "Win+"},
+#elif !defined(__APPLE__)
+	{STR_WINDOW_TITLE_GRABBED4, "Super+"},
+#endif
+    {STR_WINDOW_TITLE_GRABBED_POST, "F5 to release)"},
 	{STR_WINDOW_MENU, "Basilisk II"},
 	{STR_WINDOW_ITEM_ABOUT, "About Basilisk II" ELLIPSIS},
 	{STR_WINDOW_ITEM_REFRESH, "Refresh Rate"},

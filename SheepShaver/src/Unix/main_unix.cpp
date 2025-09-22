@@ -92,6 +92,7 @@
 #include <sys/stat.h>
 #include <sys/param.h>
 #include <signal.h>
+#include <string>
 
 #include "sysdeps.h"
 #include "main.h"
@@ -126,16 +127,28 @@
 #include <SDL.h>
 #include <string>
 #include <SDL_main.h>
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
+#define SDL_PLATFORM_MACOS      __MACOSX__
+#endif
 #endif
 
 #ifndef USE_SDL_VIDEO
 #include <X11/Xlib.h>
 #endif
 
+#if SDL_PLATFORM_MACOS
+#include "utils_macosx.h"
+#endif
+
 #ifdef ENABLE_GTK
 #include <gtk/gtk.h>
-#if !defined(GDK_WINDOWING_QUARTZ) && !defined(GDK_WINDOWING_WAYLAND)
-#include <X11/Xlib.h>
+#include <gdk/gdk.h>
+#if GTK_CHECK_VERSION(3, 14, 0)
+#define ENABLE_GTK3
+#endif
+#if GTK_CHECK_VERSION(3, 22, 0)
+#define ENABLE_GTK_3_22
+#include "color_scheme.h"
 #endif
 #endif
 
@@ -211,7 +224,7 @@ uint8 *RAMBaseHost;		// Base address of Mac RAM (host address space)
 uint8 *ROMBaseHost;		// Base address of Mac ROM (host address space)
 uint32 ROMEnd;
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && (defined(__x86_64__) || defined(__aarch64__)) || defined(MEM_BULK)
 uint8 gZeroPage[0x3000], gKernelData[0x2000];
 #endif
 
@@ -242,6 +255,7 @@ static bool tick_thread_active = false;		// Flag: MacOS thread installed
 static volatile bool tick_thread_cancel;	// Flag: Cancel 60Hz thread
 static pthread_t tick_thread;				// 60Hz thread
 static pthread_t emul_thread;				// MacOS thread
+static int use_gui = -1;   					// Override prefs and show gui
 
 static bool ready_for_signals = false;		// Handler installed, signals can be sent
 
@@ -755,6 +769,12 @@ static bool init_sdl()
 	assert(sdl_flags != 0);
 
 #ifdef USE_SDL_VIDEO
+#if REAL_ADDRESSING && defined(GDK_WINDOWING_WAYLAND)
+	// Needed to fix a crash when using Wayland
+	// Forces use of XWayland instead
+	setenv("SDL_VIDEODRIVER", "x11", true);
+#endif
+
 	// Don't let SDL block the screensaver
 	setenv("SDL_VIDEO_ALLOW_SCREENSAVER", "1", true);
 
@@ -770,15 +790,22 @@ static bool init_sdl()
 	}
 	atexit(SDL_Quit);
 
-#if SDL_VERSION_ATLEAST(2,0,0)
+#if SDL_VERSION_ATLEAST(2, 0, 0)
 	const int SDL_EVENT_TIMEOUT = 100;
 	for (int i = 0; i < SDL_EVENT_TIMEOUT; i++) {
 		SDL_Event event;
 		SDL_PollEvent(&event);
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+		if (event.type == SDL_EVENT_DROP_FILE) {
+			sdl_vmdir = event.drop.data;
+			break;
+		}
+#else
 		if (event.type == SDL_DROPFILE) {
 			sdl_vmdir = event.drop.file;
 			break;
 		}
+#endif
 		SDL_Delay(1);
 	}
 #endif
@@ -790,6 +817,34 @@ static bool init_sdl()
 }
 #endif
 
+#ifdef ENABLE_GTK
+GtkWindow *win;
+
+static void gui_startup (void)
+{
+#ifdef ENABLE_GTK_3_22
+	color_scheme_set(APP_PREFERS_LIGHT);
+#endif
+	if (use_gui && !PrefsEditor())
+		QuitEmulator();
+#ifdef ENABLE_GTK_3_22
+	else
+		color_scheme_disconnect();
+#endif
+}
+
+#ifdef ENABLE_GTK3
+static void gui_activate (GtkApplication *app)
+{
+	g_assert (GTK_IS_APPLICATION (app));
+	win = gtk_application_get_active_window (app);
+	/* Ask the window manager/compositor to present the window. */
+	if (win != NULL)
+		gtk_window_present (win);
+}
+#endif
+#endif
+
 extern "C" {
 #if TARGET_OS_IPHONE
 int main_ios(int argc, char* argv[])
@@ -797,8 +852,9 @@ int main_ios(int argc, char* argv[])
 int main(int argc, char *argv[])
 #endif
 {
-#if defined(ENABLE_GTK) && !defined(GDK_WINDOWING_QUARTZ) && !defined(GDK_WINDOWING_WAYLAND)
-	XInitThreads();
+#ifdef ENABLE_GTK3
+	GtkApplication *app = NULL;
+	int ret;
 #endif
 	char str[256];
 	bool memory_mapped_from_zero, ram_rom_areas_contiguous;
@@ -823,8 +879,7 @@ int main(int argc, char *argv[])
 #endif
 #endif
 
-#if __MACOSX__
-	extern void set_current_directory();
+#if SDL_PLATFORM_MACOS
 	set_current_directory();
 #endif
 	
@@ -869,6 +924,26 @@ int main(int argc, char *argv[])
 				UserPrefsPath = argv[i];
 				argv[i] = NULL;
 			}
+		} else if (strcmp(argv[i], "--nogui") == 0) {
+			// We intercept the --nogui commandline so that the settings
+			// window can change the setting from the prefs file
+			argv[i++] = NULL;
+			if (i < argc) {
+				if (strcmp(argv[i], "true") == 0) {
+					use_gui = false;
+					argv[i] = NULL;
+				}
+				else if (strcmp(argv[i], "false") == 0) {
+					use_gui = true;
+					argv[i] = NULL;
+				}
+			} else {
+				use_gui = false;
+			}
+		} else if (strcmp(argv[i], "--gui") == 0 || strcmp(argv[i], "--settings") == 0) {
+			// Alternative commands to enter the GUI
+			use_gui = true;
+			argv[i] = NULL;
 		} else if (valid_vmdir(argv[i])) {
 			vmdir = argv[i];
 			argv[i] = NULL;
@@ -903,25 +978,19 @@ int main(int argc, char *argv[])
 		}
 	}
 
-#ifdef ENABLE_GTK
-	if (!gui_connection) {
-		// Init GTK
-		gtk_set_locale();
-		gtk_init(&argc, &argv);
-	}
-#endif
-
 	// Read preferences
 	PrefsInit(vmdir, argc, argv);
+	// Only use nogui preference if not passed as command line argument
+	if (use_gui == -1)
+		use_gui = !PrefsFindBool("nogui");
 
-#if __MACOSX__ && SDL_VERSION_ATLEAST(2,0,0)
+#if SDL_PLATFORM_MACOS && SDL_VERSION_ATLEAST(2,0,0)
 	// On Mac OS X hosts, SDL2 will create its own menu bar.  This is mostly OK,
 	// except that it will also install keyboard shortcuts, such as Command + Q,
 	// which can interfere with keyboard shortcuts in the guest OS.
 	//
 	// HACK: disable these shortcuts, while leaving all other pieces of SDL2's
 	// menu bar in-place.
-	extern void disable_SDL2_macosx_menu_bar_keyboard_shortcuts();
 	disable_SDL2_macosx_menu_bar_keyboard_shortcuts();
 #endif
 	
@@ -967,10 +1036,24 @@ int main(int argc, char *argv[])
 	// Init system routines
 	SysInit();
 
-	// Show preferences editor
-	if (!PrefsFindBool("nogui"))
-		if (!PrefsEditor())
-			goto quit;
+#ifdef ENABLE_GTK3
+	if (!gui_connection) {
+		// Init GTK
+		app = gtk_application_new (GetString(STR_APP_ID), G_APPLICATION_FLAGS_NONE);
+		g_set_prgname (GetString(STR_APP_DISPLAY_NAME));
+		g_signal_connect (app, "activate", G_CALLBACK (gui_activate), NULL);
+		g_signal_connect (app, "startup", G_CALLBACK (gui_startup), NULL);
+		g_application_register (G_APPLICATION (app), NULL, NULL);
+		ret = g_application_run (G_APPLICATION (app), argc, argv);
+	}
+#elif defined(ENABLE_GTK)
+	if (!gui_connection) {
+	// Init GTK
+		gtk_set_locale();
+		gtk_init(&argc, &argv);
+		gui_startup();
+	}
+#endif
 
 #if !EMULATED_PPC
 	// Check some things
@@ -985,7 +1068,7 @@ int main(int argc, char *argv[])
 		goto quit;
 	}
 
-#if (!defined(__APPLE__) || !defined(__x86_64__)) && !defined(TARGET_OS_IPHONE)
+#if !(defined(__APPLE__) && defined(__x86_64__) || defined(MEM_BULK)) && !defined(TARGET_OS_IPHONE)
 	// Create areas for Kernel Data
 	if (!kernel_data_init())
 		goto quit;
@@ -1040,7 +1123,7 @@ int main(int argc, char *argv[])
 	}
 #endif
 	if (!memory_mapped_from_zero) {
-#ifndef PAGEZERO_HACK
+#if !defined(PAGEZERO_HACK) && !defined(MEM_BULK)
 		// Create Low Memory area (0x0000..0x3000)
 		if (vm_mac_acquire_fixed(0, 0x3000) < 0) {
 			sprintf(str, GetString(STR_LOW_MEM_MMAP_ERR), strerror(errno));
@@ -1495,6 +1578,7 @@ static void *nvram_func(void *arg)
  *  60Hz thread (really 60.15Hz)
  */
 
+bool tick_inhibit;
 static void *tick_func(void *arg)
 {
 	int tick_counter = 0;
@@ -1511,6 +1595,7 @@ static void *tick_func(void *arg)
 			Delay_usec(delay);
 		else if (delay < -16625)
 			next = GetTicks_usec();
+		if (tick_inhibit) continue;
 		ticks++;
 
 #if !EMULATED_PPC
@@ -2067,7 +2152,7 @@ static void sigsegv_handler(int sig, siginfo_t *sip, void *scp)
 		}
 
 		// In GUI mode, show error alert
-		if (!PrefsFindBool("nogui")) {
+		if (use_gui) {
 			char str[256];
 			if (transfer_type == TYPE_LOAD || transfer_type == TYPE_STORE)
 				sprintf(str, GetString(STR_MEM_ACCESS_ERR), transfer_size == SIZE_BYTE ? "byte" : transfer_size == SIZE_HALFWORD ? "halfword" : "word", transfer_type == TYPE_LOAD ? GetString(STR_MEM_ACCESS_READ) : GetString(STR_MEM_ACCESS_WRITE), addr, r->pc(), r->gpr(24), r->gpr(1));
@@ -2246,7 +2331,7 @@ power_inst:		sprintf(str, GetString(STR_POWER_INSTRUCTION_ERR), r->pc(), r->gpr(
 		}
 
 		// In GUI mode, show error alert
-		if (!PrefsFindBool("nogui")) {
+		if (use_gui) {
 			sprintf(str, GetString(STR_UNKNOWN_SEGV_ERR), r->pc(), r->gpr(24), r->gpr(1), opcode);
 			ErrorAlert(str);
 			QuitEmulator();
@@ -2304,7 +2389,7 @@ bool SheepMem::Init(void)
 	page_size = getpagesize();
 
 	// Allocate SheepShaver globals
-#ifdef NATMEM_OFFSET
+#if defined(NATMEM_OFFSET) || defined(MEM_BULK)
 	if (vm_mac_acquire_fixed(ROM_BASE + ROM_AREA_SIZE + SIG_STACK_SIZE, size) < 0)
 		return false;
 	uint8 *adr = Mac2HostAddr(ROM_BASE + ROM_AREA_SIZE + SIG_STACK_SIZE);
@@ -2350,37 +2435,23 @@ void SheepMem::Exit(void)
  */
 
 #ifdef ENABLE_GTK
-static void dl_destroyed(void)
-{
-	gtk_main_quit();
-}
-
-static void dl_quit(GtkWidget *dialog)
+static GCallback dl_destroyed(GtkWidget *dialog)
 {
 	gtk_widget_destroy(dialog);
+	gtk_main_quit();
+	return NULL;
 }
 
 void display_alert(int title_id, int prefix_id, int button_id, const char *text)
 {
-	char str[256];
-	sprintf(str, GetString(prefix_id), text);
-
-	GtkWidget *dialog = gtk_dialog_new();
-	gtk_window_set_title(GTK_WINDOW(dialog), GetString(title_id));
-	gtk_container_border_width(GTK_CONTAINER(dialog), 5);
-	gtk_widget_set_uposition(GTK_WIDGET(dialog), 100, 150);
-	gtk_signal_connect(GTK_OBJECT(dialog), "destroy", GTK_SIGNAL_FUNC(dl_destroyed), NULL);
-
-	GtkWidget *label = gtk_label_new(str);
-	gtk_widget_show(label);
-	gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog)->vbox), label, TRUE, TRUE, 0);
-
-	GtkWidget *button = gtk_button_new_with_label(GetString(button_id));
-	gtk_widget_show(button);
-	gtk_signal_connect_object(GTK_OBJECT(button), "clicked", GTK_SIGNAL_FUNC(dl_quit), GTK_OBJECT(dialog));
-	gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog)->action_area), button, FALSE, FALSE, 0);
-	GTK_WIDGET_SET_FLAGS(button, GTK_CAN_DEFAULT);
-	gtk_widget_grab_default(button);
+	GtkWidget *dialog = gtk_message_dialog_new(NULL,
+	                                           GTK_DIALOG_MODAL,
+	                                           GTK_MESSAGE_WARNING,
+	                                           GTK_BUTTONS_NONE,
+	                                           GetString(title_id), NULL);
+	gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog), "%s", text);
+	gtk_dialog_add_button(GTK_DIALOG(dialog), GetString(button_id), GTK_RESPONSE_CLOSE);
+	g_signal_connect(dialog, "response", G_CALLBACK(dl_destroyed), NULL);
 	gtk_widget_show(dialog);
 
 	gtk_main();
@@ -2399,11 +2470,13 @@ void ErrorAlert(const char *text)
 			rpc_method_wait_for_reply(gui_connection, RPC_TYPE_INVALID) == RPC_ERROR_NO_ERROR)
 			return;
 	}
-#if defined(ENABLE_GTK) && !defined(USE_SDL_VIDEO)
-	if (PrefsFindBool("nogui") || x_display == NULL) {
+#ifdef ENABLE_GTK
+#ifndef USE_SDL_VIDEO
+	if (x_display == NULL) {
 		printf(GetString(STR_SHELL_ERROR_PREFIX), text);
 		return;
 	}
+#endif
 	VideoQuitFullScreen();
 	display_alert(STR_ERROR_ALERT_TITLE, STR_GUI_ERROR_PREFIX, STR_QUIT_BUTTON, text);
 #else
@@ -2423,11 +2496,13 @@ void WarningAlert(const char *text)
 			rpc_method_wait_for_reply(gui_connection, RPC_TYPE_INVALID) == RPC_ERROR_NO_ERROR)
 			return;
 	}
-#if defined(ENABLE_GTK) && !defined(USE_SDL_VIDEO)
-	if (PrefsFindBool("nogui") || x_display == NULL) {
+#ifdef ENABLE_GTK
+#ifndef USE_SDL_VIDEO
+	if (x_display == NULL) {
 		printf(GetString(STR_SHELL_WARNING_PREFIX), text);
 		return;
 	}
+#endif
 	display_alert(STR_WARNING_ALERT_TITLE, STR_GUI_WARNING_PREFIX, STR_OK_BUTTON, text);
 #else
 	printf(GetString(STR_SHELL_WARNING_PREFIX), text);

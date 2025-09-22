@@ -6,7 +6,18 @@
 */
 
 #include "SDL.h"
-#if (SDL_COMPILEDVERSION < SDL_VERSIONNUM(2, 0, 0)) // SDLMain.m is not needed in SDL 2.x
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+#define SDL_MAIN_NEEDED
+#include <SDL_main.h>
+#undef SDL_QUIT
+#define SDL_QUIT	SDL_EVENT_QUIT
+#else
+#ifdef main
+#undef main
+#endif
+#endif
+
+#if SDL_COMPILEDVERSION >= SDL_VERSIONNUM(1, 0, 0) && SDL_COMPILEDVERSION < SDL_VERSIONNUM(2, 0, 0) // SDLMain.m is not needed in SDL 2.x
 
 #include "SDLMain.h"
 #include <sys/param.h> /* for MAXPATHLEN */
@@ -356,9 +367,6 @@ static void CustomApplicationMain (int argc, char **argv)
 
 
 
-#ifdef main
-#  undef main
-#endif
 
 
 /* Main entry point to executable - should *not* be SDL_main! */

@@ -23,7 +23,9 @@
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
-
+#ifdef __MINGW64__
+#include <fenv.h>
+#endif
 #include "cpu/vm.hpp"
 #include "cpu/ppc/ppc-cpu.hpp"
 #include "cpu/ppc/ppc-bitfields.hpp"
@@ -587,7 +589,7 @@ void powerpc_cpu::execute_loadstore_multiple(uint32 opcode)
 	const uint32 a = RA::get(this, opcode);
 	const uint32 d = DP::get(this, opcode);
 	uint32 ea = a + d;
-
+/*
 	// FIXME: generate exception if ea is not word-aligned
 	if ((ea & 3) != 0) {
 #ifdef SHEEPSHAVER
@@ -598,7 +600,7 @@ void powerpc_cpu::execute_loadstore_multiple(uint32 opcode)
 		abort();
 #endif
 	}
-
+*/
 	int r = LD ? rD_field::extract(opcode) : rS_field::extract(opcode);
 	while (r <= 31) {
 		if (LD)

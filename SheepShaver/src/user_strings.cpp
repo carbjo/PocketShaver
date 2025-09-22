@@ -58,6 +58,12 @@ user_string_def common_strings[] = {
 	{STR_QUIT_BUTTON, "Quit"},
 	{STR_CANCEL_BUTTON, "Cancel"},
 	{STR_IGNORE_BUTTON, "Ignore"},
+	{STR_CONTINUE_BUTTON, "Continue"},
+	{STR_SELECT_BUTTON, "Select"},
+	{STR_CREATE_BUTTON, "Create"},
+	{STR_APP_NAME, "SheepShaver"},
+	{STR_APP_DISPLAY_NAME, "SheepShaver"},
+	{STR_APP_ID, "net.cebix.SheepShaver"},
 
 	{STR_NOT_ENOUGH_MEMORY_ERR, "Your computer does not have enough memory to run SheepShaver."},
 	{STR_NO_KERNEL_DATA_ERR, "Cannot create Kernel Data area: %s (%08x)."},
@@ -93,6 +99,9 @@ user_string_def common_strings[] = {
 	{STR_ADD_VOLUME_BUTTON, "Add" ELLIPSIS},
 	{STR_CREATE_VOLUME_BUTTON, "Create" ELLIPSIS},
 	{STR_REMOVE_VOLUME_BUTTON, "Remove"},
+	{STR_VOL_HEADING_LOCATION, "Location"},
+	{STR_VOL_HEADING_CDROM, "CD-ROM"},
+	{STR_VOL_HEADING_SIZE, "Size"},
 	{STR_ADD_VOLUME_PANEL_BUTTON, "Add"},
 	{STR_CREATE_VOLUME_PANEL_BUTTON, "Create"},
 	{STR_CDROM_DRIVE_CTRL, "CD-ROM Drive"},
@@ -101,8 +110,8 @@ user_string_def common_strings[] = {
 	{STR_BOOT_CDROM_LAB, "CD-ROM"},
 	{STR_NOCDROM_CTRL, "Disable CD-ROM Driver"},
 	{STR_ADD_VOLUME_TITLE, "Add Volume"},
-	{STR_CREATE_VOLUME_TITLE, "Create Hardfile"},
-	{STR_HARDFILE_SIZE_CTRL, "Size (MB)"},
+	{STR_CREATE_VOLUME_TITLE, "Create Volume File"},
+	{STR_HARDFILE_SIZE_CTRL, "Size (MiB)"},
 
 	{STR_GRAPHICS_SOUND_PANE_TITLE, "Graphics/Sound"},
 	{STR_FRAMESKIP_CTRL, "Window Refresh Rate"},
@@ -148,6 +157,10 @@ user_string_def common_strings[] = {
 	{STR_DIRECT3D_LAB, "Direct3D"},
 	{STR_GRAPHICS_SDL_VSYNC_CTRL, "Vertical Sync (Software)"},
 	{STR_DEFAULT_LAB, "Default"},
+	{STR_SDL_SCALING, "Scaling (SDL)"},
+	{STR_SCALE_FACTOR, "Scale factor:"},
+	{STR_SCALE_NEAREST, "Nearest"},
+	{STR_SCALE_INTEGER, "Integer Scaling"},
 
 	{STR_SERIAL_NETWORK_PANE_TITLE, "Serial/Network"},
 	{STR_SERPORTA_CTRL, "Modem Port"},
@@ -171,22 +184,29 @@ user_string_def common_strings[] = {
 	{STR_IGNORESEGV_CTRL, "Ignore Illegal Memory Accesses"},
 	{STR_IDLEWAIT_CTRL, "Don't Use CPU When Idle"},
 	{STR_ROM_FILE_CTRL, "ROM File"},
+	{STR_NOGUI_CTRL, "Don't show settings window on launch"},
+	{STR_NOGUI_TIP, "Tip: You can access the settings by right-clicking on the launcher icon." },
+	{STR_NOGUI_TIP2, "Tip: You can access the settings with the command: SheepShaver --nogui false" },
 
 	{STR_JIT_PANE_TITLE, "JIT Compiler"},
 	{STR_JIT_CTRL, "Enable JIT Compiler"},
 	{STR_JIT_68K_CTRL, "Enable built-in 68k DR Emulator (EXPERIMENTAL)"},
 
 	{STR_WINDOW_TITLE, "SheepShaver"},
-	{STR_WINDOW_TITLE_GRABBED0, " (mouse grabbed, press "},
-	{STR_WINDOW_TITLE_GRABBED1, "Ctrl-"},
+	{STR_WINDOW_TITLE_GRABBED_PRE, " (mouse grabbed, press "},
+	{STR_WINDOW_TITLE_GRABBED1, "Ctrl+"},
 #ifdef __APPLE__
-	{STR_WINDOW_TITLE_GRABBED2, "Opt-"},
-	{STR_WINDOW_TITLE_GRABBED3, "Cmd-"},
+	{STR_WINDOW_TITLE_GRABBED2, "Opt+"},
+	{STR_WINDOW_TITLE_GRABBED4, "Cmd+"},
 #else
-	{STR_WINDOW_TITLE_GRABBED2, "Alt-"},
-	{STR_WINDOW_TITLE_GRABBED3, "Win-"},
+	{STR_WINDOW_TITLE_GRABBED2, "Alt+"},
 #endif
-	{STR_WINDOW_TITLE_GRABBED4, "F5 to release)"},
+#ifdef __WIN32__
+	{STR_WINDOW_TITLE_GRABBED4, "Win+"},
+#elif !defined(__APPLE__)
+	{STR_WINDOW_TITLE_GRABBED4, "Super+"},
+#endif
+    {STR_WINDOW_TITLE_GRABBED_POST, "F5 to release)"},
 	{STR_WINDOW_MENU, "SheepShaver"},
 	{STR_WINDOW_ITEM_ABOUT, "About SheepShaver" ELLIPSIS},
 	{STR_WINDOW_ITEM_REFRESH, "Refresh Rate"},

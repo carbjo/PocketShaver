@@ -20,9 +20,66 @@
 
 #include "sysdeps.h"
 
-#include <stdlib.h>
+#include <string>
+using std::string;
 
 #include "xpram.h"
+
+
+#ifdef __linux__
+
+
+// XPRAM file name, set by LoadPrefs() in prefs_unix.cpp
+string xpram_name;
+
+/*
+ *  Load XPRAM from settings file
+ */
+
+void LoadXPRAM(const char* vmdir)
+{
+	assert(!xpram_name.empty());
+	int fd;
+	if ((fd = open(xpram_name.c_str(), O_RDONLY)) >= 0)
+	{
+		read(fd, XPRAM, XPRAM_SIZE);
+		close(fd);
+	}
+}
+
+/*
+ *  Save XPRAM to settings file
+ */
+
+void SaveXPRAM(void)
+{
+	assert(!xpram_name.empty());
+	int fd;
+	if ((fd = open(xpram_name.c_str(), O_WRONLY | O_CREAT, 0666)) >= 0)
+	{
+		write(fd, XPRAM, XPRAM_SIZE);
+		close(fd);
+	}
+	else
+	{
+		fprintf(stderr, "WARNING: Unable to save %s (%s)\n",
+		        xpram_name.c_str(), strerror(errno));
+	}
+}
+
+/*
+ *  Delete PRAM file
+ */
+
+void ZapPRAM(void)
+{
+	// Delete file
+	assert(!xpram_name.empty());
+	unlink(xpram_name.c_str());
+}
+
+
+#else	// __linux__
 
 
 // XPRAM file name and path
@@ -98,3 +155,7 @@ void ZapPRAM(void)
 	// Delete file
 	unlink(xpram_path);
 }
+
+
+#endif	// __linux__
+
