@@ -39,6 +39,11 @@
 #ifdef HAVE_SYS_POLL_H
 #include <sys/poll.h>
 #endif
+
+#ifdef __sun__
+#define BSD_COMP 1
+#endif
+
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 
@@ -66,7 +71,7 @@
 #include <map>
 #include <string>
 
-#if defined(__FreeBSD__) || defined(sgi) || (defined(__APPLE__) && defined(__MACH__))
+#if defined(__FreeBSD__) || defined (__sun__) || defined(sgi) || (defined(__APPLE__) && defined(__MACH__))
 #include <net/if.h>
 #endif
 
@@ -321,11 +326,14 @@ bool ether_init(void)
 	// Don't raise SIGPIPE, let errno be set to EPIPE
 	struct sigaction sigpipe_sa;
 	if (sigaction(SIGPIPE, NULL, &sigpipe_sa) == 0) {
-		assert(sigpipe_sa.sa_handler == SIG_DFL || sigpipe_sa.sa_handler == SIG_IGN);
-		sigfillset(&sigpipe_sa.sa_mask);
-		sigpipe_sa.sa_flags = 0;
-		sigpipe_sa.sa_handler = SIG_IGN;
-		sigaction(SIGPIPE, &sigpipe_sa, NULL);
+		if (sigpipe_sa.sa_handler == SIG_DFL || sigpipe_sa.sa_handler == SIG_IGN) {
+			sigfillset(&sigpipe_sa.sa_mask);
+			sigpipe_sa.sa_flags = 0;
+			sigpipe_sa.sa_handler = SIG_IGN;
+			sigaction(SIGPIPE, &sigpipe_sa, NULL);
+		}
+		// If something else in the process has installed a SIGPIPE handler (SDL kmsdrm?),
+		// and wants to eat our unwanted signals instead, that's fine too.
 	}
 
 #ifdef HAVE_SLIRP

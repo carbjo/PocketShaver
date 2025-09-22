@@ -51,14 +51,15 @@ $(SRCARCHIVE): $(SRCS) $(DOCS)
 links:
 	(cd src/Windows; if [ ! -e m4 ]; then ln -s ../../../BasiliskII/src/Unix/m4; fi)
 	@list='adb.cpp audio.cpp cdrom.cpp disk.cpp extfs.cpp pict.c \
-	       prefs.cpp scsi.cpp sony.cpp xpram.cpp \
+	       prefs.cpp scsi.cpp sony.cpp timer.cpp xpram.cpp \
 	       bincue.cpp include/bincue.h \
 	       include/adb.h include/audio.h include/audio_defs.h \
 	       include/cdrom.h include/clip.h include/debug.h include/disk.h \
 	       include/extfs.h include/extfs_defs.h include/pict.h \
-	       include/prefs.h include/scsi.h include/serial.h \
+	       include/prefs.h include/scsi.h include/serial.h include/prefs_editor.h \
 	       include/serial_defs.h include/sony.h include/sys.h \
-	       include/timer.h include/xpram.h \
+	       include/timer.h include/xpram.h include/color_scheme.h \
+	       include/my_sdl.h \
 	       BeOS/audio_beos.cpp BeOS/extfs_beos.cpp BeOS/scsi_beos.cpp \
 	       BeOS/serial_beos.cpp BeOS/sys_beos.cpp BeOS/timer_beos.cpp \
 	       BeOS/xpram_beos.cpp BeOS/SheepDriver BeOS/SheepNet \
@@ -66,9 +67,9 @@ links:
                CrossPlatform/video_vosf.h CrossPlatform/video_blit.h CrossPlatform/video_blit.cpp \
 	       Unix/audio_oss_esd.cpp \
 	       Unix/vhd_unix.cpp \
-	       Unix/extfs_unix.cpp Unix/serial_unix.cpp \
+	       Unix/extfs_unix.cpp Unix/serial_unix.cpp Unix/color_scheme.cpp \
 	       Unix/sshpty.h Unix/sshpty.c Unix/strlcpy.h Unix/strlcpy.c \
-	       Unix/sys_unix.cpp Unix/timer_unix.cpp Unix/xpram_unix.cpp \
+	       Unix/sys_unix.cpp Unix/timer_unix.cpp Unix/xpram_unix.cpp Unix/prefs_unix.cpp \
 	       Unix/semaphore.h Unix/posix_sem.cpp Unix/config.sub Unix/config.guess Unix/m4 \
 	       Unix/keycodes Unix/tunconfig Unix/clip_unix.cpp Unix/Irix/audio_irix.cpp \
 	       Unix/Linux/scsi_linux.cpp Unix/Linux/NetDriver Unix/ether_unix.cpp \
