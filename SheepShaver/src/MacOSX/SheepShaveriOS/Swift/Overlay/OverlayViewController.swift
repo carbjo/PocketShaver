@@ -95,10 +95,10 @@ public class OverlayViewController: UIViewController {
 	private let keyInteraction: ((Int, Bool) -> Void)
 	private let specialButtonInteraction: ((SpecialButton, Bool) -> Void)
 
-	private var gamepadSettings = GamepadSettings.current
-	private var upcomingGamepadSettings: GamepadSettings?
+	private var gamepadConfig = GamepadManager.shared.config
+	private var upcomingGamepadConfig: GamepadConfig?
 	private var gamepadSettingsName: String {
-		upcomingGamepadSettings?.config.name ?? gamepadSettings.config.name
+		upcomingGamepadConfig?.name ?? gamepadConfig.name
 	}
 
 	private init(
@@ -196,9 +196,9 @@ public class OverlayViewController: UIViewController {
 	}
 
 	private func loadGamepadSettings() {
-		gamepadLayerView.load(config: gamepadSettings.config)
-		previousGamepadLayerView.load(config: gamepadSettings.previoius.config)
-		nextGamepadLayerView.load(config: gamepadSettings.next.config)
+		gamepadLayerView.load(config: gamepadConfig)
+		previousGamepadLayerView.load(config: GamepadManager.shared.previousConfig)
+		nextGamepadLayerView.load(config: GamepadManager.shared.nextConfig)
 	}
 
 	private func transition(to state: OverlayState) {
@@ -301,9 +301,9 @@ public class OverlayViewController: UIViewController {
 					}
 				} else {
 					if self.threeFingerGestureDragDelta.dx > threshold {
-						self.upcomingGamepadSettings = self.gamepadSettings.previoius
+						self.upcomingGamepadConfig = GamepadManager.shared.previousConfig
 					} else if self.threeFingerGestureDragDelta.dx < -threshold {
-						self.upcomingGamepadSettings = self.gamepadSettings.next
+						self.upcomingGamepadConfig = GamepadManager.shared.nextConfig
 					}
 					resultingState = .showingGamepad
 				}
@@ -346,13 +346,14 @@ public class OverlayViewController: UIViewController {
 						self.transition(to: resultingState)
 					}
 				},
-				completion: { _ in
-					if let upcomingGamepadSettings = self.upcomingGamepadSettings {
-						upcomingGamepadSettings.saveAsCurrent()
-						self.gamepadSettings = upcomingGamepadSettings
-						self.upcomingGamepadSettings = nil
-						self.loadGamepadSettings()
-						self.transition(to: .showingGamepad)
+				completion: { [weak self] _ in
+					guard let self else { return }
+					if let upcomingGamepadConfig {
+						upcomingGamepadConfig.saveAsCurrent()
+						gamepadConfig = upcomingGamepadConfig
+						self.upcomingGamepadConfig = nil
+						loadGamepadSettings()
+						transition(to: .showingGamepad)
 					}
 				}
 			)
@@ -461,24 +462,21 @@ public class OverlayViewController: UIViewController {
 				vc.removeFromParent()
 				vc.view.removeFromSuperview()
 
-				var gamepadConfig = gamepadSettings.config
-
 				switch result {
 				case .assignment(let assignment):
 					switch assignment {
 					case .specialButton(let specialButton):
-						gamepadConfig = gamepadConfig.replacing(with: specialButton, at: position)
+						gamepadConfig.replace(with: specialButton, at: position)
 					case .key(let key):
-						gamepadConfig = gamepadConfig.replacing(with: key, at: position)
+						gamepadConfig.replace(with: key, at: position)
 					}
 				case .unassign:
-					gamepadConfig = gamepadConfig.removingAssignment(at: position)
+					gamepadConfig.removeAssignment(at: position)
 				default:
 					break
 				}
 
 				gamepadLayerView.load(config: gamepadConfig)
-				gamepadSettings = gamepadSettings.replaceCurrentConfig(with: gamepadConfig)
 			}
 		)
 
@@ -516,12 +514,9 @@ public class OverlayViewController: UIViewController {
 				return
 			}
 
-			var gamepadConfig = gamepadSettings.config
-
-			gamepadConfig = gamepadConfig.renaming(text)
+			gamepadConfig.set(name: text)
 
 			gamepadLayerView.load(config: gamepadConfig)
-			gamepadSettings = gamepadSettings.replaceCurrentConfig(with: gamepadConfig)
 		}))
 
 		present(alertVC, animated: true)
