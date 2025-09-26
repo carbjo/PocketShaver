@@ -117,6 +117,8 @@
 		C7C3D2772E781C270018DB8B /* PreferencesAdvancedModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2762E781C250018DB8B /* PreferencesAdvancedModel.swift */; };
 		C7C64B2B2E617DF200163200 /* DiskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2A2E617DF000163200 /* DiskManager.swift */; };
 		C7C64B2D2E617FB100163200 /* PrefsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */; };
+		C7DCEF3D2E86F55600EAED05 /* HapticFeedbackObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF3C2E86F54800EAED05 /* HapticFeedbackObjC.mm */; };
+		C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */; };
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
 		C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */; };
 		C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */; };
@@ -582,6 +584,10 @@
 		C7C64B2A2E617DF000163200 /* DiskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskManager.swift; sourceTree = "<group>"; };
 		C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PrefsObjC.mm; sourceTree = "<group>"; };
 		C7C64B2E2E617FC200163200 /* PrefsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PrefsObjC.h; sourceTree = "<group>"; };
+		C7DCEF3C2E86F54800EAED05 /* HapticFeedbackObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = HapticFeedbackObjC.mm; sourceTree = "<group>"; };
+		C7DCEF3E2E86F55C00EAED05 /* HapticFeedbackObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HapticFeedbackObjC.h; sourceTree = "<group>"; };
+		C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MiscellaneousSettingsObjC.mm; sourceTree = "<group>"; };
+		C7DCEF482E8704B000EAED05 /* MiscellaneousSettingsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MiscellaneousSettingsObjC.h; sourceTree = "<group>"; };
 		C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OverlayViewControllerObjC.mm; sourceTree = "<group>"; };
 		C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OverlayViewControllerObjC.h; sourceTree = "<group>"; };
 		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
@@ -1288,9 +1294,10 @@
 		C7158EB22E7E7D8C006D06CC /* Utils */ = {
 			isa = PBXGroup;
 			children = (
-				C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */,
+				C7DCEF452E8704A100EAED05 /* Miscellaneous */,
 				C70B65E32E7A7BD00039680A /* Storage */,
 				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
+				C7DCEF3B2E86F53B00EAED05 /* Haptic Feedback */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -1376,6 +1383,25 @@
 				C7C3D2702E76F86F0018DB8B /* GamepadAssignButtonCells.swift */,
 			);
 			path = "Assign Button";
+			sourceTree = "<group>";
+		};
+		C7DCEF3B2E86F53B00EAED05 /* Haptic Feedback */ = {
+			isa = PBXGroup;
+			children = (
+				C7DCEF3C2E86F54800EAED05 /* HapticFeedbackObjC.mm */,
+				C7DCEF3E2E86F55C00EAED05 /* HapticFeedbackObjC.h */,
+			);
+			path = "Haptic Feedback";
+			sourceTree = "<group>";
+		};
+		C7DCEF452E8704A100EAED05 /* Miscellaneous */ = {
+			isa = PBXGroup;
+			children = (
+				C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */,
+				C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */,
+				C7DCEF482E8704B000EAED05 /* MiscellaneousSettingsObjC.h */,
+			);
+			path = Miscellaneous;
 			sourceTree = "<group>";
 		};
 		C7E2AFB72E16C54E00CF50D4 /* Overlay */ = {
@@ -1991,6 +2017,8 @@
 				E204B95828BC3EBE0081FDCA /* sony.cpp in Sources */,
 				C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */,
 				C7F42CCE2E5A0F6F00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm in Sources */,
+				C7DCEF3D2E86F55600EAED05 /* HapticFeedbackObjC.mm in Sources */,
+				C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */,
 				E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */,
 				C7C3D26E2E76F3BC0018DB8B /* GamepadAssignButtonViewController.swift in Sources */,
 				E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */,
