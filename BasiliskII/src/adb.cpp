@@ -44,6 +44,7 @@
 #include <unistd.h>
 #include <cmath>
 
+#import "HapticFeedbackObjC.h"
 
 // Global variables
 static int mouse_x = 0, mouse_y = 0;							// Mouse position
@@ -55,6 +56,7 @@ static bool touch_input = false;
 static bool hover = false;
 static HoverMode hover_mode = Regular;
 static bool mouse_down = false;
+static bool haptic_feedback = false;
 
 static uint8 key_states[16];				// Key states (Mac keycodes)
 #define MATRIX(code) (key_states[code >> 3] & (1 << (~code & 7)))
@@ -287,6 +289,9 @@ void ADBMouseDown(int button)
 	if (hover)
 		return;
 
+	if (haptic_feedback)
+		objc_hapticFeedback();
+
 	if (touch_input)
 		usleep(20000); // To eliminate the simultanious "move mouse and click" race condition
 
@@ -358,6 +363,14 @@ void ADBSetHover(bool is_on)
 void ADBSetHoverMode(HoverMode mode)
 {
 	hover_mode = mode;
+}
+
+/*
+ *  Set haptic feedback on or off
+ */
+void ADBSetHapticFeedback(bool is_on)
+{
+	haptic_feedback = is_on;
 }
 
 /*

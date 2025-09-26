@@ -410,7 +410,9 @@ public class OverlayViewController: UIViewController {
 	}
 
 	private func triggerDragHapticFeedback() {
-		dragHapticFeedbackGenerator.impactOccurred()
+		if MiscellaneousSettings.current.gestureHapticFeedback {
+			dragHapticFeedbackGenerator.impactOccurred()
+		}
 		twoFingerGestureDragDeltaSinceLatestHapticFeedback = .zero
 		threeFingerGestureDragDeltaSinceLatestHapticFeedback = .zero
 	}

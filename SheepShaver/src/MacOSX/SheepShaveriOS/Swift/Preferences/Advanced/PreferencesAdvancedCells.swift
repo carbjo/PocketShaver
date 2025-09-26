@@ -107,16 +107,17 @@ class PreferencesAdvancedOptionCell: UITableViewCell {
 	private let didSetIsEnabled: ((Bool) -> Void)
 
 	init(
-		optionInitialState: PreferencesAdvancedModel.OptionInitialState,
+		title: String,
+		isOn: Bool,
 		didSetIsEnabled: @escaping ((Bool) -> Void)
 	) {
 		self.didSetIsEnabled = didSetIsEnabled
 
 		super.init(style: .default, reuseIdentifier: nil)
 
-		titleLabel.text = optionInitialState.option.title
+		titleLabel.text = title
 
-		enabledSwitch.isOn = optionInitialState.isOn
+		enabledSwitch.isOn = isOn
 
 		contentView.addSubview(enabledIndicationView)
 		contentView.addSubview(titleLabel)
