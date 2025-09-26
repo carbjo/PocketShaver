@@ -51,6 +51,8 @@ class PreferencesGeneralViewController: UITableViewController {
 
 		tableView.showsVerticalScrollIndicator = false
 		tableView.delaysContentTouches = false
+
+		NotificationCenter.default.addObserver(self, selector: #selector(updateRomPickerSection), name: UIApplication.didBecomeActiveNotification, object: nil)
 	}
 
 	func presentRomFileMissingError() {
@@ -98,8 +100,9 @@ class PreferencesGeneralViewController: UITableViewController {
 		present(pickerVC, animated: true)
 	}
 
-	private func animateRomFound(at indexPath: IndexPath) {
-		guard let cell = tableView.cellForRow(at: indexPath) as? PreferencesGeneralRomCell else {
+	private func animateRomFound() {
+		guard let cell = tableView.visibleCells.first(where: { $0 is PreferencesGeneralRomCell }) as? PreferencesGeneralRomCell,
+		let indexPath = tableView.indexPath(for: cell) else {
 			return
 		}
 
@@ -121,10 +124,8 @@ class PreferencesGeneralViewController: UITableViewController {
 		alertVC.addAction(.init(title: "Use anyway", style: .destructive, handler: { [weak self] _ in
 			guard let self else { return }
 			do {
-				let romSectionIndexBeforeChange = SectionType.rom.sectionIndex(model: model)
-				let romIndexPathBeforeChange = IndexPath(row: 0, section: romSectionIndexBeforeChange)
 				try model.forceSelectTmpRom()
-				animateRomFound(at: romIndexPathBeforeChange)
+				animateRomFound()
 			} catch {
 				let forceSelectFailedAlertVC = UIAlertController.withError(error)
 				present(forceSelectFailedAlertVC, animated: true)
@@ -283,6 +284,19 @@ class PreferencesGeneralViewController: UITableViewController {
 		pickerVC.view.tag = FilePickerSource.fileImport.rawValue
 
 		present(pickerVC, animated: true)
+	}
+
+	// MARK: - Actions
+
+	@objc
+	private func updateRomPickerSection() {
+		let isDisplayingRomPicker = tableView.visibleCells.contains(where: { $0 is PreferencesGeneralRomCell })
+		if model.hasRomFile && isDisplayingRomPicker {
+			animateRomFound()
+		} else if !model.hasRomFile && !isDisplayingRomPicker {
+			let romSection = SectionType.rom.sectionIndex(model: model)
+			tableView.insertSections([romSection], with: .top)
+		}
 	}
 }
 
@@ -456,10 +470,8 @@ extension PreferencesGeneralViewController: UIDocumentPickerDelegate {
 			Task { [weak self, model] in
 				guard let self else { return }
 				do {
-					let romSectionIndexBeforeChange = SectionType.rom.sectionIndex(model: model)
-					let romIndexPathBeforeChange = IndexPath(row: 0, section: romSectionIndexBeforeChange)
 					try await model.didSelectRomCandidate(url: url)
-					animateRomFound(at: romIndexPathBeforeChange)
+					animateRomFound()
 				} catch RomError.couldNotValidateRom {
 					displayForceSelectRomDialogue()
 				} catch {
