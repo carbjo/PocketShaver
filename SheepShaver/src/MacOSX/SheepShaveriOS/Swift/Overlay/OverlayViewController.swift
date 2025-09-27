@@ -87,6 +87,7 @@ public class OverlayViewController: UIViewController {
 		let view = InformationView.withoutConstraints()
 		view.isHidden = true
 		view.alpha = 0
+		view.isUserInteractionEnabled = false
 		return view
 	}()
 
