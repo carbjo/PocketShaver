@@ -289,7 +289,7 @@ public class MonitorResolutionManager: NSObject {
 		let pixelHeight = screenHeight*screenScale
 
 		let isPortrait = UIScreen.isPortraitMode
-		let category: MonitorResolutionCategory = UIScreen.isPortraitMode ? .pixelAlignedPortrait : .pixelAlignedLandscape
+		let category: MonitorResolutionCategory = screenWidth < screenHeight ? .pixelAlignedPortrait : .pixelAlignedLandscape
 
 		var resolutions = [MonitorResolutionOption]()
 		for scale in (1..<screenScale + 1) {

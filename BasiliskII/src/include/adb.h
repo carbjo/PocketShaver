@@ -41,5 +41,6 @@ extern void ADBSetRelMouseMode(bool relative);
 extern void ADBSetTouchInput(bool is_on);
 extern void ADBSetHover(bool is_on);
 extern void ADBSetHoverMode(HoverMode mode);
+extern void ADBSetHapticFeedback(bool is_on);
 
 #endif

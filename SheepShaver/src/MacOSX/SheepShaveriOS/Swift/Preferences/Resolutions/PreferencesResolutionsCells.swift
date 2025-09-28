@@ -47,17 +47,8 @@ class PreferencesResolutionsInformationCell: UITableViewCell {
 		let otherOrientationString = isPortraitMode ? "landscape" : "portrait"
 		let maxNumberOfSimultaniousResolutions = MonitorResolutionManager.maxNumberOfSimultaniousResolutions
 
-		let attributedString = NSMutableAttributedString(string: "This list controls what monitor resolutions are available to Mac OS. Changing active resolution is still done with Monitors app, inside Mac OS.\n\n• Currently displaying settings for \(thisOrientationString) mode. Rotate screen to access \(otherOrientationString) mode settings.\n\n• When booting from an installation CD, the operating system will always pick the highest possible resolution, without any possibility of changing it.\n\n• Mac OS allows a maximum number of \(maxNumberOfSimultaniousResolutions) monitor resolutions to be available simultaniously. Current number of selected resolutions: ")
-		let attributedCountString = NSAttributedString(
-			string: "\(currentMonitorResolutionCount)",
-			attributes: [
-				.font: UIFont.boldSystemFont(ofSize: 14),
-				.foregroundColor: UIColor.black
-			]
-		)
-		attributedString.append(attributedCountString)
-
-		titleLabel.attributedText = attributedString
+		titleLabel.attributedText = "This list controls what monitor resolutions are available to Mac OS. Changing active resolution is still done with Monitors app, inside Mac OS.\n\n• Currently displaying settings for \(thisOrientationString) mode. Rotate screen to access \(otherOrientationString) mode settings.\n\n• When booting from an installation CD, the operating system will always pick the highest possible resolution, without any possibility of changing it.\n\n• Mac OS allows a maximum number of \(maxNumberOfSimultaniousResolutions) monitor resolutions to be available simultaniously. Current number of selected resolutions: <b>\(currentMonitorResolutionCount)</b>"
+			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 14), color: .black)
 	}
 }
 
