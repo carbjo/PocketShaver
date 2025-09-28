@@ -546,12 +546,12 @@ public class OverlayViewController: UIViewController {
 
 extension OverlayViewController {
 
-	@objc
-	public override func performClose(_ sender: Any?) {
-		// Handle Cmd+W: forward it to the emulated app instead of closing
-		// The emulator will receive the keyboard event normally
-		// We intentionally do nothing here to prevent the app from closing
-	}
+//	@objc
+//	public override func performClose(_ sender: Any?) {
+//		// Handle Cmd+W: forward it to the emulated app instead of closing
+//		// The emulator will receive the keyboard event normally
+//		// We intentionally do nothing here to prevent the app from closing
+//	}
 
 	@objc
 	public static func injectOverlayViewController(
