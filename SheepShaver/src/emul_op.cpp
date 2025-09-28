@@ -50,6 +50,8 @@
 #define DEBUG 0
 #include "debug.h"
 
+extern bool tick_inhibit;
+
 void PlayStartupSound();
 
 // TVector of MakeExecutable
@@ -283,11 +285,16 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 
 		case OP_RESET:				// Early in MacOS reset
 			D(bug("*** RESET ***\n"));
+			tick_inhibit = true;
+			CDROMRemount(); // for System 7.x
 			TimerReset();
 			MacOSUtilReset();
+			EtherResetCachedAllocation();
+			ether_reset();
 			AudioReset();
+#ifdef USE_SDL_AUDIO
 			PlayStartupSound();
-
+#endif
 			// Enable DR emulator (disabled for now)
 			if (PrefsFindBool("jit68k") && 0) {
 				D(bug("DR activated\n"));
@@ -299,6 +306,7 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 				memcpy((void *)DR_EMULATOR_BASE, (void *)(ROMBase + 0x370000), DR_EMULATOR_SIZE);
 				MakeExecutable(0, DR_EMULATOR_BASE, DR_EMULATOR_SIZE);
 			}
+			tick_inhibit = false;
 			break;
 
 		case OP_IRQ:			// Level 1 interrupt

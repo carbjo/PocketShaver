@@ -32,6 +32,7 @@
 
 #include <string.h>
 #include <vector>
+#include <map>
 
 #ifndef NO_STD_NAMESPACE
 using std::vector;
@@ -124,8 +125,8 @@ static const uint8 bcd2bin[256] = {
 
 // Struct for each drive
 struct cdrom_drive_info {
-	cdrom_drive_info() : num(0), fh(NULL), start_byte(0), status(0) {}
-	cdrom_drive_info(void *fh_) : num(0), fh(fh_), start_byte(0), status(0) {}
+	cdrom_drive_info() : num(0), fh(NULL), start_byte(0), status(0), drop(false), init_null(false), driver_reference_number(0) {}
+	cdrom_drive_info(void *fh_) : num(0), fh(fh_), start_byte(0), status(0), drop(false), init_null(false), driver_reference_number(0) {}
 	
 	void close_fh(void) { SysAllowRemoval(fh); Sys_close(fh); }
 	
@@ -147,13 +148,14 @@ struct cdrom_drive_info {
 	bool repeat;		// Repeat flag
 	uint8 power_mode;	// Power mode
 	uint32 status;		// Mac address of drive status record
+	bool drop;  		// Disc image mounted by drag-and-drop
+	bool init_null;		// Init even if null
+	uint16 driver_reference_number;  // The driver reference number to use for this drive's entry in the unit table
 };
 
 // List of drives handled by this driver
 typedef vector<cdrom_drive_info> drive_vec;
 static drive_vec drives;
-
-int last_drive_num; // track last drive called to support multiple audio CDs
 
 // Icon address (Mac address space, set by PatchROM())
 uint32 CDROMIconAddr;
@@ -161,17 +163,23 @@ uint32 CDROMIconAddr;
 // Flag: Control(accRun) has been called, interrupt routine is now active
 static bool acc_run_called = false;
 
+static std::map<int, void *> remount_map;
 
 /*
  *  Get pointer to drive info or drives.end() if not found
  */
 
-static drive_vec::iterator get_drive_info(int num)
+static drive_vec::iterator get_drive_info(int num, uint16 driverRefNum)
 {
 	drive_vec::iterator info, end = drives.end();
 	for (info = drives.begin(); info != end; ++info) {
 		if (info->num == num) {
-			last_drive_num = num;
+			return info;
+		}
+	}
+	// no match by drive num, try driver
+	for (info = drives.begin(); info != end; ++info) {
+		if (driverRefNum == info->driver_reference_number) {
 			return info;
 		}
 	}
@@ -269,11 +277,13 @@ static bool position2msf(const cdrom_drive_info &info, uint16 postype, uint32 po
 			m = pos / (60 * 75);
 			s = (pos / 75) % 60;
 			f = pos % 75;
+			D(bug(" position2msf absolute frame %d -> %d m %d s %d f\n", pos, m, s, f));
 			return true;
 		case 1:
 			m = bcd2bin[(pos >> 16) & 0xff];
 			s = bcd2bin[(pos >> 8) & 0xff];
 			f = bcd2bin[pos & 0xff];
+			D(bug(" position2msf bcd msf 0x%06x -> %d m %d s %d f\n", pos, m, s, f));
 			return true;
 		case 2: {
 			uint8 track = bcd2bin[pos & 0xff];
@@ -284,15 +294,19 @@ static bool position2msf(const cdrom_drive_info &info, uint16 postype, uint32 po
 					m = info.toc[i+5];
 					s = info.toc[i+6];
 					f = info.toc[i+7];
+					D(bug(" position2msf toc entry #%d -> %d m %d s %d f\n", pos, m, s, f));
 					return true;
 				}
 			}
+			D(bug(" position2msf toc entry #%d, no such entry\n", pos));
 			return false;
 		}
 		default:
+			D(bug(" position2msf postype %d pos %d -> %d m %d s %d f\n", postype, pos, m, s, f));
 			return false;
 	}
 }
+
 
 
 /*
@@ -301,28 +315,35 @@ static bool position2msf(const cdrom_drive_info &info, uint16 postype, uint32 po
 
 void CDROMInit(void)
 {
-	// No drives specified in prefs? Then add defaults
-	if (PrefsFindString("cdrom", 0) == NULL) {
-		SysAddCDROMPrefs();
-	}
+	SysAddCDROMPrefs();
 	
 	// Add drives specified in preferences
 	int index = 0;
 	const char *str;
 	while ((str = PrefsFindString("cdrom", index++)) != NULL) {
-		void *fh = Sys_open(str, true);
+		void *fh = Sys_open(str, true, true);
 		if (fh)
 			drives.push_back(cdrom_drive_info(fh));
 	}
-	
-	if (!drives.empty()) { // set to first drive by default
-		last_drive_num = drives.begin()->num;
+
+	if (drives.empty()) {
+	    // create a placeholder drive for images
+	    drives.push_back(cdrom_drive_info());
+	    drives.begin()->init_null = true;
 	}
-	else {
-		last_drive_num = 0;
-	}
+
 }
 
+void CDROMDrop(const char *path) {
+	if (!drives.empty()) {
+		cdrom_drive_info &info = drives.back();
+		if (!info.drop) {
+			info.fh = Sys_open(path, true, true);
+			if (info.fh)
+				info.drop = true;
+		}
+	}
+}
 
 /*
  *  Deinitialization
@@ -330,6 +351,8 @@ void CDROMInit(void)
 
 void CDROMExit(void)
 {
+	CDROMRemount(); // just to put the handles moved to the remount collection back so they get cleaned up
+
 	drive_vec::iterator info, end = drives.end();
 	for (info = drives.begin(); info != end; ++info)
 		info->close_fh();
@@ -348,6 +371,7 @@ bool CDROMMountVolume(void *fh)
 		++info;
 	if (info != end) {
 		if (SysIsDiskInserted(info->fh)) {
+			D(bug("CDROMMountVolume doing SysPreventRemoval cdrom drive num %d\n", info->num));
 			SysPreventRemoval(info->fh);
 			WriteMacInt8(info->status + dsDiskInPlace, 1);
 			read_toc(*info);
@@ -358,6 +382,16 @@ bool CDROMMountVolume(void *fh)
 		return true;
 	} else
 		return false;
+}
+
+void CDROMRemount() {
+	for (std::map<int, void *>::iterator i = remount_map.begin(); i != remount_map.end(); ++i)
+		for (drive_vec::iterator info = drives.begin(); info != drives.end(); ++info)
+			if (info->num == i->first) {
+				info->fh = i->second;
+				break;
+			}
+	remount_map.clear();
 }
 
 
@@ -392,6 +426,77 @@ static void mount_mountable_volumes(void)
 }
 
 
+
+/*
+ *  Find a space in the unit table for the entry, put it in
+ *  and return the corresponding reference number.
+ *
+ *  Based on the routine in Inside Macintosh: Devices, chapter 1 "Device Manager",
+ *  "Installing a Device Driver"
+ *
+ *  Returns 0 if there was a problem.
+ *
+ *  This code must only be used when there is no possibility of other activity.
+ */
+uint16 InsertNewDriverUnit(uint32 handle) {
+
+	uint16 minUnitEntryToUse = 48; // entries not reserved or intended for a specific use
+	uint16 maxUnitEntries = 127;
+
+	uint16 unitEntryCount = ReadMacInt16(0x1d2);
+	uint32 unitTableAddr = ReadMacInt32(0x11c);
+	for (uint16 unitNum = unitEntryCount - 1; unitNum >= minUnitEntryToUse; unitNum-- ) {
+		uint32 unitEntryAddr = unitTableAddr + 4 * unitNum;
+		if (ReadMacInt32(unitEntryAddr) == 0) {
+			// found a spot
+			WriteMacInt32(unitEntryAddr, handle);
+			uint16 refNum = ~unitNum;
+			return refNum;
+		}
+	}
+
+	// No space free.
+
+	if (unitEntryCount == maxUnitEntries) // Can't expand
+		return 0;
+
+	// Trade up.
+	uint16 newUnitEntryCount = unitEntryCount + 10;
+	if (newUnitEntryCount > maxUnitEntries)
+		newUnitEntryCount = maxUnitEntries;
+	if (newUnitEntryCount < minUnitEntryToUse + 1)
+		newUnitEntryCount = minUnitEntryToUse + 1;
+
+	// Allocate space for a new unit table
+	M68kRegisters r;
+	r.d[0] = newUnitEntryCount * 4;
+	Execute68kTrap(0xa71e, &r);		// NewPtrSysClear()
+	if (r.a[0] == 0)
+		return 0;
+	uint32 newUnitTableAddr = r.a[0];
+
+	// Copy it in to the new space
+	Mac2Mac_memcpy(newUnitTableAddr, unitTableAddr, unitEntryCount * 4);
+	Mac_memset(newUnitTableAddr + unitEntryCount * 4, 0, (newUnitEntryCount - unitEntryCount) * 4);
+
+	// Write in our new entry
+	uint16 unitNum = newUnitEntryCount - 1;
+	uint32 unitEntryAddr = unitTableAddr + 4 * unitNum;
+	WriteMacInt32(unitEntryAddr, handle);
+	uint16 refNum = ~unitNum;
+
+	// Make the new table active
+	WriteMacInt32(0x11c, newUnitTableAddr);
+	WriteMacInt16(0x1d2, newUnitEntryCount);
+
+	// Free the old one
+	r.a[0] = unitTableAddr;
+	Execute68kTrap(0xa01f, &r);	// DisposePtr()
+
+	return refNum;
+}
+
+
 /*
  *  Driver Open() routine
  */
@@ -411,7 +516,7 @@ int16 CDROMOpen(uint32 pb, uint32 dce)
 		info->num = FindFreeDriveNumber(1);
 		info->to_be_mounted = false;
 		
-		if (info->fh) {
+		if (info->fh || info->init_null) {
 			info->mount_non_hfs = true;
 			info->block_size = 512;
 			info->twok_offset = -1;
@@ -436,16 +541,31 @@ int16 CDROMOpen(uint32 pb, uint32 dce)
 			
 			// Disk in drive?
 			if (SysIsDiskInserted(info->fh)) {
+				D(bug("CDROMOpen doing SysPreventRemoval cdrom drive num %d\n", info->num));
 				SysPreventRemoval(info->fh);
 				WriteMacInt8(info->status + dsDiskInPlace, 1);
 				read_toc(*info);
 				find_hfs_partition(*info);
 				info->to_be_mounted = true;
 			}
+
+			if (info == drives.begin()) {
+				// First drive gets to use the original unit table entry
+				info->driver_reference_number = CDROMRefNum;
+			} else {
+				D(bug("Installing unit table entry for drive num %d\n", info->num));
+
+				// Get the driver handle from the original unit table entry
+				uint32 handle = ReadMacInt32(ReadMacInt32(0x11c) + ~CDROMRefNum * 4);
+
+				// Create a new unit table entry
+				info->driver_reference_number = InsertNewDriverUnit(handle);
+			}
 			
 			// Add drive to drive queue
 			D(bug(" adding drive %d\n", info->num));
-			r.d[0] = (info->num << 16) | (CDROMRefNum & 0xffff);
+			assert(info->driver_reference_number != 0);
+			r.d[0] = (info->num << 16) | (info->driver_reference_number & 0xffff);
 			r.a[0] = info->status + dsQLink;
 			Execute68kTrap(0xa04e, &r);		// AddDrive()
 		}
@@ -466,7 +586,7 @@ int16 CDROMPrime(uint32 pb, uint32 dce)
 	WriteMacInt32(pb + ioActCount, 0);
 	
 	// Drive valid and disk inserted?
-	drive_vec::iterator info = get_drive_info(ReadMacInt16(pb + ioVRefNum));
+	drive_vec::iterator info = get_drive_info(ReadMacInt16(pb + ioVRefNum), ReadMacInt16(pb + ioRefNum));
 	if (info == drives.end())
 		return nsDrvErr;
 	if (ReadMacInt8(info->status + dsDiskInPlace) == 0)
@@ -535,16 +655,9 @@ int16 CDROMControl(uint32 pb, uint32 dce)
 	}
 	
 	// Drive valid?
-	drive_vec::iterator info = get_drive_info(ReadMacInt16(pb + ioVRefNum));
+	drive_vec::iterator info = get_drive_info(ReadMacInt16(pb + ioVRefNum), ReadMacInt16(pb + ioRefNum));
 	if (info == drives.end()) {
-		if (drives.empty()) {
-			return nsDrvErr;
-		} else {
-			// Audio calls tend to end up without correct reference
-			// Real mac would just play first disc, but we can guess correct one from last data call
-			info = get_drive_info(last_drive_num);
-			if (info == drives.end()) return nsDrvErr;
-		}
+		return nsDrvErr;
 	}
 	
 	// Drive-specific codes
@@ -559,11 +672,28 @@ int16 CDROMControl(uint32 pb, uint32 dce)
 			return writErr;
 			
 		case 7:			// EjectTheDisc
+			D(bug("CDROMControl EjectTheDisc\n"));
 			if (ReadMacInt8(info->status + dsDiskInPlace) > 0) {
-				SysAllowRemoval(info->fh);
-				SysEject(info->fh);
+				if (info->drop || !SysIsFixedDisk(info->fh)) {
+					SysAllowRemoval(info->fh);
+					SysEject(info->fh);
+					info->twok_offset = -1;
+					if (info->drop) {
+						info->close_fh();
+						info->drop = false;
+						info->fh = NULL;
+					}
+				}
+				else {
+					remount_map.insert(std::make_pair(ReadMacInt16(pb + ioVRefNum), info->fh));
+
+					D(bug("At least stop cd playback if it's some kind of CD %d,%d,%d\n",
+						info->lead_out[0], info->lead_out[1], info->lead_out[2]));
+					SysCDStop(info->fh, info->lead_out[0], info->lead_out[1], info->lead_out[2]);
+					info->fh = NULL;
+				}
+
 				WriteMacInt8(info->status + dsDiskInPlace, 0);
-				info->twok_offset = -1;
 				return noErr;
 			} else {
 				return offLinErr;
@@ -590,7 +720,7 @@ int16 CDROMControl(uint32 pb, uint32 dce)
 					break;
 				case FOURCC('i','n','t','f'):
 				case FOURCC('d','A','P','I'):
-					WriteMacInt32(pb + csParam + 4, FOURCC('a','t','p','i'));
+					WriteMacInt32(pb + csParam + 4, FOURCC('s','c','s','i'));
 					break;
 				case FOURCC('s','y','n','c'):
 					WriteMacInt32(pb + csParam + 4, 1); // true/false = sync/async
@@ -631,8 +761,10 @@ int16 CDROMControl(uint32 pb, uint32 dce)
 			if (ReadMacInt8(info->status + dsDiskInPlace) > 0) {
 				if (ReadMacInt16(pb + csParam) == 1)
 					SysAllowRemoval(info->fh);
-				else
+				else {
+					D(bug("SetUserEject call doing SysPreventRemoval cdrom drive num %d\n", info->num));
 					SysPreventRemoval(info->fh);
+				}
 				return noErr;
 			} else {
 				return offLinErr;
@@ -869,6 +1001,7 @@ int16 CDROMControl(uint32 pb, uint32 dce)
 			
 			if (ReadMacInt16(pb + csParam) == 0 && ReadMacInt32(pb + csParam + 2) == 0) {
 				// Stop immediately
+				D(bug("  stop immediately vals %d %d %d\n", info->lead_out[0], info->lead_out[1], info->lead_out[2]));
 				if (!SysCDStop(info->fh, info->lead_out[0], info->lead_out[1], info->lead_out[2]))
 					return paramErr;
 			} else {
@@ -914,10 +1047,14 @@ int16 CDROMControl(uint32 pb, uint32 dce)
 		}
 			
 		case 108: {		// AudioScan
-			if (ReadMacInt8(info->status + dsDiskInPlace) == 0)
+			D(bug("AudioScan\n"));
+			if (ReadMacInt8(info->status + dsDiskInPlace) == 0) {
+				D(bug(" offline\n"));
 				return offLinErr;
-			
-			if (!position2msf(*info, ReadMacInt16(pb + csParam), ReadMacInt32(pb + csParam + 2), false, info->start_at[0], info->start_at[1], info->start_at[2]))
+			}
+			uint16 postype = ReadMacInt16(pb + csParam);
+			uint32 pos = ReadMacInt32(pb + csParam + 2);
+			if (!position2msf(*info, postype, pos, false, info->start_at[0], info->start_at[1], info->start_at[2]))
 				return paramErr;
 			
 			if (!SysCDScan(info->fh, info->start_at[0], info->start_at[1], info->start_at[2], ReadMacInt16(pb + csParam + 6) != 0)) {
@@ -975,6 +1112,7 @@ int16 CDROMControl(uint32 pb, uint32 dce)
 			return controlErr;
 			
 		case 125:		// SetPlayMode
+			D(bug("  SetPlayMode\n"));
 			// repeat flag (0 is off, 1 is on)
 			info->repeat = ReadMacInt8(pb + csParam);
 			// playmode (0 is normal, 1 is shuffle, 2 is program mode)
@@ -1003,7 +1141,7 @@ int16 CDROMControl(uint32 pb, uint32 dce)
 
 int16 CDROMStatus(uint32 pb, uint32 dce)
 {
-	drive_vec::iterator info = get_drive_info(ReadMacInt16(pb + ioVRefNum));
+	drive_vec::iterator info = get_drive_info(ReadMacInt16(pb + ioVRefNum), ReadMacInt16(pb + ioRefNum));
 	uint16 code = ReadMacInt16(pb + csCode);
 	D(bug("CDROMStatus %d\n", code));
 	
@@ -1021,18 +1159,27 @@ int16 CDROMStatus(uint32 pb, uint32 dce)
 					break;
 				case FOURCC('i','n','t','f'):	// Interface type
 //					WriteMacInt32(pb + csParam + 4, EMULATOR_ID_4);
-					WriteMacInt32(pb + csParam + 4, FOURCC('a','t','p','i'));
+					WriteMacInt32(pb + csParam + 4, FOURCC('s','c','s','i'));
 					break;
 				case FOURCC('s','y','n','c'):	// Only synchronous operation?
 					WriteMacInt32(pb + csParam + 4, 0x01000000);
 //					WriteMacInt32(pb + csParam + 4, 1);
 					break;
 				case FOURCC('b','o','o','t'):	// Boot ID
-					if (info != drives.end())
-						WriteMacInt16(pb + csParam + 4, info->num);
+					if (info != drives.end()) {
+						// This is another byte compound value; SCSI:
+						//
+						// byte 0: SCSI target (5 bits) LUN (3 bits)
+						// byte 1: partition (unused)
+						//
+						// (see Technote DV 22)
+						//
+						// We'll use our drive num as a SCSI ID for display purposes
+						WriteMacInt16(pb + csParam + 4, (info->num & 0x1f) << 11);
+					}
 					else
 						WriteMacInt16(pb + csParam + 4, 0);
-					WriteMacInt16(pb + csParam + 6, (uint16)CDROMRefNum);
+					WriteMacInt16(pb + csParam + 6, info->driver_reference_number);
 					break;
 				case FOURCC('w','i','d','e'):	// 64-bit access supported?
 					WriteMacInt16(pb + csParam + 4, 0);
@@ -1072,12 +1219,7 @@ int16 CDROMStatus(uint32 pb, uint32 dce)
 	
 	// Drive valid?
 	if (info == drives.end()) {
-		if (drives.empty()) {
-			return nsDrvErr;
-		} else {
-			info = get_drive_info(last_drive_num);
-			if (info == drives.end()) return nsDrvErr;
-		}
+		return nsDrvErr;
 	}
 	
 	// Drive-specific codes
@@ -1118,7 +1260,15 @@ int16 CDROMStatus(uint32 pb, uint32 dce)
 			return noErr;
 			
 		case 120:		// Return device ident
-			WriteMacInt32(pb + csParam, 0);
+			// This is a bunch of 8-bit fields:
+			//
+			// Byte 0: reserved
+			// Byte 1: bus
+			// Byte 2: target SCSI id
+			// Byte 3: LUN
+			//
+			// Again, let's use our drive num as a SCSI ID for display purposes
+			WriteMacInt32(pb + csParam, (info->num & 0xff) << 8);
 			return noErr;
 			
 		case 121:		// Get CD features

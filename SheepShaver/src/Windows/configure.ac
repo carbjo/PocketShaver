@@ -14,7 +14,8 @@ AC_CANONICAL_TARGET
 dnl Options.
 AC_ARG_ENABLE(jit,          [  --enable-jit            enable JIT compiler [default=yes]], [WANT_JIT=$enableval], [WANT_JIT=yes])
 AC_ARG_WITH(gtk,          [  --with-gtk              use GTK user interface [default=yes]], [WANT_GTK=$withval], [WANT_GTK=yes])
-AC_ARG_ENABLE(vosf,         [  --enable-vosf           enable video on SEGV signals [default=yes]], [WANT_VOSF=$enableval], [WANT_VOSF=yes])
+AC_ARG_ENABLE(vosf,         [  --enable-vosf           enable video on SEGV signals [default=no]], [WANT_VOSF=$enableval], [WANT_VOSF=no])
+AC_ARG_WITH(sdl3,            [  --with-sdl3             use SDL 3.x, rather than SDL 2.x [default=no]], [WANT_SDL_VERSION_MAJOR=3], [WANT_SDL_VERSION_MAJOR=2])
 
 AC_ARG_WITH(bincue,   
   AS_HELP_STRING([--with-bincue], [Allow cdrom image files in bin/cue mode]))
@@ -229,6 +230,14 @@ CPUSRCS="\
     ../kpx_cpu/src/utils/utils-cpuinfo.cpp"
 CPPFLAGS="$CPPFLAGS -I../kpx_cpu/include -I../kpx_cpu/src"
 
+
+case "$target_cpu" in
+x86_64* )
+  CXXFLAGS="$CXXFLAGS -DMEM_BULK -fpermissive"
+  WANT_JIT="no"
+  ;;
+esac
+
 dnl Enable JIT compiler, if possible
 USE_DYNGEN="no"
 USE_PREGENERATED_DYNGEN="no"
@@ -275,11 +284,16 @@ dnl Use the dummy prefs file.
 CPUSRCS="$CPUSRCS ../dummy/prefs_dummy.cpp"
 
 dnl We really want SDL for now
-AC_CHECK_TOOL(sdl_config, sdl2-config, no)
-AS_IF([test "x$sdl_config" = xno], [AC_MSG_ERROR([Sorry, you currently need SDL for this port])])
-SDL_CFLAGS=`$sdl_config --cflags`
+if [[ "x$WANT_SDL_VERSION_MAJOR" = "x3" ]]; then
+  SDL_CFLAGS=`pkg-config sdl3 --cflags`
+  SDL_LIBS=`pkg-config sdl3 --libs | sed -e 's/-lSDL3/-lSDL3.dll/'`
+  AC_DEFINE([USE_SDL3], [1], [Use SDL3])
+else
+  SDL_CFLAGS=`sdl2-config --cflags`
+  SDL_LIBS=`sdl2-config --static-libs`
+  AC_DEFINE([USE_SDL2], [1], [Use SDL2])
+fi
 AC_SUBST(SDL_CFLAGS)
-SDL_LIBS=`$sdl_config --static-libs`
 AC_SUBST(SDL_LIBS)
 AC_DEFINE(USE_SDL, 1, [Define to enble SDL support])
 AC_DEFINE(USE_SDL_VIDEO, 1, [Define to enable SDL video graphics support])
@@ -305,9 +319,10 @@ dnl Print summary.
 echo
 echo SheepShaver configuration summary:
 echo
+echo SDL major-version ................ : $WANT_SDL_VERSION_MAJOR
 echo Enable JIT compiler .............. : $WANT_JIT
 echo GTK user interface ............... : $WANT_GTK
-echo BINCUE support ......................... : $have_bincue
+echo BINCUE support ................... : $have_bincue
 echo Enable VOSF ...................... : $WANT_VOSF
 echo
 echo "Configuration done. Now type \"make\"."
