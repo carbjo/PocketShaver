@@ -82,9 +82,9 @@ extension PreferencesResolutionsViewController { // UITableViewDataSource
 			return "Pixel aligned resolutions"
 		case .standardWidthOrHeightResolutions:
 			if UIScreen.isPortraitMode {
-				return "Standard height fullscreen resolutions"
-			} else {
 				return "Standard width fullscreen resolutions"
+			} else {
+				return "Standard height fullscreen resolutions"
 			}
 		}
 	}

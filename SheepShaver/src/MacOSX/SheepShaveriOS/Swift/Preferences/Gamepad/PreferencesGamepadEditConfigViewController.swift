@@ -27,7 +27,7 @@ class PreferencesGamepadEditConfigViewController: UIViewController {
 		view.layer.cornerRadius = 8
 		view.clipsToBounds = true
 
-		let visualEffectView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterialLight))
+		let visualEffectView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterialLight))
 		visualEffectView.translatesAutoresizingMaskIntoConstraints = false
 
 		view.addSubview(visualEffectView)
@@ -93,16 +93,19 @@ class PreferencesGamepadEditConfigViewController: UIViewController {
 		containerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
 	}()
 
-	private let originalGamepadConfig: GamepadConfig
-	private var gamepadConfig: GamepadConfig
+	private var config: GamepadConfig
+	private var pendingName: String
+	private var pendingVisibilitySetting: GamepadVisibilitySetting
+
 	private let dismissRequestCallback: ((PreferencesGamepadEditConfigViewController) -> Void)
 
 	init(
 		gamepadConfig: GamepadConfig,
 		dismissRequestCallback: @escaping ((PreferencesGamepadEditConfigViewController) -> Void)
 	) {
-		self.originalGamepadConfig = gamepadConfig
-		self.gamepadConfig = gamepadConfig
+		self.config = gamepadConfig
+		pendingName = gamepadConfig.name
+		pendingVisibilitySetting = gamepadConfig.visibilitySetting
 		self.dismissRequestCallback = dismissRequestCallback
 
 		super.init(nibName: nil, bundle: nil)
@@ -197,14 +200,15 @@ class PreferencesGamepadEditConfigViewController: UIViewController {
 
 	@objc
 	private func okButtonPushed() {
-		guard !gamepadConfig.name.isEmpty else {
+		guard !pendingName.isEmpty else {
 			let alertVC = UIAlertController.withMessage("Name must not be empty")
 			present(alertVC, animated: true)
 
 			return
 		}
 
-		GamepadSettings.current.replace(originalGamepadConfig, with: gamepadConfig)
+		config.set(name: pendingName)
+		config.set(visibilitySetting: pendingVisibilitySetting)
 
 		dismiss(animated: true)
 	}
@@ -242,7 +246,7 @@ extension PreferencesGamepadEditConfigViewController: UITableViewDataSource {
 		switch section {
 		case .name:
 			return PreferencesGamepadEditConfigNameCell(
-				name: gamepadConfig.name,
+				name: pendingName,
 				delegate: self
 			)
 		case .visibility:
@@ -250,17 +254,17 @@ extension PreferencesGamepadEditConfigViewController: UITableViewDataSource {
 			case 0:
 				return PreferencesGamepadEditConfigOptionCell(
 					visibilitySetting: .both,
-					isChecked: gamepadConfig.visibilitySetting == .both
+					isChecked: pendingVisibilitySetting == .both
 				)
 			case 1:
 				return PreferencesGamepadEditConfigOptionCell(
 					visibilitySetting: .portraitOnly,
-					isChecked: gamepadConfig.visibilitySetting == .portraitOnly
+					isChecked: pendingVisibilitySetting == .portraitOnly
 				)
 			case 2:
 				return PreferencesGamepadEditConfigOptionCell(
 					visibilitySetting: .landscapeOnly,
-					isChecked: gamepadConfig.visibilitySetting == .landscapeOnly
+					isChecked: pendingVisibilitySetting == .landscapeOnly
 				)
 			default:
 				fatalError()
@@ -294,11 +298,11 @@ extension PreferencesGamepadEditConfigViewController: UITableViewDelegate {
 		case .visibility:
 			switch indexPath.row {
 			case 0:
-				gamepadConfig = gamepadConfig.withVisbility(.both)
+				pendingVisibilitySetting = .both
 			case 1:
-				gamepadConfig = gamepadConfig.withVisbility(.portraitOnly)
+				pendingVisibilitySetting = .portraitOnly
 			case 2:
-				gamepadConfig = gamepadConfig.withVisbility(.landscapeOnly)
+				pendingVisibilitySetting = .landscapeOnly
 			default:
 				fatalError()
 			}
@@ -307,7 +311,7 @@ extension PreferencesGamepadEditConfigViewController: UITableViewDelegate {
 				guard let cell = cell as? PreferencesGamepadEditConfigOptionCell else {
 					continue
 				}
-				cell.config(isChecked: cell.visibilitySetting == gamepadConfig.visibilitySetting)
+				cell.config(isChecked: cell.visibilitySetting == pendingVisibilitySetting)
 			}
 		}
 	}
@@ -320,13 +324,13 @@ extension PreferencesGamepadEditConfigViewController: UITextFieldDelegate {
 			text.replaceSubrange(range, with: string)
 		}
 
-		gamepadConfig = gamepadConfig.renaming(text)
+		pendingName = text
 
 		return true
 	}
 
 	func textFieldDidEndEditing(_ textField: UITextField) {
-		gamepadConfig = gamepadConfig.renaming(textField.text ?? "")
+		pendingName = textField.text ?? ""
 	}
 
 	func textFieldShouldReturn(_ textField: UITextField) -> Bool {

@@ -14,7 +14,8 @@ class PreferencesGamepadInformationCell: UITableViewCell {
 		label.textColor = .darkGray
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
-		label.attributedText = "Here you can edit, rearrange and delete your gamepad layouts.\n\n• Use three finger swipe down gesture during emulation to access gamepad mode.\n\n• To create new layouts, edit an <b>Example layout</b> in gamepad mode.".withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 14), color: .black)
+		label.attributedText = "Here you can edit, rearrange and delete your gamepad layouts.\n\n• Use three finger swipe down gesture during emulation to access gamepad mode.\n\n• To create new layouts, edit an <b>Example layout</b> in gamepad mode."
+			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 14), color: .black)
 		return label
 	}()
 

@@ -93,11 +93,12 @@
 		C73660EE2E3649900055AA91 /* UnassignedGamepadButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660ED2E36498D0055AA91 /* UnassignedGamepadButton.swift */; };
 		C73660F02E364DDF0055AA91 /* GamepadButtonStackViewCollectionStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */; };
 		C73660F22E37815E0055AA91 /* HiddenInputField.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F12E3781570055AA91 /* HiddenInputField.swift */; };
-		C73660F42E37B5C80055AA91 /* GamepadSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F32E37B5C50055AA91 /* GamepadSettings.swift */; };
+		C73660F42E37B5C80055AA91 /* Gamepad.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F32E37B5C50055AA91 /* Gamepad.swift */; };
 		C7393CCD2E6DC6A200D06705 /* PreferencesResolutionsCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */; };
 		C750737A2E65E14F00D1E374 /* DiskCreation.mm in Sources */ = {isa = PBXBuildFile; fileRef = C75073792E65E14700D1E374 /* DiskCreation.mm */; };
 		C750737D2E67440900D1E374 /* PreferencesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750737C2E67440800D1E374 /* PreferencesModel.swift */; };
 		C75A604F2E62D04600253CA3 /* PreferencesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75A604E2E62D04000253CA3 /* PreferencesManager.swift */; };
+		C77BA03C2E8671F400CC01E8 /* sheepicon lightpurple.png in Resources */ = {isa = PBXBuildFile; fileRef = C77BA03B2E8671F400CC01E8 /* sheepicon lightpurple.png */; };
 		C77CF0742E7823D900D2A854 /* RomManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2782E78232B0018DB8B /* RomManager.swift */; };
 		C792C17E2E47618A0016DDAF /* InformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C792C17D2E4761830016DDAF /* InformationView.swift */; };
 		C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79A69272E62040300F582A6 /* RomPathObjC.mm */; };
@@ -116,10 +117,11 @@
 		C7C3D2772E781C270018DB8B /* PreferencesAdvancedModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2762E781C250018DB8B /* PreferencesAdvancedModel.swift */; };
 		C7C64B2B2E617DF200163200 /* DiskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2A2E617DF000163200 /* DiskManager.swift */; };
 		C7C64B2D2E617FB100163200 /* PrefsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */; };
+		C7DCEF3D2E86F55600EAED05 /* HapticFeedbackObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF3C2E86F54800EAED05 /* HapticFeedbackObjC.mm */; };
+		C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */; };
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
 		C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */; };
 		C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */; };
-		C7F3E6F62E7FD2D300F9089E /* sheepicon.png in Resources */ = {isa = PBXBuildFile; fileRef = C7F3E6F52E7FD2D300F9089E /* sheepicon.png */; };
 		C7F42CCC2E5A0C8200FA7169 /* RamAllocFailedAlertViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCB2E5A0C6D00FA7169 /* RamAllocFailedAlertViewController.swift */; };
 		C7F42CCE2E5A0F6F00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCD2E5A0F6B00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm */; };
 		C7F42CD22E5B1BC700FA7169 /* PreferencesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CD12E5B1BC000FA7169 /* PreferencesViewController.swift */; };
@@ -553,12 +555,13 @@
 		C73660ED2E36498D0055AA91 /* UnassignedGamepadButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnassignedGamepadButton.swift; sourceTree = "<group>"; };
 		C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButtonStackViewCollectionStackView.swift; sourceTree = "<group>"; };
 		C73660F12E3781570055AA91 /* HiddenInputField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputField.swift; sourceTree = "<group>"; };
-		C73660F32E37B5C50055AA91 /* GamepadSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadSettings.swift; sourceTree = "<group>"; };
+		C73660F32E37B5C50055AA91 /* Gamepad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gamepad.swift; sourceTree = "<group>"; };
 		C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesResolutionsCells.swift; sourceTree = "<group>"; };
 		C75073792E65E14700D1E374 /* DiskCreation.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = DiskCreation.mm; sourceTree = "<group>"; };
 		C750737B2E65E15200D1E374 /* DiskCreation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DiskCreation.h; sourceTree = "<group>"; };
 		C750737C2E67440800D1E374 /* PreferencesModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesModel.swift; sourceTree = "<group>"; };
 		C75A604E2E62D04000253CA3 /* PreferencesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesManager.swift; sourceTree = "<group>"; };
+		C77BA03B2E8671F400CC01E8 /* sheepicon lightpurple.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "sheepicon lightpurple.png"; sourceTree = "<group>"; };
 		C792C17D2E4761830016DDAF /* InformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationView.swift; sourceTree = "<group>"; };
 		C79A69272E62040300F582A6 /* RomPathObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomPathObjC.mm; sourceTree = "<group>"; };
 		C79A69292E62043100F582A6 /* RomPathObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomPathObjC.h; sourceTree = "<group>"; };
@@ -581,11 +584,14 @@
 		C7C64B2A2E617DF000163200 /* DiskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskManager.swift; sourceTree = "<group>"; };
 		C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PrefsObjC.mm; sourceTree = "<group>"; };
 		C7C64B2E2E617FC200163200 /* PrefsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PrefsObjC.h; sourceTree = "<group>"; };
+		C7DCEF3C2E86F54800EAED05 /* HapticFeedbackObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = HapticFeedbackObjC.mm; sourceTree = "<group>"; };
+		C7DCEF3E2E86F55C00EAED05 /* HapticFeedbackObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HapticFeedbackObjC.h; sourceTree = "<group>"; };
+		C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MiscellaneousSettingsObjC.mm; sourceTree = "<group>"; };
+		C7DCEF482E8704B000EAED05 /* MiscellaneousSettingsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MiscellaneousSettingsObjC.h; sourceTree = "<group>"; };
 		C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OverlayViewControllerObjC.mm; sourceTree = "<group>"; };
 		C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OverlayViewControllerObjC.h; sourceTree = "<group>"; };
 		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
 		C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDLKey.swift; sourceTree = "<group>"; };
-		C7F3E6F52E7FD2D300F9089E /* sheepicon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = sheepicon.png; sourceTree = "<group>"; };
 		C7F42CCB2E5A0C6D00FA7169 /* RamAllocFailedAlertViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RamAllocFailedAlertViewController.swift; sourceTree = "<group>"; };
 		C7F42CCD2E5A0F6B00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RamAllocFailedAlertViewControllerObjC.mm; sourceTree = "<group>"; };
 		C7F42CCF2E5A0F7200FA7169 /* RamAllocFailedAlertViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RamAllocFailedAlertViewControllerObjC.h; sourceTree = "<group>"; };
@@ -1288,9 +1294,10 @@
 		C7158EB22E7E7D8C006D06CC /* Utils */ = {
 			isa = PBXGroup;
 			children = (
-				C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */,
+				C7DCEF452E8704A100EAED05 /* Miscellaneous */,
 				C70B65E32E7A7BD00039680A /* Storage */,
 				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
+				C7DCEF3B2E86F53B00EAED05 /* Haptic Feedback */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -1303,7 +1310,6 @@
 				C73660E92E3643430055AA91 /* GamepadButtonStackView.swift */,
 				C73660E12E34C9170055AA91 /* GamepadButton.swift */,
 				C73660ED2E36498D0055AA91 /* UnassignedGamepadButton.swift */,
-				C73660F32E37B5C50055AA91 /* GamepadSettings.swift */,
 				C7C3D26F2E76F8560018DB8B /* Assign Button */,
 			);
 			path = Gamepad;
@@ -1379,6 +1385,25 @@
 			path = "Assign Button";
 			sourceTree = "<group>";
 		};
+		C7DCEF3B2E86F53B00EAED05 /* Haptic Feedback */ = {
+			isa = PBXGroup;
+			children = (
+				C7DCEF3C2E86F54800EAED05 /* HapticFeedbackObjC.mm */,
+				C7DCEF3E2E86F55C00EAED05 /* HapticFeedbackObjC.h */,
+			);
+			path = "Haptic Feedback";
+			sourceTree = "<group>";
+		};
+		C7DCEF452E8704A100EAED05 /* Miscellaneous */ = {
+			isa = PBXGroup;
+			children = (
+				C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */,
+				C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */,
+				C7DCEF482E8704B000EAED05 /* MiscellaneousSettingsObjC.h */,
+			);
+			path = Miscellaneous;
+			sourceTree = "<group>";
+		};
 		C7E2AFB72E16C54E00CF50D4 /* Overlay */ = {
 			isa = PBXGroup;
 			children = (
@@ -1403,6 +1428,14 @@
 				C7158EB22E7E7D8C006D06CC /* Utils */,
 			);
 			path = Swift;
+			sourceTree = "<group>";
+		};
+		C7F3E6F72E818F9100F9089E /* Gamepad Handling */ = {
+			isa = PBXGroup;
+			children = (
+				C73660F32E37B5C50055AA91 /* Gamepad.swift */,
+			);
+			path = "Gamepad Handling";
 			sourceTree = "<group>";
 		};
 		C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */ = {
@@ -1461,6 +1494,7 @@
 				C7C3D2672E7557930018DB8B /* PreferencesGamepadCells.swift */,
 				C7C3D2692E75B9EC0018DB8B /* PreferencesGamepadEditConfigViewController.swift */,
 				C7C3D26B2E75C4670018DB8B /* PreferencesGamepadEditConfigCells.swift */,
+				C7F3E6F72E818F9100F9089E /* Gamepad Handling */,
 			);
 			path = Gamepad;
 			sourceTree = "<group>";
@@ -1494,9 +1528,9 @@
 				E204B9BA28BC7BF10081FDCA /* Default.png */,
 				E2A5817528C7C633005C7373 /* DiskTypeiOS.h */,
 				E2A5817628C7C633005C7373 /* DiskTypeiOS.m */,
+				C77BA03B2E8671F400CC01E8 /* sheepicon lightpurple.png */,
 				E204B9C128BC7BF10081FDCA /* Info.plist */,
 				E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */,
-				C7F3E6F52E7FD2D300F9089E /* sheepicon.png */,
 				E204B9AA28BC7BF10081FDCA /* LaunchScreen.storyboard */,
 				E2F38C2228C470CC00FB98B4 /* Localizable.strings */,
 				E204B9AE28BC7BF10081FDCA /* main.mm */,
@@ -1742,12 +1776,12 @@
 				E204B9DB28BC7BF10081FDCA /* Default.png in Resources */,
 				E204B9C828BC7BF10081FDCA /* SSPreferencesDisksViewController.xib in Resources */,
 				E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */,
-				C7F3E6F62E7FD2D300F9089E /* sheepicon.png in Resources */,
 				E204B92E28BC3EBE0081FDCA /* SheepShaver.icns in Resources */,
 				E2A5819828CAC275005C7373 /* Readme iOS build.rtf in Resources */,
 				E204B9E028BC7BF10081FDCA /* SSPreferencesIOViewController.xib in Resources */,
 				E204B9D528BC7BF10081FDCA /* Main.storyboard in Resources */,
 				E204B9D428BC7BF10081FDCA /* LaunchScreen.storyboard in Resources */,
+				C77BA03C2E8671F400CC01E8 /* sheepicon lightpurple.png in Resources */,
 				E204B9D828BC7BF10081FDCA /* SSPreferencesHardwareViewController.xib in Resources */,
 				E204B9DC28BC7BF10081FDCA /* SSPreferencesAVViewController.xib in Resources */,
 				E204B9C728BC7BF10081FDCA /* SSPreferencesViewController.xib in Resources */,
@@ -1983,12 +2017,14 @@
 				E204B95828BC3EBE0081FDCA /* sony.cpp in Sources */,
 				C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */,
 				C7F42CCE2E5A0F6F00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm in Sources */,
+				C7DCEF3D2E86F55600EAED05 /* HapticFeedbackObjC.mm in Sources */,
+				C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */,
 				E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */,
 				C7C3D26E2E76F3BC0018DB8B /* GamepadAssignButtonViewController.swift in Sources */,
 				E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */,
 				E204B9D028BC7BF10081FDCA /* ViewController.m in Sources */,
 				E204B9CD28BC7BF10081FDCA /* SSDiskTableViewCell.m in Sources */,
-				C73660F42E37B5C80055AA91 /* GamepadSettings.swift in Sources */,
+				C73660F42E37B5C80055AA91 /* Gamepad.swift in Sources */,
 				E204B95B28BC3EBE0081FDCA /* about_window_unix.cpp in Sources */,
 				E204B95C28BC3EBE0081FDCA /* ip_icmp.c in Sources */,
 				E204B9E828BC7CE80081FDCA /* clip_ios.mm in Sources */,
@@ -2522,7 +2558,7 @@
 				INFOPLIST_PREFIX_HEADER = "";
 				INFOPLIST_PREPROCESS = NO;
 				INSTALL_PATH = "$(HOME)/Applications";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -2637,7 +2673,7 @@
 				INFOPLIST_PREFIX_HEADER = "";
 				INFOPLIST_PREPROCESS = NO;
 				INSTALL_PATH = "$(HOME)/Applications";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

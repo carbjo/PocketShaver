@@ -11,7 +11,8 @@ import Combine
 class PreferencesAdvancedViewController: UITableViewController {
 	enum SectionType: CaseIterable {
 		case romSelection
-		case options
+		case hapticFeedback
+		case advancedOptions
 		case setupInstructions
 	}
 
@@ -91,7 +92,9 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .romSelection:
 			return 1
-		case .options:
+		case .hapticFeedback:
+			return 3
+		case .advancedOptions:
 			return model.optionsInitialStates.count
 		case .setupInstructions:
 			return 1
@@ -108,10 +111,39 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.displayRomPicker()
 				}
 			)
-		case .options:
+		case .hapticFeedback:
+			switch indexPath.row {
+			case 0:
+				return PreferencesAdvancedOptionCell(
+					title: "Three / two finger swipe gestures",
+					isOn: model.isGestureHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isGestureHapticFeedbackOn = isOn
+				}
+			case 1:
+				return PreferencesAdvancedOptionCell(
+					title: "Mouse clicks",
+					isOn: model.isMouseHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isMouseHapticFeedbackOn = isOn
+				}
+			case 2:
+				return PreferencesAdvancedOptionCell(
+					title: "Gamepad key strokes",
+					isOn: model.isKeyHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isKeyHapticFeedbackOn = isOn
+				}
+			default:
+				fatalError()
+			}
+		case .advancedOptions:
 			let optionInitialState = model.optionsInitialStates[indexPath.row]
 
-			return PreferencesAdvancedOptionCell(optionInitialState: optionInitialState) { [weak self] isOn in
+			return PreferencesAdvancedOptionCell(
+				title: optionInitialState.option.title,
+				isOn: optionInitialState.isOn
+			) { [weak self] isOn in
 				guard let self else { return }
 				model.didSet(option: optionInitialState.option, isOn: isOn)
 			}
@@ -137,7 +169,9 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .romSelection:
 			return "ROM selection"
-		case .options:
+		case .hapticFeedback:
+			return "Haptic feedback"
+		case .advancedOptions:
 			return "Advanced options"
 		case .setupInstructions:
 			return "Setup instructions"
@@ -199,6 +233,10 @@ extension PreferencesAdvancedViewController.SectionType {
 		if !model.hasDismissedSetupInstructions,
 		   let setupInstructionsSectionIndex = sections.firstIndex(of: .setupInstructions) {
 			sections.remove(at: setupInstructionsSectionIndex)
+		}
+		if !model.supportsHaptics,
+		   let hapticsFeedbackSectionIndex = sections.firstIndex(of: .hapticFeedback) {
+			sections.remove(at: hapticsFeedbackSectionIndex)
 		}
 
 		return sections

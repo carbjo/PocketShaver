@@ -8,4 +8,4 @@
 #import "PreferencesROMValidator.h"
 #import "PrefsObjC.h"
 #import "DiskCreation.h"
-
+#import "MiscellaneousSettingsObjC.h"

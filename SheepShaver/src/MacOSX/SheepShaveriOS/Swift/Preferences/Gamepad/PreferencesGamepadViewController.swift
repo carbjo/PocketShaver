@@ -16,7 +16,7 @@ class PreferencesGamepadViewController: UITableViewController {
 	}
 
 	private var gamepadConfigs: [GamepadConfig] {
-		GamepadSettings.current.configurations
+		GamepadManager.shared.allConfigs
 	}
 
 	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
@@ -151,7 +151,7 @@ extension PreferencesGamepadViewController { // UITableViewDataSource, UITableVi
 	}
 
 	override func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
-		GamepadSettings.current.move(from: sourceIndexPath.row, to: destinationIndexPath.row)
+		GamepadManager.shared.move(from: sourceIndexPath.row, to: destinationIndexPath.row)
 	}
 
 	override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
@@ -159,7 +159,7 @@ extension PreferencesGamepadViewController { // UITableViewDataSource, UITableVi
 			return
 		}
 
-		GamepadSettings.current.remove(at: indexPath.row)
+		GamepadManager.shared.remove(at: indexPath.row)
 
 		if gamepadConfigs.isEmpty {
 			if let gamepadConfigHeaderCell = tableView.headerView(forSection: SectionType.gamepadLayouts.rawValue) as? PreferencesGamepadConfigHeaderCell {

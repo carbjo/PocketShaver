@@ -76,18 +76,8 @@ class PreferencesAdvancedRomCell: UITableViewCell {
 			return
 		}
 
-
-		let attributedString = NSMutableAttributedString(string: "Current '\(RomManager.romFilename)' file is validated and identified as ")
-		let attributedRomTypeString = NSAttributedString(
-			string: romType.description,
-			attributes: [
-				.font: UIFont.boldSystemFont(ofSize: 15),
-				.foregroundColor: UIColor.black
-			]
-		)
-		attributedString.append(attributedRomTypeString)
-
-		titleLabel.attributedText = attributedString
+		titleLabel.attributedText = "Current '\(RomManager.romFilename)' file is validated and identified as a <b>\(romType.description)</b>"
+			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 15), color: .black)
 	}
 
 	@objc
@@ -117,16 +107,17 @@ class PreferencesAdvancedOptionCell: UITableViewCell {
 	private let didSetIsEnabled: ((Bool) -> Void)
 
 	init(
-		optionInitialState: PreferencesAdvancedModel.OptionInitialState,
+		title: String,
+		isOn: Bool,
 		didSetIsEnabled: @escaping ((Bool) -> Void)
 	) {
 		self.didSetIsEnabled = didSetIsEnabled
 
 		super.init(style: .default, reuseIdentifier: nil)
 
-		titleLabel.text = optionInitialState.option.title
+		titleLabel.text = title
 
-		enabledSwitch.isOn = optionInitialState.isOn
+		enabledSwitch.isOn = isOn
 
 		contentView.addSubview(enabledIndicationView)
 		contentView.addSubview(titleLabel)

@@ -11,12 +11,18 @@
 #include "sysdeps.h"
 #include "adb.h"
 
+UIImpactFeedbackGenerator *objCKeyDownFeedbackGenerator = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleSoft];
+
 void objc_initOverlayViewController(void) {
 	@autoreleasepool {
 
 		[OverlayViewController injectOverlayViewControllerWithKeyInteraction:^(NSInteger key, BOOL isDown){
 			if (isDown) {
 				ADBKeyDown((int)key);
+
+				if ([MiscellaneousSettingsObjC isKeyHapticFeedbackOn]) {
+					[objCKeyDownFeedbackGenerator impactOccurred];
+				}
 			} else {
 				ADBKeyUp((int)key);
 			}

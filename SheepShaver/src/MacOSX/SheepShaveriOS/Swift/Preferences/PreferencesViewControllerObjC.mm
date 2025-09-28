@@ -8,9 +8,11 @@
 #import <UIKit/UIKit.h>
 #import "SheepShaveriOS-Swift.h"
 
+__weak __typeof(PreferencesViewController) *vc;
+
 void objc_displayPreferences(void) {
 	@autoreleasepool {
-		__weak __typeof(PreferencesViewController) *vc = [PreferencesViewController present];
+		vc = [PreferencesViewController present];
 
 		while (!vc.isDone) {
 			[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];

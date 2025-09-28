@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import CoreHaptics
 
 class PreferencesAdvancedModel {
 	struct Option {
@@ -36,6 +37,40 @@ class PreferencesAdvancedModel {
 	@MainActor
 	var currentRomFileType: RomType {
 		RomManager.shared.currentRomFileType
+	}
+
+	lazy var supportsHaptics: Bool = {
+		CHHapticEngine.capabilitiesForHardware().supportsHaptics
+	}()
+
+	@MainActor
+	var isGestureHapticFeedbackOn: Bool {
+		get {
+			MiscellaneousSettings.current.gestureHapticFeedback
+		}
+		set {
+			MiscellaneousSettings.current.set(gestureHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var isMouseHapticFeedbackOn: Bool {
+		get {
+			MiscellaneousSettings.current.mouseHapticFeedback
+		}
+		set {
+			MiscellaneousSettings.current.set(mouseHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var isKeyHapticFeedbackOn: Bool {
+		get {
+			MiscellaneousSettings.current.keyHapticFeedback
+		}
+		set {
+			MiscellaneousSettings.current.set(keyHapticFeedback: newValue)
+		}
 	}
 
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
