@@ -44,6 +44,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <signal.h>
+#include <errno.h>
 
 #ifdef HAVE_PTHREADS
 # include <pthread.h>
@@ -51,6 +52,10 @@
 
 #ifdef HAVE_FCNTL_H
 # include <fcntl.h>
+#endif
+
+#ifdef HAVE_SYS_STAT_H
+# include <sys/stat.h>
 #endif
 
 #ifdef TIME_WITH_SYS_TIME
@@ -87,7 +92,7 @@
 #if !defined(EMULATED_PPC)
 #define REAL_ADDRESSING 1
 #include "ppc_asm.tmpl"
-#elif defined(NATMEM_OFFSET)
+#elif defined(NATMEM_OFFSET) || defined(MEM_BULK)
 #define DIRECT_ADDRESSING 1
 #else
 #define REAL_ADDRESSING 1
@@ -169,6 +174,9 @@ typedef uint64 uintptr;
 typedef int64 intptr;
 #else
 #error "Unsupported size of pointer"
+#endif
+#ifndef HAVE_LOFF_T
+#define loff_t off_t
 #endif
 
 // Define if the host processor supports fast unaligned load/stores

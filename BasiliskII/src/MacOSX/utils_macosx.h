@@ -39,7 +39,9 @@ void set_current_directory();
 
 bool MetalIsAvailable();
 
-#endif
+void make_window_transparent(SDL_Window *window);
+void set_mouse_ignore(SDL_Window *window, int flag);
 
 }	// extern "C"
 
+#endif

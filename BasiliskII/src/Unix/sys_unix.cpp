@@ -380,6 +380,9 @@ void SysAddCDROMPrefs(void)
 			closedir(cd_dir);
 		}
 	}
+#elif defined __FreeBSD__
+	if (access("/cdrom", F_OK) == 0)
+		PrefsAddString("cdrom", "/cdrom");
 #elif defined __MACOSX__
 	// There is no predefined path for CD-ROMs on MacOS X. Rather, we
 	// define a single fake CD-ROM entry for the emulated MacOS.
@@ -407,8 +410,8 @@ void SysAddSerialPrefs(void)
 		PrefsAddString("serialb", "/dev/tts/1");
 	}
 #elif defined(__FreeBSD__)
-	PrefsAddString("seriala", "/dev/cuaa0");
-	PrefsAddString("serialb", "/dev/cuaa1");
+	PrefsAddString("seriala", "/dev/cuau0");
+	PrefsAddString("serialb", "/dev/cuau1");
 #elif defined(__NetBSD__)
 	PrefsAddString("seriala", "/dev/tty00");
 	PrefsAddString("serialb", "/dev/tty01");
@@ -548,7 +551,7 @@ static mac_file_handle *open_filehandle(const char *name)
 		return fh;
 }
 
-void *Sys_open(const char *name, bool read_only)
+void *Sys_open(const char *name, bool read_only, bool is_cdrom)
 {
 #if TARGET_OS_IPHONE
 	char nameInCurrentDir [1024] = "";
@@ -569,9 +572,9 @@ void *Sys_open(const char *name, bool read_only)
 	bool is_file = strncmp(name, "/dev/", 5) != 0;
 #if defined(__FreeBSD__)
 	                // SCSI                             IDE
-	bool is_cdrom = strncmp(name, "/dev/cd", 7) == 0 || strncmp(name, "/dev/acd", 8) == 0;
+	is_cdrom |= strncmp(name, "/dev/cd", 7) == 0 || strncmp(name, "/dev/acd", 8) == 0;
 #else
-	bool is_cdrom = strncmp(name, "/dev/cd", 7) == 0;
+	is_cdrom |= strncmp(name, "/dev/cd", 7) == 0;
 #endif
 	bool is_floppy = strncmp(name, "/dev/fd", 7) == 0;
 

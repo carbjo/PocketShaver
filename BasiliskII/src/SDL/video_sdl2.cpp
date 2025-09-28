@@ -41,14 +41,15 @@
 
 #include "sysdeps.h"
 
-#include <SDL.h>
-#if SDL_VERSION_ATLEAST(2,0,0)
+#include "my_sdl.h"
+#if SDL_VERSION_ATLEAST(2, 0, 0) && !SDL_VERSION_ATLEAST(3, 0, 0)
 
 #include <SDL_mutex.h>
 #include <SDL_thread.h>
 #include <errno.h>
 #include <vector>
 #include <string>
+#include <math.h>
 
 #ifdef __MACOSX__
 #include "utils_macosx.h"
@@ -78,6 +79,7 @@
 #include "video_defs.h"
 #include "video_blit.h"
 #include "vm_alloc.h"
+#include "cdrom.h"
 
 #define DEBUG 0
 #include "debug.h"
@@ -138,9 +140,9 @@ static bool use_vosf = false;						// Flag: VOSF enabled
 static const bool use_vosf = false;					// VOSF not possible
 #endif
 
-static bool ctrl_down = false;						// Flag: Ctrl key pressed
-static bool opt_down = false;						// Flag: Opt key pressed
-static bool cmd_down = false;						// Flag: Cmd key pressed
+static bool ctrl_down = false;						// Flag: Ctrl key pressed (for use with hotkeys)
+static bool opt_down = false;						// Flag: Opt/Alt key pressed (for use with hotkeys)
+static bool cmd_down = false;						// Flag: Cmd/Super/Win key pressed (for use with hotkeys)
 static bool quit_full_screen = false;				// Flag: DGA close requested from redraw thread
 static bool emerg_quit = false;						// Flag: Ctrl-Esc pressed, emergency quit requested from MacOS thread
 static bool emul_suspended = false;					// Flag: Emulator suspended
@@ -569,14 +571,15 @@ static void set_window_name() {
 	if (!sdl_window) return;
 	const char *title = PrefsFindString("title");
 	std::string s = title ? title : GetString(STR_WINDOW_TITLE);
-	if (mouse_grabbed) {
-		s += GetString(STR_WINDOW_TITLE_GRABBED0);
+    if (mouse_grabbed)
+    {
+        s += GetString(STR_WINDOW_TITLE_GRABBED_PRE);
 		int hotkey = PrefsFindInt32("hotkey");
-		if (!hotkey) hotkey = 1;
+		hotkey = hotkey ? hotkey : 1;
 		if (hotkey & 1) s += GetString(STR_WINDOW_TITLE_GRABBED1);
-		if (hotkey & 2) s += GetString(STR_WINDOW_TITLE_GRABBED2);
-		if (hotkey & 4) s += GetString(STR_WINDOW_TITLE_GRABBED3);
-		s += GetString(STR_WINDOW_TITLE_GRABBED4);
+        if (hotkey & 2) s += GetString(STR_WINDOW_TITLE_GRABBED2);
+        if (hotkey & 4) s += GetString(STR_WINDOW_TITLE_GRABBED4);
+        s += GetString(STR_WINDOW_TITLE_GRABBED_POST);
 	}
 	SDL_SetWindowTitle(sdl_window, s.c_str());
 }
@@ -641,7 +644,7 @@ public:
 	~driver_base();
 
 	void init(); // One-time init
-	void set_video_mode(int flags);
+	void set_video_mode(int flags, int pitch);
 	void adapt_to_video_mode();
 
 	void update_palette(void);
@@ -723,13 +726,15 @@ static void shutdown_sdl_video()
 	delete_sdl_video_window();
 }
 
-static int get_mag_rate()
+static float get_mag_rate()
 {
-	int m = PrefsFindInt32("mag_rate");
+	float m;
+	const char *s = PrefsFindString("mag_rate");
+	if (s == NULL || sscanf(s, "%f", &m) != 1) return 1;
 	return m < 1 ? 1 : m > 4 ? 4 : m;
 }
 
-static SDL_Surface * init_sdl_video(int width, int height, int bpp, Uint32 flags)
+static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flags, int pitch)
 {
     if (guest_surface) {
         delete_sdl_video_surfaces();
@@ -746,7 +751,6 @@ static SDL_Surface * init_sdl_video(int width, int height, int bpp, Uint32 flags
 			shutdown_sdl_video();
 			return NULL;
 		}
-#ifdef __MACOSX__
 		window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 		window_width = desktop_mode.w;
 		window_height = desktop_mode.h;
@@ -776,7 +780,7 @@ static SDL_Surface * init_sdl_video(int width, int height, int bpp, Uint32 flags
 #endif
 	
 	if (!sdl_window) {
-		int m = get_mag_rate();
+		float m = get_mag_rate();
 		sdl_window = SDL_CreateWindow(
 			"",
 			SDL_WINDOWPOS_UNDEFINED,
@@ -841,7 +845,11 @@ static SDL_Surface * init_sdl_video(int width, int height, int bpp, Uint32 flags
     }
 
 	SDL_assert(sdl_texture == NULL);
-    sdl_texture = SDL_CreateTexture(sdl_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+#ifdef ENABLE_VOSF
+	sdl_texture = SDL_CreateTexture(sdl_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+#else
+	sdl_texture = SDL_CreateTexture(sdl_renderer, SDL_PIXELFORMAT_BGRA8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+#endif
     if (!sdl_texture) {
         shutdown_sdl_video();
         return NULL;
@@ -853,19 +861,32 @@ static SDL_Surface * init_sdl_video(int width, int height, int bpp, Uint32 flags
 
 	SDL_assert(guest_surface == NULL);
 	SDL_assert(host_surface == NULL);
-    switch (bpp) {
-        case 8:
-            guest_surface = SDL_CreateRGBSurface(0, width, height, 8, 0, 0, 0, 0);
-            break;
-		case 16:
-			guest_surface = SDL_CreateRGBSurface(0, width, height, 16, 0x0000F800, 0x000007E0, 0x0000001F, 0x00000000);
+    switch (depth) {
+		case VIDEO_DEPTH_1BIT:
+		case VIDEO_DEPTH_2BIT:
+		case VIDEO_DEPTH_4BIT:
+			guest_surface = SDL_CreateRGBSurface(0, width, height, 8, 0, 0, 0, 0);
 			break;
-        case 32:
-            guest_surface = SDL_CreateRGBSurface(0, width, height, 32, 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
-            host_surface = guest_surface;
+		case VIDEO_DEPTH_8BIT:
+#ifdef ENABLE_VOSF
+			guest_surface = SDL_CreateRGBSurface(0, width, height, 8, 0, 0, 0, 0);
+#else
+			guest_surface = SDL_CreateRGBSurfaceFrom(the_buffer, width, height, 8, pitch, 0, 0, 0, 0);
+#endif
+			break;
+		case VIDEO_DEPTH_16BIT:
+			guest_surface = SDL_CreateRGBSurface(0, width, height, 16, 0xf800, 0x07e0, 0x001f, 0);
+			break;
+		case VIDEO_DEPTH_32BIT:
+#ifdef ENABLE_VOSF
+			guest_surface = SDL_CreateRGBSurface(0, width, height, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+#else
+			guest_surface = SDL_CreateRGBSurfaceFrom(the_buffer, width, height, 32, pitch, 0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff);
+#endif
+			host_surface = guest_surface;
             break;
         default:
-            printf("WARNING: An unsupported bpp of %d was used\n", bpp);
+            printf("WARNING: An unsupported depth of %d was used\n", depth);
             break;
     }
     if (!guest_surface) {
@@ -953,14 +974,22 @@ static int present_sdl_video()
 	UNLOCK_PALETTE; // passed potential deadlock, can unlock palette
 	
     // Update the host OS' texture
-    void * srcPixels = (void *)((uint8_t *)host_surface->pixels +
-        sdl_update_video_rect.y * host_surface->pitch +
-        sdl_update_video_rect.x * host_surface->format->BytesPerPixel);
+	uint8_t *srcPixels = (uint8_t *)host_surface->pixels +
+		sdl_update_video_rect.y * host_surface->pitch +
+		sdl_update_video_rect.x * host_surface->format->BytesPerPixel;
 
-    if (SDL_UpdateTexture(sdl_texture, &sdl_update_video_rect, srcPixels, host_surface->pitch) != 0) {
-        SDL_UnlockMutex(sdl_update_video_mutex);
+	uint8_t *dstPixels;
+	int dstPitch;
+	if (SDL_LockTexture(sdl_texture, &sdl_update_video_rect, (void **)&dstPixels, &dstPitch) < 0) {
+		SDL_UnlockMutex(sdl_update_video_mutex);
 		return -1;
 	}
+	for (int y = 0; y < sdl_update_video_rect.h; y++) {
+		memcpy(dstPixels, srcPixels, sdl_update_video_rect.w << 2);
+		srcPixels += host_surface->pitch;
+		dstPixels += dstPitch;
+	}
+	SDL_UnlockTexture(sdl_texture);
 
     // We are done working with pixels in host_surface.  Reset sdl_update_video_rect, then let
     // other threads modify it, as-needed.
@@ -1001,37 +1030,36 @@ void update_sdl_video(SDL_Surface *s, Sint32 x, Sint32 y, Sint32 w, Sint32 h)
 }
 
 #ifdef SHEEPSHAVER
-static void MagBits(Uint8 *dst, Uint8 *src, int mag) {
-	for (int y = 0; y < 16; y++)
-		for (int x = 0; x < 16; x++) {
-			int sa = 16 * y + x;
-			if (!(src[sa >> 3] & 0x80 >> (sa & 7))) continue;
-			for (int dy = 0; dy < mag; dy++)
-				for (int dx = 0; dx < mag; dx++) {
-					int da = 16 * mag * (mag * y + dy) + mag * x + dx;
-					dst[da >> 3] |= 0x80 >> (da & 7);
-				}
+static void MagBits(Uint8 *dst, Uint8 *src, int size) {
+	float s = 16.f / size;
+	for (int y = 0; y < size; y++)
+		for (int x = 0; x < size; x++) {
+			int sa = 16 * int(y * s) + int(x * s);
+			if (src[sa >> 3] & 0x80 >> (sa & 7)) {
+				int da = (size + 7 & ~7) * y + x;
+				dst[da >> 3] |= 0x80 >> (da & 7);
+			}
 		}
 }
 static SDL_Cursor *MagCursor(bool hot) {
 	int w, h;
 	SDL_GetWindowSize(sdl_window, &w, &h);
-	int mag = std::min(w / drv->VIDEO_MODE_X, h / drv->VIDEO_MODE_Y);
-	Uint8 *data = (Uint8 *)SDL_calloc(1, 32 * mag * mag);
-	Uint8 *mask = (Uint8 *)SDL_calloc(1, 32 * mag * mag);
-	MagBits(data, &MacCursor[4], mag);
-	MagBits(mask, &MacCursor[36], mag);
-	SDL_Cursor *cursor = SDL_CreateCursor(data, mask, 16 * mag, 16 * mag, hot ? MacCursor[2] * mag : 0, hot ? MacCursor[3] * mag : 0);
+	float mag = std::min((float)w / drv->VIDEO_MODE_X, (float)h / drv->VIDEO_MODE_Y);
+	int size = ceilf(16 * mag), n = ((size + 7) >> 3) * size;
+	Uint8 *data = (Uint8 *)SDL_calloc(n, 2);
+	Uint8 *mask = (Uint8 *)SDL_calloc(n, 2);
+	MagBits(data, &MacCursor[4], size);
+	MagBits(mask, &MacCursor[36], size);
+	SDL_Cursor *cursor = SDL_CreateCursor(data, mask, size, size, hot ? MacCursor[2] * mag : 0, hot ? MacCursor[3] * mag : 0);
 	SDL_free(data);
 	SDL_free(mask);
 	return cursor;
 }
 #endif
 
-void driver_base::set_video_mode(int flags)
+void driver_base::set_video_mode(int flags, int pitch)
 {
-	int depth = sdl_depth_of_video_depth(VIDEO_MODE_DEPTH);
-	if ((s = init_sdl_video(VIDEO_MODE_X, VIDEO_MODE_Y, depth, flags)) == NULL)
+	if ((s = init_sdl_video(VIDEO_MODE_X, VIDEO_MODE_Y, VIDEO_MODE_DEPTH, flags, pitch)) == NULL)
 		return;
 #ifdef ENABLE_VOSF
 	the_host_buffer = (uint8 *)s->pixels;
@@ -1040,13 +1068,18 @@ void driver_base::set_video_mode(int flags)
 
 void driver_base::init()
 {
-	set_video_mode(display_type == DISPLAY_SCREEN ? SDL_WINDOW_FULLSCREEN : 0);
+	int pitch = VIDEO_MODE_X;
+	switch (VIDEO_MODE_DEPTH) {
+		case VIDEO_DEPTH_16BIT: pitch <<= 1; break;
+		case VIDEO_DEPTH_32BIT: pitch <<= 2; break;
+	}
+		
 	int aligned_height = (VIDEO_MODE_Y + 15) & ~15;
 
 #ifdef ENABLE_VOSF
 	use_vosf = true;
 	// Allocate memory for frame buffer (SIZE is extended to page-boundary)
-	the_buffer_size = page_extend((aligned_height + 2) * s->pitch);
+	the_buffer_size = page_extend((aligned_height + 2) * pitch);
 	the_buffer = (uint8 *)vm_acquire_framebuffer(the_buffer_size);
 	the_buffer_copy = (uint8 *)malloc(the_buffer_size);
 	D(bug("the_buffer = %p, the_buffer_copy = %p, the_host_buffer = %p\n", the_buffer, the_buffer_copy, the_host_buffer));
@@ -1069,11 +1102,14 @@ void driver_base::init()
 #endif
 	if (!use_vosf) {
 		// Allocate memory for frame buffer
-		the_buffer_size = (aligned_height + 2) * s->pitch;
+		the_buffer_size = (aligned_height + 2) * pitch;
 		the_buffer_copy = (uint8 *)calloc(1, the_buffer_size);
 		the_buffer = (uint8 *)vm_acquire_framebuffer(the_buffer_size);
+		memset(the_buffer, 0, the_buffer_size);
 		D(bug("the_buffer = %p, the_buffer_copy = %p\n", the_buffer, the_buffer_copy));
 	}
+
+	set_video_mode(display_type == DISPLAY_SCREEN ? SDL_WINDOW_FULLSCREEN : 0, pitch);
 
 	// Set frame buffer base
 	set_mac_frame_buffer(monitor, VIDEO_MODE_DEPTH, true);
@@ -1084,12 +1120,15 @@ void driver_base::init()
 	sdl_palette = SDL_AllocPalette(256);
 	sdl_palette->colors[1] = (SDL_Color){ .r = 0, .g = 0, .b = 0, .a = 255 };
 	SDL_SetSurfacePalette(s, sdl_palette);
+
+	if (PrefsFindBool("init_grab") && !PrefsFindBool("hardcursor")) grab_mouse();
 }
 
 void driver_base::adapt_to_video_mode() {
 	ADBSetRelMouseMode(mouse_grabbed);
 
 	// Init blitting routines
+	if (!s) return;
 	SDL_PixelFormat *f = s->format;
 	VisualFormat visualFormat;
 	visualFormat.depth = sdl_depth_of_video_depth(VIDEO_MODE_DEPTH);
@@ -1705,16 +1744,15 @@ static void do_toggle_fullscreen(void)
 			display_type = DISPLAY_WINDOW;
 			SDL_SetWindowFullscreen(sdl_window, 0);
 			const VIDEO_MODE &mode = drv->mode;
-			int m = get_mag_rate();
+			float m = get_mag_rate();
 			SDL_SetWindowSize(sdl_window, m * VIDEO_MODE_X, m * VIDEO_MODE_Y);
 			SDL_SetWindowGrab(sdl_window, SDL_FALSE);
+#ifndef __MACOSX__
+			SDL_SetWindowPosition(sdl_window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+#endif
 		} else {
 			display_type = DISPLAY_SCREEN;
-#ifdef __MACOSX__
 			SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-#else
-			SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_FULLSCREEN);
-#endif
 			SDL_SetWindowGrab(sdl_window, SDL_TRUE);
 		}
 	}
@@ -2002,7 +2040,7 @@ static bool is_cursor_in_mac_screen()
 		deltaY = cursorY - windowY;
 		D(bug("cursor relative {%d,%d}\n", deltaX, deltaY));
 		const VIDEO_MODE &mode = drv->mode;
-		const int m = get_mag_rate();
+		float m = get_mag_rate();
 		out = deltaX >= 0 && deltaX < VIDEO_MODE_X * m &&
 				deltaY >= 0 && deltaY < VIDEO_MODE_Y * m;
 		D(bug("cursor in window? %s\n", out? "yes" : "no"));
@@ -2039,7 +2077,7 @@ void SDL_monitor_desc::switch_to_current_mode(void)
 #ifdef SHEEPSHAVER
 bool video_can_change_cursor(void)
 {
-	return PrefsFindBool("hardcursor") && (display_type == DISPLAY_WINDOW || PrefsFindBool("scale_integer"));
+	return PrefsFindBool("hardcursor");
 }
 #endif
 
@@ -2296,6 +2334,12 @@ static int SDLCALL on_sdl_event_generated(void *userdata, SDL_Event * event)
 			}
 		} break;
 			
+		case SDL_DROPFILE:
+			CDROMDrop(event->drop.file);
+			SDL_free(event->drop.file);
+			return EVENT_DROP_FROM_QUEUE;
+			break;
+
 		case SDL_WINDOWEVENT: {
 			switch (event->window.event) {
 				case SDL_WINDOWEVENT_RESIZED: {
@@ -2451,7 +2495,6 @@ static void handle_events(void)
 					case SDL_WINDOWEVENT_RESTORED:
 						force_complete_window_refresh();
 						break;
-					
 				}
 				break;
 			}
@@ -2631,6 +2674,7 @@ static void update_display_static(driver_base *drv)
 static void update_display_static_bbox(driver_base *drv)
 {
 	const VIDEO_MODE &mode = drv->mode;
+	bool blit = (int)VIDEO_MODE_DEPTH == VIDEO_DEPTH_16BIT;
 
 	// Allocate bounding boxes for SDL_UpdateRects()
 	const uint32 N_PIXELS = 64;
@@ -2663,7 +2707,7 @@ static void update_display_static_bbox(driver_base *drv)
 				const uint32 dst_yb = j * dst_bytes_per_row;
 				if (memcmp(&the_buffer[yb + xb], &the_buffer_copy[yb + xb], xs) != 0) {
 					memcpy(&the_buffer_copy[yb + xb], &the_buffer[yb + xb], xs);
-					Screen_blit((uint8 *)drv->s->pixels + dst_yb + xb, the_buffer + yb + xb, xs);
+					if (blit) Screen_blit((uint8 *)drv->s->pixels + dst_yb + xb, the_buffer + yb + xb, xs);
 					dirty = true;
 				}
 			}
@@ -2904,5 +2948,3 @@ void video_set_dirty_area(int x, int y, int w, int h)
 	// XXX handle dirty bounding boxes for non-VOSF modes
 }
 #endif
-
-#endif	// ends: SDL version check

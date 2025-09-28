@@ -30,10 +30,7 @@
 #include <net/if_arp.h>
 
 #include <cerrno>
-
-#ifdef HAVE_GNOMEUI
-#include <gnome.h>
-#endif
+#include <fstream>
 
 #include "user_strings.h"
 #include "version.h"
@@ -60,6 +57,8 @@ static void create_serial_pane(GtkWidget *top);
 static void create_memory_pane(GtkWidget *top);
 static void create_jit_pane(GtkWidget *top);
 static void read_settings(void);
+static void add_volume_entry_with_type(const char * filename, bool cdrom);
+static void add_volume_entry_guessed(const char * filename);
 
 
 /*
@@ -73,44 +72,71 @@ static void read_settings(void);
 #endif
 
 struct opt_desc {
+	opt_desc(int l, GCallback f, GtkWidget **s=NULL) : label_id(l), func(f), save_ref(s) {}
+
 	int label_id;
 	GtkSignalFunc func;
+	GtkWidget ** save_ref;
 };
 
 struct combo_desc {
 	int label_id;
 };
 
-struct file_req_assoc {
-	file_req_assoc(GtkWidget *r, GtkWidget *e) : req(r), entry(e) {}
-	GtkWidget *req;
-	GtkWidget *entry;
-};
-
-static void cb_browse_ok(GtkWidget *button, file_req_assoc *assoc)
+// User closed the file chooser dialog, possibly selecting a file
+static void cb_browse_response(GtkWidget *chooser, int response, GtkEntry *entry)
 {
-	gchar *file = (char *)gtk_file_selection_get_filename(GTK_FILE_SELECTION(assoc->req));
-	gtk_entry_set_text(GTK_ENTRY(assoc->entry), file);
-	gtk_widget_destroy(assoc->req);
-	delete assoc;
+	if (response == GTK_RESPONSE_ACCEPT)
+	{
+		gchar *filename;
+		filename = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER (chooser));
+		gtk_entry_set_text(GTK_ENTRY(entry), filename);
+		g_free (filename);
+	}
+	gtk_widget_destroy (chooser);
 }
 
-static void cb_browse(GtkWidget *widget, void *user_data)
+// Open the file chooser dialog to select a file
+static void cb_browse(GtkWidget *button, GtkWidget *entry)
 {
-	GtkWidget *req = gtk_file_selection_new(GetString(STR_BROWSE_TITLE));
-	gtk_signal_connect_object(GTK_OBJECT(req), "delete_event", GTK_SIGNAL_FUNC(gtk_widget_destroy), GTK_OBJECT(req));
-	gtk_signal_connect(GTK_OBJECT(GTK_FILE_SELECTION(req)->ok_button), "clicked", GTK_SIGNAL_FUNC(cb_browse_ok), new file_req_assoc(req, (GtkWidget *)user_data));
-	gtk_signal_connect_object(GTK_OBJECT(GTK_FILE_SELECTION(req)->cancel_button), "clicked", GTK_SIGNAL_FUNC(gtk_widget_destroy), GTK_OBJECT(req));
-	gtk_widget_show(req);
+	GtkWidget *chooser = gtk_file_chooser_dialog_new(GetString(STR_BROWSE_TITLE),
+							GTK_WINDOW(win),
+							GTK_FILE_CHOOSER_ACTION_OPEN,
+							"Cancel", GTK_RESPONSE_CANCEL,
+							"Open", GTK_RESPONSE_ACCEPT,
+							NULL);
+	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(chooser), g_path_get_dirname(gtk_entry_get_text(GTK_ENTRY(entry))));
+	gtk_dialog_set_default_response(GTK_DIALOG(chooser), GTK_RESPONSE_ACCEPT);
+	gtk_window_set_transient_for(GTK_WINDOW(chooser), GTK_WINDOW(win));
+	gtk_window_set_modal(GTK_WINDOW(chooser), true);
+	g_signal_connect(chooser, "response", G_CALLBACK(cb_browse_response), GTK_ENTRY(entry));
+	gtk_widget_show(chooser);
 }
 
-static GtkWidget *make_browse_button(GtkWidget *entry)
+// Open the file chooser dialog to select a folder
+static void cb_browse_dir(GtkWidget *button, GtkWidget *entry)
+{
+	GtkWidget *chooser = gtk_file_chooser_dialog_new(GetString(STR_BROWSE_FOLDER_TITLE),
+							GTK_WINDOW(win),
+							GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
+							"Cancel", GTK_RESPONSE_CANCEL,
+							"Select", GTK_RESPONSE_ACCEPT,
+							NULL);
+	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(chooser), gtk_entry_get_text(GTK_ENTRY(entry)));
+	gtk_dialog_set_default_response(GTK_DIALOG(chooser), GTK_RESPONSE_ACCEPT);
+	gtk_window_set_transient_for(GTK_WINDOW(chooser), GTK_WINDOW(win));
+	gtk_window_set_modal(GTK_WINDOW(chooser), true);
+	g_signal_connect(chooser, "response", G_CALLBACK(cb_browse_response), GTK_WIDGET(entry));
+	gtk_widget_show(chooser);
+}
+
+static GtkWidget *make_browse_button(GtkWidget *entry, bool only_dirs)
 {
 	GtkWidget *button;
 
 	button = gtk_button_new_with_label(GetString(STR_BROWSE_CTRL));
 	gtk_widget_show(button);
-	gtk_signal_connect(GTK_OBJECT(button), "clicked", (GtkSignalFunc)cb_browse, (void *)entry);
+	g_signal_connect(button, "clicked", only_dirs ? G_CALLBACK(cb_browse_dir) : G_CALLBACK(cb_browse), entry);
 	return button;
 }
 
@@ -118,7 +144,7 @@ static void add_menu_item(GtkWidget *menu, int label_id, GtkSignalFunc func)
 {
 	GtkWidget *item = gtk_menu_item_new_with_label(GetString(label_id));
 	gtk_widget_show(item);
-	gtk_signal_connect(GTK_OBJECT(item), "activate", func, NULL);
+	g_signal_connect(item, "activate", func, NULL);
 	gtk_menu_append(GTK_MENU(menu), item);
 }
 
@@ -154,8 +180,11 @@ static GtkWidget *make_button_box(GtkWidget *top, int border, const opt_desc *bu
 	while (buttons->label_id) {
 		button = gtk_button_new_with_label(GetString(buttons->label_id));
 		gtk_widget_show(button);
-		gtk_signal_connect_object(GTK_OBJECT(button), "clicked", buttons->func, NULL);
+		g_signal_connect_object(button, "clicked", buttons->func, NULL, (GConnectFlags) 0);
 		gtk_box_pack_start(GTK_BOX(bb), button, TRUE, TRUE, 0);
+		if (buttons->save_ref) {
+			*(buttons->save_ref) = button;
+		}
 		buttons++;
 	}
 	return bb;
@@ -177,44 +206,48 @@ static GtkWidget *make_table(GtkWidget *top, int x, int y)
 	return table;
 }
 
-static GtkWidget *table_make_option_menu(GtkWidget *table, int row, int label_id, const opt_desc *options, int active)
-{
-	GtkWidget *label, *opt, *menu;
-
-	label = gtk_label_new(GetString(label_id));
-	gtk_widget_show(label);
-	gtk_table_attach(GTK_TABLE(table), label, 0, 1, row, row + 1, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
-
-	opt = gtk_option_menu_new();
-	gtk_widget_show(opt);
-	menu = gtk_menu_new();
-
-	while (options->label_id) {
-		add_menu_item(menu, options->label_id, options->func);
-		options++;
-	}
-	gtk_menu_set_active(GTK_MENU(menu), active);
-
-	gtk_option_menu_set_menu(GTK_OPTION_MENU(opt), menu);
-	gtk_table_attach(GTK_TABLE(table), opt, 1, 2, row, row + 1, (GtkAttachOptions)(GTK_FILL | GTK_EXPAND), (GtkAttachOptions)0, 4, 4);
-	return menu;
-}
-
-static GtkWidget *table_make_combobox(GtkWidget *table, int row, int label_id, const char *default_value, GList *glist)
+static GtkWidget *table_make_option_menu(GtkWidget *table, int row, int label_id,
+                                         const combo_desc *options, GCallback func,
+                                         int active)
 {
 	GtkWidget *label, *combo;
 
 	label = gtk_label_new(GetString(label_id));
 	gtk_widget_show(label);
 	gtk_table_attach(GTK_TABLE(table), label, 0, 1, row, row + 1, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
-	
-	combo = gtk_combo_new();
-	gtk_widget_show(combo);
-	gtk_combo_set_popdown_strings(GTK_COMBO(combo), glist);
 
-	gtk_entry_set_text(GTK_ENTRY(GTK_COMBO(combo)->entry), default_value);
+	combo = gtk_combo_box_new_text();
+	gtk_widget_show(combo);
+
+	while (options->label_id) {
+		gtk_combo_box_append_text(GTK_COMBO_BOX(combo), GetString(options->label_id));
+		options++;
+	}
+	gtk_combo_box_set_active(GTK_COMBO_BOX(combo), active);
+	g_signal_connect(combo, "changed", func, NULL);
 	gtk_table_attach(GTK_TABLE(table), combo, 1, 2, row, row + 1, (GtkAttachOptions)(GTK_FILL | GTK_EXPAND), (GtkAttachOptions)0, 4, 4);
-	
+	return combo;
+}
+
+static GtkWidget *table_make_combobox(GtkWidget *table, int row, int label_id, const char *pref, GList *list)
+{
+	GtkWidget *label, *combo;
+
+	label = gtk_label_new(GetString(label_id));
+	gtk_widget_show(label);
+	gtk_table_attach(GTK_TABLE(table), label, 0, 1, row, row + 1, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
+
+	combo = gtk_combo_box_entry_new_text();
+	gtk_widget_show(combo);
+	while(list)
+	{
+		gtk_combo_box_append_text(GTK_COMBO_BOX(combo), ((gchar *) list->data));
+		list = list->next;
+	}
+
+	gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN (combo))), pref);
+	gtk_table_attach(GTK_TABLE(table), combo, 1, 2, row, row + 1, (GtkAttachOptions)(GTK_FILL | GTK_EXPAND), (GtkAttachOptions)0, 4, 4);
+
 	return combo;
 }
 
@@ -246,19 +279,19 @@ static GtkWidget *table_make_file_entry(GtkWidget *table, int row, int label_id,
 	gtk_table_attach(GTK_TABLE(table), box, 1, 2, row, row + 1, (GtkAttachOptions)(GTK_FILL | GTK_EXPAND), (GtkAttachOptions)0, 4, 4);
 
 	entry = gtk_entry_new();
-	gtk_entry_set_text(GTK_ENTRY(entry), str); 
+	gtk_entry_set_text(GTK_ENTRY(entry), str);
 	gtk_widget_show(entry);
 	gtk_box_pack_start(GTK_BOX(box), entry, TRUE, TRUE, 0);
 
-	button = make_browse_button(entry);
+	button = make_browse_button(entry, false);
 	gtk_box_pack_start(GTK_BOX(box), button, FALSE, FALSE, 0);
 	g_object_set_data(G_OBJECT(entry), "chooser_button", button);
 	return entry;
 }
 
-static GtkWidget *make_option_menu(GtkWidget *top, int label_id, const opt_desc *options, int active)
+static GtkWidget *make_option_menu(GtkWidget *top, int label_id, const combo_desc *options, GCallback func, int active)
 {
-	GtkWidget *box, *label, *opt, *menu;
+	GtkWidget *box, *label, *combo;
 
 	box = gtk_hbox_new(FALSE, 4);
 	gtk_widget_show(box);
@@ -268,24 +301,22 @@ static GtkWidget *make_option_menu(GtkWidget *top, int label_id, const opt_desc 
 	gtk_widget_show(label);
 	gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
 
-	opt = gtk_option_menu_new();
-	gtk_widget_show(opt);
-	menu = gtk_menu_new();
+	combo = gtk_combo_box_new_text();
+	gtk_widget_show(combo);
 
 	while (options->label_id) {
-		add_menu_item(menu, options->label_id, options->func);
+		gtk_combo_box_append_text(GTK_COMBO_BOX(combo), GetString(options->label_id));
 		options++;
 	}
-	gtk_menu_set_active(GTK_MENU(menu), active);
-
-	gtk_option_menu_set_menu(GTK_OPTION_MENU(opt), menu);
-	gtk_box_pack_start(GTK_BOX(box), opt, FALSE, FALSE, 0);
-	return menu;
+	gtk_combo_box_set_active(GTK_COMBO_BOX(combo), active);
+	gtk_box_pack_start(GTK_BOX(box), combo, FALSE, FALSE, 0);
+	g_signal_connect(combo, "changed", func, NULL);
+	return combo;
 }
 
 static GtkWidget *make_file_entry(GtkWidget *top, int label_id, const char *prefs_item, bool only_dirs = false)
 {
-	GtkWidget *box, *label, *entry;
+	GtkWidget *box, *label, *entry, *button;
 
 	box = gtk_hbox_new(FALSE, 4);
 	gtk_widget_show(box);
@@ -299,27 +330,22 @@ static GtkWidget *make_file_entry(GtkWidget *top, int label_id, const char *pref
 	if (str == NULL)
 		str = "";
 
-#ifdef HAVE_GNOMEUI
-	entry = gnome_file_entry_new(NULL, GetString(label_id));
-	if (only_dirs)
-		gnome_file_entry_set_directory(GNOME_FILE_ENTRY(entry), true);
-	gtk_entry_set_text(GTK_ENTRY(gnome_file_entry_gtk_entry(GNOME_FILE_ENTRY(entry))), str);
-#else
 	entry = gtk_entry_new();
-	gtk_entry_set_text(GTK_ENTRY(entry), str); 
-#endif
+	gtk_entry_set_text(GTK_ENTRY(entry), str);
+	button = make_browse_button(entry, only_dirs);
+
 	gtk_widget_show(entry);
+#if GLIB_CHECK_VERSION(2,26,0)
+	g_object_bind_property(entry, "sensitive", button, "sensitive", G_BINDING_SYNC_CREATE);
+#endif
 	gtk_box_pack_start(GTK_BOX(box), entry, TRUE, TRUE, 0);
+	gtk_box_pack_start(GTK_BOX(box), button, FALSE, FALSE, 0);
 	return entry;
 }
 
 static const gchar *get_file_entry_path(GtkWidget *entry)
 {
-#ifdef HAVE_GNOMEUI
-	return gnome_file_entry_get_full_path(GNOME_FILE_ENTRY(entry), false);
-#else
 	return gtk_entry_get_text(GTK_ENTRY(entry));
-#endif
 }
 
 static GtkWidget *make_checkbox(GtkWidget *top, int label_id, const char *prefs_item, GtkSignalFunc func)
@@ -327,8 +353,9 @@ static GtkWidget *make_checkbox(GtkWidget *top, int label_id, const char *prefs_
 	GtkWidget *button = gtk_check_button_new_with_label(GetString(label_id));
 	gtk_widget_show(button);
 	gtk_toggle_button_set_state(GTK_TOGGLE_BUTTON(button), PrefsFindBool(prefs_item));
-	gtk_signal_connect(GTK_OBJECT(button), "toggled", func, button);
-	gtk_box_pack_start(GTK_BOX(top), button, FALSE, FALSE, 0);
+	g_signal_connect(button, "toggled", func, NULL);
+	if (top)
+	    gtk_box_pack_start(GTK_BOX(top), button, FALSE, FALSE, 0);
 	return button;
 }
 
@@ -345,24 +372,23 @@ static GtkWidget *make_combobox(GtkWidget *top, int label_id, const char *prefs_
 	gtk_widget_show(label);
 	gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
 
-	GList *glist = NULL;
+	combo = gtk_combo_box_entry_new_text();
+	gtk_widget_show(combo);
+	gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 0);
+
 	while (options->label_id) {
-		glist = g_list_append(glist, (void *)GetString(options->label_id));
+		gtk_combo_box_append_text(GTK_COMBO_BOX(combo), (gchar *) GetString(options->label_id));
 		options++;
 	}
-	
-	combo = gtk_combo_new();
-	gtk_widget_show(combo);
-	gtk_combo_set_popdown_strings(GTK_COMBO(combo), glist);
-	
+
 	sprintf(str, "%d", PrefsFindInt32(prefs_item));
-	gtk_entry_set_text(GTK_ENTRY(GTK_COMBO(combo)->entry), str);
+	gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN (combo))), str);
 	gtk_box_pack_start(GTK_BOX(box), combo, TRUE, TRUE, 0);
-	
+
 	return combo;
 }
 
- 
+
 /*
  *  Show preferences editor
  *  Returns true when user clicked on "Start", false otherwise
@@ -378,6 +404,13 @@ static gint window_closed(void)
 static void window_destroyed(void)
 {
 	gtk_main_quit();
+}
+
+// "Save" button clicked
+static void cb_save(...)
+{
+	read_settings();
+	SavePrefs();
 }
 
 // "Start" button clicked
@@ -397,7 +430,7 @@ static void cb_quit(...)
 }
 
 // "OK" button of "About" dialog clicked
-static void dl_quit(GtkWidget *dialog)
+extern "C" void dl_quit(GtkWidget *dialog)
 {
 	gtk_widget_destroy(dialog);
 }
@@ -405,21 +438,16 @@ static void dl_quit(GtkWidget *dialog)
 // "About" selected
 static void mn_about(...)
 {
-	GtkWidget *dialog;
-
-#ifdef HAVE_GNOMEUI
-
-	char version[32];
-	sprintf(version, "Version %d.%d", VERSION_MAJOR, VERSION_MINOR);
+	GtkWidget *dialog, *label, *button;
 	const char *authors[] = {
 		"Christian Bauer",
 		"Orlando Bassotto",
-		"Gwenolé Beauchesne",
+		"GwenolÃ© Beauchesne",
 		"Marc Chabanas",
 		"Marc Hellwig",
 		"Biill Huey",
 		"Brian J. Johnson",
-		"Jürgen Lachmann",
+		"JÃ¼rgen Lachmann",
 		"Samuel Lander",
 		"David Lawrence",
 		"Lauri Pesonen",
@@ -427,55 +455,18 @@ static void mn_about(...)
 		"and others",
 		NULL
 	};
-	dialog = gnome_about_new(
-		"Basilisk II",
-		version,
-		"Copyright (C) 1997-2008 Christian Bauer",
-		authors,
-		"Basilisk II comes with ABSOLUTELY NO WARRANTY."
-		"This is free software, and you are welcome to redistribute it"
-		"under the terms of the GNU General Public License.",
-		NULL
-	);
-	gnome_dialog_set_parent(GNOME_DIALOG(dialog), GTK_WINDOW(win));
-
-#else
-
-	GtkWidget *label, *button;
-
-	char str[512];
-	sprintf(str,
-		"Basilisk II\nVersion %d.%d\n\n"
-		"Copyright (C) 1997-2008 Christian Bauer et al.\n"
-		"E-mail: Christian.Bauer@uni-mainz.de\n"
-		"http://www.uni-mainz.de/~bauec002/B2Main.html\n\n"
-		"Basilisk II comes with ABSOLUTELY NO\n"
-		"WARRANTY. This is free software, and\n"
-		"you are welcome to redistribute it\n"
-		"under the terms of the GNU General\n"
-		"Public License.\n",
-		VERSION_MAJOR, VERSION_MINOR
-	);
-
-	dialog = gtk_dialog_new();
-	gtk_window_set_title(GTK_WINDOW(dialog), GetString(STR_ABOUT_TITLE));
-	gtk_container_border_width(GTK_CONTAINER(dialog), 5);
-	gtk_widget_set_uposition(GTK_WIDGET(dialog), 100, 150);
-
-	label = gtk_label_new(str);
-	gtk_widget_show(label);
-	gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog)->vbox), label, TRUE, TRUE, 0);
-
-	button = gtk_button_new_with_label(GetString(STR_OK_BUTTON));
-	gtk_widget_show(button);
-	gtk_signal_connect_object(GTK_OBJECT(button), "clicked", GTK_SIGNAL_FUNC(dl_quit), GTK_OBJECT(dialog));
-	gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog)->action_area), button, FALSE, FALSE, 0);
-	GTK_WIDGET_SET_FLAGS(button, GTK_CAN_DEFAULT);
-	gtk_widget_grab_default(button);
-
-#endif
-
-	gtk_widget_show(dialog);
+	char version[64];
+	sprintf(version, "%d.%d", VERSION_MAJOR, VERSION_MINOR);
+	gtk_show_about_dialog(GTK_WINDOW(win), "version", version,
+	                     "copyright", GetString(STR_ABOUT_COPYRIGHT),
+	                     "authors", authors,
+	                     "comments", GetString(STR_ABOUT_COMMENTS),
+	                     "website", GetString(STR_ABOUT_WEBSITE),
+	                     "website-label", GetString(STR_ABOUT_WEBSITE_LABEL),
+	                     "license", GetString(STR_ABOUT_LICENSE),
+	                     "wrap-license", true,
+	                     "logo-icon-name", "BasiliskII",
+	                     NULL);
 }
 
 // "Zap PRAM" selected
@@ -487,12 +478,13 @@ static void mn_zap_pram(...)
 // Menu item descriptions
 static GtkItemFactoryEntry menu_items[] = {
 	{(gchar *)GetString(STR_PREFS_MENU_FILE_GTK),		NULL,			NULL,							0, "<Branch>"},
-	{(gchar *)GetString(STR_PREFS_ITEM_START_GTK),		"<control>S",	GTK_SIGNAL_FUNC(cb_start),		0, NULL},
-	{(gchar *)GetString(STR_PREFS_ITEM_ZAP_PRAM_GTK),	NULL,			GTK_SIGNAL_FUNC(mn_zap_pram),	0, NULL},
+	{(gchar *)GetString(STR_PREFS_ITEM_START_GTK),		"<control>S",	G_CALLBACK(cb_start),		0, NULL},
+	{(gchar *)GetString(STR_PREFS_ITEM_SAVE_GTK),		NULL,			G_CALLBACK(cb_save),		0, NULL},
+	{(gchar *)GetString(STR_PREFS_ITEM_ZAP_PRAM_GTK),	NULL,			G_CALLBACK(mn_zap_pram),	0, NULL},
 	{(gchar *)GetString(STR_PREFS_ITEM_SEPL_GTK),		NULL,			NULL,							0, "<Separator>"},
-	{(gchar *)GetString(STR_PREFS_ITEM_QUIT_GTK),		"<control>Q",	GTK_SIGNAL_FUNC(cb_quit),		0, NULL},
+	{(gchar *)GetString(STR_PREFS_ITEM_QUIT_GTK),		"<control>Q",	G_CALLBACK(cb_quit),		0, NULL},
 	{(gchar *)GetString(STR_HELP_MENU_GTK),				NULL,			NULL,							0, "<LastBranch>"},
-	{(gchar *)GetString(STR_HELP_ITEM_ABOUT_GTK),		NULL,			GTK_SIGNAL_FUNC(mn_about),		0, NULL}
+	{(gchar *)GetString(STR_HELP_ITEM_ABOUT_GTK),		NULL,			G_CALLBACK(mn_about),		0, NULL}
 };
 
 bool PrefsEditor(void)
@@ -500,8 +492,8 @@ bool PrefsEditor(void)
 	// Create window
 	win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 	gtk_window_set_title(GTK_WINDOW(win), GetString(STR_PREFS_TITLE));
-	gtk_signal_connect(GTK_OBJECT(win), "delete_event", GTK_SIGNAL_FUNC(window_closed), NULL);
-	gtk_signal_connect(GTK_OBJECT(win), "destroy", GTK_SIGNAL_FUNC(window_destroyed), NULL);
+	g_signal_connect(win, "delete_event", G_CALLBACK(window_closed), NULL);
+	g_signal_connect(win, "destroy", G_CALLBACK(window_destroyed), NULL);
 
 	// Create window contents
 	GtkWidget *box = gtk_vbox_new(FALSE, 4);
@@ -511,11 +503,8 @@ bool PrefsEditor(void)
 	GtkAccelGroup *accel_group = gtk_accel_group_new();
 	GtkItemFactory *item_factory = gtk_item_factory_new(GTK_TYPE_MENU_BAR, "<main>", accel_group);
 	gtk_item_factory_create_items(item_factory, sizeof(menu_items) / sizeof(menu_items[0]), menu_items, NULL);
-#if GTK_CHECK_VERSION(1,3,15)
 	gtk_window_add_accel_group(GTK_WINDOW(win), accel_group);
-#else
-	gtk_accel_group_attach(accel_group, GTK_OBJECT(win));
-#endif
+
 	GtkWidget *menu_bar = gtk_item_factory_get_widget(item_factory, "<main>");
 	gtk_widget_show(menu_bar);
 	gtk_box_pack_start(GTK_BOX(box), menu_bar, FALSE, TRUE, 0);
@@ -536,9 +525,9 @@ bool PrefsEditor(void)
 	gtk_widget_show(notebook);
 
 	static const opt_desc buttons[] = {
-		{STR_START_BUTTON, GTK_SIGNAL_FUNC(cb_start)},
-		{STR_QUIT_BUTTON, GTK_SIGNAL_FUNC(cb_quit)},
-		{0, NULL}
+		opt_desc(STR_START_BUTTON, G_CALLBACK(cb_start)),
+		opt_desc(STR_QUIT_BUTTON, G_CALLBACK(cb_quit)),
+		opt_desc(0, NULL)
 	};
 	make_button_box(box, 4, buttons);
 
@@ -554,90 +543,211 @@ bool PrefsEditor(void)
  */
 
 static GtkWidget *volume_list, *w_extfs;
-static int selected_volume;
+static GtkListStore *volume_list_model;
+static GtkWidget *volume_remove_button;
 
-// Volume in list selected
-static void cl_selected(GtkWidget *list, int row, int column)
+// Volume list selection changed
+static void cl_selected(GtkTreeSelection * selection, gpointer user_data) {
+	if (selection) {
+		bool have_selection = gtk_tree_selection_get_selected(selection, NULL, NULL);
+
+		gtk_widget_set_sensitive(GTK_WIDGET(volume_remove_button), have_selection);
+	}
+}
+
+
+// Process proposed drop
+gboolean volume_list_drag_motion (GtkWidget *widget, GdkDragContext *drag_context, gint x, gint y, guint time,
+                                            gpointer user_data)
 {
-	selected_volume = row;
+	GtkTreePath *path;
+	GtkTreeViewDropPosition pos;
+	// Don't allow tree-style drops onto, only list-style drops between
+	if (gtk_tree_view_get_dest_row_at_pos(GTK_TREE_VIEW(volume_list), x,y, &path, &pos)) {
+		switch (pos) {
+			case GTK_TREE_VIEW_DROP_INTO_OR_AFTER:
+				gtk_tree_view_set_drag_dest_row(GTK_TREE_VIEW(volume_list), path, GTK_TREE_VIEW_DROP_AFTER);
+				break;
+			case GTK_TREE_VIEW_DROP_INTO_OR_BEFORE:
+				gtk_tree_view_set_drag_dest_row(GTK_TREE_VIEW(volume_list), path, GTK_TREE_VIEW_DROP_BEFORE);
+				break;
+			case GTK_TREE_VIEW_DROP_BEFORE:
+			case GTK_TREE_VIEW_DROP_AFTER:
+				// these are ok, no change
+				break;
+		}
+		gdk_drag_status(drag_context, drag_context->suggested_action, time);
+		return TRUE;
+	}
+	return FALSE;
+}
+
+
+// Something dropped on volume list
+static void drag_data_received(GtkWidget *list, GdkDragContext *drag_context, gint x, gint y, GtkSelectionData *data,
+	guint info, guint time, gpointer user_data)
+{
+	// reordering drags have already been handled by clist
+	if (data->type == gdk_atom_intern("gtk-clist-drag-reorder", true)) {
+		return;
+	}
+
+	// get URIs from the drag selection data and add them
+	gchar ** uris = g_strsplit((gchar *)(data->data), "\r\n", -1);
+	for (gchar ** uri = uris; *uri != NULL; uri++) {
+		if (strlen(*uri) < 7) continue;
+		if (strncmp("file://", *uri, 7) != 0) continue;
+
+		gchar * filename = g_filename_from_uri(*uri, NULL, NULL);
+		if (filename) {
+			add_volume_entry_guessed(filename);
+
+			// figure out where in the list they dropped
+			GtkTreePath *path;
+			GtkTreeViewDropPosition pos;
+			if (gtk_tree_view_get_dest_row_at_pos(GTK_TREE_VIEW(volume_list), x,y, &path, &pos)) {
+				GtkTreeIter dest_iter;
+				if (gtk_tree_model_get_iter(GTK_TREE_MODEL(volume_list_model), &dest_iter, path)) {
+
+					// Find the item we just added and put it in place
+					GtkTreeIter last;
+					GtkTreeIter cur;
+					if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(volume_list_model), &cur)) {
+						do {
+							last = cur;
+						} while (gtk_tree_model_iter_next(GTK_TREE_MODEL(volume_list_model), &cur));
+					}
+					switch (pos) {
+						case GTK_TREE_VIEW_DROP_AFTER:
+						case GTK_TREE_VIEW_DROP_INTO_OR_AFTER:
+							gtk_list_store_move_after(volume_list_model, &last, &dest_iter);
+							break;
+						case GTK_TREE_VIEW_DROP_BEFORE:
+						case GTK_TREE_VIEW_DROP_INTO_OR_BEFORE:
+							gtk_list_store_move_before(volume_list_model, &last, &dest_iter);
+							break;
+					}
+				}
+			}
+
+			g_free(filename);
+		}
+	}
+	g_strfreev(uris);
 }
 
 // Volume selected for addition
-static void add_volume_ok(GtkWidget *button, file_req_assoc *assoc)
+static void cb_add_volume_response (GtkWidget *chooser, int response)
 {
-	gchar *file = (gchar *)gtk_file_selection_get_filename(GTK_FILE_SELECTION(assoc->req));
-	gtk_clist_append(GTK_CLIST(volume_list), &file);
-	gtk_widget_destroy(assoc->req);
-	delete assoc;
+	if (response == GTK_RESPONSE_ACCEPT)
+	{
+		char *file = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(chooser));
+		add_volume_entry_guessed(file);
+	}
+	gtk_widget_destroy(chooser);
 }
 
 // Volume selected for creation
-static void create_volume_ok(GtkWidget *button, file_req_assoc *assoc)
+static void cb_create_volume_response (GtkWidget *chooser, int response, GtkEntry *size_entry)
 {
-	gchar *file = (gchar *)gtk_file_selection_get_filename(GTK_FILE_SELECTION(assoc->req));
-	const gchar *str = gtk_entry_get_text(GTK_ENTRY(assoc->entry));
-	int disk_size = atoi(str);
-	if (disk_size < 1 || disk_size > 2000) {
-		printf("Disk size needs to be between 1 and 2000 MB.\n");
-		gtk_widget_destroy(GTK_WIDGET(assoc->req));
-		delete assoc;
-		return;
+	if (response == GTK_RESPONSE_ACCEPT)
+	{
+		char *file = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(chooser));
+		const gchar *str = gtk_entry_get_text(GTK_ENTRY(size_entry));
+		int disk_size = atoi(str);
+		if (disk_size < 1 || disk_size > 2000)
+		{
+			GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(win),
+							(GtkDialogFlags)(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT),
+							GTK_MESSAGE_WARNING,
+							GTK_BUTTONS_CLOSE,
+							"Enter a valid size", NULL);
+			gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog), "The volume size should be between 1 and 2000.");
+			gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(chooser));
+			g_signal_connect(dialog, "response", G_CALLBACK(dl_quit), NULL);
+			gtk_widget_show(dialog);
+			return; // Don't close the file chooser dialog
+		}
+		int fd = open(file, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+		if (fd < 0) {
+			fprintf(stderr, "Could not create %s (%s)\n", file, strerror(errno));
+		} else {
+			ftruncate(fd, disk_size * 1024 * 1024);
+			// A created empty volume is always a new disk
+			add_volume_entry_with_type(file, false);
+		}
 	}
-	int fd = open(file, O_CREAT | O_WRONLY | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
-	if (fd < 0 && errno == EEXIST) {
-		printf("File already exists, refusing to overwrite file.\n");
-	} else {
-		ftruncate(fd, disk_size * 1024 * 1024);
-		gtk_clist_append(GTK_CLIST(volume_list), &file);
-	}
-	close(fd);
-	gtk_widget_destroy(GTK_WIDGET(assoc->req));
-	delete assoc;
+	gtk_widget_destroy (chooser);
 }
 
 // "Add Volume" button clicked
-static void cb_add_volume(...)
+static void cb_add_volume (GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-	GtkWidget *req = gtk_file_selection_new(GetString(STR_ADD_VOLUME_TITLE));
-	gtk_signal_connect_object(GTK_OBJECT(req), "delete_event", GTK_SIGNAL_FUNC(gtk_widget_destroy), GTK_OBJECT(req));
-	gtk_signal_connect(GTK_OBJECT(GTK_FILE_SELECTION(req)->ok_button), "clicked", GTK_SIGNAL_FUNC(add_volume_ok), new file_req_assoc(req, NULL));
-	gtk_signal_connect_object(GTK_OBJECT(GTK_FILE_SELECTION(req)->cancel_button), "clicked", GTK_SIGNAL_FUNC(gtk_widget_destroy), GTK_OBJECT(req));
-	gtk_widget_show(req);
+	GtkWidget *chooser = gtk_file_chooser_dialog_new(GetString(STR_ADD_VOLUME_TITLE),
+							GTK_WINDOW(win),
+							GTK_FILE_CHOOSER_ACTION_OPEN,
+							"Cancel", GTK_RESPONSE_CANCEL,
+							"Add", GTK_RESPONSE_ACCEPT,
+							NULL);
+	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(chooser), g_get_home_dir());
+	gtk_dialog_set_default_response(GTK_DIALOG(chooser), GTK_RESPONSE_ACCEPT);
+	gtk_window_set_modal(GTK_WINDOW(chooser), true);
+	g_signal_connect(chooser, "response", G_CALLBACK(cb_add_volume_response), NULL);
+	gtk_widget_show(chooser);
 }
 
 // "Create Hardfile" button clicked
-static void cb_create_volume(...)
+static void cb_create_volume (GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-	GtkWidget *req = gtk_file_selection_new(GetString(STR_CREATE_VOLUME_TITLE));
+	GtkWidget *chooser = gtk_file_chooser_dialog_new(GetString(STR_CREATE_VOLUME_TITLE),
+							GTK_WINDOW(win),
+							GTK_FILE_CHOOSER_ACTION_SAVE,
+							"Cancel", GTK_RESPONSE_CANCEL,
+							"Create", GTK_RESPONSE_ACCEPT,
+							NULL);
+	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(chooser), g_get_home_dir());
+	gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(chooser), TRUE);
+	gtk_dialog_set_default_response(GTK_DIALOG(chooser), GTK_RESPONSE_ACCEPT);
+	gtk_window_set_transient_for(GTK_WINDOW(chooser), GTK_WINDOW(win));
+	gtk_window_set_modal(GTK_WINDOW(chooser), true);
 
-	GtkWidget *box = gtk_hbox_new(FALSE, 4);
+	GtkWidget *box = gtk_hbox_new(false, 8);
 	gtk_widget_show(box);
 	GtkWidget *label = gtk_label_new(GetString(STR_HARDFILE_SIZE_CTRL));
 	gtk_widget_show(label);
-	GtkWidget *entry = gtk_entry_new();
-	gtk_widget_show(entry);
-	char str[32];
-	sprintf(str, "%d", 40);
-	gtk_entry_set_text(GTK_ENTRY(entry), str);
-	gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
-	gtk_box_pack_start(GTK_BOX(box), entry, FALSE, FALSE, 0);
-	gtk_box_pack_start(GTK_BOX(GTK_FILE_SELECTION(req)->main_vbox), box, FALSE, FALSE, 0);
+	GtkWidget *size_entry = gtk_entry_new();
+	gtk_widget_show(size_entry);
+	gtk_entry_set_activates_default(GTK_ENTRY(size_entry), TRUE);
+	gtk_entry_set_text(GTK_ENTRY(size_entry), "64");
+	gtk_box_pack_end(GTK_BOX(box), size_entry, FALSE, FALSE, 0);
+	gtk_box_pack_end(GTK_BOX(box), label, FALSE, FALSE, 0);
 
-	gtk_signal_connect_object(GTK_OBJECT(req), "delete_event", GTK_SIGNAL_FUNC(gtk_widget_destroy), GTK_OBJECT(req));
-	gtk_signal_connect(GTK_OBJECT(GTK_FILE_SELECTION(req)->ok_button), "clicked", GTK_SIGNAL_FUNC(create_volume_ok), new file_req_assoc(req, entry));
-	gtk_signal_connect_object(GTK_OBJECT(GTK_FILE_SELECTION(req)->cancel_button), "clicked", GTK_SIGNAL_FUNC(gtk_widget_destroy), GTK_OBJECT(req));
-	gtk_widget_show(req);
+	gtk_file_chooser_set_extra_widget(GTK_FILE_CHOOSER(chooser), box);
+
+	g_signal_connect(chooser, "response", G_CALLBACK(cb_create_volume_response), size_entry);
+	gtk_widget_show(chooser);
 }
 
 // "Remove Volume" button clicked
-static void cb_remove_volume(...)
+static void cb_remove_volume(GSimpleAction *action, GVariant *parameter, gpointer user_data)
 {
-	gtk_clist_remove(GTK_CLIST(volume_list), selected_volume);
+	GtkTreeSelection *sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(volume_list));
+	if (sel) {
+		GtkTreeIter row;
+		if (gtk_tree_selection_get_selected(sel, NULL, &row)) {
+			gtk_list_store_remove(volume_list_model, &row);
+		}
+	}
 }
 
 // "Boot From" selected
-static void mn_boot_any(...) {PrefsReplaceInt32("bootdriver", 0);}
-static void mn_boot_cdrom(...) {PrefsReplaceInt32("bootdriver", CDROMRefNum);}
+static void mn_bootdriver(GtkWidget *widget)
+{
+	if (gtk_combo_box_get_active(GTK_COMBO_BOX(widget)))
+		PrefsReplaceInt32("bootdriver", CDROMRefNum);
+	else
+		PrefsReplaceInt32("bootdriver", 0);
+}
 
 // "No CD-ROM Driver" button toggled
 static void tb_nocdrom(GtkWidget *widget)
@@ -645,69 +755,257 @@ static void tb_nocdrom(GtkWidget *widget)
 	PrefsReplaceBool("nocdrom", GTK_TOGGLE_BUTTON(widget)->active);
 }
 
+// Data source for the volumes list
+enum {
+	VOLUME_LIST_FILENAME = 0,
+	VOLUME_LIST_CDROM,
+	VOLUME_LIST_SIZE_DESC,
+	NUM_VOLUME_LIST_FIELDS
+};
+
+static void init_volume_model() {
+	volume_list_model = gtk_list_store_new(NUM_VOLUME_LIST_FIELDS,
+		G_TYPE_STRING,	// filename
+		G_TYPE_BOOLEAN,	// is CD-ROM
+		G_TYPE_STRING	// size desc
+		);
+}
+
+static void toggle_cdrom_val(GtkTreeIter *row) {
+	gboolean cdrom;
+	gtk_tree_model_get(GTK_TREE_MODEL(volume_list_model), row,
+		VOLUME_LIST_CDROM, &cdrom,
+		-1);
+
+	cdrom = !cdrom;
+
+	gtk_list_store_set(volume_list_model, row,
+		VOLUME_LIST_CDROM, cdrom,
+		-1);
+}
+
 // Read settings from widgets and set preferences
 static void read_volumes_settings(void)
 {
 	while (PrefsFindString("disk"))
 		PrefsRemoveItem("disk");
+	while (PrefsFindString("cdrom"))
+		PrefsRemoveItem("cdrom");
 
-	for (int i=0; i<GTK_CLIST(volume_list)->rows; i++) {
-		char *str;
-		gtk_clist_get_text(GTK_CLIST(volume_list), i, 0, &str);
-		PrefsAddString("disk", str);
+	GtkTreeModel * m = GTK_TREE_MODEL(volume_list_model);
+
+	GtkTreeIter row;
+	if (gtk_tree_model_get_iter_first(m, &row)) {
+		do {
+			GValue filename = G_VALUE_INIT, is_cdrom = G_VALUE_INIT;
+
+			gtk_tree_model_get_value(m, &row, VOLUME_LIST_FILENAME, &filename);
+			gtk_tree_model_get_value(m, &row, VOLUME_LIST_CDROM, &is_cdrom);
+
+			D(bug("handling %d: %s\n", g_value_get_boolean(&is_cdrom), g_value_get_string(&filename)));
+
+			const char * pref_name = g_value_get_boolean(&is_cdrom) ? "cdrom": "disk";
+			PrefsAddString(pref_name, g_value_get_string(&filename));
+
+			g_value_unset(&filename);
+			g_value_unset(&is_cdrom);
+
+		} while (gtk_tree_model_iter_next(GTK_TREE_MODEL(volume_list_model), &row));
 	}
 
 	PrefsReplaceString("extfs", get_file_entry_path(w_extfs));
 }
 
+// Gets the size of the volume as a pretty string
+static const char* get_file_size (const char * filename)
+{
+	std::ifstream in(filename, std::ifstream::ate | std::ifstream::binary);
+	if (in.is_open()) {
+		uint64_t size = in.tellg();
+		in.close();
+		char *sizestr = g_format_size_full(size, G_FORMAT_SIZE_IEC_UNITS);
+		return sizestr;
+	}
+	else
+	{
+		return "Not Found";
+	}
+}
+
+
+static bool volume_in_list(const char * filename) {
+	bool found = false;
+
+	GtkTreeModel * m = GTK_TREE_MODEL(volume_list_model);
+
+	GtkTreeIter row;
+	if (gtk_tree_model_get_iter_first(m, &row)) {
+		do {
+			GValue cur_filename = G_VALUE_INIT;
+
+			gtk_tree_model_get_value(m, &row, VOLUME_LIST_FILENAME, &cur_filename);
+
+			if (strcmp(g_value_get_string(&cur_filename), filename) == 0) {
+				found = true;
+			}
+
+			g_value_unset(&cur_filename);
+
+			if (found) break;
+		} while (gtk_tree_model_iter_next(GTK_TREE_MODEL(volume_list_model), &row));
+	}
+
+	return found;
+}
+
+
+// Add a volume file as the given type
+static void add_volume_entry_with_type(const char * filename, bool cdrom) {
+	if (volume_in_list(filename)) return;
+
+	GtkTreeIter row;
+	gtk_list_store_append(GTK_LIST_STORE(volume_list_model), &row);
+	// set the values for the new row
+	gtk_list_store_set(GTK_LIST_STORE(volume_list_model), &row,
+		VOLUME_LIST_FILENAME, filename,
+		VOLUME_LIST_CDROM, cdrom,
+		VOLUME_LIST_SIZE_DESC, get_file_size(filename),
+		-1);
+}
+
+static bool has_file_ext (const char * str, const char *ext)
+{
+	char *file_ext = g_utf8_strrchr(str, 255, '.');
+	if (!file_ext)
+		return 0;
+	return (g_strcmp0(file_ext, ext) == 0);
+}
+
+static bool guess_if_file_is_cdrom(const char * volume) {
+	return has_file_ext(volume, ".iso") ||
+#ifdef BINCUE
+		has_file_ext(volume, ".cue") ||
+#endif
+		has_file_ext(volume, ".toast");
+}
+
+// Add a volume file and guess the type
+static void add_volume_entry_guessed(const char * filename) {
+	add_volume_entry_with_type(filename, guess_if_file_is_cdrom(filename));
+}
+
+// CD-ROM checkbox changed
+static void cb_cdrom (GtkCellRendererToggle *cell, char *path_str, gpointer data)
+{
+	GtkTreeIter iter;
+	GtkTreePath *path = gtk_tree_path_new_from_string (path_str);
+	if (gtk_tree_model_get_iter (GTK_TREE_MODEL(volume_list_model), &iter, path)) {
+		toggle_cdrom_val(&iter);
+	}
+	gtk_tree_path_free (path);
+}
+
+
 // Create "Volumes" pane
 static void create_volumes_pane(GtkWidget *top)
 {
 	GtkWidget *box, *scroll;
+	GtkTreeViewColumn *column;
+	GtkCellRenderer *renderer;
 
 	box = make_pane(top, STR_VOLUMES_PANE_TITLE);
 
 	scroll = gtk_scrolled_window_new(NULL, NULL);
 	gtk_widget_show(scroll);
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-	volume_list = gtk_clist_new(1);
+
+	init_volume_model();
+
+	volume_list = gtk_tree_view_new();
+	gtk_tree_view_set_model(GTK_TREE_VIEW(volume_list), GTK_TREE_MODEL(volume_list_model));
 	gtk_widget_show(volume_list);
-	gtk_clist_set_selection_mode(GTK_CLIST(volume_list), GTK_SELECTION_SINGLE);
-	gtk_clist_set_shadow_type(GTK_CLIST(volume_list), GTK_SHADOW_NONE);
-	gtk_clist_set_reorderable(GTK_CLIST(volume_list), true);
-	gtk_signal_connect(GTK_OBJECT(volume_list), "select_row", GTK_SIGNAL_FUNC(cl_selected), NULL);
+
+	gtk_tree_view_set_reorderable(GTK_TREE_VIEW(volume_list), true);
+
+	column = gtk_tree_view_column_new();
+	gtk_tree_view_column_set_title(column, GetString(STR_VOL_HEADING_LOCATION));
+	gtk_tree_view_column_set_expand(column, true);
+	gtk_tree_view_append_column(GTK_TREE_VIEW(volume_list), column);
+	renderer = gtk_cell_renderer_text_new();
+	gtk_tree_view_column_pack_start(column, renderer, TRUE);
+	// connect tree column to model field
+	gtk_tree_view_column_add_attribute(column, renderer, "text", VOLUME_LIST_FILENAME);
+
+	column = gtk_tree_view_column_new();
+	gtk_tree_view_column_set_title(column, GetString(STR_VOL_HEADING_CDROM));
+	gtk_tree_view_append_column(GTK_TREE_VIEW(volume_list), column);
+	renderer = gtk_cell_renderer_toggle_new();
+	g_signal_connect (renderer, "toggled",
+	                  G_CALLBACK (cb_cdrom), NULL);
+	gtk_tree_view_column_set_alignment(column, 0.5);
+
+	gtk_tree_view_column_pack_start(column, renderer, TRUE);
+	// connect tree column to model field
+	gtk_tree_view_column_add_attribute(column, renderer, "active", VOLUME_LIST_CDROM);
+
+	column = gtk_tree_view_column_new();
+	gtk_tree_view_column_set_title(column, GetString(STR_VOL_HEADING_SIZE));
+	gtk_tree_view_append_column(GTK_TREE_VIEW(volume_list), column);
+	renderer = gtk_cell_renderer_text_new();
+	gtk_tree_view_column_pack_start(column, renderer, FALSE);
+	// connect tree column to model field
+	gtk_tree_view_column_add_attribute(column, renderer, "text", VOLUME_LIST_SIZE_DESC);
+
+	GtkTreeSelection *sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(volume_list));
+	g_signal_connect(sel, "changed", G_CALLBACK(cl_selected), NULL);
+	gtk_tree_selection_set_mode(sel, GTK_SELECTION_SINGLE);
+
+	// also support volume files dragged onto the list from outside
+	gtk_drag_dest_add_uri_targets(volume_list);
+	// add a drop handler to get dropped files; don't supersede the drop handler for reordering
+	gtk_signal_connect_after(GTK_OBJECT(volume_list), "drag_data_received", GTK_SIGNAL_FUNC(drag_data_received), NULL);
+	// process proposed drops to limit drop locations
+	gtk_signal_connect(GTK_OBJECT(volume_list), "drag-motion", GTK_SIGNAL_FUNC(volume_list_drag_motion), NULL);
+
 	char *str;
-	int32 index = 0;
-	while ((str = const_cast<char *>(PrefsFindString("disk", index++))) != NULL)
-		gtk_clist_append(GTK_CLIST(volume_list), &str);
-	gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(scroll), volume_list);
+	int32 index;
+	const char * types[] = {"disk", "cdrom", NULL};
+	for (const char ** type = types; *type != NULL; type++) {
+		index = 0;
+		while ((str = const_cast<char *>(PrefsFindString(*type, index))) != NULL) {
+			bool is_cdrom = strcmp(*type, "cdrom") == 0;
+			add_volume_entry_with_type(str, is_cdrom);
+			index++;
+		}
+	}
+	gtk_container_add(GTK_CONTAINER(scroll), volume_list);
 	gtk_box_pack_start(GTK_BOX(box), scroll, TRUE, TRUE, 0);
-	selected_volume = 0;
 
 	static const opt_desc buttons[] = {
-		{STR_ADD_VOLUME_BUTTON, GTK_SIGNAL_FUNC(cb_add_volume)},
-		{STR_CREATE_VOLUME_BUTTON, GTK_SIGNAL_FUNC(cb_create_volume)},
-		{STR_REMOVE_VOLUME_BUTTON, GTK_SIGNAL_FUNC(cb_remove_volume)},
-		{0, NULL},
+		opt_desc(STR_ADD_VOLUME_BUTTON, G_CALLBACK(cb_add_volume)),
+		opt_desc(STR_CREATE_VOLUME_BUTTON, G_CALLBACK(cb_create_volume)),
+		opt_desc(STR_REMOVE_VOLUME_BUTTON, G_CALLBACK(cb_remove_volume), &volume_remove_button),
+		opt_desc(0, NULL),
 	};
 	make_button_box(box, 0, buttons);
+	gtk_widget_set_sensitive(volume_remove_button, FALSE);
 	make_separator(box);
 
 	w_extfs = make_file_entry(box, STR_EXTFS_CTRL, "extfs", true);
 
-	static const opt_desc options[] = {
-		{STR_BOOT_ANY_LAB, GTK_SIGNAL_FUNC(mn_boot_any)},
-		{STR_BOOT_CDROM_LAB, GTK_SIGNAL_FUNC(mn_boot_cdrom)},
-		{0, NULL}
+	static const combo_desc options[] = {
+		STR_BOOT_ANY_LAB,
+		STR_BOOT_CDROM_LAB,
+		0
 	};
 	int bootdriver = PrefsFindInt32("bootdriver"), active = 0;
 	switch (bootdriver) {
 		case 0: active = 0; break;
 		case CDROMRefNum: active = 1; break;
 	}
-	make_option_menu(box, STR_BOOTDRIVER_CTRL, options, active);
+	make_option_menu(box, STR_BOOTDRIVER_CTRL, options, G_CALLBACK(mn_bootdriver), active);
 
-	make_checkbox(box, STR_NOCDROM_CTRL, "nocdrom", GTK_SIGNAL_FUNC(tb_nocdrom));
+	make_checkbox(box, STR_NOCDROM_CTRL, "nocdrom", G_CALLBACK(tb_nocdrom));
 }
 
 
@@ -781,7 +1079,7 @@ static void read_jit_settings(void)
 {
 	bool jit_enabled = is_jit_capable() && PrefsFindBool("jit");
 	if (jit_enabled) {
-		const char *str = gtk_entry_get_text(GTK_ENTRY(GTK_COMBO(w_jit_cache_size)->entry));
+		const char *str = gtk_combo_box_get_active_text(GTK_COMBO_BOX(w_jit_cache_size));
 		PrefsReplaceInt32("jitcachesize", atoi(str));
 	}
 }
@@ -793,12 +1091,12 @@ static void create_jit_pane(GtkWidget *top)
 		return;
 
 	GtkWidget *box;
-	
+
 	box = make_pane(top, STR_JIT_PANE_TITLE);
-	make_checkbox(box, STR_JIT_CTRL, "jit", GTK_SIGNAL_FUNC(tb_jit));
-	
-	w_jit_fpu = make_checkbox(box, STR_JIT_FPU_CTRL, "jitfpu", GTK_SIGNAL_FUNC(tb_jit_fpu));
-	
+	make_checkbox(box, STR_JIT_CTRL, "jit", G_CALLBACK(tb_jit));
+
+	w_jit_fpu = make_checkbox(box, STR_JIT_FPU_CTRL, "jitfpu", G_CALLBACK(tb_jit_fpu));
+
 	// Translation cache size
 	static const combo_desc options[] = {
 		STR_JIT_CACHE_SIZE_2MB_LAB,
@@ -808,12 +1106,12 @@ static void create_jit_pane(GtkWidget *top)
 		0
 	};
 	w_jit_cache_size = make_combobox(box, STR_JIT_CACHE_SIZE_CTRL, "jitcachesize", options);
-	
+
 	// Lazy translation cache invalidation
-	w_jit_lazy_flush = make_checkbox(box, STR_JIT_LAZY_CINV_CTRL, "jitlazyflush", GTK_SIGNAL_FUNC(tb_jit_lazy_flush));
+	w_jit_lazy_flush = make_checkbox(box, STR_JIT_LAZY_CINV_CTRL, "jitlazyflush", G_CALLBACK(tb_jit_lazy_flush));
 
 	// Follow constant jumps (inline basic blocks)
-	w_jit_follow_const_jumps = make_checkbox(box, STR_JIT_FOLLOW_CONST_JUMPS, "jitinline", GTK_SIGNAL_FUNC(tb_jit_follow_const_jumps));
+	w_jit_follow_const_jumps = make_checkbox(box, STR_JIT_FOLLOW_CONST_JUMPS, "jitinline", G_CALLBACK(tb_jit_follow_const_jumps));
 
 	set_jit_sensitive();
 }
@@ -868,6 +1166,8 @@ static GtkWidget *l_frameskip, *l_display_x, *l_display_y;
 static int display_type;
 static int dis_width, dis_height;
 
+static GtkWidget *mag_rate, *scale_nearest, *scale_integer;
+
 #ifdef ENABLE_FBDEV_DGA
 static GtkWidget *w_fbdev_name, *w_fbdevice_file;
 static GtkWidget *l_fbdev_name, *l_fbdevice_file;
@@ -899,28 +1199,31 @@ static void hide_show_graphics_widgets(void)
 	}
 }
 
-// "Window" video type selected
-static void mn_window(...)
+// "Window"/"Fullscreen" video type selected
+static void mn_display(GtkWidget *widget)
 {
-	display_type = DISPLAY_WINDOW;
-	hide_show_graphics_widgets();
-}
-
-// "Fullscreen" video type selected
-static void mn_fullscreen(...)
-{
-	display_type = DISPLAY_SCREEN;
-	hide_show_graphics_widgets();
+	if (gtk_combo_box_get_active(GTK_COMBO_BOX(widget)))
+		display_type = DISPLAY_SCREEN;
+	else
+		display_type = DISPLAY_WINDOW;
 }
 
 // "5 Hz".."60Hz" selected
-static void mn_5hz(...) {PrefsReplaceInt32("frameskip", 12);}
-static void mn_7hz(...) {PrefsReplaceInt32("frameskip", 8);}
-static void mn_10hz(...) {PrefsReplaceInt32("frameskip", 6);}
-static void mn_15hz(...) {PrefsReplaceInt32("frameskip", 4);}
-static void mn_30hz(...) {PrefsReplaceInt32("frameskip", 2);}
-static void mn_60hz(...) {PrefsReplaceInt32("frameskip", 1);}
-static void mn_dynamic(...) {PrefsReplaceInt32("frameskip", 0);}
+static void mn_frameskip(GtkWidget *widget)
+{
+	int frameskip = 1;
+	switch(gtk_combo_box_get_active(GTK_COMBO_BOX(widget)))
+	{
+		case 0: frameskip = 12; break;
+		case 1: frameskip = 8; break;
+		case 2: frameskip = 6; break;
+		case 3: frameskip = 4; break;
+		case 4: frameskip = 2; break;
+		case 5: frameskip = 1; break;
+		case 6: frameskip = 0; break;
+	}
+	PrefsReplaceInt32("frameskip", frameskip);
+}
 
 // Set sensitivity of widgets
 static void set_graphics_sensitive(void)
@@ -935,6 +1238,18 @@ static void tb_nosound(GtkWidget *widget)
 {
 	PrefsReplaceBool("nosound", GTK_TOGGLE_BUTTON(widget)->active);
 	set_graphics_sensitive();
+}
+
+// "Nearest" button toggled
+static void tb_scale_nearest(GtkWidget *widget)
+{
+	PrefsReplaceBool("scale_nearest", GTK_TOGGLE_BUTTON(widget)->active);
+}
+
+// "Integer Scaling" button toggled
+static void tb_scale_integer(GtkWidget *widget)
+{
+	PrefsReplaceBool("scale_integer", GTK_TOGGLE_BUTTON(widget)->active);
 }
 
 // Read graphics preferences
@@ -965,10 +1280,10 @@ static void read_graphics_settings(void)
 {
 	const char *str;
 
-	str = gtk_entry_get_text(GTK_ENTRY(w_display_x));
+	str = gtk_combo_box_get_active_text(GTK_COMBO_BOX(w_display_x));
 	dis_width = atoi(str);
 
-	str = gtk_entry_get_text(GTK_ENTRY(w_display_y));
+	str = gtk_combo_box_get_active_text(GTK_COMBO_BOX(w_display_y));
 	dis_height = atoi(str);
 
 	char pref[256];
@@ -999,53 +1314,54 @@ static void read_graphics_settings(void)
 #endif
 	PrefsReplaceString("dsp", get_file_entry_path(w_dspdevice_file));
 	PrefsReplaceString("mixer", get_file_entry_path(w_mixerdevice_file));
+
+	PrefsReplaceString("mag_rate", gtk_entry_get_text(GTK_ENTRY(mag_rate)));
 }
 
 // Create "Graphics/Sound" pane
 static void create_graphics_pane(GtkWidget *top)
 {
-	GtkWidget *box, *table, *label, *opt, *menu, *combo;
+	GtkWidget *box, *table, *label, *combo;
 	char str[32];
+	char *markup;
 
 	parse_graphics_prefs();
 
 	box = make_pane(top, STR_GRAPHICS_SOUND_PANE_TITLE);
-	table = make_table(box, 2, 5);
+	table = make_table(box, 4, 5);
 
 	label = gtk_label_new(GetString(STR_VIDEO_TYPE_CTRL));
 	gtk_widget_show(label);
 	gtk_table_attach(GTK_TABLE(table), label, 0, 1, 0, 1, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
 
-	opt = gtk_option_menu_new();
-	gtk_widget_show(opt);
-	menu = gtk_menu_new();
-	add_menu_item(menu, STR_WINDOW_LAB, GTK_SIGNAL_FUNC(mn_window));
-	add_menu_item(menu, STR_FULLSCREEN_LAB, GTK_SIGNAL_FUNC(mn_fullscreen));
+	combo = gtk_combo_box_new_text();
+	gtk_widget_show(combo);
+	gtk_combo_box_append_text(GTK_COMBO_BOX(combo), GetString(STR_WINDOW_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(combo), GetString(STR_FULLSCREEN_LAB));
 	switch (display_type) {
 		case DISPLAY_WINDOW:
-			gtk_menu_set_active(GTK_MENU(menu), 0);
+			gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 0);
 			break;
 		case DISPLAY_SCREEN:
-			gtk_menu_set_active(GTK_MENU(menu), 1);
+			gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 1);
 			break;
 	}
-	gtk_option_menu_set_menu(GTK_OPTION_MENU(opt), menu);
-	gtk_table_attach(GTK_TABLE(table), opt, 1, 2, 0, 1, (GtkAttachOptions)GTK_FILL, (GtkAttachOptions)0, 4, 4);
+	g_signal_connect(combo, "changed", G_CALLBACK(mn_display), NULL);
+	gtk_table_attach(GTK_TABLE(table), combo, 1, 2, 0, 1, (GtkAttachOptions)GTK_FILL, (GtkAttachOptions)0, 4, 4);
 
 	l_frameskip = gtk_label_new(GetString(STR_FRAMESKIP_CTRL));
 	gtk_widget_show(l_frameskip);
 	gtk_table_attach(GTK_TABLE(table), l_frameskip, 0, 1, 1, 2, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
 
-	w_frameskip = gtk_option_menu_new();
+	w_frameskip = gtk_combo_box_new_text();
 	gtk_widget_show(w_frameskip);
-	menu = gtk_menu_new();
-	add_menu_item(menu, STR_REF_5HZ_LAB, GTK_SIGNAL_FUNC(mn_5hz));
-	add_menu_item(menu, STR_REF_7_5HZ_LAB, GTK_SIGNAL_FUNC(mn_7hz));
-	add_menu_item(menu, STR_REF_10HZ_LAB, GTK_SIGNAL_FUNC(mn_10hz));
-	add_menu_item(menu, STR_REF_15HZ_LAB, GTK_SIGNAL_FUNC(mn_15hz));
-	add_menu_item(menu, STR_REF_30HZ_LAB, GTK_SIGNAL_FUNC(mn_30hz));
-	add_menu_item(menu, STR_REF_60HZ_LAB, GTK_SIGNAL_FUNC(mn_60hz));
-	add_menu_item(menu, STR_REF_DYNAMIC_LAB, GTK_SIGNAL_FUNC(mn_dynamic));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_frameskip), GetString(STR_REF_5HZ_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_frameskip), GetString(STR_REF_7_5HZ_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_frameskip), GetString(STR_REF_10HZ_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_frameskip), GetString(STR_REF_15HZ_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_frameskip), GetString(STR_REF_30HZ_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_frameskip), GetString(STR_REF_60HZ_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_frameskip), GetString(STR_REF_DYNAMIC_LAB));
 	int frameskip = PrefsFindInt32("frameskip");
 	int item = -1;
 	switch (frameskip) {
@@ -1058,51 +1374,45 @@ static void create_graphics_pane(GtkWidget *top)
 		case 0: item = 6; break;
 	}
 	if (item >= 0)
-		gtk_menu_set_active(GTK_MENU(menu), item);
-	gtk_option_menu_set_menu(GTK_OPTION_MENU(w_frameskip), menu);
+		gtk_combo_box_set_active(GTK_COMBO_BOX(w_frameskip), item);
+	g_signal_connect(w_frameskip, "changed", G_CALLBACK(mn_frameskip), NULL);
 	gtk_table_attach(GTK_TABLE(table), w_frameskip, 1, 2, 1, 2, (GtkAttachOptions)GTK_FILL, (GtkAttachOptions)0, 4, 4);
 
 	l_display_x = gtk_label_new(GetString(STR_DISPLAY_X_CTRL));
 	gtk_widget_show(l_display_x);
 	gtk_table_attach(GTK_TABLE(table), l_display_x, 0, 1, 2, 3, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
 
-	combo = gtk_combo_new();
-	gtk_widget_show(combo);
-	GList *glist1 = NULL;
-	glist1 = g_list_append(glist1, (void *)GetString(STR_SIZE_512_LAB));
-	glist1 = g_list_append(glist1, (void *)GetString(STR_SIZE_640_LAB));
-	glist1 = g_list_append(glist1, (void *)GetString(STR_SIZE_800_LAB));
-	glist1 = g_list_append(glist1, (void *)GetString(STR_SIZE_1024_LAB));
-	glist1 = g_list_append(glist1, (void *)GetString(STR_SIZE_MAX_LAB));
-	gtk_combo_set_popdown_strings(GTK_COMBO(combo), glist1);
+	w_display_x = gtk_combo_box_entry_new_text();
+	gtk_widget_show(w_display_x);
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_display_x), GetString(STR_SIZE_512_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_display_x), GetString(STR_SIZE_640_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_display_x), GetString(STR_SIZE_800_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_display_x), GetString(STR_SIZE_1024_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_display_x), GetString(STR_SIZE_MAX_LAB));
 	if (dis_width)
 		sprintf(str, "%d", dis_width);
 	else
 		strcpy(str, GetString(STR_SIZE_MAX_LAB));
-	gtk_entry_set_text(GTK_ENTRY(GTK_COMBO(combo)->entry), str); 
-	gtk_table_attach(GTK_TABLE(table), combo, 1, 2, 2, 3, (GtkAttachOptions)GTK_FILL, (GtkAttachOptions)0, 4, 4);
-	w_display_x = GTK_COMBO(combo)->entry;
+	gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN(w_display_x))), str);
+	gtk_table_attach(GTK_TABLE(table), w_display_x, 1, 2, 2, 3, (GtkAttachOptions)GTK_FILL, (GtkAttachOptions)0, 4, 4);
 
 	l_display_y = gtk_label_new(GetString(STR_DISPLAY_Y_CTRL));
 	gtk_widget_show(l_display_y);
 	gtk_table_attach(GTK_TABLE(table), l_display_y, 0, 1, 3, 4, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
 
-	combo = gtk_combo_new();
-	gtk_widget_show(combo);
-	GList *glist2 = NULL;
-	glist2 = g_list_append(glist2, (void *)GetString(STR_SIZE_384_LAB));
-	glist2 = g_list_append(glist2, (void *)GetString(STR_SIZE_480_LAB));
-	glist2 = g_list_append(glist2, (void *)GetString(STR_SIZE_600_LAB));
-	glist2 = g_list_append(glist2, (void *)GetString(STR_SIZE_768_LAB));
-	glist2 = g_list_append(glist2, (void *)GetString(STR_SIZE_MAX_LAB));
-	gtk_combo_set_popdown_strings(GTK_COMBO(combo), glist2);
+	w_display_y = gtk_combo_box_entry_new_text();
+	gtk_widget_show(w_display_y);
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_display_y), GetString(STR_SIZE_384_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_display_y), GetString(STR_SIZE_480_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_display_y), GetString(STR_SIZE_600_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_display_y), GetString(STR_SIZE_768_LAB));
+	gtk_combo_box_append_text(GTK_COMBO_BOX(w_display_y), GetString(STR_SIZE_MAX_LAB));
 	if (dis_height)
 		sprintf(str, "%d", dis_height);
 	else
 		strcpy(str, GetString(STR_SIZE_MAX_LAB));
-	gtk_entry_set_text(GTK_ENTRY(GTK_COMBO(combo)->entry), str); 
-	gtk_table_attach(GTK_TABLE(table), combo, 1, 2, 3, 4, (GtkAttachOptions)GTK_FILL, (GtkAttachOptions)0, 4, 4);
-	w_display_y = GTK_COMBO(combo)->entry;
+	gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN(w_display_y))), str);
+	gtk_table_attach(GTK_TABLE(table), w_display_y, 1, 2, 3, 4, (GtkAttachOptions)GTK_FILL, (GtkAttachOptions)0, 4, 4);
 
 #ifdef ENABLE_FBDEV_DGA
 	l_fbdev_name = gtk_label_new(GetString(STR_FBDEV_NAME_CTRL));
@@ -1111,16 +1421,43 @@ static void create_graphics_pane(GtkWidget *top)
 
 	w_fbdev_name = gtk_entry_new();
 	gtk_widget_show(w_fbdev_name);
-	gtk_entry_set_text(GTK_ENTRY(w_fbdev_name), fbdev_name); 
+	gtk_entry_set_text(GTK_ENTRY(w_fbdev_name), fbdev_name);
 	gtk_table_attach(GTK_TABLE(table), w_fbdev_name, 1, 2, 4, 5, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
 
 	w_fbdevice_file = make_file_entry(box, STR_FBDEVICE_FILE_CTRL, "fbdevicefile");
 #endif
 
 	make_separator(box);
-	make_checkbox(box, STR_NOSOUND_CTRL, "nosound", GTK_SIGNAL_FUNC(tb_nosound));
+	make_checkbox(box, STR_NOSOUND_CTRL, "nosound", G_CALLBACK(tb_nosound));
 	w_dspdevice_file = make_file_entry(box, STR_DSPDEVICE_FILE_CTRL, "dsp");
 	w_mixerdevice_file = make_file_entry(box, STR_MIXERDEVICE_FILE_CTRL, "mixer");
+
+	// SDL scaling settings section
+	label = gtk_label_new(GetString(STR_SDL_SCALING));
+	markup = g_markup_printf_escaped ("<b>%s</b>", GetString(STR_SDL_SCALING));
+	gtk_label_set_markup(GTK_LABEL(label), markup);
+	gtk_misc_set_alignment(GTK_MISC(label), 0, 0.5);
+	gtk_widget_show(label);
+	// attach((table), child, left_attach, right_attach, top_attach, bottom_attach, xoptions, yoptions, xpadding, ypadding)
+	gtk_table_attach(GTK_TABLE(table), label, 2, 4, 0, 1, (GtkAttachOptions)GTK_FILL, (GtkAttachOptions)0, 4, 4);
+
+	label = gtk_label_new(GetString(STR_SCALE_FACTOR));
+	gtk_widget_show(label);
+	gtk_table_attach(GTK_TABLE(table), label, 2, 3, 1, 2, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
+
+	mag_rate = gtk_entry_new();
+	const char *mag_rate_str = PrefsFindString("mag_rate");
+	if (!mag_rate_str)
+		mag_rate_str = "1.0";
+	gtk_entry_set_text(GTK_ENTRY(mag_rate), mag_rate_str);
+
+	gtk_widget_show(mag_rate);
+	gtk_table_attach(GTK_TABLE(table), mag_rate, 3, 4, 1, 2, (GtkAttachOptions)GTK_FILL, (GtkAttachOptions)0, 4, 4);
+
+	scale_nearest = make_checkbox(NULL, STR_SCALE_NEAREST, "scale_nearest", G_CALLBACK(tb_scale_nearest));
+	gtk_table_attach(GTK_TABLE(table), scale_nearest, 2, 4, 2, 3, (GtkAttachOptions)GTK_FILL, (GtkAttachOptions)0, 4, 4);
+	scale_integer = make_checkbox(NULL, STR_SCALE_INTEGER, "scale_integer", G_CALLBACK(tb_scale_integer));
+	gtk_table_attach(GTK_TABLE(table), scale_integer, 2, 4, 3, 4, (GtkAttachOptions)GTK_FILL, (GtkAttachOptions)0, 4, 4);
 
 	set_graphics_sensitive();
 
@@ -1152,8 +1489,11 @@ static void tb_keycodes(GtkWidget *widget)
 }
 
 // "Mouse Wheel Mode" selected
-static void mn_wheel_page(...) {PrefsReplaceInt32("mousewheelmode", 0); set_input_sensitive();}
-static void mn_wheel_cursor(...) {PrefsReplaceInt32("mousewheelmode", 1); set_input_sensitive();}
+static void mn_wheelmode(GtkWidget *widget)
+{
+	PrefsReplaceInt32("mousewheelmode", gtk_combo_box_get_active(GTK_COMBO_BOX(widget)));
+	set_input_sensitive();
+}
 
 // Read settings from widgets and set preferences
 static void read_input_settings(void)
@@ -1175,7 +1515,7 @@ static void create_input_pane(GtkWidget *top)
 
 	box = make_pane(top, STR_INPUT_PANE_TITLE);
 
-	make_checkbox(box, STR_KEYCODES_CTRL, "keycodes", GTK_SIGNAL_FUNC(tb_keycodes));
+	make_checkbox(box, STR_KEYCODES_CTRL, "keycodes", G_CALLBACK(tb_keycodes));
 
 	hbox = gtk_hbox_new(FALSE, 4);
 	gtk_widget_show(hbox);
@@ -1190,27 +1530,27 @@ static void create_input_pane(GtkWidget *top)
 		str = "";
 
 	w_keycode_file = gtk_entry_new();
-	gtk_entry_set_text(GTK_ENTRY(w_keycode_file), str); 
+	gtk_entry_set_text(GTK_ENTRY(w_keycode_file), str);
 	gtk_widget_show(w_keycode_file);
 	gtk_box_pack_start(GTK_BOX(hbox), w_keycode_file, TRUE, TRUE, 0);
 
-	button = make_browse_button(w_keycode_file);
+	button = make_browse_button(w_keycode_file, false);
 	gtk_box_pack_start(GTK_BOX(hbox), button, FALSE, FALSE, 0);
 	g_object_set_data(G_OBJECT(w_keycode_file), "chooser_button", button);
 
 	make_separator(box);
 
-	static const opt_desc options[] = {
-		{STR_MOUSEWHEELMODE_PAGE_LAB, GTK_SIGNAL_FUNC(mn_wheel_page)},
-		{STR_MOUSEWHEELMODE_CURSOR_LAB, GTK_SIGNAL_FUNC(mn_wheel_cursor)},
-		{0, NULL}
+	static const combo_desc options[] = {
+		STR_MOUSEWHEELMODE_PAGE_LAB,
+		STR_MOUSEWHEELMODE_CURSOR_LAB,
+		0
 	};
 	int wheelmode = PrefsFindInt32("mousewheelmode"), active = 0;
 	switch (wheelmode) {
 		case 0: active = 0; break;
 		case 1: active = 1; break;
 	}
-	make_option_menu(box, STR_MOUSEWHEELMODE_CTRL, options, active);
+	make_option_menu(box, STR_MOUSEWHEELMODE_CTRL, options, G_CALLBACK(mn_wheelmode), active);
 
 	hbox = gtk_hbox_new(FALSE, 4);
 	gtk_widget_show(hbox);
@@ -1256,13 +1596,13 @@ static void read_serial_settings(void)
 {
 	const char *str;
 
-	str = gtk_entry_get_text(GTK_ENTRY(w_seriala));
+	str = gtk_combo_box_get_active_text(GTK_COMBO_BOX(w_seriala));
 	PrefsReplaceString("seriala", str);
 
-	str = gtk_entry_get_text(GTK_ENTRY(w_serialb));
+	str = gtk_combo_box_get_active_text(GTK_COMBO_BOX(w_serialb));
 	PrefsReplaceString("serialb", str);
 
-	str = gtk_entry_get_text(GTK_ENTRY(w_ether));
+	str = gtk_combo_box_get_active_text(GTK_COMBO_BOX(w_ether));
 	if (str && strlen(str))
 		PrefsReplaceString("ether", str);
 	else
@@ -1291,7 +1631,7 @@ static GList *add_serial_names(void)
 #if defined(__linux__)
 			if (strncmp(de->d_name, "ttyS", 4) == 0 || strncmp(de->d_name, "lp", 2) == 0) {
 #elif defined(__FreeBSD__)
-			if (strncmp(de->d_name, "cuaa", 4) == 0 || strncmp(de->d_name, "lpt", 3) == 0) {
+			if (strncmp(de->d_name, "cua", 3) == 0 || strncmp(de->d_name, "lpt", 3) == 0) {
 #elif defined(__NetBSD__)
 			if (strncmp(de->d_name, "tty0", 4) == 0 || strncmp(de->d_name, "lpt", 3) == 0) {
 #elif defined(sgi)
@@ -1360,60 +1700,61 @@ static void create_serial_pane(GtkWidget *top)
 {
 	GtkWidget *box, *hbox, *table, *label, *combo, *sep;
 	GtkObject *adj;
+	GList *glist = add_serial_names();
 
 	box = make_pane(top, STR_SERIAL_NETWORK_PANE_TITLE);
-	table = make_table(box, 2, 4);
+	table = make_table(box, 2, 3);
 
 	label = gtk_label_new(GetString(STR_SERIALA_CTRL));
 	gtk_widget_show(label);
 	gtk_table_attach(GTK_TABLE(table), label, 0, 1, 0, 1, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
-
-	GList *glist = add_serial_names();
-	combo = gtk_combo_new();
-	gtk_widget_show(combo);
-	gtk_combo_set_popdown_strings(GTK_COMBO(combo), glist);
-	const char *str = PrefsFindString("seriala");
-	if (str == NULL)
-		str = "";
-	gtk_entry_set_text(GTK_ENTRY(GTK_COMBO(combo)->entry), str); 
-	gtk_table_attach(GTK_TABLE(table), combo, 1, 2, 0, 1, (GtkAttachOptions)(GTK_FILL | GTK_EXPAND), (GtkAttachOptions)0, 4, 4);
-	w_seriala = GTK_COMBO(combo)->entry;
-
 	label = gtk_label_new(GetString(STR_SERIALB_CTRL));
 	gtk_widget_show(label);
 	gtk_table_attach(GTK_TABLE(table), label, 0, 1, 1, 2, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
 
-	combo = gtk_combo_new();
-	gtk_widget_show(combo);
-	gtk_combo_set_popdown_strings(GTK_COMBO(combo), glist);
+	w_seriala = gtk_combo_box_entry_new_text();
+	gtk_widget_show(w_seriala);
+	w_serialb = gtk_combo_box_entry_new_text();
+	gtk_widget_show(w_serialb);
+	while (glist)
+	{
+	    gtk_combo_box_append_text(GTK_COMBO_BOX(w_seriala), (gchar *)glist->data);
+	    gtk_combo_box_append_text(GTK_COMBO_BOX(w_serialb), (gchar *)glist->data);
+	    glist = glist->next;
+	}
+
+	const char *str = PrefsFindString("seriala");
+	if (str == NULL)
+		str = "";
+	gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN(w_seriala))), str);
 	str = PrefsFindString("serialb");
 	if (str == NULL)
 		str = "";
-	gtk_entry_set_text(GTK_ENTRY(GTK_COMBO(combo)->entry), str); 
-	gtk_table_attach(GTK_TABLE(table), combo, 1, 2, 1, 2, (GtkAttachOptions)(GTK_FILL | GTK_EXPAND), (GtkAttachOptions)0, 4, 4);
-	w_serialb = GTK_COMBO(combo)->entry;
+	gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN(w_serialb))), str);
 
-	sep = gtk_hseparator_new();
-	gtk_widget_show(sep);
-	gtk_table_attach(GTK_TABLE(table), sep, 0, 2, 2, 3, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
+	gtk_table_attach(GTK_TABLE(table), w_seriala, 1, 2, 0, 1, (GtkAttachOptions)(GTK_FILL | GTK_EXPAND), (GtkAttachOptions)0, 4, 4);
+	gtk_table_attach(GTK_TABLE(table), w_serialb, 1, 2, 1, 2, (GtkAttachOptions)(GTK_FILL | GTK_EXPAND), (GtkAttachOptions)0, 4, 4);
 
 	label = gtk_label_new(GetString(STR_ETHERNET_IF_CTRL));
 	gtk_widget_show(label);
-	gtk_table_attach(GTK_TABLE(table), label, 0, 1, 3, 4, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
+	gtk_table_attach(GTK_TABLE(table), label, 0, 1, 2, 3, (GtkAttachOptions)0, (GtkAttachOptions)0, 4, 4);
 
 	glist = add_ether_names();
-	combo = gtk_combo_new();
-	gtk_widget_show(combo);
-	gtk_combo_set_popdown_strings(GTK_COMBO(combo), glist);
+	w_ether = gtk_combo_box_entry_new_text();
+	gtk_widget_show(w_ether);
+	while (glist)
+	{
+	    gtk_combo_box_append_text(GTK_COMBO_BOX(w_ether), (gchar *)glist->data);
+	    glist = glist->next;
+	}
 	str = PrefsFindString("ether");
 	if (str == NULL)
 		str = "";
-	gtk_entry_set_text(GTK_ENTRY(GTK_COMBO(combo)->entry), str); 
-	gtk_table_attach(GTK_TABLE(table), combo, 1, 2, 3, 4, (GtkAttachOptions)(GTK_FILL | GTK_EXPAND), (GtkAttachOptions)0, 4, 4);
-	w_ether = GTK_COMBO(combo)->entry;
+	gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN(w_ether))), str);
+	gtk_table_attach(GTK_TABLE(table), w_ether, 1, 2, 2, 3, (GtkAttachOptions)(GTK_FILL | GTK_EXPAND), (GtkAttachOptions)0, 4, 4);
 
 #if SUPPORTS_UDP_TUNNEL
-	make_checkbox(box, STR_UDPTUNNEL_CTRL, "udptunnel", GTK_SIGNAL_FUNC(tb_udptunnel));
+	make_checkbox(box, STR_UDPTUNNEL_CTRL, "udptunnel", G_CALLBACK(tb_udptunnel));
 
 	hbox = gtk_hbox_new(FALSE, 4);
 	gtk_widget_show(hbox);
@@ -1447,28 +1788,39 @@ static void tb_idlewait(GtkWidget *widget)
 }
 
 // "Ignore SEGV" button toggled
-#ifdef HAVE_SIGSEGV_SKIP_INSTRUCTION
 static void tb_ignoresegv(GtkWidget *widget)
 {
 	PrefsReplaceBool("ignoresegv", GTK_TOGGLE_BUTTON(widget)->active);
 }
-#endif
 
 // Model ID selected
-static void mn_modelid_5(...) {PrefsReplaceInt32("modelid", 5);}
-static void mn_modelid_14(...) {PrefsReplaceInt32("modelid", 14);}
+static void mn_modelid(GtkWidget *widget)
+{
+	if (gtk_combo_box_get_active(GTK_COMBO_BOX(widget)))
+		PrefsReplaceInt32("modelid", 14);
+	else
+		PrefsReplaceInt32("modelid", 5);
+}
 
 // CPU/FPU type
-static void mn_cpu_68020(...) {PrefsReplaceInt32("cpu", 2); PrefsReplaceBool("fpu", false);}
-static void mn_cpu_68020_fpu(...) {PrefsReplaceInt32("cpu", 2); PrefsReplaceBool("fpu", true);}
-static void mn_cpu_68030(...) {PrefsReplaceInt32("cpu", 3); PrefsReplaceBool("fpu", false);}
-static void mn_cpu_68030_fpu(...) {PrefsReplaceInt32("cpu", 3); PrefsReplaceBool("fpu", true);}
-static void mn_cpu_68040(...) {PrefsReplaceInt32("cpu", 4); PrefsReplaceBool("fpu", true);}
+static void mn_cpu(GtkWidget *widget){
+	int cpu = 4;
+	bool fpu = true;
+	switch (gtk_combo_box_get_active(GTK_COMBO_BOX(widget)))
+	{
+		case 0: fpu = false;
+		case 1: cpu = 2; break;
+		case 2: fpu = false;
+		case 3: cpu = 3; break;
+	}
+	PrefsReplaceInt32("cpu", cpu);
+	PrefsReplaceBool("fpu", fpu);
+}
 
 // Read settings from widgets and set preferences
 static void read_memory_settings(void)
 {
-	const char *str = gtk_entry_get_text(GTK_ENTRY(GTK_COMBO(w_ramsize)->entry));
+	const char *str = gtk_combo_box_get_active_text(GTK_COMBO_BOX(w_ramsize));
 	PrefsReplaceInt32("ramsize", atoi(str) << 20);
 
 	str = get_file_entry_path(w_rom_file);
@@ -1482,7 +1834,7 @@ static void read_memory_settings(void)
 // Create "Memory/Misc" pane
 static void create_memory_pane(GtkWidget *top)
 {
-	GtkWidget *box, *table;
+	GtkWidget *box, *table, *w_ignoresegv;
 
 	box = make_pane(top, STR_MEMORY_MISC_PANE_TITLE);
 	table = make_table(box, 2, 5);
@@ -1504,26 +1856,26 @@ static void create_memory_pane(GtkWidget *top)
 	sprintf(default_ramsize, "%d", PrefsFindInt32("ramsize") >> 20);
 	w_ramsize = table_make_combobox(table, 0, STR_RAMSIZE_CTRL, default_ramsize, options);
 
-	static const opt_desc model_options[] = {
-		{STR_MODELID_5_LAB, GTK_SIGNAL_FUNC(mn_modelid_5)},
-		{STR_MODELID_14_LAB, GTK_SIGNAL_FUNC(mn_modelid_14)},
-		{0, NULL}
+	static const combo_desc model_options[] = {
+		STR_MODELID_5_LAB,
+		STR_MODELID_14_LAB,
+		0
 	};
 	int modelid = PrefsFindInt32("modelid"), active = 0;
 	switch (modelid) {
 		case 5: active = 0; break;
 		case 14: active = 1; break;
 	}
-	table_make_option_menu(table, 2, STR_MODELID_CTRL, model_options, active);
+	table_make_option_menu(table, 2, STR_MODELID_CTRL, model_options, G_CALLBACK(mn_modelid), active);
 
 #if EMULATED_68K
-	static const opt_desc cpu_options[] = {
-		{STR_CPU_68020_LAB, GTK_SIGNAL_FUNC(mn_cpu_68020)},
-		{STR_CPU_68020_FPU_LAB, GTK_SIGNAL_FUNC(mn_cpu_68020_fpu)},
-		{STR_CPU_68030_LAB, GTK_SIGNAL_FUNC(mn_cpu_68030)},
-		{STR_CPU_68030_FPU_LAB, GTK_SIGNAL_FUNC(mn_cpu_68030_fpu)},
-		{STR_CPU_68040_LAB, GTK_SIGNAL_FUNC(mn_cpu_68040)},
-		{0, NULL}
+	static const combo_desc cpu_options[] = {
+		STR_CPU_68020_LAB,
+		STR_CPU_68020_FPU_LAB,
+		STR_CPU_68030_LAB,
+		STR_CPU_68030_FPU_LAB,
+		STR_CPU_68040_LAB,
+		0
 	};
 	int cpu = PrefsFindInt32("cpu");
 	bool fpu = PrefsFindBool("fpu");
@@ -1533,14 +1885,16 @@ static void create_memory_pane(GtkWidget *top)
 		case 3: active = fpu ? 3 : 2; break;
 		case 4: active = 4;
 	}
-	table_make_option_menu(table, 3, STR_CPU_CTRL, cpu_options, active);
+	table_make_option_menu(table, 3, STR_CPU_CTRL, cpu_options, G_CALLBACK(mn_cpu), active);
 #endif
 
 	w_rom_file = table_make_file_entry(table, 4, STR_ROM_FILE_CTRL, "rom");
 
-	make_checkbox(box, STR_IDLEWAIT_CTRL, "idlewait", GTK_SIGNAL_FUNC(tb_idlewait));
-#ifdef HAVE_SIGSEGV_SKIP_INSTRUCTION
-	make_checkbox(box, STR_IGNORESEGV_CTRL, "ignoresegv", GTK_SIGNAL_FUNC(tb_ignoresegv));
+	make_checkbox(box, STR_IDLEWAIT_CTRL, "idlewait", G_CALLBACK(tb_idlewait));
+	w_ignoresegv = make_checkbox(box, STR_IGNORESEGV_CTRL, "ignoresegv", G_CALLBACK(tb_ignoresegv));
+#ifndef HAVE_SIGSEGV_SKIP_INSTRUCTION
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w_ignoresegv), false);
+	gtk_widget_set_sensitive(w_ignoresegv, false);
 #endif
 }
 
@@ -1587,32 +1941,23 @@ bool DarwinCDReadTOC(char *, uint8 *) { }
  *  Display alert
  */
 
-static void dl_destroyed(void)
+static GCallback dl_destroyed(GtkWidget *dialog)
 {
+	gtk_widget_destroy(dialog);
 	gtk_main_quit();
+	return NULL;
 }
 
-static void display_alert(int title_id, int prefix_id, int button_id, const char *text)
+void display_alert(int title_id, int prefix_id, int button_id, const char *text)
 {
-	char str[256];
-	sprintf(str, GetString(prefix_id), text);
-
-	GtkWidget *dialog = gtk_dialog_new();
-	gtk_window_set_title(GTK_WINDOW(dialog), GetString(title_id));
-	gtk_container_border_width(GTK_CONTAINER(dialog), 5);
-	gtk_widget_set_uposition(GTK_WIDGET(dialog), 100, 150);
-	gtk_signal_connect(GTK_OBJECT(dialog), "destroy", GTK_SIGNAL_FUNC(dl_destroyed), NULL);
-
-	GtkWidget *label = gtk_label_new(str);
-	gtk_widget_show(label);
-	gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog)->vbox), label, TRUE, TRUE, 0);
-
-	GtkWidget *button = gtk_button_new_with_label(GetString(button_id));
-	gtk_widget_show(button);
-	gtk_signal_connect_object(GTK_OBJECT(button), "clicked", GTK_SIGNAL_FUNC(dl_quit), GTK_OBJECT(dialog));
-	gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog)->action_area), button, FALSE, FALSE, 0);
-	GTK_WIDGET_SET_FLAGS(button, GTK_CAN_DEFAULT);
-	gtk_widget_grab_default(button);
+	GtkWidget *dialog = gtk_message_dialog_new(NULL,
+	                                           GTK_DIALOG_MODAL,
+	                                           GTK_MESSAGE_WARNING,
+	                                           GTK_BUTTONS_NONE,
+	                                           GetString(title_id), NULL);
+	gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog), "%s", text);
+	gtk_dialog_add_button(GTK_DIALOG(dialog), GetString(button_id), GTK_RESPONSE_CLOSE);
+	g_signal_connect(dialog, "response", G_CALLBACK(dl_destroyed), NULL);
 	gtk_widget_show(dialog);
 
 	gtk_main();
@@ -1725,16 +2070,10 @@ static void sigchld_handler(int sig, siginfo_t *sip, void *)
 
 int main(int argc, char *argv[])
 {
-#ifdef HAVE_GNOMEUI
-	// Init GNOME/GTK
-	char version[16];
-	sprintf(version, "%d.%d", VERSION_MAJOR, VERSION_MINOR);
-	gnome_init("Basilisk II", version, argc, argv);
-#else
+
 	// Init GTK
 	gtk_set_locale();
 	gtk_init(&argc, &argv);
-#endif
 
 	// Read preferences
 	PrefsInit(NULL, argc, argv);

@@ -21,6 +21,9 @@
 #ifndef BINCUE_H
 #define BINCUE_H
 
+extern void InitBinCue();
+extern void ExitBinCue();
+
 extern void *open_bincue(const char *name);
 extern bool readtoc_bincue(void *, uint8 *);
 extern size_t read_bincue(void *, void *, loff_t,  size_t);
@@ -40,7 +43,9 @@ extern void CDGetVol_bincue(void *, uint8 *, uint8 *);
 
 #ifdef USE_SDL_AUDIO
 extern void OpenAudio_bincue(int, int, int, uint8, int);
-extern void MixAudio_bincue(uint8 *, int, int);
+extern bool HaveAudioToMix_bincue(void);
+extern void MixAudio_bincue(uint8 *, int);
+extern void CloseAudio_bincue(void);
 #endif
 
 #endif

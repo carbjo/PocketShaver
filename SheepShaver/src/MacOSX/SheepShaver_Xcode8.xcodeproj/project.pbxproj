@@ -1633,8 +1633,8 @@
 				0856CCBD14A99E1C000B1711 /* Resources */,
 				0856CCBE14A99E1C000B1711 /* Sources */,
 				0856CCBF14A99E1C000B1711 /* Frameworks */,
-				08CD3F3214B665E1009CA2A2 /* Preprocess Info.plist */,
 				E413A40820CF7EF800FBE967 /* Embed Frameworks */,
+				08CD3F3214B665E1009CA2A2 /* Preprocess Info.plist */,
 			);
 			buildRules = (
 			);
@@ -2110,6 +2110,7 @@
 				CLANG_ENABLE_MODULE_DEBUGGING = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				FRAMEWORK_SEARCH_PATHS = /Library/Frameworks;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_ENABLE_FIX_AND_CONTINUE = YES;
 				GCC_OPTIMIZATION_LEVEL = 3;
@@ -2121,7 +2122,7 @@
 					_REENTRANT,
 				);
 				HEADER_SEARCH_PATHS = (
-					/Library/Frameworks/SDL2.framework/Headers/,
+					/Library/Frameworks/SDL2.framework/Headers,
 					./config/,
 					../Unix,
 					../MacOSX/Launcher,
@@ -2148,6 +2149,7 @@
 				CLANG_ENABLE_MODULE_DEBUGGING = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				FRAMEWORK_SEARCH_PATHS = /Library/Frameworks;
 				GCC_DYNAMIC_NO_PIC = YES;
 				GCC_ENABLE_FIX_AND_CONTINUE = NO;
 				GCC_OPTIMIZATION_LEVEL = 3;
@@ -2159,7 +2161,7 @@
 					_REENTRANT,
 				);
 				HEADER_SEARCH_PATHS = (
-					/Library/Frameworks/SDL2.framework/Headers/,
+					/Library/Frameworks/SDL2.framework/Headers,
 					./config/,
 					../Unix,
 					../MacOSX/Launcher,
@@ -2253,7 +2255,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
+				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				OTHER_CFLAGS = "";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				OTHER_LDFLAGS = "";
@@ -2323,7 +2325,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.7;
+				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				OTHER_CFLAGS = "";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				OTHER_LDFLAGS = "";

@@ -25,7 +25,7 @@
 #include <signal.h>
 #include <errno.h>
 
-#include <SDL.h>
+#include "my_sdl.h"
 #include <SDL_mutex.h>
 #include <SDL_thread.h>
 
@@ -61,6 +61,11 @@ extern void flush_icache_range(uint8 *start, uint32 size); // from compemu_suppo
 #define DEBUG 0
 #include "debug.h"
 
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
+#define SDL_Mutex		SDL_mutex
+#define SDL_EVENT_KEY_UP	SDL_KEYUP
+#define SDL_EVENT_KEY_DOWN	SDL_KEYDOWN
+#endif
 
 // Constants
 const TCHAR ROM_FILE_NAME[] = TEXT("ROM");
@@ -86,7 +91,7 @@ static bool tick_thread_active = false;				// Flag: 60Hz thread installed
 static volatile bool tick_thread_cancel = false;	// Flag: Cancel 60Hz thread
 static SDL_Thread *tick_thread;						// 60Hz thread
 
-static SDL_mutex *intflag_lock = NULL;				// Mutex to protect InterruptFlags
+static SDL_Mutex *intflag_lock = NULL;				// Mutex to protect InterruptFlags
 #define LOCK_INTFLAGS SDL_LockMutex(intflag_lock)
 #define UNLOCK_INTFLAGS SDL_UnlockMutex(intflag_lock)
 
@@ -470,11 +475,8 @@ void QuitEmulator(void)
 
 	// Free ROM/RAM areas
 	if (RAMBaseHost != VM_MAP_FAILED) {
-		vm_release(RAMBaseHost, RAMSize);
+		vm_release(RAMBaseHost, RAMSize + 0x100000);
 		RAMBaseHost = NULL;
-	}
-	if (ROMBaseHost != VM_MAP_FAILED) {
-		vm_release(ROMBaseHost, 0x100000);
 		ROMBaseHost = NULL;
 	}
 
@@ -520,7 +522,7 @@ void FlushCodeCache(void *start, uint32 size)
 struct B2_mutex {
 	B2_mutex() { m = SDL_CreateMutex(); }
 	~B2_mutex() { if (m) SDL_DestroyMutex(m); }
-	SDL_mutex *m;
+	SDL_Mutex *m;
 };
 
 B2_mutex *B2_create_mutex(void)
@@ -618,13 +620,15 @@ static void one_tick(...)
 	}
 }
 
+bool tick_inhibit;
 static int tick_func(void *arg)
 {
 	uint64 start = GetTicks_usec();
 	int64 ticks = 0;
 	uint64 next = GetTicks_usec();
 	while (!tick_thread_cancel) {
-		one_tick();
+		if (!tick_inhibit)
+			one_tick();
 		next += 16625;
 		int64 delay = next - GetTicks_usec();
 		if (delay > 0)
@@ -644,22 +648,25 @@ static int tick_func(void *arg)
  */
 
 #ifdef USE_SDL_VIDEO
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+#include <SDL_video.h>
+#else
 #include <SDL_syswm.h>
+#endif
 extern SDL_Window *sdl_window;
 HWND GetMainWindowHandle(void)
 {
-	SDL_SysWMinfo wmInfo;
-	SDL_VERSION(&wmInfo.version);
 	if (!sdl_window) {
 		return NULL;
 	}
-	if (!SDL_GetWindowWMInfo(sdl_window, &wmInfo)) {
-		return NULL;
-	}
-	if (wmInfo.subsystem != SDL_SYSWM_WINDOWS) {
-		return NULL;
-	}
-	return wmInfo.info.win.window;
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+	SDL_PropertiesID props = SDL_GetWindowProperties(sdl_window);
+	return (HWND)SDL_GetPointerProperty(props, "SDL.window.cocoa.window", NULL);
+#else
+	SDL_SysWMinfo wmInfo;
+	SDL_VERSION(&wmInfo.version);
+	return SDL_GetWindowWMInfo(sdl_window, &wmInfo) ? wmInfo.info.win.window : NULL;
+#endif
 }
 #endif
 
@@ -758,9 +765,14 @@ static LRESULT CALLBACK low_level_keyboard_hook(int nCode, WPARAM wParam, LPARAM
 				if (intercept_event) {
 					SDL_Event e;
 					memset(&e, 0, sizeof(e));
-					e.type = (wParam == WM_KEYDOWN) ? SDL_KEYDOWN : SDL_KEYUP;
+					e.type = (wParam == WM_KEYDOWN) ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+					e.key.key = (p->vkCode == VK_LWIN) ? SDLK_LGUI : SDLK_RGUI;
+					e.key.scancode = (p->vkCode == VK_LWIN) ? SDL_SCANCODE_LGUI : SDL_SCANCODE_RGUI;
+#else
 					e.key.keysym.sym = (p->vkCode == VK_LWIN) ? SDLK_LGUI : SDLK_RGUI;
 					e.key.keysym.scancode = (p->vkCode == VK_LWIN) ? SDL_SCANCODE_LGUI : SDL_SCANCODE_RGUI;
+#endif
 					SDL_PushEvent(&e);
 					return 1;
 				}

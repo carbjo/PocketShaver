@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <SDL.h>
+#include "my_sdl.h"
 
 #include "sysdeps.h"
 #include "main.h"
@@ -53,6 +53,10 @@
 #include "mon.h"
 #endif
 
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
+#define SDL_EVENT_KEY_UP	SDL_KEYUP
+#define SDL_EVENT_KEY_DOWN	SDL_KEYDOWN
+#endif
 
 // Constants
 const char ROM_FILE_NAME[] = "ROM";
@@ -79,6 +83,9 @@ uint8 *ROMBaseHost;		// Base address of Mac ROM (host address space)
 DWORD win_os;			// Windows OS id
 DWORD win_os_major;		// Windows OS version major
 
+#ifdef MEM_BULK
+uint8 gKernelData[0x2000];
+#endif
 
 // Global variables
 static int kernel_area = -1;				// SHM ID of Kernel Data area
@@ -101,7 +108,7 @@ static uintptr sig_stack = 0;				// Stack for PowerPC interrupt routine
 
 uint32  SheepMem::page_size;				// Size of a native page
 uintptr SheepMem::zero_page = 0;			// Address of ro page filled in with zeros
-uintptr SheepMem::base = 0x60000000;		// Address of SheepShaver data
+uintptr SheepMem::base = 0x51000000;		// Address of SheepShaver data
 uintptr SheepMem::proc;						// Bottom address of SheepShave procedures
 uintptr SheepMem::data;						// Top of SheepShaver data (stack like storage)
 
@@ -180,6 +187,8 @@ int main(int argc, char **argv)
 	printf(" %s\n", GetString(STR_ABOUT_TEXT2));
 
 	// Parse command line arguments
+
+	// Check for options we want to process before PrefsInit
 	for (int i=1; i<argc; i++) {
 		if (strcmp(argv[i], "--help") == 0) {
 			usage(argv[0]);
@@ -190,14 +199,76 @@ int main(int argc, char **argv)
 				UserPrefsPath = to_tstring(argv[i]);
 				argv[i] = NULL;
 			}
-		} else if (argv[i][0] == '-') {
-			fprintf(stderr, "Unrecognized option '%s'\n", argv[i]);
-			usage(argv[0]);
+		}
+	}
+
+	// Remove processed arguments
+	for (int i=1; i<argc; i++) {
+		int k;
+		for (k=i; k<argc; k++)
+			if (argv[k] != NULL)
+				break;
+		if (k > i) {
+			k -= i;
+			for (int j=i+k; j<argc; j++)
+				argv[j-k] = argv[j];
+			argc -= k;
 		}
 	}
 
 	// Read preferences
 	PrefsInit(NULL, argc, argv);
+
+	for (int i=1; i<argc; i++) {
+		if (argv[i][0] == '-') {
+			fprintf(stderr, "Unrecognized option '%s'\n", argv[i]);
+			usage(argv[0]);
+		}
+	}
+
+	// #chenchijung 2024/2/21: move vm_init(), memory allocation for Mac RAM and Mac ROM here to avoid "cannot map RAM: no Error" bug.
+	//   caused by MSI afterburner (RIVA Tuner statistic tuner Server?). It is a workaround since I don't know why. But it works in my test env.
+	//
+	// ------------ Start of workaround --------------
+	int sdl_flags = 0;
+	// Initialize VM system
+	vm_init();
+
+	// Create area for Mac RAM
+	RAMSize = PrefsFindInt32("ramsize");
+	if (RAMSize <= 1000) {
+		RAMSize *= 1024 * 1024;
+	}
+	if (RAMSize < 16 * 1024 * 1024) {
+		WarningAlert(GetString(STR_SMALL_RAM_WARN));
+		RAMSize = 16 * 1024 * 1024;
+	}
+	RAMBase = 0;
+	if (vm_mac_acquire(RAMBase, RAMSize) < 0) {
+		sprintf(str, GetString(STR_RAM_MMAP_ERR), strerror(errno));
+		ErrorAlert(str);
+		goto quit;
+	}
+	RAMBaseHost = Mac2HostAddr(RAMBase);
+	ram_area_mapped = true;
+	D(bug("RAM area at %p (%08x)\n", RAMBaseHost, RAMBase));
+
+	// Create area for Mac ROM
+	if (vm_mac_acquire(ROM_BASE, ROM_AREA_SIZE) < 0) {
+		sprintf(str, GetString(STR_ROM_MMAP_ERR), strerror(errno));
+		ErrorAlert(str);
+		goto quit;
+	}
+	ROMBase = ROM_BASE;
+	ROMBaseHost = Mac2HostAddr(ROMBase);
+	rom_area_mapped = true;
+	D(bug("ROM area at %p (%08x)\n", ROMBaseHost, ROMBase));
+
+	if (RAMBase > ROMBase) {
+		ErrorAlert(GetString(STR_RAM_HIGHER_THAN_ROM_ERR));
+		goto quit;
+	}
+	//#chenchijung ----------------- end of workaround --------------
 
 	// Check we are using a Windows NT kernel >= 4.0
 	OSVERSIONINFO osvi;
@@ -228,7 +299,7 @@ int main(int argc, char **argv)
 	}
 
 	// Initialize SDL system
-	int sdl_flags = 0;
+	sdl_flags = 0; // #chenchijungtw move variable definition forward to avoid complication error
 #ifdef USE_SDL_VIDEO
 	sdl_flags |= SDL_INIT_VIDEO;
 #endif
@@ -256,9 +327,6 @@ int main(int argc, char **argv)
 		goto quit;
 	}
 
-	// Initialize VM system
-	vm_init();
-
 	// Get system info
 	PVR = 0x00040000;			// Default: 604
 	CPUClockSpeed = 100000000;	// Default: 100MHz
@@ -279,15 +347,17 @@ int main(int argc, char **argv)
 		if (!PrefsEditor())
 			goto quit;
 
+#ifndef MEM_BULK
 	// Create areas for Kernel Data
 	if (!kernel_data_init())
 		goto quit;
+#endif
 	kernel_data = (KernelData *)Mac2HostAddr(KERNEL_DATA_BASE);
 	emulator_data = &kernel_data->ed;
 	KernelDataAddr = KERNEL_DATA_BASE;
 	D(bug("Kernel Data at %p (%08x)\n", kernel_data, KERNEL_DATA_BASE));
 	D(bug("Emulator Data at %p (%08x)\n", emulator_data, KERNEL_DATA_BASE + offsetof(KernelData, ed)));
-
+#if 0
 	// Create area for DR Cache
 	if (vm_mac_acquire(DR_EMULATOR_BASE, DR_EMULATOR_SIZE) < 0) {
 		sprintf(str, GetString(STR_DR_EMULATOR_MMAP_ERR), strerror(errno));
@@ -303,46 +373,11 @@ int main(int argc, char **argv)
 	dr_cache_area_mapped = true;
 	DRCacheAddr = (uint32)Mac2HostAddr(DR_CACHE_BASE);
 	D(bug("DR Cache at %p (%08x)\n", DRCacheAddr, DR_CACHE_BASE));
-
+#endif
 	// Create area for SheepShaver data
 	if (!SheepMem::Init()) {
 		sprintf(str, GetString(STR_SHEEP_MEM_MMAP_ERR), strerror(errno));
 		ErrorAlert(str);
-		goto quit;
-	}
-
-	// Create area for Mac ROM
-	if (vm_mac_acquire(ROM_BASE, ROM_AREA_SIZE) < 0) {
-		sprintf(str, GetString(STR_ROM_MMAP_ERR), strerror(errno));
-		ErrorAlert(str);
-		goto quit;
-	}
-	ROMBase = ROM_BASE;
-	ROMBaseHost = Mac2HostAddr(ROMBase);
-	rom_area_mapped = true;
-	D(bug("ROM area at %p (%08x)\n", ROMBaseHost, ROMBase));
-
-	// Create area for Mac RAM
-	RAMSize = PrefsFindInt32("ramsize");
-	if (RAMSize <= 1000) {
-		RAMSize *= 1024 * 1024;
-	}
-	if (RAMSize < 16 * 1024 * 1024) {
-		WarningAlert(GetString(STR_SMALL_RAM_WARN));
-		RAMSize = 16 * 1024 * 1024;
-	}
-	RAMBase = 0;
-	if (vm_mac_acquire(RAMBase, RAMSize) < 0) {
-		sprintf(str, GetString(STR_RAM_MMAP_ERR), strerror(errno));
-		ErrorAlert(str);
-		goto quit;
-	}
-	RAMBaseHost = Mac2HostAddr(RAMBase);
-	ram_area_mapped = true;
-	D(bug("RAM area at %p (%08x)\n", RAMBaseHost, RAMBase));
-
-	if (RAMBase > ROMBase) {
-		ErrorAlert(GetString(STR_RAM_HIGHER_THAN_ROM_ERR));
 		goto quit;
 	}
 
@@ -634,6 +669,7 @@ static DWORD nvram_func(void *arg)
  *  60Hz thread (really 60.15Hz)
  */
 
+bool tick_inhibit;
 static DWORD tick_func(void *arg)
 {
 	int tick_counter = 0;
@@ -650,6 +686,7 @@ static DWORD tick_func(void *arg)
 			Delay_usec(delay);
 		else if (delay < -16625)
 			next = GetTicks_usec();
+		if (tick_inhibit) continue;
 		ticks++;
 
 		// Pseudo Mac 1Hz interrupt, update local time
@@ -789,22 +826,23 @@ void SheepMem::Exit(void)
  */
 
 #ifdef USE_SDL_VIDEO
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
 #include <SDL_syswm.h>
+#endif
 extern SDL_Window *sdl_window;
 HWND GetMainWindowHandle(void)
 {
-	SDL_SysWMinfo wmInfo;
-	SDL_VERSION(&wmInfo.version);
 	if (!sdl_window) {
 		return NULL;
 	}
-	if (!SDL_GetWindowWMInfo(sdl_window, &wmInfo)) {
-		return NULL;
-	}
-	if (wmInfo.subsystem != SDL_SYSWM_WINDOWS) {
-		return NULL;
-	}
-	return wmInfo.info.win.window;
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+	SDL_PropertiesID props = SDL_GetWindowProperties(sdl_window);
+	return (HWND)SDL_GetPointerProperty(props, "SDL.window.cocoa.window", NULL);
+#else
+	SDL_SysWMinfo wmInfo;
+	SDL_VERSION(&wmInfo.version);
+	return SDL_GetWindowWMInfo(sdl_window, &wmInfo) ? wmInfo.info.win.window : NULL;
+#endif
 }
 #endif
 
@@ -883,9 +921,14 @@ static LRESULT CALLBACK low_level_keyboard_hook(int nCode, WPARAM wParam, LPARAM
 				if (intercept_event) {
 					SDL_Event e;
 					memset(&e, 0, sizeof(e));
-					e.type = (wParam == WM_KEYDOWN) ? SDL_KEYDOWN : SDL_KEYUP;
+					e.type = (wParam == WM_KEYDOWN) ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+#if SDL_VERSION_ATLEAST(3, 0, 0)
+					e.key.key = (p->vkCode == VK_LWIN) ? SDLK_LGUI : SDLK_RGUI;
+					e.key.scancode = (p->vkCode == VK_LWIN) ? SDL_SCANCODE_LGUI : SDL_SCANCODE_RGUI;
+#else
 					e.key.keysym.sym = (p->vkCode == VK_LWIN) ? SDLK_LGUI : SDLK_RGUI;
 					e.key.keysym.scancode = (p->vkCode == VK_LWIN) ? SDL_SCANCODE_LGUI : SDL_SCANCODE_RGUI;
+#endif
 					SDL_PushEvent(&e);
 					return 1;
 				}
