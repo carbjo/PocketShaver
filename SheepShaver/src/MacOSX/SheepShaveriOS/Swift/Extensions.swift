@@ -194,10 +194,11 @@ extension UNUserNotificationCenter {
 		let request = UNNotificationRequest(identifier: "reboot", content: content, trigger: trigger)
 		do {
 			try await self.add(request)
-			exit(0)
 		} catch {
 			print("schedule error \(error)")
 		}
+
+		exit(0)
 	}
 }
 

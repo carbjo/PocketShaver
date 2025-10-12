@@ -32,25 +32,39 @@ public class RamAllocFailedAlertViewController: UIViewController {
 	private func createAlertVC() -> UIAlertController {
 		let sizeString = PreferencesGeneralRamSetting.current.label
 
+		let canLowerRam = PreferencesGeneralRamSetting.current == .n256 || PreferencesGeneralRamSetting.current == .n512
+
+		var message = "The request for allocating \(sizeString) of RAM memory failed. PocketShaver needs to restart.\n\nUsually, one or two restarts will result in the operating system granting the RAM allocation."
+		if canLowerRam {
+			message += "\n If not, consider lowering the amount of RAM in the settings."
+		}
+
+		var primaryActionTitle = "Restart"
+		if canLowerRam {
+			primaryActionTitle += " (recommended)"
+		}
+
 		let alertVC = UIAlertController(
 			title: "The operating system refused the RAM memory allocation",
-			message: "The request for allocating \(sizeString) of RAM memory failed. PocketShaver needs to restart.\n\nUsually, one or two restarts will result in the operating system granting the RAM allocation.\n If not, consider lowering the amount of RAM in the settings.",
+			message: message,
 			preferredStyle: .alert
 		)
 
-		alertVC.addAction(.init(title: "Restart (recommended)", style: .default, handler: { _ in
+		alertVC.addAction(.init(title: primaryActionTitle, style: .default, handler: { _ in
 			Task { @MainActor in
 				await UNUserNotificationCenter.current().scheduleRebootNotificationAndQuit()
 			}
 		}))
 
-		alertVC.addAction(.init(title: "Lower RAM and restart", style: .destructive, handler: { _ in
-			Task { @MainActor in
-				PreferencesGeneralRamSetting.current = .n128
-				PreferencesManager.shared.writePreferences()
-				await UNUserNotificationCenter.current().scheduleRebootNotificationAndQuit()
-			}
-		}))
+		if canLowerRam {
+			alertVC.addAction(.init(title: "Lower RAM and restart", style: .destructive, handler: { _ in
+				Task { @MainActor in
+					PreferencesGeneralRamSetting.current = .n128
+					PreferencesManager.shared.writePreferences()
+					await UNUserNotificationCenter.current().scheduleRebootNotificationAndQuit()
+				}
+			}))
+		}
 
 		return alertVC
 	}
