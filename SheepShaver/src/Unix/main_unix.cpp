@@ -192,7 +192,7 @@ int SS_ChooseiOSBootRom(const char* inFileName);	// returns file descriptor or e
 
 // Constants
 const char ROM_FILE_NAME[] = "ROM";
-const char ROM_FILE_NAME2[] = "Mac OS ROM";
+const char ROM_FILE_NAME2[] = ".rom";
 
 #if !REAL_ADDRESSING
 // FIXME: needs to be >= 0x04000000

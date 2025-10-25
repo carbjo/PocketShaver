@@ -26,18 +26,18 @@ class PreferencesAdvancedRomCell: UITableViewCell {
 	private lazy var selectRomFileButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .primaryActionConfig
-		button.setTitle("Change ROM file", for: .normal)
+		button.setTitle("Select Mac OS install disk", for: .normal)
 		button.addTarget(self, action: #selector(selectRomFileButtonPushed), for: .touchUpInside)
 		return button
 	}()
 
-	private let didTapSelectRomButton: (() -> Void)
+	private let didTapSelectInstallDiskButton: (() -> Void)
 
 	init(
 		romType: RomType,
-		didTapSelectRomButton: @escaping (() -> Void)
+		didTapSelectInstallDiskButton: @escaping (() -> Void)
 	) {
-		self.didTapSelectRomButton = didTapSelectRomButton
+		self.didTapSelectInstallDiskButton = didTapSelectInstallDiskButton
 
 		super.init(style: .default, reuseIdentifier: nil)
 
@@ -76,13 +76,13 @@ class PreferencesAdvancedRomCell: UITableViewCell {
 			return
 		}
 
-		titleLabel.attributedText = "Current '\(RomManager.romFilename)' file is validated and identified as a <b>\(romType.description)</b>"
+		titleLabel.attributedText = "PocketShaver is bootstrapped. Tap 'Select Mac OS install disk' to redo the process with another install disk."
 			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 15), color: .black)
 	}
 
 	@objc
 	private func selectRomFileButtonPushed() {
-		didTapSelectRomButton()
+		didTapSelectInstallDiskButton()
 	}
 }
 
@@ -152,4 +152,33 @@ class PreferencesAdvancedOptionCell: UITableViewCell {
 
 		didSetIsEnabled(enabledSwitch.isOn)
 	}
+}
+
+class PreferencesAdvancedMiscellaneousCell: UITableViewCell {
+	private lazy var titleLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.lineBreakMode = .byWordWrapping
+		return label
+	}()
+
+	init(
+		title: String
+	) {
+		super.init(style: .default, reuseIdentifier: nil)
+
+		titleLabel.text = title
+
+		contentView.addSubview(titleLabel)
+
+		NSLayoutConstraint.activate([
+
+			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
+		])
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
 }
