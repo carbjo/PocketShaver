@@ -9,7 +9,7 @@
 
 const char *objc_romPath(void) {
 	NSString* docsDirectory = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
-	NSString *romPath = [docsDirectory stringByAppendingPathComponent:@"Mac OS ROM"];
+	NSString *romPath = [docsDirectory stringByAppendingPathComponent:@".rom"];
 	const char *returnString = [romPath cStringUsingEncoding:NSISOLatin1StringEncoding];
 
 	return returnString;

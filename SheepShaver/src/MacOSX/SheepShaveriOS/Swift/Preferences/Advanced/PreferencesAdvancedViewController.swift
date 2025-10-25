@@ -14,6 +14,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case hapticFeedback
 		case advancedOptions
 		case setupInstructions
+		case miscellaneous
 	}
 
 	private let model: PreferencesAdvancedModel
@@ -98,6 +99,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return model.optionsInitialStates.count
 		case .setupInstructions:
 			return 1
+		case .miscellaneous:
+			return 1
 		}
 	}
 
@@ -107,7 +110,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		case .romSelection:
 			return PreferencesAdvancedRomCell(
 				romType: model.currentRomFileType,
-				didTapSelectRomButton: { [weak self] in
+				didTapSelectInstallDiskButton: { [weak self] in
 					self?.displayRomPicker()
 				}
 			)
@@ -161,6 +164,10 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				didTapCloseButton: {
 				}
 			)
+		case .miscellaneous:
+			return PreferencesAdvancedMiscellaneousCell(
+				title: "Licenses"
+			)
 		}
 	}
 
@@ -175,11 +182,35 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return "Advanced options"
 		case .setupInstructions:
 			return "Setup instructions"
+		case .miscellaneous:
+			return "Miscellaneous"
 		}
 	}
 
 	override func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
-		false
+		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
+		return sectionType == .miscellaneous
+	}
+
+	override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+		tableView.deselectRow(at: indexPath, animated: true)
+
+		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
+		switch sectionType {
+		case .miscellaneous:
+			switch indexPath.row {
+			case 0:
+				let vc = PreferencesLicensesViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
+
+				present(navVC, animated: true)
+			default:
+				break
+			}
+		default:
+			break
+		}
 	}
 }
 
@@ -192,7 +223,7 @@ extension PreferencesAdvancedViewController: UIDocumentPickerDelegate {
 		Task { [weak self, model] in
 			guard let self else { return }
 			do {
-				try await model.didSelectRomCandidate(url: url)
+				try await model.didSelectMacOsInstallDiskCandidate(url: url)
 				updateRomPicker()
 			} catch RomError.couldNotValidateRom {
 				displayForceSelectRomDialogue()

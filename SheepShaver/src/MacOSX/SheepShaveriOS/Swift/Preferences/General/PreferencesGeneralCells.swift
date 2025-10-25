@@ -127,7 +127,7 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 	}
 }
 
-class PreferencesGeneralRomCell: UITableViewCell {
+class PreferencesGeneralBootstrapCell: UITableViewCell {
 	private lazy var containerView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.layer.cornerRadius = 8
@@ -140,15 +140,15 @@ class PreferencesGeneralRomCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = .darkGray
-		label.text = "Tap button below to select ROM File. Alternativetly, you can place a ROM file named 'Mac OS ROM' in the root of PocketShaver share folder. After a ROM is set, it can be changed later in Advanced tab."
+		label.text = "Tap button below to select a Mac OS install disk file. This is needed to bootstrap PocketShaver."
 		return label
 	}()
 
-	private lazy var selectRomFileButton: UIButton = {
+	private lazy var selectInstallDiskFileButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .primaryActionConfig
-		button.setTitle("Select ROM file", for: .normal)
-		button.addTarget(self, action: #selector(selectRomFileButtonPushed), for: .touchUpInside)
+		button.setTitle("Select Mac OS install disk file", for: .normal)
+		button.addTarget(self, action: #selector(selectInstallDiskFileButtonPushed), for: .touchUpInside)
 		return button
 	}()
 
@@ -167,12 +167,12 @@ class PreferencesGeneralRomCell: UITableViewCell {
 		return imageView
 	}()
 
-	private let didTapSelectRomButton: (() -> Void)
+	private let didTapSelectInstallDiskButton: (() -> Void)
 
 	init(
-		didTapSelectRomButton: @escaping (() -> Void)
+		didTapSelectInstallDiskButton: @escaping (() -> Void)
 	) {
-		self.didTapSelectRomButton = didTapSelectRomButton
+		self.didTapSelectInstallDiskButton = didTapSelectInstallDiskButton
 
 		super.init(style: .default, reuseIdentifier: nil)
 
@@ -182,21 +182,21 @@ class PreferencesGeneralRomCell: UITableViewCell {
 
 		containerView.addSubview(titleLabel)
 		containerView.addSubview(checkmarkIconImageView)
-		containerView.addSubview(selectRomFileButton)
+		containerView.addSubview(selectInstallDiskFileButton)
 
 		NSLayoutConstraint.activate([
-			checkmarkIconImageView.centerXAnchor.constraint(equalTo: selectRomFileButton.centerXAnchor),
-			checkmarkIconImageView.centerYAnchor.constraint(equalTo: selectRomFileButton.centerYAnchor),
+			checkmarkIconImageView.centerXAnchor.constraint(equalTo: selectInstallDiskFileButton.centerXAnchor),
+			checkmarkIconImageView.centerYAnchor.constraint(equalTo: selectInstallDiskFileButton.centerYAnchor),
 
 			titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
 			titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
 			titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
 
-			selectRomFileButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			selectRomFileButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-			selectRomFileButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-			selectRomFileButton.heightAnchor.constraint(equalToConstant: 44),
-			selectRomFileButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
+			selectInstallDiskFileButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			selectInstallDiskFileButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+			selectInstallDiskFileButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+			selectInstallDiskFileButton.heightAnchor.constraint(equalToConstant: 44),
+			selectInstallDiskFileButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
 
 			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
 			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
@@ -208,13 +208,13 @@ class PreferencesGeneralRomCell: UITableViewCell {
 	required init?(coder: NSCoder) { fatalError() }
 
 	func displayCheckmark() {
-		selectRomFileButton.isHidden = true
+		selectInstallDiskFileButton.isHidden = true
 		checkmarkIconImageView.isHidden = false
 	}
 
 	@objc
-	private func selectRomFileButtonPushed() {
-		didTapSelectRomButton()
+	private func selectInstallDiskFileButtonPushed() {
+		didTapSelectInstallDiskButton()
 	}
 }
 

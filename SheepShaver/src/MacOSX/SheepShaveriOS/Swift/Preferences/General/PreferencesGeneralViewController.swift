@@ -101,7 +101,7 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private func animateRomFound() {
-		guard let cell = tableView.visibleCells.first(where: { $0 is PreferencesGeneralRomCell }) as? PreferencesGeneralRomCell,
+		guard let cell = tableView.visibleCells.first(where: { $0 is PreferencesGeneralBootstrapCell }) as? PreferencesGeneralBootstrapCell,
 		let indexPath = tableView.indexPath(for: cell) else {
 			return
 		}
@@ -290,7 +290,7 @@ class PreferencesGeneralViewController: UITableViewController {
 
 	@objc
 	private func updateRomPickerSection() {
-		let isDisplayingRomPicker = tableView.visibleCells.contains(where: { $0 is PreferencesGeneralRomCell })
+		let isDisplayingRomPicker = tableView.visibleCells.contains(where: { $0 is PreferencesGeneralBootstrapCell })
 		if model.hasRomFile && isDisplayingRomPicker {
 			animateRomFound()
 		} else if !model.hasRomFile && !isDisplayingRomPicker {
@@ -381,8 +381,8 @@ extension PreferencesGeneralViewController {
 			)
 		case .rom:
 			if indexPath.row == 0 {
-				return PreferencesGeneralRomCell(
-					didTapSelectRomButton: { [weak self] in
+				return PreferencesGeneralBootstrapCell(
+					didTapSelectInstallDiskButton: { [weak self] in
 						self?.displayRomPicker()
 					}
 				)
@@ -470,7 +470,7 @@ extension PreferencesGeneralViewController: UIDocumentPickerDelegate {
 			Task { [weak self, model] in
 				guard let self else { return }
 				do {
-					try await model.didSelectRomCandidate(url: url)
+					try await model.didSelectMacOsInstallDiskCandidate(url: url)
 					animateRomFound()
 				} catch RomError.couldNotValidateRom {
 					displayForceSelectRomDialogue()
