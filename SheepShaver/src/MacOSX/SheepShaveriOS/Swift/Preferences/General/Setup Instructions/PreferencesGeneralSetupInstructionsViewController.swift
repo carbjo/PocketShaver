@@ -16,11 +16,11 @@ class PreferencesSetupInstructionsCell: UITableViewCell {
 		label.textColor = .darkGray
 		label.attributedText =
   """
-1. Select a ROM file.
+1. Select a compatible Mac OS install disk to bootstrap PocketShaver.
 
 2. Create an empty disk of reasonable size and toggle on Mount.
 
-3. Import a Mac OS installation CD disk file (a version between 7.5 up to 9.0.4) and toggle on Mount and CDROM.
+3. (Optional) If you want to use a different OS install disk than what was used to boostrap PocketShaver, import a Mac OS installation CD disk file (a version between 7.5 up to 9.0.4) and toggle on Mount and CDROM.
 
 4. (Optional) Toggle on a monitor resolution of your liking in Resolutions tab and switch off the ones you do not want during installation. The operating system will always use the highest available during installation, without possibility to change it. Keep in mind, older OS versions are less likely to support high resolutions and might crash.
 
@@ -79,4 +79,3 @@ class PreferencesSetupInstructionsViewController: UITableViewController {
 		dismiss(animated: true)
 	}
 }
-

@@ -95,6 +95,29 @@
 		C73660F22E37815E0055AA91 /* HiddenInputField.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F12E3781570055AA91 /* HiddenInputField.swift */; };
 		C73660F42E37B5C80055AA91 /* Gamepad.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F32E37B5C50055AA91 /* Gamepad.swift */; };
 		C7393CCD2E6DC6A200D06705 /* PreferencesResolutionsCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */; };
+		C74E10792EA9228F00150945 /* ImpMutableBTreeFile.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10662EA9228F00150945 /* ImpMutableBTreeFile.m */; };
+		C74E107A2EA9228F00150945 /* ImpBTreeHeaderNode.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E104E2EA9228F00150945 /* ImpBTreeHeaderNode.m */; };
+		C74E107B2EA9228F00150945 /* ImpBTreeMapNode.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10522EA9228F00150945 /* ImpBTreeMapNode.m */; };
+		C74E107C2EA9228F00150945 /* ImpComparisonUtilities.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10592EA9228F00150945 /* ImpComparisonUtilities.m */; };
+		C74E107D2EA9228F00150945 /* ImpBTreeIndexNode.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10502EA9228F00150945 /* ImpBTreeIndexNode.m */; };
+		C74E107E2EA9228F00150945 /* NSData+ImpSubdata.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10782EA9228F00150945 /* NSData+ImpSubdata.m */; };
+		C74E107F2EA9228F00150945 /* ImpErrorUtilities.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E105D2EA9228F00150945 /* ImpErrorUtilities.m */; };
+		C74E10802EA9228F00150945 /* ImpDehydratedItem.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E105B2EA9228F00150945 /* ImpDehydratedItem.m */; };
+		C74E10812EA9228F00150945 /* ImpHFSExtractor.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10602EA9228F00150945 /* ImpHFSExtractor.m */; };
+		C74E10822EA9228F00150945 /* ImpSourceVolume+ConsistencyChecking.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E106E2EA9228F00150945 /* ImpSourceVolume+ConsistencyChecking.m */; };
+		C74E10832EA9228F00150945 /* ImpVolumeProbe.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10722EA9228F00150945 /* ImpVolumeProbe.m */; };
+		C74E10842EA9228F00150945 /* NSData+ImpHexDump.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10742EA9228F00150945 /* NSData+ImpHexDump.m */; };
+		C74E10852EA9228F00150945 /* NSData+ImpMultiplication.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10762EA9228F00150945 /* NSData+ImpMultiplication.m */; };
+		C74E10862EA9228F00150945 /* ImpSourceVolume.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E106C2EA9228F00150945 /* ImpSourceVolume.m */; };
+		C74E10872EA9228F00150945 /* ImpByteOrder.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10572EA9228F00150945 /* ImpByteOrder.m */; };
+		C74E10882EA9228F00150945 /* ImpBTreeNode.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10542EA9228F00150945 /* ImpBTreeNode.m */; };
+		C74E10892EA9228F00150945 /* ImpHFSPlusSourceVolume.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10622EA9228F00150945 /* ImpHFSPlusSourceVolume.m */; };
+		C74E108A2EA9228F00150945 /* ImpTextEncodingConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10702EA9228F00150945 /* ImpTextEncodingConverter.m */; };
+		C74E108B2EA9228F00150945 /* ImpSizeUtilities.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E106A2EA9228F00150945 /* ImpSizeUtilities.m */; };
+		C74E108C2EA9228F00150945 /* ImpBTreeFile.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E104C2EA9228F00150945 /* ImpBTreeFile.m */; };
+		C74E108D2EA9228F00150945 /* ImpHFSSourceVolume.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10642EA9228F00150945 /* ImpHFSSourceVolume.m */; };
+		C74E108E2EA9228F00150945 /* ImpPrintf.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10682EA9228F00150945 /* ImpPrintf.m */; };
+		C74E10982EABC8BB00150945 /* DiskROMExtractor.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10972EABC8BA00150945 /* DiskROMExtractor.m */; };
 		C750737A2E65E14F00D1E374 /* DiskCreation.mm in Sources */ = {isa = PBXBuildFile; fileRef = C75073792E65E14700D1E374 /* DiskCreation.mm */; };
 		C750737D2E67440900D1E374 /* PreferencesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750737C2E67440800D1E374 /* PreferencesModel.swift */; };
 		C75A604F2E62D04600253CA3 /* PreferencesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75A604E2E62D04000253CA3 /* PreferencesManager.swift */; };
@@ -122,6 +145,7 @@
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
 		C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */; };
 		C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */; };
+		C7E7B4A62EB7BFF6005844C2 /* PreferencesLicensesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E7B4A52EB7BFEA005844C2 /* PreferencesLicensesViewController.swift */; };
 		C7F42CCC2E5A0C8200FA7169 /* RamAllocFailedAlertViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCB2E5A0C6D00FA7169 /* RamAllocFailedAlertViewController.swift */; };
 		C7F42CCE2E5A0F6F00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCD2E5A0F6B00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm */; };
 		C7F42CD22E5B1BC700FA7169 /* PreferencesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CD12E5B1BC000FA7169 /* PreferencesViewController.swift */; };
@@ -555,6 +579,54 @@
 		C73660F12E3781570055AA91 /* HiddenInputField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputField.swift; sourceTree = "<group>"; };
 		C73660F32E37B5C50055AA91 /* Gamepad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gamepad.swift; sourceTree = "<group>"; };
 		C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesResolutionsCells.swift; sourceTree = "<group>"; };
+		C74E104B2EA9228F00150945 /* ImpBTreeFile.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpBTreeFile.h; sourceTree = "<group>"; };
+		C74E104C2EA9228F00150945 /* ImpBTreeFile.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpBTreeFile.m; sourceTree = "<group>"; };
+		C74E104D2EA9228F00150945 /* ImpBTreeHeaderNode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpBTreeHeaderNode.h; sourceTree = "<group>"; };
+		C74E104E2EA9228F00150945 /* ImpBTreeHeaderNode.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpBTreeHeaderNode.m; sourceTree = "<group>"; };
+		C74E104F2EA9228F00150945 /* ImpBTreeIndexNode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpBTreeIndexNode.h; sourceTree = "<group>"; };
+		C74E10502EA9228F00150945 /* ImpBTreeIndexNode.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpBTreeIndexNode.m; sourceTree = "<group>"; };
+		C74E10512EA9228F00150945 /* ImpBTreeMapNode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpBTreeMapNode.h; sourceTree = "<group>"; };
+		C74E10522EA9228F00150945 /* ImpBTreeMapNode.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpBTreeMapNode.m; sourceTree = "<group>"; };
+		C74E10532EA9228F00150945 /* ImpBTreeNode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpBTreeNode.h; sourceTree = "<group>"; };
+		C74E10542EA9228F00150945 /* ImpBTreeNode.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpBTreeNode.m; sourceTree = "<group>"; };
+		C74E10552EA9228F00150945 /* ImpBTreeTypes.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpBTreeTypes.h; sourceTree = "<group>"; };
+		C74E10562EA9228F00150945 /* ImpByteOrder.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpByteOrder.h; sourceTree = "<group>"; };
+		C74E10572EA9228F00150945 /* ImpByteOrder.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpByteOrder.m; sourceTree = "<group>"; };
+		C74E10582EA9228F00150945 /* ImpComparisonUtilities.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpComparisonUtilities.h; sourceTree = "<group>"; };
+		C74E10592EA9228F00150945 /* ImpComparisonUtilities.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpComparisonUtilities.m; sourceTree = "<group>"; };
+		C74E105A2EA9228F00150945 /* ImpDehydratedItem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpDehydratedItem.h; sourceTree = "<group>"; };
+		C74E105B2EA9228F00150945 /* ImpDehydratedItem.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpDehydratedItem.m; sourceTree = "<group>"; };
+		C74E105C2EA9228F00150945 /* ImpErrorUtilities.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpErrorUtilities.h; sourceTree = "<group>"; };
+		C74E105D2EA9228F00150945 /* ImpErrorUtilities.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpErrorUtilities.m; sourceTree = "<group>"; };
+		C74E105E2EA9228F00150945 /* ImpForkUtilities.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpForkUtilities.h; sourceTree = "<group>"; };
+		C74E105F2EA9228F00150945 /* ImpHFSExtractor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpHFSExtractor.h; sourceTree = "<group>"; };
+		C74E10602EA9228F00150945 /* ImpHFSExtractor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpHFSExtractor.m; sourceTree = "<group>"; };
+		C74E10612EA9228F00150945 /* ImpHFSPlusSourceVolume.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpHFSPlusSourceVolume.h; sourceTree = "<group>"; };
+		C74E10622EA9228F00150945 /* ImpHFSPlusSourceVolume.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpHFSPlusSourceVolume.m; sourceTree = "<group>"; };
+		C74E10632EA9228F00150945 /* ImpHFSSourceVolume.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpHFSSourceVolume.h; sourceTree = "<group>"; };
+		C74E10642EA9228F00150945 /* ImpHFSSourceVolume.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpHFSSourceVolume.m; sourceTree = "<group>"; };
+		C74E10652EA9228F00150945 /* ImpMutableBTreeFile.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpMutableBTreeFile.h; sourceTree = "<group>"; };
+		C74E10662EA9228F00150945 /* ImpMutableBTreeFile.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpMutableBTreeFile.m; sourceTree = "<group>"; };
+		C74E10672EA9228F00150945 /* ImpPrintf.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpPrintf.h; sourceTree = "<group>"; };
+		C74E10682EA9228F00150945 /* ImpPrintf.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpPrintf.m; sourceTree = "<group>"; };
+		C74E10692EA9228F00150945 /* ImpSizeUtilities.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpSizeUtilities.h; sourceTree = "<group>"; };
+		C74E106A2EA9228F00150945 /* ImpSizeUtilities.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpSizeUtilities.m; sourceTree = "<group>"; };
+		C74E106B2EA9228F00150945 /* ImpSourceVolume.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpSourceVolume.h; sourceTree = "<group>"; };
+		C74E106C2EA9228F00150945 /* ImpSourceVolume.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpSourceVolume.m; sourceTree = "<group>"; };
+		C74E106D2EA9228F00150945 /* ImpSourceVolume+ConsistencyChecking.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "ImpSourceVolume+ConsistencyChecking.h"; sourceTree = "<group>"; };
+		C74E106E2EA9228F00150945 /* ImpSourceVolume+ConsistencyChecking.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "ImpSourceVolume+ConsistencyChecking.m"; sourceTree = "<group>"; };
+		C74E106F2EA9228F00150945 /* ImpTextEncodingConverter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpTextEncodingConverter.h; sourceTree = "<group>"; };
+		C74E10702EA9228F00150945 /* ImpTextEncodingConverter.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpTextEncodingConverter.m; sourceTree = "<group>"; };
+		C74E10712EA9228F00150945 /* ImpVolumeProbe.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpVolumeProbe.h; sourceTree = "<group>"; };
+		C74E10722EA9228F00150945 /* ImpVolumeProbe.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpVolumeProbe.m; sourceTree = "<group>"; };
+		C74E10732EA9228F00150945 /* NSData+ImpHexDump.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "NSData+ImpHexDump.h"; sourceTree = "<group>"; };
+		C74E10742EA9228F00150945 /* NSData+ImpHexDump.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "NSData+ImpHexDump.m"; sourceTree = "<group>"; };
+		C74E10752EA9228F00150945 /* NSData+ImpMultiplication.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "NSData+ImpMultiplication.h"; sourceTree = "<group>"; };
+		C74E10762EA9228F00150945 /* NSData+ImpMultiplication.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "NSData+ImpMultiplication.m"; sourceTree = "<group>"; };
+		C74E10772EA9228F00150945 /* NSData+ImpSubdata.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "NSData+ImpSubdata.h"; sourceTree = "<group>"; };
+		C74E10782EA9228F00150945 /* NSData+ImpSubdata.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "NSData+ImpSubdata.m"; sourceTree = "<group>"; };
+		C74E10952EABC89A00150945 /* DiskROMExtractor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DiskROMExtractor.h; sourceTree = "<group>"; };
+		C74E10972EABC8BA00150945 /* DiskROMExtractor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DiskROMExtractor.m; sourceTree = "<group>"; };
 		C75073792E65E14700D1E374 /* DiskCreation.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = DiskCreation.mm; sourceTree = "<group>"; };
 		C750737B2E65E15200D1E374 /* DiskCreation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DiskCreation.h; sourceTree = "<group>"; };
 		C750737C2E67440800D1E374 /* PreferencesModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesModel.swift; sourceTree = "<group>"; };
@@ -563,6 +635,7 @@
 		C792C17D2E4761830016DDAF /* InformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationView.swift; sourceTree = "<group>"; };
 		C79A69272E62040300F582A6 /* RomPathObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomPathObjC.mm; sourceTree = "<group>"; };
 		C79A69292E62043100F582A6 /* RomPathObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomPathObjC.h; sourceTree = "<group>"; };
+		C7B616CF2E9D374800483010 /* hfs-ios.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "hfs-ios.h"; sourceTree = "<group>"; };
 		C7BC1A5E2E2562B4006F95CB /* SSDiskManager.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = SSDiskManager.mm; sourceTree = "<group>"; };
 		C7BC1A602E2562E1006F95CB /* SSDiskManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SSDiskManager.h; sourceTree = "<group>"; };
 		C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldDelegate.swift; sourceTree = "<group>"; };
@@ -590,6 +663,7 @@
 		C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OverlayViewControllerObjC.h; sourceTree = "<group>"; };
 		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
 		C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDLKey.swift; sourceTree = "<group>"; };
+		C7E7B4A52EB7BFEA005844C2 /* PreferencesLicensesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesLicensesViewController.swift; sourceTree = "<group>"; };
 		C7F42CCB2E5A0C6D00FA7169 /* RamAllocFailedAlertViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RamAllocFailedAlertViewController.swift; sourceTree = "<group>"; };
 		C7F42CCD2E5A0F6B00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RamAllocFailedAlertViewControllerObjC.mm; sourceTree = "<group>"; };
 		C7F42CCF2E5A0F7200FA7169 /* RamAllocFailedAlertViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RamAllocFailedAlertViewControllerObjC.h; sourceTree = "<group>"; };
@@ -830,6 +904,7 @@
 			children = (
 				E204B99A28BC7BF00081FDCA /* SheepShaveriOS */,
 				087B91B11B780EC900825F7F /* CrossPlatform */,
+				C7D405732E9BD55A009BEBA7 /* impluse-hfs */,
 				5D3967BF2328D315003925D6 /* adb.cpp */,
 				5DF4CB7E22B5BD5D00512A86 /* audio.cpp */,
 				5D35961024B8F5FA0081EC8A /* bincue.cpp */,
@@ -1379,6 +1454,62 @@
 			path = "Assign Button";
 			sourceTree = "<group>";
 		};
+		C7D405732E9BD55A009BEBA7 /* impluse-hfs */ = {
+			isa = PBXGroup;
+			children = (
+				C74E104B2EA9228F00150945 /* ImpBTreeFile.h */,
+				C74E104C2EA9228F00150945 /* ImpBTreeFile.m */,
+				C74E104D2EA9228F00150945 /* ImpBTreeHeaderNode.h */,
+				C74E104E2EA9228F00150945 /* ImpBTreeHeaderNode.m */,
+				C74E104F2EA9228F00150945 /* ImpBTreeIndexNode.h */,
+				C74E10502EA9228F00150945 /* ImpBTreeIndexNode.m */,
+				C74E10512EA9228F00150945 /* ImpBTreeMapNode.h */,
+				C74E10522EA9228F00150945 /* ImpBTreeMapNode.m */,
+				C74E10532EA9228F00150945 /* ImpBTreeNode.h */,
+				C74E10542EA9228F00150945 /* ImpBTreeNode.m */,
+				C74E10552EA9228F00150945 /* ImpBTreeTypes.h */,
+				C74E10562EA9228F00150945 /* ImpByteOrder.h */,
+				C74E10572EA9228F00150945 /* ImpByteOrder.m */,
+				C74E10582EA9228F00150945 /* ImpComparisonUtilities.h */,
+				C74E10592EA9228F00150945 /* ImpComparisonUtilities.m */,
+				C74E105A2EA9228F00150945 /* ImpDehydratedItem.h */,
+				C74E105B2EA9228F00150945 /* ImpDehydratedItem.m */,
+				C74E105C2EA9228F00150945 /* ImpErrorUtilities.h */,
+				C74E105D2EA9228F00150945 /* ImpErrorUtilities.m */,
+				C74E105E2EA9228F00150945 /* ImpForkUtilities.h */,
+				C74E105F2EA9228F00150945 /* ImpHFSExtractor.h */,
+				C74E10602EA9228F00150945 /* ImpHFSExtractor.m */,
+				C74E10612EA9228F00150945 /* ImpHFSPlusSourceVolume.h */,
+				C74E10622EA9228F00150945 /* ImpHFSPlusSourceVolume.m */,
+				C74E10632EA9228F00150945 /* ImpHFSSourceVolume.h */,
+				C74E10642EA9228F00150945 /* ImpHFSSourceVolume.m */,
+				C74E10652EA9228F00150945 /* ImpMutableBTreeFile.h */,
+				C74E10662EA9228F00150945 /* ImpMutableBTreeFile.m */,
+				C74E10672EA9228F00150945 /* ImpPrintf.h */,
+				C74E10682EA9228F00150945 /* ImpPrintf.m */,
+				C74E10692EA9228F00150945 /* ImpSizeUtilities.h */,
+				C74E106A2EA9228F00150945 /* ImpSizeUtilities.m */,
+				C74E106B2EA9228F00150945 /* ImpSourceVolume.h */,
+				C74E106C2EA9228F00150945 /* ImpSourceVolume.m */,
+				C74E106D2EA9228F00150945 /* ImpSourceVolume+ConsistencyChecking.h */,
+				C74E106E2EA9228F00150945 /* ImpSourceVolume+ConsistencyChecking.m */,
+				C74E106F2EA9228F00150945 /* ImpTextEncodingConverter.h */,
+				C74E10702EA9228F00150945 /* ImpTextEncodingConverter.m */,
+				C74E10712EA9228F00150945 /* ImpVolumeProbe.h */,
+				C74E10722EA9228F00150945 /* ImpVolumeProbe.m */,
+				C74E10732EA9228F00150945 /* NSData+ImpHexDump.h */,
+				C74E10742EA9228F00150945 /* NSData+ImpHexDump.m */,
+				C74E10752EA9228F00150945 /* NSData+ImpMultiplication.h */,
+				C74E10762EA9228F00150945 /* NSData+ImpMultiplication.m */,
+				C74E10772EA9228F00150945 /* NSData+ImpSubdata.h */,
+				C74E10782EA9228F00150945 /* NSData+ImpSubdata.m */,
+				C74E10952EABC89A00150945 /* DiskROMExtractor.h */,
+				C74E10972EABC8BA00150945 /* DiskROMExtractor.m */,
+				C7B616CF2E9D374800483010 /* hfs-ios.h */,
+			);
+			path = "impluse-hfs";
+			sourceTree = "<group>";
+		};
 		C7DCEF3B2E86F53B00EAED05 /* Haptic Feedback */ = {
 			isa = PBXGroup;
 			children = (
@@ -1422,6 +1553,14 @@
 				C7158EB22E7E7D8C006D06CC /* Utils */,
 			);
 			path = Swift;
+			sourceTree = "<group>";
+		};
+		C7E7B4A42EB7BFCF005844C2 /* Licenses */ = {
+			isa = PBXGroup;
+			children = (
+				C7E7B4A52EB7BFEA005844C2 /* PreferencesLicensesViewController.swift */,
+			);
+			path = Licenses;
 			sourceTree = "<group>";
 		};
 		C7F3E6F72E818F9100F9089E /* Gamepad Handling */ = {
@@ -1499,6 +1638,7 @@
 				C7C3D2762E781C250018DB8B /* PreferencesAdvancedModel.swift */,
 				C7F42CE02E5B3C7300FA7169 /* PreferencesAdvancedViewController.swift */,
 				C7C3D2742E781ACD0018DB8B /* PreferencesAdvancedCells.swift */,
+				C7E7B4A42EB7BFCF005844C2 /* Licenses */,
 			);
 			path = Advanced;
 			sourceTree = "<group>";
@@ -1976,6 +2116,7 @@
 				E204B94328BC3EBE0081FDCA /* if.c in Sources */,
 				E204B94528BC3EBE0081FDCA /* tftp.c in Sources */,
 				E2A5817728C7C633005C7373 /* DiskTypeiOS.m in Sources */,
+				C7E7B4A62EB7BFF6005844C2 /* PreferencesLicensesViewController.swift in Sources */,
 				E204B94628BC3EBE0081FDCA /* main.cpp in Sources */,
 				C7C3837B2E7862080051C5A4 /* PreferencesGeneralSetupInstructionsViewController.swift in Sources */,
 				E204B9D728BC7BF10081FDCA /* SSPreferencesDisksViewController.mm in Sources */,
@@ -2018,6 +2159,7 @@
 				E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */,
 				E204B9D028BC7BF10081FDCA /* ViewController.m in Sources */,
 				E204B9CD28BC7BF10081FDCA /* SSDiskTableViewCell.m in Sources */,
+				C74E10982EABC8BB00150945 /* DiskROMExtractor.m in Sources */,
 				C73660F42E37B5C80055AA91 /* Gamepad.swift in Sources */,
 				E204B95B28BC3EBE0081FDCA /* about_window_unix.cpp in Sources */,
 				E204B95C28BC3EBE0081FDCA /* ip_icmp.c in Sources */,
@@ -2069,6 +2211,28 @@
 				C73660F22E37815E0055AA91 /* HiddenInputField.swift in Sources */,
 				E204B9D128BC7BF10081FDCA /* SceneDelegate.m in Sources */,
 				C7C3D2752E781ACF0018DB8B /* PreferencesAdvancedCells.swift in Sources */,
+				C74E10792EA9228F00150945 /* ImpMutableBTreeFile.m in Sources */,
+				C74E107A2EA9228F00150945 /* ImpBTreeHeaderNode.m in Sources */,
+				C74E107B2EA9228F00150945 /* ImpBTreeMapNode.m in Sources */,
+				C74E107C2EA9228F00150945 /* ImpComparisonUtilities.m in Sources */,
+				C74E107D2EA9228F00150945 /* ImpBTreeIndexNode.m in Sources */,
+				C74E107E2EA9228F00150945 /* NSData+ImpSubdata.m in Sources */,
+				C74E107F2EA9228F00150945 /* ImpErrorUtilities.m in Sources */,
+				C74E10802EA9228F00150945 /* ImpDehydratedItem.m in Sources */,
+				C74E10812EA9228F00150945 /* ImpHFSExtractor.m in Sources */,
+				C74E10822EA9228F00150945 /* ImpSourceVolume+ConsistencyChecking.m in Sources */,
+				C74E10832EA9228F00150945 /* ImpVolumeProbe.m in Sources */,
+				C74E10842EA9228F00150945 /* NSData+ImpHexDump.m in Sources */,
+				C74E10852EA9228F00150945 /* NSData+ImpMultiplication.m in Sources */,
+				C74E10862EA9228F00150945 /* ImpSourceVolume.m in Sources */,
+				C74E10872EA9228F00150945 /* ImpByteOrder.m in Sources */,
+				C74E10882EA9228F00150945 /* ImpBTreeNode.m in Sources */,
+				C74E10892EA9228F00150945 /* ImpHFSPlusSourceVolume.m in Sources */,
+				C74E108A2EA9228F00150945 /* ImpTextEncodingConverter.m in Sources */,
+				C74E108B2EA9228F00150945 /* ImpSizeUtilities.m in Sources */,
+				C74E108C2EA9228F00150945 /* ImpBTreeFile.m in Sources */,
+				C74E108D2EA9228F00150945 /* ImpHFSSourceVolume.m in Sources */,
+				C74E108E2EA9228F00150945 /* ImpPrintf.m in Sources */,
 				E204B97128BC3EBE0081FDCA /* socket.c in Sources */,
 				E204B97228BC3EBE0081FDCA /* xpram.cpp in Sources */,
 				E204B97428BC3EBE0081FDCA /* mbuf.c in Sources */,
@@ -2500,6 +2664,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 2;
 				DEAD_CODE_STRIPPING = NO;
 				DEVELOPMENT_TEAM = 7K4RY698N6;
 				ENABLE_TESTABILITY = YES;
@@ -2559,6 +2724,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.9;
+				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				OTHER_CFLAGS = "-DKPX_IOS=1";
@@ -2616,6 +2782,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 2;
 				DEAD_CODE_STRIPPING = NO;
 				DEVELOPMENT_TEAM = 7K4RY698N6;
 				ENABLE_TESTABILITY = YES;
@@ -2674,6 +2841,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.9;
+				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_CFLAGS = "-DKPX_IOS=1";
