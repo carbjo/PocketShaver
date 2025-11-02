@@ -15,7 +15,7 @@ class RomManager {
 	@MainActor
 	static let shared = RomManager()
 
-	static let romFilename = "Mac OS ROM"
+	static let romFilename = ".rom"
 	private let tmpRomFilename = ".tmp_rom"
 
 	var hasRomFile: Bool {
@@ -28,7 +28,17 @@ class RomManager {
 		return validateROM(romUrl.path)
 	}
 
-	func didSelectRomCandidate(url: URL) async throws {
+	func didSelectMacOsInstallDiskCandidate(url: URL) async throws {
+		let docsUrl = FileManager.documentUrl
+		let tmpURL = docsUrl.appendingPathComponent(".extracted_rom")
+		let success = DiskROMExtractor.extractRom(fromDiskUrl: url, to: tmpURL)
+		print("-- success \(success)")
+		if success {
+			try await didSelectRomCandidate(url: tmpURL)
+		}
+	}
+
+	private func didSelectRomCandidate(url: URL) async throws {
 		var error: NSError?
 		let success = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
 			NSFileCoordinator().coordinate(readingItemAt: url, error: &error) { srcURL in

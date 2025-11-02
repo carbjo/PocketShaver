@@ -84,8 +84,8 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	func didSelectRomCandidate(url: URL) async throws {
-		try await RomManager.shared.didSelectRomCandidate(url: url)
+	func didSelectMacOsInstallDiskCandidate(url: URL) async throws {
+		try await RomManager.shared.didSelectMacOsInstallDiskCandidate(url: url)
 		changeSubject.send(.changeRequiringRestartAfterBootMade)
 	}
 
