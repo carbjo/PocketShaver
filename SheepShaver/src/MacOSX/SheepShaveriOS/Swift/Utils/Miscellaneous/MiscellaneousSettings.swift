@@ -8,7 +8,11 @@
 class MiscellaneousSettings: Codable {
 	private(set) var hasDismissedSetupInstructions: Bool
 	private(set) var showHints: Bool
-	private(set) var iPadMousePassthrough: Bool
+	private(set) var iPadMousePassthrough: Bool {
+		didSet {
+			objc_replaceBool("ipadmousepassthrough", iPadMousePassthrough)
+		}
+	}
 	private(set) var gestureHapticFeedback: Bool
 	private(set) var mouseHapticFeedback: Bool
 	private(set) var keyHapticFeedback: Bool

@@ -26,6 +26,7 @@ class PreferencesModel {
 		Task { @MainActor in
 			_ = MonitorResolutionManager.shared
 			objc_update_sdl_ipad_mouse_setting(MiscellaneousSettings.current.iPadMousePassthrough)
+			objc_replaceBool("ipadmousepassthrough", MiscellaneousSettings.current.iPadMousePassthrough)
 			objc_setMouseHapticFeedbackEnabled(MiscellaneousSettings.current.mouseHapticFeedback)
 		}
 	}
