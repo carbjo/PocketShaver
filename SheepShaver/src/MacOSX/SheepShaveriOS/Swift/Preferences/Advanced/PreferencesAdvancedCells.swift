@@ -7,7 +7,7 @@
 
 import UIKit
 
-class PreferencesAdvancedRomCell: UITableViewCell {
+class PreferencesAdvancedBootstrapCell: UITableViewCell {
 	private lazy var containerView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.layer.cornerRadius = 8
@@ -23,18 +23,18 @@ class PreferencesAdvancedRomCell: UITableViewCell {
 		return label
 	}()
 
-	private lazy var selectRomFileButton: UIButton = {
+	private lazy var selectInstallDiskFileButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .primaryActionConfig
-		button.setTitle("Select Mac OS install disk", for: .normal)
-		button.addTarget(self, action: #selector(selectRomFileButtonPushed), for: .touchUpInside)
+		button.setTitle("Select Mac OS install disc file", for: .normal)
+		button.addTarget(self, action: #selector(selectInstallDiskFileButtonPushed), for: .touchUpInside)
 		return button
 	}()
 
 	private let didTapSelectInstallDiskButton: (() -> Void)
 
 	init(
-		romType: RomType,
+		romDescription: String,
 		didTapSelectInstallDiskButton: @escaping (() -> Void)
 	) {
 		self.didTapSelectInstallDiskButton = didTapSelectInstallDiskButton
@@ -44,8 +44,8 @@ class PreferencesAdvancedRomCell: UITableViewCell {
 		hideSeparator()
 
 		contentView.addSubview(containerView)
-		containerView.addSubview(selectRomFileButton)
 		containerView.addSubview(titleLabel)
+		containerView.addSubview(selectInstallDiskFileButton)
 
 		NSLayoutConstraint.activate([
 			titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
@@ -53,11 +53,11 @@ class PreferencesAdvancedRomCell: UITableViewCell {
 			titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
 
 
-			selectRomFileButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			selectRomFileButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-			selectRomFileButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-			selectRomFileButton.heightAnchor.constraint(equalToConstant: 44),
-			selectRomFileButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
+			selectInstallDiskFileButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			selectInstallDiskFileButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+			selectInstallDiskFileButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+			selectInstallDiskFileButton.heightAnchor.constraint(equalToConstant: 44),
+			selectInstallDiskFileButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
 
 			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
 			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
@@ -65,23 +65,18 @@ class PreferencesAdvancedRomCell: UITableViewCell {
 			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
 		])
 
-		configure(with: romType)
+		configure(with: romDescription)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	func configure(with romType: RomType) {
-		if romType == .invalid {
-			titleLabel.attributedText = NSAttributedString(string: "Current '\(RomManager.romFilename)' file does not pass validation")
-			return
-		}
-
-		titleLabel.attributedText = "PocketShaver is bootstrapped. Tap 'Select Mac OS install disk' to redo the process with another install disk."
+	func configure(with romDescription: String) {
+		titleLabel.attributedText = "PocketShaver is bootstrapped by an install disc identified as belonging to category <b>\(romDescription)</b>. Tap 'Select Mac OS install disc' if you want to redo bootstrapping with another install disc."
 			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 15), color: .black)
 	}
 
 	@objc
-	private func selectRomFileButtonPushed() {
+	private func selectInstallDiskFileButtonPushed() {
 		didTapSelectInstallDiskButton()
 	}
 }

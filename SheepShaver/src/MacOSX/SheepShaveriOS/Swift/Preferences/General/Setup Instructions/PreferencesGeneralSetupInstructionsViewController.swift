@@ -16,19 +16,21 @@ class PreferencesSetupInstructionsCell: UITableViewCell {
 		label.textColor = .darkGray
 		label.attributedText =
   """
-1. Select a compatible Mac OS install disk to bootstrap PocketShaver.
+1. Select a compatible Mac OS install disc to bootstrap PocketShaver (check 'Compatibility list' to see which install discs can be used for this).
 
 2. Create an empty disk of reasonable size and toggle on Mount.
 
-3. (Optional) If you want to use a different OS install disk than what was used to boostrap PocketShaver, import a Mac OS installation CD disk file (a version between 7.5 up to 9.0.4) and toggle on Mount and CDROM.
+3. Import a Mac OS install disc file and toggle on Mount and CDROM. This does not have to be the same disk image as in step 1. But in general, it must be a OS version equal or higher to what you used in the bootstrapping process. The maximum Mac OS version PocketShaver supports is <b>9.0.4</b>.
 
-4. (Optional) Toggle on a monitor resolution of your liking in Resolutions tab and switch off the ones you do not want during installation. The operating system will always use the highest available during installation, without possibility to change it. Keep in mind, older OS versions are less likely to support high resolutions and might crash.
+4. Boot, let Mac OS format your empty virtual harddrive and launch 'Mac OS Installer' app from the disc.
 
-5. Critical for when installing Mac OS 8.0 or higher: In the Mac OS Installer app, at <b>Install software</b> step (not 'Select destination' step), Click button <b>Options...</b> and uncheck <b>Update Apple Hard Disk Drivers</b>. If you do not do this, there is a high risk the installation will get completely stuck in the beginning on a phase with title 'Updating Apple Hard Disk Drivers'.
+5. In the 'Mac OS Installer' app, at <b>Install software</b> step (not 'Select destination' step), Click button <b>Options...</b> and uncheck <b>Update Apple Hard Disk Drivers</b>. If you do not do this, the installation will get completely stuck on a phase with title 'Updating Apple Hard Disk Drivers'.
 
-6. Restart PocketShaver, un-toggle Mount for Mac OS installation CD and boot.
+6. After installation, restart PocketShaver, un-toggle Mount for Mac OS installation CD and boot.
 
-7. If audio is not working, you have to explicitly select <b>Built-in</b> as Sound out option in the <b>Sound</b> control panel (not 'Sound and monitors'), which, depending on Mac OS version, is either in <b>System Folder → Control Panels</b> or <b>Apple Extras → Sound Control Panel</b>.
+7. Quit 'Mac OS Setup Assistant' app (since one of the later steps in it, involving network detection, will get the Assistant app and the OS stuck).
+
+8. To get audio working, you have to explicitly select <b>Built-in</b> as Sound out option in the <b>Sound</b> control panel (not 'Sound and monitors'), which, depending on Mac OS version, is either located in <b> (Mac HD) → System Folder → Control Panels</b> or <b> (Mac HD) → Apple Extras → Sound Control Panel</b>. This only has to be done once.
 """.withBoldTagsReplacedWith(
 	font: .boldSystemFont(ofSize: 14),
 	color: .black
@@ -72,6 +74,10 @@ class PreferencesSetupInstructionsViewController: UITableViewController {
 
 	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
 		PreferencesSetupInstructionsCell()
+	}
+
+	override func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
+		false
 	}
 
 	@objc

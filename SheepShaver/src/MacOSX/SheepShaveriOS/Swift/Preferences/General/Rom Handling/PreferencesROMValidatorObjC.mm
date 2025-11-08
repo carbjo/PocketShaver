@@ -1,5 +1,5 @@
 //
-//  PreferencesROMValidator.mm
+//  PreferencesROMValidatorObjC.mm
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-08-24.
@@ -7,7 +7,16 @@
 
 #import <UIKit/UIKit.h>
 #import "SheepShaveriOS-Swift.h"
-#import "PreferencesROMValidator.h"
+#import "PreferencesROMValidatorObjC.h"
+#import "PreferencesROMValidatorCpp.h"
+
+typedef unsigned int uint32;
+typedef short int16;
+typedef unsigned short uint16;
+typedef unsigned char uint8;
+
+#import "rom_patches.h"
+
 
 BOOL isNewWorldRom(NSString* _Nonnull romPath) {
 	BOOL aIsDirectory = NO;
@@ -114,10 +123,45 @@ RomType oldWorldRomType(NSString* _Nonnull romPath) {
 	return RomTypeInvalid;
 }
 
-RomType validateROM(NSString* _Nonnull romPath) {
+RomType validateROMType(NSString* _Nonnull romPath) {
 	if (isNewWorldRom(romPath)) {
 		return RomTypeNewWorld;
 	}
 
 	return oldWorldRomType(romPath);
+}
+
+int cppRomTypeFromObjCRomType(RomType romType) {
+	switch (romType) {
+		case RomTypeOldWorldTnt:
+			return ROMTYPE_TNT;
+		case RomTypeOldWorldAlchemy:
+			return ROMTYPE_ALCHEMY;
+		case RomTypeOldWorldZanzibar:
+			return ROMTYPE_ZANZIBAR;
+		case RomTypeOldWorldGazelle:
+			return ROMTYPE_GAZELLE;
+		case RomTypeOldWorldGossamer:
+			return ROMTYPE_GOSSAMER;
+		case RomTypeNewWorld:
+			return ROMTYPE_NEWWORLD;
+		default:
+			exit(0);
+	}
+}
+
+BOOL validateROMPatchability(NSString* _Nonnull romPath, int cppRomType) {
+	const char *cRomPath = [romPath cStringUsingEncoding:NSASCIIStringEncoding];
+	return validate_rom(cRomPath, cppRomType);
+}
+
+BOOL validateROM(NSString* _Nonnull romPath) {
+	RomType romType = validateROMType(romPath);
+	if (romType == RomTypeInvalid) {
+		return NO;
+	}
+
+	int cppRomType = cppRomTypeFromObjCRomType(romType);
+
+	return validateROMPatchability(romPath, cppRomType);
 }
