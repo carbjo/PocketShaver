@@ -140,22 +140,39 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = .darkGray
-		label.text = "Tap button below to select a Mac OS install disk file. This is needed to bootstrap PocketShaver."
+		label.text = "Tap button below to select a compatible Mac OS install disc file. This is needed to bootstrap PocketShaver."
 		return label
+	}()
+
+	private lazy var buttonStackView: UIStackView = {
+		let stackView = UIStackView.withoutConstraints()
+		stackView.axis = .vertical
+		stackView.spacing = 12
+		stackView.distribution = .fill
+		stackView.alignment = .fill
+		return stackView
 	}()
 
 	private lazy var selectInstallDiskFileButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .primaryActionConfig
-		button.setTitle("Select Mac OS install disk file", for: .normal)
+		button.setTitle("Select Mac OS install disc file", for: .normal)
 		button.addTarget(self, action: #selector(selectInstallDiskFileButtonPushed), for: .touchUpInside)
+		return button
+	}()
+
+	private lazy var displayCompatibilityListButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.configuration = .secondaryActionConfig
+		button.setTitle("Compatibility list", for: .normal)
+		button.addTarget(self, action: #selector(displayCompatibilityListButtonPushed), for: .touchUpInside)
 		return button
 	}()
 
 	private lazy var checkmarkIconImageView: UIImageView = {
 		let imageView = UIImageView.withoutConstraints()
 		imageView.image = UIImage(resource: .checkmarkCircleFill)
-		imageView.tintColor = UIColor(red: 0.114, green: 0.7, blue: 0.24, alpha: 1)
+		imageView.tintColor = CustomColors.okColor
 		imageView.isHidden = true
 		imageView.contentMode = .scaleAspectFit
 
@@ -168,11 +185,15 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 	}()
 
 	private let didTapSelectInstallDiskButton: (() -> Void)
+	private let didTapCompatibilityListButton: (() -> Void)
 
 	init(
-		didTapSelectInstallDiskButton: @escaping (() -> Void)
+		didTapSelectInstallDiskButton: @escaping (() -> Void),
+		didTapCompatibilityListButton: @escaping (() -> Void)
+
 	) {
 		self.didTapSelectInstallDiskButton = didTapSelectInstallDiskButton
+		self.didTapCompatibilityListButton = didTapCompatibilityListButton
 
 		super.init(style: .default, reuseIdentifier: nil)
 
@@ -182,21 +203,25 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 
 		containerView.addSubview(titleLabel)
 		containerView.addSubview(checkmarkIconImageView)
-		containerView.addSubview(selectInstallDiskFileButton)
+		containerView.addSubview(buttonStackView)
+		buttonStackView.addArrangedSubview(selectInstallDiskFileButton)
+		buttonStackView.addArrangedSubview(displayCompatibilityListButton)
 
 		NSLayoutConstraint.activate([
-			checkmarkIconImageView.centerXAnchor.constraint(equalTo: selectInstallDiskFileButton.centerXAnchor),
-			checkmarkIconImageView.centerYAnchor.constraint(equalTo: selectInstallDiskFileButton.centerYAnchor),
+			checkmarkIconImageView.centerXAnchor.constraint(equalTo: buttonStackView.centerXAnchor),
+			checkmarkIconImageView.centerYAnchor.constraint(equalTo: buttonStackView.centerYAnchor),
 
 			titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
 			titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
 			titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
 
-			selectInstallDiskFileButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			selectInstallDiskFileButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-			selectInstallDiskFileButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+			buttonStackView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			buttonStackView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+			buttonStackView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+			buttonStackView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
+
 			selectInstallDiskFileButton.heightAnchor.constraint(equalToConstant: 44),
-			selectInstallDiskFileButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
+			displayCompatibilityListButton.heightAnchor.constraint(equalToConstant: 44),
 
 			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
 			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
@@ -208,13 +233,19 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 	required init?(coder: NSCoder) { fatalError() }
 
 	func displayCheckmark() {
-		selectInstallDiskFileButton.isHidden = true
+		selectInstallDiskFileButton.alpha = 0
+		displayCompatibilityListButton.alpha = 0
 		checkmarkIconImageView.isHidden = false
 	}
 
 	@objc
 	private func selectInstallDiskFileButtonPushed() {
 		didTapSelectInstallDiskButton()
+	}
+
+	@objc
+	private func displayCompatibilityListButtonPushed() {
+		didTapCompatibilityListButton()
 	}
 }
 
@@ -224,7 +255,7 @@ class PreferencesGeneralErrorCell: UITableViewCell {
 		label.font = .boldSystemFont(ofSize: 14)
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
-		label.textColor = .red
+		label.textColor = CustomColors.notOkColor
 		return label
 	}()
 
