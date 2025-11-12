@@ -92,7 +92,7 @@ void AddPrefsDefaults(void)
 	PrefsAddInt32("bootdriver", 0);
 	PrefsAddInt32("bootdrive", 0);
 #if TARGET_OS_IPHONE
-	PrefsReplaceInt32("ramsize", 64);
+	PrefsReplaceInt32("ramsize", 128);
 	PrefsReplaceInt32("frameskip", 1);
 #else
 	PrefsAddInt32("ramsize", 16 * 1024 * 1024);
@@ -107,12 +107,8 @@ void AddPrefsDefaults(void)
 	PrefsAddBool("ignoresegv", true);
 	PrefsAddBool("ignoreillegal", false);
 
-#if USE_JIT
-	// JIT compiler specific options
-	PrefsAddBool("jit", true);
-#else
+
 	PrefsAddBool("jit", false);
-#endif
 	PrefsAddBool("jit68k", false);
 
 	PrefsAddInt32("keyboardtype", 5);

@@ -11,7 +11,7 @@ import Combine
 class PreferencesGeneralViewController: UITableViewController {
 	enum SectionType: Int, CaseIterable {
 		case setupInstructions
-		case rom
+		case bootstrap
 		case disks
 		case ramStepper
 		case iPadMouse
@@ -56,7 +56,7 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	func presentRomFileMissingError() {
-		let sectionIndex = SectionType.rom.sectionIndex(model: model)
+		let sectionIndex = SectionType.bootstrap.sectionIndex(model: model)
 		let romCellIndexPath = IndexPath(row: 0, section: sectionIndex)
 
 		let shouldAddRow = !model.isDisplayingRomFileMissingError
@@ -90,16 +90,15 @@ class PreferencesGeneralViewController: UITableViewController {
 		}
 	}
 
-	// MARK: - ROM picker
+	// MARK: - Bootstrapping
 
-	private func displayRomPicker() {
+	private func displayMacOsInstallDiskPicker() {
 		let pickerVC = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
 		pickerVC.delegate = self
 		pickerVC.view.tag = FilePickerSource.romSelection.rawValue
 
 		present(pickerVC, animated: true)
 	}
-
 	private func animateRomFound() {
 		guard let cell = tableView.visibleCells.first(where: { $0 is PreferencesGeneralBootstrapCell }) as? PreferencesGeneralBootstrapCell,
 		let indexPath = tableView.indexPath(for: cell) else {
@@ -113,24 +112,26 @@ class PreferencesGeneralViewController: UITableViewController {
 		}
 	}
 
-	private func displayForceSelectRomDialogue() {
+	private func displayNoRomFoundDialogue() {
 		let alertVC = UIAlertController(
-			title: "Could not validate ROM",
-			message: "Validation of the ROM file failed. Use this ROM file anyway?",
+			title: "Mac OS install disc image not compatible",
+			message: "The provided file is not a compatible Mac OS install disc image for bootstrapping PocketShaver. Check 'Compatibility list' for guidence.",
 			preferredStyle: .alert
 		)
 
-		alertVC.addAction(.init(title: "Cancel", style: .default))
-		alertVC.addAction(.init(title: "Use anyway", style: .destructive, handler: { [weak self] _ in
-			guard let self else { return }
-			do {
-				try model.forceSelectTmpRom()
-				animateRomFound()
-			} catch {
-				let forceSelectFailedAlertVC = UIAlertController.withError(error)
-				present(forceSelectFailedAlertVC, animated: true)
-			}
-		}))
+		alertVC.addAction(.init(title: "Ok", style: .default))
+
+		present(alertVC, animated: true)
+	}
+
+	private func displayIncompatibleRomFoundDialogue(_ romType: NewWorldRomVersion) {
+		let alertVC = UIAlertController(
+			title: "Mac OS install disc image not compatible",
+			message: "The provided file is a Mac OS disk install image, but is not compatible for bootstrapping PocketShaver. The file is identified as belonging to category '\(romType.description)'. Check 'Compatibility list' for guidence.",
+			preferredStyle: .alert
+		)
+
+		alertVC.addAction(.init(title: "Ok", style: .default))
 
 		present(alertVC, animated: true)
 	}
@@ -294,7 +295,7 @@ class PreferencesGeneralViewController: UITableViewController {
 		if model.hasRomFile && isDisplayingRomPicker {
 			animateRomFound()
 		} else if !model.hasRomFile && !isDisplayingRomPicker {
-			let romSection = SectionType.rom.sectionIndex(model: model)
+			let romSection = SectionType.bootstrap.sectionIndex(model: model)
 			tableView.insertSections([romSection], with: .top)
 		}
 	}
@@ -327,8 +328,8 @@ extension PreferencesGeneralViewController {
 		switch sectionType {
 		case .setupInstructions:
 			return nil
-		case .rom:
-			return "ROM selection"
+		case .bootstrap:
+			return "Bootstrap"
 		case .disks:
 			return "Disks"
 		case .ramStepper:
@@ -345,7 +346,7 @@ extension PreferencesGeneralViewController {
 		switch sectionType {
 		case .setupInstructions:
 			return 1
-		case .rom:
+		case .bootstrap:
 			return 1 + (model.isDisplayingRomFileMissingError ? 1 : 0)
 		case .disks:
 			return model.numberOfDisks + 2 + (model.isDisplayingNoDiskFilesError ? 1 : 0)
@@ -379,15 +380,23 @@ extension PreferencesGeneralViewController {
 					tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
 				}
 			)
-		case .rom:
+		case .bootstrap:
 			if indexPath.row == 0 {
 				return PreferencesGeneralBootstrapCell(
 					didTapSelectInstallDiskButton: { [weak self] in
-						self?.displayRomPicker()
+						self?.displayMacOsInstallDiskPicker()
+					},
+					didTapCompatibilityListButton: { [weak self] in
+						guard let self else { return }
+						let vc = PreferencesCompatibilityListViewController()
+						let navVC = UINavigationController()
+						navVC.viewControllers = [vc]
+
+						present(navVC, animated: true)
 					}
 				)
 			} else {
-				return PreferencesGeneralErrorCell(title: "You need to select a ROM file")
+				return PreferencesGeneralErrorCell(title: "You need to bootstrap PocketShaver")
 			}
 		case .disks:
 			if indexPath.row == 0, model.numberOfDisks == 0 {
@@ -469,12 +478,15 @@ extension PreferencesGeneralViewController: UIDocumentPickerDelegate {
 		case .romSelection:
 			Task { [weak self, model] in
 				guard let self else { return }
-				do {
-					try await model.didSelectMacOsInstallDiskCandidate(url: url)
+				let validationResult = await model.didSelectMacOsInstallDiskCandidate(url: url)
+				switch validationResult {
+				case .success:
 					animateRomFound()
-				} catch RomError.couldNotValidateRom {
-					displayForceSelectRomDialogue()
-				} catch {
+				case .incompatibleRom(let newWorldRomVersion):
+					displayIncompatibleRomFoundDialogue(newWorldRomVersion)
+				case .invalidFile:
+					displayNoRomFoundDialogue()
+				case .error(let error):
 					let errorVC = UIAlertController.withError(error)
 					present(errorVC, animated: true)
 				}
@@ -528,7 +540,7 @@ extension PreferencesGeneralViewController.SectionType {
 			sections.remove(at: setupInstructionsSectionIndex)
 		}
 		if model.hasRomFile,
-		   let romSectionIndex = sections.firstIndex(of: .rom) {
+		   let romSectionIndex = sections.firstIndex(of: .bootstrap) {
 			sections.remove(at: romSectionIndex)
 		}
 		if !UIDevice.isIPad,

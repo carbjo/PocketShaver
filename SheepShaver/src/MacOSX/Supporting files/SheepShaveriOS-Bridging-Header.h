@@ -5,7 +5,7 @@
 //  Created by Carl Björkman on 2025-08-24.
 //
 
-#import "PreferencesROMValidator.h"
+#import "PreferencesROMValidatorObjC.h"
 #import "PrefsObjC.h"
 #import "DiskCreation.h"
 #import "MiscellaneousSettingsObjC.h"

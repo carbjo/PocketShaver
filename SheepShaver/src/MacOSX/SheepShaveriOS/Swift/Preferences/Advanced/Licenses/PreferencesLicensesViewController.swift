@@ -89,6 +89,10 @@ class PreferencesLicensesViewController: UITableViewController {
 		PreferencesLicensesCell()
 	}
 
+	override func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
+		false
+	}
+
 	@objc
 	private func doneButtonPressed() {
 		dismiss(animated: true)

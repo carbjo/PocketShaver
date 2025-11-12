@@ -163,10 +163,6 @@
 #endif
 
 #if TARGET_OS_IPHONE
-extern "C" {
-bool SS_ShowiOSPreferences(void);
-int SS_ChooseiOSBootRom(const char* inFileName);	// returns file descriptor or error
-}
 #import "OverlayViewControllerObjC.h"
 #import "RamAllocFailedAlertViewControllerObjC.h"
 #import "PreferencesViewControllerObjC.h"
@@ -690,7 +686,6 @@ static bool load_mac_rom(void)
 static bool check_prefs(void)
 {
 #if SHOW_IOS_PREFS_ON_LAUNCH
-//	SS_ShowiOSPreferences();		// This works.
 	objc_displayPreferences();
 #endif
 	return true;

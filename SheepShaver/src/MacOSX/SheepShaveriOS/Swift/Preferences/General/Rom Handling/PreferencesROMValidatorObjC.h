@@ -1,5 +1,5 @@
 //
-//  PreferencesROMValidator.h
+//  PreferencesROMValidatorObjC.h
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-08-24.
@@ -22,6 +22,11 @@ typedef NS_ENUM(NSUInteger, RomType) {
 #ifdef __cplusplus
 extern "C"
 #endif
-RomType validateROM(NSString *romPath);
+RomType validateROMType(NSString *romPath);
+
+#ifdef __cplusplus
+extern "C"
+#endif
+BOOL validateROM(NSString* _Nonnull romPath);
 
 NS_ASSUME_NONNULL_END
