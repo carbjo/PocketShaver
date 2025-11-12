@@ -204,7 +204,7 @@ bool DecodeROM(uint8 *data, uint32 size)
  *  Search ROM for byte string, return ROM offset (or 0)
  */
 
-static uint32 find_rom_data(uint32 start, uint32 end, const uint8 *data, uint32 data_len)
+uint32 find_rom_data(uint32 start, uint32 end, const uint8 *data, uint32 data_len)
 {
 	uint32 ofs = start;
 	while (ofs < end) {
@@ -223,7 +223,7 @@ static uint32 find_rom_data(uint32 start, uint32 end, const uint8 *data, uint32 
 static uint32 rsrc_ptr = 0;
 
 // id = 4711 means "find any ID"
-static uint32 find_rom_resource(uint32 s_type, int16 s_id = 4711, bool cont = false)
+uint32 find_rom_resource(uint32 s_type, int16 s_id, bool cont)
 {
 	uint32 lp = ROMBase + 0x1a;
 	uint32 x = ReadMacInt32(lp);
@@ -273,7 +273,7 @@ static uint32 find_rom_trap(uint16 trap)
  *  there is no such instruction
  */
 
-static uint32 rom_powerpc_branch_target(uint32 addr)
+uint32 rom_powerpc_branch_target(uint32 addr)
 {
 	uint32 opcode = ntohl(*(uint32 *)(ROMBaseHost + addr));
 	uint32 primop = opcode >> 26;
@@ -299,7 +299,7 @@ static uint32 rom_powerpc_branch_target(uint32 addr)
  *  Search ROM for instruction branching to target address, return 0 if none found
  */
 
-static uint32 find_rom_powerpc_branch(uint32 start, uint32 end, uint32 target)
+uint32 find_rom_powerpc_branch(uint32 start, uint32 end, uint32 target)
 {
 	for (uint32 addr = start; addr < end; addr += 4) {
 		if (rom_powerpc_branch_target(addr) == target)

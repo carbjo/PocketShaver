@@ -10,11 +10,11 @@ import Combine
 
 class PreferencesAdvancedViewController: UITableViewController {
 	enum SectionType: CaseIterable {
-		case romSelection
+		case bootstrap
 		case hapticFeedback
 		case advancedOptions
 		case setupInstructions
-		case miscellaneous
+		case resources
 	}
 
 	private let model: PreferencesAdvancedModel
@@ -41,41 +41,55 @@ class PreferencesAdvancedViewController: UITableViewController {
 		present(pickerVC, animated: true)
 	}
 
-	private func displayForceSelectRomDialogue() {
+	private func displaySuccesfulBoostrapDialogue() {
 		let alertVC = UIAlertController(
-			title: "Could not validate ROM",
-			message: "Validation of the ROM file failed. Use this ROM file anyway?",
+			title: "Success",
+			message: "PocketShaver is bootstrapped again with your new file.",
 			preferredStyle: .alert
 		)
 
-		alertVC.addAction(.init(title: "Cancel", style: .default))
-		alertVC.addAction(.init(title: "Use anyway", style: .destructive, handler: { [weak self] _ in
-			guard let self else { return }
-			do {
-				try model.forceSelectTmpRom()
-				updateRomPicker()
-			} catch {
-				let forceSelectFailedAlertVC = UIAlertController.withError(error)
-				present(forceSelectFailedAlertVC, animated: true)
-			}
-		}))
+		alertVC.addAction(.init(title: "Ok", style: .default))
 
 		present(alertVC, animated: true)
 	}
 
-	private func updateRomPicker() {
+	private func displayNoRomFoundDialogue() {
+		let alertVC = UIAlertController(
+			title: "Mac OS install disc image not compatible",
+			message: "The provided file is not a compatible Mac OS install disc image for bootstrapping PocketShaver. Check 'Compatibility list' for guidence.",
+			preferredStyle: .alert
+		)
+
+		alertVC.addAction(.init(title: "Ok", style: .default))
+
+		present(alertVC, animated: true)
+	}
+
+	private func displayIncompatibleRomFoundDialogue(_ romType: NewWorldRomVersion) {
+		let alertVC = UIAlertController(
+			title: "Mac OS install disc image not compatible",
+			message: "The provided file is a Mac OS disk install image, but is not compatible for bootstrapping PocketShaver. The file is identified as category '\(romType.description)'. Check 'Compatibility list' for guidence.",
+			preferredStyle: .alert
+		)
+
+		alertVC.addAction(.init(title: "Ok", style: .default))
+
+		present(alertVC, animated: true)
+	}
+
+	private func updateBootstrapCell() {
 		guard model.hasRomFile else {
 			return
 		}
 
-		let sectionIndex = SectionType.romSelection.sectionIndex(model: model)
+		let sectionIndex = SectionType.bootstrap.sectionIndex(model: model)
 		let indexPath = IndexPath(row: 0, section: sectionIndex)
 
-		guard let cell = tableView.cellForRow(at: indexPath) as? PreferencesAdvancedRomCell else {
+		guard let cell = tableView.cellForRow(at: indexPath) as? PreferencesAdvancedBootstrapCell else {
 			return
 		}
 
-		cell.configure(with: model.currentRomFileType)
+		cell.configure(with: model.currentRomFileDescription!)
 
 		tableView.beginUpdates()
 		tableView.endUpdates()
@@ -91,7 +105,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 	override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
 		let sectionType = SectionType(sectionIndex: section, model: model)
 		switch sectionType {
-		case .romSelection:
+		case .bootstrap:
 			return 1
 		case .hapticFeedback:
 			return 3
@@ -99,17 +113,17 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return model.optionsInitialStates.count
 		case .setupInstructions:
 			return 1
-		case .miscellaneous:
-			return 1
+		case .resources:
+			return 2
 		}
 	}
 
 	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
 		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
 		switch sectionType {
-		case .romSelection:
-			return PreferencesAdvancedRomCell(
-				romType: model.currentRomFileType,
+		case .bootstrap:
+			return PreferencesAdvancedBootstrapCell(
+				romDescription: model.currentRomFileDescription!,
 				didTapSelectInstallDiskButton: { [weak self] in
 					self?.displayRomPicker()
 				}
@@ -164,32 +178,40 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				didTapCloseButton: {
 				}
 			)
-		case .miscellaneous:
-			return PreferencesAdvancedMiscellaneousCell(
-				title: "Licenses"
-			)
+		case .resources:
+			switch indexPath.row {
+			case 0:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Bootstrap compatibility list"
+				)
+			case 1:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Licenses"
+				)
+			default: fatalError()
+			}
 		}
 	}
 
 	override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
 		let sectionType = SectionType(sectionIndex: section, model: model)
 		switch sectionType {
-		case .romSelection:
-			return "ROM selection"
+		case .bootstrap:
+			return "Bootstrap"
 		case .hapticFeedback:
 			return "Haptic feedback"
 		case .advancedOptions:
 			return "Advanced options"
 		case .setupInstructions:
 			return "Setup instructions"
-		case .miscellaneous:
-			return "Miscellaneous"
+		case .resources:
+			return "Resources"
 		}
 	}
 
 	override func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
 		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
-		return sectionType == .miscellaneous
+		return sectionType == .resources
 	}
 
 	override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -197,19 +219,23 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 
 		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
 		switch sectionType {
-		case .miscellaneous:
+		case .resources:
 			switch indexPath.row {
 			case 0:
+				let vc = PreferencesCompatibilityListViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
+
+				present(navVC, animated: true)
+			case 1:
 				let vc = PreferencesLicensesViewController()
 				let navVC = UINavigationController()
 				navVC.viewControllers = [vc]
 
 				present(navVC, animated: true)
-			default:
-				break
+			default: fatalError()
 			}
-		default:
-			break
+		default: fatalError()
 		}
 	}
 }
@@ -222,12 +248,16 @@ extension PreferencesAdvancedViewController: UIDocumentPickerDelegate {
 
 		Task { [weak self, model] in
 			guard let self else { return }
-			do {
-				try await model.didSelectMacOsInstallDiskCandidate(url: url)
-				updateRomPicker()
-			} catch RomError.couldNotValidateRom {
-				displayForceSelectRomDialogue()
-			} catch {
+			let validationResult = await model.didSelectMacOsInstallDiskCandidate(url: url)
+			switch validationResult {
+			case .success:
+				displaySuccesfulBoostrapDialogue()
+				updateBootstrapCell()
+			case .incompatibleRom(let newWorldRomVersion):
+				displayIncompatibleRomFoundDialogue(newWorldRomVersion)
+			case .invalidFile:
+				displayNoRomFoundDialogue()
+			case .error(let error):
 				let errorVC = UIAlertController.withError(error)
 				present(errorVC, animated: true)
 			}
@@ -258,7 +288,7 @@ extension PreferencesAdvancedViewController.SectionType {
 	private static func availableSections(with model: PreferencesAdvancedModel) -> [Self] {
 		var sections = allCases
 		if !model.hasRomFile,
-		   let romSectionIndex = sections.firstIndex(of: .romSelection) {
+		   let romSectionIndex = sections.firstIndex(of: .bootstrap) {
 			sections.remove(at: romSectionIndex)
 		}
 		if !model.hasDismissedSetupInstructions,

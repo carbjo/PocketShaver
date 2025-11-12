@@ -84,15 +84,10 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	func didSelectMacOsInstallDiskCandidate(url: URL) async throws {
-		try await RomManager.shared.didSelectMacOsInstallDiskCandidate(url: url)
+	func didSelectMacOsInstallDiskCandidate(url: URL) async -> RomValidationResult {
+		let result = await RomManager.shared.didSelectMacOsInstallDiskCandidate(url: url)
 		changeSubject.send(.changeRequiringRestartAfterBootMade)
-	}
-
-	@MainActor
-	func forceSelectTmpRom() throws {
-		try RomManager.shared.forceSelectTmpRom()
-		changeSubject.send(.changeRequiringRestartAfterBootMade)
+		return result
 	}
 
 	@MainActor
