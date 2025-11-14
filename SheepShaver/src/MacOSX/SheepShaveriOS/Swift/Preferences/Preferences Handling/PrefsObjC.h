@@ -60,4 +60,9 @@ void objc_update_sdl_ipad_mouse_setting(BOOL);
 #ifdef __cplusplus
 extern "C"
 #endif
+void objc_update_audio_disabled_setting(BOOL isDisabled);
+
+#ifdef __cplusplus
+extern "C"
+#endif
 void objc_savePrefs(void);

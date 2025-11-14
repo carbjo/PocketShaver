@@ -14,6 +14,7 @@ class PreferencesGeneralViewController: UITableViewController {
 		case bootstrap
 		case disks
 		case ramStepper
+		case audio
 		case iPadMouse
 		case hints
 	}
@@ -35,8 +36,14 @@ class PreferencesGeneralViewController: UITableViewController {
 	private var createDiskDialogueSizePhantomLabel: UILabel?
 	private var createDiskDialogueSizeUnitLabel: UILabel?
 
-	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
-		model = .init(changeSubject: changeSubject)
+	init(
+		mode: PreferencesLaunchMode,
+		changeSubject: PassthroughSubject<PreferencesChange, Never>
+	) {
+		model = .init(
+			mode: mode,
+			changeSubject: changeSubject
+		)
 
 		super.init(nibName: nil, bundle: nil)
 	}
@@ -88,6 +95,14 @@ class PreferencesGeneralViewController: UITableViewController {
 				tableView.insertRows(at: [disksMissingErrorIndexPath], with: .fade)
 			}
 		}
+	}
+
+	private func displaySetupInstructions() {
+		let vc = PreferencesSetupInstructionsViewController()
+		let navVC = UINavigationController()
+		navVC.viewControllers = [vc]
+
+		present(navVC, animated: true)
 	}
 
 	// MARK: - Bootstrapping
@@ -332,6 +347,8 @@ extension PreferencesGeneralViewController {
 			return "Bootstrap"
 		case .disks:
 			return "Disks"
+		case .audio:
+			return "Audio"
 		case .ramStepper:
 			return "RAM setting"
 		case .iPadMouse:
@@ -350,6 +367,8 @@ extension PreferencesGeneralViewController {
 			return 1 + (model.isDisplayingRomFileMissingError ? 1 : 0)
 		case .disks:
 			return model.numberOfDisks + 2 + (model.isDisplayingNoDiskFilesError ? 1 : 0)
+		case .audio:
+			return 2
 		case .ramStepper:
 			return 1
 		case .iPadMouse:
@@ -358,7 +377,7 @@ extension PreferencesGeneralViewController {
 			return 2
 		}
 	}
-
+	
 	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
 		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
 		switch sectionType {
@@ -367,11 +386,7 @@ extension PreferencesGeneralViewController {
 				mode: .general,
 				didTapReadButton: { [weak self] in
 					guard let self else { return }
-					let vc = PreferencesSetupInstructionsViewController()
-					let navVC = UINavigationController()
-					navVC.viewControllers = [vc]
-
-					present(navVC, animated: true)
+					displaySetupInstructions()
 				},
 				didTapCloseButton: { [weak self] in
 					guard let self else { return }
@@ -431,9 +446,22 @@ extension PreferencesGeneralViewController {
 			} else {
 				return PreferencesGeneralErrorCell(title: "Must select to mount at least one disk file")
 			}
+		case .audio:
+			if indexPath.row == 0 {
+				return PreferencesGeneralSettingCell(
+					title: "Audio enabled",
+					isOn: !model.soundDisabled
+				) { [weak self] newValue in
+					self?.model.soundDisabled = !newValue
+				}
+			} else {
+				return PreferencesGeneralAudioFooterCell { [weak self] in
+					self?.displaySetupInstructions()
+				}
+			}
 		case .ramStepper:
 			return PreferencesGeneralRamStepperCell(
-				initialRamSettting: .current
+				initialRamSettting: model.ramSetting
 			) { [weak self] newValue in
 				self?.model.ramSetting = newValue
 			}
@@ -445,10 +473,11 @@ extension PreferencesGeneralViewController {
 			}
 		case .hints:
 			if indexPath.row == 0 {
-				return PreferencesGeneralHintsSettingCell(
-					isOn: MiscellaneousSettings.current.showHints
-				) { isOn in
-					MiscellaneousSettings.current.set(showHints: isOn)
+				return PreferencesGeneralSettingCell(
+					title: "Show hints",
+					isOn: model.showHints
+				) { [weak self] newValue in
+					self?.model.showHints = newValue
 				}
 			} else {
 				return PreferencesGeneralHintsFooterCell()

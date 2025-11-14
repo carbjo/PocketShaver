@@ -713,7 +713,7 @@ class PreferencesGeneralIPadMouseCell: UITableViewCell {
 	}
 }
 
-class PreferencesGeneralHintsSettingCell: UITableViewCell {
+class PreferencesGeneralSettingCell: UITableViewCell {
 	private lazy var enabledIndicationView: UIView = {
 		UIView.withoutConstraints()
 	}()
@@ -722,7 +722,6 @@ class PreferencesGeneralHintsSettingCell: UITableViewCell {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
-		label.text = "Show hints"
 		return label
 	}()
 
@@ -735,6 +734,7 @@ class PreferencesGeneralHintsSettingCell: UITableViewCell {
 	private let didSetIsEnabled: ((Bool) -> Void)
 
 	init(
+		title: String,
 		isOn: Bool,
 		didSetIsEnabled: @escaping ((Bool) -> Void)
 	) {
@@ -742,6 +742,7 @@ class PreferencesGeneralHintsSettingCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		titleLabel.text = title
 		enabledSwitch.isOn = isOn
 
 		contentView.addSubview(enabledIndicationView)
@@ -777,6 +778,44 @@ class PreferencesGeneralHintsSettingCell: UITableViewCell {
 
 		didSetIsEnabled(enabledSwitch.isOn)
 	}
+}
+
+class PreferencesGeneralAudioFooterCell: UITableViewCell {
+	private lazy var informationLabel: LinkLabel = {
+		let text = "Sound from other apps is lowered if audio is enabled during emulation.\nHaving trouble getting audio to work? Read the setup guide."
+		let range = text.range(of: "setup guide")!
+		let label = LinkLabel(
+			text: text,
+			linkRange: range,
+			callback: callback
+		)
+		label.translatesAutoresizingMaskIntoConstraints = false
+
+		return label
+	}()
+
+	private let callback: (() -> Void)
+
+	init(
+		callback: @escaping (() -> Void)
+	) {
+		self.callback = callback
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		hideSeparator()
+
+		contentView.addSubview(informationLabel)
+
+		NSLayoutConstraint.activate([
+			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
+		])
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
 }
 
 class PreferencesGeneralHintsFooterCell: UITableViewCell {

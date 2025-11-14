@@ -12,13 +12,13 @@ import Combine
 	UIWindow(frame: UIScreen.main.bounds)
 }()
 
+enum PreferencesLaunchMode {
+	case startup
+	case duringEmulation
+}
+
 @objc
 public class PreferencesViewController: UIViewController {
-	enum Mode {
-		case startup
-		case duringEmulation
-	}
-
 	enum Tab: Int, CaseIterable {
 		case general
 		case resolutions
@@ -57,10 +57,13 @@ public class PreferencesViewController: UIViewController {
 		return button
 	}()
 
-	private let model = PreferencesModel()
+	private let model: PreferencesModel
 
 	private lazy var generalVC: PreferencesGeneralViewController = {
-		PreferencesGeneralViewController(changeSubject: model.changeSubject)
+		PreferencesGeneralViewController(
+			mode: model.mode,
+			changeSubject: model.changeSubject
+		)
 	}()
 
 	private lazy var resolutionsVC: PreferencesResolutionsViewController = {
@@ -77,13 +80,13 @@ public class PreferencesViewController: UIViewController {
 
 	private var anyCancellables = Set<AnyCancellable>()
 
-	private let mode: Mode
+
 	@objc public private(set) var isDone: Bool = false
 
 	private var displayedViewController: UIViewController?
 
-	init(mode: Mode) {
-		self.mode = mode
+	init(mode: PreferencesLaunchMode) {
+		model = PreferencesModel(mode: mode)
 
 		super.init(nibName: nil, bundle: nil)
 	}
@@ -188,7 +191,7 @@ public class PreferencesViewController: UIViewController {
 				model.needsRestart = true
 				updateBottomButton()
 			case .changeRequiringRestartAfterBootMade:
-				if mode == .duringEmulation {
+				if model.mode == .duringEmulation {
 					model.needsRestart = true
 					updateBottomButton()
 				}
@@ -202,7 +205,7 @@ public class PreferencesViewController: UIViewController {
 			return
 		}
 
-		switch mode {
+		switch model.mode {
 		case .startup:
 			let title = UIScreen.isPortraitMode ? "Boot (portrait mode)" : "Boot (landscape mode)"
 			bottomButton.setTitle(title, for: .normal)
@@ -247,7 +250,7 @@ public class PreferencesViewController: UIViewController {
 				await UNUserNotificationCenter.current().scheduleRebootNotificationAndQuit()
 			}
 		}))
-		if mode == .duringEmulation {
+		if model.mode == .duringEmulation {
 			alertVC.addAction(.init(title: "Later", style: .cancel, handler: { [weak self] _ in
 				self?.dismiss(animated: true)
 			}))
@@ -269,7 +272,7 @@ public class PreferencesViewController: UIViewController {
 			return
 		}
 
-		switch mode {
+		switch model.mode {
 		case .startup:
 			boot()
 		case .duringEmulation:

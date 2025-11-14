@@ -25,6 +25,8 @@ enum PreferencesGeneralRamSetting: Int, CaseIterable {
 
 class PreferencesGeneralModel {
 
+	private let mode: PreferencesLaunchMode
+
 	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
 
 	var isDisplayingRomFileMissingError = false
@@ -48,6 +50,22 @@ class PreferencesGeneralModel {
 	@MainActor
 	var numberOfDisks: Int {
 		DiskManager.shared.diskArray.count
+	}
+
+	@MainActor
+	var soundDisabled: Bool {
+		get {
+			MiscellaneousSettings.current.soundDisabled
+		}
+		set {
+			let previousValue = MiscellaneousSettings.current.soundDisabled
+			MiscellaneousSettings.current.set(soundDisabled: newValue)
+			
+			if mode == .duringEmulation,
+				newValue != previousValue {
+				objc_update_audio_disabled_setting(newValue)
+			}
+		}
 	}
 
 	var ramSetting: PreferencesGeneralRamSetting {
@@ -74,7 +92,21 @@ class PreferencesGeneralModel {
 		}
 	}
 
-	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
+	@MainActor
+	var showHints: Bool {
+		get {
+			MiscellaneousSettings.current.showHints
+		}
+		set {
+			MiscellaneousSettings.current.set(showHints: newValue)
+		}
+	}
+
+	init(
+		mode: PreferencesLaunchMode,
+		changeSubject: PassthroughSubject<PreferencesChange, Never>
+	) {
+		self.mode = mode
 		self.changeSubject = changeSubject
 	}
 
