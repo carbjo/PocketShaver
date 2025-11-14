@@ -81,7 +81,7 @@ class DiskManager {
 			if diskArrayFilenames.contains(filename) {
 				continue
 			}
-			let isCdRom = Self.assumedCdRomFileExtensions.contains(candidateFilePath.pathExtension)
+			let isCdRom = Self.assumedCdRomFileExtensions.contains(candidateFilePath.pathExtension.lowercased())
 			let disk = Disk(path: candidateFilePath, isCdRom: isCdRom, isEnabled: false)
 			diskArray.append(disk)
 		}

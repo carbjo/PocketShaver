@@ -16,14 +16,20 @@ class MiscellaneousSettings: Codable {
 	private(set) var gestureHapticFeedback: Bool
 	private(set) var mouseHapticFeedback: Bool
 	private(set) var keyHapticFeedback: Bool
+	private(set) var soundDisabled: Bool {
+		didSet {
+			objc_replaceBool("nosound", soundDisabled)
+		}
+	}
 
 	init() {
 		hasDismissedSetupInstructions = false
 		showHints = true
 		iPadMousePassthrough = false
 		gestureHapticFeedback = true
-		mouseHapticFeedback = false
-		keyHapticFeedback = false
+		mouseHapticFeedback = true
+		keyHapticFeedback = true
+		soundDisabled = objc_findBool("nosound")
 	}
 
 	@MainActor
@@ -84,6 +90,13 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(keyHapticFeedback: Bool) {
 		self.keyHapticFeedback = keyHapticFeedback
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(soundDisabled: Bool) {
+		self.soundDisabled = soundDisabled
 
 		saveAsCurrent()
 	}
