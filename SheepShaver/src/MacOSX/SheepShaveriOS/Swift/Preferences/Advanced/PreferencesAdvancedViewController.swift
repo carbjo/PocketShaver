@@ -11,9 +11,6 @@ import Combine
 class PreferencesAdvancedViewController: UITableViewController {
 	enum SectionType: CaseIterable {
 		case bootstrap
-		case hapticFeedback
-		case advancedOptions
-		case setupInstructions
 		case resources
 	}
 
@@ -107,14 +104,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .bootstrap:
 			return 1
-		case .hapticFeedback:
-			return 3
-		case .advancedOptions:
-			return model.optionsInitialStates.count
-		case .setupInstructions:
-			return 1
 		case .resources:
-			return 2
+			return 3
 		}
 	}
 
@@ -128,63 +119,17 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.displayRomPicker()
 				}
 			)
-		case .hapticFeedback:
-			switch indexPath.row {
-			case 0:
-				return PreferencesAdvancedOptionCell(
-					title: "Three / two finger swipe gestures",
-					isOn: model.isGestureHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isGestureHapticFeedbackOn = isOn
-				}
-			case 1:
-				return PreferencesAdvancedOptionCell(
-					title: "Mouse clicks",
-					isOn: model.isMouseHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isMouseHapticFeedbackOn = isOn
-				}
-			case 2:
-				return PreferencesAdvancedOptionCell(
-					title: "Gamepad key strokes",
-					isOn: model.isKeyHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isKeyHapticFeedbackOn = isOn
-				}
-			default:
-				fatalError()
-			}
-		case .advancedOptions:
-			let optionInitialState = model.optionsInitialStates[indexPath.row]
-
-			return PreferencesAdvancedOptionCell(
-				title: optionInitialState.option.title,
-				isOn: optionInitialState.isOn
-			) { [weak self] isOn in
-				guard let self else { return }
-				model.didSet(option: optionInitialState.option, isOn: isOn)
-			}
-		case .setupInstructions:
-			return PreferencesGeneralSetupInstructionsCell(
-				mode: .advanced,
-				didTapReadButton: { [weak self] in
-					guard let self else { return }
-					let vc = PreferencesSetupInstructionsViewController()
-					let navVC = UINavigationController()
-					navVC.viewControllers = [vc]
-
-					present(navVC, animated: true)
-				},
-				didTapCloseButton: {
-				}
-			)
 		case .resources:
 			switch indexPath.row {
 			case 0:
 				return PreferencesAdvancedMiscellaneousCell(
-					title: "Bootstrap compatibility list"
+					title: "Setup instructions"
 				)
 			case 1:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Bootstrap compatibility list"
+				)
+			case 2:
 				return PreferencesAdvancedMiscellaneousCell(
 					title: "Licenses"
 				)
@@ -198,12 +143,6 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .bootstrap:
 			return "Bootstrap"
-		case .hapticFeedback:
-			return "Haptic feedback"
-		case .advancedOptions:
-			return "Advanced options"
-		case .setupInstructions:
-			return "Setup instructions"
 		case .resources:
 			return "Resources"
 		}
@@ -222,12 +161,18 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		case .resources:
 			switch indexPath.row {
 			case 0:
-				let vc = PreferencesCompatibilityListViewController()
+				let vc = PreferencesSetupInstructionsViewController()
 				let navVC = UINavigationController()
 				navVC.viewControllers = [vc]
 
 				present(navVC, animated: true)
 			case 1:
+				let vc = PreferencesCompatibilityListViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
+
+				present(navVC, animated: true)
+			case 2:
 				let vc = PreferencesLicensesViewController()
 				let navVC = UINavigationController()
 				navVC.viewControllers = [vc]
@@ -290,14 +235,6 @@ extension PreferencesAdvancedViewController.SectionType {
 		if !model.hasRomFile,
 		   let romSectionIndex = sections.firstIndex(of: .bootstrap) {
 			sections.remove(at: romSectionIndex)
-		}
-		if !model.hasDismissedSetupInstructions,
-		   let setupInstructionsSectionIndex = sections.firstIndex(of: .setupInstructions) {
-			sections.remove(at: setupInstructionsSectionIndex)
-		}
-		if !model.supportsHaptics,
-		   let hapticsFeedbackSectionIndex = sections.firstIndex(of: .hapticFeedback) {
-			sections.remove(at: hapticsFeedbackSectionIndex)
 		}
 
 		return sections

@@ -78,10 +78,6 @@ static bool open_audio(void)
 
 void AudioInit(void)
 {
-	// Sound disabled in prefs? Then do nothing
-	if (PrefsFindBool("nosound"))
-		return;
-
 	//audio_sample_sizes.push_back(8);
 	audio_sample_sizes.push_back(16);
 
@@ -101,6 +97,10 @@ void AudioInit(void)
 	AudioStatus.num_sources = 0;
 	audio_component_flags = cmpWantsRegisterMessage | kStereoOut | k16BitOut;
 	audio_component_flags = 0;
+
+	// Sound disabled in prefs? Then do nothing
+	if (PrefsFindBool("nosound"))
+		return;
 
 	open_audio();
 }

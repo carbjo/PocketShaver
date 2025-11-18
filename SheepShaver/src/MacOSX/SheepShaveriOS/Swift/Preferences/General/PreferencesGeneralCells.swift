@@ -8,11 +8,6 @@
 import UIKit
 
 class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
-	enum Mode {
-		case general
-		case advanced
-	}
-
 	private lazy var containerView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.layer.cornerRadius = 8
@@ -27,10 +22,8 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = .darkGray
 
-		var string = "Read initial setup instructions if you plan to install Classic Mac OS from scratch. Contains crucial tip on how to <b>not get stuck in installation progress</b> and <b>get audio working</b>, after intallation."
-		if mode == .general {
-			string += "\n\nThe instructions can still be accessed from Advanced tab, after dismissal."
-		}
+		var string = "Read initial setup instructions if you plan to install Classic Mac OS from scratch. Contains crucial tip on how to <b>not get stuck in installation progress</b> and <b>get audio working</b>, after intallation.\n\nThe instructions can still be accessed from Advanced tab, after dismissal."
+
 		label.attributedText = string
 			.withBoldTagsReplacedWith(
 				font: .boldSystemFont(ofSize: 14),
@@ -56,16 +49,13 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 		return button
 	}()
 
-	private let mode: Mode
 	private let didTapReadButton: (() -> Void)
 	private let didTapCloseButton: (() -> Void)
 
 	init(
-		mode: Mode,
 		didTapReadButton: @escaping (() -> Void),
 		didTapCloseButton: @escaping (() -> Void)
 	) {
-		self.mode = mode
 		self.didTapReadButton = didTapReadButton
 		self.didTapCloseButton = didTapCloseButton
 
@@ -79,9 +69,7 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 		closeButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
 		containerView.addSubview(titleLabel)
-		if mode == .general {
-			containerView.addSubview(closeButton)
-		}
+		containerView.addSubview(closeButton)
 		containerView.addSubview(readButton)
 		contentView.addSubview(containerView)
 
@@ -99,19 +87,11 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
 			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
 			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
+
+			closeButton.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
+			closeButton.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
+			closeButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16)
 		])
-		switch mode {
-		case .general:
-			NSLayoutConstraint.activate([
-				closeButton.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
-				closeButton.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
-				closeButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16)
-			])
-		case .advanced:
-			NSLayoutConstraint.activate([
-				titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16)
-			])
-		}
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
@@ -713,16 +693,11 @@ class PreferencesGeneralIPadMouseCell: UITableViewCell {
 	}
 }
 
-class PreferencesGeneralHintsSettingCell: UITableViewCell {
-	private lazy var enabledIndicationView: UIView = {
-		UIView.withoutConstraints()
-	}()
-
+class PreferencesGeneralSettingCell: UITableViewCell {
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
-		label.text = "Show hints"
 		return label
 	}()
 
@@ -735,6 +710,7 @@ class PreferencesGeneralHintsSettingCell: UITableViewCell {
 	private let didSetIsEnabled: ((Bool) -> Void)
 
 	init(
+		title: String,
 		isOn: Bool,
 		didSetIsEnabled: @escaping ((Bool) -> Void)
 	) {
@@ -742,18 +718,13 @@ class PreferencesGeneralHintsSettingCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		titleLabel.text = title
 		enabledSwitch.isOn = isOn
 
-		contentView.addSubview(enabledIndicationView)
 		contentView.addSubview(titleLabel)
 		contentView.addSubview(enabledSwitch)
 
 		NSLayoutConstraint.activate([
-			enabledIndicationView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-			enabledIndicationView.topAnchor.constraint(equalTo: contentView.topAnchor),
-			enabledIndicationView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-			enabledIndicationView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-
 			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
 			titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
@@ -762,21 +733,52 @@ class PreferencesGeneralHintsSettingCell: UITableViewCell {
 			enabledSwitch.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
 			enabledSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8)
 		])
-
-		updateEnabledIndicationView()
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	private func updateEnabledIndicationView() {
-		enabledIndicationView.backgroundColor = enabledSwitch.isOn ? .veryLightGreen : .white
-	}
 
 	@objc private func enabledValueChanged() {
-		updateEnabledIndicationView()
-
 		didSetIsEnabled(enabledSwitch.isOn)
 	}
+}
+
+class PreferencesGeneralAudioFooterCell: UITableViewCell {
+	private lazy var informationLabel: LinkLabel = {
+		let text = "Sound from other apps is lowered if audio is enabled during emulation.\nHaving trouble getting audio to work? Read the setup guide."
+		let range = text.range(of: "setup guide")!
+		let label = LinkLabel(
+			text: text,
+			linkRange: range,
+			callback: callback
+		)
+		label.translatesAutoresizingMaskIntoConstraints = false
+
+		return label
+	}()
+
+	private let callback: (() -> Void)
+
+	init(
+		callback: @escaping (() -> Void)
+	) {
+		self.callback = callback
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		hideSeparator()
+
+		contentView.addSubview(informationLabel)
+
+		NSLayoutConstraint.activate([
+			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
+		])
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
 }
 
 class PreferencesGeneralHintsFooterCell: UITableViewCell {

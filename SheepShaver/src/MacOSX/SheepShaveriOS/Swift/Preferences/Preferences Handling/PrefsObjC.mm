@@ -9,6 +9,7 @@
 #import "prefs.h"
 #import "SDL_hints.h"
 #import "PrefsObjC.h"
+#import "audio_sdl.h"
 
 #ifndef SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH
 #define SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH "SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH"
@@ -77,6 +78,14 @@ void objc_replaceBool(NSString * _Nonnull name, BOOL value) {
 
 void objc_update_sdl_ipad_mouse_setting(BOOL isOn) {
 	SDL_SetHint(SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH, (isOn ? "1" : "0"));
+}
+
+void objc_update_audio_disabled_setting(BOOL isDisabled) {
+	if (isDisabled) {
+		close_audio();
+	} else {
+		open_audio();
+	}
 }
 
 void objc_savePrefs(void) {

@@ -15,6 +15,8 @@ class PreferencesGeneralViewController: UITableViewController {
 		case disks
 		case ramStepper
 		case iPadMouse
+		case hapticFeedback
+		case audio
 		case hints
 	}
 
@@ -35,8 +37,14 @@ class PreferencesGeneralViewController: UITableViewController {
 	private var createDiskDialogueSizePhantomLabel: UILabel?
 	private var createDiskDialogueSizeUnitLabel: UILabel?
 
-	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
-		model = .init(changeSubject: changeSubject)
+	init(
+		mode: PreferencesLaunchMode,
+		changeSubject: PassthroughSubject<PreferencesChange, Never>
+	) {
+		model = .init(
+			mode: mode,
+			changeSubject: changeSubject
+		)
 
 		super.init(nibName: nil, bundle: nil)
 	}
@@ -88,6 +96,14 @@ class PreferencesGeneralViewController: UITableViewController {
 				tableView.insertRows(at: [disksMissingErrorIndexPath], with: .fade)
 			}
 		}
+	}
+
+	private func displaySetupInstructions() {
+		let vc = PreferencesSetupInstructionsViewController()
+		let navVC = UINavigationController()
+		navVC.viewControllers = [vc]
+
+		present(navVC, animated: true)
 	}
 
 	// MARK: - Bootstrapping
@@ -336,6 +352,10 @@ extension PreferencesGeneralViewController {
 			return "RAM setting"
 		case .iPadMouse:
 			return "Input mode"
+		case .hapticFeedback:
+			return "Haptic feedback"
+		case .audio:
+			return "Audio"
 		case .hints:
 			return "Hints"
 		}
@@ -354,24 +374,23 @@ extension PreferencesGeneralViewController {
 			return 1
 		case .iPadMouse:
 			return 1
+		case .hapticFeedback:
+			return 3
+		case .audio:
+			return 2
 		case .hints:
 			return 2
 		}
 	}
-
+	
 	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
 		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
 		switch sectionType {
 		case .setupInstructions:
 			return PreferencesGeneralSetupInstructionsCell(
-				mode: .general,
 				didTapReadButton: { [weak self] in
 					guard let self else { return }
-					let vc = PreferencesSetupInstructionsViewController()
-					let navVC = UINavigationController()
-					navVC.viewControllers = [vc]
-
-					present(navVC, animated: true)
+					displaySetupInstructions()
 				},
 				didTapCloseButton: { [weak self] in
 					guard let self else { return }
@@ -433,7 +452,7 @@ extension PreferencesGeneralViewController {
 			}
 		case .ramStepper:
 			return PreferencesGeneralRamStepperCell(
-				initialRamSettting: .current
+				initialRamSettting: model.ramSetting
 			) { [weak self] newValue in
 				self?.model.ramSetting = newValue
 			}
@@ -443,12 +462,52 @@ extension PreferencesGeneralViewController {
 			) { [weak self] newValue in
 				self?.model.isIPadMouseEnabled = newValue
 			}
+		case .hapticFeedback:
+			switch indexPath.row {
+			case 0:
+				return PreferencesGeneralSettingCell(
+					title: "Three / two finger swipe gestures",
+					isOn: model.isGestureHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isGestureHapticFeedbackOn = isOn
+				}
+			case 1:
+				return PreferencesGeneralSettingCell(
+					title: "Mouse clicks",
+					isOn: model.isMouseHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isMouseHapticFeedbackOn = isOn
+				}
+			case 2:
+				return PreferencesGeneralSettingCell(
+					title: "Gamepad key strokes",
+					isOn: model.isKeyHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isKeyHapticFeedbackOn = isOn
+				}
+			default:
+				fatalError()
+			}
+		case .audio:
+			if indexPath.row == 0 {
+				return PreferencesGeneralSettingCell(
+					title: "Audio enabled",
+					isOn: !model.soundDisabled
+				) { [weak self] newValue in
+					self?.model.soundDisabled = !newValue
+				}
+			} else {
+				return PreferencesGeneralAudioFooterCell { [weak self] in
+					self?.displaySetupInstructions()
+				}
+			}
 		case .hints:
 			if indexPath.row == 0 {
-				return PreferencesGeneralHintsSettingCell(
-					isOn: MiscellaneousSettings.current.showHints
-				) { isOn in
-					MiscellaneousSettings.current.set(showHints: isOn)
+				return PreferencesGeneralSettingCell(
+					title: "Show hints",
+					isOn: model.showHints
+				) { [weak self] newValue in
+					self?.model.showHints = newValue
 				}
 			} else {
 				return PreferencesGeneralHintsFooterCell()
@@ -546,6 +605,10 @@ extension PreferencesGeneralViewController.SectionType {
 		if !UIDevice.isIPad,
 		   let iPadMouseSection = sections.firstIndex(of: .iPadMouse) {
 			sections.remove(at: iPadMouseSection)
+		}
+		if !model.supportsHaptics,
+		   let hapticsFeedbackSectionIndex = sections.firstIndex(of: .hapticFeedback) {
+			sections.remove(at: hapticsFeedbackSectionIndex)
 		}
 
 		return sections

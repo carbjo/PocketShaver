@@ -82,10 +82,6 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 }
 
 class PreferencesAdvancedOptionCell: UITableViewCell {
-	private lazy var enabledIndicationView: UIView = {
-		UIView.withoutConstraints()
-	}()
-
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
@@ -114,16 +110,10 @@ class PreferencesAdvancedOptionCell: UITableViewCell {
 
 		enabledSwitch.isOn = isOn
 
-		contentView.addSubview(enabledIndicationView)
 		contentView.addSubview(titleLabel)
 		contentView.addSubview(enabledSwitch)
 
 		NSLayoutConstraint.activate([
-			enabledIndicationView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-			enabledIndicationView.topAnchor.constraint(equalTo: contentView.topAnchor),
-			enabledIndicationView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-			enabledIndicationView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-
 			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
 			titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
@@ -132,19 +122,11 @@ class PreferencesAdvancedOptionCell: UITableViewCell {
 			enabledSwitch.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
 			enabledSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8)
 		])
-
-		updateEnabledIndicationView()
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	private func updateEnabledIndicationView() {
-		enabledIndicationView.backgroundColor = enabledSwitch.isOn ? .veryLightGreen : .white
-	}
-
 	@objc private func enabledValueChanged() {
-		updateEnabledIndicationView()
-
 		didSetIsEnabled(enabledSwitch.isOn)
 	}
 }

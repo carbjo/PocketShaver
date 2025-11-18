@@ -18,11 +18,18 @@ enum PreferencesChange {
 }
 
 class PreferencesModel {
+
+	let mode: PreferencesLaunchMode
+
 	let changeSubject = PassthroughSubject<PreferencesChange, Never>()
 
 	var needsRestart = false
 
-	init() {
+	init(
+		mode: PreferencesLaunchMode
+	) {
+		self.mode = mode
+
 		Task { @MainActor in
 			_ = MonitorResolutionManager.shared
 			objc_update_sdl_ipad_mouse_setting(MiscellaneousSettings.current.iPadMousePassthrough)
