@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import CoreHaptics
 
 enum PreferencesGeneralError: Error {
 	case fileWithFilenameAleadyExists
@@ -24,6 +25,8 @@ enum PreferencesGeneralRamSetting: Int, CaseIterable {
 }
 
 class PreferencesGeneralModel {
+
+	private let mode: PreferencesLaunchMode
 
 	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
 
@@ -74,7 +77,71 @@ class PreferencesGeneralModel {
 		}
 	}
 
-	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
+	lazy var supportsHaptics: Bool = {
+		CHHapticEngine.capabilitiesForHardware().supportsHaptics
+	}()
+
+	@MainActor
+	var isGestureHapticFeedbackOn: Bool {
+		get {
+			MiscellaneousSettings.current.gestureHapticFeedback
+		}
+		set {
+			MiscellaneousSettings.current.set(gestureHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var isMouseHapticFeedbackOn: Bool {
+		get {
+			MiscellaneousSettings.current.mouseHapticFeedback
+		}
+		set {
+			MiscellaneousSettings.current.set(mouseHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var isKeyHapticFeedbackOn: Bool {
+		get {
+			MiscellaneousSettings.current.keyHapticFeedback
+		}
+		set {
+			MiscellaneousSettings.current.set(keyHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var soundDisabled: Bool {
+		get {
+			MiscellaneousSettings.current.soundDisabled
+		}
+		set {
+			let previousValue = MiscellaneousSettings.current.soundDisabled
+			MiscellaneousSettings.current.set(soundDisabled: newValue)
+
+			if mode == .duringEmulation,
+				newValue != previousValue {
+				objc_update_audio_disabled_setting(newValue)
+			}
+		}
+	}
+
+	@MainActor
+	var showHints: Bool {
+		get {
+			MiscellaneousSettings.current.showHints
+		}
+		set {
+			MiscellaneousSettings.current.set(showHints: newValue)
+		}
+	}
+
+	init(
+		mode: PreferencesLaunchMode,
+		changeSubject: PassthroughSubject<PreferencesChange, Never>
+	) {
+		self.mode = mode
 		self.changeSubject = changeSubject
 	}
 
