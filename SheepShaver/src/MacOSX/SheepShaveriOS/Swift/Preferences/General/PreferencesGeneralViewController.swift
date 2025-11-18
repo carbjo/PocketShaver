@@ -383,7 +383,6 @@ extension PreferencesGeneralViewController {
 		switch sectionType {
 		case .setupInstructions:
 			return PreferencesGeneralSetupInstructionsCell(
-				mode: .general,
 				didTapReadButton: { [weak self] in
 					guard let self else { return }
 					displaySetupInstructions()
