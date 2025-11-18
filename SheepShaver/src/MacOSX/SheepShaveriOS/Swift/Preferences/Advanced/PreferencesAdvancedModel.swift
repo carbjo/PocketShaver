@@ -10,19 +10,7 @@ import Combine
 import CoreHaptics
 
 class PreferencesAdvancedModel {
-	struct Option {
-		let title: String
-		let prefsIdentifier: String
-	}
-
-	struct OptionInitialState {
-		let option: Option
-		let isOn: Bool
-	}
-
 	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
-
-	let optionsInitialStates: [OptionInitialState]
 
 	@MainActor
 	var hasDismissedSetupInstructions: Bool {
@@ -74,24 +62,7 @@ class PreferencesAdvancedModel {
 	}
 
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
-		let options: [Option] = [
-			.init(title: "Allow CPU To Idle", prefsIdentifier: "idlewait"),
-			.init(title: "Ignore Illegal Instructions", prefsIdentifier: "ignoreillegal"),
-			.init(title: "Ignore Illegal Memory", prefsIdentifier: "ignoresegv")
-			]
-		var optionsInitialStates = [OptionInitialState]()
-
-		for option in options {
-			optionsInitialStates.append(
-				.init(
-					option: option,
-					isOn: objc_findBool(option.prefsIdentifier)
-				)
-			)
-		}
-
 		self.changeSubject = changeSubject
-		self.optionsInitialStates = optionsInitialStates
 	}
 
 	@MainActor
@@ -99,10 +70,5 @@ class PreferencesAdvancedModel {
 		let result = await RomManager.shared.didSelectMacOsInstallDiskCandidate(url: url)
 		changeSubject.send(.changeRequiringRestartAfterBootMade)
 		return result
-	}
-
-	func didSet(option: Option, isOn: Bool) {
-		objc_replaceBool(option.prefsIdentifier, isOn)
-		changeSubject.send(.changeRequiringRestartAfterBootMade)
 	}
 }
