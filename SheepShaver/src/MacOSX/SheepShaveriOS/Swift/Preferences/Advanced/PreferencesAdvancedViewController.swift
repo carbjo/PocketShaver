@@ -11,7 +11,6 @@ import Combine
 class PreferencesAdvancedViewController: UITableViewController {
 	enum SectionType: CaseIterable {
 		case bootstrap
-		case hapticFeedback
 		case resources
 	}
 
@@ -105,8 +104,6 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .bootstrap:
 			return 1
-		case .hapticFeedback:
-			return 3
 		case .resources:
 			return 3
 		}
@@ -122,32 +119,6 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.displayRomPicker()
 				}
 			)
-		case .hapticFeedback:
-			switch indexPath.row {
-			case 0:
-				return PreferencesGeneralSettingCell(
-					title: "Three / two finger swipe gestures",
-					isOn: model.isGestureHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isGestureHapticFeedbackOn = isOn
-				}
-			case 1:
-				return PreferencesGeneralSettingCell(
-					title: "Mouse clicks",
-					isOn: model.isMouseHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isMouseHapticFeedbackOn = isOn
-				}
-			case 2:
-				return PreferencesGeneralSettingCell(
-					title: "Gamepad key strokes",
-					isOn: model.isKeyHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isKeyHapticFeedbackOn = isOn
-				}
-			default:
-				fatalError()
-			}
 		case .resources:
 			switch indexPath.row {
 			case 0:
@@ -172,8 +143,6 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .bootstrap:
 			return "Bootstrap"
-		case .hapticFeedback:
-			return "Haptic feedback"
 		case .resources:
 			return "Resources"
 		}
@@ -266,10 +235,6 @@ extension PreferencesAdvancedViewController.SectionType {
 		if !model.hasRomFile,
 		   let romSectionIndex = sections.firstIndex(of: .bootstrap) {
 			sections.remove(at: romSectionIndex)
-		}
-		if !model.supportsHaptics,
-		   let hapticsFeedbackSectionIndex = sections.firstIndex(of: .hapticFeedback) {
-			sections.remove(at: hapticsFeedbackSectionIndex)
 		}
 
 		return sections

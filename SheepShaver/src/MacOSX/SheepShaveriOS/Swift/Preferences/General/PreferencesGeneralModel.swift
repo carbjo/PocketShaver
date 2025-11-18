@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import CoreHaptics
 
 enum PreferencesGeneralError: Error {
 	case fileWithFilenameAleadyExists
@@ -52,22 +53,6 @@ class PreferencesGeneralModel {
 		DiskManager.shared.diskArray.count
 	}
 
-	@MainActor
-	var soundDisabled: Bool {
-		get {
-			MiscellaneousSettings.current.soundDisabled
-		}
-		set {
-			let previousValue = MiscellaneousSettings.current.soundDisabled
-			MiscellaneousSettings.current.set(soundDisabled: newValue)
-			
-			if mode == .duringEmulation,
-				newValue != previousValue {
-				objc_update_audio_disabled_setting(newValue)
-			}
-		}
-	}
-
 	var ramSetting: PreferencesGeneralRamSetting {
 		get {
 			PreferencesGeneralRamSetting.current
@@ -89,6 +74,56 @@ class PreferencesGeneralModel {
 			objc_update_sdl_ipad_mouse_setting(newValue)
 
 			changeSubject.send(.changeRequiringRestartAfterBootMade)
+		}
+	}
+
+	lazy var supportsHaptics: Bool = {
+		CHHapticEngine.capabilitiesForHardware().supportsHaptics
+	}()
+
+	@MainActor
+	var isGestureHapticFeedbackOn: Bool {
+		get {
+			MiscellaneousSettings.current.gestureHapticFeedback
+		}
+		set {
+			MiscellaneousSettings.current.set(gestureHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var isMouseHapticFeedbackOn: Bool {
+		get {
+			MiscellaneousSettings.current.mouseHapticFeedback
+		}
+		set {
+			MiscellaneousSettings.current.set(mouseHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var isKeyHapticFeedbackOn: Bool {
+		get {
+			MiscellaneousSettings.current.keyHapticFeedback
+		}
+		set {
+			MiscellaneousSettings.current.set(keyHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var soundDisabled: Bool {
+		get {
+			MiscellaneousSettings.current.soundDisabled
+		}
+		set {
+			let previousValue = MiscellaneousSettings.current.soundDisabled
+			MiscellaneousSettings.current.set(soundDisabled: newValue)
+
+			if mode == .duringEmulation,
+				newValue != previousValue {
+				objc_update_audio_disabled_setting(newValue)
+			}
 		}
 	}
 
