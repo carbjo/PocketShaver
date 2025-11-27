@@ -108,10 +108,6 @@ class InformationView: UIVisualEffectView {
 					delay: hint != nil ? 1.5 : 0.55,
 					animations: {
 					self.alpha = 0
-//						if atBottom {
-//							self.transform = .init(translationX: 0, y: screenHeight/2 - 16)
-//							self.layoutIfNeeded()
-//						}
 				}) { _ in
 					self.isHidden = false
 				}

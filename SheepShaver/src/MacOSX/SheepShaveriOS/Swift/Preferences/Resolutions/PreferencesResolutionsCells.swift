@@ -11,7 +11,7 @@ class PreferencesResolutionsInformationCell: UITableViewCell {
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		return label
@@ -48,7 +48,7 @@ class PreferencesResolutionsInformationCell: UITableViewCell {
 		let maxNumberOfSimultaniousResolutions = MonitorResolutionManager.maxNumberOfSimultaniousResolutions
 
 		titleLabel.attributedText = "This list controls what monitor resolutions are available to Mac OS. Changing active resolution is still done with Monitors app, inside Mac OS.\n\n• Currently displaying settings for \(thisOrientationString) mode. Rotate screen to access \(otherOrientationString) mode settings.\n\n• When booting from an installation CD, the operating system will always pick the highest possible resolution, without any possibility of changing it.\n\n• Mac OS allows a maximum number of \(maxNumberOfSimultaniousResolutions) monitor resolutions to be available simultaniously. Current number of selected resolutions: <b>\(currentMonitorResolutionCount)</b>"
-			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 14), color: .black)
+			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)
 	}
 }
 
@@ -56,7 +56,7 @@ class PreferencesResolutionsFooterCell: UITableViewCell {
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		return label
@@ -112,7 +112,7 @@ class PreferencesResolutionsMonitorResolutionCell: UITableViewCell {
 	private lazy var auxillaryLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		return label
@@ -207,7 +207,7 @@ class PreferencesResolutionsMonitorResolutionCell: UITableViewCell {
 	}
 
 	private func updateEnabledIndicationView() {
-		enabledIndicationView.backgroundColor = enabledSwitch.isOn ? .veryLightGreen : .white
+		enabledIndicationView.backgroundColor = enabledSwitch.isOn ? Colors.selectedCell : Colors.primaryBackground
 	}
 
 	@objc private func enabledValueChanged() {

@@ -19,25 +19,31 @@ class PreferencesGamepadEditConfigViewController: UIViewController {
 	}()
 
 	private lazy var cardView: UIView = {
+		let isDarkMode = traitCollection.userInterfaceStyle == .dark
+
 		let view = UIView.withoutConstraints()
 		view.layer.cornerRadius = 8
-		view.backgroundColor = .clear
+		view.backgroundColor = isDarkMode ? Colors.popupCardBackground : .clear
 		view.alpha = 0
 		view.transform = .init(translationX: 0, y: 80)
 		view.layer.cornerRadius = 8
 		view.clipsToBounds = true
 
-		let visualEffectView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterialLight))
-		visualEffectView.translatesAutoresizingMaskIntoConstraints = false
 
-		view.addSubview(visualEffectView)
 
-		NSLayoutConstraint.activate([
-			visualEffectView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			visualEffectView.topAnchor.constraint(equalTo: view.topAnchor),
-			visualEffectView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			visualEffectView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-		])
+		if !isDarkMode {
+			let visualEffectView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterialLight))
+			visualEffectView.translatesAutoresizingMaskIntoConstraints = false
+
+			view.addSubview(visualEffectView)
+
+			NSLayoutConstraint.activate([
+				visualEffectView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+				visualEffectView.topAnchor.constraint(equalTo: view.topAnchor),
+				visualEffectView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+				visualEffectView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+			])
+		}
 
 		return view
 	}()

@@ -13,7 +13,7 @@ class PreferencesSetupInstructionsCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		label.attributedText =
   """
 1. Select a compatible Mac OS install disc to bootstrap PocketShaver (check 'Compatibility list' to see which install discs can be used for this).
@@ -33,7 +33,7 @@ class PreferencesSetupInstructionsCell: UITableViewCell {
 8. To get audio working, you have to explicitly select <b>Built-in</b> as Sound out option in the <b>Sound</b> control panel (not 'Sound and monitors'), which, depending on Mac OS version, is either located in <b> (Mac HD) → System Folder → Control Panels</b> or <b> (Mac HD) → Apple Extras → Sound Control Panel</b>. This only has to be done once.
 """.withBoldTagsReplacedWith(
 	font: .boldSystemFont(ofSize: 14),
-	color: .black
+	color: Colors.primaryText
 )
 
 		return label

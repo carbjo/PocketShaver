@@ -20,6 +20,8 @@ class PreferencesAdvancedViewController: UITableViewController {
 		model = .init(changeSubject: changeSubject)
 
 		super.init(nibName: nil, bundle: nil)
+
+		view.backgroundColor = Colors.primaryBackground
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
@@ -28,7 +30,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 		super.viewDidLoad()
 
 		view.translatesAutoresizingMaskIntoConstraints = false
-		view.backgroundColor = .white
 	}
 
 	private func displayRomPicker() {

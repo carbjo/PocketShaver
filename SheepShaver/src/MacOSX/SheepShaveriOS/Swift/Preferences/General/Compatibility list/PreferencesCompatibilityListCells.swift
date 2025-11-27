@@ -13,7 +13,7 @@ class PreferencesCompatibilityListPrefaceCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		return label
 	}()
 
@@ -43,7 +43,7 @@ class PreferencesCompatibilityListCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 16)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		return label
 	}()
 
@@ -52,7 +52,7 @@ class PreferencesCompatibilityListCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		return label
 	}()
 
@@ -89,14 +89,14 @@ class PreferencesCompatibilityListCell: UITableViewCell {
 
 		if isCompatible {
 			compatibilityIconImageView.image = .init(resource: .checkmarkCircleFill)
-			compatibilityIconImageView.tintColor = CustomColors.okColor
+			compatibilityIconImageView.tintColor = Colors.okColor
 			compatibilityLabel.text = "Compatible"
-			compatibilityLabel.textColor = CustomColors.okColor
+			compatibilityLabel.textColor = Colors.okColor
 		} else {
 			compatibilityIconImageView.image = .init(resource: .xmarkCircleFill)
-			compatibilityIconImageView.tintColor = CustomColors.notOkColor
+			compatibilityIconImageView.tintColor = Colors.notOkColor
 			compatibilityLabel.text = "Not compatible"
-			compatibilityLabel.textColor = CustomColors.notOkColor
+			compatibilityLabel.textColor = Colors.notOkColor
 		}
 	}
 

@@ -11,7 +11,7 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 	private lazy var containerView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.layer.cornerRadius = 8
-		view.backgroundColor = UIColor(red: 0, green: 0, blue: 0, alpha: 0.06)
+		view.backgroundColor = Colors.informationCardBackground
 		return view
 	}()
 
@@ -19,7 +19,7 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
 		label.font = .systemFont(ofSize: 15)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		return label
 	}()
 
@@ -72,7 +72,7 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 
 	func configure(with romDescription: String) {
 		titleLabel.attributedText = "PocketShaver is bootstrapped by an install disc identified as belonging to category <b>\(romDescription)</b>. Tap 'Select Mac OS install disc' if you want to redo bootstrapping with another install disc."
-			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 15), color: .black)
+			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 15), color: Colors.primaryText)
 	}
 
 	@objc
