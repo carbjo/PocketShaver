@@ -96,6 +96,8 @@
 		C73660F22E37815E0055AA91 /* HiddenInputField.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F12E3781570055AA91 /* HiddenInputField.swift */; };
 		C73660F42E37B5C80055AA91 /* Gamepad.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F32E37B5C50055AA91 /* Gamepad.swift */; };
 		C7393CCD2E6DC6A200D06705 /* PreferencesResolutionsCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */; };
+		C74B222C2ED767BD003D0F71 /* Colors.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C74B222B2ED767BC003D0F71 /* Colors.xcassets */; };
+		C74B222E2ED78079003D0F71 /* sheepicon.png in Resources */ = {isa = PBXBuildFile; fileRef = C74B222D2ED78079003D0F71 /* sheepicon.png */; };
 		C74E10792EA9228F00150945 /* ImpMutableBTreeFile.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10662EA9228F00150945 /* ImpMutableBTreeFile.m */; };
 		C74E107A2EA9228F00150945 /* ImpBTreeHeaderNode.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E104E2EA9228F00150945 /* ImpBTreeHeaderNode.m */; };
 		C74E107B2EA9228F00150945 /* ImpBTreeMapNode.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10522EA9228F00150945 /* ImpBTreeMapNode.m */; };
@@ -124,10 +126,9 @@
 		C75A604F2E62D04600253CA3 /* PreferencesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75A604E2E62D04000253CA3 /* PreferencesManager.swift */; };
 		C7699F0E2EBF56E30083B3B3 /* PreferencesROMValidatorCpp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C7699F0D2EBF56CF0083B3B3 /* PreferencesROMValidatorCpp.cpp */; };
 		C7699F122EC45D920083B3B3 /* PreferencesCompatibilityListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7699F112EC45D870083B3B3 /* PreferencesCompatibilityListViewController.swift */; };
-		C7699F152EC464990083B3B3 /* CustomColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7699F142EC464930083B3B3 /* CustomColors.swift */; };
+		C7699F152EC464990083B3B3 /* Colors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7699F142EC464930083B3B3 /* Colors.swift */; };
 		C7699F172EC4663F0083B3B3 /* PreferencesCompatibilityListModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7699F162EC4663B0083B3B3 /* PreferencesCompatibilityListModel.swift */; };
 		C7699F192EC4664D0083B3B3 /* PreferencesCompatibilityListCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7699F182EC466440083B3B3 /* PreferencesCompatibilityListCells.swift */; };
-		C77BA03C2E8671F400CC01E8 /* sheepicon lightpurple.png in Resources */ = {isa = PBXBuildFile; fileRef = C77BA03B2E8671F400CC01E8 /* sheepicon lightpurple.png */; };
 		C77CF0742E7823D900D2A854 /* RomManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2782E78232B0018DB8B /* RomManager.swift */; };
 		C792C17E2E47618A0016DDAF /* InformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C792C17D2E4761830016DDAF /* InformationView.swift */; };
 		C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79A69272E62040300F582A6 /* RomPathObjC.mm */; };
@@ -565,6 +566,8 @@
 		C73660F12E3781570055AA91 /* HiddenInputField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputField.swift; sourceTree = "<group>"; };
 		C73660F32E37B5C50055AA91 /* Gamepad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gamepad.swift; sourceTree = "<group>"; };
 		C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesResolutionsCells.swift; sourceTree = "<group>"; };
+		C74B222B2ED767BC003D0F71 /* Colors.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Colors.xcassets; sourceTree = "<group>"; };
+		C74B222D2ED78079003D0F71 /* sheepicon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = sheepicon.png; sourceTree = "<group>"; };
 		C74E104B2EA9228F00150945 /* ImpBTreeFile.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpBTreeFile.h; sourceTree = "<group>"; };
 		C74E104C2EA9228F00150945 /* ImpBTreeFile.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ImpBTreeFile.m; sourceTree = "<group>"; };
 		C74E104D2EA9228F00150945 /* ImpBTreeHeaderNode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpBTreeHeaderNode.h; sourceTree = "<group>"; };
@@ -620,10 +623,9 @@
 		C7699F0D2EBF56CF0083B3B3 /* PreferencesROMValidatorCpp.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = PreferencesROMValidatorCpp.cpp; sourceTree = "<group>"; };
 		C7699F0F2EBF57270083B3B3 /* PreferencesROMValidatorCpp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PreferencesROMValidatorCpp.h; sourceTree = "<group>"; };
 		C7699F112EC45D870083B3B3 /* PreferencesCompatibilityListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesCompatibilityListViewController.swift; sourceTree = "<group>"; };
-		C7699F142EC464930083B3B3 /* CustomColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomColors.swift; sourceTree = "<group>"; };
+		C7699F142EC464930083B3B3 /* Colors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Colors.swift; sourceTree = "<group>"; };
 		C7699F162EC4663B0083B3B3 /* PreferencesCompatibilityListModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesCompatibilityListModel.swift; sourceTree = "<group>"; };
 		C7699F182EC466440083B3B3 /* PreferencesCompatibilityListCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesCompatibilityListCells.swift; sourceTree = "<group>"; };
-		C77BA03B2E8671F400CC01E8 /* sheepicon lightpurple.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "sheepicon lightpurple.png"; sourceTree = "<group>"; };
 		C792C17D2E4761830016DDAF /* InformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationView.swift; sourceTree = "<group>"; };
 		C79A69272E62040300F582A6 /* RomPathObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomPathObjC.mm; sourceTree = "<group>"; };
 		C79A69292E62043100F582A6 /* RomPathObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomPathObjC.h; sourceTree = "<group>"; };
@@ -1415,7 +1417,8 @@
 			isa = PBXGroup;
 			children = (
 				E204B9A428BC7BF10081FDCA /* Assets.xcassets */,
-				C7699F142EC464930083B3B3 /* CustomColors.swift */,
+				C74B222B2ED767BC003D0F71 /* Colors.xcassets */,
+				C7699F142EC464930083B3B3 /* Colors.swift */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -1645,7 +1648,7 @@
 				E204B9B328BC7BF10081FDCA /* AppDelegate.m */,
 				E204B9E728BC7CE80081FDCA /* clip_ios.mm */,
 				E204B9BA28BC7BF10081FDCA /* Default.png */,
-				C77BA03B2E8671F400CC01E8 /* sheepicon lightpurple.png */,
+				C74B222D2ED78079003D0F71 /* sheepicon.png */,
 				E204B9C128BC7BF10081FDCA /* Info.plist */,
 				E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */,
 				E204B9AA28BC7BF10081FDCA /* LaunchScreen.storyboard */,
@@ -1840,10 +1843,11 @@
 				E204B9DB28BC7BF10081FDCA /* Default.png in Resources */,
 				E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */,
 				E204B92E28BC3EBE0081FDCA /* SheepShaver.icns in Resources */,
+				C74B222C2ED767BD003D0F71 /* Colors.xcassets in Resources */,
 				E2A5819828CAC275005C7373 /* Readme iOS build.rtf in Resources */,
 				E204B9D528BC7BF10081FDCA /* Main.storyboard in Resources */,
+				C74B222E2ED78079003D0F71 /* sheepicon.png in Resources */,
 				E204B9D428BC7BF10081FDCA /* LaunchScreen.storyboard in Resources */,
-				C77BA03C2E8671F400CC01E8 /* sheepicon lightpurple.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2074,7 +2078,7 @@
 				C7DCEF3D2E86F55600EAED05 /* HapticFeedbackObjC.mm in Sources */,
 				C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */,
 				E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */,
-				C7699F152EC464990083B3B3 /* CustomColors.swift in Sources */,
+				C7699F152EC464990083B3B3 /* Colors.swift in Sources */,
 				C7C3D26E2E76F3BC0018DB8B /* GamepadAssignButtonViewController.swift in Sources */,
 				E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */,
 				C74E10982EABC8BB00150945 /* DiskROMExtractor.m in Sources */,

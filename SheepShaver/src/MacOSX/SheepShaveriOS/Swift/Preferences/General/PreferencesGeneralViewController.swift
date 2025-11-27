@@ -47,6 +47,8 @@ class PreferencesGeneralViewController: UITableViewController {
 		)
 
 		super.init(nibName: nil, bundle: nil)
+
+		view.backgroundColor = Colors.primaryBackground
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
@@ -55,7 +57,6 @@ class PreferencesGeneralViewController: UITableViewController {
 		super.viewDidLoad()
 
 		view.translatesAutoresizingMaskIntoConstraints = false
-		view.backgroundColor = .white
 
 		tableView.showsVerticalScrollIndicator = false
 		tableView.delaysContentTouches = false
