@@ -72,8 +72,6 @@ class PreferencesGeneralModel {
 		set {
 			MiscellaneousSettings.current.set(iPadMousePassthrough: newValue)
 			objc_update_sdl_ipad_mouse_setting(newValue)
-
-			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
