@@ -43,6 +43,7 @@
 
 #include <unistd.h>
 #include <cmath>
+#include <ctime>
 
 #import "HapticFeedbackObjC.h"
 
@@ -80,6 +81,9 @@ static uint8 m_keyboard_type = 0x05;
 
 // ADB mouse motion lock (for platforms that use separate input thread)
 static B2_mutex *mouse_lock;
+
+static time_t latest_mouse_down_time;
+static int double_click_mouse_move_tolerance = 10;
 
 
 /*
@@ -247,7 +251,6 @@ void ADBOp(uint8 op, uint8 *data)
 
 void ADBMouseMoved(int x, int y)
 {
-	int tolerance = 8;
 	B2_lock_mutex(mouse_lock);
 	if (relative_mouse) {
 		mouse_x += x; mouse_y += y;
@@ -255,12 +258,16 @@ void ADBMouseMoved(int x, int y)
 		if (touch_input &&
 			!mouse_down &&
 			!hover &&
-			abs(mouse_x - x) <= tolerance &&
-			abs(mouse_y - y) <= tolerance) {
-			// Avoid very small mouse movements with touch input, since they are
-			// usually unintentional and prevents proper double-click functionality
-			B2_unlock_mutex(mouse_lock);
-			return;
+			abs(mouse_x - x) <= double_click_mouse_move_tolerance &&
+			abs(mouse_y - y) <= double_click_mouse_move_tolerance) {
+			time_t now;
+			time(&now);
+			if (difftime(now, latest_mouse_down_time) < 1) {
+				// Avoid very small mouse movements with touch input, since they are
+				// usually unintentional and prevents proper double-click functionality
+				B2_unlock_mutex(mouse_lock);
+				return;
+			}
 		}
 
 		int offset = 0;
@@ -304,6 +311,8 @@ void ADBMouseDown(int button)
 	TriggerInterrupt();
 
 	mouse_down = true;
+
+	time(&latest_mouse_down_time);
 }
 
 
@@ -371,6 +380,15 @@ void ADBSetHoverMode(HoverMode mode)
 void ADBSetHapticFeedback(bool is_on)
 {
 	haptic_feedback = is_on;
+}
+
+/*
+ *  Set tolernace used to determine wheather to move mouse or not during
+ * 	potential double click event.
+ */
+void ADBSetMouseMoveTolerance(int new_double_click_mouse_move_tolerance)
+{
+	double_click_mouse_move_tolerance = new_double_click_mouse_move_tolerance;
 }
 
 /*

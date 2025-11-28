@@ -23,6 +23,8 @@ class PreferencesResolutionsViewController: UITableViewController {
 		self.changeSubject = changeSubject
 
 		super.init(nibName: nil, bundle: nil)
+
+		view.backgroundColor = Colors.primaryBackground
 	}
 
 	required init?(coder: NSCoder) { fatalError() }

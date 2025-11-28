@@ -89,6 +89,8 @@ public class PreferencesViewController: UIViewController {
 		model = PreferencesModel(mode: mode)
 
 		super.init(nibName: nil, bundle: nil)
+
+		view.backgroundColor = Colors.primaryBackground
 	}
 
 	required init?(coder: NSCoder) { fatalError() }

@@ -11,11 +11,11 @@ class PreferencesGamepadInformationCell: UITableViewCell {
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.attributedText = "Here you can edit, rearrange and delete your gamepad layouts.\n\n• Use three finger swipe down gesture during emulation to access gamepad mode.\n\n• To create new layouts, edit an <b>Example layout</b> in gamepad mode."
-			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 14), color: .black)
+			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)
 		return label
 	}()
 
@@ -48,7 +48,7 @@ class PreferencesGamepadConfigHeaderCell: UITableViewHeaderFooterView {
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.font = .systemFont(ofSize: 15, weight: .semibold)
-		label.textColor = UIColor(red: 0.24, green: 0.24, blue: 0.26, alpha: 0.6)
+		label.textColor = Colors.sectionHeaderText
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.text = "Gamepad layouts"
@@ -119,7 +119,7 @@ class PreferencesGamepadConfigCell: UITableViewCell {
 		let button = UIButton.withoutConstraints()
 
 		let backgroundView = UIView.withoutConstraints()
-		backgroundView.backgroundColor = .lightGray.withAlphaComponent(0.9)
+		backgroundView.backgroundColor = Colors.secondaryButton
 		backgroundView.layer.cornerRadius = 8
 		backgroundView.isUserInteractionEnabled = false
 
