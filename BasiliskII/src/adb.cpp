@@ -43,6 +43,7 @@
 
 #include <unistd.h>
 #include <cmath>
+#include <ctime>
 
 #import "HapticFeedbackObjC.h"
 
@@ -80,6 +81,8 @@ static uint8 m_keyboard_type = 0x05;
 
 // ADB mouse motion lock (for platforms that use separate input thread)
 static B2_mutex *mouse_lock;
+
+static time_t latest_mouse_down_time;
 
 
 /*
@@ -257,10 +260,14 @@ void ADBMouseMoved(int x, int y)
 			!hover &&
 			abs(mouse_x - x) <= tolerance &&
 			abs(mouse_y - y) <= tolerance) {
-			// Avoid very small mouse movements with touch input, since they are
-			// usually unintentional and prevents proper double-click functionality
-			B2_unlock_mutex(mouse_lock);
-			return;
+			time_t now;
+			time(&now);
+			if (difftime(now, latest_mouse_down_time) < 1) {
+				// Avoid very small mouse movements with touch input, since they are
+				// usually unintentional and prevents proper double-click functionality
+				B2_unlock_mutex(mouse_lock);
+				return;
+			}
 		}
 
 		int offset = 0;
@@ -304,6 +311,8 @@ void ADBMouseDown(int button)
 	TriggerInterrupt();
 
 	mouse_down = true;
+
+	time(&latest_mouse_down_time);
 }
 
 
