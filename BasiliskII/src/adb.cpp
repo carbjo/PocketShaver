@@ -83,6 +83,7 @@ static uint8 m_keyboard_type = 0x05;
 static B2_mutex *mouse_lock;
 
 static time_t latest_mouse_down_time;
+static int double_click_mouse_move_tolerance = 10;
 
 
 /*
@@ -250,7 +251,6 @@ void ADBOp(uint8 op, uint8 *data)
 
 void ADBMouseMoved(int x, int y)
 {
-	int tolerance = 8;
 	B2_lock_mutex(mouse_lock);
 	if (relative_mouse) {
 		mouse_x += x; mouse_y += y;
@@ -258,8 +258,8 @@ void ADBMouseMoved(int x, int y)
 		if (touch_input &&
 			!mouse_down &&
 			!hover &&
-			abs(mouse_x - x) <= tolerance &&
-			abs(mouse_y - y) <= tolerance) {
+			abs(mouse_x - x) <= double_click_mouse_move_tolerance &&
+			abs(mouse_y - y) <= double_click_mouse_move_tolerance) {
 			time_t now;
 			time(&now);
 			if (difftime(now, latest_mouse_down_time) < 1) {
@@ -380,6 +380,15 @@ void ADBSetHoverMode(HoverMode mode)
 void ADBSetHapticFeedback(bool is_on)
 {
 	haptic_feedback = is_on;
+}
+
+/*
+ *  Set tolernace used to determine wheather to move mouse or not during
+ * 	potential double click event.
+ */
+void ADBSetMouseMoveTolerance(int new_double_click_mouse_move_tolerance)
+{
+	double_click_mouse_move_tolerance = new_double_click_mouse_move_tolerance;
 }
 
 /*

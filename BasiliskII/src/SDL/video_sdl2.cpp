@@ -2060,6 +2060,8 @@ void SDL_monitor_desc::switch_to_current_mode(void)
 	UNLOCK_EVENTS;
 
 #if TARGET_OS_IPHONE
+	const VIDEO_MODE &mode = get_current_mode();
+	objc_reportVideoSize(VIDEO_MODE_X, VIDEO_MODE_Y);
 	objc_initOverlayViewController();
 #endif
 
