@@ -42,5 +42,6 @@ extern void ADBSetTouchInput(bool is_on);
 extern void ADBSetHover(bool is_on);
 extern void ADBSetHoverMode(HoverMode mode);
 extern void ADBSetHapticFeedback(bool is_on);
+extern void ADBSetMouseMoveTolerance(int new_double_click_mouse_move_tolerance);
 
 #endif
