@@ -11,7 +11,7 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 	private lazy var containerView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.layer.cornerRadius = 8
-		view.backgroundColor = UIColor(red: 0, green: 0, blue: 0, alpha: 0.06)
+		view.backgroundColor = Colors.informationCardBackground
 		return view
 	}()
 
@@ -20,14 +20,14 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 
 		var string = "Read initial setup instructions if you plan to install Classic Mac OS from scratch. Contains crucial tip on how to <b>not get stuck in installation progress</b> and <b>get audio working</b>, after intallation.\n\nThe instructions can still be accessed from Advanced tab, after dismissal."
 
 		label.attributedText = string
 			.withBoldTagsReplacedWith(
 				font: .boldSystemFont(ofSize: 14),
-				color: .black
+				color: Colors.primaryText
 			)
 
 		return label
@@ -36,7 +36,7 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 	private lazy var closeButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.setImage(.init(resource: .xmarkCircleFill), for: .normal)
-		button.tintColor = .darkGray
+		button.tintColor = Colors.secondaryText
 		button.addTarget(self, action: #selector(closeButtonPushed), for: .touchUpInside)
 		return button
 	}()
@@ -111,7 +111,7 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 	private lazy var containerView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.layer.cornerRadius = 8
-		view.backgroundColor = UIColor(red: 0, green: 0, blue: 0, alpha: 0.06)
+		view.backgroundColor = Colors.informationCardBackground
 		return view
 	}()
 
@@ -119,7 +119,7 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		label.text = "Tap button below to select a compatible Mac OS install disc file. This is needed to bootstrap PocketShaver."
 		return label
 	}()
@@ -152,7 +152,7 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 	private lazy var checkmarkIconImageView: UIImageView = {
 		let imageView = UIImageView.withoutConstraints()
 		imageView.image = UIImage(resource: .checkmarkCircleFill)
-		imageView.tintColor = CustomColors.okColor
+		imageView.tintColor = Colors.okColor
 		imageView.isHidden = true
 		imageView.contentMode = .scaleAspectFit
 
@@ -235,7 +235,7 @@ class PreferencesGeneralErrorCell: UITableViewCell {
 		label.font = .boldSystemFont(ofSize: 14)
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
-		label.textColor = CustomColors.notOkColor
+		label.textColor = Colors.notOkColor
 		return label
 	}()
 
@@ -397,7 +397,7 @@ class PreferencesGeneralDiskCell: UITableViewCell {
 	required init?(coder: NSCoder) { fatalError() }
 
 	private func updateEnabledIndicationView() {
-		enabledIndicationView.backgroundColor = enabledSwitch.isOn ? .veryLightGreen : .white
+		enabledIndicationView.backgroundColor = enabledSwitch.isOn ? Colors.selectedCell : Colors.primaryBackground
 	}
 
 	@objc private func enabledValueChanged() {
@@ -442,7 +442,7 @@ class PreferencesGeneralDiskSectionActionsCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		let supportedFormatsString = DiskManager.supportedFileExtensions.map({ ".\($0)" }).joined(separator: ", ")
 		label.text = "Disks placed in the root of PocketShaver share folder will appear here. Supported formats: \(supportedFormatsString)."
 		return label
@@ -594,7 +594,7 @@ class PreferencesGeneralRamStepperCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		label.text = "Changes in RAM value requires PocketShaver to restart"
 		return label
 	}()
@@ -787,7 +787,7 @@ class PreferencesGeneralHintsFooterCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		label.text = "Gamepad layout names are shown even when hints are turned off."
 		return label
 	}()

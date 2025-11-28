@@ -13,7 +13,7 @@ class LinkLabel: UIView {
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 14)
-		label.textColor = .darkGray
+		label.textColor = Colors.secondaryText
 		return label
 	}()
 
@@ -111,11 +111,6 @@ class LinkLabel: UIView {
 		}
 
 		return frame.contains(point)
-
-//		let view = UIView(frame: frame!)
-//		view.backgroundColor = UIColor(red: 0.3, green: 0.4, blue: 0.2, alpha: 0.3)
-//		addSubview(view)
-//		print("-- frame: \(frame!)")
 	}
 
 	private static func attributedString(
@@ -142,7 +137,7 @@ class LinkLabel: UIView {
 				string: boldPart,
 				attributes: [
 					.font: UIFont.boldSystemFont(ofSize: 14),
-					.foregroundColor: withHighlight ? UIColor.lightGray : UIColor.black
+					.foregroundColor: withHighlight ? Colors.highlightedText : Colors.primaryText
 				]
 			)
 		)

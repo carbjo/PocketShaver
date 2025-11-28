@@ -103,14 +103,14 @@ extension UIButton.Configuration {
 	@MainActor
 	static var primaryActionConfig: Self {
 		var config = defaultConfig
-		config.baseBackgroundColor = .orange.withAlphaComponent(0.85)
+		config.baseBackgroundColor = Colors.primaryButton
 		return config
 	}
 
 	@MainActor
 	static var secondaryActionConfig: Self {
 		var config = defaultConfig
-		config.baseBackgroundColor = .lightGray.withAlphaComponent(0.9)
+		config.baseBackgroundColor = Colors.secondaryButton
 		return config
 	}
 }
@@ -159,12 +159,6 @@ extension String {
 			}
 		}
 		return false
-	}
-}
-
-extension UIColor {
-	static var veryLightGreen: Self {
-		Self(red: 0.92, green: 1, blue: 0.9, alpha: 1)
 	}
 }
 

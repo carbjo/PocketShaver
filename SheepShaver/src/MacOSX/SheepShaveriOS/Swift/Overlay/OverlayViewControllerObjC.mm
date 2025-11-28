@@ -10,6 +10,7 @@
 #import "SheepShaveriOS-Swift.h"
 #include "sysdeps.h"
 #include "adb.h"
+#include "math.h"
 
 UIImpactFeedbackGenerator *objCKeyDownFeedbackGenerator = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleSoft];
 
@@ -50,4 +51,24 @@ void objc_initOverlayViewController(void) {
 			}
 		}];
 	}
+}
+
+void objc_reportVideoSize(unsigned short width, unsigned short height) {
+	CGSize deviceScreenSize = UIScreen.mainScreen.bounds.size;
+	double deviceApsectRatio = deviceScreenSize.width / deviceScreenSize.height;
+	double emulatedAspectRatio = ((double) width) / ((double) height);
+
+	double multiplier;
+
+	if (emulatedAspectRatio >= deviceApsectRatio) {
+		// Screen is bounded by width
+		multiplier = width / deviceScreenSize.width;
+	} else {
+		// Screen is bounded by height
+		multiplier = height / deviceScreenSize.height;
+	}
+
+	int tolerance = round(10 * multiplier);
+
+	ADBSetMouseMoveTolerance(tolerance);
 }
