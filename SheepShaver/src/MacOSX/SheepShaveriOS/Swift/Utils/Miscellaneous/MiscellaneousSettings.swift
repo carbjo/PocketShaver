@@ -5,6 +5,12 @@
 //  Created by Carl Björkman on 2025-09-17.
 //
 
+import NotificationCenter
+
+enum MiscellaneousNotifications {
+	static let fpsCounterSettingChanged = NSNotification.Name("fpsCounterSettingChanged")
+}
+
 class MiscellaneousSettings: Codable {
 	private(set) var hasDismissedSetupInstructions: Bool
 	private(set) var showHints: Bool
@@ -21,6 +27,11 @@ class MiscellaneousSettings: Codable {
 			objc_replaceBool("nosound", soundDisabled)
 		}
 	}
+	private(set) var fpsCounterEnabled: Bool {
+		didSet {
+			NotificationCenter.default.post(.init(name: MiscellaneousNotifications.fpsCounterSettingChanged))
+		}
+	}
 
 	init() {
 		hasDismissedSetupInstructions = false
@@ -30,6 +41,7 @@ class MiscellaneousSettings: Codable {
 		mouseHapticFeedback = true
 		keyHapticFeedback = true
 		soundDisabled = objc_findBool("nosound")
+		fpsCounterEnabled = false
 	}
 
 	@MainActor
@@ -97,6 +109,13 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(soundDisabled: Bool) {
 		self.soundDisabled = soundDisabled
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(fpsCounterEnabled: Bool) {
+		self.fpsCounterEnabled = fpsCounterEnabled
 
 		saveAsCurrent()
 	}

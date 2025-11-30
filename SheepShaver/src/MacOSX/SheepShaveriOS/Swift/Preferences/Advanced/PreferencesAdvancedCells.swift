@@ -81,56 +81,6 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 	}
 }
 
-class PreferencesAdvancedOptionCell: UITableViewCell {
-	private lazy var titleLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		return label
-	}()
-
-	private lazy var enabledSwitch: UISwitch = {
-		let uiSwitch = UISwitch.withoutConstraints()
-		uiSwitch.addTarget(self, action: #selector(enabledValueChanged), for: .touchUpInside)
-		return uiSwitch
-	}()
-
-	private let didSetIsEnabled: ((Bool) -> Void)
-
-	init(
-		title: String,
-		isOn: Bool,
-		didSetIsEnabled: @escaping ((Bool) -> Void)
-	) {
-		self.didSetIsEnabled = didSetIsEnabled
-
-		super.init(style: .default, reuseIdentifier: nil)
-
-		titleLabel.text = title
-
-		enabledSwitch.isOn = isOn
-
-		contentView.addSubview(titleLabel)
-		contentView.addSubview(enabledSwitch)
-
-		NSLayoutConstraint.activate([
-			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-
-			enabledSwitch.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 12),
-			enabledSwitch.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-			enabledSwitch.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
-			enabledSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8)
-		])
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
-
-	@objc private func enabledValueChanged() {
-		didSetIsEnabled(enabledSwitch.isOn)
-	}
-}
-
 class PreferencesAdvancedMiscellaneousCell: UITableViewCell {
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()

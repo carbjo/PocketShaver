@@ -81,6 +81,8 @@
 #include "vm_alloc.h"
 #include "cdrom.h"
 
+#include "FPSCounterObjCCppHeader.h"
+
 #define DEBUG 0
 #include "debug.h"
 
@@ -1020,6 +1022,7 @@ void update_sdl_video(SDL_Surface *s, int numrects, SDL_Rect *rects)
     for (int i = 0; i < numrects; ++i) {
         SDL_UnionRect(&sdl_update_video_rect, &rects[i], &sdl_update_video_rect);
     }
+	objc_reportFrameRender();
     SDL_UnlockMutex(sdl_update_video_mutex);
 }
 

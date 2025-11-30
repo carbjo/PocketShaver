@@ -10,3 +10,4 @@
 #import "DiskCreation.h"
 #import "MiscellaneousSettingsObjC.h"
 #import "DiskROMExtractor.h"
+#import "FPSCounterObjC.h"
