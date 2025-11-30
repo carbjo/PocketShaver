@@ -6,6 +6,7 @@
 //
 
 import Combine
+import NotificationCenter
 
 enum PreferencesError: Error {
 	case romFileMissing
@@ -35,6 +36,7 @@ class PreferencesModel {
 			objc_update_sdl_ipad_mouse_setting(MiscellaneousSettings.current.iPadMousePassthrough)
 			objc_replaceBool("ipadmousepassthrough", MiscellaneousSettings.current.iPadMousePassthrough)
 			objc_setMouseHapticFeedbackEnabled(MiscellaneousSettings.current.mouseHapticFeedback)
+			UNUserNotificationCenter.current().removeAllDeliveredNotifications()
 		}
 	}
 
