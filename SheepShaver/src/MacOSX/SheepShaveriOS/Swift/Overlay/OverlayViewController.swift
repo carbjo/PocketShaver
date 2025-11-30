@@ -80,6 +80,10 @@ public class OverlayViewController: UIViewController {
 			didTapPreferencesButton: { [weak self] in
 				self?.presentPreferences()
 			},
+			didTapDismissKeyboardButton: { [weak self] in
+				self?.transition(to: .normal)
+				self?.flashInformation(for: .normal)
+			},
 			hiddenInputFieldDelegate: hiddenInputFieldDelegate
 		)
 	}()

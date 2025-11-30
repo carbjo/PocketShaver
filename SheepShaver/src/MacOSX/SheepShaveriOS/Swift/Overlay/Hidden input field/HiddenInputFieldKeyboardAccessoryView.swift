@@ -20,11 +20,11 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		createButton(title: "⌘")
 	}()
 
-	private lazy var leftOptButton: UIButton = {
+	private lazy var optButton: UIButton = {
 		createButton(title: "⌥")
 	}()
 
-	private lazy var leftCtrlButton: UIButton = {
+	private lazy var ctrlButton: UIButton = {
 		createButton(title: "ctrl")
 	}()
 
@@ -56,21 +56,27 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		createButton(title: "⌘")
 	}()
 
-	private lazy var rightOptButton: UIButton = {
-		createButton(title: "⌥")
-	}()
-
-	private lazy var rightCtrlButton: UIButton = {
-		createButton(title: "ctrl")
-	}()
-
 	private lazy var rightShiftButton: UIButton = {
 		createButton(title: "⇧")
+	}()
+
+	private lazy var dismissKeyboardButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.setImage(
+			.init(resource: .keyboardChevronCompactDown).applyingSymbolConfiguration(.init(pointSize: 12)),
+			for: .normal
+		)
+		button.configuration = buttonConfig()
+		button.backgroundColor = .gray
+		button.layer.cornerRadius = 8
+		button.addTarget(self, action: #selector(dismissKeyboardButtonPushed), for: .touchUpInside)
+		return button
 	}()
 
 	private var pushKey: ((Int) -> Void)?
 	private var releaseKey: ((Int) -> Void)?
 	private var didTapPreferencesButton: (() -> Void)?
+	private var didTapDismissKeyboardButton: (() -> Void)?
 
 	init() {
 		super.init(
@@ -89,19 +95,20 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 		if UIScreen.isPortraitMode {
 			leftStackView.addArrangedSubview(leftCmdButton)
-			leftStackView.addArrangedSubview(leftOptButton)
+			leftStackView.addArrangedSubview(optButton)
 			rightStackView.addArrangedSubview(preferencesButton)
-			rightStackView.addArrangedSubview(rightCtrlButton)
+			rightStackView.addArrangedSubview(ctrlButton)
 			rightStackView.addArrangedSubview(rightShiftButton)
 		} else {
 			leftStackView.addArrangedSubview(leftCmdButton)
-			leftStackView.addArrangedSubview(leftOptButton)
-			leftStackView.addArrangedSubview(leftCtrlButton)
+			leftStackView.addArrangedSubview(optButton)
+			leftStackView.addArrangedSubview(ctrlButton)
 			leftStackView.addArrangedSubview(leftShiftButton)
 
 			rightStackView.addArrangedSubview(preferencesButton)
 			rightStackView.addArrangedSubview(rightShiftButton)
 			rightStackView.addArrangedSubview(rightCmdButton)
+			rightStackView.addArrangedSubview(dismissKeyboardButton)
 		}
 
 		NSLayoutConstraint.activate([
@@ -115,31 +122,25 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		])
 
 		leftCmdButton.addTarget(self, action: #selector(cmdPushed), for: .touchDown)
-		leftOptButton.addTarget(self, action: #selector(optPushed), for: .touchDown)
-		leftCtrlButton.addTarget(self, action: #selector(ctrlPushed), for: .touchDown)
+		optButton.addTarget(self, action: #selector(optPushed), for: .touchDown)
+		ctrlButton.addTarget(self, action: #selector(ctrlPushed), for: .touchDown)
 		leftShiftButton.addTarget(self, action: #selector(shiftPushed), for: .touchDown)
 
 		leftCmdButton.addTarget(self, action: #selector(cmdReleased), for: .touchUpInside)
-		leftOptButton.addTarget(self, action: #selector(optReleased), for: .touchUpInside)
-		leftCtrlButton.addTarget(self, action: #selector(ctrlReleased), for: .touchUpInside)
+		optButton.addTarget(self, action: #selector(optReleased), for: .touchUpInside)
+		ctrlButton.addTarget(self, action: #selector(ctrlReleased), for: .touchUpInside)
 		leftShiftButton.addTarget(self, action: #selector(shiftReleased), for: .touchUpInside)
 		leftCmdButton.addTarget(self, action: #selector(cmdReleased), for: .touchUpOutside)
-		leftOptButton.addTarget(self, action: #selector(optReleased), for: .touchUpOutside)
-		leftCtrlButton.addTarget(self, action: #selector(ctrlReleased), for: .touchUpOutside)
+		optButton.addTarget(self, action: #selector(optReleased), for: .touchUpOutside)
+		ctrlButton.addTarget(self, action: #selector(ctrlReleased), for: .touchUpOutside)
 		leftShiftButton.addTarget(self, action: #selector(shiftReleased), for: .touchUpOutside)
 
 		rightCmdButton.addTarget(self, action: #selector(cmdPushed), for: .touchDown)
-		rightOptButton.addTarget(self, action: #selector(optPushed), for: .touchDown)
-		rightCtrlButton.addTarget(self, action: #selector(ctrlPushed), for: .touchDown)
 		rightShiftButton.addTarget(self, action: #selector(shiftPushed), for: .touchDown)
 
 		rightCmdButton.addTarget(self, action: #selector(cmdReleased), for: .touchUpInside)
-		rightOptButton.addTarget(self, action: #selector(optReleased), for: .touchUpInside)
-		rightCtrlButton.addTarget(self, action: #selector(ctrlReleased), for: .touchUpInside)
 		rightShiftButton.addTarget(self, action: #selector(shiftReleased), for: .touchUpInside)
 		rightCmdButton.addTarget(self, action: #selector(cmdReleased), for: .touchUpOutside)
-		rightOptButton.addTarget(self, action: #selector(optReleased), for: .touchUpOutside)
-		rightCtrlButton.addTarget(self, action: #selector(ctrlReleased), for: .touchUpOutside)
 		rightShiftButton.addTarget(self, action: #selector(shiftReleased), for: .touchUpOutside)
 	}
 	
@@ -148,11 +149,13 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 	func configure(
 		pushKey: ((Int) -> Void)?,
 		releaseKey: ((Int) -> Void)?,
-		didTapPreferencesButton: (() -> Void)?
+		didTapPreferencesButton: (() -> Void)?,
+		didTapDismissKeyboardButton: (() -> Void)?
 	) {
 		self.pushKey = pushKey
 		self.releaseKey = releaseKey
 		self.didTapPreferencesButton = didTapPreferencesButton
+		self.didTapDismissKeyboardButton = didTapDismissKeyboardButton
 	}
 
 	@objc private func cmdPushed() {
@@ -189,6 +192,10 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 	@objc private func preferencesButtonPushed() {
 		didTapPreferencesButton?()
+	}
+
+	@objc private func dismissKeyboardButtonPushed() {
+		didTapDismissKeyboardButton?()
 	}
 
 	private func createButton(title: String) -> UIButton {

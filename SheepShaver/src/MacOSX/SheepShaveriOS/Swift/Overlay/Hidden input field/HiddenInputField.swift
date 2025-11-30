@@ -12,6 +12,7 @@ class HiddenInputField: UITextField {
 		pushKey: @escaping ((Int) -> Void),
 		releaseKey: @escaping ((Int) -> Void),
 		didTapPreferencesButton: @escaping (() -> Void),
+		didTapDismissKeyboardButton: (() -> Void)?,
 		hiddenInputFieldDelegate: HiddenInputFieldDelegate
 	) {
 		super.init(frame: .zero)
@@ -26,7 +27,8 @@ class HiddenInputField: UITextField {
 		accessoryView.configure(
 			pushKey: pushKey,
 			releaseKey: releaseKey,
-			didTapPreferencesButton: didTapPreferencesButton
+			didTapPreferencesButton: didTapPreferencesButton,
+			didTapDismissKeyboardButton: didTapDismissKeyboardButton
 		)
 		inputAccessoryView = accessoryView
 	}
