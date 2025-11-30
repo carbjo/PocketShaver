@@ -21,6 +21,16 @@ class PreferencesAdvancedModel {
 		RomManager.shared.currentRomFileVersion?.description
 	}
 
+	@MainActor
+	var showFpsCounterEnabled: Bool {
+		get {
+			MiscellaneousSettings.current.fpsCounterEnabled
+		}
+		set {
+			MiscellaneousSettings.current.set(fpsCounterEnabled: newValue)
+		}
+	}
+
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
 		self.changeSubject = changeSubject
 	}

@@ -466,21 +466,21 @@ extension PreferencesGeneralViewController {
 		case .hapticFeedback:
 			switch indexPath.row {
 			case 0:
-				return PreferencesGeneralSettingCell(
+				return PreferencesEnabledSettingCell(
 					title: "Three / two finger swipe gestures",
 					isOn: model.isGestureHapticFeedbackOn
 				) { [weak self] isOn in
 					self?.model.isGestureHapticFeedbackOn = isOn
 				}
 			case 1:
-				return PreferencesGeneralSettingCell(
+				return PreferencesEnabledSettingCell(
 					title: "Mouse clicks",
 					isOn: model.isMouseHapticFeedbackOn
 				) { [weak self] isOn in
 					self?.model.isMouseHapticFeedbackOn = isOn
 				}
 			case 2:
-				return PreferencesGeneralSettingCell(
+				return PreferencesEnabledSettingCell(
 					title: "Gamepad key strokes",
 					isOn: model.isKeyHapticFeedbackOn
 				) { [weak self] isOn in
@@ -491,7 +491,7 @@ extension PreferencesGeneralViewController {
 			}
 		case .audio:
 			if indexPath.row == 0 {
-				return PreferencesGeneralSettingCell(
+				return PreferencesEnabledSettingCell(
 					title: "Audio enabled",
 					isOn: !model.soundDisabled
 				) { [weak self] newValue in
@@ -504,14 +504,16 @@ extension PreferencesGeneralViewController {
 			}
 		case .hints:
 			if indexPath.row == 0 {
-				return PreferencesGeneralSettingCell(
+				return PreferencesEnabledSettingCell(
 					title: "Show hints",
 					isOn: model.showHints
 				) { [weak self] newValue in
 					self?.model.showHints = newValue
 				}
 			} else {
-				return PreferencesGeneralHintsFooterCell()
+				return PreferencesFooterCell(
+					text: "Gamepad layout names are shown even when hints are turned off."
+				)
 			}
 		}
 	}

@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import NotificationCenter
 
 enum OverlayState {
 	case normal
@@ -91,6 +92,13 @@ public class OverlayViewController: UIViewController {
 		return view
 	}()
 
+	private lazy var fpsLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.textColor = .white
+		label.isUserInteractionEnabled = false
+		return label
+	}()
+
 	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
 
 	private let keyInteraction: ((Int, Bool) -> Void)
@@ -102,6 +110,8 @@ public class OverlayViewController: UIViewController {
 		upcomingGamepadConfig?.name ?? gamepadConfig.name
 	}
 
+	private var fpsCounter: FPSCounter?
+
 	private init(
 		keyInteraction: @escaping ((Int, Bool) -> Void),
 		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void)
@@ -110,6 +120,8 @@ public class OverlayViewController: UIViewController {
 		self.specialButtonInteraction = specialButtonInteraction
 
 		super.init(nibName: nil, bundle: nil)
+
+		NotificationCenter.default.addObserver(self, selector: #selector(updateFpsCounter), name: MiscellaneousNotifications.fpsCounterSettingChanged, object: nil)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
@@ -125,6 +137,8 @@ public class OverlayViewController: UIViewController {
 		gestureInputView.addSubview(hiddenInputField)
 
 		view.addSubview(informationView)
+
+		view.addSubview(fpsLabel)
 
 		NSLayoutConstraint.activate([
 			gestureInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -153,7 +167,10 @@ public class OverlayViewController: UIViewController {
 			informationView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
 			informationView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -UIScreen.main.bounds.size.height / 4),
 			informationView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 8),
-			informationView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -8)
+			informationView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -8),
+
+			fpsLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+			fpsLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
 		])
 
 		hiddenInputFieldDelegate.didInputSDLKey = { [weak self] output in
@@ -168,6 +185,8 @@ public class OverlayViewController: UIViewController {
 		}
 
 		loadGamepadSettings()
+
+		updateFpsCounter()
 
 //		becomeFirstResponder()
 	}
@@ -542,6 +561,19 @@ public class OverlayViewController: UIViewController {
 		sdlView.transform = transform
 		self.view.transform = transform.inverted()
 	}
+
+	@objc
+	private func updateFpsCounter() {
+		if MiscellaneousSettings.current.fpsCounterEnabled {
+			let fpsCounter = FPSCounter()
+			fpsCounter.delegate = self
+			self.fpsCounter = fpsCounter
+			fpsLabel.isHidden = false
+		} else {
+			self.fpsCounter = nil
+			fpsLabel.isHidden = true
+		}
+	}
 }
 
 extension OverlayViewController {
@@ -588,5 +620,12 @@ extension OverlayViewController {
 
 		sdlVC.addChild(vc)
 		vc.didMove(toParent: sdlVC)
+	}
+}
+
+extension OverlayViewController: @preconcurrency FPSCounterDelegate {
+
+	func fpsCounter(_ counter: FPSCounter, didUpdateFramesPerSecond fps: Int) {
+		fpsLabel.text = "\(fps)"
 	}
 }

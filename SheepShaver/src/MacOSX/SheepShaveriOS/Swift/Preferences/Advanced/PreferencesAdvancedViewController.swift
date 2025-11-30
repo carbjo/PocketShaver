@@ -11,6 +11,7 @@ import Combine
 class PreferencesAdvancedViewController: UITableViewController {
 	enum SectionType: CaseIterable {
 		case bootstrap
+		case fpsCounter
 		case resources
 	}
 
@@ -105,6 +106,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .bootstrap:
 			return 1
+		case .fpsCounter:
+			return 2
 		case .resources:
 			return 3
 		}
@@ -120,6 +123,21 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.displayRomPicker()
 				}
 			)
+		case .fpsCounter:
+			switch indexPath.row {
+			case 0:
+				return PreferencesEnabledSettingCell(
+					title: "Show FPS counter",
+					isOn: model.showFpsCounterEnabled
+				) { [weak self] isOn in
+					self?.model.showFpsCounterEnabled = isOn
+				}
+			case 1:
+				return PreferencesFooterCell(
+					text: "PocketShaver only renders frames when there are visual changes. Thus, low FPS does not always imply low performace."
+				)
+			default: fatalError()
+			}
 		case .resources:
 			switch indexPath.row {
 			case 0:
@@ -144,6 +162,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .bootstrap:
 			return "Bootstrap"
+		case .fpsCounter:
+			return "FPS counter"
 		case .resources:
 			return "Resources"
 		}

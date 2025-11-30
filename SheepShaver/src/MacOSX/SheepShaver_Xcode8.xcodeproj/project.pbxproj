@@ -96,6 +96,9 @@
 		C73660F22E37815E0055AA91 /* HiddenInputField.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F12E3781570055AA91 /* HiddenInputField.swift */; };
 		C73660F42E37B5C80055AA91 /* Gamepad.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F32E37B5C50055AA91 /* Gamepad.swift */; };
 		C7393CCD2E6DC6A200D06705 /* PreferencesResolutionsCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */; };
+		C74035AD2EDAF1C50045B9C6 /* FPSCounterObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C74035AC2EDAF1B70045B9C6 /* FPSCounterObjC.mm */; };
+		C74035B32EDC33420045B9C6 /* FPSCounter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C74035B22EDC333D0045B9C6 /* FPSCounter.swift */; };
+		C74035B62EDC3B130045B9C6 /* PreferencesCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C74035B52EDC3B0C0045B9C6 /* PreferencesCells.swift */; };
 		C74B222C2ED767BD003D0F71 /* Colors.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C74B222B2ED767BC003D0F71 /* Colors.xcassets */; };
 		C74B222E2ED78079003D0F71 /* sheepicon.png in Resources */ = {isa = PBXBuildFile; fileRef = C74B222D2ED78079003D0F71 /* sheepicon.png */; };
 		C74E10792EA9228F00150945 /* ImpMutableBTreeFile.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10662EA9228F00150945 /* ImpMutableBTreeFile.m */; };
@@ -566,6 +569,11 @@
 		C73660F12E3781570055AA91 /* HiddenInputField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputField.swift; sourceTree = "<group>"; };
 		C73660F32E37B5C50055AA91 /* Gamepad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gamepad.swift; sourceTree = "<group>"; };
 		C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesResolutionsCells.swift; sourceTree = "<group>"; };
+		C74035AC2EDAF1B70045B9C6 /* FPSCounterObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = FPSCounterObjC.mm; sourceTree = "<group>"; };
+		C74035B02EDAF2220045B9C6 /* FPSCounterObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FPSCounterObjCCppHeader.h; sourceTree = "<group>"; };
+		C74035B12EDAF3BC0045B9C6 /* FPSCounterObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FPSCounterObjC.h; sourceTree = "<group>"; };
+		C74035B22EDC333D0045B9C6 /* FPSCounter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FPSCounter.swift; sourceTree = "<group>"; };
+		C74035B52EDC3B0C0045B9C6 /* PreferencesCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesCells.swift; sourceTree = "<group>"; };
 		C74B222B2ED767BC003D0F71 /* Colors.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Colors.xcassets; sourceTree = "<group>"; };
 		C74B222D2ED78079003D0F71 /* sheepicon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = sheepicon.png; sourceTree = "<group>"; };
 		C74E104B2EA9228F00150945 /* ImpBTreeFile.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpBTreeFile.h; sourceTree = "<group>"; };
@@ -1316,14 +1324,6 @@
 			path = Storage;
 			sourceTree = "<group>";
 		};
-		C70F32712ECB76840079A3D4 /* Shared UI */ = {
-			isa = PBXGroup;
-			children = (
-				C70F32722ECB76900079A3D4 /* LinkLabel.swift */,
-			);
-			path = "Shared UI";
-			sourceTree = "<group>";
-		};
 		C7158EB22E7E7D8C006D06CC /* Utils */ = {
 			isa = PBXGroup;
 			children = (
@@ -1332,6 +1332,7 @@
 				C70B65E32E7A7BD00039680A /* Storage */,
 				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
 				C7DCEF3B2E86F53B00EAED05 /* Haptic Feedback */,
+				C74035A92EDAEC1C0045B9C6 /* FPS counter */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -1367,6 +1368,26 @@
 				C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */,
 			);
 			path = "Monitor Resolution Handling";
+			sourceTree = "<group>";
+		};
+		C74035A92EDAEC1C0045B9C6 /* FPS counter */ = {
+			isa = PBXGroup;
+			children = (
+				C74035B22EDC333D0045B9C6 /* FPSCounter.swift */,
+				C74035AC2EDAF1B70045B9C6 /* FPSCounterObjC.mm */,
+				C74035B02EDAF2220045B9C6 /* FPSCounterObjCCppHeader.h */,
+				C74035B12EDAF3BC0045B9C6 /* FPSCounterObjC.h */,
+			);
+			path = "FPS counter";
+			sourceTree = "<group>";
+		};
+		C74035B42EDC3AB60045B9C6 /* Shared UI */ = {
+			isa = PBXGroup;
+			children = (
+				C70F32722ECB76900079A3D4 /* LinkLabel.swift */,
+				C74035B52EDC3B0C0045B9C6 /* PreferencesCells.swift */,
+			);
+			path = "Shared UI";
 			sourceTree = "<group>";
 		};
 		C75073742E65E0CC00D1E374 /* Rom Handling */ = {
@@ -1536,7 +1557,6 @@
 				C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */,
 				C7E2AFB72E16C54E00CF50D4 /* Overlay */,
 				C7F42CD02E5B1BB100FA7169 /* Preferences */,
-				C70F32712ECB76840079A3D4 /* Shared UI */,
 				C7158EB22E7E7D8C006D06CC /* Utils */,
 				C7699F132EC464840083B3B3 /* Resources */,
 			);
@@ -1580,6 +1600,7 @@
 				C7F42CD92E5B3C2300FA7169 /* Resolutions */,
 				C7F42CDA2E5B3C3400FA7169 /* Gamepad */,
 				C7F42CDB2E5B3C4000FA7169 /* Advanced */,
+				C74035B42EDC3AB60045B9C6 /* Shared UI */,
 				C75073782E65E12800D1E374 /* Preferences Handling */,
 			);
 			path = Preferences;
@@ -2015,6 +2036,7 @@
 			files = (
 				E204B93328BC3EBE0081FDCA /* adb.cpp in Sources */,
 				E204B93428BC3EBE0081FDCA /* debug.c in Sources */,
+				C74035AD2EDAF1C50045B9C6 /* FPSCounterObjC.mm in Sources */,
 				E204B93528BC3EBE0081FDCA /* tcp_subr.c in Sources */,
 				E204B93628BC3EBE0081FDCA /* ip_output.c in Sources */,
 				C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */,
@@ -2076,6 +2098,7 @@
 				C7F42CCE2E5A0F6F00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm in Sources */,
 				C7699F0E2EBF56E30083B3B3 /* PreferencesROMValidatorCpp.cpp in Sources */,
 				C7DCEF3D2E86F55600EAED05 /* HapticFeedbackObjC.mm in Sources */,
+				C74035B32EDC33420045B9C6 /* FPSCounter.swift in Sources */,
 				C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */,
 				E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */,
 				C7699F152EC464990083B3B3 /* Colors.swift in Sources */,
@@ -2110,6 +2133,7 @@
 				E204B96828BC3EBE0081FDCA /* timer_unix.cpp in Sources */,
 				E204B9F328BC7D020081FDCA /* sys_darwin_ios.cpp in Sources */,
 				C73660E82E34ED4F0055AA91 /* GestureInputView.swift in Sources */,
+				C74035B62EDC3B130045B9C6 /* PreferencesCells.swift in Sources */,
 				C70B65E52E7A7BEA0039680A /* MiscellaneousSettings.swift in Sources */,
 				E204B96928BC3EBE0081FDCA /* bincue.cpp in Sources */,
 				E204B9D628BC7BF10081FDCA /* main.mm in Sources */,
