@@ -6,9 +6,24 @@
 //
 
 import NotificationCenter
+import UIKit
 
 enum MiscellaneousNotifications {
 	static let fpsCounterSettingChanged = NSNotification.Name("fpsCounterSettingChanged")
+}
+
+enum FrameRateSetting: String, Codable, CaseIterable {
+	case f60hz
+	case f75hz
+	case f120hz
+
+	var frameRate: Int {
+		switch self {
+		case .f60hz: return 60
+		case .f75hz: return 75
+		case .f120hz: return 120
+		}
+	}
 }
 
 class MiscellaneousSettings: Codable {
@@ -32,7 +47,9 @@ class MiscellaneousSettings: Codable {
 			NotificationCenter.default.post(.init(name: MiscellaneousNotifications.fpsCounterSettingChanged))
 		}
 	}
+	private(set) var frameRateSetting: FrameRateSetting
 
+	@MainActor
 	init() {
 		hasDismissedSetupInstructions = false
 		showHints = true
@@ -42,6 +59,11 @@ class MiscellaneousSettings: Codable {
 		keyHapticFeedback = true
 		soundDisabled = objc_findBool("nosound")
 		fpsCounterEnabled = false
+		if UIScreen.supportsHighRefreshRate {
+			frameRateSetting = .f75hz
+		} else {
+			frameRateSetting = .f60hz
+		}
 	}
 
 	@MainActor
@@ -119,6 +141,13 @@ class MiscellaneousSettings: Codable {
 
 		saveAsCurrent()
 	}
+
+	@MainActor
+	func set(frameRateSetting: FrameRateSetting) {
+		self.frameRateSetting = frameRateSetting
+
+		saveAsCurrent()
+	}
 }
 
 @objcMembers
@@ -127,5 +156,10 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func isKeyHapticFeedbackOn() -> Bool {
 		MiscellaneousSettings.current.keyHapticFeedback
+	}
+
+	@MainActor
+	static func getFrameRateSetting() -> Int {
+		MiscellaneousSettings.current.frameRateSetting.frameRate
 	}
 }

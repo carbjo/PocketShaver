@@ -6,9 +6,16 @@
 //
 
 #import "MiscellaneousSettingsObjC.h"
+#import "MiscellaneousSettingsObjCCppHeader.h"
+#import <UIKit/UIKit.h>
+#import "SheepShaveriOS-Swift.h"
 #include "sysdeps.h"
 #include "adb.h"
 
 void objc_setMouseHapticFeedbackEnabled(BOOL isOn) {
 	ADBSetHapticFeedback(isOn);
+}
+
+int objc_getFrameRateSetting(void) {
+	return (int)MiscellaneousSettingsObjC.getFrameRateSetting;
 }

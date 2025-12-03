@@ -595,7 +595,7 @@ class PreferencesGeneralRamStepperCell: UITableViewCell {
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = Colors.secondaryText
-		label.text = "Changes in RAM value requires PocketShaver to restart"
+		label.text = "Changes in RAM value requires PocketShaver to restart."
 		return label
 	}()
 

@@ -99,6 +99,7 @@
 		C74035AD2EDAF1C50045B9C6 /* FPSCounterObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C74035AC2EDAF1B70045B9C6 /* FPSCounterObjC.mm */; };
 		C74035B32EDC33420045B9C6 /* FPSCounter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C74035B22EDC333D0045B9C6 /* FPSCounter.swift */; };
 		C74035B62EDC3B130045B9C6 /* PreferencesCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C74035B52EDC3B0C0045B9C6 /* PreferencesCells.swift */; };
+		C74035B82EE096600045B9C6 /* MiscellaneousSettingsObjCCppHeader.h in Sources */ = {isa = PBXBuildFile; fileRef = C74035B72EE0965C0045B9C6 /* MiscellaneousSettingsObjCCppHeader.h */; };
 		C74B222C2ED767BD003D0F71 /* Colors.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C74B222B2ED767BC003D0F71 /* Colors.xcassets */; };
 		C74B222E2ED78079003D0F71 /* sheepicon.png in Resources */ = {isa = PBXBuildFile; fileRef = C74B222D2ED78079003D0F71 /* sheepicon.png */; };
 		C74E10792EA9228F00150945 /* ImpMutableBTreeFile.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10662EA9228F00150945 /* ImpMutableBTreeFile.m */; };
@@ -574,6 +575,7 @@
 		C74035B12EDAF3BC0045B9C6 /* FPSCounterObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FPSCounterObjC.h; sourceTree = "<group>"; };
 		C74035B22EDC333D0045B9C6 /* FPSCounter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FPSCounter.swift; sourceTree = "<group>"; };
 		C74035B52EDC3B0C0045B9C6 /* PreferencesCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesCells.swift; sourceTree = "<group>"; };
+		C74035B72EE0965C0045B9C6 /* MiscellaneousSettingsObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MiscellaneousSettingsObjCCppHeader.h; sourceTree = "<group>"; };
 		C74B222B2ED767BC003D0F71 /* Colors.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Colors.xcassets; sourceTree = "<group>"; };
 		C74B222D2ED78079003D0F71 /* sheepicon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = sheepicon.png; sourceTree = "<group>"; };
 		C74E104B2EA9228F00150945 /* ImpBTreeFile.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ImpBTreeFile.h; sourceTree = "<group>"; };
@@ -1533,6 +1535,7 @@
 				C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */,
 				C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */,
 				C7DCEF482E8704B000EAED05 /* MiscellaneousSettingsObjC.h */,
+				C74035B72EE0965C0045B9C6 /* MiscellaneousSettingsObjCCppHeader.h */,
 			);
 			path = Miscellaneous;
 			sourceTree = "<group>";
@@ -2128,6 +2131,7 @@
 				E204B96328BC3EBE0081FDCA /* serial_unix.cpp in Sources */,
 				E204B96428BC3EBE0081FDCA /* sshpty.c in Sources */,
 				E204B96528BC3EBE0081FDCA /* strlcpy.c in Sources */,
+				C74035B82EE096600045B9C6 /* MiscellaneousSettingsObjCCppHeader.h in Sources */,
 				E204B96628BC3EBE0081FDCA /* sys_unix.cpp in Sources */,
 				E204B96728BC3EBE0081FDCA /* cksum.c in Sources */,
 				E204B96828BC3EBE0081FDCA /* timer_unix.cpp in Sources */,
