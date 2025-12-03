@@ -11,6 +11,7 @@ import Combine
 class PreferencesAdvancedViewController: UITableViewController {
 	enum SectionType: CaseIterable {
 		case bootstrap
+		case ramSetting
 		case frameRateSetting
 		case fpsCounter
 		case resources
@@ -30,6 +31,8 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
+
+		tableView.showsVerticalScrollIndicator = false
 
 		view.translatesAutoresizingMaskIntoConstraints = false
 	}
@@ -107,6 +110,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .bootstrap:
 			return 1
+		case .ramSetting:
+			return 1
 		case .frameRateSetting:
 			return 2
 		case .fpsCounter:
@@ -126,6 +131,12 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.displayRomPicker()
 				}
 			)
+		case .ramSetting:
+			return PreferencesAdvancedRamStepperCell(
+				initialRamSettting: model.ramSetting
+			) { [weak self] newValue in
+				self?.model.ramSetting = newValue
+			}
 		case .frameRateSetting:
 			switch indexPath.row {
 			case 0:
@@ -134,7 +145,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				}
 			case 1:
 				return PreferencesFooterCell(
-					text: "Most games and apps have a maximum frame rate of 60hz, 75hz or lower. Higher frame rate settings impact performance. Changes in frame rate setting requires PocketShaver to restart."
+					text: "Most games and apps have a maximum frame rate of 60 hz, 75 hz or lower. Higher frame rate settings impact performance. Changes in frame rate setting requires PocketShaver to restart."
 				)
 			default: fatalError()
 			}
@@ -177,6 +188,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .bootstrap:
 			return "Bootstrap"
+		case .ramSetting:
+			return "RAM setting"
 		case .frameRateSetting:
 			return "Frame rate setting"
 		case .fpsCounter:

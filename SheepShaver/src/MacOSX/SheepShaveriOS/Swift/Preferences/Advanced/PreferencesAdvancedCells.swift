@@ -81,6 +81,73 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 	}
 }
 
+class PreferencesAdvancedRamStepperCell: UITableViewCell {
+	private lazy var stepper: UIStepper = {
+		let stepper = UIStepper.withoutConstraints()
+		stepper.isContinuous = false
+		stepper.minimumValue = 0
+		stepper.maximumValue = Double(PreferencesGeneralRamSetting.allCases.count - 1)
+		stepper.addTarget(self, action: #selector(stepperValueChanged), for: .valueChanged)
+		return stepper
+	}()
+
+	private lazy var stepperLabel: UILabel = {
+		UILabel.withoutConstraints()
+	}()
+
+	private lazy var informationLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.lineBreakMode = .byWordWrapping
+		label.font = .systemFont(ofSize: 14)
+		label.textColor = Colors.secondaryText
+		label.text = "Changes in RAM value requires PocketShaver to restart."
+		return label
+	}()
+
+	private let didChangeStepperValue: ((PreferencesGeneralRamSetting) -> Void)
+
+	init(
+		initialRamSettting: PreferencesGeneralRamSetting,
+		didChangeStepperValue: @escaping ((PreferencesGeneralRamSetting) -> Void)
+	) {
+		self.didChangeStepperValue = didChangeStepperValue
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		hideSeparator()
+
+		contentView.addSubview(stepper)
+		contentView.addSubview(stepperLabel)
+		contentView.addSubview(informationLabel)
+
+		NSLayoutConstraint.activate([
+			stepper.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			stepper.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+
+			stepperLabel.centerYAnchor.constraint(equalTo: stepper.centerYAnchor),
+			stepperLabel.leadingAnchor.constraint(equalTo: stepper.trailingAnchor, constant: 16),
+
+			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			informationLabel.topAnchor.constraint(equalTo: stepper.bottomAnchor, constant: 16),
+			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
+		])
+
+		stepper.value = Double(initialRamSettting.rawValue)
+		stepperLabel.text = initialRamSettting.label
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	@objc private func stepperValueChanged() {
+		let stepperValue = Int(stepper.value)
+		let ramSetting = PreferencesGeneralRamSetting(rawValue: stepperValue) ?? .n128
+		stepperLabel.text = ramSetting.label
+		didChangeStepperValue(ramSetting)
+	}
+}
+
 class PreferencesAdvancedMiscellaneousCell: UITableViewCell {
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
@@ -130,13 +197,15 @@ class PreferencesAdvancedFrameRateSettingCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		hideSeparator()
+
 		contentView.addSubview(segmentedControl)
 
 		NSLayoutConstraint.activate([
 			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
 			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
 			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
-			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
 			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
 		])
 
@@ -148,7 +217,7 @@ class PreferencesAdvancedFrameRateSettingCell: UITableViewCell {
 	@objc private func tabSegmentedControlChanged() {
 		let index = segmentedControl.selectedSegmentIndex
 		let setting = FrameRateSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
-		
+
 		didChangeSelection(setting)
 	}
 }
@@ -156,9 +225,9 @@ class PreferencesAdvancedFrameRateSettingCell: UITableViewCell {
 private extension FrameRateSetting {
 	var label: String {
 		switch self {
-		case .f60hz: return "60hz"
-		case .f75hz: return "75hz"
-		case .f120hz: return "120hz"
+		case .f60hz: return "60 hz"
+		case .f75hz: return "75 hz"
+		case .f120hz: return "120 hz"
 		}
 	}
 }

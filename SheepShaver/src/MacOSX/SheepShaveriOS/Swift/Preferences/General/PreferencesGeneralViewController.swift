@@ -13,7 +13,6 @@ class PreferencesGeneralViewController: UITableViewController {
 		case setupInstructions
 		case bootstrap
 		case disks
-		case ramStepper
 		case iPadMouse
 		case hapticFeedback
 		case audio
@@ -349,8 +348,6 @@ extension PreferencesGeneralViewController {
 			return "Bootstrap"
 		case .disks:
 			return "Disks"
-		case .ramStepper:
-			return "RAM setting"
 		case .iPadMouse:
 			return "Input mode"
 		case .hapticFeedback:
@@ -371,8 +368,6 @@ extension PreferencesGeneralViewController {
 			return 1 + (model.isDisplayingRomFileMissingError ? 1 : 0)
 		case .disks:
 			return model.numberOfDisks + 2 + (model.isDisplayingNoDiskFilesError ? 1 : 0)
-		case .ramStepper:
-			return 1
 		case .iPadMouse:
 			return 1
 		case .hapticFeedback:
@@ -450,12 +445,6 @@ extension PreferencesGeneralViewController {
 				)
 			} else {
 				return PreferencesGeneralErrorCell(title: "Must select to mount at least one disk file")
-			}
-		case .ramStepper:
-			return PreferencesGeneralRamStepperCell(
-				initialRamSettting: model.ramSetting
-			) { [weak self] newValue in
-				self?.model.ramSetting = newValue
 			}
 		case .iPadMouse:
 			return PreferencesGeneralIPadMouseCell(
