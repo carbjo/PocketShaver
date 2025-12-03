@@ -11,6 +11,7 @@ import Combine
 class PreferencesAdvancedViewController: UITableViewController {
 	enum SectionType: CaseIterable {
 		case bootstrap
+		case frameRateSetting
 		case fpsCounter
 		case resources
 	}
@@ -106,6 +107,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .bootstrap:
 			return 1
+		case .frameRateSetting:
+			return 2
 		case .fpsCounter:
 			return 2
 		case .resources:
@@ -123,6 +126,18 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.displayRomPicker()
 				}
 			)
+		case .frameRateSetting:
+			switch indexPath.row {
+			case 0:
+				return PreferencesAdvancedFrameRateSettingCell(initialFrameRateSetting: model.frameRateSetting) { [weak self] newFrameRateSetting in
+					self?.model.frameRateSetting = newFrameRateSetting
+				}
+			case 1:
+				return PreferencesFooterCell(
+					text: "Most games and apps have a maximum frame rate of 60hz, 75hz or lower. Higher frame rate settings impact performance. Changes in frame rate setting requires PocketShaver to restart."
+				)
+			default: fatalError()
+			}
 		case .fpsCounter:
 			switch indexPath.row {
 			case 0:
@@ -134,7 +149,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				}
 			case 1:
 				return PreferencesFooterCell(
-					text: "PocketShaver only renders frames when there are visual changes. Thus, low FPS does not always imply low performace."
+					text: "PocketShaver only renders frames when there are visual changes. Therefore, low FPS count does not always mean low performace."
 				)
 			default: fatalError()
 			}
@@ -162,6 +177,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		switch sectionType {
 		case .bootstrap:
 			return "Bootstrap"
+		case .frameRateSetting:
+			return "Frame rate setting"
 		case .fpsCounter:
 			return "FPS counter"
 		case .resources:
@@ -256,6 +273,10 @@ extension PreferencesAdvancedViewController.SectionType {
 		if !model.hasRomFile,
 		   let romSectionIndex = sections.firstIndex(of: .bootstrap) {
 			sections.remove(at: romSectionIndex)
+		}
+		if !UIScreen.supportsHighRefreshRate,
+		   let frameRateSettingIndex = sections.firstIndex(of: .frameRateSetting) {
+			sections.remove(at: frameRateSettingIndex)
 		}
 
 		return sections

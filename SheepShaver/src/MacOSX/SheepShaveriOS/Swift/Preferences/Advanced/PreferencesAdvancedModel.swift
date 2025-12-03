@@ -31,6 +31,18 @@ class PreferencesAdvancedModel {
 		}
 	}
 
+	@MainActor
+	var frameRateSetting: FrameRateSetting {
+		get {
+			MiscellaneousSettings.current.frameRateSetting
+		}
+		set {
+			MiscellaneousSettings.current.set(frameRateSetting: newValue)
+
+			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+		}
+	}
+
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
 		self.changeSubject = changeSubject
 	}

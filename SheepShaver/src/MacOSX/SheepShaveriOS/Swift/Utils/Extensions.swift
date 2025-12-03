@@ -238,3 +238,10 @@ extension String {
 		return attrString
 	}
 }
+
+extension UIScreen {
+	@MainActor
+	static var supportsHighRefreshRate: Bool {
+		return main.maximumFramesPerSecond > 60
+	}
+}
