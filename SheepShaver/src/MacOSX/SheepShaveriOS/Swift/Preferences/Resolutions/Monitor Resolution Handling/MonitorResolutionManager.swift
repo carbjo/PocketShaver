@@ -103,6 +103,7 @@ public class MonitorResolutionManager: NSObject {
 
 	private var hasRegisteredPortraitSafeAreaInsets = false
 	private var hasRegisteredLandscapeSafeAreaInsets = false
+	private var needCompletingPreselectingLandscapeModeResolutions = false
 
 	override init() {
 		var availableResolutions = [MonitorResolutionCategory: [MonitorResolutionOption]]()
@@ -120,8 +121,7 @@ public class MonitorResolutionManager: NSObject {
 		} else {
 			enabledPortraitResolutions = [
 				availableResolutions[.pixelAlignedPortrait]![0],
-				availableResolutions[.standardResolution]![0],
-				availableResolutions[.standardResolution]![1]
+				availableResolutions[.standardResolution]![0]
 			]
 		}
 
@@ -131,9 +131,9 @@ public class MonitorResolutionManager: NSObject {
 		} else {
 			enabledLandscapeResolutions = [
 				availableResolutions[.pixelAlignedLandscape]![0],
-				availableResolutions[.standardResolution]![0],
-				availableResolutions[.standardResolution]![1]
+				availableResolutions[.standardResolution]![0]
 			]
+			needCompletingPreselectingLandscapeModeResolutions = true
 		}
 
 		super.init()
@@ -194,9 +194,23 @@ public class MonitorResolutionManager: NSObject {
 			hasRegisteredLandscapeSafeAreaInsets = true
 			if safeAreaInsets.left + safeAreaInsets.right > 0 {
 				let margins = Margins(isPortrait: false, edgeInsets: safeAreaInsets)
+				let maxWidth480HeightWithMarginsResolution = Self.getScaledToFitResolution(forHeight: 480, margins: margins)
+
 				availableResolutions[.pixelAlignedLandscape]!.append(contentsOf: Self.getPixelAlignedResolutions(size: Self.getLandscapeModeSize(), margins: margins))
-				availableResolutions[.standardHeightLandscape]!.append(Self.getScaledToFitResolution(forHeight: 480, margins: margins))
+				availableResolutions[.standardHeightLandscape]!.append(maxWidth480HeightWithMarginsResolution)
 				availableResolutions[.standardHeightLandscape]!.append(Self.getScaledToFitResolution(forHeight: 600, margins: margins))
+
+				if needCompletingPreselectingLandscapeModeResolutions {
+					needCompletingPreselectingLandscapeModeResolutions = false
+
+					enabledLandscapeResolutions.append(maxWidth480HeightWithMarginsResolution)
+				}
+			} else {
+				if needCompletingPreselectingLandscapeModeResolutions {
+					needCompletingPreselectingLandscapeModeResolutions = true
+
+					enabledLandscapeResolutions.append(Self.getAvailableResolutions(for: .standardHeightLandscape).first!)
+				}
 			}
 			return true
 		}
