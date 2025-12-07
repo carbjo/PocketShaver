@@ -1,5 +1,5 @@
 //
-//  SheepShaveriOS-Bridging-Header.h
+//  PocketShaver-Bridging-Header.h
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-08-24.
