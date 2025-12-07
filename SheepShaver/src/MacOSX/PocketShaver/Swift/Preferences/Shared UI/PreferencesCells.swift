@@ -35,6 +35,9 @@ class PreferencesEnabledSettingCell: UITableViewCell {
 		titleLabel.text = title
 		enabledSwitch.isOn = isOn
 
+		titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+		enabledSwitch.setContentCompressionResistancePriority(.required, for: .horizontal)
+
 		contentView.addSubview(titleLabel)
 		contentView.addSubview(enabledSwitch)
 
@@ -68,11 +71,14 @@ class PreferencesFooterCell: UITableViewCell {
 	}()
 
 	init(
-		text: String
+		text: String,
+		separatorHidden: Bool = true
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
 
-		hideSeparator()
+		if separatorHidden {
+			hideSeparator()
+		}
 
 		contentView.addSubview(informationLabel)
 

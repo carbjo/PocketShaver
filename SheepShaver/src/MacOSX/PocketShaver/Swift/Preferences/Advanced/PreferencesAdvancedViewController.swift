@@ -13,7 +13,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case bootstrap
 		case ramSetting
 		case frameRateSetting
-		case fpsCounter
+		case uiOptions
 		case resources
 	}
 
@@ -114,8 +114,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return 1
 		case .frameRateSetting:
 			return 2
-		case .fpsCounter:
-			return 2
+		case .uiOptions:
+			return model.shouldDisplayAlwaysLandscapeModeOption ? 3 : 2
 		case .resources:
 			return 3
 		}
@@ -149,7 +149,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				)
 			default: fatalError()
 			}
-		case .fpsCounter:
+		case .uiOptions:
 			switch indexPath.row {
 			case 0:
 				return PreferencesEnabledSettingCell(
@@ -160,8 +160,16 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				}
 			case 1:
 				return PreferencesFooterCell(
-					text: "PocketShaver only renders frames when there are visual changes. Therefore, low FPS count does not always mean low performace."
+					text: "PocketShaver only renders frames when there are visual changes. Therefore, low FPS count does not always mean low performace.",
+					separatorHidden: false
 				)
+			case 2:
+				return PreferencesEnabledSettingCell(
+					title: "Always boot in landscape mode",
+					isOn: model.alwaysLandscapeMode
+				) { [weak self] isOn in
+					self?.model.alwaysLandscapeMode = isOn
+				}
 			default: fatalError()
 			}
 		case .resources:
@@ -192,8 +200,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return "RAM setting"
 		case .frameRateSetting:
 			return "Frame rate setting"
-		case .fpsCounter:
-			return "FPS counter"
+		case .uiOptions:
+			return "UI options"
 		case .resources:
 			return "Resources"
 		}

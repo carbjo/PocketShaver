@@ -85,8 +85,12 @@ public class MonitorResolutionManager: NSObject {
 		}
 	}
 
+	var willLaunchInPortraitMode: Bool {
+		UIScreen.isPortraitMode && !MiscellaneousSettings.current.alwaysLandscapeMode
+	}
+
 	var enabledResolutionsCount: Int {
-		if UIScreen.isPortraitMode {
+		if willLaunchInPortraitMode {
 			return enabledPortraitResolutions.count
 		} else {
 			return enabledLandscapeResolutions.count
@@ -101,8 +105,7 @@ public class MonitorResolutionManager: NSObject {
 		Self.getPortraitModeSize().width / Self.getPortraitModeSize().height == 3/4
 	}
 
-	private var hasRegisteredPortraitSafeAreaInsets = false
-	private var hasRegisteredLandscapeSafeAreaInsets = false
+	private var hasRegisteredSafeAreaInsets = false
 	private var needCompletingPreselectingLandscapeModeResolutions = false
 
 	override init() {
@@ -140,7 +143,7 @@ public class MonitorResolutionManager: NSObject {
 	}
 
 	func isResolutionEnabled(_ resolution: MonitorResolutionOption) -> Bool {
-		if UIScreen.isPortraitMode {
+		if willLaunchInPortraitMode {
 			return enabledPortraitResolutions.contains(resolution)
 		} else {
 			return enabledLandscapeResolutions.contains(resolution)
@@ -148,7 +151,7 @@ public class MonitorResolutionManager: NSObject {
 	}
 
 	func setIsResolutionEnabled(_ resolution: MonitorResolutionOption, isEnabled: Bool) {
-		if UIScreen.isPortraitMode {
+		if willLaunchInPortraitMode {
 			if isEnabled,
 			   !enabledPortraitResolutions.contains(resolution) {
 				enabledPortraitResolutions.append(resolution)
@@ -173,47 +176,44 @@ public class MonitorResolutionManager: NSObject {
 	}
 
 	func registerSafeAreaInsets(_ safeAreaInsets: UIEdgeInsets) -> Bool {
-		if UIScreen.isPortraitMode {
-			guard !hasRegisteredPortraitSafeAreaInsets else {
-				return false
-			}
-			hasRegisteredPortraitSafeAreaInsets = true
-			let isStatusbarInsetOnly = safeAreaInsets.top == 20 && safeAreaInsets.bottom == 0
-			if safeAreaInsets.top + safeAreaInsets.bottom > 0,
-			   !isStatusbarInsetOnly { // status bar alone does not count, since it will be hidden
-				let margins = Margins(isPortrait: true, edgeInsets: safeAreaInsets)
-				availableResolutions[.pixelAlignedPortrait]!.append(contentsOf: Self.getPixelAlignedResolutions(size: Self.getPortraitModeSize(), margins: margins))
-				availableResolutions[.standardWidthPortrait]!.append(Self.getScaledToFitResolution(forWidth: 640, margins: margins))
-				availableResolutions[.standardWidthPortrait]!.append(Self.getScaledToFitResolution(forWidth: 800, margins: margins))
-			}
-			return true
-		} else {
-			guard !hasRegisteredLandscapeSafeAreaInsets else {
-				return false
-			}
-			hasRegisteredLandscapeSafeAreaInsets = true
-			if safeAreaInsets.left + safeAreaInsets.right > 0 {
-				let margins = Margins(isPortrait: false, edgeInsets: safeAreaInsets)
-				let maxWidth480HeightWithMarginsResolution = Self.getScaledToFitResolution(forHeight: 480, margins: margins)
+		let largestInset = [safeAreaInsets.left, safeAreaInsets.top, safeAreaInsets.right, safeAreaInsets.bottom].max()!
 
-				availableResolutions[.pixelAlignedLandscape]!.append(contentsOf: Self.getPixelAlignedResolutions(size: Self.getLandscapeModeSize(), margins: margins))
-				availableResolutions[.standardHeightLandscape]!.append(maxWidth480HeightWithMarginsResolution)
-				availableResolutions[.standardHeightLandscape]!.append(Self.getScaledToFitResolution(forHeight: 600, margins: margins))
-
-				if needCompletingPreselectingLandscapeModeResolutions {
-					needCompletingPreselectingLandscapeModeResolutions = false
-
-					enabledLandscapeResolutions.append(maxWidth480HeightWithMarginsResolution)
-				}
-			} else {
-				if needCompletingPreselectingLandscapeModeResolutions {
-					needCompletingPreselectingLandscapeModeResolutions = true
-
-					enabledLandscapeResolutions.append(Self.getAvailableResolutions(for: .standardHeightLandscape).first!)
-				}
-			}
-			return true
+		guard !hasRegisteredSafeAreaInsets else {
+			return false
 		}
+		hasRegisteredSafeAreaInsets = true
+
+		let isStatusbarInsetOnly = safeAreaInsets.top == 20 && safeAreaInsets.bottom == 0
+		let hasInsets = !isStatusbarInsetOnly && largestInset > 0
+
+		if hasInsets { // status bar alone does not count, since it will be hidden
+			let portraitMargins = Margins(isPortrait: true, edgeInsets: .init(top: largestInset, left: 0, bottom: largestInset, right: 0))
+			availableResolutions[.pixelAlignedPortrait]!.append(contentsOf: Self.getPixelAlignedResolutions(size: Self.getPortraitModeSize(), margins: portraitMargins))
+			availableResolutions[.standardWidthPortrait]!.append(Self.getScaledToFitResolution(forWidth: 640, margins: portraitMargins))
+			availableResolutions[.standardWidthPortrait]!.append(Self.getScaledToFitResolution(forWidth: 800, margins: portraitMargins))
+
+			
+			let landscapeMargins = Margins(isPortrait: false, edgeInsets: .init(top: 0, left: largestInset, bottom: 0, right: largestInset))
+			let maxWidth480HeightWithMarginsResolution = Self.getScaledToFitResolution(forHeight: 480, margins: landscapeMargins)
+
+			availableResolutions[.pixelAlignedLandscape]!.append(contentsOf: Self.getPixelAlignedResolutions(size: Self.getLandscapeModeSize(), margins: landscapeMargins))
+			availableResolutions[.standardHeightLandscape]!.append(maxWidth480HeightWithMarginsResolution)
+			availableResolutions[.standardHeightLandscape]!.append(Self.getScaledToFitResolution(forHeight: 600, margins: landscapeMargins))
+
+			if needCompletingPreselectingLandscapeModeResolutions {
+				needCompletingPreselectingLandscapeModeResolutions = false
+
+				enabledLandscapeResolutions.append(maxWidth480HeightWithMarginsResolution)
+			}
+		} else {
+			if needCompletingPreselectingLandscapeModeResolutions {
+				needCompletingPreselectingLandscapeModeResolutions = true
+
+				enabledLandscapeResolutions.append(Self.getAvailableResolutions(for: .standardHeightLandscape).first!)
+			}
+		}
+
+		return true
 	}
 
 	@objc

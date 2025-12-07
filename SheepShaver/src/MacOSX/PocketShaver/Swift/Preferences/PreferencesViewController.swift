@@ -85,6 +85,20 @@ public class PreferencesViewController: UIViewController {
 
 	private var displayedViewController: UIViewController?
 
+	private var lockInterfaceOrientationsToLandscape = false
+
+	public override var shouldAutorotate: Bool {
+		return true
+	}
+
+	public override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+		if lockInterfaceOrientationsToLandscape {
+			return .landscape
+		} else {
+			return .allButUpsideDown
+		}
+	}
+
 	init(mode: PreferencesLaunchMode) {
 		model = PreferencesModel(mode: mode)
 
@@ -197,6 +211,8 @@ public class PreferencesViewController: UIViewController {
 					model.needsRestart = true
 					updateBottomButton()
 				}
+			case .alwaysLandscapeModeOptionToggled:
+				updateBottomButton()
 			}
 		}.store(in: &anyCancellables)
 	}
@@ -209,7 +225,13 @@ public class PreferencesViewController: UIViewController {
 
 		switch model.mode {
 		case .startup:
-			let title = UIScreen.isPortraitMode ? "Boot (portrait mode)" : "Boot (landscape mode)"
+			let title: String
+			if MiscellaneousSettings.current.alwaysLandscapeMode {
+				title = "Boot"
+			} else {
+				title = UIScreen.isPortraitMode ? "Boot (portrait mode)" : "Boot (landscape mode)"
+			}
+
 			bottomButton.setTitle(title, for: .normal)
 		case .duringEmulation:
 			let title = "Done"
@@ -221,11 +243,28 @@ public class PreferencesViewController: UIViewController {
 		do {
 			try model.validate()
 
-			removeFromParent()
-			prefsWindow.rootViewController = nil
-			prefsWindow.isHidden = true
+			let bootBlock = { [weak self] in
+				guard let self else { return }
 
-			isDone = true
+				removeFromParent()
+				prefsWindow.rootViewController = nil
+				prefsWindow.isHidden = true
+
+				isDone = true
+			}
+
+			if MiscellaneousSettings.current.alwaysLandscapeMode,
+			   !UIDevice.current.orientation.isLandscape {
+				lockInterfaceOrientationsToLandscape = true
+				UINavigationController.attemptRotationToDeviceOrientation()
+
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+					PreferencesManager.shared.writePreferences()
+					bootBlock()
+				}
+			} else {
+				bootBlock()
+			}
 		} catch PreferencesError.romFileMissing {
 			if tabSegmentedControl.selectedSegmentIndex != Tab.general.rawValue {
 				tabSegmentedControl.selectedSegmentIndex = Tab.general.rawValue

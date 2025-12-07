@@ -19,6 +19,7 @@ class PreferencesResolutionsInformationCell: UITableViewCell {
 
 	init(
 		isPortraitMode: Bool,
+		alwaysLandscapeMode: Bool,
 		initialMonitorResolutionCount: Int
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
@@ -34,20 +35,32 @@ class PreferencesResolutionsInformationCell: UITableViewCell {
 			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: 0).withPriority(.required - 1)
 		])
 
-		configure(isPortraitMode: isPortraitMode, currentMonitorResolutionCount: initialMonitorResolutionCount)
+		configure(
+			isPortraitMode: isPortraitMode,
+			alwaysLandscapeMode: alwaysLandscapeMode,
+			currentMonitorResolutionCount: initialMonitorResolutionCount
+		)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
 	func configure(
 		isPortraitMode: Bool,
+		alwaysLandscapeMode: Bool,
 		currentMonitorResolutionCount: Int
 	) {
 		let thisOrientationString = isPortraitMode ? "portrait" : "landscape"
 		let otherOrientationString = isPortraitMode ? "landscape" : "portrait"
 		let maxNumberOfSimultaniousResolutions = MonitorResolutionManager.maxNumberOfSimultaniousResolutions
 
-		titleLabel.attributedText = "This list controls what monitor resolutions are available to Mac OS. Changing active resolution is still done with Monitors app, inside Mac OS.\n\n• Currently displaying settings for \(thisOrientationString) mode. Rotate screen to access \(otherOrientationString) mode settings.\n\n• When booting from an installation CD, the operating system will always pick the highest possible resolution, without any possibility of changing it.\n\n• Mac OS allows a maximum number of \(maxNumberOfSimultaniousResolutions) monitor resolutions to be available simultaniously. Current number of selected resolutions: <b>\(currentMonitorResolutionCount)</b>"
+		let orientationString: String
+		if alwaysLandscapeMode {
+			orientationString = "Currently displaying settings for landscape mode, since 'Always boot in landscape mode' is toggled on in Advanced settings."
+		} else {
+			orientationString = "Currently displaying settings for \(thisOrientationString) mode. Rotate screen to access \(otherOrientationString) mode settings."
+		}
+
+		titleLabel.attributedText = "This list controls what monitor resolutions are available to Mac OS. Changing active resolution is still done with Monitors app, inside Mac OS.\n\n• \(orientationString)\n\n• When booting from an installation CD, the operating system will always pick the highest possible resolution, without any possibility of changing it.\n\n• Mac OS allows a maximum number of \(maxNumberOfSimultaniousResolutions) monitor resolutions to be available simultaniously. Current number of selected resolutions: <b>\(currentMonitorResolutionCount)</b>"
 			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)
 	}
 }

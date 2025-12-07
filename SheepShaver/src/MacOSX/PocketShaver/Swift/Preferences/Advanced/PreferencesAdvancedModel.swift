@@ -54,6 +54,27 @@ class PreferencesAdvancedModel {
 		}
 	}
 
+	@MainActor
+	var alwaysLandscapeMode: Bool {
+		get {
+			MiscellaneousSettings.current.alwaysLandscapeMode
+		}
+		set {
+			MiscellaneousSettings.current.set(alwaysLandscapeMode: newValue)
+
+			changeSubject.send(.alwaysLandscapeModeOptionToggled)
+		}
+	}
+
+	var shouldDisplayAlwaysLandscapeModeOption: Bool {
+		if #available(iOS 16, *) {
+			return true
+		} else {
+			// Solution does not work in iOS 15.x
+			return false
+		}
+	}
+
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
 		self.changeSubject = changeSubject
 	}

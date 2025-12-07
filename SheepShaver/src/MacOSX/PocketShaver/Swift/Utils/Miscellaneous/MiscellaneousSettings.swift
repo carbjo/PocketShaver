@@ -48,6 +48,7 @@ class MiscellaneousSettings: Codable {
 		}
 	}
 	private(set) var frameRateSetting: FrameRateSetting
+	private(set) var alwaysLandscapeMode: Bool
 
 	@MainActor
 	init() {
@@ -64,6 +65,7 @@ class MiscellaneousSettings: Codable {
 		} else {
 			frameRateSetting = .f60hz
 		}
+		alwaysLandscapeMode = false
 	}
 
 	@MainActor
@@ -145,6 +147,13 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(frameRateSetting: FrameRateSetting) {
 		self.frameRateSetting = frameRateSetting
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(alwaysLandscapeMode: Bool) {
+		self.alwaysLandscapeMode = alwaysLandscapeMode
 
 		saveAsCurrent()
 	}
