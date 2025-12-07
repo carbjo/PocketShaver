@@ -239,9 +239,16 @@ public class PreferencesViewController: UIViewController {
 		}
 	}
 
-	private func boot() {
+	private func boot(forceLandscape: Bool = false) {
 		do {
 			try model.validate()
+
+			if UIScreen.isPortraitMode,
+			   !MiscellaneousSettings.current.hasDisplayedPortraitModeWarning {
+				displayPortraitModeWarning()
+
+				return
+			}
 
 			let bootBlock = { [weak self] in
 				guard let self else { return }
@@ -253,7 +260,7 @@ public class PreferencesViewController: UIViewController {
 				isDone = true
 			}
 
-			if MiscellaneousSettings.current.alwaysLandscapeMode,
+			if MiscellaneousSettings.current.alwaysLandscapeMode || forceLandscape,
 			   !UIDevice.current.orientation.isLandscape {
 				lockInterfaceOrientationsToLandscape = true
 				UINavigationController.attemptRotationToDeviceOrientation()
@@ -296,6 +303,36 @@ public class PreferencesViewController: UIViewController {
 				self?.dismiss(animated: true)
 			}))
 		}
+		present(alertVC, animated: true)
+	}
+
+	private func displayPortraitModeWarning() {
+		MiscellaneousSettings.current.set(hasDisplayedPortraitModeWarning: true)
+
+		let alertVC = UIAlertController(
+			title: "Landscape mode recommended",
+			message: "It is recommended to boot in Landscape mode. Once booted, it is not possible to switch between portrait and landscape mode by rotating the device.\n\nThis warning will not be shown again.",
+			preferredStyle: .alert
+		)
+
+		if MiscellaneousSettings.current.shouldDisplayAlwaysLandscapeModeOption {
+			alertVC.addAction(.init(title: "Always boot in Landscape mode", style: .default, handler: { [weak self] _ in
+				MiscellaneousSettings.current.set(alwaysLandscapeMode: true)
+				self?.boot()
+			}))
+			alertVC.addAction(.init(title: "Boot in Landscape mode", style: .default, handler: { [weak self] _ in
+				self?.boot(forceLandscape: true)
+			}))
+		}
+
+		alertVC.addAction(.init(title: "Boot in Portrait mode", style: .default, handler: { [weak self] _ in
+			self?.boot()
+		}))
+
+		if !MiscellaneousSettings.current.shouldDisplayAlwaysLandscapeModeOption {
+			alertVC.addAction(.init(title: "Cancel", style: .cancel, handler: nil))
+		}
+
 		present(alertVC, animated: true)
 	}
 
