@@ -676,7 +676,7 @@
 		C7F42CE42E5B4BFD00FA7169 /* PreferencesGeneralModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGeneralModel.swift; sourceTree = "<group>"; };
 		C7F42CE62E5B4E8600FA7169 /* PreferencesROMValidatorObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PreferencesROMValidatorObjC.mm; sourceTree = "<group>"; };
 		C7F42CE82E5B4E9800FA7169 /* PreferencesROMValidatorObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PreferencesROMValidatorObjC.h; sourceTree = "<group>"; };
-		C7F42CEA2E5B4FF700FA7169 /* SheepShaveriOS-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SheepShaveriOS-Bridging-Header.h"; sourceTree = "<group>"; };
+		C7F42CEA2E5B4FF700FA7169 /* PocketShaver-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "PocketShaver-Bridging-Header.h"; sourceTree = "<group>"; };
 		C7F6DF5E2E4B9BB300ED272A /* HoverMode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HoverMode.h; sourceTree = "<group>"; };
 		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
@@ -858,7 +858,7 @@
 		0856CCC814A99E30000B1711 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
-				E204B99A28BC7BF00081FDCA /* SheepShaveriOS */,
+				E204B99A28BC7BF00081FDCA /* PocketShaver */,
 				087B91B11B780EC900825F7F /* CrossPlatform */,
 				C7D405732E9BD55A009BEBA7 /* impluse-hfs */,
 				5D3967BF2328D315003925D6 /* adb.cpp */,
@@ -1650,12 +1650,12 @@
 		C7F42CE92E5B4FEA00FA7169 /* Supporting files */ = {
 			isa = PBXGroup;
 			children = (
-				C7F42CEA2E5B4FF700FA7169 /* SheepShaveriOS-Bridging-Header.h */,
+				C7F42CEA2E5B4FF700FA7169 /* PocketShaver-Bridging-Header.h */,
 			);
 			path = "Supporting files";
 			sourceTree = "<group>";
 		};
-		E204B99A28BC7BF00081FDCA /* SheepShaveriOS */ = {
+		E204B99A28BC7BF00081FDCA /* PocketShaver */ = {
 			isa = PBXGroup;
 			children = (
 				C7E2AFBE2E19629100CF50D4 /* Swift */,
@@ -1672,7 +1672,7 @@
 				E204B9EF28BC7D010081FDCA /* utils_ios.mm */,
 				E2A5819728CAC275005C7373 /* Readme iOS build.rtf */,
 			);
-			path = SheepShaveriOS;
+			path = PocketShaver;
 			sourceTree = "<group>";
 		};
 		E420260924125403000508DF /* Generated */ = {
@@ -1806,7 +1806,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 0856CCB114A99DE0000B1711 /* Build configuration list for PBXProject "SheepShaver_Xcode8" */;
+			buildConfigurationList = 0856CCB114A99DE0000B1711 /* Build configuration list for PBXProject "PocketShaver" */;
 			compatibilityVersion = "Xcode 3.0";
 			developmentRegion = English;
 			hasScannedForEncodings = 0;
@@ -2625,7 +2625,7 @@
 					"./SDL2.xcframework/**",
 					.,
 				);
-				INFOPLIST_FILE = SheepShaveriOS/Info.plist;
+				INFOPLIST_FILE = PocketShaver/Info.plist;
 				INFOPLIST_PREFIX_HEADER = "";
 				INFOPLIST_PREPROCESS = NO;
 				INSTALL_PATH = "$(HOME)/Applications";
@@ -2648,7 +2648,7 @@
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = NO;
-				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/SheepShaveriOS-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/PocketShaver-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -2742,7 +2742,7 @@
 					.,
 				);
 				INFOPLIST_EXPAND_BUILD_SETTINGS = YES;
-				INFOPLIST_FILE = SheepShaveriOS/Info.plist;
+				INFOPLIST_FILE = PocketShaver/Info.plist;
 				INFOPLIST_PREFIX_HEADER = "";
 				INFOPLIST_PREPROCESS = NO;
 				INSTALL_PATH = "$(HOME)/Applications";
@@ -2765,7 +2765,7 @@
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = NO;
-				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/SheepShaveriOS-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/PocketShaver-Bridging-Header.h";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
@@ -2785,7 +2785,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		0856CCB114A99DE0000B1711 /* Build configuration list for PBXProject "SheepShaver_Xcode8" */ = {
+		0856CCB114A99DE0000B1711 /* Build configuration list for PBXProject "PocketShaver" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				0856CCAF14A99DE0000B1711 /* Debug */,
