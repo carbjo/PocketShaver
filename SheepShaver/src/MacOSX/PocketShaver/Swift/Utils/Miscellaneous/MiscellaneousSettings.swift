@@ -49,6 +49,16 @@ class MiscellaneousSettings: Codable {
 	}
 	private(set) var frameRateSetting: FrameRateSetting
 	private(set) var alwaysLandscapeMode: Bool
+	private(set) var hasDisplayedPortraitModeWarning: Bool
+
+	var shouldDisplayAlwaysLandscapeModeOption: Bool {
+		if #available(iOS 16, *) {
+			return true
+		} else {
+			// Solution does not work in iOS 15.x
+			return false
+		}
+	}
 
 	@MainActor
 	init() {
@@ -66,6 +76,7 @@ class MiscellaneousSettings: Codable {
 			frameRateSetting = .f60hz
 		}
 		alwaysLandscapeMode = false
+		hasDisplayedPortraitModeWarning = false
 	}
 
 	@MainActor
@@ -154,6 +165,16 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(alwaysLandscapeMode: Bool) {
 		self.alwaysLandscapeMode = alwaysLandscapeMode
+		if alwaysLandscapeMode {
+			hasDisplayedPortraitModeWarning = true
+		}
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(hasDisplayedPortraitModeWarning: Bool) {
+		self.hasDisplayedPortraitModeWarning = hasDisplayedPortraitModeWarning
 
 		saveAsCurrent()
 	}

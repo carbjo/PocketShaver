@@ -66,13 +66,9 @@ class PreferencesAdvancedModel {
 		}
 	}
 
+	@MainActor
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
-		if #available(iOS 16, *) {
-			return true
-		} else {
-			// Solution does not work in iOS 15.x
-			return false
-		}
+		MiscellaneousSettings.current.shouldDisplayAlwaysLandscapeModeOption
 	}
 
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
