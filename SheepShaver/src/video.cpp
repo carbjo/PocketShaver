@@ -36,6 +36,8 @@
 #include "version.h"
 #include "thunks.h"
 
+#include "MiscellaneousSettingsObjCCppHeader.h"
+
 #define DEBUG 0
 #include "debug.h"
 
@@ -807,7 +809,8 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			get_size_of_resolution(work_id, x, y);
 			WriteMacInt32(param + csHorizontalPixels, x);
 			WriteMacInt32(param + csVerticalLines, y);
-			WriteMacInt32(param + csRefreshRate, 75<<16);
+			int frameRate = objc_getFrameRateSetting();
+			WriteMacInt32(param + csRefreshRate, frameRate<<16);
 #else
 			switch (work_id) {
 				case APPLE_640x480:
