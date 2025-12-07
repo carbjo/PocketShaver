@@ -16,6 +16,7 @@ enum PreferencesError: Error {
 enum PreferencesChange {
 	case changeRequiringRestartBeforeBootMade
 	case changeRequiringRestartAfterBootMade
+	case alwaysLandscapeModeOptionToggled
 }
 
 class PreferencesModel {

@@ -18,6 +18,9 @@ class PreferencesResolutionsViewController: UITableViewController {
 	}
 
 	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
+	private var anyCancellables = Set<AnyCancellable>()
+
+	private var manager: MonitorResolutionManager = .shared
 
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
 		self.changeSubject = changeSubject
@@ -35,6 +38,8 @@ class PreferencesResolutionsViewController: UITableViewController {
 		view.translatesAutoresizingMaskIntoConstraints = false
 		view.backgroundColor = .white
 		tableView.showsVerticalScrollIndicator = false
+
+		listenToChanges()
 	}
 
 	override func viewWillAppear(_ animated: Bool) {
@@ -49,9 +54,21 @@ class PreferencesResolutionsViewController: UITableViewController {
 		self.tableView.reloadData()
 	}
 
+	private func listenToChanges() {
+		changeSubject.sink{ [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .alwaysLandscapeModeOptionToggled:
+				tableView.reloadData()
+			default:
+				break
+			}
+		}.store(in: &anyCancellables)
+	}
+
 	private func updateInformationCellResolutionCount() {
-		let currentMonitorResolutionCount = MonitorResolutionManager.shared.enabledResolutionsCount
-		let countIsFull = MonitorResolutionManager.shared.isEnabledResolutionsFull
+		let currentMonitorResolutionCount = manager.enabledResolutionsCount
+		let countIsFull = manager.isEnabledResolutionsFull
 
 		for section in 0..<tableView.numberOfSections {
 			for row in 0..<tableView.numberOfRows(inSection: section) {
@@ -59,7 +76,8 @@ class PreferencesResolutionsViewController: UITableViewController {
 
 				if let cell = tableView.cellForRow(at: indexPath) as? PreferencesResolutionsInformationCell {
 					cell.configure(
-						isPortraitMode: UIScreen.isPortraitMode,
+						isPortraitMode: manager.willLaunchInPortraitMode,
+						alwaysLandscapeMode: MiscellaneousSettings.current.alwaysLandscapeMode,
 						currentMonitorResolutionCount: currentMonitorResolutionCount
 					)
 				} else if let cell = tableView.cellForRow(at: indexPath) as? PreferencesResolutionsMonitorResolutionCell {
@@ -83,7 +101,7 @@ extension PreferencesResolutionsViewController { // UITableViewDataSource
 		case .pixelAlignedResolutions:
 			return "Pixel aligned resolutions"
 		case .standardWidthOrHeightResolutions:
-			if UIScreen.isPortraitMode {
+			if manager.willLaunchInPortraitMode {
 				return "Standard width fullscreen resolutions"
 			} else {
 				return "Standard height fullscreen resolutions"
@@ -102,7 +120,6 @@ extension PreferencesResolutionsViewController { // UITableViewDataSource
 		case .information:
 			return 1
 		default:
-			let manager = MonitorResolutionManager.shared
 			guard let category = sectionType.monitorResolutionCategory,
 			let count = manager.availableResolutions[category]?.count else {
 				return 0
@@ -117,13 +134,13 @@ extension PreferencesResolutionsViewController { // UITableViewDataSource
 
 		switch sectionType {
 		case .information:
-			let initialMonitorResolutionCount = MonitorResolutionManager.shared.enabledResolutionsCount
+			let initialMonitorResolutionCount = manager.enabledResolutionsCount
 			return PreferencesResolutionsInformationCell(
-				isPortraitMode: UIScreen.isPortraitMode,
+				isPortraitMode: manager.willLaunchInPortraitMode,
+				alwaysLandscapeMode: MiscellaneousSettings.current.alwaysLandscapeMode,
 				initialMonitorResolutionCount: initialMonitorResolutionCount
 			)
 		default:
-			let manager = MonitorResolutionManager.shared
 			guard let category = sectionType.monitorResolutionCategory,
 				  let availableResolutions = manager.availableResolutions[category] else {
 				return UITableViewCell()
@@ -157,7 +174,7 @@ extension PreferencesResolutionsViewController { // UITableViewDataSource
 			) { [weak self] newOption, setIsOn in
 				guard let self else { return }
 
-				MonitorResolutionManager.shared.setIsResolutionEnabled(
+				manager.setIsResolutionEnabled(
 					newOption,
 					isEnabled: setIsOn
 				)
@@ -194,7 +211,7 @@ extension PreferencesResolutionsViewController.SectionType {
 		case .information:
 			nil
 		case .pixelAlignedResolutions:
-			if UIScreen.isPortraitMode {
+			if MonitorResolutionManager.shared.willLaunchInPortraitMode {
 				.pixelAlignedPortrait
 			} else {
 				.pixelAlignedLandscape
@@ -202,7 +219,7 @@ extension PreferencesResolutionsViewController.SectionType {
 		case .standardResolutions:
 				.standardResolution
 		case .standardWidthOrHeightResolutions:
-			if UIScreen.isPortraitMode {
+			if MonitorResolutionManager.shared.willLaunchInPortraitMode {
 				.standardWidthPortrait
 			} else {
 				.standardHeightLandscape
