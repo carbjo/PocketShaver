@@ -42,9 +42,9 @@ class GamepadButtonStackView: UIStackView {
 
 	private func setupButtons() {
 		let screenWidth = UIScreen.main.bounds.width
-		let sideMargin: CGFloat = UIDevice.sideMarginForButtons
+		let sideMargin: CGFloat = UIScreen.sideMarginForButtons
 
-		let settingsButtonLength: CGFloat = UIDevice.isSmallScreenSize ? 36 : 44
+		let settingsButtonLength: CGFloat = UIScreen.isSmallSize ? 36 : 44
 		let halfSettingsButton: CGFloat = settingsButtonLength/2
 		let availableWidth = (screenWidth / 2) - sideMargin - halfSettingsButton
 		let buttonLength = GamepadButton.length

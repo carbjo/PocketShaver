@@ -66,8 +66,8 @@ class GamepadLayerView: UIView {
 		addSubview(rightCollectionStackView)
 		addSubview(settingsButton)
 
-		let sideMargin: CGFloat = UIDevice.sideMarginForButtons
-		let settingsButtonLength: CGFloat = UIDevice.isSmallScreenSize ? 36 : 44
+		let sideMargin: CGFloat = UIScreen.sideMarginForButtons
+		let settingsButtonLength: CGFloat = UIScreen.isSmallSize ? 36 : 44
 
 		NSLayoutConstraint.activate([
 			leftCollectionStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin),

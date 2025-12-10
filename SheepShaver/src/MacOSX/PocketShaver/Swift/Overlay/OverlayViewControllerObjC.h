@@ -14,3 +14,13 @@ void objc_initOverlayViewController(void);
 extern "C"
 #endif
 void objc_reportVideoSize(unsigned short width, unsigned short height);
+
+#ifdef __cplusplus
+extern "C"
+#endif
+void objc_reportRelativeMouseModeEnabled();
+
+#ifdef __cplusplus
+extern "C"
+#endif
+void objc_reportRelativeMouseModeDisabled();

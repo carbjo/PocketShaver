@@ -33,6 +33,7 @@
 #include "prefs.h"
 #include "video.h"
 #include "adb.h"
+#include "utils_ios.h"
 
 #ifdef POWERPC_ROM
 #include "thunks.h"
@@ -50,6 +51,7 @@
 // Global variables
 static int mouse_x = 0, mouse_y = 0;							// Mouse position
 static int old_mouse_x = 0, old_mouse_y = 0;
+static int last_mouse_down_delta_x = 0, last_mouse_down_delta_y = 0;
 static bool mouse_button[3] = {false, false, false};			// Mouse button states
 static bool old_mouse_button[3] = {false, false, false};
 static bool relative_mouse = false;
@@ -128,6 +130,12 @@ void ADBOp(uint8 op, uint8 *data)
 		key_reg_3[0] = 0x62;
 		key_reg_3[1] = m_keyboard_type;
 		return;
+	}
+
+	if (op == 0x3e) {
+		// Relative position device registered in this video mode.
+		// See 5-12 in Inside Macintosh: Devices, chapter 5 "ADB Manager".
+		report_relative_mouse_capability();
 	}
 
 	// Cut op into fields
@@ -254,6 +262,7 @@ void ADBMouseMoved(int x, int y)
 	B2_lock_mutex(mouse_lock);
 	if (relative_mouse) {
 		mouse_x += x; mouse_y += y;
+		last_mouse_down_delta_x += x; last_mouse_down_delta_y += y;
 	} else {
 		if (touch_input &&
 			!mouse_down &&
@@ -286,6 +295,20 @@ void ADBMouseMoved(int x, int y)
 	TriggerInterrupt();
 }
 
+void ADBMouseClick(int button) {
+	button_buffer[button_write_ptr] = button;
+	button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
+	SetInterruptFlag(INTFLAG_ADB);
+	TriggerInterrupt();
+
+	usleep(20000);
+
+	button_buffer[button_write_ptr] = button | 0x80;
+	button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
+	SetInterruptFlag(INTFLAG_ADB);
+	TriggerInterrupt();
+}
+
 
 /*
  *  Mouse button pressed
@@ -302,13 +325,19 @@ void ADBMouseDown(int button)
 	if (touch_input)
 		usleep(20000); // To eliminate the simultanious "move mouse and click" race condition
 
-    // O2S: Add button to buffer
-    button_buffer[button_write_ptr] = button;
-    button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
+	if (touch_input && relative_mouse) {
+		last_mouse_down_delta_x = last_mouse_down_delta_y = 0;
+	} else {
 
-    // O2S: mouse_button[button] = true;
-	SetInterruptFlag(INTFLAG_ADB);
-	TriggerInterrupt();
+		// O2S: Add button to buffer
+		button_buffer[button_write_ptr] = button;
+		button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
+
+		// O2S: mouse_button[button] = true;
+		SetInterruptFlag(INTFLAG_ADB);
+		TriggerInterrupt();
+
+	}
 
 	mouse_down = true;
 
@@ -325,13 +354,27 @@ void ADBMouseUp(int button)
 	if (touch_input)
 		usleep(20000); // To eliminate the simultanious "move mouse and click" race condition
 
-    // O2S: Add button to buffer
-    button_buffer[button_write_ptr] = button | 0x80;
-    button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
+	if (touch_input && relative_mouse) {
+		time_t now;
+		time(&now);
 
-    // O2S: mouse_button[button] = false;
-	SetInterruptFlag(INTFLAG_ADB);
-	TriggerInterrupt();
+		if (last_mouse_down_delta_x < double_click_mouse_move_tolerance &&
+			last_mouse_down_delta_y < double_click_mouse_move_tolerance &&
+			difftime(now, latest_mouse_down_time) < 1) {
+			ADBMouseClick(button);
+		}
+
+	} else {
+
+		// O2S: Add button to buffer
+		button_buffer[button_write_ptr] = button | 0x80;
+		button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
+
+		// O2S: mouse_button[button] = false;
+		SetInterruptFlag(INTFLAG_ADB);
+		TriggerInterrupt();
+
+	}
 
 	mouse_down = false;
 }

@@ -23,7 +23,7 @@ import UIKit
 
 class GamepadButton: UIButton {
 	static var length: CGFloat {
-		if UIDevice.isSmallScreenSize {
+		if UIScreen.isSmallSize {
 			return 64
 		}
 		return UIScreen.isPortraitMode ? 78 : 80
