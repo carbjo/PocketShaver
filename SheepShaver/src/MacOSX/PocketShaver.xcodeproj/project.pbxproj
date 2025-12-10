@@ -136,6 +136,7 @@
 		C77CF0742E7823D900D2A854 /* RomManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2782E78232B0018DB8B /* RomManager.swift */; };
 		C792C17E2E47618A0016DDAF /* InformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C792C17D2E4761830016DDAF /* InformationView.swift */; };
 		C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79A69272E62040300F582A6 /* RomPathObjC.mm */; };
+		C7A9AB9A2EED61F2001EC4DB /* LocalNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */; };
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
 		C7BC1A642E2A84B2006F95CB /* MonitorResolutionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */; };
 		C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */; };
@@ -635,6 +636,7 @@
 		C792C17D2E4761830016DDAF /* InformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationView.swift; sourceTree = "<group>"; };
 		C79A69272E62040300F582A6 /* RomPathObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomPathObjC.mm; sourceTree = "<group>"; };
 		C79A69292E62043100F582A6 /* RomPathObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomPathObjC.h; sourceTree = "<group>"; };
+		C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotifications.swift; sourceTree = "<group>"; };
 		C7B616CF2E9D374800483010 /* hfs-ios.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "hfs-ios.h"; sourceTree = "<group>"; };
 		C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldDelegate.swift; sourceTree = "<group>"; };
 		C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorResolutionManager.swift; sourceTree = "<group>"; };
@@ -1326,6 +1328,7 @@
 				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
 				C7DCEF3B2E86F53B00EAED05 /* Haptic Feedback */,
 				C74035A92EDAEC1C0045B9C6 /* FPS counter */,
+				C7A9AB982EED61B4001EC4DB /* Local notifications */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -1435,6 +1438,14 @@
 				C7699F142EC464930083B3B3 /* Colors.swift */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		C7A9AB982EED61B4001EC4DB /* Local notifications */ = {
+			isa = PBXGroup;
+			children = (
+				C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */,
+			);
+			path = "Local notifications";
 			sourceTree = "<group>";
 		};
 		C7C383792E7861EF0051C5A4 /* Setup Instructions */ = {
@@ -2140,6 +2151,7 @@
 				C7C3D2752E781ACF0018DB8B /* PreferencesAdvancedCells.swift in Sources */,
 				C74E10792EA9228F00150945 /* ImpMutableBTreeFile.m in Sources */,
 				C74E107A2EA9228F00150945 /* ImpBTreeHeaderNode.m in Sources */,
+				C7A9AB9A2EED61F2001EC4DB /* LocalNotifications.swift in Sources */,
 				C74E107B2EA9228F00150945 /* ImpBTreeMapNode.m in Sources */,
 				C74E107C2EA9228F00150945 /* ImpComparisonUtilities.m in Sources */,
 				C74E107D2EA9228F00150945 /* ImpBTreeIndexNode.m in Sources */,

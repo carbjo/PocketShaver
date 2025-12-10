@@ -8,10 +8,6 @@
 import NotificationCenter
 import UIKit
 
-enum MiscellaneousNotifications {
-	static let fpsCounterSettingChanged = NSNotification.Name("fpsCounterSettingChanged")
-}
-
 enum FrameRateSetting: String, Codable, CaseIterable {
 	case f60hz
 	case f75hz
@@ -24,6 +20,13 @@ enum FrameRateSetting: String, Codable, CaseIterable {
 		case .f120hz: return 120
 		}
 	}
+}
+
+enum RelativeMouseModeSetting: String, Codable, CaseIterable {
+	case alwaysOff
+	case manual
+	case automatic
+	case alwaysOn
 }
 
 class MiscellaneousSettings: Codable {
@@ -44,12 +47,13 @@ class MiscellaneousSettings: Codable {
 	}
 	private(set) var fpsCounterEnabled: Bool {
 		didSet {
-			NotificationCenter.default.post(.init(name: MiscellaneousNotifications.fpsCounterSettingChanged))
+			NotificationCenter.default.post(.init(name: LocalNotifications.fpsCounterSettingChanged))
 		}
 	}
 	private(set) var frameRateSetting: FrameRateSetting
 	private(set) var alwaysLandscapeMode: Bool
 	private(set) var hasDisplayedPortraitModeWarning: Bool
+	private(set) var relativeMouseModeSetting: RelativeMouseModeSetting
 
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		if #available(iOS 16, *) {
@@ -77,6 +81,7 @@ class MiscellaneousSettings: Codable {
 		}
 		alwaysLandscapeMode = false
 		hasDisplayedPortraitModeWarning = false
+		relativeMouseModeSetting = .automatic
 	}
 
 	@MainActor
@@ -178,6 +183,13 @@ class MiscellaneousSettings: Codable {
 
 		saveAsCurrent()
 	}
+
+	@MainActor
+	func set(relativeMouseModeSetting: RelativeMouseModeSetting) {
+		self.relativeMouseModeSetting = relativeMouseModeSetting
+
+		saveAsCurrent()
+	}
 }
 
 @objcMembers
@@ -191,5 +203,20 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func getFrameRateSetting() -> Int {
 		MiscellaneousSettings.current.frameRateSetting.frameRate
+	}
+
+	@MainActor
+	static func isRelateiveMouseModeSettingAlwaysOn() -> Bool {
+		MiscellaneousSettings.current.relativeMouseModeSetting == .alwaysOn
+	}
+
+	@MainActor
+	static func isRelateiveMouseModeSettingAlwaysAutomatic() -> Bool {
+		MiscellaneousSettings.current.relativeMouseModeSetting == .automatic
+	}
+
+	@MainActor
+	static func isRelateiveMouseModeSettingAlwaysOff() -> Bool {
+		MiscellaneousSettings.current.relativeMouseModeSetting == .alwaysOff
 	}
 }

@@ -27,6 +27,21 @@ class InformationView: UIVisualEffectView {
 		return label
 	}()
 
+	private lazy var hintStackView: UIStackView = {
+		let stackView = UIStackView.withoutConstraints()
+		stackView.axis = .horizontal
+		stackView.spacing = 10
+		stackView.alignment = .center
+		stackView.distribution = .fill
+		return stackView
+	}()
+
+	private lazy var hintIconImageView: UIImageView = {
+		let imageView = UIImageView.withoutConstraints()
+		imageView.tintColor = .white
+		return imageView
+	}()
+
 	private lazy var hintLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.textColor = .white
@@ -47,7 +62,10 @@ class InformationView: UIVisualEffectView {
 
 		contentView.addSubview(stackView)
 		stackView.addArrangedSubview(titleLabel)
-		stackView.addArrangedSubview(hintLabel)
+		stackView.addArrangedSubview(hintStackView)
+
+		hintStackView.addArrangedSubview(hintIconImageView)
+		hintStackView.addArrangedSubview(hintLabel)
 
 		titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 		titleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -64,6 +82,7 @@ class InformationView: UIVisualEffectView {
 
 	func show(
 		title: String? = nil,
+		hintIcon: ImageResource? = nil,
 		hint: String? = nil,
 		atBottom: Bool
 	) {
@@ -74,6 +93,13 @@ class InformationView: UIVisualEffectView {
 			titleLabel.isHidden = false
 		} else {
 			titleLabel.isHidden = true
+		}
+
+		if let hintIcon {
+			hintIconImageView.image = .init(resource: hintIcon).applyingSymbolConfiguration(.init(pointSize: 12))
+			hintIconImageView.isHidden = false
+		} else {
+			hintIconImageView.isHidden = true
 		}
 
 		if let hint {

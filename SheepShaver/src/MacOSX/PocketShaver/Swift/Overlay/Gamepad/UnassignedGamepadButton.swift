@@ -34,7 +34,7 @@ class UnassignedGamepadButton: UIView {
 
 		let length = GamepadButton.length
 
-		if UIDevice.isSmallScreenSize {
+		if UIScreen.isSmallSize {
 			label.font = .systemFont(ofSize: 16)
 		}
 

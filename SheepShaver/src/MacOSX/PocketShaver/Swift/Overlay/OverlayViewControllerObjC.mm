@@ -11,6 +11,7 @@
 #include "sysdeps.h"
 #include "adb.h"
 #include "math.h"
+#import "MiscellaneousSettingsObjC.h"
 
 UIImpactFeedbackGenerator *objCKeyDownFeedbackGenerator = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleSoft];
 
@@ -50,6 +51,10 @@ void objc_initOverlayViewController(void) {
 					break;
 			}
 		}];
+
+		if (MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAlwaysOn) {
+			objc_setRelativeMouseMode(true);
+		}
 	}
 }
 
@@ -72,3 +77,12 @@ void objc_reportVideoSize(unsigned short width, unsigned short height) {
 
 	ADBSetMouseMoveTolerance(tolerance);
 }
+
+void objc_reportRelativeMouseModeEnabled() {
+	[LocalNotificationsObjCProxy sendRelativeMouseModeEnabled];
+}
+
+void objc_reportRelativeMouseModeDisabled() {
+	[LocalNotificationsObjCProxy sendRelativeMouseModeDisabled];
+}
+
