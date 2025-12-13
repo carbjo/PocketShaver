@@ -309,7 +309,9 @@ class PreferencesAdvancedRelativeMouseModeFooterCell: UITableViewCell {
 		attrString.append(.init(string: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the "))
 
 		let mouseIconAttachment = NSTextAttachment()
-		mouseIconAttachment.image = UIImage(resource: .computermouse).applyingSymbolConfiguration(.init(pointSize: 12))
+		mouseIconAttachment.image = UIImage(resource: .computermouse)
+			.withRenderingMode(.alwaysTemplate)
+			.applyingSymbolConfiguration(.init(pointSize: 12))
 		attrString.append(.init(attachment: mouseIconAttachment))
 
 		attrString.append(.init(string: " button above the keyboard."))

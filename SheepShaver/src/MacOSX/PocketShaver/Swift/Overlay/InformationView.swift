@@ -84,6 +84,7 @@ class InformationView: UIVisualEffectView {
 		title: String? = nil,
 		hintIcon: ImageResource? = nil,
 		hint: String? = nil,
+		attributedHint: NSAttributedString? = nil,
 		atBottom: Bool
 	) {
 		let screenHeight = UIScreen.main.bounds.height
@@ -102,7 +103,10 @@ class InformationView: UIVisualEffectView {
 			hintIconImageView.isHidden = true
 		}
 
-		if let hint {
+		if let attributedHint {
+			hintLabel.attributedText = attributedHint
+			hintLabel.isHidden = false
+		} else if let hint {
 			hintLabel.text = hint
 			hintLabel.isHidden = false
 		} else {
@@ -139,5 +143,50 @@ class InformationView: UIVisualEffectView {
 				}
 			}
 		)
+	}
+
+	func showInformation(
+		for state: OverlayState,
+		gamepadSettingsName: String,
+		showHints: Bool,
+		atBottom: Bool = false
+	) {
+		if showHints {
+			switch state {
+			case .normal:
+				show(hint: "Three finger swipe ↓ for Gamepad mode, ↑ for Keyboard mode", atBottom: atBottom)
+			case .showingGamepad:
+				show(
+					title: gamepadSettingsName,
+					hint: "Three finger swipe ↓ to edit, ← or → to switch layout, ↑ to dismiss",
+					atBottom: atBottom
+				)
+			case .editingGamepad:
+				show(
+					title: "Editing \(gamepadSettingsName)",
+					hint: "Three finger swipe ↑ to exit edit mode", atBottom: atBottom
+				)
+			case .showingKeyboard:
+				let attrString = NSMutableAttributedString()
+
+				attrString.append(.init(string: "Two finger swipe ↑ or ↓ to scroll screen\nTap "))
+
+				let keyboardDownIconAttachment = NSTextAttachment()
+				keyboardDownIconAttachment.image = UIImage(resource:.keyboardChevronCompactDown)
+					.withRenderingMode(.alwaysTemplate)
+					.applyingSymbolConfiguration(.init(pointSize: 12))
+
+				attrString.append(.init(attachment: keyboardDownIconAttachment))
+
+				attrString.append(.init(string: " to dismiss."))
+
+				show(attributedHint: attrString, atBottom: atBottom)
+			}
+		} else if state == .showingGamepad {
+			show(
+				title: gamepadSettingsName,
+				atBottom: atBottom
+			)
+		}
 	}
 }

@@ -86,8 +86,13 @@ public class OverlayViewController: UIViewController {
 				self?.presentPreferences()
 			},
 			didTapDismissKeyboardButton: { [weak self] in
-				self?.transition(to: .normal)
-				self?.flashInformation(for: .normal)
+				guard let self else { return }
+				transition(to: .normal)
+				informationView.showInformation(
+					for: .normal,
+					gamepadSettingsName: gamepadSettingsName,
+					showHints: MiscellaneousSettings.current.showHints
+				)
 			},
 			hiddenInputFieldDelegate: hiddenInputFieldDelegate
 		)
@@ -174,7 +179,12 @@ public class OverlayViewController: UIViewController {
 		}
 
 		if state == .normal {
-			flashInformation(for: .normal, atBottom: true)
+			informationView.showInformation(
+				for: .normal,
+				gamepadSettingsName: gamepadSettingsName,
+				showHints: MiscellaneousSettings.current.showHints,
+				atBottom: true
+			)
 		}
 	}
 
@@ -337,11 +347,7 @@ public class OverlayViewController: UIViewController {
 					resultingState = .showingGamepad
 				}
 			case .showingKeyboard:
-				if self.threeFingerGestureDragDelta.dy > threshold {
-					resultingState = .normal
-				} else {
-					resultingState = .showingKeyboard
-				}
+				resultingState = .showingKeyboard
 			case .editingGamepad:
 				if self.threeFingerGestureDragDelta.dy < -threshold {
 					resultingState = .showingGamepad
@@ -350,7 +356,11 @@ public class OverlayViewController: UIViewController {
 				}
 			}
 
-			flashInformation(for: resultingState)
+			informationView.showInformation(
+				for: resultingState,
+				gamepadSettingsName: gamepadSettingsName,
+				showHints: MiscellaneousSettings.current.showHints
+			)
 
 			UIView.animate(
 				withDuration: willTranslateInLongAxis ? 0.6 : 0.28,
@@ -444,36 +454,6 @@ public class OverlayViewController: UIViewController {
 		}
 		twoFingerGestureDragDeltaSinceLatestHapticFeedback = .zero
 		threeFingerGestureDragDeltaSinceLatestHapticFeedback = .zero
-	}
-
-	private func flashInformation(
-		for state: OverlayState,
-		atBottom: Bool = false
-	) {
-		if MiscellaneousSettings.current.showHints {
-			switch state {
-			case .normal:
-				informationView.show(hint: "Three finger swipe ↓ for Gamepad mode, ↑ for Keyboard mode", atBottom: atBottom)
-			case .showingGamepad:
-				informationView.show(
-					title: gamepadSettingsName,
-					hint: "Three finger swipe ↓ to edit, ← or → to switch layout, ↑ to dismiss",
-					atBottom: atBottom
-				)
-			case .editingGamepad:
-				informationView.show(
-					title: "Editing \(gamepadSettingsName)",
-					hint: "Three finger swipe ↑ to exit edit mode", atBottom: atBottom
-				)
-			case .showingKeyboard:
-				informationView.show(hint: "Two finger swipe ↑ or ↓ to scroll screen\nThree finger swipe ↓ to dismiss", atBottom: atBottom)
-			}
-		} else if state == .showingGamepad {
-			informationView.show(
-				title: gamepadSettingsName,
-				atBottom: atBottom
-			)
-		}
 	}
 
 	private func toggleRelativeMouseMode() {
