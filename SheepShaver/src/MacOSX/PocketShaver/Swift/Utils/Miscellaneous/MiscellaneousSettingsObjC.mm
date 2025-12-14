@@ -40,7 +40,3 @@ bool objc_getRelateiveMouseModeSettingIsAlwaysOn(void) {
 bool objc_getRelateiveMouseModeSettingIsAlwaysAutomatic(void) {
 	return MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAlwaysAutomatic;
 }
-
-bool objc_getRelateiveMouseModeSettingIsAlwaysOff(void) {
-	return MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAlwaysOff;
-}
