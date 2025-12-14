@@ -76,6 +76,10 @@ class GamepadButton: UIButton {
 		configuration?.baseBackgroundColor = isEditing ? .lightGray.withAlphaComponent(0.85) : .lightGray.withAlphaComponent(0.5)
 	}
 
+	override func point(inside point: CGPoint, with _: UIEvent?) -> Bool {
+		bounds.insetBy(dx: -2, dy: -4).contains(point)
+	}
+
 	@objc private func keyDown() {
 		guard !isEditing else { return }
 
