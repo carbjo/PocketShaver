@@ -8,4 +8,3 @@
 int objc_getFrameRateSetting(void);
 bool objc_getRelateiveMouseModeSettingIsAlwaysOn(void);
 bool objc_getRelateiveMouseModeSettingIsAlwaysAutomatic(void);
-bool objc_getRelateiveMouseModeSettingIsAlwaysOff(void);

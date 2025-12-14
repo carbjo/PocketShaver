@@ -2090,9 +2090,6 @@ void SDL_monitor_desc::switch_to_current_mode(void)
 }
 
 void set_relative_mouse_enabled() {
-	if (objc_getRelateiveMouseModeSettingIsAlwaysOff()) {
-		return;
-	}
 	drv->grab_mouse();
 }
 

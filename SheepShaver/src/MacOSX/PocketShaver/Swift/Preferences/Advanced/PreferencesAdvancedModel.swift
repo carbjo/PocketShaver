@@ -80,8 +80,6 @@ class PreferencesAdvancedModel {
 			MiscellaneousSettings.current.set(relativeMouseModeSetting: newValue)
 
 			switch newValue {
-			case .alwaysOff:
-				objc_setRelativeMouseMode(false);
 			case .automatic:
 				objc_setRelativeMouseModeAutomatic();
 			case .alwaysOn:

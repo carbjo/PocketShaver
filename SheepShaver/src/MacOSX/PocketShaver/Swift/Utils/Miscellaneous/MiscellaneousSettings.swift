@@ -23,7 +23,6 @@ enum FrameRateSetting: String, Codable, CaseIterable {
 }
 
 enum RelativeMouseModeSetting: String, Codable, CaseIterable {
-	case alwaysOff
 	case manual
 	case automatic
 	case alwaysOn
@@ -213,10 +212,5 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func isRelateiveMouseModeSettingAlwaysAutomatic() -> Bool {
 		MiscellaneousSettings.current.relativeMouseModeSetting == .automatic
-	}
-
-	@MainActor
-	static func isRelateiveMouseModeSettingAlwaysOff() -> Bool {
-		MiscellaneousSettings.current.relativeMouseModeSetting == .alwaysOff
 	}
 }

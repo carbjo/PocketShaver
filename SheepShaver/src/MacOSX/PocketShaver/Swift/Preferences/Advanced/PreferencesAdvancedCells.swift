@@ -246,24 +246,10 @@ class PreferencesAdvancedRelativeMouseModeSettingCell: UITableViewCell {
 
 		contentView.addSubview(segmentedControl)
 
-		let sideMargin: CGFloat
-		if UIScreen.isNarrowWidth {
-			sideMargin = -2
-		} else if UIScreen.isSmallSize {
-			sideMargin = 8
-		} else {
-			sideMargin = 16
-		}
-
-		let trailingConstraint = segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -sideMargin)
-		if !UIScreen.isNarrowWidth {
-			trailingConstraint.priority = .defaultHigh
-		}
-
 		NSLayoutConstraint.activate([
-			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: sideMargin),
+			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
 			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			trailingConstraint,
+			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
 			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
 			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
 		])
@@ -335,7 +321,6 @@ private extension FrameRateSetting {
 private extension RelativeMouseModeSetting {
 	var label: String {
 		switch self {
-		case .alwaysOff: return "Always off"
 		case .manual: return "Manual"
 		case .automatic: return "Automatic"
 		case .alwaysOn: return "Always on"
