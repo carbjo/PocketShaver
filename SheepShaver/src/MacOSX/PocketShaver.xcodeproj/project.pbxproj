@@ -682,7 +682,7 @@
 		C7F6DF5E2E4B9BB300ED272A /* HoverMode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HoverMode.h; sourceTree = "<group>"; };
 		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
-		E204B98A28BC3EBE0081FDCA /* SheepShaveriOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SheepShaveriOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E204B98A28BC3EBE0081FDCA /* PocketShaver.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketShaver.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; path = "iOS Launch Screen.storyboard"; sourceTree = "<group>"; };
 		E204B9A428BC7BF10081FDCA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E204B9AE28BC7BF10081FDCA /* main.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
@@ -852,7 +852,7 @@
 				0856CCC114A99E1C000B1711 /* SheepShaver.app */,
 				0846E49A14B124DE00574779 /* libkpx_cpu.a */,
 				E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */,
-				E204B98A28BC3EBE0081FDCA /* SheepShaveriOS.app */,
+				E204B98A28BC3EBE0081FDCA /* PocketShaver.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -1785,9 +1785,9 @@
 			productReference = E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */;
 			productType = "com.apple.product-type.library.static";
 		};
-		E204B92728BC3EBE0081FDCA /* SheepShaveriOS */ = {
+		E204B92728BC3EBE0081FDCA /* PocketShaver */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = E204B98728BC3EBE0081FDCA /* Build configuration list for PBXNativeTarget "SheepShaveriOS" */;
+			buildConfigurationList = E204B98728BC3EBE0081FDCA /* Build configuration list for PBXNativeTarget "PocketShaver" */;
 			buildPhases = (
 				E204B93228BC3EBE0081FDCA /* Sources */,
 				E204B97D28BC3EBE0081FDCA /* Frameworks */,
@@ -1799,9 +1799,9 @@
 			dependencies = (
 				E204BA0728BC82FC0081FDCA /* PBXTargetDependency */,
 			);
-			name = SheepShaveriOS;
+			name = PocketShaver;
 			productName = SheepShaver;
-			productReference = E204B98A28BC3EBE0081FDCA /* SheepShaveriOS.app */;
+			productReference = E204B98A28BC3EBE0081FDCA /* PocketShaver.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -1835,7 +1835,7 @@
 			targets = (
 				0856CCC014A99E1C000B1711 /* SheepShaver */,
 				0846E49914B124DE00574779 /* kpx_cpu */,
-				E204B92728BC3EBE0081FDCA /* SheepShaveriOS */,
+				E204B92728BC3EBE0081FDCA /* PocketShaver */,
 				E204B90028BC3B640081FDCA /* kpx_cpu_ios */,
 			);
 		};
@@ -2824,7 +2824,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		E204B98728BC3EBE0081FDCA /* Build configuration list for PBXNativeTarget "SheepShaveriOS" */ = {
+		E204B98728BC3EBE0081FDCA /* Build configuration list for PBXNativeTarget "PocketShaver" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				E204B98828BC3EBE0081FDCA /* Debug */,

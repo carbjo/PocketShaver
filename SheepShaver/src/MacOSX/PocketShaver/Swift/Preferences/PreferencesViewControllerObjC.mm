@@ -6,7 +6,7 @@
 //
 
 #import <UIKit/UIKit.h>
-#import "SheepShaveriOS-Swift.h"
+#import "PocketShaver-Swift.h"
 
 __weak __typeof(PreferencesViewController) *vc;
 

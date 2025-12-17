@@ -7,7 +7,7 @@
 
 #import "MonitorResolutionsObjC.h"
 #import <UIKit/UIKit.h>
-#import "SheepShaveriOS-Swift.h"
+#import "PocketShaver-Swift.h"
 
 MonitorResolution::MonitorResolution(int inp_width, int inp_height, int inp_index) {
 	width = inp_width;
