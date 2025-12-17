@@ -8,7 +8,7 @@
 #import "MiscellaneousSettingsObjC.h"
 #import "MiscellaneousSettingsObjCCppHeader.h"
 #import <UIKit/UIKit.h>
-#import "SheepShaveriOS-Swift.h"
+#import "PocketShaver-Swift.h"
 #include "sysdeps.h"
 #include "adb.h"
 #include "utils_ios.h"
