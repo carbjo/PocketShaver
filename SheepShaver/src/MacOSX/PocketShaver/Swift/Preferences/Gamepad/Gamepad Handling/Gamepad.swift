@@ -21,6 +21,7 @@ struct GamepadButtonPosition: Codable, Equatable {
 enum GamepadButtonAssignment: Codable, Equatable {
 	case key(SDLKey)
 	case specialButton(SpecialButton)
+	case joystick(JoystickType)
 }
 
 struct GamepadButtonMapping: Codable, Equatable {
@@ -32,6 +33,12 @@ enum GamepadVisibilitySetting: Codable, Equatable {
 	case both
 	case portraitOnly
 	case landscapeOnly
+}
+
+enum GamepadConfigError: Error {
+	case joystickHasNoLayoutSpace
+	case joystickAtBottomRow
+	case joystickAtRightEdge
 }
 
 class GamepadConfig: Codable {
@@ -51,6 +58,29 @@ class GamepadConfig: Codable {
 	func replace(with specialButton: SpecialButton, at position: GamepadButtonPosition) {
 		removeAssignment(at: position)
 		mappings.append(.init(position: position, assignment: .specialButton(specialButton)))
+
+		saveChanges()
+	}
+
+	@MainActor
+	func replace(with joystickType: JoystickType, at position: GamepadButtonPosition) throws {
+		guard position.row != 0 else {
+			throw GamepadConfigError.joystickAtBottomRow
+		}
+		if position.side == .right {
+			guard position.index > 0 else {
+				throw GamepadConfigError.joystickAtRightEdge
+			}
+		}
+		let indexToTheRight = position.side == .left ? 1 : -1
+		guard mappings.firstIndex(where: { $0.position == .init(side: position.side, row: position.row - 1, index: position.index) }) == nil,
+		mappings.firstIndex(where: { $0.position == .init(side: position.side, row: position.row, index: position.index + indexToTheRight) }) == nil,
+		mappings.firstIndex(where: { $0.position == .init(side: position.side, row: position.row - 1, index: position.index + indexToTheRight) }) == nil else {
+			throw GamepadConfigError.joystickHasNoLayoutSpace
+		}
+
+		removeAssignment(at: position)
+		mappings.append(.init(position: position, assignment: .joystick(joystickType)))
 
 		saveChanges()
 	}

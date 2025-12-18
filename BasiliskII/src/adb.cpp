@@ -47,6 +47,7 @@
 #include <ctime>
 
 #import "HapticFeedbackObjC.h"
+#import "MiscellaneousSettingsObjCCppHeader.h"
 
 // Global variables
 static int mouse_x = 0, mouse_y = 0;							// Mouse position
@@ -309,6 +310,16 @@ void ADBMouseClick(int button) {
 	TriggerInterrupt();
 }
 
+void ADBWriteMouseDown(int button) {
+	// O2S: Add button to buffer
+	button_buffer[button_write_ptr] = button;
+	button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
+
+	// O2S: mouse_button[button] = true;
+	SetInterruptFlag(INTFLAG_ADB);
+	TriggerInterrupt();
+}
+
 
 /*
  *  Mouse button pressed
@@ -319,7 +330,8 @@ void ADBMouseDown(int button)
 	if (hover)
 		return;
 
-	if (haptic_feedback)
+	if (haptic_feedback &&
+		(!relative_mouse || objc_getRelativeMouseTapToClick()))
 		objc_hapticFeedback();
 
 	if (touch_input)
@@ -328,20 +340,22 @@ void ADBMouseDown(int button)
 	if (touch_input && relative_mouse) {
 		last_mouse_down_delta_x = last_mouse_down_delta_y = 0;
 	} else {
-
-		// O2S: Add button to buffer
-		button_buffer[button_write_ptr] = button;
-		button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
-
-		// O2S: mouse_button[button] = true;
-		SetInterruptFlag(INTFLAG_ADB);
-		TriggerInterrupt();
-
+		ADBWriteMouseDown(button);
 	}
 
 	mouse_down = true;
 
 	time(&latest_mouse_down_time);
+}
+
+void ADBWriteMouseUp(int button) {
+	// O2S: Add button to buffer
+	button_buffer[button_write_ptr] = button | 0x80;
+	button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
+
+	// O2S: mouse_button[button] = false;
+	SetInterruptFlag(INTFLAG_ADB);
+	TriggerInterrupt();
 }
 
 
@@ -361,19 +375,16 @@ void ADBMouseUp(int button)
 		if (last_mouse_down_delta_x < double_click_mouse_move_tolerance &&
 			last_mouse_down_delta_y < double_click_mouse_move_tolerance &&
 			difftime(now, latest_mouse_down_time) < 1) {
-			ADBMouseClick(button);
+			if (objc_getRelativeMouseTapToClick()) {
+				ADBMouseClick(button);
+			} else {
+				ADBWriteMouseUp(button);
+			}
+
 		}
 
 	} else {
-
-		// O2S: Add button to buffer
-		button_buffer[button_write_ptr] = button | 0x80;
-		button_write_ptr = (button_write_ptr + 1) % BUTTON_BUFFER_SIZE;
-
-		// O2S: mouse_button[button] = false;
-		SetInterruptFlag(INTFLAG_ADB);
-		TriggerInterrupt();
-
+		ADBWriteMouseUp(button);
 	}
 
 	mouse_down = false;

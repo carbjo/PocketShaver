@@ -9,27 +9,8 @@ import UIKit
 
 class GamepadLayerView: UIView {
 	
-	private lazy var leftCollectionStackView: GamepadButtonStackViewCollectionStackView = {
-		GamepadButtonStackViewCollectionStackView(
-			side: .left,
-			keyInteraction: keyInteraction,
-			specialButtonInteraction: specialButtonInteraction
-		) { [weak self] row, index in
-			guard let self else { return }
-			didRequestAssignmentAt(.init(side: .left, row: row, index: index))
-		}
-	}()
-
-	private lazy var rightCollectionStackView: GamepadButtonStackViewCollectionStackView = {
-		GamepadButtonStackViewCollectionStackView(
-			side: .right,
-			keyInteraction: keyInteraction,
-			specialButtonInteraction: specialButtonInteraction
-		) { [weak self] row, index in
-			guard let self else { return }
-			didRequestAssignmentAt(.init(side: .right, row: row, index: index))
-		}
-	}()
+	private let leftCollectionStackView: GamepadButtonStackViewCollectionStackView
+	private let rightCollectionStackView: GamepadButtonStackViewCollectionStackView
 
 	private lazy var settingsButton: UIButton = {
 		let button = UIButton.withoutConstraints()
@@ -42,21 +23,36 @@ class GamepadLayerView: UIView {
 		return button
 	}()
 
-	private let keyInteraction: ((Int, Bool) -> Void)
-	private let specialButtonInteraction: ((SpecialButton, Bool) -> Void)
-	private let didRequestAssignmentAt: ((GamepadButtonPosition) -> Void)
 	private let didRequestLayoutSettings: (() -> Void)
 
 	init(
-		keyInteraction: @escaping ((Int, Bool) -> Void),
+		isRelativeMouseModeOn: Bool,
+		keyInteraction: @escaping ((Int, Bool, Bool) -> Void),
 		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
+		didFireJoystick: @escaping ((CGPoint) -> Void),
 		didRequestAssignmentAt: @escaping ((GamepadButtonPosition) -> Void),
 		didRequestLayoutSettings: @escaping (() -> Void)
 	) {
-		self.keyInteraction = keyInteraction
-		self.specialButtonInteraction = specialButtonInteraction
-		self.didRequestAssignmentAt = didRequestAssignmentAt
 		self.didRequestLayoutSettings = didRequestLayoutSettings
+
+		self.leftCollectionStackView = GamepadButtonStackViewCollectionStackView(
+			side: .left,
+			isRelativeMouseModeOn: isRelativeMouseModeOn,
+			keyInteraction: keyInteraction,
+			specialButtonInteraction: specialButtonInteraction,
+			didFireJoystick: didFireJoystick
+		) { row, index in
+			didRequestAssignmentAt(.init(side: .left, row: row, index: index))
+		}
+		self.rightCollectionStackView = GamepadButtonStackViewCollectionStackView(
+			side: .right,
+			isRelativeMouseModeOn: isRelativeMouseModeOn,
+			keyInteraction: keyInteraction,
+			specialButtonInteraction: specialButtonInteraction,
+			didFireJoystick: didFireJoystick
+		) { row, index in
+			didRequestAssignmentAt(.init(side: .right, row: row, index: index))
+		}
 
 		super.init(frame: .zero)
 
@@ -87,8 +83,10 @@ class GamepadLayerView: UIView {
 
 	convenience init() {
 		self.init(
-			keyInteraction: {_, _ in },
+			isRelativeMouseModeOn: false,
+			keyInteraction: {_, _, _ in },
 			specialButtonInteraction: {_, _ in },
+			didFireJoystick: {_ in },
 			didRequestAssignmentAt: {_ in },
 			didRequestLayoutSettings: {}
 		)
@@ -119,6 +117,11 @@ class GamepadLayerView: UIView {
 				rightCollectionStackView.set(mapping.assignment, row: mapping.position.row, index: mapping.position.index)
 			}
 		}
+	}
+
+	func set(isRelativeMouseModeOn: Bool) {
+		leftCollectionStackView.set(isRelativeMouseModeOn: isRelativeMouseModeOn)
+		rightCollectionStackView.set(isRelativeMouseModeOn: isRelativeMouseModeOn)
 	}
 
 	func set(isEditing: Bool) {

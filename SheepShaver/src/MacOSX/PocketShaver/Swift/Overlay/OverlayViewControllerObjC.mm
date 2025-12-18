@@ -12,8 +12,7 @@
 #include "adb.h"
 #include "math.h"
 #import "MiscellaneousSettingsObjC.h"
-
-UIImpactFeedbackGenerator *objCKeyDownFeedbackGenerator = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleSoft];
+#import "HapticFeedbackObjC.h"
 
 void objc_initOverlayViewController(void) {
 	@autoreleasepool {
@@ -21,10 +20,6 @@ void objc_initOverlayViewController(void) {
 		[OverlayViewController injectOverlayViewControllerWithKeyInteraction:^(NSInteger key, BOOL isDown){
 			if (isDown) {
 				ADBKeyDown((int)key);
-
-				if ([MiscellaneousSettingsObjC isKeyHapticFeedbackOn]) {
-					[objCKeyDownFeedbackGenerator impactOccurred];
-				}
 			} else {
 				ADBKeyUp((int)key);
 			}
@@ -49,7 +44,23 @@ void objc_initOverlayViewController(void) {
 						ADBSetHoverMode(Regular);
 					}
 					break;
+				case SpecialButtonMouseClick:
+					if (isDown) {
+						ADBWriteMouseDown(0);
+
+						if ([MiscellaneousSettingsObjC isKeyHapticFeedbackOn]) {
+							objc_hapticFeedback();
+						}
+					} else {
+						ADBWriteMouseUp(0);
+					}
+					break;
 			}
+		} didFireJoystick:^(CGPoint point) {
+			int x = (int) point.x;
+			int y = (int) point.y;
+
+			ADBMouseMoved(x, y);
 		}];
 
 		if (MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAlwaysOn) {
