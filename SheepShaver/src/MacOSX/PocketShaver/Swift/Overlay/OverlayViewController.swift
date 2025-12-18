@@ -18,6 +18,7 @@ enum OverlayState {
 @objc
 public class OverlayViewController: UIViewController {
 
+	// Retain state even if new instances of OverlayViewController is made by SDL
 	@MainActor private static var globalState: OverlayState = .normal
 
 	private var state: OverlayState {
@@ -45,8 +46,10 @@ public class OverlayViewController: UIViewController {
 
 	private lazy var gamepadLayerView: GamepadLayerView = {
 		GamepadLayerView(
+			isRelativeMouseModeOn: isRelativeMouseModeEnabled,
 			keyInteraction: keyInteraction,
 			specialButtonInteraction: specialButtonInteraction,
+			didFireJoystick: didFireJoystick,
 			didRequestAssignmentAt: { [weak self] position in
 				self?.presentAlertForEditingButtonMapping(at: position)
 			},
@@ -72,10 +75,10 @@ public class OverlayViewController: UIViewController {
 		guard let self else { fatalError() }
 		return HiddenInputField(
 			pushKey: { [weak self] key in
-				self?.keyInteraction(key, true)
+				self?.keyInteraction(key, true, false)
 			},
 			releaseKey: { [weak self] key in
-				self?.keyInteraction(key, false)
+				self?.keyInteraction(key, false, false)
 			},
 			canToggleRelativeMouseMode: canToggleRelativeMouseMode,
 			isRelativeMouseModeEnabled: isRelativeMouseModeEnabled,
@@ -115,8 +118,10 @@ public class OverlayViewController: UIViewController {
 
 	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
 
-	private let keyInteraction: ((Int, Bool) -> Void)
+	private var keyInteraction: ((Int, Bool, Bool) -> Void)!
 	private let specialButtonInteraction: ((SpecialButton, Bool) -> Void)
+	private let didFireJoystick: ((CGPoint) -> Void)
+	private let keyDownFeedbackGenerator = UIImpactFeedbackGenerator(style: .soft)
 
 	private var gamepadConfig = GamepadManager.shared.config
 	private var upcomingGamepadConfig: GamepadConfig?
@@ -134,12 +139,22 @@ public class OverlayViewController: UIViewController {
 
 	private init(
 		keyInteraction: @escaping ((Int, Bool) -> Void),
-		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void)
+		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
+		didFireJoystick: @escaping ((CGPoint) -> Void)
 	) {
-		self.keyInteraction = keyInteraction
 		self.specialButtonInteraction = specialButtonInteraction
+		self.didFireJoystick = didFireJoystick
 
 		super.init(nibName: nil, bundle: nil)
+
+		self.keyInteraction = { [weak self] key, isDown, hapticAllowed in
+			keyInteraction(key, isDown)
+			if isDown,
+			   hapticAllowed,
+			   MiscellaneousSettings.current.keyHapticFeedback {
+				self?.keyDownFeedbackGenerator.impactOccurred()
+			}
+		}
 
 		NotificationCenter.default.addObserver(self, selector: #selector(updateFpsCounter), name: LocalNotifications.fpsCounterSettingChanged, object: nil)
 	}
@@ -429,21 +444,21 @@ public class OverlayViewController: UIViewController {
 
 	private func handle(hiddenInputFieldOutput: HiddenInputFieldOutput) {
 		if hiddenInputFieldOutput.withShift {
-			self.keyInteraction(SDLKey.shift.enValue, true)
+			self.keyInteraction(SDLKey.shift.enValue, true, false)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
 				guard let self else { return }
-				self.keyInteraction(hiddenInputFieldOutput.value, true)
+				self.keyInteraction(hiddenInputFieldOutput.value, true, false)
 			}
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
 				guard let self else { return }
-				self.keyInteraction(SDLKey.shift.enValue, false)
-				self.keyInteraction(hiddenInputFieldOutput.value, false)
+				self.keyInteraction(SDLKey.shift.enValue, false, false)
+				self.keyInteraction(hiddenInputFieldOutput.value, false, false)
 			}
 		} else {
-			self.keyInteraction(hiddenInputFieldOutput.value, true)
+			self.keyInteraction(hiddenInputFieldOutput.value, true, false)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
 				guard let self else { return }
-				self.keyInteraction(hiddenInputFieldOutput.value, false)
+				self.keyInteraction(hiddenInputFieldOutput.value, false, false)
 			}
 		}
 	}
@@ -488,6 +503,19 @@ public class OverlayViewController: UIViewController {
 						gamepadConfig.replace(with: specialButton, at: position)
 					case .key(let key):
 						gamepadConfig.replace(with: key, at: position)
+					case .joystick(let joystickType):
+						do {
+							try gamepadConfig.replace(with: joystickType, at: position)
+						} catch GamepadConfigError.joystickAtBottomRow {
+							let alertVc = UIAlertController.withMessage("Joystick must be placed above bottom row")
+							present(alertVc, animated: true)
+						} catch GamepadConfigError.joystickAtRightEdge {
+							let alertVc = UIAlertController.withMessage("Joystick must be placed at least one column left of rightmost column")
+							present(alertVc, animated: true)
+						} catch GamepadConfigError.joystickHasNoLayoutSpace {
+							let alertVc = UIAlertController.withMessage("The slot to the right, below and diagnoally right and below must all be vacant for a joystick to be placed. A joystick needs 2x2 slots.")
+							present(alertVc, animated: true)
+						} catch {}
 					}
 				case .unassign:
 					gamepadConfig.removeAssignment(at: position)
@@ -591,6 +619,7 @@ public class OverlayViewController: UIViewController {
 		}
 
 		hiddenInputField.configure(isRelativeMouseModeEnabled: true)
+		gamepadLayerView.set(isRelativeMouseModeOn: true)
 	}
 
 	@objc
@@ -606,6 +635,7 @@ public class OverlayViewController: UIViewController {
 		}
 
 		hiddenInputField.configure(isRelativeMouseModeEnabled: false)
+		gamepadLayerView.set(isRelativeMouseModeOn: false)
 	}
 
 	@objc
@@ -630,7 +660,8 @@ extension OverlayViewController {
 	@objc
 	public static func injectOverlayViewController(
 		keyInteraction: @escaping ((Int, Bool) -> Void),
-		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void)
+		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
+		didFireJoystick: @escaping ((CGPoint) -> Void)
 	) {
 		guard let window = UIApplication.shared.delegate?.window,
 		let sdlVC = window?.rootViewController else {
@@ -643,7 +674,8 @@ extension OverlayViewController {
 
 		let vc = OverlayViewController(
 			keyInteraction: keyInteraction,
-			specialButtonInteraction: specialButtonInteraction
+			specialButtonInteraction: specialButtonInteraction,
+			didFireJoystick: didFireJoystick
 		)
 
 		vc.willMove(toParent: sdlVC)

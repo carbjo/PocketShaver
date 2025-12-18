@@ -19,9 +19,10 @@ class GamepadAssignButtonModel {
 	private(set) var searchString = ""
 
 	init() {
+		let joystick = [GamepadButtonAssignment.joystick(.mouse), GamepadButtonAssignment.joystick(.wasd)]
 		let specialKeys = SpecialButton.allCases.map({ GamepadButtonAssignment.specialButton($0) })
 		let sdlKeys = SDLKey.allCases.map({ GamepadButtonAssignment.key($0) })
-		originalList = specialKeys + sdlKeys
+		originalList = joystick + specialKeys + sdlKeys
 		results = originalList
 	}
 
@@ -87,6 +88,15 @@ extension GamepadButtonAssignment {
 				return "Hover above"
 			case .hoverBelow:
 				return "Hover below"
+			case .mouseClick:
+				return "Mouse click"
+			}
+		case .joystick(let joystickType):
+			switch joystickType {
+			case .mouse:
+				return "Joystick (mouse)"
+			case .wasd:
+				return "Joystick (WASD)"
 			}
 		}
 	}
@@ -103,7 +113,11 @@ extension GamepadButtonAssignment {
 				return "Touch input hovers mouse cursor without clicking, offset above the touch point, for visibility. Hold button while using (not a toggle)."
 			case .hoverBelow:
 				return "Touch input hovers mouse cursor without clicking, offset below the touch point, for visibility. Hold button while using (not a toggle)."
+			case .mouseClick:
+				return "Mouse click."
 			}
+		case .joystick:
+			return "Joystick. Only works in relative mouse mode (and games and apps that use that mode)."
 		}
 	}
 }

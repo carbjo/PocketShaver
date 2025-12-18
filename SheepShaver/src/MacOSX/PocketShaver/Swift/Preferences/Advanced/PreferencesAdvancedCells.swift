@@ -280,8 +280,6 @@ class PreferencesAdvancedRelativeMouseModeFooterCell: UITableViewCell {
 	init() {
 		super.init(style: .default, reuseIdentifier: nil)
 
-		hideSeparator()
-
 		contentView.addSubview(informationLabel)
 
 		NSLayoutConstraint.activate([

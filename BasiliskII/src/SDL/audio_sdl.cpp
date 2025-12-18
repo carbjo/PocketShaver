@@ -29,6 +29,7 @@
 #include "user_strings.h"
 #include "audio.h"
 #include "audio_defs.h"
+#include "MiscellaneousSettingsObjCCppHeader.h"
 
 #define DEBUG 0
 #include "debug.h"
@@ -161,7 +162,7 @@ void AudioInit(void)
 	audio_component_flags = cmpWantsRegisterMessage | kStereoOut | k16BitOut;
 
 	// Sound disabled in prefs? Then do nothing
-	if (PrefsFindBool("nosound"))
+	if (objc_getSoundDisabled())
 		return;
 
 	// Init semaphore

@@ -35,6 +35,9 @@ extern void ADBMouseUp(int button);
 extern void ADBKeyDown(int code);
 extern void ADBKeyUp(int code);
 
+extern void ADBWriteMouseDown(int button);
+extern void ADBWriteMouseUp(int button);
+
 extern void ADBInterrupt(void);
 
 extern void ADBSetRelMouseMode(bool relative);

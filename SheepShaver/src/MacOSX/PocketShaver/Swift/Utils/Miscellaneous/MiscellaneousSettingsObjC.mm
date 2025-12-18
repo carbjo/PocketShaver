@@ -33,6 +33,10 @@ int objc_getFrameRateSetting(void) {
 	return (int)MiscellaneousSettingsObjC.getFrameRateSetting;
 }
 
+bool objc_getIPadMousePassthroughOn(void) {
+	return MiscellaneousSettingsObjC.isIPadMousePassthroughOn;
+}
+
 bool objc_getRelateiveMouseModeSettingIsAlwaysOn(void) {
 	return MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAlwaysOn;
 }
@@ -40,3 +44,12 @@ bool objc_getRelateiveMouseModeSettingIsAlwaysOn(void) {
 bool objc_getRelateiveMouseModeSettingIsAlwaysAutomatic(void) {
 	return MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAlwaysAutomatic;
 }
+
+bool objc_getRelativeMouseTapToClick(void) {
+	return MiscellaneousSettingsObjC.isRelativeMouseTapToClickOn;
+}
+
+bool objc_getSoundDisabled(void) {
+	return MiscellaneousSettingsObjC.isSoundDisabled;
+}
+

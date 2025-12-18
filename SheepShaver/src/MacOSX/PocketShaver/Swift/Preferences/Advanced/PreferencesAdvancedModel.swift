@@ -91,6 +91,16 @@ class PreferencesAdvancedModel {
 		}
 	}
 
+	@MainActor
+	var relativeMouseTapToClick: Bool {
+		get {
+			MiscellaneousSettings.current.relativeMouseTapToClick
+		}
+		set {
+			MiscellaneousSettings.current.set(relativeMouseTapToClick: newValue)
+		}
+	}
+
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
 		self.changeSubject = changeSubject
 	}

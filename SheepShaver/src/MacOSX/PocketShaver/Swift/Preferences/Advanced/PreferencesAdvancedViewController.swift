@@ -118,7 +118,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		case .uiOptions:
 			return model.shouldDisplayAlwaysLandscapeModeOption ? 3 : 2
 		case .relateiveMouseMode:
-			return 2
+			return 4
 		case .resources:
 			return 3
 		}
@@ -187,6 +187,17 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				}
 			case 1:
 				return PreferencesAdvancedRelativeMouseModeFooterCell()
+			case 2:
+				return PreferencesEnabledSettingCell(
+					title: "Tap to click",
+					isOn: model.relativeMouseTapToClick
+				) { [weak self] isOn in
+					self?.model.relativeMouseTapToClick = isOn
+				}
+			case 3:
+				return PreferencesFooterCell(
+					text: "Setting only affects relative mouse mode."
+				)
 			default: fatalError()
 			}
 		case .resources:

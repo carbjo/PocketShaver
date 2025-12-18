@@ -1456,7 +1456,7 @@ bool VideoInit(bool classic)
 	mouse_wheel_reverse = mouse_wheel_lines < 0;
 	if (mouse_wheel_reverse) mouse_wheel_lines = -mouse_wheel_lines;
 #if TARGET_OS_IPHONE
-	bool touch_input = !PrefsFindBool("ipadmousepassthrough");
+	bool touch_input = !objc_getIPadMousePassthroughOn();
 	ADBSetTouchInput(touch_input);
 	mouse_grabbed = objc_getRelateiveMouseModeSettingIsAlwaysOn();
 #endif
