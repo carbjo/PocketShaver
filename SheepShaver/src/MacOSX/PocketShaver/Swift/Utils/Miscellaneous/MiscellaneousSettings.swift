@@ -8,10 +8,6 @@
 import NotificationCenter
 import UIKit
 
-enum MiscellaneousNotifications {
-	static let fpsCounterSettingChanged = NSNotification.Name("fpsCounterSettingChanged")
-}
-
 enum FrameRateSetting: String, Codable, CaseIterable {
 	case f60hz
 	case f75hz
@@ -26,30 +22,30 @@ enum FrameRateSetting: String, Codable, CaseIterable {
 	}
 }
 
+enum RelativeMouseModeSetting: String, Codable, CaseIterable {
+	case manual
+	case automatic
+	case alwaysOn
+}
+
 class MiscellaneousSettings: Codable {
 	private(set) var hasDismissedSetupInstructions: Bool
 	private(set) var showHints: Bool
-	private(set) var iPadMousePassthrough: Bool {
-		didSet {
-			objc_replaceBool("ipadmousepassthrough", iPadMousePassthrough)
-		}
-	}
+	private(set) var iPadMousePassthrough: Bool
 	private(set) var gestureHapticFeedback: Bool
 	private(set) var mouseHapticFeedback: Bool
 	private(set) var keyHapticFeedback: Bool
-	private(set) var soundDisabled: Bool {
-		didSet {
-			objc_replaceBool("nosound", soundDisabled)
-		}
-	}
+	private(set) var soundDisabled: Bool
 	private(set) var fpsCounterEnabled: Bool {
 		didSet {
-			NotificationCenter.default.post(.init(name: MiscellaneousNotifications.fpsCounterSettingChanged))
+			NotificationCenter.default.post(.init(name: LocalNotifications.fpsCounterSettingChanged))
 		}
 	}
 	private(set) var frameRateSetting: FrameRateSetting
 	private(set) var alwaysLandscapeMode: Bool
 	private(set) var hasDisplayedPortraitModeWarning: Bool
+	private(set) var relativeMouseModeSetting: RelativeMouseModeSetting
+	private(set) var relativeMouseTapToClick: Bool
 
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		if #available(iOS 16, *) {
@@ -68,7 +64,7 @@ class MiscellaneousSettings: Codable {
 		gestureHapticFeedback = true
 		mouseHapticFeedback = true
 		keyHapticFeedback = true
-		soundDisabled = objc_findBool("nosound")
+		soundDisabled = false
 		fpsCounterEnabled = false
 		if UIScreen.supportsHighRefreshRate {
 			frameRateSetting = .f75hz
@@ -77,12 +73,15 @@ class MiscellaneousSettings: Codable {
 		}
 		alwaysLandscapeMode = false
 		hasDisplayedPortraitModeWarning = false
+		relativeMouseModeSetting = .automatic
+		relativeMouseTapToClick = true
 	}
 
 	@MainActor
 	static var current: MiscellaneousSettings = {
 		if let data = Storage.shared.load(from: .miscellaneous),
 		   let settings = try? JSONDecoder().decode(MiscellaneousSettings.self, from: data) {
+			settings.updateCachedResponses()
 			return settings
 		}
 
@@ -95,6 +94,11 @@ class MiscellaneousSettings: Codable {
 			let data = try JSONEncoder().encode(self)
 			Storage.shared.save(data, at: .miscellaneous)
 		} catch {}
+	}
+
+	@MainActor
+	func updateCachedResponses() {
+		MiscellaneousSettingsObjC.isRelativeMouseTapToClickOn = relativeMouseTapToClick
 	}
 
 	@MainActor
@@ -178,10 +182,31 @@ class MiscellaneousSettings: Codable {
 
 		saveAsCurrent()
 	}
+
+	@MainActor
+	func set(relativeMouseModeSetting: RelativeMouseModeSetting) {
+		self.relativeMouseModeSetting = relativeMouseModeSetting
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(relativeMouseTapToClick: Bool) {
+		self.relativeMouseTapToClick = relativeMouseTapToClick
+
+		updateCachedResponses()
+
+		saveAsCurrent()
+	}
 }
 
 @objcMembers
 public class MiscellaneousSettingsObjC: NSObject {
+
+	@MainActor
+	static func isIPadMousePassthroughOn() -> Bool {
+		MiscellaneousSettings.current.iPadMousePassthrough
+	}
 
 	@MainActor
 	static func isKeyHapticFeedbackOn() -> Bool {
@@ -192,4 +217,21 @@ public class MiscellaneousSettingsObjC: NSObject {
 	static func getFrameRateSetting() -> Int {
 		MiscellaneousSettings.current.frameRateSetting.frameRate
 	}
+
+	@MainActor
+	static func isRelateiveMouseModeSettingAlwaysOn() -> Bool {
+		MiscellaneousSettings.current.relativeMouseModeSetting == .alwaysOn
+	}
+
+	@MainActor
+	static func isRelateiveMouseModeSettingAlwaysAutomatic() -> Bool {
+		MiscellaneousSettings.current.relativeMouseModeSetting == .automatic
+	}
+
+	@MainActor
+	static func isSoundDisabled() -> Bool {
+		MiscellaneousSettings.current.soundDisabled
+	}
+
+	nonisolated(unsafe) static var isRelativeMouseTapToClickOn: Bool = true
 }

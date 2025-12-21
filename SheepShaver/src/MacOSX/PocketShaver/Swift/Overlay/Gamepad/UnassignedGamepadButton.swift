@@ -18,13 +18,16 @@ class UnassignedGamepadButton: UIView {
 		return label
 	}()
 
+	private var isObscured: Bool
 	private let didRequestAssignment: (() -> Void)
 	private var isEditing: Bool = false
 
 	init(
 		isEditing: Bool,
+		isObscured: Bool,
 		didRequestAssignment: @escaping (() -> Void)
 	) {
+		self.isObscured = isObscured
 		self.didRequestAssignment = didRequestAssignment
 
 		super.init(frame: .zero)
@@ -34,7 +37,7 @@ class UnassignedGamepadButton: UIView {
 
 		let length = GamepadButton.length
 
-		if UIDevice.isSmallScreenSize {
+		if UIScreen.isSmallSize {
 			label.font = .systemFont(ofSize: 16)
 		}
 
@@ -53,6 +56,12 @@ class UnassignedGamepadButton: UIView {
 	}
 	
 	required init?(coder: NSCoder) { fatalError() }
+
+	func set(isObscured: Bool) {
+		self.isObscured = isObscured
+
+		alpha = isObscured ? 0.02 : 1
+	}
 
 	func set(isEditing: Bool) {
 		backgroundColor = isEditing ? .orange.withAlphaComponent(0.85) : .clear
@@ -86,5 +95,13 @@ class UnassignedGamepadButton: UIView {
 				didRequestAssignment()
 			}
 		}
+	}
+
+	override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+		guard !isObscured else {
+			return false
+		}
+
+		return super.point(inside: point, with: event)
 	}
 }

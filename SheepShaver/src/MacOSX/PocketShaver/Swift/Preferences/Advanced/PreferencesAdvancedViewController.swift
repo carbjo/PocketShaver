@@ -14,6 +14,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case ramSetting
 		case frameRateSetting
 		case uiOptions
+		case relateiveMouseMode
 		case resources
 	}
 
@@ -116,6 +117,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return 2
 		case .uiOptions:
 			return model.shouldDisplayAlwaysLandscapeModeOption ? 3 : 2
+		case .relateiveMouseMode:
+			return 4
 		case .resources:
 			return 3
 		}
@@ -140,7 +143,9 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		case .frameRateSetting:
 			switch indexPath.row {
 			case 0:
-				return PreferencesAdvancedFrameRateSettingCell(initialFrameRateSetting: model.frameRateSetting) { [weak self] newFrameRateSetting in
+				return PreferencesAdvancedFrameRateSettingCell(
+					initialFrameRateSetting: model.frameRateSetting
+				) { [weak self] newFrameRateSetting in
 					self?.model.frameRateSetting = newFrameRateSetting
 				}
 			case 1:
@@ -170,6 +175,29 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				) { [weak self] isOn in
 					self?.model.alwaysLandscapeMode = isOn
 				}
+			default: fatalError()
+			}
+		case .relateiveMouseMode:
+			switch indexPath.row {
+			case 0:
+				return PreferencesAdvancedRelativeMouseModeSettingCell(
+					initialRelativeMouseModeSetting: model.relativeMouseModeSetting
+				) { [weak self] newFrameRateSetting in
+					self?.model.relativeMouseModeSetting = newFrameRateSetting
+				}
+			case 1:
+				return PreferencesAdvancedRelativeMouseModeFooterCell()
+			case 2:
+				return PreferencesEnabledSettingCell(
+					title: "Tap to click",
+					isOn: model.relativeMouseTapToClick
+				) { [weak self] isOn in
+					self?.model.relativeMouseTapToClick = isOn
+				}
+			case 3:
+				return PreferencesFooterCell(
+					text: "Setting only affects relative mouse mode."
+				)
 			default: fatalError()
 			}
 		case .resources:
@@ -202,6 +230,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return "Frame rate setting"
 		case .uiOptions:
 			return "UI options"
+		case .relateiveMouseMode:
+			return "Relative mouse mode"
 		case .resources:
 			return "Resources"
 		}

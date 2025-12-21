@@ -128,6 +128,7 @@
 		C750737A2E65E14F00D1E374 /* DiskCreation.mm in Sources */ = {isa = PBXBuildFile; fileRef = C75073792E65E14700D1E374 /* DiskCreation.mm */; };
 		C750737D2E67440900D1E374 /* PreferencesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750737C2E67440800D1E374 /* PreferencesModel.swift */; };
 		C75A604F2E62D04600253CA3 /* PreferencesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75A604E2E62D04000253CA3 /* PreferencesManager.swift */; };
+		C75CBADE2EF2E11200F576ED /* GamepadJoystick.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75CBADD2EF2E10C00F576ED /* GamepadJoystick.swift */; };
 		C7699F0E2EBF56E30083B3B3 /* PreferencesROMValidatorCpp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C7699F0D2EBF56CF0083B3B3 /* PreferencesROMValidatorCpp.cpp */; };
 		C7699F122EC45D920083B3B3 /* PreferencesCompatibilityListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7699F112EC45D870083B3B3 /* PreferencesCompatibilityListViewController.swift */; };
 		C7699F152EC464990083B3B3 /* Colors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7699F142EC464930083B3B3 /* Colors.swift */; };
@@ -136,6 +137,7 @@
 		C77CF0742E7823D900D2A854 /* RomManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2782E78232B0018DB8B /* RomManager.swift */; };
 		C792C17E2E47618A0016DDAF /* InformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C792C17D2E4761830016DDAF /* InformationView.swift */; };
 		C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79A69272E62040300F582A6 /* RomPathObjC.mm */; };
+		C7A9AB9A2EED61F2001EC4DB /* LocalNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */; };
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
 		C7BC1A642E2A84B2006F95CB /* MonitorResolutionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */; };
 		C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */; };
@@ -626,6 +628,7 @@
 		C750737B2E65E15200D1E374 /* DiskCreation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DiskCreation.h; sourceTree = "<group>"; };
 		C750737C2E67440800D1E374 /* PreferencesModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesModel.swift; sourceTree = "<group>"; };
 		C75A604E2E62D04000253CA3 /* PreferencesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesManager.swift; sourceTree = "<group>"; };
+		C75CBADD2EF2E10C00F576ED /* GamepadJoystick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadJoystick.swift; sourceTree = "<group>"; };
 		C7699F0D2EBF56CF0083B3B3 /* PreferencesROMValidatorCpp.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = PreferencesROMValidatorCpp.cpp; sourceTree = "<group>"; };
 		C7699F0F2EBF57270083B3B3 /* PreferencesROMValidatorCpp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PreferencesROMValidatorCpp.h; sourceTree = "<group>"; };
 		C7699F112EC45D870083B3B3 /* PreferencesCompatibilityListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesCompatibilityListViewController.swift; sourceTree = "<group>"; };
@@ -635,6 +638,7 @@
 		C792C17D2E4761830016DDAF /* InformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationView.swift; sourceTree = "<group>"; };
 		C79A69272E62040300F582A6 /* RomPathObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomPathObjC.mm; sourceTree = "<group>"; };
 		C79A69292E62043100F582A6 /* RomPathObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomPathObjC.h; sourceTree = "<group>"; };
+		C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotifications.swift; sourceTree = "<group>"; };
 		C7B616CF2E9D374800483010 /* hfs-ios.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "hfs-ios.h"; sourceTree = "<group>"; };
 		C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldDelegate.swift; sourceTree = "<group>"; };
 		C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorResolutionManager.swift; sourceTree = "<group>"; };
@@ -680,7 +684,7 @@
 		C7F6DF5E2E4B9BB300ED272A /* HoverMode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HoverMode.h; sourceTree = "<group>"; };
 		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
-		E204B98A28BC3EBE0081FDCA /* SheepShaveriOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SheepShaveriOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E204B98A28BC3EBE0081FDCA /* PocketShaver.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketShaver.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; path = "iOS Launch Screen.storyboard"; sourceTree = "<group>"; };
 		E204B9A428BC7BF10081FDCA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E204B9AE28BC7BF10081FDCA /* main.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
@@ -850,7 +854,7 @@
 				0856CCC114A99E1C000B1711 /* SheepShaver.app */,
 				0846E49A14B124DE00574779 /* libkpx_cpu.a */,
 				E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */,
-				E204B98A28BC3EBE0081FDCA /* SheepShaveriOS.app */,
+				E204B98A28BC3EBE0081FDCA /* PocketShaver.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -1326,6 +1330,7 @@
 				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
 				C7DCEF3B2E86F53B00EAED05 /* Haptic Feedback */,
 				C74035A92EDAEC1C0045B9C6 /* FPS counter */,
+				C7A9AB982EED61B4001EC4DB /* Local notifications */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -1337,6 +1342,7 @@
 				C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */,
 				C73660E92E3643430055AA91 /* GamepadButtonStackView.swift */,
 				C73660E12E34C9170055AA91 /* GamepadButton.swift */,
+				C75CBADD2EF2E10C00F576ED /* GamepadJoystick.swift */,
 				C73660ED2E36498D0055AA91 /* UnassignedGamepadButton.swift */,
 				C7C3D26F2E76F8560018DB8B /* Assign Button */,
 			);
@@ -1435,6 +1441,14 @@
 				C7699F142EC464930083B3B3 /* Colors.swift */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		C7A9AB982EED61B4001EC4DB /* Local notifications */ = {
+			isa = PBXGroup;
+			children = (
+				C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */,
+			);
+			path = "Local notifications";
 			sourceTree = "<group>";
 		};
 		C7C383792E7861EF0051C5A4 /* Setup Instructions */ = {
@@ -1774,9 +1788,9 @@
 			productReference = E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */;
 			productType = "com.apple.product-type.library.static";
 		};
-		E204B92728BC3EBE0081FDCA /* SheepShaveriOS */ = {
+		E204B92728BC3EBE0081FDCA /* PocketShaver */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = E204B98728BC3EBE0081FDCA /* Build configuration list for PBXNativeTarget "SheepShaveriOS" */;
+			buildConfigurationList = E204B98728BC3EBE0081FDCA /* Build configuration list for PBXNativeTarget "PocketShaver" */;
 			buildPhases = (
 				E204B93228BC3EBE0081FDCA /* Sources */,
 				E204B97D28BC3EBE0081FDCA /* Frameworks */,
@@ -1788,9 +1802,9 @@
 			dependencies = (
 				E204BA0728BC82FC0081FDCA /* PBXTargetDependency */,
 			);
-			name = SheepShaveriOS;
+			name = PocketShaver;
 			productName = SheepShaver;
-			productReference = E204B98A28BC3EBE0081FDCA /* SheepShaveriOS.app */;
+			productReference = E204B98A28BC3EBE0081FDCA /* PocketShaver.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -1824,7 +1838,7 @@
 			targets = (
 				0856CCC014A99E1C000B1711 /* SheepShaver */,
 				0846E49914B124DE00574779 /* kpx_cpu */,
-				E204B92728BC3EBE0081FDCA /* SheepShaveriOS */,
+				E204B92728BC3EBE0081FDCA /* PocketShaver */,
 				E204B90028BC3B640081FDCA /* kpx_cpu_ios */,
 			);
 		};
@@ -2027,6 +2041,7 @@
 				E204B93628BC3EBE0081FDCA /* ip_output.c in Sources */,
 				C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */,
 				E204B93728BC3EBE0081FDCA /* tcp_output.c in Sources */,
+				C75CBADE2EF2E11200F576ED /* GamepadJoystick.swift in Sources */,
 				C77CF0742E7823D900D2A854 /* RomManager.swift in Sources */,
 				E204B93828BC3EBE0081FDCA /* disk.cpp in Sources */,
 				E204B93928BC3EBE0081FDCA /* scsi_dummy.cpp in Sources */,
@@ -2140,6 +2155,7 @@
 				C7C3D2752E781ACF0018DB8B /* PreferencesAdvancedCells.swift in Sources */,
 				C74E10792EA9228F00150945 /* ImpMutableBTreeFile.m in Sources */,
 				C74E107A2EA9228F00150945 /* ImpBTreeHeaderNode.m in Sources */,
+				C7A9AB9A2EED61F2001EC4DB /* LocalNotifications.swift in Sources */,
 				C74E107B2EA9228F00150945 /* ImpBTreeMapNode.m in Sources */,
 				C74E107C2EA9228F00150945 /* ImpComparisonUtilities.m in Sources */,
 				C74E107D2EA9228F00150945 /* ImpBTreeIndexNode.m in Sources */,
@@ -2812,7 +2828,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		E204B98728BC3EBE0081FDCA /* Build configuration list for PBXNativeTarget "SheepShaveriOS" */ = {
+		E204B98728BC3EBE0081FDCA /* Build configuration list for PBXNativeTarget "PocketShaver" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				E204B98828BC3EBE0081FDCA /* Debug */,

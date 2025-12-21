@@ -222,12 +222,106 @@ class PreferencesAdvancedFrameRateSettingCell: UITableViewCell {
 	}
 }
 
+class PreferencesAdvancedRelativeMouseModeSettingCell: UITableViewCell {
+	private lazy var segmentedControl: UISegmentedControl = {
+		let segmentedControl = UISegmentedControl.withoutConstraints()
+		for (index, tab) in RelativeMouseModeSetting.allCases.enumerated() {
+			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
+		}
+		segmentedControl.addTarget(self, action: #selector(tabSegmentedControlChanged), for: .valueChanged)
+		return segmentedControl
+	}()
+
+	private let didChangeSelection: ((RelativeMouseModeSetting) -> Void)
+
+	init(
+		initialRelativeMouseModeSetting: RelativeMouseModeSetting,
+		didChangeSelection: @escaping ((RelativeMouseModeSetting) -> Void)
+	) {
+		self.didChangeSelection = didChangeSelection
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		hideSeparator()
+
+		contentView.addSubview(segmentedControl)
+
+		NSLayoutConstraint.activate([
+			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
+			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
+		])
+
+		segmentedControl.selectedSegmentIndex = RelativeMouseModeSetting.allCases.enumerated().first(where: { initialRelativeMouseModeSetting == $1 })!.0
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	@objc private func tabSegmentedControlChanged() {
+		let index = segmentedControl.selectedSegmentIndex
+		let setting = RelativeMouseModeSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
+
+		didChangeSelection(setting)
+	}
+}
+
+class PreferencesAdvancedRelativeMouseModeFooterCell: UITableViewCell {
+	private lazy var informationLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.lineBreakMode = .byWordWrapping
+		label.font = .systemFont(ofSize: 14)
+		label.textColor = Colors.secondaryText
+		return label
+	}()
+
+	init() {
+		super.init(style: .default, reuseIdentifier: nil)
+
+		contentView.addSubview(informationLabel)
+
+		NSLayoutConstraint.activate([
+			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
+		])
+
+		let attrString = NSMutableAttributedString()
+		attrString.append(.init(string: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the "))
+
+		let mouseIconAttachment = NSTextAttachment()
+		mouseIconAttachment.image = UIImage(resource: .computermouse)
+			.withRenderingMode(.alwaysTemplate)
+			.applyingSymbolConfiguration(.init(pointSize: 12))
+		attrString.append(.init(attachment: mouseIconAttachment))
+
+		attrString.append(.init(string: " button above the keyboard."))
+
+		informationLabel.attributedText = attrString
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+}
+
 private extension FrameRateSetting {
 	var label: String {
 		switch self {
 		case .f60hz: return "60 hz"
 		case .f75hz: return "75 hz"
 		case .f120hz: return "120 hz"
+		}
+	}
+}
+
+private extension RelativeMouseModeSetting {
+	var label: String {
+		switch self {
+		case .manual: return "Manual"
+		case .automatic: return "Automatic"
+		case .alwaysOn: return "Always on"
 		}
 	}
 }

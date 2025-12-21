@@ -13,8 +13,10 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 
 	init(
 		side: GamepadSide,
-		keyInteraction: @escaping ((Int, Bool) -> Void),
+		isRelativeMouseModeOn: Bool,
+		keyInteraction: @escaping ((Int, Bool, Bool) -> Void),
 		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
+		didFireJoystick: @escaping ((CGPoint) -> Void),
 		didRequestAssignmentAtRowAndIndex: @escaping ((Int, Int) -> Void)
 	) {
 		self.didRequestAssignmentAtRowAndIndex = didRequestAssignmentAtRowAndIndex
@@ -28,8 +30,10 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 
 		setupStackViews(
 			side: side,
+			isRelativeMouseModeOn: isRelativeMouseModeOn,
 			keyInteraction: keyInteraction,
-			specialButtonInteraction: specialButtonInteraction
+			specialButtonInteraction: specialButtonInteraction,
+			didFireJoystick: didFireJoystick
 		)
 	}
 	
@@ -37,8 +41,10 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 
 	private func setupStackViews(
 		side: GamepadSide,
-		keyInteraction: @escaping ((Int, Bool) -> Void),
-		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void)
+		isRelativeMouseModeOn: Bool,
+		keyInteraction: @escaping ((Int, Bool, Bool) -> Void),
+		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
+		didFireJoystick: @escaping ((CGPoint) -> Void)
 	) {
 		let screenHeight = UIScreen.main.bounds.height
 		let length = GamepadButton.length
@@ -53,8 +59,10 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 				GamepadButtonStackView(
 					side: side,
 					row: row,
+					isRelativeMouseModeOn: isRelativeMouseModeOn,
 					keyInteraction: keyInteraction,
-					specialButtonInteraction: specialButtonInteraction
+					specialButtonInteraction: specialButtonInteraction,
+					didFireJoystick: didFireJoystick
 				) { [weak self] index in
 					guard let self else { return }
 					didRequestAssignmentAtRowAndIndex(orientationCorrectedRow, index)
@@ -75,6 +83,26 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 			stackView.set(key, at: index)
 		case .specialButton(let specialButton):
 			stackView.set(specialButton, at: index)
+		case .joystick(let joystickType):
+			stackView.set(joystickType, at: index)
+
+			stackView.setKeyToRightObscured(true, rightOfIndex: index)
+			guard let orientationCorrectedRowPlusOne = getOrientationCorrectedRow(for: row - 1),
+				  let stackViewPlusOne = arrangedSubviews[orientationCorrectedRowPlusOne] as? GamepadButtonStackView else {
+				return
+			}
+			stackViewPlusOne.setKeyObscured(true, at: index)
+			stackViewPlusOne.setKeyToRightObscured(true, rightOfIndex: index)
+		}
+	}
+
+	func set(isRelativeMouseModeOn: Bool) {
+		for stackView in arrangedSubviews {
+			guard let stackView = stackView as? GamepadButtonStackView else {
+				print("-- unexpected")
+				continue
+			}
+			stackView.set(isRelativeMouseModeOn: isRelativeMouseModeOn)
 		}
 	}
 

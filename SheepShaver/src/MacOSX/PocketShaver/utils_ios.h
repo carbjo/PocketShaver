@@ -44,4 +44,9 @@ const char* document_directory();
 
 bool MetalIsAvailable();
 
+extern void set_relative_mouse_enabled();
+extern void set_relative_mouse_disabled();
+extern void set_relative_mouse_automatic();
+extern void report_relative_mouse_capability();
+
 #endif

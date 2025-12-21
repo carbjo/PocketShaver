@@ -10,23 +10,29 @@ import UIKit
 class GamepadButtonStackView: UIStackView {
 	private let side: GamepadSide
 	private let row: Int
-	private let keyInteraction: ((Int, Bool) -> Void)
+	private let keyInteraction: ((Int, Bool, Bool) -> Void)
 	private let specialButtonInteraction: ((SpecialButton, Bool) -> Void)
+	private let didFireJoystick: ((CGPoint) -> Void)
 	private let didRequestAssignmentAtIndex: ((Int) -> Void)
 
+	private var isRelativeMouseModeOn: Bool
 	private var isEditing: Bool = false
 
 	init(
 		side: GamepadSide,
 		row: Int,
-		keyInteraction: @escaping ((Int, Bool) -> Void),
+		isRelativeMouseModeOn: Bool,
+		keyInteraction: @escaping ((Int, Bool, Bool) -> Void),
 		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
+		didFireJoystick: @escaping ((CGPoint) -> Void),
 		didRequestAssignmentAtIndex: @escaping ((Int) -> Void)
 	) {
 		self.side = side
 		self.row = row
+		self.isRelativeMouseModeOn = isRelativeMouseModeOn
 		self.keyInteraction = keyInteraction
 		self.specialButtonInteraction = specialButtonInteraction
+		self.didFireJoystick = didFireJoystick
 		self.didRequestAssignmentAtIndex = didRequestAssignmentAtIndex
 
 		super.init(frame: .zero)
@@ -42,9 +48,9 @@ class GamepadButtonStackView: UIStackView {
 
 	private func setupButtons() {
 		let screenWidth = UIScreen.main.bounds.width
-		let sideMargin: CGFloat = UIDevice.sideMarginForButtons
+		let sideMargin: CGFloat = UIScreen.sideMarginForButtons
 
-		let settingsButtonLength: CGFloat = UIDevice.isSmallScreenSize ? 36 : 44
+		let settingsButtonLength: CGFloat = UIScreen.isSmallSize ? 36 : 44
 		let halfSettingsButton: CGFloat = settingsButtonLength/2
 		let availableWidth = (screenWidth / 2) - sideMargin - halfSettingsButton
 		let buttonLength = GamepadButton.length
@@ -64,20 +70,18 @@ class GamepadButtonStackView: UIStackView {
 			return
 		}
 
-		let oldView = arrangedSubviews[sideCorrectedIndex]
-		removeArrangedSubview(oldView)
-		oldView.removeFromSuperview()
+		removeViewAt(index)
 
 		let button = GamepadButton(
-			text: key.label,
+			label: .text(key.label),
 			isEditing: isEditing,
 			pushKey: { [weak self] in
 				// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
 				// Should not assume EN layout, specifically
-				self?.keyInteraction(key.enValue, true)
+				self?.keyInteraction(key.enValue, true, true)
 			},
 			releaseKey: { [weak self] in
-				self?.keyInteraction(key.enValue, false)
+				self?.keyInteraction(key.enValue, false, true)
 			},
 			didRequestAssignment:  { [weak self] in
 				self?.didRequestAssignmentAtIndex(index)
@@ -95,12 +99,17 @@ class GamepadButtonStackView: UIStackView {
 			return
 		}
 
-		let oldView = arrangedSubviews[sideCorrectedIndex]
-		removeArrangedSubview(oldView)
-		oldView.removeFromSuperview()
+		removeViewAt(index)
+
+		let label: GamepadButton.Label
+		if let specialButtonIcon = specialButton.icon {
+			label = .icon(specialButtonIcon)
+		} else {
+			label = .text(specialButton.label)
+		}
 
 		let button = GamepadButton(
-			text: specialButton.label,
+			label: label,
 			isEditing: isEditing,
 			pushKey: { [weak self] in
 				// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
@@ -121,13 +130,74 @@ class GamepadButtonStackView: UIStackView {
 		)
 	}
 
+	func set(_ joystickType: JoystickType ,at index: Int) {
+		guard let sideCorrectedIndex = getSideCorrectedIndex(for: index) else {
+			return
+		}
+
+		removeViewAt(index)
+
+		let mode: GamepadJoystick.Mode
+		switch joystickType {
+		case .mouse:
+			mode = .mouse(didFireJoystick)
+		case .wasd:
+			mode = .wasd({[weak self] sdlKey, isDown in
+				self?.keyInteraction(sdlKey.enValue, isDown, false)
+			})
+		}
+
+		let joystick = GamepadJoystick(
+			isRelativeMouseModeOn: isRelativeMouseModeOn,
+			isEditing: isEditing,
+			mode: mode,
+			didRequestAssignment: { [weak self] in
+				self?.didRequestAssignmentAtIndex(index)
+			}
+		)
+
+		insertArrangedSubview(
+			joystick,
+			at: sideCorrectedIndex
+		)
+	}
+
+	func setKeyObscured(_ isObscured: Bool, at index: Int) {
+		guard let sideCorrectedIndex = getSideCorrectedIndex(for: index),
+			  let unassignedButton = arrangedSubviews[sideCorrectedIndex] as? UnassignedGamepadButton else {
+			return
+		}
+
+		unassignedButton.set(isObscured: isObscured)
+	}
+
+	func setKeyToRightObscured(_ isObscured: Bool, rightOfIndex index: Int) {
+		guard let sideCorrectedIndex = getSideCorrectedIndex(for: index),
+			  let unassignedButton = arrangedSubviews[sideCorrectedIndex + 1] as? UnassignedGamepadButton else {
+			return
+		}
+
+		unassignedButton.set(isObscured: isObscured)
+	}
+
+	func set(isRelativeMouseModeOn: Bool) {
+		self.isRelativeMouseModeOn = isRelativeMouseModeOn
+		for view in arrangedSubviews {
+			if let joystick = view as? GamepadJoystick {
+				joystick.set(isRelativeMouseModeOn: isRelativeMouseModeOn)
+			}
+		}
+	}
+
 	func set(isEditing: Bool) {
 		self.isEditing = isEditing
 
-		for button in arrangedSubviews {
-			if let button = button as? GamepadButton {
+		for view in arrangedSubviews {
+			if let button = view as? GamepadButton {
 				button.set(isEditing: isEditing)
-			} else if let button = button as? UnassignedGamepadButton {
+			} else if let joystick = view as? GamepadJoystick {
+				joystick.set(isEditing: isEditing)
+			} else if let button = view as? UnassignedGamepadButton {
 				button.set(isEditing: isEditing)
 			}
 		}
@@ -145,6 +215,16 @@ class GamepadButtonStackView: UIStackView {
 					createUnassignedButton(forIndex: sideCorrectedIndex),
 					at: index
 				)
+			} else if let joystick = button as? GamepadJoystick {
+				let sideCorrectedIndex = side == .right ? (numberOfButtons - 1 - index) : index
+				removeArrangedSubview(joystick)
+				button.removeFromSuperview()
+				insertArrangedSubview(
+					createUnassignedButton(forIndex: sideCorrectedIndex),
+					at: index
+				)
+			} else if let button = button as? UnassignedGamepadButton {
+				button.set(isObscured: false)
 			}
 		}
 	}
@@ -155,7 +235,7 @@ class GamepadButtonStackView: UIStackView {
 		// Ie. not when touching the spaces between the buttons or spacing cells.
 
 		for view in arrangedSubviews {
-			guard view is GamepadButton || isEditing else {
+			guard view is GamepadButton || view is GamepadJoystick || isEditing else {
 				continue
 			}
 
@@ -170,7 +250,8 @@ class GamepadButtonStackView: UIStackView {
 
 	private func createUnassignedButton(forIndex index: Int) -> UnassignedGamepadButton {
 		UnassignedGamepadButton(
-			isEditing: isEditing
+			isEditing: isEditing,
+			isObscured: false
 		) { [weak self] in
 			self?.didRequestAssignmentAtIndex(index)
 		}
@@ -184,5 +265,15 @@ class GamepadButtonStackView: UIStackView {
 		}
 
 		return sideCorrectedIndex
+	}
+
+	private func removeViewAt(_ index: Int) {
+		guard let sideCorrectedIndex = getSideCorrectedIndex(for: index) else {
+			return
+		}
+
+		let oldView = arrangedSubviews[sideCorrectedIndex]
+		removeArrangedSubview(oldView)
+		oldView.removeFromSuperview()
 	}
 }

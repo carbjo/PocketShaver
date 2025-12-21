@@ -174,6 +174,7 @@ static bool toggle_fullscreen = false;
 static bool did_add_event_watch = false;
 
 static bool mouse_grabbed = false;
+static bool suggest_mouse_grab = false;
 
 // Mutex to protect SDL events
 static SDL_mutex *sdl_events_lock = NULL;
@@ -1179,7 +1180,6 @@ void driver_base::adapt_to_video_mode() {
 
 driver_base::~driver_base()
 {
-	ungrab_mouse();
 	restore_mouse_accel();
 
 	// HACK: Just delete instances of SDL_Surface and SDL_Texture, rather
@@ -1274,6 +1274,7 @@ void driver_base::grab_mouse(void)
 		set_window_name();
 		disable_mouse_accel();
 		ADBSetRelMouseMode(true);
+		objc_reportRelativeMouseModeEnabled();
 	}
 }
 
@@ -1286,6 +1287,7 @@ void driver_base::ungrab_mouse(void)
 		set_window_name();
 		restore_mouse_accel();
 		ADBSetRelMouseMode(false);
+		objc_reportRelativeMouseModeDisabled();
 	}
 }
 
@@ -1454,8 +1456,9 @@ bool VideoInit(bool classic)
 	mouse_wheel_reverse = mouse_wheel_lines < 0;
 	if (mouse_wheel_reverse) mouse_wheel_lines = -mouse_wheel_lines;
 #if TARGET_OS_IPHONE
-	bool touch_input = !PrefsFindBool("ipadmousepassthrough");
+	bool touch_input = !objc_getIPadMousePassthroughOn();
 	ADBSetTouchInput(touch_input);
+	mouse_grabbed = objc_getRelateiveMouseModeSettingIsAlwaysOn();
 #endif
 	
 	// Get screen mode from preferences
@@ -2067,6 +2070,17 @@ void SDL_monitor_desc::switch_to_current_mode(void)
 	const VIDEO_MODE &mode = get_current_mode();
 	objc_reportVideoSize(VIDEO_MODE_X, VIDEO_MODE_Y);
 	objc_initOverlayViewController();
+	
+	if (mode.viAppleMode == 133) {
+		// 32-bit color -> likely switching back to Finder
+		suggest_mouse_grab = false;
+		if (objc_getRelateiveMouseModeSettingIsAlwaysAutomatic()) {
+			drv->ungrab_mouse();
+		}
+	} else if (mouse_grabbed) {
+		mouse_grabbed = false;
+		drv->grab_mouse(); // Re-initiate relative mouse mode
+	}
 #endif
 
 	if (drv == NULL) {
@@ -2075,6 +2089,31 @@ void SDL_monitor_desc::switch_to_current_mode(void)
 	}
 }
 
+void set_relative_mouse_enabled() {
+	drv->grab_mouse();
+}
+
+void set_relative_mouse_disabled() {
+	if (objc_getRelateiveMouseModeSettingIsAlwaysOn()) {
+		return;
+	}
+	drv->ungrab_mouse();
+}
+
+void set_relative_mouse_automatic() {
+	if (suggest_mouse_grab) {
+		set_relative_mouse_enabled();
+	} else {
+		set_relative_mouse_disabled();
+	}
+}
+
+void report_relative_mouse_capability() {
+	suggest_mouse_grab = true;
+	if (objc_getRelateiveMouseModeSettingIsAlwaysAutomatic()) {
+		set_relative_mouse_enabled();
+	}
+}
 
 /*
  *  Can we set the MacOS cursor image into the window?
