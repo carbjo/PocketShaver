@@ -27,6 +27,21 @@ class InformationView: UIVisualEffectView {
 		return label
 	}()
 
+	private lazy var hintStackView: UIStackView = {
+		let stackView = UIStackView.withoutConstraints()
+		stackView.axis = .horizontal
+		stackView.spacing = 10
+		stackView.alignment = .center
+		stackView.distribution = .fill
+		return stackView
+	}()
+
+	private lazy var hintIconImageView: UIImageView = {
+		let imageView = UIImageView.withoutConstraints()
+		imageView.tintColor = .white
+		return imageView
+	}()
+
 	private lazy var hintLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.textColor = .white
@@ -47,7 +62,10 @@ class InformationView: UIVisualEffectView {
 
 		contentView.addSubview(stackView)
 		stackView.addArrangedSubview(titleLabel)
-		stackView.addArrangedSubview(hintLabel)
+		stackView.addArrangedSubview(hintStackView)
+
+		hintStackView.addArrangedSubview(hintIconImageView)
+		hintStackView.addArrangedSubview(hintLabel)
 
 		titleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 		titleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -64,7 +82,9 @@ class InformationView: UIVisualEffectView {
 
 	func show(
 		title: String? = nil,
+		hintIcon: ImageResource? = nil,
 		hint: String? = nil,
+		attributedHint: NSAttributedString? = nil,
 		atBottom: Bool
 	) {
 		let screenHeight = UIScreen.main.bounds.height
@@ -76,7 +96,17 @@ class InformationView: UIVisualEffectView {
 			titleLabel.isHidden = true
 		}
 
-		if let hint {
+		if let hintIcon {
+			hintIconImageView.image = .init(resource: hintIcon).applyingSymbolConfiguration(.init(pointSize: 12))
+			hintIconImageView.isHidden = false
+		} else {
+			hintIconImageView.isHidden = true
+		}
+
+		if let attributedHint {
+			hintLabel.attributedText = attributedHint
+			hintLabel.isHidden = false
+		} else if let hint {
 			hintLabel.text = hint
 			hintLabel.isHidden = false
 		} else {
@@ -113,5 +143,50 @@ class InformationView: UIVisualEffectView {
 				}
 			}
 		)
+	}
+
+	func showInformation(
+		for state: OverlayState,
+		gamepadSettingsName: String,
+		showHints: Bool,
+		atBottom: Bool = false
+	) {
+		if showHints {
+			switch state {
+			case .normal:
+				show(hint: "Three finger swipe ↓ for Gamepad mode, ↑ for Keyboard mode", atBottom: atBottom)
+			case .showingGamepad:
+				show(
+					title: gamepadSettingsName,
+					hint: "Three finger swipe ↓ to edit, ← or → to switch layout, ↑ to dismiss",
+					atBottom: atBottom
+				)
+			case .editingGamepad:
+				show(
+					title: "Editing \(gamepadSettingsName)",
+					hint: "Three finger swipe ↑ to exit edit mode", atBottom: atBottom
+				)
+			case .showingKeyboard:
+				let attrString = NSMutableAttributedString()
+
+				attrString.append(.init(string: "Two finger swipe ↑ or ↓ to scroll screen\nTap "))
+
+				let keyboardDownIconAttachment = NSTextAttachment()
+				keyboardDownIconAttachment.image = UIImage(resource:.keyboardChevronCompactDown)
+					.withRenderingMode(.alwaysTemplate)
+					.applyingSymbolConfiguration(.init(pointSize: 12))
+
+				attrString.append(.init(attachment: keyboardDownIconAttachment))
+
+				attrString.append(.init(string: " to dismiss."))
+
+				show(attributedHint: attrString, atBottom: atBottom)
+			}
+		} else if state == .showingGamepad {
+			show(
+				title: gamepadSettingsName,
+				atBottom: atBottom
+			)
+		}
 	}
 }

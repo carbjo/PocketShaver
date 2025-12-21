@@ -6,3 +6,8 @@
 //
 
 int objc_getFrameRateSetting(void);
+bool objc_getIPadMousePassthroughOn(void);
+bool objc_getRelateiveMouseModeSettingIsAlwaysOn(void);
+bool objc_getRelateiveMouseModeSettingIsAlwaysAutomatic(void);
+bool objc_getRelativeMouseTapToClick(void);
+bool objc_getSoundDisabled(void);

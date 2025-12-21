@@ -71,6 +71,36 @@ class PreferencesAdvancedModel {
 		MiscellaneousSettings.current.shouldDisplayAlwaysLandscapeModeOption
 	}
 
+	@MainActor
+	var relativeMouseModeSetting: RelativeMouseModeSetting {
+		get {
+			MiscellaneousSettings.current.relativeMouseModeSetting
+		}
+		set {
+			MiscellaneousSettings.current.set(relativeMouseModeSetting: newValue)
+
+			switch newValue {
+			case .automatic:
+				objc_setRelativeMouseModeAutomatic();
+			case .alwaysOn:
+				objc_setRelativeMouseMode(true);
+			default: break
+			}
+
+			NotificationCenter.default.post(name: LocalNotifications.relativeMouseModeSettingChanged, object: nil)
+		}
+	}
+
+	@MainActor
+	var relativeMouseTapToClick: Bool {
+		get {
+			MiscellaneousSettings.current.relativeMouseTapToClick
+		}
+		set {
+			MiscellaneousSettings.current.set(relativeMouseTapToClick: newValue)
+		}
+	}
+
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
 		self.changeSubject = changeSubject
 	}

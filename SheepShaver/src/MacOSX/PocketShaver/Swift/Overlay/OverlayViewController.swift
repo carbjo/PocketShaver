@@ -18,6 +18,7 @@ enum OverlayState {
 @objc
 public class OverlayViewController: UIViewController {
 
+	// Retain state even if new instances of OverlayViewController is made by SDL
 	@MainActor private static var globalState: OverlayState = .normal
 
 	private var state: OverlayState {
@@ -45,8 +46,10 @@ public class OverlayViewController: UIViewController {
 
 	private lazy var gamepadLayerView: GamepadLayerView = {
 		GamepadLayerView(
+			isRelativeMouseModeOn: isRelativeMouseModeEnabled,
 			keyInteraction: keyInteraction,
 			specialButtonInteraction: specialButtonInteraction,
+			didFireJoystick: didFireJoystick,
 			didRequestAssignmentAt: { [weak self] position in
 				self?.presentAlertForEditingButtonMapping(at: position)
 			},
@@ -68,21 +71,31 @@ public class OverlayViewController: UIViewController {
 		return view
 	}()
 
-	private lazy var hiddenInputField: UITextField = { [weak self] in
+	private lazy var hiddenInputField: HiddenInputField = { [weak self] in
 		guard let self else { fatalError() }
 		return HiddenInputField(
 			pushKey: { [weak self] key in
-				self?.keyInteraction(key, true)
+				self?.keyInteraction(key, true, false)
 			},
 			releaseKey: { [weak self] key in
-				self?.keyInteraction(key, false)
+				self?.keyInteraction(key, false, false)
+			},
+			canToggleRelativeMouseMode: canToggleRelativeMouseMode,
+			isRelativeMouseModeEnabled: isRelativeMouseModeEnabled,
+			didTapRelativeMouseModeButton: { [weak self] in
+				self?.toggleRelativeMouseMode()
 			},
 			didTapPreferencesButton: { [weak self] in
 				self?.presentPreferences()
 			},
 			didTapDismissKeyboardButton: { [weak self] in
-				self?.transition(to: .normal)
-				self?.flashInformation(for: .normal)
+				guard let self else { return }
+				transition(to: .normal)
+				informationView.showInformation(
+					for: .normal,
+					gamepadSettingsName: gamepadSettingsName,
+					showHints: MiscellaneousSettings.current.showHints
+				)
 			},
 			hiddenInputFieldDelegate: hiddenInputFieldDelegate
 		)
@@ -105,8 +118,10 @@ public class OverlayViewController: UIViewController {
 
 	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
 
-	private let keyInteraction: ((Int, Bool) -> Void)
+	private var keyInteraction: ((Int, Bool, Bool) -> Void)!
 	private let specialButtonInteraction: ((SpecialButton, Bool) -> Void)
+	private let didFireJoystick: ((CGPoint) -> Void)
+	private let keyDownFeedbackGenerator = UIImpactFeedbackGenerator(style: .soft)
 
 	private var gamepadConfig = GamepadManager.shared.config
 	private var upcomingGamepadConfig: GamepadConfig?
@@ -116,16 +131,32 @@ public class OverlayViewController: UIViewController {
 
 	private var fpsCounter: FPSCounter?
 
+	private var canToggleRelativeMouseMode: Bool {
+		MiscellaneousSettings.current.relativeMouseModeSetting == .manual ||
+		MiscellaneousSettings.current.relativeMouseModeSetting == .automatic
+	}
+	private var isRelativeMouseModeEnabled = false
+
 	private init(
 		keyInteraction: @escaping ((Int, Bool) -> Void),
-		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void)
+		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
+		didFireJoystick: @escaping ((CGPoint) -> Void)
 	) {
-		self.keyInteraction = keyInteraction
 		self.specialButtonInteraction = specialButtonInteraction
+		self.didFireJoystick = didFireJoystick
 
 		super.init(nibName: nil, bundle: nil)
 
-		NotificationCenter.default.addObserver(self, selector: #selector(updateFpsCounter), name: MiscellaneousNotifications.fpsCounterSettingChanged, object: nil)
+		self.keyInteraction = { [weak self] key, isDown, hapticAllowed in
+			keyInteraction(key, isDown)
+			if isDown,
+			   hapticAllowed,
+			   MiscellaneousSettings.current.keyHapticFeedback {
+				self?.keyDownFeedbackGenerator.impactOccurred()
+			}
+		}
+
+		NotificationCenter.default.addObserver(self, selector: #selector(updateFpsCounter), name: LocalNotifications.fpsCounterSettingChanged, object: nil)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
@@ -133,6 +164,46 @@ public class OverlayViewController: UIViewController {
 	public override func viewDidLoad() {
 		super.viewDidLoad()
 
+		setupViews()
+
+		hiddenInputFieldDelegate.didInputSDLKey = { [weak self] output in
+			guard let self else { return }
+			self.handle(hiddenInputFieldOutput: output)
+		}
+
+		setupGestureInputView()
+
+		if state != .normal {
+			transition(to: state)
+		}
+
+		loadGamepadSettings()
+
+		updateFpsCounter()
+
+		NotificationCenter.default.addObserver(self, selector: #selector(handleRelativeMouseModeEnabled), name: LocalNotifications.relativeMouseModeEnabled, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(handleRelativeMouseModeDisabled), name: LocalNotifications.relativeMouseModeDisabled, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(handleRelativeMouseModeSettingChanged), name: LocalNotifications.relativeMouseModeSettingChanged, object: nil)
+	}
+
+	public override func viewDidAppear(_ animated: Bool) {
+		super.viewDidAppear(animated)
+
+		if state != .showingGamepad {
+			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+		}
+
+		if state == .normal {
+			informationView.showInformation(
+				for: .normal,
+				gamepadSettingsName: gamepadSettingsName,
+				showHints: MiscellaneousSettings.current.showHints,
+				atBottom: true
+			)
+		}
+	}
+
+	private func setupViews() {
 		view.addSubview(gestureInputView)
 		gestureInputView.addSubview(gamepadLayerView)
 		gestureInputView.addSubview(previousGamepadLayerView)
@@ -176,47 +247,6 @@ public class OverlayViewController: UIViewController {
 			fpsLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
 			fpsLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
 		])
-
-		hiddenInputFieldDelegate.didInputSDLKey = { [weak self] output in
-			guard let self else { return }
-			self.handle(hiddenInputFieldOutput: output)
-		}
-
-		setupGestureInputView()
-
-		if state != .normal {
-			transition(to: state)
-		}
-
-		loadGamepadSettings()
-
-		updateFpsCounter()
-
-//		becomeFirstResponder()
-	}
-
-//	public override var canBecomeFirstResponder: Bool {
-//		get {
-//			return true
-//		}
-//	}
-//
-//	public override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
-//		if motion == .motionShake {
-//			transition(to: .editingGamepad)
-//		}
-//	}
-
-	public override func viewDidAppear(_ animated: Bool) {
-		super.viewDidAppear(animated)
-
-		if state != .showingGamepad {
-			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
-		}
-
-		if state == .normal {
-			flashInformation(for: .normal, atBottom: true)
-		}
 	}
 
 	private func loadGamepadSettings() {
@@ -332,11 +362,7 @@ public class OverlayViewController: UIViewController {
 					resultingState = .showingGamepad
 				}
 			case .showingKeyboard:
-				if self.threeFingerGestureDragDelta.dy > threshold {
-					resultingState = .normal
-				} else {
-					resultingState = .showingKeyboard
-				}
+				resultingState = .showingKeyboard
 			case .editingGamepad:
 				if self.threeFingerGestureDragDelta.dy < -threshold {
 					resultingState = .showingGamepad
@@ -345,7 +371,11 @@ public class OverlayViewController: UIViewController {
 				}
 			}
 
-			flashInformation(for: resultingState)
+			informationView.showInformation(
+				for: resultingState,
+				gamepadSettingsName: gamepadSettingsName,
+				showHints: MiscellaneousSettings.current.showHints
+			)
 
 			UIView.animate(
 				withDuration: willTranslateInLongAxis ? 0.6 : 0.28,
@@ -414,21 +444,21 @@ public class OverlayViewController: UIViewController {
 
 	private func handle(hiddenInputFieldOutput: HiddenInputFieldOutput) {
 		if hiddenInputFieldOutput.withShift {
-			self.keyInteraction(SDLKey.shift.enValue, true)
+			self.keyInteraction(SDLKey.shift.enValue, true, false)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
 				guard let self else { return }
-				self.keyInteraction(hiddenInputFieldOutput.value, true)
+				self.keyInteraction(hiddenInputFieldOutput.value, true, false)
 			}
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
 				guard let self else { return }
-				self.keyInteraction(SDLKey.shift.enValue, false)
-				self.keyInteraction(hiddenInputFieldOutput.value, false)
+				self.keyInteraction(SDLKey.shift.enValue, false, false)
+				self.keyInteraction(hiddenInputFieldOutput.value, false, false)
 			}
 		} else {
-			self.keyInteraction(hiddenInputFieldOutput.value, true)
+			self.keyInteraction(hiddenInputFieldOutput.value, true, false)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
 				guard let self else { return }
-				self.keyInteraction(hiddenInputFieldOutput.value, false)
+				self.keyInteraction(hiddenInputFieldOutput.value, false, false)
 			}
 		}
 	}
@@ -441,33 +471,11 @@ public class OverlayViewController: UIViewController {
 		threeFingerGestureDragDeltaSinceLatestHapticFeedback = .zero
 	}
 
-	private func flashInformation(
-		for state: OverlayState,
-		atBottom: Bool = false
-	) {
-		if MiscellaneousSettings.current.showHints {
-			switch state {
-			case .normal:
-				informationView.show(hint: "Three finger swipe ↓ for Gamepad mode, ↑ for Keyboard mode", atBottom: atBottom)
-			case .showingGamepad:
-				informationView.show(
-					title: gamepadSettingsName,
-					hint: "Three finger swipe ↓ to edit, ← or → to switch layout, ↑ to dismiss",
-					atBottom: atBottom
-				)
-			case .editingGamepad:
-				informationView.show(
-					title: "Editing \(gamepadSettingsName)",
-					hint: "Three finger swipe ↑ to exit edit mode", atBottom: atBottom
-				)
-			case .showingKeyboard:
-				informationView.show(hint: "Two finger swipe ↑ or ↓ to scroll screen\nThree finger swipe ↓ to dismiss", atBottom: atBottom)
-			}
-		} else if state == .showingGamepad {
-			informationView.show(
-				title: gamepadSettingsName,
-				atBottom: atBottom
-			)
+	private func toggleRelativeMouseMode() {
+		if isRelativeMouseModeEnabled {
+			objc_setRelativeMouseMode(false)
+		} else {
+			objc_setRelativeMouseMode(true)
 		}
 	}
 
@@ -495,6 +503,19 @@ public class OverlayViewController: UIViewController {
 						gamepadConfig.replace(with: specialButton, at: position)
 					case .key(let key):
 						gamepadConfig.replace(with: key, at: position)
+					case .joystick(let joystickType):
+						do {
+							try gamepadConfig.replace(with: joystickType, at: position)
+						} catch GamepadConfigError.joystickAtBottomRow {
+							let alertVc = UIAlertController.withMessage("Joystick must be placed above bottom row")
+							present(alertVc, animated: true)
+						} catch GamepadConfigError.joystickAtRightEdge {
+							let alertVc = UIAlertController.withMessage("Joystick must be placed at least one column left of rightmost column")
+							present(alertVc, animated: true)
+						} catch GamepadConfigError.joystickHasNoLayoutSpace {
+							let alertVc = UIAlertController.withMessage("The slot to the right, below and diagnoally right and below must all be vacant for a joystick to be placed. A joystick needs 2x2 slots.")
+							present(alertVc, animated: true)
+						} catch {}
 					}
 				case .unassign:
 					gamepadConfig.removeAssignment(at: position)
@@ -578,6 +599,49 @@ public class OverlayViewController: UIViewController {
 			fpsLabel.isHidden = true
 		}
 	}
+
+	@objc
+	private func handleRelativeMouseModeEnabled() {
+		if !isRelativeMouseModeEnabled {
+			isRelativeMouseModeEnabled = true
+
+			var hint = "Relative mouse mode on"
+			if MiscellaneousSettings.current.showHints,
+			   !MiscellaneousSettings.current.iPadMousePassthrough {
+				hint += "\nDrag to move mouse"
+			}
+
+			informationView.show(
+				hintIcon: .computermouse,
+				hint: hint,
+				atBottom: state != .showingKeyboard
+			)
+		}
+
+		hiddenInputField.configure(isRelativeMouseModeEnabled: true)
+		gamepadLayerView.set(isRelativeMouseModeOn: true)
+	}
+
+	@objc
+	private func handleRelativeMouseModeDisabled() {
+		if isRelativeMouseModeEnabled {
+			isRelativeMouseModeEnabled = false
+
+			informationView.show(
+				hintIcon: .computermouse,
+				hint: "Relative mouse mode off",
+				atBottom: state != .showingKeyboard
+			)
+		}
+
+		hiddenInputField.configure(isRelativeMouseModeEnabled: false)
+		gamepadLayerView.set(isRelativeMouseModeOn: false)
+	}
+
+	@objc
+	private func handleRelativeMouseModeSettingChanged() {
+		hiddenInputField.configure(canToggleRelativeMouseMode: canToggleRelativeMouseMode)
+	}
 }
 
 extension OverlayViewController {
@@ -596,7 +660,8 @@ extension OverlayViewController {
 	@objc
 	public static func injectOverlayViewController(
 		keyInteraction: @escaping ((Int, Bool) -> Void),
-		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void)
+		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
+		didFireJoystick: @escaping ((CGPoint) -> Void)
 	) {
 		guard let window = UIApplication.shared.delegate?.window,
 		let sdlVC = window?.rootViewController else {
@@ -609,7 +674,8 @@ extension OverlayViewController {
 
 		let vc = OverlayViewController(
 			keyInteraction: keyInteraction,
-			specialButtonInteraction: specialButtonInteraction
+			specialButtonInteraction: specialButtonInteraction,
+			didFireJoystick: didFireJoystick
 		)
 
 		vc.willMove(toParent: sdlVC)

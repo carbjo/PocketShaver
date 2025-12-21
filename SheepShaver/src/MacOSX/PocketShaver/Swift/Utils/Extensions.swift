@@ -32,41 +32,41 @@ extension NSObject {
 
 extension UIScreen {
 	static var isPortraitMode: Bool {
-		main.bounds.height > UIScreen.main.bounds.width
+		main.bounds.height > main.bounds.width
 	}
-}
 
-extension UIDevice {
+	static var isNarrowWidth: Bool {
+		let deviceWidth = main.nativeBounds.width
+		return deviceWidth == 640
+	}
+
 	static var hasNotch: Bool {
-		let screenHeight = UIScreen.main.nativeBounds.height
+		let screenHeight = main.nativeBounds.height
 		let notchlessDevicesHeights: [CGFloat] = [480, 960, 1136, 1334, 1920, 2208]
 
 		return !notchlessDevicesHeights.contains(screenHeight)
 	}
 
 	static var sideMarginForButtons: CGFloat {
-		if UIScreen.isPortraitMode {
+		if isPortraitMode {
 			return 8
 		} else {
 			return hasNotch ? 64 : 8
 		}
 	}
 
-	static var isSmallScreenSize: Bool {
-		if isIPad {
+	static var isSmallSize: Bool {
+		if UIDevice.isIPad {
 			return false
 		}
 
 		return !hasNotch
 	}
+}
 
+extension UIDevice {
 	static var isIPad: Bool {
 		current.userInterfaceIdiom == .pad
-	}
-
-	static var isNarrowWidth: Bool {
-		let deviceWidth = UIScreen.main.nativeBounds.width
-		return deviceWidth == 640
 	}
 }
 
@@ -90,7 +90,7 @@ extension UIButton.Configuration {
 		var configuration = UIButton.Configuration.filled()
 		configuration.baseForegroundColor = .white
 		configuration.baseBackgroundColor = .lightGray.withAlphaComponent(0.5)
-		let horizontalInsets: CGFloat = UIDevice.isSmallScreenSize ? 8 : 16
+		let horizontalInsets: CGFloat = UIScreen.isSmallSize ? 8 : 16
 		configuration.contentInsets = NSDirectionalEdgeInsets(
 			top: 0,
 			leading: horizontalInsets,

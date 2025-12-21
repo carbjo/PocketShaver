@@ -11,19 +11,33 @@ import UIKit
 	case hover
 	case hoverAbove
 	case hoverBelow
+	case mouseClick
 
 	var label: String {
 		switch self {
 		case .hover: return "Hover"
 		case .hoverAbove: return "Hover above"
 		case .hoverBelow: return "Hover below"
+		case .mouseClick: return "Click"
+		}
+	}
+
+	var icon: ImageResource? {
+		switch self {
+		case .mouseClick: return .cursorarrowRays
+		default: return nil
 		}
 	}
 }
 
 class GamepadButton: UIButton {
+	enum Label {
+		case text(String)
+		case icon(ImageResource)
+	}
+
 	static var length: CGFloat {
-		if UIDevice.isSmallScreenSize {
+		if UIScreen.isSmallSize {
 			return 64
 		}
 		return UIScreen.isPortraitMode ? 78 : 80
@@ -36,7 +50,7 @@ class GamepadButton: UIButton {
 	private var isEditing: Bool = false
 
 	init(
-		text: String,
+		label: Label,
 		isEditing: Bool,
 		pushKey: @escaping (() -> Void),
 		releaseKey: @escaping (() -> Void),
@@ -50,7 +64,13 @@ class GamepadButton: UIButton {
 
 		configuration = .defaultConfig
 
-		setTitle(text, for: .normal)
+		switch label {
+		case .text(let text):
+			setTitle(text, for: .normal)
+		case .icon(let icon):
+			setImage(.init(resource: icon), for: .normal)
+		}
+
 		titleLabel?.textAlignment = .center
 
 		let length = GamepadButton.length
@@ -74,6 +94,10 @@ class GamepadButton: UIButton {
 	func set(isEditing: Bool) {
 		self.isEditing = isEditing
 		configuration?.baseBackgroundColor = isEditing ? .lightGray.withAlphaComponent(0.85) : .lightGray.withAlphaComponent(0.5)
+	}
+
+	override func point(inside point: CGPoint, with _: UIEvent?) -> Bool {
+		bounds.insetBy(dx: -2, dy: -4).contains(point)
 	}
 
 	@objc private func keyDown() {
