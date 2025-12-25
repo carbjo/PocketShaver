@@ -318,8 +318,13 @@ public class OverlayViewController: UIViewController {
 			}
 		}
 
-		gestureInputView.didBeginThreeFingerGesture = {
+		gestureInputView.didBeginThreeFingerGesture = { [weak self] in
+			guard let self else { return }
 			UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+
+			gamepadLayerView.layer.removeAllAnimations()
+			previousGamepadLayerView.layer.removeAllAnimations()
+			nextGamepadLayerView.layer.removeAllAnimations()
 		}
 
 		gestureInputView.didReleaseThreeFingerGesture = { [weak self] in
