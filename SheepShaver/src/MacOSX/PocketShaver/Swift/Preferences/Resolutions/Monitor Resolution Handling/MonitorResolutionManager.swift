@@ -287,7 +287,7 @@ public class MonitorResolutionManager: NSObject {
 		let screenWidth: Int
 		let screenHeight: Int
 		if let margins {
-			if UIScreen.isPortraitMode {
+			if size.height > size.width {
 				screenWidth = Int(size.width)
 				screenHeight = Int(size.width * margins.ratioWithFixedSide())
 			} else {
