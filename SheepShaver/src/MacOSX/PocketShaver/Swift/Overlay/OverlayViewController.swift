@@ -45,7 +45,7 @@ public class OverlayViewController: UIViewController {
 	private var dragHapticFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
 	private lazy var gamepadLayerView: GamepadLayerView = {
-		GamepadLayerView(
+		let view = GamepadLayerView(
 			isRelativeMouseModeOn: isRelativeMouseModeEnabled,
 			keyInteraction: keyInteraction,
 			specialButtonInteraction: specialButtonInteraction,
@@ -57,6 +57,8 @@ public class OverlayViewController: UIViewController {
 				self?.presentLayoutSettings()
 			}
 		)
+		view.isUserInteractionEnabled = (state == .showingGamepad || state == .editingGamepad)
+		return view
 	}()
 
 	private lazy var previousGamepadLayerView: GamepadLayerView = {
@@ -266,24 +268,28 @@ public class OverlayViewController: UIViewController {
 			previousGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 			nextGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 			gestureInputView.set(state: state)
+			gamepadLayerView.isUserInteractionEnabled = false
 		case .showingGamepad:
 			gamepadLayerView.transform = .identity
 			previousGamepadLayerView.transform = .identity
 			nextGamepadLayerView.transform = .identity
 			gamepadLayerView.set(isEditing: false)
 			gestureInputView.set(state: state)
+			gamepadLayerView.isUserInteractionEnabled = true
 		case .showingKeyboard:
 			hiddenInputField.becomeFirstResponder()
 			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 			previousGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 			nextGamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
 			gestureInputView.set(state: state)
+			gamepadLayerView.isUserInteractionEnabled = false
 		case .editingGamepad:
 			gamepadLayerView.transform = .identity
 			previousGamepadLayerView.transform = .identity
 			nextGamepadLayerView.transform = .identity
 			gamepadLayerView.set(isEditing: true)
 			gestureInputView.set(state: state)
+			gamepadLayerView.isUserInteractionEnabled = true
 		}
 	}
 
