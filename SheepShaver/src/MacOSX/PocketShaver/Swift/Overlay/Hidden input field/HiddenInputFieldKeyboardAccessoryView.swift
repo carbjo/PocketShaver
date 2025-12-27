@@ -7,12 +7,6 @@
 
 import UIKit
 
-private enum DeviceScreenSize {
-	case normal
-	case small
-	case tiny
-}
-
 class HiddenInputFieldKeyboardAccessoryView: UIView {
 	private lazy var leftStackView: UIStackView = {
 		let stackView = UIStackView.withoutConstraints()
@@ -263,26 +257,4 @@ private func buttonConfig() -> UIButton.Configuration {
 	configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: margin, bottom: 0, trailing: margin)
 	configuration.background.cornerRadius = 8
 	return configuration
-}
-
-private extension UIButton {
-	func setTargetWidth(_ width: CGFloat) {
-		let totalMargin: CGFloat = width - image(for: .normal)!.size.width
-		let margin = totalMargin / 2
-		configuration!.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: margin, bottom: 0, trailing: margin)
-	}
-}
-
-private extension UIScreen {
-	static var deviceScreenSize: DeviceScreenSize {
-		if isSESize,
-		   isPortraitMode {
-			return .tiny
-		} else if !UIDevice.isIPad,
-				  isPortraitMode {
-			return .small
-		} else {
-			return .normal
-		}
-	}
 }
