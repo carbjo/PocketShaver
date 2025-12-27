@@ -96,6 +96,8 @@
 		C73660F22E37815E0055AA91 /* HiddenInputField.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F12E3781570055AA91 /* HiddenInputField.swift */; };
 		C73660F42E37B5C80055AA91 /* Gamepad.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F32E37B5C50055AA91 /* Gamepad.swift */; };
 		C7393CCD2E6DC6A200D06705 /* PreferencesResolutionsCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */; };
+		C73C7A022F002FF400FC0467 /* GamepadAssignKeyboardAccessoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73C7A012F002FE700FC0467 /* GamepadAssignKeyboardAccessoryView.swift */; };
+		C73C7A042F0030D300FC0467 /* DeviceScreenSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73C7A032F0030CE00FC0467 /* DeviceScreenSize.swift */; };
 		C74035AD2EDAF1C50045B9C6 /* FPSCounterObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C74035AC2EDAF1B70045B9C6 /* FPSCounterObjC.mm */; };
 		C74035B32EDC33420045B9C6 /* FPSCounter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C74035B22EDC333D0045B9C6 /* FPSCounter.swift */; };
 		C74035B62EDC3B130045B9C6 /* PreferencesCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C74035B52EDC3B0C0045B9C6 /* PreferencesCells.swift */; };
@@ -569,6 +571,8 @@
 		C73660F12E3781570055AA91 /* HiddenInputField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputField.swift; sourceTree = "<group>"; };
 		C73660F32E37B5C50055AA91 /* Gamepad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gamepad.swift; sourceTree = "<group>"; };
 		C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesResolutionsCells.swift; sourceTree = "<group>"; };
+		C73C7A012F002FE700FC0467 /* GamepadAssignKeyboardAccessoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadAssignKeyboardAccessoryView.swift; sourceTree = "<group>"; };
+		C73C7A032F0030CE00FC0467 /* DeviceScreenSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceScreenSize.swift; sourceTree = "<group>"; };
 		C74035AC2EDAF1B70045B9C6 /* FPSCounterObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = FPSCounterObjC.mm; sourceTree = "<group>"; };
 		C74035B02EDAF2220045B9C6 /* FPSCounterObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FPSCounterObjCCppHeader.h; sourceTree = "<group>"; };
 		C74035B12EDAF3BC0045B9C6 /* FPSCounterObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FPSCounterObjC.h; sourceTree = "<group>"; };
@@ -1327,6 +1331,7 @@
 			isa = PBXGroup;
 			children = (
 				C73660E32E34DCE30055AA91 /* Extensions.swift */,
+				C73C7A032F0030CE00FC0467 /* DeviceScreenSize.swift */,
 				C7DCEF452E8704A100EAED05 /* Miscellaneous */,
 				C70B65E32E7A7BD00039680A /* Storage */,
 				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
@@ -1468,6 +1473,7 @@
 				C7C3D26D2E76F3B20018DB8B /* GamepadAssignButtonViewController.swift */,
 				C7C3D2722E76FA7A0018DB8B /* GamepadAssignButtonModel.swift */,
 				C7C3D2702E76F86F0018DB8B /* GamepadAssignButtonCells.swift */,
+				C73C7A012F002FE700FC0467 /* GamepadAssignKeyboardAccessoryView.swift */,
 			);
 			path = "Assign Button";
 			sourceTree = "<group>";
@@ -2121,6 +2127,7 @@
 				E204B95F28BC3EBE0081FDCA /* main_unix.cpp in Sources */,
 				E204B9F228BC7D020081FDCA /* utils_ios.mm in Sources */,
 				C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */,
+				C73C7A042F0030D300FC0467 /* DeviceScreenSize.swift in Sources */,
 				C73660EE2E3649900055AA91 /* UnassignedGamepadButton.swift in Sources */,
 				E204B96028BC3EBE0081FDCA /* video_sdl2.cpp in Sources */,
 				E204B96128BC3EBE0081FDCA /* prefs_unix.cpp in Sources */,
@@ -2188,6 +2195,7 @@
 				E204B97728BC3EBE0081FDCA /* disk_sparsebundle.cpp in Sources */,
 				E204B97828BC3EBE0081FDCA /* tinyxml2.cpp in Sources */,
 				C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */,
+				C73C7A022F002FF400FC0467 /* GamepadAssignKeyboardAccessoryView.swift in Sources */,
 				C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */,
 				C73660E42E34DCE40055AA91 /* Extensions.swift in Sources */,
 				E204B97928BC3EBE0081FDCA /* DiskType.m in Sources */,

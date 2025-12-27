@@ -109,6 +109,14 @@ extension UIButton.Configuration {
 	}
 }
 
+extension UIButton {
+   func setTargetWidth(_ width: CGFloat) {
+	   let totalMargin: CGFloat = width - image(for: .normal)!.size.width
+	   let margin = totalMargin / 2
+	   configuration!.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: margin, bottom: 0, trailing: margin)
+   }
+}
+
 extension FileManager {
 	static var documentUrl: URL {
 		Self.default.urls(for: .documentDirectory, in: .userDomainMask)[0]

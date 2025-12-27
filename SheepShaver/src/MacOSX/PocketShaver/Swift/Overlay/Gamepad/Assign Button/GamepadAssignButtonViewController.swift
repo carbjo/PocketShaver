@@ -65,6 +65,14 @@ class GamepadAssignButtonViewController: UIViewController {
 		return textField
 	}()
 
+	private lazy var searchTextFieldAccessoryView: GamepadAssignKeyboardAccessoryView = {
+		let view = GamepadAssignKeyboardAccessoryView()
+		view.configure(didTapDismissKeyboardButton: { [weak self] in
+			self?.searchTextField.resignFirstResponder()
+		})
+		return view
+	}()
+
 	private lazy var tableView: UITableView = {
 		let tableView = UITableView.withoutConstraints()
 		tableView.rowHeight = UITableView.automaticDimension
@@ -133,6 +141,8 @@ class GamepadAssignButtonViewController: UIViewController {
 		}
 
 		super.init(nibName: nil, bundle: nil)
+
+		searchTextField.inputAccessoryView = searchTextFieldAccessoryView
 	}
 
 	override func viewDidLoad() {
@@ -157,7 +167,7 @@ class GamepadAssignButtonViewController: UIViewController {
 
 			searchTextFieldContainer.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
 			searchTextFieldContainer.topAnchor.constraint(equalTo: cardView.topAnchor, constant: sizeMode.convert(16)),
-			searchTextFieldContainer.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: sizeMode.convert(-16)),
+			searchTextFieldContainer.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
 			searchTextFieldContainer.heightAnchor.constraint(equalToConstant: sizeMode.convert(44)),
 
 			tableView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
@@ -248,6 +258,7 @@ class GamepadAssignButtonViewController: UIViewController {
 		searchTextField.resignFirstResponder()
 
 		UIView.animate(withDuration: 0.2) {
+			self.searchTextFieldAccessoryView.fadeOutDismissKeyboardButton()
 			self.view.backgroundColor = UIColor(red: 0, green: 0, blue: 0, alpha: 0)
 			self.cardView.alpha = 0
 		} completion: { [weak self] _ in
@@ -300,6 +311,14 @@ extension GamepadAssignButtonViewController: UITableViewDelegate {
 }
 
 extension GamepadAssignButtonViewController: UITextFieldDelegate {
+	func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool {
+		UIView.animate(withDuration: 0.2) {
+			self.searchTextFieldAccessoryView.fadeInDismissKeyboardButton()
+		}
+
+		return true
+	}
+
 	func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
 		if string == "\n" {
 			returnKeyPressed()
