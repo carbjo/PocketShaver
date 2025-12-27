@@ -122,7 +122,7 @@ class GamepadAssignButtonViewController: UIViewController {
 	) {
 		self.dismissRequestCallback = dismissRequestCallback
 
-		if UIScreen.isNarrowWidth,
+		if UIScreen.isSESize,
 		   !UIScreen.isPortraitMode {
 			sizeMode = .tiny
 		} else if !UIDevice.isIPad,

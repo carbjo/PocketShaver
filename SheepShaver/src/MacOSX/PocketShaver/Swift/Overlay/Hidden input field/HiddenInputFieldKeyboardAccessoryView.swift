@@ -275,7 +275,7 @@ private extension UIButton {
 
 private extension UIScreen {
 	static var deviceScreenSize: DeviceScreenSize {
-		if isNarrowWidth,
+		if isSESize,
 		   isPortraitMode {
 			return .tiny
 		} else if !UIDevice.isIPad,
