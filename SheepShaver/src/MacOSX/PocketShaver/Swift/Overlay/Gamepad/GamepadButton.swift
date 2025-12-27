@@ -37,8 +37,10 @@ class GamepadButton: UIButton {
 	}
 
 	static var length: CGFloat {
-		if UIScreen.isSmallSize {
-			return 64
+		if UIScreen.isSESize {
+			return 65
+		} else if UIScreen.isSmallSize {
+			return 76
 		}
 		return UIScreen.isPortraitMode ? 78 : 80
 	}

@@ -12,15 +12,8 @@ class GamepadLayerView: UIView {
 	private let leftCollectionStackView: GamepadButtonStackViewCollectionStackView
 	private let rightCollectionStackView: GamepadButtonStackViewCollectionStackView
 
-	private lazy var settingsButton: UIButton = {
-		let button = UIButton.withoutConstraints()
-		var configuration = UIButton.Configuration.defaultConfig
-		configuration.contentInsets = .zero
-		configuration.baseBackgroundColor = .lightGray.withAlphaComponent(0.9)
-		button.configuration = configuration
-		button.setImage(UIImage(resource: .gearshape), for: .normal)
-		button.isHidden = true
-		return button
+	private lazy var settingsButton: GamepadSettingsButton = {
+		GamepadSettingsButton()
 	}()
 
 	private let didRequestLayoutSettings: (() -> Void)
@@ -63,17 +56,17 @@ class GamepadLayerView: UIView {
 		addSubview(settingsButton)
 
 		let sideMargin: CGFloat = UIScreen.sideMarginForButtons
-		let settingsButtonLength: CGFloat = UIScreen.isSmallSize ? 36 : 44
+		let settingsButtonLength = GamepadSettingsButton.length
 
 		NSLayoutConstraint.activate([
-			leftCollectionStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin),
+			leftCollectionStackView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: sideMargin),
 			leftCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
-			rightCollectionStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideMargin),
+			rightCollectionStackView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -sideMargin),
 			rightCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
 			settingsButton.centerXAnchor.constraint(equalTo: centerXAnchor),
-			settingsButton.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -UIScreen.main.bounds.size.height / 4),
+			settingsButton.centerYAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -UIScreen.main.bounds.size.height * GamepadSettingsButton.verticalScreenPositionRatio),
 			settingsButton.widthAnchor.constraint(equalToConstant: settingsButtonLength),
 			settingsButton.heightAnchor.constraint(equalToConstant: settingsButtonLength)
 		])

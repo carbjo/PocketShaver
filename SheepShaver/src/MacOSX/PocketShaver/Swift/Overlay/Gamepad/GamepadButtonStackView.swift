@@ -21,6 +21,7 @@ class GamepadButtonStackView: UIStackView {
 	init(
 		side: GamepadSide,
 		row: Int,
+		isSettingsButtonRow: Bool,
 		isRelativeMouseModeOn: Bool,
 		keyInteraction: @escaping ((Int, Bool, Bool) -> Void),
 		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
@@ -41,18 +42,21 @@ class GamepadButtonStackView: UIStackView {
 		axis = .horizontal
 		spacing = 4
 
-		setupButtons()
+		setupButtons(isSettingsButtonRow: isSettingsButtonRow)
 	}
 	
 	required init(coder: NSCoder) { fatalError() }
 
-	private func setupButtons() {
-		let screenWidth = UIScreen.main.bounds.width
+	private func setupButtons(
+		isSettingsButtonRow: Bool
+	) {
+		let screenWidth = UIScreen.main.bounds.width - UIApplication.safeAreaInsets.left - UIApplication.safeAreaInsets.right
 		let sideMargin: CGFloat = UIScreen.sideMarginForButtons
 
-		let settingsButtonLength: CGFloat = UIScreen.isSmallSize ? 36 : 44
+		let settingsButtonLength = GamepadSettingsButton.length
 		let halfSettingsButton: CGFloat = settingsButtonLength/2
-		let availableWidth = (screenWidth / 2) - sideMargin - halfSettingsButton
+		let settingsButtonMargin = isSettingsButtonRow ? halfSettingsButton : 0
+		let availableWidth = (screenWidth / 2) - sideMargin - settingsButtonMargin
 		let buttonLength = GamepadButton.length
 		let elementWidth = buttonLength + spacing
 
@@ -173,6 +177,7 @@ class GamepadButtonStackView: UIStackView {
 
 	func setKeyToRightObscured(_ isObscured: Bool, rightOfIndex index: Int) {
 		guard let sideCorrectedIndex = getSideCorrectedIndex(for: index),
+			  sideCorrectedIndex + 1 < arrangedSubviews.count,
 			  let unassignedButton = arrangedSubviews[sideCorrectedIndex + 1] as? UnassignedGamepadButton else {
 			return
 		}

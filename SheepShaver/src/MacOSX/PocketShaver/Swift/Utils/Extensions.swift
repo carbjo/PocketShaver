@@ -35,11 +35,6 @@ extension UIScreen {
 		main.bounds.height > main.bounds.width
 	}
 
-	static var isNarrowWidth: Bool {
-		let deviceWidth = main.nativeBounds.width
-		return deviceWidth == 640
-	}
-
 	static var hasNotch: Bool {
 		let screenHeight = main.nativeBounds.height
 		let notchlessDevicesHeights: [CGFloat] = [480, 960, 1136, 1334, 1920, 2208]
@@ -47,13 +42,7 @@ extension UIScreen {
 		return !notchlessDevicesHeights.contains(screenHeight)
 	}
 
-	static var sideMarginForButtons: CGFloat {
-		if isPortraitMode {
-			return 8
-		} else {
-			return hasNotch ? 64 : 8
-		}
-	}
+	static let sideMarginForButtons: CGFloat = 8
 
 	static var isSmallSize: Bool {
 		if UIDevice.isIPad {
@@ -61,6 +50,11 @@ extension UIScreen {
 		}
 
 		return !hasNotch
+	}
+
+	static var isSESize: Bool {
+		let deviceWidth = main.nativeBounds.width
+		return deviceWidth == 640
 	}
 }
 
@@ -243,5 +237,11 @@ extension UIScreen {
 	@MainActor
 	static var supportsHighRefreshRate: Bool {
 		return main.maximumFramesPerSecond > 60
+	}
+}
+
+extension UIApplication {
+	static var safeAreaInsets: UIEdgeInsets {
+		shared.windows.first!.safeAreaInsets
 	}
 }

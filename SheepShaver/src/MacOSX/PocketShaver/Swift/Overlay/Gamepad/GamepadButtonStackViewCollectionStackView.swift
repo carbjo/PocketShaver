@@ -46,11 +46,17 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
 		didFireJoystick: @escaping ((CGPoint) -> Void)
 	) {
-		let screenHeight = UIScreen.main.bounds.height
+		let screenHeight = UIScreen.main.bounds.height - UIApplication.safeAreaInsets.top - UIApplication.safeAreaInsets.bottom
 		let length = GamepadButton.length
-		let stackViewHeight: CGFloat = length + (spacing * 2)
+		let stackViewHeight: CGFloat = length + spacing
+		let availableHeight = screenHeight
 
-		let numberOfStackViews = Int(floor(screenHeight / stackViewHeight))
+		let numberOfStackViews = Int(floor(availableHeight / stackViewHeight))
+
+		let halfGamepadSettingsLength = GamepadSettingsButton.length / 2
+		let settingsButtonStartRow = Int(floor((GamepadSettingsButton.verticalScreenPositionRatio * availableHeight - halfGamepadSettingsLength) / stackViewHeight))
+		let settingsButtonEndRow = Int(floor((GamepadSettingsButton.verticalScreenPositionRatio * availableHeight + halfGamepadSettingsLength) / stackViewHeight))
+		let settingsButtonRange = settingsButtonStartRow...settingsButtonEndRow
 
 		for row in 0..<numberOfStackViews {
 			let orientationCorrectedRow = numberOfStackViews - 1 - row // Build from bottom to top
@@ -59,6 +65,7 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 				GamepadButtonStackView(
 					side: side,
 					row: row,
+					isSettingsButtonRow: settingsButtonRange.contains(orientationCorrectedRow),
 					isRelativeMouseModeOn: isRelativeMouseModeOn,
 					keyInteraction: keyInteraction,
 					specialButtonInteraction: specialButtonInteraction,
