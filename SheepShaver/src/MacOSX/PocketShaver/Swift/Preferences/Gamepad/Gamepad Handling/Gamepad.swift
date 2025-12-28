@@ -115,29 +115,21 @@ class GamepadConfig: Codable {
 
 	@MainActor
 	private func saveChanges() {
-		if name == Self.exampleLayoutName {
+		if name == Self.emptyLayout.name {
 			name = "Saved Layout"
 		}
 
 		GamepadManager.shared.save(self)
 	}
 
-	private static let exampleLayoutName = "Example layout"
-
-	fileprivate init() {
-		name = Self.exampleLayoutName
-		mappings = [
-			.init(position: .init(side: .left, row: 0, index: 0), assignment: .key(.down)),
-			.init(position: .init(side: .left, row: 0, index: 1), assignment: .key(.up)),
-			.init(position: .init(side: .left, row: 0, index: 2), assignment: .key(.space)),
-			.init(position: .init(side: .left, row: 1, index: 0), assignment: .key(.q)),
-			.init(position: .init(side: .right, row: 0, index: 2), assignment: .key(.tab)),
-			.init(position: .init(side: .right, row: 0, index: 1), assignment: .key(.left)),
-			.init(position: .init(side: .right, row: 0, index: 0), assignment: .key(.right)),
-			.init(position: .init(side: .right, row: 1, index: 1), assignment: .key(.alt)),
-			.init(position: .init(side: .right, row: 1, index: 0), assignment: .key(.cmd))
-		]
-		visibilitySetting = .both
+	init(
+		name: String,
+		mappings: [GamepadButtonMapping],
+		visibilitySetting: GamepadVisibilitySetting
+	) {
+		self.name = name
+		self.mappings = mappings
+		self.visibilitySetting = visibilitySetting
 	}
 }
 
@@ -149,7 +141,10 @@ private class GamepadSettings: Codable {
 	init() {
 		portraitConfigIndex = 0
 		landscapeConfigIndex = 0
-		configurations = []
+		configurations = [
+			GamepadConfig.exampleArcadeGameLayout,
+			GamepadConfig.exampleFpsGameLayout
+		]
 	}
 
 	@MainActor
@@ -166,8 +161,8 @@ class GamepadManager {
 
 	static let shared = GamepadManager()
 
-	private var beginningExampleLayoutConfig = GamepadConfig()
-	private var endExampleLayoutConfig = GamepadConfig()
+	private var beginningEmptyLayoutConfig = GamepadConfig.emptyLayout
+	private var endEmptyLayoutConfig = GamepadConfig.emptyLayout
 
 	private lazy var settings: GamepadSettings = {
 		guard let data = Storage.shared.load(from: .gamepad),
@@ -180,9 +175,9 @@ class GamepadManager {
 
 	private var portraitConfig: GamepadConfig {
 		if settings.portraitConfigIndex < 0 {
-			return beginningExampleLayoutConfig
+			return beginningEmptyLayoutConfig
 		} else if settings.portraitConfigIndex >= settings.configurations.count {
-			return endExampleLayoutConfig
+			return endEmptyLayoutConfig
 		} else {
 			return settings.configurations[settings.portraitConfigIndex]
 		}
@@ -190,9 +185,9 @@ class GamepadManager {
 
 	private var landscapeConfig: GamepadConfig {
 		if settings.landscapeConfigIndex < 0 {
-			return beginningExampleLayoutConfig
+			return beginningEmptyLayoutConfig
 		} else if settings.landscapeConfigIndex >= settings.configurations.count {
-			return endExampleLayoutConfig
+			return endEmptyLayoutConfig
 		} else {
 			return settings.configurations[settings.landscapeConfigIndex]
 		}
@@ -210,11 +205,11 @@ class GamepadManager {
 		if UIScreen.isPortraitMode {
 			return savedConfigAfterIndexMatching(settings.portraitConfigIndex) { config in
 				config.visibilitySetting != .landscapeOnly
-			} ?? endExampleLayoutConfig
+			} ?? endEmptyLayoutConfig
 		} else {
 			return savedConfigAfterIndexMatching(settings.landscapeConfigIndex) { config in
 				config.visibilitySetting != .portraitOnly
-			} ?? endExampleLayoutConfig
+			} ?? endEmptyLayoutConfig
 		}
 	}
 
@@ -222,11 +217,11 @@ class GamepadManager {
 		if UIScreen.isPortraitMode {
 			return savedConfigBeforeIndexMatching(settings.portraitConfigIndex) { config in
 				config.visibilitySetting != .landscapeOnly
-			} ?? beginningExampleLayoutConfig
+			} ?? beginningEmptyLayoutConfig
 		} else {
 			return savedConfigBeforeIndexMatching(settings.landscapeConfigIndex) { config in
 				config.visibilitySetting != .portraitOnly
-			} ?? beginningExampleLayoutConfig
+			} ?? beginningEmptyLayoutConfig
 		}
 	}
 
@@ -285,15 +280,15 @@ class GamepadManager {
 	}
 
 	fileprivate func save(_ config: GamepadConfig) {
-		if config === beginningExampleLayoutConfig {
+		if config === beginningEmptyLayoutConfig {
 			modifyAndRetainIndices {
-				settings.configurations.insert(beginningExampleLayoutConfig, at: 0)
-				beginningExampleLayoutConfig = GamepadConfig()
+				settings.configurations.insert(beginningEmptyLayoutConfig, at: 0)
+				beginningEmptyLayoutConfig = GamepadConfig.emptyLayout
 			}
-		} else if config === endExampleLayoutConfig {
+		} else if config === endEmptyLayoutConfig {
 			modifyAndRetainIndices {
-				settings.configurations.append(endExampleLayoutConfig)
-				endExampleLayoutConfig = GamepadConfig()
+				settings.configurations.append(endEmptyLayoutConfig)
+				endEmptyLayoutConfig = GamepadConfig.emptyLayout
 			}
 		} else {
 			guard settings.configurations.contains(where: { $0 === config }) else {
@@ -311,9 +306,9 @@ class GamepadManager {
 
 	fileprivate func setAsCurrentConfig(_ config: GamepadConfig) {
 		let index: Int
-		if config === beginningExampleLayoutConfig {
+		if config === beginningEmptyLayoutConfig {
 			index = -1
-		} else if config === endExampleLayoutConfig {
+		} else if config === endEmptyLayoutConfig {
 			index = settings.configurations.count
 		} else if let configurationArrayIndex = settings.configurations.firstIndex(where: { $0 === config }) {
 			index = configurationArrayIndex
@@ -352,7 +347,7 @@ class GamepadManager {
 	}
 
 	private func isExampleConfig(_ config: GamepadConfig) -> Bool {
-		config === beginningExampleLayoutConfig || config === endExampleLayoutConfig
+		config === beginningEmptyLayoutConfig || config === endEmptyLayoutConfig
 	}
 
 	private func modifyAndRetainIndices(_ block: () -> Void) {
@@ -383,5 +378,47 @@ extension GamepadVisibilitySetting {
 		case .landscapeOnly:
 			"Landscape only"
 		}
+	}
+}
+
+extension GamepadConfig {
+	static var emptyLayout: GamepadConfig {
+		GamepadConfig(
+			name: "Empty layout",
+			mappings: [],
+			visibilitySetting: .both
+		)
+	}
+
+	static var exampleArcadeGameLayout: GamepadConfig {
+		GamepadConfig(
+			name: "Example arcade game layout",
+			mappings: [
+				.init(position: .init(side: .left, row: 0, index: 0), assignment: .key(.left)),
+				.init(position: .init(side: .left, row: 0, index: 1), assignment: .key(.down)),
+				.init(position: .init(side: .left, row: 0, index: 2), assignment: .key(.right)),
+				.init(position: .init(side: .left, row: 1, index: 1), assignment: .key(.up)),
+				.init(position: .init(side: .left, row: 3, index: 0), assignment: .key(.escape)),
+				.init(position: .init(side: .right, row: 0, index: 1), assignment: .key(.a)),
+				.init(position: .init(side: .right, row: 0, index: 0), assignment: .key(.b)),
+				.init(position: .init(side: .right, row: 3, index: 0), assignment: .key(.enter))
+			],
+			visibilitySetting: .both
+		)
+	}
+
+	static var exampleFpsGameLayout: GamepadConfig {
+		GamepadConfig(
+			name: "Example FPS game layout",
+			mappings: [
+				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.wasd)),
+				.init(position: .init(side: .left, row: 2, index: 0), assignment: .specialButton(.mouseClick)),
+				.init(position: .init(side: .left, row: 3, index: 0), assignment: .key(.escape)),
+				.init(position: .init(side: .right, row: 1, index: 1), assignment: .joystick(.mouse)),
+				.init(position: .init(side: .right, row: 2, index: 0), assignment: .key(.space)),
+				.init(position: .init(side: .right, row: 3, index: 0), assignment: .key(.enter))
+			],
+			visibilitySetting: .both
+		)
 	}
 }
