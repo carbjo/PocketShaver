@@ -13,16 +13,21 @@ enum GamepadAssignResult {
 	case cancel
 }
 
+struct GamepadAssignEntry {
+	let identifier: String
+	let assignment: GamepadButtonAssignment
+}
+
 class GamepadAssignButtonModel {
-	private let originalList: [GamepadButtonAssignment]
-	private(set) var results: [GamepadButtonAssignment]
+	private let originalList: [GamepadAssignEntry]
+	private(set) var results: [GamepadAssignEntry]
 	private(set) var searchString = ""
 
 	init() {
 		let joystick = [GamepadButtonAssignment.joystick(.mouse), GamepadButtonAssignment.joystick(.wasd)]
 		let specialKeys = SpecialButton.allCases.map({ GamepadButtonAssignment.specialButton($0) })
 		let sdlKeys = SDLKey.allCases.map({ GamepadButtonAssignment.key($0) })
-		originalList = joystick + specialKeys + sdlKeys
+		originalList = (joystick + specialKeys + sdlKeys).map(GamepadAssignEntry.init) + alternativeNames
 		results = originalList
 	}
 
@@ -116,8 +121,43 @@ extension GamepadButtonAssignment {
 			case .mouseClick:
 				return "Mouse click."
 			}
-		case .joystick:
-			return "Joystick. Only works in relative mouse mode (and games and apps that use that mode)."
+		case .joystick(let joystickType):
+			switch joystickType {
+			case .mouse:
+				return "Joystick emulating moving mouse. Only works in relative mouse mode (and games and apps that use that mode)."
+			case .wasd:
+				return "Joystick emulating pressing keys WASD."
+			}
 		}
 	}
 }
+
+extension GamepadAssignEntry {
+	init(_ buttonAssignment: GamepadButtonAssignment) {
+		identifier = buttonAssignment.identifier
+		self.assignment = buttonAssignment
+	}
+}
+
+nonisolated(unsafe) private let alternativeNames: [GamepadAssignEntry] = [
+	.init(identifier: "RETURN", assignment: .key(.enter)),
+	.init(identifier: "BLANKSPACE", assignment: .key(.space)),
+	.init(identifier: "COMMAND", assignment: .key(.cmd)),
+	.init(identifier: "APPLE KEY", assignment: .key(.cmd)),
+	.init(identifier: "DOT", assignment: .key(.kpPeriod)),
+	.init(identifier: "PERIOD", assignment: .key(.kpPeriod)),
+	.init(identifier: "PLUS", assignment: .key(.kpPlus)),
+	.init(identifier: "MINUS", assignment: .key(.kpMinus)),
+	.init(identifier: "STAR", assignment: .key(.kpMultiply)),
+	.init(identifier: "MULTIPLY", assignment: .key(.kpMultiply)),
+	.init(identifier: "SLASH", assignment: .key(.kpDivide)),
+	.init(identifier: "FORWARDSLASH", assignment: .key(.kpDivide)),
+	.init(identifier: "EQUALS", assignment: .key(.kpEquals)),
+	.init(identifier: "CONTROL", assignment: .key(.ctrl)),
+	.init(identifier: "OPT", assignment: .key(.alt)),
+	.init(identifier: "OPTION", assignment: .key(.alt)),
+	.init(identifier: "ESCAPE", assignment: .key(.alt)),
+	.init(identifier: "SCROLLOCK", assignment: .key(.scrollock)),
+	.init(identifier: "LESS THAN", assignment: .key(.lessThan)),
+	.init(identifier: "CLICK", assignment: .specialButton(.mouseClick))
+]
