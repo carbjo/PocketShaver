@@ -251,7 +251,7 @@ class GamepadAssignButtonViewController: UIViewController {
 			return
 		}
 
-		dismiss(with: .assignment(result))
+		dismiss(with: .assignment(result.assignment))
 	}
 
 	func dismiss(with result: GamepadAssignResult) {
@@ -284,13 +284,13 @@ extension GamepadAssignButtonViewController: UITableViewDataSource {
 		let isPrimarySelection = !model.searchString.isEmpty && indexPath.row == 0
 
 		cell.config(
-			listEntry: entry,
+			identifier: entry.identifier,
 			isPrimarySelection: isPrimarySelection,
 			sizeMode: sizeMode,
 			didTapInfoButton: { [weak self] in
 				let alertVc = UIAlertController.with(
 					title: entry.identifier,
-					message: entry.description
+					message: entry.assignment.description
 				)
 				self?.present(alertVc, animated: true)
 			}
@@ -304,7 +304,7 @@ extension GamepadAssignButtonViewController: UITableViewDelegate {
 	func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
 		tableView.deselectRow(at: indexPath, animated: true)
 
-		let result = model.results[indexPath.row]
+		let result = model.results[indexPath.row].assignment
 
 		dismiss(with: .assignment(result))
 	}

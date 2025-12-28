@@ -63,14 +63,14 @@ class GamepadAssignButtonEntryCell: UITableViewCell {
 	private var didTapInfoButton: (() -> Void)?
 
 	func config(
-		listEntry: GamepadButtonAssignment,
+		identifier: String,
 		isPrimarySelection: Bool,
 		sizeMode: GamepadAssignButtonViewController.SizeMode,
 		didTapInfoButton: @escaping (() -> Void)
 	) {
 		self.didTapInfoButton = didTapInfoButton
 
-		titleLabel.text = listEntry.identifier
+		titleLabel.text = identifier
 
 		backgroundColor = isPrimarySelection ? .darkGray.withAlphaComponent(0.4) : .clear
 
