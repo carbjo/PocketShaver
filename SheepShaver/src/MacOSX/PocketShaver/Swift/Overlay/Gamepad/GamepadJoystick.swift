@@ -19,10 +19,10 @@ class GamepadJoystick: UIControl {
 	}
 
 	private lazy var backgroundCircleView: UIView = {
-		let view = UIView.withoutConstraints()
-		view.backgroundColor = .lightGray.withAlphaComponent(0.5)
-		view.layer.cornerRadius = GamepadButton.length
-		return view
+		BackgroundCircleView(
+			mode: mode,
+			radius: GamepadButton.length
+		)
 	}()
 
 	private lazy var stickCircleView: UIView = {
@@ -275,12 +275,13 @@ class GamepadJoystick: UIControl {
 		if dist < limit {
 			currentPoint = point
 		} else {
-			let angle = atan2(y, x)
-			let normalizedX = cos(angle) * limit
-			let normalizedY = sin(angle) * limit
+			let normalizedVector = limitNormalizedVector(
+				limit: 46,
+				vector: .init(dx: x, dy: y)
+			)
 			currentPoint = .init(
-				x: backgroundCircleView.center.x + normalizedX,
-				y: backgroundCircleView.center.x + normalizedY
+				x: backgroundCircleView.center.x + normalizedVector.dx,
+				y: backgroundCircleView.center.x + normalizedVector.dy
 			)
 		}
 
@@ -363,4 +364,145 @@ private extension GamepadJoystick {
 
 		return array
 	}
+}
+
+private class BackgroundCircleView: UIView {
+
+	private let radius: CGFloat
+	private let linesLayer = CALayer()
+
+	init(
+		mode: GamepadJoystick.Mode,
+		radius: CGFloat
+	) {
+
+		self.radius = radius
+
+		super.init(frame: .zero)
+
+		translatesAutoresizingMaskIntoConstraints = false
+		backgroundColor = .lightGray.withAlphaComponent(0.5)
+		layer.cornerRadius = radius
+
+		layer.addSublayer(linesLayer)
+
+		if case GamepadJoystick.Mode.wasd = mode {
+			drawSegmentLines()
+			addMaskAndInnerCircle()
+			addWasdLabels()
+		}
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	private func drawSegmentLines() {
+		let twoPi = CGFloat.pi * 2
+
+		let layers: [CALayer] = [
+			lineLayer(startAngle: twoPi * (-3 / 16), endAngle: twoPi * (5 / 16)),
+			lineLayer(startAngle: twoPi * (1 / 16), endAngle: twoPi * (9 / 16)),
+			lineLayer(startAngle: twoPi * (5 / 16), endAngle: twoPi * (13 / 16)),
+			lineLayer(startAngle: twoPi * (-7 / 16), endAngle: twoPi * (1 / 16)),
+			lineLayer(startAngle: twoPi * (3 / 16), endAngle: twoPi * (11 / 16)),
+			lineLayer(startAngle: twoPi * (7 / 16), endAngle: twoPi * (15 / 16)),
+			lineLayer(startAngle: twoPi * (-5 / 16), endAngle: twoPi * (3 / 16)),
+			lineLayer(startAngle: twoPi * (-1 / 16), endAngle: twoPi * (7 / 16))
+		]
+
+		for layer in layers {
+			linesLayer.addSublayer(layer)
+		}
+	}
+
+	private func addMaskAndInnerCircle() {
+		let twoThirdRadius = radius * (2/3)
+		let offset = radius - twoThirdRadius
+		let circleLayer = CAShapeLayer()
+
+		let outerCirclePath = UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: 2.0 * radius, height: 2.0 * radius), cornerRadius: radius)
+		let innerCirclePath = UIBezierPath(roundedRect: CGRect(x: offset, y: offset, width: 2.0 * twoThirdRadius, height: 2.0 * twoThirdRadius), cornerRadius: twoThirdRadius)
+		outerCirclePath.append(innerCirclePath)
+
+		circleLayer.path = outerCirclePath.cgPath
+		circleLayer.fillColor = UIColor.black.cgColor
+		circleLayer.fillRule = .evenOdd
+
+		linesLayer.mask = circleLayer
+
+		let innerCircleLayer = CAShapeLayer()
+		innerCircleLayer.path = innerCirclePath.cgPath
+		innerCircleLayer.fillColor = nil
+		innerCircleLayer.opacity = 0.45
+		innerCircleLayer.strokeColor = UIColor.lightGray.cgColor
+
+		layer.addSublayer(innerCircleLayer)
+	}
+
+	private func addWasdLabels() {
+		let wLabel = createLabel("W")
+		let aLabel = createLabel("A")
+		let sLabel = createLabel("S")
+		let dLabel = createLabel("D")
+
+		addSubview(wLabel)
+		addSubview(aLabel)
+		addSubview(sLabel)
+		addSubview(dLabel)
+
+		let margin: CGFloat = UIScreen.isSESize ? 2 : 4
+
+		NSLayoutConstraint.activate([
+			wLabel.topAnchor.constraint(equalTo: topAnchor, constant: margin),
+			wLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+
+			aLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: margin * 2),
+			aLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+			sLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -margin),
+			sLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+
+			dLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -margin * 2),
+			dLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+		])
+	}
+
+	private func lineLayer(startAngle: CGFloat, endAngle: CGFloat) -> CALayer {
+		let center = CGPoint(x: radius, y: radius)
+		let startVector = limitNormalizedVector(limit: radius, angle: startAngle)
+		let endVector = limitNormalizedVector(limit: radius, angle: endAngle)
+		let start = CGPoint(x: center.x + startVector.dx, y: center.y + startVector.dy)
+		let end = CGPoint(x: center.x + endVector.dx, y: center.y + endVector.dy)
+
+		let line = CAShapeLayer()
+		let linePath = UIBezierPath()
+		linePath.move(to: start)
+		linePath.addLine(to: end)
+		line.path = linePath.cgPath
+		line.fillColor = nil
+		line.lineWidth = 0.5
+		line.opacity = 0.45
+		line.strokeColor = UIColor.lightGray.cgColor
+
+		return line
+	}
+
+	private func createLabel(_ text: String) -> UILabel {
+		let label = UILabel.withoutConstraints()
+		label.text = text
+		label.textColor = .white.withAlphaComponent(0.25)
+		label.textAlignment = .center
+		return label
+	}
+}
+
+private func limitNormalizedVector(limit: CGFloat, angle: CGFloat) -> CGVector {
+	let normalizedX = cos(angle) * limit
+	let normalizedY = sin(angle) * limit
+
+	return .init(dx: normalizedX, dy: normalizedY)
+}
+
+private func limitNormalizedVector(limit: CGFloat, vector: CGVector) -> CGVector {
+	let angle = atan2(vector.dy, vector.dx)
+	return limitNormalizedVector(limit: limit, angle: angle)
 }
