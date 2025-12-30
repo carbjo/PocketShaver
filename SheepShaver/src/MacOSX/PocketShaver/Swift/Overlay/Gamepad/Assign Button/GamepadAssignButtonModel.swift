@@ -24,7 +24,7 @@ class GamepadAssignButtonModel {
 	private(set) var searchString = ""
 
 	init() {
-		let joystick = [GamepadButtonAssignment.joystick(.mouse), GamepadButtonAssignment.joystick(.wasd)]
+		let joystick = [GamepadButtonAssignment.joystick(.mouse),  GamepadButtonAssignment.joystick(.wasd4way), GamepadButtonAssignment.joystick(.wasd8way)]
 		let specialKeys = SpecialButton.allCases.map({ GamepadButtonAssignment.specialButton($0) })
 		let sdlKeys = SDLKey.allCases.map({ GamepadButtonAssignment.key($0) })
 		originalList = (joystick + specialKeys + sdlKeys).map(GamepadAssignEntry.init) + alternativeNames
@@ -100,8 +100,10 @@ extension GamepadButtonAssignment {
 			switch joystickType {
 			case .mouse:
 				return "Joystick (mouse)"
-			case .wasd:
-				return "Joystick (WASD)"
+			case .wasd4way:
+				return "Joystick (WASD, 4-way)"
+			case .wasd8way:
+				return "Joystick (WASD, 8-way)"
 			}
 		}
 	}
@@ -125,8 +127,10 @@ extension GamepadButtonAssignment {
 			switch joystickType {
 			case .mouse:
 				return "Joystick emulating moving mouse. Only works in relative mouse mode (and games and apps that use that mode)."
-			case .wasd:
-				return "Joystick emulating pressing keys WASD."
+			case .wasd4way:
+				return "Joystick emulating pressing keys WASD. 4-directional (W, A, S, D)."
+			case .wasd8way:
+				return "Joystick emulating pressing keys WASD. 8-directional (W, WA, A, AS, S, SD, D, WD)."
 			}
 		}
 	}
