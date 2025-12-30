@@ -9,13 +9,19 @@ import UIKit
 
 enum JoystickType: Codable, Equatable {
 	case mouse
-	case wasd
+	case wasd4way
+	case wasd8way
 }
 
 class GamepadJoystick: UIControl {
 	enum Mode {
 		case mouse((CGPoint) -> Void)
-		case wasd((SDLKey, Bool) -> Void)
+		case wasd(WasdJoystickType, (SDLKey, Bool) -> Void)
+	}
+
+	enum WasdJoystickType {
+		case fourWay
+		case eightWay
 	}
 
 	private lazy var backgroundCircleView: UIView = {
@@ -242,9 +248,9 @@ class GamepadJoystick: UIControl {
 			let scale: CGFloat = 0.1
 			didFire(.init(x: dx * scale, y: dy * scale))
 
-		case .wasd(let keyDownCallback):
+		case .wasd(let wasdType, let keyDownCallback):
 			let angle = atan2(dy, dx)
-			let newKeysDown = keysForAngle(angle)
+			let newKeysDown = keysForAngle(angle, type: wasdType)
 
 			for key in newKeysDown {
 				if !keysDown.contains(key) {
@@ -301,7 +307,7 @@ class GamepadJoystick: UIControl {
 	}
 
 	private func resetKeysDown() {
-		guard case Mode.wasd(let keyDown) = mode else {
+		guard case Mode.wasd(_, let keyDown) = mode else {
 			return
 		}
 
@@ -341,25 +347,46 @@ class GamepadJoystick: UIControl {
 }
 
 private extension GamepadJoystick {
-	func keysForAngle(_ angle: CGFloat) -> [SDLKey] {
+	func keysForAngle(_ angle: CGFloat, type: WasdJoystickType) -> [SDLKey] {
 		let twoPi = CGFloat.pi * 2
 
 		var array = [SDLKey]()
-		if angle > twoPi * (-3/16),
-		   angle < twoPi * (3/16){
-			array.append(.d)
-		}
-		if angle > twoPi * (1/16),
-			angle < twoPi * (7/16) {
-			array.append(.s)
-		}
-		if angle > twoPi * (5/16) ||
-			angle < twoPi * (-5/16) {
-			array.append(.a)
-		}
-		if angle > twoPi * (-7/16) &&
-			angle < twoPi * (-1/16) {
-			array.append(.w)
+
+		switch type {
+		case .fourWay:
+			if angle > twoPi * (-2/16),
+			   angle < twoPi * (2/16){
+				array.append(.d)
+			}
+			if angle > twoPi * (2/16),
+				angle < twoPi * (6/16) {
+				array.append(.s)
+			}
+			if angle > twoPi * (6/16) ||
+				angle < twoPi * (-6/16) {
+				array.append(.a)
+			}
+			if angle > twoPi * (-6/16) &&
+				angle < twoPi * (-2/16) {
+				array.append(.w)
+			}
+		case .eightWay:
+			if angle > twoPi * (-3/16),
+			   angle < twoPi * (3/16){
+				array.append(.d)
+			}
+			if angle > twoPi * (1/16),
+				angle < twoPi * (7/16) {
+				array.append(.s)
+			}
+			if angle > twoPi * (5/16) ||
+				angle < twoPi * (-5/16) {
+				array.append(.a)
+			}
+			if angle > twoPi * (-7/16) &&
+				angle < twoPi * (-1/16) {
+				array.append(.w)
+			}
 		}
 
 		return array
@@ -386,8 +413,8 @@ private class BackgroundCircleView: UIView {
 
 		layer.addSublayer(linesLayer)
 
-		if case GamepadJoystick.Mode.wasd = mode {
-			drawSegmentLines()
+		if case GamepadJoystick.Mode.wasd(let wasdType, _) = mode {
+			drawSegmentLines(type: wasdType)
 			addMaskAndInnerCircle()
 			addWasdLabels()
 		}
@@ -395,19 +422,30 @@ private class BackgroundCircleView: UIView {
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	private func drawSegmentLines() {
+	private func drawSegmentLines(type: GamepadJoystick.WasdJoystickType) {
 		let twoPi = CGFloat.pi * 2
 
-		let layers: [CALayer] = [
-			lineLayer(startAngle: twoPi * (-3 / 16), endAngle: twoPi * (5 / 16)),
-			lineLayer(startAngle: twoPi * (1 / 16), endAngle: twoPi * (9 / 16)),
-			lineLayer(startAngle: twoPi * (5 / 16), endAngle: twoPi * (13 / 16)),
-			lineLayer(startAngle: twoPi * (-7 / 16), endAngle: twoPi * (1 / 16)),
-			lineLayer(startAngle: twoPi * (3 / 16), endAngle: twoPi * (11 / 16)),
-			lineLayer(startAngle: twoPi * (7 / 16), endAngle: twoPi * (15 / 16)),
-			lineLayer(startAngle: twoPi * (-5 / 16), endAngle: twoPi * (3 / 16)),
-			lineLayer(startAngle: twoPi * (-1 / 16), endAngle: twoPi * (7 / 16))
-		]
+		let layers: [CALayer]
+		switch type {
+		case .fourWay:
+			layers = [
+			   lineLayer(startAngle: twoPi * (-2 / 16), endAngle: twoPi * (6 / 16)),
+			   lineLayer(startAngle: twoPi * (2 / 16), endAngle: twoPi * (10 / 16)),
+			   lineLayer(startAngle: twoPi * (6 / 16), endAngle: twoPi * (14 / 16)),
+			   lineLayer(startAngle: twoPi * (-6 / 16), endAngle: twoPi * (2 / 16))
+		   ]
+		case .eightWay:
+			layers = [
+			   lineLayer(startAngle: twoPi * (-3 / 16), endAngle: twoPi * (5 / 16)),
+			   lineLayer(startAngle: twoPi * (1 / 16), endAngle: twoPi * (9 / 16)),
+			   lineLayer(startAngle: twoPi * (5 / 16), endAngle: twoPi * (13 / 16)),
+			   lineLayer(startAngle: twoPi * (-7 / 16), endAngle: twoPi * (1 / 16)),
+			   lineLayer(startAngle: twoPi * (3 / 16), endAngle: twoPi * (11 / 16)),
+			   lineLayer(startAngle: twoPi * (7 / 16), endAngle: twoPi * (15 / 16)),
+			   lineLayer(startAngle: twoPi * (-5 / 16), endAngle: twoPi * (3 / 16)),
+			   lineLayer(startAngle: twoPi * (-1 / 16), endAngle: twoPi * (7 / 16))
+		   ]
+		}
 
 		for layer in layers {
 			linesLayer.addSublayer(layer)
@@ -419,8 +457,20 @@ private class BackgroundCircleView: UIView {
 		let offset = radius - twoThirdRadius
 		let circleLayer = CAShapeLayer()
 
-		let outerCirclePath = UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: 2.0 * radius, height: 2.0 * radius), cornerRadius: radius)
-		let innerCirclePath = UIBezierPath(roundedRect: CGRect(x: offset, y: offset, width: 2.0 * twoThirdRadius, height: 2.0 * twoThirdRadius), cornerRadius: twoThirdRadius)
+		let outerCirclePath = UIBezierPath(
+			roundedRect: CGRect(
+				x: 0, y: 0,
+				width: 2.0 * radius, height: 2.0 * radius
+			),
+			cornerRadius: radius
+		)
+		let innerCirclePath = UIBezierPath(
+			roundedRect: CGRect(
+				x: offset, y: offset,
+				width: 2.0 * twoThirdRadius, height: 2.0 * twoThirdRadius
+			),
+			cornerRadius: twoThirdRadius
+		)
 		outerCirclePath.append(innerCirclePath)
 
 		circleLayer.path = outerCirclePath.cgPath
@@ -505,4 +555,28 @@ private func limitNormalizedVector(limit: CGFloat, angle: CGFloat) -> CGVector {
 private func limitNormalizedVector(limit: CGFloat, vector: CGVector) -> CGVector {
 	let angle = atan2(vector.dy, vector.dx)
 	return limitNormalizedVector(limit: limit, angle: angle)
+}
+
+extension JoystickType { // Temporary, to avoid breaking change when migrating from build 8
+	enum Key: String, CodingKey {
+		case mouse
+		case wasd4way
+		case wasd8way
+		case wasd
+	}
+
+	init(from decoder: any Decoder) throws {
+		let container = try decoder.container(keyedBy: Key.self)
+		if container.contains(.mouse) {
+			self = .mouse
+		} else if container.contains(.wasd4way) {
+			self = .wasd4way
+		} else if container.contains(.wasd8way) {
+			self = .wasd8way
+		} else if container.contains(.wasd) {
+			self = .wasd8way
+		} else {
+			throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: decoder.codingPath.debugDescription))
+		}
+	}
 }

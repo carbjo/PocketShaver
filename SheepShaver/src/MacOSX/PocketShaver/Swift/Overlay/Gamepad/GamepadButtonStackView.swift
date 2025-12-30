@@ -145,10 +145,20 @@ class GamepadButtonStackView: UIStackView {
 		switch joystickType {
 		case .mouse:
 			mode = .mouse(didFireJoystick)
-		case .wasd:
-			mode = .wasd({[weak self] sdlKey, isDown in
-				self?.keyInteraction(sdlKey.enValue, isDown, false)
-			})
+		case .wasd4way:
+			mode = .wasd(
+				.fourWay,
+				{ [weak self] sdlKey, isDown in
+					self?.keyInteraction(sdlKey.enValue, isDown, false)
+				}
+			)
+		case .wasd8way:
+			mode = .wasd(
+				.eightWay,
+				{ [weak self] sdlKey, isDown in
+					self?.keyInteraction(sdlKey.enValue, isDown, false)
+				}
+			)
 		}
 
 		let joystick = GamepadJoystick(

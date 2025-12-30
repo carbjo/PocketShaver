@@ -411,7 +411,7 @@ extension GamepadConfig {
 		GamepadConfig(
 			name: "Example FPS game layout",
 			mappings: [
-				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.wasd)),
+				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.wasd8way)),
 				.init(position: .init(side: .left, row: 2, index: 0), assignment: .specialButton(.mouseClick)),
 				.init(position: .init(side: .left, row: 3, index: 0), assignment: .key(.escape)),
 				.init(position: .init(side: .right, row: 1, index: 1), assignment: .joystick(.mouse)),
