@@ -94,7 +94,7 @@
 		C73660EE2E3649900055AA91 /* UnassignedGamepadButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660ED2E36498D0055AA91 /* UnassignedGamepadButton.swift */; };
 		C73660F02E364DDF0055AA91 /* GamepadButtonStackViewCollectionStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */; };
 		C73660F22E37815E0055AA91 /* HiddenInputField.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F12E3781570055AA91 /* HiddenInputField.swift */; };
-		C73660F42E37B5C80055AA91 /* Gamepad.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F32E37B5C50055AA91 /* Gamepad.swift */; };
+		C73660F42E37B5C80055AA91 /* GamepadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660F32E37B5C50055AA91 /* GamepadManager.swift */; };
 		C7393CCD2E6DC6A200D06705 /* PreferencesResolutionsCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */; };
 		C73C7A022F002FF400FC0467 /* GamepadAssignKeyboardAccessoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73C7A012F002FE700FC0467 /* GamepadAssignKeyboardAccessoryView.swift */; };
 		C73C7A042F0030D300FC0467 /* DeviceScreenSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73C7A032F0030CE00FC0467 /* DeviceScreenSize.swift */; };
@@ -569,7 +569,7 @@
 		C73660ED2E36498D0055AA91 /* UnassignedGamepadButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnassignedGamepadButton.swift; sourceTree = "<group>"; };
 		C73660EF2E364DCE0055AA91 /* GamepadButtonStackViewCollectionStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButtonStackViewCollectionStackView.swift; sourceTree = "<group>"; };
 		C73660F12E3781570055AA91 /* HiddenInputField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputField.swift; sourceTree = "<group>"; };
-		C73660F32E37B5C50055AA91 /* Gamepad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gamepad.swift; sourceTree = "<group>"; };
+		C73660F32E37B5C50055AA91 /* GamepadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadManager.swift; sourceTree = "<group>"; };
 		C7393CCC2E6DC69E00D06705 /* PreferencesResolutionsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesResolutionsCells.swift; sourceTree = "<group>"; };
 		C73C7A012F002FE700FC0467 /* GamepadAssignKeyboardAccessoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadAssignKeyboardAccessoryView.swift; sourceTree = "<group>"; };
 		C73C7A032F0030CE00FC0467 /* DeviceScreenSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceScreenSize.swift; sourceTree = "<group>"; };
@@ -1591,7 +1591,7 @@
 		C7F3E6F72E818F9100F9089E /* Gamepad Handling */ = {
 			isa = PBXGroup;
 			children = (
-				C73660F32E37B5C50055AA91 /* Gamepad.swift */,
+				C73660F32E37B5C50055AA91 /* GamepadManager.swift */,
 			);
 			path = "Gamepad Handling";
 			sourceTree = "<group>";
@@ -2115,7 +2115,7 @@
 				C7C3D26E2E76F3BC0018DB8B /* GamepadAssignButtonViewController.swift in Sources */,
 				E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */,
 				C74E10982EABC8BB00150945 /* DiskROMExtractor.m in Sources */,
-				C73660F42E37B5C80055AA91 /* Gamepad.swift in Sources */,
+				C73660F42E37B5C80055AA91 /* GamepadManager.swift in Sources */,
 				E204B95B28BC3EBE0081FDCA /* about_window_unix.cpp in Sources */,
 				E204B95C28BC3EBE0081FDCA /* ip_icmp.c in Sources */,
 				E204B9E828BC7CE80081FDCA /* clip_ios.mm in Sources */,

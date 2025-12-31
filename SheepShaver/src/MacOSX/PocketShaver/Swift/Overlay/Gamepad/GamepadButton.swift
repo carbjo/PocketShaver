@@ -7,33 +7,11 @@
 
 import UIKit
 
-@objc public enum SpecialButton: Int, Codable, CaseIterable {
-	case hover
-	case hoverAbove
-	case hoverBelow
-	case mouseClick
-
-	var label: String {
-		switch self {
-		case .hover: return "Hover"
-		case .hoverAbove: return "Hover above"
-		case .hoverBelow: return "Hover below"
-		case .mouseClick: return "Click"
-		}
-	}
-
-	var icon: ImageResource? {
-		switch self {
-		case .mouseClick: return .cursorarrowRays
-		default: return nil
-		}
-	}
-}
-
 class GamepadButton: UIButton {
 	enum Label {
 		case text(String)
 		case icon(ImageResource)
+		case twoIcons(ImageResource, ImageResource)
 	}
 
 	static var length: CGFloat {
@@ -44,6 +22,13 @@ class GamepadButton: UIButton {
 		}
 		return UIScreen.isPortraitMode ? 78 : 80
 	}
+
+	private lazy var iconStackView: UIStackView = {
+		let stackView = UIStackView.withoutConstraints()
+		stackView.axis = .horizontal
+		stackView.isUserInteractionEnabled = false
+		return stackView
+	}()
 
 	private let didPush: (() -> Void)
 	private let didRelease: (() -> Void)
@@ -71,6 +56,16 @@ class GamepadButton: UIButton {
 			setTitle(text, for: .normal)
 		case .icon(let icon):
 			setImage(.init(resource: icon), for: .normal)
+		case .twoIcons(let icon1, let icon2):
+			iconStackView.addArrangedSubview(createImageView(forIcon: icon1))
+			iconStackView.addArrangedSubview(createImageView(forIcon: icon2))
+			addSubview(iconStackView)
+
+			NSLayoutConstraint.activate([
+				iconStackView.centerXAnchor.constraint(equalTo: centerXAnchor),
+				iconStackView.centerYAnchor.constraint(equalTo: centerYAnchor)
+			])
+			break
 		}
 
 		titleLabel?.textAlignment = .center
@@ -102,6 +97,12 @@ class GamepadButton: UIButton {
 		bounds.insetBy(dx: -2, dy: -4).contains(point)
 	}
 
+	private func createImageView(forIcon icon: ImageResource) -> UIImageView {
+		let imageView = UIImageView(image: .init(resource: icon))
+		imageView.tintColor = .white
+		return imageView
+	}
+
 	@objc private func keyDown() {
 		guard !isEditing else { return }
 
@@ -117,6 +118,19 @@ class GamepadButton: UIButton {
 	@objc private func didTap() {
 		if isEditing {
 			didRequestAssignment()
+		}
+	}
+}
+
+extension SpecialButton {
+	var gamepadLabel: GamepadButton.Label {
+		switch self {
+		case .mouseClick: return .icon(.cursorarrowRays)
+		case .hover: return .icon(.handRaised)
+		case .hoverAbove: return.twoIcons(.handRaised, .arrowUp)
+		case .cmdW: return .text("⌘-W")
+		default:
+			return .text(label)
 		}
 	}
 }
