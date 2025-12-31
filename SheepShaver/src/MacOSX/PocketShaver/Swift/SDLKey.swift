@@ -397,3 +397,14 @@ extension SDLKey {
 		}
 	}
 }
+
+@objcMembers
+class SDLKeyObjCProxy: NSObject {
+	static var cmdValue: NSInteger {
+		return SDLKey.cmd.enValue
+	}
+
+	static var wValue: NSInteger {
+		return SDLKey.w.enValue
+	}
+}

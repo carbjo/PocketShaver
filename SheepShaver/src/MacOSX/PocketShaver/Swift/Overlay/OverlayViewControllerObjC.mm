@@ -55,6 +55,17 @@ void objc_initOverlayViewController(void) {
 						ADBWriteMouseUp(0);
 					}
 					break;
+				case SpecialButtonCmdW:
+					if (!isDown) {
+						ADBKeyDown((int)SDLKeyObjCProxy.cmdValue);
+						ADBKeyDown((int)SDLKeyObjCProxy.wValue);
+
+						dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+							ADBKeyUp((int)SDLKeyObjCProxy.cmdValue);
+							ADBKeyUp((int)SDLKeyObjCProxy.wValue);
+						});
+					}
+					break;
 			}
 		} didFireJoystick:^(CGPoint point) {
 			int x = (int) point.x;

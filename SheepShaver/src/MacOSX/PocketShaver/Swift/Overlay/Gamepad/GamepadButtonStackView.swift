@@ -105,15 +105,8 @@ class GamepadButtonStackView: UIStackView {
 
 		removeViewAt(index)
 
-		let label: GamepadButton.Label
-		if let specialButtonIcon = specialButton.icon {
-			label = .icon(specialButtonIcon)
-		} else {
-			label = .text(specialButton.label)
-		}
-
 		let button = GamepadButton(
-			label: label,
+			label: specialButton.gamepadLabel,
 			isEditing: isEditing,
 			pushKey: { [weak self] in
 				// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.

@@ -95,6 +95,8 @@ extension GamepadButtonAssignment {
 				return "Hover below"
 			case .mouseClick:
 				return "Mouse click"
+			case .cmdW:
+				return "Cmd-W"
 			}
 		case .joystick(let joystickType):
 			switch joystickType {
@@ -122,6 +124,8 @@ extension GamepadButtonAssignment {
 				return "Touch input hovers mouse cursor without clicking, offset below the touch point, for visibility. Hold button while using (not a toggle)."
 			case .mouseClick:
 				return "Mouse click."
+			case .cmdW:
+				return "Key combination Cmd-W. For closing windows."
 			}
 		case .joystick(let joystickType):
 			switch joystickType {
