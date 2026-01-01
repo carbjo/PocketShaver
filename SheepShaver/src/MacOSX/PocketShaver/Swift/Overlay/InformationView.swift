@@ -56,6 +56,7 @@ class InformationView: UIVisualEffectView {
 		let blurEffect = UIBlurEffect(style: .systemUltraThinMaterial)
 		super.init(effect: blurEffect)
 
+		isUserInteractionEnabled = false
 		backgroundColor = .clear
 		clipsToBounds = true
 		layer.cornerRadius = 8

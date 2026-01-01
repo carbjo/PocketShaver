@@ -12,70 +12,15 @@
 #include "adb.h"
 #include "math.h"
 #import "MiscellaneousSettingsObjC.h"
-#import "HapticFeedbackObjC.h"
+#import "KeyHapticFeedbackObjC.h"
 
 void objc_initOverlayViewController(void) {
 	@autoreleasepool {
-
-		[OverlayViewController injectOverlayViewControllerWithKeyInteraction:^(NSInteger key, BOOL isDown){
-			if (isDown) {
-				ADBKeyDown((int)key);
-			} else {
-				ADBKeyUp((int)key);
-			}
-		} specialButtonInteraction:^(enum SpecialButton button, BOOL isDown) {
-			switch (button) {
-				case SpecialButtonHover:
-					ADBSetHover(isDown);
-					break;
-				case SpecialButtonHoverAbove:
-					ADBSetHover(isDown);
-					if (isDown) {
-						ADBSetHoverMode(Above);
-					} else {
-						ADBSetHoverMode(Regular);
-					}
-					break;
-				case SpecialButtonHoverBelow:
-					ADBSetHover(isDown);
-					if (isDown) {
-						ADBSetHoverMode(Below);
-					} else {
-						ADBSetHoverMode(Regular);
-					}
-					break;
-				case SpecialButtonMouseClick:
-					if (isDown) {
-						ADBWriteMouseDown(0);
-
-						if ([MiscellaneousSettingsObjC isKeyHapticFeedbackOn]) {
-							objc_hapticFeedback();
-						}
-					} else {
-						ADBWriteMouseUp(0);
-					}
-					break;
-				case SpecialButtonCmdW:
-					if (!isDown) {
-						ADBKeyDown((int)SDLKeyObjCProxy.cmdValue);
-						ADBKeyDown((int)SDLKeyObjCProxy.wValue);
-
-						dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-							ADBKeyUp((int)SDLKeyObjCProxy.cmdValue);
-							ADBKeyUp((int)SDLKeyObjCProxy.wValue);
-						});
-					}
-					break;
-			}
-		} didFireJoystick:^(CGPoint point) {
-			int x = (int) point.x;
-			int y = (int) point.y;
-
-			ADBMouseMoved(x, y);
-		}];
+		[OverlayViewController injectOverlayViewController];
 
 		if (MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAlwaysOn) {
 			objc_setRelativeMouseMode(true);
+			objc_reportRelativeMouseModeEnabled();
 		}
 	}
 }

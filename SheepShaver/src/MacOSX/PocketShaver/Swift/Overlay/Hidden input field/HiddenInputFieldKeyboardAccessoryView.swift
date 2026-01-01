@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import Combine
 
 class HiddenInputFieldKeyboardAccessoryView: UIView {
 	private lazy var leftStackView: UIStackView = {
@@ -77,15 +78,27 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		return button
 	}()
 
-	private var pushKey: ((Int) -> Void)?
-	private var releaseKey: ((Int) -> Void)?
-	private var didTapRelativeMouseModeButton: (() -> Void)?
-	private var didTapPreferencesButton: (() -> Void)?
-	private var didTapDismissKeyboardButton: (() -> Void)?
+
+	private let inputInteractionModel: InputInteractionModel
+	private let didTapPreferencesButton: (() -> Void)
+	private let didTapDismissKeyboardButton: (() -> Void)
+
+	private var pushKey: ((SDLKey) -> Void)!
+	private var releaseKey: ((SDLKey) -> Void)!
 
 	private let deviceScreenSize = UIScreen.deviceScreenSize
 
-	init() {
+	private var anyCancellables = Set<AnyCancellable>()
+
+	init(
+		inputInteractionModel: InputInteractionModel,
+		didTapPreferencesButton: @escaping (() -> Void),
+		didTapDismissKeyboardButton: @escaping (() -> Void)
+	) {
+		self.inputInteractionModel = inputInteractionModel
+		self.didTapPreferencesButton = didTapPreferencesButton
+		self.didTapDismissKeyboardButton = didTapDismissKeyboardButton
+
 		super.init(
 			frame: .init(
 				origin: .zero,
@@ -95,6 +108,8 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 				)
 			)
 		)
+
+		translatesAutoresizingMaskIntoConstraints = false
 
 		addSubview(leftStackView)
 		addSubview(rightStackView)
@@ -163,79 +178,92 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 		rightCmdButton.addTarget(self, action: #selector(cmdReleased), for: .touchUpInside)
 		rightCmdButton.addTarget(self, action: #selector(cmdReleased), for: .touchUpOutside)
+
+		pushKey = { [weak self] key in
+			self?.inputInteractionModel.handle(
+				key,
+				isDown: true,
+				hapticAllowed: false
+			)
+		}
+		releaseKey = { [weak self] key in
+			self?.inputInteractionModel.handle(
+				key,
+				isDown: false,
+				hapticAllowed: false
+			)
+		}
+
+		configure(canToggleRelativeMouseMode: inputInteractionModel.canToggleRelativeMouseMode)
+		configure(isRelativeMouseModeEnabled: inputInteractionModel.isRelativeMouseModeEnabled)
+
+		listenToChanges()
 	}
 	
 	required init?(coder: NSCoder) { fatalError() }
 
-	func configure(
-		pushKey: ((Int) -> Void)?,
-		releaseKey: ((Int) -> Void)?,
-		canToggleRelativeMouseMode: Bool,
-		isRelativeMouseModeEnabled: Bool,
-		didTapRelativeMouseModeButton: (() -> Void)?,
-		didTapPreferencesButton: (() -> Void)?,
-		didTapDismissKeyboardButton: (() -> Void)?
-	) {
-		self.pushKey = pushKey
-		self.releaseKey = releaseKey
-		self.didTapRelativeMouseModeButton = didTapRelativeMouseModeButton
-		self.didTapPreferencesButton = didTapPreferencesButton
-		self.didTapDismissKeyboardButton = didTapDismissKeyboardButton
-
-		configure(canToggleRelativeMouseMode: canToggleRelativeMouseMode)
-		configure(isRelativeMouseModeEnabled: isRelativeMouseModeEnabled)
+	private func listenToChanges() {
+		inputInteractionModel.changeSubject.sink{ [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .relativeMouseModeChanged(let isEnabled):
+				configure(isRelativeMouseModeEnabled: isEnabled)
+			case .canToggleRelativeMouseModeChanged(let isEnabled):
+				configure(canToggleRelativeMouseMode: isEnabled)
+			}
+		}.store(in: &anyCancellables)
 	}
 
-	func configure(canToggleRelativeMouseMode: Bool) {
+	private func configure(canToggleRelativeMouseMode: Bool) {
 		relativeMouseModeButton.isHidden = !canToggleRelativeMouseMode
 	}
 
-	func configure(isRelativeMouseModeEnabled: Bool) {
+	private func configure(isRelativeMouseModeEnabled: Bool) {
 		relativeMouseModeButton.configuration!.baseBackgroundColor = isRelativeMouseModeEnabled ? .gray : .lightGray
 	}
 
 	@objc private func cmdPushed() {
-		pushKey?(SDLKey.cmd.enValue)
+		pushKey?(SDLKey.cmd)
 	}
 	
 	@objc private func cmdReleased() {
-		releaseKey?(SDLKey.cmd.enValue)
+		releaseKey?(SDLKey.cmd)
 	}
 
 	@objc private func optPushed() {
-		pushKey?(SDLKey.alt.enValue)
+		pushKey?(SDLKey.alt)
 	}
 
 	@objc private func optReleased() {
-		releaseKey?(SDLKey.alt.enValue)
+		releaseKey?(SDLKey.alt)
 	}
 
 	@objc private func ctrlPushed() {
-		pushKey?(SDLKey.ctrl.enValue)
+		pushKey?(SDLKey.ctrl)
 	}
 
 	@objc private func ctrlReleased() {
-		releaseKey?(SDLKey.ctrl.enValue)
+		releaseKey?(SDLKey.ctrl)
 	}
 
 	@objc private func shiftPushed() {
-		pushKey?(SDLKey.shift.enValue)
+		pushKey?(SDLKey.shift)
 	}
 
 	@objc private func shiftReleased() {
-		releaseKey?(SDLKey.shift.enValue)
+		releaseKey?(SDLKey.shift)
 	}
 
 	@objc private func relativeMouseModeButtonPushed() {
-		didTapRelativeMouseModeButton?()
+		inputInteractionModel.toggleRelativeMouseMode()
 	}
 
 	@objc private func preferencesButtonPushed() {
-		didTapPreferencesButton?()
+		didTapPreferencesButton()
 	}
 
 	@objc private func dismissKeyboardButtonPushed() {
-		didTapDismissKeyboardButton?()
+		didTapDismissKeyboardButton()
 	}
 
 	private func createButton(title: String) -> UIButton {
