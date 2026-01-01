@@ -56,6 +56,11 @@ extension UIScreen {
 		let deviceWidth = main.nativeBounds.width
 		return deviceWidth == 640
 	}
+
+	@MainActor
+	static var supportsHighRefreshRate: Bool {
+		return main.maximumFramesPerSecond > 60
+	}
 }
 
 extension UIDevice {
@@ -238,13 +243,6 @@ extension String {
 		attrString.append(.init(string: workString))
 
 		return attrString
-	}
-}
-
-extension UIScreen {
-	@MainActor
-	static var supportsHighRefreshRate: Bool {
-		return main.maximumFramesPerSecond > 60
 	}
 }
 

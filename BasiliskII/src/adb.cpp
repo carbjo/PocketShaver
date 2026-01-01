@@ -46,7 +46,7 @@
 #include <cmath>
 #include <ctime>
 
-#import "HapticFeedbackObjC.h"
+#import "KeyHapticFeedbackObjC.h"
 #import "MiscellaneousSettingsObjCCppHeader.h"
 
 // Global variables
@@ -58,7 +58,8 @@ static bool old_mouse_button[3] = {false, false, false};
 static bool relative_mouse = false;
 static bool touch_input = false;
 static bool hover = false;
-static HoverMode hover_mode = Regular;
+static HoverMode hover_mode = HoverModeRegular;
+static bool offset_mode = false;
 static bool mouse_down = false;
 static bool haptic_feedback = false;
 
@@ -253,6 +254,23 @@ void ADBOp(uint8 op, uint8 *data)
 			data[0] = 0;								// Talk: 0 bytes of data
 }
 
+int getYOffset()
+{
+	if (offset_mode) {
+		return 70;
+	}
+
+	if (hover) {
+		if (hover_mode == HoverModeAbove) {
+			return -70;
+		} else if (hover_mode == HoverModeBelow)  {
+			return 70;
+		}
+	}
+
+	return 0;
+}
+
 
 /*
  *  Mouse was moved (x/y are absolute or relative, depending on ADBSetRelMouseMode())
@@ -280,16 +298,7 @@ void ADBMouseMoved(int x, int y)
 			}
 		}
 
-		int offset = 0;
-		if (hover) {
-			if (hover_mode == Above) {
-				offset = -70;
-			} else if (hover_mode == Below)  {
-				offset = 70;
-			}
-		}
-
-		mouse_x = x; mouse_y = y + offset;
+		mouse_x = x; mouse_y = y + getYOffset();
 	}
 	B2_unlock_mutex(mouse_lock);
 	SetInterruptFlag(INTFLAG_ADB);
@@ -332,7 +341,7 @@ void ADBMouseDown(int button)
 
 	if (haptic_feedback &&
 		(!relative_mouse || objc_getRelativeMouseTapToClick()))
-		objc_hapticFeedback();
+		objc_keyHapticFeedback();
 
 	if (touch_input)
 		usleep(20000); // To eliminate the simultanious "move mouse and click" race condition
@@ -420,13 +429,23 @@ void ADBSetHover(bool is_on)
 }
 
 /*
- *  Set mouse mode (absolute or relative)
+ *  Set hover mode
  */
 
 void ADBSetHoverMode(HoverMode mode)
 {
 	hover_mode = mode;
 }
+
+/*
+ *  Set hover mode
+ */
+
+void ADBSetOffsetMode(bool mode)
+{
+	offset_mode = mode;
+}
+
 
 /*
  *  Set haptic feedback on or off

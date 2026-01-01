@@ -9,9 +9,9 @@
 #define HOVERMODE_H
 
 enum HoverMode {
-	Regular,
-	Above,
-	Below
+	HoverModeRegular,
+	HoverModeAbove,
+	HoverModeBelow
 };
 
 #endif

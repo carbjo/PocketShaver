@@ -11,3 +11,6 @@
 #import "MiscellaneousSettingsObjC.h"
 #import "DiskROMExtractor.h"
 #import "FPSCounterObjC.h"
+#import "ADBObjC.h"
+#import "HoverMode.h"
+#import "KeyHapticFeedbackObjC.h"

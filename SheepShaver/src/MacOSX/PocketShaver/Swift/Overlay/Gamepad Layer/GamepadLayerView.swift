@@ -19,10 +19,7 @@ class GamepadLayerView: UIView {
 	private let didRequestLayoutSettings: (() -> Void)
 
 	init(
-		isRelativeMouseModeOn: Bool,
-		keyInteraction: @escaping ((Int, Bool, Bool) -> Void),
-		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
-		didFireJoystick: @escaping ((CGPoint) -> Void),
+		inputInteractionModel: InputInteractionModel,
 		didRequestAssignmentAt: @escaping ((GamepadButtonPosition) -> Void),
 		didRequestLayoutSettings: @escaping (() -> Void)
 	) {
@@ -30,19 +27,13 @@ class GamepadLayerView: UIView {
 
 		self.leftCollectionStackView = GamepadButtonStackViewCollectionStackView(
 			side: .left,
-			isRelativeMouseModeOn: isRelativeMouseModeOn,
-			keyInteraction: keyInteraction,
-			specialButtonInteraction: specialButtonInteraction,
-			didFireJoystick: didFireJoystick
+			inputInteractionModel: inputInteractionModel
 		) { row, index in
 			didRequestAssignmentAt(.init(side: .left, row: row, index: index))
 		}
 		self.rightCollectionStackView = GamepadButtonStackViewCollectionStackView(
 			side: .right,
-			isRelativeMouseModeOn: isRelativeMouseModeOn,
-			keyInteraction: keyInteraction,
-			specialButtonInteraction: specialButtonInteraction,
-			didFireJoystick: didFireJoystick
+			inputInteractionModel: inputInteractionModel
 		) { row, index in
 			didRequestAssignmentAt(.init(side: .right, row: row, index: index))
 		}
@@ -59,10 +50,10 @@ class GamepadLayerView: UIView {
 		let settingsButtonLength = GamepadSettingsButton.length
 
 		NSLayoutConstraint.activate([
-			leftCollectionStackView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: sideMargin),
+			leftCollectionStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin + UIApplication.safeAreaInsets.left),
 			leftCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
-			rightCollectionStackView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -sideMargin),
+			rightCollectionStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideMargin - UIApplication.safeAreaInsets.right),
 			rightCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
 			settingsButton.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -76,13 +67,12 @@ class GamepadLayerView: UIView {
 
 	convenience init() {
 		self.init(
-			isRelativeMouseModeOn: false,
-			keyInteraction: {_, _, _ in },
-			specialButtonInteraction: {_, _ in },
-			didFireJoystick: {_ in },
+			inputInteractionModel: .init(),
 			didRequestAssignmentAt: {_ in },
 			didRequestLayoutSettings: {}
 		)
+
+		isUserInteractionEnabled = false
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
@@ -110,11 +100,6 @@ class GamepadLayerView: UIView {
 				rightCollectionStackView.set(mapping.assignment, row: mapping.position.row, index: mapping.position.index)
 			}
 		}
-	}
-
-	func set(isRelativeMouseModeOn: Bool) {
-		leftCollectionStackView.set(isRelativeMouseModeOn: isRelativeMouseModeOn)
-		rightCollectionStackView.set(isRelativeMouseModeOn: isRelativeMouseModeOn)
 	}
 
 	func set(isEditing: Bool) {

@@ -10,30 +10,21 @@ import UIKit
 class GamepadButtonStackView: UIStackView {
 	private let side: GamepadSide
 	private let row: Int
-	private let keyInteraction: ((Int, Bool, Bool) -> Void)
-	private let specialButtonInteraction: ((SpecialButton, Bool) -> Void)
-	private let didFireJoystick: ((CGPoint) -> Void)
+	private let inputInteractionModel: InputInteractionModel
 	private let didRequestAssignmentAtIndex: ((Int) -> Void)
 
-	private var isRelativeMouseModeOn: Bool
 	private var isEditing: Bool = false
 
 	init(
 		side: GamepadSide,
 		row: Int,
 		isSettingsButtonRow: Bool,
-		isRelativeMouseModeOn: Bool,
-		keyInteraction: @escaping ((Int, Bool, Bool) -> Void),
-		specialButtonInteraction: @escaping ((SpecialButton, Bool) -> Void),
-		didFireJoystick: @escaping ((CGPoint) -> Void),
+		inputInteractionModel: InputInteractionModel,
 		didRequestAssignmentAtIndex: @escaping ((Int) -> Void)
 	) {
 		self.side = side
 		self.row = row
-		self.isRelativeMouseModeOn = isRelativeMouseModeOn
-		self.keyInteraction = keyInteraction
-		self.specialButtonInteraction = specialButtonInteraction
-		self.didFireJoystick = didFireJoystick
+		self.inputInteractionModel = inputInteractionModel
 		self.didRequestAssignmentAtIndex = didRequestAssignmentAtIndex
 
 		super.init(frame: .zero)
@@ -82,10 +73,18 @@ class GamepadButtonStackView: UIStackView {
 			pushKey: { [weak self] in
 				// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
 				// Should not assume EN layout, specifically
-				self?.keyInteraction(key.enValue, true, true)
+				self?.inputInteractionModel.handle(
+					key,
+					isDown: true,
+					hapticAllowed: true
+				)
 			},
 			releaseKey: { [weak self] in
-				self?.keyInteraction(key.enValue, false, true)
+				self?.inputInteractionModel.handle(
+					key,
+					isDown: false,
+					hapticAllowed: true
+				)
 			},
 			didRequestAssignment:  { [weak self] in
 				self?.didRequestAssignmentAtIndex(index)
@@ -111,10 +110,16 @@ class GamepadButtonStackView: UIStackView {
 			pushKey: { [weak self] in
 				// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
 				// Should not assume EN layout, specifically
-				self?.specialButtonInteraction(specialButton, true)
+				self?.inputInteractionModel.handle(
+					specialButton,
+					isDown: true
+				)
 			},
 			releaseKey: { [weak self] in
-				self?.specialButtonInteraction(specialButton, false)
+				self?.inputInteractionModel.handle(
+					specialButton,
+					isDown: false
+				)
 			},
 			didRequestAssignment:  { [weak self] in
 				self?.didRequestAssignmentAtIndex(index)
@@ -137,25 +142,35 @@ class GamepadButtonStackView: UIStackView {
 		let mode: GamepadJoystick.Mode
 		switch joystickType {
 		case .mouse:
-			mode = .mouse(didFireJoystick)
+			mode = .mouse({ [weak self] delta in
+				self?.inputInteractionModel.handleFireMouseJoystick(with: delta)
+			})
 		case .wasd4way:
 			mode = .wasd(
 				.fourWay,
 				{ [weak self] sdlKey, isDown in
-					self?.keyInteraction(sdlKey.enValue, isDown, false)
+					self?.inputInteractionModel.handle(
+						sdlKey,
+						isDown: isDown,
+						hapticAllowed: false
+					)
 				}
 			)
 		case .wasd8way:
 			mode = .wasd(
 				.eightWay,
 				{ [weak self] sdlKey, isDown in
-					self?.keyInteraction(sdlKey.enValue, isDown, false)
+					self?.inputInteractionModel.handle(
+						sdlKey,
+						isDown: isDown,
+						hapticAllowed: false
+					)
 				}
 			)
 		}
 
 		let joystick = GamepadJoystick(
-			isRelativeMouseModeOn: isRelativeMouseModeOn,
+			inputInteractionModel: inputInteractionModel,
 			isEditing: isEditing,
 			mode: mode,
 			didRequestAssignment: { [weak self] in
@@ -186,15 +201,6 @@ class GamepadButtonStackView: UIStackView {
 		}
 
 		unassignedButton.set(isObscured: isObscured)
-	}
-
-	func set(isRelativeMouseModeOn: Bool) {
-		self.isRelativeMouseModeOn = isRelativeMouseModeOn
-		for view in arrangedSubviews {
-			if let joystick = view as? GamepadJoystick {
-				joystick.set(isRelativeMouseModeOn: isRelativeMouseModeOn)
-			}
-		}
 	}
 
 	func set(isEditing: Bool) {

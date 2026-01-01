@@ -128,6 +128,7 @@ extension SpecialButton {
 		case .mouseClick: return .icon(.cursorarrowRays)
 		case .hover: return .icon(.handRaised)
 		case .hoverAbove: return.twoIcons(.handRaised, .arrowUp)
+		case .hoverBelow: return.twoIcons(.handRaised, .arrowDown)
 		case .cmdW: return .text("⌘-W")
 		default:
 			return .text(label)

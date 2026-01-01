@@ -209,11 +209,6 @@ public class MiscellaneousSettingsObjC: NSObject {
 	}
 
 	@MainActor
-	static func isKeyHapticFeedbackOn() -> Bool {
-		MiscellaneousSettings.current.keyHapticFeedback
-	}
-
-	@MainActor
 	static func getFrameRateSetting() -> Int {
 		MiscellaneousSettings.current.frameRateSetting.frameRate
 	}

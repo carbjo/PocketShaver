@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import Combine
 
 enum JoystickType: Codable, Equatable {
 	case mouse
@@ -15,7 +16,7 @@ enum JoystickType: Codable, Equatable {
 
 class GamepadJoystick: UIControl {
 	enum Mode {
-		case mouse((CGPoint) -> Void)
+		case mouse((CGVector) -> Void)
 		case wasd(WasdJoystickType, (SDLKey, Bool) -> Void)
 	}
 
@@ -55,10 +56,12 @@ class GamepadJoystick: UIControl {
 		return label
 	}()
 
-	private var isRelativeMouseModeOn: Bool
+	private var isRelativeMouseModeEnabled: Bool
 	private var isEditing: Bool
 	private let mode: Mode
 	private let didRequestAssignment: (() -> Void)
+
+	private var anyCancellables = Set<AnyCancellable>()
 
 	private var augmentedBounds: CGRect {
 		bounds.inset(
@@ -85,19 +88,19 @@ class GamepadJoystick: UIControl {
 			return false
 		}
 		if case Mode.mouse = mode,
-		   !isRelativeMouseModeOn {
+		   !isRelativeMouseModeEnabled {
 			return false
 		}
 		return true
 	}
 
 	init(
-		isRelativeMouseModeOn: Bool,
+		inputInteractionModel: InputInteractionModel,
 		isEditing: Bool,
 		mode: Mode,
 		didRequestAssignment: @escaping (() -> Void)
 	) {
-		self.isRelativeMouseModeOn = isRelativeMouseModeOn
+		self.isRelativeMouseModeEnabled = inputInteractionModel.isRelativeMouseModeEnabled
 		self.isEditing = isEditing
 		self.mode = mode
 		self.didRequestAssignment = didRequestAssignment
@@ -134,12 +137,14 @@ class GamepadJoystick: UIControl {
 			heightAnchor.constraint(equalToConstant: stackViewSlotLength)
 		])
 
-		set(isRelativeMouseModeOn: isRelativeMouseModeOn)
 		set(isEditing: isEditing)
+
+		listenToChanges(from: inputInteractionModel)
+		
+		configure(isRelativeMouseModeEnabled: inputInteractionModel.isRelativeMouseModeEnabled)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
-
 
 	override func layoutSubviews() {
 		super.layoutSubviews()
@@ -147,8 +152,19 @@ class GamepadJoystick: UIControl {
 		updateStickView()
 	}
 
-	func set(isRelativeMouseModeOn: Bool) {
-		self.isRelativeMouseModeOn = isRelativeMouseModeOn
+	private func listenToChanges(from inputInteractionModel: InputInteractionModel) {
+		inputInteractionModel.changeSubject.sink{ [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .relativeMouseModeChanged(let isEnabled):
+				configure(isRelativeMouseModeEnabled: isEnabled)
+			default: break
+			}
+		}.store(in: &anyCancellables)
+	}
+
+	private func configure(isRelativeMouseModeEnabled: Bool) {
+		self.isRelativeMouseModeEnabled = isRelativeMouseModeEnabled
 		updateColor()
 		updateRelativeMouseOffWarningLabelVisiblity()
 	}
@@ -246,7 +262,7 @@ class GamepadJoystick: UIControl {
 		switch mode {
 		case .mouse(let didFire):
 			let scale: CGFloat = 0.1
-			didFire(.init(x: dx * scale, y: dy * scale))
+			didFire(.init(dx: dx * scale, dy: dy * scale))
 
 		case .wasd(let wasdType, let keyDownCallback):
 			let angle = atan2(dy, dx)
@@ -341,7 +357,7 @@ class GamepadJoystick: UIControl {
 		if isEditing {
 			relativeMouseOffWarningLabel.isHidden = true
 		} else {
-			relativeMouseOffWarningLabel.isHidden = isRelativeMouseModeOn
+			relativeMouseOffWarningLabel.isHidden = isRelativeMouseModeEnabled
 		}
 	}
 }
