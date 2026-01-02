@@ -337,6 +337,14 @@ public class OverlayViewController: UIViewController {
 		gestureInputView.reportTwoFingerDragProgress = { [weak self] delta in
 			self?.dragInteractionModel.handleTwoFingerDragProgress(delta)
 		}
+
+		gestureInputView.didBeginTwoFingerGesture = { [weak self] in
+			self?.inputInteractionModel.beginSecondFingerClickIfEligible()
+		}
+
+		gestureInputView.didReleaseOneFingerDuringTwoFingerGesture = { [weak self] in
+			self?.inputInteractionModel.endSecondFingerClickIfEligible()
+		}
 	}
 
 	private func transformMainGamepadLayoutView(_ transform: CGAffineTransform) {

@@ -18,7 +18,7 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#import "HoverMode.h"
+#import "OffsetMode.h"
 
 #ifndef ADB_H
 #define ADB_H
@@ -42,10 +42,11 @@ extern void ADBInterrupt(void);
 
 extern void ADBSetRelMouseMode(bool relative);
 extern void ADBSetTouchInput(bool is_on);
-extern void ADBSetHover(bool is_on);
-extern void ADBSetHoverMode(HoverMode mode);
-extern void ADBSetOffsetMode(bool mode);
+extern void ADBSetHoverMode(bool is_on);
+extern void ADBSetOffsetMode(OffsetMode mode);
+extern void ADBReportScreenWidth(int screenWidth);
 extern void ADBSetHapticFeedback(bool is_on);
 extern void ADBSetMouseMoveTolerance(int new_double_click_mouse_move_tolerance);
+extern bool ADBHoversOnMouseDown();
 
 #endif

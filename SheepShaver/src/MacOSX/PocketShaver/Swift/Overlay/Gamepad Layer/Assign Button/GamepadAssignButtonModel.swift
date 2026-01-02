@@ -86,18 +86,7 @@ extension GamepadButtonAssignment {
 				return sdlKey.label
 			}
 		case .specialButton(let specialButton):
-			switch specialButton {
-			case .hover:
-				return "Hover"
-			case .hoverAbove:
-				return "Hover above"
-			case .hoverBelow:
-				return "Hover below"
-			case .mouseClick:
-				return "Mouse click"
-			case .cmdW:
-				return "Cmd-W"
-			}
+			return specialButton.label
 		case .joystick(let joystickType):
 			switch joystickType {
 			case .mouse:
@@ -122,6 +111,8 @@ extension GamepadButtonAssignment {
 				return "Touch input hovers mouse cursor without clicking, offset above the touch point, for visibility. Hold button while using (not a toggle)."
 			case .hoverBelow:
 				return "Touch input hovers mouse cursor without clicking, offset below the touch point, for visibility. Hold button while using (not a toggle)."
+			case .hoverDiagonallyToggle:
+				return "Touch input hovers mouse cursor without clicking, offset diagnoally above the touch point. Diagnonally to the right if touch on the left side of the screen and vice versa. This makes content near the middle of the screen easier to interact with, while avoiding to obscure the content itelf with your finger. Recommended to use in combination with a Mouse click button."
 			case .mouseClick:
 				return "Mouse click."
 			case .cmdW:

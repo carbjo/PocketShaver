@@ -210,6 +210,7 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 				configure(isRelativeMouseModeEnabled: isEnabled)
 			case .canToggleRelativeMouseModeChanged(let isEnabled):
 				configure(canToggleRelativeMouseMode: isEnabled)
+			default: break
 			}
 		}.store(in: &anyCancellables)
 	}

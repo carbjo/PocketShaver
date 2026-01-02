@@ -101,6 +101,16 @@ class PreferencesAdvancedModel {
 		}
 	}
 
+	@MainActor
+	var secondFingerClick: Bool {
+		get {
+			MiscellaneousSettings.current.secondFingerClick
+		}
+		set {
+			MiscellaneousSettings.current.set(secondFingerClick: newValue)
+		}
+	}
+
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
 		self.changeSubject = changeSubject
 	}

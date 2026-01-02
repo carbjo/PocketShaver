@@ -17,12 +17,8 @@ void objc_ADBKeyUp(NSInteger key) {
 	ADBKeyUp((int)key);
 }
 
-void objc_ADBSetHover(bool isDown) {
-	ADBSetHover(isDown);
-}
-
-void objc_ADBSetHoverMode(HoverMode mode) {
-	ADBSetHoverMode(mode);
+void objc_ADBSetHoverMode(bool is_on) {
+	ADBSetHoverMode(is_on);
 }
 
 void objc_ADBWriteMouseDown(NSInteger button) {
@@ -35,4 +31,12 @@ void objc_ADBWriteMouseUp(NSInteger button) {
 
 void objc_ADBMouseMoved(NSInteger x, NSInteger y) {
 	ADBMouseMoved((int)x, (int)y);
+}
+
+void objc_ADBSetOffsetMode(enum OffsetMode mode) {
+	ADBSetOffsetMode(mode);
+}
+
+BOOL objc_ADBHoversOnMouseDown() {
+	return ADBHoversOnMouseDown();
 }
