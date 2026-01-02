@@ -138,6 +138,10 @@ class DragInteractionModel {
 	}
 
 	func handleTwoFingerDragProgress(_ verticalDelta: CGFloat) {
+		guard state == .showingKeyboard else {
+			return
+		}
+		
 		sdlViewVerticalOffset += verticalDelta
 		twoFingerGestureDragDeltaSinceLatestHapticFeedback += verticalDelta
 
@@ -159,8 +163,6 @@ class DragInteractionModel {
 		let transform = CGAffineTransform(translationX: 0, y: y)
 
 		transformSDLView(transform)
-
-//		offsetSDLViewVertically(sdlViewVerticalOffset)
 	}
 
 	func resetSdlViewVerticalOffset() {

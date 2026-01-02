@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import Combine
 
 class GamepadButton: UIButton {
 	enum Label {
@@ -30,19 +31,25 @@ class GamepadButton: UIButton {
 		return stackView
 	}()
 
+	private let specialButtonConfig: SpecialButton?
 	private let didPush: (() -> Void)
 	private let didRelease: (() -> Void)
 	private let didRequestAssignment: (() -> Void)
 
 	private var isEditing: Bool = false
 
+	private var anyCancellables = Set<AnyCancellable>()
+
 	init(
 		label: Label,
+		specialButtonConfig: SpecialButton? = nil,
+		inputInteractionModel: InputInteractionModel,
 		isEditing: Bool,
 		pushKey: @escaping (() -> Void),
 		releaseKey: @escaping (() -> Void),
 		didRequestAssignment: @escaping (() -> Void)
 	) {
+		self.specialButtonConfig = specialButtonConfig
 		self.didPush = pushKey
 		self.didRelease = releaseKey
 		self.didRequestAssignment = didRequestAssignment
@@ -84,9 +91,28 @@ class GamepadButton: UIButton {
 		addTarget(self, action: #selector(didTap), for: .touchUpInside)
 
 		set(isEditing: isEditing)
+
+		listenToChanges(from: inputInteractionModel)
 	}
 	
 	required init?(coder: NSCoder) { fatalError() }
+
+	private func listenToChanges(from inputInteractionModel: InputInteractionModel) {
+		inputInteractionModel.changeSubject.sink{ [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .offsetModeChanged(let mode):
+				if specialButtonConfig == .hoverDiagonallyToggle {
+					if mode == OffsetModeDiagonallyAbove {
+						configuration?.baseBackgroundColor = .gray.withAlphaComponent(0.5)
+					} else {
+						configuration?.baseBackgroundColor = .lightGray.withAlphaComponent(0.5)
+					}
+				}
+			default: break
+			}
+		}.store(in: &anyCancellables)
+	}
 
 	func set(isEditing: Bool) {
 		self.isEditing = isEditing
@@ -127,8 +153,9 @@ extension SpecialButton {
 		switch self {
 		case .mouseClick: return .icon(.cursorarrowRays)
 		case .hover: return .icon(.handRaised)
-		case .hoverAbove: return.twoIcons(.handRaised, .arrowUp)
-		case .hoverBelow: return.twoIcons(.handRaised, .arrowDown)
+		case .hoverAbove: return .twoIcons(.handRaised, .arrowUp)
+		case .hoverBelow: return .twoIcons(.handRaised, .arrowDown)
+		case .hoverDiagonallyToggle: return .twoIcons(.handRaised, .crossArrow)
 		case .cmdW: return .text("⌘-W")
 		default:
 			return .text(label)

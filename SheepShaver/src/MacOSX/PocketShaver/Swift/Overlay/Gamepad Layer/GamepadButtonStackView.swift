@@ -69,6 +69,7 @@ class GamepadButtonStackView: UIStackView {
 
 		let button = GamepadButton(
 			label: .text(key.label),
+			inputInteractionModel: inputInteractionModel,
 			isEditing: isEditing,
 			pushKey: { [weak self] in
 				// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
@@ -106,10 +107,10 @@ class GamepadButtonStackView: UIStackView {
 
 		let button = GamepadButton(
 			label: specialButton.gamepadLabel,
+			specialButtonConfig: specialButton,
+			inputInteractionModel: inputInteractionModel,
 			isEditing: isEditing,
 			pushKey: { [weak self] in
-				// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
-				// Should not assume EN layout, specifically
 				self?.inputInteractionModel.handle(
 					specialButton,
 					isDown: true

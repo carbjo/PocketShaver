@@ -43,6 +43,7 @@ void objc_reportVideoSize(unsigned short width, unsigned short height) {
 	int tolerance = round(10 * multiplier);
 
 	ADBSetMouseMoveTolerance(tolerance);
+	ADBReportScreenWidth(width);
 }
 
 void objc_reportRelativeMouseModeEnabled() {

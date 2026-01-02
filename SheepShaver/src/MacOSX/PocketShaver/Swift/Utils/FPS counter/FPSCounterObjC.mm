@@ -13,7 +13,6 @@
 
 @property int counter;
 
-
 - (void)reportFrameRender;
 
 @end

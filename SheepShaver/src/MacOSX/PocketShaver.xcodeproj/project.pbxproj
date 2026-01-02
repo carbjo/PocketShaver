@@ -87,6 +87,7 @@
 		C71F9B162E3A1D010088601A /* Storage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F9B152E3A1CFE0088601A /* Storage.swift */; };
 		C72739C92E2BAA6500B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */; };
 		C72FA6BF2F06B6C50071889C /* DragInteractionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72FA6BE2F06B6AA0071889C /* DragInteractionModel.swift */; };
+		C72FA6C42F0808AD0071889C /* SpecialButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72FA6C32F0808AA0071889C /* SpecialButton.swift */; };
 		C73660E02E34C85D0055AA91 /* GamepadLayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */; };
 		C73660E22E34C9190055AA91 /* GamepadButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E12E34C9170055AA91 /* GamepadButton.swift */; };
 		C73660E42E34DCE40055AA91 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660E32E34DCE30055AA91 /* Extensions.swift */; };
@@ -565,6 +566,8 @@
 		C71F9B152E3A1CFE0088601A /* Storage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage.swift; sourceTree = "<group>"; };
 		C72739C82E2BAA5E00B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldKeyboardAccessoryView.swift; sourceTree = "<group>"; };
 		C72FA6BE2F06B6AA0071889C /* DragInteractionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragInteractionModel.swift; sourceTree = "<group>"; };
+		C72FA6C22F07FFD20071889C /* OffsetMode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OffsetMode.h; sourceTree = "<group>"; };
+		C72FA6C32F0808AA0071889C /* SpecialButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecialButton.swift; sourceTree = "<group>"; };
 		C73660DF2E34C8590055AA91 /* GamepadLayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadLayerView.swift; sourceTree = "<group>"; };
 		C73660E12E34C9170055AA91 /* GamepadButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButton.swift; sourceTree = "<group>"; };
 		C73660E32E34DCE30055AA91 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
@@ -694,7 +697,6 @@
 		C7F42CE62E5B4E8600FA7169 /* PreferencesROMValidatorObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PreferencesROMValidatorObjC.mm; sourceTree = "<group>"; };
 		C7F42CE82E5B4E9800FA7169 /* PreferencesROMValidatorObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PreferencesROMValidatorObjC.h; sourceTree = "<group>"; };
 		C7F42CEA2E5B4FF700FA7169 /* PocketShaver-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "PocketShaver-Bridging-Header.h"; sourceTree = "<group>"; };
-		C7F6DF5E2E4B9BB300ED272A /* HoverMode.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HoverMode.h; sourceTree = "<group>"; };
 		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
 		E204B98A28BC3EBE0081FDCA /* PocketShaver.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketShaver.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1619,6 +1621,7 @@
 			isa = PBXGroup;
 			children = (
 				C73660F32E37B5C50055AA91 /* GamepadManager.swift */,
+				C72FA6C32F0808AA0071889C /* SpecialButton.swift */,
 			);
 			path = "Gamepad Handling";
 			sourceTree = "<group>";
@@ -1716,7 +1719,7 @@
 				E2F38C2228C470CC00FB98B4 /* Localizable.strings */,
 				E204B9AE28BC7BF10081FDCA /* main.mm */,
 				E204B9EB28BC7CF20081FDCA /* prefs_ios.mm */,
-				C7F6DF5E2E4B9BB300ED272A /* HoverMode.h */,
+				C72FA6C22F07FFD20071889C /* OffsetMode.h */,
 				E204B9F028BC7D010081FDCA /* sys_darwin_ios.cpp */,
 				E204B9F128BC7D020081FDCA /* utils_ios.h */,
 				E204B9EF28BC7D010081FDCA /* utils_ios.mm */,
@@ -2085,6 +2088,7 @@
 				C7C3D2772E781C270018DB8B /* PreferencesAdvancedModel.swift in Sources */,
 				C7699F172EC4663F0083B3B3 /* PreferencesCompatibilityListModel.swift in Sources */,
 				E204B93B28BC3EBE0081FDCA /* emul_op.cpp in Sources */,
+				C72FA6C42F0808AD0071889C /* SpecialButton.swift in Sources */,
 				C7C3D2682E7557940018DB8B /* PreferencesGamepadCells.swift in Sources */,
 				C72FA6BF2F06B6C50071889C /* DragInteractionModel.swift in Sources */,
 				C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */,

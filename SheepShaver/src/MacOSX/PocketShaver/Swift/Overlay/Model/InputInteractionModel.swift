@@ -13,10 +13,12 @@ class InputInteractionModel {
 	enum Change {
 		case relativeMouseModeChanged(isEnabled: Bool)
 		case canToggleRelativeMouseModeChanged(isEnabled: Bool)
+		case offsetModeChanged(mode: OffsetMode)
 	}
 
 	private let keyDownFeedbackGenerator = UIImpactFeedbackGenerator(style: .soft)
 	private(set) var isRelativeMouseModeEnabled = false
+	private(set) var isHoverDiagonallyOn = false
 
 	var canToggleRelativeMouseMode: Bool {
 		MiscellaneousSettings.current.relativeMouseModeSetting == .manual ||
@@ -50,20 +52,24 @@ class InputInteractionModel {
 	func handle(_ button: SpecialButton, isDown: Bool) {
 		switch button {
 		case .hover:
-			objc_ADBSetHover(isDown)
+			objc_ADBSetHoverMode(isDown)
 		case .hoverAbove:
-			objc_ADBSetHover(isDown)
+			objc_ADBSetHoverMode(isDown)
 			if isDown {
-				objc_ADBSetHoverMode(HoverModeAbove)
+				objc_ADBSetOffsetMode(OffsetModeAbove)
 			} else {
-				objc_ADBSetHoverMode(HoverModeRegular)
+				objc_ADBSetOffsetMode(OffsetModeOff)
 			}
 		case .hoverBelow:
-			objc_ADBSetHover(isDown)
+			objc_ADBSetHoverMode(isDown)
 			if isDown {
-				objc_ADBSetHoverMode(HoverModeBelow)
+				objc_ADBSetOffsetMode(OffsetModeBelow)
 			} else {
-				objc_ADBSetHoverMode(HoverModeRegular)
+				objc_ADBSetOffsetMode(OffsetModeOff)
+			}
+		case .hoverDiagonallyToggle:
+			if !isDown {
+				toggleHoverDiagnoally()
 			}
 		case .mouseClick:
 			if isDown {
@@ -114,6 +120,26 @@ class InputInteractionModel {
 		}
 	}
 
+	func beginSecondFingerClickIfEligible() {
+		guard objc_ADBHoversOnMouseDown() else {
+			return
+		}
+
+		objc_ADBWriteMouseDown(0)
+
+		if MiscellaneousSettings.current.mouseHapticFeedback {
+			objc_keyHapticFeedback()
+		}
+	}
+
+	func endSecondFingerClickIfEligible() {
+		guard objc_ADBHoversOnMouseDown() else {
+			return
+		}
+
+		objc_ADBWriteMouseUp(0)
+	}
+
 	func toggleRelativeMouseMode() {
 		if isRelativeMouseModeEnabled {
 			objc_setRelativeMouseMode(false)
@@ -122,24 +148,18 @@ class InputInteractionModel {
 		}
 	}
 
-	func setRelativeMouseModeEnabled() -> Bool {
-		guard !isRelativeMouseModeEnabled else {
-			return false
+	private func toggleHoverDiagnoally() {
+		isHoverDiagonallyOn = !isHoverDiagonallyOn
+
+		if isHoverDiagonallyOn {
+			objc_ADBSetOffsetMode(OffsetModeDiagonallyAbove)
+			objc_ADBSetHoverMode(true)
+			changeSubject.send(.offsetModeChanged(mode: OffsetModeDiagonallyAbove))
+		} else {
+			objc_ADBSetOffsetMode(OffsetModeOff)
+			objc_ADBSetHoverMode(false)
+			changeSubject.send(.offsetModeChanged(mode: OffsetModeOff))
 		}
-
-		isRelativeMouseModeEnabled = true
-
-		return true
-	}
-
-	func setRelativeMouseModeDisabled() -> Bool {
-		guard isRelativeMouseModeEnabled else {
-			return false
-		}
-
-		isRelativeMouseModeEnabled = false
-
-		return true
 	}
 
 	@objc

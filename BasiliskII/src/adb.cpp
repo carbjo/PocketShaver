@@ -57,10 +57,12 @@ static bool mouse_button[3] = {false, false, false};			// Mouse button states
 static bool old_mouse_button[3] = {false, false, false};
 static bool relative_mouse = false;
 static bool touch_input = false;
-static bool hover = false;
-static HoverMode hover_mode = HoverModeRegular;
-static bool offset_mode = false;
+static bool hover_mode = false;
+static OffsetMode offset_mode = OffsetModeOff;
+static int middleX = 0;
 static bool mouse_down = false;
+static bool hover_gesture_start_side_determination_requested = false;
+static bool hover_gesture_start_was_left_side = false;
 static bool haptic_feedback = false;
 
 static uint8 key_states[16];				// Key states (Mac keycodes)
@@ -254,18 +256,25 @@ void ADBOp(uint8 op, uint8 *data)
 			data[0] = 0;								// Talk: 0 bytes of data
 }
 
-int getYOffset()
-{
-	if (offset_mode) {
-		return 70;
+int getXOffset(int x) {
+	if (offset_mode == OffsetModeDiagonallyAbove) {
+		if (hover_gesture_start_was_left_side) {
+			return -200;
+		} else {
+			return 200;
+		}
 	}
 
-	if (hover) {
-		if (hover_mode == HoverModeAbove) {
-			return -70;
-		} else if (hover_mode == HoverModeBelow)  {
-			return 70;
-		}
+	return 0;
+}
+
+int getYOffset()
+{
+	if (offset_mode == OffsetModeAbove ||
+		offset_mode == OffsetModeDiagonallyAbove) {
+		return -120;
+	} else if (offset_mode == OffsetModeBelow) {
+		return 120;
 	}
 
 	return 0;
@@ -285,7 +294,7 @@ void ADBMouseMoved(int x, int y)
 	} else {
 		if (touch_input &&
 			!mouse_down &&
-			!hover &&
+			!hover_mode &&
 			abs(mouse_x - x) <= double_click_mouse_move_tolerance &&
 			abs(mouse_y - y) <= double_click_mouse_move_tolerance) {
 			time_t now;
@@ -298,7 +307,13 @@ void ADBMouseMoved(int x, int y)
 			}
 		}
 
-		mouse_x = x; mouse_y = y + getYOffset();
+		if (hover_gesture_start_side_determination_requested) {
+			hover_gesture_start_side_determination_requested = false;
+
+			hover_gesture_start_was_left_side = (x > middleX);
+		}
+
+		mouse_x = x + getXOffset(x); mouse_y = y + getYOffset();
 	}
 	B2_unlock_mutex(mouse_lock);
 	SetInterruptFlag(INTFLAG_ADB);
@@ -336,8 +351,10 @@ void ADBWriteMouseDown(int button) {
 
 void ADBMouseDown(int button)
 {
-	if (hover)
+	if (hover_mode) {
+		hover_gesture_start_side_determination_requested = true;
 		return;
+	}
 
 	if (haptic_feedback &&
 		(!relative_mouse || objc_getRelativeMouseTapToClick()))
@@ -412,40 +429,30 @@ void ADBSetRelMouseMode(bool relative)
     }
 }
 
-/*
- * Set touch input on or off
- */
 void ADBSetTouchInput(bool is_on) {
 	touch_input = is_on;
 }
 
-/*
- *  Set mouse mode (absolute or relative)
- */
-
-void ADBSetHover(bool is_on)
+void ADBSetHoverMode(bool is_on)
 {
-	hover = is_on;
+	hover_mode = is_on;
 }
 
-/*
- *  Set hover mode
- */
-
-void ADBSetHoverMode(HoverMode mode)
-{
-	hover_mode = mode;
-}
-
-/*
- *  Set hover mode
- */
-
-void ADBSetOffsetMode(bool mode)
+void ADBSetOffsetMode(OffsetMode mode)
 {
 	offset_mode = mode;
 }
 
+void ADBReportScreenWidth(int screenWidth) {
+	middleX = screenWidth / 2;
+}
+
+bool ADBHoversOnMouseDown() {
+	if (!touch_input) {
+		return false;
+	}
+	return (relative_mouse || hover_mode);
+}
 
 /*
  *  Set haptic feedback on or off

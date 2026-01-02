@@ -156,25 +156,6 @@ private class GamepadSettings: Codable {
 	}
 }
 
-
-@objc public enum SpecialButton: Int, Codable, CaseIterable {
-	case hover
-	case hoverAbove
-	case hoverBelow
-	case mouseClick
-	case cmdW
-
-	var label: String {
-		switch self {
-		case .hover: return "Hover"
-		case .hoverAbove: return "Hover above"
-		case .hoverBelow: return "Hover below"
-		case .mouseClick: return "Click"
-		case .cmdW: return "Cmd-W"
-		}
-	}
-}
-
 @MainActor
 class GamepadManager {
 

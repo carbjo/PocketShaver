@@ -46,6 +46,7 @@ class MiscellaneousSettings: Codable {
 	private(set) var hasDisplayedPortraitModeWarning: Bool
 	private(set) var relativeMouseModeSetting: RelativeMouseModeSetting
 	private(set) var relativeMouseTapToClick: Bool
+	private(set) var secondFingerClick: Bool
 
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		if #available(iOS 16, *) {
@@ -75,6 +76,7 @@ class MiscellaneousSettings: Codable {
 		hasDisplayedPortraitModeWarning = false
 		relativeMouseModeSetting = .automatic
 		relativeMouseTapToClick = true
+		secondFingerClick = true
 	}
 
 	@MainActor
@@ -195,6 +197,13 @@ class MiscellaneousSettings: Codable {
 		self.relativeMouseTapToClick = relativeMouseTapToClick
 
 		updateCachedResponses()
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(secondFingerClick: Bool) {
+		self.secondFingerClick = secondFingerClick
 
 		saveAsCurrent()
 	}

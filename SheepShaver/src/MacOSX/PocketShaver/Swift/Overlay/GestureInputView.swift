@@ -23,11 +23,11 @@ class GestureInputView: UIView {
 	}
 
 	var reportTwoFingerDragProgress: ((CGFloat) -> Void)?
-
 	var reportThreeFingerDragProgress: ((CGVector) -> Void)?
 	var didBeginThreeFingerGesture: (() -> Void)?
 	var didReleaseThreeFingerGesture: (() -> Void)?
-
+	var didBeginTwoFingerGesture: (() -> Void)?
+	var didReleaseOneFingerDuringTwoFingerGesture: (() -> Void)?
 
 	init(state: OverlayState) {
 		self.state = state
@@ -52,9 +52,9 @@ class GestureInputView: UIView {
 		if touchDictionary.count >= 3 {
 			draggingMode = .threeFingers
 			didBeginThreeFingerGesture?()
-		} else if state == .showingKeyboard,
-				  touchDictionary.count >= 2 {
+		} else if touchDictionary.count >= 2 {
 			draggingMode = .twoFingers
+			didBeginTwoFingerGesture?()
 		 }
 	}
 
@@ -111,6 +111,10 @@ class GestureInputView: UIView {
 
 		for touch in touches {
 			touchDictionary[touch] = nil
+		}
+		if draggingMode == .twoFingers,
+		   touchDictionary.count == 1 {
+			didReleaseOneFingerDuringTwoFingerGesture?()
 		}
 		if touchDictionary.isEmpty {
 			let wasThreeFingerDragging = draggingMode == .threeFingers

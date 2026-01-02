@@ -15,6 +15,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case frameRateSetting
 		case uiOptions
 		case relateiveMouseMode
+		case secondFingerClick
 		case resources
 	}
 
@@ -119,6 +120,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return model.shouldDisplayAlwaysLandscapeModeOption ? 3 : 2
 		case .relateiveMouseMode:
 			return 4
+		case .secondFingerClick:
+			return 2
 		case .resources:
 			return 3
 		}
@@ -200,6 +203,21 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				)
 			default: fatalError()
 			}
+		case .secondFingerClick:
+			switch indexPath.row {
+			case 0:
+				return PreferencesEnabledSettingCell(
+					title: "Second finger click",
+					isOn: model.secondFingerClick
+				) { [weak self] isOn in
+					self?.model.secondFingerClick = isOn
+				}
+			case 1:
+				return PreferencesFooterCell(
+					text: "A second finger can be used for mouse clicking (while the first finger moves the position). Only has effect when either relative mouse mode or any of the hover modes are enabled."
+				)
+			default: fatalError()
+			}
 		case .resources:
 			switch indexPath.row {
 			case 0:
@@ -232,6 +250,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return "UI options"
 		case .relateiveMouseMode:
 			return "Relative mouse mode"
+		case .secondFingerClick:
+			return "Second finger click"
 		case .resources:
 			return "Resources"
 		}
