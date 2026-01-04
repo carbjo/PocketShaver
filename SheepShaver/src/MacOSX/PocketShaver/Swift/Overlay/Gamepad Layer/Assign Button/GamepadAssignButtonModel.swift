@@ -111,8 +111,12 @@ extension GamepadButtonAssignment {
 				return "Touch input hovers mouse cursor without clicking, offset above the touch point, for visibility. Hold button while using (not a toggle)."
 			case .hoverBelow:
 				return "Touch input hovers mouse cursor without clicking, offset below the touch point, for visibility. Hold button while using (not a toggle)."
+			case .hoverSidewaysToggle:
+				return "Touch input hovers mouse cursor without clicking, offset sideways of the touch point. Sideways to the right if touch on the left side of the screen and vice versa. This makes content near the bottom of the screen on the opposite side easier to interact with, while avoiding to obscure the content itelf with your finger. Recommended to use in combination with Second finger click functionality or a Mouse click gamepad button."
+			case .hoverAboveToggle:
+				return "Touch input hovers mouse cursor without clicking, offset above the touch point. This makes content near the top of the screen easier to interact with, while avoiding to obscure the content itelf with your finger. Recommended to use in combination with Second finger click functionality or a Mouse click gamepad button."
 			case .hoverDiagonallyToggle:
-				return "Touch input hovers mouse cursor without clicking, offset diagnoally above the touch point. Diagnonally to the right if touch on the left side of the screen and vice versa. This makes content near the middle of the screen easier to interact with, while avoiding to obscure the content itelf with your finger. Recommended to use in combination with a Mouse click button."
+				return "Touch input hovers mouse cursor without clicking, offset diagnoally above the touch point. Diagnonally to the right if touch on the left side of the screen and vice versa. This makes content near the middle of the screen easier to interact with, while avoiding to obscure the content itelf with your finger. Recommended to use in combination with Second finger click functionality or a Mouse click gamepad button."
 			case .mouseClick:
 				return "Mouse click."
 			case .cmdW:

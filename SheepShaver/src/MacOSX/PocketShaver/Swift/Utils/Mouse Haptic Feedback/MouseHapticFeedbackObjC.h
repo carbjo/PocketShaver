@@ -1,5 +1,5 @@
 //
-//  MiscellaneousSettingsObjC.h
+//  MouseHapticFeedbackObjC.h
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-09-26.
@@ -7,12 +7,16 @@
 
 #import <Foundation/Foundation.h>
 
-#ifdef __cplusplus
-extern "C"
-#endif
-void objc_setRelativeMouseMode(BOOL isOn);
+NS_ASSUME_NONNULL_BEGIN
 
 #ifdef __cplusplus
 extern "C"
 #endif
-void objc_setRelativeMouseModeAutomatic();
+void objc_mousedownHapticFeedback(void);
+
+#ifdef __cplusplus
+extern "C"
+#endif
+NSDate *objc_getLatestMouseDownHapticFeedbackTimestamp();
+
+NS_ASSUME_NONNULL_END

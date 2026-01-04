@@ -10,12 +10,12 @@ import Combine
 
 class PreferencesAdvancedViewController: UITableViewController {
 	enum SectionType: CaseIterable {
-		case bootstrap
 		case ramSetting
 		case frameRateSetting
 		case uiOptions
 		case relateiveMouseMode
-		case secondFingerClick
+		case secondFinger
+		case bootstrap
 		case resources
 	}
 
@@ -110,8 +110,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 	override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
 		let sectionType = SectionType(sectionIndex: section, model: model)
 		switch sectionType {
-		case .bootstrap:
-			return 1
+
 		case .ramSetting:
 			return 1
 		case .frameRateSetting:
@@ -120,8 +119,15 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return model.shouldDisplayAlwaysLandscapeModeOption ? 3 : 2
 		case .relateiveMouseMode:
 			return 4
-		case .secondFingerClick:
+		case .secondFinger:
+			if model.secondFingerSwipe {
+				return 6
+			} else if model.secondFingerClick {
+				return 4
+			}
 			return 2
+		case .bootstrap:
+			return 1
 		case .resources:
 			return 3
 		}
@@ -130,13 +136,6 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
 		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
 		switch sectionType {
-		case .bootstrap:
-			return PreferencesAdvancedBootstrapCell(
-				romDescription: model.currentRomFileDescription!,
-				didTapSelectInstallDiskButton: { [weak self] in
-					self?.displayRomPicker()
-				}
-			)
 		case .ramSetting:
 			return PreferencesAdvancedRamStepperCell(
 				initialRamSettting: model.ramSetting
@@ -203,21 +202,52 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				)
 			default: fatalError()
 			}
-		case .secondFingerClick:
+		case .secondFinger:
 			switch indexPath.row {
 			case 0:
 				return PreferencesEnabledSettingCell(
 					title: "Second finger click",
 					isOn: model.secondFingerClick
 				) { [weak self] isOn in
-					self?.model.secondFingerClick = isOn
+					self?.set(secondFingerClick: isOn)
 				}
 			case 1:
 				return PreferencesFooterCell(
-					text: "A second finger can be used for mouse clicking (while the first finger moves the position). Only has effect when either relative mouse mode or any of the hover modes are enabled."
+					text: "A second finger can be used for mouse clicking (while the first finger moves the position). Only has effect when either relative mouse mode or any of the hover modes are enabled.",
+					separatorHidden: !model.secondFingerClick
+				)
+			case 2:
+				return PreferencesEnabledSettingCell(
+					title: "Second finger swipe",
+					isOn: model.secondFingerSwipe
+				) { [weak self] isOn in
+					self?.set(secondFingerSwipe: isOn)
+				}
+			case 3:
+				return PreferencesFooterCell(
+					text: "A second finger can be used for quickly swiping between mouse offset modes. Only has effect when any of the hover modes are enabled. Can be used to switch between no offset / offset above / offset to the side / offset diagnoally above.",
+					separatorHidden: !model.secondFingerSwipe
+				)
+			case 4:
+				return PreferencesEnabledSettingCell(
+					title: "Boot in hover mode",
+					isOn: model.bootInHoverMode
+				) { [weak self] isOn in
+					self?.set(bootInHoverMode: isOn)
+				}
+			case 5:
+				return PreferencesFooterCell(
+					text: "Hover mode (without offset) is on by default when booting, making second finger swipe available from the start."
 				)
 			default: fatalError()
 			}
+		case .bootstrap:
+			return PreferencesAdvancedBootstrapCell(
+				romDescription: model.currentRomFileDescription!,
+				didTapSelectInstallDiskButton: { [weak self] in
+					self?.displayRomPicker()
+				}
+			)
 		case .resources:
 			switch indexPath.row {
 			case 0:
@@ -240,8 +270,6 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 	override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
 		let sectionType = SectionType(sectionIndex: section, model: model)
 		switch sectionType {
-		case .bootstrap:
-			return "Bootstrap"
 		case .ramSetting:
 			return "RAM setting"
 		case .frameRateSetting:
@@ -250,8 +278,10 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return "UI options"
 		case .relateiveMouseMode:
 			return "Relative mouse mode"
-		case .secondFingerClick:
-			return "Second finger click"
+		case .secondFinger:
+			return "Second finger"
+		case .bootstrap:
+			return "Bootstrap"
 		case .resources:
 			return "Resources"
 		}
@@ -290,6 +320,77 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			default: fatalError()
 			}
 		default: fatalError()
+		}
+	}
+
+	private func set(
+		secondFingerClick: Bool? = nil,
+		secondFingerSwipe: Bool? = nil,
+		bootInHoverMode: Bool? = nil
+	) {
+		let prevSecondFingerClick = model.secondFingerClick
+		let prevSecondFingerSwipe = model.secondFingerSwipe
+
+		let secondFingerClick = secondFingerClick ?? model.secondFingerClick
+		var secondFingerSwipe = secondFingerSwipe ?? model.secondFingerSwipe
+		var bootInHoverMode = bootInHoverMode ?? model.bootInHoverMode
+
+		if !secondFingerClick {
+			secondFingerSwipe = false
+			bootInHoverMode = false
+		} else if !secondFingerSwipe {
+			bootInHoverMode = false
+		}
+
+		model.secondFingerClick = secondFingerClick
+		model.secondFingerSwipe = secondFingerSwipe
+		model.bootInHoverMode = bootInHoverMode
+
+		let sectionIndex = PreferencesAdvancedViewController.SectionType.secondFinger.sectionIndex(model: model)
+
+		tableView.performBatchUpdates {
+			if !prevSecondFingerClick,
+			   secondFingerClick {
+				tableView.insertRows(at: [
+					.init(row: 2, section: sectionIndex),
+					.init(row: 3, section: sectionIndex)
+				], with: .fade)
+				tableView.reloadRows(at: [
+					.init(row: 1, section: sectionIndex)
+				], with: .fade)
+			} else if prevSecondFingerClick,
+					  !secondFingerClick {
+				tableView.deleteRows(at: [
+					.init(row: 2, section: sectionIndex),
+					.init(row: 3, section: sectionIndex)
+				], with: .fade)
+				tableView.reloadRows(at: [
+					.init(row: 1, section: sectionIndex)
+				], with: .fade)
+			}
+			if !prevSecondFingerSwipe,
+			   secondFingerSwipe {
+				tableView.insertRows(at: [
+					.init(row: 4, section: sectionIndex),
+					.init(row: 5, section: sectionIndex)
+				], with: .fade)
+				if secondFingerClick {
+					tableView.reloadRows(at: [
+						.init(row: 3, section: sectionIndex)
+					], with: .fade)
+				}
+			} else if prevSecondFingerSwipe,
+					  !secondFingerSwipe {
+				tableView.deleteRows(at: [
+					.init(row: 4, section: sectionIndex),
+					.init(row: 5, section: sectionIndex)
+				], with: .fade)
+				if secondFingerClick {
+					tableView.reloadRows(at: [
+						.init(row: 3, section: sectionIndex)
+					], with: .fade)
+				}
+			}
 		}
 	}
 }

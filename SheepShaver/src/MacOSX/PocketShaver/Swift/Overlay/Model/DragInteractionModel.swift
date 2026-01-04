@@ -19,13 +19,37 @@ struct ThreeFingerReleaseResult {
 	let willTranslateInLongAxis: Bool
 }
 
+enum HoverOffsetModeTransition {
+	case none
+	case up
+	case upRight
+	case right
+	case downRight
+	case down
+	case downLeft
+	case left
+	case upLeft
+}
+
+struct SecondFingerReleaseResult {
+	enum FirstFingerSide {
+		case left
+		case right
+	}
+
+	let swipeResult: HoverOffsetModeTransition
+	let firstFingerSide: FirstFingerSide
+}
+
 @MainActor
 class DragInteractionModel {
-	var threeFingerGestureDragDelta: CGVector = .zero
-	var threeFingerGestureDragDeltaSinceLatestHapticFeedback: CGVector = .zero
+	private var threeFingerGestureDragDelta: CGVector = .zero
+	private var threeFingerGestureDragDeltaSinceLatestHapticFeedback: CGVector = .zero
 
-	var sdlViewVerticalOffset: CGFloat = .zero
-	var twoFingerGestureDragDeltaSinceLatestHapticFeedback: CGFloat = .zero
+	private var sdlViewVerticalOffset: CGFloat = .zero
+	private var twoFingerGestureDragDeltaSinceLatestHapticFeedback: CGFloat = .zero
+
+	private var secondFingerGestureDragDelta: CGVector = .zero
 
 	private let dragHapticFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
@@ -34,6 +58,9 @@ class DragInteractionModel {
 	private let transformMainGamepadLayoutView: (CGAffineTransform) -> Void
 	private let transformAllGamepadLayoutViews: (CGAffineTransform) -> Void
 	private let transformSDLView: (CGAffineTransform) -> Void
+
+	var hasDraggedSecondFingerOverThreshold: ((SecondFingerReleaseResult) -> Void)?
+	private var hasReportedDraggedSecondFingerOverThreshold = false
 
 	private var state: OverlayState {
 		fetchState()
@@ -129,6 +156,7 @@ class DragInteractionModel {
 		}
 
 		threeFingerGestureDragDelta = .zero
+		hasReportedDraggedSecondFingerOverThreshold = false
 
 		return .init(
 			state: resultingState,
@@ -163,6 +191,69 @@ class DragInteractionModel {
 		let transform = CGAffineTransform(translationX: 0, y: y)
 
 		transformSDLView(transform)
+	}
+
+	func handleSecondFingerDragProgress(_ delta: CGVector) {
+		guard MiscellaneousSettings.current.secondFingerSwipe,
+			  !hasReportedDraggedSecondFingerOverThreshold else {
+			return
+		}
+
+		secondFingerGestureDragDelta += delta
+
+		let threshold: CGFloat = 50
+		
+		if secondFingerGestureDragDelta.abs > threshold {
+			hasReportedDraggedSecondFingerOverThreshold = true
+			let result = getSecondFingerReleaseResult()
+			secondFingerGestureDragDelta = .zero
+			hasDraggedSecondFingerOverThreshold?(result)
+		}
+	}
+
+	func handleReleaseOneFingerDuringTwoFingerGesture() {
+		hasReportedDraggedSecondFingerOverThreshold = false
+	}
+
+	private func getSecondFingerReleaseResult() -> SecondFingerReleaseResult {
+		let twoPi = CGFloat.pi * 2
+		let angle = atan2(secondFingerGestureDragDelta.dy, secondFingerGestureDragDelta.dx)
+
+		let firstFingerSide: SecondFingerReleaseResult.FirstFingerSide
+		if objc_ADBHoverGestureStartWasLeftSide() {
+			firstFingerSide = .left
+		} else {
+			firstFingerSide = .right
+		}
+
+		var swipeResult: HoverOffsetModeTransition = .none
+		if angle > twoPi * (-1/16),
+		   angle < twoPi * (1/16) {
+			swipeResult = .right
+		} else if angle >= twoPi * (1/16),
+				  angle < twoPi * (3/16) {
+			swipeResult = .downRight
+		} else if angle >= twoPi * (3/16),
+				  angle < twoPi * (5/16) {
+			swipeResult = .down
+		} else if angle >= twoPi * (5/16),
+				  angle < twoPi * (7/16) {
+			swipeResult = .downLeft
+		} else if angle > twoPi * (7/16) ||
+					angle < twoPi * (-7/16) {
+			swipeResult = .left
+		} else if angle > twoPi * (-7/16) &&
+					angle < twoPi * (-5/16) {
+			swipeResult = .upLeft
+		} else if angle > twoPi * (-5/16) &&
+					angle < twoPi * (-3/16) {
+			swipeResult = .up
+		} else if angle > twoPi * (-3/16) &&
+					angle < twoPi * (-1/16) {
+			swipeResult = .upRight
+		}
+
+		return .init(swipeResult: swipeResult, firstFingerSide: firstFingerSide)
 	}
 
 	func resetSdlViewVerticalOffset() {

@@ -101,13 +101,12 @@ class GamepadButton: UIButton {
 		inputInteractionModel.changeSubject.sink{ [weak self] change in
 			guard let self else { return }
 			switch change {
-			case .offsetModeChanged(let mode):
-				if specialButtonConfig == .hoverDiagonallyToggle {
-					if mode == OffsetModeDiagonallyAbove {
-						configuration?.baseBackgroundColor = .gray.withAlphaComponent(0.5)
-					} else {
-						configuration?.baseBackgroundColor = .lightGray.withAlphaComponent(0.5)
-					}
+			case .hoverOffsetModeChanged(let offsetMode):
+				let isSelected = isSelectedWith(offsetMode)
+				if isSelected {
+					configuration?.baseBackgroundColor = .gray.withAlphaComponent(0.5)
+				} else {
+					configuration?.baseBackgroundColor = .lightGray.withAlphaComponent(0.5)
 				}
 			default: break
 			}
@@ -127,6 +126,17 @@ class GamepadButton: UIButton {
 		let imageView = UIImageView(image: .init(resource: icon))
 		imageView.tintColor = .white
 		return imageView
+	}
+
+	private func isSelectedWith(_ offsetMode: HoverOffsetMode) -> Bool {
+		switch (specialButtonConfig, offsetMode) {
+		case (.hoverDiagonallyToggle, HoverOffsetModeDiagonallyAbove),
+			(.hoverSidewaysToggle, HoverOffsetModeSideways),
+			(.hoverAboveToggle, HoverOffsetModeAbove):
+			return true
+		default:
+			return false
+		}
 	}
 
 	@objc private func keyDown() {
@@ -155,6 +165,8 @@ extension SpecialButton {
 		case .hover: return .icon(.handRaised)
 		case .hoverAbove: return .twoIcons(.handRaised, .arrowUp)
 		case .hoverBelow: return .twoIcons(.handRaised, .arrowDown)
+		case .hoverAboveToggle: return .twoIcons(.handRaised, .arrowUp)
+		case .hoverSidewaysToggle: return .twoIcons(.handRaised, .arrowLeftArrowRight)
 		case .hoverDiagonallyToggle: return .twoIcons(.handRaised, .crossArrow)
 		case .cmdW: return .text("⌘-W")
 		default:

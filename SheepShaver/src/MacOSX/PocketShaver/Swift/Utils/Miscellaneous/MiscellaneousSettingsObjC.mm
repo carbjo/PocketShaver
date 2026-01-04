@@ -13,10 +13,6 @@
 #include "adb.h"
 #include "utils_ios.h"
 
-void objc_setMouseHapticFeedbackEnabled(BOOL isOn) {
-	ADBSetHapticFeedback(isOn);
-}
-
 void objc_setRelativeMouseMode(BOOL isOn) {
 	if (isOn) {
 		set_relative_mouse_enabled();
@@ -46,7 +42,7 @@ bool objc_getRelateiveMouseModeSettingIsAlwaysAutomatic(void) {
 }
 
 bool objc_getRelativeMouseTapToClick(void) {
-	return MiscellaneousSettingsObjC.isRelativeMouseTapToClickOn;
+	return MiscellaneousCachedSettings.isRelativeMouseTapToClickOn;
 }
 
 bool objc_getSoundDisabled(void) {

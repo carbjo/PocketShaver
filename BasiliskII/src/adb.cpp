@@ -46,7 +46,7 @@
 #include <cmath>
 #include <ctime>
 
-#import "KeyHapticFeedbackObjC.h"
+#import "MouseHapticFeedbackObjCCppHeader.h"
 #import "MiscellaneousSettingsObjCCppHeader.h"
 
 // Global variables
@@ -57,13 +57,14 @@ static bool mouse_button[3] = {false, false, false};			// Mouse button states
 static bool old_mouse_button[3] = {false, false, false};
 static bool relative_mouse = false;
 static bool touch_input = false;
-static bool hover_mode = false;
-static OffsetMode offset_mode = OffsetModeOff;
-static int middleX = 0;
+static HoverOffsetMode hover_offset_mode = HoverOffsetModeOff;
+static int screen_middle_x = 0;
+static int hover_offset_mode_x = 0;
+static int hover_offset_mode_y = 0;
 static bool mouse_down = false;
 static bool hover_gesture_start_side_determination_requested = false;
 static bool hover_gesture_start_was_left_side = false;
-static bool haptic_feedback = false;
+static bool is_animating = false;
 
 static uint8 key_states[16];				// Key states (Mac keycodes)
 #define MATRIX(code) (key_states[code >> 3] & (1 << (~code & 7)))
@@ -89,7 +90,16 @@ static uint8 m_keyboard_type = 0x05;
 static B2_mutex *mouse_lock;
 
 static time_t latest_mouse_down_time;
+
+// tolernace used to determine wheather to move mouse or not during	potential double click event
 static int double_click_mouse_move_tolerance = 10;
+
+BeginAnimationState::BeginAnimationState(int inp_x, int inp_y, int inp_offset_x, int inp_offset_y) {
+	x = inp_x;
+	y = inp_y;
+	offset_x = inp_offset_x;
+	offset_y = inp_offset_y;
+}
 
 
 /*
@@ -257,11 +267,12 @@ void ADBOp(uint8 op, uint8 *data)
 }
 
 int getXOffset(int x) {
-	if (offset_mode == OffsetModeDiagonallyAbove) {
+	if (hover_offset_mode == HoverOffsetModeSideways ||
+		hover_offset_mode == HoverOffsetModeDiagonallyAbove) {
 		if (hover_gesture_start_was_left_side) {
-			return -200;
+			return hover_offset_mode_x;
 		} else {
-			return 200;
+			return -hover_offset_mode_x;
 		}
 	}
 
@@ -270,14 +281,18 @@ int getXOffset(int x) {
 
 int getYOffset()
 {
-	if (offset_mode == OffsetModeAbove ||
-		offset_mode == OffsetModeDiagonallyAbove) {
-		return -120;
-	} else if (offset_mode == OffsetModeBelow) {
-		return 120;
+	if (hover_offset_mode == HoverOffsetModeAbove ||
+		hover_offset_mode == HoverOffsetModeDiagonallyAbove) {
+		return -hover_offset_mode_y;
+	} else if (hover_offset_mode == HoverOffsetModeBelow) {
+		return hover_offset_mode_y;
 	}
 
 	return 0;
+}
+
+bool hover_mode() {
+	return (hover_offset_mode != HoverOffsetModeOff);
 }
 
 
@@ -287,6 +302,10 @@ int getYOffset()
 
 void ADBMouseMoved(int x, int y)
 {
+	if (is_animating) {
+		return;
+	}
+
 	B2_lock_mutex(mouse_lock);
 	if (relative_mouse) {
 		mouse_x += x; mouse_y += y;
@@ -294,7 +313,7 @@ void ADBMouseMoved(int x, int y)
 	} else {
 		if (touch_input &&
 			!mouse_down &&
-			!hover_mode &&
+			!hover_mode() &&
 			abs(mouse_x - x) <= double_click_mouse_move_tolerance &&
 			abs(mouse_y - y) <= double_click_mouse_move_tolerance) {
 			time_t now;
@@ -310,7 +329,7 @@ void ADBMouseMoved(int x, int y)
 		if (hover_gesture_start_side_determination_requested) {
 			hover_gesture_start_side_determination_requested = false;
 
-			hover_gesture_start_was_left_side = (x > middleX);
+			hover_gesture_start_was_left_side = (x < screen_middle_x);
 		}
 
 		mouse_x = x + getXOffset(x); mouse_y = y + getYOffset();
@@ -351,14 +370,13 @@ void ADBWriteMouseDown(int button) {
 
 void ADBMouseDown(int button)
 {
-	if (hover_mode) {
+	if (hover_mode()) {
 		hover_gesture_start_side_determination_requested = true;
 		return;
 	}
 
-	if (haptic_feedback &&
-		(!relative_mouse || objc_getRelativeMouseTapToClick()))
-		objc_keyHapticFeedback();
+	if (!relative_mouse || objc_getRelativeMouseTapToClick())
+		objc_mousedownHapticFeedback();
 
 	if (touch_input)
 		usleep(20000); // To eliminate the simultanious "move mouse and click" race condition
@@ -416,6 +434,12 @@ void ADBMouseUp(int button)
 	mouse_down = false;
 }
 
+void ADBConfigure(int new_screen_middle_x, int new_double_click_mouse_move_tolerance, int new_hover_offset_mode_x, int new_hover_offset_mode_y) {
+	screen_middle_x = new_screen_middle_x;
+	double_click_mouse_move_tolerance = new_double_click_mouse_move_tolerance;
+	hover_offset_mode_x = new_hover_offset_mode_x;
+	hover_offset_mode_y = new_hover_offset_mode_y;
+}
 
 /*
  *  Set mouse mode (absolute or relative)
@@ -433,42 +457,24 @@ void ADBSetTouchInput(bool is_on) {
 	touch_input = is_on;
 }
 
-void ADBSetHoverMode(bool is_on)
+void ADBSetHoverOffsetMode(HoverOffsetMode mode)
 {
-	hover_mode = is_on;
-}
+	if (mouse_down) {
+		ADBMouseUp(0);
+	}
 
-void ADBSetOffsetMode(OffsetMode mode)
-{
-	offset_mode = mode;
-}
-
-void ADBReportScreenWidth(int screenWidth) {
-	middleX = screenWidth / 2;
+	hover_offset_mode = mode;
 }
 
 bool ADBHoversOnMouseDown() {
 	if (!touch_input) {
 		return false;
 	}
-	return (relative_mouse || hover_mode);
+	return (relative_mouse || hover_mode());
 }
 
-/*
- *  Set haptic feedback on or off
- */
-void ADBSetHapticFeedback(bool is_on)
-{
-	haptic_feedback = is_on;
-}
-
-/*
- *  Set tolernace used to determine wheather to move mouse or not during
- * 	potential double click event.
- */
-void ADBSetMouseMoveTolerance(int new_double_click_mouse_move_tolerance)
-{
-	double_click_mouse_move_tolerance = new_double_click_mouse_move_tolerance;
+bool ADBHoverGestureStartWasLeftSide() {
+	return hover_gesture_start_was_left_side;
 }
 
 /*
@@ -508,6 +514,29 @@ void ADBKeyUp(int code)
 	TriggerInterrupt();
 }
 
+BeginAnimationState ADBStartAnimation() {
+	is_animating = true;
+	return BeginAnimationState(mouse_x, mouse_y, hover_offset_mode_x, hover_offset_mode_y);
+}
+
+void ADBAnimateMove(int x, int y) {
+	if (!is_animating) {
+		return;
+	}
+
+	B2_lock_mutex(mouse_lock);
+
+	mouse_x = x;
+	mouse_y = y;
+
+	B2_unlock_mutex(mouse_lock);
+	SetInterruptFlag(INTFLAG_ADB);
+	TriggerInterrupt();
+}
+
+void ADBEndAnimation() {
+	is_animating = false;
+}
 
 /*
  *  ADB interrupt function (executed as part of 60Hz interrupt)
