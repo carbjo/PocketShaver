@@ -11,16 +11,6 @@ import Combine
 class PreferencesAdvancedModel {
 	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
 
-	@MainActor
-	var hasRomFile: Bool {
-		RomManager.shared.hasRomFile
-	}
-
-	@MainActor
-	var currentRomFileDescription: String? {
-		RomManager.shared.currentRomFileVersion?.description
-	}
-
 	var ramSetting: PreferencesGeneralRamSetting {
 		get {
 			PreferencesGeneralRamSetting.current
@@ -109,6 +99,36 @@ class PreferencesAdvancedModel {
 		set {
 			MiscellaneousSettings.current.set(secondFingerClick: newValue)
 		}
+	}
+
+	@MainActor
+	var secondFingerSwipe: Bool {
+		get {
+			MiscellaneousSettings.current.secondFingerSwipe
+		}
+		set {
+			MiscellaneousSettings.current.set(secondFingerSwipe: newValue)
+		}
+	}
+
+	@MainActor
+	var bootInHoverMode: Bool {
+		get {
+			MiscellaneousSettings.current.bootInHoverMode
+		}
+		set {
+			MiscellaneousSettings.current.set(bootInHoverMode: newValue)
+		}
+	}
+
+	@MainActor
+	var hasRomFile: Bool {
+		RomManager.shared.hasRomFile
+	}
+
+	@MainActor
+	var currentRomFileDescription: String? {
+		RomManager.shared.currentRomFileVersion?.description
 	}
 
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {

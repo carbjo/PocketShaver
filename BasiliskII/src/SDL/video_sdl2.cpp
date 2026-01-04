@@ -1641,6 +1641,8 @@ bool VideoInit(bool classic)
 	}
 #endif
 
+	objc_reportVideoSize(VideoModes[cur_mode].viXsize, VideoModes[cur_mode].viYsize);
+
 	int color_depth = get_customized_color_depth(default_depth);
 
 	D(bug("Return get_customized_color_depth %d\n", color_depth));

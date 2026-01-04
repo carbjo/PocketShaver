@@ -12,5 +12,5 @@
 #import "DiskROMExtractor.h"
 #import "FPSCounterObjC.h"
 #import "ADBObjC.h"
-#import "KeyHapticFeedbackObjC.h"
-#import "OffsetMode.h"
+#import "MouseHapticFeedbackObjC.h"
+#import "HoverOffsetMode.h"

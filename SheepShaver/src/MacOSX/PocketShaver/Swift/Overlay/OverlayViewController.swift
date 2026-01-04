@@ -338,12 +338,24 @@ public class OverlayViewController: UIViewController {
 			self?.dragInteractionModel.handleTwoFingerDragProgress(delta)
 		}
 
+		gestureInputView.reportSecondFingerDragProgress = { [weak self] delta in
+			guard let self else { return }
+			dragInteractionModel.handleSecondFingerDragProgress(delta)
+			inputInteractionModel.handleSecondFingerDragDuringTwoFingerGesture()
+		}
+
 		gestureInputView.didBeginTwoFingerGesture = { [weak self] in
 			self?.inputInteractionModel.beginSecondFingerClickIfEligible()
 		}
 
 		gestureInputView.didReleaseOneFingerDuringTwoFingerGesture = { [weak self] in
-			self?.inputInteractionModel.endSecondFingerClickIfEligible()
+			guard let self else { return }
+			inputInteractionModel.endSecondFingerClickIfEligible()
+			dragInteractionModel.handleReleaseOneFingerDuringTwoFingerGesture()
+		}
+
+		dragInteractionModel.hasDraggedSecondFingerOverThreshold = { [weak self] result in
+			self?.inputInteractionModel.handleSecondFingerReleaseResultIfEligible(result)
 		}
 	}
 

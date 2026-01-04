@@ -13,12 +13,20 @@ class InputInteractionModel {
 	enum Change {
 		case relativeMouseModeChanged(isEnabled: Bool)
 		case canToggleRelativeMouseModeChanged(isEnabled: Bool)
-		case offsetModeChanged(mode: OffsetMode)
+		case hoverOffsetModeChanged(HoverOffsetMode)
 	}
 
 	private let keyDownFeedbackGenerator = UIImpactFeedbackGenerator(style: .soft)
 	private(set) var isRelativeMouseModeEnabled = false
-	private(set) var isHoverDiagonallyOn = false
+
+	private var offsetMode: HoverOffsetMode = MiscellaneousSettings.current.bootInHoverMode ? HoverOffsetModeHoverNoOffset : HoverOffsetModeOff
+
+	private var secondFingerGestureStartTime: Date?
+	private var isHoverModeClicking = false
+	private var hoverModeClickIfStilTimer: Timer?
+	private var hoverModeClickIfHaveNotMovedEnoughTimer: Timer?
+
+	private var hoverOffsetModeTransitionAnimator: HoverOffsetModeTransitionAnimator?
 
 	var canToggleRelativeMouseMode: Bool {
 		MiscellaneousSettings.current.relativeMouseModeSetting == .manual ||
@@ -52,24 +60,30 @@ class InputInteractionModel {
 	func handle(_ button: SpecialButton, isDown: Bool) {
 		switch button {
 		case .hover:
-			objc_ADBSetHoverMode(isDown)
+			objc_ADBSetHoverOffsetMode(HoverOffsetModeHoverNoOffset)
 		case .hoverAbove:
-			objc_ADBSetHoverMode(isDown)
 			if isDown {
-				objc_ADBSetOffsetMode(OffsetModeAbove)
+				objc_ADBSetHoverOffsetMode(HoverOffsetModeAbove)
 			} else {
-				objc_ADBSetOffsetMode(OffsetModeOff)
+				objc_ADBSetHoverOffsetMode(HoverOffsetModeHoverNoOffset)
 			}
 		case .hoverBelow:
-			objc_ADBSetHoverMode(isDown)
 			if isDown {
-				objc_ADBSetOffsetMode(OffsetModeBelow)
+				objc_ADBSetHoverOffsetMode(HoverOffsetModeBelow)
 			} else {
-				objc_ADBSetOffsetMode(OffsetModeOff)
+				objc_ADBSetHoverOffsetMode(HoverOffsetModeHoverNoOffset)
+			}
+		case .hoverSidewaysToggle:
+			if !isDown {
+				toggleHoverOffsetMode(HoverOffsetModeSideways)
+			}
+		case .hoverAboveToggle:
+			if !isDown {
+				toggleHoverOffsetMode(HoverOffsetModeAbove)
 			}
 		case .hoverDiagonallyToggle:
 			if !isDown {
-				toggleHoverDiagnoally()
+				toggleHoverOffsetMode(HoverOffsetModeDiagonallyAbove)
 			}
 		case .mouseClick:
 			if isDown {
@@ -77,7 +91,7 @@ class InputInteractionModel {
 
 				Task { @MainActor in
 					if MiscellaneousSettings.current.keyHapticFeedback {
-						objc_keyHapticFeedback() // Same haptic feedback as mouse click
+						objc_mousedownHapticFeedback() // Same haptic feedback as mouse click
 					}
 				}
 			} else {
@@ -125,19 +139,187 @@ class InputInteractionModel {
 			return
 		}
 
-		objc_ADBWriteMouseDown(0)
+		secondFingerGestureStartTime = Date()
 
 		if MiscellaneousSettings.current.mouseHapticFeedback {
-			objc_keyHapticFeedback()
+			objc_mousedownHapticFeedback()
+		}
+
+		let delay = MiscellaneousSettings.current.secondFingerSwipe ? 0.03 : 0
+		hoverModeClickIfStilTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+			Task { @MainActor [weak self] in
+				await self?.beginSecondFingerClick()
+			}
 		}
 	}
 
-	func endSecondFingerClickIfEligible() {
+	func endSecondFingerClickIfEligible(mustPerformClick: Bool = true) {
+		resetHoverModeClickTimers()
+
+		guard objc_ADBHoversOnMouseDown(),
+		secondFingerGestureStartTime != nil else {
+			return
+		}
+
+		secondFingerGestureStartTime = nil
+
+		if isHoverModeClicking {
+			objc_ADBWriteMouseUp(0)
+		} else if mustPerformClick {
+			objc_ADBMouseClick(0)
+		}
+
+		isHoverModeClicking = false
+	}
+
+	func handleSecondFingerDragDuringTwoFingerGesture() {
+		if hoverModeClickIfStilTimer != nil {
+
+			hoverModeClickIfStilTimer?.invalidate()
+			hoverModeClickIfStilTimer = nil
+
+			hoverModeClickIfHaveNotMovedEnoughTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
+				Task { @MainActor [weak self] in
+					await self?.beginSecondFingerClick()
+				}
+			}
+		}
+	}
+
+	func handleSecondFingerReleaseResultIfEligible(_ result: SecondFingerReleaseResult) {
+		guard let secondFingerGestureStartTime,
+			  Date().timeIntervalSince(secondFingerGestureStartTime) < 0.4 else {
+			return
+		}
+		
+		endSecondFingerClickIfEligible(mustPerformClick: false)
+
 		guard objc_ADBHoversOnMouseDown() else {
 			return
 		}
 
-		objc_ADBWriteMouseUp(0)
+		switch result.swipeResult {
+		case .up:
+			if offsetMode == HoverOffsetModeHoverNoOffset {
+				setHoverOffsetMode(HoverOffsetModeAbove, .up)
+			} else if offsetMode == HoverOffsetModeSideways {
+				setHoverOffsetMode(HoverOffsetModeDiagonallyAbove, .up)
+			}
+		case .upRight:
+			switch result.firstFingerSide {
+			case .left:
+				if offsetMode == HoverOffsetModeHoverNoOffset {
+					setHoverOffsetMode(HoverOffsetModeDiagonallyAbove, .upRight)
+				} else if offsetMode == HoverOffsetModeAbove {
+					setHoverOffsetMode(HoverOffsetModeDiagonallyAbove, .right)
+				} else if offsetMode == HoverOffsetModeSideways {
+					setHoverOffsetMode(HoverOffsetModeDiagonallyAbove, .up)
+				}
+			case .right:
+				if offsetMode == HoverOffsetModeSideways {
+					setHoverOffsetMode(HoverOffsetModeAbove, .upRight)
+				} else if offsetMode == HoverOffsetModeDiagonallyAbove {
+					setHoverOffsetMode(HoverOffsetModeAbove, .right)
+				} else if offsetMode == HoverOffsetModeHoverNoOffset {
+					setHoverOffsetMode(HoverOffsetModeAbove, .up)
+				}
+			}
+		case .right:
+			switch result.firstFingerSide {
+			case .left:
+				if offsetMode == HoverOffsetModeHoverNoOffset {
+					setHoverOffsetMode(HoverOffsetModeSideways, .right)
+				} else if offsetMode == HoverOffsetModeAbove {
+					setHoverOffsetMode(HoverOffsetModeDiagonallyAbove, .right)
+				}
+			case .right:
+				if offsetMode == HoverOffsetModeSideways {
+					setHoverOffsetMode(HoverOffsetModeHoverNoOffset, .right)
+				} else if offsetMode == HoverOffsetModeDiagonallyAbove {
+					setHoverOffsetMode(HoverOffsetModeAbove, .right)
+				}
+			}
+		case .downRight:
+			switch result.firstFingerSide {
+			case .left:
+				if offsetMode == HoverOffsetModeAbove {
+					setHoverOffsetMode(HoverOffsetModeSideways, .downRight)
+				} else if offsetMode == HoverOffsetModeHoverNoOffset {
+					setHoverOffsetMode(HoverOffsetModeSideways, .right)
+				} else if offsetMode == HoverOffsetModeDiagonallyAbove {
+					setHoverOffsetMode(HoverOffsetModeSideways, .down)
+				}
+
+			case .right:
+				if offsetMode == HoverOffsetModeDiagonallyAbove {
+					setHoverOffsetMode(HoverOffsetModeHoverNoOffset, .downRight)
+				} else if offsetMode == HoverOffsetModeAbove {
+					setHoverOffsetMode(HoverOffsetModeHoverNoOffset, .down)
+				} else if offsetMode == HoverOffsetModeSideways {
+					setHoverOffsetMode(HoverOffsetModeHoverNoOffset, .right)
+				}
+			}
+		case .down:
+			if offsetMode == HoverOffsetModeAbove {
+				setHoverOffsetMode(HoverOffsetModeHoverNoOffset, .down)
+			} else if offsetMode == HoverOffsetModeDiagonallyAbove {
+				setHoverOffsetMode(HoverOffsetModeSideways, .down)
+			}
+		case .downLeft:
+			switch result.firstFingerSide {
+			case .left:
+				if offsetMode == HoverOffsetModeDiagonallyAbove {
+					setHoverOffsetMode(HoverOffsetModeHoverNoOffset, .downLeft)
+				} else if offsetMode == HoverOffsetModeAbove {
+					setHoverOffsetMode(HoverOffsetModeHoverNoOffset, .down)
+				} else if offsetMode == HoverOffsetModeSideways {
+					setHoverOffsetMode(HoverOffsetModeHoverNoOffset, .left)
+				}
+			case .right:
+				if offsetMode == HoverOffsetModeAbove {
+					setHoverOffsetMode(HoverOffsetModeSideways, .downLeft)
+				} else if offsetMode == HoverOffsetModeDiagonallyAbove {
+					setHoverOffsetMode(HoverOffsetModeHoverNoOffset, .down)
+				} else if offsetMode == HoverOffsetModeHoverNoOffset {
+					setHoverOffsetMode(HoverOffsetModeHoverNoOffset, .left)
+				}
+			}
+		case .left:
+			switch result.firstFingerSide {
+			case .left:
+				if offsetMode == HoverOffsetModeSideways {
+					setHoverOffsetMode(HoverOffsetModeHoverNoOffset, .left)
+				} else if offsetMode == HoverOffsetModeDiagonallyAbove {
+					setHoverOffsetMode(HoverOffsetModeAbove, .left)
+				}
+			case .right:
+				if offsetMode == HoverOffsetModeHoverNoOffset {
+					setHoverOffsetMode(HoverOffsetModeSideways, .left)
+				} else if offsetMode == HoverOffsetModeAbove {
+					setHoverOffsetMode(HoverOffsetModeDiagonallyAbove, .left)
+				}
+			}
+		case .upLeft:
+			switch result.firstFingerSide {
+			case .left:
+				if offsetMode == HoverOffsetModeSideways {
+					setHoverOffsetMode(HoverOffsetModeAbove, .upLeft)
+				} else if offsetMode == HoverOffsetModeHoverNoOffset {
+					setHoverOffsetMode(HoverOffsetModeAbove, .up)
+				} else if offsetMode == HoverOffsetModeDiagonallyAbove {
+					setHoverOffsetMode(HoverOffsetModeAbove, .left)
+				}
+			case .right:
+				if offsetMode == HoverOffsetModeHoverNoOffset {
+					setHoverOffsetMode(HoverOffsetModeDiagonallyAbove, .upLeft)
+				} else if offsetMode == HoverOffsetModeSideways {
+					setHoverOffsetMode(HoverOffsetModeDiagonallyAbove, .up)
+				} else if offsetMode == HoverOffsetModeAbove {
+					setHoverOffsetMode(HoverOffsetModeDiagonallyAbove, .left)
+				}
+			}
+		case .none: break
+		}
 	}
 
 	func toggleRelativeMouseMode() {
@@ -148,18 +330,57 @@ class InputInteractionModel {
 		}
 	}
 
-	private func toggleHoverDiagnoally() {
-		isHoverDiagonallyOn = !isHoverDiagonallyOn
+	private func beginSecondFingerClick() async {
+		resetHoverModeClickTimers()
 
-		if isHoverDiagonallyOn {
-			objc_ADBSetOffsetMode(OffsetModeDiagonallyAbove)
-			objc_ADBSetHoverMode(true)
-			changeSubject.send(.offsetModeChanged(mode: OffsetModeDiagonallyAbove))
-		} else {
-			objc_ADBSetOffsetMode(OffsetModeOff)
-			objc_ADBSetHoverMode(false)
-			changeSubject.send(.offsetModeChanged(mode: OffsetModeOff))
+		let wasHoverModeClicking = isHoverModeClicking
+
+		await reportIsHoverModeClicing()
+
+		if !wasHoverModeClicking {
+			objc_ADBWriteMouseDown(0)
 		}
+	}
+
+	private func toggleHoverOffsetMode(_ offsetMode: HoverOffsetMode) {
+		if self.offsetMode == offsetMode {
+			self.offsetMode = HoverOffsetModeOff
+		} else {
+			self.offsetMode = offsetMode
+		}
+
+		objc_ADBSetHoverOffsetMode(self.offsetMode)
+		changeSubject.send(.hoverOffsetModeChanged(self.offsetMode))
+	}
+
+	private func setHoverOffsetMode(
+		_ offsetMode: HoverOffsetMode,
+		_ resultingTransition: HoverOffsetModeTransition
+	) {
+		self.offsetMode = offsetMode
+
+		if MiscellaneousSettings.current.mouseHapticFeedback {
+			let timeSinceMousedownHapticFeedback = Date().timeIntervalSince(objc_getLatestMouseDownHapticFeedbackTimestamp())
+			if timeSinceMousedownHapticFeedback > 0.12 {
+				objc_mousedownHapticFeedback()
+			}
+		}
+
+		hoverOffsetModeTransitionAnimator = HoverOffsetModeTransitionAnimator(resultingTransition)
+
+		objc_ADBSetHoverOffsetMode(offsetMode)
+		changeSubject.send(.hoverOffsetModeChanged(offsetMode))
+	}
+
+	private func reportIsHoverModeClicing() async {
+		isHoverModeClicking = true
+	}
+
+	private func resetHoverModeClickTimers () {
+		hoverModeClickIfStilTimer?.invalidate()
+		hoverModeClickIfStilTimer = nil
+		hoverModeClickIfHaveNotMovedEnoughTimer?.invalidate()
+		hoverModeClickIfHaveNotMovedEnoughTimer = nil
 	}
 
 	@objc
@@ -187,5 +408,75 @@ class InputInteractionModel {
 	@objc
 	private func handleRelativeMouseModeSettingChanged() {
 		changeSubject.send(.canToggleRelativeMouseModeChanged(isEnabled: canToggleRelativeMouseMode))
+	}
+}
+
+private class HoverOffsetModeTransitionAnimator {
+	private let transition: HoverOffsetModeTransition
+	private var timers = [Timer]()
+	private let totalSteps: Int
+	private let totalTime: TimeInterval = 0.107 // Get 8 steps with 75hz
+	private let stepTime: TimeInterval
+
+	private let beginAnimationState: ADBBeginAnimationState
+
+	private var startTime: Date!
+
+	init(_ transition: HoverOffsetModeTransition) {
+		self.transition = transition
+
+		let fps = MiscellaneousCachedSettings.framesPerSecond
+		totalSteps = Int(totalTime * CGFloat(fps))
+		stepTime = totalTime / CGFloat(totalSteps)
+		beginAnimationState = objc_ADBStartAnimation()
+
+		startTime = Date()
+
+		for i in 0...totalSteps {
+			let ratio = CGFloat(i) / CGFloat(totalSteps)
+			timers.append(Timer.scheduledTimer(withTimeInterval: totalTime * ratio, repeats: false) { [weak self] _ in
+				self?.runStep(i)
+			})
+		}
+
+		timers.append(Timer.scheduledTimer(withTimeInterval: totalTime, repeats: false) { _ in
+			objc_ADBEndAnimation()
+		})
+	}
+
+	private func runStep(_ step: Int) {
+		let ratio = CGFloat(step) / CGFloat(totalSteps)
+		let stepX = Int(CGFloat(beginAnimationState.offset_x) * ratio)
+		let stepY = Int(CGFloat(beginAnimationState.offset_y) * ratio)
+
+		var x = beginAnimationState.x
+		var y = beginAnimationState.y
+
+		switch transition {
+		case .up:
+			y -= stepY
+		case .upRight:
+			x += stepX
+			y -= stepY
+		case .right:
+			x += stepX
+		case .downRight:
+			x += stepX
+			y += stepY
+		case .down:
+			y += stepY
+		case .downLeft:
+			x -= stepX
+			y += stepY
+		case .left:
+			x -= stepX
+		case .upLeft:
+			x -= stepX
+			y -= stepY
+		default:
+			break
+		}
+
+		objc_ADBAnimateMove(x, y)
 	}
 }

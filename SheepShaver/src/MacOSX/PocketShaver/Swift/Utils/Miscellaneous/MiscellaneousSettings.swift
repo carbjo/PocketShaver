@@ -47,6 +47,8 @@ class MiscellaneousSettings: Codable {
 	private(set) var relativeMouseModeSetting: RelativeMouseModeSetting
 	private(set) var relativeMouseTapToClick: Bool
 	private(set) var secondFingerClick: Bool
+	private(set) var secondFingerSwipe: Bool
+	private(set) var bootInHoverMode: Bool
 
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		if #available(iOS 16, *) {
@@ -77,6 +79,8 @@ class MiscellaneousSettings: Codable {
 		relativeMouseModeSetting = .automatic
 		relativeMouseTapToClick = true
 		secondFingerClick = true
+		secondFingerSwipe = false
+		bootInHoverMode = false
 	}
 
 	@MainActor
@@ -100,7 +104,9 @@ class MiscellaneousSettings: Codable {
 
 	@MainActor
 	func updateCachedResponses() {
-		MiscellaneousSettingsObjC.isRelativeMouseTapToClickOn = relativeMouseTapToClick
+		MiscellaneousCachedSettings.isRelativeMouseTapToClickOn = relativeMouseTapToClick
+		MiscellaneousCachedSettings.framesPerSecond = frameRateSetting.frameRate
+		MiscellaneousCachedSettings.isMouseHapticFeedbackOn = mouseHapticFeedback
 	}
 
 	@MainActor
@@ -135,8 +141,7 @@ class MiscellaneousSettings: Codable {
 	func set(mouseHapticFeedback: Bool) {
 		self.mouseHapticFeedback = mouseHapticFeedback
 
-		objc_setMouseHapticFeedbackEnabled(mouseHapticFeedback)
-
+		updateCachedResponses()
 		saveAsCurrent()
 	}
 
@@ -165,6 +170,7 @@ class MiscellaneousSettings: Codable {
 	func set(frameRateSetting: FrameRateSetting) {
 		self.frameRateSetting = frameRateSetting
 
+		updateCachedResponses()
 		saveAsCurrent()
 	}
 
@@ -197,13 +203,26 @@ class MiscellaneousSettings: Codable {
 		self.relativeMouseTapToClick = relativeMouseTapToClick
 
 		updateCachedResponses()
-
 		saveAsCurrent()
 	}
 
 	@MainActor
 	func set(secondFingerClick: Bool) {
 		self.secondFingerClick = secondFingerClick
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(secondFingerSwipe: Bool) {
+		self.secondFingerSwipe = secondFingerSwipe
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(bootInHoverMode: Bool) {
+		self.bootInHoverMode = bootInHoverMode
 
 		saveAsCurrent()
 	}
@@ -237,5 +256,15 @@ public class MiscellaneousSettingsObjC: NSObject {
 		MiscellaneousSettings.current.soundDisabled
 	}
 
-	nonisolated(unsafe) static var isRelativeMouseTapToClickOn: Bool = true
+	@MainActor
+	static func isBootInHoverModeOn() -> Bool {
+		MiscellaneousSettings.current.bootInHoverMode
+	}
+}
+
+@objcMembers
+public class MiscellaneousCachedSettings: NSObject {
+	nonisolated(unsafe) static var isRelativeMouseTapToClickOn = true
+	nonisolated(unsafe) static var framesPerSecond: Int = 75
+	nonisolated(unsafe) static var isMouseHapticFeedbackOn = false
 }

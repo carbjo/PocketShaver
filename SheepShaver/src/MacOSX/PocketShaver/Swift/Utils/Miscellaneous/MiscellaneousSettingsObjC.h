@@ -10,11 +10,6 @@
 #ifdef __cplusplus
 extern "C"
 #endif
-void objc_setMouseHapticFeedbackEnabled(BOOL);
-
-#ifdef __cplusplus
-extern "C"
-#endif
 void objc_setRelativeMouseMode(BOOL isOn);
 
 #ifdef __cplusplus
