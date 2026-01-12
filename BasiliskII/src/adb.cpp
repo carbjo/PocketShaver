@@ -48,6 +48,7 @@
 
 #import "MouseHapticFeedbackObjCCppHeader.h"
 #import "MiscellaneousSettingsObjCCppHeader.h"
+#import "RightClickObjCCppHeader.h"
 
 // Global variables
 static int mouse_x = 0, mouse_y = 0;							// Mouse position
@@ -370,6 +371,10 @@ void ADBWriteMouseDown(int button) {
 
 void ADBMouseDown(int button)
 {
+	if (button != 0) {
+		return;
+	}
+
 	if (hover_mode()) {
 		hover_gesture_start_side_determination_requested = true;
 		return;
@@ -409,6 +414,11 @@ void ADBWriteMouseUp(int button) {
 
 void ADBMouseUp(int button)
 {
+	if (button != 0) {
+		objc_performRightClick();
+		return;
+	}
+
 	if (touch_input)
 		usleep(20000); // To eliminate the simultanious "move mouse and click" race condition
 

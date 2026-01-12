@@ -28,6 +28,11 @@ enum RelativeMouseModeSetting: String, Codable, CaseIterable {
 	case alwaysOn
 }
 
+enum RightClickSetting: String, Codable, CaseIterable {
+	case control
+	case command
+}
+
 class MiscellaneousSettings: Codable {
 	private(set) var hasDismissedSetupInstructions: Bool
 	private(set) var showHints: Bool
@@ -49,6 +54,7 @@ class MiscellaneousSettings: Codable {
 	private(set) var secondFingerClick: Bool
 	private(set) var secondFingerSwipe: Bool
 	private(set) var bootInHoverMode: Bool
+	private(set) var rightClickSetting: RightClickSetting
 
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		if #available(iOS 16, *) {
@@ -81,6 +87,7 @@ class MiscellaneousSettings: Codable {
 		secondFingerClick = true
 		secondFingerSwipe = false
 		bootInHoverMode = false
+		rightClickSetting = .control
 	}
 
 	@MainActor
@@ -107,6 +114,7 @@ class MiscellaneousSettings: Codable {
 		MiscellaneousCachedSettings.isRelativeMouseTapToClickOn = relativeMouseTapToClick
 		MiscellaneousCachedSettings.framesPerSecond = frameRateSetting.frameRate
 		MiscellaneousCachedSettings.isMouseHapticFeedbackOn = mouseHapticFeedback
+		MiscellaneousCachedSettings.rightClickSetting = rightClickSetting
 	}
 
 	@MainActor
@@ -226,11 +234,25 @@ class MiscellaneousSettings: Codable {
 
 		saveAsCurrent()
 	}
+
+	@MainActor
+	func set(rightClickSetting: RightClickSetting) {
+		self.rightClickSetting = rightClickSetting
+
+		updateCachedResponses()
+		saveAsCurrent()
+	}
+}
+
+class MiscellaneousCachedSettings {
+	nonisolated(unsafe) static var isRelativeMouseTapToClickOn = true
+	nonisolated(unsafe) static var framesPerSecond: Int = 75
+	nonisolated(unsafe) static var isMouseHapticFeedbackOn = false
+	nonisolated(unsafe) static var rightClickSetting: RightClickSetting = .control
 }
 
 @objcMembers
 public class MiscellaneousSettingsObjC: NSObject {
-
 	@MainActor
 	static func isIPadMousePassthroughOn() -> Bool {
 		MiscellaneousSettings.current.iPadMousePassthrough
@@ -260,11 +282,14 @@ public class MiscellaneousSettingsObjC: NSObject {
 	static func isBootInHoverModeOn() -> Bool {
 		MiscellaneousSettings.current.bootInHoverMode
 	}
-}
 
-@objcMembers
-public class MiscellaneousCachedSettings: NSObject {
-	nonisolated(unsafe) static var isRelativeMouseTapToClickOn = true
-	nonisolated(unsafe) static var framesPerSecond: Int = 75
-	nonisolated(unsafe) static var isMouseHapticFeedbackOn = false
+	@MainActor
+	static func isRelativeMouseTapToClickOn() -> Bool {
+		MiscellaneousCachedSettings.isRelativeMouseTapToClickOn
+	}
+
+	@MainActor
+	static func isMouseHapticFeedbackOn() -> Bool {
+		MiscellaneousCachedSettings.isMouseHapticFeedbackOn
+	}
 }

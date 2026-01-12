@@ -13,9 +13,10 @@ class PreferencesGeneralViewController: UITableViewController {
 		case setupInstructions
 		case bootstrap
 		case disks
-		case iPadMouse
-		case hapticFeedback
 		case audio
+		case iPadMouse
+		case rightClick
+		case hapticFeedback
 		case hints
 	}
 
@@ -348,12 +349,14 @@ extension PreferencesGeneralViewController {
 			return "Bootstrap"
 		case .disks:
 			return "Disks"
-		case .iPadMouse:
-			return "Input mode"
-		case .hapticFeedback:
-			return "Haptic feedback"
 		case .audio:
 			return "Audio"
+		case .iPadMouse:
+			return "Input mode"
+		case .rightClick:
+			return "Right click"
+		case .hapticFeedback:
+			return "Haptic feedback"
 		case .hints:
 			return "Hints"
 		}
@@ -368,12 +371,14 @@ extension PreferencesGeneralViewController {
 			return 1 + (model.isDisplayingRomFileMissingError ? 1 : 0)
 		case .disks:
 			return model.numberOfDisks + 2 + (model.isDisplayingNoDiskFilesError ? 1 : 0)
-		case .iPadMouse:
-			return 1
-		case .hapticFeedback:
-			return 3
 		case .audio:
 			return 2
+		case .iPadMouse:
+			return 1
+		case .rightClick:
+			return 2
+		case .hapticFeedback:
+			return 3
 		case .hints:
 			return 2
 		}
@@ -446,11 +451,44 @@ extension PreferencesGeneralViewController {
 			} else {
 				return PreferencesGeneralErrorCell(title: "Must select to mount at least one disk file")
 			}
+		case .audio:
+			if indexPath.row == 0 {
+				return PreferencesEnabledSettingCell(
+					title: "Audio enabled",
+					isOn: !model.soundDisabled
+				) { [weak self] newValue in
+					self?.model.soundDisabled = !newValue
+				}
+			} else {
+				return PreferencesGeneralAudioFooterCell { [weak self] in
+					self?.displaySetupInstructions()
+				}
+			}
 		case .iPadMouse:
 			return PreferencesGeneralIPadMouseCell(
 				initialIPadMouseSetting: model.isIPadMouseEnabled
 			) { [weak self] newValue in
 				self?.model.isIPadMouseEnabled = newValue
+			}
+		case .rightClick:
+			switch indexPath.row {
+			case 0:
+				return PreferencesGeneralRightClickCell(initialRightClickSetting: model.rightClickSetting) { [weak self] newSetting in
+					self?.model.rightClickSetting = newSetting
+				}
+			case 1:
+				let text: String
+				if UIDevice.isIPad {
+					text = "If using bluetooth mouse, right click has to explicitly be enabled in iOS settings under General > Trackpad and Mouse > Secondary click.\nRight click can also be performed with a gamepad button."
+				} else {
+					text = "Right click can be performed with a gamepad button."
+				}
+
+				return PreferencesFooterCell(
+					text: text
+				)
+			default:
+				fatalError()
 			}
 		case .hapticFeedback:
 			switch indexPath.row {
@@ -477,19 +515,6 @@ extension PreferencesGeneralViewController {
 				}
 			default:
 				fatalError()
-			}
-		case .audio:
-			if indexPath.row == 0 {
-				return PreferencesEnabledSettingCell(
-					title: "Audio enabled",
-					isOn: !model.soundDisabled
-				) { [weak self] newValue in
-					self?.model.soundDisabled = !newValue
-				}
-			} else {
-				return PreferencesGeneralAudioFooterCell { [weak self] in
-					self?.displaySetupInstructions()
-				}
 			}
 		case .hints:
 			if indexPath.row == 0 {

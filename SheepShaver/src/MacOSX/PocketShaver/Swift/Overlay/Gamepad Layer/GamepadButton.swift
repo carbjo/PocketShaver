@@ -161,7 +161,7 @@ class GamepadButton: UIButton {
 extension SpecialButton {
 	var gamepadLabel: GamepadButton.Label {
 		switch self {
-		case .mouseClick: return .icon(.cursorarrowRays)
+		case .mouseClick: return .icon(.leftclick)
 		case .hover: return .icon(.handRaised)
 		case .hoverAbove: return .twoIcons(.handRaised, .arrowUp)
 		case .hoverBelow: return .twoIcons(.handRaised, .arrowDown)
@@ -169,6 +169,7 @@ extension SpecialButton {
 		case .hoverSidewaysToggle: return .twoIcons(.handRaised, .arrowLeftArrowRight)
 		case .hoverDiagonallyToggle: return .twoIcons(.handRaised, .crossArrow)
 		case .cmdW: return .text("⌘-W")
+		case .rightClick: return .icon(.rightclick)
 		default:
 			return .text(label)
 		}

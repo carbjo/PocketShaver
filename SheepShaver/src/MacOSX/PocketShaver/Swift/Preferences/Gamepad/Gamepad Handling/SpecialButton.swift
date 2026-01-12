@@ -16,6 +16,7 @@ import Foundation
 	case hoverDiagonallyToggle
 	case hoverSidewaysToggle
 	case hoverAboveToggle
+	case rightClick
 
 	var label: String {
 		switch self {
@@ -27,6 +28,7 @@ import Foundation
 		case .cmdW: return "Cmd-W"
 		case .hoverSidewaysToggle: return "Hover sideways (toggle)"
 		case .hoverAboveToggle: return "Hover above (toggle)"
+		case .rightClick: return "Right click"
 		}
 	}
 }

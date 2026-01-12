@@ -54,6 +54,22 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
+	var soundDisabled: Bool {
+		get {
+			MiscellaneousSettings.current.soundDisabled
+		}
+		set {
+			let previousValue = MiscellaneousSettings.current.soundDisabled
+			MiscellaneousSettings.current.set(soundDisabled: newValue)
+
+			if mode == .duringEmulation,
+				newValue != previousValue {
+				objc_update_audio_disabled_setting(newValue)
+			}
+		}
+	}
+
+	@MainActor
 	var isIPadMouseEnabled: Bool {
 		get {
 			MiscellaneousSettings.current.iPadMousePassthrough
@@ -61,6 +77,16 @@ class PreferencesGeneralModel {
 		set {
 			MiscellaneousSettings.current.set(iPadMousePassthrough: newValue)
 			objc_update_sdl_ipad_mouse_setting(newValue)
+		}
+	}
+
+	@MainActor
+	var rightClickSetting: RightClickSetting {
+		get {
+			MiscellaneousSettings.current.rightClickSetting
+		}
+		set {
+			MiscellaneousSettings.current.set(rightClickSetting: newValue)
 		}
 	}
 
@@ -95,22 +121,6 @@ class PreferencesGeneralModel {
 		}
 		set {
 			MiscellaneousSettings.current.set(keyHapticFeedback: newValue)
-		}
-	}
-
-	@MainActor
-	var soundDisabled: Bool {
-		get {
-			MiscellaneousSettings.current.soundDisabled
-		}
-		set {
-			let previousValue = MiscellaneousSettings.current.soundDisabled
-			MiscellaneousSettings.current.set(soundDisabled: newValue)
-
-			if mode == .duringEmulation,
-				newValue != previousValue {
-				objc_update_audio_disabled_setting(newValue)
-			}
 		}
 	}
 

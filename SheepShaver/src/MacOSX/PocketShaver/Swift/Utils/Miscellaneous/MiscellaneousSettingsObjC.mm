@@ -42,7 +42,7 @@ bool objc_getRelateiveMouseModeSettingIsAlwaysAutomatic(void) {
 }
 
 bool objc_getRelativeMouseTapToClick(void) {
-	return MiscellaneousCachedSettings.isRelativeMouseTapToClickOn;
+	return MiscellaneousSettingsObjC.isRelativeMouseTapToClickOn;
 }
 
 bool objc_getSoundDisabled(void) {

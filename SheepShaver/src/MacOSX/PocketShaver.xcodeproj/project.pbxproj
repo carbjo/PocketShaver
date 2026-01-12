@@ -143,6 +143,8 @@
 		C790E8742F055D5200B784A6 /* ADBObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C790E8732F055D4900B784A6 /* ADBObjC.mm */; };
 		C790E8772F055ECC00B784A6 /* InputInteractionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C790E8762F055EC700B784A6 /* InputInteractionModel.swift */; };
 		C792C17E2E47618A0016DDAF /* InformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C792C17D2E4761830016DDAF /* InformationView.swift */; };
+		C79517E22F15447E00CAEDBF /* RightClick.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79517E12F15447D00CAEDBF /* RightClick.swift */; };
+		C79517E42F15449500CAEDBF /* RightClickObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79517E32F15449100CAEDBF /* RightClickObjC.mm */; };
 		C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79A69272E62040300F582A6 /* RomPathObjC.mm */; };
 		C7A9AB9A2EED61F2001EC4DB /* LocalNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */; };
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
@@ -652,6 +654,9 @@
 		C790E8752F055D5500B784A6 /* ADBObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ADBObjC.h; sourceTree = "<group>"; };
 		C790E8762F055EC700B784A6 /* InputInteractionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputInteractionModel.swift; sourceTree = "<group>"; };
 		C792C17D2E4761830016DDAF /* InformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationView.swift; sourceTree = "<group>"; };
+		C79517E12F15447D00CAEDBF /* RightClick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightClick.swift; sourceTree = "<group>"; };
+		C79517E32F15449100CAEDBF /* RightClickObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RightClickObjC.mm; sourceTree = "<group>"; };
+		C79517E62F15455500CAEDBF /* RightClickObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RightClickObjCCppHeader.h; sourceTree = "<group>"; };
 		C795CDE12F0CF71900B0DAF6 /* MouseHapticFeedbackObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MouseHapticFeedbackObjCCppHeader.h; sourceTree = "<group>"; };
 		C79A69272E62040300F582A6 /* RomPathObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomPathObjC.mm; sourceTree = "<group>"; };
 		C79A69292E62043100F582A6 /* RomPathObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomPathObjC.h; sourceTree = "<group>"; };
@@ -1348,6 +1353,7 @@
 				C7DCEF3B2E86F53B00EAED05 /* Mouse Haptic Feedback */,
 				C74035A92EDAEC1C0045B9C6 /* FPS counter */,
 				C7A9AB982EED61B4001EC4DB /* Local notifications */,
+				C79517E02F15446E00CAEDBF /* Right click */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -1478,6 +1484,16 @@
 				C790E8752F055D5500B784A6 /* ADBObjC.h */,
 			);
 			path = ADB;
+			sourceTree = "<group>";
+		};
+		C79517E02F15446E00CAEDBF /* Right click */ = {
+			isa = PBXGroup;
+			children = (
+				C79517E12F15447D00CAEDBF /* RightClick.swift */,
+				C79517E32F15449100CAEDBF /* RightClickObjC.mm */,
+				C79517E62F15455500CAEDBF /* RightClickObjCCppHeader.h */,
+			);
+			path = "Right click";
 			sourceTree = "<group>";
 		};
 		C7A9AB982EED61B4001EC4DB /* Local notifications */ = {
@@ -2084,6 +2100,7 @@
 				E204B93728BC3EBE0081FDCA /* tcp_output.c in Sources */,
 				C75CBADE2EF2E11200F576ED /* GamepadJoystick.swift in Sources */,
 				C77CF0742E7823D900D2A854 /* RomManager.swift in Sources */,
+				C79517E42F15449500CAEDBF /* RightClickObjC.mm in Sources */,
 				E204B93828BC3EBE0081FDCA /* disk.cpp in Sources */,
 				E204B93928BC3EBE0081FDCA /* scsi_dummy.cpp in Sources */,
 				E204B93A28BC3EBE0081FDCA /* sbuf.c in Sources */,
@@ -2227,6 +2244,7 @@
 				E204B97128BC3EBE0081FDCA /* socket.c in Sources */,
 				E204B97228BC3EBE0081FDCA /* xpram.cpp in Sources */,
 				E204B97428BC3EBE0081FDCA /* mbuf.c in Sources */,
+				C79517E22F15447E00CAEDBF /* RightClick.swift in Sources */,
 				E204B97528BC3EBE0081FDCA /* prefs_editor_dummy.cpp in Sources */,
 				E204B97728BC3EBE0081FDCA /* disk_sparsebundle.cpp in Sources */,
 				E204B97828BC3EBE0081FDCA /* tinyxml2.cpp in Sources */,

@@ -14,7 +14,7 @@ UIImpactFeedbackGenerator *_mouseDownHapticFeedbackgenerator = [[UIImpactFeedbac
 NSDate *_latestMouseDownHapticFeedbackTimestamp;
 
 void objc_mousedownHapticFeedback(void) {
-	if (!MiscellaneousCachedSettings.isMouseHapticFeedbackOn) {
+	if (!MiscellaneousSettingsObjC.isMouseHapticFeedbackOn) {
 		return;
 	}
 	
