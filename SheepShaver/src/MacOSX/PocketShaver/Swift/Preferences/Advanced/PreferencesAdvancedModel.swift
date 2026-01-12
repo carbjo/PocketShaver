@@ -92,36 +92,6 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
-	var secondFingerClick: Bool {
-		get {
-			MiscellaneousSettings.current.secondFingerClick
-		}
-		set {
-			MiscellaneousSettings.current.set(secondFingerClick: newValue)
-		}
-	}
-
-	@MainActor
-	var secondFingerSwipe: Bool {
-		get {
-			MiscellaneousSettings.current.secondFingerSwipe
-		}
-		set {
-			MiscellaneousSettings.current.set(secondFingerSwipe: newValue)
-		}
-	}
-
-	@MainActor
-	var bootInHoverMode: Bool {
-		get {
-			MiscellaneousSettings.current.bootInHoverMode
-		}
-		set {
-			MiscellaneousSettings.current.set(bootInHoverMode: newValue)
-		}
-	}
-
-	@MainActor
 	var hasRomFile: Bool {
 		RomManager.shared.hasRomFile
 	}
