@@ -108,7 +108,16 @@ public class OverlayViewController: UIViewController {
 		return label
 	}()
 
-	private let inputInteractionModel = InputInteractionModel()
+	private lazy var inputInteractionModel: InputInteractionModel = {
+		let model = InputInteractionModel.shared
+		model.showWarning = { [weak self] warning in
+			guard let self else { return }
+			let alertVC = UIAlertController.withMessage(warning)
+			present(alertVC, animated: true)
+		}
+		return model
+	}()
+	
 	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
 
 	private var anyCancellables = Set<AnyCancellable>()
@@ -233,6 +242,7 @@ public class OverlayViewController: UIViewController {
 		}.store(in: &anyCancellables)
 
 		NotificationCenter.default.addObserver(self, selector: #selector(updateFpsCounter), name: LocalNotifications.fpsCounterSettingChanged, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(displayRelativeMouseCapabilityDialogueIfEligible), name: LocalNotifications.relativeMouseModeCapabilityFound, object: nil)
 	}
 
 	private func loadGamepadSettings() {
@@ -267,6 +277,8 @@ public class OverlayViewController: UIViewController {
 			gestureInputView.set(state: state)
 			gamepadLayerView.isUserInteractionEnabled = true
 		}
+
+		inputInteractionModel.handleKeyboardShown(state == .showingKeyboard)
 	}
 
 	private func transitionToUpcomingGamepadConfig() {
@@ -348,10 +360,14 @@ public class OverlayViewController: UIViewController {
 			self?.inputInteractionModel.beginSecondFingerClickIfEligible()
 		}
 
-		gestureInputView.didReleaseOneFingerDuringTwoFingerGesture = { [weak self] in
+		gestureInputView.didReleaseOneFingerDuringTwoFingerGesture = { [weak self] releaseFinger in
 			guard let self else { return }
-			inputInteractionModel.endSecondFingerClickIfEligible()
-			dragInteractionModel.handleReleaseOneFingerDuringTwoFingerGesture()
+			if releaseFinger == .firstFinger {
+				inputInteractionModel.handleFirstFingerReleaseDuringTwoFingerGesture()
+			} else {
+				inputInteractionModel.handleFinishTwoFingerGesture()
+				dragInteractionModel.handleFinishTwoFingerGesture()
+			}
 		}
 
 		dragInteractionModel.hasDraggedSecondFingerOverThreshold = { [weak self] result in
@@ -479,6 +495,31 @@ public class OverlayViewController: UIViewController {
 			self.fpsCounter = nil
 			fpsLabel.isHidden = true
 		}
+	}
+
+	@objc
+	private func displayRelativeMouseCapabilityDialogueIfEligible() {
+		guard !InformationConsumption.current.hasDisplayedFirstRelativeMouseDetectionDialogue else {
+			return
+		}
+		InformationConsumption.current.reportHasDisplayedFirstRelativeMouseDetectionDialogue()
+
+		let alertVC = UIAlertController(
+			title: "Relative mouse mode",
+			message: "The software launched might require relative mouse mode to be turned on in order to function. Mostly 3D games required this. Do you want PocketShaver to automatically turn relative mouse mode on and off in the future, or handle it manually? This behavior can be changed in Preferences, under Advanced tab. Relative mouse mode can be manually toggled on and off by the mouse button over the keyboard. Note that automatic detection is not perfect and can sometimes give false positives.",
+			preferredStyle: .alert
+		)
+
+		alertVC.addAction(.init(title: "Manual", style: .cancel))
+		alertVC.addAction(.init(title: "Automatic", style: .default, handler: { [weak self] _ in
+			guard let self else { return }
+			if !inputInteractionModel.isRelativeMouseModeEnabled {
+				inputInteractionModel.toggleRelativeMouseMode()
+			}
+			MiscellaneousSettings.current.set(relativeMouseModeSetting: .automatic)
+		}))
+
+		present(alertVC, animated: true)
 	}
 }
 

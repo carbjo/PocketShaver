@@ -190,22 +190,22 @@ extension SDLKey {
 		case .space: return "␣"
 		case .backspace: return "⌫"
 		case .delete: return "⌦"
-		case .insert: return "INSERT"
-		case .home: return "HOME"
-		case .end: return "END"
-		case .pageup: return "PGUP"
-		case .pagedown: return "PGDOWN"
-		case .ctrl: return "CTRL"
+		case .insert: return "Insert"
+		case .home: return "Home"
+		case .end: return "End"
+		case .pageup: return "Pgup"
+		case .pagedown: return "Pgdown"
+		case .ctrl: return "Ctrl"
 		case .shift: return "⇧"
-		case .alt: return "ALT"
+		case .alt: return "Alt"
 		case .cmd: return "⌘"
 		case .capslock: return "⇪"
-		case .numlockclear: return "NUMCLEAR"
+		case .numlockclear: return "Numclear"
 		case .up: return "↑"
 		case .down: return "↓"
 		case .left: return "←"
 		case .right: return "→"
-		case .escape: return "ESC"
+		case .escape: return "Esc"
 		case .F1: return "F1"
 		case .F2: return "F2"
 		case .F3: return "F3"
@@ -218,9 +218,9 @@ extension SDLKey {
 		case .F10: return "F10"
 		case .F11: return "F11"
 		case .F12: return "F12"
-		case .printscreen: return "PRINT"
-		case .scrollock: return "LOCK"
-		case .pause: return "PAUSE"
+		case .printscreen: return "Print"
+		case .scrollock: return "Lock"
+		case .pause: return "Pause"
 		case .kp0: return "kp0"
 		case .kp1: return "kp1"
 		case .kp2: return "kp2"
@@ -374,7 +374,7 @@ extension SDLKey {
 		case .kpEquals: return 0x51
 
 		default:
-			fatalError()
+			return 0x31 // Space
 		}
 	}
 }

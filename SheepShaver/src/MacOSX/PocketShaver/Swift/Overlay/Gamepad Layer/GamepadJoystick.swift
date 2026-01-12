@@ -56,9 +56,9 @@ class GamepadJoystick: UIControl {
 		return label
 	}()
 
+	private let mode: Mode
 	private var isRelativeMouseModeEnabled: Bool
 	private var isEditing: Bool
-	private let mode: Mode
 	private let didRequestAssignment: (() -> Void)
 
 	private var anyCancellables = Set<AnyCancellable>()
@@ -95,14 +95,14 @@ class GamepadJoystick: UIControl {
 	}
 
 	init(
+		mode: Mode,
 		inputInteractionModel: InputInteractionModel,
 		isEditing: Bool,
-		mode: Mode,
 		didRequestAssignment: @escaping (() -> Void)
 	) {
+		self.mode = mode
 		self.isRelativeMouseModeEnabled = inputInteractionModel.isRelativeMouseModeEnabled
 		self.isEditing = isEditing
-		self.mode = mode
 		self.didRequestAssignment = didRequestAssignment
 
 		super.init(frame: .zero)

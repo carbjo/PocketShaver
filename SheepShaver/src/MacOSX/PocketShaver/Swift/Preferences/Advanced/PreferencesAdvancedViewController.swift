@@ -133,7 +133,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		case .frameRateSetting:
 			return 2
 		case .uiOptions:
-			return model.shouldDisplayAlwaysLandscapeModeOption ? 3 : 2
+			return model.shouldDisplayAlwaysLandscapeModeOption ? 4 : 3
 		case .relateiveMouseMode:
 			return 4
 		case .bootstrap:
@@ -181,6 +181,12 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					separatorHidden: false
 				)
 			case 2:
+				return PreferencesAdvancedJustAboveOffsetSettingCell(
+					initialOffsetSetting: model.hoverJustAboveOffsetModifier
+				) { [weak self] value in
+					self?.model.hoverJustAboveOffsetModifier = value
+				}
+			case 3:
 				return PreferencesEnabledSettingCell(
 					title: "Always boot in landscape mode",
 					isOn: model.alwaysLandscapeMode

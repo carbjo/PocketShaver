@@ -6,7 +6,6 @@
 //
 
 #import <Foundation/Foundation.h>
-#import "HoverOffsetMode.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -15,10 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property NSInteger x;
 @property NSInteger y;
 
-@property NSInteger offset_x;
-@property NSInteger offset_y;
-
-- (instancetype)initWithX:(NSInteger)x y:(NSInteger)y offset_x:(NSInteger)offset_x offset_y:(NSInteger)offset_y;
+- (instancetype)initWithX:(NSInteger)x y:(NSInteger)y;
 
 @end
 
@@ -55,7 +51,12 @@ void objc_ADBMouseMoved(NSInteger x, NSInteger y);
 #ifdef __cplusplus
 extern "C"
 #endif
-void objc_ADBSetHoverOffsetMode(enum HoverOffsetMode mode);
+void objc_ADBEnableHoverModeWith(CGFloat offset_x, CGFloat offset_y);
+
+#ifdef __cplusplus
+extern "C"
+#endif
+void objc_ADBDisableHoverMode();
 
 #ifdef __cplusplus
 extern "C"
@@ -81,5 +82,15 @@ void objc_ADBAnimateMove(NSInteger x, NSInteger y);
 extern "C"
 #endif
 void objc_ADBEndAnimation();
+
+#ifdef __cplusplus
+extern "C"
+#endif
+void objc_ADBSetTouchInput(BOOL isOn);
+
+#ifdef __cplusplus
+extern "C"
+#endif
+void objc_ADBSetHoverGestureDragging(BOOL isOn);
 
 NS_ASSUME_NONNULL_END

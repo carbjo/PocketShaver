@@ -36,7 +36,10 @@ class GamepadButton: UIButton {
 	private let didRelease: (() -> Void)
 	private let didRequestAssignment: (() -> Void)
 
+	private var isRelativeMouseModeEnabled: Bool
+	private var isIPadMousePassthroughOn: Bool
 	private var isEditing: Bool = false
+	private var isToggledOn: Bool = false
 
 	private var anyCancellables = Set<AnyCancellable>()
 
@@ -53,6 +56,8 @@ class GamepadButton: UIButton {
 		self.didPush = pushKey
 		self.didRelease = releaseKey
 		self.didRequestAssignment = didRequestAssignment
+		self.isRelativeMouseModeEnabled = inputInteractionModel.isRelativeMouseModeEnabled
+		self.isIPadMousePassthroughOn = inputInteractionModel.iPadMousePassthrough
 
 		super.init(frame: .zero)
 
@@ -72,7 +77,6 @@ class GamepadButton: UIButton {
 				iconStackView.centerXAnchor.constraint(equalTo: centerXAnchor),
 				iconStackView.centerYAnchor.constraint(equalTo: centerYAnchor)
 			])
-			break
 		}
 
 		titleLabel?.textAlignment = .center
@@ -93,6 +97,10 @@ class GamepadButton: UIButton {
 		set(isEditing: isEditing)
 
 		listenToChanges(from: inputInteractionModel)
+
+		configure(isRelativeMouseModeEnabled: inputInteractionModel.isRelativeMouseModeEnabled)
+		configure(isIPadMousePassthroughOn: inputInteractionModel.iPadMousePassthrough)
+		configure(hoverOffsetMode: inputInteractionModel.hoverOffsetMode)
 	}
 	
 	required init?(coder: NSCoder) { fatalError() }
@@ -101,13 +109,12 @@ class GamepadButton: UIButton {
 		inputInteractionModel.changeSubject.sink{ [weak self] change in
 			guard let self else { return }
 			switch change {
-			case .hoverOffsetModeChanged(let offsetMode):
-				let isSelected = isSelectedWith(offsetMode)
-				if isSelected {
-					configuration?.baseBackgroundColor = .gray.withAlphaComponent(0.5)
-				} else {
-					configuration?.baseBackgroundColor = .lightGray.withAlphaComponent(0.5)
-				}
+			case .hoverOffsetModeChanged(let hoverOffsetMode):
+				configure(hoverOffsetMode: hoverOffsetMode)
+			case .relativeMouseModeChanged(let isEnabled):
+				configure(isRelativeMouseModeEnabled: isEnabled)
+			case .iPadMousePassthroughChanged(let isEnabled):
+				configure(isIPadMousePassthroughOn: isEnabled)
 			default: break
 			}
 		}.store(in: &anyCancellables)
@@ -115,28 +122,44 @@ class GamepadButton: UIButton {
 
 	func set(isEditing: Bool) {
 		self.isEditing = isEditing
-		configuration?.baseBackgroundColor = isEditing ? .lightGray.withAlphaComponent(0.85) : .lightGray.withAlphaComponent(0.5)
+		updateColor()
+	}
+
+	private func configure(isRelativeMouseModeEnabled: Bool) {
+		self.isRelativeMouseModeEnabled = isRelativeMouseModeEnabled
+		updateColor()
+	}
+
+	private func configure(isIPadMousePassthroughOn: Bool) {
+		self.isIPadMousePassthroughOn = isIPadMousePassthroughOn
+		updateColor()
+	}
+
+	private func configure(hoverOffsetMode: HoverOffsetMode) {
+		isToggledOn = isSelectedWith(hoverOffsetMode)
+		updateColor()
 	}
 
 	override func point(inside point: CGPoint, with _: UIEvent?) -> Bool {
 		bounds.insetBy(dx: -2, dy: -4).contains(point)
 	}
 
+	private func updateColor() {
+		if !isActive {
+			configuration?.baseBackgroundColor = .lightGray.withAlphaComponent(0.85)
+			return
+		}
+		if isToggledOn {
+			configuration?.baseBackgroundColor = .gray.withAlphaComponent(0.5)
+		} else {
+			configuration?.baseBackgroundColor = .lightGray.withAlphaComponent(0.5)
+		}
+	}
+
 	private func createImageView(forIcon icon: ImageResource) -> UIImageView {
 		let imageView = UIImageView(image: .init(resource: icon))
 		imageView.tintColor = .white
 		return imageView
-	}
-
-	private func isSelectedWith(_ offsetMode: HoverOffsetMode) -> Bool {
-		switch (specialButtonConfig, offsetMode) {
-		case (.hoverDiagonallyToggle, HoverOffsetModeDiagonallyAbove),
-			(.hoverSidewaysToggle, HoverOffsetModeSideways),
-			(.hoverAboveToggle, HoverOffsetModeAbove):
-			return true
-		default:
-			return false
-		}
 	}
 
 	@objc private func keyDown() {
@@ -158,20 +181,63 @@ class GamepadButton: UIButton {
 	}
 }
 
+extension GamepadButton {
+	private var isActive: Bool {
+		if isEditing {
+			return false
+		}
+		if let specialButtonConfig,
+		   (specialButtonConfig.isDisabledIfRelativeMouseMode && isRelativeMouseModeEnabled) ||
+			(specialButtonConfig.isDisabledIfIPadMousePassthrough && isIPadMousePassthroughOn) {
+			return false
+		}
+
+		return true
+	}
+
+	private func isSelectedWith(_ offsetMode: HoverOffsetMode) -> Bool {
+		switch (specialButtonConfig, offsetMode) {
+		case (.hoverDiagonallyToggle, .diagonallyAbove),
+			(.hoverSidewaysToggle, .sideways),
+			(.hoverFarAboveToggle, .farAbove),
+			(.hoverJustAboveToggle, .justAbove):
+			return true
+		default:
+			return false
+		}
+	}
+}
+
+extension SpecialButton {
+	var isDisabledIfRelativeMouseMode: Bool {
+		switch self {
+		case .hoverJustAboveToggle, .hoverFarAboveToggle, .hoverSidewaysToggle, .hoverDiagonallyToggle:
+			return true
+		default:
+			return false
+		}
+	}
+
+	var isDisabledIfIPadMousePassthrough: Bool {
+		switch self {
+		case .hoverJustAboveToggle, .hoverFarAboveToggle, .hoverSidewaysToggle, .hoverDiagonallyToggle:
+			return true
+		default:
+			return false
+		}
+	}
+}
+
 extension SpecialButton {
 	var gamepadLabel: GamepadButton.Label {
 		switch self {
 		case .mouseClick: return .icon(.leftclick)
-		case .hover: return .icon(.handRaised)
-		case .hoverAbove: return .twoIcons(.handRaised, .arrowUp)
-		case .hoverBelow: return .twoIcons(.handRaised, .arrowDown)
-		case .hoverAboveToggle: return .twoIcons(.handRaised, .arrowUp)
+		case .hoverJustAboveToggle: return .twoIcons(.handRaised, .chevronCompactUp)
+		case .hoverFarAboveToggle: return .twoIcons(.handRaised, .arrowUp)
 		case .hoverSidewaysToggle: return .twoIcons(.handRaised, .arrowLeftArrowRight)
 		case .hoverDiagonallyToggle: return .twoIcons(.handRaised, .crossArrow)
 		case .cmdW: return .text("⌘-W")
 		case .rightClick: return .icon(.rightclick)
-		default:
-			return .text(label)
 		}
 	}
 }

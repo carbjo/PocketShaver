@@ -645,6 +645,8 @@ class PreferencesGeneralIPadMouseCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		hideSeparator()
+
 		contentView.addSubview(segmentedControl)
 
 		NSLayoutConstraint.activate([

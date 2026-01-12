@@ -306,6 +306,91 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 	}
 }
 
+class PreferencesAdvancedJustAboveOffsetSettingCell: UITableViewCell {
+	private lazy var titleLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.lineBreakMode = .byWordWrapping
+		label.text = "Hover just above offset"
+		return label
+	}()
+
+	private lazy var slider: UISlider = {
+		let slider = UISlider.withoutConstraints()
+		slider.minimumValue = 0.5
+		slider.maximumValue = 1.5
+		slider.tintColor = .lightGray
+		return slider
+	}()
+
+	private lazy var valueLabel: UILabel = {
+		UILabel.withoutConstraints()
+	}()
+
+	private lazy var hiddenValueLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.text = "188%"
+		label.isHidden = true
+		return label
+	}()
+
+
+	private let didChangeValue: ((Float) -> Void)
+
+	init(
+		initialOffsetSetting: Float,
+		didChangeValue: @escaping ((Float) -> Void)
+	) {
+		self.didChangeValue = didChangeValue
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		contentView.addSubview(titleLabel)
+		contentView.addSubview(slider)
+		contentView.addSubview(hiddenValueLabel)
+		contentView.addSubview(valueLabel)
+
+		NSLayoutConstraint.activate([
+			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+
+			slider.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			slider.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+
+			slider.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+			slider.widthAnchor.constraint(lessThanOrEqualToConstant: 350),
+
+			hiddenValueLabel.centerYAnchor.constraint(equalTo: slider.centerYAnchor),
+			hiddenValueLabel.leadingAnchor.constraint(equalTo: slider.trailingAnchor, constant: 8),
+			hiddenValueLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
+
+			valueLabel.centerYAnchor.constraint(equalTo: hiddenValueLabel.centerYAnchor),
+			valueLabel.trailingAnchor.constraint(equalTo: hiddenValueLabel.trailingAnchor)
+		])
+
+		slider.value = initialOffsetSetting
+
+		slider.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
+		slider.addTarget(self, action: #selector(didRelease), for: .touchUpInside)
+		slider.addTarget(self, action: #selector(didRelease), for: .touchUpOutside)
+		slider.addTarget(self, action: #selector(didRelease), for: .touchCancel)
+
+		valueChanged()
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	@objc
+	private func valueChanged() {
+		let percent = Int(slider.value * 100)
+		valueLabel.text = "\(percent)%"
+	}
+
+	@objc func didRelease() {
+		didChangeValue(slider.value)
+	}
+}
+
 private extension FrameRateSetting {
 	var label: String {
 		switch self {

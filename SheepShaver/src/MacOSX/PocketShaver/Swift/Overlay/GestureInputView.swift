@@ -14,6 +14,12 @@ class GestureInputView: UIView {
 		case threeFingers
 	}
 
+	enum TwoFingerGestureFingerRelease {
+		case firstFinger
+		case secondFinger
+		case both
+	}
+
 	private var touchDictionary = [UITouch: CGPoint]()
 	private var draggingMode: DraggingMode = .none
 	private var secondFingerTouch: UITouch?
@@ -29,7 +35,8 @@ class GestureInputView: UIView {
 	var didBeginThreeFingerGesture: (() -> Void)?
 	var didReleaseThreeFingerGesture: (() -> Void)?
 	var didBeginTwoFingerGesture: (() -> Void)?
-	var didReleaseOneFingerDuringTwoFingerGesture: (() -> Void)?
+	var didReleaseTwoFingerGesture: (() -> Void)?
+	var didReleaseOneFingerDuringTwoFingerGesture: ((TwoFingerGestureFingerRelease) -> Void)?
 
 	init(state: OverlayState) {
 		self.state = state
@@ -47,7 +54,8 @@ class GestureInputView: UIView {
 			super.touchesBegan(touches, with: event)
 		}
 
-		if touchDictionary.count == 1 {
+		if touchDictionary.count == 1,
+		   secondFingerTouch == nil {
 			secondFingerTouch = Array(touches).first!
 		}
 
@@ -131,18 +139,30 @@ class GestureInputView: UIView {
 		}
 
 		if draggingMode == .twoFingers {
-			didReleaseOneFingerDuringTwoFingerGesture?()
+			let fingerRelease: TwoFingerGestureFingerRelease
+			if touches.count > 1 || touchDictionary.isEmpty {
+				fingerRelease = .both
+			} else if touches.first == secondFingerTouch {
+				fingerRelease = .secondFinger
+			} else {
+				fingerRelease = .firstFinger
+			}
+			didReleaseOneFingerDuringTwoFingerGesture?(fingerRelease)
 		}
 
-		if touchDictionary.count <= 1 {
-			secondFingerTouch = nil
+		if (secondFingerTouch != nil && touches.contains(secondFingerTouch!)) || touchDictionary.isEmpty {
+			self.secondFingerTouch = nil
 		}
 
 		if touchDictionary.isEmpty {
-			let wasThreeFingerDragging = draggingMode == .threeFingers
+			let draggingModeAtRelease = draggingMode
 			draggingMode = .none
-			if wasThreeFingerDragging {
+			switch draggingModeAtRelease {
+			case .threeFingers:
 				didReleaseThreeFingerGesture?()
+			case .twoFingers:
+				didReleaseTwoFingerGesture?()
+			default: break
 			}
 		}
 	}

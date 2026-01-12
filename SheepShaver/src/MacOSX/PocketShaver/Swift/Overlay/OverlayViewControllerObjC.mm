@@ -18,14 +18,6 @@
 void objc_initOverlayViewController(void) {
 	@autoreleasepool {
 		[OverlayViewController injectOverlayViewController];
-
-		if (MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAlwaysOn) {
-			objc_setRelativeMouseMode(true);
-			objc_reportRelativeMouseModeEnabled();
-		}
-		if (MiscellaneousSettingsObjC.isBootInHoverModeOn) {
-			objc_ADBSetHoverOffsetMode(HoverOffsetModeHoverNoOffset);
-		}
 	}
 }
 
@@ -35,7 +27,7 @@ void objc_reportVideoSize(unsigned short width, unsigned short height) {
 	double emulatedAspectRatio = ((double) width) / ((double) height);
 
 	double multiplier;
-	int offsetModeX, offsetModeY;
+	CGFloat offsetModeX, offsetModeY;
 
 	double offsetMultiplier = 0.33;
 
@@ -43,20 +35,21 @@ void objc_reportVideoSize(unsigned short width, unsigned short height) {
 		// Screen is bounded by width
 		multiplier = width / deviceScreenSize.width;
 
-		offsetModeX = (int) (width * offsetMultiplier);
-		offsetModeY = (int) (offsetModeX / deviceApsectRatio);
+		offsetModeX = width * offsetMultiplier;
+		offsetModeY = offsetModeX / deviceApsectRatio;
 	} else {
 		// Screen is bounded by height
 		multiplier = height / deviceScreenSize.height;
 
-		offsetModeY = (int) (height * offsetMultiplier);
-		offsetModeX = (int) (offsetModeY * deviceApsectRatio);
+		offsetModeY = height * offsetMultiplier;
+		offsetModeX = offsetModeY * deviceApsectRatio;
 	}
 
 	int tolerance = round(10 * multiplier);
 	int screenMiddleX = width / 2;
 
-	ADBConfigure(screenMiddleX, tolerance, offsetModeX, offsetModeY);
+	ADBConfigure(screenMiddleX, tolerance);
+	[InputInteractionModelObjC configureWithOffsetX:offsetModeX offsetY:offsetModeY];
 }
 
 void objc_reportRelativeMouseModeEnabled() {
