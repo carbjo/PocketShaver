@@ -478,7 +478,7 @@ extension PreferencesGeneralViewController {
 			return PreferencesGeneralIPadMouseCell(
 				initialIPadMouseSetting: model.isIPadMouseEnabled
 			) { [weak self] newValue in
-				self?.model.isIPadMouseEnabled = newValue
+				self?.set(isIPadMouseEnabled: newValue)
 			}
 		case .secondFinger:
 			switch indexPath.row {
@@ -491,7 +491,7 @@ extension PreferencesGeneralViewController {
 				}
 			case 1:
 				return PreferencesFooterCell(
-					text: "A second finger can be used for mouse clicking (while the first finger moves the position). Only has effect when either relative mouse mode or any of the hover modes are enabled.",
+					text: "A second finger can be used for mouse clicking, while the first finger controls the position. Only has effect when any of the hover modes, or relative mouse mode, are enabled.",
 					separatorHidden: !model.secondFingerClick
 				)
 			case 2:
@@ -503,7 +503,7 @@ extension PreferencesGeneralViewController {
 				}
 			case 3:
 				return PreferencesFooterCell(
-					text: "A second finger can be used for quickly swiping between mouse offset modes. Only has effect when any of the hover modes are enabled. Can be used to switch between no offset / offset above / offset to the side / offset diagnoally above.",
+					text: "A second finger can be used for quickly swiping between the four mouse hover modes. They are: Just above, Far above, Sideways and Diagnoally above. Only has effect when a hover mode is already enabled.",
 					separatorHidden: !model.secondFingerSwipe
 				)
 			case 4:
@@ -515,7 +515,7 @@ extension PreferencesGeneralViewController {
 				}
 			case 5:
 				return PreferencesFooterCell(
-					text: "Hover mode (without offset) is on by default when booting, making second finger swipe available from the start."
+					text: "Hover (just above) is on by default when booting, making second finger swipe available from the start."
 				)
 			default: fatalError()
 			}
@@ -672,6 +672,10 @@ extension PreferencesGeneralViewController.SectionType {
 		   let iPadMouseSection = sections.firstIndex(of: .iPadMouse) {
 			sections.remove(at: iPadMouseSection)
 		}
+		if model.isIPadMouseEnabled,
+		   let secondFingerSection = sections.firstIndex(of: .secondFinger) {
+			sections.remove(at: secondFingerSection)
+		}
 		if !model.supportsHaptics,
 		   let hapticsFeedbackSectionIndex = sections.firstIndex(of: .hapticFeedback) {
 			sections.remove(at: hapticsFeedbackSectionIndex)
@@ -751,6 +755,22 @@ extension PreferencesGeneralViewController {
 					], with: .fade)
 				}
 			}
+		}
+	}
+
+	private func set(isIPadMouseEnabled: Bool) {
+		guard model.isIPadMouseEnabled != isIPadMouseEnabled else {
+			return
+		}
+
+		if isIPadMouseEnabled {
+			let sectionIndex = SectionType.secondFinger.sectionIndex(model: model)
+			model.isIPadMouseEnabled = true
+			tableView.deleteSections(.init([sectionIndex]), with: .fade)
+		} else {
+			model.isIPadMouseEnabled = false
+			let sectionIndex = SectionType.secondFinger.sectionIndex(model: model)
+			tableView.insertSections(.init([sectionIndex]), with: .fade)
 		}
 	}
 }

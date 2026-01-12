@@ -13,4 +13,3 @@
 #import "FPSCounterObjC.h"
 #import "ADBObjC.h"
 #import "MouseHapticFeedbackObjC.h"
-#import "HoverOffsetMode.h"

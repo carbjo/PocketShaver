@@ -2076,7 +2076,7 @@ void SDL_monitor_desc::switch_to_current_mode(void)
 	if (mode.viAppleMode == 133) {
 		// 32-bit color -> likely switching back to Finder
 		suggest_mouse_grab = false;
-		if (objc_getRelateiveMouseModeSettingIsAlwaysAutomatic()) {
+		if (objc_getRelateiveMouseModeSettingIsAutomatic()) {
 			drv->ungrab_mouse();
 		}
 	} else if (mouse_grabbed) {
@@ -2112,7 +2112,7 @@ void set_relative_mouse_automatic() {
 
 void report_relative_mouse_capability() {
 	suggest_mouse_grab = true;
-	if (objc_getRelateiveMouseModeSettingIsAlwaysAutomatic()) {
+	if (objc_getRelateiveMouseModeSettingIsAutomatic()) {
 		set_relative_mouse_enabled();
 	}
 }

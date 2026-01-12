@@ -25,6 +25,10 @@ void objc_setRelativeMouseModeAutomatic() {
 	set_relative_mouse_automatic();
 }
 
+void objc_reportRelativeMouseModeCapability() {
+	[LocalNotificationsObjCProxy sendRelativeMouseModeCapabilityFound];
+}
+
 int objc_getFrameRateSetting(void) {
 	return (int)MiscellaneousSettingsObjC.getFrameRateSetting;
 }
@@ -37,8 +41,8 @@ bool objc_getRelateiveMouseModeSettingIsAlwaysOn(void) {
 	return MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAlwaysOn;
 }
 
-bool objc_getRelateiveMouseModeSettingIsAlwaysAutomatic(void) {
-	return MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAlwaysAutomatic;
+bool objc_getRelateiveMouseModeSettingIsAutomatic(void) {
+	return MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAutomatic;
 }
 
 bool objc_getRelativeMouseTapToClick(void) {

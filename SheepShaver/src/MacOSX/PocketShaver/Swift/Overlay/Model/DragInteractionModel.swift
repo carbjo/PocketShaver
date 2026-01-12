@@ -109,7 +109,7 @@ class DragInteractionModel {
 	func handleReleaseThreeFingerGesture() -> ThreeFingerReleaseResult {
 		var gamepadChange: ThreeFingerReleaseResult.GamepadChange = .none
 
-		let threshold = fetchFrameSize().height / 6
+		let threshold = min(fetchFrameSize().height / 6, 67)
 
 		var willTranslateInLongAxis = false
 		if state == .showingGamepad {
@@ -195,6 +195,7 @@ class DragInteractionModel {
 
 	func handleSecondFingerDragProgress(_ delta: CGVector) {
 		guard MiscellaneousSettings.current.secondFingerSwipe,
+			  !MiscellaneousSettings.current.iPadMousePassthrough,
 			  !hasReportedDraggedSecondFingerOverThreshold else {
 			return
 		}
@@ -211,7 +212,7 @@ class DragInteractionModel {
 		}
 	}
 
-	func handleReleaseOneFingerDuringTwoFingerGesture() {
+	func handleFinishTwoFingerGesture() {
 		hasReportedDraggedSecondFingerOverThreshold = false
 	}
 

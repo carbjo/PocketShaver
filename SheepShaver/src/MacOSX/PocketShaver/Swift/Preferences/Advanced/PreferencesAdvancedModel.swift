@@ -57,6 +57,16 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
+	var hoverJustAboveOffsetModifier: Float {
+		get {
+			MiscellaneousSettings.current.hoverJustAboveOffsetModifier
+		}
+		set {
+			MiscellaneousSettings.current.set(hoverJustAboveOffsetModifier: newValue)
+		}
+	}
+
+	@MainActor
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		MiscellaneousSettings.current.shouldDisplayAlwaysLandscapeModeOption
 	}

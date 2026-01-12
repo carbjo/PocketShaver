@@ -34,7 +34,6 @@ enum RightClickSetting: String, Codable, CaseIterable {
 }
 
 class MiscellaneousSettings: Codable {
-	private(set) var hasDismissedSetupInstructions: Bool
 	private(set) var showHints: Bool
 	private(set) var iPadMousePassthrough: Bool
 	private(set) var gestureHapticFeedback: Bool
@@ -48,13 +47,13 @@ class MiscellaneousSettings: Codable {
 	}
 	private(set) var frameRateSetting: FrameRateSetting
 	private(set) var alwaysLandscapeMode: Bool
-	private(set) var hasDisplayedPortraitModeWarning: Bool
 	private(set) var relativeMouseModeSetting: RelativeMouseModeSetting
 	private(set) var relativeMouseTapToClick: Bool
 	private(set) var secondFingerClick: Bool
 	private(set) var secondFingerSwipe: Bool
 	private(set) var bootInHoverMode: Bool
 	private(set) var rightClickSetting: RightClickSetting
+	private(set) var hoverJustAboveOffsetModifier: Float
 
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		if #available(iOS 16, *) {
@@ -67,7 +66,6 @@ class MiscellaneousSettings: Codable {
 
 	@MainActor
 	init() {
-		hasDismissedSetupInstructions = false
 		showHints = true
 		iPadMousePassthrough = false
 		gestureHapticFeedback = true
@@ -81,13 +79,13 @@ class MiscellaneousSettings: Codable {
 			frameRateSetting = .f60hz
 		}
 		alwaysLandscapeMode = false
-		hasDisplayedPortraitModeWarning = false
-		relativeMouseModeSetting = .automatic
+		relativeMouseModeSetting = .manual
 		relativeMouseTapToClick = true
 		secondFingerClick = true
 		secondFingerSwipe = false
 		bootInHoverMode = false
 		rightClickSetting = .control
+		hoverJustAboveOffsetModifier = 1
 	}
 
 	@MainActor
@@ -118,13 +116,6 @@ class MiscellaneousSettings: Codable {
 	}
 
 	@MainActor
-	func reportHasDismissedSetupInstructions() {
-		hasDismissedSetupInstructions = true
-
-		saveAsCurrent()
-	}
-
-	@MainActor
 	func set(showHints: Bool) {
 		self.showHints = showHints
 
@@ -134,6 +125,10 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(iPadMousePassthrough: Bool) {
 		self.iPadMousePassthrough = iPadMousePassthrough
+
+		NotificationCenter.default.post(name: LocalNotifications.iPadMousePassthroughChanged, object: nil)
+
+		objc_ADBSetTouchInput(!iPadMousePassthrough)
 
 		saveAsCurrent()
 	}
@@ -186,15 +181,8 @@ class MiscellaneousSettings: Codable {
 	func set(alwaysLandscapeMode: Bool) {
 		self.alwaysLandscapeMode = alwaysLandscapeMode
 		if alwaysLandscapeMode {
-			hasDisplayedPortraitModeWarning = true
+			InformationConsumption.current.reportHasDisplayedPortraitModeWarning()
 		}
-
-		saveAsCurrent()
-	}
-
-	@MainActor
-	func set(hasDisplayedPortraitModeWarning: Bool) {
-		self.hasDisplayedPortraitModeWarning = hasDisplayedPortraitModeWarning
 
 		saveAsCurrent()
 	}
@@ -202,6 +190,10 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(relativeMouseModeSetting: RelativeMouseModeSetting) {
 		self.relativeMouseModeSetting = relativeMouseModeSetting
+		
+		if relativeMouseModeSetting != .manual {
+			InformationConsumption.current.reportHasDisplayedFirstRelativeMouseDetectionDialogue()
+		}
 
 		saveAsCurrent()
 	}
@@ -242,6 +234,13 @@ class MiscellaneousSettings: Codable {
 		updateCachedResponses()
 		saveAsCurrent()
 	}
+
+	@MainActor
+	func set(hoverJustAboveOffsetModifier: Float) {
+		self.hoverJustAboveOffsetModifier = hoverJustAboveOffsetModifier
+
+		saveAsCurrent()
+	}
 }
 
 class MiscellaneousCachedSettings {
@@ -269,7 +268,7 @@ public class MiscellaneousSettingsObjC: NSObject {
 	}
 
 	@MainActor
-	static func isRelateiveMouseModeSettingAlwaysAutomatic() -> Bool {
+	static func isRelateiveMouseModeSettingAutomatic() -> Bool {
 		MiscellaneousSettings.current.relativeMouseModeSetting == .automatic
 	}
 
@@ -278,17 +277,10 @@ public class MiscellaneousSettingsObjC: NSObject {
 		MiscellaneousSettings.current.soundDisabled
 	}
 
-	@MainActor
-	static func isBootInHoverModeOn() -> Bool {
-		MiscellaneousSettings.current.bootInHoverMode
-	}
-
-	@MainActor
 	static func isRelativeMouseTapToClickOn() -> Bool {
 		MiscellaneousCachedSettings.isRelativeMouseTapToClickOn
 	}
 
-	@MainActor
 	static func isMouseHapticFeedbackOn() -> Bool {
 		MiscellaneousCachedSettings.isMouseHapticFeedbackOn
 	}

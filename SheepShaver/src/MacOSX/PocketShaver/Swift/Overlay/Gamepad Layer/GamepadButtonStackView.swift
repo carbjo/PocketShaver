@@ -68,7 +68,7 @@ class GamepadButtonStackView: UIStackView {
 		removeViewAt(index)
 
 		let button = GamepadButton(
-			label: .text(key.label),
+			label: .text(key.label.uppercased()),
 			inputInteractionModel: inputInteractionModel,
 			isEditing: isEditing,
 			pushKey: { [weak self] in
@@ -171,9 +171,9 @@ class GamepadButtonStackView: UIStackView {
 		}
 
 		let joystick = GamepadJoystick(
+			mode: mode,
 			inputInteractionModel: inputInteractionModel,
 			isEditing: isEditing,
-			mode: mode,
 			didRequestAssignment: { [weak self] in
 				self?.didRequestAssignmentAtIndex(index)
 			}

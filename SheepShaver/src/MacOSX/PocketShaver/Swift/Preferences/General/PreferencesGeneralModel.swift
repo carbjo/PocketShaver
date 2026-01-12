@@ -35,7 +35,7 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	var hasDismissedSetupInstructions: Bool {
-		MiscellaneousSettings.current.hasDismissedSetupInstructions
+		InformationConsumption.current.hasDismissedSetupInstructions
 	}
 
 	@MainActor
@@ -174,7 +174,7 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	func reportHasDismissedSetupInstructions() {
-		MiscellaneousSettings.current.reportHasDismissedSetupInstructions()
+		InformationConsumption.current.reportHasDismissedSetupInstructions()
 	}
 
 	@MainActor

@@ -11,11 +11,9 @@
 
 @implementation ADBBeginAnimationState
 
-- (instancetype)initWithX:(NSInteger)x y:(NSInteger)y offset_x:(NSInteger)offset_x offset_y:(NSInteger)offset_y {
+- (instancetype)initWithX:(NSInteger)x y:(NSInteger)y {
 	self.x = x;
 	self.y = y;
-	self.offset_x = offset_x;
-	self.offset_y = offset_y;
 
 	return self;
 }
@@ -46,8 +44,12 @@ void objc_ADBMouseMoved(NSInteger x, NSInteger y) {
 	ADBMouseMoved((int)x, (int)y);
 }
 
-void objc_ADBSetHoverOffsetMode(enum HoverOffsetMode mode) {
-	ADBSetHoverOffsetMode(mode);
+void objc_ADBEnableHoverModeWith(CGFloat offset_x, CGFloat offset_y) {
+	ADBEnableHoverModeWith((int)offset_x, (int) offset_y);
+}
+
+void objc_ADBDisableHoverMode() {
+	ADBDisableHoverMode();
 }
 
 BOOL objc_ADBHoversOnMouseDown() {
@@ -60,7 +62,7 @@ BOOL objc_ADBHoverGestureStartWasLeftSide() {
 
 ADBBeginAnimationState *objc_ADBStartAnimation() {
 	BeginAnimationState beginAnimationState = ADBStartAnimation();
-	ADBBeginAnimationState *ret = [[ADBBeginAnimationState alloc] initWithX:beginAnimationState.x y:beginAnimationState.y offset_x:beginAnimationState.offset_x offset_y:beginAnimationState.offset_y];
+	ADBBeginAnimationState *ret = [[ADBBeginAnimationState alloc] initWithX:beginAnimationState.x y:beginAnimationState.y];
 	return ret;
 }
 
@@ -70,4 +72,12 @@ void objc_ADBAnimateMove(NSInteger x, NSInteger y) {
 
 void objc_ADBEndAnimation() {
 	ADBEndAnimation();
+}
+
+void objc_ADBSetTouchInput(BOOL isOn) {
+	ADBSetTouchInput(isOn);
+}
+
+void objc_ADBSetHoverGestureDragging(BOOL isOn) {
+	ADBSetHoverGestureDragging(isOn);
 }

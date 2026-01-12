@@ -17,6 +17,6 @@ void objc_mousedownHapticFeedback(void);
 #ifdef __cplusplus
 extern "C"
 #endif
-NSDate *objc_getLatestMouseDownHapticFeedbackTimestamp();
+NSDate * _Nullable objc_getLatestMouseDownHapticFeedbackTimestamp();
 
 NS_ASSUME_NONNULL_END

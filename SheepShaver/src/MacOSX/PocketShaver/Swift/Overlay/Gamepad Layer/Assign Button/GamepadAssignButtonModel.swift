@@ -52,36 +52,36 @@ extension GamepadButtonAssignment {
 		switch self {
 		case .key(let sdlKey):
 			switch sdlKey {
-			case .tab: return "TAB"
-			case .enter: return "ENTER"
-			case .space: return "SPACE"
-			case .backspace: return "BACKSPACE"
-			case .delete: return "DELETE"
-			case .shift: return "SHIFT"
-			case .cmd: return "CMD"
-			case .capslock: return "CAPSLOCK"
-			case .up: return "UP"
-			case .down: return "DOWN"
-			case .left: return "LEFT"
-			case .right: return "RIGHT"
-			case .kp0: return "0 (KEYPAD)"
-			case .kp1: return "1 (KEYPAD)"
-			case .kp2: return "2 (KEYPAD)"
-			case .kp3: return "3 (KEYPAD)"
-			case .kp4: return "4 (KEYPAD)"
-			case .kp5: return "5 (KEYPAD)"
-			case .kp6: return "6 (KEYPAD)"
-			case .kp7: return "7 (KEYPAD)"
-			case .kp8: return "8 (KEYPAD)"
-			case .kp9: return "9 (KEYPAD)"
-			case .kpPeriod: return ". (KEYPAD)"
-			case .kpPlus: return "+ (KEYPAD)"
-			case .kpMinus: return "- (KEYPAD)"
-			case .kpMultiply: return "* (KEYPAD)"
-			case .kpDivide: return "/ (KEYPAD)"
-			case .kpEquals: return "= (KEYPAD)"
-			case .kpEnter: return "ENTER (KEYPAD)"
-			case .paragraph: return "PARAGRAPH"
+			case .tab: return "Tab"
+			case .enter: return "Enter"
+			case .space: return "Space"
+			case .backspace: return "Backspace"
+			case .delete: return "Delete"
+			case .shift: return "Shift"
+			case .cmd: return "Cmd"
+			case .capslock: return "Capslock"
+			case .up: return "Up"
+			case .down: return "Down"
+			case .left: return "Left"
+			case .right: return "Right"
+			case .kp0: return "0 (keypad)"
+			case .kp1: return "1 (keypad)"
+			case .kp2: return "2 (keypad)"
+			case .kp3: return "3 (keypad)"
+			case .kp4: return "4 (keypad)"
+			case .kp5: return "5 (keypad)"
+			case .kp6: return "6 (keypad)"
+			case .kp7: return "7 (keypad)"
+			case .kp8: return "8 (keypad)"
+			case .kp9: return "9 (keypad)"
+			case .kpPeriod: return ". (keypad)"
+			case .kpPlus: return "+ (keypad)"
+			case .kpMinus: return "- (keypad)"
+			case .kpMultiply: return "* (keypad)"
+			case .kpDivide: return "/ (keypad)"
+			case .kpEquals: return "= (keypad)"
+			case .kpEnter: return "Enter (keypad)"
+			case .paragraph: return "Paragraph"
 			default:
 				return sdlKey.label
 			}
@@ -105,15 +105,11 @@ extension GamepadButtonAssignment {
 			return "The key \(identifier)."
 		case .specialButton(let specialButton):
 			switch specialButton{
-			case .hover:
-				return "Touch input hovers mouse cursor without clicking. Hold button while using (not a toggle)."
-			case .hoverAbove:
-				return "Touch input hovers mouse cursor without clicking, offset above the touch point, for visibility. Hold button while using (not a toggle)."
-			case .hoverBelow:
-				return "Touch input hovers mouse cursor without clicking, offset below the touch point, for visibility. Hold button while using (not a toggle)."
+			case .hoverJustAboveToggle:
+				return "Touch input hovers mouse cursor without clicking, offset slightly above the of the touch point. This makes content easier to interact with, while avoiding to obscure the content itelf with your finger. Recommended to use in combination with Second finger click functionality or a Mouse click gamepad button."
 			case .hoverSidewaysToggle:
 				return "Touch input hovers mouse cursor without clicking, offset sideways of the touch point. Sideways to the right if touch on the left side of the screen and vice versa. This makes content near the bottom of the screen on the opposite side easier to interact with, while avoiding to obscure the content itelf with your finger. Recommended to use in combination with Second finger click functionality or a Mouse click gamepad button."
-			case .hoverAboveToggle:
+			case .hoverFarAboveToggle:
 				return "Touch input hovers mouse cursor without clicking, offset above the touch point. This makes content near the top of the screen easier to interact with, while avoiding to obscure the content itelf with your finger. Recommended to use in combination with Second finger click functionality or a Mouse click gamepad button."
 			case .hoverDiagonallyToggle:
 				return "Touch input hovers mouse cursor without clicking, offset diagnoally above the touch point. Diagnonally to the right if touch on the left side of the screen and vice versa. This makes content near the middle of the screen easier to interact with, while avoiding to obscure the content itelf with your finger. Recommended to use in combination with Second finger click functionality or a Mouse click gamepad button."
@@ -144,25 +140,27 @@ extension GamepadAssignEntry {
 	}
 }
 
-nonisolated(unsafe) private let alternativeNames: [GamepadAssignEntry] = [
-	.init(identifier: "RETURN", assignment: .key(.enter)),
-	.init(identifier: "BLANKSPACE", assignment: .key(.space)),
-	.init(identifier: "COMMAND", assignment: .key(.cmd)),
-	.init(identifier: "APPLE KEY", assignment: .key(.cmd)),
-	.init(identifier: "DOT", assignment: .key(.kpPeriod)),
-	.init(identifier: "PERIOD", assignment: .key(.kpPeriod)),
-	.init(identifier: "PLUS", assignment: .key(.kpPlus)),
-	.init(identifier: "MINUS", assignment: .key(.kpMinus)),
-	.init(identifier: "STAR", assignment: .key(.kpMultiply)),
-	.init(identifier: "MULTIPLY", assignment: .key(.kpMultiply)),
-	.init(identifier: "SLASH", assignment: .key(.kpDivide)),
-	.init(identifier: "FORWARDSLASH", assignment: .key(.kpDivide)),
-	.init(identifier: "EQUALS", assignment: .key(.kpEquals)),
-	.init(identifier: "CONTROL", assignment: .key(.ctrl)),
-	.init(identifier: "OPT", assignment: .key(.alt)),
-	.init(identifier: "OPTION", assignment: .key(.alt)),
-	.init(identifier: "ESCAPE", assignment: .key(.alt)),
-	.init(identifier: "SCROLLOCK", assignment: .key(.scrollock)),
-	.init(identifier: "LESS THAN", assignment: .key(.lessThan)),
-	.init(identifier: "CLICK", assignment: .specialButton(.mouseClick))
+private let alternativeNames: [GamepadAssignEntry] = [
+	.init(identifier: "Return", assignment: .key(.enter)),
+	.init(identifier: "Blankspace", assignment: .key(.space)),
+	.init(identifier: "Command", assignment: .key(.cmd)),
+	.init(identifier: "Apple key", assignment: .key(.cmd)),
+	.init(identifier: "Dot", assignment: .key(.kpPeriod)),
+	.init(identifier: "Period", assignment: .key(.kpPeriod)),
+	.init(identifier: "Plus", assignment: .key(.kpPlus)),
+	.init(identifier: "Minus", assignment: .key(.kpMinus)),
+	.init(identifier: "Star", assignment: .key(.kpMultiply)),
+	.init(identifier: "Multiply", assignment: .key(.kpMultiply)),
+	.init(identifier: "Slash", assignment: .key(.kpDivide)),
+	.init(identifier: "Forwardslash", assignment: .key(.kpDivide)),
+	.init(identifier: "Equals", assignment: .key(.kpEquals)),
+	.init(identifier: "Control", assignment: .key(.ctrl)),
+	.init(identifier: "Opt", assignment: .key(.alt)),
+	.init(identifier: "Option", assignment: .key(.alt)),
+	.init(identifier: "Escape", assignment: .key(.alt)),
+	.init(identifier: "Scrollock", assignment: .key(.scrollock)),
+	.init(identifier: "Less than", assignment: .key(.lessThan)),
+	.init(identifier: "Click", assignment: .specialButton(.mouseClick)),
+	.init(identifier: "Left click", assignment: .specialButton(.mouseClick)),
+	.init(identifier: "Right mouse click", assignment: .specialButton(.mouseClick))
 ]

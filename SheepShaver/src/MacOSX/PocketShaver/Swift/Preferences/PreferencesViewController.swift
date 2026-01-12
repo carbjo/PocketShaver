@@ -244,7 +244,7 @@ public class PreferencesViewController: UIViewController {
 			try model.validate()
 
 			if UIScreen.isPortraitMode,
-			   !MiscellaneousSettings.current.hasDisplayedPortraitModeWarning {
+			   !InformationConsumption.current.hasDisplayedPortraitModeWarning {
 				displayPortraitModeWarning()
 
 				return
@@ -307,7 +307,7 @@ public class PreferencesViewController: UIViewController {
 	}
 
 	private func displayPortraitModeWarning() {
-		MiscellaneousSettings.current.set(hasDisplayedPortraitModeWarning: true)
+		InformationConsumption.current.reportHasDisplayedPortraitModeWarning()
 
 		let alertVC = UIAlertController(
 			title: "Landscape mode recommended",
