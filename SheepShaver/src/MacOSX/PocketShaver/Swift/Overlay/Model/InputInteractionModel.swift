@@ -107,6 +107,10 @@ class InputInteractionModel {
 					objc_ADBKeyUp(SDLKey.cmd.enValue)
 				}
 			}
+		case .rightClick:
+			if !isDown {
+				RightClick.performRightClick()
+			}
 		}
 	}
 
@@ -480,3 +484,4 @@ private class HoverOffsetModeTransitionAnimator {
 		objc_ADBAnimateMove(x, y)
 	}
 }
+

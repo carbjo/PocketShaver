@@ -121,6 +121,8 @@ extension GamepadButtonAssignment {
 				return "Mouse click."
 			case .cmdW:
 				return "Key combination Cmd-W. For closing windows."
+			case .rightClick:
+				return "Click with right mouse button. Configure in Preferences what this means."
 			}
 		case .joystick(let joystickType):
 			switch joystickType {

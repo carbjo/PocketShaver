@@ -575,6 +575,44 @@ class PreferencesGeneralDiskSectionActionsCell: UITableViewCell {
 	}
 }
 
+class PreferencesGeneralAudioFooterCell: UITableViewCell {
+	private lazy var informationLabel: LinkLabel = {
+		let text = "Sound from other apps is lowered if audio is enabled during emulation.\nHaving trouble getting audio to work? Read the setup guide."
+		let range = text.range(of: "setup guide")!
+		let label = LinkLabel(
+			text: text,
+			linkRange: range,
+			callback: callback
+		)
+		label.translatesAutoresizingMaskIntoConstraints = false
+
+		return label
+	}()
+
+	private let callback: (() -> Void)
+
+	init(
+		callback: @escaping (() -> Void)
+	) {
+		self.callback = callback
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		hideSeparator()
+
+		contentView.addSubview(informationLabel)
+
+		NSLayoutConstraint.activate([
+			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
+		])
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+}
+
 class PreferencesGeneralIPadMouseCell: UITableViewCell {
 	enum Selection: Int, CaseIterable {
 		case touch
@@ -628,40 +666,58 @@ class PreferencesGeneralIPadMouseCell: UITableViewCell {
 	}
 }
 
-class PreferencesGeneralAudioFooterCell: UITableViewCell {
-	private lazy var informationLabel: LinkLabel = {
-		let text = "Sound from other apps is lowered if audio is enabled during emulation.\nHaving trouble getting audio to work? Read the setup guide."
-		let range = text.range(of: "setup guide")!
-		let label = LinkLabel(
-			text: text,
-			linkRange: range,
-			callback: callback
-		)
-		label.translatesAutoresizingMaskIntoConstraints = false
-
-		return label
+class PreferencesGeneralRightClickCell: UITableViewCell {
+	private lazy var segmentedControl: UISegmentedControl = {
+		let segmentedControl = UISegmentedControl.withoutConstraints()
+		for (index, tab) in RightClickSetting.allCases.enumerated() {
+			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
+		}
+		segmentedControl.addTarget(self, action: #selector(tabSegmentedControlChanged), for: .valueChanged)
+		return segmentedControl
 	}()
 
-	private let callback: (() -> Void)
+	private let didChangeSelection: ((RightClickSetting) -> Void)
 
 	init(
-		callback: @escaping (() -> Void)
+		initialRightClickSetting: RightClickSetting,
+		didChangeSelection: @escaping ((RightClickSetting) -> Void)
 	) {
-		self.callback = callback
+		self.didChangeSelection = didChangeSelection
 
 		super.init(style: .default, reuseIdentifier: nil)
 
 		hideSeparator()
 
-		contentView.addSubview(informationLabel)
+		contentView.addSubview(segmentedControl)
 
 		NSLayoutConstraint.activate([
-			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
+			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
+			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
 		])
+
+		segmentedControl.selectedSegmentIndex = RightClickSetting.allCases.enumerated().first(where: { initialRightClickSetting == $1 })!.0
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
+
+	@objc private func tabSegmentedControlChanged() {
+		let index = segmentedControl.selectedSegmentIndex
+		let setting = RightClickSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
+
+		didChangeSelection(setting)
+	}
+}
+
+private extension RightClickSetting {
+	var label: String {
+		switch self {
+		case .control:
+			return "control + click"
+		case .command:
+			return "command + click"
+		}
+	}
 }
