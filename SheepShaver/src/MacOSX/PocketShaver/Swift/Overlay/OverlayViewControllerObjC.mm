@@ -11,6 +11,7 @@
 #include "sysdeps.h"
 #include "adb.h"
 #include "math.h"
+#include "video.h"
 #import "MiscellaneousSettingsObjC.h"
 #import "MouseHapticFeedbackObjC.h"
 #import "ADBObjC.h"
@@ -21,7 +22,7 @@ void objc_initOverlayViewController(void) {
 	}
 }
 
-void objc_reportVideoSize(unsigned short width, unsigned short height) {
+void objc_reportVideoSize(unsigned short width, unsigned short height, unsigned int depth) {
 	CGSize deviceScreenSize = UIScreen.mainScreen.bounds.size;
 	double deviceApsectRatio = deviceScreenSize.width / deviceScreenSize.height;
 	double emulatedAspectRatio = ((double) width) / ((double) height);
@@ -50,6 +51,17 @@ void objc_reportVideoSize(unsigned short width, unsigned short height) {
 
 	ADBConfigure(screenMiddleX, tolerance);
 	[InputInteractionModelObjC configureWithOffsetX:offsetModeX offsetY:offsetModeY];
+
+	BOOL isClassicResolution = (width == 640 && height == 480) ||
+								(width == 800 && height == 600) ||
+								(width == 1024 && height == 768) ||
+								(width == 1152 && height == 870);
+	BOOL isJaggyCursorResolution = !isClassicResolution &&
+							(depth == APPLE_8_BIT || depth == APPLE_16_BIT);
+
+	if (isJaggyCursorResolution) {
+		[LocalNotificationsObjCProxy sendJaggyCursorResolutionSelected];
+	}
 }
 
 void objc_reportRelativeMouseModeEnabled() {

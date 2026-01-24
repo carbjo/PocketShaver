@@ -13,7 +13,7 @@ void objc_initOverlayViewController(void);
 #ifdef __cplusplus
 extern "C"
 #endif
-void objc_reportVideoSize(unsigned short width, unsigned short height);
+void objc_reportVideoSize(unsigned short width, unsigned short height, unsigned int depth);
 
 #ifdef __cplusplus
 extern "C"

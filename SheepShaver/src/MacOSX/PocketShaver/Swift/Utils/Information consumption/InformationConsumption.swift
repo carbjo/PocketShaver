@@ -11,6 +11,8 @@ class InformationConsumption: Codable {
 	private(set) var hasDismissedSetupInstructions: Bool
 	private(set) var hasDisplayedPortraitModeWarning: Bool
 	private(set) var hasDisplayedFirstRelativeMouseDetectionDialogue: Bool
+	private(set) var hasDisplayedJaggyCursorWarningDialogue: Bool
+
 
 	@MainActor
 	static var current: InformationConsumption = {
@@ -28,6 +30,7 @@ class InformationConsumption: Codable {
 		hasDismissedSetupInstructions = false
 		hasDisplayedPortraitModeWarning = false
 		hasDisplayedFirstRelativeMouseDetectionDialogue = false
+		hasDisplayedJaggyCursorWarningDialogue = false
 	}
 
 	@MainActor
@@ -56,6 +59,13 @@ class InformationConsumption: Codable {
 	@MainActor
 	func reportHasDisplayedFirstRelativeMouseDetectionDialogue() {
 		hasDisplayedFirstRelativeMouseDetectionDialogue = true
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func reportHasDisplayedJaggyCursorWarningDialogue() {
+		hasDisplayedJaggyCursorWarningDialogue = true
 
 		saveAsCurrent()
 	}
