@@ -13,7 +13,6 @@ class InformationConsumption: Codable {
 	private(set) var hasDisplayedFirstRelativeMouseDetectionDialogue: Bool
 	private(set) var hasDisplayedJaggyCursorWarningDialogue: Bool
 
-
 	@MainActor
 	static var current: InformationConsumption = {
 		if let data = Storage.shared.load(from: .informationConsumption),
