@@ -305,6 +305,23 @@ class PreferencesGeneralViewController: UITableViewController {
 		present(pickerVC, animated: true)
 	}
 
+	private func handleSetupInstructionsDimissButtonPressed() {
+		let alertVC = UIAlertController(
+			title: "Information",
+			message: "Setup instructions will still be accessible from the bottom of Advanced tab.",
+			preferredStyle: .alert
+		)
+
+		alertVC.addAction(.init(title: "Ok", style: .default, handler: { [weak self] _ in
+			guard let self else { return }
+			let setupInstructionsSectionIndexBeforeChange = SectionType.setupInstructions.sectionIndex(model: model)
+			model.reportHasDismissedSetupInstructions()
+			tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
+		}))
+
+		present(alertVC, animated: true)
+	}
+
 	// MARK: - Actions
 
 	@objc
@@ -400,14 +417,10 @@ extension PreferencesGeneralViewController {
 		case .setupInstructions:
 			return PreferencesGeneralSetupInstructionsCell(
 				didTapReadButton: { [weak self] in
-					guard let self else { return }
-					displaySetupInstructions()
+					self?.displaySetupInstructions()
 				},
 				didTapCloseButton: { [weak self] in
-					guard let self else { return }
-					let setupInstructionsSectionIndexBeforeChange = SectionType.setupInstructions.sectionIndex(model: model)
-					model.reportHasDismissedSetupInstructions()
-					tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
+					self?.handleSetupInstructionsDimissButtonPressed()
 				}
 			)
 		case .bootstrap:
