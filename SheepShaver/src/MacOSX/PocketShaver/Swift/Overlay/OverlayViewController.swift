@@ -130,6 +130,8 @@ public class OverlayViewController: UIViewController {
 
 	private var fpsCounter: FPSCounter?
 
+	private var queuedAlertController: UIAlertController?
+
 	public override func viewDidLoad() {
 		super.viewDidLoad()
 
@@ -243,6 +245,7 @@ public class OverlayViewController: UIViewController {
 
 		NotificationCenter.default.addObserver(self, selector: #selector(updateFpsCounter), name: LocalNotifications.fpsCounterSettingChanged, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayRelativeMouseCapabilityDialogueIfEligible), name: LocalNotifications.relativeMouseModeCapabilityFound, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(displayJaggyCursorWarningDialogueIfEligible), name: LocalNotifications.jaggyCursorResolutionSelected, object: nil)
 	}
 
 	private func loadGamepadSettings() {
@@ -510,16 +513,62 @@ public class OverlayViewController: UIViewController {
 			preferredStyle: .alert
 		)
 
-		alertVC.addAction(.init(title: "Manual", style: .cancel))
+		alertVC.addAction(.init(title: "Manual", style: .cancel, handler: { [weak self] _ in
+			guard let self else { return }
+			if let queuedAlertController {
+				self.queuedAlertController = nil
+				present(queuedAlertController, animated: true)
+			}
+		}))
 		alertVC.addAction(.init(title: "Automatic", style: .default, handler: { [weak self] _ in
 			guard let self else { return }
 			if !inputInteractionModel.isRelativeMouseModeEnabled {
 				inputInteractionModel.toggleRelativeMouseMode()
 			}
 			MiscellaneousSettings.current.set(relativeMouseModeSetting: .automatic)
+
+			if let queuedAlertController {
+				self.queuedAlertController = nil
+				present(queuedAlertController, animated: true)
+			}
 		}))
 
-		present(alertVC, animated: true)
+		if presentedViewController == nil {
+			present(alertVC, animated: true)
+		} else {
+			queuedAlertController = alertVC
+		}
+	}
+
+	@objc
+	private func displayJaggyCursorWarningDialogueIfEligible() {
+		let userCanSeeCursor = inputInteractionModel.isRelativeMouseModeEnabled || inputInteractionModel.hoverOffsetMode != .off
+
+		guard !InformationConsumption.current.hasDisplayedJaggyCursorWarningDialogue,
+		userCanSeeCursor else {
+			return
+		}
+		InformationConsumption.current.reportHasDisplayedJaggyCursorWarningDialogue()
+
+		let alertVC = UIAlertController(
+			title: "Jaggy cursor warning",
+			message: "The combination of screen resolution and color depth might result in a mouse cursor that is not moving in a smooth way. If you are experiencing issues with this and want to use 256 colors (8-bit) or thousands of colors (16-bit) mode, try using one of the classic screen resolutions 640x480, 800x600, 1024x768 or 1152x870.\nThis message will not be displayed again.",
+			preferredStyle: .alert
+		)
+
+		alertVC.addAction(.init(title: "Ok", style: .default, handler: { [weak self] _ in
+			guard let self else { return }
+			if let queuedAlertController {
+				self.queuedAlertController = nil
+				present(queuedAlertController, animated: true)
+			}
+		}))
+
+		if presentedViewController == nil {
+			present(alertVC, animated: true)
+		} else {
+			queuedAlertController = alertVC
+		}
 	}
 }
 

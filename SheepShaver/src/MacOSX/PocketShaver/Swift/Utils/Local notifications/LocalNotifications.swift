@@ -16,6 +16,8 @@ enum LocalNotifications {
 	static let relativeMouseModeCapabilityFound = NSNotification.Name("relativeMouseModeCapabilityFound")
 
 	static let iPadMousePassthroughChanged = NSNotification.Name("iPadMousePassthroughChanged")
+
+	static let jaggyCursorResolutionSelected = NSNotification.Name("jaggyCursorResolutionSelected")
 }
 
 
@@ -31,5 +33,9 @@ class LocalNotificationsObjCProxy: NSObject {
 
 	static func sendRelativeMouseModeCapabilityFound() {
 		NotificationCenter.default.post(name: LocalNotifications.relativeMouseModeCapabilityFound, object: nil)
+	}
+
+	static func sendJaggyCursorResolutionSelected() {
+		NotificationCenter.default.post(name: LocalNotifications.jaggyCursorResolutionSelected, object: nil)
 	}
 }
