@@ -391,6 +391,57 @@ class PreferencesAdvancedJustAboveOffsetSettingCell: UITableViewCell {
 	}
 }
 
+class PreferencesAdvancedGammaSettingCell: UITableViewCell {
+	private lazy var segmentedControl: UISegmentedControl = {
+		let segmentedControl = UISegmentedControl.withoutConstraints()
+		for (index, tab) in GammaSetting.allCases.enumerated() {
+			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
+		}
+		segmentedControl.addTarget(self, action: #selector(tabSegmentedControlChanged), for: .valueChanged)
+		return segmentedControl
+	}()
+
+	private let didChangeSelection: ((GammaSetting) -> Void)
+
+	init(
+		initialGammaSetting: GammaSetting,
+		didChangeSelection: @escaping ((GammaSetting) -> Void)
+	) {
+		self.didChangeSelection = didChangeSelection
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		hideSeparator()
+
+		contentView.addSubview(segmentedControl)
+
+		NSLayoutConstraint.activate([
+			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
+			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
+		])
+
+		segmentedControl.selectedSegmentIndex = GammaSetting.allCases.enumerated().first(where: { initialGammaSetting == $1 })!.0
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	@objc private func tabSegmentedControlChanged() {
+		let index = segmentedControl.selectedSegmentIndex
+		let setting = GammaSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
+
+		didChangeSelection(setting)
+	}
+}
+
+extension PreferencesGeneralRamSetting {
+	var label: String {
+		"\(ramInMB) MB"
+	}
+}
+
 private extension FrameRateSetting {
 	var label: String {
 		switch self {
@@ -407,6 +458,15 @@ private extension RelativeMouseModeSetting {
 		case .manual: return "Manual"
 		case .automatic: return "Automatic"
 		case .alwaysOn: return "Always on"
+		}
+	}
+}
+
+private extension GammaSetting {
+	var label: String {
+		switch self {
+		case .osDefined: return "OS defined"
+		case .linear: return "Linear"
 		}
 	}
 }

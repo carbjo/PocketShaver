@@ -111,6 +111,16 @@ class PreferencesAdvancedModel {
 		RomManager.shared.currentRomFileVersion?.description
 	}
 
+	@MainActor
+	var gammaSetting: GammaSetting {
+		get {
+			MiscellaneousSettings.current.gammaSetting
+		}
+		set {
+			MiscellaneousSettings.current.set(gammaSetting: newValue)
+		}
+	}
+
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
 		self.changeSubject = changeSubject
 	}
@@ -143,10 +153,6 @@ extension PreferencesGeneralRamSetting {
 		case .n256: 256
 		case .n512: 512
 		}
-	}
-
-	var label: String {
-		"\(ramInMB) MB"
 	}
 
 	init(ramInMB: Int) {

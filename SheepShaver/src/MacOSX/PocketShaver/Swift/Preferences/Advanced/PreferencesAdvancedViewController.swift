@@ -14,6 +14,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case frameRateSetting
 		case uiOptions
 		case relateiveMouseMode
+		case gammaSetting
 		case bootstrap
 		case resources
 	}
@@ -117,7 +118,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return "UI options"
 		case .relateiveMouseMode:
 			return "Relative mouse mode"
-
+		case .gammaSetting:
+			return "Gamma"
 		case .bootstrap:
 			return "Bootstrap"
 		case .resources:
@@ -136,6 +138,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return model.shouldDisplayAlwaysLandscapeModeOption ? 4 : 3
 		case .relateiveMouseMode:
 			return 4
+		case .gammaSetting:
+			return 2
 		case .bootstrap:
 			return 1
 		case .resources:
@@ -215,6 +219,18 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			case 3:
 				return PreferencesFooterCell(
 					text: "Setting only affects relative mouse mode."
+				)
+			default: fatalError()
+			}
+		case .gammaSetting:
+			switch indexPath.row {
+			case 0:
+				return PreferencesAdvancedGammaSettingCell(initialGammaSetting: model.gammaSetting) { [weak self] newGammaSetting in
+					self?.model.gammaSetting = newGammaSetting
+				}
+			case 1:
+				return PreferencesFooterCell(
+					text: "Linear gamma setting generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and produce a higher color dynamic. Has effect on next resolution change or restart of PocketShaver."
 				)
 			default: fatalError()
 			}
