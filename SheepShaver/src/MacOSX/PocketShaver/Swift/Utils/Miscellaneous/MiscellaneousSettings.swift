@@ -33,6 +33,11 @@ enum RightClickSetting: String, Codable, CaseIterable {
 	case command
 }
 
+enum GammaSetting: String, Codable, CaseIterable {
+	case osDefined
+	case linear
+}
+
 class MiscellaneousSettings: Codable {
 	private(set) var showHints: Bool
 	private(set) var iPadMousePassthrough: Bool
@@ -54,6 +59,7 @@ class MiscellaneousSettings: Codable {
 	private(set) var bootInHoverMode: Bool
 	private(set) var rightClickSetting: RightClickSetting
 	private(set) var hoverJustAboveOffsetModifier: Float
+	private(set) var gammaSetting: GammaSetting
 
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		if #available(iOS 16, *) {
@@ -86,6 +92,7 @@ class MiscellaneousSettings: Codable {
 		bootInHoverMode = false
 		rightClickSetting = .control
 		hoverJustAboveOffsetModifier = 1
+		gammaSetting = .osDefined
 	}
 
 	@MainActor
@@ -241,6 +248,13 @@ class MiscellaneousSettings: Codable {
 
 		saveAsCurrent()
 	}
+
+	@MainActor
+	func set(gammaSetting: GammaSetting) {
+		self.gammaSetting = gammaSetting
+
+		saveAsCurrent()
+	}
 }
 
 class MiscellaneousCachedSettings {
@@ -283,5 +297,10 @@ public class MiscellaneousSettingsObjC: NSObject {
 
 	static func isMouseHapticFeedbackOn() -> Bool {
 		MiscellaneousCachedSettings.isMouseHapticFeedbackOn
+	}
+
+	@MainActor
+	static func isLinearGammaEnabled() -> Bool {
+		MiscellaneousSettings.current.gammaSetting == .linear
 	}
 }

@@ -12,3 +12,4 @@ bool objc_getRelateiveMouseModeSettingIsAlwaysOn(void);
 bool objc_getRelateiveMouseModeSettingIsAutomatic(void);
 bool objc_getRelativeMouseTapToClick(void);
 bool objc_getSoundDisabled(void);
+bool objc_getIsLinearGammaEnabled(void);

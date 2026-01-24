@@ -53,3 +53,6 @@ bool objc_getSoundDisabled(void) {
 	return MiscellaneousSettingsObjC.isSoundDisabled;
 }
 
+bool objc_getIsLinearGammaEnabled(void) {
+	return MiscellaneousSettingsObjC.isLinearGammaEnabled;
+}
