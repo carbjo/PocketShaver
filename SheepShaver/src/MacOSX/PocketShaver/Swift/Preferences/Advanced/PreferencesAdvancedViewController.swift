@@ -211,12 +211,25 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				let mouseIconImage = UIImage(resource: .computermouse)
 					.withRenderingMode(.alwaysTemplate)
 					.applyingSymbolConfiguration(.init(pointSize: 12))!
+				let tagConfig = StringTagConfig(
+					regularFont: .systemFont(ofSize: 14),
+					boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
+					highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText),
+					images: [mouseIconImage]
+				)
 
 				return PreferencesFooterCell(
-					text: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the <img/> button above the keyboard.",
-					tagConfig: .init(images: [mouseIconImage]),
+					text: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the <img/> button above the keyboard. <link>Read more</link>.",
+					tagConfig: tagConfig,
 					separatorHidden: false
-				)
+				) { [weak self] in
+					guard let self else { return }
+					let vc = PreferencesRelativeMouseModeViewController()
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
+				}
 			case 2:
 				return PreferencesEnabledSettingCell(
 					title: "Tap to click",
