@@ -66,8 +66,8 @@ class PreferencesFooterCell: UITableViewCell {
 	init(
 		text: String,
 		tagConfig: StringTagConfig? = nil,
-		linkCallback: (() -> Void)? = nil,
-		separatorHidden: Bool = true
+		separatorHidden: Bool = true,
+		linkCallback: (() -> Void)? = nil
 	) {
 
 		let config = tagConfig ?? .init(

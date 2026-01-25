@@ -1,5 +1,5 @@
 //
-//  PreferencesSetupInstructionsViewController.swift
+//  PreferencesSetupInstructions.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-09-15.
