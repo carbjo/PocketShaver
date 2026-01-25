@@ -31,10 +31,7 @@ class PreferencesSetupInstructionsCell: UITableViewCell {
 7. Quit 'Mac OS Setup Assistant' app (since one of the later steps in it, involving network detection, will get the Assistant app and the OS stuck).
 
 8. To get audio working, you have to explicitly select <b>Built-in</b> as Sound out option in the <b>Sound</b> control panel (not 'Sound and monitors'), which, depending on Mac OS version, is either located in <b> (Mac HD) → System Folder → Control Panels</b> or <b> (Mac HD) → Apple Extras → Sound Control Panel</b>. This only has to be done once.
-""".withBoldTagsReplacedWith(
-	font: .boldSystemFont(ofSize: 14),
-	color: Colors.primaryText
-)
+""".withTagsReplaced(by: .init(boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)))
 
 		return label
 	}()

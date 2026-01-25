@@ -61,19 +61,27 @@ class PreferencesEnabledSettingCell: UITableViewCell {
 }
 
 class PreferencesFooterCell: UITableViewCell {
-	private lazy var informationLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		label.font = .systemFont(ofSize: 14)
-		label.textColor = Colors.secondaryText
-		return label
-	}()
+	private let informationLabel: LinkLabel
 
 	init(
 		text: String,
+		tagConfig: StringTagConfig? = nil,
+		linkCallback: (() -> Void)? = nil,
 		separatorHidden: Bool = true
 	) {
+
+		let config = tagConfig ?? .init(
+			regularFont: .systemFont(ofSize: 14),
+			boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
+			highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText)
+		)
+
+		informationLabel = .init(
+			text: text,
+			config: config,
+			callback: linkCallback ?? {}
+		)
+
 		super.init(style: .default, reuseIdentifier: nil)
 
 		if separatorHidden {
@@ -88,8 +96,6 @@ class PreferencesFooterCell: UITableViewCell {
 			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
 			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
 		])
-
-		informationLabel.text = text
 	}
 
 	required init?(coder: NSCoder) { fatalError() }

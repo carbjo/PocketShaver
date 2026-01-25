@@ -25,10 +25,7 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 		var string = "Read initial setup instructions if you plan to install Classic Mac OS from scratch. Contains crucial tip on how to <b>not get stuck in installation progress</b> and <b>get audio working</b>, after intallation.\n\nThe instructions can still be accessed from Advanced tab, after dismissal."
 
 		label.attributedText = string
-			.withBoldTagsReplacedWith(
-				font: .boldSystemFont(ofSize: 14),
-				color: Colors.primaryText
-			)
+			.withTagsReplaced(by: .init(boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)))
 
 		return label
 	}()
@@ -577,14 +574,16 @@ class PreferencesGeneralDiskSectionActionsCell: UITableViewCell {
 
 class PreferencesGeneralAudioFooterCell: UITableViewCell {
 	private lazy var informationLabel: LinkLabel = {
-		let text = "Sound from other apps is lowered if audio is enabled during emulation.\nHaving trouble getting audio to work? Read the setup guide."
-		let range = text.range(of: "setup guide")!
+		let text = "Sound from other apps is lowered if audio is enabled during emulation. Having trouble getting audio to work? Read the <link>setup guide</link>."
 		let label = LinkLabel(
 			text: text,
-			linkRange: range,
+			config: .init(
+				regularFont: .systemFont(ofSize: 14),
+				boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
+				highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText)
+			),
 			callback: callback
 		)
-		label.translatesAutoresizingMaskIntoConstraints = false
 
 		return label
 	}()

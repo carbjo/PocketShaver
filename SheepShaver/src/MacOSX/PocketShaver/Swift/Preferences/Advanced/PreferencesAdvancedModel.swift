@@ -112,12 +112,12 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
-	var gammaSetting: GammaSetting {
+	var gammaRampSetting: GammaRampSetting {
 		get {
-			MiscellaneousSettings.current.gammaSetting
+			MiscellaneousSettings.current.gammaRampSetting
 		}
 		set {
-			MiscellaneousSettings.current.set(gammaSetting: newValue)
+			MiscellaneousSettings.current.set(gammaRampSetting: newValue)
 		}
 	}
 
