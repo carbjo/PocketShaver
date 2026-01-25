@@ -10,8 +10,7 @@ import UIKit
 class GamepadAssignKeyboardAccessoryView: UIView {
 	private lazy var dismissKeyboardButton: UIButton = {
 		let button = UIButton.withoutConstraints()
-		button.setImage(
-			.init(resource: .keyboardChevronCompactDown).applyingSymbolConfiguration(.init(pointSize: 12)),
+		button.setImage( ImageResource.keyboardChevronCompactDown.asSymbolImage(),
 			for: .normal
 		)
 		button.configuration = buttonConfig()

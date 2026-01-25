@@ -34,8 +34,7 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 	private lazy var relativeMouseModeButton: UIButton = {
 		let button = UIButton.withoutConstraints()
-		button.setImage(
-			.init(resource: .computermouse).applyingSymbolConfiguration(.init(pointSize: 12)),
+		button.setImage(ImageResource.computermouse.asSymbolImage(),
 			for: .normal
 		)
 		button.configuration = buttonConfig()
@@ -46,8 +45,7 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 	private lazy var preferencesButton: UIButton = {
 		let button = UIButton.withoutConstraints()
-		button.setImage(
-			.init(resource: .gearshape).applyingSymbolConfiguration(.init(pointSize: 12)),
+		button.setImage(ImageResource.gearshape.asSymbolImage(),
 			for: .normal
 		)
 		button.configuration = buttonConfig()
@@ -68,8 +66,7 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 	private lazy var dismissKeyboardButton: UIButton = {
 		let button = UIButton.withoutConstraints()
-		button.setImage(
-			.init(resource: .keyboardChevronCompactDown).applyingSymbolConfiguration(.init(pointSize: 12)),
+		button.setImage(ImageResource.keyboardChevronCompactDown.asSymbolImage(),
 			for: .normal
 		)
 		button.configuration = buttonConfig()

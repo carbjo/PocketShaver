@@ -84,7 +84,8 @@
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
 		C707D03F2F24DBCD007BFE66 /* InformationConsumption.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D03E2F24DBC9007BFE66 /* InformationConsumption.swift */; };
 		C707D0422F26176F007BFE66 /* AttributedString.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D0412F26176A007BFE66 /* AttributedString.swift */; };
-		C707D04A2F26583C007BFE66 /* PreferencesRelativeMouseMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D0492F265838007BFE66 /* PreferencesRelativeMouseMode.swift */; };
+		C707D04A2F26583C007BFE66 /* PreferencesRelativeMouseModeOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D0492F265838007BFE66 /* PreferencesRelativeMouseModeOnboarding.swift */; };
+		C707D04D2F266B80007BFE66 /* PreferencesTwoFingerSteeringOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D04C2F266B6D007BFE66 /* PreferencesTwoFingerSteeringOnboarding.swift */; };
 		C70B65E52E7A7BEA0039680A /* MiscellaneousSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */; };
 		C70F32732ECB76920079A3D4 /* LinkLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70F32722ECB76900079A3D4 /* LinkLabel.swift */; };
 		C71F9B162E3A1D010088601A /* Storage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F9B152E3A1CFE0088601A /* Storage.swift */; };
@@ -567,7 +568,8 @@
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
 		C707D03E2F24DBC9007BFE66 /* InformationConsumption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationConsumption.swift; sourceTree = "<group>"; };
 		C707D0412F26176A007BFE66 /* AttributedString.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributedString.swift; sourceTree = "<group>"; };
-		C707D0492F265838007BFE66 /* PreferencesRelativeMouseMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesRelativeMouseMode.swift; sourceTree = "<group>"; };
+		C707D0492F265838007BFE66 /* PreferencesRelativeMouseModeOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesRelativeMouseModeOnboarding.swift; sourceTree = "<group>"; };
+		C707D04C2F266B6D007BFE66 /* PreferencesTwoFingerSteeringOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesTwoFingerSteeringOnboarding.swift; sourceTree = "<group>"; };
 		C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiscellaneousSettings.swift; sourceTree = "<group>"; };
 		C70F32702ECAF8CE0079A3D4 /* audio_sdl.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = audio_sdl.h; sourceTree = "<group>"; };
 		C70F32722ECB76900079A3D4 /* LinkLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkLabel.swift; sourceTree = "<group>"; };
@@ -1363,6 +1365,7 @@
 				C7C383792E7861EF0051C5A4 /* Setup Instructions */,
 				C7699F102EC45D540083B3B3 /* Compatibility list */,
 				C707D0482F2657F9007BFE66 /* Relative mouse mode */,
+				C707D04B2F266B5D007BFE66 /* Two finger steering */,
 			);
 			path = Onboardings;
 			sourceTree = "<group>";
@@ -1370,9 +1373,17 @@
 		C707D0482F2657F9007BFE66 /* Relative mouse mode */ = {
 			isa = PBXGroup;
 			children = (
-				C707D0492F265838007BFE66 /* PreferencesRelativeMouseMode.swift */,
+				C707D0492F265838007BFE66 /* PreferencesRelativeMouseModeOnboarding.swift */,
 			);
 			path = "Relative mouse mode";
+			sourceTree = "<group>";
+		};
+		C707D04B2F266B5D007BFE66 /* Two finger steering */ = {
+			isa = PBXGroup;
+			children = (
+				C707D04C2F266B6D007BFE66 /* PreferencesTwoFingerSteeringOnboarding.swift */,
+			);
+			path = "Two finger steering";
 			sourceTree = "<group>";
 		};
 		C70B65E32E7A7BD00039680A /* Storage */ = {
@@ -2164,7 +2175,7 @@
 				E204B94328BC3EBE0081FDCA /* if.c in Sources */,
 				E204B94528BC3EBE0081FDCA /* tftp.c in Sources */,
 				C7E7B4A62EB7BFF6005844C2 /* PreferencesLicensesViewController.swift in Sources */,
-				C707D04A2F26583C007BFE66 /* PreferencesRelativeMouseMode.swift in Sources */,
+				C707D04A2F26583C007BFE66 /* PreferencesRelativeMouseModeOnboarding.swift in Sources */,
 				E204B94628BC3EBE0081FDCA /* main.cpp in Sources */,
 				C7C3837B2E7862080051C5A4 /* PreferencesSetupInstructions.swift in Sources */,
 				C7C3D2732E76FA7C0018DB8B /* GamepadAssignButtonModel.swift in Sources */,
@@ -2232,6 +2243,7 @@
 				C7C3D26C2E75C4690018DB8B /* PreferencesGamepadEditConfigCells.swift in Sources */,
 				E204B96328BC3EBE0081FDCA /* serial_unix.cpp in Sources */,
 				E204B96428BC3EBE0081FDCA /* sshpty.c in Sources */,
+				C707D04D2F266B80007BFE66 /* PreferencesTwoFingerSteeringOnboarding.swift in Sources */,
 				E204B96528BC3EBE0081FDCA /* strlcpy.c in Sources */,
 				C74035B82EE096600045B9C6 /* MiscellaneousSettingsObjCCppHeader.h in Sources */,
 				E204B96628BC3EBE0081FDCA /* sys_unix.cpp in Sources */,

@@ -220,3 +220,11 @@ extension UIApplication {
 		shared.windows.first!.safeAreaInsets
 	}
 }
+
+extension ImageResource {
+	func asSymbolImage() -> UIImage {
+		UIImage(resource: self)
+			.withRenderingMode(.alwaysTemplate)
+			.applyingSymbolConfiguration(.init(pointSize: 12))!
+	}
+}

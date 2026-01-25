@@ -1,5 +1,5 @@
 //
-//  PreferencesRelativeMouseMode.swift
+//  PreferencesRelativeMouseModeOnboarding.swift
 //  PocketShaver
 //
 //  Created by Carl Björkman on 2026-01-25.
@@ -7,16 +7,13 @@
 
 import UIKit
 
-class PreferencesRelativeMouseModeCell: UITableViewCell {
+class PreferencesRelativeMouseModeOnboardingCell: UITableViewCell {
 	private lazy var contentLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = Colors.secondaryText
-		let mouseIconImage = UIImage(resource: .computermouse)
-			.withRenderingMode(.alwaysTemplate)
-			.applyingSymbolConfiguration(.init(pointSize: 12))!
 		label.attributedText =
 """
 <mark>What is relative mouse mode?</mark>
@@ -53,7 +50,7 @@ Yes. But it is not always the most convenient steering method. If the software d
 			font: .boldSystemFont(ofSize: 18),
 			color: Colors.primaryText
 		),
-		images: [mouseIconImage]
+		images: [ImageResource.computermouse.asSymbolImage()]
 	)
 )
 
@@ -78,7 +75,7 @@ Yes. But it is not always the most convenient steering method. If the software d
 	required init?(coder: NSCoder) { fatalError() }
 }
 
-class PreferencesRelativeMouseModeViewController: UITableViewController {
+class PreferencesRelativeMouseModeOnboardingViewController: UITableViewController {
 	private lazy var doneButton: UIBarButtonItem = {
 		UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(doneButtonPressed))
 	}()
@@ -94,7 +91,7 @@ class PreferencesRelativeMouseModeViewController: UITableViewController {
 	}
 
 	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-		PreferencesRelativeMouseModeCell()
+		PreferencesRelativeMouseModeOnboardingCell()
 	}
 
 	override func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {

@@ -13,7 +13,7 @@ struct StringTagConfig {
 		let color: UIColor
 	}
 
-	let regularFont: UIFont?
+	let regularFont: UIFont? // Only needed when used with LinkLabel, for calculating accurate position of link
 	let boldAppearance: TextAppearance?
 	let highlightedAppearance: TextAppearance?
 	let images: [UIImage]?

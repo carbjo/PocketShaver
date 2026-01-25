@@ -208,14 +208,11 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.model.relativeMouseModeSetting = newFrameRateSetting
 				}
 			case 1:
-				let mouseIconImage = UIImage(resource: .computermouse)
-					.withRenderingMode(.alwaysTemplate)
-					.applyingSymbolConfiguration(.init(pointSize: 12))!
 				let tagConfig = StringTagConfig(
 					regularFont: .systemFont(ofSize: 14),
 					boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
 					highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText),
-					images: [mouseIconImage]
+					images: [ImageResource.computermouse.asSymbolImage()]
 				)
 
 				return PreferencesFooterCell(
@@ -224,7 +221,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					separatorHidden: false
 				) { [weak self] in
 					guard let self else { return }
-					let vc = PreferencesRelativeMouseModeViewController()
+					let vc = PreferencesRelativeMouseModeOnboardingViewController()
 					let navVC = UINavigationController()
 					navVC.viewControllers = [vc]
 

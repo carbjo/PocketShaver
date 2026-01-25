@@ -15,7 +15,7 @@ class PreferencesGeneralViewController: UITableViewController {
 		case disks
 		case audio
 		case iPadMouse
-		case secondFinger
+		case twoFingerSteering
 		case rightClick
 		case hapticFeedback
 		case hints
@@ -371,8 +371,8 @@ extension PreferencesGeneralViewController {
 			return "Audio"
 		case .iPadMouse:
 			return "Input mode"
-		case .secondFinger:
-			return "Second finger"
+		case .twoFingerSteering:
+			return "Two finger steering"
 		case .rightClick:
 			return "Right click"
 		case .hapticFeedback:
@@ -395,11 +395,11 @@ extension PreferencesGeneralViewController {
 			return 2
 		case .iPadMouse:
 			return 1
-		case .secondFinger:
+		case .twoFingerSteering:
 			if model.secondFingerSwipe {
-				return 6
+				return 7
 			} else if model.secondFingerClick {
-				return 4
+				return 5
 			}
 			return 2
 		case .rightClick:
@@ -493,42 +493,54 @@ extension PreferencesGeneralViewController {
 			) { [weak self] newValue in
 				self?.set(isIPadMouseEnabled: newValue)
 			}
-		case .secondFinger:
+		case .twoFingerSteering:
 			switch indexPath.row {
 			case 0:
+				return PreferencesFooterCell(
+					text: "Two finger steering is an alternative way to control the mouse without obscuring the cursor with your finger. Read the <link>onboarding</link> to get started.",
+					separatorHidden: false
+				) { [weak self] in
+					guard let self else { return }
+					let vc = PreferencesTwoFingerSteeringOnboardingViewController()
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
+				}
+			case 1:
 				return PreferencesEnabledSettingCell(
 					title: "Second finger click",
 					isOn: model.secondFingerClick
 				) { [weak self] isOn in
 					self?.set(secondFingerClick: isOn)
 				}
-			case 1:
+			case 2:
 				return PreferencesFooterCell(
-					text: "A second finger can be used for mouse clicking, while the first finger controls the position. Only has effect when any of the hover modes, or relative mouse mode, are enabled.",
+					text: "A second finger can be used for mouse clicking, while the first finger controls the position. Only has effect when a hover mode, or relative mouse mode, is enabled.",
 					separatorHidden: !model.secondFingerClick
 				)
-			case 2:
+			case 3:
 				return PreferencesEnabledSettingCell(
 					title: "Second finger swipe",
 					isOn: model.secondFingerSwipe
 				) { [weak self] isOn in
 					self?.set(secondFingerSwipe: isOn)
 				}
-			case 3:
+			case 4:
 				return PreferencesFooterCell(
-					text: "A second finger can be used for quickly swiping between the four mouse hover modes. They are: Just above, Far above, Sideways and Diagnoally above. Only has effect when a hover mode is already enabled.",
+					text: "A second finger can be used for quickly swiping between the four mouse hover modes. Only has effect when a hover mode is already enabled.",
 					separatorHidden: !model.secondFingerSwipe
 				)
-			case 4:
+			case 5:
 				return PreferencesEnabledSettingCell(
 					title: "Boot in hover mode",
 					isOn: model.bootInHoverMode
 				) { [weak self] isOn in
 					self?.set(bootInHoverMode: isOn)
 				}
-			case 5:
+			case 6:
 				return PreferencesFooterCell(
-					text: "Hover (just above) is on by default when booting, making second finger swipe available from the start."
+					text: "Hover (just above) is on by default when booting, making Two finger steering available from the start."
 				)
 			default: fatalError()
 			}
@@ -556,7 +568,7 @@ extension PreferencesGeneralViewController {
 			switch indexPath.row {
 			case 0:
 				return PreferencesEnabledSettingCell(
-					title: "Three / two finger swipe gestures",
+					title: "Two / three finger swipe gestures",
 					isOn: model.isGestureHapticFeedbackOn
 				) { [weak self] isOn in
 					self?.model.isGestureHapticFeedbackOn = isOn
@@ -686,7 +698,7 @@ extension PreferencesGeneralViewController.SectionType {
 			sections.remove(at: iPadMouseSection)
 		}
 		if model.isIPadMouseEnabled,
-		   let secondFingerSection = sections.firstIndex(of: .secondFinger) {
+		   let secondFingerSection = sections.firstIndex(of: .twoFingerSteering) {
 			sections.remove(at: secondFingerSection)
 		}
 		if !model.supportsHaptics,
@@ -723,7 +735,7 @@ extension PreferencesGeneralViewController {
 		model.secondFingerSwipe = secondFingerSwipe
 		model.bootInHoverMode = bootInHoverMode
 
-		let sectionIndex = SectionType.secondFinger.sectionIndex(model: model)
+		let sectionIndex = SectionType.twoFingerSteering.sectionIndex(model: model)
 
 		tableView.performBatchUpdates {
 			if !prevSecondFingerClick,
@@ -777,12 +789,12 @@ extension PreferencesGeneralViewController {
 		}
 
 		if isIPadMouseEnabled {
-			let sectionIndex = SectionType.secondFinger.sectionIndex(model: model)
+			let sectionIndex = SectionType.twoFingerSteering.sectionIndex(model: model)
 			model.isIPadMouseEnabled = true
 			tableView.deleteSections(.init([sectionIndex]), with: .fade)
 		} else {
 			model.isIPadMouseEnabled = false
-			let sectionIndex = SectionType.secondFinger.sectionIndex(model: model)
+			let sectionIndex = SectionType.twoFingerSteering.sectionIndex(model: model)
 			tableView.insertSections(.init([sectionIndex]), with: .fade)
 		}
 	}
