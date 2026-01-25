@@ -14,7 +14,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case frameRateSetting
 		case uiOptions
 		case relateiveMouseMode
-		case gammaSetting
+		case gammaRampSetting
 		case bootstrap
 		case resources
 	}
@@ -118,8 +118,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return "UI options"
 		case .relateiveMouseMode:
 			return "Relative mouse mode"
-		case .gammaSetting:
-			return "Gamma"
+		case .gammaRampSetting:
+			return "Gamma ramp"
 		case .bootstrap:
 			return "Bootstrap"
 		case .resources:
@@ -138,7 +138,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return model.shouldDisplayAlwaysLandscapeModeOption ? 4 : 3
 		case .relateiveMouseMode:
 			return 4
-		case .gammaSetting:
+		case .gammaRampSetting:
 			return 2
 		case .bootstrap:
 			return 1
@@ -208,7 +208,15 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.model.relativeMouseModeSetting = newFrameRateSetting
 				}
 			case 1:
-				return PreferencesAdvancedRelativeMouseModeFooterCell()
+				let mouseIconImage = UIImage(resource: .computermouse)
+					.withRenderingMode(.alwaysTemplate)
+					.applyingSymbolConfiguration(.init(pointSize: 12))!
+
+				return PreferencesFooterCell(
+					text: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the <img/> button above the keyboard.",
+					tagConfig: .init(images: [mouseIconImage]),
+					separatorHidden: false
+				)
 			case 2:
 				return PreferencesEnabledSettingCell(
 					title: "Tap to click",
@@ -222,15 +230,15 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				)
 			default: fatalError()
 			}
-		case .gammaSetting:
+		case .gammaRampSetting:
 			switch indexPath.row {
 			case 0:
-				return PreferencesAdvancedGammaSettingCell(initialGammaSetting: model.gammaSetting) { [weak self] newGammaSetting in
-					self?.model.gammaSetting = newGammaSetting
+				return PreferencesAdvancedGammaRampSettingCell(initialGammaRampSetting: model.gammaRampSetting) { [weak self] newGammaRampSetting in
+					self?.model.gammaRampSetting = newGammaRampSetting
 				}
 			case 1:
 				return PreferencesFooterCell(
-					text: "Linear gamma setting generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and produce a higher color dynamic. Has effect on next resolution change or restart of PocketShaver."
+					text: "Linear gamma ramp generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and, in some instances, produce a higher color dynamic. Has effect on next resolution change or restart of PocketShaver."
 				)
 			default: fatalError()
 			}

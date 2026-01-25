@@ -83,6 +83,7 @@
 		5DF4CB7F22B5BD5D00512A86 /* audio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4CB7E22B5BD5D00512A86 /* audio.cpp */; };
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
 		C707D03F2F24DBCD007BFE66 /* InformationConsumption.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D03E2F24DBC9007BFE66 /* InformationConsumption.swift */; };
+		C707D0422F26176F007BFE66 /* AttributedString.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D0412F26176A007BFE66 /* AttributedString.swift */; };
 		C70B65E52E7A7BEA0039680A /* MiscellaneousSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */; };
 		C70F32732ECB76920079A3D4 /* LinkLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70F32722ECB76900079A3D4 /* LinkLabel.swift */; };
 		C71F9B162E3A1D010088601A /* Storage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71F9B152E3A1CFE0088601A /* Storage.swift */; };
@@ -564,6 +565,7 @@
 		A7B1921218C35D4700791D8D /* DiskType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DiskType.h; sourceTree = "<group>"; };
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
 		C707D03E2F24DBC9007BFE66 /* InformationConsumption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationConsumption.swift; sourceTree = "<group>"; };
+		C707D0412F26176A007BFE66 /* AttributedString.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributedString.swift; sourceTree = "<group>"; };
 		C70B65E42E7A7BE40039680A /* MiscellaneousSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiscellaneousSettings.swift; sourceTree = "<group>"; };
 		C70F32702ECAF8CE0079A3D4 /* audio_sdl.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = audio_sdl.h; sourceTree = "<group>"; };
 		C70F32722ECB76900079A3D4 /* LinkLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkLabel.swift; sourceTree = "<group>"; };
@@ -1343,6 +1345,16 @@
 			path = "Information consumption";
 			sourceTree = "<group>";
 		};
+		C707D0402F261758007BFE66 /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				C73660E32E34DCE30055AA91 /* Extensions.swift */,
+				C73C7A032F0030CE00FC0467 /* DeviceScreenSize.swift */,
+				C707D0412F26176A007BFE66 /* AttributedString.swift */,
+			);
+			path = Extensions;
+			sourceTree = "<group>";
+		};
 		C70B65E32E7A7BD00039680A /* Storage */ = {
 			isa = PBXGroup;
 			children = (
@@ -1354,8 +1366,7 @@
 		C7158EB22E7E7D8C006D06CC /* Utils */ = {
 			isa = PBXGroup;
 			children = (
-				C73660E32E34DCE30055AA91 /* Extensions.swift */,
-				C73C7A032F0030CE00FC0467 /* DeviceScreenSize.swift */,
+				C707D0402F261758007BFE66 /* Extensions */,
 				C7DCEF452E8704A100EAED05 /* Miscellaneous */,
 				C707D03D2F24DBB5007BFE66 /* Information consumption */,
 				C70B65E32E7A7BD00039680A /* Storage */,
@@ -2242,6 +2253,7 @@
 				C74E10842EA9228F00150945 /* NSData+ImpHexDump.m in Sources */,
 				C74E10852EA9228F00150945 /* NSData+ImpMultiplication.m in Sources */,
 				C74E10862EA9228F00150945 /* ImpSourceVolume.m in Sources */,
+				C707D0422F26176F007BFE66 /* AttributedString.swift in Sources */,
 				C74E10872EA9228F00150945 /* ImpByteOrder.m in Sources */,
 				C7699F122EC45D920083B3B3 /* PreferencesCompatibilityListViewController.swift in Sources */,
 				C74E10882EA9228F00150945 /* ImpBTreeNode.m in Sources */,

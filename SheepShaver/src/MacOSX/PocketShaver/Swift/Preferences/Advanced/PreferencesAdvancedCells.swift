@@ -193,45 +193,6 @@ class PreferencesAdvancedRelativeMouseModeSettingCell: UITableViewCell {
 	}
 }
 
-class PreferencesAdvancedRelativeMouseModeFooterCell: UITableViewCell {
-	private lazy var informationLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		label.font = .systemFont(ofSize: 14)
-		label.textColor = Colors.secondaryText
-		return label
-	}()
-
-	init() {
-		super.init(style: .default, reuseIdentifier: nil)
-
-		contentView.addSubview(informationLabel)
-
-		NSLayoutConstraint.activate([
-			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
-		])
-
-		let attrString = NSMutableAttributedString()
-		attrString.append(.init(string: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the "))
-
-		let mouseIconAttachment = NSTextAttachment()
-		mouseIconAttachment.image = UIImage(resource: .computermouse)
-			.withRenderingMode(.alwaysTemplate)
-			.applyingSymbolConfiguration(.init(pointSize: 12))
-		attrString.append(.init(attachment: mouseIconAttachment))
-
-		attrString.append(.init(string: " button above the keyboard."))
-
-		informationLabel.attributedText = attrString
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
-}
-
 class PreferencesAdvancedBootstrapCell: UITableViewCell {
 	private lazy var containerView: UIView = {
 		let view = UIView.withoutConstraints()
@@ -297,7 +258,7 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 
 	func configure(with romDescription: String) {
 		titleLabel.attributedText = "PocketShaver is bootstrapped by an install disc identified as belonging to category <b>\(romDescription)</b>. Tap 'Select Mac OS install disc' if you want to redo bootstrapping with another install disc."
-			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 15), color: Colors.primaryText)
+			.withTagsReplaced(by: .init(boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)))
 	}
 
 	@objc
@@ -391,21 +352,21 @@ class PreferencesAdvancedJustAboveOffsetSettingCell: UITableViewCell {
 	}
 }
 
-class PreferencesAdvancedGammaSettingCell: UITableViewCell {
+class PreferencesAdvancedGammaRampSettingCell: UITableViewCell {
 	private lazy var segmentedControl: UISegmentedControl = {
 		let segmentedControl = UISegmentedControl.withoutConstraints()
-		for (index, tab) in GammaSetting.allCases.enumerated() {
+		for (index, tab) in GammaRampSetting.allCases.enumerated() {
 			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
 		}
 		segmentedControl.addTarget(self, action: #selector(tabSegmentedControlChanged), for: .valueChanged)
 		return segmentedControl
 	}()
 
-	private let didChangeSelection: ((GammaSetting) -> Void)
+	private let didChangeSelection: ((GammaRampSetting) -> Void)
 
 	init(
-		initialGammaSetting: GammaSetting,
-		didChangeSelection: @escaping ((GammaSetting) -> Void)
+		initialGammaRampSetting: GammaRampSetting,
+		didChangeSelection: @escaping ((GammaRampSetting) -> Void)
 	) {
 		self.didChangeSelection = didChangeSelection
 
@@ -423,14 +384,14 @@ class PreferencesAdvancedGammaSettingCell: UITableViewCell {
 			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
 		])
 
-		segmentedControl.selectedSegmentIndex = GammaSetting.allCases.enumerated().first(where: { initialGammaSetting == $1 })!.0
+		segmentedControl.selectedSegmentIndex = GammaRampSetting.allCases.enumerated().first(where: { initialGammaRampSetting == $1 })!.0
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
 	@objc private func tabSegmentedControlChanged() {
 		let index = segmentedControl.selectedSegmentIndex
-		let setting = GammaSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
+		let setting = GammaRampSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
 
 		didChangeSelection(setting)
 	}
@@ -462,7 +423,7 @@ private extension RelativeMouseModeSetting {
 	}
 }
 
-private extension GammaSetting {
+private extension GammaRampSetting {
 	var label: String {
 		switch self {
 		case .osDefined: return "OS defined"
