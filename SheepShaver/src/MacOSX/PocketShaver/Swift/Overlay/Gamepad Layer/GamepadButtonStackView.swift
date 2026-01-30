@@ -48,7 +48,7 @@ class GamepadButtonStackView: UIStackView {
 		let halfSettingsButton: CGFloat = settingsButtonLength/2
 		let settingsButtonMargin = isSettingsButtonRow ? halfSettingsButton : 0
 		let availableWidth = (screenWidth / 2) - sideMargin - settingsButtonMargin
-		let buttonLength = GamepadButton.length
+		let buttonLength = GamepadButtonSize.regular.length
 		let elementWidth = buttonLength + spacing
 
 		let numberOfButtons = max(2, Int(floor(availableWidth / elementWidth)))
@@ -69,6 +69,7 @@ class GamepadButtonStackView: UIStackView {
 
 		let button = GamepadButton(
 			label: .text(key.label.uppercased()),
+			buttonSize: .regular,
 			inputInteractionModel: inputInteractionModel,
 			isEditing: isEditing,
 			pushKey: { [weak self] in
@@ -107,6 +108,7 @@ class GamepadButtonStackView: UIStackView {
 
 		let button = GamepadButton(
 			label: specialButton.gamepadLabel,
+			buttonSize: .regular,
 			specialButtonConfig: specialButton,
 			inputInteractionModel: inputInteractionModel,
 			isEditing: isEditing,
@@ -265,6 +267,7 @@ class GamepadButtonStackView: UIStackView {
 
 	private func createUnassignedButton(forIndex index: Int) -> UnassignedGamepadButton {
 		UnassignedGamepadButton(
+			buttonSize: .regular,
 			isEditing: isEditing,
 			isObscured: false
 		) { [weak self] in

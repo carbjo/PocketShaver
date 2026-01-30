@@ -120,14 +120,16 @@ class GamepadAssignButtonViewController: UIViewController {
 		containerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
 	}()
 
-	private let model = GamepadAssignButtonModel()
+	private let model: GamepadAssignButtonModel
 	private let dismissRequestCallback: ((GamepadAssignButtonViewController, GamepadAssignResult) -> Void)
 
 	private let sizeMode: SizeMode
 
 	init(
+		for gamepadButtonSize: GamepadButtonSize,
 		dismissRequestCallback: @escaping ((GamepadAssignButtonViewController, GamepadAssignResult) -> Void)
 	) {
+		self.model = .init(gamepadButtonSize: gamepadButtonSize)
 		self.dismissRequestCallback = dismissRequestCallback
 
 		if UIScreen.isSESize,

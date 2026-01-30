@@ -35,6 +35,16 @@ enum GamepadVisibilitySetting: Codable, Equatable {
 	case landscapeOnly
 }
 
+struct GamepadSideButtonPosition: Codable, Equatable {
+	let layout: GamepadSideButtonLayout
+	let index: Int
+}
+
+struct GamepadSideButtonMapping: Codable, Equatable {
+	let position: GamepadSideButtonPosition
+	let assignment: GamepadButtonAssignment
+}
+
 enum GamepadConfigError: Error {
 	case joystickHasNoLayoutSpace
 	case joystickAtBottomRow
@@ -44,7 +54,11 @@ enum GamepadConfigError: Error {
 class GamepadConfig: Codable {
 	private(set) var name: String
 	private(set) var mappings: [GamepadButtonMapping]
+	private(set) var sideButtonMappings: [GamepadSideButtonMapping]?
 	private(set) var visibilitySetting: GamepadVisibilitySetting
+
+
+	// MARK: Main buttons
 
 	@MainActor
 	func replace(with key: SDLKey, at position: GamepadButtonPosition) {
@@ -94,6 +108,45 @@ class GamepadConfig: Codable {
 		saveChanges()
 	}
 
+	// MARK: Side buttons
+
+	@MainActor
+	func replace(with key: SDLKey, at position: GamepadSideButtonPosition) {
+		removeAssignment(at: position)
+		if sideButtonMappings == nil {
+			sideButtonMappings = []
+		}
+		sideButtonMappings!.append(.init(position: position, assignment: .key(key)))
+
+		saveChanges()
+	}
+
+	@MainActor
+	func replace(with specialButton: SpecialButton, at position: GamepadSideButtonPosition) {
+		removeAssignment(at: position)
+		if sideButtonMappings == nil {
+			sideButtonMappings = []
+		}
+		sideButtonMappings!.append(.init(position: position, assignment: .specialButton(specialButton)))
+
+		saveChanges()
+	}
+
+	@MainActor
+	func removeAssignment(at position: GamepadSideButtonPosition) {
+		guard let sideButtonMappings else {
+			return
+		}
+
+		if let oldIndex = sideButtonMappings.firstIndex(where: { $0.position == position }) {
+			self.sideButtonMappings!.remove(at: oldIndex)
+		}
+
+		saveChanges()
+	}
+
+	// MARK: Config
+
 	@MainActor
 	func set(name: String) {
 		self.name = name
@@ -106,6 +159,42 @@ class GamepadConfig: Codable {
 		self.visibilitySetting = visibilitySetting
 
 		GamepadManager.shared.updateIndicesForVisibility()
+	}
+
+	@MainActor
+	func updateSlotPositionsIfNeeded() -> Bool {
+		guard let sideButtonMappings else {
+			// Nothing needs updating
+			return false
+		}
+
+		var didPerformChanges = false
+
+		for layout in GamepadSideButtonLayout.allCases {
+			let firstIndexPosition = GamepadSideButtonPosition(
+				layout: layout,
+				index: 0
+			)
+			let secondIndexPosition = GamepadSideButtonPosition(
+				layout: layout,
+				index: 1
+			)
+			if let secondIndex = sideButtonMappings.firstIndex(where: { $0.position == secondIndexPosition }),
+			   sideButtonMappings.firstIndex(where: { $0.position == firstIndexPosition }) == nil {
+				let assigment = sideButtonMappings[secondIndex].assignment
+				removeAssignment(at: secondIndexPosition)
+
+				let newMapping = GamepadSideButtonMapping(
+					position: firstIndexPosition,
+					assignment: assigment
+				)
+				self.sideButtonMappings!.append(newMapping)
+
+				didPerformChanges = true
+			}
+		}
+
+		return didPerformChanges
 	}
 
 	@MainActor

@@ -55,7 +55,10 @@ public class OverlayViewController: UIViewController {
 	private lazy var gamepadLayerView: GamepadLayerView = {
 		let view = GamepadLayerView(
 			inputInteractionModel: inputInteractionModel,
-			didRequestAssignmentAt: { [weak self] position in
+			didRequestAssignmentForButton: { [weak self] position in
+				self?.presentAlertForEditingButtonMapping(at: position)
+			},
+			didRequestAssignmentForSideButton: { [weak self] position in
 				self?.presentAlertForEditingButtonMapping(at: position)
 			},
 			didRequestLayoutSettings: { [weak self] in
@@ -215,6 +218,24 @@ public class OverlayViewController: UIViewController {
 			fpsLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
 			fpsLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
 		])
+
+		if UIDevice.isSimulator {
+			becomeFirstResponder()
+		}
+	}
+
+	public override var canBecomeFirstResponder: Bool {
+		get {
+			return UIDevice.isSimulator
+		}
+	}
+
+	public override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
+		if UIDevice.isSimulator,
+		   motion == .motionShake {
+			// For debugging purposes
+			transition(to: .showingGamepad)
+		}
 	}
 
 	private func listenToChanges() {
@@ -344,7 +365,11 @@ public class OverlayViewController: UIViewController {
 					}
 				},
 				completion: { [weak self] _ in
-					self?.transitionToUpcomingGamepadConfig()
+					guard let self else { return }
+					transitionToUpcomingGamepadConfig()
+					if gamepadConfig.updateSlotPositionsIfNeeded() {
+						gamepadLayerView.load(config: gamepadConfig)
+					}
 				}
 			)
 		}
@@ -408,57 +433,86 @@ public class OverlayViewController: UIViewController {
 		}
 
 		let vc = GamepadAssignButtonViewController(
-			dismissRequestCallback: { [weak self] vc, result in
-				guard let self else { return }
+			for: .regular
+		){ [weak self] vc, result in
+			guard let self else { return }
 
-				vc.removeFromParent()
-				vc.view.removeFromSuperview()
+			vc.removeFromParent()
+			vc.view.removeFromSuperview()
 
-				switch result {
-				case .assignment(let assignment):
-					switch assignment {
-					case .specialButton(let specialButton):
-						gamepadConfig.replace(with: specialButton, at: position)
-					case .key(let key):
-						gamepadConfig.replace(with: key, at: position)
-					case .joystick(let joystickType):
-						do {
-							try gamepadConfig.replace(with: joystickType, at: position)
-						} catch GamepadConfigError.joystickAtBottomRow {
-							let alertVc = UIAlertController.withMessage("Joystick must be placed above bottom row")
-							present(alertVc, animated: true)
-						} catch GamepadConfigError.joystickAtRightEdge {
-							let alertVc = UIAlertController.withMessage("Joystick must be placed at least one column left of rightmost column")
-							present(alertVc, animated: true)
-						} catch GamepadConfigError.joystickHasNoLayoutSpace {
-							let alertVc = UIAlertController.withMessage("The slot to the right, below and diagnoally right and below must all be vacant for a joystick to be placed. A joystick needs 2x2 slots.")
-							present(alertVc, animated: true)
-						} catch {}
-					}
-				case .unassign:
-					gamepadConfig.removeAssignment(at: position)
-				default:
-					break
+			switch result {
+			case .assignment(let assignment):
+				switch assignment {
+				case .specialButton(let specialButton):
+					gamepadConfig.replace(with: specialButton, at: position)
+				case .key(let key):
+					gamepadConfig.replace(with: key, at: position)
+				case .joystick(let joystickType):
+					do {
+						try gamepadConfig.replace(with: joystickType, at: position)
+					} catch GamepadConfigError.joystickAtBottomRow {
+						let alertVc = UIAlertController.withMessage("Joystick must be placed above bottom row")
+						present(alertVc, animated: true)
+					} catch GamepadConfigError.joystickAtRightEdge {
+						let alertVc = UIAlertController.withMessage("Joystick must be placed at least one column left of rightmost column")
+						present(alertVc, animated: true)
+					} catch GamepadConfigError.joystickHasNoLayoutSpace {
+						let alertVc = UIAlertController.withMessage("The slot to the right, below and diagnoally right and below must all be vacant for a joystick to be placed. A joystick needs 2x2 slots.")
+						present(alertVc, animated: true)
+					} catch {}
 				}
-
-				gamepadLayerView.load(config: gamepadConfig)
+			case .unassign:
+				gamepadConfig.removeAssignment(at: position)
+			default:
+				break
 			}
-		)
 
-		vc.willMove(toParent: self)
+			gamepadLayerView.load(config: gamepadConfig)
+		}
 
-		addChild(vc)
-		view.addSubview(vc.view)
+		embed(vc)
+		vc.animatePresent()
+	}
 
-		NSLayoutConstraint.activate([
-			vc.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			vc.view.topAnchor.constraint(equalTo: view.topAnchor),
-			vc.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			vc.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-		])
+	private func presentAlertForEditingButtonMapping(at position: GamepadSideButtonPosition) {
+		guard !gestureInputView.isDragging else {
+			return
+		}
 
-		vc.didMove(toParent: self)
+		let vc = GamepadAssignButtonViewController(
+			for: .small
+		) { [weak self] vc, result in
+			guard let self else { return }
 
+			vc.removeFromParent()
+			vc.view.removeFromSuperview()
+
+			switch result {
+			case .assignment(let assignment):
+				switch assignment {
+				case .specialButton(let specialButton):
+					gamepadConfig.replace(with: specialButton, at: position)
+				case .key(let key):
+					gamepadConfig.replace(with: key, at: position)
+				case .joystick:
+					fatalError()
+				}
+			case .unassign:
+				gamepadConfig.removeAssignment(at: position)
+			default:
+				break
+			}
+
+			gamepadLayerView.load(config: gamepadConfig)
+
+			view.layoutIfNeeded()
+
+			UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseInOut]) {
+				self.gamepadLayerView.updateSlotVisiblity(afterUpdating: position)
+			}
+		}
+
+		embed(vc)
 		vc.animatePresent()
 	}
 
@@ -486,6 +540,7 @@ public class OverlayViewController: UIViewController {
 
 		present(alertVC, animated: true)
 	}
+
 
 	@objc
 	private func updateFpsCounter() {
@@ -598,18 +653,8 @@ extension OverlayViewController {
 
 		let vc = OverlayViewController()
 
-		vc.willMove(toParent: sdlVC)
-		sdlVC.view.addSubview(vc.view)
 
-		NSLayoutConstraint.activate([
-			vc.view.leadingAnchor.constraint(equalTo: sdlVC.view.leadingAnchor),
-			vc.view.trailingAnchor.constraint(equalTo: sdlVC.view.trailingAnchor),
-			vc.view.topAnchor.constraint(equalTo: sdlVC.view.topAnchor),
-			vc.view.bottomAnchor.constraint(equalTo: sdlVC.view.bottomAnchor)
-		])
-
-		sdlVC.addChild(vc)
-		vc.didMove(toParent: sdlVC)
+		sdlVC.embed(vc)
 	}
 }
 

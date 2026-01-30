@@ -82,6 +82,7 @@
 		5DE93B46247C71F200B2C821 /* adb.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D3967BF2328D315003925D6 /* adb.cpp */; };
 		5DF4CB7F22B5BD5D00512A86 /* audio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4CB7E22B5BD5D00512A86 /* audio.cpp */; };
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
+		C701C1AB2F29127800CC26E5 /* GamepadButtonSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = C701C1AA2F29127200CC26E5 /* GamepadButtonSize.swift */; };
 		C707D03F2F24DBCD007BFE66 /* InformationConsumption.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D03E2F24DBC9007BFE66 /* InformationConsumption.swift */; };
 		C707D0422F26176F007BFE66 /* AttributedString.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D0412F26176A007BFE66 /* AttributedString.swift */; };
 		C707D04A2F26583C007BFE66 /* PreferencesRelativeMouseModeOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D0492F265838007BFE66 /* PreferencesRelativeMouseModeOnboarding.swift */; };
@@ -146,7 +147,10 @@
 		C77CF0742E7823D900D2A854 /* RomManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2782E78232B0018DB8B /* RomManager.swift */; };
 		C790E8742F055D5200B784A6 /* ADBObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C790E8732F055D4900B784A6 /* ADBObjC.mm */; };
 		C790E8772F055ECC00B784A6 /* InputInteractionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C790E8762F055EC700B784A6 /* InputInteractionModel.swift */; };
+		C791FA362F2CD71400F52B02 /* GamepadSideButtonStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791FA352F2CD70D00F52B02 /* GamepadSideButtonStackView.swift */; };
 		C792C17E2E47618A0016DDAF /* InformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C792C17D2E4761830016DDAF /* InformationView.swift */; };
+		C79469752F2BBB7A00DFD2D3 /* DeviceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79469742F2BBB7A00DFD2D3 /* DeviceModel.swift */; };
+		C79469772F2BBEC400DFD2D3 /* GamepadSideButtonConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79469762F2BBEB000DFD2D3 /* GamepadSideButtonConfiguration.swift */; };
 		C79517E22F15447E00CAEDBF /* RightClick.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79517E12F15447D00CAEDBF /* RightClick.swift */; };
 		C79517E42F15449500CAEDBF /* RightClickObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79517E32F15449100CAEDBF /* RightClickObjC.mm */; };
 		C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79A69272E62040300F582A6 /* RomPathObjC.mm */; };
@@ -566,6 +570,7 @@
 		5DF4CB7E22B5BD5D00512A86 /* audio.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = audio.cpp; path = ../../../BasiliskII/src/audio.cpp; sourceTree = "<group>"; };
 		A7B1921218C35D4700791D8D /* DiskType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DiskType.h; sourceTree = "<group>"; };
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
+		C701C1AA2F29127200CC26E5 /* GamepadButtonSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButtonSize.swift; sourceTree = "<group>"; };
 		C707D03E2F24DBC9007BFE66 /* InformationConsumption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationConsumption.swift; sourceTree = "<group>"; };
 		C707D0412F26176A007BFE66 /* AttributedString.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributedString.swift; sourceTree = "<group>"; };
 		C707D0492F265838007BFE66 /* PreferencesRelativeMouseModeOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesRelativeMouseModeOnboarding.swift; sourceTree = "<group>"; };
@@ -660,7 +665,10 @@
 		C790E8732F055D4900B784A6 /* ADBObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ADBObjC.mm; sourceTree = "<group>"; };
 		C790E8752F055D5500B784A6 /* ADBObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ADBObjC.h; sourceTree = "<group>"; };
 		C790E8762F055EC700B784A6 /* InputInteractionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputInteractionModel.swift; sourceTree = "<group>"; };
+		C791FA352F2CD70D00F52B02 /* GamepadSideButtonStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadSideButtonStackView.swift; sourceTree = "<group>"; };
 		C792C17D2E4761830016DDAF /* InformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationView.swift; sourceTree = "<group>"; };
+		C79469742F2BBB7A00DFD2D3 /* DeviceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceModel.swift; sourceTree = "<group>"; };
+		C79469762F2BBEB000DFD2D3 /* GamepadSideButtonConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadSideButtonConfiguration.swift; sourceTree = "<group>"; };
 		C79517E12F15447D00CAEDBF /* RightClick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightClick.swift; sourceTree = "<group>"; };
 		C79517E32F15449100CAEDBF /* RightClickObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RightClickObjC.mm; sourceTree = "<group>"; };
 		C79517E62F15455500CAEDBF /* RightClickObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RightClickObjCCppHeader.h; sourceTree = "<group>"; };
@@ -1355,6 +1363,7 @@
 				C73660E32E34DCE30055AA91 /* Extensions.swift */,
 				C73C7A032F0030CE00FC0467 /* DeviceScreenSize.swift */,
 				C707D0412F26176A007BFE66 /* AttributedString.swift */,
+				C79469742F2BBB7A00DFD2D3 /* DeviceModel.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -1398,8 +1407,6 @@
 			isa = PBXGroup;
 			children = (
 				C707D0402F261758007BFE66 /* Extensions */,
-				C7DCEF452E8704A100EAED05 /* Miscellaneous */,
-				C707D03D2F24DBB5007BFE66 /* Information consumption */,
 				C70B65E32E7A7BD00039680A /* Storage */,
 				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
 				C7DCEF3B2E86F53B00EAED05 /* Mouse Haptic Feedback */,
@@ -1428,6 +1435,9 @@
 				C73660E92E3643430055AA91 /* GamepadButtonStackView.swift */,
 				C73660E12E34C9170055AA91 /* GamepadButton.swift */,
 				C75CBADD2EF2E10C00F576ED /* GamepadJoystick.swift */,
+				C791FA352F2CD70D00F52B02 /* GamepadSideButtonStackView.swift */,
+				C701C1AA2F29127200CC26E5 /* GamepadButtonSize.swift */,
+				C79469762F2BBEB000DFD2D3 /* GamepadSideButtonConfiguration.swift */,
 				C771C50B2EFEAB9700062767 /* GamepadSettingsButton.swift */,
 				C73660ED2E36498D0055AA91 /* UnassignedGamepadButton.swift */,
 				C7C3D26F2E76F8560018DB8B /* Assign Button */,
@@ -1536,6 +1546,16 @@
 				C790E8752F055D5500B784A6 /* ADBObjC.h */,
 			);
 			path = ADB;
+			sourceTree = "<group>";
+		};
+		C791FA342F2CCBB700F52B02 /* Models and Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				C7F3E6F72E818F9100F9089E /* Gamepad */,
+				C7DCEF452E8704A100EAED05 /* Miscellaneous */,
+				C707D03D2F24DBB5007BFE66 /* Information consumption */,
+			);
+			path = "Models and Persistence";
 			sourceTree = "<group>";
 		};
 		C79517E02F15446E00CAEDBF /* Right click */ = {
@@ -1673,6 +1693,7 @@
 			children = (
 				C7E2AFB72E16C54E00CF50D4 /* Overlay */,
 				C7F42CD02E5B1BB100FA7169 /* Preferences */,
+				C791FA342F2CCBB700F52B02 /* Models and Persistence */,
 				C7158EB22E7E7D8C006D06CC /* Utils */,
 				C7699F132EC464840083B3B3 /* Resources */,
 			);
@@ -1687,13 +1708,13 @@
 			path = Licenses;
 			sourceTree = "<group>";
 		};
-		C7F3E6F72E818F9100F9089E /* Gamepad Handling */ = {
+		C7F3E6F72E818F9100F9089E /* Gamepad */ = {
 			isa = PBXGroup;
 			children = (
 				C73660F32E37B5C50055AA91 /* GamepadManager.swift */,
 				C72FA6C32F0808AA0071889C /* SpecialButton.swift */,
 			);
-			path = "Gamepad Handling";
+			path = Gamepad;
 			sourceTree = "<group>";
 		};
 		C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */ = {
@@ -1753,7 +1774,6 @@
 				C7C3D2672E7557930018DB8B /* PreferencesGamepadCells.swift */,
 				C7C3D2692E75B9EC0018DB8B /* PreferencesGamepadEditConfigViewController.swift */,
 				C7C3D26B2E75C4670018DB8B /* PreferencesGamepadEditConfigCells.swift */,
-				C7F3E6F72E818F9100F9089E /* Gamepad Handling */,
 			);
 			path = Gamepad;
 			sourceTree = "<group>";
@@ -2181,6 +2201,7 @@
 				C7C3D2732E76FA7C0018DB8B /* GamepadAssignButtonModel.swift in Sources */,
 				C7F42CDD2E5B3C5F00FA7169 /* PreferencesResolutionsViewController.swift in Sources */,
 				E204B94728BC3EBE0081FDCA /* misc.c in Sources */,
+				C79469772F2BBEC400DFD2D3 /* GamepadSideButtonConfiguration.swift in Sources */,
 				C71F9B162E3A1D010088601A /* Storage.swift in Sources */,
 				C750737D2E67440900D1E374 /* PreferencesModel.swift in Sources */,
 				E204B94828BC3EBE0081FDCA /* tcp_timer.c in Sources */,
@@ -2224,6 +2245,7 @@
 				E204B95C28BC3EBE0081FDCA /* ip_icmp.c in Sources */,
 				E204B9E828BC7CE80081FDCA /* clip_ios.mm in Sources */,
 				E204B95D28BC3EBE0081FDCA /* video_sdl.cpp in Sources */,
+				C79469752F2BBB7A00DFD2D3 /* DeviceModel.swift in Sources */,
 				C70F32732ECB76920079A3D4 /* LinkLabel.swift in Sources */,
 				E204B95E28BC3EBE0081FDCA /* ether_unix.cpp in Sources */,
 				C7C3D26A2E75B9F80018DB8B /* PreferencesGamepadEditConfigViewController.swift in Sources */,
@@ -2291,6 +2313,7 @@
 				C74E10882EA9228F00150945 /* ImpBTreeNode.m in Sources */,
 				C74E10892EA9228F00150945 /* ImpHFSPlusSourceVolume.m in Sources */,
 				C74E108A2EA9228F00150945 /* ImpTextEncodingConverter.m in Sources */,
+				C791FA362F2CD71400F52B02 /* GamepadSideButtonStackView.swift in Sources */,
 				C74E108B2EA9228F00150945 /* ImpSizeUtilities.m in Sources */,
 				C74E108C2EA9228F00150945 /* ImpBTreeFile.m in Sources */,
 				C74E108D2EA9228F00150945 /* ImpHFSSourceVolume.m in Sources */,
@@ -2298,6 +2321,7 @@
 				E204B97128BC3EBE0081FDCA /* socket.c in Sources */,
 				E204B97228BC3EBE0081FDCA /* xpram.cpp in Sources */,
 				E204B97428BC3EBE0081FDCA /* mbuf.c in Sources */,
+				C701C1AB2F29127800CC26E5 /* GamepadButtonSize.swift in Sources */,
 				C79517E22F15447E00CAEDBF /* RightClick.swift in Sources */,
 				E204B97528BC3EBE0081FDCA /* prefs_editor_dummy.cpp in Sources */,
 				E204B97728BC3EBE0081FDCA /* disk_sparsebundle.cpp in Sources */,

@@ -67,6 +67,14 @@ extension UIDevice {
 	static var isIPad: Bool {
 		current.userInterfaceIdiom == .pad
 	}
+
+	static var isSimulator: Bool {
+#if targetEnvironment(simulator)
+		return true
+#else
+		return false
+#endif
+	}
 }
 
 extension CGVector {
@@ -93,7 +101,8 @@ extension UIButton.Configuration {
 		configuration.contentInsets = NSDirectionalEdgeInsets(
 			top: 0,
 			leading: horizontalInsets,
-			bottom: 0, trailing: horizontalInsets
+			bottom: 0,
+			trailing: horizontalInsets
 		)
 		configuration.background.cornerRadius = 8
 		return configuration
@@ -226,5 +235,23 @@ extension ImageResource {
 		UIImage(resource: self)
 			.withRenderingMode(.alwaysTemplate)
 			.applyingSymbolConfiguration(.init(pointSize: 12))!
+	}
+}
+
+extension UIViewController {
+	func embed(_ childVC: UIViewController) {
+		childVC.willMove(toParent: self)
+
+		addChild(childVC)
+		view.addSubview(childVC.view)
+
+		NSLayoutConstraint.activate([
+			childVC.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+			childVC.view.topAnchor.constraint(equalTo: view.topAnchor),
+			childVC.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+			childVC.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+		])
+
+		childVC.didMove(toParent: self)
 	}
 }
