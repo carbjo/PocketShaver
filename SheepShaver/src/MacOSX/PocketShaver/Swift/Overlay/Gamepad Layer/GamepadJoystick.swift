@@ -28,14 +28,14 @@ class GamepadJoystick: UIControl {
 	private lazy var backgroundCircleView: UIView = {
 		BackgroundCircleView(
 			mode: mode,
-			radius: GamepadButton.length
+			radius: length
 		)
 	}()
 
 	private lazy var stickCircleView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.backgroundColor = .lightGray.withAlphaComponent(0.5)
-		view.layer.cornerRadius = GamepadButton.length / 2
+		view.layer.cornerRadius = length / 2
 		return view
 	}()
 
@@ -68,10 +68,14 @@ class GamepadJoystick: UIControl {
 			by: .init(
 				top: -4,
 				left: -2,
-				bottom: -4 - GamepadButton.length,
-				right: -2 - GamepadButton.length
+				bottom: -4 - length,
+				right: -2 - length
 			)
 		)
+	}
+
+	private var length: CGFloat {
+		GamepadButtonSize.regular.length
 	}
 
 	private var currentPoint: CGPoint?
@@ -112,11 +116,11 @@ class GamepadJoystick: UIControl {
 		addSubview(labelContainer)
 		labelContainer.addSubview(relativeMouseOffWarningLabel)
 
-		let stackViewSlotLength = GamepadButton.length
-		let joystickDiameter = GamepadButton.length * 2
-		let stickDiameter = GamepadButton.length
+		let stackViewSlotLength = length
+		let joystickDiameter = length * 2
+		let stickDiameter = length
 
-		let labelContainerSideLength = floor(sqrt(2) * GamepadButton.length)
+		let labelContainerSideLength = floor(sqrt(2) * length)
 
 		NSLayoutConstraint.activate([
 			backgroundCircleView.leadingAnchor.constraint(equalTo: leadingAnchor),

@@ -23,6 +23,7 @@ class UnassignedGamepadButton: UIView {
 	private var isEditing: Bool = false
 
 	init(
+		buttonSize: GamepadButtonSize,
 		isEditing: Bool,
 		isObscured: Bool,
 		didRequestAssignment: @escaping (() -> Void)
@@ -35,11 +36,16 @@ class UnassignedGamepadButton: UIView {
 		translatesAutoresizingMaskIntoConstraints = false
 		layer.cornerRadius = 8
 
-		let length = GamepadButton.length
+		let length = buttonSize.length
 
-		if UIScreen.isSmallSize {
+
+		if buttonSize == .small {
+			label.font = .systemFont(ofSize: 9)
+		} else if UIScreen.isSmallSize {
 			label.font = .systemFont(ofSize: 16)
 		}
+
+		let sideMargin: CGFloat = buttonSize == .regular ? 8 : 2
 
 		addSubview(label)
 
@@ -47,8 +53,8 @@ class UnassignedGamepadButton: UIView {
 			widthAnchor.constraint(equalToConstant: length),
 			heightAnchor.constraint(equalToConstant: length),
 
-			label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-			label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+			label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin),
+			label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideMargin),
 			label.centerYAnchor.constraint(equalTo: centerYAnchor)
 		])
 

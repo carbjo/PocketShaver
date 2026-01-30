@@ -23,8 +23,21 @@ class GamepadAssignButtonModel {
 	private(set) var results: [GamepadAssignEntry]
 	private(set) var searchString = ""
 
-	init() {
-		let joystick = [GamepadButtonAssignment.joystick(.mouse),  GamepadButtonAssignment.joystick(.wasd4way), GamepadButtonAssignment.joystick(.wasd8way)]
+	init(
+		gamepadButtonSize: GamepadButtonSize
+	) {
+		let joystick: [GamepadButtonAssignment]
+		switch gamepadButtonSize {
+		case .regular:
+			joystick = [
+				GamepadButtonAssignment.joystick(.mouse),
+				GamepadButtonAssignment.joystick(.wasd4way),
+				GamepadButtonAssignment.joystick(.wasd8way)
+			]
+		case .small:
+			joystick = []
+		}
+
 		let specialKeys = SpecialButton.allCases.map({ GamepadButtonAssignment.specialButton($0) })
 		let sdlKeys = SDLKey.allCases.map({ GamepadButtonAssignment.key($0) })
 		originalList = (joystick + specialKeys + sdlKeys).map(GamepadAssignEntry.init) + alternativeNames

@@ -38,7 +38,7 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 		inputInteractionModel: InputInteractionModel
 	) {
 		let screenHeight = UIScreen.main.bounds.height - UIApplication.safeAreaInsets.top - UIApplication.safeAreaInsets.bottom
-		let length = GamepadButton.length
+		let length = GamepadButtonSize.regular.length
 		let stackViewHeight: CGFloat = length + spacing
 		let availableHeight = screenHeight
 

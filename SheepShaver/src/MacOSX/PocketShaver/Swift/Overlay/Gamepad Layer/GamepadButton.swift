@@ -15,15 +15,6 @@ class GamepadButton: UIButton {
 		case twoIcons(ImageResource, ImageResource)
 	}
 
-	static var length: CGFloat {
-		if UIScreen.isSESize {
-			return 65
-		} else if UIScreen.isSmallSize {
-			return 76
-		}
-		return UIScreen.isPortraitMode ? 78 : 80
-	}
-
 	private lazy var iconStackView: UIStackView = {
 		let stackView = UIStackView.withoutConstraints()
 		stackView.axis = .horizontal
@@ -45,6 +36,7 @@ class GamepadButton: UIButton {
 
 	init(
 		label: Label,
+		buttonSize: GamepadButtonSize,
 		specialButtonConfig: SpecialButton? = nil,
 		inputInteractionModel: InputInteractionModel,
 		isEditing: Bool,
@@ -62,6 +54,16 @@ class GamepadButton: UIButton {
 		super.init(frame: .zero)
 
 		configuration = .defaultConfig
+
+		if buttonSize == .small {
+			configuration!.contentInsets = .init(top: 0, leading: 2, bottom: 0, trailing: 2)
+			configuration!.titleTextAttributesTransformer =
+			   UIConfigurationTextAttributesTransformer { incoming in
+				 var outgoing = incoming
+				 outgoing.font = .systemFont(ofSize: 13)
+				 return outgoing
+			 }
+		}
 
 		switch label {
 		case .text(let text):
@@ -81,7 +83,7 @@ class GamepadButton: UIButton {
 
 		titleLabel?.textAlignment = .center
 
-		let length = GamepadButton.length
+		let length = buttonSize.length
 
 		NSLayoutConstraint.activate([
 			widthAnchor.constraint(equalToConstant: length),
