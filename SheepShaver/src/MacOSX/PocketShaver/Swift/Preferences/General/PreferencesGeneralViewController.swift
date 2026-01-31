@@ -61,6 +61,7 @@ class PreferencesGeneralViewController: UITableViewController {
 
 		tableView.showsVerticalScrollIndicator = false
 		tableView.delaysContentTouches = false
+		PreferencesGeneralDiskCell.register(in: tableView)
 
 		NotificationCenter.default.addObserver(self, selector: #selector(updateRomPickerSection), name: UIApplication.didBecomeActiveNotification, object: nil)
 	}
@@ -449,15 +450,36 @@ extension PreferencesGeneralViewController {
 			} else if indexPath.row <= model.numberOfDisks {
 				let index = indexPath.row - 1
 				let disk = model.disk(forIndex: index)
-				return PreferencesGeneralDiskCell(
+				guard let cell = tableView.dequeueReusableCell(withIdentifier: PreferencesGeneralDiskCell.reuseIdentifier, for: indexPath) as? PreferencesGeneralDiskCell else {
+					return UITableViewCell()
+				}
+				cell.configure(
 					disk: disk,
 					didSetIsEnabled: { [weak self] filename, isOn in
-						self?.model.setDiskEnabled(filename: filename, isEnabled: isOn)
+						guard let self else { return }
+						let (prevIndex, newIndex) = model.setDiskEnabled(filename: filename, isEnabled: isOn)
+
+						let section = SectionType.disks.sectionIndex(model: model)
+						let prevIndexPath = IndexPath(row: prevIndex + 1, section: section)
+						let newIndexPath = IndexPath(row: newIndex + 1, section: section)
+						tableView.moveRow(at: prevIndexPath, to: newIndexPath)
 					},
-					didSetIsCdRom: { [weak self] filename, isOn in
-						self?.model.setDiskAsCdRom(filename: filename, isCdRom: isOn)
+					didSetDiskType: { [weak self] filename, diskType in
+						guard let self else { return }
+						model.setDiskType(filename: filename, diskType:diskType)
+
+						let section = SectionType.disks.sectionIndex(model: model)
+						guard let diskIndex = model.diskIndex(forFilename: filename) else {
+							return
+						}
+						tableView.reloadRows(
+							at: [.init(row: diskIndex + 1, section: section)],
+							with: .automatic
+						)
+						UINotificationFeedbackGenerator().notificationOccurred(.success)
 					}
 				)
+				return cell
 			} else if indexPath.row == model.numberOfDisks + 1 {
 				return PreferencesGeneralDiskSectionActionsCell(
 					hasDskFile: model.hasDskFile,
@@ -483,7 +505,9 @@ extension PreferencesGeneralViewController {
 					self?.model.soundDisabled = !newValue
 				}
 			} else {
-				return PreferencesGeneralAudioFooterCell { [weak self] in
+				return PreferencesInformationCell(
+					text: "Sound from other apps is lowered if audio is enabled during emulation. Having trouble getting audio to work? Read the <link>setup guide</link>."
+				) { [weak self] in
 					self?.displaySetupInstructions()
 				}
 			}
@@ -496,7 +520,7 @@ extension PreferencesGeneralViewController {
 		case .twoFingerSteering:
 			switch indexPath.row {
 			case 0:
-				return PreferencesFooterCell(
+				return PreferencesInformationCell(
 					text: "Two finger steering is an alternative way to control the mouse without obscuring the cursor with your finger. Read the <link>onboarding</link> to get started.",
 					separatorHidden: false
 				) { [weak self] in
@@ -515,7 +539,7 @@ extension PreferencesGeneralViewController {
 					self?.set(secondFingerClick: isOn)
 				}
 			case 2:
-				return PreferencesFooterCell(
+				return PreferencesInformationCell(
 					text: "A second finger can be used for mouse clicking, while the first finger controls the position. Only has effect when a hover mode, or relative mouse mode, is enabled.",
 					separatorHidden: !model.secondFingerClick
 				)
@@ -527,7 +551,7 @@ extension PreferencesGeneralViewController {
 					self?.set(secondFingerSwipe: isOn)
 				}
 			case 4:
-				return PreferencesFooterCell(
+				return PreferencesInformationCell(
 					text: "A second finger can be used for quickly swiping between the four mouse hover modes. Only has effect when a hover mode is already enabled.",
 					separatorHidden: !model.secondFingerSwipe
 				)
@@ -539,7 +563,7 @@ extension PreferencesGeneralViewController {
 					self?.set(bootInHoverMode: isOn)
 				}
 			case 6:
-				return PreferencesFooterCell(
+				return PreferencesInformationCell(
 					text: "Hover (just above) is on by default when booting, making Two finger steering available from the start."
 				)
 			default: fatalError()
@@ -558,7 +582,7 @@ extension PreferencesGeneralViewController {
 					text = "Right click can be performed with a gamepad button."
 				}
 
-				return PreferencesFooterCell(
+				return PreferencesInformationCell(
 					text: text
 				)
 			default:
@@ -599,7 +623,7 @@ extension PreferencesGeneralViewController {
 					self?.model.showHints = newValue
 				}
 			} else {
-				return PreferencesFooterCell(
+				return PreferencesInformationCell(
 					text: "Gamepad layout names are shown even when hints are turned off."
 				)
 			}
@@ -611,8 +635,7 @@ extension PreferencesGeneralViewController {
 	}
 
 	override func numberOfSections(in tableView: UITableView) -> Int {
-		let res = SectionType.count(model: model)
-		return res
+		SectionType.count(model: model)
 	}
 }
 

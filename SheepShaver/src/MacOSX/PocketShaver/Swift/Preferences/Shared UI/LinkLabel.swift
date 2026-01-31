@@ -8,12 +8,10 @@
 import UIKit
 
 class LinkLabel: UIView {
-	private lazy var label: UILabel = {
+	private(set) lazy var label: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
-		label.font = .systemFont(ofSize: 14)
-		label.textColor = Colors.secondaryText
 		return label
 	}()
 
@@ -28,6 +26,8 @@ class LinkLabel: UIView {
 	init(
 		text: String,
 		config: StringTagConfig,
+		font: UIFont = .systemFont(ofSize: 14),
+		textColor: UIColor = Colors.secondaryText,
 		callback: @escaping (() -> Void)
 	) {
 		self.callback = callback
@@ -37,15 +37,20 @@ class LinkLabel: UIView {
 		nonHighlightedString = Self.attributedString(
 			text: text,
 			config: config,
+			regularFont: font,
 			withHighlight: false
 		)
 		highlightedString = Self.attributedString(
 			text: text,
 			config: config,
+			regularFont: font,
 			withHighlight: true
 		)
 
 		super.init(frame: .zero)
+
+		label.font = font
+		label.textColor = textColor
 
 		addSubview(label)
 
@@ -134,7 +139,7 @@ class LinkLabel: UIView {
 		workString = workString.replacingOccurrences(of: "</b>", with: "")
 		workString = workString.replacingOccurrences(of: "<mark>", with: "")
 		workString = workString.replacingOccurrences(of: "</mark>", with: "")
-		workString = workString.replacingOccurrences(of: "<img/>", with: "")
+		workString = workString.replacingOccurrences(of: StringTagConfig.imageTagRegex, with: " ", options: .regularExpression)
 
 		var range: Range<String.Index>?
 		if let lowerBound = workString.range(of: "<link>")?.lowerBound {
@@ -144,17 +149,25 @@ class LinkLabel: UIView {
 			range = lowerBound..<upperBound
 		}
 
-
 		return (range, workString)
 	}
 
 	private static func attributedString(
 		text: String,
 		config: StringTagConfig,
+		regularFont: UIFont,
 		withHighlight: Bool
 	) -> NSAttributedString {
 		let tagConvertedText: String
 		if withHighlight {
+			var text = text
+
+			if  let beginTagRange = text.range(of: "<link>"),
+				let endTagRange = text.range(of: "</link>") {
+				text = text
+					.replacingOccurrences(of: "<img", with: "<imgmark", range: beginTagRange.upperBound..<endTagRange.lowerBound)
+			}
+
 			tagConvertedText = text
 				.replacingOccurrences(of: "<link>", with: "<mark>")
 				.replacingOccurrences(of: "</link>", with: "</mark>")
@@ -164,7 +177,10 @@ class LinkLabel: UIView {
 				.replacingOccurrences(of: "</link>", with: "</b>")
 		}
 
-		return tagConvertedText.withTagsReplaced(by: config)
+		return tagConvertedText.withTagsReplaced(
+			by: config,
+			regularFont: regularFont
+		)
 	}
 }
 

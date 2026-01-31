@@ -266,19 +266,6 @@ class PreferencesGeneralDiskColumnsDescriptionCell: UITableViewCell {
 		return label
 	}()
 
-	private lazy var cdromLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.text = "CDROM"
-		label.font = .boldSystemFont(ofSize: 14)
-		return label
-	}()
-
-	private lazy var hiddenCdromSwitch: UISwitch = {
-		let uiSwich = UISwitch.withoutConstraints()
-		uiSwich.isHidden = true
-		return uiSwich
-	}()
-
 	private lazy var enabledLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.text = "Mount"
@@ -296,24 +283,18 @@ class PreferencesGeneralDiskColumnsDescriptionCell: UITableViewCell {
 		super.init(style: .default, reuseIdentifier: nil)
 
 		contentView.addSubview(titleLabel)
-		contentView.addSubview(hiddenCdromSwitch)
 		contentView.addSubview(hiddenEnabledSwitch)
-		contentView.addSubview(cdromLabel)
 		contentView.addSubview(enabledLabel)
 
 		NSLayoutConstraint.activate([
 			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
 			titleLabel.centerYAnchor.constraint(equalTo: hiddenEnabledSwitch.centerYAnchor),
-			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: hiddenCdromSwitch.leadingAnchor, constant: -16),
+			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: hiddenEnabledSwitch.leadingAnchor, constant: -16),
 
-			hiddenCdromSwitch.centerYAnchor.constraint(equalTo: hiddenEnabledSwitch.centerYAnchor),
-			hiddenEnabledSwitch.leadingAnchor.constraint(equalTo: hiddenCdromSwitch.trailingAnchor, constant: 12),
 			hiddenEnabledSwitch.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
 			hiddenEnabledSwitch.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
 			hiddenEnabledSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
 
-			cdromLabel.centerYAnchor.constraint(equalTo: hiddenCdromSwitch.centerYAnchor),
-			cdromLabel.trailingAnchor.constraint(equalTo: hiddenCdromSwitch.trailingAnchor),
 			enabledLabel.centerYAnchor.constraint(equalTo: hiddenEnabledSwitch.centerYAnchor),
 			enabledLabel.trailingAnchor.constraint(equalTo: hiddenEnabledSwitch.trailingAnchor)
 		])
@@ -322,53 +303,67 @@ class PreferencesGeneralDiskColumnsDescriptionCell: UITableViewCell {
 	required init?(coder: NSCoder) { fatalError() }
 }
 
+class PreferencesGeneralDiskTypeView: UIView {
+	private lazy var label: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.textColor = Colors.primaryBackground
+		label.font = label.font.withSize(9)
+		return label
+	}()
+
+	init() {
+		super.init(frame: .zero)
+
+		translatesAutoresizingMaskIntoConstraints = false
+
+		layer.cornerRadius = 4
+		backgroundColor = Colors.thinBackground
+
+		addSubview(label)
+
+		NSLayoutConstraint.activate([
+			label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4.5),
+			label.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+			label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4.5),
+			label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+		])
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	func configure(diskType: DiskType) {
+		switch diskType {
+		case .disk:
+			label.text = "Disk"
+		case .cd:
+			label.text = "CD"
+		}
+
+		layoutIfNeeded()
+	}
+}
+
 class PreferencesGeneralDiskCell: UITableViewCell {
 	private lazy var enabledIndicationView: UIView = {
 		UIView.withoutConstraints()
 	}()
 
-	private lazy var titleLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		return label
-	}()
-
-	private lazy var cdromSwitch: UISwitch = {
-		let uiSwitch = UISwitch.withoutConstraints()
-		uiSwitch.addTarget(self, action: #selector(cdRomValueChanged), for: .touchUpInside)
-		return uiSwitch
-	}()
+	private var titleLabel: LinkLabel?
 
 	private lazy var enabledSwitch: UISwitch = {
 		let uiSwitch = UISwitch.withoutConstraints()
-		uiSwitch.addTarget(self, action: #selector(enabledValueChanged), for: .touchUpInside)
+		uiSwitch.addTarget(self, action: #selector(enabledValueChanged), for: .valueChanged)
 		return uiSwitch
 	}()
 
-	private let filename: String
-	private let didSetIsEnabled: ((String, Bool) -> Void)
-	private let didSetIsCdRom: ((String, Bool) -> Void)
+	private var filename: String!
+	private var didSetIsEnabled: ((String, Bool) -> Void)?
 
-	init(
-		disk: Disk,
-		didSetIsEnabled: @escaping ((String, Bool) -> Void),
-		didSetIsCdRom: @escaping ((String, Bool) -> Void)
-	) {
-		self.filename = disk.filename
-		self.didSetIsEnabled = didSetIsEnabled
-		self.didSetIsCdRom = didSetIsCdRom
 
-		super.init(style: .default, reuseIdentifier: nil)
-
-		titleLabel.text = disk.filename
-
-		cdromSwitch.isOn = disk.isCdRom
-		enabledSwitch.isOn = disk.isEnabled
+	override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+		super.init(style: .default, reuseIdentifier: Self.reuseIdentifier)
 
 		contentView.addSubview(enabledIndicationView)
-		contentView.addSubview(titleLabel)
-		contentView.addSubview(cdromSwitch)
 		contentView.addSubview(enabledSwitch)
 
 		NSLayoutConstraint.activate([
@@ -377,21 +372,76 @@ class PreferencesGeneralDiskCell: UITableViewCell {
 			enabledIndicationView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
 			enabledIndicationView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: cdromSwitch.leadingAnchor, constant: -16),
 
-			cdromSwitch.centerYAnchor.constraint(equalTo: enabledSwitch.centerYAnchor),
-			enabledSwitch.leadingAnchor.constraint(equalTo: cdromSwitch.trailingAnchor, constant: 12),
-			enabledSwitch.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-			enabledSwitch.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
-			enabledSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8)
+			enabledSwitch.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
+			enabledSwitch.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+			enabledSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
 		])
-
-		updateEnabledIndicationView()
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
+
+	override func prepareForReuse() {
+		super.prepareForReuse()
+
+		if let titleLabel {
+			titleLabel.removeFromSuperview()
+			self.titleLabel = nil
+		}
+	}
+
+	func configure(
+		disk: Disk,
+		didSetIsEnabled: @escaping ((String, Bool) -> Void),
+		didSetDiskType: @escaping ((String, DiskType) -> Void)
+	) {
+		self.filename = disk.filename
+		self.didSetIsEnabled = didSetIsEnabled
+		
+		let diskTypeView = PreferencesGeneralDiskTypeView()
+		diskTypeView.configure(diskType: disk.type)
+
+		let image = diskTypeView.asImage()
+		diskTypeView.alpha = 0.5
+		let highligtedImage = diskTypeView.asImage()
+
+		let titleLabel = LinkLabel(
+			text: "\(disk.filename) <link> <img yOffset=-2/> </link>",
+			config: .init(
+				images: [image],
+				highlightedImages: [highligtedImage]
+			),
+			font: .systemFont(ofSize: 17),
+			textColor: Colors.primaryText
+		) {
+			let newType: DiskType = disk.type == .disk ? .cd: .disk
+			didSetDiskType(disk.filename, newType)
+		}
+
+		titleLabel.label.setContentHuggingPriority(.required, for: .horizontal)
+		titleLabel.label.setContentCompressionResistancePriority(.required, for: .vertical)
+
+		contentView.addSubview(titleLabel)
+
+		NSLayoutConstraint.activate([
+			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			titleLabel.centerYAnchor.constraint(equalTo: enabledSwitch.centerYAnchor),
+			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: enabledSwitch.leadingAnchor, constant: -16),
+			titleLabel.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
+			titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+
+			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8).withPriority(.defaultHigh),
+			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8).withPriority(.defaultHigh),
+			])
+
+		self.titleLabel = titleLabel
+
+		enabledSwitch.isOn = disk.isEnabled
+
+		updateEnabledIndicationView()
+
+		layoutIfNeeded()
+	}
 
 	private func updateEnabledIndicationView() {
 		enabledIndicationView.backgroundColor = enabledSwitch.isOn ? Colors.selectedCell : Colors.primaryBackground
@@ -400,11 +450,7 @@ class PreferencesGeneralDiskCell: UITableViewCell {
 	@objc private func enabledValueChanged() {
 		updateEnabledIndicationView()
 
-		didSetIsEnabled(filename, enabledSwitch.isOn)
-	}
-
-	@objc private func cdRomValueChanged() {
-		didSetIsCdRom(filename, cdromSwitch.isOn)
+		didSetIsEnabled?(filename, enabledSwitch.isOn)
 	}
 }
 
@@ -570,46 +616,6 @@ class PreferencesGeneralDiskSectionActionsCell: UITableViewCell {
 	private func importDiskButtonPushed() {
 		didTapImportDiskButton()
 	}
-}
-
-class PreferencesGeneralAudioFooterCell: UITableViewCell {
-	private lazy var informationLabel: LinkLabel = {
-		let text = "Sound from other apps is lowered if audio is enabled during emulation. Having trouble getting audio to work? Read the <link>setup guide</link>."
-		let label = LinkLabel(
-			text: text,
-			config: .init(
-				regularFont: .systemFont(ofSize: 14),
-				boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
-				highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText)
-			),
-			callback: callback
-		)
-
-		return label
-	}()
-
-	private let callback: (() -> Void)
-
-	init(
-		callback: @escaping (() -> Void)
-	) {
-		self.callback = callback
-
-		super.init(style: .default, reuseIdentifier: nil)
-
-		hideSeparator()
-
-		contentView.addSubview(informationLabel)
-
-		NSLayoutConstraint.activate([
-			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
-		])
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
 }
 
 class PreferencesGeneralIPadMouseCell: UITableViewCell {

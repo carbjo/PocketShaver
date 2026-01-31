@@ -270,6 +270,9 @@ void ADBOp(uint8 op, uint8 *data)
 }
 
 int getXOffset(int x) {
+	if (!touch_input) {
+		return 0;
+	}
 	if (hover_gesture_start_was_left_side) {
 		return offset_x;
 	}
@@ -279,6 +282,9 @@ int getXOffset(int x) {
 
 int getYOffset()
 {
+	if (!touch_input) {
+		return 0;
+	}
 	return offset_y;
 }
 
@@ -369,7 +375,7 @@ void ADBMouseDown(int button)
 		return;
 	}
 
-	if (hover_mode) {
+	if (touch_input && hover_mode) {
 		hover_gesture_start_side_determination_requested = true;
 		return;
 	}

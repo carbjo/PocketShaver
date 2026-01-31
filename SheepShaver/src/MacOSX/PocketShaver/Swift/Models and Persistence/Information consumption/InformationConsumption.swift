@@ -22,7 +22,6 @@ class InformationConsumption: Codable {
 
 		return InformationConsumption()
 	}()
-	
 
 	@MainActor
 	init() {

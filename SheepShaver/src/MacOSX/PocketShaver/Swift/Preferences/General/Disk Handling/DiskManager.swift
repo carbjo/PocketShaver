@@ -7,23 +7,30 @@
 
 import Foundation
 
-struct Disk {
-	let path: String
-	var isCdRom: Bool
+enum DiskType: String, Codable {
+	case disk
+	case cd
+}
+
+struct Disk: Codable, Equatable {
+	let filename: String
+	var type: DiskType
 	var isEnabled: Bool
 
 	init(
-		path: String,
-		isCdRom: Bool = false,
+		_ path: String,
+		type: DiskType = .disk,
 		isEnabled: Bool
 	) {
-		self.path = path
-		self.isCdRom = isCdRom
+		self.filename = path.lastPathComponent
+		self.type = type
 		self.isEnabled = isEnabled
 	}
 
-	var filename: String {
-		path.lastPathComponent
+	static func == (lhs: Disk, rhs: Disk) -> Bool {
+		lhs.filename == rhs.filename &&
+		lhs.type == rhs.type &&
+		lhs.isEnabled == rhs.isEnabled
 	}
 }
 
@@ -33,113 +40,128 @@ struct DiskDataChange {
 	let removed: [Int]
 }
 
+@MainActor
+private struct DiskConfig: Codable {
+	var disks: [Disk]
+
+	static var current: DiskConfig = {
+		if let data = Storage.shared.load(from: .diskConfig),
+		   let settings = try? JSONDecoder().decode(DiskConfig.self, from: data) {
+			return settings
+		}
+
+		return DiskConfig(disks: [])
+	}()
+
+	mutating func sortAndSaveAsCurrent() {
+		sortDisks()
+
+		do {
+			let data = try JSONEncoder().encode(self)
+			Storage.shared.save(data, at: .diskConfig)
+		} catch {}
+	}
+
+	private mutating func sortDisks() {
+		let enabledDisks = disks.filter({ $0.isEnabled })
+		let sortedDisabledDisks = disks
+			.filter({ !$0.isEnabled })
+			.sorted(by: { lhs, rhs in
+			if lhs.isEnabled, !rhs.isEnabled {
+				return true
+			} else if !lhs.isEnabled, rhs.isEnabled {
+				return false
+			}
+			return lhs.filename.lowercased() < rhs.filename.lowercased()
+		})
+
+		disks = enabledDisks + sortedDisabledDisks
+	}
+}
+
+@MainActor
 class DiskManager {
 
-	@MainActor static let shared = DiskManager()
+	static let shared = DiskManager()
 
 	static let supportedFileExtensions = ["dsk", "dmg", "cdr", "iso", "cue", "toast", "img"]
 	static let assumedCdRomFileExtensions = ["iso", "cdr", "toast", "cue"]
 
-	private(set) var diskArray = [Disk]()
+	private var diskConfig = DiskConfig.current
+	var diskArray: [Disk] {
+		diskConfig.disks
+	}
 
 	init() {
 		loadDiskData()
 	}
 
 	@discardableResult
-	func loadDiskData() -> DiskDataChange {
+	func loadDiskData(
+		requestEnableDiskWithFilename enableDiskWithFilename: String? = nil
+	) -> DiskDataChange {
 
 		let oldDiskArray = diskArray
-		diskArray = []
-
-		// First we scan for all available disks in the Documents directory. Then we reconcile that
-		// with the "disk" prefs, eliminating any existing prefs that we can't find in the Documents
-		// directory. This we use to populate diskArray.
-		diskArray.append(contentsOf: findDisks())
-		diskArray.append(contentsOf: findCdroms())
-
+		var diskArray = diskArray
 
 		let allElements = (try? FileManager.default.contentsOfDirectory(atPath: FileManager.documentUrl.path)) ?? []
 
 		let candidateFilePaths = allElements.filter({
 			$0.lowercased().hasSuffixMatchingSuffixes(in: Self.supportedFileExtensions)
 		})
-
-		// Compare the lists. For any disk that we have that doesn't actually exist, eliminate it from the disks list.
-		// For any disk that actually exists that we don't already know about, create an entry but mark it disabled.
-		// Note that we compare last path components only, because the path to the file may change as installations
-		// on devices change.
-
 		let candidateFilenames = candidateFilePaths.map({ $0.lastPathComponent })
+
+
 		diskArray = diskArray.filter({ candidateFilenames.contains($0.filename) })
 
-		// Now diskArray contains only things that actually exist, let's see if there is anything else to add to it,
-		// that is, files that exist that aren't already accounted for.
-		let diskArrayFilenames = diskArray.map({ $0.path }).map({ $0.lastPathComponent })
+		let diskArrayFilenames = diskArray.map({ $0.filename })
 		for candidateFilePath in candidateFilePaths {
 			let filename = candidateFilePath.lastPathComponent
 			if diskArrayFilenames.contains(filename) {
 				continue
 			}
 			let isCdRom = Self.assumedCdRomFileExtensions.contains(candidateFilePath.pathExtension.lowercased())
-			let disk = Disk(path: candidateFilePath, isCdRom: isCdRom, isEnabled: false)
+			let isEnbled = filename == enableDiskWithFilename
+			let disk = Disk(filename, type: isCdRom ? .cd : .disk, isEnabled: isEnbled)
 			diskArray.append(disk)
 		}
 
+		diskConfig.disks = diskArray
+		diskConfig.sortAndSaveAsCurrent()
 
-		return .init(oldArray: oldDiskArray, newArray: diskArray)
+		let newDiskArray = diskConfig.disks
+
+		return .init(oldArray: oldDiskArray, newArray: newDiskArray)
+	}
+
+	@MainActor
+	func index(forFilename filename: String) -> Int? {
+		diskArray.firstIndex(where: { $0.filename == filename })
 	}
 
 	@MainActor
 	func set(_ disk: Disk) {
-		remove(diskWithFilename: disk.filename)
+		guard let index = index(forFilename: disk.filename) else {
+			return
+		}
+		diskConfig.disks[index] = disk
 
-		diskArray.append(disk)
+		diskConfig.sortAndSaveAsCurrent()
 
 		PreferencesManager.shared.writePreferences()
 	}
 
 	@MainActor
 	func remove(diskWithFilename filename: String) {
-		guard let index = diskArray.firstIndex(where: { $0.filename == filename }) else {
+		guard let index = index(forFilename: filename) else {
 			return
 		}
 
-		diskArray.remove(at: index)
+		diskConfig.disks.remove(at: index)
+
+		diskConfig.sortAndSaveAsCurrent()
 
 		PreferencesManager.shared.writePreferences()
-	}
-
-	private func findDisks() -> [Disk] {
-		var result = [Disk]()
-		var index = 0
-
-		while let diskString = objc_findStringWithIndex("disk", Int32(index)) {
-			let disk = Disk(path: diskString, isEnabled: true)
-			result.append(disk)
-
-			index += 1
-		}
-
-		return result
-	}
-
-	private func findCdroms() -> [Disk] {
-		var result = [Disk]()
-		var index = 0
-		while let diskString = objc_findStringWithIndex("cdrom", Int32(index)) {
-			guard !diskString.hasPrefix("/dev/") else {
-				index += 1
-				continue
-			}
-
-			let disk = Disk(path: diskString, isCdRom: true, isEnabled: true)
-			result.append(disk)
-
-			index += 1
-		}
-
-		return result
 	}
 }
 

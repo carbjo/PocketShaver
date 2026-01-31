@@ -165,7 +165,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.model.frameRateSetting = newFrameRateSetting
 				}
 			case 1:
-				return PreferencesFooterCell(
+				return PreferencesInformationCell(
 					text: "Most games and apps have a maximum frame rate of 60 hz, 75 hz or lower. Higher frame rate settings impact performance. Changes in frame rate setting requires PocketShaver to restart."
 				)
 			default: fatalError()
@@ -180,7 +180,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.model.showFpsCounterEnabled = isOn
 				}
 			case 1:
-				return PreferencesFooterCell(
+				return PreferencesInformationCell(
 					text: "PocketShaver only renders frames when there are visual changes. Therefore, low FPS count does not always mean low performace.",
 					separatorHidden: false
 				)
@@ -209,13 +209,12 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				}
 			case 1:
 				let tagConfig = StringTagConfig(
-					regularFont: .systemFont(ofSize: 14),
 					boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
 					highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText),
 					images: [ImageResource.computermouse.asSymbolImage()]
 				)
 
-				return PreferencesFooterCell(
+				return PreferencesInformationCell(
 					text: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the <img/> button above the keyboard. <link>Read more</link>.",
 					tagConfig: tagConfig,
 					separatorHidden: false
@@ -235,7 +234,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.model.relativeMouseTapToClick = isOn
 				}
 			case 3:
-				return PreferencesFooterCell(
+				return PreferencesInformationCell(
 					text: "Setting only affects relative mouse mode."
 				)
 			default: fatalError()
@@ -247,7 +246,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					self?.model.gammaRampSetting = newGammaRampSetting
 				}
 			case 1:
-				return PreferencesFooterCell(
+				return PreferencesInformationCell(
 					text: "Linear gamma ramp generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and, in some instances, produce a higher color dynamic. Has effect on next resolution change or restart of PocketShaver."
 				)
 			default: fatalError()

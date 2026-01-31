@@ -22,16 +22,27 @@ class PreferencesSetupInstructionsCell: UITableViewCell {
 
 3. Import a Mac OS install disc file and toggle on Mount and CDROM. This does not have to be the same disk image as in step 1. But in general, it must be a OS version equal or higher to what you used in the bootstrapping process. The maximum Mac OS version PocketShaver supports is <b>9.0.4</b>.
 
-4. Boot, let Mac OS format your empty virtual harddrive and launch 'Mac OS Installer' app from the disc.
+4. Boot, let Mac OS format your empty virtual harddrive and launch <mark>Mac OS Installer</mark> app from the disc.
 
-5. In the 'Mac OS Installer' app, at <b>Install software</b> step (not 'Select destination' step), Click button <b>Options...</b> and uncheck <b>Update Apple Hard Disk Drivers</b>. If you do not do this, the installation will get completely stuck on a phase with title 'Updating Apple Hard Disk Drivers'.
+5. In the <mark>Mac OS Installer</mark> app, at <b>Install software</b> step (not 'Select destination' step), Click button <b>Options...</b> and uncheck <b>Update Apple Hard Disk Drivers</b>. If you do not do this, the installation will get completely stuck on a phase with title 'Updating Apple Hard Disk Drivers'.
 
 6. After installation, restart PocketShaver, un-toggle Mount for Mac OS installation CD and boot.
 
-7. Quit 'Mac OS Setup Assistant' app (since one of the later steps in it, involving network detection, will get the Assistant app and the OS stuck).
+7. Quit <mark>Mac OS Setup Assistant</mark> app (since one of the later steps in it, involving network detection, will get the Assistant app and the OS stuck).
 
-8. To get audio working, you have to explicitly select <b>Built-in</b> as Sound out option in the <b>Sound</b> control panel (not 'Sound and monitors'), which, depending on Mac OS version, is either located in <b> (Mac HD) → System Folder → Control Panels</b> or <b> (Mac HD) → Apple Extras → Sound Control Panel</b>. This only has to be done once.
-""".withTagsReplaced(by: .init(boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)))
+8. To get audio working, you have to explicitly select <b>Built-in</b> as Sound out option in the <mark>Sound</mark> control panel (not <mark>Sound and monitors</mark>), which, depending on Mac OS version, is either located in <b>(Mac HD) → System Folder → Control Panels</b> or <b>(Mac HD) → Apple Extras → Sound Control Panel</b>. This only has to be done once.
+""".withTagsReplaced(
+	by: .init(
+		boldAppearance: .init(
+			font: .boldSystemFont(ofSize: 14),
+			color: Colors.primaryText
+		),
+		highlightedAppearance: .init(
+			font: .italicSystemFont(ofSize: 14),
+			color: Colors.primaryText
+		)
+	)
+)
 
 		return label
 	}()

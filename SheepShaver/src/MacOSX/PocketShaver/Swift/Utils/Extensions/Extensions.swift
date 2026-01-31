@@ -255,3 +255,18 @@ extension UIViewController {
 		childVC.didMove(toParent: self)
 	}
 }
+
+// Source - https://stackoverflow.com/a/41288197
+// Posted by Naveed J., modified by community. See post 'Timeline' for change history
+// Retrieved 2026-01-31, License - CC BY-SA 4.0
+
+extension UIView {
+
+	func asImage() -> UIImage {
+		let renderer = UIGraphicsImageRenderer(bounds: bounds)
+		return renderer.image { rendererContext in
+			layer.render(in: rendererContext.cgContext)
+		}
+	}
+}
+
