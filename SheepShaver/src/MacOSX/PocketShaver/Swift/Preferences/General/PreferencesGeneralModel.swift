@@ -45,7 +45,7 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	var hasDskFile: Bool {
-		DiskManager.shared.diskArray.contains(where: { $0.path.pathExtension == "dsk" })
+		DiskManager.shared.diskArray.contains(where: { $0.filename.pathExtension == "dsk" })
 	}
 
 	@MainActor
@@ -202,7 +202,11 @@ class PreferencesGeneralModel {
 			throw PreferencesGeneralError.fileCreationFailedOtherError
 		}
 
-		return DiskManager.shared.loadDiskData()
+		let diskDataChange = DiskManager.shared.loadDiskData(
+			requestEnableDiskWithFilename: fixedName
+		)
+
+		return diskDataChange
 	}
 
 	@MainActor
@@ -250,24 +254,39 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	func setDiskEnabled(filename: String, isEnabled: Bool) {
+	func diskIndex(forFilename filename: String) -> Int? {
+		DiskManager.shared.index(forFilename: filename)
+	}
+
+	@MainActor
+	func setDiskEnabled(filename: String, isEnabled: Bool) -> (Int, Int) {
 		guard var disk = disk(forFilename: filename) else {
-			return
+			return (0, 0)
+		}
+
+		guard let prevIndex = DiskManager.shared.diskArray.firstIndex(where: {$0 == disk}) else {
+			fatalError()
 		}
 
 		disk.isEnabled = isEnabled
 		DiskManager.shared.set(disk)
 
+		guard let newIndex = DiskManager.shared.diskArray.firstIndex(where: {$0 == disk}) else {
+			fatalError()
+		}
+
 		changeSubject.send(.changeRequiringRestartAfterBootMade)
+
+		return (prevIndex, newIndex)
 	}
 
 	@MainActor
-	func setDiskAsCdRom(filename: String, isCdRom: Bool) {
+	func setDiskType(filename: String, diskType: DiskType) {
 		guard var disk = disk(forFilename: filename) else {
 			return
 		}
 
-		disk.isCdRom = isCdRom
+		disk.type = diskType
 		DiskManager.shared.set(disk)
 
 		changeSubject.send(.changeRequiringRestartAfterBootMade)

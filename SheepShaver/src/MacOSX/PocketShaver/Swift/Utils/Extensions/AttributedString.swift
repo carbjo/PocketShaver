@@ -13,157 +13,203 @@ struct StringTagConfig {
 		let color: UIColor
 	}
 
-	let regularFont: UIFont? // Only needed when used with LinkLabel, for calculating accurate position of link
 	let boldAppearance: TextAppearance?
 	let highlightedAppearance: TextAppearance?
 	let images: [UIImage]?
+	let highlightedImages: [UIImage]?
 
 	init(
-		regularFont: UIFont? = nil,
 		boldAppearance: TextAppearance? = nil,
 		highlightedAppearance: TextAppearance? = nil,
-		images: [UIImage]? = nil
+		images: [UIImage]? = nil,
+		highlightedImages: [UIImage]? = nil
 	) {
-		self.regularFont = regularFont
 		self.boldAppearance = boldAppearance
 		self.highlightedAppearance = highlightedAppearance
 		self.images = images
+		self.highlightedImages = highlightedImages
 	}
 }
 
 extension String {
-	func withTagsReplaced(by config: StringTagConfig) -> NSAttributedString {
-		return AttributedStringBuilder(string: self, config: config).build()
+	func withTagsReplaced(
+		by config: StringTagConfig,
+		regularFont: UIFont? = nil
+	) -> NSAttributedString {
+		return AttributedStringBuilder(
+			string: self,
+			config: config,
+			regularFont: regularFont
+		).build()
 	}
 }
 
 private class AttributedStringBuilder {
 	private let config: StringTagConfig
+	private let regularFont: UIFont?
 
-	private let attrString = NSMutableAttributedString()
-	private var workString: String
+	private let workString: String
 	private var imagesIdx = 0
 
 	init(
 		string: String,
-		config: StringTagConfig
+		config: StringTagConfig,
+		regularFont: UIFont?
 	) {
 		self.workString = string
 		self.config = config
+		self.regularFont = regularFont
 	}
 
 	func build() -> NSAttributedString {
-		var nextBoldTagIndex = nextIndexWithTag("<b>")
-		var nextHighlightTagIndex = nextIndexWithTag("<mark>")
-		var nextImageTagIndex = nextIndexWithTag("<img/>")
+		return process(workString, tag: nil)
+	}
 
-		var nextTagIndex = min(nextBoldTagIndex, nextHighlightTagIndex, nextImageTagIndex)
+	private func process(_ string: String, tag: AttributedStringBuilderTagMetadata?) -> NSAttributedString {
+		var attributes: [NSAttributedString.Key : Any]?
 
-		while nextTagIndex != workString.endIndex {
-			if nextBoldTagIndex == nextTagIndex {
-				replaceNextBoldTag()
-			} else if nextHighlightTagIndex == nextTagIndex {
-				replaceNextHighlightedTag()
-			} else if nextImageTagIndex == nextTagIndex {
-				replaceNextImageTag()
-			} else {
+		if let tag {
+			switch tag.type {
+			case .bold:
+				if let boldAppearance = config.boldAppearance {
+					attributes = [
+						.font: boldAppearance.font,
+						.foregroundColor: boldAppearance.color
+					]
+				}
+			case .highlight:
+				if let highlightedAppearance = config.highlightedAppearance {
+					attributes = [
+						.font: highlightedAppearance.font,
+						.foregroundColor: highlightedAppearance.color
+					]
+				}
+			case .image, .highlightedImage:
 				fatalError()
 			}
-
-			nextBoldTagIndex = nextIndexWithTag("<b>")
-			nextHighlightTagIndex = nextIndexWithTag("<mark>")
-			nextImageTagIndex = nextIndexWithTag("<img/>")
-
-			nextTagIndex = min(nextBoldTagIndex, nextHighlightTagIndex, nextImageTagIndex)
+		} else if let regularFont {
+			attributes = [
+				.font: regularFont
+			]
 		}
 
-		appendTextToAttrString(workString)
+		var workString = string
 
-		return attrString
-	}
+		let outputString = NSMutableAttributedString()
+		while let nextTag = nextTag(workString) {
+			let prefix = String(workString[workString.startIndex..<nextTag.start.lowerBound])
+			outputString.append(.init(string: prefix, attributes: attributes))
 
-	private func nextIndexWithTag(_ tag: String) -> String.Index {
-		workString.range(of: tag)?.lowerBound ?? workString.endIndex
-	}
+			switch nextTag.type {
+			case .image:
+				let tagString = String(workString[nextTag.start.lowerBound..<nextTag.end.upperBound])
+				outputString.append(processImage(tagString: tagString))
+			case .highlightedImage:
+				let tagString = String(workString[nextTag.start.lowerBound..<nextTag.end.upperBound])
+				outputString.append(processHighligtedImage(tagString: tagString))
+			default:
+				let taggedString = String(workString[nextTag.start.upperBound..<nextTag.end.lowerBound])
+				outputString.append(process(taggedString, tag: nextTag))
+			}
 
-	private func replaceNextBoldTag() {
-		guard let boldAppearance = config.boldAppearance,
-			  let beginningTagIndex = workString.range(of: "<b>"),
-			  let endTagIndex = workString.range(of: "</b>") else {
-			fatalError()
+			workString = String(workString[nextTag.end.upperBound..<workString.endIndex])
 		}
 
-		let prefix = String(workString[workString.startIndex..<beginningTagIndex.lowerBound])
-		let boldPart = String(workString[beginningTagIndex.upperBound..<endTagIndex.lowerBound])
+		let postfix = workString
+		outputString.append(.init(string: postfix, attributes: attributes))
 
-		appendTextToAttrString(prefix)
-		attrString.append(
-			.init(
-				string: boldPart,
-				attributes: [
-					.font: boldAppearance.font,
-					.foregroundColor: boldAppearance.color
-				]
-			)
-		)
-
-		workString = String(workString[endTagIndex.upperBound..<workString.endIndex])
+		return outputString
 	}
 
-	private func replaceNextHighlightedTag() {
-		guard let highlightedAppearance = config.highlightedAppearance,
-			  let beginningTagIndex = workString.range(of: "<mark>"),
-			  let endTagIndex = workString.range(of: "</mark>") else {
-			fatalError()
-		}
-
-		let prefix = String(workString[workString.startIndex..<beginningTagIndex.lowerBound])
-		let boldPart = String(workString[beginningTagIndex.upperBound..<endTagIndex.lowerBound])
-
-
-		appendTextToAttrString(prefix)
-		attrString.append(
-			.init(
-				string: boldPart,
-				attributes: [
-					.font: highlightedAppearance.font,
-					.foregroundColor: highlightedAppearance.color
-				]
-			)
-		)
-
-		workString = String(workString[endTagIndex.upperBound..<workString.endIndex])
-	}
-
-	private func replaceNextImageTag() {
+	private func processImage(tagString: String) -> NSAttributedString {
 		guard let images = config.images,
-			  let tagIndex = workString.range(of: "<img/>") else {
+			  let tagPrefix = tagString.range(of: "<img"),
+			  let tagPostfix = tagString.range(of: "/>") else {
 			fatalError()
 		}
 
-		let prefix = String(workString[workString.startIndex..<tagIndex.lowerBound])
-
-		appendTextToAttrString(prefix)
-		let imageAttachment = NSTextAttachment()
-		imageAttachment.image = images[imagesIdx]
-		attrString.append(.init(attachment: imageAttachment))
+		let parametersString = String(tagString[tagPrefix.upperBound..<tagPostfix.lowerBound])
+		let imageAttachment = createTextAttachment(with: images[imagesIdx], parametersString: parametersString)
 
 		imagesIdx += 1
-		workString = String(workString[tagIndex.upperBound..<workString.endIndex])
+
+		return .init(attachment: imageAttachment)
 	}
 
-	private func appendTextToAttrString(_ string: String) {
-		if let regularFont = config.regularFont {
-			attrString.append(
-				.init(
-					string: string,
-					attributes: [
-						.font: regularFont
-					]
-				)
-			)
+	private func processHighligtedImage(tagString: String) -> NSAttributedString {
+		guard let images = config.highlightedImages,
+			  let tagPrefix = tagString.range(of: "<imgmark"),
+			  let tagPostfix = tagString.range(of: "/>") else {
+			fatalError()
+		}
+
+		let parametersString = String(tagString[tagPrefix.upperBound..<tagPostfix.lowerBound])
+		let imageAttachment = createTextAttachment(with: images[imagesIdx], parametersString: parametersString)
+
+		imagesIdx += 1
+
+		return .init(attachment: imageAttachment)
+	}
+
+	private func createTextAttachment(with image: UIImage, parametersString: String) -> NSTextAttachment {
+		let imageAttachment = NSTextAttachment()
+		imageAttachment.image = image
+		if let yOffsetParameterPrefix = parametersString.range(of: "yOffset=") {
+			let yOffsetString = parametersString[yOffsetParameterPrefix.upperBound..<parametersString.endIndex]
+			let yOffset = CGFloat(Float(yOffsetString) ?? 0)
+
+			imageAttachment.bounds = .init(x: 0, y: yOffset, width: image.size.width, height: image.size.height)
+		}
+		return imageAttachment
+	}
+
+	private func nextTag(_ string: String) -> AttributedStringBuilderTagMetadata? {
+		let nextBoldTag = string.range(of: "<b>")
+		let nextHighlightTag = string.range(of: "<mark>")
+		let nextImageTag = string.range(of: StringTagConfig.imageTagRegex, options: .regularExpression)
+		let nextHighlightedImageTag = string.range(of: StringTagConfig.highlightedImageTagRegex, options: .regularExpression)
+
+		let nextTagIndex = min(
+			nextBoldTag?.lowerBound ?? string.endIndex,
+			nextHighlightTag?.lowerBound ?? string.endIndex,
+			nextImageTag?.lowerBound ?? string.endIndex,
+			nextHighlightedImageTag?.lowerBound ?? string.endIndex
+		)
+
+		guard nextTagIndex != string.endIndex else {
+			return nil
+		}
+
+		if nextTagIndex == nextBoldTag?.lowerBound {
+			let endTag = string.range(of: "</b>")!
+			return .init(start: nextBoldTag!, end: endTag, type: .bold)
+		} else if nextTagIndex == nextHighlightTag?.lowerBound {
+			let endTag = string.range(of: "</mark>")!
+			return .init(start: nextHighlightTag!, end: endTag, type: .highlight)
+		} else if nextTagIndex == nextImageTag?.lowerBound {
+			return .init(start: nextImageTag!, end: nextImageTag!, type: .image)
+		} else if nextTagIndex == nextHighlightedImageTag?.lowerBound {
+			return .init(start: nextHighlightedImageTag!, end: nextHighlightedImageTag!, type: .highlightedImage)
 		} else {
-			attrString.append(.init(string: string))
+			return nil
 		}
 	}
+}
+
+fileprivate struct AttributedStringBuilderTagMetadata {
+	enum TagType {
+		case bold
+		case highlight
+		case image
+		case highlightedImage
+	}
+
+	let start: Range<String.Index>
+	let end: Range<String.Index>
+	let type: TagType
+}
+
+extension StringTagConfig {
+	static let imageTagRegex = "(<img)( yOffset=)*[-0123456789]*(/>)"
+	static let highlightedImageTagRegex = "(<imgmark)( yOffset=)*[-0123456789]*(/>)"
 }

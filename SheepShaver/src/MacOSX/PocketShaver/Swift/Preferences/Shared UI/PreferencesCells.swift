@@ -60,7 +60,7 @@ class PreferencesEnabledSettingCell: UITableViewCell {
 	}
 }
 
-class PreferencesFooterCell: UITableViewCell {
+class PreferencesInformationCell: UITableViewCell {
 	private let informationLabel: LinkLabel
 
 	init(
@@ -71,7 +71,6 @@ class PreferencesFooterCell: UITableViewCell {
 	) {
 
 		let config = tagConfig ?? .init(
-			regularFont: .systemFont(ofSize: 14),
 			boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
 			highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText)
 		)
@@ -79,6 +78,7 @@ class PreferencesFooterCell: UITableViewCell {
 		informationLabel = .init(
 			text: text,
 			config: config,
+			font: .systemFont(ofSize: 14),
 			callback: linkCallback ?? {}
 		)
 
