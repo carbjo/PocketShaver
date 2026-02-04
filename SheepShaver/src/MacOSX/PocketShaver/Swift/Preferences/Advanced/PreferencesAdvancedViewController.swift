@@ -21,6 +21,9 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 	private let model: PreferencesAdvancedModel
 
+	private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
+	private let hoverJustAboveOffsetFeedbackGenerator = UISelectionFeedbackGenerator()
+
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
 		model = .init(changeSubject: changeSubject)
 
@@ -143,7 +146,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		case .bootstrap:
 			return 1
 		case .resources:
-			return 3
+			return 5
 		}
 	}
 
@@ -154,7 +157,9 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return PreferencesAdvancedRamStepperCell(
 				initialRamSettting: model.ramSetting
 			) { [weak self] newValue in
-				self?.model.ramSetting = newValue
+				guard let self else { return }
+				model.ramSetting = newValue
+				feedbackGenerator.impactOccurred()
 			}
 		case .frameRateSetting:
 			switch indexPath.row {
@@ -162,7 +167,9 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				return PreferencesAdvancedFrameRateSettingCell(
 					initialFrameRateSetting: model.frameRateSetting
 				) { [weak self] newFrameRateSetting in
-					self?.model.frameRateSetting = newFrameRateSetting
+					guard let self else { return }
+					model.frameRateSetting = newFrameRateSetting
+					feedbackGenerator.impactOccurred()
 				}
 			case 1:
 				return PreferencesInformationCell(
@@ -186,7 +193,10 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				)
 			case 2:
 				return PreferencesAdvancedJustAboveOffsetSettingCell(
-					initialOffsetSetting: model.hoverJustAboveOffsetModifier
+					initialOffsetSetting: model.hoverJustAboveOffsetModifier,
+					isChangingValue: { [weak self] in
+						self?.hoverJustAboveOffsetFeedbackGenerator.selectionChanged()
+					}
 				) { [weak self] value in
 					self?.model.hoverJustAboveOffsetModifier = value
 				}
@@ -205,7 +215,9 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				return PreferencesAdvancedRelativeMouseModeSettingCell(
 					initialRelativeMouseModeSetting: model.relativeMouseModeSetting
 				) { [weak self] newFrameRateSetting in
-					self?.model.relativeMouseModeSetting = newFrameRateSetting
+					guard let self else { return }
+					model.relativeMouseModeSetting = newFrameRateSetting
+					feedbackGenerator.impactOccurred()
 				}
 			case 1:
 				let tagConfig = StringTagConfig(
@@ -243,7 +255,9 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			switch indexPath.row {
 			case 0:
 				return PreferencesAdvancedGammaRampSettingCell(initialGammaRampSetting: model.gammaRampSetting) { [weak self] newGammaRampSetting in
-					self?.model.gammaRampSetting = newGammaRampSetting
+					guard let self else { return }
+					model.gammaRampSetting = newGammaRampSetting
+					feedbackGenerator.impactOccurred()
 				}
 			case 1:
 				return PreferencesInformationCell(
@@ -270,8 +284,17 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				)
 			case 2:
 				return PreferencesAdvancedMiscellaneousCell(
+					title: "Two finger steering onboarding"
+				)
+			case 3:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Relative mouse mode onboarding"
+				)
+			case 4:
+				return PreferencesAdvancedMiscellaneousCell(
 					title: "Licenses"
 				)
+
 			default: fatalError()
 			}
 		}
@@ -302,6 +325,18 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 
 				present(navVC, animated: true)
 			case 2:
+				let vc = PreferencesTwoFingerSteeringOnboardingViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
+
+				present(navVC, animated: true)
+			case 3:
+				let vc = PreferencesRelativeMouseModeOnboardingViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
+
+				present(navVC, animated: true)
+			case 4:
 				let vc = PreferencesLicensesViewController()
 				let navVC = UINavigationController()
 				navVC.viewControllers = [vc]

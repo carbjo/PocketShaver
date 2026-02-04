@@ -295,13 +295,19 @@ class PreferencesAdvancedJustAboveOffsetSettingCell: UITableViewCell {
 		return label
 	}()
 
+	private var previousValue: Float
+	private var deltaSinceLastIsChangingValueCall: Float = 0
 
+	private let isChangingValue: (() -> Void)
 	private let didChangeValue: ((Float) -> Void)
 
 	init(
 		initialOffsetSetting: Float,
+		isChangingValue: @escaping (() -> Void),
 		didChangeValue: @escaping ((Float) -> Void)
 	) {
+		self.previousValue = initialOffsetSetting
+		self.isChangingValue = isChangingValue
 		self.didChangeValue = didChangeValue
 
 		super.init(style: .default, reuseIdentifier: nil)
@@ -345,6 +351,14 @@ class PreferencesAdvancedJustAboveOffsetSettingCell: UITableViewCell {
 	private func valueChanged() {
 		let percent = Int(slider.value * 100)
 		valueLabel.text = "\(percent)%"
+
+		let delta = slider.value - previousValue
+		previousValue = slider.value
+		deltaSinceLastIsChangingValueCall += delta
+		if abs(deltaSinceLastIsChangingValueCall) > 0.01 {
+			deltaSinceLastIsChangingValueCall = 0
+			isChangingValue()
+		}
 	}
 
 	@objc func didRelease() {

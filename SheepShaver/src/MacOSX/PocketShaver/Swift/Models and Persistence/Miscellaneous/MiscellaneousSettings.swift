@@ -80,7 +80,7 @@ class MiscellaneousSettings: Codable {
 		soundDisabled = false
 		fpsCounterEnabled = false
 		if UIScreen.supportsHighRefreshRate {
-			frameRateSetting = .f75hz
+			frameRateSetting = .f120hz
 		} else {
 			frameRateSetting = .f60hz
 		}
