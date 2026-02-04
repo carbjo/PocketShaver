@@ -18,7 +18,10 @@ class PreferencesRelativeMouseModeOnboardingCell: UITableViewCell {
 """
 <mark>What is relative mouse mode?</mark>
 
-When relative mouse mode is enabled, the input (touch or mouse) is no longer processed in terms of absolute position on the screen but rather only in relation to the previous mouse input value. This is necessary in some games and software where it must be possible to limitlessly steer with the mouse in a single direction, such as in 3D games.
+When relative mouse mode is enabled, the input (touch or mouse) is no longer processed in terms of absolute position on the screen but rather only in relation to the previous mouse input value. 
+
+This is necessary in some games and software where it must be possible to limitlessly steer with the mouse in a single direction, such as in 3D games.
+
 You will notice when software you are running is requiring relative mouse mode when steering the mouse does nothing unless relative mouse mode is toggled on.
 
 <mark>How do I toggle it on?</mark>
@@ -39,7 +42,7 @@ Some software can trigger relative mouse mode, even though the software itself d
 
 <mark>Can any software be run with relative mouse mode on?</mark>
 
-Yes. But it is not always the most convenient steering method. If the software does not require it, consider using Second finger steering, as an alternative.
+Yes. But it is not always the most convenient steering method. If the software does not require it, consider using Two finger finger steering, as an alternative.
 """.withTagsReplaced(
 	by: .init(
 		boldAppearance: .init(

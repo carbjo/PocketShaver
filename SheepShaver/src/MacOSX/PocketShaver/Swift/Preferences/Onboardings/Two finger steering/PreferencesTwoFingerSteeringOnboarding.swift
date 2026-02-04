@@ -22,9 +22,11 @@ class PreferencesTwoFingerSteeringOnboardingCell: UITableViewCell {
 		let diagonallyAboveSymbol = ImageResource.crossArrow.asSymbolImage()
 		label.attributedText =
 """
-<mark>How do I enable Two finger steering?</mark>
+<b>How do I enable Two finger steering?</b>
 
-Make sure that one of the four hover modes is enabled (only one can be enabled at a time). This can be done by either toggling one of them on via a Gamepad button, or if 'Boot in hover mode' is selected in Preferences General tab.
+Two finger steering can only be done in a hover mode, so make sure that one of the four hover modes is enabled (only one can be enabled at a time).
+
+This can be done by either toggling one of them on via a Gamepad button, or if 'Boot in hover mode' is selected in Preferences under General tab (this option is only visible if 'Second finger click' and 'Second finger swipe' is enabled).
 
 The four hover modes and their Gamepad icons are
 • Hover just above <img/><img/>
@@ -32,26 +34,31 @@ The four hover modes and their Gamepad icons are
 • Hover sideways <img/><img/>
 • Hover diagonally above <img/><img/>
 
-<mark>How do I use Two finger steering?</mark>
+<b>How do I use Two finger steering?</b>
 
 First, use one finger (which will be referred to it as the 'first finger') to move the position of the mouse. 
-Then, for clicking down or releasing the mouse button, a second finger is used. The second finger is only for pressing and releasing. Do not move the second finger to move the mouse, only the first finger.
+
+Then, for clicking down or releasing the mouse button, a second finger is used. The second finger is <mark>only</mark> for pressing and releasing. Do not move the second finger to move the mouse, only the first finger.
+
 It is strongly recommended to use your thumbs, on opposite sides of the screen, as first and second finger. Two finger steering is designed with that setup in mind.
 
-<mark>How do I reach all the areas of the screen with my cursor?</mark>
+<b>How do I reach all the areas of the screen with my cursor?</b>
 
-In addition to clicking, the second finger can also be quickly swiped, if Second finger swipe is enabled. This will change the cursors offset from the first finger.
-Since the 'sideways' and 'diagonally above' offset is in terms of which horizontal half of the screen the first finger is placed upon, this makes it possible to quickly swap between six different possible offset positions:
+In addition to clicking, if 'Second finger swipe' is enabled the second finger can also be quickly swiped to change the cursors offset from the first finger. In practice, this means switching between the four hover modes.
+
+Since the offset of 'sideways' and 'diagonally above' hover modes are in terms of which horizontal half of the screen the first finger is placed upon, this makes it possible to quickly swap between
 • Just above finger on left side (just above)
 • Near the top on left side (far above)
-• Near vertical middle and above horizontal middle of the screen (diagonally above)
-• Near vertical middle and above the bottom of the screen (sideways)
+• Near horizontal middle and above the vertical middle of the screen (diagonally above)
+• Near horizontal middle and above the bottom of the screen (sideways)
 • Just above finger on right side (just above)
 • Near the top on right side (far above)
 
-With these six possible offset positions, it should be quite easy to find one of them that can reach the cursor to the position you want, without obscuring the cursor itself with any of the two fingers. Going from one offset position to another never requires more than one second finger swipe, or switch between first finger (preferably thumb on left side, thumb on right side).
+With these six possible offset positions, it should be quite easy to find one of them that can reach the cursor to the position you want, without obscuring the cursor itself with any of the two fingers. 
 
-<mark>Can I drag something on the screen for a long distance / mark a large area?</mark>
+Going from one offset position to another never requires more than one second finger swipe, or switch between first finger (preferably thumb on left side, thumb on right side).
+
+<b>Can I drag something on the screen for a long distance / mark a large area?</b>
 
 Yes.
 
@@ -61,11 +68,11 @@ Yes.
 4. Release first finger (but keep second finger down), reposition and drag first finger again as many times as necessary.
 5. When done, release second finger.
 
-<mark>When using just above offset, the cursor is not 'just above' my finger. It is too far away or too near.</mark>
+<b>When using just above offset, the cursor is not 'just above' my finger. It is too far away or too near.</b>
 
-The vertical offset of just above can be adjusted in Preferences under Advanced tab.
+The vertical offset of 'just above' can be adjusted in Preferences under Advanced tab.
 
-<mark>I noticed the horizontal offset for Hover sideways and diagonally above are slightly lower than for just above and far above. Why is this?</mark>
+<b>I noticed the horizontal offset for Hover sideways and diagonally above are slightly lower than for just above and far above. Why is this?</b>
 
 This is intentional.
 • Diagonally above is slightly lower than far above to get the cursor near the middle of the screen, where often a lot of the interaction happens.
@@ -73,11 +80,11 @@ This is intentional.
 """.withTagsReplaced(
 	by: .init(
 		boldAppearance: .init(
-			font: .boldSystemFont(ofSize: 14),
+			font: .boldSystemFont(ofSize: 18),
 			color: Colors.primaryText
 		),
 		highlightedAppearance: .init(
-			font: .boldSystemFont(ofSize: 18),
+			font: .italicSystemFont(ofSize: 14),
 			color: Colors.primaryText
 		),
 		images: [

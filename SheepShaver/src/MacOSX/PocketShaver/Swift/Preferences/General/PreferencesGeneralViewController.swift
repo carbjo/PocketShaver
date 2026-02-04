@@ -33,6 +33,8 @@ class PreferencesGeneralViewController: UITableViewController {
 
 	private let model: PreferencesGeneralModel
 
+	private let segmentedControlFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
+
 	private var createDiskDialogueNamePhantomLabel: UILabel?
 	private var createDiskDialogueNameSuffixLabel: UILabel?
 	private var createDiskDialogueSizePhantomLabel: UILabel?
@@ -515,13 +517,16 @@ extension PreferencesGeneralViewController {
 			return PreferencesGeneralIPadMouseCell(
 				initialIPadMouseSetting: model.isIPadMouseEnabled
 			) { [weak self] newValue in
-				self?.set(isIPadMouseEnabled: newValue)
+				guard let self else { return }
+				set(isIPadMouseEnabled: newValue)
+				segmentedControlFeedbackGenerator.impactOccurred()
 			}
 		case .twoFingerSteering:
 			switch indexPath.row {
 			case 0:
 				return PreferencesInformationCell(
 					text: "Two finger steering is an alternative way to control the mouse without obscuring the cursor with your finger. Read the <link>onboarding</link> to get started.",
+					cellType: .introduction,
 					separatorHidden: false
 				) { [weak self] in
 					guard let self else { return }
@@ -572,7 +577,9 @@ extension PreferencesGeneralViewController {
 			switch indexPath.row {
 			case 0:
 				return PreferencesGeneralRightClickCell(initialRightClickSetting: model.rightClickSetting) { [weak self] newSetting in
-					self?.model.rightClickSetting = newSetting
+					guard let self else { return }
+					model.rightClickSetting = newSetting
+					segmentedControlFeedbackGenerator.impactOccurred()
 				}
 			case 1:
 				let text: String

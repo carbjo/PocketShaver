@@ -155,6 +155,8 @@
 		C79517E42F15449500CAEDBF /* RightClickObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79517E32F15449100CAEDBF /* RightClickObjC.mm */; };
 		C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79A69272E62040300F582A6 /* RomPathObjC.mm */; };
 		C7A9AB9A2EED61F2001EC4DB /* LocalNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */; };
+		C7B4E21A2F33962400246FBE /* Fonts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B4E2192F33962200246FBE /* Fonts.swift */; };
+		C7B4E21E2F33982800246FBE /* Fonts.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C7B4E21D2F33982800246FBE /* Fonts.xcassets */; };
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
 		C7BC1A642E2A84B2006F95CB /* MonitorResolutionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */; };
 		C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */; };
@@ -676,6 +678,8 @@
 		C79A69272E62040300F582A6 /* RomPathObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomPathObjC.mm; sourceTree = "<group>"; };
 		C79A69292E62043100F582A6 /* RomPathObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomPathObjC.h; sourceTree = "<group>"; };
 		C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotifications.swift; sourceTree = "<group>"; };
+		C7B4E2192F33962200246FBE /* Fonts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fonts.swift; sourceTree = "<group>"; };
+		C7B4E21D2F33982800246FBE /* Fonts.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Fonts.xcassets; sourceTree = "<group>"; };
 		C7B616CF2E9D374800483010 /* hfs-ios.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "hfs-ios.h"; sourceTree = "<group>"; };
 		C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldDelegate.swift; sourceTree = "<group>"; };
 		C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorResolutionManager.swift; sourceTree = "<group>"; };
@@ -1535,6 +1539,8 @@
 				E204B9A428BC7BF10081FDCA /* Assets.xcassets */,
 				C74B222B2ED767BC003D0F71 /* Colors.xcassets */,
 				C7699F142EC464930083B3B3 /* Colors.swift */,
+				C7B4E2192F33962200246FBE /* Fonts.swift */,
+				C7B4E21D2F33982800246FBE /* Fonts.xcassets */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -1991,6 +1997,7 @@
 			files = (
 				E204B9CE28BC7BF10081FDCA /* Assets.xcassets in Resources */,
 				E2F38C2328C470CC00FB98B4 /* Localizable.strings in Resources */,
+				C7B4E21E2F33982800246FBE /* Fonts.xcassets in Resources */,
 				E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */,
 				E204B92E28BC3EBE0081FDCA /* SheepShaver.icns in Resources */,
 				C74B222C2ED767BD003D0F71 /* Colors.xcassets in Resources */,
@@ -2237,6 +2244,7 @@
 				C7699F152EC464990083B3B3 /* Colors.swift in Sources */,
 				C7C3D26E2E76F3BC0018DB8B /* GamepadAssignButtonViewController.swift in Sources */,
 				C790E8742F055D5200B784A6 /* ADBObjC.mm in Sources */,
+				C7B4E21A2F33962400246FBE /* Fonts.swift in Sources */,
 				E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */,
 				C790E8772F055ECC00B784A6 /* InputInteractionModel.swift in Sources */,
 				C74E10982EABC8BB00150945 /* DiskROMExtractor.m in Sources */,

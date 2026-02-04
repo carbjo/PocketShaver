@@ -61,10 +61,16 @@ class PreferencesEnabledSettingCell: UITableViewCell {
 }
 
 class PreferencesInformationCell: UITableViewCell {
+	enum CellType {
+		case footer
+		case introduction
+	}
+
 	private let informationLabel: LinkLabel
 
 	init(
 		text: String,
+		cellType: CellType = .footer,
 		tagConfig: StringTagConfig? = nil,
 		separatorHidden: Bool = true,
 		linkCallback: (() -> Void)? = nil
@@ -92,7 +98,7 @@ class PreferencesInformationCell: UITableViewCell {
 
 		NSLayoutConstraint.activate([
 			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: cellType == .footer ? 8 : 16),
 			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
 			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
 		])
