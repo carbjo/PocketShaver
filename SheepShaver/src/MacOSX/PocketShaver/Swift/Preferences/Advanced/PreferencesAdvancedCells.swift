@@ -7,80 +7,6 @@
 
 import UIKit
 
-class PreferencesAdvancedBootstrapCell: UITableViewCell {
-	private lazy var containerView: UIView = {
-		let view = UIView.withoutConstraints()
-		view.layer.cornerRadius = 8
-		view.backgroundColor = Colors.informationCardBackground
-		return view
-	}()
-
-	private lazy var titleLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.font = .systemFont(ofSize: 15)
-		label.textColor = Colors.secondaryText
-		return label
-	}()
-
-	private lazy var selectInstallDiskFileButton: UIButton = {
-		let button = UIButton.withoutConstraints()
-		button.configuration = .primaryActionConfig
-		button.setTitle("Select Mac OS install disc file", for: .normal)
-		button.addTarget(self, action: #selector(selectInstallDiskFileButtonPushed), for: .touchUpInside)
-		return button
-	}()
-
-	private let didTapSelectInstallDiskButton: (() -> Void)
-
-	init(
-		romDescription: String,
-		didTapSelectInstallDiskButton: @escaping (() -> Void)
-	) {
-		self.didTapSelectInstallDiskButton = didTapSelectInstallDiskButton
-
-		super.init(style: .default, reuseIdentifier: nil)
-
-		hideSeparator()
-
-		contentView.addSubview(containerView)
-		containerView.addSubview(titleLabel)
-		containerView.addSubview(selectInstallDiskFileButton)
-
-		NSLayoutConstraint.activate([
-			titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
-			titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-
-
-			selectInstallDiskFileButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			selectInstallDiskFileButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-			selectInstallDiskFileButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-			selectInstallDiskFileButton.heightAnchor.constraint(equalToConstant: 44),
-			selectInstallDiskFileButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
-
-			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
-			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
-		])
-
-		configure(with: romDescription)
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
-
-	func configure(with romDescription: String) {
-		titleLabel.attributedText = "PocketShaver is bootstrapped by an install disc identified as belonging to category <b>\(romDescription)</b>. Tap 'Select Mac OS install disc' if you want to redo bootstrapping with another install disc."
-			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 15), color: Colors.primaryText)
-	}
-
-	@objc
-	private func selectInstallDiskFileButtonPushed() {
-		didTapSelectInstallDiskButton()
-	}
-}
-
 class PreferencesAdvancedRamStepperCell: UITableViewCell {
 	private lazy var stepper: UIStepper = {
 		let stepper = UIStepper.withoutConstraints()
@@ -267,43 +193,228 @@ class PreferencesAdvancedRelativeMouseModeSettingCell: UITableViewCell {
 	}
 }
 
-class PreferencesAdvancedRelativeMouseModeFooterCell: UITableViewCell {
-	private lazy var informationLabel: UILabel = {
+class PreferencesAdvancedBootstrapCell: UITableViewCell {
+	private lazy var containerView: UIView = {
+		let view = UIView.withoutConstraints()
+		view.layer.cornerRadius = 8
+		view.backgroundColor = Colors.informationCardBackground
+		return view
+	}()
+
+	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		label.font = .systemFont(ofSize: 14)
+		label.font = .systemFont(ofSize: 15)
 		label.textColor = Colors.secondaryText
 		return label
 	}()
 
-	init() {
+	private lazy var selectInstallDiskFileButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.configuration = .primaryActionConfig
+		button.setTitle("Select Mac OS install disc file", for: .normal)
+		button.addTarget(self, action: #selector(selectInstallDiskFileButtonPushed), for: .touchUpInside)
+		return button
+	}()
+
+	private let didTapSelectInstallDiskButton: (() -> Void)
+
+	init(
+		romDescription: String,
+		didTapSelectInstallDiskButton: @escaping (() -> Void)
+	) {
+		self.didTapSelectInstallDiskButton = didTapSelectInstallDiskButton
+
 		super.init(style: .default, reuseIdentifier: nil)
 
-		contentView.addSubview(informationLabel)
+		hideSeparator()
+
+		contentView.addSubview(containerView)
+		containerView.addSubview(titleLabel)
+		containerView.addSubview(selectInstallDiskFileButton)
 
 		NSLayoutConstraint.activate([
-			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
+			titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
+			titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+
+
+			selectInstallDiskFileButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			selectInstallDiskFileButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+			selectInstallDiskFileButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+			selectInstallDiskFileButton.heightAnchor.constraint(equalToConstant: 44),
+			selectInstallDiskFileButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
+
+			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
 		])
 
-		let attrString = NSMutableAttributedString()
-		attrString.append(.init(string: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the "))
-
-		let mouseIconAttachment = NSTextAttachment()
-		mouseIconAttachment.image = UIImage(resource: .computermouse)
-			.withRenderingMode(.alwaysTemplate)
-			.applyingSymbolConfiguration(.init(pointSize: 12))
-		attrString.append(.init(attachment: mouseIconAttachment))
-
-		attrString.append(.init(string: " button above the keyboard."))
-
-		informationLabel.attributedText = attrString
+		configure(with: romDescription)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
+
+	func configure(with romDescription: String) {
+		titleLabel.attributedText = "PocketShaver is bootstrapped by an install disc identified as belonging to category <b>\(romDescription)</b>. Tap 'Select Mac OS install disc' if you want to redo bootstrapping with another install disc."
+			.withTagsReplaced(by: .init(boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)))
+	}
+
+	@objc
+	private func selectInstallDiskFileButtonPushed() {
+		didTapSelectInstallDiskButton()
+	}
+}
+
+class PreferencesAdvancedJustAboveOffsetSettingCell: UITableViewCell {
+	private lazy var titleLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.lineBreakMode = .byWordWrapping
+		label.text = "Hover just above offset"
+		return label
+	}()
+
+	private lazy var slider: UISlider = {
+		let slider = UISlider.withoutConstraints()
+		slider.minimumValue = 0.5
+		slider.maximumValue = 1.5
+		slider.tintColor = .lightGray
+		return slider
+	}()
+
+	private lazy var valueLabel: UILabel = {
+		UILabel.withoutConstraints()
+	}()
+
+	private lazy var hiddenValueLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.text = "188%"
+		label.isHidden = true
+		return label
+	}()
+
+	private var previousValue: Float
+	private var deltaSinceLastIsChangingValueCall: Float = 0
+
+	private let isChangingValue: (() -> Void)
+	private let didChangeValue: ((Float) -> Void)
+
+	init(
+		initialOffsetSetting: Float,
+		isChangingValue: @escaping (() -> Void),
+		didChangeValue: @escaping ((Float) -> Void)
+	) {
+		self.previousValue = initialOffsetSetting
+		self.isChangingValue = isChangingValue
+		self.didChangeValue = didChangeValue
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		contentView.addSubview(titleLabel)
+		contentView.addSubview(slider)
+		contentView.addSubview(hiddenValueLabel)
+		contentView.addSubview(valueLabel)
+
+		NSLayoutConstraint.activate([
+			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+
+			slider.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			slider.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+
+			slider.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+			slider.widthAnchor.constraint(lessThanOrEqualToConstant: 350),
+
+			hiddenValueLabel.centerYAnchor.constraint(equalTo: slider.centerYAnchor),
+			hiddenValueLabel.leadingAnchor.constraint(equalTo: slider.trailingAnchor, constant: 8),
+			hiddenValueLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
+
+			valueLabel.centerYAnchor.constraint(equalTo: hiddenValueLabel.centerYAnchor),
+			valueLabel.trailingAnchor.constraint(equalTo: hiddenValueLabel.trailingAnchor)
+		])
+
+		slider.value = initialOffsetSetting
+
+		slider.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
+		slider.addTarget(self, action: #selector(didRelease), for: .touchUpInside)
+		slider.addTarget(self, action: #selector(didRelease), for: .touchUpOutside)
+		slider.addTarget(self, action: #selector(didRelease), for: .touchCancel)
+
+		valueChanged()
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	@objc
+	private func valueChanged() {
+		let percent = Int(slider.value * 100)
+		valueLabel.text = "\(percent)%"
+
+		let delta = slider.value - previousValue
+		previousValue = slider.value
+		deltaSinceLastIsChangingValueCall += delta
+		if abs(deltaSinceLastIsChangingValueCall) > 0.01 {
+			deltaSinceLastIsChangingValueCall = 0
+			isChangingValue()
+		}
+	}
+
+	@objc func didRelease() {
+		didChangeValue(slider.value)
+	}
+}
+
+class PreferencesAdvancedGammaRampSettingCell: UITableViewCell {
+	private lazy var segmentedControl: UISegmentedControl = {
+		let segmentedControl = UISegmentedControl.withoutConstraints()
+		for (index, tab) in GammaRampSetting.allCases.enumerated() {
+			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
+		}
+		segmentedControl.addTarget(self, action: #selector(tabSegmentedControlChanged), for: .valueChanged)
+		return segmentedControl
+	}()
+
+	private let didChangeSelection: ((GammaRampSetting) -> Void)
+
+	init(
+		initialGammaRampSetting: GammaRampSetting,
+		didChangeSelection: @escaping ((GammaRampSetting) -> Void)
+	) {
+		self.didChangeSelection = didChangeSelection
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		hideSeparator()
+
+		contentView.addSubview(segmentedControl)
+
+		NSLayoutConstraint.activate([
+			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
+			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
+		])
+
+		segmentedControl.selectedSegmentIndex = GammaRampSetting.allCases.enumerated().first(where: { initialGammaRampSetting == $1 })!.0
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	@objc private func tabSegmentedControlChanged() {
+		let index = segmentedControl.selectedSegmentIndex
+		let setting = GammaRampSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
+
+		didChangeSelection(setting)
+	}
+}
+
+extension PreferencesGeneralRamSetting {
+	var label: String {
+		"\(ramInMB) MB"
+	}
 }
 
 private extension FrameRateSetting {
@@ -322,6 +433,15 @@ private extension RelativeMouseModeSetting {
 		case .manual: return "Manual"
 		case .automatic: return "Automatic"
 		case .alwaysOn: return "Always on"
+		}
+	}
+}
+
+private extension GammaRampSetting {
+	var label: String {
+		switch self {
+		case .osDefined: return "OS defined"
+		case .linear: return "Linear"
 		}
 	}
 }

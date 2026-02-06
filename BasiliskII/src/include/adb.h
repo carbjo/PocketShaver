@@ -18,10 +18,18 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#import "HoverMode.h"
-
 #ifndef ADB_H
 #define ADB_H
+
+#ifdef __cplusplus
+extern "C"
+#endif
+struct BeginAnimationState {
+    int x;
+    int y;
+
+    BeginAnimationState(int, int);
+};
 
 extern void ADBInit(void);
 extern void ADBExit(void);
@@ -37,14 +45,21 @@ extern void ADBKeyUp(int code);
 
 extern void ADBWriteMouseDown(int button);
 extern void ADBWriteMouseUp(int button);
+extern void ADBMouseClick(int button);
 
 extern void ADBInterrupt(void);
 
+extern void ADBConfigure(int new_screen_middle_x, int new_double_click_mouse_move_tolerance);
 extern void ADBSetRelMouseMode(bool relative);
 extern void ADBSetTouchInput(bool is_on);
-extern void ADBSetHover(bool is_on);
-extern void ADBSetHoverMode(HoverMode mode);
-extern void ADBSetHapticFeedback(bool is_on);
-extern void ADBSetMouseMoveTolerance(int new_double_click_mouse_move_tolerance);
+extern bool ADBHoversOnMouseDown();
+extern bool ADBHoverGestureStartWasLeftSide();
+extern void ADBEnableHoverModeWith(int offset_x_inp, int offset_y_inp);
+extern void ADBDisableHoverMode();
+
+extern BeginAnimationState ADBStartAnimation();
+extern void ADBAnimateMove(int x, int y);
+extern void ADBEndAnimation();
+extern void ADBSetHoverGestureDragging(bool is_on);
 
 #endif

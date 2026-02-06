@@ -9,13 +9,9 @@ import UIKit
 
 class HiddenInputField: UITextField {
 	init(
-		pushKey: @escaping ((Int) -> Void),
-		releaseKey: @escaping ((Int) -> Void),
-		canToggleRelativeMouseMode: Bool,
-		isRelativeMouseModeEnabled: Bool,
-		didTapRelativeMouseModeButton: @escaping (() -> Void),
+		inputInteractionModel: InputInteractionModel,
 		didTapPreferencesButton: @escaping (() -> Void),
-		didTapDismissKeyboardButton: (() -> Void)?,
+		didTapDismissKeyboardButton: @escaping (() -> Void),
 		hiddenInputFieldDelegate: HiddenInputFieldDelegate
 	) {
 		super.init(frame: .zero)
@@ -26,13 +22,8 @@ class HiddenInputField: UITextField {
 		autocorrectionType = .no
 		spellCheckingType = .no
 		delegate = hiddenInputFieldDelegate
-		let accessoryView = HiddenInputFieldKeyboardAccessoryView.withoutConstraints()
-		accessoryView.configure(
-			pushKey: pushKey,
-			releaseKey: releaseKey,
-			canToggleRelativeMouseMode: canToggleRelativeMouseMode,
-			isRelativeMouseModeEnabled: isRelativeMouseModeEnabled,
-			didTapRelativeMouseModeButton: didTapRelativeMouseModeButton,
+		let accessoryView = HiddenInputFieldKeyboardAccessoryView(
+			inputInteractionModel: inputInteractionModel,
 			didTapPreferencesButton: didTapPreferencesButton,
 			didTapDismissKeyboardButton: didTapDismissKeyboardButton
 		)
@@ -40,18 +31,4 @@ class HiddenInputField: UITextField {
 	}
 	
 	required init?(coder: NSCoder) { fatalError() }
-
-	func configure(canToggleRelativeMouseMode: Bool) {
-		guard let inputAccessoryView = inputAccessoryView as? HiddenInputFieldKeyboardAccessoryView else {
-			return
-		}
-		inputAccessoryView.configure(canToggleRelativeMouseMode: canToggleRelativeMouseMode)
-	}
-
-	func configure(isRelativeMouseModeEnabled: Bool) {
-		guard let inputAccessoryView = inputAccessoryView as? HiddenInputFieldKeyboardAccessoryView else {
-			return
-		}
-		inputAccessoryView.configure(isRelativeMouseModeEnabled: isRelativeMouseModeEnabled)
-	}
 }

@@ -56,6 +56,7 @@ class InformationView: UIVisualEffectView {
 		let blurEffect = UIBlurEffect(style: .systemUltraThinMaterial)
 		super.init(effect: blurEffect)
 
+		isUserInteractionEnabled = false
 		backgroundColor = .clear
 		clipsToBounds = true
 		layer.cornerRadius = 8
@@ -97,7 +98,7 @@ class InformationView: UIVisualEffectView {
 		}
 
 		if let hintIcon {
-			hintIconImageView.image = .init(resource: hintIcon).applyingSymbolConfiguration(.init(pointSize: 12))
+			hintIconImageView.image = hintIcon.asSymbolImage()
 			hintIconImageView.isHidden = false
 		} else {
 			hintIconImageView.isHidden = true
@@ -172,10 +173,8 @@ class InformationView: UIVisualEffectView {
 				attrString.append(.init(string: "Two finger swipe ↑ or ↓ to scroll screen\nTap "))
 
 				let keyboardDownIconAttachment = NSTextAttachment()
-				keyboardDownIconAttachment.image = UIImage(resource:.keyboardChevronCompactDown)
-					.withRenderingMode(.alwaysTemplate)
-					.applyingSymbolConfiguration(.init(pointSize: 12))
-
+				keyboardDownIconAttachment.image = ImageResource.keyboardChevronCompactDown.asSymbolImage()
+				
 				attrString.append(.init(attachment: keyboardDownIconAttachment))
 
 				attrString.append(.init(string: " to dismiss."))

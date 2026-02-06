@@ -14,8 +14,15 @@ class GestureInputView: UIView {
 		case threeFingers
 	}
 
+	enum TwoFingerGestureFingerRelease {
+		case firstFinger
+		case secondFinger
+		case both
+	}
+
 	private var touchDictionary = [UITouch: CGPoint]()
 	private var draggingMode: DraggingMode = .none
+	private var secondFingerTouch: UITouch?
 	private var state: OverlayState
 
 	var isDragging: Bool {
@@ -23,11 +30,13 @@ class GestureInputView: UIView {
 	}
 
 	var reportTwoFingerDragProgress: ((CGFloat) -> Void)?
-
 	var reportThreeFingerDragProgress: ((CGVector) -> Void)?
+	var reportSecondFingerDragProgress: ((CGVector) -> Void)?
 	var didBeginThreeFingerGesture: (() -> Void)?
 	var didReleaseThreeFingerGesture: (() -> Void)?
-
+	var didBeginTwoFingerGesture: (() -> Void)?
+	var didReleaseTwoFingerGesture: (() -> Void)?
+	var didReleaseOneFingerDuringTwoFingerGesture: ((TwoFingerGestureFingerRelease) -> Void)?
 
 	init(state: OverlayState) {
 		self.state = state
@@ -45,6 +54,11 @@ class GestureInputView: UIView {
 			super.touchesBegan(touches, with: event)
 		}
 
+		if touchDictionary.count == 1,
+		   secondFingerTouch == nil {
+			secondFingerTouch = Array(touches).first!
+		}
+
 		for touch in touches {
 			touchDictionary[touch] = touch.location(in: self)
 		}
@@ -52,14 +66,26 @@ class GestureInputView: UIView {
 		if touchDictionary.count >= 3 {
 			draggingMode = .threeFingers
 			didBeginThreeFingerGesture?()
-		} else if state == .showingKeyboard,
-				  touchDictionary.count >= 2 {
+		} else if touchDictionary.count >= 2 {
 			draggingMode = .twoFingers
+			didBeginTwoFingerGesture?()
 		 }
 	}
 
 	override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
 		super.touchesMoved(touches, with: event)
+
+		if let secondFingerTouch,
+		   let prevSecondFingerPos = touchDictionary[secondFingerTouch] {
+			let newSecondFingerPos = secondFingerTouch.location(in: self)
+			let secondFingerTouchDelta = CGVector(
+				dx: newSecondFingerPos.x - prevSecondFingerPos.x,
+				dy: newSecondFingerPos.y - prevSecondFingerPos.y
+			)
+			if secondFingerTouchDelta != .zero {
+				reportSecondFingerDragProgress?(secondFingerTouchDelta)
+			}
+		}
 
 		if draggingMode != .none {
 			var totalDeltaXUp: CGFloat = 0
@@ -88,7 +114,6 @@ class GestureInputView: UIView {
 					totalDeltaYDown = max(deltaY, totalDeltaYDown)
 				}
 
-
 				touchDictionary[touch] = .init(x: newXPos, y: newYPos)
 			}
 			
@@ -112,11 +137,32 @@ class GestureInputView: UIView {
 		for touch in touches {
 			touchDictionary[touch] = nil
 		}
+
+		if draggingMode == .twoFingers {
+			let fingerRelease: TwoFingerGestureFingerRelease
+			if touches.count > 1 || touchDictionary.isEmpty {
+				fingerRelease = .both
+			} else if touches.first == secondFingerTouch {
+				fingerRelease = .secondFinger
+			} else {
+				fingerRelease = .firstFinger
+			}
+			didReleaseOneFingerDuringTwoFingerGesture?(fingerRelease)
+		}
+
+		if (secondFingerTouch != nil && touches.contains(secondFingerTouch!)) || touchDictionary.isEmpty {
+			self.secondFingerTouch = nil
+		}
+
 		if touchDictionary.isEmpty {
-			let wasThreeFingerDragging = draggingMode == .threeFingers
+			let draggingModeAtRelease = draggingMode
 			draggingMode = .none
-			if wasThreeFingerDragging {
+			switch draggingModeAtRelease {
+			case .threeFingers:
 				didReleaseThreeFingerGesture?()
+			case .twoFingers:
+				didReleaseTwoFingerGesture?()
+			default: break
 			}
 		}
 	}
@@ -126,6 +172,9 @@ class GestureInputView: UIView {
 		
 		for touch in touches {
 			touchDictionary[touch] = nil
+		}
+		if touchDictionary.count <= 1 {
+			secondFingerTouch = nil
 		}
 		if touchDictionary.isEmpty {
 			let wasThreeFingerDragging = draggingMode == .threeFingers

@@ -11,16 +11,6 @@ import Combine
 class PreferencesAdvancedModel {
 	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
 
-	@MainActor
-	var hasRomFile: Bool {
-		RomManager.shared.hasRomFile
-	}
-
-	@MainActor
-	var currentRomFileDescription: String? {
-		RomManager.shared.currentRomFileVersion?.description
-	}
-
 	var ramSetting: PreferencesGeneralRamSetting {
 		get {
 			PreferencesGeneralRamSetting.current
@@ -67,6 +57,16 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
+	var hoverJustAboveOffsetModifier: Float {
+		get {
+			MiscellaneousSettings.current.hoverJustAboveOffsetModifier
+		}
+		set {
+			MiscellaneousSettings.current.set(hoverJustAboveOffsetModifier: newValue)
+		}
+	}
+
+	@MainActor
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		MiscellaneousSettings.current.shouldDisplayAlwaysLandscapeModeOption
 	}
@@ -98,6 +98,26 @@ class PreferencesAdvancedModel {
 		}
 		set {
 			MiscellaneousSettings.current.set(relativeMouseTapToClick: newValue)
+		}
+	}
+
+	@MainActor
+	var hasRomFile: Bool {
+		RomManager.shared.hasRomFile
+	}
+
+	@MainActor
+	var currentRomFileDescription: String? {
+		RomManager.shared.currentRomFileVersion?.description
+	}
+
+	@MainActor
+	var gammaRampSetting: GammaRampSetting {
+		get {
+			MiscellaneousSettings.current.gammaRampSetting
+		}
+		set {
+			MiscellaneousSettings.current.set(gammaRampSetting: newValue)
 		}
 	}
 
@@ -133,10 +153,6 @@ extension PreferencesGeneralRamSetting {
 		case .n256: 256
 		case .n512: 512
 		}
-	}
-
-	var label: String {
-		"\(ramInMB) MB"
 	}
 
 	init(ramInMB: Int) {

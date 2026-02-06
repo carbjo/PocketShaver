@@ -19,24 +19,21 @@ public class RamAllocFailedAlertViewController: UIViewController {
 		}
 	}
 
+	@MainActor
 	private func presentAlertVC() async {
-		do {
-			try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])
-			let alertVC = createAlertVC()
-			present(alertVC, animated: true)
-		} catch {
-			print("- presentAlertVC \(error)")
-		}
-	}
-
-	private func createAlertVC() -> UIAlertController {
 		let sizeString = PreferencesGeneralRamSetting.current.label
 
 		let canLowerRam = PreferencesGeneralRamSetting.current == .n256 || PreferencesGeneralRamSetting.current == .n512
 
+		let notificationAuthorizationStatus = await getNotificationAuthorizationStatus()
+		let shouldRequestNotificationAuthorization = notificationAuthorizationStatus == .notDetermined
+
 		var message = "The request for allocating \(sizeString) of RAM memory failed. PocketShaver needs to restart.\n\nUsually, one or two restarts will result in the operating system granting the RAM allocation."
 		if canLowerRam {
-			message += "\n If not, consider lowering the amount of RAM in the settings."
+			message += "\nIf not, consider lowering the amount of RAM in the settings."
+		}
+		if shouldRequestNotificationAuthorization {
+			message += "\n\nPocketShaver will now ask for notification permission. If granted, a notification is displayed that makes restarting the app a bit easier."
 		}
 
 		var primaryActionTitle = "Restart"
@@ -52,6 +49,13 @@ public class RamAllocFailedAlertViewController: UIViewController {
 
 		alertVC.addAction(.init(title: primaryActionTitle, style: .default, handler: { _ in
 			Task { @MainActor in
+				if shouldRequestNotificationAuthorization {
+					do {
+						try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])
+					} catch {
+						print("- presentAlertVC \(error)")
+					}
+				}
 				await UNUserNotificationCenter.current().scheduleRebootNotificationAndQuit()
 			}
 		}))
@@ -59,6 +63,14 @@ public class RamAllocFailedAlertViewController: UIViewController {
 		if canLowerRam {
 			alertVC.addAction(.init(title: "Lower RAM and restart", style: .destructive, handler: { _ in
 				Task { @MainActor in
+					if shouldRequestNotificationAuthorization {
+						do {
+							try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])
+						} catch {
+							print("- presentAlertVC \(error)")
+						}
+					}
+
 					PreferencesGeneralRamSetting.current = .n128
 					PreferencesManager.shared.writePreferences()
 					await UNUserNotificationCenter.current().scheduleRebootNotificationAndQuit()
@@ -66,8 +78,14 @@ public class RamAllocFailedAlertViewController: UIViewController {
 			}))
 		}
 
-		return alertVC
+		present(alertVC, animated: true)
 	}
+
+	nonisolated func getNotificationAuthorizationStatus() async -> UNAuthorizationStatus {
+			await UNUserNotificationCenter.current()
+				.notificationSettings()
+				.authorizationStatus
+		}
 
 	@objc public static func present() {
 		let vc = RamAllocFailedAlertViewController()

@@ -220,7 +220,7 @@ static bool allocate_gamma_table(VidLocals *csSave, uint32 size)
 
 static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 {
-	if (gamma == 0) { // Build linear ramp, 256 entries
+	if (gamma == 0 || objc_getIsLinearGammaEnabled()) { // Build linear ramp, 256 entries
 
 		// Allocate new table, if necessary
 		if (!allocate_gamma_table(csSave, SIZEOF_GammaTbl + 256))

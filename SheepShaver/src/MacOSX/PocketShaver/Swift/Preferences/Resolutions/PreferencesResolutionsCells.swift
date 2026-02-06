@@ -61,7 +61,7 @@ class PreferencesResolutionsInformationCell: UITableViewCell {
 		}
 
 		titleLabel.attributedText = "This list controls what monitor resolutions are available to Mac OS. Changing active resolution is still done with Monitors app, inside Mac OS.\n\n• \(orientationString)\n\n• When booting from an installation CD, the operating system will always pick the highest possible resolution, without any possibility of changing it.\n\n• Mac OS allows a maximum number of \(maxNumberOfSimultaniousResolutions) monitor resolutions to be available simultaniously. Current number of selected resolutions: <b>\(currentMonitorResolutionCount)</b>"
-			.withBoldTagsReplacedWith(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)
+			.withTagsReplaced(by: .init(boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)))
 	}
 }
 

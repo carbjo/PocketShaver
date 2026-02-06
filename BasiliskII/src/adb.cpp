@@ -34,6 +34,7 @@
 #include "video.h"
 #include "adb.h"
 #include "utils_ios.h"
+#include "math.h"
 
 #ifdef POWERPC_ROM
 #include "thunks.h"
@@ -46,8 +47,9 @@
 #include <cmath>
 #include <ctime>
 
-#import "HapticFeedbackObjC.h"
+#import "MouseHapticFeedbackObjCCppHeader.h"
 #import "MiscellaneousSettingsObjCCppHeader.h"
+#import "RightClickObjCCppHeader.h"
 
 // Global variables
 static int mouse_x = 0, mouse_y = 0;							// Mouse position
@@ -57,10 +59,15 @@ static bool mouse_button[3] = {false, false, false};			// Mouse button states
 static bool old_mouse_button[3] = {false, false, false};
 static bool relative_mouse = false;
 static bool touch_input = false;
-static bool hover = false;
-static HoverMode hover_mode = Regular;
+static int screen_middle_x = 0;
+static bool hover_mode = false;
+static int offset_x = 0;
+static int offset_y = 0;
 static bool mouse_down = false;
-static bool haptic_feedback = false;
+static bool hover_gesture_start_side_determination_requested = false;
+static bool hover_gesture_start_was_left_side = false;
+static bool is_animating = false;
+static bool is_hover_gesture_dragging = false;
 
 static uint8 key_states[16];				// Key states (Mac keycodes)
 #define MATRIX(code) (key_states[code >> 3] & (1 << (~code & 7)))
@@ -86,7 +93,15 @@ static uint8 m_keyboard_type = 0x05;
 static B2_mutex *mouse_lock;
 
 static time_t latest_mouse_down_time;
+static time_t relative_mouse_mode_off_time;
+
+// tolernace used to determine wheather to move mouse or not during	potential double click event
 static int double_click_mouse_move_tolerance = 10;
+
+BeginAnimationState::BeginAnimationState(int inp_x, int inp_y) {
+	x = inp_x;
+	y = inp_y;
+}
 
 
 /*
@@ -131,12 +146,6 @@ void ADBOp(uint8 op, uint8 *data)
 		key_reg_3[0] = 0x62;
 		key_reg_3[1] = m_keyboard_type;
 		return;
-	}
-
-	if (op == 0x3e) {
-		// Relative position device registered in this video mode.
-		// See 5-12 in Inside Macintosh: Devices, chapter 5 "ADB Manager".
-		report_relative_mouse_capability();
 	}
 
 	// Cut op into fields
@@ -185,6 +194,13 @@ void ADBOp(uint8 op, uint8 *data)
 				default:
 					data[0] = 0;
 					break;
+			}
+
+			if (reg == 2) {
+				// Relative position device registered in this video mode.
+				// See 5-12 in Inside Macintosh: Devices, chapter 5 "ADB Manager".
+				report_relative_mouse_capability(); // video_sdl2
+				objc_reportRelativeMouseModeCapability(); // Obj-C layer
 			}
 		}
 		D(bug(" mouse reg 3 %02x%02x\n", mouse_reg_3[0], mouse_reg_3[1]));
@@ -253,6 +269,25 @@ void ADBOp(uint8 op, uint8 *data)
 			data[0] = 0;								// Talk: 0 bytes of data
 }
 
+int getXOffset(int x) {
+	if (!touch_input) {
+		return 0;
+	}
+	if (hover_gesture_start_was_left_side) {
+		return offset_x;
+	}
+
+	return -offset_x;
+}
+
+int getYOffset()
+{
+	if (!touch_input) {
+		return 0;
+	}
+	return offset_y;
+}
+
 
 /*
  *  Mouse was moved (x/y are absolute or relative, depending on ADBSetRelMouseMode())
@@ -260,6 +295,10 @@ void ADBOp(uint8 op, uint8 *data)
 
 void ADBMouseMoved(int x, int y)
 {
+	if (is_animating) {
+		return;
+	}
+
 	B2_lock_mutex(mouse_lock);
 	if (relative_mouse) {
 		mouse_x += x; mouse_y += y;
@@ -267,7 +306,7 @@ void ADBMouseMoved(int x, int y)
 	} else {
 		if (touch_input &&
 			!mouse_down &&
-			!hover &&
+			!hover_mode &&
 			abs(mouse_x - x) <= double_click_mouse_move_tolerance &&
 			abs(mouse_y - y) <= double_click_mouse_move_tolerance) {
 			time_t now;
@@ -280,16 +319,17 @@ void ADBMouseMoved(int x, int y)
 			}
 		}
 
-		int offset = 0;
-		if (hover) {
-			if (hover_mode == Above) {
-				offset = -70;
-			} else if (hover_mode == Below)  {
-				offset = 70;
+		bool wasLargeHorizontalJump = abs(x + getXOffset(x) - mouse_x) > 240;
+
+		if (hover_gesture_start_side_determination_requested || wasLargeHorizontalJump) {
+			if (hover_gesture_start_side_determination_requested) {
+				hover_gesture_start_side_determination_requested = false;
 			}
+
+			hover_gesture_start_was_left_side = (x < screen_middle_x);
 		}
 
-		mouse_x = x; mouse_y = y + offset;
+		mouse_x = x + getXOffset(x); mouse_y = y + getYOffset();
 	}
 	B2_unlock_mutex(mouse_lock);
 	SetInterruptFlag(INTFLAG_ADB);
@@ -327,12 +367,21 @@ void ADBWriteMouseDown(int button) {
 
 void ADBMouseDown(int button)
 {
-	if (hover)
+	if (is_hover_gesture_dragging) {
 		return;
+	}
 
-	if (haptic_feedback &&
-		(!relative_mouse || objc_getRelativeMouseTapToClick()))
-		objc_hapticFeedback();
+	if (button != 0) {
+		return;
+	}
+
+	if (touch_input && hover_mode) {
+		hover_gesture_start_side_determination_requested = true;
+		return;
+	}
+
+	if (!relative_mouse || objc_getRelativeMouseTapToClick())
+		objc_mousedownHapticFeedback();
 
 	if (touch_input)
 		usleep(20000); // To eliminate the simultanious "move mouse and click" race condition
@@ -356,6 +405,8 @@ void ADBWriteMouseUp(int button) {
 	// O2S: mouse_button[button] = false;
 	SetInterruptFlag(INTFLAG_ADB);
 	TriggerInterrupt();
+
+	mouse_down = false;
 }
 
 
@@ -365,6 +416,15 @@ void ADBWriteMouseUp(int button) {
 
 void ADBMouseUp(int button)
 {
+	if (is_hover_gesture_dragging) {
+		return;
+	}
+
+	if (button != 0) {
+		objc_performRightClick();
+		return;
+	}
+
 	if (touch_input)
 		usleep(20000); // To eliminate the simultanious "move mouse and click" race condition
 
@@ -390,6 +450,10 @@ void ADBMouseUp(int button)
 	mouse_down = false;
 }
 
+void ADBConfigure(int new_screen_middle_x, int new_double_click_mouse_move_tolerance) {
+	screen_middle_x = new_screen_middle_x;
+	double_click_mouse_move_tolerance = new_double_click_mouse_move_tolerance;
+}
 
 /*
  *  Set mouse mode (absolute or relative)
@@ -401,48 +465,40 @@ void ADBSetRelMouseMode(bool relative)
 		relative_mouse = relative;
 		mouse_x = mouse_y = 0;
     }
+	if (!relative){
+		time(&relative_mouse_mode_off_time);
+	}
 }
 
-/*
- * Set touch input on or off
- */
 void ADBSetTouchInput(bool is_on) {
 	touch_input = is_on;
 }
 
-/*
- *  Set mouse mode (absolute or relative)
- */
+void ADBEnableHoverModeWith(int offset_x_inp, int offset_y_inp) {
+	hover_mode = true;
+	offset_x = offset_x_inp;
+	offset_y = offset_y_inp;
 
-void ADBSetHover(bool is_on)
-{
-	hover = is_on;
+	if (mouse_down) {
+		ADBMouseUp(0);
+	}
 }
 
-/*
- *  Set mouse mode (absolute or relative)
- */
-
-void ADBSetHoverMode(HoverMode mode)
-{
-	hover_mode = mode;
+void ADBDisableHoverMode() {
+	hover_mode = false;
+	offset_x = 0;
+	offset_y = 0;
 }
 
-/*
- *  Set haptic feedback on or off
- */
-void ADBSetHapticFeedback(bool is_on)
-{
-	haptic_feedback = is_on;
+bool ADBHoversOnMouseDown() {
+	if (!touch_input) {
+		return false;
+	}
+	return (relative_mouse || hover_mode);
 }
 
-/*
- *  Set tolernace used to determine wheather to move mouse or not during
- * 	potential double click event.
- */
-void ADBSetMouseMoveTolerance(int new_double_click_mouse_move_tolerance)
-{
-	double_click_mouse_move_tolerance = new_double_click_mouse_move_tolerance;
+bool ADBHoverGestureStartWasLeftSide() {
+	return hover_gesture_start_was_left_side;
 }
 
 /*
@@ -482,6 +538,33 @@ void ADBKeyUp(int code)
 	TriggerInterrupt();
 }
 
+BeginAnimationState ADBStartAnimation() {
+	is_animating = true;
+	return BeginAnimationState(mouse_x, mouse_y);
+}
+
+void ADBAnimateMove(int x, int y) {
+	if (!is_animating) {
+		return;
+	}
+
+	B2_lock_mutex(mouse_lock);
+
+	mouse_x = x;
+	mouse_y = y;
+
+	B2_unlock_mutex(mouse_lock);
+	SetInterruptFlag(INTFLAG_ADB);
+	TriggerInterrupt();
+}
+
+void ADBEndAnimation() {
+	is_animating = false;
+}
+
+void ADBSetHoverGestureDragging(bool is_on) {
+	is_hover_gesture_dragging = is_on;
+}
 
 /*
  *  ADB interrupt function (executed as part of 60Hz interrupt)
@@ -508,7 +591,17 @@ void ADBInterrupt(void)
 	uint32 key_base = adb_base + 4;
 	uint32 mouse_base = adb_base + 16;
 
-	if (relative_mouse) {
+	bool relate_mouse_mode_off_safeguard = false;
+	if (mx == 0 &&
+		my == 0) {
+		time_t now;
+		time(&now);
+		if (difftime(now, relative_mouse_mode_off_time) < 0.5) {
+			relate_mouse_mode_off_safeguard = true;
+		}
+	}
+
+	if (relative_mouse || relate_mouse_mode_off_safeguard) {
         while (mx != 0 || my != 0 || button_read_ptr != button_write_ptr) {
             if (button_read_ptr != button_write_ptr) {
                 // Read button event
@@ -544,7 +637,6 @@ void ADBInterrupt(void)
         }
 
 	} else {
-
 		// Update mouse position (absolute)
 		if (mx != old_mouse_x || my != old_mouse_y) {
 #ifdef POWERPC_ROM
