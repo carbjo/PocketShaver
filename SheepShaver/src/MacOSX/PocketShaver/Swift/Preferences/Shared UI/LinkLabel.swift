@@ -8,17 +8,15 @@
 import UIKit
 
 class LinkLabel: UIView {
-	private lazy var label: UILabel = {
+	private(set) lazy var label: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
-		label.font = .systemFont(ofSize: 14)
-		label.textColor = Colors.secondaryText
 		return label
 	}()
 
-	private let text: String
-	private let linkRange: Range<String.Index>
+	private let plaintext: String
+	private let linkRange: Range<String.Index>?
 	private let nonHighlightedString: NSAttributedString
 	private let highlightedString: NSAttributedString
 	private let callback: (() -> Void)
@@ -27,16 +25,32 @@ class LinkLabel: UIView {
 
 	init(
 		text: String,
-		linkRange: Range<String.Index>,
+		config: StringTagConfig,
+		font: UIFont = .systemFont(ofSize: 14),
+		textColor: UIColor = Colors.secondaryText,
 		callback: @escaping (() -> Void)
 	) {
-		self.text = text
-		self.linkRange = linkRange
-		nonHighlightedString = Self.attributedString(text: text, linkRange: linkRange, withHighlight: false)
-		highlightedString = Self.attributedString(text: text, linkRange: linkRange, withHighlight: true)
 		self.callback = callback
 
+		(self.linkRange, self.plaintext) = Self.getLinkRangeAndCleanString(text)
+
+		nonHighlightedString = Self.attributedString(
+			text: text,
+			config: config,
+			regularFont: font,
+			withHighlight: false
+		)
+		highlightedString = Self.attributedString(
+			text: text,
+			config: config,
+			regularFont: font,
+			withHighlight: true
+		)
+
 		super.init(frame: .zero)
+
+		label.font = font
+		label.textColor = textColor
 
 		addSubview(label)
 
@@ -48,6 +62,8 @@ class LinkLabel: UIView {
 		])
 
 		label.attributedText = nonHighlightedString
+
+		translatesAutoresizingMaskIntoConstraints = false
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
@@ -105,7 +121,11 @@ class LinkLabel: UIView {
 	}
 
 	private func isInsideLinkArea(_ point: CGPoint) -> Bool {
-		let nsRange = NSRange(linkRange, in: text)
+		guard let linkRange else {
+			return false
+		}
+		
+		let nsRange = NSRange(linkRange, in: plaintext)
 		guard let frame = label.boundingRect(forCharacterRange: nsRange) else {
 			return false
 		}
@@ -113,51 +133,62 @@ class LinkLabel: UIView {
 		return frame.contains(point)
 	}
 
+	private static func getLinkRangeAndCleanString(_ string: String) -> (Range<String.Index>?, String) {
+		var workString = string
+		workString = workString.replacingOccurrences(of: "<b>", with: "")
+		workString = workString.replacingOccurrences(of: "</b>", with: "")
+		workString = workString.replacingOccurrences(of: "<mark>", with: "")
+		workString = workString.replacingOccurrences(of: "</mark>", with: "")
+		workString = workString.replacingOccurrences(of: StringTagConfig.imageTagRegex, with: " ", options: .regularExpression)
+
+		var range: Range<String.Index>?
+		if let lowerBound = workString.range(of: "<link>")?.lowerBound {
+			workString = workString.replacingOccurrences(of: "<link>", with: "")
+			let upperBound = workString.range(of: "</link>")!.lowerBound
+			workString = workString.replacingOccurrences(of: "</link>", with: "")
+			range = lowerBound..<upperBound
+		}
+
+		return (range, workString)
+	}
+
 	private static func attributedString(
 		text: String,
-		linkRange: Range<String.Index>,
+		config: StringTagConfig,
+		regularFont: UIFont,
 		withHighlight: Bool
 	) -> NSAttributedString {
-		let attrString = NSMutableAttributedString()
+		let tagConvertedText: String
+		if withHighlight {
+			var text = text
 
-		let prefix = String(text[text.startIndex..<linkRange.lowerBound])
-		let boldPart = String(text[linkRange.lowerBound..<linkRange.upperBound])
-		let postfix = String(text[linkRange.upperBound..<text.endIndex])
+			if  let beginTagRange = text.range(of: "<link>"),
+				let endTagRange = text.range(of: "</link>") {
+				text = text
+					.replacingOccurrences(of: "<img", with: "<imgmark", range: beginTagRange.upperBound..<endTagRange.lowerBound)
+			}
 
-		attrString.append(
-			.init(
-				string: prefix,
-				attributes: [
-					.font: UIFont.systemFont(ofSize: 14),
-				]
-			)
-		)
-		attrString.append(
-			.init(
-				string: boldPart,
-				attributes: [
-					.font: UIFont.boldSystemFont(ofSize: 14),
-					.foregroundColor: withHighlight ? Colors.highlightedText : Colors.primaryText
-				]
-			)
-		)
-		attrString.append(
-			.init(
-				string: postfix,
-				attributes: [
-					.font: UIFont.systemFont(ofSize: 14),
-				]
-			)
-		)
+			tagConvertedText = text
+				.replacingOccurrences(of: "<link>", with: "<mark>")
+				.replacingOccurrences(of: "</link>", with: "</mark>")
+		} else {
+			tagConvertedText = text
+				.replacingOccurrences(of: "<link>", with: "<b>")
+				.replacingOccurrences(of: "</link>", with: "</b>")
+		}
 
-		return attrString
+		return tagConvertedText.withTagsReplaced(
+			by: config,
+			regularFont: regularFont
+		)
 	}
 }
 
 private extension UILabel {
 	func boundingRect(forCharacterRange range: NSRange) -> CGRect? {
-
-		guard let attributedText = attributedText else { return nil }
+		guard let attributedText else {
+			return nil
+		}
 
 		let textStorage = NSTextStorage(attributedString: attributedText)
 		let layoutManager = NSLayoutManager()

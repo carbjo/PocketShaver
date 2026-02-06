@@ -35,7 +35,7 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	var hasDismissedSetupInstructions: Bool {
-		MiscellaneousSettings.current.hasDismissedSetupInstructions
+		InformationConsumption.current.hasDismissedSetupInstructions
 	}
 
 	@MainActor
@@ -45,12 +45,28 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	var hasDskFile: Bool {
-		DiskManager.shared.diskArray.contains(where: { $0.path.pathExtension == "dsk" })
+		DiskManager.shared.diskArray.contains(where: { $0.filename.pathExtension == "dsk" })
 	}
 
 	@MainActor
 	var numberOfDisks: Int {
 		DiskManager.shared.diskArray.count
+	}
+
+	@MainActor
+	var soundDisabled: Bool {
+		get {
+			MiscellaneousSettings.current.soundDisabled
+		}
+		set {
+			let previousValue = MiscellaneousSettings.current.soundDisabled
+			MiscellaneousSettings.current.set(soundDisabled: newValue)
+
+			if mode == .duringEmulation,
+				newValue != previousValue {
+				objc_update_audio_disabled_setting(newValue)
+			}
+		}
 	}
 
 	@MainActor
@@ -61,6 +77,46 @@ class PreferencesGeneralModel {
 		set {
 			MiscellaneousSettings.current.set(iPadMousePassthrough: newValue)
 			objc_update_sdl_ipad_mouse_setting(newValue)
+		}
+	}
+
+	@MainActor
+	var secondFingerClick: Bool {
+		get {
+			MiscellaneousSettings.current.secondFingerClick
+		}
+		set {
+			MiscellaneousSettings.current.set(secondFingerClick: newValue)
+		}
+	}
+
+	@MainActor
+	var secondFingerSwipe: Bool {
+		get {
+			MiscellaneousSettings.current.secondFingerSwipe
+		}
+		set {
+			MiscellaneousSettings.current.set(secondFingerSwipe: newValue)
+		}
+	}
+
+	@MainActor
+	var bootInHoverMode: Bool {
+		get {
+			MiscellaneousSettings.current.bootInHoverMode
+		}
+		set {
+			MiscellaneousSettings.current.set(bootInHoverMode: newValue)
+		}
+	}
+
+	@MainActor
+	var rightClickSetting: RightClickSetting {
+		get {
+			MiscellaneousSettings.current.rightClickSetting
+		}
+		set {
+			MiscellaneousSettings.current.set(rightClickSetting: newValue)
 		}
 	}
 
@@ -99,22 +155,6 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	var soundDisabled: Bool {
-		get {
-			MiscellaneousSettings.current.soundDisabled
-		}
-		set {
-			let previousValue = MiscellaneousSettings.current.soundDisabled
-			MiscellaneousSettings.current.set(soundDisabled: newValue)
-
-			if mode == .duringEmulation,
-				newValue != previousValue {
-				objc_update_audio_disabled_setting(newValue)
-			}
-		}
-	}
-
-	@MainActor
 	var showHints: Bool {
 		get {
 			MiscellaneousSettings.current.showHints
@@ -134,7 +174,7 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	func reportHasDismissedSetupInstructions() {
-		MiscellaneousSettings.current.reportHasDismissedSetupInstructions()
+		InformationConsumption.current.reportHasDismissedSetupInstructions()
 	}
 
 	@MainActor
@@ -162,7 +202,11 @@ class PreferencesGeneralModel {
 			throw PreferencesGeneralError.fileCreationFailedOtherError
 		}
 
-		return DiskManager.shared.loadDiskData()
+		let diskDataChange = DiskManager.shared.loadDiskData(
+			requestEnableDiskWithFilename: fixedName
+		)
+
+		return diskDataChange
 	}
 
 	@MainActor
@@ -210,24 +254,39 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	func setDiskEnabled(filename: String, isEnabled: Bool) {
+	func diskIndex(forFilename filename: String) -> Int? {
+		DiskManager.shared.index(forFilename: filename)
+	}
+
+	@MainActor
+	func setDiskEnabled(filename: String, isEnabled: Bool) -> (Int, Int) {
 		guard var disk = disk(forFilename: filename) else {
-			return
+			return (0, 0)
+		}
+
+		guard let prevIndex = DiskManager.shared.diskArray.firstIndex(where: {$0 == disk}) else {
+			fatalError()
 		}
 
 		disk.isEnabled = isEnabled
 		DiskManager.shared.set(disk)
 
+		guard let newIndex = DiskManager.shared.diskArray.firstIndex(where: {$0 == disk}) else {
+			fatalError()
+		}
+
 		changeSubject.send(.changeRequiringRestartAfterBootMade)
+
+		return (prevIndex, newIndex)
 	}
 
 	@MainActor
-	func setDiskAsCdRom(filename: String, isCdRom: Bool) {
+	func setDiskType(filename: String, diskType: DiskType) {
 		guard var disk = disk(forFilename: filename) else {
 			return
 		}
 
-		disk.isCdRom = isCdRom
+		disk.type = diskType
 		DiskManager.shared.set(disk)
 
 		changeSubject.send(.changeRequiringRestartAfterBootMade)

@@ -1641,6 +1641,8 @@ bool VideoInit(bool classic)
 	}
 #endif
 
+	objc_reportVideoSize(VideoModes[cur_mode].viXsize, VideoModes[cur_mode].viYsize, VideoModes[cur_mode].viAppleMode);
+
 	int color_depth = get_customized_color_depth(default_depth);
 
 	D(bug("Return get_customized_color_depth %d\n", color_depth));
@@ -2068,13 +2070,13 @@ void SDL_monitor_desc::switch_to_current_mode(void)
 
 #if TARGET_OS_IPHONE
 	const VIDEO_MODE &mode = get_current_mode();
-	objc_reportVideoSize(VIDEO_MODE_X, VIDEO_MODE_Y);
+	objc_reportVideoSize(VIDEO_MODE_X, VIDEO_MODE_Y, VIDEO_MODE_DEPTH);
 	objc_initOverlayViewController();
 	
-	if (mode.viAppleMode == 133) {
+	if (VIDEO_MODE_DEPTH == APPLE_32_BIT) {
 		// 32-bit color -> likely switching back to Finder
 		suggest_mouse_grab = false;
-		if (objc_getRelateiveMouseModeSettingIsAlwaysAutomatic()) {
+		if (objc_getRelateiveMouseModeSettingIsAutomatic()) {
 			drv->ungrab_mouse();
 		}
 	} else if (mouse_grabbed) {
@@ -2110,7 +2112,7 @@ void set_relative_mouse_automatic() {
 
 void report_relative_mouse_capability() {
 	suggest_mouse_grab = true;
-	if (objc_getRelateiveMouseModeSettingIsAlwaysAutomatic()) {
+	if (objc_getRelateiveMouseModeSettingIsAutomatic()) {
 		set_relative_mouse_enabled();
 	}
 }

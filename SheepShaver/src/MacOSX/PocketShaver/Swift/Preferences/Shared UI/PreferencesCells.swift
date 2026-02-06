@@ -60,20 +60,34 @@ class PreferencesEnabledSettingCell: UITableViewCell {
 	}
 }
 
-class PreferencesFooterCell: UITableViewCell {
-	private lazy var informationLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		label.font = .systemFont(ofSize: 14)
-		label.textColor = Colors.secondaryText
-		return label
-	}()
+class PreferencesInformationCell: UITableViewCell {
+	enum CellType {
+		case footer
+		case introduction
+	}
+
+	private let informationLabel: LinkLabel
 
 	init(
 		text: String,
-		separatorHidden: Bool = true
+		cellType: CellType = .footer,
+		tagConfig: StringTagConfig? = nil,
+		separatorHidden: Bool = true,
+		linkCallback: (() -> Void)? = nil
 	) {
+
+		let config = tagConfig ?? .init(
+			boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
+			highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText)
+		)
+
+		informationLabel = .init(
+			text: text,
+			config: config,
+			font: .systemFont(ofSize: 14),
+			callback: linkCallback ?? {}
+		)
+
 		super.init(style: .default, reuseIdentifier: nil)
 
 		if separatorHidden {
@@ -84,12 +98,10 @@ class PreferencesFooterCell: UITableViewCell {
 
 		NSLayoutConstraint.activate([
 			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: cellType == .footer ? 8 : 16),
 			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
 			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
 		])
-
-		informationLabel.text = text
 	}
 
 	required init?(coder: NSCoder) { fatalError() }

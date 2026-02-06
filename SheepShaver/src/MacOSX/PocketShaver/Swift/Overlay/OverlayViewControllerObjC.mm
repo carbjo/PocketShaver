@@ -11,82 +11,57 @@
 #include "sysdeps.h"
 #include "adb.h"
 #include "math.h"
+#include "video.h"
 #import "MiscellaneousSettingsObjC.h"
-#import "HapticFeedbackObjC.h"
+#import "MouseHapticFeedbackObjC.h"
+#import "ADBObjC.h"
 
 void objc_initOverlayViewController(void) {
 	@autoreleasepool {
-
-		[OverlayViewController injectOverlayViewControllerWithKeyInteraction:^(NSInteger key, BOOL isDown){
-			if (isDown) {
-				ADBKeyDown((int)key);
-			} else {
-				ADBKeyUp((int)key);
-			}
-		} specialButtonInteraction:^(enum SpecialButton button, BOOL isDown) {
-			switch (button) {
-				case SpecialButtonHover:
-					ADBSetHover(isDown);
-					break;
-				case SpecialButtonHoverAbove:
-					ADBSetHover(isDown);
-					if (isDown) {
-						ADBSetHoverMode(Above);
-					} else {
-						ADBSetHoverMode(Regular);
-					}
-					break;
-				case SpecialButtonHoverBelow:
-					ADBSetHover(isDown);
-					if (isDown) {
-						ADBSetHoverMode(Below);
-					} else {
-						ADBSetHoverMode(Regular);
-					}
-					break;
-				case SpecialButtonMouseClick:
-					if (isDown) {
-						ADBWriteMouseDown(0);
-
-						if ([MiscellaneousSettingsObjC isKeyHapticFeedbackOn]) {
-							objc_hapticFeedback();
-						}
-					} else {
-						ADBWriteMouseUp(0);
-					}
-					break;
-			}
-		} didFireJoystick:^(CGPoint point) {
-			int x = (int) point.x;
-			int y = (int) point.y;
-
-			ADBMouseMoved(x, y);
-		}];
-
-		if (MiscellaneousSettingsObjC.isRelateiveMouseModeSettingAlwaysOn) {
-			objc_setRelativeMouseMode(true);
-		}
+		[OverlayViewController injectOverlayViewController];
 	}
 }
 
-void objc_reportVideoSize(unsigned short width, unsigned short height) {
+void objc_reportVideoSize(unsigned short width, unsigned short height, unsigned int depth) {
 	CGSize deviceScreenSize = UIScreen.mainScreen.bounds.size;
 	double deviceApsectRatio = deviceScreenSize.width / deviceScreenSize.height;
 	double emulatedAspectRatio = ((double) width) / ((double) height);
 
 	double multiplier;
+	CGFloat offsetModeX, offsetModeY;
+
+	double offsetMultiplier = 0.33;
 
 	if (emulatedAspectRatio >= deviceApsectRatio) {
 		// Screen is bounded by width
 		multiplier = width / deviceScreenSize.width;
+
+		offsetModeX = width * offsetMultiplier;
+		offsetModeY = offsetModeX / deviceApsectRatio;
 	} else {
 		// Screen is bounded by height
 		multiplier = height / deviceScreenSize.height;
+
+		offsetModeY = height * offsetMultiplier;
+		offsetModeX = offsetModeY * deviceApsectRatio;
 	}
 
 	int tolerance = round(10 * multiplier);
+	int screenMiddleX = width / 2;
 
-	ADBSetMouseMoveTolerance(tolerance);
+	ADBConfigure(screenMiddleX, tolerance);
+	[InputInteractionModelObjC configureWithOffsetX:offsetModeX offsetY:offsetModeY];
+
+	BOOL isClassicResolution = (width == 640 && height == 480) ||
+								(width == 800 && height == 600) ||
+								(width == 1024 && height == 768) ||
+								(width == 1152 && height == 870);
+	BOOL isJaggyCursorResolution = !isClassicResolution &&
+							(depth == APPLE_8_BIT || depth == APPLE_16_BIT);
+
+	if (isJaggyCursorResolution) {
+		[LocalNotificationsObjCProxy sendJaggyCursorResolutionSelected];
+	}
 }
 
 void objc_reportRelativeMouseModeEnabled() {

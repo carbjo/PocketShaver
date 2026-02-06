@@ -15,6 +15,8 @@ class Storage {
 		case portraitResolutions
 		case landscapeResolutions
 		case miscellaneous
+		case informationConsumption
+		case diskConfig
 	}
 
 	private let appSupportUrl = FileManager.appSupportUrl
