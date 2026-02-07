@@ -21,11 +21,6 @@
 #ifndef UTILS_MACOSX_H
 #define UTILS_MACOSX_H
 
-// Invokes the specified function with an NSAutoReleasePool in place.
-void NSAutoReleasePool_wrap(void (*fn)(void));
-
-extern "C" {
-
 #ifdef USE_SDL
 #if SDL_VERSION_ATLEAST(2,0,0)
 void disable_SDL2_macosx_menu_bar_keyboard_shortcuts();
@@ -41,7 +36,5 @@ bool MetalIsAvailable();
 
 void make_window_transparent(SDL_Window *window);
 void set_mouse_ignore(SDL_Window *window, int flag);
-
-}	// extern "C"
 
 #endif
