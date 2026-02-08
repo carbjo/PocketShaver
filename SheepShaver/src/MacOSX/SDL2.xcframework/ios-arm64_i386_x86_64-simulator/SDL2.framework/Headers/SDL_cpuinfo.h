@@ -1,6 +1,6 @@
 /*
   Simple DirectMedia Layer
-  Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2022 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -19,16 +19,10 @@
   3. This notice may not be removed or altered from any source distribution.
 */
 
-/* WIKI CATEGORY: CPUInfo */
-
 /**
- * # CategoryCPUInfo
+ *  \file SDL_cpuinfo.h
  *
- * CPU feature detection for SDL.
- *
- * These functions are largely concerned with reporting if the system has
- * access to various SIMD instruction sets, but also has other important info
- * to share, such as number of logical CPU cores.
+ *  CPU feature detection for SDL.
  */
 
 #ifndef SDL_cpuinfo_h_
@@ -59,11 +53,9 @@ _m_prefetch(void *__P)
 #ifndef __MMX__
 #define __MMX__
 #endif
-/*
 #ifndef __3dNOW__
 #define __3dNOW__
 #endif
-*/
 #endif
 #ifndef __SSE__
 #define __SSE__
@@ -98,7 +90,6 @@ _m_prefetch(void *__P)
 #      include <arm64intr.h>
 #      include <arm64_neon.h>
 #      define __ARM_NEON 1 /* Set __ARM_NEON so that it can be used elsewhere, at compile time */
-#      define __ARM_ARCH 8
 #    endif
 #  endif
 #endif
@@ -115,8 +106,7 @@ _m_prefetch(void *__P)
 #include <lasxintrin.h>
 #define __LASX__
 #endif
-#if defined(HAVE_IMMINTRIN_H) && !defined(SDL_DISABLE_IMMINTRIN_H) && \
-   (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
+#if defined(HAVE_IMMINTRIN_H) && !defined(SDL_DISABLE_IMMINTRIN_H)
 #include <immintrin.h>
 #else
 #if defined(__MMX__) && !defined(SDL_DISABLE_MMINTRIN_H)

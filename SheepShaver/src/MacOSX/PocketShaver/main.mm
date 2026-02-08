@@ -7,7 +7,7 @@
 #import <UIKit/UIKit.h>
 
 /* Include the SDL main definition header */
-#include "SDL_main.h"
+#include "my_sdl.h"
 
 extern "C" int main_ios(int argc, char* argv[]);
 

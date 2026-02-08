@@ -5,7 +5,7 @@
     Feel free to customize this file to suit your needs
 */
 
-#include "SDL.h"
+#include <SDL2/SDL.h>
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 #define SDL_MAIN_NEEDED
 #include <SDL_main.h>

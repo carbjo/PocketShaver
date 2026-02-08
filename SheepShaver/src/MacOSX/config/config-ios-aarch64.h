@@ -479,6 +479,7 @@
 
 /* Define to enble SDL support. */
 #define USE_SDL 1
+#define USE_SDL2 1
 
 /* Define to enable SDL audio support */
 #define USE_SDL_AUDIO 1

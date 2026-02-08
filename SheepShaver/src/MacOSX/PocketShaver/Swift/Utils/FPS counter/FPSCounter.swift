@@ -19,12 +19,11 @@ class FPSCounter {
 	init() {
 		internalFpsCounter = objc_getFpsCounter()
 
-		timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-			guard let self else { return }
-
-			Task { @MainActor in
-				let fps = internalFpsCounter.reportOneSecondAndFetchFps()
-				delegate?.fpsCounter(self, didUpdateFramesPerSecond: fps)
+		timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+			Task { @MainActor  [weak self] in
+				guard let self else { return }
+				let fps = self.internalFpsCounter.reportOneSecondAndFetchFps()
+				self.delegate?.fpsCounter(self, didUpdateFramesPerSecond: fps)
 			}
 		}
 	}
