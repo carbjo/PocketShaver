@@ -28,7 +28,7 @@
 #define _UINT64
 
 #include <UIKit/UIKit.h>
-#include <SDL.h>
+#include "my_sdl.h"
 
 @interface SheepShaverMain : NSObject
 {

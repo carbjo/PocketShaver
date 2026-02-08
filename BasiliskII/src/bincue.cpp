@@ -50,7 +50,6 @@ static int bincue_core_audio_callback(void);
 
 #ifdef USE_SDL_AUDIO
 #include "my_sdl.h"
-#include <SDL_audio.h>
 #endif
 
 #ifdef WIN32

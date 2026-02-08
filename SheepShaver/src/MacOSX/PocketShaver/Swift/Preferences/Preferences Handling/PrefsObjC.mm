@@ -7,7 +7,7 @@
 
 #define int32 int32_t
 #import "prefs.h"
-#import "SDL_hints.h"
+#include "my_sdl.h"
 #import "PrefsObjC.h"
 #import "audio_sdl.h"
 

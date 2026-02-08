@@ -5,7 +5,7 @@
 //  Created by Carl Björkman on 2025-08-24.
 //
 
-#import <UIKit/UIKit.h>
+#import "PocketShaver-Swift-Preheader.h"
 #import "PocketShaver-Swift.h"
 #import "PreferencesROMValidatorObjC.h"
 #import "PreferencesROMValidatorCpp.h"

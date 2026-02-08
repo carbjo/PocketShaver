@@ -7,7 +7,7 @@
 
 #import "MiscellaneousSettingsObjC.h"
 #import "MiscellaneousSettingsObjCCppHeader.h"
-#import <UIKit/UIKit.h>
+#import "PocketShaver-Swift-Preheader.h"
 #import "PocketShaver-Swift.h"
 #include "sysdeps.h"
 #include "adb.h"

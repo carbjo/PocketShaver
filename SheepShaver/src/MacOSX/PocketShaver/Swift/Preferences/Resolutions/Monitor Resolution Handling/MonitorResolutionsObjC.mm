@@ -6,7 +6,7 @@
 //
 
 #import "MonitorResolutionsObjC.h"
-#import <UIKit/UIKit.h>
+#import "PocketShaver-Swift-Preheader.h"
 #import "PocketShaver-Swift.h"
 
 MonitorResolution::MonitorResolution(int inp_width, int inp_height, int inp_index) {

@@ -23,11 +23,11 @@
 
 #include <UIKit/UIKit.h>
 #include "sysdeps.h"
-#include <SDL.h>
+#include "my_sdl.h"
 #include "utils_ios.h"
 
 #if SDL_VERSION_ATLEAST(2,0,0)
-#include <SDL_syswm.h>
+#include <SDL2/SDL_syswm.h>
 #endif
 
 #include <sys/sysctl.h>

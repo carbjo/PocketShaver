@@ -145,6 +145,10 @@
 		C7699F192EC4664D0083B3B3 /* PreferencesCompatibilityListCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7699F182EC466440083B3B3 /* PreferencesCompatibilityListCells.swift */; };
 		C771C50C2EFEAB9C00062767 /* GamepadSettingsButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C771C50B2EFEAB9700062767 /* GamepadSettingsButton.swift */; };
 		C77CF0742E7823D900D2A854 /* RomManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2782E78232B0018DB8B /* RomManager.swift */; };
+		C77F121B2F3879DE0033BE25 /* MCPeerID+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C77F12152F3879DE0033BE25 /* MCPeerID+Extensions.swift */; };
+		C77F121C2F3879DE0033BE25 /* BonjourSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C77F12172F3879DE0033BE25 /* BonjourSession.swift */; };
+		C77F121D2F3879DE0033BE25 /* ProgressWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C77F12192F3879DE0033BE25 /* ProgressWatcher.swift */; };
+		C77F121E2F3879DE0033BE25 /* Peer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C77F12182F3879DE0033BE25 /* Peer.swift */; };
 		C790E8742F055D5200B784A6 /* ADBObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C790E8732F055D4900B784A6 /* ADBObjC.mm */; };
 		C790E8772F055ECC00B784A6 /* InputInteractionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C790E8762F055EC700B784A6 /* InputInteractionModel.swift */; };
 		C791FA362F2CD71400F52B02 /* GamepadSideButtonStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791FA352F2CD70D00F52B02 /* GamepadSideButtonStackView.swift */; };
@@ -664,6 +668,11 @@
 		C7699F162EC4663B0083B3B3 /* PreferencesCompatibilityListModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesCompatibilityListModel.swift; sourceTree = "<group>"; };
 		C7699F182EC466440083B3B3 /* PreferencesCompatibilityListCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesCompatibilityListCells.swift; sourceTree = "<group>"; };
 		C771C50B2EFEAB9700062767 /* GamepadSettingsButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadSettingsButton.swift; sourceTree = "<group>"; };
+		C77F12152F3879DE0033BE25 /* MCPeerID+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MCPeerID+Extensions.swift"; sourceTree = "<group>"; };
+		C77F12172F3879DE0033BE25 /* BonjourSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourSession.swift; sourceTree = "<group>"; };
+		C77F12182F3879DE0033BE25 /* Peer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Peer.swift; sourceTree = "<group>"; };
+		C77F12192F3879DE0033BE25 /* ProgressWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressWatcher.swift; sourceTree = "<group>"; };
+		C77F121F2F387A790033BE25 /* PocketShaver-Swift-Preheader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "PocketShaver-Swift-Preheader.h"; sourceTree = "<group>"; };
 		C790E8732F055D4900B784A6 /* ADBObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ADBObjC.mm; sourceTree = "<group>"; };
 		C790E8752F055D5500B784A6 /* ADBObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ADBObjC.h; sourceTree = "<group>"; };
 		C790E8762F055EC700B784A6 /* InputInteractionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputInteractionModel.swift; sourceTree = "<group>"; };
@@ -905,6 +914,7 @@
 				E204B99A28BC7BF00081FDCA /* PocketShaver */,
 				087B91B11B780EC900825F7F /* CrossPlatform */,
 				C7D405732E9BD55A009BEBA7 /* impluse-hfs */,
+				C77F121A2F3879DE0033BE25 /* Bonjour */,
 				5D3967BF2328D315003925D6 /* adb.cpp */,
 				5DF4CB7E22B5BD5D00512A86 /* audio.cpp */,
 				5D35961024B8F5FA0081EC8A /* bincue.cpp */,
@@ -1545,6 +1555,25 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
+		C77F12162F3879DE0033BE25 /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				C77F12152F3879DE0033BE25 /* MCPeerID+Extensions.swift */,
+			);
+			path = Extensions;
+			sourceTree = "<group>";
+		};
+		C77F121A2F3879DE0033BE25 /* Bonjour */ = {
+			isa = PBXGroup;
+			children = (
+				C77F12162F3879DE0033BE25 /* Extensions */,
+				C77F12172F3879DE0033BE25 /* BonjourSession.swift */,
+				C77F12182F3879DE0033BE25 /* Peer.swift */,
+				C77F12192F3879DE0033BE25 /* ProgressWatcher.swift */,
+			);
+			path = Bonjour;
+			sourceTree = "<group>";
+		};
 		C790E8712F055D3C00B784A6 /* ADB */ = {
 			isa = PBXGroup;
 			children = (
@@ -1817,6 +1846,7 @@
 				E204B9F028BC7D010081FDCA /* sys_darwin_ios.cpp */,
 				E204B9F128BC7D020081FDCA /* utils_ios.h */,
 				E204B9EF28BC7D010081FDCA /* utils_ios.mm */,
+				C77F121F2F387A790033BE25 /* PocketShaver-Swift-Preheader.h */,
 				E2A5819728CAC275005C7373 /* Readme iOS build.rtf */,
 			);
 			path = PocketShaver;
@@ -2270,6 +2300,10 @@
 				E204BA3628BD49260081FDCA /* extfs_macosx.cpp in Sources */,
 				E204B96228BC3EBE0081FDCA /* rpc_unix.cpp in Sources */,
 				C72739C92E2BAA6500B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift in Sources */,
+				C77F121B2F3879DE0033BE25 /* MCPeerID+Extensions.swift in Sources */,
+				C77F121C2F3879DE0033BE25 /* BonjourSession.swift in Sources */,
+				C77F121D2F3879DE0033BE25 /* ProgressWatcher.swift in Sources */,
+				C77F121E2F3879DE0033BE25 /* Peer.swift in Sources */,
 				C7C3D26C2E75C4690018DB8B /* PreferencesGamepadEditConfigCells.swift in Sources */,
 				E204B96328BC3EBE0081FDCA /* serial_unix.cpp in Sources */,
 				E204B96428BC3EBE0081FDCA /* sshpty.c in Sources */,
@@ -2748,7 +2782,7 @@
 				DEAD_CODE_STRIPPING = NO;
 				DEVELOPMENT_TEAM = 7K4RY698N6;
 				ENABLE_TESTABILITY = YES;
-				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
+				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj *.framework";
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"./SDL2.xcframework/**",
@@ -2818,7 +2852,8 @@
 				SKIP_INSTALL = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/PocketShaver-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
 				VALID_ARCHS = "x86_64 arm64";
@@ -2866,7 +2901,7 @@
 				DEAD_CODE_STRIPPING = NO;
 				DEVELOPMENT_TEAM = 7K4RY698N6;
 				ENABLE_TESTABILITY = YES;
-				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj";
+				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj *.framework";
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"./SDL2.xcframework/**",
@@ -2934,7 +2969,8 @@
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/PocketShaver-Bridging-Header.h";
-				SWIFT_VERSION = 6.0;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
 				VALID_ARCHS = "x86_64 arm64";
