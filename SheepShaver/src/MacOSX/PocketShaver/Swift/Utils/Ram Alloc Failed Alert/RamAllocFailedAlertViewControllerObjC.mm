@@ -5,8 +5,7 @@
 //  Created by Carl Björkman on 2025-08-23.
 //
 
-#import "PocketShaver-Swift-Preheader.h"
-#import "PocketShaver-Swift.h"
+#import "PocketShaver-Swift-ObjCHeader.h"
 #import "sysdeps.h"
 #import "prefs.h"
 

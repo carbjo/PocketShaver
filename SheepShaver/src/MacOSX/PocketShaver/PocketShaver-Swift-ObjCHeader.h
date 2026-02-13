@@ -7,3 +7,4 @@
 
 #import <UIKit/UIKit.h>
 #import <MultipeerConnectivity/MultipeerConnectivity.h>
+#import "PocketShaver-Swift.h"

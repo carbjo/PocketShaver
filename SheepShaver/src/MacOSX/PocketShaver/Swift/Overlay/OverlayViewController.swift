@@ -104,10 +104,11 @@ public class OverlayViewController: UIViewController {
 		return view
 	}()
 
-	private lazy var fpsLabel: UILabel = {
+	private lazy var performanceLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.textColor = .white
 		label.isUserInteractionEnabled = false
+		label.numberOfLines = 0
 		return label
 	}()
 
@@ -131,7 +132,7 @@ public class OverlayViewController: UIViewController {
 		upcomingGamepadConfig?.name ?? gamepadConfig.name
 	}
 
-	private var fpsCounter: FPSCounter?
+	private var performanceCounter: PerformanceCounter?
 
 	private var queuedAlertController: UIAlertController?
 
@@ -152,7 +153,7 @@ public class OverlayViewController: UIViewController {
 
 		loadGamepadSettings()
 
-		updateFpsCounter()
+		updatePerformanceCounter()
 
 		listenToChanges()
 	}
@@ -184,7 +185,7 @@ public class OverlayViewController: UIViewController {
 
 		view.addSubview(informationView)
 
-		view.addSubview(fpsLabel)
+		view.addSubview(performanceLabel)
 
 		NSLayoutConstraint.activate([
 			gestureInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -215,8 +216,8 @@ public class OverlayViewController: UIViewController {
 			informationView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 8),
 			informationView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -8),
 
-			fpsLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-			fpsLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+			performanceLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+			performanceLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
 		])
 
 		if UIDevice.isSimulator {
@@ -264,7 +265,7 @@ public class OverlayViewController: UIViewController {
 			}
 		}.store(in: &anyCancellables)
 
-		NotificationCenter.default.addObserver(self, selector: #selector(updateFpsCounter), name: LocalNotifications.fpsCounterSettingChanged, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(updatePerformanceCounter), name: LocalNotifications.performanceCounterSettingChanged, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayRelativeMouseCapabilityDialogueIfEligible), name: LocalNotifications.relativeMouseModeCapabilityFound, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayJaggyCursorWarningDialogueIfEligible), name: LocalNotifications.jaggyCursorResolutionSelected, object: nil)
 	}
@@ -543,15 +544,16 @@ public class OverlayViewController: UIViewController {
 
 
 	@objc
-	private func updateFpsCounter() {
-		if MiscellaneousSettings.current.fpsCounterEnabled {
-			let fpsCounter = FPSCounter()
-			fpsCounter.delegate = self
-			self.fpsCounter = fpsCounter
-			fpsLabel.isHidden = false
+	private func updatePerformanceCounter() {
+		if MiscellaneousSettings.current.fpsReporting ||
+			MiscellaneousSettings.current.networkTransferRateReportingEnabled {
+			let performanceCounter = PerformanceCounter()
+			performanceCounter.delegate = self
+			self.performanceCounter = performanceCounter
+			performanceLabel.isHidden = false
 		} else {
-			self.fpsCounter = nil
-			fpsLabel.isHidden = true
+			self.performanceCounter = nil
+			performanceLabel.isHidden = true
 		}
 	}
 
@@ -658,9 +660,15 @@ extension OverlayViewController {
 	}
 }
 
-extension OverlayViewController: @preconcurrency FPSCounterDelegate {
+extension OverlayViewController: @preconcurrency PerformanceCounterDelegate {
 
-	func fpsCounter(_ counter: FPSCounter, didUpdateFramesPerSecond fps: Int) {
-		fpsLabel.text = "\(fps)"
+	func performanceCounter(_ counter: PerformanceCounter, didUpdateWithReport report: PerformanceCounterReport) {
+		if MiscellaneousSettings.current.fpsReporting && MiscellaneousSettings.current.networkTransferRateReportingEnabled {
+			performanceLabel.text = "\(report.framesRendered)\n\(report.bytesTransferredString)"
+		} else if MiscellaneousSettings.current.fpsReporting {
+			performanceLabel.text = "\(report.framesRendered)"
+		} else if MiscellaneousSettings.current.networkTransferRateReportingEnabled {
+			performanceLabel.text = "\(report.bytesTransferredString)"
+		}
 	}
 }

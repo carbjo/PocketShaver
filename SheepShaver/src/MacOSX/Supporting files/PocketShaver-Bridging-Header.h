@@ -10,6 +10,7 @@
 #import "DiskCreation.h"
 #import "MiscellaneousSettingsObjC.h"
 #import "DiskROMExtractor.h"
-#import "FPSCounterObjC.h"
+#import "PerformanceCounterObjC.h"
 #import "ADBObjC.h"
 #import "MouseHapticFeedbackObjC.h"
+#import "BonjourManagerObjC.h"

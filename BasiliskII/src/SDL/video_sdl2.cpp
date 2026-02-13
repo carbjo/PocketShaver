@@ -78,7 +78,7 @@
 #include "vm_alloc.h"
 #include "cdrom.h"
 
-#include "FPSCounterObjCCppHeader.h"
+#include "PerformanceCounterObjCCppHeader.h"
 #include "MiscellaneousSettingsObjCCppHeader.h"
 
 #define DEBUG 0

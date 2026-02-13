@@ -285,10 +285,10 @@ class PreferencesGeneralModel {
 		guard var disk = disk(forFilename: filename) else {
 			return
 		}
-
+		
 		disk.type = diskType
 		DiskManager.shared.set(disk)
-
+		
 		changeSubject.send(.changeRequiringRestartAfterBootMade)
 	}
 }

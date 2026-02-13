@@ -6,8 +6,7 @@
 //
 
 #import "OverlayViewControllerObjC.h"
-#import "PocketShaver-Swift-Preheader.h"
-#import "PocketShaver-Swift.h"
+#import "PocketShaver-Swift-ObjCHeader.h"
 #include "sysdeps.h"
 #include "adb.h"
 #include "math.h"
