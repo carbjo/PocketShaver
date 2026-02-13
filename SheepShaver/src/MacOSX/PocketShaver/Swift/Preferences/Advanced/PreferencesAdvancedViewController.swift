@@ -12,6 +12,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 	enum SectionType: CaseIterable {
 		case ramSetting
 		case frameRateSetting
+		case performanceMetrics
 		case uiOptions
 		case relateiveMouseMode
 		case gammaRampSetting
@@ -117,6 +118,8 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return "RAM setting"
 		case .frameRateSetting:
 			return "Frame rate setting"
+		case .performanceMetrics:
+			return "Performance metrics"
 		case .uiOptions:
 			return "UI options"
 		case .relateiveMouseMode:
@@ -137,8 +140,10 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 			return 1
 		case .frameRateSetting:
 			return 2
+		case .performanceMetrics:
+			return 3
 		case .uiOptions:
-			return model.shouldDisplayAlwaysLandscapeModeOption ? 4 : 3
+			return model.shouldDisplayAlwaysLandscapeModeOption ? 2 : 1
 		case .relateiveMouseMode:
 			return 4
 		case .gammaRampSetting:
@@ -177,14 +182,14 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				)
 			default: fatalError()
 			}
-		case .uiOptions:
+		case .performanceMetrics:
 			switch indexPath.row {
 			case 0:
 				return PreferencesEnabledSettingCell(
 					title: "Show FPS counter",
-					isOn: model.showFpsCounterEnabled
+					isOn: model.fpsReportingEnabled
 				) { [weak self] isOn in
-					self?.model.showFpsCounterEnabled = isOn
+					self?.model.fpsReportingEnabled = isOn
 				}
 			case 1:
 				return PreferencesInformationCell(
@@ -192,6 +197,17 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 					separatorHidden: false
 				)
 			case 2:
+				return PreferencesEnabledSettingCell(
+					title: "Show network transfer rate",
+					isOn: model.networkTransferRateReportingEnabled
+				) { [weak self] isOn in
+					self?.model.networkTransferRateReportingEnabled = isOn
+				}
+			default: fatalError()
+			}
+		case .uiOptions:
+			switch indexPath.row {
+			case 0:
 				return PreferencesAdvancedJustAboveOffsetSettingCell(
 					initialOffsetSetting: model.hoverJustAboveOffsetModifier,
 					isChangingValue: { [weak self] in
@@ -200,7 +216,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				) { [weak self] value in
 					self?.model.hoverJustAboveOffsetModifier = value
 				}
-			case 3:
+			case 1:
 				return PreferencesEnabledSettingCell(
 					title: "Always boot in landscape mode",
 					isOn: model.alwaysLandscapeMode

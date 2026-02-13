@@ -17,6 +17,7 @@ class Storage {
 		case miscellaneous
 		case informationConsumption
 		case diskConfig
+		case network
 	}
 
 	private let appSupportUrl = FileManager.appSupportUrl

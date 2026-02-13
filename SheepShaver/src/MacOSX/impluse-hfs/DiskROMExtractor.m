@@ -10,11 +10,11 @@
 
 @implementation DiskROMExtractor
 
-+ (BOOL)extractRomFromDiskUrl:(NSURL *)fromUrl toUrl:(NSURL *)toUrl {
++ (BOOL)extractRomFromDiskUrl:(NSURL *)fromUrl toUrl:(NSURL *)toUrl quarryNameOrPath:(NSString*)quarryNameOrPath {
 
 	ImpHFSExtractor *extractor = [ImpHFSExtractor new];
 	extractor.sourceDevice = fromUrl;
-	extractor.quarryNameOrPath = @":System Folder:Mac OS ROM";
+	extractor.quarryNameOrPath = quarryNameOrPath;
 	extractor.shouldCopyToDestination = YES;
 	extractor.destinationPath = toUrl.path;
 
@@ -23,10 +23,21 @@
 	[extractor performExtractionOrReturnError:&error];
 
 	if (error) {
-		NSLog(@"-- extraction error: %@", error);
+		NSLog(@"- Extraction error %@", error);
 	}
 
 	return error == nil;
+}
+
++ (BOOL)extractRomFromDiskUrl:(NSURL *)fromUrl toUrl:(NSURL *)toUrl {
+
+	if ([self extractRomFromDiskUrl:fromUrl toUrl:toUrl quarryNameOrPath:@":System Folder:Mac OS ROM"]) {
+		return YES;
+	}
+
+	NSLog(@"- Extracting from absolute path failed. Trying full search.");
+
+	return [self extractRomFromDiskUrl:fromUrl toUrl:toUrl quarryNameOrPath:@"Mac OS ROM"];
 }
 
 @end

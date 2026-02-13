@@ -34,6 +34,7 @@ class PreferencesModel {
 
 		Task { @MainActor in
 			_ = MonitorResolutionManager.shared
+			NetworkSettings.initIfNeeded()
 			objc_update_sdl_ipad_mouse_setting(MiscellaneousSettings.current.iPadMousePassthrough)
 			UNUserNotificationCenter.current().removeAllDeliveredNotifications()
 		}

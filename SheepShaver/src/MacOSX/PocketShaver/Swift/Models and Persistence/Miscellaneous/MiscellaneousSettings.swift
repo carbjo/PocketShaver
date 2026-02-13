@@ -45,9 +45,14 @@ class MiscellaneousSettings: Codable {
 	private(set) var mouseHapticFeedback: Bool
 	private(set) var keyHapticFeedback: Bool
 	private(set) var soundDisabled: Bool
-	private(set) var fpsCounterEnabled: Bool {
+	private(set) var fpsReporting: Bool {
 		didSet {
-			NotificationCenter.default.post(.init(name: LocalNotifications.fpsCounterSettingChanged))
+			NotificationCenter.default.post(.init(name: LocalNotifications.performanceCounterSettingChanged))
+		}
+	}
+	private(set) var networkTransferRateReportingEnabled: Bool {
+		didSet {
+			NotificationCenter.default.post(.init(name: LocalNotifications.performanceCounterSettingChanged))
 		}
 	}
 	private(set) var frameRateSetting: FrameRateSetting
@@ -78,7 +83,8 @@ class MiscellaneousSettings: Codable {
 		mouseHapticFeedback = true
 		keyHapticFeedback = true
 		soundDisabled = false
-		fpsCounterEnabled = false
+		fpsReporting = false
+		networkTransferRateReportingEnabled = false
 		if UIScreen.supportsHighRefreshRate {
 			frameRateSetting = .f120hz
 		} else {
@@ -171,7 +177,14 @@ class MiscellaneousSettings: Codable {
 
 	@MainActor
 	func set(fpsCounterEnabled: Bool) {
-		self.fpsCounterEnabled = fpsCounterEnabled
+		self.fpsReporting = fpsCounterEnabled
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(networkTransferRateReportingEnabled: Bool) {
+		self.networkTransferRateReportingEnabled = networkTransferRateReportingEnabled
 
 		saveAsCurrent()
 	}

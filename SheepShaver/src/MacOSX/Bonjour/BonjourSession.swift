@@ -4,7 +4,6 @@ import os.log
 
 typealias InvitationCompletionHandler = (_ result: Result<Peer, Error>) -> Void
 
-@objc(BonjourSession)
 final class BonjourSession: NSObject {
 
     // MARK: - Type Definitions
@@ -50,11 +49,13 @@ final class BonjourSession: NSObject {
         var security: Security
         var invitation: Invitation
         
-        init(serviceType: String,
-                    peerName: String,
-                    defaults: UserDefaults,
-                    security: Security,
-                    invitation: Invitation) {
+        init(
+			serviceType: String,
+			peerName: String,
+			defaults: UserDefaults,
+			security: Security,
+			invitation: Invitation
+		) {
             precondition(peerName.utf8.count <= 63, "peerName can't be longer than 63 bytes")
 
             self.serviceType = serviceType
@@ -64,11 +65,15 @@ final class BonjourSession: NSObject {
             self.invitation = invitation
         }
 
-		nonisolated(unsafe) static let `default` = Configuration(serviceType: "Bonjour",
-                                                    peerName: MCPeerID.defaultDisplayName,
-                                                    defaults: .standard,
-                                                    security: .default,
-                                                    invitation: .automatic)
+		init(peerName: String?) {
+			self = Configuration(
+				serviceType: "Bonjour",
+				peerName: peerName ?? MCPeerID.defaultDisplayName,
+				defaults: .standard,
+				security: .default,
+				invitation: .automatic
+			)
+		}
     }
 
 
@@ -97,7 +102,7 @@ final class BonjourSession: NSObject {
     // MARK: - Properties
 
     let usage: Usage
-    let configuration: Configuration
+    private(set) var configuration: Configuration
     let localPeerID: MCPeerID
 
     private(set) var availablePeers: Set<Peer> = [] {
@@ -155,11 +160,20 @@ final class BonjourSession: NSObject {
 
     // MARK: - Init
 
-    init(usage: Usage = .combined,
-                configuration: Configuration = .default) {
-        self.usage = usage
-        self.configuration = configuration
-        self.localPeerID = MCPeerID.fetchOrCreate(with: configuration)
+	init(
+		usage: Usage = .combined,
+		configuration: Configuration? = nil,
+		peerName: String? = nil
+	) {
+		self.usage = usage
+		if let configuration {
+			self.configuration = configuration
+		} else {
+			self.configuration = Configuration(
+				peerName: peerName
+			)
+		}
+		self.localPeerID = MCPeerID.fetchOrCreate(with: self.configuration)
     }
 
     func start() {
