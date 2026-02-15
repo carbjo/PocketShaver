@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CryptoKit
 
 class Storage {
 	@MainActor static let shared = Storage()
@@ -20,9 +21,9 @@ class Storage {
 		case network
 	}
 
-	private let appSupportUrl = FileManager.appSupportUrl
-
 	init() {
+		let appSupportUrl = FileManager.appSupportUrl
+
 		if !FileManager.default.fileExists(atPath: appSupportUrl.path) {
 			do {
 				try FileManager.default.createDirectory(at: appSupportUrl, withIntermediateDirectories: true, attributes: nil)
@@ -33,7 +34,7 @@ class Storage {
 	}
 
 	func save(_ data: Data, at file: File) {
-		let url = appSupportUrl.appendingPathComponent(file.rawValue)
+		let url = Self.urlForAppSupportFile(filename: file.rawValue)
 		do {
 			try data.write(to: url, options: .atomic)
 		} catch {
@@ -42,7 +43,7 @@ class Storage {
 	}
 
 	func load(from file: File) -> Data? {
-		let url = appSupportUrl.appendingPathComponent(file.rawValue)
+		let url = Self.urlForAppSupportFile(filename: file.rawValue)
 		do {
 			let data = try Data(contentsOf: url)
 			return data
@@ -53,12 +54,32 @@ class Storage {
 	}
 
 	func delete(file: File) {
-		let url = appSupportUrl.appendingPathComponent(file.rawValue)
+		let url = Self.urlForAppSupportFile(filename: file.rawValue)
+		Self.deleteIfExists(url)
+	}
+
+	static func urlForAppSupportFile(filename: String) -> URL {
+		FileManager.appSupportUrl.appendingPathComponent(filename)
+	}
+
+	static func urlForDocumentFile(filename: String) -> URL {
+		FileManager.documentUrl.appendingPathComponent(filename)
+	}
+
+	static func deleteIfExists(_ url: URL) {
 		do {
 			try FileManager.default.removeItem(atPath: url.path)
 		} catch {
-			print("-- failed to delete file \(file.rawValue) error: \(error)")
+			print("-- failed to delete file \(url.path.lastPathComponent) error: \(error)")
 		}
+	}
+
+	static func getFileMd5Hash(_ url: URL) throws -> String {
+		let data = try Data(contentsOf: url)
+		let digest = Insecure.MD5.hash(data: data)
+		return digest.map {
+			String(format: "%02hhx", $0)
+		}.joined()
 	}
 }
 

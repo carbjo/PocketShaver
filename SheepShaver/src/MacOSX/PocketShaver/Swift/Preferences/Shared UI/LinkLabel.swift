@@ -19,7 +19,7 @@ class LinkLabel: UIView {
 	private let linkRange: Range<String.Index>?
 	private let nonHighlightedString: NSAttributedString
 	private let highlightedString: NSAttributedString
-	private let callback: (() -> Void)
+	private let callback: (() -> Void)?
 
 	private var isTouching = false
 
@@ -28,7 +28,7 @@ class LinkLabel: UIView {
 		config: StringTagConfig,
 		font: UIFont = .systemFont(ofSize: 14),
 		textColor: UIColor = Colors.secondaryText,
-		callback: @escaping (() -> Void)
+		callback: (() -> Void)? = nil
 	) {
 		self.callback = callback
 
@@ -106,7 +106,7 @@ class LinkLabel: UIView {
 		label.attributedText = nonHighlightedString
 
 		if isTouching {
-			callback()
+			callback?()
 		}
 
 		isTouching = false

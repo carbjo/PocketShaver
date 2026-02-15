@@ -17,6 +17,10 @@ class PreferencesResolutionsViewController: UITableViewController {
 		case standardWidthOrHeightResolutions
 	}
 
+	private lazy var doneButton: DoneButton = {
+		DoneButton(target: self, selector: #selector(doneButtonPressed))
+	}()
+
 	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
 	private var anyCancellables = Set<AnyCancellable>()
 
@@ -38,6 +42,8 @@ class PreferencesResolutionsViewController: UITableViewController {
 		view.translatesAutoresizingMaskIntoConstraints = false
 		view.backgroundColor = .white
 		tableView.showsVerticalScrollIndicator = false
+
+		navigationItem.rightBarButtonItem = doneButton
 
 		listenToChanges()
 	}
@@ -85,6 +91,11 @@ class PreferencesResolutionsViewController: UITableViewController {
 				}
 			}
 		}
+	}
+
+	@objc
+	private func doneButtonPressed() {
+		dismiss(animated: true)
 	}
 }
 
@@ -180,6 +191,7 @@ extension PreferencesResolutionsViewController { // UITableViewDataSource
 				)
 				updateInformationCellResolutionCount()
 				changeSubject.send(.changeRequiringRestartAfterBootMade)
+				changeSubject.send(.selectedResolutionsChanged)
 			}
 		}
 	}

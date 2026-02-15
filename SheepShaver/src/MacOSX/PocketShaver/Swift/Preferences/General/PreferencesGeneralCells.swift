@@ -303,7 +303,7 @@ class PreferencesGeneralDiskColumnsDescriptionCell: UITableViewCell {
 	required init?(coder: NSCoder) { fatalError() }
 }
 
-class PreferencesGeneralDiskTypeView: UIView {
+class PreferencesGeneralTagView: UIView {
 	private lazy var label: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.textColor = Colors.primaryBackground
@@ -317,7 +317,6 @@ class PreferencesGeneralDiskTypeView: UIView {
 		translatesAutoresizingMaskIntoConstraints = false
 
 		layer.cornerRadius = 4
-		backgroundColor = Colors.thinBackground
 
 		addSubview(label)
 
@@ -331,15 +330,37 @@ class PreferencesGeneralDiskTypeView: UIView {
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	func configure(diskType: DiskType) {
-		switch diskType {
-		case .disk:
-			label.text = "Disk"
-		case .cd:
-			label.text = "CD"
-		}
-
+	func configure(text: String) -> Self {
+		label.text = text
+		backgroundColor = Colors.thinBackground
 		layoutIfNeeded()
+
+		return self
+	}
+
+	func configure(disk: Disk) -> Self {
+		switch disk.type {
+		case .disk:
+			if disk.isBootable && disk.romVersion == nil {
+				return configure(text: "Mac HD")
+			} else {
+				return configure(text: "Disk")
+			}
+		case .cd:
+			if let installDiscString = disk.installDiscString {
+				return configure(text: "\(installDiscString) CD")
+			} else {
+				return configure(text: "CD")
+			}
+		}
+	}
+
+	func configureAsNotCompatible() -> Self {
+		label.text = "Not compatible"
+		backgroundColor = Colors.thinWarningBackground
+		layoutIfNeeded()
+
+		return self
 	}
 }
 
@@ -398,18 +419,29 @@ class PreferencesGeneralDiskCell: UITableViewCell {
 		self.filename = disk.filename
 		self.didSetIsEnabled = didSetIsEnabled
 		
-		let diskTypeView = PreferencesGeneralDiskTypeView()
-		diskTypeView.configure(diskType: disk.type)
-
-		let image = diskTypeView.asImage()
+		let diskTypeView = PreferencesGeneralTagView().configure(disk: disk)
+		let diskTypeViewImage = diskTypeView.asImage()
 		diskTypeView.alpha = 0.5
-		let highligtedImage = diskTypeView.asImage()
+		let diskTypeViewHighligtedImage = diskTypeView.asImage()
+
+		let diskNotCompatibleView = PreferencesGeneralTagView().configureAsNotCompatible()
+		let diskNotCompatibleViewImage = diskNotCompatibleView.asImage()
+
+		var diskTypeTags: String
+		if disk.installDiscString != nil {
+			diskTypeTags = " <img yOffset=-2/> " // Not clickable
+			if disk.isNonCompatibleInstallDisc {
+				diskTypeTags += "<img yOffset=-2/> "
+			}
+		} else {
+			diskTypeTags = "<link> <img yOffset=-2/> </link>"
+		}
 
 		let titleLabel = LinkLabel(
-			text: "\(disk.filename) <link> <img yOffset=-2/> </link>",
+			text: "\(disk.filename) \(diskTypeTags)",
 			config: .init(
-				images: [image],
-				highlightedImages: [highligtedImage]
+				images: [diskTypeViewImage, diskNotCompatibleViewImage],
+				highlightedImages: [diskTypeViewHighligtedImage]
 			),
 			font: .systemFont(ofSize: 17),
 			textColor: Colors.primaryText
@@ -615,6 +647,118 @@ class PreferencesGeneralDiskSectionActionsCell: UITableViewCell {
 	@objc
 	private func importDiskButtonPushed() {
 		didTapImportDiskButton()
+	}
+}
+
+class PreferencesGeneralEnabledMonitorResolutionsCell: UITableViewCell {
+	private lazy var editButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.setTitle("Edit", for: .normal)
+		button.setTitleColor(Colors.primaryText, for: .normal)
+		button.setTitleColor(Colors.highlightedText, for: .highlighted)
+		button.titleLabel?.font = .boldSystemFont(ofSize: 17)
+		button.addTarget(self, action: #selector(editButtonPushed), for: .touchUpInside)
+		return button
+	}()
+
+	private var titleLabel: LinkLabel?
+
+	private let didTapEditButton: (() -> Void)
+
+	init(
+		monitorResolutions: [MonitorResolutionOption],
+		willBootFromCD: Bool,
+		didTapEditButton: @escaping (() -> Void)
+	) {
+		self.didTapEditButton = didTapEditButton
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		contentView.addSubview(editButton)
+
+		NSLayoutConstraint.activate([
+			editButton.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
+			editButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+			editButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+		])
+
+		configure(
+			monitorResolutions: monitorResolutions,
+			willBootFromCD: willBootFromCD
+		)
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	func configure(
+		monitorResolutions: [MonitorResolutionOption],
+		willBootFromCD: Bool
+	) {
+		let monitorResolutionCategoryIndex: (MonitorResolutionCategory) -> Int = { category in
+			MonitorResolutionCategory.allCases.firstIndex(of: category)!
+		}
+		let sortedMonitorResolutions = monitorResolutions.sorted { opt1, opt2 in
+			if monitorResolutionCategoryIndex(opt1.category) < monitorResolutionCategoryIndex(opt2.category) {
+				return true
+			}
+
+			if opt1.resolution.width < opt2.resolution.width {
+				return true
+			}
+
+			return opt1.resolution.height < opt2.resolution.height
+		}
+
+		var text = ""
+		var images: [UIImage] = []
+		for monitorResolution in sortedMonitorResolutions {
+			let categoryTagView = PreferencesGeneralTagView()
+				.configure(
+					text: monitorResolution.category.description
+				)
+			let categoryTagViewImage = categoryTagView.asImage()
+
+			text += "• \(monitorResolution.resolution.width) x \(monitorResolution.resolution.height) <img yOffset=-2/>"
+			if monitorResolution != sortedMonitorResolutions.last {
+				text += "\n"
+			}
+			images.append(categoryTagViewImage)
+		}
+
+		let titleLabel = LinkLabel(
+			text: text,
+			config: .init(
+				images: images,
+				highlightedImages: []
+			),
+			font: .systemFont(ofSize: 17),
+			textColor: Colors.primaryText
+		)
+
+		titleLabel.label.setContentHuggingPriority(.required, for: .horizontal)
+		titleLabel.label.setContentCompressionResistancePriority(.required, for: .vertical)
+
+		contentView.addSubview(titleLabel)
+
+		NSLayoutConstraint.activate([
+			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			titleLabel.centerYAnchor.constraint(equalTo: editButton.centerYAnchor),
+			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: editButton.leadingAnchor, constant: -16),
+			titleLabel.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
+			titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+
+			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16).withPriority(.defaultHigh),
+			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.defaultHigh),
+			])
+
+		self.titleLabel = titleLabel
+
+		editButton.isHidden = willBootFromCD
+	}
+
+	@objc
+	private func editButtonPushed() {
+		didTapEditButton()
 	}
 }
 

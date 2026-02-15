@@ -21,15 +21,15 @@ enum PreferencesLaunchMode {
 public class PreferencesViewController: UIViewController {
 	enum Tab: Int, CaseIterable {
 		case general
-		case resolutions
 		case gamepad
+		case network
 		case advanced
 
 		var label: String {
 			switch self {
 			case .general: "General"
-			case .resolutions: "Resolutions"
 			case .gamepad: "Gamepad"
+			case .network: "Network"
 			case .advanced: "Advanced"
 			}
 		}
@@ -66,12 +66,12 @@ public class PreferencesViewController: UIViewController {
 		)
 	}()
 
-	private lazy var resolutionsVC: PreferencesResolutionsViewController = {
-		PreferencesResolutionsViewController(changeSubject: model.changeSubject)
-	}()
-
 	private lazy var gamepadVC: PreferencesGamepadViewController = {
 		PreferencesGamepadViewController(changeSubject: model.changeSubject)
+	}()
+
+	private lazy var networkVC: PreferencesNetworkViewController = {
+		PreferencesNetworkViewController()
 	}()
 
 	private lazy var advancedVC: PreferencesAdvancedViewController = {
@@ -118,11 +118,22 @@ public class PreferencesViewController: UIViewController {
 		view.addSubview(contentView)
 		view.addSubview(bottomButton)
 
+		// side constraints smaller on SE
+		let tabSegmentedControlSideMargin: CGFloat
+		if UIScreen.isSESize {
+			tabSegmentedControlSideMargin = 4
+		} else {
+			tabSegmentedControlSideMargin = 22
+		}
+
 		NSLayoutConstraint.activate([
 			tabSegmentedControl.centerXAnchor.constraint(equalTo: view.centerXAnchor),
 			tabSegmentedControl.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
 			tabSegmentedControl.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor),
 			tabSegmentedControl.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor),
+			tabSegmentedControl.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: tabSegmentedControlSideMargin).withPriority(.defaultHigh),
+			tabSegmentedControl.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -tabSegmentedControlSideMargin).withPriority(.defaultHigh),
+			tabSegmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 358),
 
 			contentView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
 			contentView.topAnchor.constraint(equalTo: tabSegmentedControl.bottomAnchor, constant: 8),
@@ -136,8 +147,8 @@ public class PreferencesViewController: UIViewController {
 		])
 
 		embedViewController(generalVC)
-		embedViewController(resolutionsVC)
 		embedViewController(gamepadVC)
+		embedViewController(networkVC)
 		embedViewController(advancedVC)
 
 		display(tab: .general)
@@ -150,17 +161,13 @@ public class PreferencesViewController: UIViewController {
 	public override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
 
-		if MonitorResolutionManager.shared.registerSafeAreaInsets(view.safeAreaInsets) {
-			resolutionsVC.tableView.reloadData()
-		}
+		MonitorResolutionManager.shared.registerSafeAreaInsets(view.safeAreaInsets)
 	}
 
 	public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
 		super.traitCollectionDidChange(previousTraitCollection)
 
-		if MonitorResolutionManager.shared.registerSafeAreaInsets(view.safeAreaInsets) {
-			resolutionsVC.tableView.reloadData()
-		}
+		MonitorResolutionManager.shared.registerSafeAreaInsets(view.safeAreaInsets)
 	}
 
 	public override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
@@ -174,10 +181,10 @@ public class PreferencesViewController: UIViewController {
 		switch tab {
 		case .general:
 			contentView.bringSubviewToFront(generalVC.view)
-		case .resolutions:
-			contentView.bringSubviewToFront(resolutionsVC.view)
 		case .gamepad:
 			contentView.bringSubviewToFront(gamepadVC.view)
+		case .network:
+			contentView.bringSubviewToFront(networkVC.view)
 		case .advanced:
 			contentView.bringSubviewToFront(advancedVC.view)
 			advancedVC.tableView.reloadData()
@@ -213,6 +220,8 @@ public class PreferencesViewController: UIViewController {
 				}
 			case .alwaysLandscapeModeOptionToggled:
 				updateBottomButton()
+			default:
+				break
 			}
 		}.store(in: &anyCancellables)
 	}
@@ -252,6 +261,8 @@ public class PreferencesViewController: UIViewController {
 
 			let bootBlock = { [weak self] in
 				guard let self else { return }
+
+				DiskManager.shared.reportWillBoot()
 
 				removeFromParent()
 				prefsWindow.rootViewController = nil
