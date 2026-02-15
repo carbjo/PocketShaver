@@ -13,6 +13,7 @@ class PreferencesGeneralViewController: UITableViewController {
 		case setupInstructions
 		case bootstrap
 		case disks
+		case monitorResolutions
 		case audio
 		case iPadMouse
 		case twoFingerSteering
@@ -32,9 +33,13 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private let model: PreferencesGeneralModel
+	private let preferencesResolutionsVC: PreferencesResolutionsViewController
+
+	private var anyCancellables = Set<AnyCancellable>()
 
 	private let segmentedControlFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
+	// TODO: Refactor and encapstulate
 	private var createDiskDialogueNamePhantomLabel: UILabel?
 	private var createDiskDialogueNameSuffixLabel: UILabel?
 	private var createDiskDialogueSizePhantomLabel: UILabel?
@@ -48,6 +53,8 @@ class PreferencesGeneralViewController: UITableViewController {
 			mode: mode,
 			changeSubject: changeSubject
 		)
+
+		preferencesResolutionsVC = PreferencesResolutionsViewController(changeSubject: changeSubject)
 
 		super.init(nibName: nil, bundle: nil)
 
@@ -64,6 +71,20 @@ class PreferencesGeneralViewController: UITableViewController {
 		tableView.showsVerticalScrollIndicator = false
 		tableView.delaysContentTouches = false
 		PreferencesGeneralDiskCell.register(in: tableView)
+
+		listenToChanges()
+	}
+
+	private func listenToChanges() {
+		model.changeSubject.sink{ [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .selectedResolutionsChanged:
+				updateMonitorResolutionsSection()
+			default:
+				break
+			}
+		}.store(in: &anyCancellables)
 
 		NotificationCenter.default.addObserver(self, selector: #selector(updateRomPickerSection), name: UIApplication.didBecomeActiveNotification, object: nil)
 	}
@@ -325,6 +346,11 @@ class PreferencesGeneralViewController: UITableViewController {
 		present(alertVC, animated: true)
 	}
 
+	private func updateMonitorResolutionsSection() {
+		let sectionIndex = SectionType.monitorResolutions.sectionIndex(model: model)
+		tableView.reloadSections([sectionIndex], with: .automatic)
+	}
+
 	// MARK: - Actions
 
 	@objc
@@ -370,6 +396,8 @@ extension PreferencesGeneralViewController {
 			return "Bootstrap"
 		case .disks:
 			return "Disks"
+		case .monitorResolutions:
+			return "Monitor resolutions"
 		case .audio:
 			return "Audio"
 		case .iPadMouse:
@@ -394,6 +422,8 @@ extension PreferencesGeneralViewController {
 			return 1 + (model.isDisplayingRomFileMissingError ? 1 : 0)
 		case .disks:
 			return model.numberOfDisks + 2 + (model.isDisplayingNoDiskFilesError ? 1 : 0)
+		case .monitorResolutions:
+			return 2
 		case .audio:
 			return 2
 		case .iPadMouse:
@@ -459,12 +489,18 @@ extension PreferencesGeneralViewController {
 					disk: disk,
 					didSetIsEnabled: { [weak self] filename, isOn in
 						guard let self else { return }
-						let (prevIndex, newIndex) = model.setDiskEnabled(filename: filename, isEnabled: isOn)
+						let change = model.setDiskEnabled(filename: filename, isEnabled: isOn)
 
 						let section = SectionType.disks.sectionIndex(model: model)
-						let prevIndexPath = IndexPath(row: prevIndex + 1, section: section)
-						let newIndexPath = IndexPath(row: newIndex + 1, section: section)
-						tableView.moveRow(at: prevIndexPath, to: newIndexPath)
+						let prevIndexPath = IndexPath(row: change.prevIndex + 1, section: section)
+						let newIndexPath = IndexPath(row: change.newIndex + 1, section: section)
+						tableView.performBatchUpdates { [weak self] in
+							guard let self else { return }
+							tableView.moveRow(at: prevIndexPath, to: newIndexPath)
+							if change.willBootFromCDChanged {
+								updateMonitorResolutionsSection()
+							}
+						}
 					},
 					didSetDiskType: { [weak self] filename, diskType in
 						guard let self else { return }
@@ -497,6 +533,31 @@ extension PreferencesGeneralViewController {
 				)
 			} else {
 				return PreferencesGeneralErrorCell(title: "Must select to mount at least one disk file")
+			}
+		case .monitorResolutions:
+			if indexPath.row == 0 {
+				let cell = PreferencesGeneralEnabledMonitorResolutionsCell(
+					monitorResolutions: model.monitorResolutions,
+					willBootFromCD: model.willBootFromCD
+				) { [weak self] in
+					guard let self else { return }
+					let vc = preferencesResolutionsVC
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
+				}
+				return cell
+			} else {
+				var text = "Resolutions made available to Mac OS. "
+				if model.willBootFromCD {
+					text += "List is restricted since emulaton will boot from an install CD."
+				} else {
+					text += "Can be edited."
+				}
+				return PreferencesInformationCell(
+					text: text
+				)
 			}
 		case .audio:
 			if indexPath.row == 0 {

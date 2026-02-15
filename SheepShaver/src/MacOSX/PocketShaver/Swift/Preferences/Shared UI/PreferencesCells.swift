@@ -85,7 +85,7 @@ class PreferencesInformationCell: UITableViewCell {
 			text: text,
 			config: config,
 			font: .systemFont(ofSize: 14),
-			callback: linkCallback ?? {}
+			callback: linkCallback
 		)
 
 		super.init(style: .default, reuseIdentifier: nil)

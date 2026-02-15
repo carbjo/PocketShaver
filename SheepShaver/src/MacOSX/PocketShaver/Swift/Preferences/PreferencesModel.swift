@@ -17,6 +17,7 @@ enum PreferencesChange {
 	case changeRequiringRestartBeforeBootMade
 	case changeRequiringRestartAfterBootMade
 	case alwaysLandscapeModeOptionToggled
+	case selectedResolutionsChanged
 }
 
 class PreferencesModel {
@@ -42,7 +43,7 @@ class PreferencesModel {
 
 	@MainActor
 	func validate() throws {
-		let romUrl = FileManager.documentUrl.appendingPathComponent(RomManager.romFilename)
+		let romUrl = RomManager.shared.romUrl
 		let hasRomFile = FileManager.default.fileExists(atPath: romUrl.path)
 		guard hasRomFile else {
 			throw PreferencesError.romFileMissing

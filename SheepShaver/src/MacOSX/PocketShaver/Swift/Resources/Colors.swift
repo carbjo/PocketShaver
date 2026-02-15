@@ -21,4 +21,5 @@ struct Colors {
 	static let okColor = UIColor(named: "ok")!
 	static let notOkColor = UIColor.red
 	static let thinBackground = UIColor(named: "thinBackground")!
+	static let thinWarningBackground = UIColor(named: "thinWarningBackground")!
 }

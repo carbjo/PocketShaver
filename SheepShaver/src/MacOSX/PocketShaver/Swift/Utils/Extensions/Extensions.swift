@@ -155,7 +155,7 @@ extension UIAlertController {
 	}
 
 	static func withError(_ error: Error) -> Self {
-		return withMessage("Soemthing went wrong: \(error.localizedDescription)")
+		return withMessage("Something went wrong: \(error.localizedDescription)")
 	}
 }
 

@@ -64,6 +64,7 @@ public class MonitorResolutionManager: NSObject {
 	static let maxNumberOfSimultaniousResolutions = 10
 
 	private(set) var availableResolutions: [MonitorResolutionCategory: [MonitorResolutionOption]]
+	private var maxWidth480HeightWithMarginsResolution: MonitorResolutionOption?
 
 	private var enabledPortraitResolutions: [MonitorResolutionOption] {
 		didSet {
@@ -83,6 +84,16 @@ public class MonitorResolutionManager: NSObject {
 			}
 			Storage.shared.save(data, at: .landscapeResolutions)
 		}
+	}
+
+	private var bootFromCDPortraitResolutions: [MonitorResolutionOption] {
+		return [availableResolutions[.pixelAlignedPortrait]![0],
+				availableResolutions[.standardResolution]![0]]
+	}
+
+	private var bootFromCDLandscapeResolutions: [MonitorResolutionOption] {
+		return [availableResolutions[.pixelAlignedLandscape]![0],
+				maxWidth480HeightWithMarginsResolution ?? availableResolutions[.standardResolution]![0]]
 	}
 
 	var willLaunchInPortraitMode: Bool {
@@ -105,6 +116,22 @@ public class MonitorResolutionManager: NSObject {
 		Self.getPortraitModeSize().width / Self.getPortraitModeSize().height == 3/4
 	}
 
+	var enabledResolutions: [MonitorResolutionOption] {
+		if willLaunchInPortraitMode {
+			if DiskManager.shared.willBootFromCD {
+				return bootFromCDPortraitResolutions
+			} else {
+				return enabledPortraitResolutions
+			}
+		} else {
+			if DiskManager.shared.willBootFromCD {
+				return bootFromCDLandscapeResolutions
+			} else {
+				return enabledLandscapeResolutions
+			}
+		}
+	}
+
 	private var hasRegisteredSafeAreaInsets = false
 	private var needCompletingPreselectingLandscapeModeResolutions = false
 
@@ -124,7 +151,8 @@ public class MonitorResolutionManager: NSObject {
 		} else {
 			enabledPortraitResolutions = [
 				availableResolutions[.pixelAlignedPortrait]![0],
-				availableResolutions[.standardResolution]![0]
+				availableResolutions[.standardResolution]![0],
+				availableResolutions[.standardResolution]![1]
 			]
 		}
 
@@ -134,7 +162,8 @@ public class MonitorResolutionManager: NSObject {
 		} else {
 			enabledLandscapeResolutions = [
 				availableResolutions[.pixelAlignedLandscape]![0],
-				availableResolutions[.standardResolution]![0]
+				availableResolutions[.standardResolution]![0],
+				availableResolutions[.standardResolution]![1]
 			]
 			needCompletingPreselectingLandscapeModeResolutions = true
 		}
@@ -175,11 +204,11 @@ public class MonitorResolutionManager: NSObject {
 		resolution == availableResolutions[.pixelAlignedLandscape]?.first
 	}
 
-	func registerSafeAreaInsets(_ safeAreaInsets: UIEdgeInsets) -> Bool {
+	func registerSafeAreaInsets(_ safeAreaInsets: UIEdgeInsets) {
 		let largestInset = [safeAreaInsets.left, safeAreaInsets.top, safeAreaInsets.right, safeAreaInsets.bottom].max()!
 
 		guard !hasRegisteredSafeAreaInsets else {
-			return false
+			return
 		}
 		hasRegisteredSafeAreaInsets = true
 
@@ -199,6 +228,7 @@ public class MonitorResolutionManager: NSObject {
 			availableResolutions[.pixelAlignedLandscape]!.append(contentsOf: Self.getPixelAlignedResolutions(size: Self.getLandscapeModeSize(), margins: landscapeMargins))
 			availableResolutions[.standardHeightLandscape]!.append(maxWidth480HeightWithMarginsResolution)
 			availableResolutions[.standardHeightLandscape]!.append(Self.getScaledToFitResolution(forHeight: 600, margins: landscapeMargins))
+			self.maxWidth480HeightWithMarginsResolution = maxWidth480HeightWithMarginsResolution
 
 			if needCompletingPreselectingLandscapeModeResolutions {
 				needCompletingPreselectingLandscapeModeResolutions = false
@@ -213,18 +243,12 @@ public class MonitorResolutionManager: NSObject {
 			}
 		}
 
-		return true
+		return
 	}
 
 	@objc
 	public func getAllSDLVideoMonitorResolutionElements() -> [SDLVideoMonitorResolutionElement] {
-		var resolutions: [MonitorResolution]
-		if UIScreen.isPortraitMode {
-			resolutions = enabledPortraitResolutions.map({ $0.resolution })
-		} else {
-			resolutions = enabledLandscapeResolutions.map({ $0.resolution })
-		}
-
+		var resolutions = enabledResolutions.map({ $0.resolution })
 		resolutions = Array(resolutions.prefix(10))
 
 		var outputResolutions = [SDLVideoMonitorResolutionElement]()
@@ -387,6 +411,19 @@ public class MonitorResolutionManager: NSObject {
 }
 
 extension MonitorResolutionCategory {
+	var description: String {
+		switch self {
+		case .pixelAlignedPortrait, .pixelAlignedLandscape:
+			return "Pixel aligned"
+		case .standardResolution:
+			return "Common Classic Mac OS"
+		case .standardWidthPortrait:
+			return "Standard width fullscreen"
+		case .standardHeightLandscape:
+			return "Standard height fullscreen"
+		}
+	}
+	
 	var explanation: String {
 		switch self {
 		case .pixelAlignedPortrait,

@@ -133,7 +133,6 @@
 		C74E108C2EA9228F00150945 /* ImpBTreeFile.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E104C2EA9228F00150945 /* ImpBTreeFile.m */; };
 		C74E108D2EA9228F00150945 /* ImpHFSSourceVolume.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10642EA9228F00150945 /* ImpHFSSourceVolume.m */; };
 		C74E108E2EA9228F00150945 /* ImpPrintf.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10682EA9228F00150945 /* ImpPrintf.m */; };
-		C74E10982EABC8BB00150945 /* DiskROMExtractor.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10972EABC8BA00150945 /* DiskROMExtractor.m */; };
 		C750737A2E65E14F00D1E374 /* DiskCreation.mm in Sources */ = {isa = PBXBuildFile; fileRef = C75073792E65E14700D1E374 /* DiskCreation.mm */; };
 		C750737D2E67440900D1E374 /* PreferencesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750737C2E67440800D1E374 /* PreferencesModel.swift */; };
 		C75A604F2E62D04600253CA3 /* PreferencesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75A604E2E62D04000253CA3 /* PreferencesManager.swift */; };
@@ -154,6 +153,11 @@
 		C77F122D2F39D8FD0033BE25 /* BonjourManagerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C77F122C2F39D8F80033BE25 /* BonjourManagerObjC.mm */; };
 		C790E8742F055D5200B784A6 /* ADBObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C790E8732F055D4900B784A6 /* ADBObjC.mm */; };
 		C790E8772F055ECC00B784A6 /* InputInteractionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C790E8762F055EC700B784A6 /* InputInteractionModel.swift */; };
+		C791A9AA2F41C3BF001F7E2E /* DiskFileExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791A9A92F41C3BC001F7E2E /* DiskFileExtractor.swift */; };
+		C791A9AC2F42309E001F7E2E /* DoneButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791A9AB2F42309B001F7E2E /* DoneButton.swift */; };
+		C791A9AF2F423290001F7E2E /* PreferencesNetworkViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791A9AE2F423289001F7E2E /* PreferencesNetworkViewController.swift */; };
+		C791A9B12F423295001F7E2E /* PreferencesNetworkCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791A9B02F423293001F7E2E /* PreferencesNetworkCells.swift */; };
+		C791A9B52F4232B3001F7E2E /* PreferencesNetworModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791A9B42F4232B1001F7E2E /* PreferencesNetworModel.swift */; };
 		C791FA362F2CD71400F52B02 /* GamepadSideButtonStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791FA352F2CD70D00F52B02 /* GamepadSideButtonStackView.swift */; };
 		C792C17E2E47618A0016DDAF /* InformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C792C17D2E4761830016DDAF /* InformationView.swift */; };
 		C79469752F2BBB7A00DFD2D3 /* DeviceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79469742F2BBB7A00DFD2D3 /* DeviceModel.swift */; };
@@ -660,8 +664,6 @@
 		C74E10762EA9228F00150945 /* NSData+ImpMultiplication.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "NSData+ImpMultiplication.m"; sourceTree = "<group>"; };
 		C74E10772EA9228F00150945 /* NSData+ImpSubdata.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "NSData+ImpSubdata.h"; sourceTree = "<group>"; };
 		C74E10782EA9228F00150945 /* NSData+ImpSubdata.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "NSData+ImpSubdata.m"; sourceTree = "<group>"; };
-		C74E10952EABC89A00150945 /* DiskROMExtractor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DiskROMExtractor.h; sourceTree = "<group>"; };
-		C74E10972EABC8BA00150945 /* DiskROMExtractor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DiskROMExtractor.m; sourceTree = "<group>"; };
 		C75073792E65E14700D1E374 /* DiskCreation.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = DiskCreation.mm; sourceTree = "<group>"; };
 		C750737B2E65E15200D1E374 /* DiskCreation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DiskCreation.h; sourceTree = "<group>"; };
 		C750737C2E67440800D1E374 /* PreferencesModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesModel.swift; sourceTree = "<group>"; };
@@ -687,6 +689,11 @@
 		C790E8732F055D4900B784A6 /* ADBObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ADBObjC.mm; sourceTree = "<group>"; };
 		C790E8752F055D5500B784A6 /* ADBObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ADBObjC.h; sourceTree = "<group>"; };
 		C790E8762F055EC700B784A6 /* InputInteractionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputInteractionModel.swift; sourceTree = "<group>"; };
+		C791A9A92F41C3BC001F7E2E /* DiskFileExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskFileExtractor.swift; sourceTree = "<group>"; };
+		C791A9AB2F42309B001F7E2E /* DoneButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoneButton.swift; sourceTree = "<group>"; };
+		C791A9AE2F423289001F7E2E /* PreferencesNetworkViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesNetworkViewController.swift; sourceTree = "<group>"; };
+		C791A9B02F423293001F7E2E /* PreferencesNetworkCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesNetworkCells.swift; sourceTree = "<group>"; };
+		C791A9B42F4232B1001F7E2E /* PreferencesNetworModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesNetworModel.swift; sourceTree = "<group>"; };
 		C791FA352F2CD70D00F52B02 /* GamepadSideButtonStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadSideButtonStackView.swift; sourceTree = "<group>"; };
 		C792C17D2E4761830016DDAF /* InformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationView.swift; sourceTree = "<group>"; };
 		C79469742F2BBB7A00DFD2D3 /* DeviceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceModel.swift; sourceTree = "<group>"; };
@@ -1437,6 +1444,7 @@
 			children = (
 				C707D0402F261758007BFE66 /* Extensions */,
 				C70B65E32E7A7BD00039680A /* Storage */,
+				C791A9A82F41AC2B001F7E2E /* Disk file extractor */,
 				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
 				C7DCEF3B2E86F53B00EAED05 /* Mouse Haptic Feedback */,
 				C7A9AB982EED61B4001EC4DB /* Local notifications */,
@@ -1509,6 +1517,7 @@
 			children = (
 				C70F32722ECB76900079A3D4 /* LinkLabel.swift */,
 				C74035B52EDC3B0C0045B9C6 /* PreferencesCells.swift */,
+				C791A9AB2F42309B001F7E2E /* DoneButton.swift */,
 			);
 			path = "Shared UI";
 			sourceTree = "<group>";
@@ -1626,6 +1635,24 @@
 			path = ADB;
 			sourceTree = "<group>";
 		};
+		C791A9A82F41AC2B001F7E2E /* Disk file extractor */ = {
+			isa = PBXGroup;
+			children = (
+				C791A9A92F41C3BC001F7E2E /* DiskFileExtractor.swift */,
+			);
+			path = "Disk file extractor";
+			sourceTree = "<group>";
+		};
+		C791A9AD2F423275001F7E2E /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				C791A9B42F4232B1001F7E2E /* PreferencesNetworModel.swift */,
+				C791A9AE2F423289001F7E2E /* PreferencesNetworkViewController.swift */,
+				C791A9B02F423293001F7E2E /* PreferencesNetworkCells.swift */,
+			);
+			path = Network;
+			sourceTree = "<group>";
+		};
 		C791FA342F2CCBB700F52B02 /* Models and Persistence */ = {
 			isa = PBXGroup;
 			children = (
@@ -1734,8 +1761,6 @@
 				C74E10762EA9228F00150945 /* NSData+ImpMultiplication.m */,
 				C74E10772EA9228F00150945 /* NSData+ImpSubdata.h */,
 				C74E10782EA9228F00150945 /* NSData+ImpSubdata.m */,
-				C74E10952EABC89A00150945 /* DiskROMExtractor.h */,
-				C74E10972EABC8BA00150945 /* DiskROMExtractor.m */,
 				C7B616CF2E9D374800483010 /* hfs-ios.h */,
 			);
 			path = "impluse-hfs";
@@ -1826,8 +1851,8 @@
 				C7F42CD32E5B201B00FA7169 /* PreferencesViewControllerObjC.mm */,
 				C7F42CD52E5B202400FA7169 /* PreferencesViewControllerObjC.h */,
 				C7F42CD62E5B383B00FA7169 /* General */,
-				C7F42CD92E5B3C2300FA7169 /* Resolutions */,
 				C7F42CDA2E5B3C3400FA7169 /* Gamepad */,
+				C791A9AD2F423275001F7E2E /* Network */,
 				C7F42CDB2E5B3C4000FA7169 /* Advanced */,
 				C74035B42EDC3AB60045B9C6 /* Shared UI */,
 				C75073782E65E12800D1E374 /* Preferences Handling */,
@@ -1844,6 +1869,7 @@
 				C7F42CE22E5B448A00FA7169 /* PreferencesGeneralCells.swift */,
 				C75073742E65E0CC00D1E374 /* Rom Handling */,
 				C75073752E65E0F100D1E374 /* Disk Handling */,
+				C7F42CD92E5B3C2300FA7169 /* Resolutions */,
 			);
 			path = General;
 			sourceTree = "<group>";
@@ -2261,6 +2287,7 @@
 				E204B93628BC3EBE0081FDCA /* ip_output.c in Sources */,
 				C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */,
 				E204B93728BC3EBE0081FDCA /* tcp_output.c in Sources */,
+				C791A9B12F423295001F7E2E /* PreferencesNetworkCells.swift in Sources */,
 				C75CBADE2EF2E11200F576ED /* GamepadJoystick.swift in Sources */,
 				C77CF0742E7823D900D2A854 /* RomManager.swift in Sources */,
 				C79517E42F15449500CAEDBF /* RightClickObjC.mm in Sources */,
@@ -2275,6 +2302,7 @@
 				C72FA6BF2F06B6C50071889C /* DragInteractionModel.swift in Sources */,
 				C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */,
 				E204B93C28BC3EBE0081FDCA /* ether.cpp in Sources */,
+				C791A9AC2F42309E001F7E2E /* DoneButton.swift in Sources */,
 				C771C50C2EFEAB9C00062767 /* GamepadSettingsButton.swift in Sources */,
 				E204B93D28BC3EBE0081FDCA /* audio.cpp in Sources */,
 				E204B93E28BC3EBE0081FDCA /* extfs.cpp in Sources */,
@@ -2288,6 +2316,7 @@
 				E204B94328BC3EBE0081FDCA /* if.c in Sources */,
 				E204B94528BC3EBE0081FDCA /* tftp.c in Sources */,
 				C7E7B4A62EB7BFF6005844C2 /* PreferencesLicensesViewController.swift in Sources */,
+				C791A9B52F4232B3001F7E2E /* PreferencesNetworModel.swift in Sources */,
 				C707D04A2F26583C007BFE66 /* PreferencesRelativeMouseModeOnboarding.swift in Sources */,
 				E204B94628BC3EBE0081FDCA /* main.cpp in Sources */,
 				C7C3837B2E7862080051C5A4 /* PreferencesSetupInstructions.swift in Sources */,
@@ -2335,7 +2364,6 @@
 				C7B4E21A2F33962400246FBE /* Fonts.swift in Sources */,
 				E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */,
 				C790E8772F055ECC00B784A6 /* InputInteractionModel.swift in Sources */,
-				C74E10982EABC8BB00150945 /* DiskROMExtractor.m in Sources */,
 				C73660F42E37B5C80055AA91 /* Gamepad.swift in Sources */,
 				E204B95B28BC3EBE0081FDCA /* about_window_unix.cpp in Sources */,
 				E204B95C28BC3EBE0081FDCA /* ip_icmp.c in Sources */,
@@ -2346,6 +2374,7 @@
 				C70F32732ECB76920079A3D4 /* LinkLabel.swift in Sources */,
 				E204B95E28BC3EBE0081FDCA /* ether_unix.cpp in Sources */,
 				C79D23042F3F82C500D54A4C /* NetworkSettingsObjC.mm in Sources */,
+				C791A9AF2F423290001F7E2E /* PreferencesNetworkViewController.swift in Sources */,
 				C7C3D26A2E75B9F80018DB8B /* PreferencesGamepadEditConfigViewController.swift in Sources */,
 				C7F42CD82E5B384F00FA7169 /* PreferencesGeneralViewController.swift in Sources */,
 				E204B95F28BC3EBE0081FDCA /* main_unix.cpp in Sources */,
@@ -2431,6 +2460,7 @@
 				E204B97728BC3EBE0081FDCA /* disk_sparsebundle.cpp in Sources */,
 				E204B97828BC3EBE0081FDCA /* tinyxml2.cpp in Sources */,
 				C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */,
+				C791A9AA2F41C3BF001F7E2E /* DiskFileExtractor.swift in Sources */,
 				C73C7A022F002FF400FC0467 /* GamepadAssignKeyboardAccessoryView.swift in Sources */,
 				C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */,
 				C73660E42E34DCE40055AA91 /* Extensions.swift in Sources */,
