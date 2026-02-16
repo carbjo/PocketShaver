@@ -36,10 +36,12 @@ final class BonjourSession: NSObject {
                 self.certificateHandler = certificateHandler
             }
 
-			nonisolated(unsafe) static let `default` = Security(identity: nil,
-                                                   encryptionPreference: .none,
-                                                   invitationHandler: { _, _, handler in handler(true) },
-                                                   certificateHandler:  { _, _, handler in handler(true) })
+			nonisolated(unsafe) static let `default` = Security(
+				identity: nil,
+				encryptionPreference: .none,
+				invitationHandler: { _, _, handler in handler(true) },
+				certificateHandler:  { _, _, handler in handler(true) }
+			)
 
         }
 
@@ -67,11 +69,11 @@ final class BonjourSession: NSObject {
 
 		init(peerName: String?) {
 			self = Configuration(
-				serviceType: "Bonjour",
+				serviceType: "ps-network",
 				peerName: peerName ?? MCPeerID.defaultDisplayName,
 				defaults: .standard,
 				security: .default,
-				invitation: .automatic
+				invitation: .none
 			)
 		}
     }
@@ -102,7 +104,7 @@ final class BonjourSession: NSObject {
     // MARK: - Properties
 
     let usage: Usage
-    private(set) var configuration: Configuration
+    var configuration: Configuration
     let localPeerID: MCPeerID
 
     private(set) var availablePeers: Set<Peer> = [] {
@@ -147,7 +149,7 @@ final class BonjourSession: NSObject {
 
     private lazy var advertiser: MCNearbyServiceAdvertiser = {
         let advertiser = MCNearbyServiceAdvertiser(peer: self.localPeerID,
-                                                   discoveryInfo: nil,
+												   discoveryInfo: discoveryInfo,
                                                    serviceType: self.configuration.serviceType)
         advertiser.delegate = self
         return advertiser
@@ -155,6 +157,7 @@ final class BonjourSession: NSObject {
 
     private var invitationCompletionHandlers: [MCPeerID: InvitationCompletionHandler] = [:]
     private var progressWatchers: [String: ProgressWatcher] = [:]
+	private(set) var discoveryInfo: [String : String]?
     private let sessionQueue = DispatchQueue(label: "Bonjour.Session", qos: .userInteractive)
 
 
@@ -163,7 +166,8 @@ final class BonjourSession: NSObject {
 	init(
 		usage: Usage = .combined,
 		configuration: Configuration? = nil,
-		peerName: String? = nil
+		peerName: String? = nil,
+		discoveryInfo: [String : String]?
 	) {
 		self.usage = usage
 		if let configuration {
@@ -174,6 +178,7 @@ final class BonjourSession: NSObject {
 			)
 		}
 		self.localPeerID = MCPeerID.fetchOrCreate(with: self.configuration)
+		self.discoveryInfo = discoveryInfo
     }
 
     func start() {
@@ -207,6 +212,10 @@ final class BonjourSession: NSObject {
             self.browser.stopBrowsingForPeers()
         }
     }
+
+	func disconnect() {
+		session.disconnect()
+	}
 
     func invite(_ peer: Peer,
                        with context: Data?,
@@ -283,6 +292,40 @@ final class BonjourSession: NSObject {
         }
     }
 
+	func inviteAvailablePeer(_ peer: Peer) {
+		browser.invitePeer(
+			peer.peerID,
+			to: session,
+			withContext: nil,
+			timeout: 10.0
+		)
+	}
+
+	func updatePeerNameAndRecreateAdvertiser(_ peerName: String) {
+		discoveryInfo?["peerName"] = peerName
+
+		self.advertiser.stopAdvertisingPeer()
+
+		let advertiser = MCNearbyServiceAdvertiser(peer: self.localPeerID,
+												   discoveryInfo: discoveryInfo,
+												   serviceType: self.configuration.serviceType)
+		advertiser.delegate = self
+
+		self.advertiser = advertiser
+
+		advertiser.startAdvertisingPeer()
+	}
+
+	func updateName(of peer: Peer, withName name: String) {
+		guard availablePeers.contains(peer) else {
+			return
+		}
+
+		let updatedPeer = peer.withName(name)
+		availablePeers.remove(peer)
+		availablePeers.insert(updatedPeer)
+	}
+
     // MARK: - Private
 
     private func didDiscover(_ peer: Peer) {
@@ -313,7 +356,7 @@ final class BonjourSession: NSObject {
         self.onFinishReceiving?(resourceName, peer, localURL, error)
     }
 
-    private func handleDidReceived(_ data: Data,
+    private func handleDidReceive(_ data: Data,
                                    peerID: MCPeerID) {
            guard let peer = self.availablePeers.first(where: { $0.peerID == peerID })
            else { return }
@@ -333,6 +376,9 @@ final class BonjourSession: NSObject {
     }
 
     private func handlePeerDisconnected(_ peer: Peer) {
+		guard peer.isConnected else {
+			return
+		}
         self.setConnected(false, on: peer)
         self.onPeerDisconnection?(peer)
     }
@@ -346,7 +392,6 @@ final class BonjourSession: NSObject {
         self.availablePeers.remove(peer)
         self.availablePeers.insert(mutablePeer)
     }
-
 }
 
 // MARK: - Session delegate
@@ -362,9 +407,13 @@ extension BonjourSession: MCSessionDelegate {
                type: .debug,
                #function)
         #endif
-        
+
+		print("peer \(peerID.hash) \(state.rawValue)")
         guard let peer = self.availablePeers.first(where: { $0.peerID == peerID })
-        else { return }
+		else {
+			print("could not find peer")
+			return
+		}
 
         let handler = self.invitationCompletionHandlers[peerID]
 
@@ -395,7 +444,7 @@ extension BonjourSession: MCSessionDelegate {
                type: .debug,
                #function)
         #endif
-        self.handleDidReceived(data, peerID: peerID)
+        self.handleDidReceive(data, peerID: peerID)
     }
 
     func session(_ session: MCSession,
@@ -559,7 +608,10 @@ extension BonjourSession: MCNearbyServiceAdvertiserDelegate {
         #endif
 
         guard let peer = self.availablePeers.first(where: { $0.peerID == peerID })
-        else { return }
+        else {
+			print("- did not find peer in advertiser(_:didReceiveInvitationFromPeer:withContext:invitationHandler:)")
+			return
+		}
 
         self.configuration.security.invitationHandler(peer, context, { [weak self] decision in
             guard let self = self

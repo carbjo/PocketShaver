@@ -9,6 +9,10 @@
 #import "NetworkSettingsObjCCppHeader.h"
 #include <malloc/malloc.h>
 
+bool objc_getNetworkServiceTypeIsBonjour() {
+	return [NetworkSettingsObjCProxy getNetworkServiceTypeIsBonjour];
+}
+
 void objc_fetchHardwareAddressData(uint8 * p) {
 	NSData *hardwareAddressData = [NetworkSettingsObjCProxy getHardwareAddressData];
 	if (!hardwareAddressData) {

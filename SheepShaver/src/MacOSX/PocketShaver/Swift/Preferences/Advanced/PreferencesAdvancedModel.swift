@@ -82,6 +82,16 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
+	var reportIpAddressAssignment: Bool {
+		get {
+			NetworkSettings.current.reportIpAddressAssignment
+		}
+		set {
+			NetworkSettings.current.set(reportIpAddressAssignment: newValue)
+		}
+	}
+
+	@MainActor
 	var relativeMouseModeSetting: RelativeMouseModeSetting {
 		get {
 			MiscellaneousSettings.current.relativeMouseModeSetting

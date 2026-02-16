@@ -66,6 +66,7 @@ public class OverlayViewController: UIViewController {
 			}
 		)
 		view.isUserInteractionEnabled = (state == .showingGamepad || state == .editingGamepad)
+		view.alpha = 0
 		return view
 	}()
 
@@ -173,6 +174,11 @@ public class OverlayViewController: UIViewController {
 				atBottom: true
 			)
 		}
+		if gamepadLayerView.alpha == 0 {
+			UIView.animate(withDuration: 0.2, delay: 0.5) {
+				self.gamepadLayerView.alpha = 1
+			}
+		}
 	}
 
 	private func setupViews() {
@@ -268,6 +274,7 @@ public class OverlayViewController: UIViewController {
 		NotificationCenter.default.addObserver(self, selector: #selector(updatePerformanceCounter), name: LocalNotifications.performanceCounterSettingChanged, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayRelativeMouseCapabilityDialogueIfEligible), name: LocalNotifications.relativeMouseModeCapabilityFound, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayJaggyCursorWarningDialogueIfEligible), name: LocalNotifications.jaggyCursorResolutionSelected, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(displayGotIpAddress), name: LocalNotifications.gotIpAddress, object: nil)
 	}
 
 	private func loadGamepadSettings() {
@@ -626,6 +633,19 @@ public class OverlayViewController: UIViewController {
 		} else {
 			queuedAlertController = alertVC
 		}
+	}
+
+	@objc
+	private func displayGotIpAddress(notification: Notification) {
+		guard let ipAddress = notification.object as? IpAddress,
+		NetworkSettings.current.reportIpAddressAssignment else {
+			return
+		}
+
+		informationView.show(
+			hint: "Got IP address \(ipAddress.string)",
+			atBottom: true
+		)
 	}
 }
 

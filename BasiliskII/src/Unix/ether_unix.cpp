@@ -331,7 +331,13 @@ bool ether_init(void)
 		printf("selected Ethernet device type sheep_net\n");
 	}
 
-    net_if_type = NET_IF_BONJOUR; // Temp
+#if TARGET_OS_IPHONE
+    if (objc_getNetworkServiceTypeIsBonjour()) {
+        net_if_type = NET_IF_BONJOUR;
+    } else {
+        net_if_type = NET_IF_SLIRP;
+    }
+#endif
 
 	// Don't raise SIGPIPE, let errno be set to EPIPE
 	struct sigaction sigpipe_sa;
@@ -514,13 +520,6 @@ bool ether_init(void)
 	} else if (net_if_type == NET_IF_SLIRP || net_if_type == NET_IF_BONJOUR) {
 
         objc_fetchHardwareAddressData(ether_addr);
-
-//		ether_addr[0] = 0x52;
-//		ether_addr[1] = 0x54;
-//		ether_addr[2] = 0x00;
-//		ether_addr[3] = 0x12;
-//		ether_addr[4] = 0x34;
-//		ether_addr[5] = 0x58;
 
         printf("- did set address ");
         for (int i=0; i<6; i++) {
@@ -944,13 +943,19 @@ static int16 ether_do_write(uint32 arg)
 	} else
 #endif
     if (net_if_type == NET_IF_BONJOUR) {
+        if (!ready_to_receive) {
+            ready_to_receive = true;
+        }
+
         objc_bonjourSendData(packet, len);
 
-       printf("s %d ", len);
+//       printf("s %d ", len);
 //        for (int i = 0; i< len; i++) {
 //            printf("%02x", packet[i]);
 //        }
-       printf("\n");
+//       printf("\n");
+
+        objc_reportBytesTransferred(len);
 
        return noErr;
     } else if (write(fd, packet, len) < 0) {
@@ -1110,7 +1115,7 @@ static void *receive_func(void *arg)
 
 void receive_rawdata_func(unsigned char *data, int length) {
     if (!ready_to_receive) {
-        printf("- rejected package");
+        printf("- rejected package\n");
         return;
     }
 
