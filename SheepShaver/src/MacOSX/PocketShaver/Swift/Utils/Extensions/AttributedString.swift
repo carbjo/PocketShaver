@@ -19,8 +19,8 @@ struct StringTagConfig {
 	let highlightedImages: [UIImage]?
 
 	init(
-		boldAppearance: TextAppearance? = nil,
-		highlightedAppearance: TextAppearance? = nil,
+		boldAppearance: TextAppearance? = .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
+		highlightedAppearance: TextAppearance? = .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText),
 		images: [UIImage]? = nil,
 		highlightedImages: [UIImage]? = nil
 	) {

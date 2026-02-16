@@ -7,4 +7,5 @@
 
 #include "sysdeps.h"
 
+bool objc_getNetworkServiceTypeIsBonjour();
 void objc_fetchHardwareAddressData(uint8 * p);

@@ -79,6 +79,7 @@ class PreferencesAdvancedMiscellaneousCell: UITableViewCell {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
+		label.textColor = Colors.primaryText
 		return label
 	}()
 

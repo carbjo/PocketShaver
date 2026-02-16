@@ -486,31 +486,6 @@ class PreferencesGeneralDiskCell: UITableViewCell {
 	}
 }
 
-class PreferencesGeneralDiskEmptyStateCell: UITableViewCell {
-	private lazy var titleLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.font = .boldSystemFont(ofSize: 18)
-		label.text = "No files found"
-		label.textAlignment = .center
-		return label
-	}()
-
-	init() {
-		super.init(style: .default, reuseIdentifier: nil)
-
-		contentView.addSubview(titleLabel)
-
-		NSLayoutConstraint.activate([
-			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 24),
-			titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -24)
-		])
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
-}
-
 class PreferencesGeneralDiskSectionActionsCell: UITableViewCell {
 	private lazy var informationLabel: UILabel = {
 		let label = UILabel.withoutConstraints()

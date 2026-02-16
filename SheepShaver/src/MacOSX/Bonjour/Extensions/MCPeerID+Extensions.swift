@@ -27,7 +27,7 @@ extension MCPeerID {
 import UIKit
 
 extension MCPeerID {
-	nonisolated static let defaultDisplayName = "Some iPhone"
+	nonisolated static let defaultDisplayName = "iOS device"
 }
 
 #else

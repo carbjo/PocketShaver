@@ -476,7 +476,9 @@ extension PreferencesGeneralViewController {
 			}
 		case .disks:
 			if indexPath.row == 0, model.numberOfDisks == 0 {
-				return PreferencesGeneralDiskEmptyStateCell()
+				return PreferencesEmptyStateCell(
+					title: "No files found"
+				)
 			} else if indexPath.row == 0 {
 				return PreferencesGeneralDiskColumnsDescriptionCell()
 			} else if indexPath.row <= model.numberOfDisks {
@@ -587,7 +589,7 @@ extension PreferencesGeneralViewController {
 			case 0:
 				return PreferencesInformationCell(
 					text: "Two finger steering is an alternative way to control the mouse without obscuring the cursor with your finger. Read the <link>onboarding</link> to get started.",
-					cellType: .introduction,
+					upperMargin: .medium,
 					separatorHidden: false
 				) { [weak self] in
 					guard let self else { return }

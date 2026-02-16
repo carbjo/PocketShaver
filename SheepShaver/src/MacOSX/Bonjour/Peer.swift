@@ -4,10 +4,9 @@ import CommonCrypto
 
 struct Peer: Hashable, Identifiable {
     let id: String
-    let name: String
     let discoveryInfo: [String: String]?
     let peerID: MCPeerID
-    internal(set) var isConnected: Bool
+    var isConnected: Bool
 
     init(peer: MCPeerID, discoveryInfo: [String: String]?) throws {
         /**
@@ -19,10 +18,21 @@ struct Peer: Hashable, Identifiable {
         self.id = peerData.idHash
 
         self.peerID = peer
-        self.name = peer.displayName
         self.discoveryInfo = discoveryInfo
         self.isConnected = false
     }
+
+	fileprivate init(
+		id: String,
+		discoveryInfo: [String: String]?,
+		peerID: MCPeerID,
+		isConnected: Bool
+	) {
+		self.id = id
+		self.discoveryInfo = discoveryInfo
+		self.peerID = peerID
+		self.isConnected = isConnected
+	}
 }
 
 fileprivate extension Data {
@@ -31,4 +41,18 @@ fileprivate extension Data {
         withUnsafeBytes { _ = CC_SHA1($0.baseAddress, CC_LONG(count), &sha1) }
         return sha1.map({ String(format: "%02hhx", $0) }).joined()
     }
+}
+
+extension Peer {
+	func withName(_ name: String) -> Self {
+		var discoveryInfo = self.discoveryInfo
+		discoveryInfo?["peerName"] = name
+		
+		return .init(
+			id: id,
+			discoveryInfo: discoveryInfo,
+			peerID: peerID,
+			isConnected: isConnected
+		)
+	}
 }

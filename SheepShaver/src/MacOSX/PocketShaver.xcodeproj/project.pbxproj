@@ -135,6 +135,7 @@
 		C74E108E2EA9228F00150945 /* ImpPrintf.m in Sources */ = {isa = PBXBuildFile; fileRef = C74E10682EA9228F00150945 /* ImpPrintf.m */; };
 		C750737A2E65E14F00D1E374 /* DiskCreation.mm in Sources */ = {isa = PBXBuildFile; fileRef = C75073792E65E14700D1E374 /* DiskCreation.mm */; };
 		C750737D2E67440900D1E374 /* PreferencesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750737C2E67440800D1E374 /* PreferencesModel.swift */; };
+		C751A2002F46D6E4007E63D9 /* UdpChecksum.mm in Sources */ = {isa = PBXBuildFile; fileRef = C751A1FF2F46D6D1007E63D9 /* UdpChecksum.mm */; };
 		C75A604F2E62D04600253CA3 /* PreferencesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75A604E2E62D04000253CA3 /* PreferencesManager.swift */; };
 		C75CBADE2EF2E11200F576ED /* GamepadJoystick.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75CBADD2EF2E10C00F576ED /* GamepadJoystick.swift */; };
 		C7699F0E2EBF56E30083B3B3 /* PreferencesROMValidatorCpp.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C7699F0D2EBF56CF0083B3B3 /* PreferencesROMValidatorCpp.cpp */; };
@@ -157,7 +158,7 @@
 		C791A9AC2F42309E001F7E2E /* DoneButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791A9AB2F42309B001F7E2E /* DoneButton.swift */; };
 		C791A9AF2F423290001F7E2E /* PreferencesNetworkViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791A9AE2F423289001F7E2E /* PreferencesNetworkViewController.swift */; };
 		C791A9B12F423295001F7E2E /* PreferencesNetworkCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791A9B02F423293001F7E2E /* PreferencesNetworkCells.swift */; };
-		C791A9B52F4232B3001F7E2E /* PreferencesNetworModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791A9B42F4232B1001F7E2E /* PreferencesNetworModel.swift */; };
+		C791A9B52F4232B3001F7E2E /* PreferencesNetworkModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791A9B42F4232B1001F7E2E /* PreferencesNetworkModel.swift */; };
 		C791FA362F2CD71400F52B02 /* GamepadSideButtonStackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C791FA352F2CD70D00F52B02 /* GamepadSideButtonStackView.swift */; };
 		C792C17E2E47618A0016DDAF /* InformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C792C17D2E4761830016DDAF /* InformationView.swift */; };
 		C79469752F2BBB7A00DFD2D3 /* DeviceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79469742F2BBB7A00DFD2D3 /* DeviceModel.swift */; };
@@ -165,10 +166,12 @@
 		C79517E22F15447E00CAEDBF /* RightClick.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79517E12F15447D00CAEDBF /* RightClick.swift */; };
 		C79517E42F15449500CAEDBF /* RightClickObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79517E32F15449100CAEDBF /* RightClickObjC.mm */; };
 		C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79A69272E62040300F582A6 /* RomPathObjC.mm */; };
-		C79D23002F3F7C9900D54A4C /* HardwareAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79D22FF2F3F7C9400D54A4C /* HardwareAddress.swift */; };
+		C79D23002F3F7C9900D54A4C /* NetworkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79D22FF2F3F7C9400D54A4C /* NetworkModels.swift */; };
 		C79D23022F3F7CC100D54A4C /* NetworkSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79D23012F3F7CBA00D54A4C /* NetworkSettings.swift */; };
 		C79D23042F3F82C500D54A4C /* NetworkSettingsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79D23032F3F82BB00D54A4C /* NetworkSettingsObjC.mm */; };
+		C7A0EC162F4307BA0016533F /* Assets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A0EC152F4307B40016533F /* Assets.swift */; };
 		C7A9AB9A2EED61F2001EC4DB /* LocalNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */; };
+		C7B23CC32F58122100B784E7 /* TableViewDiffableDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B23CC22F58121C00B784E7 /* TableViewDiffableDataSource.swift */; };
 		C7B4E21A2F33962400246FBE /* Fonts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B4E2192F33962200246FBE /* Fonts.swift */; };
 		C7B4E21E2F33982800246FBE /* Fonts.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C7B4E21D2F33982800246FBE /* Fonts.xcassets */; };
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
@@ -667,6 +670,8 @@
 		C75073792E65E14700D1E374 /* DiskCreation.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = DiskCreation.mm; sourceTree = "<group>"; };
 		C750737B2E65E15200D1E374 /* DiskCreation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DiskCreation.h; sourceTree = "<group>"; };
 		C750737C2E67440800D1E374 /* PreferencesModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesModel.swift; sourceTree = "<group>"; };
+		C751A1FF2F46D6D1007E63D9 /* UdpChecksum.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = UdpChecksum.mm; sourceTree = "<group>"; };
+		C751A2032F46D706007E63D9 /* UdpChecksum.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UdpChecksum.h; sourceTree = "<group>"; };
 		C75A604E2E62D04000253CA3 /* PreferencesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesManager.swift; sourceTree = "<group>"; };
 		C75CBADD2EF2E10C00F576ED /* GamepadJoystick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadJoystick.swift; sourceTree = "<group>"; };
 		C7699F0D2EBF56CF0083B3B3 /* PreferencesROMValidatorCpp.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = PreferencesROMValidatorCpp.cpp; sourceTree = "<group>"; };
@@ -693,7 +698,7 @@
 		C791A9AB2F42309B001F7E2E /* DoneButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoneButton.swift; sourceTree = "<group>"; };
 		C791A9AE2F423289001F7E2E /* PreferencesNetworkViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesNetworkViewController.swift; sourceTree = "<group>"; };
 		C791A9B02F423293001F7E2E /* PreferencesNetworkCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesNetworkCells.swift; sourceTree = "<group>"; };
-		C791A9B42F4232B1001F7E2E /* PreferencesNetworModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesNetworModel.swift; sourceTree = "<group>"; };
+		C791A9B42F4232B1001F7E2E /* PreferencesNetworkModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesNetworkModel.swift; sourceTree = "<group>"; };
 		C791FA352F2CD70D00F52B02 /* GamepadSideButtonStackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadSideButtonStackView.swift; sourceTree = "<group>"; };
 		C792C17D2E4761830016DDAF /* InformationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationView.swift; sourceTree = "<group>"; };
 		C79469742F2BBB7A00DFD2D3 /* DeviceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceModel.swift; sourceTree = "<group>"; };
@@ -704,11 +709,13 @@
 		C795CDE12F0CF71900B0DAF6 /* MouseHapticFeedbackObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MouseHapticFeedbackObjCCppHeader.h; sourceTree = "<group>"; };
 		C79A69272E62040300F582A6 /* RomPathObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomPathObjC.mm; sourceTree = "<group>"; };
 		C79A69292E62043100F582A6 /* RomPathObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomPathObjC.h; sourceTree = "<group>"; };
-		C79D22FF2F3F7C9400D54A4C /* HardwareAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareAddress.swift; sourceTree = "<group>"; };
+		C79D22FF2F3F7C9400D54A4C /* NetworkModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkModels.swift; sourceTree = "<group>"; };
 		C79D23012F3F7CBA00D54A4C /* NetworkSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkSettings.swift; sourceTree = "<group>"; };
 		C79D23032F3F82BB00D54A4C /* NetworkSettingsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = NetworkSettingsObjC.mm; sourceTree = "<group>"; };
 		C79D23052F3F833B00D54A4C /* NetworkSettingsObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NetworkSettingsObjCCppHeader.h; sourceTree = "<group>"; };
+		C7A0EC152F4307B40016533F /* Assets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Assets.swift; sourceTree = "<group>"; };
 		C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotifications.swift; sourceTree = "<group>"; };
+		C7B23CC22F58121C00B784E7 /* TableViewDiffableDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableViewDiffableDataSource.swift; sourceTree = "<group>"; };
 		C7B4E2192F33962200246FBE /* Fonts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fonts.swift; sourceTree = "<group>"; };
 		C7B4E21D2F33982800246FBE /* Fonts.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Fonts.xcassets; sourceTree = "<group>"; };
 		C7B616CF2E9D374800483010 /* hfs-ios.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "hfs-ios.h"; sourceTree = "<group>"; };
@@ -1516,6 +1523,7 @@
 			isa = PBXGroup;
 			children = (
 				C70F32722ECB76900079A3D4 /* LinkLabel.swift */,
+				C7B23CC22F58121C00B784E7 /* TableViewDiffableDataSource.swift */,
 				C74035B52EDC3B0C0045B9C6 /* PreferencesCells.swift */,
 				C791A9AB2F42309B001F7E2E /* DoneButton.swift */,
 			);
@@ -1570,6 +1578,7 @@
 			isa = PBXGroup;
 			children = (
 				E204B9A428BC7BF10081FDCA /* Assets.xcassets */,
+				C7A0EC152F4307B40016533F /* Assets.swift */,
 				C74B222B2ED767BC003D0F71 /* Colors.xcassets */,
 				C7699F142EC464930083B3B3 /* Colors.swift */,
 				C7B4E2192F33962200246FBE /* Fonts.swift */,
@@ -1622,6 +1631,8 @@
 				C77F122C2F39D8F80033BE25 /* BonjourManagerObjC.mm */,
 				C77F122E2F39D9010033BE25 /* BonjourManagerObjC.h */,
 				C77F12292F39D8130033BE25 /* BonjourManagerObjCCppHeader.h */,
+				C751A1FF2F46D6D1007E63D9 /* UdpChecksum.mm */,
+				C751A2032F46D706007E63D9 /* UdpChecksum.h */,
 			);
 			path = Bonjour;
 			sourceTree = "<group>";
@@ -1646,7 +1657,7 @@
 		C791A9AD2F423275001F7E2E /* Network */ = {
 			isa = PBXGroup;
 			children = (
-				C791A9B42F4232B1001F7E2E /* PreferencesNetworModel.swift */,
+				C791A9B42F4232B1001F7E2E /* PreferencesNetworkModel.swift */,
 				C791A9AE2F423289001F7E2E /* PreferencesNetworkViewController.swift */,
 				C791A9B02F423293001F7E2E /* PreferencesNetworkCells.swift */,
 			);
@@ -1680,7 +1691,7 @@
 				C79D23012F3F7CBA00D54A4C /* NetworkSettings.swift */,
 				C79D23032F3F82BB00D54A4C /* NetworkSettingsObjC.mm */,
 				C79D23052F3F833B00D54A4C /* NetworkSettingsObjCCppHeader.h */,
-				C79D22FF2F3F7C9400D54A4C /* HardwareAddress.swift */,
+				C79D22FF2F3F7C9400D54A4C /* NetworkModels.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -2306,6 +2317,7 @@
 				C771C50C2EFEAB9C00062767 /* GamepadSettingsButton.swift in Sources */,
 				E204B93D28BC3EBE0081FDCA /* audio.cpp in Sources */,
 				E204B93E28BC3EBE0081FDCA /* extfs.cpp in Sources */,
+				C7A0EC162F4307BA0016533F /* Assets.swift in Sources */,
 				C73660F02E364DDF0055AA91 /* GamepadButtonStackViewCollectionStackView.swift in Sources */,
 				E204B93F28BC3EBE0081FDCA /* gfxaccel.cpp in Sources */,
 				E204B94028BC3EBE0081FDCA /* macos_util.cpp in Sources */,
@@ -2316,7 +2328,7 @@
 				E204B94328BC3EBE0081FDCA /* if.c in Sources */,
 				E204B94528BC3EBE0081FDCA /* tftp.c in Sources */,
 				C7E7B4A62EB7BFF6005844C2 /* PreferencesLicensesViewController.swift in Sources */,
-				C791A9B52F4232B3001F7E2E /* PreferencesNetworModel.swift in Sources */,
+				C791A9B52F4232B3001F7E2E /* PreferencesNetworkModel.swift in Sources */,
 				C707D04A2F26583C007BFE66 /* PreferencesRelativeMouseModeOnboarding.swift in Sources */,
 				E204B94628BC3EBE0081FDCA /* main.cpp in Sources */,
 				C7C3837B2E7862080051C5A4 /* PreferencesSetupInstructions.swift in Sources */,
@@ -2386,6 +2398,7 @@
 				E204B96028BC3EBE0081FDCA /* video_sdl2.cpp in Sources */,
 				E204B96128BC3EBE0081FDCA /* prefs_unix.cpp in Sources */,
 				C7F42CE52E5B4C0100FA7169 /* PreferencesGeneralModel.swift in Sources */,
+				C751A2002F46D6E4007E63D9 /* UdpChecksum.mm in Sources */,
 				E204BA3628BD49260081FDCA /* extfs_macosx.cpp in Sources */,
 				E204B96228BC3EBE0081FDCA /* rpc_unix.cpp in Sources */,
 				C72739C92E2BAA6500B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift in Sources */,
@@ -2396,7 +2409,7 @@
 				C7C3D26C2E75C4690018DB8B /* PreferencesGamepadEditConfigCells.swift in Sources */,
 				E204B96328BC3EBE0081FDCA /* serial_unix.cpp in Sources */,
 				E204B96428BC3EBE0081FDCA /* sshpty.c in Sources */,
-				C79D23002F3F7C9900D54A4C /* HardwareAddress.swift in Sources */,
+				C79D23002F3F7C9900D54A4C /* NetworkModels.swift in Sources */,
 				C707D04D2F266B80007BFE66 /* PreferencesTwoFingerSteeringOnboarding.swift in Sources */,
 				E204B96528BC3EBE0081FDCA /* strlcpy.c in Sources */,
 				C74035B82EE096600045B9C6 /* MiscellaneousSettingsObjCCppHeader.h in Sources */,
@@ -2445,6 +2458,7 @@
 				C74E10882EA9228F00150945 /* ImpBTreeNode.m in Sources */,
 				C74E10892EA9228F00150945 /* ImpHFSPlusSourceVolume.m in Sources */,
 				C74E108A2EA9228F00150945 /* ImpTextEncodingConverter.m in Sources */,
+				C7B23CC32F58122100B784E7 /* TableViewDiffableDataSource.swift in Sources */,
 				C791FA362F2CD71400F52B02 /* GamepadSideButtonStackView.swift in Sources */,
 				C74E108B2EA9228F00150945 /* ImpSizeUtilities.m in Sources */,
 				C74E108C2EA9228F00150945 /* ImpBTreeFile.m in Sources */,

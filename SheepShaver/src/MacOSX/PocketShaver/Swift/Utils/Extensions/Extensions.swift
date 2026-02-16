@@ -269,3 +269,12 @@ extension UIView {
 		}
 	}
 }
+
+extension Data {
+	func printHexString() {
+		for i in 0..<count {
+			print(String(format:"%02x", self[i]), terminator: "")
+		}
+		print("")
+	}
+}

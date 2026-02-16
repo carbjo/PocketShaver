@@ -39,7 +39,7 @@
 	<true/>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_Bonjour._tcp</string>
+		<string>_ps-network._tcp</string>
 	</array>
 	<key>NSHighResolutionCapable</key>
 	<true/>

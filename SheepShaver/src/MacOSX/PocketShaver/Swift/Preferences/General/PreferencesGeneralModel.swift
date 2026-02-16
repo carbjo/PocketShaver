@@ -250,7 +250,11 @@ class PreferencesGeneralModel {
 			}
 		}
 
-		return DiskManager.shared.loadDiskData()
+		let filename = url.lastPathComponent
+
+		return DiskManager.shared.loadDiskData(
+			requestEnableDiskWithFilename: filename
+		)
 	}
 
 	@MainActor
