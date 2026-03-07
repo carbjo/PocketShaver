@@ -175,5 +175,5 @@ private let alternativeNames: [GamepadAssignEntry] = [
 	.init(identifier: "Less than", assignment: .key(.lessThan)),
 	.init(identifier: "Click", assignment: .specialButton(.mouseClick)),
 	.init(identifier: "Left click", assignment: .specialButton(.mouseClick)),
-	.init(identifier: "Right mouse click", assignment: .specialButton(.mouseClick))
+	.init(identifier: "Right mouse click", assignment: .specialButton(.rightClick))
 ]

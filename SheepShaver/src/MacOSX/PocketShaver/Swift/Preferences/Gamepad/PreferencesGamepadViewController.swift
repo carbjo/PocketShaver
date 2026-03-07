@@ -25,8 +25,6 @@ class PreferencesGamepadViewController: UITableViewController {
 		self.changeSubject = changeSubject
 
 		super.init(nibName: nil, bundle: nil)
-
-		view.backgroundColor = Colors.primaryBackground
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
@@ -35,9 +33,8 @@ class PreferencesGamepadViewController: UITableViewController {
 		super.viewDidLoad()
 
 		tableView.showsVerticalScrollIndicator = false
-
+		view.backgroundColor = Colors.primaryBackground
 		view.translatesAutoresizingMaskIntoConstraints = false
-		view.backgroundColor = .white
 	}
 
 	func presentEditConfig(config: GamepadConfig) {

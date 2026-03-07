@@ -8,7 +8,7 @@
 import NotificationCenter
 
 enum LocalNotifications {
-	static let fpsCounterSettingChanged = NSNotification.Name("fpsCounterSettingChanged")
+	static let performanceCounterSettingChanged = NSNotification.Name("performanceCounterSettingChanged")
 
 	static let relativeMouseModeEnabled = NSNotification.Name("relativeMouseModeEnabled")
 	static let relativeMouseModeDisabled = NSNotification.Name("relativeMouseModeDisabled")
@@ -18,6 +18,8 @@ enum LocalNotifications {
 	static let iPadMousePassthroughChanged = NSNotification.Name("iPadMousePassthroughChanged")
 
 	static let jaggyCursorResolutionSelected = NSNotification.Name("jaggyCursorResolutionSelected")
+
+	static let gotIpAddress = NSNotification.Name("gotIpAddress")
 }
 
 

@@ -33,6 +33,12 @@ enum RightClickSetting: String, Codable, CaseIterable {
 	case command
 }
 
+enum KeyboardAutoOffsetSetting: String, Codable, CaseIterable {
+	case top // none
+	case middle
+	case bottom
+}
+
 enum GammaRampSetting: String, Codable, CaseIterable {
 	case osDefined
 	case linear
@@ -45,9 +51,14 @@ class MiscellaneousSettings: Codable {
 	private(set) var mouseHapticFeedback: Bool
 	private(set) var keyHapticFeedback: Bool
 	private(set) var soundDisabled: Bool
-	private(set) var fpsCounterEnabled: Bool {
+	private(set) var fpsReporting: Bool {
 		didSet {
-			NotificationCenter.default.post(.init(name: LocalNotifications.fpsCounterSettingChanged))
+			NotificationCenter.default.post(.init(name: LocalNotifications.performanceCounterSettingChanged))
+		}
+	}
+	private(set) var networkTransferRateReportingEnabled: Bool {
+		didSet {
+			NotificationCenter.default.post(.init(name: LocalNotifications.performanceCounterSettingChanged))
 		}
 	}
 	private(set) var frameRateSetting: FrameRateSetting
@@ -58,6 +69,7 @@ class MiscellaneousSettings: Codable {
 	private(set) var secondFingerSwipe: Bool
 	private(set) var bootInHoverMode: Bool
 	private(set) var rightClickSetting: RightClickSetting
+	private(set) var keyboardAutoOffsetSetting: KeyboardAutoOffsetSetting
 	private(set) var hoverJustAboveOffsetModifier: Float
 	private(set) var gammaRampSetting: GammaRampSetting
 
@@ -78,7 +90,8 @@ class MiscellaneousSettings: Codable {
 		mouseHapticFeedback = true
 		keyHapticFeedback = true
 		soundDisabled = false
-		fpsCounterEnabled = false
+		fpsReporting = false
+		networkTransferRateReportingEnabled = false
 		if UIScreen.supportsHighRefreshRate {
 			frameRateSetting = .f120hz
 		} else {
@@ -87,10 +100,11 @@ class MiscellaneousSettings: Codable {
 		alwaysLandscapeMode = false
 		relativeMouseModeSetting = .manual
 		relativeMouseTapToClick = true
-		secondFingerClick = true
+		secondFingerClick = false
 		secondFingerSwipe = false
 		bootInHoverMode = false
 		rightClickSetting = .control
+		keyboardAutoOffsetSetting = .middle
 		hoverJustAboveOffsetModifier = 1
 		gammaRampSetting = .osDefined
 	}
@@ -171,7 +185,14 @@ class MiscellaneousSettings: Codable {
 
 	@MainActor
 	func set(fpsCounterEnabled: Bool) {
-		self.fpsCounterEnabled = fpsCounterEnabled
+		self.fpsReporting = fpsCounterEnabled
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(networkTransferRateReportingEnabled: Bool) {
+		self.networkTransferRateReportingEnabled = networkTransferRateReportingEnabled
 
 		saveAsCurrent()
 	}
@@ -235,10 +256,26 @@ class MiscellaneousSettings: Codable {
 	}
 
 	@MainActor
+	func setTwoFingerSteering(enabled: Bool) {
+		secondFingerClick = enabled
+		secondFingerSwipe = enabled
+		bootInHoverMode = enabled
+
+		saveAsCurrent()
+	}
+
+	@MainActor
 	func set(rightClickSetting: RightClickSetting) {
 		self.rightClickSetting = rightClickSetting
 
 		updateCachedResponses()
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(keyboardAutoOffsetSetting: KeyboardAutoOffsetSetting) {
+		self.keyboardAutoOffsetSetting = keyboardAutoOffsetSetting
+
 		saveAsCurrent()
 	}
 

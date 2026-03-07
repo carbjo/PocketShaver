@@ -124,9 +124,7 @@
 #endif
 
 #ifdef USE_SDL
-#include <SDL.h>
-#include <string>
-#include <SDL_main.h>
+#include "my_sdl.h"
 #if !SDL_VERSION_ATLEAST(3, 0, 0)
 #define SDL_PLATFORM_MACOS      __MACOSX__
 #endif
@@ -854,15 +852,15 @@ int main(int argc, char *argv[])
 	char str[256];
 	bool memory_mapped_from_zero, ram_rom_areas_contiguous;
 	const char *vmdir = NULL;
-
+	
 	// Initialize variables
 	RAMBase = 0;
 	tzset();
-
+	
 	// Print some info
 	printf(GetString(STR_ABOUT_TEXT1), VERSION_MAJOR, VERSION_MINOR);
 	printf(" %s\n", GetString(STR_ABOUT_TEXT2));
-
+	
 #if !EMULATED_PPC
 #ifdef SYSTEM_CLOBBERS_R2
 	// Get TOC pointer
@@ -873,7 +871,7 @@ int main(int argc, char *argv[])
 	R13 = get_r13();
 #endif
 #endif
-
+	
 #if SDL_PLATFORM_MACOS
 	set_current_directory();
 #endif
@@ -950,7 +948,7 @@ int main(int argc, char *argv[])
 			break;
 		}
 	}
-
+	
 	// Remove processed arguments
 	for (int i=1; i<argc; i++) {
 		int k;
@@ -964,7 +962,7 @@ int main(int argc, char *argv[])
 			argc -= k;
 		}
 	}
-
+	
 	// Connect to the external GUI
 	if (gui_connection_path) {
 		if ((gui_connection = rpc_init_client(gui_connection_path)) == NULL) {
@@ -972,13 +970,13 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 	}
-
+	
 	// Read preferences
 	PrefsInit(vmdir, argc, argv);
 	// Only use nogui preference if not passed as command line argument
 	if (use_gui == -1)
 		use_gui = !PrefsFindBool("nogui");
-
+	
 #if SDL_PLATFORM_MACOS && SDL_VERSION_ATLEAST(2,0,0)
 	// On Mac OS X hosts, SDL2 will create its own menu bar.  This is mostly OK,
 	// except that it will also install keyboard shortcuts, such as Command + Q,
@@ -996,7 +994,7 @@ int main(int argc, char *argv[])
 			usage(argv[0]);
 		}
 	}
-
+	
 #ifndef USE_SDL_VIDEO
 	// Open display
 	x_display = XOpenDisplay(x_display_name);
@@ -1006,31 +1004,31 @@ int main(int argc, char *argv[])
 		ErrorAlert(str);
 		goto quit;
 	}
-
+	
 #if defined(ENABLE_XF86_DGA) && !defined(ENABLE_MON)
 	// Fork out, so we can return from fullscreen mode when things get ugly
 	XF86DGAForkApp(DefaultScreen(x_display));
 #endif
 #endif
-
+	
 #ifdef ENABLE_MON
 	// Initialize mon
 	mon_init();
 #endif
-
-  // Install signal handlers
+	
+	// Install signal handlers
 	if (!install_signal_handlers())
 		goto quit;
-
+	
 	// Initialize VM system
 	vm_init();
-
+	
 	// Get system info
 	get_system_info();
-
+	
 	// Init system routines
 	SysInit();
-
+	
 #ifdef ENABLE_GTK3
 	if (!gui_connection) {
 		// Init GTK
@@ -1043,18 +1041,18 @@ int main(int argc, char *argv[])
 	}
 #elif defined(ENABLE_GTK)
 	if (!gui_connection) {
-	// Init GTK
+		// Init GTK
 		gtk_set_locale();
 		gtk_init(&argc, &argv);
 		gui_startup();
 	}
 #endif
-
+	
 #if !EMULATED_PPC
 	// Check some things
 	paranoia_check();
 #endif
-
+	
 	// Open /dev/zero
 	zero_fd = open("/dev/zero", O_RDWR);
 	if (zero_fd < 0) {
@@ -1062,7 +1060,7 @@ int main(int argc, char *argv[])
 		ErrorAlert(str);
 		goto quit;
 	}
-
+	
 #if !(defined(__APPLE__) && defined(__x86_64__) || defined(MEM_BULK)) && !defined(TARGET_OS_IPHONE)
 	// Create areas for Kernel Data
 	if (!kernel_data_init())
@@ -1140,7 +1138,7 @@ int main(int argc, char *argv[])
 		ROMBase = (RAMBase + RAMSize + ROM_ALIGNMENT -1) & -ROM_ALIGNMENT;
 		ROMBaseHost = RAMBaseHost + ROMBase - RAMBase;
 		ROMEnd = RAMBase + RAMSize + ROM_AREA_SIZE + ROM_ALIGNMENT;
-
+		
 		ram_rom_areas_contiguous = true;
 #else
 		if (vm_mac_acquire_fixed(RAM_BASE, RAMSize) < 0) {
@@ -1161,7 +1159,7 @@ int main(int argc, char *argv[])
 #endif
 	ram_area_mapped = true;
 	D(bug("RAM area at %p (%08x)\n", RAMBaseHost, RAMBase));
-
+	
 	if (RAMBase > KernelDataAddr) {
 		ErrorAlert(GetString(STR_RAM_AREA_TOO_HIGH_ERR));
 		goto quit;
@@ -1187,54 +1185,54 @@ int main(int argc, char *argv[])
 #endif
 	rom_area_mapped = true;
 	D(bug("ROM area at %p (%08x)\n", ROMBaseHost, ROMBase));
-
+	
 	if (RAMBase > ROMBase) {
 		ErrorAlert(GetString(STR_RAM_HIGHER_THAN_ROM_ERR));
 		goto quit;
 	}
-
+	
 	// Create area for SheepShaver data
 	if (!SheepMem::Init()) {
 		sprintf(str, GetString(STR_SHEEP_MEM_MMAP_ERR), strerror(errno));
 		ErrorAlert(str);
 		goto quit;
 	}
-
+	
 #if TARGET_OS_IPHONE
 	if (!check_prefs())
 		goto quit;
 #endif
-
+	
 	// Load Mac ROM
 	if (!load_mac_rom())
 		goto quit;
-
+	
 	// Initialize everything
 	if (!InitAll(vmdir))
 		goto quit;
 	D(bug("Initialization complete\n"));
-
+	
 #if TARGET_OS_IPHONE
 	objc_initOverlayViewController();
 #endif
-
+	
 	// Clear caches (as we loaded and patched code) and write protect ROM
 #if !EMULATED_PPC
 	flush_icache_range(ROMBase, ROMBase + ROM_AREA_SIZE);
 #endif
 	vm_protect(ROMBaseHost, ROM_AREA_SIZE, VM_PAGE_READ | VM_PAGE_EXECUTE);
-
+	
 	// Start 60Hz thread
 	tick_thread_cancel = false;
 	tick_thread_active = (pthread_create(&tick_thread, NULL, tick_func, NULL) == 0);
 	D(bug("Tick thread installed (%ld)\n", tick_thread));
-
+	
 	// Start NVRAM watchdog thread
 	memcpy(last_xpram, XPRAM, XPRAM_SIZE);
 	nvram_thread_cancel = false;
 	nvram_thread_active = (pthread_create(&nvram_thread, NULL, nvram_func, NULL) == 0);
 	D(bug("NVRAM thread installed (%ld)\n", nvram_thread));
-
+	
 #if !EMULATED_PPC
 	// Install SIGILL handler
 	sigemptyset(&sigill_action.sa_mask);	// Block interrupts during ILL handling
@@ -1250,7 +1248,7 @@ int main(int argc, char *argv[])
 		goto quit;
 	}
 #endif
-
+	
 #if !EMULATED_PPC
 	// Install interrupt signal handler
 	sigemptyset(&sigusr2_action.sa_mask);
@@ -1265,18 +1263,19 @@ int main(int argc, char *argv[])
 		goto quit;
 	}
 #endif
-
+	
 	// Get my thread ID and execute MacOS thread function
 	emul_thread = pthread_self();
 	D(bug("MacOS thread is %ld\n", emul_thread));
 	emul_func(NULL);
-
+	
 quit:
 	Quit();
 	return 0;
 }
 
 }	// extern "C"
+
 /*
  *  Cleanup and quit
  */

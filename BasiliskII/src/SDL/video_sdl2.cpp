@@ -43,9 +43,6 @@
 
 #include "my_sdl.h"
 #if SDL_VERSION_ATLEAST(2, 0, 0) && !SDL_VERSION_ATLEAST(3, 0, 0)
-
-#include <SDL_mutex.h>
-#include <SDL_thread.h>
 #include <errno.h>
 #include <vector>
 #include <string>
@@ -81,7 +78,7 @@
 #include "vm_alloc.h"
 #include "cdrom.h"
 
-#include "FPSCounterObjCCppHeader.h"
+#include "PerformanceCounterObjCCppHeader.h"
 #include "MiscellaneousSettingsObjCCppHeader.h"
 
 #define DEBUG 0

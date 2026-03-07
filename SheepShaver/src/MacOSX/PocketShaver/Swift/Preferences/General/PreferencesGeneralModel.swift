@@ -25,10 +25,15 @@ enum PreferencesGeneralRamSetting: Int, CaseIterable {
 }
 
 class PreferencesGeneralModel {
+	struct DiskSelectionChangeResult {
+		let prevIndex: Int
+		let newIndex: Int
+		let willBootFromCDChanged: Bool
+	}
 
 	private let mode: PreferencesLaunchMode
 
-	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
+	let changeSubject: PassthroughSubject<PreferencesChange, Never>
 
 	var isDisplayingRomFileMissingError = false
 	var isDisplayingNoDiskFilesError = false
@@ -51,6 +56,16 @@ class PreferencesGeneralModel {
 	@MainActor
 	var numberOfDisks: Int {
 		DiskManager.shared.diskArray.count
+	}
+
+	@MainActor
+	var monitorResolutions: [MonitorResolutionOption] {
+		MonitorResolutionManager.shared.enabledResolutions
+	}
+
+	@MainActor
+	var willBootFromCD: Bool {
+		DiskManager.shared.willBootFromCD
 	}
 
 	@MainActor
@@ -117,6 +132,16 @@ class PreferencesGeneralModel {
 		}
 		set {
 			MiscellaneousSettings.current.set(rightClickSetting: newValue)
+		}
+	}
+
+	@MainActor
+	var keyboardAutoOffsetSetting: KeyboardAutoOffsetSetting {
+		get {
+			MiscellaneousSettings.current.keyboardAutoOffsetSetting
+		}
+		set {
+			MiscellaneousSettings.current.set(keyboardAutoOffsetSetting: newValue)
 		}
 	}
 
@@ -192,7 +217,7 @@ class PreferencesGeneralModel {
 
 		let fixedName = name.hasSuffix(".dsk") ? name : "\(name).dsk"
 
-		let path = FileManager.documentUrl.appendingPathComponent(fixedName).path
+		let path = Storage.urlForDocumentFile(filename: fixedName).path
 		guard !FileManager.default.fileExists(atPath: path) else {
 			throw PreferencesGeneralError.fileWithFilenameAleadyExists
 		}
@@ -235,7 +260,11 @@ class PreferencesGeneralModel {
 			}
 		}
 
-		return DiskManager.shared.loadDiskData()
+		let filename = url.lastPathComponent
+
+		return DiskManager.shared.loadDiskData(
+			requestEnableDiskWithFilename: filename
+		)
 	}
 
 	@MainActor
@@ -259,14 +288,16 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	func setDiskEnabled(filename: String, isEnabled: Bool) -> (Int, Int) {
+	func setDiskEnabled(filename: String, isEnabled: Bool) -> DiskSelectionChangeResult {
 		guard var disk = disk(forFilename: filename) else {
-			return (0, 0)
+			return .init(prevIndex: 0, newIndex: 0, willBootFromCDChanged: false)
 		}
 
 		guard let prevIndex = DiskManager.shared.diskArray.firstIndex(where: {$0 == disk}) else {
 			fatalError()
 		}
+
+		let prevWillBootFromCD = DiskManager.shared.willBootFromCD
 
 		disk.isEnabled = isEnabled
 		DiskManager.shared.set(disk)
@@ -275,9 +306,16 @@ class PreferencesGeneralModel {
 			fatalError()
 		}
 
+		let newWillBootFromCD = DiskManager.shared.willBootFromCD
+		let willBootFromCDChanged = prevWillBootFromCD != newWillBootFromCD
+
 		changeSubject.send(.changeRequiringRestartAfterBootMade)
 
-		return (prevIndex, newIndex)
+		return .init(
+			prevIndex: prevIndex,
+			newIndex: newIndex,
+			willBootFromCDChanged: willBootFromCDChanged
+		)
 	}
 
 	@MainActor
@@ -285,10 +323,20 @@ class PreferencesGeneralModel {
 		guard var disk = disk(forFilename: filename) else {
 			return
 		}
-
+		
 		disk.type = diskType
 		DiskManager.shared.set(disk)
-
+		
 		changeSubject.send(.changeRequiringRestartAfterBootMade)
+	}
+
+	@MainActor
+	func deleteDisk(_ disk: Disk) {
+		DiskManager.shared.remove(diskWithFilename: disk.filename)
+	}
+
+	@MainActor
+	func setTwoFingerSteering(enabled: Bool) {
+		MiscellaneousSettings.current.setTwoFingerSteering(enabled: enabled)
 	}
 }

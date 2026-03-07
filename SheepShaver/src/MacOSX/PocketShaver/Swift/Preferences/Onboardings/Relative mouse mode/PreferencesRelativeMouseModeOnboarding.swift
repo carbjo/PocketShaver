@@ -79,8 +79,8 @@ Yes. But it is not always the most convenient steering method. If the software d
 }
 
 class PreferencesRelativeMouseModeOnboardingViewController: UITableViewController {
-	private lazy var doneButton: UIBarButtonItem = {
-		UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(doneButtonPressed))
+	private lazy var doneButton: DoneButton = {
+		DoneButton(target: self, selector: #selector(doneButtonPressed))
 	}()
 
 	override func viewDidLoad() {

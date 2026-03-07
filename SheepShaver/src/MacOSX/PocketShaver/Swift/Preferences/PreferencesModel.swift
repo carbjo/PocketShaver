@@ -17,6 +17,7 @@ enum PreferencesChange {
 	case changeRequiringRestartBeforeBootMade
 	case changeRequiringRestartAfterBootMade
 	case alwaysLandscapeModeOptionToggled
+	case selectedResolutionsChanged
 }
 
 class PreferencesModel {
@@ -34,6 +35,7 @@ class PreferencesModel {
 
 		Task { @MainActor in
 			_ = MonitorResolutionManager.shared
+			NetworkSettings.initIfNeeded()
 			objc_update_sdl_ipad_mouse_setting(MiscellaneousSettings.current.iPadMousePassthrough)
 			UNUserNotificationCenter.current().removeAllDeliveredNotifications()
 		}
@@ -41,7 +43,7 @@ class PreferencesModel {
 
 	@MainActor
 	func validate() throws {
-		let romUrl = FileManager.documentUrl.appendingPathComponent(RomManager.romFilename)
+		let romUrl = RomManager.shared.romUrl
 		let hasRomFile = FileManager.default.fileExists(atPath: romUrl.path)
 		guard hasRomFile else {
 			throw PreferencesError.romFileMissing

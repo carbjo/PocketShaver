@@ -23,12 +23,22 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
-	var showFpsCounterEnabled: Bool {
+	var fpsReportingEnabled: Bool {
 		get {
-			MiscellaneousSettings.current.fpsCounterEnabled
+			MiscellaneousSettings.current.fpsReporting
 		}
 		set {
 			MiscellaneousSettings.current.set(fpsCounterEnabled: newValue)
+		}
+	}
+
+	@MainActor
+	var networkTransferRateReportingEnabled: Bool {
+		get {
+			MiscellaneousSettings.current.networkTransferRateReportingEnabled
+		}
+		set {
+			MiscellaneousSettings.current.set(networkTransferRateReportingEnabled: newValue)
 		}
 	}
 
@@ -69,6 +79,16 @@ class PreferencesAdvancedModel {
 	@MainActor
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		MiscellaneousSettings.current.shouldDisplayAlwaysLandscapeModeOption
+	}
+
+	@MainActor
+	var reportIpAddressAssignment: Bool {
+		get {
+			NetworkSettings.current.reportIpAddressAssignment
+		}
+		set {
+			NetworkSettings.current.set(reportIpAddressAssignment: newValue)
+		}
 	}
 
 	@MainActor

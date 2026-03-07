@@ -9,9 +9,10 @@ import UIKit
 import Combine
 
 class PreferencesAdvancedViewController: UITableViewController {
-	enum SectionType: CaseIterable {
+	enum Section {
 		case ramSetting
 		case frameRateSetting
+		case performanceMetrics
 		case uiOptions
 		case relateiveMouseMode
 		case gammaRampSetting
@@ -19,7 +20,48 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case resources
 	}
 
+	enum Row: Hashable {
+		//ramSetting
+		case ramSetting
+
+		//frameRateSetting
+		case frameRateSettingToggle
+		case frameRateSettingInfo
+
+		//performanceMetrics
+		case performanceMetricsFpsCounterToggle
+		case performanceMetricsFpsCounterInfo
+		case performanceMetricsNetworkTransferRateToggle
+
+		//uiOptions
+		case uiOptionsHoverJustAbove
+		case uiOptionsAlwaysBootInLandscapeMode
+		case uiOptionsReportIpAddressAssignment
+
+		//relateiveMouseMode
+		case relateiveMouseModeSetting
+		case relateiveMouseModeInfo
+		case relateiveMouseTapToClickToggle
+		case relateiveMouseTapToClickInfo
+
+		//gammaRampSetting
+		case gammaRampSetting
+		case gammaRampSettingInfo
+
+		//bootstrap
+		case bootstrap
+
+		//resources
+		case resourcesSetupInstuctions
+		case resourcesBootstrapCompatiblityList
+		case resourcesTwoFingerSteeringOnboarding
+		case resourcesRelativeMouseModeOnboarding
+		case resourcesLicenses
+	}
+
 	private let model: PreferencesAdvancedModel
+
+	private var dataSource: TableViewDiffableDataSource<Section, Row>!
 
 	private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 	private let hoverJustAboveOffsetFeedbackGenerator = UISelectionFeedbackGenerator()
@@ -38,8 +80,239 @@ class PreferencesAdvancedViewController: UITableViewController {
 		super.viewDidLoad()
 
 		tableView.showsVerticalScrollIndicator = false
-
 		view.translatesAutoresizingMaskIntoConstraints = false
+
+		setupDataSource()
+	}
+
+	private func setupDataSource() {
+		dataSource = .init(tableView: tableView) { [weak self] tableView, indexPath, itemIdentifier in
+			guard let self else { return UITableViewCell() }
+			switch itemIdentifier {
+			case .ramSetting:
+				return PreferencesAdvancedRamStepperCell(
+					initialRamSettting: model.ramSetting
+				) { [weak self] newValue in
+					guard let self else { return }
+					model.ramSetting = newValue
+					feedbackGenerator.impactOccurred()
+				}
+			case .frameRateSettingToggle:
+				return PreferencesAdvancedFrameRateSettingCell(
+					initialFrameRateSetting: model.frameRateSetting
+				) { [weak self] newFrameRateSetting in
+					guard let self else { return }
+					model.frameRateSetting = newFrameRateSetting
+					feedbackGenerator.impactOccurred()
+				}
+			case .frameRateSettingInfo:
+				return PreferencesInformationCell(
+					text: "Most games and apps have a maximum frame rate of 60 hz, 75 hz or lower. Higher frame rate settings impact performance. Changes in frame rate setting requires PocketShaver to restart."
+				)
+			case .performanceMetricsFpsCounterToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Show FPS counter",
+					isOn: model.fpsReportingEnabled
+				) { [weak self] isOn in
+					self?.model.fpsReportingEnabled = isOn
+				}
+			case .performanceMetricsFpsCounterInfo:
+				return PreferencesInformationCell(
+					text: "PocketShaver only renders frames when there are visual changes. Therefore, low FPS count does not always mean low performace.",
+					separatorHidden: false
+				)
+			case .performanceMetricsNetworkTransferRateToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Show network transfer rate",
+					isOn: model.networkTransferRateReportingEnabled
+				) { [weak self] isOn in
+					self?.model.networkTransferRateReportingEnabled = isOn
+				}
+			case .uiOptionsHoverJustAbove:
+				return PreferencesAdvancedJustAboveOffsetSettingCell(
+					initialOffsetSetting: model.hoverJustAboveOffsetModifier,
+					isChangingValue: { [weak self] in
+						self?.hoverJustAboveOffsetFeedbackGenerator.selectionChanged()
+					}
+				) { [weak self] value in
+					self?.model.hoverJustAboveOffsetModifier = value
+				}
+			case .uiOptionsAlwaysBootInLandscapeMode:
+				return PreferencesEnabledSettingCell(
+					title: "Always boot in landscape mode",
+					isOn: model.alwaysLandscapeMode
+				) { [weak self] isOn in
+					self?.model.alwaysLandscapeMode = isOn
+				}
+			case .uiOptionsReportIpAddressAssignment:
+				return PreferencesEnabledSettingCell(
+					title: "Report IP address assignment",
+					isOn: model.networkTransferRateReportingEnabled
+				) { [weak self] isOn in
+					self?.model.networkTransferRateReportingEnabled = isOn
+				}
+			case .relateiveMouseModeSetting:
+				return PreferencesAdvancedRelativeMouseModeSettingCell(
+					initialRelativeMouseModeSetting: model.relativeMouseModeSetting
+				) { [weak self] newFrameRateSetting in
+					guard let self else { return }
+					model.relativeMouseModeSetting = newFrameRateSetting
+					feedbackGenerator.impactOccurred()
+				}
+			case .relateiveMouseModeInfo:
+				return PreferencesInformationCell(
+					text: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the <img/> button above the keyboard. <link>Read more</link>.",
+					tagConfig: .init(
+						images: [ImageResource.computermouse.asSymbolImage()]
+					),
+					separatorHidden: false
+				) { [weak self] in
+					guard let self else { return }
+					let vc = PreferencesRelativeMouseModeOnboardingViewController()
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
+				}
+			case .relateiveMouseTapToClickToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Tap to click",
+					isOn: model.relativeMouseTapToClick
+				) { [weak self] isOn in
+					self?.model.relativeMouseTapToClick = isOn
+				}
+			case .relateiveMouseTapToClickInfo:
+				return PreferencesInformationCell(
+					text: "Setting only affects relative mouse mode."
+				)
+			case .gammaRampSetting:
+				return PreferencesAdvancedGammaRampSettingCell(
+					initialGammaRampSetting: model.gammaRampSetting
+				) { [weak self] newGammaRampSetting in
+					guard let self else { return }
+					model.gammaRampSetting = newGammaRampSetting
+					feedbackGenerator.impactOccurred()
+				}
+			case .gammaRampSettingInfo:
+				return PreferencesInformationCell(
+					text: "Linear gamma ramp generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and, in some instances, produce a higher color dynamic. Has effect on next resolution change or restart of PocketShaver."
+				)
+			case .bootstrap:
+				return PreferencesAdvancedBootstrapCell(
+					romDescription: model.currentRomFileDescription!,
+					didTapSelectInstallDiskButton: { [weak self] in
+						self?.displayRomPicker()
+					}
+				)
+			case .resourcesSetupInstuctions:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Setup instructions"
+				)
+			case .resourcesBootstrapCompatiblityList:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Bootstrap compatibility list"
+				)
+			case .resourcesTwoFingerSteeringOnboarding:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Two finger steering onboarding"
+				)
+			case .resourcesRelativeMouseModeOnboarding:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Relative mouse mode onboarding"
+				)
+			case .resourcesLicenses:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Licenses"
+				)
+			}
+		}
+
+		dataSource.sectionTitleProvider = { section in
+			switch section {
+			case .ramSetting:
+				return "RAM setting"
+			case .frameRateSetting:
+				return "Frame rate setting"
+			case .performanceMetrics:
+				return "Performance metrics"
+			case .uiOptions:
+				return "UI options"
+			case .relateiveMouseMode:
+				return "Relative mouse mode"
+			case .gammaRampSetting:
+				return "Gamma ramp"
+			case .bootstrap:
+				return "Bootstrap"
+			case .resources:
+				return "Resources"
+			}
+		}
+
+		dataSource.defaultRowAnimation = .fade
+		tableView.dataSource = dataSource
+
+		reloadData()
+	}
+
+	private func reloadData() {
+		var snapshot = NSDiffableDataSourceSnapshot<Section, Row>()
+
+		snapshot.appendSections([.ramSetting])
+		snapshot.appendItems([.ramSetting])
+
+		if UIScreen.supportsHighRefreshRate {
+			snapshot.appendSections([.frameRateSetting])
+			snapshot.appendItems([
+				.frameRateSettingToggle,
+				.frameRateSettingInfo
+			])
+		}
+
+		snapshot.appendSections([.performanceMetrics])
+		snapshot.appendItems([
+			.performanceMetricsFpsCounterToggle,
+			.performanceMetricsFpsCounterInfo,
+			.performanceMetricsNetworkTransferRateToggle
+		])
+
+		snapshot.appendSections([.uiOptions])
+		snapshot.appendItems([.uiOptionsHoverJustAbove])
+		if model.shouldDisplayAlwaysLandscapeModeOption {
+			snapshot.appendItems([.uiOptionsAlwaysBootInLandscapeMode])
+		}
+		snapshot.appendItems([.uiOptionsReportIpAddressAssignment])
+
+		snapshot.appendSections([.relateiveMouseMode])
+		snapshot.appendItems([
+			.relateiveMouseModeSetting,
+			.relateiveMouseModeInfo,
+			.relateiveMouseTapToClickToggle,
+			.relateiveMouseTapToClickInfo
+		])
+
+		snapshot.appendSections([.gammaRampSetting])
+		snapshot.appendItems([
+			.gammaRampSetting,
+			.gammaRampSettingInfo
+		])
+
+		if model.hasRomFile {
+			snapshot.appendSections([.bootstrap])
+			snapshot.appendItems([
+				.bootstrap
+			])
+		}
+
+		snapshot.appendSections([.resources])
+		snapshot.appendItems([
+			.resourcesSetupInstuctions,
+			.resourcesBootstrapCompatiblityList,
+			.resourcesTwoFingerSteeringOnboarding,
+			.resourcesRelativeMouseModeOnboarding,
+			.resourcesLicenses
+		])
+
+		dataSource.apply(snapshot)
 	}
 
 	private func displayRomPicker() {
@@ -86,14 +359,9 @@ class PreferencesAdvancedViewController: UITableViewController {
 	}
 
 	private func updateBootstrapCell() {
-		guard model.hasRomFile else {
-			return
-		}
-
-		let sectionIndex = SectionType.bootstrap.sectionIndex(model: model)
-		let indexPath = IndexPath(row: 0, section: sectionIndex)
-
-		guard let cell = tableView.cellForRow(at: indexPath) as? PreferencesAdvancedBootstrapCell else {
+		guard model.hasRomFile,
+			  let indexPath = dataSource.indexPath(for: .bootstrap),
+			  let cell = tableView.cellForRow(at: indexPath) as? PreferencesAdvancedBootstrapCell else {
 			return
 		}
 
@@ -106,245 +374,48 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableViewDelegate
 
-	override func numberOfSections(in tableView: UITableView) -> Int {
-		SectionType.count(model: model)
-	}
-
-	override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-		let sectionType = SectionType(sectionIndex: section, model: model)
-		switch sectionType {
-		case .ramSetting:
-			return "RAM setting"
-		case .frameRateSetting:
-			return "Frame rate setting"
-		case .uiOptions:
-			return "UI options"
-		case .relateiveMouseMode:
-			return "Relative mouse mode"
-		case .gammaRampSetting:
-			return "Gamma ramp"
-		case .bootstrap:
-			return "Bootstrap"
-		case .resources:
-			return "Resources"
-		}
-	}
-
-	override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-		let sectionType = SectionType(sectionIndex: section, model: model)
-		switch sectionType {
-		case .ramSetting:
-			return 1
-		case .frameRateSetting:
-			return 2
-		case .uiOptions:
-			return model.shouldDisplayAlwaysLandscapeModeOption ? 4 : 3
-		case .relateiveMouseMode:
-			return 4
-		case .gammaRampSetting:
-			return 2
-		case .bootstrap:
-			return 1
-		case .resources:
-			return 5
-		}
-	}
-
-	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
-		switch sectionType {
-		case .ramSetting:
-			return PreferencesAdvancedRamStepperCell(
-				initialRamSettting: model.ramSetting
-			) { [weak self] newValue in
-				guard let self else { return }
-				model.ramSetting = newValue
-				feedbackGenerator.impactOccurred()
-			}
-		case .frameRateSetting:
-			switch indexPath.row {
-			case 0:
-				return PreferencesAdvancedFrameRateSettingCell(
-					initialFrameRateSetting: model.frameRateSetting
-				) { [weak self] newFrameRateSetting in
-					guard let self else { return }
-					model.frameRateSetting = newFrameRateSetting
-					feedbackGenerator.impactOccurred()
-				}
-			case 1:
-				return PreferencesInformationCell(
-					text: "Most games and apps have a maximum frame rate of 60 hz, 75 hz or lower. Higher frame rate settings impact performance. Changes in frame rate setting requires PocketShaver to restart."
-				)
-			default: fatalError()
-			}
-		case .uiOptions:
-			switch indexPath.row {
-			case 0:
-				return PreferencesEnabledSettingCell(
-					title: "Show FPS counter",
-					isOn: model.showFpsCounterEnabled
-				) { [weak self] isOn in
-					self?.model.showFpsCounterEnabled = isOn
-				}
-			case 1:
-				return PreferencesInformationCell(
-					text: "PocketShaver only renders frames when there are visual changes. Therefore, low FPS count does not always mean low performace.",
-					separatorHidden: false
-				)
-			case 2:
-				return PreferencesAdvancedJustAboveOffsetSettingCell(
-					initialOffsetSetting: model.hoverJustAboveOffsetModifier,
-					isChangingValue: { [weak self] in
-						self?.hoverJustAboveOffsetFeedbackGenerator.selectionChanged()
-					}
-				) { [weak self] value in
-					self?.model.hoverJustAboveOffsetModifier = value
-				}
-			case 3:
-				return PreferencesEnabledSettingCell(
-					title: "Always boot in landscape mode",
-					isOn: model.alwaysLandscapeMode
-				) { [weak self] isOn in
-					self?.model.alwaysLandscapeMode = isOn
-				}
-			default: fatalError()
-			}
-		case .relateiveMouseMode:
-			switch indexPath.row {
-			case 0:
-				return PreferencesAdvancedRelativeMouseModeSettingCell(
-					initialRelativeMouseModeSetting: model.relativeMouseModeSetting
-				) { [weak self] newFrameRateSetting in
-					guard let self else { return }
-					model.relativeMouseModeSetting = newFrameRateSetting
-					feedbackGenerator.impactOccurred()
-				}
-			case 1:
-				let tagConfig = StringTagConfig(
-					boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
-					highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText),
-					images: [ImageResource.computermouse.asSymbolImage()]
-				)
-
-				return PreferencesInformationCell(
-					text: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the <img/> button above the keyboard. <link>Read more</link>.",
-					tagConfig: tagConfig,
-					separatorHidden: false
-				) { [weak self] in
-					guard let self else { return }
-					let vc = PreferencesRelativeMouseModeOnboardingViewController()
-					let navVC = UINavigationController()
-					navVC.viewControllers = [vc]
-
-					present(navVC, animated: true)
-				}
-			case 2:
-				return PreferencesEnabledSettingCell(
-					title: "Tap to click",
-					isOn: model.relativeMouseTapToClick
-				) { [weak self] isOn in
-					self?.model.relativeMouseTapToClick = isOn
-				}
-			case 3:
-				return PreferencesInformationCell(
-					text: "Setting only affects relative mouse mode."
-				)
-			default: fatalError()
-			}
-		case .gammaRampSetting:
-			switch indexPath.row {
-			case 0:
-				return PreferencesAdvancedGammaRampSettingCell(initialGammaRampSetting: model.gammaRampSetting) { [weak self] newGammaRampSetting in
-					guard let self else { return }
-					model.gammaRampSetting = newGammaRampSetting
-					feedbackGenerator.impactOccurred()
-				}
-			case 1:
-				return PreferencesInformationCell(
-					text: "Linear gamma ramp generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and, in some instances, produce a higher color dynamic. Has effect on next resolution change or restart of PocketShaver."
-				)
-			default: fatalError()
-			}
-		case .bootstrap:
-			return PreferencesAdvancedBootstrapCell(
-				romDescription: model.currentRomFileDescription!,
-				didTapSelectInstallDiskButton: { [weak self] in
-					self?.displayRomPicker()
-				}
-			)
-		case .resources:
-			switch indexPath.row {
-			case 0:
-				return PreferencesAdvancedMiscellaneousCell(
-					title: "Setup instructions"
-				)
-			case 1:
-				return PreferencesAdvancedMiscellaneousCell(
-					title: "Bootstrap compatibility list"
-				)
-			case 2:
-				return PreferencesAdvancedMiscellaneousCell(
-					title: "Two finger steering onboarding"
-				)
-			case 3:
-				return PreferencesAdvancedMiscellaneousCell(
-					title: "Relative mouse mode onboarding"
-				)
-			case 4:
-				return PreferencesAdvancedMiscellaneousCell(
-					title: "Licenses"
-				)
-
-			default: fatalError()
-			}
-		}
-	}
-
 	override func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
-		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
+		let sectionType = dataSource.sectionIdentifier(for: indexPath.section)
 		return sectionType == .resources
 	}
 
 	override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
 		tableView.deselectRow(at: indexPath, animated: true)
 
-		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
-		switch sectionType {
-		case .resources:
-			switch indexPath.row {
-			case 0:
-				let vc = PreferencesSetupInstructionsViewController()
-				let navVC = UINavigationController()
-				navVC.viewControllers = [vc]
+		let itemIdentifier = dataSource.itemIdentifier(for: indexPath)
+		switch itemIdentifier {
+		case .resourcesSetupInstuctions:
+			let vc = PreferencesSetupInstructionsViewController()
+			let navVC = UINavigationController()
+			navVC.viewControllers = [vc]
 
-				present(navVC, animated: true)
-			case 1:
-				let vc = PreferencesCompatibilityListViewController()
-				let navVC = UINavigationController()
-				navVC.viewControllers = [vc]
+			present(navVC, animated: true)
+		case .resourcesBootstrapCompatiblityList:
+			let vc = PreferencesCompatibilityListViewController()
+			let navVC = UINavigationController()
+			navVC.viewControllers = [vc]
 
-				present(navVC, animated: true)
-			case 2:
-				let vc = PreferencesTwoFingerSteeringOnboardingViewController()
-				let navVC = UINavigationController()
-				navVC.viewControllers = [vc]
+			present(navVC, animated: true)
+		case .resourcesTwoFingerSteeringOnboarding:
+			let vc = PreferencesTwoFingerSteeringOnboardingViewController()
+			let navVC = UINavigationController()
+			navVC.viewControllers = [vc]
 
-				present(navVC, animated: true)
-			case 3:
-				let vc = PreferencesRelativeMouseModeOnboardingViewController()
-				let navVC = UINavigationController()
-				navVC.viewControllers = [vc]
+			present(navVC, animated: true)
+		case .resourcesRelativeMouseModeOnboarding:
+			let vc = PreferencesRelativeMouseModeOnboardingViewController()
+			let navVC = UINavigationController()
+			navVC.viewControllers = [vc]
 
-				present(navVC, animated: true)
-			case 4:
-				let vc = PreferencesLicensesViewController()
-				let navVC = UINavigationController()
-				navVC.viewControllers = [vc]
+			present(navVC, animated: true)
+		case .resourcesLicenses:
+			let vc = PreferencesLicensesViewController()
+			let navVC = UINavigationController()
+			navVC.viewControllers = [vc]
 
-				present(navVC, animated: true)
-			default: fatalError()
-			}
-		default: fatalError()
+			present(navVC, animated: true)
+		default:
+			fatalError()
 		}
 	}
 }
@@ -371,40 +442,5 @@ extension PreferencesAdvancedViewController: UIDocumentPickerDelegate {
 				present(errorVC, animated: true)
 			}
 		}
-	}
-}
-
-extension PreferencesAdvancedViewController.SectionType {
-	@MainActor
-	init(sectionIndex: Int, model: PreferencesAdvancedModel) {
-		let sections = Self.availableSections(with: model)
-		self = sections[sectionIndex]
-	}
-
-	@MainActor
-	static func count(model: PreferencesAdvancedModel) -> Int {
-		let sections = Self.availableSections(with: model)
-		return sections.count
-	}
-
-	@MainActor
-	func sectionIndex(model: PreferencesAdvancedModel) -> Int {
-		let sections = Self.availableSections(with: model)
-		return sections.firstIndex(of: self)!
-	}
-
-	@MainActor
-	private static func availableSections(with model: PreferencesAdvancedModel) -> [Self] {
-		var sections = allCases
-		if !model.hasRomFile,
-		   let romSectionIndex = sections.firstIndex(of: .bootstrap) {
-			sections.remove(at: romSectionIndex)
-		}
-		if !UIScreen.supportsHighRefreshRate,
-		   let frameRateSettingIndex = sections.firstIndex(of: .frameRateSetting) {
-			sections.remove(at: frameRateSettingIndex)
-		}
-
-		return sections
 	}
 }

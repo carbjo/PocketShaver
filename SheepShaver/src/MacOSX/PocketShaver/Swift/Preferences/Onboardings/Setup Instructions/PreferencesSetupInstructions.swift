@@ -21,7 +21,7 @@ class PreferencesSetupInstructionsCell: UITableViewCell {
 
 2. Select 'Create empty disk' (recommended minimum size is around 500 MB) and let mount toggle be on.
 
-3. Import a Mac OS install disc file and toggle on Mount. This does not have to be the same disk image as in step 1. But in general, it must be a OS version equal or higher to what you used in the bootstrapping process. The maximum Mac OS version PocketShaver supports is <b>9.0.4</b> and is recommended if you are planning to use network.
+3. Import a Mac OS install disc file and toggle on Mount. This does not have to be the same disk image as in step 1. But in general, it must be a OS version equal or higher to what you used in the bootstrapping process. Network support in PocketShaver requires Mac OS 9.0 or higher. The maximum Mac OS version PocketShaver supports is <b>9.0.4</b>.
 
 4. Boot, let Mac OS format your empty virtual harddrive and launch <mark>Mac OS Installer</mark> app from the disc.
 
@@ -73,14 +73,22 @@ class PreferencesSetupInstructionsCell: UITableViewCell {
 }
 
 class PreferencesSetupInstructionsViewController: UITableViewController {
-	private lazy var doneButton: UIBarButtonItem = {
-		UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(doneButtonPressed))
+	private lazy var doneButton: DoneButton = {
+		DoneButton(target: self, selector: #selector(doneButtonPressed))
 	}()
+
+	private var hasReadTimer: Timer?
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
 
 		navigationItem.rightBarButtonItem = doneButton
+
+		hasReadTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { _ in
+			Task { @MainActor in
+				InformationConsumption.current.reportHasReadSetupInstructions()
+			}
+		}
 	}
 
 	override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {

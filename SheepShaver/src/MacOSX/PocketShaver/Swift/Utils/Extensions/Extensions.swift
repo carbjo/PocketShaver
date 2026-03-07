@@ -155,7 +155,7 @@ extension UIAlertController {
 	}
 
 	static func withError(_ error: Error) -> Self {
-		return withMessage("Soemthing went wrong: \(error.localizedDescription)")
+		return withMessage("Something went wrong: \(error.localizedDescription)")
 	}
 }
 
@@ -270,3 +270,11 @@ extension UIView {
 	}
 }
 
+extension Data {
+	func printHexString() {
+		for i in 0..<count {
+			print(String(format:"%02x", self[i]), terminator: "")
+		}
+		print("")
+	}
+}
