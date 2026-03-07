@@ -573,24 +573,12 @@ public class OverlayViewController: UIViewController {
 
 		let alertVC = UIAlertController(
 			title: "Relative mouse mode",
-			message: "The software launched might require relative mouse mode to be turned on in order to function. Mostly 3D games required this. Do you want PocketShaver to automatically turn relative mouse mode on and off in the future, or handle it manually? This behavior can be changed in Preferences, under Advanced tab. Relative mouse mode can be manually toggled on and off by the mouse button over the keyboard. Note that automatic detection is not perfect and can sometimes give false positives.",
+			message: "The software launched might require relative mouse mode to be turned on in order to function. If the software is not responsive to mouse movenents, consider checking Relative mouse mode section in Preferences under Advanced tab. Do not turn on relative mouse mode unless nessecary.\nThis message will not be displayed again.",
 			preferredStyle: .alert
 		)
 
-		alertVC.addAction(.init(title: "Manual", style: .cancel, handler: { [weak self] _ in
+		alertVC.addAction(.init(title: "Ok", style: .default, handler: { [weak self] _ in
 			guard let self else { return }
-			if let queuedAlertController {
-				self.queuedAlertController = nil
-				present(queuedAlertController, animated: true)
-			}
-		}))
-		alertVC.addAction(.init(title: "Automatic", style: .default, handler: { [weak self] _ in
-			guard let self else { return }
-			if !inputInteractionModel.isRelativeMouseModeEnabled {
-				inputInteractionModel.toggleRelativeMouseMode()
-			}
-			MiscellaneousSettings.current.set(relativeMouseModeSetting: .automatic)
-
 			if let queuedAlertController {
 				self.queuedAlertController = nil
 				present(queuedAlertController, animated: true)
