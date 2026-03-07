@@ -371,6 +371,11 @@ class PreferencesGeneralViewController: UITableViewController {
 		tableView.reloadSections([sectionIndex], with: .automatic)
 	}
 
+	private func updateTwoFingerSteeringSection() {
+		let sectionIndex = SectionType.twoFingerSteering.sectionIndex(model: model)
+		tableView.reloadSections([sectionIndex], with: .automatic)
+	}
+
 	// MARK: - Actions
 
 	@objc
@@ -451,12 +456,12 @@ extension PreferencesGeneralViewController {
 		case .iPadMouse:
 			return 1
 		case .twoFingerSteering:
-			if model.secondFingerSwipe {
-				return 7
-			} else if model.secondFingerClick {
-				return 5
-			}
-			return 2
+//			if model.secondFingerSwipe {
+//				return 7
+//			} else if model.secondFingerClick {
+//				return 5
+//			}
+			return model.secondFingerClick ? 3 : 2
 		case .rightClick:
 			return 2
 		case .keyboardAutoOffset:
@@ -625,45 +630,33 @@ extension PreferencesGeneralViewController {
 				}
 			case 1:
 				return PreferencesEnabledSettingCell(
-					title: "Second finger click",
+					title: "Two finger steering enabled",
 					isOn: model.secondFingerClick
 				) { [weak self] isOn in
-					self?.set(secondFingerClick: isOn)
+					self?.setTwoFingerSteering(enabled: isOn)
 				}
 			case 2:
-				return PreferencesInformationCell(
-					text: "A second finger can be used for mouse clicking, while the first finger controls the position. Only has effect when a hover mode, or relative mouse mode, is enabled.",
-					separatorHidden: !model.secondFingerClick
-				)
-			case 3:
-				return PreferencesEnabledSettingCell(
-					title: "Second finger swipe",
-					isOn: model.secondFingerSwipe
-				) { [weak self] isOn in
-					self?.set(secondFingerSwipe: isOn)
+				return PreferencesGeneralTwoFingerSteeringDetailsCell(
+					isSecondFingerSwipeEnabled: model.secondFingerSwipe,
+					isBootInHoverModeEnabled: model.bootInHoverMode
+				) { [weak self] in
+					guard let self else { return }
+					let vc = PreferencesTwoFingerSteeringDetailsViewController { [weak self] in
+						self?.updateTwoFingerSteeringSection()
+					}
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
 				}
-			case 4:
-				return PreferencesInformationCell(
-					text: "A second finger can be used for quickly swiping between the four mouse hover modes. Only has effect when a hover mode is already enabled.",
-					separatorHidden: !model.secondFingerSwipe
-				)
-			case 5:
-				return PreferencesEnabledSettingCell(
-					title: "Boot in hover mode",
-					isOn: model.bootInHoverMode
-				) { [weak self] isOn in
-					self?.set(bootInHoverMode: isOn)
-				}
-			case 6:
-				return PreferencesInformationCell(
-					text: "Hover (just above) is on by default when booting, making Two finger steering available from the start."
-				)
 			default: fatalError()
 			}
 		case .rightClick:
 			switch indexPath.row {
 			case 0:
-				return PreferencesGeneralRightClickCell(initialRightClickSetting: model.rightClickSetting) { [weak self] newSetting in
+				return PreferencesGeneralRightClickCell(
+					initialRightClickSetting: model.rightClickSetting
+				) { [weak self] newSetting in
 					guard let self else { return }
 					model.rightClickSetting = newSetting
 					segmentedControlFeedbackGenerator.impactOccurred()
@@ -844,76 +837,20 @@ extension PreferencesGeneralViewController.SectionType {
 
 
 extension PreferencesGeneralViewController {
-	private func set(
-		secondFingerClick: Bool? = nil,
-		secondFingerSwipe: Bool? = nil,
-		bootInHoverMode: Bool? = nil
-	) {
-		let prevSecondFingerClick = model.secondFingerClick
-		let prevSecondFingerSwipe = model.secondFingerSwipe
+	private func setTwoFingerSteering(enabled: Bool) {
+		model.setTwoFingerSteering(enabled: enabled)
 
-		let secondFingerClick = secondFingerClick ?? model.secondFingerClick
-		var secondFingerSwipe = secondFingerSwipe ?? model.secondFingerSwipe
-		var bootInHoverMode = bootInHoverMode ?? model.bootInHoverMode
+		let section = SectionType.twoFingerSteering.sectionIndex(model: model)
+		let detailsIndexPath = IndexPath(row: 2, section: section)
 
-		if !secondFingerClick {
-			secondFingerSwipe = false
-			bootInHoverMode = false
-		} else if !secondFingerSwipe {
-			bootInHoverMode = false
-		}
-
-		model.secondFingerClick = secondFingerClick
-		model.secondFingerSwipe = secondFingerSwipe
-		model.bootInHoverMode = bootInHoverMode
-
-		let sectionIndex = SectionType.twoFingerSteering.sectionIndex(model: model)
-
-		tableView.performBatchUpdates {
-			if !prevSecondFingerClick,
-			   secondFingerClick {
-				tableView.insertRows(at: [
-					.init(row: 2, section: sectionIndex),
-					.init(row: 3, section: sectionIndex)
-				], with: .fade)
-				tableView.reloadRows(at: [
-					.init(row: 1, section: sectionIndex)
-				], with: .fade)
-			} else if prevSecondFingerClick,
-					  !secondFingerClick {
-				tableView.deleteRows(at: [
-					.init(row: 2, section: sectionIndex),
-					.init(row: 3, section: sectionIndex)
-				], with: .fade)
-				tableView.reloadRows(at: [
-					.init(row: 1, section: sectionIndex)
-				], with: .fade)
-			}
-			if !prevSecondFingerSwipe,
-			   secondFingerSwipe {
-				tableView.insertRows(at: [
-					.init(row: 4, section: sectionIndex),
-					.init(row: 5, section: sectionIndex)
-				], with: .fade)
-				if secondFingerClick {
-					tableView.reloadRows(at: [
-						.init(row: 3, section: sectionIndex)
-					], with: .fade)
-				}
-			} else if prevSecondFingerSwipe,
-					  !secondFingerSwipe {
-				tableView.deleteRows(at: [
-					.init(row: 4, section: sectionIndex),
-					.init(row: 5, section: sectionIndex)
-				], with: .fade)
-				if secondFingerClick {
-					tableView.reloadRows(at: [
-						.init(row: 3, section: sectionIndex)
-					], with: .fade)
-				}
-			}
+		if enabled {
+			tableView.insertRows(at: [detailsIndexPath], with: .fade)
+		} else {
+			tableView.deleteRows(at: [detailsIndexPath], with: .fade)
 		}
 	}
+
+
 
 	private func set(isIPadMouseEnabled: Bool) {
 		guard model.isIPadMouseEnabled != isIPadMouseEnabled else {
