@@ -21,6 +21,7 @@ class HiddenInputField: UITextField {
 		text = " "
 		autocorrectionType = .no
 		spellCheckingType = .no
+		isHidden = true
 		delegate = hiddenInputFieldDelegate
 		let accessoryView = HiddenInputFieldKeyboardAccessoryView(
 			inputInteractionModel: inputInteractionModel,

@@ -18,6 +18,7 @@ class PreferencesGeneralViewController: UITableViewController {
 		case iPadMouse
 		case twoFingerSteering
 		case rightClick
+		case keyboardAutoOffset
 		case hapticFeedback
 		case hints
 	}
@@ -425,6 +426,8 @@ extension PreferencesGeneralViewController {
 			return "Two finger steering"
 		case .rightClick:
 			return "Right click"
+		case .keyboardAutoOffset:
+			return "Software keyboard screen offset"
 		case .hapticFeedback:
 			return "Haptic feedback"
 		case .hints:
@@ -455,6 +458,8 @@ extension PreferencesGeneralViewController {
 			}
 			return 2
 		case .rightClick:
+			return 2
+		case .keyboardAutoOffset:
 			return 2
 		case .hapticFeedback:
 			return 3
@@ -673,6 +678,21 @@ extension PreferencesGeneralViewController {
 
 				return PreferencesInformationCell(
 					text: text
+				)
+			default:
+				fatalError()
+			}
+		case .keyboardAutoOffset:
+			switch indexPath.row {
+			case 0:
+				return PreferencesGeneralKeyboardAutoOffsetCell(initialKeyboardAutoOffsetSetting: model.keyboardAutoOffsetSetting) { [weak self] newSetting in
+					guard let self else { return }
+					model.keyboardAutoOffsetSetting = newSetting
+					segmentedControlFeedbackGenerator.impactOccurred()
+				}
+			case 1:
+				return PreferencesInformationCell(
+					text: "Controls how the screen scrolls when you three finger swipe up to present keyboard."
 				)
 			default:
 				fatalError()

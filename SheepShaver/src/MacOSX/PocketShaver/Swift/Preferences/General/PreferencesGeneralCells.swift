@@ -837,6 +837,51 @@ class PreferencesGeneralRightClickCell: UITableViewCell {
 	}
 }
 
+class PreferencesGeneralKeyboardAutoOffsetCell: UITableViewCell {
+	private lazy var segmentedControl: UISegmentedControl = {
+		let segmentedControl = UISegmentedControl.withoutConstraints()
+		for (index, tab) in KeyboardAutoOffsetSetting.allCases.enumerated() {
+			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
+		}
+		segmentedControl.addTarget(self, action: #selector(tabSegmentedControlChanged), for: .valueChanged)
+		return segmentedControl
+	}()
+
+	private let didChangeSelection: ((KeyboardAutoOffsetSetting) -> Void)
+
+	init(
+		initialKeyboardAutoOffsetSetting: KeyboardAutoOffsetSetting,
+		didChangeSelection: @escaping ((KeyboardAutoOffsetSetting) -> Void)
+	) {
+		self.didChangeSelection = didChangeSelection
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		hideSeparator()
+
+		contentView.addSubview(segmentedControl)
+
+		NSLayoutConstraint.activate([
+			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
+			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
+		])
+
+		segmentedControl.selectedSegmentIndex = KeyboardAutoOffsetSetting.allCases.enumerated().first(where: { initialKeyboardAutoOffsetSetting == $1 })!.0
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	@objc private func tabSegmentedControlChanged() {
+		let index = segmentedControl.selectedSegmentIndex
+		let setting = KeyboardAutoOffsetSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
+
+		didChangeSelection(setting)
+	}
+}
+
 private extension RightClickSetting {
 	var label: String {
 		switch self {
@@ -844,6 +889,19 @@ private extension RightClickSetting {
 			return "control + click"
 		case .command:
 			return "command + click"
+		}
+	}
+}
+
+private extension KeyboardAutoOffsetSetting {
+	var label: String {
+		switch self {
+		case .top:
+			return "Top"
+		case .middle:
+			return "Middle"
+		case .bottom:
+			return "Bottom"
 		}
 	}
 }
