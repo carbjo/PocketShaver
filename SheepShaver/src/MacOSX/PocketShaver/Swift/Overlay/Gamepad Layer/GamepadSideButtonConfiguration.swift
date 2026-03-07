@@ -14,7 +14,7 @@ enum GamepadSideButtonLayout: String, Codable, CaseIterable {
 	case topRight
 	case bottomRight
 
-	fileprivate struct LayoutBasis {
+	struct LayoutBasis {
 		let verticalDistance: CGFloat
 		let spacing: CGFloat
 		let numberOfSlots: Int
@@ -50,9 +50,9 @@ enum GamepadSideButtonLayout: String, Codable, CaseIterable {
 	var centerYOffset: CGFloat {
 		switch self {
 		case .topLeft, .topRight:
-			return layoutBasis.verticalDistance
+			return Self.layoutBasis.verticalDistance
 		case .bottomLeft, .bottomRight:
-			return -layoutBasis.verticalDistance
+			return -Self.layoutBasis.verticalDistance
 		}
 	}
 
@@ -64,17 +64,17 @@ enum GamepadSideButtonLayout: String, Codable, CaseIterable {
 		guard Self.isSupported else {
 			return 0
 		}
-		return layoutBasis.numberOfSlots
+		return Self.layoutBasis.numberOfSlots
 	}
 
 	var spacing: CGFloat {
-		return layoutBasis.spacing
+		return Self.layoutBasis.spacing
 	}
 }
 
-fileprivate extension GamepadSideButtonLayout {
+extension GamepadSideButtonLayout {
 	@MainActor
-	var layoutBasis: LayoutBasis {
+	static var layoutBasis: LayoutBasis {
 		let screenHeight: CGFloat = UIScreen.main.bounds.height
 
 		let modelName = UIDevice.modelName.replacingOccurrences(of: "Simulator ", with: "")
@@ -121,7 +121,7 @@ fileprivate extension GamepadSideButtonLayout {
 	}
 
 	@MainActor
-	private var isMaxSize: Bool {
+	private static var isMaxSize: Bool {
 		return UIDevice.modelName.contains("Max") || UIDevice.modelName.contains("Plus")
 	}
 }

@@ -170,10 +170,12 @@ class GamepadConfig: Codable {
 	init(
 		name: String,
 		mappings: [GamepadButtonMapping],
+		sideButtonMappings: [GamepadSideButtonMapping]? = nil,
 		visibilitySetting: GamepadVisibilitySetting
 	) {
 		self.name = name
 		self.mappings = mappings
+		self.sideButtonMappings = sideButtonMappings
 		self.visibilitySetting = visibilitySetting
 	}
 }
@@ -183,13 +185,28 @@ private class GamepadSettings: Codable {
 	var landscapeConfigIndex: Int
 	var configurations: [GamepadConfig]
 
+	@MainActor
 	init() {
 		portraitConfigIndex = 0
 		landscapeConfigIndex = 0
+
+		let exampleRpgGameSideButtonLayout: GamepadConfig?
+		let isSideButtonLayoutSupported = UIScreen.hasNotch && !UIDevice.isIPad
+		if isSideButtonLayoutSupported {
+			if GamepadSideButtonLayout.layoutBasis.numberOfSlots > 1 {
+				exampleRpgGameSideButtonLayout = GamepadConfig.exampleRpgGameDoubleSideButtonLayout
+			} else {
+				exampleRpgGameSideButtonLayout = GamepadConfig.exampleRpgGameSingleSideButtonLayout
+			}
+		} else {
+			exampleRpgGameSideButtonLayout = nil
+		}
+
 		configurations = [
 			GamepadConfig.exampleArcadeGameLayout,
+			exampleRpgGameSideButtonLayout,
 			GamepadConfig.exampleFpsGameLayout
-		]
+		].compactMap({ $0 })
 	}
 
 	@MainActor
