@@ -331,6 +331,11 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
+	func deleteDisk(_ disk: Disk) {
+		DiskManager.shared.remove(diskWithFilename: disk.filename)
+	}
+
+	@MainActor
 	func setTwoFingerSteering(enabled: Bool) {
 		MiscellaneousSettings.current.setTwoFingerSteering(enabled: enabled)
 	}
