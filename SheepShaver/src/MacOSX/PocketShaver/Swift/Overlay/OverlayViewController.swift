@@ -378,6 +378,20 @@ public class OverlayViewController: UIViewController {
 					if gamepadConfig.updateSlotPositionsIfNeeded() {
 						gamepadLayerView.load(config: gamepadConfig)
 					}
+
+					if result.state == .showingKeyboard,
+					   MiscellaneousSettings.current.keyboardAutoOffsetSetting != .top {
+						let screenHeight = UIScreen.main.bounds.height
+						let offset: CGFloat = MiscellaneousSettings.current.keyboardAutoOffsetSetting == .middle ?
+						-screenHeight * (2/5) :
+						-screenHeight * (2/3)
+
+						let transform = CGAffineTransform(translationX: 0, y: offset)
+						dragInteractionModel.set(sdlViewVerticalOffset: offset)
+						UIView.animate(withDuration: 0.11) {
+							self.transformSDLContainerView(transform)
+						}
+					}
 				}
 			)
 		}
@@ -431,6 +445,9 @@ public class OverlayViewController: UIViewController {
 	}
 
 	private func presentPreferences() {
+		transformSDLContainerView(.identity)
+		dragInteractionModel.resetSdlViewVerticalOffset()
+		
 		let vc = PreferencesViewController(mode: .duringEmulation)
 		present(vc, animated: true)
 	}

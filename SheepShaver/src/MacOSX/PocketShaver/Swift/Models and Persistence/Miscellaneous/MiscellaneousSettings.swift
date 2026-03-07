@@ -33,6 +33,12 @@ enum RightClickSetting: String, Codable, CaseIterable {
 	case command
 }
 
+enum KeyboardAutoOffsetSetting: String, Codable, CaseIterable {
+	case top // none
+	case middle
+	case bottom
+}
+
 enum GammaRampSetting: String, Codable, CaseIterable {
 	case osDefined
 	case linear
@@ -63,6 +69,7 @@ class MiscellaneousSettings: Codable {
 	private(set) var secondFingerSwipe: Bool
 	private(set) var bootInHoverMode: Bool
 	private(set) var rightClickSetting: RightClickSetting
+	private(set) var keyboardAutoOffsetSetting: KeyboardAutoOffsetSetting
 	private(set) var hoverJustAboveOffsetModifier: Float
 	private(set) var gammaRampSetting: GammaRampSetting
 
@@ -97,6 +104,7 @@ class MiscellaneousSettings: Codable {
 		secondFingerSwipe = false
 		bootInHoverMode = false
 		rightClickSetting = .control
+		keyboardAutoOffsetSetting = .middle
 		hoverJustAboveOffsetModifier = 1
 		gammaRampSetting = .osDefined
 	}
@@ -252,6 +260,13 @@ class MiscellaneousSettings: Codable {
 		self.rightClickSetting = rightClickSetting
 
 		updateCachedResponses()
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(keyboardAutoOffsetSetting: KeyboardAutoOffsetSetting) {
+		self.keyboardAutoOffsetSetting = keyboardAutoOffsetSetting
+
 		saveAsCurrent()
 	}
 

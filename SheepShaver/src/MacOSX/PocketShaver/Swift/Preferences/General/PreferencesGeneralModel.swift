@@ -135,6 +135,16 @@ class PreferencesGeneralModel {
 		}
 	}
 
+	@MainActor
+	var keyboardAutoOffsetSetting: KeyboardAutoOffsetSetting {
+		get {
+			MiscellaneousSettings.current.keyboardAutoOffsetSetting
+		}
+		set {
+			MiscellaneousSettings.current.set(keyboardAutoOffsetSetting: newValue)
+		}
+	}
+
 	lazy var supportsHaptics: Bool = {
 		CHHapticEngine.capabilitiesForHardware().supportsHaptics
 	}()
