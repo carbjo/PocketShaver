@@ -737,6 +737,108 @@ class PreferencesGeneralEnabledMonitorResolutionsCell: UITableViewCell {
 	}
 }
 
+class PreferencesGeneralTwoFingerSteeringDetailsCell: UITableViewCell {
+	private lazy var editButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.setTitle("Edit", for: .normal)
+		button.setTitleColor(Colors.primaryText, for: .normal)
+		button.setTitleColor(Colors.highlightedText, for: .highlighted)
+		button.titleLabel?.font = .boldSystemFont(ofSize: 17)
+		button.addTarget(self, action: #selector(editButtonPushed), for: .touchUpInside)
+		return button
+	}()
+
+	private var titleLabel: LinkLabel?
+
+	private let didTapEditButton: (() -> Void)
+
+	init(
+		isSecondFingerSwipeEnabled: Bool,
+		isBootInHoverModeEnabled: Bool,
+		didTapEditButton: @escaping (() -> Void)
+	) {
+		self.didTapEditButton = didTapEditButton
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		contentView.addSubview(editButton)
+
+		NSLayoutConstraint.activate([
+			editButton.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
+			editButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+			editButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+		])
+
+		configure(
+			isSecondFingerSwipeEnabled: isSecondFingerSwipeEnabled,
+			isBootInHoverModeEnabled: isBootInHoverModeEnabled
+		)
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	func configure(
+		isSecondFingerSwipeEnabled: Bool,
+		isBootInHoverModeEnabled: Bool
+	) {
+		let text = """
+• Second finger click <img/>
+• Second finger swipe <img/>
+• Boot in hover mode on <img/>
+"""
+		var images: [UIImage] = []
+
+		images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
+
+		if isSecondFingerSwipeEnabled {
+			images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
+		} else {
+			images.append(ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.highlightedText))
+		}
+
+		if isBootInHoverModeEnabled {
+			images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
+		} else {
+			images.append(ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.highlightedText))
+		}
+
+		let titleLabel = LinkLabel(
+			text: text,
+			config: .init(
+				images: images,
+				highlightedImages: []
+			),
+			font: .systemFont(ofSize: 14),
+			textColor: Colors.secondaryText
+		)
+
+		titleLabel.label.setContentHuggingPriority(.required, for: .horizontal)
+		titleLabel.label.setContentCompressionResistancePriority(.required, for: .vertical)
+
+		contentView.addSubview(titleLabel)
+
+		NSLayoutConstraint.activate([
+			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			titleLabel.centerYAnchor.constraint(equalTo: editButton.centerYAnchor),
+			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: editButton.leadingAnchor, constant: -16),
+			titleLabel.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
+			titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+
+			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16).withPriority(.defaultHigh),
+			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.defaultHigh),
+			])
+
+		self.titleLabel = titleLabel
+
+		layoutIfNeeded()
+	}
+
+	@objc
+	private func editButtonPushed() {
+		didTapEditButton()
+	}
+}
+
 class PreferencesGeneralIPadMouseCell: UITableViewCell {
 	enum Selection: Int, CaseIterable {
 		case touch

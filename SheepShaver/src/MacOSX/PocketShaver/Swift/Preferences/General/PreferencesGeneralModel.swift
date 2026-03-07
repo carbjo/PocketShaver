@@ -329,4 +329,9 @@ class PreferencesGeneralModel {
 		
 		changeSubject.send(.changeRequiringRestartAfterBootMade)
 	}
+
+	@MainActor
+	func setTwoFingerSteering(enabled: Bool) {
+		MiscellaneousSettings.current.setTwoFingerSteering(enabled: enabled)
+	}
 }

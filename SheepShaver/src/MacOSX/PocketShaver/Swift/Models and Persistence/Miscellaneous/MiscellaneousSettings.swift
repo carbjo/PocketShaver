@@ -100,7 +100,7 @@ class MiscellaneousSettings: Codable {
 		alwaysLandscapeMode = false
 		relativeMouseModeSetting = .manual
 		relativeMouseTapToClick = true
-		secondFingerClick = true
+		secondFingerClick = false
 		secondFingerSwipe = false
 		bootInHoverMode = false
 		rightClickSetting = .control
@@ -251,6 +251,15 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(bootInHoverMode: Bool) {
 		self.bootInHoverMode = bootInHoverMode
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func setTwoFingerSteering(enabled: Bool) {
+		secondFingerClick = enabled
+		secondFingerSwipe = enabled
+		bootInHoverMode = enabled
 
 		saveAsCurrent()
 	}
