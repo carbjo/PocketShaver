@@ -68,7 +68,7 @@ class PreferencesAdvancedRamStepperCell: UITableViewCell {
 
 	@objc private func stepperValueChanged() {
 		let stepperValue = Int(stepper.value)
-		let ramSetting = PreferencesGeneralRamSetting(rawValue: stepperValue) ?? .n128
+		let ramSetting = PreferencesGeneralRamSetting(rawValue: stepperValue) ?? .n256
 		stepperLabel.text = ramSetting.label
 		didChangeStepperValue(ramSetting)
 	}
