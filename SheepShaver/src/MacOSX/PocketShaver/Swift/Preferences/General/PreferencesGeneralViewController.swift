@@ -456,11 +456,6 @@ extension PreferencesGeneralViewController {
 		case .iPadMouse:
 			return 1
 		case .twoFingerSteering:
-//			if model.secondFingerSwipe {
-//				return 7
-//			} else if model.secondFingerClick {
-//				return 5
-//			}
 			return model.secondFingerClick ? 3 : 2
 		case .rightClick:
 			return 2
@@ -738,6 +733,35 @@ extension PreferencesGeneralViewController {
 
 	override func numberOfSections(in tableView: UITableView) -> Int {
 		SectionType.count(model: model)
+	}
+
+	override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
+		guard sectionType == .disks,
+			  indexPath.row > 0,
+			  indexPath.row <= model.numberOfDisks else {
+			return false
+		}
+		
+		let index = indexPath.row - 1
+		let disk = model.disk(forIndex: index)
+		return !disk.isEnabled
+	}
+
+	override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
+		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
+		guard editingStyle == .delete,
+			  sectionType == .disks,
+			  indexPath.row <= model.numberOfDisks else {
+			return
+		}
+
+		let index = indexPath.row - 1
+		let disk = model.disk(forIndex: index)
+
+		model.deleteDisk(disk)
+
+		tableView.deleteRows(at: [indexPath], with: .automatic)
 	}
 }
 

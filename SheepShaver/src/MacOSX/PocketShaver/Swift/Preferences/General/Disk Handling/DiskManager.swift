@@ -239,6 +239,9 @@ class DiskManager {
 			return
 		}
 
+		let url = Storage.urlForDocumentFile(filename: filename)
+		Storage.deleteIfExists(url)
+
 		diskConfig.disks.remove(at: index)
 
 		diskConfig.processAndSaveAsCurrent()
