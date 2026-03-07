@@ -8,6 +8,7 @@
 import Foundation
 
 class InformationConsumption: Codable {
+	private(set) var hasReadSetupInstructions: Bool
 	private(set) var hasDismissedSetupInstructions: Bool
 	private(set) var hasDisplayedPortraitModeWarning: Bool
 	private(set) var hasDisplayedFirstRelativeMouseDetectionDialogue: Bool
@@ -25,6 +26,7 @@ class InformationConsumption: Codable {
 
 	@MainActor
 	init() {
+		hasReadSetupInstructions = false
 		hasDismissedSetupInstructions = false
 		hasDisplayedPortraitModeWarning = false
 		hasDisplayedFirstRelativeMouseDetectionDialogue = false
@@ -37,6 +39,13 @@ class InformationConsumption: Codable {
 			let data = try JSONEncoder().encode(self)
 			Storage.shared.save(data, at: .informationConsumption)
 		} catch {}
+	}
+
+	@MainActor
+	func reportHasReadSetupInstructions() {
+		hasReadSetupInstructions = true
+
+		saveAsCurrent()
 	}
 
 	@MainActor

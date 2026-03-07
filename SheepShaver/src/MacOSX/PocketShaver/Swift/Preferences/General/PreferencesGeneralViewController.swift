@@ -330,20 +330,39 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private func handleSetupInstructionsDimissButtonPressed() {
-		let alertVC = UIAlertController(
-			title: "Information",
-			message: "Setup instructions will still be accessible from the bottom of Advanced tab.",
-			preferredStyle: .alert
-		)
+		if InformationConsumption.current.hasReadSetupInstructions {
+			let alertVC = UIAlertController(
+				title: "Information",
+				message: "Setup instructions will still be accessible from the bottom of Advanced tab.",
+				preferredStyle: .alert
+			)
 
-		alertVC.addAction(.init(title: "Ok", style: .default, handler: { [weak self] _ in
-			guard let self else { return }
-			let setupInstructionsSectionIndexBeforeChange = SectionType.setupInstructions.sectionIndex(model: model)
-			model.reportHasDismissedSetupInstructions()
-			tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
-		}))
+			alertVC.addAction(.init(title: "Ok", style: .default, handler: { [weak self] _ in
+				guard let self else { return }
+				let setupInstructionsSectionIndexBeforeChange = SectionType.setupInstructions.sectionIndex(model: model)
+				model.reportHasDismissedSetupInstructions()
+				tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
+			}))
 
-		present(alertVC, animated: true)
+			present(alertVC, animated: true)
+		} else {
+			let alertVC = UIAlertController(
+				title: "Warning",
+				message: "Step 5 & 8 of setup instructions are non-trivial and must be follwed for succesful setup.\nIf setup instructions is dismissed from here, it can still be accessed from the bottom of Advanced tab.",
+				preferredStyle: .alert
+			)
+
+			alertVC.addAction(.init(title: "Dismiss", style: .default, handler: { [weak self] _ in
+				guard let self else { return }
+				let setupInstructionsSectionIndexBeforeChange = SectionType.setupInstructions.sectionIndex(model: model)
+				model.reportHasDismissedSetupInstructions()
+				tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
+			}))
+
+			alertVC.addAction(.init(title: "Cancel", style: .cancel))
+
+			present(alertVC, animated: true)
+		}
 	}
 
 	private func updateMonitorResolutionsSection() {
