@@ -261,6 +261,10 @@ class DragInteractionModel {
 		sdlViewVerticalOffset = .zero
 	}
 
+	func set(sdlViewVerticalOffset: CGFloat) {
+		self.sdlViewVerticalOffset = sdlViewVerticalOffset
+	}
+
 	private func triggerDragHapticFeedback() {
 		if MiscellaneousSettings.current.gestureHapticFeedback {
 			self.dragHapticFeedbackGenerator.impactOccurred()

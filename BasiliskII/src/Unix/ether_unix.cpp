@@ -104,6 +104,12 @@ extern "C" {
 #include "ether.h"
 #include "ether_defs.h"
 
+#if TARGET_OS_IPHONE
+#include "BonjourManagerObjCCppHeader.h"
+#include "NetworkSettingsObjCCppHeader.h"
+#include "PerformanceCounterObjCCppHeader.h"
+#endif
+
 #ifndef NO_STD_NAMESPACE
 using std::map;
 #endif
@@ -122,7 +128,8 @@ enum {
 	NET_IF_TUNTAP,
 	NET_IF_SLIRP,
 	NET_IF_VDE,
-	NET_IF_ETHERHELPER
+	NET_IF_ETHERHELPER,
+    NET_IF_BONJOUR
 };
 
 
@@ -157,6 +164,7 @@ static VDECONN *vde_conn;
 #ifdef SHEEPSHAVER
 static bool net_open = false;				// Flag: initialization succeeded, network device open
 static uint8 ether_addr[6];					// Our Ethernet address
+static bool ready_to_receive = false;
 #else
 const bool ether_driver_opened = true;		// Flag: is the MacOS driver opened?
 #endif
@@ -323,6 +331,14 @@ bool ether_init(void)
 		printf("selected Ethernet device type sheep_net\n");
 	}
 
+#if TARGET_OS_IPHONE
+    if (objc_getNetworkServiceTypeIsBonjour()) {
+        net_if_type = NET_IF_BONJOUR;
+    } else {
+        net_if_type = NET_IF_SLIRP;
+    }
+#endif
+
 	// Don't raise SIGPIPE, let errno be set to EPIPE
 	struct sigaction sigpipe_sa;
 	if (sigaction(SIGPIPE, NULL, &sigpipe_sa) == 0) {
@@ -421,7 +437,7 @@ bool ether_init(void)
 	}
 #endif
 
-	if (net_if_type != NET_IF_SLIRP && net_if_type != NET_IF_VDE) {
+	if (net_if_type != NET_IF_SLIRP && net_if_type != NET_IF_VDE && net_if_type != NET_IF_BONJOUR) {
 		fd = open(dev_name, O_RDWR);
 		if (fd < 0) {
 			sprintf(str, GetString(STR_NO_SHEEP_NET_DRIVER_WARN), dev_name, strerror(errno));
@@ -483,7 +499,8 @@ bool ether_init(void)
 	}
 #else
 	val = fcntl(fd, F_GETFL, 0);
-	if (val < 0 || fcntl(fd, F_SETFL, val | O_NONBLOCK) < 0) {
+	if ((net_if_type != NET_IF_BONJOUR) &&
+        (val < 0 || fcntl(fd, F_SETFL, val | O_NONBLOCK) < 0)) {
 		sprintf(str, GetString(STR_BLOCKING_NET_SOCKET_WARN), strerror(errno));
 		WarningAlert(str);
 		goto open_error;
@@ -500,13 +517,15 @@ bool ether_init(void)
 		ether_addr[4] = p >> 8;
 		ether_addr[5] = p;
 #ifdef HAVE_SLIRP
-	} else if (net_if_type == NET_IF_SLIRP) {
-		ether_addr[0] = 0x52;
-		ether_addr[1] = 0x54;
-		ether_addr[2] = 0x00;
-		ether_addr[3] = 0x12;
-		ether_addr[4] = 0x34;
-		ether_addr[5] = 0x56;
+	} else if (net_if_type == NET_IF_SLIRP || net_if_type == NET_IF_BONJOUR) {
+
+        objc_fetchHardwareAddressData(ether_addr);
+
+        printf("- did set address ");
+        for (int i=0; i<6; i++) {
+            printf("%02x ", ether_addr[i]);
+        }
+        printf("\n");
 #endif
 #ifdef HAVE_LIBVDEPLUG
 	} else if (net_if_type == NET_IF_VDE) {
@@ -787,6 +806,9 @@ void ether_reset(void)
 
 static int16 ether_do_add_multicast(uint8 *addr)
 {
+    ready_to_receive = true;
+
+    printf("ether_do_add_multicast %d\n", 0xff & *addr);
 	switch (net_if_type) {
 	case NET_IF_ETHERTAP:
 	case NET_IF_SHEEPNET:
@@ -882,6 +904,7 @@ static int16 ether_do_write(uint32 arg)
 		const int slirp_input_fd = slirp_input_fds[1];
 		write(slirp_input_fd, &len, sizeof(len));
 		write(slirp_input_fd, packet, len);
+
 		return noErr;
 	} else
 #endif
@@ -919,7 +942,23 @@ static int16 ether_do_write(uint32 arg)
 		return noErr;
 	} else
 #endif
-	if (write(fd, packet, len) < 0) {
+    if (net_if_type == NET_IF_BONJOUR) {
+        if (!ready_to_receive) {
+            ready_to_receive = true;
+        }
+
+        objc_bonjourSendData(packet, len);
+
+//       printf("s %d ", len);
+//        for (int i = 0; i< len; i++) {
+//            printf("%02x", packet[i]);
+//        }
+//       printf("\n");
+
+        objc_reportBytesTransferred(len);
+
+       return noErr;
+    } else if (write(fd, packet, len) < 0) {
 		D(bug("WARNING: Couldn't transmit packet\n"));
 		return excessCollsns;
 	} else
@@ -1066,11 +1105,37 @@ static void *receive_func(void *arg)
 			TriggerInterrupt();
 
 			// Wait for interrupt acknowledge by EtherInterrupt()
+            printf(" packet received, triggering Ethernet interrupt\n");
 			sem_wait(&int_ack);
 		} else
 			Delay_usec(20000);
 	}
 	return NULL;
+}
+
+void receive_rawdata_func(unsigned char *data, int length) {
+    if (!ready_to_receive) {
+        printf("- rejected package\n");
+        return;
+    }
+
+    unsigned short short_length = length;
+    unsigned short *pkt_len;
+    pkt_len = (unsigned short *)packet_buffer;
+    *pkt_len = short_length;
+    memcpy(packet_buffer + 2, data, length);
+
+    printf("r %d ", length);
+//    for (int i = 0; i< length + 2; i++) {
+//        printf("%02x", packet_buffer[i]);
+//    }
+    printf("\n");
+
+    SetInterruptFlag(INTFLAG_ETHER);
+    TriggerInterrupt();
+    sem_wait(&int_ack);
+
+    objc_reportBytesTransferred(length);
 }
 
 
@@ -1100,14 +1165,16 @@ void ether_do_interrupt(void)
 		} else
 #endif
 #ifdef ENABLE_MACOSX_ETHERHELPER
-		if (net_if_type == NET_IF_ETHERHELPER) {
+        if (net_if_type == NET_IF_ETHERHELPER || net_if_type == NET_IF_BONJOUR) {
 			unsigned short *pkt_len;
 			uint32 p = packet;
 
 			pkt_len = (unsigned short *)packet_buffer;
 			length = *pkt_len;
+
 			memcpy(Mac2HostAddr(packet), pkt_len + 1, length);
 			ether_dispatch_packet(p, length);
+
 			break;
 		} else
 #endif

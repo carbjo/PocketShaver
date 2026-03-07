@@ -68,7 +68,7 @@ class PreferencesAdvancedRamStepperCell: UITableViewCell {
 
 	@objc private func stepperValueChanged() {
 		let stepperValue = Int(stepper.value)
-		let ramSetting = PreferencesGeneralRamSetting(rawValue: stepperValue) ?? .n128
+		let ramSetting = PreferencesGeneralRamSetting(rawValue: stepperValue) ?? .n256
 		stepperLabel.text = ramSetting.label
 		didChangeStepperValue(ramSetting)
 	}
@@ -79,6 +79,7 @@ class PreferencesAdvancedMiscellaneousCell: UITableViewCell {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
+		label.textColor = Colors.primaryText
 		return label
 	}()
 

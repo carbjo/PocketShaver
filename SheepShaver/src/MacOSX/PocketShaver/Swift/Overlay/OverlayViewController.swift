@@ -66,6 +66,7 @@ public class OverlayViewController: UIViewController {
 			}
 		)
 		view.isUserInteractionEnabled = (state == .showingGamepad || state == .editingGamepad)
+		view.alpha = 0
 		return view
 	}()
 
@@ -104,10 +105,11 @@ public class OverlayViewController: UIViewController {
 		return view
 	}()
 
-	private lazy var fpsLabel: UILabel = {
+	private lazy var performanceLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.textColor = .white
 		label.isUserInteractionEnabled = false
+		label.numberOfLines = 0
 		return label
 	}()
 
@@ -131,7 +133,7 @@ public class OverlayViewController: UIViewController {
 		upcomingGamepadConfig?.name ?? gamepadConfig.name
 	}
 
-	private var fpsCounter: FPSCounter?
+	private var performanceCounter: PerformanceCounter?
 
 	private var queuedAlertController: UIAlertController?
 
@@ -152,7 +154,7 @@ public class OverlayViewController: UIViewController {
 
 		loadGamepadSettings()
 
-		updateFpsCounter()
+		updatePerformanceCounter()
 
 		listenToChanges()
 	}
@@ -172,6 +174,11 @@ public class OverlayViewController: UIViewController {
 				atBottom: true
 			)
 		}
+		if gamepadLayerView.alpha == 0 {
+			UIView.animate(withDuration: 0.2, delay: 0.5) {
+				self.gamepadLayerView.alpha = 1
+			}
+		}
 	}
 
 	private func setupViews() {
@@ -184,7 +191,7 @@ public class OverlayViewController: UIViewController {
 
 		view.addSubview(informationView)
 
-		view.addSubview(fpsLabel)
+		view.addSubview(performanceLabel)
 
 		NSLayoutConstraint.activate([
 			gestureInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -215,8 +222,8 @@ public class OverlayViewController: UIViewController {
 			informationView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 8),
 			informationView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -8),
 
-			fpsLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-			fpsLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+			performanceLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+			performanceLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
 		])
 
 		if UIDevice.isSimulator {
@@ -264,9 +271,10 @@ public class OverlayViewController: UIViewController {
 			}
 		}.store(in: &anyCancellables)
 
-		NotificationCenter.default.addObserver(self, selector: #selector(updateFpsCounter), name: LocalNotifications.fpsCounterSettingChanged, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(updatePerformanceCounter), name: LocalNotifications.performanceCounterSettingChanged, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayRelativeMouseCapabilityDialogueIfEligible), name: LocalNotifications.relativeMouseModeCapabilityFound, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayJaggyCursorWarningDialogueIfEligible), name: LocalNotifications.jaggyCursorResolutionSelected, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(displayGotIpAddress), name: LocalNotifications.gotIpAddress, object: nil)
 	}
 
 	private func loadGamepadSettings() {
@@ -370,6 +378,20 @@ public class OverlayViewController: UIViewController {
 					if gamepadConfig.updateSlotPositionsIfNeeded() {
 						gamepadLayerView.load(config: gamepadConfig)
 					}
+
+					if result.state == .showingKeyboard,
+					   MiscellaneousSettings.current.keyboardAutoOffsetSetting != .top {
+						let screenHeight = UIScreen.main.bounds.height
+						let offset: CGFloat = MiscellaneousSettings.current.keyboardAutoOffsetSetting == .middle ?
+						-screenHeight * (2/5) :
+						-screenHeight * (2/3)
+
+						let transform = CGAffineTransform(translationX: 0, y: offset)
+						dragInteractionModel.set(sdlViewVerticalOffset: offset)
+						UIView.animate(withDuration: 0.11) {
+							self.transformSDLContainerView(transform)
+						}
+					}
 				}
 			)
 		}
@@ -423,6 +445,9 @@ public class OverlayViewController: UIViewController {
 	}
 
 	private func presentPreferences() {
+		transformSDLContainerView(.identity)
+		dragInteractionModel.resetSdlViewVerticalOffset()
+		
 		let vc = PreferencesViewController(mode: .duringEmulation)
 		present(vc, animated: true)
 	}
@@ -543,15 +568,16 @@ public class OverlayViewController: UIViewController {
 
 
 	@objc
-	private func updateFpsCounter() {
-		if MiscellaneousSettings.current.fpsCounterEnabled {
-			let fpsCounter = FPSCounter()
-			fpsCounter.delegate = self
-			self.fpsCounter = fpsCounter
-			fpsLabel.isHidden = false
+	private func updatePerformanceCounter() {
+		if MiscellaneousSettings.current.fpsReporting ||
+			MiscellaneousSettings.current.networkTransferRateReportingEnabled {
+			let performanceCounter = PerformanceCounter()
+			performanceCounter.delegate = self
+			self.performanceCounter = performanceCounter
+			performanceLabel.isHidden = false
 		} else {
-			self.fpsCounter = nil
-			fpsLabel.isHidden = true
+			self.performanceCounter = nil
+			performanceLabel.isHidden = true
 		}
 	}
 
@@ -564,24 +590,12 @@ public class OverlayViewController: UIViewController {
 
 		let alertVC = UIAlertController(
 			title: "Relative mouse mode",
-			message: "The software launched might require relative mouse mode to be turned on in order to function. Mostly 3D games required this. Do you want PocketShaver to automatically turn relative mouse mode on and off in the future, or handle it manually? This behavior can be changed in Preferences, under Advanced tab. Relative mouse mode can be manually toggled on and off by the mouse button over the keyboard. Note that automatic detection is not perfect and can sometimes give false positives.",
+			message: "The software launched might require relative mouse mode to be turned on in order to function. If the software is not responsive to mouse movenents, consider checking Relative mouse mode section in Preferences under Advanced tab. Do not turn on relative mouse mode unless nessecary.\nThis message will not be displayed again.",
 			preferredStyle: .alert
 		)
 
-		alertVC.addAction(.init(title: "Manual", style: .cancel, handler: { [weak self] _ in
+		alertVC.addAction(.init(title: "Ok", style: .default, handler: { [weak self] _ in
 			guard let self else { return }
-			if let queuedAlertController {
-				self.queuedAlertController = nil
-				present(queuedAlertController, animated: true)
-			}
-		}))
-		alertVC.addAction(.init(title: "Automatic", style: .default, handler: { [weak self] _ in
-			guard let self else { return }
-			if !inputInteractionModel.isRelativeMouseModeEnabled {
-				inputInteractionModel.toggleRelativeMouseMode()
-			}
-			MiscellaneousSettings.current.set(relativeMouseModeSetting: .automatic)
-
 			if let queuedAlertController {
 				self.queuedAlertController = nil
 				present(queuedAlertController, animated: true)
@@ -625,6 +639,19 @@ public class OverlayViewController: UIViewController {
 			queuedAlertController = alertVC
 		}
 	}
+
+	@objc
+	private func displayGotIpAddress(notification: Notification) {
+		guard let ipAddress = notification.object as? IpAddress,
+		NetworkSettings.current.reportIpAddressAssignment else {
+			return
+		}
+
+		informationView.show(
+			hint: "Got IP address \(ipAddress.string)",
+			atBottom: true
+		)
+	}
 }
 
 extension OverlayViewController {
@@ -658,9 +685,15 @@ extension OverlayViewController {
 	}
 }
 
-extension OverlayViewController: @preconcurrency FPSCounterDelegate {
+extension OverlayViewController: @preconcurrency PerformanceCounterDelegate {
 
-	func fpsCounter(_ counter: FPSCounter, didUpdateFramesPerSecond fps: Int) {
-		fpsLabel.text = "\(fps)"
+	func performanceCounter(_ counter: PerformanceCounter, didUpdateWithReport report: PerformanceCounterReport) {
+		if MiscellaneousSettings.current.fpsReporting && MiscellaneousSettings.current.networkTransferRateReportingEnabled {
+			performanceLabel.text = "\(report.framesRendered)\n\(report.bytesTransferredString)"
+		} else if MiscellaneousSettings.current.fpsReporting {
+			performanceLabel.text = "\(report.framesRendered)"
+		} else if MiscellaneousSettings.current.networkTransferRateReportingEnabled {
+			performanceLabel.text = "\(report.bytesTransferredString)"
+		}
 	}
 }

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CryptoKit
 
 enum RomError: Error {
 	case romMissingOnDisk
@@ -24,72 +23,61 @@ class RomManager {
 	@MainActor
 	static let shared = RomManager()
 
-	static let romFilename = ".rom"
-	private let tmpRomFilename = ".tmp_rom"
+	private let extractedRomUrl = Storage.urlForDocumentFile(filename: ".extracted_rom")
+	private let tmpRomUrl = Storage.urlForDocumentFile(filename: ".tmp_rom")
+	let romUrl = Storage.urlForDocumentFile(filename: ".rom")
 
 	var hasRomFile: Bool {
-		let romUrl = FileManager.documentUrl.appendingPathComponent(Self.romFilename)
 		return FileManager.default.fileExists(atPath: romUrl.path)
 	}
 
 	var currentRomFileType: RomType {
-		let romUrl = FileManager.documentUrl.appendingPathComponent(Self.romFilename)
 		return validateROMType(romUrl.path)
 	}
 
 	var currentRomFileVersion: NewWorldRomVersion? {
-		let romUrl = FileManager.documentUrl.appendingPathComponent(Self.romFilename)
-		guard let md5Hash = try? getFileMd5Hash(url: romUrl) else {
+		guard let md5Hash = try? Storage.getFileMd5Hash(romUrl) else {
 			return nil
 		}
 		return NewWorldRomVersion(md5hash: md5Hash)
 	}
 
 	func didSelectMacOsInstallDiskCandidate(url: URL) async -> RomValidationResult {
-		let docsUrl = FileManager.documentUrl
-		let tmpURL = docsUrl.appendingPathComponent(".extracted_rom")
-		let success = DiskROMExtractor.extractRom(fromDiskUrl: url, to: tmpURL)
+		let success = DiskFileExtractor.extractRom(fromDiskUrl: url, to: extractedRomUrl)
 
 		guard success else {
 			return .invalidFile
 		}
 
-		return await didSelectRomCandidate(url: tmpURL)
+		return await didSelectRomCandidate(url: extractedRomUrl)
 	}
 
 	private func didSelectRomCandidate(url: URL) async -> RomValidationResult {
 		var error: NSError?
 		return await withCheckedContinuation { continuation in
 			NSFileCoordinator().coordinate(readingItemAt: url, error: &error) { srcURL in
-
-				let docsUrl = FileManager.documentUrl
-
-				let tmpURL = docsUrl.appendingPathComponent(tmpRomFilename)
-
 				do {
-					if FileManager.default.fileExists(atPath: tmpURL.path) {
-						try FileManager.default.removeItem(at: tmpURL)
+					if FileManager.default.fileExists(atPath: tmpRomUrl.path) {
+						try FileManager.default.removeItem(at: tmpRomUrl)
 					}
-					try FileManager.default.moveItem(at: srcURL, to: tmpURL)
+					try FileManager.default.moveItem(at: srcURL, to: tmpRomUrl)
 				} catch {
 					continuation.resume(returning: RomValidationResult.error(error))
 				}
 
-				let isRomValid = validateROM(tmpURL.path)
+				let isRomValid = validateROM(tmpRomUrl.path)
 
 				if isRomValid {
-					var destURL = tmpURL.deletingLastPathComponent()
-					destURL = destURL.appendingPathComponent(Self.romFilename)
 					do {
-						if FileManager.default.fileExists(atPath: destURL.path) {
-							try FileManager.default.removeItem(at: destURL)
+						if FileManager.default.fileExists(atPath: romUrl.path) {
+							try FileManager.default.removeItem(at: romUrl)
 						}
-						try FileManager.default.moveItem(at: tmpURL, to: destURL)
+						try FileManager.default.moveItem(at: tmpRomUrl, to: romUrl)
 						continuation.resume(returning: RomValidationResult.success)
 					} catch {
 						continuation.resume(returning: RomValidationResult.error(error))
 					}
-				} else if let md5Hash = try? getFileMd5Hash(url: tmpURL),
+				} else if let md5Hash = try? Storage.getFileMd5Hash(tmpRomUrl),
 						  let newWorldRomVersion = NewWorldRomVersion(md5hash: md5Hash) {
 					continuation.resume(returning: RomValidationResult.incompatibleRom(newWorldRomVersion))
 				} else {
@@ -97,14 +85,6 @@ class RomManager {
 				}
 			}
 		}
-	}
-
-	private func getFileMd5Hash(url: URL) throws -> String {
-		let data = try Data(contentsOf: url)
-		let digest = Insecure.MD5.hash(data: data)
-		return digest.map {
-			String(format: "%02hhx", $0)
-		}.joined()
 	}
 }
 
@@ -131,7 +111,7 @@ extension RomType{
 	}
 }
 
-enum NewWorldRomVersion {
+enum NewWorldRomVersion: String, Codable {
 	case v110
 	case v112
 	case v115
@@ -245,6 +225,17 @@ enum NewWorldRomVersion {
 		}
 	}
 
+	var isInstallCompatible: Bool {
+		switch self {
+		case .v110, .v112, .v115, .v120, .v121, .v140, .v160, .v171,
+				.v181, .v231, .v251, .v300, .v311, .v321, .v350, .v360,
+				.v370, .v380, .v390, .v461, .v491, .v521, .v531, .v551:
+			return true
+		default:
+			return false
+		}
+	}
+
 	var description: String {
 		switch self {
 		case .v110: return "Mac OS 8.1 bundled on iMac, Rev A"
@@ -295,6 +286,38 @@ enum NewWorldRomVersion {
 		case .v981: return "Mac OS 9.2.2 (691-4571-A MacTest Pro G4 CD)"
 		case .v1011: return "Mac OS 9.2.2 bundled on eMac 800MHz"
 		case .v1021: return "Mac OS 9.2.2 Retail International CD"
+		}
+	}
+
+	var osString: String {
+		switch self {
+		case .v110:
+			return "8.1"
+		case .v112, .v115:
+			return "8.5"
+		case .v120, .v121:
+			return "8.5.1"
+		case .v140, .v160, .v171, .v181, .v231, .v251:
+			return "8.6"
+		case .v300, .v311:
+			return "9.0"
+		case .v321:
+			return "9.0Z"
+		case .v350:
+			return "9.0.2"
+		case .v360:
+			return "9.0.3"
+		case .v370, .v380, .v390, .v461, .v491, .v521, .v531, .v551:
+			return "9.0.4"
+		case .v610, .v671, .v701f1, .v751, .v781, .v791:
+			return "9.1"
+		case .v800, .v831:
+			return "9.2"
+		case .v840, .v861:
+			return "9.2.1"
+		case .v870, .v880, .v891, .v901, .v911, .v921, .v921b, .v931,
+				.v951, .v961, .v971, .v981, .v1011, .v1021:
+			return "9.2.2"
 		}
 	}
 }

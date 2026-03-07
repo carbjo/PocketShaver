@@ -13,10 +13,12 @@ class PreferencesGeneralViewController: UITableViewController {
 		case setupInstructions
 		case bootstrap
 		case disks
+		case monitorResolutions
 		case audio
 		case iPadMouse
 		case twoFingerSteering
 		case rightClick
+		case keyboardAutoOffset
 		case hapticFeedback
 		case hints
 	}
@@ -32,9 +34,13 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private let model: PreferencesGeneralModel
+	private let preferencesResolutionsVC: PreferencesResolutionsViewController
+
+	private var anyCancellables = Set<AnyCancellable>()
 
 	private let segmentedControlFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
+	// TODO: Refactor and encapstulate
 	private var createDiskDialogueNamePhantomLabel: UILabel?
 	private var createDiskDialogueNameSuffixLabel: UILabel?
 	private var createDiskDialogueSizePhantomLabel: UILabel?
@@ -48,6 +54,8 @@ class PreferencesGeneralViewController: UITableViewController {
 			mode: mode,
 			changeSubject: changeSubject
 		)
+
+		preferencesResolutionsVC = PreferencesResolutionsViewController(changeSubject: changeSubject)
 
 		super.init(nibName: nil, bundle: nil)
 
@@ -64,6 +72,20 @@ class PreferencesGeneralViewController: UITableViewController {
 		tableView.showsVerticalScrollIndicator = false
 		tableView.delaysContentTouches = false
 		PreferencesGeneralDiskCell.register(in: tableView)
+
+		listenToChanges()
+	}
+
+	private func listenToChanges() {
+		model.changeSubject.sink{ [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .selectedResolutionsChanged:
+				updateMonitorResolutionsSection()
+			default:
+				break
+			}
+		}.store(in: &anyCancellables)
 
 		NotificationCenter.default.addObserver(self, selector: #selector(updateRomPickerSection), name: UIApplication.didBecomeActiveNotification, object: nil)
 	}
@@ -309,20 +331,49 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private func handleSetupInstructionsDimissButtonPressed() {
-		let alertVC = UIAlertController(
-			title: "Information",
-			message: "Setup instructions will still be accessible from the bottom of Advanced tab.",
-			preferredStyle: .alert
-		)
+		if InformationConsumption.current.hasReadSetupInstructions {
+			let alertVC = UIAlertController(
+				title: "Information",
+				message: "Setup instructions will still be accessible from the bottom of Advanced tab.",
+				preferredStyle: .alert
+			)
 
-		alertVC.addAction(.init(title: "Ok", style: .default, handler: { [weak self] _ in
-			guard let self else { return }
-			let setupInstructionsSectionIndexBeforeChange = SectionType.setupInstructions.sectionIndex(model: model)
-			model.reportHasDismissedSetupInstructions()
-			tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
-		}))
+			alertVC.addAction(.init(title: "Ok", style: .default, handler: { [weak self] _ in
+				guard let self else { return }
+				let setupInstructionsSectionIndexBeforeChange = SectionType.setupInstructions.sectionIndex(model: model)
+				model.reportHasDismissedSetupInstructions()
+				tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
+			}))
 
-		present(alertVC, animated: true)
+			present(alertVC, animated: true)
+		} else {
+			let alertVC = UIAlertController(
+				title: "Warning",
+				message: "Step 5 & 8 of setup instructions are non-trivial and must be follwed for succesful setup.\nIf setup instructions is dismissed from here, it can still be accessed from the bottom of Advanced tab.",
+				preferredStyle: .alert
+			)
+
+			alertVC.addAction(.init(title: "Dismiss", style: .default, handler: { [weak self] _ in
+				guard let self else { return }
+				let setupInstructionsSectionIndexBeforeChange = SectionType.setupInstructions.sectionIndex(model: model)
+				model.reportHasDismissedSetupInstructions()
+				tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
+			}))
+
+			alertVC.addAction(.init(title: "Cancel", style: .cancel))
+
+			present(alertVC, animated: true)
+		}
+	}
+
+	private func updateMonitorResolutionsSection() {
+		let sectionIndex = SectionType.monitorResolutions.sectionIndex(model: model)
+		tableView.reloadSections([sectionIndex], with: .automatic)
+	}
+
+	private func updateTwoFingerSteeringSection() {
+		let sectionIndex = SectionType.twoFingerSteering.sectionIndex(model: model)
+		tableView.reloadSections([sectionIndex], with: .automatic)
 	}
 
 	// MARK: - Actions
@@ -370,6 +421,8 @@ extension PreferencesGeneralViewController {
 			return "Bootstrap"
 		case .disks:
 			return "Disks"
+		case .monitorResolutions:
+			return "Monitor resolutions"
 		case .audio:
 			return "Audio"
 		case .iPadMouse:
@@ -378,6 +431,8 @@ extension PreferencesGeneralViewController {
 			return "Two finger steering"
 		case .rightClick:
 			return "Right click"
+		case .keyboardAutoOffset:
+			return "Software keyboard screen offset"
 		case .hapticFeedback:
 			return "Haptic feedback"
 		case .hints:
@@ -394,18 +449,17 @@ extension PreferencesGeneralViewController {
 			return 1 + (model.isDisplayingRomFileMissingError ? 1 : 0)
 		case .disks:
 			return model.numberOfDisks + 2 + (model.isDisplayingNoDiskFilesError ? 1 : 0)
+		case .monitorResolutions:
+			return 2
 		case .audio:
 			return 2
 		case .iPadMouse:
 			return 1
 		case .twoFingerSteering:
-			if model.secondFingerSwipe {
-				return 7
-			} else if model.secondFingerClick {
-				return 5
-			}
-			return 2
+			return model.secondFingerClick ? 3 : 2
 		case .rightClick:
+			return 2
+		case .keyboardAutoOffset:
 			return 2
 		case .hapticFeedback:
 			return 3
@@ -446,7 +500,9 @@ extension PreferencesGeneralViewController {
 			}
 		case .disks:
 			if indexPath.row == 0, model.numberOfDisks == 0 {
-				return PreferencesGeneralDiskEmptyStateCell()
+				return PreferencesEmptyStateCell(
+					title: "No files found"
+				)
 			} else if indexPath.row == 0 {
 				return PreferencesGeneralDiskColumnsDescriptionCell()
 			} else if indexPath.row <= model.numberOfDisks {
@@ -459,12 +515,18 @@ extension PreferencesGeneralViewController {
 					disk: disk,
 					didSetIsEnabled: { [weak self] filename, isOn in
 						guard let self else { return }
-						let (prevIndex, newIndex) = model.setDiskEnabled(filename: filename, isEnabled: isOn)
+						let change = model.setDiskEnabled(filename: filename, isEnabled: isOn)
 
 						let section = SectionType.disks.sectionIndex(model: model)
-						let prevIndexPath = IndexPath(row: prevIndex + 1, section: section)
-						let newIndexPath = IndexPath(row: newIndex + 1, section: section)
-						tableView.moveRow(at: prevIndexPath, to: newIndexPath)
+						let prevIndexPath = IndexPath(row: change.prevIndex + 1, section: section)
+						let newIndexPath = IndexPath(row: change.newIndex + 1, section: section)
+						tableView.performBatchUpdates { [weak self] in
+							guard let self else { return }
+							tableView.moveRow(at: prevIndexPath, to: newIndexPath)
+							if change.willBootFromCDChanged {
+								updateMonitorResolutionsSection()
+							}
+						}
 					},
 					didSetDiskType: { [weak self] filename, diskType in
 						guard let self else { return }
@@ -498,6 +560,31 @@ extension PreferencesGeneralViewController {
 			} else {
 				return PreferencesGeneralErrorCell(title: "Must select to mount at least one disk file")
 			}
+		case .monitorResolutions:
+			if indexPath.row == 0 {
+				let cell = PreferencesGeneralEnabledMonitorResolutionsCell(
+					monitorResolutions: model.monitorResolutions,
+					willBootFromCD: model.willBootFromCD
+				) { [weak self] in
+					guard let self else { return }
+					let vc = preferencesResolutionsVC
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
+				}
+				return cell
+			} else {
+				var text = "Resolutions made available to Mac OS. "
+				if model.willBootFromCD {
+					text += "List is restricted since emulaton will boot from an install CD."
+				} else {
+					text += "Can be edited."
+				}
+				return PreferencesInformationCell(
+					text: text
+				)
+			}
 		case .audio:
 			if indexPath.row == 0 {
 				return PreferencesEnabledSettingCell(
@@ -526,7 +613,7 @@ extension PreferencesGeneralViewController {
 			case 0:
 				return PreferencesInformationCell(
 					text: "Two finger steering is an alternative way to control the mouse without obscuring the cursor with your finger. Read the <link>onboarding</link> to get started.",
-					cellType: .introduction,
+					upperMargin: .medium,
 					separatorHidden: false
 				) { [weak self] in
 					guard let self else { return }
@@ -538,45 +625,33 @@ extension PreferencesGeneralViewController {
 				}
 			case 1:
 				return PreferencesEnabledSettingCell(
-					title: "Second finger click",
+					title: "Two finger steering enabled",
 					isOn: model.secondFingerClick
 				) { [weak self] isOn in
-					self?.set(secondFingerClick: isOn)
+					self?.setTwoFingerSteering(enabled: isOn)
 				}
 			case 2:
-				return PreferencesInformationCell(
-					text: "A second finger can be used for mouse clicking, while the first finger controls the position. Only has effect when a hover mode, or relative mouse mode, is enabled.",
-					separatorHidden: !model.secondFingerClick
-				)
-			case 3:
-				return PreferencesEnabledSettingCell(
-					title: "Second finger swipe",
-					isOn: model.secondFingerSwipe
-				) { [weak self] isOn in
-					self?.set(secondFingerSwipe: isOn)
+				return PreferencesGeneralTwoFingerSteeringDetailsCell(
+					isSecondFingerSwipeEnabled: model.secondFingerSwipe,
+					isBootInHoverModeEnabled: model.bootInHoverMode
+				) { [weak self] in
+					guard let self else { return }
+					let vc = PreferencesTwoFingerSteeringDetailsViewController { [weak self] in
+						self?.updateTwoFingerSteeringSection()
+					}
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
 				}
-			case 4:
-				return PreferencesInformationCell(
-					text: "A second finger can be used for quickly swiping between the four mouse hover modes. Only has effect when a hover mode is already enabled.",
-					separatorHidden: !model.secondFingerSwipe
-				)
-			case 5:
-				return PreferencesEnabledSettingCell(
-					title: "Boot in hover mode",
-					isOn: model.bootInHoverMode
-				) { [weak self] isOn in
-					self?.set(bootInHoverMode: isOn)
-				}
-			case 6:
-				return PreferencesInformationCell(
-					text: "Hover (just above) is on by default when booting, making Two finger steering available from the start."
-				)
 			default: fatalError()
 			}
 		case .rightClick:
 			switch indexPath.row {
 			case 0:
-				return PreferencesGeneralRightClickCell(initialRightClickSetting: model.rightClickSetting) { [weak self] newSetting in
+				return PreferencesGeneralRightClickCell(
+					initialRightClickSetting: model.rightClickSetting
+				) { [weak self] newSetting in
 					guard let self else { return }
 					model.rightClickSetting = newSetting
 					segmentedControlFeedbackGenerator.impactOccurred()
@@ -591,6 +666,21 @@ extension PreferencesGeneralViewController {
 
 				return PreferencesInformationCell(
 					text: text
+				)
+			default:
+				fatalError()
+			}
+		case .keyboardAutoOffset:
+			switch indexPath.row {
+			case 0:
+				return PreferencesGeneralKeyboardAutoOffsetCell(initialKeyboardAutoOffsetSetting: model.keyboardAutoOffsetSetting) { [weak self] newSetting in
+					guard let self else { return }
+					model.keyboardAutoOffsetSetting = newSetting
+					segmentedControlFeedbackGenerator.impactOccurred()
+				}
+			case 1:
+				return PreferencesInformationCell(
+					text: "Controls how the screen scrolls when you three finger swipe up to present keyboard."
 				)
 			default:
 				fatalError()
@@ -643,6 +733,35 @@ extension PreferencesGeneralViewController {
 
 	override func numberOfSections(in tableView: UITableView) -> Int {
 		SectionType.count(model: model)
+	}
+
+	override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
+		guard sectionType == .disks,
+			  indexPath.row > 0,
+			  indexPath.row <= model.numberOfDisks else {
+			return false
+		}
+		
+		let index = indexPath.row - 1
+		let disk = model.disk(forIndex: index)
+		return !disk.isEnabled
+	}
+
+	override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
+		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
+		guard editingStyle == .delete,
+			  sectionType == .disks,
+			  indexPath.row <= model.numberOfDisks else {
+			return
+		}
+
+		let index = indexPath.row - 1
+		let disk = model.disk(forIndex: index)
+
+		model.deleteDisk(disk)
+
+		tableView.deleteRows(at: [indexPath], with: .automatic)
 	}
 }
 
@@ -742,76 +861,20 @@ extension PreferencesGeneralViewController.SectionType {
 
 
 extension PreferencesGeneralViewController {
-	private func set(
-		secondFingerClick: Bool? = nil,
-		secondFingerSwipe: Bool? = nil,
-		bootInHoverMode: Bool? = nil
-	) {
-		let prevSecondFingerClick = model.secondFingerClick
-		let prevSecondFingerSwipe = model.secondFingerSwipe
+	private func setTwoFingerSteering(enabled: Bool) {
+		model.setTwoFingerSteering(enabled: enabled)
 
-		let secondFingerClick = secondFingerClick ?? model.secondFingerClick
-		var secondFingerSwipe = secondFingerSwipe ?? model.secondFingerSwipe
-		var bootInHoverMode = bootInHoverMode ?? model.bootInHoverMode
+		let section = SectionType.twoFingerSteering.sectionIndex(model: model)
+		let detailsIndexPath = IndexPath(row: 2, section: section)
 
-		if !secondFingerClick {
-			secondFingerSwipe = false
-			bootInHoverMode = false
-		} else if !secondFingerSwipe {
-			bootInHoverMode = false
-		}
-
-		model.secondFingerClick = secondFingerClick
-		model.secondFingerSwipe = secondFingerSwipe
-		model.bootInHoverMode = bootInHoverMode
-
-		let sectionIndex = SectionType.twoFingerSteering.sectionIndex(model: model)
-
-		tableView.performBatchUpdates {
-			if !prevSecondFingerClick,
-			   secondFingerClick {
-				tableView.insertRows(at: [
-					.init(row: 2, section: sectionIndex),
-					.init(row: 3, section: sectionIndex)
-				], with: .fade)
-				tableView.reloadRows(at: [
-					.init(row: 1, section: sectionIndex)
-				], with: .fade)
-			} else if prevSecondFingerClick,
-					  !secondFingerClick {
-				tableView.deleteRows(at: [
-					.init(row: 2, section: sectionIndex),
-					.init(row: 3, section: sectionIndex)
-				], with: .fade)
-				tableView.reloadRows(at: [
-					.init(row: 1, section: sectionIndex)
-				], with: .fade)
-			}
-			if !prevSecondFingerSwipe,
-			   secondFingerSwipe {
-				tableView.insertRows(at: [
-					.init(row: 4, section: sectionIndex),
-					.init(row: 5, section: sectionIndex)
-				], with: .fade)
-				if secondFingerClick {
-					tableView.reloadRows(at: [
-						.init(row: 3, section: sectionIndex)
-					], with: .fade)
-				}
-			} else if prevSecondFingerSwipe,
-					  !secondFingerSwipe {
-				tableView.deleteRows(at: [
-					.init(row: 4, section: sectionIndex),
-					.init(row: 5, section: sectionIndex)
-				], with: .fade)
-				if secondFingerClick {
-					tableView.reloadRows(at: [
-						.init(row: 3, section: sectionIndex)
-					], with: .fade)
-				}
-			}
+		if enabled {
+			tableView.insertRows(at: [detailsIndexPath], with: .fade)
+		} else {
+			tableView.deleteRows(at: [detailsIndexPath], with: .fade)
 		}
 	}
+
+
 
 	private func set(isIPadMouseEnabled: Bool) {
 		guard model.isIPadMouseEnabled != isIPadMouseEnabled else {

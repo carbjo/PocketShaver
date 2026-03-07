@@ -123,6 +123,7 @@ const char ROM_FILE_NAME[] = "ROM";
 const int SIG_STACK_SIZE = SIGSTKSZ;	// Size of signal stack
 #endif
 const int SCRATCH_MEM_SIZE = 0x10000;	// Size of scratch memory area
+const int ROM_MAX_SIZE = 0x100000;
 
 
 #if !EMULATED_68K
@@ -697,7 +698,7 @@ int main(int argc, char **argv)
 #endif
 
 	// Try to allocate all memory from 0x0000, if it is not known to crash
-	if (can_map_all_memory && (vm_acquire_mac_fixed(0, RAMSize + 0x100000) == 0)) {
+	if (can_map_all_memory && (vm_acquire_mac_fixed(0, RAMSize + ROM_MAX_SIZE) == 0)) {
 		D(bug("Could allocate RAM and ROM from 0x0000\n"));
 		memory_mapped_from_zero = true;
 	}
@@ -727,16 +728,17 @@ int main(int argc, char **argv)
 	else
 #endif
 	{
-		uint8 *ram_rom_area = (uint8 *)vm_acquire_mac(RAMSize + 0x100000);
-		if (ram_rom_area == VM_MAP_FAILED) {	
+		uint8 *ram_rom_area = (uint8 *)vm_acquire_mac(RAMSize + ROM_MAX_SIZE + SCRATCH_MEM_SIZE);
+		if (ram_rom_area == VM_MAP_FAILED) {
 			ErrorAlert(STR_NO_MEM_ERR);
 			QuitEmulator();
 		}
 		RAMBaseHost = ram_rom_area;
 		ROMBaseHost = RAMBaseHost + RAMSize;
+		ScratchMem = ROMBaseHost + ROM_MAX_SIZE + SCRATCH_MEM_SIZE / 2;
 	}
 
-#if USE_SCRATCHMEM_SUBTERFUGE
+#if REAL_ADDRESSING && USE_SCRATCHMEM_SUBTERFUGE
 	// Allocate scratch memory
 	ScratchMem = (uint8 *)vm_acquire_mac(SCRATCH_MEM_SIZE);
 	if (ScratchMem == VM_MAP_FAILED) {
@@ -1017,12 +1019,12 @@ void QuitEmulator(void)
 
 	// Free ROM/RAM areas
 	if (RAMBaseHost != VM_MAP_FAILED) {
-		vm_release(RAMBaseHost, RAMSize + 0x100000);
+		vm_release(RAMBaseHost, RAMSize + ROM_MAX_SIZE + SCRATCH_MEM_SIZE);
 		RAMBaseHost = NULL;
 		ROMBaseHost = NULL;
 	}
 
-#if USE_SCRATCHMEM_SUBTERFUGE
+#if REAL_ADDRESSING && USE_SCRATCHMEM_SUBTERFUGE
 	// Delete scratch memory area
 	if (ScratchMem != (uint8 *)VM_MAP_FAILED) {
 		vm_release((void *)(ScratchMem - SCRATCH_MEM_SIZE/2), SCRATCH_MEM_SIZE);

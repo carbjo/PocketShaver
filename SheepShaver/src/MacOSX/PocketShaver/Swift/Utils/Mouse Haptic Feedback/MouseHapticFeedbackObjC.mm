@@ -6,8 +6,7 @@
 //
 
 #import "MouseHapticFeedbackObjC.h"
-#import <UIKit/UIKit.h>
-#import "PocketShaver-Swift.h"
+#import "PocketShaver-Swift-ObjCHeader.h"
 
 UIImpactFeedbackGenerator *_mouseDownHapticFeedbackgenerator = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
 
