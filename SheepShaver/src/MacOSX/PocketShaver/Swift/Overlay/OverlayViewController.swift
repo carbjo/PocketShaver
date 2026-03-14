@@ -656,15 +656,11 @@ public class OverlayViewController: UIViewController {
 
 extension OverlayViewController {
 	
-	public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-		guard action.description != "_performClose:" else {
-			// Handle Cmd+W: forward it to the emulated app instead of closing
-			// The emulator will receive the keyboard event normally
-			// We intentionally do nothing here to prevent the app from closing
-			return true
-		}
-
-		return super.canPerformAction(action, withSender: sender)
+	@objc
+	public override func performClose(_ sender: Any?) {
+		// Handle Cmd+W: forward it to the emulated app instead of closing
+		// The emulator will receive the keyboard event normally
+		// We intentionally do nothing here to prevent the app from closing
 	}
 
 	@objc
