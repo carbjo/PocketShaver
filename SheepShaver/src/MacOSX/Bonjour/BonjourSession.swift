@@ -101,11 +101,31 @@ final class BonjourSession: NSObject {
 		static let combined: Usage = [.receive, .transmit]
     }
 
+	private struct PendingInvitation {
+		let peerID: MCPeerID
+		let context: Data?
+		let invitationHandler: (Bool, MCSession?) -> Void
+		let timestamp: Date
+
+		init(
+			peerID: MCPeerID,
+			context: Data?,
+			invitationHandler: @escaping (Bool, MCSession?) -> Void
+		) {
+			self.peerID = peerID
+			self.context = context
+			self.invitationHandler = invitationHandler
+			self.timestamp = Date()
+		}
+	}
+
     // MARK: - Properties
 
     let usage: Usage
     var configuration: Configuration
     let localPeerID: MCPeerID
+
+	private var pendingInvitations = [MCPeerID: PendingInvitation]()
 
     private(set) var availablePeers: Set<Peer> = [] {
         didSet {
@@ -159,6 +179,7 @@ final class BonjourSession: NSObject {
     private var progressWatchers: [String: ProgressWatcher] = [:]
 	private(set) var discoveryInfo: [String : String]?
     private let sessionQueue = DispatchQueue(label: "Bonjour.Session", qos: .userInteractive)
+
 
 
     // MARK: - Init
@@ -329,6 +350,18 @@ final class BonjourSession: NSObject {
     // MARK: - Private
 
     private func didDiscover(_ peer: Peer) {
+		if let pendingInvitation = pendingInvitations[peer.peerID],
+		   Date().timeIntervalSince(pendingInvitation.timestamp) < 3.0 {
+			// This covers a race condition when the invitation is received before the discovery
+			print("- accepting pending invite that was received shortly before..")
+			handleInvite(
+				peerID: pendingInvitation.peerID,
+				context: pendingInvitation.context,
+				invitationHandler: pendingInvitation.invitationHandler
+			)
+			pendingInvitations[peer.peerID] = nil
+		}
+
         self.availablePeers.insert(peer)
         self.onPeerDiscovery?(peer)
     }
@@ -392,6 +425,29 @@ final class BonjourSession: NSObject {
         self.availablePeers.remove(peer)
         self.availablePeers.insert(mutablePeer)
     }
+
+	private func handleInvite(peerID: MCPeerID, context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
+		guard let peer = self.availablePeers.first(where: { $0.peerID == peerID })
+		else {
+			print("- did not find peer to accept invite. saving invitation.")
+
+			pendingInvitations[peerID] = .init(
+				peerID: peerID,
+				context: context,
+				invitationHandler: invitationHandler
+			)
+
+			return
+		}
+
+		print("- did accept invite from \(peer.id)")
+
+		self.configuration.security.invitationHandler(peer, context, { [weak self] decision in
+			guard let self = self
+			else { return }
+			invitationHandler(decision, decision ? self.session : nil)
+		})
+	}
 }
 
 // MARK: - Session delegate
@@ -607,17 +663,7 @@ extension BonjourSession: MCNearbyServiceAdvertiserDelegate {
                #function)
         #endif
 
-        guard let peer = self.availablePeers.first(where: { $0.peerID == peerID })
-        else {
-			print("- did not find peer in advertiser(_:didReceiveInvitationFromPeer:withContext:invitationHandler:)")
-			return
-		}
-
-        self.configuration.security.invitationHandler(peer, context, { [weak self] decision in
-            guard let self = self
-            else { return }
-            invitationHandler(decision, decision ? self.session : nil)
-        })
+		handleInvite(peerID: peerID, context: context, invitationHandler: invitationHandler)
     }
     
     func advertiser(_ advertiser: MCNearbyServiceAdvertiser,

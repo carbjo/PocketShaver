@@ -176,6 +176,10 @@ extension String {
 		}
 		return false
 	}
+
+	func substring(from: Int, to: Int) -> String {
+		String(self[index(startIndex, offsetBy: from)..<index(startIndex, offsetBy: to)])
+	}
 }
 
 extension NSLayoutConstraint {
