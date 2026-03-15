@@ -165,6 +165,7 @@
 #import "RamAllocFailedAlertViewControllerObjC.h"
 #import "PreferencesViewControllerObjC.h"
 #import "RomPathObjC.h"
+#import "MiscellaneousSettingsObjCCppHeader.h"
 #endif
 
 #define SHOW_IOS_PREFS_ON_LAUNCH 1
@@ -248,6 +249,8 @@ static pthread_t nvram_thread;				// NVRAM watchdog
 static bool tick_thread_active = false;		// Flag: MacOS thread installed
 static volatile bool tick_thread_cancel;	// Flag: Cancel 60Hz thread
 static pthread_t tick_thread;				// 60Hz thread
+static int tick_cycle;
+static uint64 tick_duration;
 static pthread_t emul_thread;				// MacOS thread
 static int use_gui = -1;   					// Override prefs and show gui
 
@@ -1226,7 +1229,10 @@ int main(int argc, char *argv[])
 	flush_icache_range(ROMBase, ROMBase + ROM_AREA_SIZE);
 #endif
 	vm_protect(ROMBaseHost, ROM_AREA_SIZE, VM_PAGE_READ | VM_PAGE_EXECUTE);
-	
+
+	tick_cycle = objc_getFrameRateSetting();
+	tick_duration = 1000000 / tick_cycle;
+
 	// Start 60Hz thread
 	tick_thread_cancel = false;
 	tick_thread_active = (pthread_create(&tick_thread, NULL, tick_func, NULL) == 0);
@@ -1588,11 +1594,11 @@ static void *tick_func(void *arg)
 	while (!tick_thread_cancel) {
 
 		// Wait
-		next += 16625;
+		next += tick_duration;
 		int64 delay = next - GetTicks_usec();
 		if (delay > 0)
 			Delay_usec(delay);
-		else if (delay < -16625)
+		else if (delay < -tick_duration)
 			next = GetTicks_usec();
 		if (tick_inhibit) continue;
 		ticks++;
@@ -1642,7 +1648,7 @@ static void *tick_func(void *arg)
 #endif
 
 		// Pseudo Mac 1Hz interrupt, update local time
-		if (++tick_counter > 60) {
+		if (++tick_counter > tick_cycle) {
 			tick_counter = 0;
 			WriteMacInt32(0x20c, TimerDateTime());
 		}
