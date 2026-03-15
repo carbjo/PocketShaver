@@ -481,6 +481,7 @@ static int sdl_depth_of_video_depth(int video_depth)
 static void sdl_display_dimensions(int &width, int &height)
 {
 	SDL_DisplayMode desktop_mode;
+	desktop_mode.refresh_rate = objc_getFrameRateSetting();
 	const int display_index = 0;	// TODO: try supporting multiple displays
 	if (SDL_GetDesktopDisplayMode(display_index, &desktop_mode) != 0) {
 		// TODO: report a warning, here?
@@ -748,6 +749,7 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 	
 	if (flags & SDL_WINDOW_FULLSCREEN) {
 		SDL_DisplayMode desktop_mode;
+		desktop_mode.refresh_rate = objc_getFrameRateSetting();
 		if (SDL_GetDesktopDisplayMode(0, &desktop_mode) != 0) {
 			shutdown_sdl_video();
 			return NULL;
@@ -1500,6 +1502,7 @@ bool VideoInit(bool classic)
 	// Mac screen depth follows X depth
 	screen_depth = 32;
 	SDL_DisplayMode desktop_mode;
+	desktop_mode.refresh_rate = objc_getFrameRateSetting();
 	if (SDL_GetDesktopDisplayMode(0, &desktop_mode) == 0) {
 		screen_depth = SDL_BITSPERPIXEL(desktop_mode.format);
 	}
