@@ -62,7 +62,11 @@ class BonjourManager {
 	}
 
 	private var routerResponsibiliyStatus: RouterResponsibiliyStatus = .undecided
-	private let dataRecieveQueue = OperationQueue()
+	private lazy var dataRecieveQueue: OperationQueue = {
+		let queue = OperationQueue()
+		queue.maxConcurrentOperationCount = 1
+		return queue
+	}()
 
 
 	// Recover when host suspends and resumes app
@@ -169,6 +173,10 @@ class BonjourManager {
 	}
 
 	func stop() {
+		routerResponsibiliyStatus = .undecided
+		connectedPeers = []
+		clientsInSameHostRoom = []
+
 		guard let session else {
 			return
 		}
@@ -317,6 +325,10 @@ class BonjourManager {
 			connectedPeers.remove(at: index)
 			changeSubject.send(.connectedPeersDidChange)
 
+			if case .thisDevice(let router) = routerResponsibiliyStatus {
+				router.handleDisconnectionFromPeer(peer)
+			}
+
 			sendUpdatedClientList()
 			updateRouterResponsibilityStatus()
 		}
@@ -356,13 +368,15 @@ class BonjourManager {
 		print("- handlePayload \(payload.messageType.rawValue)")
 		switch payload.messageType {
 		case .didConnectToRouter:
-			if role == .host {
+			if case .thisDevice(let router) = routerResponsibiliyStatus {
 				guard let connectedPeer = ConnectedPeer(peer),
 					  !connectedPeers.contains(where: { $0.id == connectedPeer.id }) else {
 					return
 				}
 
 				connectedPeers.append(connectedPeer)
+
+				router.handleConnectedToPeer(peer)
 
 				print("- did append connected client")
 				changeSubject.send(.connectedPeersDidChange)
@@ -451,9 +465,14 @@ class BonjourManager {
 	}
 
 	private func processReceiveData(_ data: Data) {
-		let operation = BlockOperation {
+		let operation = BlockOperation()
+		operation.addExecutionBlock {
+			if Thread.isMainThread {
+				fatalError()
+			}
 			objc_bonjourReceiveData(data)
 		}
+
 		dataRecieveQueue.addOperation(operation)
 	}
 
@@ -516,6 +535,7 @@ class BonjourManager {
 
 	@objc
 	private func appWillSuspend() {
+		print("- appWillSuspend")
 		if case .thisDevice(let router) = routerResponsibiliyStatus {
 			recoverableRouter = router
 		}
@@ -524,6 +544,7 @@ class BonjourManager {
 
 	@objc
 	private func appDidResume() {
+		print("- appDidResume")
 		Task { @MainActor [weak self] in
 			self?.start()
 		}
@@ -638,6 +659,28 @@ private class Router {
 
 		sendToPeer(data, destinationPeer)
 	}
+
+	func handleConnectedToPeer(_ peer: Peer) {
+		guard let discoveryInfo = peer.discoveryInfo,
+			  let hardwareAddressString = discoveryInfo["hardwareAddress"],
+			let hardwareAddress = HardwareAddress(hardwareAddressString) else {
+			return
+		}
+
+		print("- router added client \(hardwareAddressString) to peer list")
+		peerTable[hardwareAddress] = peer
+
+	}
+
+	func handleDisconnectionFromPeer(_ peer: Peer) {
+		guard let key = peerTable.keys.filter({ peerTable[$0] == peer }).first else {
+			return
+		}
+
+		print("- router removed disconnected client from peer list")
+		peerTable[key] = nil
+		peerTable[key] = nil
+}
 
 	private func routerResponsibilityMessageType(in data: Data) -> RouterResponsibilityMessageType {
 		guard broadcastAddress.matchesHardwareAddress(in: data, atOffset: 0) ||
