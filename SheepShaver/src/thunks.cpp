@@ -22,6 +22,8 @@
 #include "thunks.h"
 #include "emul_op.h"
 #include "cpu_emulation.h"
+#include "rave_engine.h"
+#include "gl_engine.h"
 #include "xlowmem.h"
 
 // Native function declarations
@@ -61,9 +63,13 @@ uint32 NativeOpcode(int selector)
 	case NATIVE_NQD_BITBLT_HOOK:
 	case NATIVE_NQD_FILLRECT_HOOK:
 	case NATIVE_NQD_UNKNOWN_HOOK:
+	case NATIVE_NQD_BLTMASK_HOOK:
+	case NATIVE_NQD_FILLMASK_HOOK:
 	case NATIVE_NQD_BITBLT:
 	case NATIVE_NQD_INVRECT:
 	case NATIVE_NQD_FILLRECT:
+	case NATIVE_NQD_BLTMASK:
+	case NATIVE_NQD_FILLMASK:
 		opcode = POWERPC_NATIVE_OP(0, selector);
 		break;
   	case NATIVE_PATCH_NAME_REGISTRY:
@@ -97,6 +103,12 @@ uint32 NativeOpcode(int selector)
 	case NATIVE_GET_1_NAMED_RESOURCE:
   	case NATIVE_MAKE_EXECUTABLE:
 		opcode = POWERPC_NATIVE_OP(1, selector);
+		break;
+	case NATIVE_RAVE_DISPATCH:
+		opcode = POWERPC_NATIVE_OP(0, selector);
+		break;
+	case NATIVE_OPENGL_DISPATCH:
+		opcode = POWERPC_NATIVE_OP(0, selector);
 		break;
 	default:
 		abort();
@@ -270,6 +282,12 @@ bool ThunksInit(void)
 		native_op[i].tvect = base;
 		native_op[i].func  = base + 8;
 	}
+	// Initialize RAVE method TVECTs (must be after SheepMem is available)
+	RaveThunksInit();
+
+	// Initialize OpenGL TVECTs (must be after SheepMem is available)
+	GLThunksInit();
+
 #if POWERPC_GET_RESOURCE_THUNKS
 	generate_powerpc_thunks();
 	native_op[NATIVE_GET_RESOURCE].func = get_resource_func;
@@ -325,9 +343,13 @@ bool ThunksInit(void)
 	DEFINE_NATIVE_OP(NATIVE_NQD_BITBLT_HOOK, NQD_bitblt_hook);
 	DEFINE_NATIVE_OP(NATIVE_NQD_FILLRECT_HOOK, NQD_fillrect_hook);
 	DEFINE_NATIVE_OP(NATIVE_NQD_UNKNOWN_HOOK, NQD_unknown_hook);
+	DEFINE_NATIVE_OP(NATIVE_NQD_BLTMASK_HOOK, NQD_bltmask_hook);
+	DEFINE_NATIVE_OP(NATIVE_NQD_FILLMASK_HOOK, NQD_fillmask_hook);
 	DEFINE_NATIVE_OP(NATIVE_NQD_BITBLT, NQD_bitblt);
 	DEFINE_NATIVE_OP(NATIVE_NQD_INVRECT, NQD_invrect);
 	DEFINE_NATIVE_OP(NATIVE_NQD_FILLRECT, NQD_fillrect);
+	DEFINE_NATIVE_OP(NATIVE_NQD_BLTMASK, NQD_bltmask);
+	DEFINE_NATIVE_OP(NATIVE_NQD_FILLMASK, NQD_fillmask);
 #undef DEFINE_NATIVE_OP
 #endif
 

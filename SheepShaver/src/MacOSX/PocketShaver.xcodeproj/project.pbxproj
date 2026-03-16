@@ -206,6 +206,20 @@
 		C7F42CE32E5B448C00FA7169 /* PreferencesGeneralCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CE22E5B448A00FA7169 /* PreferencesGeneralCells.swift */; };
 		C7F42CE52E5B4C0100FA7169 /* PreferencesGeneralModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CE42E5B4BFD00FA7169 /* PreferencesGeneralModel.swift */; };
 		C7F42CE72E5B4E9200FA7169 /* PreferencesROMValidatorObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CE62E5B4E8600FA7169 /* PreferencesROMValidatorObjC.mm */; };
+		D71765974E20350B2DEB6001 /* rave_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1E29650A76D40B3E857985D3 /* rave_thunks.cpp */; };
+		E1682C97D99E63F571AE4C9E /* rave_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 960A16820FECAB8FA9E61E00 /* rave_dispatch.cpp */; };
+		A3B72E9F1C8D450E9F2A7B01 /* rave_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7D4F1A3E82C60D9B1E5F3C02 /* rave_engine.cpp */; };
+		C2A19E0F3B7D480A91F4DC04 /* rave_draw_context.mm in Sources */ = {isa = PBXBuildFile; fileRef = 8F6B3A2E17C9520D4E83AB05 /* rave_draw_context.mm */; };
+		A1B2C3D4E5F6A7B80004 /* rave_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B80001 /* rave_metal_renderer.mm */; };
+		A1B2C3D4E5F6A7B80005 /* rave_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B80003 /* rave_shaders.metal */; };
+		GL10A1B2C3D4E5F60101 /* gl_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */; };
+		GL10A1B2C3D4E5F60102 /* gl_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */; };
+		GL10A1B2C3D4E5F60103 /* gl_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60003 /* gl_engine.cpp */; };
+		GL10A1B2C3D4E5F60104 /* gl_state.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60004 /* gl_state.cpp */; };
+		GL10A1B2C3D4E5F60105 /* gl_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */; };
+		GL10A1B2C3D4E5F60106 /* gl_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60006 /* gl_shaders.metal */; };
+		NQD10A1B2C3D4E5F60101 /* nqd_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */; };
+		NQD10A1B2C3D4E5F60102 /* nqd_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60002 /* nqd_shaders.metal */; };
 		E204B90228BC3B640081FDCA /* ppc-dyngen-ops-x86_32.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F881E0624D100A3ADAB /* ppc-dyngen-ops-x86_32.hpp */; };
 		E204B90328BC3B640081FDCA /* basic-dyngen-ops.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F871E0624D100A3ADAB /* basic-dyngen-ops.hpp */; };
 		E204B90428BC3B640081FDCA /* basic-dyngen-ops-x86_64_macos.hpp in Headers */ = {isa = PBXBuildFile; fileRef = E4C9A03D1FD55CDC00CABBF9 /* basic-dyngen-ops-x86_64_macos.hpp */; };
@@ -350,6 +364,20 @@
 		E4C9A03E1FD55CDC00CABBF9 /* basic-dyngen-ops-x86_64_macos.hpp in Headers */ = {isa = PBXBuildFile; fileRef = E4C9A03D1FD55CDC00CABBF9 /* basic-dyngen-ops-x86_64_macos.hpp */; };
 		E4C9A0401FD55CE700CABBF9 /* ppc-dyngen-ops-x86_64_macos.hpp in Headers */ = {isa = PBXBuildFile; fileRef = E4C9A03F1FD55CE700CABBF9 /* ppc-dyngen-ops-x86_64_macos.hpp */; };
 		E4CBF46120CFC451009F40CC /* video_sdl.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E4CBF46020CFC451009F40CC /* video_sdl.cpp */; };
+		E70F85489609C42E8CA78DB9 /* rave_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1E29650A76D40B3E857985D3 /* rave_thunks.cpp */; };
+		FC57D6BBF4727E73706BAEF0 /* rave_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 960A16820FECAB8FA9E61E00 /* rave_dispatch.cpp */; };
+		B5C83D7A2E9F560C4A1B8D03 /* rave_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7D4F1A3E82C60D9B1E5F3C02 /* rave_engine.cpp */; };
+		D4E72B1A9C3F680B5A17EF06 /* rave_draw_context.mm in Sources */ = {isa = PBXBuildFile; fileRef = 8F6B3A2E17C9520D4E83AB05 /* rave_draw_context.mm */; };
+		A1B2C3D4E5F6A7B80006 /* rave_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B80001 /* rave_metal_renderer.mm */; };
+		A1B2C3D4E5F6A7B80007 /* rave_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B80003 /* rave_shaders.metal */; };
+		GL10A1B2C3D4E5F60201 /* gl_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */; };
+		GL10A1B2C3D4E5F60202 /* gl_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */; };
+		GL10A1B2C3D4E5F60203 /* gl_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60003 /* gl_engine.cpp */; };
+		GL10A1B2C3D4E5F60204 /* gl_state.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60004 /* gl_state.cpp */; };
+		GL10A1B2C3D4E5F60205 /* gl_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */; };
+		GL10A1B2C3D4E5F60206 /* gl_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60006 /* gl_shaders.metal */; };
+		NQD10A1B2C3D4E5F60201 /* nqd_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */; };
+		NQD10A1B2C3D4E5F60202 /* nqd_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60002 /* nqd_shaders.metal */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -574,7 +602,14 @@
 		087B91BD1B780FFC00825F7F /* vm_alloc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = vm_alloc.h; path = ../CrossPlatform/vm_alloc.h; sourceTree = SOURCE_ROOT; };
 		08CD42DB14B7B85B009CA2A2 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = /System/Library/Frameworks/Cocoa.framework; sourceTree = "<absolute>"; };
 		08CD42E714B7B8AA009CA2A2 /* Carbon.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Carbon.framework; path = /System/Library/Frameworks/Carbon.framework; sourceTree = "<absolute>"; };
+		1E29650A76D40B3E857985D3 /* rave_thunks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = rave_thunks.cpp; path = ../gfxaccel/rave_thunks.cpp; sourceTree = SOURCE_ROOT; };
+		7D4F1A3E82C60D9B1E5F3C02 /* rave_engine.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = rave_engine.cpp; path = ../gfxaccel/rave_engine.cpp; sourceTree = SOURCE_ROOT; };
+		8F6B3A2E17C9520D4E83AB05 /* rave_draw_context.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = rave_draw_context.mm; path = ../gfxaccel/rave_draw_context.mm; sourceTree = SOURCE_ROOT; };
+		A1B2C3D4E5F6A7B80001 /* rave_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = rave_metal_renderer.mm; path = ../gfxaccel/rave_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
+		A1B2C3D4E5F6A7B80002 /* rave_metal_renderer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = rave_metal_renderer.h; sourceTree = "<group>"; };
+		A1B2C3D4E5F6A7B80003 /* rave_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = rave_shaders.metal; path = ../gfxaccel/rave_shaders.metal; sourceTree = SOURCE_ROOT; };
 		3D2C25B4221092BA00B635DE /* SheepVM.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = SheepVM.icns; sourceTree = "<group>"; };
+		42EDD1F85FDA3C858253DA00 /* rave_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = rave_engine.h; sourceTree = "<group>"; };
 		5D2143D424B2DD90008BB372 /* bincue.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = bincue.h; sourceTree = "<group>"; };
 		5D35961024B8F5FA0081EC8A /* bincue.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = bincue.cpp; path = ../../../BasiliskII/src/bincue.cpp; sourceTree = "<group>"; };
 		5D3967BF2328D315003925D6 /* adb.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = adb.cpp; path = ../../../BasiliskII/src/adb.cpp; sourceTree = "<group>"; };
@@ -588,6 +623,17 @@
 		5DDE950D2255C8B3004D0E79 /* audio_defs_macosx.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = audio_defs_macosx.h; path = ../../../BasiliskII/src/MacOSX/audio_defs_macosx.h; sourceTree = "<group>"; };
 		5DDE950E2255C8B3004D0E79 /* audio_macosx.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = audio_macosx.cpp; path = ../../../BasiliskII/src/MacOSX/audio_macosx.cpp; sourceTree = "<group>"; };
 		5DF4CB7E22B5BD5D00512A86 /* audio.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = audio.cpp; path = ../../../BasiliskII/src/audio.cpp; sourceTree = "<group>"; };
+		960A16820FECAB8FA9E61E00 /* rave_dispatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = rave_dispatch.cpp; path = ../gfxaccel/rave_dispatch.cpp; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_thunks.cpp; path = ../gfxaccel/gl_thunks.cpp; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_dispatch.cpp; path = ../gfxaccel/gl_dispatch.cpp; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60003 /* gl_engine.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_engine.cpp; path = ../gfxaccel/gl_engine.cpp; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60004 /* gl_state.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_state.cpp; path = ../gfxaccel/gl_state.cpp; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = gl_metal_renderer.mm; path = ../gfxaccel/gl_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60006 /* gl_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = gl_shaders.metal; path = ../gfxaccel/gl_shaders.metal; sourceTree = SOURCE_ROOT; };
+		NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = nqd_metal_renderer.mm; path = ../gfxaccel/nqd_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
+		NQD10A1B2C3D4E5F60002 /* nqd_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = nqd_shaders.metal; path = ../gfxaccel/nqd_shaders.metal; sourceTree = SOURCE_ROOT; };
+		NQD10A1B2C3D4E5F60003 /* nqd_accel.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = nqd_accel.h; sourceTree = "<group>"; };
+		GL10A1B2C3D4E5F60007 /* gl_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = gl_engine.h; sourceTree = "<group>"; };
 		A7B1921218C35D4700791D8D /* DiskType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DiskType.h; sourceTree = "<group>"; };
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
 		C701C1AA2F29127200CC26E5 /* GamepadButtonSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButtonSize.swift; sourceTree = "<group>"; };
@@ -956,6 +1002,20 @@
 				0856CD8914A99EEF000B1711 /* ether.cpp */,
 				0856CD8C14A99EEF000B1711 /* extfs.cpp */,
 				0856CD8D14A99EEF000B1711 /* gfxaccel.cpp */,
+				1E29650A76D40B3E857985D3 /* rave_thunks.cpp */,
+				960A16820FECAB8FA9E61E00 /* rave_dispatch.cpp */,
+				7D4F1A3E82C60D9B1E5F3C02 /* rave_engine.cpp */,
+				8F6B3A2E17C9520D4E83AB05 /* rave_draw_context.mm */,
+				A1B2C3D4E5F6A7B80001 /* rave_metal_renderer.mm */,
+				A1B2C3D4E5F6A7B80003 /* rave_shaders.metal */,
+				GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */,
+				GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */,
+				GL10A1B2C3D4E5F60003 /* gl_engine.cpp */,
+				GL10A1B2C3D4E5F60004 /* gl_state.cpp */,
+				GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */,
+				GL10A1B2C3D4E5F60006 /* gl_shaders.metal */,
+				NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */,
+				NQD10A1B2C3D4E5F60002 /* nqd_shaders.metal */,
 				0856CD8E14A99EEF000B1711 /* include */,
 				0856CDB114A99EEF000B1711 /* kpx_cpu */,
 				0856CE0514A99EEF000B1711 /* macos_util.cpp */,
@@ -1024,6 +1084,10 @@
 				0856CDA614A99EEF000B1711 /* serial_defs.h */,
 				0856CDA714A99EEF000B1711 /* sony.h */,
 				0856CDA814A99EEF000B1711 /* sys.h */,
+				42EDD1F85FDA3C858253DA00 /* rave_engine.h */,
+				A1B2C3D4E5F6A7B80002 /* rave_metal_renderer.h */,
+				GL10A1B2C3D4E5F60007 /* gl_engine.h */,
+				NQD10A1B2C3D4E5F60003 /* nqd_accel.h */,
 				0856CDA914A99EEF000B1711 /* thunks.h */,
 				0856CDAA14A99EEF000B1711 /* timer.h */,
 				0856CDAB14A99EEF000B1711 /* user_strings.h */,
@@ -2240,6 +2304,20 @@
 				E4202603241250EE000508DF /* runtool.c in Sources */,
 				0856D07B14A99EF1000B1711 /* sony.cpp in Sources */,
 				0856D07C14A99EF1000B1711 /* thunks.cpp in Sources */,
+				D71765974E20350B2DEB6001 /* rave_thunks.cpp in Sources */,
+				FC57D6BBF4727E73706BAEF0 /* rave_dispatch.cpp in Sources */,
+				A3B72E9F1C8D450E9F2A7B01 /* rave_engine.cpp in Sources */,
+				C2A19E0F3B7D480A91F4DC04 /* rave_draw_context.mm in Sources */,
+				A1B2C3D4E5F6A7B80004 /* rave_metal_renderer.mm in Sources */,
+				A1B2C3D4E5F6A7B80005 /* rave_shaders.metal in Sources */,
+				GL10A1B2C3D4E5F60101 /* gl_thunks.cpp in Sources */,
+				GL10A1B2C3D4E5F60102 /* gl_dispatch.cpp in Sources */,
+				GL10A1B2C3D4E5F60103 /* gl_engine.cpp in Sources */,
+				GL10A1B2C3D4E5F60104 /* gl_state.cpp in Sources */,
+				GL10A1B2C3D4E5F60105 /* gl_metal_renderer.mm in Sources */,
+				GL10A1B2C3D4E5F60106 /* gl_shaders.metal in Sources */,
+				NQD10A1B2C3D4E5F60101 /* nqd_metal_renderer.mm in Sources */,
+				NQD10A1B2C3D4E5F60102 /* nqd_shaders.metal in Sources */,
 				0856D07D14A99EF1000B1711 /* timer.cpp in Sources */,
 				0856D07E14A99EF1000B1711 /* about_window_unix.cpp in Sources */,
 				E44C460720D262B0000583AE /* ip_icmp.c in Sources */,
@@ -2381,6 +2459,20 @@
 				C74035B32EDC33420045B9C6 /* PerformanceCounter.swift in Sources */,
 				C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */,
 				E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */,
+				E70F85489609C42E8CA78DB9 /* rave_thunks.cpp in Sources */,
+				E1682C97D99E63F571AE4C9E /* rave_dispatch.cpp in Sources */,
+				B5C83D7A2E9F560C4A1B8D03 /* rave_engine.cpp in Sources */,
+				D4E72B1A9C3F680B5A17EF06 /* rave_draw_context.mm in Sources */,
+				A1B2C3D4E5F6A7B80006 /* rave_metal_renderer.mm in Sources */,
+				A1B2C3D4E5F6A7B80007 /* rave_shaders.metal in Sources */,
+				GL10A1B2C3D4E5F60201 /* gl_thunks.cpp in Sources */,
+				GL10A1B2C3D4E5F60202 /* gl_dispatch.cpp in Sources */,
+				GL10A1B2C3D4E5F60203 /* gl_engine.cpp in Sources */,
+				GL10A1B2C3D4E5F60204 /* gl_state.cpp in Sources */,
+				GL10A1B2C3D4E5F60205 /* gl_metal_renderer.mm in Sources */,
+				GL10A1B2C3D4E5F60206 /* gl_shaders.metal in Sources */,
+				NQD10A1B2C3D4E5F60201 /* nqd_metal_renderer.mm in Sources */,
+				NQD10A1B2C3D4E5F60202 /* nqd_shaders.metal in Sources */,
 				C7699F152EC464990083B3B3 /* Colors.swift in Sources */,
 				C7C3D26E2E76F3BC0018DB8B /* GamepadAssignButtonViewController.swift in Sources */,
 				C790E8742F055D5200B784A6 /* ADBObjC.mm in Sources */,
@@ -2556,6 +2648,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../Unix/dyngen_precompiled,
 				);
 				INSTALL_PATH = /usr/local/lib;
@@ -2595,6 +2688,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../Unix/dyngen_precompiled,
 				);
 				INSTALL_PATH = /usr/local/lib;
@@ -2671,6 +2765,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../CrossPlatform,
 				);
 				INFOPLIST_FILE = Info.plist.in;
@@ -2740,6 +2835,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../CrossPlatform,
 				);
 				INFOPLIST_EXPAND_BUILD_SETTINGS = NO;
@@ -2801,6 +2897,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../Unix/dyngen_precompiled,
 				);
 				INSTALL_PATH = /usr/local/lib;
@@ -2847,6 +2944,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../Unix/dyngen_precompiled,
 				);
 				INSTALL_PATH = /usr/local/lib;
@@ -2941,6 +3039,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../CrossPlatform,
 					"./SDL2.xcframework/**",
 					.,
@@ -3058,6 +3157,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../CrossPlatform,
 					"./SDL2.xcframework/**",
 					.,

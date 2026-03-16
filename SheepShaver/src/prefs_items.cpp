@@ -70,6 +70,9 @@ prefs_desc common_prefs_items[] = {
 	{"dayofs", TYPE_INT32, 0,			"day offset"},
 	{"mag_rate", TYPE_STRING, 0,			"rate of magnification"},
 	{"gammaramp", TYPE_STRING, false,	"gamma ramp (on, off or fullscreen)"},
+	{"nqdaccel", TYPE_BOOLEAN, false,	"enable NQD Metal compute acceleration"},
+	{"raveaccel", TYPE_BOOLEAN, false,	"enable RAVE 3D acceleration"},
+	{"glaccel", TYPE_BOOLEAN, false,	"enable OpenGL acceleration"},
 	{"swap_opt_cmd", TYPE_BOOLEAN, false,	"swap option and command key"},
 	{"host_domain", TYPE_STRING, true,	"handle DNS requests for this domain on the host (slirp only)"},
 	{"redir", TYPE_STRING, true,		"port forwarding for slirp"},
@@ -99,6 +102,9 @@ void AddPrefsDefaults(void)
 	PrefsAddInt32("frameskip", 8);
 #endif
 	PrefsAddBool("gfxaccel", true);
+	PrefsAddBool("nqdaccel", false);
+	PrefsAddBool("raveaccel", false);
+	PrefsAddBool("glaccel", false);
 	PrefsAddBool("nocdrom", false);
 	PrefsAddBool("nonet", false);
 	PrefsAddBool("nosound", false);

@@ -16,6 +16,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case uiOptions
 		case relateiveMouseMode
 		case gammaRampSetting
+		case graphicsAcceleration
 		case bootstrap
 		case resources
 	}
@@ -47,6 +48,12 @@ class PreferencesAdvancedViewController: UITableViewController {
 		//gammaRampSetting
 		case gammaRampSetting
 		case gammaRampSettingInfo
+
+		//graphicsAcceleration
+		case graphicsAccelerationNqdToggle
+		case graphicsAccelerationRaveToggle
+		case graphicsAccelerationGlToggle
+		case graphicsAccelerationInfo
 
 		//bootstrap
 		case bootstrap
@@ -197,6 +204,31 @@ class PreferencesAdvancedViewController: UITableViewController {
 				return PreferencesInformationCell(
 					text: "Linear gamma ramp generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and, in some instances, produce a higher color dynamic. Has effect on next resolution change or restart of PocketShaver."
 				)
+			case .graphicsAccelerationNqdToggle:
+				return PreferencesEnabledSettingCell(
+					title: "NQD Acceleration",
+					isOn: model.nqdAccelEnabled
+				) { [weak self] isOn in
+					self?.model.nqdAccelEnabled = isOn
+				}
+			case .graphicsAccelerationRaveToggle:
+				return PreferencesEnabledSettingCell(
+					title: "RAVE Acceleration",
+					isOn: model.raveAccelEnabled
+				) { [weak self] isOn in
+					self?.model.raveAccelEnabled = isOn
+				}
+			case .graphicsAccelerationGlToggle:
+				return PreferencesEnabledSettingCell(
+					title: "OpenGL Acceleration",
+					isOn: model.glAccelEnabled
+				) { [weak self] isOn in
+					self?.model.glAccelEnabled = isOn
+				}
+			case .graphicsAccelerationInfo:
+				return PreferencesInformationCell(
+					text: "Experimental — Requires Metal GPU. Changes take effect on restart."
+				)
 			case .bootstrap:
 				return PreferencesAdvancedBootstrapCell(
 					romDescription: model.currentRomFileDescription!,
@@ -241,6 +273,8 @@ class PreferencesAdvancedViewController: UITableViewController {
 				return "Relative mouse mode"
 			case .gammaRampSetting:
 				return "Gamma ramp"
+			case .graphicsAcceleration:
+				return "Graphics Acceleration"
 			case .bootstrap:
 				return "Bootstrap"
 			case .resources:
@@ -294,6 +328,14 @@ class PreferencesAdvancedViewController: UITableViewController {
 		snapshot.appendItems([
 			.gammaRampSetting,
 			.gammaRampSettingInfo
+		])
+
+		snapshot.appendSections([.graphicsAcceleration])
+		snapshot.appendItems([
+			.graphicsAccelerationNqdToggle,
+			.graphicsAccelerationRaveToggle,
+			.graphicsAccelerationGlToggle,
+			.graphicsAccelerationInfo
 		])
 
 		if model.hasRomFile {

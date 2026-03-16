@@ -23,6 +23,9 @@
 #include "prefs.h"
 #include "video.h"
 #include "video_defs.h"
+#include "rave_engine.h"
+#include "gl_engine.h"
+#include "nqd_accel.h"
 
 #define DEBUG 0
 #include "debug.h"
@@ -140,6 +143,12 @@ void NQD_invrect(uint32 p)
 {
 	D(bug("accl_invrect %08x\n", p));
 
+	// Metal-accelerated path (only if dest is within Metal-mapped RAM)
+	if (nqd_metal_available && NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
+		NQDMetalInvertRect(p);
+		return;
+	}
+
 	// Get inversion parameters
 	int16 dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
 	int16 dest_Y = (int16)ReadMacInt16(p + acclDestRect + 0) - (int16)ReadMacInt16(p + acclDestBoundsRect + 0);
@@ -254,6 +263,12 @@ void NQD_fillrect(uint32 p)
 {
 	D(bug("accl_fillrect %08x\n", p));
 
+	// Metal-accelerated path (only if dest is within Metal-mapped RAM)
+	if (nqd_metal_available && NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
+		NQDMetalFillRect(p);
+		return;
+	}
+
 	// Get filling parameters
 	int16 dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
 	int16 dest_Y = (int16)ReadMacInt16(p + acclDestRect + 0) - (int16)ReadMacInt16(p + acclDestBoundsRect + 0);
@@ -268,6 +283,7 @@ void NQD_fillrect(uint32 p)
 	const int bpp = bytes_per_pixel(ReadMacInt32(p + acclDestPixelSize));
 	const int dest_row_bytes = (int32)ReadMacInt32(p + acclDestRowBytes);
 	uint8 *dest = Mac2HostAddr(ReadMacInt32(p + acclDestBaseAddr) + (dest_Y * dest_row_bytes) + (dest_X * bpp));
+
 	width *= bpp;
 	switch (bpp) {
 	case 1:
@@ -296,7 +312,26 @@ bool NQD_fillrect_hook(uint32 p)
 	D(bug("accl_fillrect_hook %08x\n", p));
 	NQD_set_dirty_area(p);
 
-	// Check if we can accelerate this fillrect
+	// Metal path: accept all valid fill pen modes when dest is in Metal-mapped RAM
+	if (nqd_metal_available && ReadMacInt32(p + 0x284) != 0 &&
+		NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
+		const int transfer_mode = ReadMacInt32(p + acclTransferMode);
+		if ((transfer_mode >= 8 && transfer_mode <= 15) ||
+			(transfer_mode >= 32 && transfer_mode <= 39) ||
+			transfer_mode == 50) {
+			// All fill modes via Metal — fillrect kernel handles full mode switch.
+			// Mode 10 (patXor/invert) also routes here when dispatched as fill.
+			WriteMacInt32(p + acclDrawProc, NativeTVECT(NATIVE_NQD_FILLRECT));
+			return true;
+		}
+		else if (transfer_mode == 10) {
+			// Invert: Mac OS dispatches invert through a separate thunk entry
+			WriteMacInt32(p + acclDrawProc, NativeTVECT(NATIVE_NQD_INVRECT));
+			return true;
+		}
+	}
+
+	// CPU fallback: original checks with pixel size >= 8 restriction
 	if (ReadMacInt32(p + 0x284) != 0 && ReadMacInt32(p + acclDestPixelSize) >= 8) {
 		const int transfer_mode = ReadMacInt32(p + acclTransferMode);
 		if (transfer_mode == 8) {
@@ -321,6 +356,14 @@ bool NQD_fillrect_hook(uint32 p)
 void NQD_bitblt(uint32 p)
 {
 	D(bug("accl_bitblt %08x\n", p));
+
+	// Metal-accelerated path (only if src and dest are within Metal-mapped RAM)
+	if (nqd_metal_available &&
+		NQDMetalAddrInBuffer(ReadMacInt32(p + acclSrcBaseAddr)) &&
+		NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
+		NQDMetalBitblt(p);
+		return;
+	}
 
 	// Get blitting parameters
 	int16 src_X  = (int16)ReadMacInt16(p + acclSrcRect + 2) - (int16)ReadMacInt16(p + acclSrcBoundsRect + 2);
@@ -386,19 +429,29 @@ bool NQD_bitblt_hook(uint32 p)
 	D(bug("accl_draw_hook %08x\n", p));
 	NQD_set_dirty_area(p);
 
-	// Check if we can accelerate this bitblt
-	if (ReadMacInt32(p + 0x018) + ReadMacInt32(p + 0x128) == 0 &&
-		ReadMacInt32(p + 0x130) == 0 &&
-		ReadMacInt32(p + acclSrcPixelSize) >= 8 &&
+	// Metal path: accept all valid transfer modes when src and dest are in Metal-mapped RAM
+	if (nqd_metal_available &&
+		NQDMetalAddrInBuffer(ReadMacInt32(p + acclSrcBaseAddr)) &&
+		NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr)) &&
 		ReadMacInt32(p + acclSrcPixelSize) == ReadMacInt32(p + acclDestPixelSize) &&
-		(int32)(ReadMacInt32(p + acclSrcRowBytes) ^ ReadMacInt32(p + acclDestRowBytes)) >= 0 &&	// same sign?
-		ReadMacInt32(p + acclTransferMode) == 0 &&												// srcCopy?
-		(int32)ReadMacInt32(p + 0x15c) > 0) {
+		(int32)(ReadMacInt32(p + acclSrcRowBytes) ^ ReadMacInt32(p + acclDestRowBytes)) >= 0) {
+		const uint32 mode = ReadMacInt32(p + acclTransferMode);
+		if (mode <= 7 || (mode >= 32 && mode <= 39) || mode == 50) {
+			// All transfer modes via Metal — no pre-check on 0x018, 0x128, 0x130, 0x15c
+			WriteMacInt32(p + acclDrawProc, NativeTVECT(NATIVE_NQD_BITBLT));
+			return true;
+		}
+	}
 
-		// Yes, set function pointer
+	// CPU fallback: srcCopy (mode 0) with matching pixel sizes >= 8
+	if (ReadMacInt32(p + acclSrcPixelSize) >= 8 &&
+		ReadMacInt32(p + acclSrcPixelSize) == ReadMacInt32(p + acclDestPixelSize) &&
+		(int32)(ReadMacInt32(p + acclSrcRowBytes) ^ ReadMacInt32(p + acclDestRowBytes)) >= 0 &&
+		ReadMacInt32(p + acclTransferMode) == 0) {
 		WriteMacInt32(p + acclDrawProc, NativeTVECT(NATIVE_NQD_BITBLT));
 		return true;
 	}
+
 	return false;
 }
 
@@ -409,6 +462,123 @@ bool NQD_unknown_hook(uint32 arg)
 	NQD_set_dirty_area(arg);
 
 	return false;
+}
+
+// Mask operation hooks — validate mask data and set draw procs
+// Only accept when dest (and src for bltmask) are in Metal-mapped RAM,
+// since there is no CPU fallback for masked operations.
+bool NQD_bltmask_hook(uint32 arg)
+{
+	D(bug("accl_bltmask_hook %08x\n", arg));
+	NQD_set_dirty_area(arg);
+
+	if (!nqd_metal_available) return false;
+
+	// Check src and dest are in Metal-mapped RAM
+	if (!NQDMetalAddrInBuffer(ReadMacInt32(arg + acclSrcBaseAddr)) ||
+		!NQDMetalAddrInBuffer(ReadMacInt32(arg + acclDestBaseAddr)))
+		return false;
+
+	// Validate mask data: check that mask region address is non-zero
+	uint32 mask_rgn_addr = ReadMacInt32(arg + 0x128);
+	if (mask_rgn_addr == 0) {
+		D(bug("  bltmask_hook: null mask region at 0x128, declining\n"));
+		return false;
+	}
+
+	// Try reading the region header to validate
+	uint16 rgnSize = ReadMacInt16(mask_rgn_addr);
+	if (rgnSize < 10) {
+		D(bug("  bltmask_hook: invalid rgnSize %u at 0x%08x, declining\n", rgnSize, mask_rgn_addr));
+		return false;
+	}
+
+	// Validate pixel size matching (src == dest)
+	if (ReadMacInt32(arg + acclSrcPixelSize) != ReadMacInt32(arg + acclDestPixelSize)) {
+		return false;
+	}
+
+	const uint32 mode = ReadMacInt32(arg + acclTransferMode);
+	if (!(mode <= 7 || (mode >= 32 && mode <= 39) || mode == 50)) {
+		return false;
+	}
+
+	D(bug("  bltmask_hook: accepting mask=0x%08x rgnSize=%u mode=%d\n",
+		mask_rgn_addr, rgnSize, mode));
+	WriteMacInt32(arg + acclDrawProc, NativeTVECT(NATIVE_NQD_BLTMASK));
+	return true;
+}
+
+bool NQD_fillmask_hook(uint32 arg)
+{
+	D(bug("accl_fillmask_hook %08x\n", arg));
+	NQD_set_dirty_area(arg);
+
+	if (!nqd_metal_available) return false;
+
+	// Check dest is in Metal-mapped RAM
+	if (!NQDMetalAddrInBuffer(ReadMacInt32(arg + acclDestBaseAddr)))
+		return false;
+
+	// Validate mask data: check that mask region address is non-zero
+	uint32 mask_rgn_addr = ReadMacInt32(arg + 0x128);
+	if (mask_rgn_addr == 0) {
+		D(bug("  fillmask_hook: null mask region at 0x128, declining\n"));
+		return false;
+	}
+
+	// Try reading the region header to validate
+	uint16 rgnSize = ReadMacInt16(mask_rgn_addr);
+	if (rgnSize < 10) {
+		D(bug("  fillmask_hook: invalid rgnSize %u at 0x%08x, declining\n", rgnSize, mask_rgn_addr));
+		return false;
+	}
+
+	// Check 0x284 field (same as fillrect_hook)
+	if (ReadMacInt32(arg + 0x284) == 0) {
+		return false;
+	}
+
+	const uint32 mode = ReadMacInt32(arg + acclTransferMode);
+	if (!((mode >= 8 && mode <= 15) || (mode >= 32 && mode <= 39) || mode == 50)) {
+		return false;
+	}
+
+	D(bug("  fillmask_hook: accepting mask=0x%08x rgnSize=%u mode=%d\n",
+		mask_rgn_addr, rgnSize, mode));
+	WriteMacInt32(arg + acclDrawProc, NativeTVECT(NATIVE_NQD_FILLMASK));
+	return true;
+}
+
+// Masked draw procs
+void NQD_bltmask(uint32 p)
+{
+	D(bug("accl_bltmask %08x\n", p));
+
+	// Metal-accelerated path (only if src and dest are within Metal-mapped RAM)
+	if (nqd_metal_available &&
+		NQDMetalAddrInBuffer(ReadMacInt32(p + acclSrcBaseAddr)) &&
+		NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
+		NQDMetalBltMask(p);
+		return;
+	}
+
+	// CPU fallback: decline (return without drawing, Mac OS will use software)
+	D(bug("  bltmask: no Metal, falling back to software\n"));
+}
+
+void NQD_fillmask(uint32 p)
+{
+	D(bug("accl_fillmask %08x\n", p));
+
+	// Metal-accelerated path (only if dest is within Metal-mapped RAM)
+	if (nqd_metal_available && NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
+		NQDMetalFillMask(p);
+		return;
+	}
+
+	// CPU fallback: decline (return without drawing, Mac OS will use software)
+	D(bug("  fillmask: no Metal, falling back to software\n"));
 }
 
 // Wait for graphics operation to finish
@@ -425,9 +595,15 @@ bool NQD_sync_hook(uint32 arg)
 
 void VideoInstallAccel(void)
 {
-	// Install acceleration hooks
-	if (PrefsFindBool("gfxaccel")) {
+	// Install NQD acceleration hooks (one-time only)
+	static bool nqd_hooks_installed = false;
+	if (!nqd_hooks_installed && PrefsFindBool("nqdaccel")) {
+		nqd_hooks_installed = true;
 		D(bug("Video: Installing acceleration hooks\n"));
+
+		// Initialize Metal compute infrastructure before registering hooks
+		NQDMetalInit();
+
 		uint32 base;
 
 		SheepVar bitblt_hook_info(sizeof(accl_hook_info));
@@ -444,18 +620,55 @@ void VideoInstallAccel(void)
 		WriteMacInt32(base + 8, ACCL_FILLRECT);
 		NQDMisc(6, fillrect_hook_info.addr());
 
+		// Register hooks for all 8 NQD operation codes.
+		// Ops 0 (BITBLT) and 2 (FILLRECT) already registered above.
+		// Ops 1 (BLTMASK) and 3 (FILLMASK) get separate mask hooks.
+		// Ops 4-7 get the unknown_hook.
 		for (int op = 0; op < 8; op++) {
 			switch (op) {
 			case ACCL_BITBLT:
 			case ACCL_FILLRECT:
 				continue;
+			case ACCL_BLTMASK: {
+				SheepVar bltmask_hook_info(sizeof(accl_hook_info));
+				base = bltmask_hook_info.addr();
+				WriteMacInt32(base + 0, NativeTVECT(NATIVE_NQD_BLTMASK_HOOK));
+				WriteMacInt32(base + 4, NativeTVECT(NATIVE_NQD_SYNC_HOOK));
+				WriteMacInt32(base + 8, op);
+				NQDMisc(6, bltmask_hook_info.addr());
+				break;
 			}
-			SheepVar unknown_hook_info(sizeof(accl_hook_info));
-			base = unknown_hook_info.addr();
-			WriteMacInt32(base + 0, NativeTVECT(NATIVE_NQD_UNKNOWN_HOOK));
-			WriteMacInt32(base + 4, NativeTVECT(NATIVE_NQD_SYNC_HOOK));
-			WriteMacInt32(base + 8, op);
-			NQDMisc(6, unknown_hook_info.addr());
+			case ACCL_FILLMASK: {
+				SheepVar fillmask_hook_info(sizeof(accl_hook_info));
+				base = fillmask_hook_info.addr();
+				WriteMacInt32(base + 0, NativeTVECT(NATIVE_NQD_FILLMASK_HOOK));
+				WriteMacInt32(base + 4, NativeTVECT(NATIVE_NQD_SYNC_HOOK));
+				WriteMacInt32(base + 8, op);
+				NQDMisc(6, fillmask_hook_info.addr());
+				break;
+			}
+			default: {
+				SheepVar unknown_hook_info(sizeof(accl_hook_info));
+				base = unknown_hook_info.addr();
+				WriteMacInt32(base + 0, NativeTVECT(NATIVE_NQD_UNKNOWN_HOOK));
+				WriteMacInt32(base + 4, NativeTVECT(NATIVE_NQD_SYNC_HOOK));
+				WriteMacInt32(base + 8, op);
+				NQDMisc(6, unknown_hook_info.addr());
+				break;
+			}
+			}
 		}
 	}
+
+	// Register RAVE engine for 3D acceleration.
+	// RaveRegisterEngine has its own guards (rave_registered, rave_reg_in_progress)
+	// and returns immediately if already registered. May be called multiple times
+	// from accRun periodic action until RAVE library is available.
+	if (PrefsFindBool("raveaccel"))
+		RaveRegisterEngine();
+
+	// Install OpenGL hooks for GL/AGL/GLU/GLUT function interception.
+	// GLInstallHooks has its own guards and returns immediately if already installed.
+	if (PrefsFindBool("glaccel"))
+		GLInstallHooks();
 }
