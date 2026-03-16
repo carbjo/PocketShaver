@@ -44,6 +44,7 @@ using std::vector;
 #include "sys.h"
 #include "prefs.h"
 #include "sony.h"
+#include "rave_engine.h"
 
 #define DEBUG 0
 #include "debug.h"
@@ -396,8 +397,14 @@ int16 SonyControl(uint32 pb, uint32 dce)
 		case 65:	// Periodic action (accRun, "insert" disks on startup)
 			mount_mountable_volumes();
 			PatchAfterStartup();		// Install patches after system startup
-			WriteMacInt16(dce + dCtlFlags, ReadMacInt16(dce + dCtlFlags) & ~0x2000);	// Disable periodic action
-			acc_run_called = true;
+			if (RaveIsRegistered()) {
+				// All patches installed and RAVE registered -- disable periodic action
+				WriteMacInt16(dce + dCtlFlags, ReadMacInt16(dce + dCtlFlags) & ~0x2000);
+				acc_run_called = true;
+			}
+			// If RAVE not yet registered (library not loaded), keep periodic action
+			// active so PatchAfterStartup (and hence RaveRegisterEngine) retries
+			// on subsequent ticks until the QD3D RAVE library is available.
 			return noErr;
 	}
 

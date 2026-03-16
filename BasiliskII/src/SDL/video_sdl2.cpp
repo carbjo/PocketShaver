@@ -80,7 +80,7 @@
 
 #include "PerformanceCounterObjCCppHeader.h"
 #include "MiscellaneousSettingsObjCCppHeader.h"
-
+#include "nqd_accel.h"
 #define DEBUG 0
 #include "debug.h"
 
@@ -156,7 +156,7 @@ static int keycode_table[256];						// X keycode -> Mac keycode translation tabl
 SDL_Window * sdl_window = NULL;				        // Wraps an OS-native window
 static SDL_Surface * host_surface = NULL;			// Surface in host-OS display format
 static SDL_Surface * guest_surface = NULL;			// Surface in guest-OS display format
-static SDL_Renderer * sdl_renderer = NULL;			// Handle to SDL2 renderer
+SDL_Renderer * sdl_renderer = NULL;			// Handle to SDL2 renderer (non-static for RAVE overlay coordinate mapping)
 static SDL_threadID sdl_renderer_thread_id = 0;		// Thread ID where the SDL_renderer was created, and SDL_renderer ops should run (for compatibility w/ d3d9)
 static SDL_Texture * sdl_texture = NULL;			// Handle to a GPU texture, with which to draw guest_surface to
 static SDL_Rect sdl_update_video_rect = {0,0,0,0};  // Union of all rects to update, when updating sdl_texture
@@ -934,7 +934,7 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 static int present_sdl_video()
 {
 	if (SDL_RectEmpty(&sdl_update_video_rect)) return 0;
-	
+
 	if (!sdl_renderer || !sdl_texture || !guest_surface) {
 		printf("WARNING: A video mode does not appear to have been set.\n");
 		return -1;
@@ -973,7 +973,7 @@ static int present_sdl_video()
 		}
 	}
 	UNLOCK_PALETTE; // passed potential deadlock, can unlock palette
-	
+
     // Update the host OS' texture
 	uint8_t *srcPixels = (uint8_t *)host_surface->pixels +
 		sdl_update_video_rect.y * host_surface->pitch +
@@ -1004,10 +1004,10 @@ static int present_sdl_video()
     if (SDL_RenderCopy(sdl_renderer, sdl_texture, NULL, NULL) != 0) {
 		return -1;
 	}
-	
+
     // Update the display
 	SDL_RenderPresent(sdl_renderer);
-    
+
     // Indicate success to the caller!
     return 0;
 }
@@ -1688,6 +1688,12 @@ void SDL_monitor_desc::video_close(void)
 
 void VideoExit(void)
 {
+	// Clean up NQD Metal compute resources before tearing down displays.
+	// NQD is init'd once per session; VideoExit is the correct cleanup point.
+	if (nqd_metal_available) {
+		NQDMetalCleanup();
+	}
+
 	// Close displays
 	vector<monitor_desc *>::iterator i, end = VideoMonitors.end();
 	for (i = VideoMonitors.begin(); i != end; ++i)
@@ -1822,7 +1828,7 @@ void VideoVBL(void)
 
 	if (toggle_fullscreen)
 		do_toggle_fullscreen();
-	
+
 	present_sdl_video();
 
 	// Temporarily give up frame buffer lock (this is the point where
