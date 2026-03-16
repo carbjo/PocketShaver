@@ -217,7 +217,12 @@ int vm_init(void)
 #endif
 
 #ifdef MEM_BULK
-	VMBaseDiff = (vm_uintptr_t)vm_acquire_internal(0x60000000, VM_MAP_DEFAULT);
+	void *bulk = vm_acquire_internal(0x60000000, VM_MAP_DEFAULT);
+	if (bulk == VM_MAP_FAILED) {
+		fprintf(stderr, "vm_init: failed to allocate bulk memory region (0x60000000 bytes)\n");
+		return -1;
+	}
+	VMBaseDiff = (vm_uintptr_t)bulk;
 	mapAddr = 0;
 #endif
 	return 0;
@@ -273,13 +278,21 @@ static void *vm_acquire_internal(size_t size, int options)
 
 #if defined(HAVE_MACH_VM)
 	// vm_allocate() returns a zero-filled memory region
+#ifdef MEM_BULK
+	// In MEM_BULK mode, vm_init_reserved() carves out the reserved buffer
+	// from the bulk block later — don't add RESERVED_SIZE here.
+	kern_return_t ret_code = vm_allocate(mach_task_self(), (vm_address_t *)&addr, size, TRUE);
+#else
 	kern_return_t ret_code = vm_allocate(mach_task_self(), (vm_address_t *)&addr, reserved_buf ? size : size + RESERVED_SIZE, TRUE);
+#endif
 	if (ret_code != KERN_SUCCESS) {
 		errno = vm_error(ret_code);
 		return VM_MAP_FAILED;
 	}
+#ifndef MEM_BULK
 	if (!reserved_buf)
 		reserved_buf = (char *)addr + size;
+#endif
 #elif defined(HAVE_MMAP_VM)
 	int fd = zero_fd;
 	int the_map_flags = translate_map_flags(options) | map_flags;

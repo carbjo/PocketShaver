@@ -2663,7 +2663,10 @@ static void mach_set_thread_state(sigsegv_info_t *SIP)
 
 #if TARGET_OS_IPHONE
 
-#ifdef NATMEM_OFFSET
+#ifdef MEM_BULK
+// MEM_BULK: VMBaseDiff is set at runtime in vm_alloc.cpp
+extern unsigned long VMBaseDiff;
+#elif defined(NATMEM_OFFSET)
 const uint64_t VMBaseDiff = NATMEM_OFFSET;
 #else
 const uint64_t VMBaseDiff = 0;
