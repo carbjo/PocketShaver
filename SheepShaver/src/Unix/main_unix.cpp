@@ -1021,7 +1021,11 @@ int main(int argc, char *argv[])
 		goto quit;
 	
 	// Initialize VM system
-	vm_init();
+	if (vm_init() < 0) {
+		sprintf(str, "Could not initialize virtual memory system.\n");
+		ErrorAlert(str);
+		goto quit;
+	}
 	
 	// Get system info
 	get_system_info();
@@ -1145,6 +1149,7 @@ int main(int argc, char *argv[])
 			sprintf(str, GetString(STR_RAM_MMAP_ERR), strerror(errno));
 			ErrorAlert(str);
 			objc_displayRamAllocFailedAlert();
+			goto quit;
 		}
 		RAMBase = RAM_BASE;
 		RAMBaseHost = Mac2HostAddr(RAMBase);
