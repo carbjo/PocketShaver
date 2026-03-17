@@ -2205,6 +2205,14 @@ void NativeGLDeleteTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 
 		auto it = ctx->texture_objects.find(name);
 		if (it != ctx->texture_objects.end()) {
+			// Log deletion for debugging texture lifecycle
+			bool had_metal = (it->second.metal_texture != nullptr);
+			if (gl_logging_enabled) {
+				fprintf(stderr, "GL: glDeleteTextures: deleting tex %u (had_metal=%d, %dx%d)\n",
+				       name, had_metal, it->second.width, it->second.height);
+				fflush(stderr);
+			}
+
 			// Destroy Metal texture
 			GLMetalDestroyTexture(&it->second);
 

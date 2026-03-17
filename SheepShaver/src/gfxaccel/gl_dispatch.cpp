@@ -1117,11 +1117,11 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 				float_arg(float_bits, 2), float_arg(float_bits, 3));
 			return 0;
 		case GL_SUB_CLEAR_DEPTH: {
-			// double arg from FPR
-			double d;
-			uint64_t dbits = ((uint64_t)float_bits[0] << 32) | float_bits[1];
-			memcpy(&d, &dbits, sizeof(double));
-			NativeGLClearDepth(gl_current_context, d);
+			// FPR extraction in sheepshaver_glue.cpp casts all FPR values to
+			// float (truncating doubles).  glClearDepth takes a double, but
+			// float_bits[0] contains the float-truncated value.  Read it as
+			// a float instead of trying to reconstruct a double.
+			NativeGLClearDepth(gl_current_context, (double)float_arg(float_bits, 0));
 			return 0;
 		}
 		case GL_SUB_CLEAR_INDEX: NativeGLClearIndex(gl_current_context, float_arg(float_bits, 0)); return 0;
@@ -1271,13 +1271,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLDepthMask(gl_current_context, r3);
 			return 0;
 		case GL_SUB_DEPTH_RANGE: {
-			// Two double args from FPR
-			double near_val, far_val;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1];
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3];
-			memcpy(&near_val, &b0, sizeof(double));
-			memcpy(&far_val, &b1, sizeof(double));
-			NativeGLDepthRange(gl_current_context, near_val, far_val);
+			// FPR extraction truncates doubles to float -- read as floats
+			NativeGLDepthRange(gl_current_context,
+			                   (double)float_arg(float_bits, 0),
+			                   (double)float_arg(float_bits, 1));
 			return 0;
 		}
 		case GL_SUB_DISABLE:

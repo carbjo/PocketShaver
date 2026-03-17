@@ -256,6 +256,7 @@ struct GLMetalState {
     CAMetalLayer               *layer;
     id<CAMetalDrawable>         currentDrawable;
     id<MTLTexture>              depthBuffer;
+    id<MTLTexture>              fallbackWhiteTexture;  // 1x1 white for missing textures
     id<MTLCommandBuffer>        lastCommittedBuffer;
     bool                        renderPassActive;
     bool                        initialized;
@@ -463,6 +464,22 @@ void GLMetalInit(GLContext *ctx)
     sampDesc.minFilter = MTLSamplerMinMagFilterNearest;
     sampDesc.magFilter = MTLSamplerMinMagFilterNearest;
     ms->nearestSampler = [ms->device newSamplerStateWithDescriptor:sampDesc];
+
+    // Create 1x1 white fallback texture for when games reference deleted textures.
+    // Classic Mac GL drivers (ATI RAGE) were permissive about texture lifecycle --
+    // games like Madden 2000 delete textures then keep binding the same IDs without
+    // re-uploading data. A white fallback lets vertex colors show through via modulate.
+    {
+        MTLTextureDescriptor *fbDesc = [MTLTextureDescriptor
+            texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:1 height:1 mipmapped:NO];
+        fbDesc.usage = MTLTextureUsageShaderRead;
+        ms->fallbackWhiteTexture = [ms->device newTextureWithDescriptor:fbDesc];
+        if (ms->fallbackWhiteTexture) {
+            uint32_t white = 0xFFFFFFFF;
+            MTLRegion rgn = MTLRegionMake2D(0, 0, 1, 1);
+            [ms->fallbackWhiteTexture replaceRegion:rgn mipmapLevel:0 withBytes:&white bytesPerRow:4];
+        }
+    }
 
     ms->initialized = true;
     ctx->metal = (void *)ms;
@@ -1125,42 +1142,43 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     mat4_multiply(mvp, proj, mv);
 
     // ---- Upload vertex uniforms ----
-    GLMetalVertexUniforms *vu = (GLMetalVertexUniforms *)[ms->vertexUniformBuffer contents];
-    memcpy(vu->mvp_matrix, mvp, sizeof(float) * 16);
-    memcpy(vu->modelview_matrix, mv, sizeof(float) * 16);
-    compute_normal_matrix(vu->normal_matrix, mv);
-    vu->lighting_enabled = ctx->lighting_enabled ? 1 : 0;
-    vu->normalize_enabled = ctx->normalize ? 1 : 0;
-    vu->num_active_lights = 0;
+    GLMetalVertexUniforms vu;
+    memcpy(vu.mvp_matrix, mvp, sizeof(float) * 16);
+    memcpy(vu.modelview_matrix, mv, sizeof(float) * 16);
+    compute_normal_matrix(vu.normal_matrix, mv);
+    vu.lighting_enabled = ctx->lighting_enabled ? 1 : 0;
+    vu.normalize_enabled = ctx->normalize ? 1 : 0;
+    vu.num_active_lights = 0;
     for (int i = 0; i < 8; i++) {
-        if (ctx->lights[i].enabled) vu->num_active_lights++;
+        if (ctx->lights[i].enabled) vu.num_active_lights++;
     }
-    vu->fog_enabled = ctx->fog_enabled ? 1 : 0;
-    vu->fog_mode = ctx->fog_enabled ? GLFogModeToShader(ctx->fog_mode) : 0;
-    vu->fog_start = ctx->fog_start;
-    vu->fog_end = ctx->fog_end;
-    vu->fog_density = ctx->fog_density;
+    vu.fog_enabled = ctx->fog_enabled ? 1 : 0;
+    vu.fog_mode = ctx->fog_enabled ? GLFogModeToShader(ctx->fog_mode) : 0;
+    vu.fog_start = ctx->fog_start;
+    vu.fog_end = ctx->fog_end;
+    vu.fog_density = ctx->fog_density;
 
     // ---- Upload fragment uniforms ----
-    GLMetalFragmentUniforms *fu = (GLMetalFragmentUniforms *)[ms->fragmentUniformBuffer contents];
+    GLMetalFragmentUniforms fu;
     int texUnit = ctx->active_texture;
-    fu->texenv_mode = GLTexEnvModeToShader(ctx->tex_units[texUnit].env_mode);
-    memcpy(fu->texenv_color, ctx->tex_units[texUnit].env_color, sizeof(float) * 4);
+    fu.texenv_mode = GLTexEnvModeToShader(ctx->tex_units[texUnit].env_mode);
+    memcpy(fu.texenv_color, ctx->tex_units[texUnit].env_color, sizeof(float) * 4);
     if (ctx->fog_enabled) {
-        memcpy(fu->fog_color, ctx->fog_color, sizeof(float) * 4);
+        memcpy(fu.fog_color, ctx->fog_color, sizeof(float) * 4);
     } else {
-        fu->fog_color[0] = fu->fog_color[1] = fu->fog_color[2] = 0.0f;
-        fu->fog_color[3] = -1.0f;  // sentinel: fog inactive
+        fu.fog_color[0] = fu.fog_color[1] = fu.fog_color[2] = 0.0f;
+        fu.fog_color[3] = -1.0f;  // sentinel: fog inactive
     }
-    fu->alpha_test_enabled = ctx->alpha_test ? 1 : 0;
-    fu->alpha_func = GLAlphaFuncToShader(ctx->alpha_func);
-    fu->alpha_ref = ctx->alpha_ref;
-    fu->has_texture = (ctx->tex_units[texUnit].enabled_2d &&
+    fu.alpha_test_enabled = ctx->alpha_test ? 1 : 0;
+    fu.alpha_func = GLAlphaFuncToShader(ctx->alpha_func);
+    fu.alpha_ref = ctx->alpha_ref;
+    fu.has_texture = (ctx->tex_units[texUnit].enabled_2d &&
                        ctx->tex_units[texUnit].bound_texture_2d != 0) ? 1 : 0;
-    fu->shade_model = (ctx->shade_model == GL_SMOOTH) ? 1 : 0;
+    fu.shade_model = (ctx->shade_model == GL_SMOOTH) ? 1 : 0;
 
     // ---- Upload lighting data ----
-    GLMetalLightingData *ld = (GLMetalLightingData *)[ms->lightUniformBuffer contents];
+    GLMetalLightingData ld_val;
+    GLMetalLightingData *ld = &ld_val;
     for (int i = 0; i < 8; i++) {
         memcpy(ld->lights[i].ambient, ctx->lights[i].ambient, sizeof(float) * 4);
         memcpy(ld->lights[i].diffuse, ctx->lights[i].diffuse, sizeof(float) * 4);
@@ -1215,15 +1233,18 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     }
 
     // Vertex data at buffer 0 (via vertex descriptor), uniforms at buffer 1, lighting at buffer 2
-    // Shader uses [[buffer(1)]] for vertex uniforms and [[buffer(2)]] for lighting data
+    // Use setVertexBytes/setFragmentBytes to copy uniform data inline into the
+    // command encoder.  This avoids GPU race conditions: each draw call gets its
+    // own snapshot of the uniform state instead of all draws sharing a single
+    // buffer that the CPU overwrites between draws within the same frame.
     [ms->currentEncoder setVertexBuffer:vb offset:ms->bufferOffset atIndex:0];
-    [ms->currentEncoder setVertexBuffer:ms->vertexUniformBuffer offset:0 atIndex:1];
-    [ms->currentEncoder setVertexBuffer:ms->lightUniformBuffer offset:0 atIndex:2];
+    [ms->currentEncoder setVertexBytes:&vu length:sizeof(GLMetalVertexUniforms) atIndex:1];
+    [ms->currentEncoder setVertexBytes:ld length:sizeof(GLMetalLightingData) atIndex:2];
 
-    [ms->currentEncoder setFragmentBuffer:ms->fragmentUniformBuffer offset:0 atIndex:1];
+    [ms->currentEncoder setFragmentBytes:&fu length:sizeof(GLMetalFragmentUniforms) atIndex:1];
 
     // Bind texture if available -- use per-texture sampler from cache
-    if (fu->has_texture) {
+    if (fu.has_texture) {
         uint32_t texName = ctx->tex_units[texUnit].bound_texture_2d;
         auto texIt = ctx->texture_objects.find(texName);
         if (texIt != ctx->texture_objects.end() && texIt->second.metal_texture) {
@@ -1232,6 +1253,15 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
             // Use sampler derived from texture's filter/wrap parameters
             id<MTLSamplerState> sampler = GLMetalGetSampler(ms, &texIt->second);
             [ms->currentEncoder setFragmentSamplerState:sampler atIndex:0];
+        } else if (ms->fallbackWhiteTexture) {
+            // Texture was deleted or never uploaded -- bind 1x1 white so vertex
+            // colors show through (GL_MODULATE: texel * vertex_color = vertex_color).
+            // Classic Mac games (Madden 2000) delete textures then keep binding the
+            // same IDs without re-uploading.
+            [ms->currentEncoder setFragmentTexture:ms->fallbackWhiteTexture atIndex:0];
+            [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:0];
+            GL_METAL_LOG("WARNING: has_texture=1 but tex %u has no Metal backing (found=%d) -- using white fallback",
+                         texName, (texIt != ctx->texture_objects.end()) ? 1 : 0);
         }
     }
 
@@ -1319,30 +1349,32 @@ void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgr
     verts[3].texcoord[0] = 1; verts[3].texcoord[1] = 0;
 
     // Set up identity MVP (NDC pass-through)
-    GLMetalVertexUniforms *vu = (GLMetalVertexUniforms *)[ms->vertexUniformBuffer contents];
+    GLMetalVertexUniforms vu_local;
+    memset(&vu_local, 0, sizeof(vu_local));
     static const float identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
-    memcpy(vu->mvp_matrix, identity, sizeof(float) * 16);
-    memcpy(vu->modelview_matrix, identity, sizeof(float) * 16);
-    memset(vu->normal_matrix, 0, sizeof(float) * 12);
-    vu->normal_matrix[0] = 1; vu->normal_matrix[4] = 1; vu->normal_matrix[8] = 1;
-    vu->lighting_enabled = 0;
-    vu->normalize_enabled = 0;
-    vu->num_active_lights = 0;
-    vu->fog_enabled = 0;
-    vu->fog_mode = 0;
-    vu->fog_start = 0; vu->fog_end = 1; vu->fog_density = 0;
+    memcpy(vu_local.mvp_matrix, identity, sizeof(float) * 16);
+    memcpy(vu_local.modelview_matrix, identity, sizeof(float) * 16);
+    memset(vu_local.normal_matrix, 0, sizeof(float) * 12);
+    vu_local.normal_matrix[0] = 1; vu_local.normal_matrix[4] = 1; vu_local.normal_matrix[8] = 1;
+    vu_local.lighting_enabled = 0;
+    vu_local.normalize_enabled = 0;
+    vu_local.num_active_lights = 0;
+    vu_local.fog_enabled = 0;
+    vu_local.fog_mode = 0;
+    vu_local.fog_start = 0; vu_local.fog_end = 1; vu_local.fog_density = 0;
 
     // Set up fragment uniforms: replace mode, has_texture, no alpha test, fog inactive
-    GLMetalFragmentUniforms *fu = (GLMetalFragmentUniforms *)[ms->fragmentUniformBuffer contents];
-    fu->texenv_mode = 3;  // replace: use texture color directly
-    fu->texenv_color[0] = fu->texenv_color[1] = fu->texenv_color[2] = fu->texenv_color[3] = 1.0f;
-    fu->fog_color[0] = fu->fog_color[1] = fu->fog_color[2] = 0.0f;
-    fu->fog_color[3] = -1.0f;  // sentinel: fog inactive
-    fu->alpha_test_enabled = 0;
-    fu->alpha_func = 0;
-    fu->alpha_ref = 0;
-    fu->has_texture = 1;
-    fu->shade_model = 1;  // smooth
+    GLMetalFragmentUniforms fu_local;
+    memset(&fu_local, 0, sizeof(fu_local));
+    fu_local.texenv_mode = 3;  // replace: use texture color directly
+    fu_local.texenv_color[0] = fu_local.texenv_color[1] = fu_local.texenv_color[2] = fu_local.texenv_color[3] = 1.0f;
+    fu_local.fog_color[0] = fu_local.fog_color[1] = fu_local.fog_color[2] = 0.0f;
+    fu_local.fog_color[3] = -1.0f;  // sentinel: fog inactive
+    fu_local.alpha_test_enabled = 0;
+    fu_local.alpha_func = 0;
+    fu_local.alpha_ref = 0;
+    fu_local.has_texture = 1;
+    fu_local.shade_model = 1;  // smooth
 
     // Get pipeline with current blend state (DrawPixels respects existing blend)
     // Temporarily override depth_mask for pipeline key (no depth write for pixel draws)
@@ -1363,9 +1395,13 @@ void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgr
     [ms->currentEncoder setDepthStencilState:dsState];
     [ms->currentEncoder setCullMode:MTLCullModeNone];
     [ms->currentEncoder setVertexBytes:verts length:sizeof(verts) atIndex:0];
-    [ms->currentEncoder setVertexBuffer:ms->vertexUniformBuffer offset:0 atIndex:1];
-    [ms->currentEncoder setVertexBuffer:ms->lightUniformBuffer offset:0 atIndex:2];
-    [ms->currentEncoder setFragmentBuffer:ms->fragmentUniformBuffer offset:0 atIndex:1];
+    {
+        GLMetalLightingData ld_empty;
+        memset(&ld_empty, 0, sizeof(ld_empty));
+        [ms->currentEncoder setVertexBytes:&vu_local length:sizeof(GLMetalVertexUniforms) atIndex:1];
+        [ms->currentEncoder setVertexBytes:&ld_empty length:sizeof(GLMetalLightingData) atIndex:2];
+    }
+    [ms->currentEncoder setFragmentBytes:&fu_local length:sizeof(GLMetalFragmentUniforms) atIndex:1];
     [ms->currentEncoder setFragmentTexture:tex atIndex:0];
     [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:0];
     [ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
@@ -1444,30 +1480,32 @@ void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_da
     verts[3].texcoord[0] = 1; verts[3].texcoord[1] = 0;
 
     // Set up identity MVP (NDC pass-through)
-    GLMetalVertexUniforms *vu = (GLMetalVertexUniforms *)[ms->vertexUniformBuffer contents];
-    static const float identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
-    memcpy(vu->mvp_matrix, identity, sizeof(float) * 16);
-    memcpy(vu->modelview_matrix, identity, sizeof(float) * 16);
-    memset(vu->normal_matrix, 0, sizeof(float) * 12);
-    vu->normal_matrix[0] = 1; vu->normal_matrix[4] = 1; vu->normal_matrix[8] = 1;
-    vu->lighting_enabled = 0;
-    vu->normalize_enabled = 0;
-    vu->num_active_lights = 0;
-    vu->fog_enabled = 0;
-    vu->fog_mode = 0;
-    vu->fog_start = 0; vu->fog_end = 1; vu->fog_density = 0;
+    GLMetalVertexUniforms vu_local2;
+    memset(&vu_local2, 0, sizeof(vu_local2));
+    static const float identity2[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    memcpy(vu_local2.mvp_matrix, identity2, sizeof(float) * 16);
+    memcpy(vu_local2.modelview_matrix, identity2, sizeof(float) * 16);
+    memset(vu_local2.normal_matrix, 0, sizeof(float) * 12);
+    vu_local2.normal_matrix[0] = 1; vu_local2.normal_matrix[4] = 1; vu_local2.normal_matrix[8] = 1;
+    vu_local2.lighting_enabled = 0;
+    vu_local2.normalize_enabled = 0;
+    vu_local2.num_active_lights = 0;
+    vu_local2.fog_enabled = 0;
+    vu_local2.fog_mode = 0;
+    vu_local2.fog_start = 0; vu_local2.fog_end = 1; vu_local2.fog_density = 0;
 
     // Fragment uniforms: replace mode, textured, no alpha test, fog inactive
-    GLMetalFragmentUniforms *fu = (GLMetalFragmentUniforms *)[ms->fragmentUniformBuffer contents];
-    fu->texenv_mode = 3;  // replace
-    fu->texenv_color[0] = fu->texenv_color[1] = fu->texenv_color[2] = fu->texenv_color[3] = 1.0f;
-    fu->fog_color[0] = fu->fog_color[1] = fu->fog_color[2] = 0.0f;
-    fu->fog_color[3] = -1.0f;
-    fu->alpha_test_enabled = 0;
-    fu->alpha_func = 0;
-    fu->alpha_ref = 0;
-    fu->has_texture = 1;
-    fu->shade_model = 1;
+    GLMetalFragmentUniforms fu_local2;
+    memset(&fu_local2, 0, sizeof(fu_local2));
+    fu_local2.texenv_mode = 3;  // replace
+    fu_local2.texenv_color[0] = fu_local2.texenv_color[1] = fu_local2.texenv_color[2] = fu_local2.texenv_color[3] = 1.0f;
+    fu_local2.fog_color[0] = fu_local2.fog_color[1] = fu_local2.fog_color[2] = 0.0f;
+    fu_local2.fog_color[3] = -1.0f;
+    fu_local2.alpha_test_enabled = 0;
+    fu_local2.alpha_func = 0;
+    fu_local2.alpha_ref = 0;
+    fu_local2.has_texture = 1;
+    fu_local2.shade_model = 1;
 
     // Pipeline with blend enabled (SrcAlpha/OneMinusSrcAlpha) for bitmap transparency
     // Temporarily override blend state and depth_mask for pipeline key
@@ -1497,9 +1535,13 @@ void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_da
     [ms->currentEncoder setDepthStencilState:dsState];
     [ms->currentEncoder setCullMode:MTLCullModeNone];
     [ms->currentEncoder setVertexBytes:verts length:sizeof(verts) atIndex:0];
-    [ms->currentEncoder setVertexBuffer:ms->vertexUniformBuffer offset:0 atIndex:1];
-    [ms->currentEncoder setVertexBuffer:ms->lightUniformBuffer offset:0 atIndex:2];
-    [ms->currentEncoder setFragmentBuffer:ms->fragmentUniformBuffer offset:0 atIndex:1];
+    {
+        GLMetalLightingData ld_empty2;
+        memset(&ld_empty2, 0, sizeof(ld_empty2));
+        [ms->currentEncoder setVertexBytes:&vu_local2 length:sizeof(GLMetalVertexUniforms) atIndex:1];
+        [ms->currentEncoder setVertexBytes:&ld_empty2 length:sizeof(GLMetalLightingData) atIndex:2];
+    }
+    [ms->currentEncoder setFragmentBytes:&fu_local2 length:sizeof(GLMetalFragmentUniforms) atIndex:1];
     [ms->currentEncoder setFragmentTexture:tex atIndex:0];
     [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:0];
     [ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
