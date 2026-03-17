@@ -657,15 +657,26 @@ public class OverlayViewController: UIViewController {
 extension OverlayViewController {
 	
 	public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-		guard action.description != "_performClose:" else {
-			// Handle Cmd+W: forward it to the emulated app instead of closing
-			// The emulator will receive the keyboard event normally
-			// We intentionally do nothing here to prevent the app from closing
-			return true
+		// Intercept Cmd+W (performClose:) to prevent the app from closing.
+		// The emulator will receive the keyboard event normally.
+		// performClose(_:) was formalized in UIResponderStandardEditActions in iOS 26,
+		// but the system sends it on iPadOS 15+ as a private selector. We match both
+		// so this builds with earlier versions of Xcode and iOS SDK
+		if action == Selector(("_performClose:")) { return true }
+		if #available(iOS 26.0, *) {
+			#if compiler(>=6.2)
+			if action == #selector(UIResponderStandardEditActions.performClose(_:)) { return true }
+			#endif
 		}
-
 		return super.canPerformAction(action, withSender: sender)
 	}
+
+	// No-op implementation so Cmd+W is swallowed on iPadOS 26+ where the system
+	// dispatches the formal performClose(_:) action after canPerformAction returns true.
+	#if compiler(>=6.2)
+	@available(iOS 26.0, *)
+	public override func performClose(_ sender: Any?) {}
+	#endif
 
 	@objc
 	public static func injectOverlayViewController() {
