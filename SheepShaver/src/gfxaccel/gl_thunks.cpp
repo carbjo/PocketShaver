@@ -16,9 +16,15 @@
 #include "thunks.h"
 #include "gl_engine.h"
 
-// Storage for TVECT addresses and scratch word
+// Storage for TVECT addresses and scratch words
 uint32_t gl_method_tvects[GL_MAX_SUBOPCODE];
 uint32_t gl_scratch_addr = 0;
+
+// Dispatch-table TVECTs (called when game accesses context's internal dispatch table).
+// These shift R3-R10 left by one position because the game passes the context
+// index in R3 and real GL args start at R4.
+uint32_t gl_dt_method_tvects[GL_MAX_SUBOPCODE];
+uint32_t gl_dt_flag_addr = 0;  // scratch word: 1 = dispatch-table call, 0 = stub call
 // gl_logging_enabled is defined in gl_dispatch.cpp (single definition)
 
 /*
@@ -84,6 +90,64 @@ static uint32 AllocateGLTVECT(int method_id, uint32 gl_opcode)
 	WriteMacInt32(code + 16, gl_opcode);
 	// blr
 	WriteMacInt32(code + 20, 0x4E800020);
+
+	return base;
+}
+
+/*
+ *  AllocateGLDispatchTableTVECT - thunk for dispatch-table calls
+ *
+ *  Same as AllocateGLTVECT but also writes 1 to gl_dt_flag_addr so the
+ *  native dispatch handler knows to shift GPR args left by one (the game
+ *  passes the context index in R3, real GL args start at R4).
+ *
+ *  Layout (48 bytes):
+ *    +0:  code_ptr (= base + 8)
+ *    +4:  TOC (= 0)
+ *    +8:  lis   r11, flag_hi16
+ *   +12:  ori   r11, r11, flag_lo16
+ *   +16:  li    r12, 1
+ *   +20:  stw   r12, 0(r11)          -- set flag = 1
+ *   +24:  lis   r11, scratch_hi16
+ *   +28:  ori   r11, r11, scratch_lo16
+ *   +32:  li    r12, method_id
+ *   +36:  stw   r12, 0(r11)          -- write sub-opcode
+ *   +40:  <gl_opcode>                -- NATIVE_OPENGL_DISPATCH
+ *   +44:  blr
+ */
+static uint32 AllocateGLDispatchTableTVECT(int method_id, uint32 gl_opcode)
+{
+	uint32 flag_hi = (gl_dt_flag_addr >> 16) & 0xFFFF;
+	uint32 flag_lo = gl_dt_flag_addr & 0xFFFF;
+	uint32 scratch_hi = (gl_scratch_addr >> 16) & 0xFFFF;
+	uint32 scratch_lo = gl_scratch_addr & 0xFFFF;
+
+	uint32 base = SheepMem::ReserveProc(48);
+	uint32 code = base + 8;
+
+	// TVECT header
+	WriteMacInt32(base + 0, code);
+	WriteMacInt32(base + 4, 0);
+
+	const uint32 r11 = 11;
+	const uint32 r12 = 12;
+
+	// Set dispatch-table flag = 1
+	WriteMacInt32(code + 0, 0x3C000000 | (r11 << 21) | (flag_hi & 0xFFFF));       // lis r11, flag_hi
+	WriteMacInt32(code + 4, 0x60000000 | (r11 << 21) | (r11 << 16) | (flag_lo & 0xFFFF)); // ori r11, r11, flag_lo
+	WriteMacInt32(code + 8, 0x38000000 | (r12 << 21) | 1);                        // li r12, 1
+	WriteMacInt32(code + 12, 0x90000000 | (r12 << 21) | (r11 << 16));             // stw r12, 0(r11)
+
+	// Write sub-opcode to scratch (same as normal thunk)
+	WriteMacInt32(code + 16, 0x3C000000 | (r11 << 21) | (scratch_hi & 0xFFFF));   // lis r11, scratch_hi
+	WriteMacInt32(code + 20, 0x60000000 | (r11 << 21) | (r11 << 16) | (scratch_lo & 0xFFFF)); // ori r11, r11, scratch_lo
+	WriteMacInt32(code + 24, 0x38000000 | (r12 << 21) | (method_id & 0xFFFF));    // li r12, method_id
+	WriteMacInt32(code + 28, 0x90000000 | (r12 << 21) | (r11 << 16));             // stw r12, 0(r11)
+
+	// NATIVE_OPENGL_DISPATCH opcode
+	WriteMacInt32(code + 32, gl_opcode);
+	// blr
+	WriteMacInt32(code + 36, 0x4E800020);
 
 	return base;
 }
@@ -332,17 +396,23 @@ bool GLThunksInit(void)
 	gl_scratch_addr = SheepMem::Reserve(4);
 	WriteMacInt32(gl_scratch_addr, 0);
 
+	// Allocate dispatch-table flag word
+	gl_dt_flag_addr = SheepMem::Reserve(4);
+	WriteMacInt32(gl_dt_flag_addr, 0);
+
 	// Get the native opcode for GL dispatch
 	uint32 gl_opcode = NativeOpcode(NATIVE_OPENGL_DISPATCH);
 
-	// Clear the tvects array
+	// Clear the tvects arrays
 	memset(gl_method_tvects, 0, sizeof(gl_method_tvects));
+	memset(gl_dt_method_tvects, 0, sizeof(gl_dt_method_tvects));
 
 	int tvect_count = 0;
 
-	// Core GL (0-335): 336 TVECTs
+	// Core GL (0-335): 336 TVECTs (stub-patching + dispatch-table variants)
 	for (int i = GL_CORE_FIRST; i <= GL_CORE_LAST; i++) {
 		gl_method_tvects[i] = AllocateGLTVECT(i, gl_opcode);
+		gl_dt_method_tvects[i] = AllocateGLDispatchTableTVECT(i, gl_opcode);
 		tvect_count++;
 	}
 

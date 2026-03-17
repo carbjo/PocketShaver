@@ -794,7 +794,13 @@ void NativeGLFrustum(GLContext *ctx, double l, double r, double b, double t, dou
 
 void NativeGLOrtho(GLContext *ctx, double l, double r, double b, double t, double n, double f)
 {
-	mat4_ortho(gl_get_current_matrix(ctx), l, r, b, t, n, f);
+	// Swap bottom and top to flip Y axis for Metal rendering.
+	// OpenGL has Y=0 at bottom, Metal has Y=0 at top. For orthographic
+	// projections (2D loading screens, menus), this produces the correct
+	// orientation. Perspective projections use glFrustum/gluPerspective
+	// which are not flipped — the 3D camera setup naturally produces
+	// correct Metal-space orientation.
+	mat4_ortho(gl_get_current_matrix(ctx), l, r, t, b, n, f);
 }
 
 
@@ -2508,8 +2514,10 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	if (it == ctx->texture_objects.end()) { if (gl_logging_enabled) { fprintf(stderr, "GL:   -> texture %u not found in map\n", texName); fflush(stderr); } return; }
 
 	GLTextureObject &tex = it->second;
-	tex.width = width;
-	tex.height = height;
+	if (level == 0) {
+		tex.width = width;
+		tex.height = height;
+	}
 	if (level > 0) tex.has_mipmaps = true;
 
 	if (mac_pixels == 0) {

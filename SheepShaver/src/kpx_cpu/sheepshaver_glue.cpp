@@ -1293,9 +1293,34 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		// Read sub-opcode from GL scratch word
 		uint32 sub_opcode = ReadMacInt32(gl_scratch_addr);
 
+		// Check dispatch-table flag: if set, the game called through the
+		// context's internal dispatch table and passed the context index
+		// in R3 with real GL args starting at R4.  Shift args left by one.
+		extern uint32_t gl_dt_flag_addr;
+		uint32 dt_flag = ReadMacInt32(gl_dt_flag_addr);
+		WriteMacInt32(gl_dt_flag_addr, 0);  // clear for next call
+
+		uint32 arg_r3, arg_r4, arg_r5, arg_r6, arg_r7, arg_r8, arg_r9, arg_r10;
+		if (dt_flag) {
+			// Dispatch-table path: skip context index in R3, shift args.
+			// r4-r10 become args 0-6. Arg 7 (r10) is set to 0 for now;
+			// functions with 9+ args (like glTexImage2D) read additional
+			// args from the PPC stack via gl_ppc_stack_arg().
+			arg_r3 = gpr(4);  arg_r4 = gpr(5);  arg_r5 = gpr(6);
+			arg_r6 = gpr(7);  arg_r7 = gpr(8);  arg_r8 = gpr(9);
+			arg_r9 = gpr(10); arg_r10 = 0;
+		} else {
+			// Stub-patching path: args in normal positions
+			arg_r3 = gpr(3);  arg_r4 = gpr(4);  arg_r5 = gpr(5);
+			arg_r6 = gpr(6);  arg_r7 = gpr(7);  arg_r8 = gpr(8);
+			arg_r9 = gpr(9);  arg_r10 = gpr(10);
+		}
+
 		// Generic FPR extraction based on function signature table.
 		// PPC ABI passes float/double args in FPR1-FPR13. We extract them
 		// into a uint32 array so GLDispatch can reconstruct float values.
+		// When dt_flag is set, FPR indices are also shifted by 1 since the
+		// context arg doesn't consume an FPR slot (it's an integer).
 		const GLFuncSignature& sig = gl_func_signatures[sub_opcode < GL_MAX_SUBOPCODE ? sub_opcode : 0];
 		uint32 float_bits[13];  // Max 13 FPR args in PPC ABI
 		int fpr_idx = 0;
@@ -1310,14 +1335,18 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		}
 
 		// Save PPC stack pointer for functions with 9+ args (e.g., glTexImage2D)
+		// When dt_flag is set, stack args are shifted by 1 position because
+		// the context arg consumed one GPR slot, pushing all subsequent args.
 		{
 			extern uint32_t gl_ppc_sp;
+			extern int gl_ppc_stack_arg_offset;
 			gl_ppc_sp = saved_sp;
+			gl_ppc_stack_arg_offset = dt_flag ? 1 : 0;
 		}
 
 		// Call dispatch with GPR args and extracted float bits
-		gpr(3) = GLDispatch(gpr(3), gpr(4), gpr(5), gpr(6),
-		                    gpr(7), gpr(8), gpr(9), gpr(10),
+		gpr(3) = GLDispatch(arg_r3, arg_r4, arg_r5, arg_r6,
+		                    arg_r7, arg_r8, arg_r9, arg_r10,
 		                    float_bits, fpr_idx);
 
 		// Restore registers that may have been corrupted

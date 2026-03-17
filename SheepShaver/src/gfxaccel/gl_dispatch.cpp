@@ -29,6 +29,8 @@ bool gl_logging_enabled = true;
 
 // PPC stack pointer, saved by glue code before dispatch for 9+ arg access
 uint32_t gl_ppc_sp = 0;
+// Stack arg offset: 1 when dispatch-table path shifts args, 0 normally
+int gl_ppc_stack_arg_offset = 0;
 
 /*
  *  gl_ppc_stack_arg -- read the Nth stack argument (0-based) from PPC stack
@@ -38,16 +40,15 @@ uint32_t gl_ppc_sp = 0;
  *  frame has params at SP + 24 (linkage) + param_offset.
  *  For PowerPC, args beyond r10 are at: caller SP + 24 + (arg_index) * 4
  *  where arg_index starts at 8 (since r3-r10 = args 0-7).
+ *
+ *  When the dispatch-table path is active (gl_ppc_stack_arg_offset == 1),
+ *  stack indices are shifted by 1 because the context arg in r3 pushes
+ *  all subsequent args one position further on the stack.
  */
 uint32_t gl_ppc_stack_arg(int index)
 {
 	if (gl_ppc_sp == 0) return 0;
-	// Our hook thunk does NOT create its own stack frame, so gl_ppc_sp is
-	// the caller's SP (the function that called glTexImage2D etc.).
-	// In PPC ABI, the caller stores args 1-8 in its parameter save area
-	// at SP+24, and args 9+ follow immediately after (arg 9 at SP+56).
-	// We must NOT follow the backchain -- gl_ppc_sp already IS the right frame.
-	return ReadMacInt32(gl_ppc_sp + 24 + (8 + index) * 4);
+	return ReadMacInt32(gl_ppc_sp + 24 + (8 + gl_ppc_stack_arg_offset + index) * 4);
 }
 
 // ---- GL state handler externs (implemented in gl_state.cpp) ----
@@ -1751,14 +1752,28 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			{
 				extern uint32_t gl_ppc_stack_arg(int index);
 				extern uint32_t gl_ppc_sp;
-				uint32_t pixels = gl_ppc_stack_arg(0); // 9th arg = stack arg 0
+				extern int gl_ppc_stack_arg_offset;
+				// glTexImage2D has 9 args. In the dispatch-table path (offset=1),
+				// r10=0 (unused) and the real args 8-9 (type, pixels) are on the
+				// stack at shifted positions. Read type from stack arg -1 (the slot
+				// that would have been r10) and pixels from stack arg 0.
+				uint32_t type, pixels;
+				if (gl_ppc_stack_arg_offset) {
+					// Dispatch-table path: type and pixels are both on the stack
+					type   = gl_ppc_stack_arg(-1);  // game's r10 equivalent
+					pixels = gl_ppc_stack_arg(0);    // game's stack arg 0
+				} else {
+					// Stub path: type is r10, pixels is stack arg 0
+					type   = r10;
+					pixels = gl_ppc_stack_arg(0);
+				}
 				if (gl_logging_enabled) {
-					fprintf(stderr, "GL: glTexImage2D target=0x%x level=%d ifmt=%d w=%d h=%d border=%d fmt=0x%x type=0x%x pixels=0x%08x (sp=0x%08x)\n",
-					       r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, r9, r10, pixels, gl_ppc_sp);
+					fprintf(stderr, "GL: glTexImage2D target=0x%x level=%d ifmt=%d w=%d h=%d border=%d fmt=0x%x type=0x%x pixels=0x%08x (sp=0x%08x dt=%d)\n",
+					       r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, r9, type, pixels, gl_ppc_sp, gl_ppc_stack_arg_offset);
 					fflush(stderr);
 				}
 				NativeGLTexImage2D(gl_current_context, r3, (int32_t)r4, (int32_t)r5,
-				                    (int32_t)r6, (int32_t)r7, (int32_t)r8, r9, r10, pixels);
+				                    (int32_t)r6, (int32_t)r7, (int32_t)r8, r9, type, pixels);
 			}
 			return 0;
 		case GL_SUB_TEX_PARAMETERF:
@@ -1781,10 +1796,18 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			{
 				// 9 args: target, level, xoff, yoff, width, height, format, type, pixels
 				extern uint32_t gl_ppc_stack_arg(int index);
-				uint32_t pixels = gl_ppc_stack_arg(0);
+				extern int gl_ppc_stack_arg_offset;
+				uint32_t type, pixels;
+				if (gl_ppc_stack_arg_offset) {
+					type   = gl_ppc_stack_arg(-1);
+					pixels = gl_ppc_stack_arg(0);
+				} else {
+					type   = r10;
+					pixels = gl_ppc_stack_arg(0);
+				}
 				NativeGLTexSubImage2D(gl_current_context, r3, (int32_t)r4,
 				                       (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8,
-				                       r9, r10, pixels);
+				                       r9, type, pixels);
 			}
 			return 0;
 		// --- Core GL: Translate, Vertex, Viewport ---

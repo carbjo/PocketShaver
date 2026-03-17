@@ -1459,8 +1459,11 @@ int32 NativeEngineGestalt(uint32 selector, uint32 responsePtr)
 		break;
 
 	case kQAGestalt_VendorID:
-		WriteMacInt32(responsePtr, 0);  // kQAVendor_Apple
-		RAVE_LOG("EngineGestalt: %s -> 0 (kQAVendor_Apple)", gestalt_selector_names[selector]);
+		// Report as ATI (1) rather than Apple (0).  Games that detected a Rage 128
+		// via glGetString(GL_RENDERER) expect the RAVE engine to be ATI-vendor and
+		// will skip Apple-vendor engines, causing an infinite enumeration loop.
+		WriteMacInt32(responsePtr, 1);  // kQAVendor_ATI
+		RAVE_LOG("EngineGestalt: %s -> 1 (kQAVendor_ATI)", gestalt_selector_names[selector]);
 		break;
 
 	case kQAGestalt_EngineID:

@@ -111,11 +111,6 @@ vertex GLVertexOut gl_vertex_main(
     out.position = uniforms.mvp_matrix * in.position;
 
     // Remap depth from GL NDC [-1,+1] to Metal NDC [0,+1].
-    // OpenGL's clip-space Z range is [-w, +w], mapping to NDC z in [-1, +1].
-    // Metal expects NDC z in [0, +1].  Standard GL viewport transform:
-    //   depth = 0.5 * ndc_z + 0.5
-    // Applied in clip space (before perspective divide):
-    //   out.z = 0.5 * clip.z + 0.5 * clip.w
     out.position.z = out.position.z * 0.5 + out.position.w * 0.5;
 
     // 2. Eye-space position (for fog distance and lighting)

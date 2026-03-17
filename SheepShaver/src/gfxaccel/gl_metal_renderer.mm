@@ -1243,7 +1243,9 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
 
     [ms->currentEncoder setFragmentBytes:&fu length:sizeof(GLMetalFragmentUniforms) atIndex:1];
 
-    // Bind texture if available -- use per-texture sampler from cache
+    // Bind texture and sampler.  The Metal shader always declares both
+    // texture(0) and sampler(0) as parameters, so we must bind them even
+    // when has_texture is false to satisfy Metal validation.
     if (fu.has_texture) {
         uint32_t texName = ctx->tex_units[texUnit].bound_texture_2d;
         auto texIt = ctx->texture_objects.find(texName);
@@ -1262,7 +1264,17 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
             [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:0];
             GL_METAL_LOG("WARNING: has_texture=1 but tex %u has no Metal backing (found=%d) -- using white fallback",
                          texName, (texIt != ctx->texture_objects.end()) ? 1 : 0);
+        } else {
+            // No fallback texture available -- bind nearest sampler to avoid validation error
+            [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:0];
         }
+    } else {
+        // No texture active -- still must bind sampler and texture for Metal validation.
+        // Bind the 1x1 white fallback (shader won't sample it since has_texture=0).
+        if (ms->fallbackWhiteTexture) {
+            [ms->currentEncoder setFragmentTexture:ms->fallbackWhiteTexture atIndex:0];
+        }
+        [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:0];
     }
 
     [ms->currentEncoder drawPrimitives:mtlPrim vertexStart:0 vertexCount:vertCount];
@@ -1744,12 +1756,65 @@ void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
     id<MTLTexture> existing = texObj->metal_texture ?
         (__bridge id<MTLTexture>)(texObj->metal_texture) : nil;
 
-    // Need new texture if: no existing, or base level dimensions changed
+    // Need new texture if: no existing, or base level dimensions changed.
+    // Compare against the actual Metal texture dimensions, not texObj fields,
+    // because the caller may have already updated texObj to the new dimensions.
     bool needNew = !existing ||
-                   (level == 0 && (texObj->width != width || texObj->height != height));
+                   (level == 0 && ((int)[existing width] != width || (int)[existing height] != height));
 
-    // For mipmap levels > 0 on existing texture, just upload
-    if (level > 0 && existing) {
+    // For mipmap levels > 0 on existing texture, check if we need to
+    // recreate with mipmap storage. Metal textures created without mipmapped:YES
+    // only have 1 mip level, so uploading to level > 0 would crash.
+    if (level > 0 && existing && [existing mipmapLevelCount] <= (NSUInteger)level) {
+        texObj->has_mipmaps = true;
+        // Recreate the texture with mipmap support, preserving base level contents.
+        // Use the existing texture's base dimensions — texObj->width/height may have
+        // been overwritten by the caller with this mip level's dimensions.
+        NSUInteger baseW = [existing width];
+        NSUInteger baseH = [existing height];
+        MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                                        width:baseW
+                                                                                       height:baseH
+                                                                                    mipmapped:YES];
+        desc.usage = MTLTextureUsageShaderRead;
+        desc.storageMode = MTLStorageModeShared;
+
+        id<MTLTexture> newTex = [ms->device newTextureWithDescriptor:desc];
+        if (newTex) {
+            // Copy base level (level 0) from old texture to new one
+            NSUInteger baseBytesPerRow = baseW * 4;
+            NSUInteger baseSize = baseBytesPerRow * baseH;
+            uint8_t *baseData = (uint8_t *)malloc(baseSize);
+            if (baseData) {
+                MTLRegion baseRegion = MTLRegionMake2D(0, 0, baseW, baseH);
+                [existing getBytes:baseData bytesPerRow:baseBytesPerRow fromRegion:baseRegion mipmapLevel:0];
+                [newTex replaceRegion:baseRegion mipmapLevel:0 withBytes:baseData bytesPerRow:baseBytesPerRow];
+                free(baseData);
+            }
+
+            // Also copy any intermediate mip levels that were already uploaded
+            NSUInteger oldMipCount = [existing mipmapLevelCount];
+            for (int m = 1; m < level && (NSUInteger)m < oldMipCount; m++) {
+                NSUInteger mw = MAX(baseW >> m, 1u);
+                NSUInteger mh = MAX(baseH >> m, 1u);
+                NSUInteger mBytesPerRow = mw * 4;
+                NSUInteger mSize = mBytesPerRow * mh;
+                uint8_t *mData = (uint8_t *)malloc(mSize);
+                if (mData) {
+                    MTLRegion mRegion = MTLRegionMake2D(0, 0, mw, mh);
+                    [existing getBytes:mData bytesPerRow:mBytesPerRow fromRegion:mRegion mipmapLevel:m];
+                    [newTex replaceRegion:mRegion mipmapLevel:m withBytes:mData bytesPerRow:mBytesPerRow];
+                    free(mData);
+                }
+            }
+
+            CFRelease(texObj->metal_texture);
+            texObj->metal_texture = (void *)CFBridgingRetain(newTex);
+            texObj->width = (int)baseW;
+            texObj->height = (int)baseH;
+            existing = newTex;
+        }
+    } else if (level > 0 && existing) {
         texObj->has_mipmaps = true;
     }
 

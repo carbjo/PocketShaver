@@ -1351,11 +1351,17 @@ extern uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 // Install library hooks to intercept GL/AGL/GLU/GLUT function lookups
 extern void GLInstallHooks();
 
-// TVECT array indexed by sub-opcode
+// TVECT array indexed by sub-opcode (for stub-patching path)
 extern uint32_t gl_method_tvects[];
+
+// TVECT array for dispatch-table path (sets arg-shift flag before dispatch)
+extern uint32_t gl_dt_method_tvects[];
 
 // Scratch word for sub-opcode passing (same pattern as RAVE)
 extern uint32_t gl_scratch_addr;
+
+// Dispatch-table flag word: 1 = args shifted (ctx in R3), 0 = normal
+extern uint32_t gl_dt_flag_addr;
 
 // Logging control (silent by default per project convention)
 #include "accel_logging.h"
