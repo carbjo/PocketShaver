@@ -23,6 +23,7 @@
 #include "macos_util.h"
 #include "gl_engine.h"
 #include "rave_metal_renderer.h"
+#include "metal_compositor.h"
 #include "accel_logging.h"
 
 #include <cstring>
@@ -552,14 +553,14 @@ static GLContext *GLContextNew(int width, int height)
 	ctx->depth_range_far = 1.0f;
 
 	// ---- Depth ----
-	// GL spec defaults verified:
+	// AUDIT: M003/S04/T01 — GL spec defaults verified:
 	//   depth_test = disabled, depth_func = GL_LESS, depth_mask = true (write enabled)
 	//   These match the GL 1.2 spec §2.11.1 initial values.
 	ctx->depth_func = GL_LESS;
 	ctx->depth_mask = true;  // depth writing enabled by default
 
 	// ---- Blend ----
-	// GL spec defaults verified:
+	// AUDIT: M003/S04/T01 — GL spec defaults verified:
 	//   blend = disabled, blend_src = GL_ONE, blend_dst = GL_ZERO
 	//   These match the GL 1.2 spec §4.1.7 initial values.
 	ctx->blend_src = GL_ONE;
@@ -621,7 +622,7 @@ static GLContext *GLContextNew(int width, int height)
 	ctx->name_stack_depth = 0;
 
 	// ---- Clear values ----
-	// GL spec clear defaults verified:
+	// AUDIT: M003/S04/T01 — GL spec clear defaults verified:
 	//   clear_color = (0,0,0,0), clear_depth = 1.0, clear_stencil = 0
 	//   These match the GL 1.2 spec initial values.
 	ctx->clear_color[0] = 0.0f;
@@ -644,7 +645,7 @@ static GLContext *GLContextNew(int width, int height)
 	ctx->logic_op_mode = GL_COPY;
 
 	// ---- Color mask ----
-	// GL spec default verified: all channels writable.
+	// AUDIT: M003/S04/T01 — GL spec default verified: all channels writable.
 	ctx->color_mask[0] = true;
 	ctx->color_mask[1] = true;
 	ctx->color_mask[2] = true;
@@ -882,9 +883,9 @@ uint32_t NativeAGLSetCurrentContext(uint32_t ctx)
  *  NativeAGLSetDrawable(r3=ctx, r4=drawable)
  *
  *  Associate context with the emulator display. Reads the GrafPort's portRect
- *  to determine dimensions, creates/reuses the shared AccelMetalView overlay
+ *  to determine dimensions, creates/reuses the compositor overlay texture
  *  (same infrastructure as RAVE), initializes Metal resources, and connects
- *  the CAMetalLayer to the GL context for rendering.
+ *  the overlay to the GL context for rendering.
  */
 uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 {
@@ -899,10 +900,8 @@ uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 	}
 
 	if (drawable == 0) {
-		// Unbind drawable -- clear the Metal layer so no further rendering occurs
-		if (context->metal) {
-			GLMetalSetLayer(context, nullptr);
-		}
+		// Unbind drawable -- deactivate overlay so no further compositing occurs
+		MetalCompositorSetOverlayActive(0);
 		agl_ctx_state[idx].agl_drawable = 0;
 		GL_LOG("aglSetDrawable: unbinding drawable from context %d", idx + 1);
 		gl_agl_last_error = AGL_NO_ERROR;
@@ -928,8 +927,11 @@ uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 	GL_LOG("aglSetDrawable: port rect=(%d,%d,%d,%d) -> %dx%d",
 	       port_top, port_left, port_bottom, port_right, width, height);
 
-	// Create/reuse the shared Metal overlay (same infrastructure as RAVE)
-	RaveCreateMetalOverlay(port_left, port_top, width, height);
+	// Create/reuse the shared Metal overlay via compositor offscreen texture.
+	// Don't activate yet — defer until first aglSwapBuffers so the cleared
+	// overlay doesn't cover the 2D framebuffer before GL renders.
+	MetalCompositorCreateOverlayTexture(width, height);
+	MetalCompositorSetOverlayRect(port_left, port_top, width, height);
 	RaveOverlayRetain();
 
 	// Initialize Metal resources for this context if not yet done
@@ -937,14 +939,7 @@ uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 		GLMetalInit(context);
 	}
 
-	// Connect the Metal layer to the GL context
-	void *layer = RaveGetMetalLayer();
-	if (layer && context->metal) {
-		GLMetalSetLayer(context, layer);
-		GL_LOG("aglSetDrawable: Metal layer connected to context %d (%dx%d)", idx + 1, width, height);
-	} else {
-		GL_LOG("aglSetDrawable: WARNING - Metal layer=%p metal=%p", layer, context->metal);
-	}
+	GL_LOG("aglSetDrawable: Metal overlay connected to context %d (%dx%d)", idx + 1, width, height);
 
 	// Update viewport to match drawable dimensions
 	context->viewport[0] = 0;
@@ -963,7 +958,7 @@ uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 /*
  *  NativeAGLSwapBuffers(r3=ctx)
  *
- *  Present the Metal drawable. Delegates to the Metal renderer.
+ *  Present the Metal drawable. Deferred to Plan 04's Metal renderer.
  */
 uint32_t NativeAGLSwapBuffers(uint32_t ctx)
 {
@@ -984,6 +979,10 @@ uint32_t NativeAGLSwapBuffers(uint32_t ctx)
 	// End current frame and present
 	GLMetalEndFrame(context);
 
+	// Activate the overlay on first swap — deferred from aglSetDrawable
+	// so the cleared overlay doesn't cover 2D content before GL renders.
+	MetalCompositorSetOverlayActive(1);
+
 	GL_LOG("aglSwapBuffers: presented frame for context %d", idx);
 	return 0;
 }
@@ -994,7 +993,7 @@ uint32_t NativeAGLSwapBuffers(uint32_t ctx)
  *
  *  Clean up GLContext, free resources, remove from table.
  *
- *  LIFECYCLE: Destroy path verified:
+ *  LIFECYCLE AUDIT (M003/S04/T02): Destroy path verified:
  *  (1) GLMetalRelease: commits pending GPU work, releases Metal textures (CFRelease),
  *      clears pipeline/depth-stencil/sampler caches, deletes GLMetalState
  *  (2) RaveOverlayRelease: decrements shared overlay refcount
@@ -1815,7 +1814,7 @@ void GLInstallHooks()
 
 	GL_LOG("GLInstallHooks: installing FindLibSymbol hooks for GL/AGL/GLU");
 
-	// ---- FindLibSymbol lookups (cache all TVECTs) ----
+	// ---- Phase 1: FindLibSymbol lookups (cache all TVECTs) ----
 	//
 	// Library name format: Pascal string (first byte = length).
 	// "OpenGLLibrary" = 13 chars -> \015
@@ -2255,7 +2254,7 @@ void GLInstallHooks()
 	}
 	GL_LOG("GLInstallHooks: found %d core GL functions, %d not found", gl_found, gl_notfound);
 
-	// ---- Patch found TVECTs ----
+	// ---- Phase 2: Patch found TVECTs ----
 	//
 	// For each found TVECT, overwrite its code pointer with the address of
 	// our gl_method_tvects[sub_opcode]'s code entry.
@@ -2856,7 +2855,7 @@ static void GLUTexImage2DFallback(GLContext *ctx, uint32_t target, int level,
                                    uint32_t format, uint32_t type,
                                    const uint8_t *data, int data_size)
 {
-	// For now, just log - actual texture upload is handled by the Metal renderer
+	// For now, just log - actual texture upload is handled by Plan 06/07
 	GL_LOG("gluBuild2DMipmaps: level %d: %dx%d (%d bytes)", level, w, h, data_size);
 	// When NativeGLTexImage2D_Direct becomes available, it will be called here
 	(void)ctx; (void)target; (void)internalFormat; (void)format; (void)type;
@@ -4458,7 +4457,7 @@ void NativeGLUTInitWindowSize(int32_t width, int32_t height)
  *  NativeGLUTCreateWindow(r3=title_ptr)
  *
  *  Create a GLUT window. Returns window ID (always 1 for single-window emulation).
- *  The actual rendering surface is the emulator's AccelMetalView overlay.
+ *  The actual rendering surface is the compositor overlay texture.
  */
 uint32_t NativeGLUTCreateWindow(uint32_t title_ptr)
 {

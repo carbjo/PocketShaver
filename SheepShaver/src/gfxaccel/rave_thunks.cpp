@@ -211,7 +211,7 @@ void RaveThunksInit(void)
 	RAVE_LOG("RaveThunksInit: allocated %d TVECTs, scratch at 0x%08x, sentinel at 0x%08x",
 			 tvect_count, rave_scratch_addr, rave_sentinel_engine);
 
-	// Diagnostic: dump draw method TVECT addresses (gated by rave_logging_enabled)
+	// Diagnostic: dump draw method TVECT addresses (GAP-036: gated by rave_logging_enabled)
 	if (rave_logging_enabled) {
 		printf("RAVE ThunksInit: scratch=0x%08x, rave_opcode=0x%08x\n",
 		       rave_scratch_addr, rave_opcode);

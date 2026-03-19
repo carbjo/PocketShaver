@@ -57,6 +57,50 @@
 void powerpc_cpu::execute_illegal(uint32 opcode)
 {
 	fprintf(stderr, "Illegal instruction at %08x, opcode = %08x\n", pc(), opcode);
+	
+	// Backtrace: walk PPC stack frames to show call chain
+	fprintf(stderr, "  PPC Backtrace (stack frame walk):\n");
+	{
+		uint32 sp = gpr(1);
+		uint32 ret_lr = lr();
+		fprintf(stderr, "    frame 0: PC=0x%08x LR=0x%08x SP=0x%08x\n", pc(), ret_lr, sp);
+		for (int frame = 1; frame < 12 && sp != 0 && sp < 0x50000000; frame++) {
+			uint32 prev_sp = vm_read_memory_4(sp);  // backchain pointer
+			if (prev_sp == 0 || prev_sp <= sp || prev_sp >= 0x50000000) break;
+			uint32 saved_lr = vm_read_memory_4(prev_sp + 8);  // saved LR in caller's frame
+			uint32 call_instr = 0;
+			if (saved_lr >= 4 && saved_lr < 0x50000000)
+				call_instr = vm_read_memory_4(saved_lr - 4);
+			fprintf(stderr, "    frame %d: saved_LR=0x%08x SP=0x%08x call_instr=0x%08x\n",
+					frame, saved_lr, prev_sp, call_instr);
+			sp = prev_sp;
+		}
+	}
+
+	// Dump PPC register state for crash analysis
+	fprintf(stderr, "  LR=0x%08x CTR=0x%08x CR=0x%08x XER=0x%08x\n",
+			lr(), ctr(), cr().get(), xer().get());
+	fprintf(stderr, "  R0=0x%08x R1(SP)=0x%08x R2(TOC)=0x%08x R3=0x%08x\n",
+			gpr(0), gpr(1), gpr(2), gpr(3));
+	fprintf(stderr, "  R4=0x%08x R5=0x%08x R6=0x%08x R7=0x%08x\n",
+			gpr(4), gpr(5), gpr(6), gpr(7));
+	fprintf(stderr, "  R8=0x%08x R9=0x%08x R10=0x%08x R11=0x%08x\n",
+			gpr(8), gpr(9), gpr(10), gpr(11));
+	fprintf(stderr, "  R12=0x%08x R13=0x%08x\n", gpr(12), gpr(13));
+	// Dump instructions around the crash address
+	fprintf(stderr, "  Instructions around PC:\n");
+	for (int di = -4; di <= 4; di++) {
+		uint32 addr = pc() + di * 4;
+		uint32 instr = vm_read_memory_4(addr);
+		fprintf(stderr, "    [0x%08x] %08x%s\n", addr, instr, di == 0 ? " <-- CRASH" : "");
+	}
+	// Dump a few words at LR to help understand call chain
+	fprintf(stderr, "  Instructions at LR 0x%08x:\n", lr());
+	for (int di = -2; di <= 2; di++) {
+		uint32 addr = lr() + di * 4;
+		uint32 instr = vm_read_memory_4(addr);
+		fprintf(stderr, "    [0x%08x] %08x\n", addr, instr);
+	}
 
 #ifdef SHEEPSHAVER
 	if (PrefsFindBool("ignoreillegal")) {
@@ -67,7 +111,7 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 
 #if ENABLE_MON
 	disass_ppc(stdout, pc(), opcode);
-
+NOw the 
 	// Start up mon in real-mode
 	const char *arg[4] = {"mon", "-m", "-r", NULL};
 	mon(3, arg);

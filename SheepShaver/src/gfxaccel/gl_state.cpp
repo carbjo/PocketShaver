@@ -2633,7 +2633,7 @@ uint32_t NativeGLIsTexture(GLContext *ctx, uint32_t texture)
 
 
 // =========================================================================
-//  Remaining core GL handlers
+//  Remaining core GL handlers -- Plan 08
 //
 //  Categories: Accumulation, bitmap/raster, rectangles, finish/flush,
 //  evaluators, selection/feedback, pixel transfer/map, index mode,

@@ -14,7 +14,7 @@
  *    - NativeSetFloat/SetInt/SetPtr: store state values by tag ID
  *    - NativeGetFloat/GetInt/GetPtr: retrieve state values by tag ID
  *
- *  ObjC++ (.mm) for Metal integration.
+ *  ObjC++ (.mm) for future Metal integration in Plan 02.
  */
 
 #include "sysdeps.h"
@@ -44,6 +44,7 @@ static RaveDrawPrivate *context_table[RAVE_MAX_CONTEXTS] = {};
 static uint32_t next_handle = 1;
 
 int rave_context_count = 0;
+uint32_t rave_current_draw_context_addr = 0;
 
 RaveDrawPrivate *RaveGetContext(uint32 handle)
 {
@@ -186,7 +187,7 @@ static void InitStateDefaults(RaveDrawPrivate *ctx, uint32 flags)
  *
  *  The struct has 35 method pointer fields starting at offset 8.
  *  Fields 0-34 all map to draw method tags.
- *  Fields 26-33 are RAVE 1.6 buffer access/clear methods.
+ *  Fields 26-33 are RAVE 1.6 buffer access/clear methods (Phase 6).
  */
 static const int kDrawContextMethodFields = 35;
 
@@ -262,7 +263,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	// Allocate vertex staging buffer
 	ctx->vertexStagingCapacity = 65536;
 	ctx->vertexStagingCount = 0;
-	ctx->vertexStagingBuffer = new uint8_t[ctx->vertexStagingCapacity * 48]; // 48 bytes per vertex
+	ctx->vertexStagingBuffer = new uint8_t[ctx->vertexStagingCapacity * 48]; // 48 bytes per vertex (Phase 4 layout)
 
 	// Allocate multi-texture UV staging buffer (parallel to vertexStagingBuffer)
 	// 16 bytes per vertex: uOverW2(4) + vOverW2(4) + invW2(4) + pad(4)
@@ -337,6 +338,9 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 		}
 	}
 
+	// Track the most recent draw context for EngineGestalt(kQATIGestalt_CurrentContext)
+	rave_current_draw_context_addr = drawContextAddr;
+
 	return kQANoErr;
 }
 
@@ -384,6 +388,7 @@ int32 NativeDrawPrivateDelete(uint32 drawPrivateHandle)
 	// Clamp for safety (non-overlay purposes)
 	if (rave_context_count <= 0) {
 		rave_context_count = 0;
+		rave_current_draw_context_addr = 0;
 	}
 
 	RAVE_LOG("DrawPrivateDelete: done, contexts=%d", rave_context_count);

@@ -20,10 +20,9 @@
 
 struct RaveDrawPrivate;
 
-// CAMetalLayer overlay lifecycle (shared across all contexts)
+// Overlay lifecycle (shared across all contexts, backed by compositor offscreen texture)
 extern void RaveCreateMetalOverlay(int32_t left, int32_t top, int32_t width, int32_t height);
 extern void RaveDestroyMetalOverlay(void);
-extern void *RaveGetMetalLayer(void);
 extern void RaveClearOverlayToTransparent(void);
 
 // Deferred overlay destruction (prevents flicker on rapid create/destroy cycles)

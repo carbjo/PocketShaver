@@ -1380,7 +1380,6 @@ extern void GLMetalBeginFrame(GLContext *ctx);
 extern void GLMetalEndFrame(GLContext *ctx);
 extern void GLMetalFlushImmediateMode(GLContext *ctx);
 extern void GLMetalRelease(GLContext *ctx);
-extern void GLMetalSetLayer(GLContext *ctx, void *layer);
 extern void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
                                  int width, int height, int format, int type, const void *pixels);
 extern void GLMetalUpload3DTexture(GLContext *ctx, GLTextureObject *texObj, int level,

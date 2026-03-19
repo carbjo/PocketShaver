@@ -60,6 +60,7 @@
 #include "utils_ios.h"
 #import "OverlayViewControllerObjC.h"
 #import "MonitorResolutionsObjC.h"
+#include "metal_compositor.h"
 #endif
 
 #ifdef WIN32
@@ -156,7 +157,7 @@ static int keycode_table[256];						// X keycode -> Mac keycode translation tabl
 SDL_Window * sdl_window = NULL;				        // Wraps an OS-native window
 static SDL_Surface * host_surface = NULL;			// Surface in host-OS display format
 static SDL_Surface * guest_surface = NULL;			// Surface in guest-OS display format
-SDL_Renderer * sdl_renderer = NULL;			// Handle to SDL2 renderer (non-static for RAVE overlay coordinate mapping)
+static SDL_Renderer * sdl_renderer = NULL;			// Handle to SDL2 renderer
 static SDL_threadID sdl_renderer_thread_id = 0;		// Thread ID where the SDL_renderer was created, and SDL_renderer ops should run (for compatibility w/ d3d9)
 static SDL_Texture * sdl_texture = NULL;			// Handle to a GPU texture, with which to draw guest_surface to
 static SDL_Rect sdl_update_video_rect = {0,0,0,0};  // Union of all rects to update, when updating sdl_texture
@@ -724,6 +725,9 @@ static void delete_sdl_video_window()
 static void shutdown_sdl_video()
 {
 	delete_sdl_video_surfaces();
+#if TARGET_OS_IPHONE
+	MetalCompositorShutdown();
+#endif
 	delete_sdl_video_window();
 }
 
@@ -774,7 +778,9 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 		}
 	}
 	
+#if !TARGET_OS_IPHONE
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, PrefsFindBool("scale_nearest") ? "nearest" : "linear");
+#endif
 	
 #if defined(__MACOSX__) && SDL_VERSION_ATLEAST(2,0,14)
 	if (MetalIsAvailable()) window_flags |= SDL_WINDOW_METAL;
@@ -805,6 +811,7 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 		did_add_event_watch = true;
 	}
 
+#if !TARGET_OS_IPHONE
 	if (!sdl_renderer) {
 		const char *render_driver = PrefsFindString("sdlrender");
 		if (render_driver) {
@@ -815,8 +822,6 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 			SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
 #elif defined(__MACOSX__) && SDL_VERSION_ATLEAST(2,0,14)
 			SDL_SetHint(SDL_HINT_RENDER_DRIVER, window_flags & SDL_WINDOW_METAL ? "metal" : "opengl");
-#elif TARGET_OS_IPHONE
-			SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
 #else
 			SDL_SetHint(SDL_HINT_RENDER_DRIVER, "");
 #endif
@@ -840,11 +845,13 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 		SDL_GetRendererInfo(sdl_renderer, &info);
 		printf("Using SDL_Renderer driver: %s\n", (info.name ? info.name : "(null)"));
 	}
+#endif
     
     if (!sdl_update_video_mutex) {
         sdl_update_video_mutex = SDL_CreateMutex();
     }
 
+#if !TARGET_OS_IPHONE
 	SDL_assert(sdl_texture == NULL);
 #ifdef ENABLE_VOSF
 	sdl_texture = SDL_CreateTexture(sdl_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
@@ -859,6 +866,7 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
     sdl_update_video_rect.y = 0;
     sdl_update_video_rect.w = 0;
     sdl_update_video_rect.h = 0;
+#endif
 
 	SDL_assert(guest_surface == NULL);
 	SDL_assert(host_surface == NULL);
@@ -896,6 +904,12 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
     }
 
     if (!host_surface) {
+#if TARGET_OS_IPHONE
+    	// On iOS, the Metal compositor handles presentation — no SDL texture
+    	// exists. Set host_surface = guest_surface to keep downstream code
+    	// (objc_reportFrameRender, NQD format queries) working.
+    	host_surface = guest_surface;
+#else
     	Uint32 texture_format;
     	if (SDL_QueryTexture(sdl_texture, &texture_format, NULL, NULL, NULL) != 0) {
     		printf("ERROR: Unable to get the SDL texture's pixel format: %s\n", SDL_GetError());
@@ -917,8 +931,10 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
             shutdown_sdl_video();
             return NULL;
         }
+#endif
     }
 
+#if !TARGET_OS_IPHONE
 	if (SDL_RenderSetLogicalSize(sdl_renderer, width, height) != 0) {
 		printf("ERROR: Unable to set SDL rendeer's logical size (to %dx%d): %s\n",
 			   width, height, SDL_GetError());
@@ -927,6 +943,7 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 	}
 
 	SDL_RenderSetIntegerScale(sdl_renderer, PrefsFindBool("scale_integer") ? SDL_TRUE : SDL_FALSE);
+#endif
 
     return guest_surface;
 }
@@ -1116,12 +1133,31 @@ void driver_base::init()
 	// Set frame buffer base
 	set_mac_frame_buffer(monitor, VIDEO_MODE_DEPTH, true);
 
+#if TARGET_OS_IPHONE
+	{
+		int fb_width = VIDEO_MODE_X;
+		int fb_height = VIDEO_MODE_Y;
+		if (MetalCompositorIsInitialized()) {
+			MetalCompositorResize(fb_width, fb_height, VIDEO_MODE_DEPTH, VIDEO_MODE_ROW_BYTES, pitch, the_buffer, the_buffer_size);
+		} else {
+			MetalCompositorInit(fb_width, fb_height, VIDEO_MODE_DEPTH, VIDEO_MODE_ROW_BYTES, pitch, the_buffer, the_buffer_size);
+		}
+	}
+#endif
+
 	adapt_to_video_mode();
 	
 	// set default B/W palette
 	sdl_palette = SDL_AllocPalette(256);
 	sdl_palette->colors[1] = (SDL_Color){ .r = 0, .g = 0, .b = 0, .a = 255 };
 	SDL_SetSurfacePalette(s, sdl_palette);
+#if TARGET_OS_IPHONE
+	// Upload initial B/W palette so indexed modes display correctly from frame 1
+	{
+		uint8_t bw_pal[6] = {255,255,255, 0,0,0};
+		MetalCompositorUpdatePalette(bw_pal, 2);
+	}
+#endif
 
 	if (PrefsFindBool("init_grab") && !PrefsFindBool("hardcursor")) grab_mouse();
 }
@@ -1829,7 +1865,11 @@ void VideoVBL(void)
 	if (toggle_fullscreen)
 		do_toggle_fullscreen();
 
+#if TARGET_OS_IPHONE
+	MetalCompositorPresent();
+#else
 	present_sdl_video();
+#endif
 
 	// Temporarily give up frame buffer lock (this is the point where
 	// we are suspended when the user presses Ctrl-Tab)
@@ -1853,7 +1893,11 @@ void VideoInterrupt(void)
 	if (toggle_fullscreen)
 		do_toggle_fullscreen();
 
+#if TARGET_OS_IPHONE
+	MetalCompositorPresent();
+#else
 	present_sdl_video();
+#endif
 
 	// Temporarily give up frame buffer lock (this is the point where
 	// we are suspended when the user presses Ctrl-Tab)
@@ -1938,6 +1982,11 @@ void SDL_monitor_desc::set_palette(uint8 *pal, int num_in)
 
 	// Tell redraw thread to change palette
 	sdl_palette_changed = true;
+
+#if TARGET_OS_IPHONE
+	// Update the GPU palette buffer so the Metal compositor renders correct colors
+	MetalCompositorUpdatePalette(pal, num_in);
+#endif
 
 	UNLOCK_PALETTE;
 }

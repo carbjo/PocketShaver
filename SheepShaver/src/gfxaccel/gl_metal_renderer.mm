@@ -14,12 +14,10 @@
  *    - Immediate mode vertex submission (glBegin/glEnd -> Metal draw)
  *    - Primitive conversion: quads/polygon/fan -> triangle lists on CPU
  *    - Uniform upload for MVP, lighting, fog, texenv, alpha test
- *    - Frame begin/end/present via shared AccelMetalView
+ *    - Frame begin/end via compositor's offscreen overlay texture
  */
 
 #import <Metal/Metal.h>
-#import <QuartzCore/CAMetalLayer.h>
-#import <UIKit/UIKit.h>
 
 #include <cstring>
 #include <cstdio>
@@ -30,8 +28,10 @@
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "gl_engine.h"
-#include "rave_metal_renderer.h"  // for RaveCreateMetalOverlay, AccelMetalView access
+#include "rave_metal_renderer.h"  // for RaveCreateMetalOverlay, RaveOverlayRetain/Release
+#include "metal_compositor.h"    // for MetalCompositorGetOverlayTexture
 #include "accel_logging.h"
+#include "metal_device_shared.h"
 
 // Logging macro (matches gl_dispatch.cpp pattern)
 #if ACCEL_LOGGING_ENABLED
@@ -253,8 +253,7 @@ struct GLMetalState {
     // Current frame state
     id<MTLCommandBuffer>        currentCommandBuffer;
     id<MTLRenderCommandEncoder> currentEncoder;
-    CAMetalLayer               *layer;
-    id<CAMetalDrawable>         currentDrawable;
+    id<MTLTexture>              overlayTexture;  // offscreen texture from compositor (replaces layer/drawable)
     id<MTLTexture>              depthBuffer;
     id<MTLTexture>              fallbackWhiteTexture;  // 1x1 white for missing textures
     id<MTLCommandBuffer>        lastCommittedBuffer;
@@ -326,7 +325,7 @@ static MTLStencilOperation GLStencilOpToMetal(uint32_t gl_op) {
 
 
 // ---- Pipeline state key ----
-// Verified that MakePipelineKey includes all Metal render pipeline
+// AUDIT: M003/S04/T01 — Verified that MakePipelineKey includes all Metal render pipeline
 // state: blend_enabled, blend_src, blend_dst, depth_write, color_mask_bits, has_texture.
 // Depth test/func, stencil, and cull face are NOT part of the Metal pipeline state object
 // (they are set separately via setDepthStencilState: and setCullMode:), so their absence
@@ -379,25 +378,20 @@ void GLMetalInit(GLContext *ctx)
     ms->bufferOffset = 0;
     ms->renderPassActive = false;
 
-    // Get the shared Metal device from the RAVE overlay's CAMetalLayer.
-    // This ensures GL uses the same device as the layer and RAVE contexts,
-    // avoiding undefined behavior when encoding to shared drawables.
-    CAMetalLayer *sharedLayer = (__bridge CAMetalLayer *)RaveGetMetalLayer();
-    ms->device = sharedLayer ? sharedLayer.device : nil;
+    // Get the shared Metal device directly from the compositor.
+    ms->device = (__bridge id<MTLDevice>)SharedMetalDevice();
     if (!ms->device) {
-        // Defensive fallback — should not happen since RaveCreateMetalOverlay
-        // sets the layer device before GL init.
-        GL_METAL_LOG("GLMetalInit: layer device nil, falling back to MTLCreateSystemDefaultDevice");
-        ms->device = MTLCreateSystemDefaultDevice();
-    }
-    if (!ms->device) {
-        GL_METAL_LOG("GLMetalInit: MTLCreateSystemDefaultDevice failed");
+        GL_METAL_LOG("GLMetalInit: SharedMetalDevice failed");
         delete ms;
         return;
     }
 
-    // Create command queue
-    ms->commandQueue = [ms->device newCommandQueue];
+    // Create command queue (shared when using the shared device)
+    if (ms->device == (__bridge id<MTLDevice>)SharedMetalDevice()) {
+        ms->commandQueue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
+    } else {
+        ms->commandQueue = [ms->device newCommandQueue];
+    }
 
     // Load shader library
     NSError *err = nil;
@@ -533,15 +527,15 @@ static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext
         pipeDesc.colorAttachments[0].sourceRGBBlendFactor = GLBlendToMetal(blend_src);
         pipeDesc.colorAttachments[0].destinationRGBBlendFactor = GLBlendToMetal(blend_dst);
         // Independent alpha factors: maintain alpha=1.0 invariant regardless of RGB blend mode.
-        // Matches RAVE pattern (rave_metal_renderer.mm:675-676) — prevents alpha degradation
-        // that would make the overlay transparent through the CAMetalLayer.
+        // Independent alpha factors for overlay compositing.
         pipeDesc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
         pipeDesc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
     } else {
         pipeDesc.colorAttachments[0].blendingEnabled = NO;
     }
 
-    // Color write mask
+    // Color write mask — strip alpha to preserve overlay's alpha=1.0 for
+    // compositor compositing (same approach as RAVE).
     MTLColorWriteMask mask = MTLColorWriteMaskNone;
     if (color_mask_bits & 1) mask |= MTLColorWriteMaskRed;
     if (color_mask_bits & 2) mask |= MTLColorWriteMaskGreen;
@@ -689,35 +683,28 @@ void GLMetalBeginFrame(GLContext *ctx)
     if (!ms || !ms->initialized) return;
     if (ms->renderPassActive) return;
 
-    // Get the CAMetalLayer from the shared AccelMetalView
-    // (created by RaveCreateMetalOverlay or by us)
-    if (!ms->layer) {
-        GL_METAL_LOG("GLMetalBeginFrame: no layer set");
+    // Get the overlay texture from the compositor (offscreen render target)
+    ms->overlayTexture = (__bridge id<MTLTexture>)MetalCompositorGetOverlayTexture();
+    if (!ms->overlayTexture) {
+        GL_METAL_LOG("GLMetalBeginFrame: no overlay texture from compositor");
         return;
     }
 
-    ms->currentDrawable = [ms->layer nextDrawable];
-    if (!ms->currentDrawable) {
-        GL_METAL_LOG("GLMetalBeginFrame: nextDrawable returned nil");
-        return;
-    }
-
-    int w = (int)[ms->currentDrawable.texture width];
-    int h = (int)[ms->currentDrawable.texture height];
+    int w = (int)[ms->overlayTexture width];
+    int h = (int)[ms->overlayTexture height];
     EnsureDepthBuffer(ms, w, h);
 
     ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
 
     MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
-    rpd.colorAttachments[0].texture = ms->currentDrawable.texture;
+    rpd.colorAttachments[0].texture = ms->overlayTexture;
     rpd.colorAttachments[0].loadAction = MTLLoadActionClear;
     rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
-    // Force alpha=1.0: games leave clear alpha at 0.0 (fully transparent) because
-    // original GL had no overlay compositing. Without opaque alpha, the CAMetalLayer's
-    // transparent background bleeds through, making the GL scene invisible.
+    // Clear alpha to 1.0 (opaque): the compositor uses MTLViewport set to the
+    // GL render rect, so 2D content outside the 3D viewport is visible.
     rpd.colorAttachments[0].clearColor = MTLClearColorMake(
         ctx->clear_color[0], ctx->clear_color[1],
-        ctx->clear_color[2], 1.0  // always opaque for overlay compositing
+        ctx->clear_color[2], 1.0
     );
 
     rpd.depthAttachment.texture = ms->depthBuffer;
@@ -770,7 +757,7 @@ void GLMetalBeginFrame(GLContext *ctx)
     ms->renderPassActive = true;
     ms->bufferOffset = 0;  // Reset ring buffer offset for new frame
 
-    GL_METAL_LOG("GLMetalBeginFrame: encoder=%p drawable=%p", ms->currentEncoder, ms->currentDrawable);
+    GL_METAL_LOG("GLMetalBeginFrame: encoder=%p overlayTexture=%p", ms->currentEncoder, ms->overlayTexture);
 }
 
 
@@ -1024,13 +1011,13 @@ static bool GLMetalFlushAndResetRingBuffer(GLContext *ctx)
 
     // (e) Create a new render pass descriptor with MTLLoadActionLoad
     //     to preserve existing framebuffer content (color + depth + stencil)
-    if (!ms->currentDrawable) {
-        GL_METAL_LOG("GLMetalFlushAndResetRingBuffer: no drawable, cannot restart encoder");
+    if (!ms->overlayTexture) {
+        GL_METAL_LOG("GLMetalFlushAndResetRingBuffer: no overlay texture, cannot restart encoder");
         return false;
     }
 
     MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
-    rpd.colorAttachments[0].texture = ms->currentDrawable.texture;
+    rpd.colorAttachments[0].texture = ms->overlayTexture;
     rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
     rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
 
@@ -1575,14 +1562,10 @@ void GLMetalEndFrame(GLContext *ctx)
     [ms->currentEncoder endEncoding];
     ms->currentEncoder = nil;
 
-    if (ms->currentDrawable) {
-        [ms->currentCommandBuffer presentDrawable:ms->currentDrawable];
-    }
-
     [ms->currentCommandBuffer commit];
     ms->lastCommittedBuffer = ms->currentCommandBuffer;
     ms->currentCommandBuffer = nil;
-    ms->currentDrawable = nil;
+
     ms->renderPassActive = false;
 
     // Advance ring buffer
@@ -1641,7 +1624,7 @@ void NativeGLFlush(GLContext *ctx)
 /*
  *  GLMetalRelease - release all Metal resources for a GL context
  *
- *  LIFECYCLE: Verified cleanup of all resource types:
+ *  LIFECYCLE AUDIT (M003/S04/T02): Verified cleanup of all resource types:
  *  - Pending command buffers: committed + waited before teardown
  *  - GL texture objects: CFRelease on each metal_texture (CFBridgingRetain'd)
  *  - Pipeline state cache: cleared (ARC releases id<MTLRenderPipelineState>)
@@ -1706,18 +1689,6 @@ void GLMetalRelease(GLContext *ctx)
     ctx->metal = nullptr;
 
     GL_METAL_LOG("GLMetalRelease: all Metal resources released");
-}
-
-
-/*
- *  GLMetalSetLayer - set the CAMetalLayer for rendering
- */
-void GLMetalSetLayer(GLContext *ctx, void *layer)
-{
-    GLMetalState *ms = (GLMetalState *)ctx->metal;
-    if (!ms) return;
-    ms->layer = (__bridge CAMetalLayer *)layer;
-    GL_METAL_LOG("GLMetalSetLayer: layer=%p", layer);
 }
 
 
@@ -2071,13 +2042,13 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
         ms->currentEncoder = nil;
     }
 
-    // Get the current drawable texture
+    // Get the current overlay texture
     id<MTLTexture> srcTex = nil;
-    if (ms->currentDrawable) {
-        srcTex = ms->currentDrawable.texture;
+    if (ms->overlayTexture) {
+        srcTex = ms->overlayTexture;
     }
     if (!srcTex) {
-        GL_METAL_LOG("NativeGLReadPixels: no drawable texture available");
+        GL_METAL_LOG("NativeGLReadPixels: no overlay texture available");
         return;
     }
 
@@ -2150,9 +2121,9 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
     if (ms->renderPassActive) {
         // Re-create encoder -- GLMetalBeginFrame will handle this
         // Actually we need to create a new pass that loads existing content
-        if (ms->currentDrawable) {
+        if (ms->overlayTexture) {
             MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
-            rpd.colorAttachments[0].texture = ms->currentDrawable.texture;
+            rpd.colorAttachments[0].texture = ms->overlayTexture;
             rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
             rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
             if (ms->depthBuffer) {
@@ -2222,7 +2193,7 @@ static float *gl_accum_read_framebuffer(GLContext *ctx, int *out_w, int *out_h)
     }
 
     id<MTLTexture> srcTex = nil;
-    if (ms->currentDrawable) srcTex = ms->currentDrawable.texture;
+    if (ms->overlayTexture) srcTex = ms->overlayTexture;
     if (!srcTex) return nullptr;
 
     int width = (int)[srcTex width];
@@ -2275,10 +2246,10 @@ static float *gl_accum_read_framebuffer(GLContext *ctx, int *out_w, int *out_h)
 static void gl_accum_restart_encoder(GLContext *ctx)
 {
     GLMetalState *ms = (GLMetalState *)ctx->metal;
-    if (!ms || !ms->renderPassActive || !ms->currentDrawable) return;
+    if (!ms || !ms->renderPassActive || !ms->overlayTexture) return;
 
     MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
-    rpd.colorAttachments[0].texture = ms->currentDrawable.texture;
+    rpd.colorAttachments[0].texture = ms->overlayTexture;
     rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
     rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
     if (ms->depthBuffer) {
@@ -2308,7 +2279,7 @@ static void gl_accum_write_framebuffer(GLContext *ctx, float scale)
     }
 
     id<MTLTexture> dstTex = nil;
-    if (ms->currentDrawable) dstTex = ms->currentDrawable.texture;
+    if (ms->overlayTexture) dstTex = ms->overlayTexture;
     if (!dstTex) return;
 
     int width = ctx->accum_width;
@@ -2942,9 +2913,11 @@ static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode, const int32_t 
 {
     if (count <= 0) return;
 
-    // Early out if Metal rendering is not possible (no layer -> no output)
+    // Early out if Metal state not initialized. Don't check overlayTexture here:
+    // it's populated lazily by GLMetalBeginFrame (called from GLMetalFlushImmediateMode).
+    // Checking it here would prevent the first frame from ever starting.
     GLMetalState *ms = (GLMetalState *)ctx->metal;
-    if (!ms || !ms->initialized || !ms->layer) return;
+    if (!ms || !ms->initialized) return;
 
     ctx->in_begin = true;
     ctx->im_mode = mode;

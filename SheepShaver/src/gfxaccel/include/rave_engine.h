@@ -346,6 +346,12 @@ extern uint32_t NativeGetPtr(uint32_t drawContextAddr, uint32_t tag);
 extern RaveDrawPrivate *RaveGetContext(uint32_t handle);
 extern int rave_context_count;  // for CAMetalLayer lifecycle
 
+// Tracks the Mac address of the most recently created RAVE draw context.
+// Returned by EngineGestalt(kQATIGestalt_CurrentContext) so the QD3D IR
+// can discover our draw context's method table.  Set in NativeDrawPrivateNew,
+// cleared in NativeDrawPrivateDelete when the last context is destroyed.
+extern uint32_t rave_current_draw_context_addr;
+
 /*
  *  Logging
  */
@@ -383,7 +389,7 @@ static constexpr bool rave_logging_enabled = false;
 /*
  *  Resource handle table for dummy texture/bitmap/color table resources.
  *  Same pattern as draw context table (1-based handles, fixed size).
- *  Entries hold real Metal textures alongside CPU pixel data.
+ *  Phase 4 upgrades entries to hold real Metal textures.
  */
 enum RaveResourceType {
 	kRaveResourceFree = 0,
@@ -396,7 +402,7 @@ struct RaveResourceEntry {
 	RaveResourceType type;
 	uint32_t         mac_addr;   // SheepMem address visible to PPC side
 
-	// Metal texture data
+	// Phase 4: Metal texture data
 	void            *metal_texture;   // id<MTLTexture> stored as void* for C++ header
 	uint32_t         pixel_type;      // kQAPixel_* value
 	uint32_t         width;
@@ -406,7 +412,7 @@ struct RaveResourceEntry {
 	uint32_t         original_size;   // size of original_pixels buffer
 	uint32_t         row_bytes;       // original row bytes for level 0
 	uint32_t         bound_clut;      // resource handle of bound color table (0 = none)
-	uint16_t         priority;        // priority bits from flags >> 16 (per RAVE 1.6 spec)
+	uint16_t         priority;        // GAP-010: priority bits from flags >> 16 (per RAVE 1.6 spec)
 	uint32_t         pixmap_mac_addr; // deferred: Mac address of pixel data (indexed textures)
 	bool             pixels_copied;   // true once pixel data has been copied (at Detach time)
 
@@ -421,7 +427,7 @@ struct RaveResourceEntry {
 	int32_t          transparent_index; // -1 if none
 };
 
-#define RAVE_MAX_RESOURCES 64
+#define RAVE_MAX_RESOURCES 512
 
 extern RaveResourceEntry rave_resource_table[RAVE_MAX_RESOURCES];
 
@@ -433,6 +439,13 @@ extern bool RaveResourceFree(uint32_t handle);
 extern RaveResourceEntry *RaveResourceGet(uint32_t handle);
 // Lookup by Mac address. Returns 1-based handle, or 0 if not found.
 extern uint32_t RaveResourceFindByAddr(uint32_t mac_addr);
+
+// Deferred texture creation: creates Metal texture from current Mac memory contents.
+// Called at first draw-time use when metal_texture is nullptr and pixmap_mac_addr is set.
+extern void RaveRealizeDeferredTexture(RaveResourceEntry *entry);
+extern void RaveRefreshTextureFromPixmap(RaveResourceEntry *entry);
+extern bool ConvertPixels(uint32_t pixelType, uint32 srcAddr, uint8_t *dst,
+                          uint32_t width, uint32_t height, uint32_t rowBytes);
 
 /*
  *  Engine method dispatch functions (called from rave_dispatch.cpp)
@@ -468,7 +481,7 @@ extern void RaveReleaseTexture(void *metalTexture);
 
 /*
  *  ATI RaveExtFuncs native handlers (implemented in rave_metal_renderer.mm)
- *  Weak stubs in rave_dispatch.cpp; real implementations in rave_metal_renderer.mm.
+ *  Temporary weak stubs in rave_dispatch.cpp until Plan 04 provides real implementations.
  */
 extern int32_t NativeATIClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr);
 extern int32_t NativeATIClearZBuffer(uint32_t drawContextAddr, uint32_t rectAddr);

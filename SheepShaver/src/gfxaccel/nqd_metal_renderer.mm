@@ -20,6 +20,7 @@
 #include "cpu_emulation.h"
 #include "nqd_accel.h"
 #include "accel_logging.h"
+#include "metal_device_shared.h"
 
 // ---------------------------------------------------------------------------
 // Diagnostic logging
@@ -171,17 +172,17 @@ void NQDMetalInit(void)
     NQD_LOG("NQDMetalInit: starting");
 
     // Create Metal device
-    nqd_device = MTLCreateSystemDefaultDevice();
+    nqd_device = (__bridge id<MTLDevice>)SharedMetalDevice();
     if (!nqd_device) {
-        NQD_ERR("NQDMetalInit: MTLCreateSystemDefaultDevice failed — no Metal GPU");
+        NQD_ERR("NQDMetalInit: SharedMetalDevice failed — no Metal GPU");
         return;
     }
     NQD_LOG("NQDMetalInit: device=%p (%s)", nqd_device, [[nqd_device name] UTF8String]);
 
     // Create command queue
-    nqd_queue = [nqd_device newCommandQueue];
+    nqd_queue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
     if (!nqd_queue) {
-        NQD_ERR("NQDMetalInit: newCommandQueue failed");
+        NQD_ERR("NQDMetalInit: SharedMetalCommandQueue failed");
         nqd_device = nil;
         return;
     }

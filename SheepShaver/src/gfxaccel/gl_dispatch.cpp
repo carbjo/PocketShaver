@@ -270,7 +270,7 @@ extern void NativeGLTexCoord2sv(GLContext *ctx, uint32_t mac_ptr);
 extern void NativeGLTexCoord3sv(GLContext *ctx, uint32_t mac_ptr);
 extern void NativeGLTexCoord4sv(GLContext *ctx, uint32_t mac_ptr);
 
-// ---- Remaining core GL externs (gl_state.cpp) ----
+// ---- Plan 08 remaining core GL externs (gl_state.cpp) ----
 extern void NativeGLAccum(GLContext *ctx, uint32_t op, float value);
 extern void NativeGLClearAccum(GLContext *ctx, float r, float g, float b, float a);
 extern void NativeGLClearIndex(GLContext *ctx, float c);

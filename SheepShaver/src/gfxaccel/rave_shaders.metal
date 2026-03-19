@@ -106,13 +106,10 @@ fragment float4 rave_fragment(VertexOut in [[stage_in]],
         } else {
             uv = float2(0.0, 0.0);
         }
-        // V-axis: QD3D uses V=0 at top, V=1 at bottom (standard 2D convention).
-        // After QD3D IR transforms, V is always in [0,1]. Nanosaur uses QD3D
-        // exclusively — no direct RAVE callers send negative V.
-        // Previously abs() was applied to uv.y as a heuristic to handle hypothetical
-        // negative-V RAVE callers, but this folds UV space (coords -0.3 and +0.3
-        // map to the same texel), producing garbled output. Removed in favor of
-        // using V directly, which is correct for all QD3D-sourced geometry.
+        // V-axis: The V flip from OpenGL convention (V=0 at bottom) to Metal
+        // convention (V=0 at top) is applied at vertex conversion time in
+        // ConvertTextureVertex (vOverW = invW - vOverW).  No additional
+        // flip needed here — the interpolated values are already correct.
 
         float4 texPix = tex.sample(samp, uv, bias(uniforms.mipmap_bias));
 
@@ -149,8 +146,7 @@ fragment float4 rave_fragment(VertexOut in [[stage_in]],
         } else {
             uv2 = float2(0.0, 0.0);
         }
-        // V-axis: same reasoning as primary UV — V is always non-negative
-        // from QD3D IR. abs() removed to avoid UV space folding.
+        // V-axis: flipped at vertex conversion time, same as primary UV.
         float4 tex2Color = tex2.sample(samp2, uv2, bias(uniforms.multi_texture_mipmap_bias));
         if (uniforms.multi_texture_op == 0)       // Add
             color.rgb = saturate(color.rgb + tex2Color.rgb);
@@ -193,15 +189,15 @@ fragment float4 rave_fragment(VertexOut in [[stage_in]],
             // Alpha-based fog: vertex alpha IS the fog interpolation factor
             fog_factor = color.a;
         } else if (uniforms.fog_mode == 2) {
-            // Linear fog -- use invW-based depth when available
+            // Linear fog -- GAP-011: use invW-based depth when available
             float z = (in.texcoord.z > 0.0) ? (1.0 / in.texcoord.z) : (in.position.z * uniforms.fog_max_depth);
             fog_factor = clamp((uniforms.fog_end - z) / (uniforms.fog_end - uniforms.fog_start), 0.0, 1.0);
         } else if (uniforms.fog_mode == 3) {
-            // Exponential fog -- use invW-based depth when available
+            // Exponential fog -- GAP-011: use invW-based depth when available
             float z = (in.texcoord.z > 0.0) ? (1.0 / in.texcoord.z) : (in.position.z * uniforms.fog_max_depth);
             fog_factor = clamp(exp(-uniforms.fog_density * z), 0.0, 1.0);
         } else if (uniforms.fog_mode == 4) {
-            // Exponential squared fog -- use invW-based depth when available
+            // Exponential squared fog -- GAP-011: use invW-based depth when available
             float z = (in.texcoord.z > 0.0) ? (1.0 / in.texcoord.z) : (in.position.z * uniforms.fog_max_depth);
             float dz = uniforms.fog_density * z;
             fog_factor = clamp(exp(-dz * dz), 0.0, 1.0);
@@ -209,7 +205,7 @@ fragment float4 rave_fragment(VertexOut in [[stage_in]],
         float3 fog_color = float3(uniforms.fog_color_r, uniforms.fog_color_g, uniforms.fog_color_b);
         color.rgb = mix(fog_color, color.rgb, fog_factor);
         if (uniforms.fog_mode == 1) {
-            color.a = 1.0;  // FogMode_Alpha disables vertex alpha blending
+            color.a = 1.0;  // GAP-013: FogMode_Alpha disables vertex alpha blending
         }
     }
 
