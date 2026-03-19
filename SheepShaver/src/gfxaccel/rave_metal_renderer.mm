@@ -3616,16 +3616,17 @@ void RaveGenerateMipmaps(void *metalTexture)
 {
 	if (!metalTexture) return;
 	id<MTLTexture> tex = (__bridge id<MTLTexture>)metalTexture;
-	id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
-	if (!device) return;
+	id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
+	if (!queue) return;
 
-	id<MTLCommandQueue> queue = [device newCommandQueue];
-	id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
-	id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
-	[blit generateMipmapsForTexture:tex];
-	[blit endEncoding];
-	[cmdBuf commit];
-	[cmdBuf waitUntilCompleted];
+	@autoreleasepool {
+		id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
+		id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
+		[blit generateMipmapsForTexture:tex];
+		[blit endEncoding];
+		[cmdBuf commit];
+		[cmdBuf waitUntilCompleted];
+	}
 }
 
 

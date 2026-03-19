@@ -493,6 +493,15 @@ bool NQD_bltmask_hook(uint32 arg)
 		return false;
 	}
 
+	// Validate region bbox: top < bottom and left < right
+	int16 bbox_top    = (int16)ReadMacInt16(mask_rgn_addr + 2);
+	int16 bbox_left   = (int16)ReadMacInt16(mask_rgn_addr + 4);
+	int16 bbox_bottom = (int16)ReadMacInt16(mask_rgn_addr + 6);
+	int16 bbox_right  = (int16)ReadMacInt16(mask_rgn_addr + 8);
+	if (bbox_top >= bbox_bottom || bbox_left >= bbox_right) {
+		return false;
+	}
+
 	// Validate pixel size matching (src == dest)
 	if (ReadMacInt32(arg + acclSrcPixelSize) != ReadMacInt32(arg + acclDestPixelSize)) {
 		return false;
@@ -531,6 +540,15 @@ bool NQD_fillmask_hook(uint32 arg)
 	uint16 rgnSize = ReadMacInt16(mask_rgn_addr);
 	if (rgnSize < 10) {
 		D(bug("  fillmask_hook: invalid rgnSize %u at 0x%08x, declining\n", rgnSize, mask_rgn_addr));
+		return false;
+	}
+
+	// Validate region bbox: top < bottom and left < right
+	int16 bbox_top    = (int16)ReadMacInt16(mask_rgn_addr + 2);
+	int16 bbox_left   = (int16)ReadMacInt16(mask_rgn_addr + 4);
+	int16 bbox_bottom = (int16)ReadMacInt16(mask_rgn_addr + 6);
+	int16 bbox_right  = (int16)ReadMacInt16(mask_rgn_addr + 8);
+	if (bbox_top >= bbox_bottom || bbox_left >= bbox_right) {
 		return false;
 	}
 

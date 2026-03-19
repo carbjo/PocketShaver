@@ -123,6 +123,7 @@ static id<MTLTexture>               overlay_texture     = nil;
 static bool                         overlay_active      = false;
 static id<MTLRenderPipelineState>   overlay_pipeline    = nil;
 static id<MTLSamplerState>          overlay_sampler     = nil;
+static id<MTLLibrary>               compositor_library  = nil;  // cached shader library
 static int                          overlay_width       = 0;
 static int                          overlay_height      = 0;
 static int                          overlay_x           = 0;
@@ -304,8 +305,11 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         COMPOSITOR_LOG("MetalCompositorInit: palette_buffer created (256x4 bytes)");
     }
 
-    // --- Shader library ---
-    id<MTLLibrary> library = [compositor_device newDefaultLibrary];
+    // --- Shader library (cached for reuse across Resize calls) ---
+    if (!compositor_library) {
+        compositor_library = [compositor_device newDefaultLibrary];
+    }
+    id<MTLLibrary> library = compositor_library;
     if (!library) {
         COMPOSITOR_ERR("MetalCompositorInit: FAILED — newDefaultLibrary returned nil");
         return -1;
@@ -474,7 +478,10 @@ int MetalCompositorCreateOverlayTexture(int w, int h)
 
     // Build overlay compositing pipeline if not already created
     if (!overlay_pipeline) {
-        id<MTLLibrary> library = [compositor_device newDefaultLibrary];
+        if (!compositor_library) {
+            compositor_library = [compositor_device newDefaultLibrary];
+        }
+        id<MTLLibrary> library = compositor_library;
         if (!library) {
             COMPOSITOR_ERR("MetalCompositorCreateOverlayTexture: FAILED — newDefaultLibrary");
             overlay_texture = nil;
@@ -580,6 +587,8 @@ void MetalCompositorPresent(void)
 {
     if (!compositor_layer || !compositor_pipeline) return;
 
+    @autoreleasepool {
+
     // If using fallback texture, upload framebuffer data via replaceRegion
     if (compositor_use_fallback_texture && compositor_texture && compositor_buffer) {
         MTLRegion region = MTLRegionMake2D(0, 0,
@@ -668,6 +677,8 @@ void MetalCompositorPresent(void)
 
     [cmdBuf presentDrawable:drawable];
     [cmdBuf commit];
+
+    } // @autoreleasepool
 }
 
 // ---------------------------------------------------------------------------
@@ -802,8 +813,11 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
         memset(palette_buffer.contents, 0, 256 * 4);
     }
 
-    // --- Shader library ---
-    id<MTLLibrary> library = [compositor_device newDefaultLibrary];
+    // --- Shader library (reuse cached instance) ---
+    if (!compositor_library) {
+        compositor_library = [compositor_device newDefaultLibrary];
+    }
+    id<MTLLibrary> library = compositor_library;
     if (!library) {
         COMPOSITOR_ERR("MetalCompositorResize: FAILED — newDefaultLibrary returned nil");
         return -1;
@@ -909,6 +923,7 @@ void MetalCompositorShutdown(void)
     palette_buffer      = nil;
     compositor_queue    = nil;
     compositor_device   = nil;
+    compositor_library  = nil;
 
     // Overlay cleanup (S03)
     overlay_texture     = nil;

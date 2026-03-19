@@ -470,7 +470,7 @@ static bool nqd_decode_region(uint32 rgn_addr, int dest_width, int dest_height,
 void NQDMetalBltMask(uint32 p)
 {
     if (!nqd_metal_available) return;
-
+    @autoreleasepool {
     // Extract bitblt parameters (same as NQDMetalBitblt)
     int16 src_X  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 2) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 2);
     int16 src_Y  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 0) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 0);
@@ -575,6 +575,7 @@ void NQDMetalBltMask(uint32 p)
         NQD_ERR("NQDMetalBltMask: GPU error (mode %d, bits_per_pixel %u): %s",
                 transfer_mode, src_pixel_size, [[cmdBuf.error localizedDescription] UTF8String]);
     }
+    } // @autoreleasepool
 }
 
 // ---------------------------------------------------------------------------
@@ -587,7 +588,7 @@ void NQDMetalBltMask(uint32 p)
 void NQDMetalFillMask(uint32 p)
 {
     if (!nqd_metal_available) return;
-
+    @autoreleasepool {
     // Extract fillrect parameters (same as NQDMetalFillRect)
     int16 dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
     int16 dest_Y = (int16)ReadMacInt16(p + NQD_acclDestRect + 0) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
@@ -690,6 +691,7 @@ void NQDMetalFillMask(uint32 p)
         NQD_ERR("NQDMetalFillMask: GPU error (transfer_mode %d, bits_per_pixel %u): %s",
                 transfer_mode, pixel_size, [[cmdBuf.error localizedDescription] UTF8String]);
     }
+    } // @autoreleasepool
 }
 
 // ---------------------------------------------------------------------------
@@ -728,7 +730,7 @@ void NQDMetalCleanup(void)
 void NQDMetalBitblt(uint32 p)
 {
     if (!nqd_metal_available) return;
-
+    @autoreleasepool {
     // Extract parameters from accl_params in Mac memory
     int16 src_X  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 2) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 2);
     int16 src_Y  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 0) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 0);
@@ -886,6 +888,7 @@ void NQDMetalBitblt(uint32 p)
             }
         }
     }
+    } // @autoreleasepool
 }
 
 // ---------------------------------------------------------------------------
@@ -899,7 +902,7 @@ void NQDMetalBitblt(uint32 p)
 void NQDMetalFillRect(uint32 p)
 {
     if (!nqd_metal_available) return;
-
+    @autoreleasepool {
     // Extract parameters from accl_params
     int16 dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
     int16 dest_Y = (int16)ReadMacInt16(p + NQD_acclDestRect + 0) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
@@ -991,6 +994,7 @@ void NQDMetalFillRect(uint32 p)
         NQD_ERR("NQDMetalFillRect: GPU error (transfer_mode %d, bits_per_pixel %u): %s",
                 transfer_mode, pixel_size, [[cmdBuf.error localizedDescription] UTF8String]);
     }
+    } // @autoreleasepool
 }
 
 // ---------------------------------------------------------------------------
@@ -1007,7 +1011,7 @@ void NQDMetalFillRect(uint32 p)
 void NQDMetalInvertRect(uint32 p)
 {
     if (!nqd_metal_available) return;
-
+    @autoreleasepool {
     // Extract parameters from accl_params
     int16 dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
     int16 dest_Y = (int16)ReadMacInt16(p + NQD_acclDestRect + 0) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
@@ -1087,4 +1091,5 @@ void NQDMetalInvertRect(uint32 p)
         NQD_ERR("NQDMetalInvertRect: GPU error (transfer_mode %d, bits_per_pixel %u): %s",
                 transfer_mode, pixel_size, [[cmdBuf.error localizedDescription] UTF8String]);
     }
+    } // @autoreleasepool
 }
