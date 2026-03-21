@@ -696,7 +696,7 @@ extension OverlayViewController {
 	}
 }
 
-extension OverlayViewController: @preconcurrency PerformanceCounterDelegate {
+extension OverlayViewController: PerformanceCounterDelegate {
 
 	func performanceCounter(_ counter: PerformanceCounter, didUpdateWithReport report: PerformanceCounterReport) {
 		if MiscellaneousSettings.current.fpsReporting && MiscellaneousSettings.current.networkTransferRateReportingEnabled {

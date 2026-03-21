@@ -80,7 +80,7 @@ class InputInteractionModel {
 		if (MiscellaneousSettings.current.bootInHoverMode &&
 			!MiscellaneousSettings.current.iPadMousePassthrough &&
 			MiscellaneousSettings.current.relativeMouseModeSetting != .alwaysOn) {
-			hoverOffsetMode = .justAbove
+			hoverOffsetMode = .diagonallyAbove
 		}
 	}
 

@@ -12,7 +12,7 @@ enum DiskType: String, Codable {
 	case cd
 }
 
-struct Disk: Codable, Equatable {
+struct Disk: Codable, Equatable, Hashable {
 	let filename: String
 	var isBootable: Bool
 	let romVersion: NewWorldRomVersion?

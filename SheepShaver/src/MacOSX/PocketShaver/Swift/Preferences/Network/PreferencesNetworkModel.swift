@@ -9,11 +9,6 @@ import UIKit
 import Combine
 
 class PreferencesNetworkModel {
-	struct TableViewChange {
-		let deletedIndices: Set<Int>
-		let insertedIndices: Set<Int>
-	}
-
 	enum Change {
 		case didUpdate
 	}

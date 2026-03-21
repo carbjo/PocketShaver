@@ -641,8 +641,7 @@ class PreferencesGeneralEnabledMonitorResolutionsCell: UITableViewCell {
 	private let didTapEditButton: (() -> Void)
 
 	init(
-		monitorResolutions: [MonitorResolutionOption],
-		willBootFromCD: Bool,
+		monitorResolutionsState: PreferencesGeneralModel.MonitorResolutionsState,
 		didTapEditButton: @escaping (() -> Void)
 	) {
 		self.didTapEditButton = didTapEditButton
@@ -658,21 +657,19 @@ class PreferencesGeneralEnabledMonitorResolutionsCell: UITableViewCell {
 		])
 
 		configure(
-			monitorResolutions: monitorResolutions,
-			willBootFromCD: willBootFromCD
+			monitorResolutionsState: monitorResolutionsState
 		)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
 	func configure(
-		monitorResolutions: [MonitorResolutionOption],
-		willBootFromCD: Bool
+		monitorResolutionsState: PreferencesGeneralModel.MonitorResolutionsState
 	) {
 		let monitorResolutionCategoryIndex: (MonitorResolutionCategory) -> Int = { category in
 			MonitorResolutionCategory.allCases.firstIndex(of: category)!
 		}
-		let sortedMonitorResolutions = monitorResolutions.sorted { opt1, opt2 in
+		let sortedMonitorResolutions = monitorResolutionsState.enabledResolutions.sorted { opt1, opt2 in
 			if monitorResolutionCategoryIndex(opt1.category) < monitorResolutionCategoryIndex(opt2.category) {
 				return true
 			}
@@ -728,7 +725,7 @@ class PreferencesGeneralEnabledMonitorResolutionsCell: UITableViewCell {
 
 		self.titleLabel = titleLabel
 
-		editButton.isHidden = willBootFromCD
+		editButton.isHidden = monitorResolutionsState.willBootFromCD
 	}
 
 	@objc
@@ -753,8 +750,7 @@ class PreferencesGeneralTwoFingerSteeringDetailsCell: UITableViewCell {
 	private let didTapEditButton: (() -> Void)
 
 	init(
-		isSecondFingerSwipeEnabled: Bool,
-		isBootInHoverModeEnabled: Bool,
+		twoFingerSteeringSettings: PreferencesGeneralModel.TwoFingerSteeringSettings,
 		didTapEditButton: @escaping (() -> Void)
 	) {
 		self.didTapEditButton = didTapEditButton
@@ -770,33 +766,31 @@ class PreferencesGeneralTwoFingerSteeringDetailsCell: UITableViewCell {
 		])
 
 		configure(
-			isSecondFingerSwipeEnabled: isSecondFingerSwipeEnabled,
-			isBootInHoverModeEnabled: isBootInHoverModeEnabled
+			twoFingerSteeringSettings: twoFingerSteeringSettings
 		)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
 	func configure(
-		isSecondFingerSwipeEnabled: Bool,
-		isBootInHoverModeEnabled: Bool
+		twoFingerSteeringSettings: PreferencesGeneralModel.TwoFingerSteeringSettings
 	) {
 		let text = """
 • Second finger click <img/>
 • Second finger swipe <img/>
-• Boot in hover mode on <img/>
+• Boot in hover mode <img/>
 """
 		var images: [UIImage] = []
 
 		images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
 
-		if isSecondFingerSwipeEnabled {
+		if twoFingerSteeringSettings.secondFingerSwipe {
 			images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
 		} else {
 			images.append(ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.highlightedText))
 		}
 
-		if isBootInHoverModeEnabled {
+		if twoFingerSteeringSettings.bootInHoverMode {
 			images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
 		} else {
 			images.append(ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.highlightedText))
