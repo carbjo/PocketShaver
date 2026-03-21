@@ -189,6 +189,7 @@
 		C7C3D2772E781C270018DB8B /* PreferencesAdvancedModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2762E781C250018DB8B /* PreferencesAdvancedModel.swift */; };
 		C7C64B2B2E617DF200163200 /* DiskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2A2E617DF000163200 /* DiskManager.swift */; };
 		C7C64B2D2E617FB100163200 /* PrefsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */; };
+		C7CB34C42F6FC17F003E02E1 /* PreferencesGeneralCreateDiskDialogueFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7CB34C32F6FC16D003E02E1 /* PreferencesGeneralCreateDiskDialogueFactory.swift */; };
 		C7DCEF3D2E86F55600EAED05 /* MouseHapticFeedbackObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF3C2E86F54800EAED05 /* MouseHapticFeedbackObjC.mm */; };
 		C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */; };
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
@@ -738,6 +739,7 @@
 		C7C64B2A2E617DF000163200 /* DiskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskManager.swift; sourceTree = "<group>"; };
 		C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PrefsObjC.mm; sourceTree = "<group>"; };
 		C7C64B2E2E617FC200163200 /* PrefsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PrefsObjC.h; sourceTree = "<group>"; };
+		C7CB34C32F6FC16D003E02E1 /* PreferencesGeneralCreateDiskDialogueFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGeneralCreateDiskDialogueFactory.swift; sourceTree = "<group>"; };
 		C7DCEF3C2E86F54800EAED05 /* MouseHapticFeedbackObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MouseHapticFeedbackObjC.mm; sourceTree = "<group>"; };
 		C7DCEF3E2E86F55C00EAED05 /* MouseHapticFeedbackObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MouseHapticFeedbackObjC.h; sourceTree = "<group>"; };
 		C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MiscellaneousSettingsObjC.mm; sourceTree = "<group>"; };
@@ -1733,6 +1735,14 @@
 			path = "Assign Button";
 			sourceTree = "<group>";
 		};
+		C7CB34C22F6FC155003E02E1 /* Create Disk */ = {
+			isa = PBXGroup;
+			children = (
+				C7CB34C32F6FC16D003E02E1 /* PreferencesGeneralCreateDiskDialogueFactory.swift */,
+			);
+			path = "Create Disk";
+			sourceTree = "<group>";
+		};
 		C7D405732E9BD55A009BEBA7 /* impluse-hfs */ = {
 			isa = PBXGroup;
 			children = (
@@ -1889,6 +1899,7 @@
 				C7F42CD72E5B384700FA7169 /* PreferencesGeneralViewController.swift */,
 				C7F42CE22E5B448A00FA7169 /* PreferencesGeneralCells.swift */,
 				C75073742E65E0CC00D1E374 /* Rom Handling */,
+				C7CB34C22F6FC155003E02E1 /* Create Disk */,
 				C75073752E65E0F100D1E374 /* Disk Handling */,
 				C7F42CD92E5B3C2300FA7169 /* Resolutions */,
 				C7B23CC42F5C770400B784E7 /* Two Finger Steering Details */,
@@ -2415,6 +2426,7 @@
 				C72739C92E2BAA6500B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift in Sources */,
 				C77F121B2F3879DE0033BE25 /* MCPeerID+Extensions.swift in Sources */,
 				C77F121C2F3879DE0033BE25 /* BonjourSession.swift in Sources */,
+				C7CB34C42F6FC17F003E02E1 /* PreferencesGeneralCreateDiskDialogueFactory.swift in Sources */,
 				C77F121D2F3879DE0033BE25 /* ProgressWatcher.swift in Sources */,
 				C77F121E2F3879DE0033BE25 /* Peer.swift in Sources */,
 				C7C3D26C2E75C4690018DB8B /* PreferencesGamepadEditConfigCells.swift in Sources */,

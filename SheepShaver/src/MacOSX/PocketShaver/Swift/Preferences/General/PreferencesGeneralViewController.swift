@@ -1,5 +1,5 @@
 //
-//  PreferencesGeneralViewController.swift
+//  PreferencesGeneralCreateDiskViewController.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-08-24.
@@ -9,7 +9,7 @@ import UIKit
 import Combine
 
 class PreferencesGeneralViewController: UITableViewController {
-	enum SectionType: Int, CaseIterable {
+	enum Section {
 		case setupInstructions
 		case bootstrap
 		case disks
@@ -23,9 +23,53 @@ class PreferencesGeneralViewController: UITableViewController {
 		case hints
 	}
 
-	enum CreateDiskFieldIndex: Int {
-		case name
-		case size
+	enum Row: Hashable {
+		// setupInstructions
+		case setupInstructions
+
+		// bootstrap
+		case bootstrap
+		case bootstrapError
+
+		// disks
+		case disksColumnDescription
+		case disksEmptyState
+		case disksDisk(PreferencesGeneralModel.DiskEntry)
+		case disksActions
+		case disksError
+
+		// monitorResolutions
+		case monitorResolutions(PreferencesGeneralModel.MonitorResolutionsState)
+		case monitorResolutionsInformation(Bool)
+
+		// audio
+		case audioEnabledToggle
+		case audioInformation
+
+		// iPadMouse
+		case iPadMouse
+
+		// twoFingerSteering
+		case twoFingerSteeringInformation
+		case twoFingerSteeringEnabledToggle(Bool)
+		case twoFingerSteeringSettings(PreferencesGeneralModel.TwoFingerSteeringSettings)
+
+		// rightClick
+		case rightClick
+		case rightClickInformation
+
+		// keyboardAutoOffset
+		case keyboardAutoOffset
+		case keyboardAutoOffsetInformation
+
+		// hapticFeedback
+		case hapticFeedbackSwipeGesturesToggle
+		case hapticFeedbackMouseClicksToggle
+		case hapticFeedbackGamepadKeyStrokesToggle
+
+		// hints
+		case hintsToggle
+		case hintsInformation
 	}
 
 	enum FilePickerSource: Int {
@@ -35,16 +79,13 @@ class PreferencesGeneralViewController: UITableViewController {
 
 	private let model: PreferencesGeneralModel
 	private let preferencesResolutionsVC: PreferencesResolutionsViewController
+	private let createDiskDialogueFactory = PreferencesGeneralCreateDiskDialogueFactory()
 
 	private var anyCancellables = Set<AnyCancellable>()
 
-	private let segmentedControlFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
+	private var dataSource: TableViewDiffableDataSource<Section, Row>!
 
-	// TODO: Refactor and encapstulate
-	private var createDiskDialogueNamePhantomLabel: UILabel?
-	private var createDiskDialogueNameSuffixLabel: UILabel?
-	private var createDiskDialogueSizePhantomLabel: UILabel?
-	private var createDiskDialogueSizeUnitLabel: UILabel?
+	private let segmentedControlFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
 	init(
 		mode: PreferencesLaunchMode,
@@ -73,6 +114,7 @@ class PreferencesGeneralViewController: UITableViewController {
 		tableView.delaysContentTouches = false
 		PreferencesGeneralDiskCell.register(in: tableView)
 
+		setupDataSource()
 		listenToChanges()
 	}
 
@@ -81,48 +123,421 @@ class PreferencesGeneralViewController: UITableViewController {
 			guard let self else { return }
 			switch change {
 			case .selectedResolutionsChanged:
-				updateMonitorResolutionsSection()
+				reloadData()
 			default:
 				break
 			}
 		}.store(in: &anyCancellables)
 
-		NotificationCenter.default.addObserver(self, selector: #selector(updateRomPickerSection), name: UIApplication.didBecomeActiveNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(appDidResume), name: UIScene.didActivateNotification, object: nil)
+	}
+
+	private func setupDataSource() {
+		dataSource = .init(tableView: tableView) { [weak self] tableView, indexPath, itemIdentifier in
+			guard let self else { return UITableViewCell() }
+			switch itemIdentifier {
+			case .setupInstructions:
+				return PreferencesGeneralSetupInstructionsCell(
+					didTapReadButton: { [weak self] in
+						self?.displaySetupInstructions()
+					},
+					didTapCloseButton: { [weak self] in
+						self?.handleSetupInstructionsDimissButtonPressed()
+					}
+				)
+			case .bootstrap:
+				return PreferencesGeneralBootstrapCell(
+					didTapSelectInstallDiskButton: { [weak self] in
+						self?.displayMacOsInstallDiskPicker()
+					},
+					didTapCompatibilityListButton: { [weak self] in
+						guard let self else { return }
+						let vc = PreferencesCompatibilityListViewController()
+						let navVC = UINavigationController()
+						navVC.viewControllers = [vc]
+
+						present(navVC, animated: true)
+					}
+				)
+			case .bootstrapError:
+				return PreferencesGeneralErrorCell(
+					title: "You need to bootstrap PocketShaver"
+				)
+			case .disksColumnDescription:
+				return PreferencesGeneralDiskColumnsDescriptionCell()
+			case .disksEmptyState:
+				return PreferencesEmptyStateCell(
+					title: "No files found"
+				)
+			case .disksDisk(let diskEntry):
+				let cell = tableView.dequeueReusableCell(withIdentifier: PreferencesGeneralDiskCell.reuseIdentifier, for: indexPath) as! PreferencesGeneralDiskCell
+				let disk = model.disk(forFilename: diskEntry.disk.filename)! // because mount toggle move cell logic does not update associated value data
+				cell.configure(
+					disk: disk,
+					didSetIsEnabled: { [weak self] filename, isOn in
+						guard let self else { return }
+
+						// The following muddle instead of a simple call to reloadData() is to make the
+						// cell do a _move_ animation rather than fade when switching the mount toggle.
+						let change = model.setDiskEnabled(filename: filename, isEnabled: isOn)
+
+						let baselineDisk = model.disk(forIndex: 0)
+						let baselineDiskEntry = model.diskEntry(for: baselineDisk)
+						let baselineDiskIndexPath = dataSource.indexPath(for: .disksDisk(baselineDiskEntry))!
+						let baselineDiskRowIndex = baselineDiskIndexPath.row
+						let diskSectionIndex = baselineDiskIndexPath.section
+
+						let prevIndexPath = IndexPath(row: baselineDiskRowIndex + change.prevIndex, section: diskSectionIndex)
+						let newIndexPath = IndexPath(row: baselineDiskRowIndex + change.newIndex, section: diskSectionIndex)
+
+						tableView.performBatchUpdates {
+							self.dataSource.tableView(tableView, moveRowAt: prevIndexPath, to: newIndexPath) { [weak self] in
+								if change.willBootFromCDChanged {
+									self?.reloadData()
+								}
+							}
+						}
+					},
+					didSetDiskType: { [weak self] filename, diskType in
+						guard let self else { return }
+
+						model.setDiskType(filename: filename, diskType:diskType)
+						reloadData()
+						UINotificationFeedbackGenerator().notificationOccurred(.success)
+					}
+				)
+				return cell
+			case .disksActions:
+				return PreferencesGeneralDiskSectionActionsCell(
+					hasDskFile: model.hasDskFile,
+					didTapCreateDiskButton: { [weak self] in
+						self?.displayCreateDiskDialogue()
+					},
+					didTapReloadDisksButton: { [weak self] in
+						self?.reloadFileList()
+					},
+					didTapImportDiskButton: { [weak self] in
+						self?.displayFileImport()
+					}
+				)
+			case .disksError:
+				return PreferencesGeneralErrorCell(
+					title: "Must select to mount at least one disk file"
+				)
+			case .monitorResolutions(let monitorResolutionsState):
+				return PreferencesGeneralEnabledMonitorResolutionsCell(
+					monitorResolutionsState: monitorResolutionsState
+				) { [weak self] in
+					guard let self else { return }
+					let vc = preferencesResolutionsVC
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
+				}
+			case .monitorResolutionsInformation(let willBootFromCD):
+				var text = "Resolutions made available to Mac OS. "
+				if willBootFromCD {
+					text += "List is restricted since emulaton will boot from an install CD."
+				} else {
+					text += "Can be edited."
+				}
+				return PreferencesInformationCell(
+					text: text
+				)
+			case .audioEnabledToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Audio enabled",
+					isOn: !model.soundDisabled
+				) { [weak self] newValue in
+					self?.model.soundDisabled = !newValue
+				}
+			case .audioInformation:
+				return PreferencesInformationCell(
+					text: "Sound from other apps is lowered if audio is enabled during emulation. Having trouble getting audio to work? Read the <link>setup guide</link>."
+				) { [weak self] in
+					self?.displaySetupInstructions()
+				}
+			case .iPadMouse:
+				return PreferencesGeneralIPadMouseCell(
+					initialIPadMouseSetting: model.isIPadMouseEnabled
+				) { [weak self] newValue in
+					guard let self else { return }
+
+					model.isIPadMouseEnabled = newValue
+					reloadData()
+					segmentedControlFeedbackGenerator.impactOccurred()
+				}
+			case .twoFingerSteeringInformation:
+				return PreferencesInformationCell(
+					text: "Two finger steering is an alternative way to control the mouse without obscuring the cursor with your finger. Read the <link>onboarding</link> to get started.",
+					upperMargin: .medium,
+					separatorHidden: false
+				) { [weak self] in
+					guard let self else { return }
+					let vc = PreferencesTwoFingerSteeringOnboardingViewController()
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
+				}
+			case .twoFingerSteeringEnabledToggle(let secondFingerClickIsEnabled):
+				return PreferencesEnabledSettingCell(
+					title: "Two finger steering enabled",
+					isOn: secondFingerClickIsEnabled
+				) { [weak self] isOn in
+					guard let self else { return }
+
+					model.setTwoFingerSteering(enabled: isOn)
+					reloadData()
+				}
+			case .twoFingerSteeringSettings(let twoFingerSteeringSettings):
+				return PreferencesGeneralTwoFingerSteeringDetailsCell(
+					twoFingerSteeringSettings: twoFingerSteeringSettings
+				) { [weak self] in
+					guard let self else { return }
+
+					let vc = PreferencesTwoFingerSteeringDetailsViewController { [weak self] in
+						self?.reloadData()
+					}
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
+				}
+			case .rightClick:
+				return PreferencesGeneralRightClickCell(
+					initialRightClickSetting: model.rightClickSetting
+				) { [weak self] newSetting in
+					guard let self else { return }
+
+					model.rightClickSetting = newSetting
+					segmentedControlFeedbackGenerator.impactOccurred()
+				}
+			case .rightClickInformation:
+				let text: String
+				if UIDevice.isIPad {
+					text = "If using bluetooth mouse, right click has to explicitly be enabled in iOS settings under General > Trackpad and Mouse > Secondary click.\nRight click can also be performed with a gamepad button."
+				} else {
+					text = "Right click can be performed with a gamepad button."
+				}
+
+				return PreferencesInformationCell(
+					text: text
+				)
+			case .keyboardAutoOffset:
+				return PreferencesGeneralKeyboardAutoOffsetCell(initialKeyboardAutoOffsetSetting: model.keyboardAutoOffsetSetting) { [weak self] newSetting in
+					guard let self else { return }
+					
+					model.keyboardAutoOffsetSetting = newSetting
+					segmentedControlFeedbackGenerator.impactOccurred()
+				}
+			case .keyboardAutoOffsetInformation:
+				return PreferencesInformationCell(
+					text: "Controls how the screen scrolls when you three finger swipe up to present keyboard."
+				)
+			case .hapticFeedbackSwipeGesturesToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Two / three finger swipe gestures",
+					isOn: model.isGestureHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isGestureHapticFeedbackOn = isOn
+				}
+			case .hapticFeedbackMouseClicksToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Mouse clicks",
+					isOn: model.isMouseHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isMouseHapticFeedbackOn = isOn
+				}
+			case .hapticFeedbackGamepadKeyStrokesToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Gamepad key strokes",
+					isOn: model.isKeyHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isKeyHapticFeedbackOn = isOn
+				}
+			case .hintsToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Show hints",
+					isOn: model.showHints
+				) { [weak self] newValue in
+					self?.model.showHints = newValue
+				}
+			case .hintsInformation:
+				return PreferencesInformationCell(
+					text: "Gamepad layout names are shown even when hints are turned off."
+				)
+			}
+		}
+
+		dataSource.sectionTitleProvider = { section in
+			switch section {
+			case .setupInstructions:
+				return nil
+			case .bootstrap:
+				return "Bootstrap"
+			case .disks:
+				return "Disks"
+			case .monitorResolutions:
+				return "Monitor resolutions"
+			case .audio:
+				return "Audio"
+			case .iPadMouse:
+				return "Input mode"
+			case .twoFingerSteering:
+				return "Two finger steering"
+			case .rightClick:
+				return "Right click"
+			case .keyboardAutoOffset:
+				return "Software keyboard screen offset"
+			case .hapticFeedback:
+				return "Haptic feedback"
+			case .hints:
+				return "Hints"
+			}
+		}
+
+		dataSource.canEditProvider = { identifier in
+			guard case .disksDisk(let diskEntry) = identifier else {
+				return false
+			}
+
+			return !diskEntry.disk.isEnabled
+		}
+
+		dataSource.commitEditProvider = { [weak self] identifier, editingStyle in
+			guard let self,
+				  case .disksDisk(let diskEntry) = identifier,
+				  editingStyle == .delete else {
+				return
+			}
+
+			model.deleteDisk(diskEntry.disk)
+
+			reloadData()
+		}
+
+		dataSource.defaultRowAnimation = .fade
+		tableView.dataSource = dataSource
+
+		reloadData()
+	}
+
+	private func reloadData(
+		completion: (() -> Void)? = nil
+	) {
+		var snapshot = NSDiffableDataSourceSnapshot<Section, Row>()
+
+		if !model.hasDismissedSetupInstructions {
+			snapshot.appendSections([.setupInstructions])
+			snapshot.appendItems([.setupInstructions])
+		}
+
+		if !model.hasRomFile {
+			snapshot.appendSections([.bootstrap])
+			snapshot.appendItems([.bootstrap])
+			if model.isDisplayingRomFileMissingError {
+				snapshot.appendItems([.bootstrapError])
+			}
+		}
+
+		snapshot.appendSections([.disks])
+		snapshot.appendItems([.disksColumnDescription])
+		if model.numberOfDisks == 0 {
+			snapshot.appendItems([.disksEmptyState])
+		} else {
+			for diskIndex in 0..<model.numberOfDisks {
+				let disk = model.disk(forIndex: diskIndex)
+				let diskEntry = PreferencesGeneralModel.DiskEntry(index: diskIndex, disk: disk)
+				snapshot.appendItems([.disksDisk(diskEntry)])
+			}
+		}
+		snapshot.appendItems([.disksActions])
+		if model.isDisplayingNoDiskFilesError {
+			snapshot.appendItems([.disksError])
+		}
+
+		snapshot.appendSections([.monitorResolutions])
+		snapshot.appendItems([
+			.monitorResolutions(model.monitorResolutionsState),
+			.monitorResolutionsInformation(model.monitorResolutionsState.willBootFromCD)
+		])
+
+		snapshot.appendSections([.audio])
+		snapshot.appendItems([
+			.audioEnabledToggle,
+			.audioInformation
+		])
+
+		if UIDevice.isIPad {
+			snapshot.appendSections([.iPadMouse])
+			snapshot.appendItems([.iPadMouse])
+		}
+
+		if !model.isIPadMouseEnabled {
+			snapshot.appendSections([.twoFingerSteering])
+			snapshot.appendItems([
+				.twoFingerSteeringInformation,
+				.twoFingerSteeringEnabledToggle(model.twoFingerSteeringSettings.secondFingerClick)
+			])
+			if model.twoFingerSteeringSettings.secondFingerClick {
+				snapshot.appendItems([
+					.twoFingerSteeringSettings(model.twoFingerSteeringSettings)
+				])
+			}
+		}
+
+		snapshot.appendSections([.rightClick])
+		snapshot.appendItems([
+			.rightClick,
+			.rightClickInformation
+		])
+
+		snapshot.appendSections([.keyboardAutoOffset])
+		snapshot.appendItems([
+			.keyboardAutoOffset,
+			.keyboardAutoOffsetInformation
+		])
+
+		if model.supportsHaptics {
+			snapshot.appendSections([.hapticFeedback])
+			snapshot.appendItems([
+				.hapticFeedbackSwipeGesturesToggle,
+				.hapticFeedbackMouseClicksToggle,
+				.hapticFeedbackGamepadKeyStrokesToggle
+			])
+		}
+		snapshot.appendSections([.hints])
+		snapshot.appendItems([
+			.hintsToggle,
+			.hintsInformation
+		])
+
+		dataSource.apply(
+			snapshot,
+			completion: completion
+		)
 	}
 
 	func presentRomFileMissingError() {
-		let sectionIndex = SectionType.bootstrap.sectionIndex(model: model)
-		let romCellIndexPath = IndexPath(row: 0, section: sectionIndex)
-
-		let shouldAddRow = !model.isDisplayingRomFileMissingError
+		let bootstrapCellIndexPath = dataSource.indexPath(for: .bootstrap)!
 
 		model.isDisplayingRomFileMissingError = true
 
-		let romErrorCellIndexPath = IndexPath(row: 1, section: sectionIndex)
+		tableView.scrollToRow(at: bootstrapCellIndexPath, at: .top, animated: true)
 
-		tableView.performBatchUpdates {
-			tableView.scrollToRow(at: romCellIndexPath, at: .top, animated: true)
-			if shouldAddRow {
-				tableView.insertRows(at: [romErrorCellIndexPath], with: .fade)
-			}
-		}
+		reloadData()
 	}
 
 	func presentNoDiskFilesError() {
-		let sectionIndex = SectionType.disks.sectionIndex(model: model)
-		let diskCellsIndexPath = IndexPath(row: 0, section: sectionIndex)
-
-		let shouldAddRow = !model.isDisplayingNoDiskFilesError
+		let disksActionsIndexPath = dataSource.indexPath(for: .disksActions)!
 
 		model.isDisplayingNoDiskFilesError = true
 
-		tableView.performBatchUpdates {
-			tableView.scrollToRow(at: diskCellsIndexPath, at: .top, animated: true)
-			if shouldAddRow {
-				let disksMissingErrorIndexPath = IndexPath(row: 2, section: sectionIndex)
-				tableView.insertRows(at: [disksMissingErrorIndexPath], with: .fade)
-			}
-		}
+		tableView.scrollToRow(at: disksActionsIndexPath, at: .middle, animated: true)
+
+		reloadData()
 	}
 
 	private func displaySetupInstructions() {
@@ -142,16 +557,16 @@ class PreferencesGeneralViewController: UITableViewController {
 
 		present(pickerVC, animated: true)
 	}
+
 	private func animateRomFound() {
-		guard let cell = tableView.visibleCells.first(where: { $0 is PreferencesGeneralBootstrapCell }) as? PreferencesGeneralBootstrapCell,
-		let indexPath = tableView.indexPath(for: cell) else {
+		guard let cell = tableView.visibleCells.first(where: { $0 is PreferencesGeneralBootstrapCell }) as? PreferencesGeneralBootstrapCell else {
 			return
 		}
 
 		cell.displayCheckmark()
 
-		DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-			self.tableView.deleteSections(IndexSet([indexPath.section]), with: .fade)
+		DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+			self?.reloadData()
 		}
 	}
 
@@ -182,96 +597,22 @@ class PreferencesGeneralViewController: UITableViewController {
 	// MARK: - Create disk
 
 	private func displayCreateDiskDialogue() {
-		let alertVC = UIAlertController(
-			title: "Create new disk",
-			message: "Choose name and size",
-			preferredStyle: .alert
-		)
-		alertVC.addTextField { [weak self] textField in
+		let alertVC = createDiskDialogueFactory.create { [weak self] specification in
 			guard let self else { return }
 
-			textField.tag = CreateDiskFieldIndex.name.rawValue
-			textField.placeholder = "DiskName.dsk"
-			textField.autocapitalizationType = .sentences
-
-			let phantomLabel = UILabel.withoutConstraints()
-			phantomLabel.font = textField.font
-			phantomLabel.isHidden = true
-
-			let suffixLabel = UILabel.withoutConstraints()
-			suffixLabel.font = textField.font
-			suffixLabel.text = ".dsk"
-			suffixLabel.isHidden = true
-
-			textField.addSubview(phantomLabel)
-			textField.addSubview(suffixLabel)
-
-			NSLayoutConstraint.activate([
-				phantomLabel.leadingAnchor.constraint(equalTo: textField.leadingAnchor),
-				phantomLabel.centerYAnchor.constraint(equalTo: textField.centerYAnchor),
-
-				suffixLabel.leadingAnchor.constraint(equalTo: phantomLabel.trailingAnchor),
-				suffixLabel.centerYAnchor.constraint(equalTo: textField.centerYAnchor)
-			])
-
-			textField.delegate = self
-
-			self.createDiskDialogueNamePhantomLabel = phantomLabel
-			self.createDiskDialogueNameSuffixLabel = suffixLabel
-		}
-
-		alertVC.addTextField { [weak self] textField in
-			guard let self else { return }
-
-			textField.tag = CreateDiskFieldIndex.size.rawValue
-			textField.placeholder = "0"
-			textField.keyboardType = .numberPad
-
-			let phantomLabel = UILabel.withoutConstraints()
-			phantomLabel.text = "0"
-			phantomLabel.font = textField.font
-			phantomLabel.isHidden = true
-
-			let unitLabel = UILabel.withoutConstraints()
-			unitLabel.text = "MB"
-			unitLabel.font = textField.font
-			unitLabel.textColor = .gray
-
-			textField.addSubview(phantomLabel)
-			textField.addSubview(unitLabel)
-
-			NSLayoutConstraint.activate([
-				phantomLabel.leadingAnchor.constraint(equalTo: textField.leadingAnchor),
-				phantomLabel.centerYAnchor.constraint(equalTo: textField.centerYAnchor),
-
-				unitLabel.leadingAnchor.constraint(equalTo: phantomLabel.trailingAnchor, constant: 4),
-				unitLabel.centerYAnchor.constraint(equalTo: textField.centerYAnchor)
-			])
-
-			textField.delegate = self
-
-			self.createDiskDialogueSizePhantomLabel = phantomLabel
-			self.createDiskDialogueSizeUnitLabel = unitLabel
-		}
-
-		alertVC.addAction(.init(title: "Cancel", style: .cancel, handler: { [weak self] _ in
-			guard let self else { return }
-
-			createDiskDialogueNamePhantomLabel = nil
-			createDiskDialogueNameSuffixLabel = nil
-		}))
-		alertVC.addAction(.init(title: "Create", style: .default, handler: { [weak self] action in
-			guard let self else { return }
-
-			createDiskDialogueNamePhantomLabel = nil
-			createDiskDialogueNameSuffixLabel = nil
-
-			let name = alertVC.textFields?[0].text ?? ""
-			let sizeString = alertVC.textFields?[1].text ?? ""
-			let size = Int(sizeString) ?? 0
 			do {
-				let diskDataChange = try model.createNewDisk(name: name, sizeInMb: size)
-				animateDiskDataChange(diskDataChange)
+				let newDisk = try model.createNewDisk(
+					name: specification.name,
+					sizeInMb: specification.size
+				)
+				reloadData { [weak self] in
+					guard let self,
+						  let newDisk else {
+						return
+					}
+
+					scrollToDiskIfNotVisible(newDisk)
+				}
 			} catch PreferencesGeneralError.fileCreationInvalidSize {
 				let invalidSizeAlertVC = UIAlertController.withMessage("An invalid file size was given")
 				present(invalidSizeAlertVC, animated: true)
@@ -282,41 +623,16 @@ class PreferencesGeneralViewController: UITableViewController {
 				let otherErrorAlertVC = UIAlertController.withMessage("Something went wrong when trying to create the file")
 				present(otherErrorAlertVC, animated: true)
 			}
-		}))
+		}
 
 		present(alertVC, animated: true)
 	}
 
-	private func animateDiskDataChange(_ diskDataChange: DiskDataChange) {
-		let sectionIndex = SectionType.disks.sectionIndex(model: model)
-
-		let startsDisplayingEmptyState = model.numberOfDisks == 0
-		let stopsDisplayingEmptyState = model.numberOfDisks == diskDataChange.inserted.count
-
-		tableView.performBatchUpdates {
-			if startsDisplayingEmptyState || stopsDisplayingEmptyState {
-				// Replace the empty state cell
-				let columnsDescriptionIndexPath = IndexPath(row: 0, section: sectionIndex)
-				tableView.reloadRows(at: [columnsDescriptionIndexPath], with: .fade)
-			}
-
-			tableView.insertRows(at: diskDataChange.inserted.map({ IndexPath(row: 1 + $0, section: sectionIndex) }), with: .fade)
-			tableView.reloadRows(at: diskDataChange.updated.map({ IndexPath(row: 1 + $0, section: sectionIndex) }), with: .fade)
-			tableView.deleteRows(at: diskDataChange.removed.map({ IndexPath(row: 1 + $0, section: sectionIndex) }), with: .fade)
-		}
-
-		let diskActionsRowIndex = model.numberOfDisks + 1
-		let diskActionsIndexPath = IndexPath(row: diskActionsRowIndex, section: sectionIndex)
-		if let cell = tableView.cellForRow(at: diskActionsIndexPath) as? PreferencesGeneralDiskSectionActionsCell {
-			cell.setupForHasDskFile(model.hasDskFile, animated: true)
-		}
- 	}
-
 	private func reloadFileList() {
 		Task { [weak self] in
 			guard let self else { return }
-			let diskDataChange = try await model.didSelectReload()
-			animateDiskDataChange(diskDataChange)
+			try await model.didSelectReload()
+			reloadData()
 		}
 	}
 
@@ -340,9 +656,8 @@ class PreferencesGeneralViewController: UITableViewController {
 
 			alertVC.addAction(.init(title: "Ok", style: .default, handler: { [weak self] _ in
 				guard let self else { return }
-				let setupInstructionsSectionIndexBeforeChange = SectionType.setupInstructions.sectionIndex(model: model)
 				model.reportHasDismissedSetupInstructions()
-				tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
+				reloadData()
 			}))
 
 			present(alertVC, animated: true)
@@ -355,9 +670,8 @@ class PreferencesGeneralViewController: UITableViewController {
 
 			alertVC.addAction(.init(title: "Dismiss", style: .default, handler: { [weak self] _ in
 				guard let self else { return }
-				let setupInstructionsSectionIndexBeforeChange = SectionType.setupInstructions.sectionIndex(model: model)
 				model.reportHasDismissedSetupInstructions()
-				tableView.deleteSections(IndexSet([setupInstructionsSectionIndexBeforeChange]), with: .fade)
+				reloadData()
 			}))
 
 			alertVC.addAction(.init(title: "Cancel", style: .cancel))
@@ -366,402 +680,31 @@ class PreferencesGeneralViewController: UITableViewController {
 		}
 	}
 
-	private func updateMonitorResolutionsSection() {
-		let sectionIndex = SectionType.monitorResolutions.sectionIndex(model: model)
-		tableView.reloadSections([sectionIndex], with: .automatic)
-	}
+	private func scrollToDiskIfNotVisible(_ disk: Disk) {
+		let diskEntry = model.diskEntry(for: disk)
+		guard let cellIndexPath = dataSource.indexPath(for: .disksDisk(diskEntry)) else { return }
 
-	private func updateTwoFingerSteeringSection() {
-		let sectionIndex = SectionType.twoFingerSteering.sectionIndex(model: model)
-		tableView.reloadSections([sectionIndex], with: .automatic)
+		let cell = dataSource.tableView(tableView, cellForRowAt: cellIndexPath)
+		if !tableView.visibleCells.contains(cell) {
+			tableView.scrollToRow(at: cellIndexPath, at: .middle, animated: true)
+		}
 	}
 
 	// MARK: - Actions
 
 	@objc
-	private func updateRomPickerSection() {
-		let isDisplayingRomPicker = tableView.visibleCells.contains(where: { $0 is PreferencesGeneralBootstrapCell })
-		if model.hasRomFile && isDisplayingRomPicker {
-			animateRomFound()
-		} else if !model.hasRomFile && !isDisplayingRomPicker {
-			let romSection = SectionType.bootstrap.sectionIndex(model: model)
-			tableView.insertSections([romSection], with: .top)
+	private func appDidResume() {
+		Task { @MainActor [weak self] in
+			self?.reloadFileList()
 		}
 	}
 }
 
-// MARK: - UITextFieldDelegate
-
-extension PreferencesGeneralViewController: UITextFieldDelegate {
-	func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-		let currentString = (textField.text ?? "") as NSString
-		let newString = currentString.replacingCharacters(in: range, with: string)
-
-		switch CreateDiskFieldIndex(rawValue: textField.tag)! {
-		case .name:
-			createDiskDialogueNamePhantomLabel?.text = newString
-			createDiskDialogueNameSuffixLabel?.isHidden = newString.isEmpty
-		case .size:
-			createDiskDialogueSizePhantomLabel?.text = newString.isEmpty ? "0" : newString
-		}
-
-		return true
-	}
-}
-
-// MARK: - UITableViewDataSource
+// MARK: - UITableViewDelegate
 
 extension PreferencesGeneralViewController {
-	override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-		let sectionType = SectionType(sectionIndex: section, model: model)
-		switch sectionType {
-		case .setupInstructions:
-			return nil
-		case .bootstrap:
-			return "Bootstrap"
-		case .disks:
-			return "Disks"
-		case .monitorResolutions:
-			return "Monitor resolutions"
-		case .audio:
-			return "Audio"
-		case .iPadMouse:
-			return "Input mode"
-		case .twoFingerSteering:
-			return "Two finger steering"
-		case .rightClick:
-			return "Right click"
-		case .keyboardAutoOffset:
-			return "Software keyboard screen offset"
-		case .hapticFeedback:
-			return "Haptic feedback"
-		case .hints:
-			return "Hints"
-		}
-	}
-
-	override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-		let sectionType = SectionType(sectionIndex: section, model: model)
-		switch sectionType {
-		case .setupInstructions:
-			return 1
-		case .bootstrap:
-			return 1 + (model.isDisplayingRomFileMissingError ? 1 : 0)
-		case .disks:
-			return model.numberOfDisks + 2 + (model.isDisplayingNoDiskFilesError ? 1 : 0)
-		case .monitorResolutions:
-			return 2
-		case .audio:
-			return 2
-		case .iPadMouse:
-			return 1
-		case .twoFingerSteering:
-			return model.secondFingerClick ? 3 : 2
-		case .rightClick:
-			return 2
-		case .keyboardAutoOffset:
-			return 2
-		case .hapticFeedback:
-			return 3
-		case .hints:
-			return 2
-		}
-	}
-	
-	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
-		switch sectionType {
-		case .setupInstructions:
-			return PreferencesGeneralSetupInstructionsCell(
-				didTapReadButton: { [weak self] in
-					self?.displaySetupInstructions()
-				},
-				didTapCloseButton: { [weak self] in
-					self?.handleSetupInstructionsDimissButtonPressed()
-				}
-			)
-		case .bootstrap:
-			if indexPath.row == 0 {
-				return PreferencesGeneralBootstrapCell(
-					didTapSelectInstallDiskButton: { [weak self] in
-						self?.displayMacOsInstallDiskPicker()
-					},
-					didTapCompatibilityListButton: { [weak self] in
-						guard let self else { return }
-						let vc = PreferencesCompatibilityListViewController()
-						let navVC = UINavigationController()
-						navVC.viewControllers = [vc]
-
-						present(navVC, animated: true)
-					}
-				)
-			} else {
-				return PreferencesGeneralErrorCell(title: "You need to bootstrap PocketShaver")
-			}
-		case .disks:
-			if indexPath.row == 0, model.numberOfDisks == 0 {
-				return PreferencesEmptyStateCell(
-					title: "No files found"
-				)
-			} else if indexPath.row == 0 {
-				return PreferencesGeneralDiskColumnsDescriptionCell()
-			} else if indexPath.row <= model.numberOfDisks {
-				let index = indexPath.row - 1
-				let disk = model.disk(forIndex: index)
-				guard let cell = tableView.dequeueReusableCell(withIdentifier: PreferencesGeneralDiskCell.reuseIdentifier, for: indexPath) as? PreferencesGeneralDiskCell else {
-					return UITableViewCell()
-				}
-				cell.configure(
-					disk: disk,
-					didSetIsEnabled: { [weak self] filename, isOn in
-						guard let self else { return }
-						let change = model.setDiskEnabled(filename: filename, isEnabled: isOn)
-
-						let section = SectionType.disks.sectionIndex(model: model)
-						let prevIndexPath = IndexPath(row: change.prevIndex + 1, section: section)
-						let newIndexPath = IndexPath(row: change.newIndex + 1, section: section)
-						tableView.performBatchUpdates { [weak self] in
-							guard let self else { return }
-							tableView.moveRow(at: prevIndexPath, to: newIndexPath)
-							if change.willBootFromCDChanged {
-								updateMonitorResolutionsSection()
-							}
-						}
-					},
-					didSetDiskType: { [weak self] filename, diskType in
-						guard let self else { return }
-						model.setDiskType(filename: filename, diskType:diskType)
-
-						let section = SectionType.disks.sectionIndex(model: model)
-						guard let diskIndex = model.diskIndex(forFilename: filename) else {
-							return
-						}
-						tableView.reloadRows(
-							at: [.init(row: diskIndex + 1, section: section)],
-							with: .automatic
-						)
-						UINotificationFeedbackGenerator().notificationOccurred(.success)
-					}
-				)
-				return cell
-			} else if indexPath.row == model.numberOfDisks + 1 {
-				return PreferencesGeneralDiskSectionActionsCell(
-					hasDskFile: model.hasDskFile,
-					didTapCreateDiskButton: { [weak self] in
-						self?.displayCreateDiskDialogue()
-					},
-					didTapReloadDisksButton: { [weak self] in
-						self?.reloadFileList()
-					},
-					didTapImportDiskButton: { [weak self] in
-						self?.displayFileImport()
-					}
-				)
-			} else {
-				return PreferencesGeneralErrorCell(title: "Must select to mount at least one disk file")
-			}
-		case .monitorResolutions:
-			if indexPath.row == 0 {
-				let cell = PreferencesGeneralEnabledMonitorResolutionsCell(
-					monitorResolutions: model.monitorResolutions,
-					willBootFromCD: model.willBootFromCD
-				) { [weak self] in
-					guard let self else { return }
-					let vc = preferencesResolutionsVC
-					let navVC = UINavigationController()
-					navVC.viewControllers = [vc]
-
-					present(navVC, animated: true)
-				}
-				return cell
-			} else {
-				var text = "Resolutions made available to Mac OS. "
-				if model.willBootFromCD {
-					text += "List is restricted since emulaton will boot from an install CD."
-				} else {
-					text += "Can be edited."
-				}
-				return PreferencesInformationCell(
-					text: text
-				)
-			}
-		case .audio:
-			if indexPath.row == 0 {
-				return PreferencesEnabledSettingCell(
-					title: "Audio enabled",
-					isOn: !model.soundDisabled
-				) { [weak self] newValue in
-					self?.model.soundDisabled = !newValue
-				}
-			} else {
-				return PreferencesInformationCell(
-					text: "Sound from other apps is lowered if audio is enabled during emulation. Having trouble getting audio to work? Read the <link>setup guide</link>."
-				) { [weak self] in
-					self?.displaySetupInstructions()
-				}
-			}
-		case .iPadMouse:
-			return PreferencesGeneralIPadMouseCell(
-				initialIPadMouseSetting: model.isIPadMouseEnabled
-			) { [weak self] newValue in
-				guard let self else { return }
-				set(isIPadMouseEnabled: newValue)
-				segmentedControlFeedbackGenerator.impactOccurred()
-			}
-		case .twoFingerSteering:
-			switch indexPath.row {
-			case 0:
-				return PreferencesInformationCell(
-					text: "Two finger steering is an alternative way to control the mouse without obscuring the cursor with your finger. Read the <link>onboarding</link> to get started.",
-					upperMargin: .medium,
-					separatorHidden: false
-				) { [weak self] in
-					guard let self else { return }
-					let vc = PreferencesTwoFingerSteeringOnboardingViewController()
-					let navVC = UINavigationController()
-					navVC.viewControllers = [vc]
-
-					present(navVC, animated: true)
-				}
-			case 1:
-				return PreferencesEnabledSettingCell(
-					title: "Two finger steering enabled",
-					isOn: model.secondFingerClick
-				) { [weak self] isOn in
-					self?.setTwoFingerSteering(enabled: isOn)
-				}
-			case 2:
-				return PreferencesGeneralTwoFingerSteeringDetailsCell(
-					isSecondFingerSwipeEnabled: model.secondFingerSwipe,
-					isBootInHoverModeEnabled: model.bootInHoverMode
-				) { [weak self] in
-					guard let self else { return }
-					let vc = PreferencesTwoFingerSteeringDetailsViewController { [weak self] in
-						self?.updateTwoFingerSteeringSection()
-					}
-					let navVC = UINavigationController()
-					navVC.viewControllers = [vc]
-
-					present(navVC, animated: true)
-				}
-			default: fatalError()
-			}
-		case .rightClick:
-			switch indexPath.row {
-			case 0:
-				return PreferencesGeneralRightClickCell(
-					initialRightClickSetting: model.rightClickSetting
-				) { [weak self] newSetting in
-					guard let self else { return }
-					model.rightClickSetting = newSetting
-					segmentedControlFeedbackGenerator.impactOccurred()
-				}
-			case 1:
-				let text: String
-				if UIDevice.isIPad {
-					text = "If using bluetooth mouse, right click has to explicitly be enabled in iOS settings under General > Trackpad and Mouse > Secondary click.\nRight click can also be performed with a gamepad button."
-				} else {
-					text = "Right click can be performed with a gamepad button."
-				}
-
-				return PreferencesInformationCell(
-					text: text
-				)
-			default:
-				fatalError()
-			}
-		case .keyboardAutoOffset:
-			switch indexPath.row {
-			case 0:
-				return PreferencesGeneralKeyboardAutoOffsetCell(initialKeyboardAutoOffsetSetting: model.keyboardAutoOffsetSetting) { [weak self] newSetting in
-					guard let self else { return }
-					model.keyboardAutoOffsetSetting = newSetting
-					segmentedControlFeedbackGenerator.impactOccurred()
-				}
-			case 1:
-				return PreferencesInformationCell(
-					text: "Controls how the screen scrolls when you three finger swipe up to present keyboard."
-				)
-			default:
-				fatalError()
-			}
-		case .hapticFeedback:
-			switch indexPath.row {
-			case 0:
-				return PreferencesEnabledSettingCell(
-					title: "Two / three finger swipe gestures",
-					isOn: model.isGestureHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isGestureHapticFeedbackOn = isOn
-				}
-			case 1:
-				return PreferencesEnabledSettingCell(
-					title: "Mouse clicks",
-					isOn: model.isMouseHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isMouseHapticFeedbackOn = isOn
-				}
-			case 2:
-				return PreferencesEnabledSettingCell(
-					title: "Gamepad key strokes",
-					isOn: model.isKeyHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isKeyHapticFeedbackOn = isOn
-				}
-			default:
-				fatalError()
-			}
-		case .hints:
-			if indexPath.row == 0 {
-				return PreferencesEnabledSettingCell(
-					title: "Show hints",
-					isOn: model.showHints
-				) { [weak self] newValue in
-					self?.model.showHints = newValue
-				}
-			} else {
-				return PreferencesInformationCell(
-					text: "Gamepad layout names are shown even when hints are turned off."
-				)
-			}
-		}
-	}
-
 	override func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
 		false
-	}
-
-	override func numberOfSections(in tableView: UITableView) -> Int {
-		SectionType.count(model: model)
-	}
-
-	override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
-		guard sectionType == .disks,
-			  indexPath.row > 0,
-			  indexPath.row <= model.numberOfDisks else {
-			return false
-		}
-		
-		let index = indexPath.row - 1
-		let disk = model.disk(forIndex: index)
-		return !disk.isEnabled
-	}
-
-	override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
-		let sectionType = SectionType(sectionIndex: indexPath.section, model: model)
-		guard editingStyle == .delete,
-			  sectionType == .disks,
-			  indexPath.row <= model.numberOfDisks else {
-			return
-		}
-
-		let index = indexPath.row - 1
-		let disk = model.disk(forIndex: index)
-
-		model.deleteDisk(disk)
-
-		tableView.deleteRows(at: [indexPath], with: .automatic)
 	}
 }
 
@@ -794,8 +737,15 @@ extension PreferencesGeneralViewController: UIDocumentPickerDelegate {
 			Task { [weak self, model] in
 				guard let self else { return }
 				do {
-					let diskDataChange = try await model.didSelectFileImport(url: url)
-					animateDiskDataChange(diskDataChange)
+					let newDisk = try await model.didSelectFileImport(url: url)
+					reloadData { [weak self] in
+						guard let self,
+							  let newDisk else {
+							return
+						}
+
+						scrollToDiskIfNotVisible(newDisk)
+					}
 				} catch PreferencesGeneralError.fileImportWrongSuffix {
 					let supportedFormatsString = DiskManager.supportedFileExtensions.map({ ".\($0)" }).joined(separator: ", ")
 					let wrongSuffixAlertVC = UIAlertController.withMessage("The file has an unsupported suffix. The supported suffixes are \(supportedFormatsString).")
@@ -808,87 +758,6 @@ extension PreferencesGeneralViewController: UIDocumentPickerDelegate {
 					present(errorVC, animated: true)
 				}
 			}
-		}
-	}
-}
-
-extension PreferencesGeneralViewController.SectionType {
-	@MainActor
-	init(sectionIndex: Int, model: PreferencesGeneralModel) {
-		let sections = Self.availableSections(with: model)
-		self = sections[sectionIndex]
-	}
-
-	@MainActor
-	static func count(model: PreferencesGeneralModel) -> Int {
-		let sections = Self.availableSections(with: model)
-		return sections.count
-	}
-
-	@MainActor
-	func sectionIndex(model: PreferencesGeneralModel) -> Int {
-		let sections = Self.availableSections(with: model)
-		return sections.firstIndex(of: self)!
-	}
-
-	@MainActor
-	private static func availableSections(with model: PreferencesGeneralModel) -> [Self] {
-		var sections = allCases
-		if model.hasDismissedSetupInstructions,
-		   let setupInstructionsSectionIndex = sections.firstIndex(of: .setupInstructions) {
-			sections.remove(at: setupInstructionsSectionIndex)
-		}
-		if model.hasRomFile,
-		   let romSectionIndex = sections.firstIndex(of: .bootstrap) {
-			sections.remove(at: romSectionIndex)
-		}
-		if !UIDevice.isIPad,
-		   let iPadMouseSection = sections.firstIndex(of: .iPadMouse) {
-			sections.remove(at: iPadMouseSection)
-		}
-		if model.isIPadMouseEnabled,
-		   let secondFingerSection = sections.firstIndex(of: .twoFingerSteering) {
-			sections.remove(at: secondFingerSection)
-		}
-		if !model.supportsHaptics,
-		   let hapticsFeedbackSectionIndex = sections.firstIndex(of: .hapticFeedback) {
-			sections.remove(at: hapticsFeedbackSectionIndex)
-		}
-
-		return sections
-	}
-}
-
-
-extension PreferencesGeneralViewController {
-	private func setTwoFingerSteering(enabled: Bool) {
-		model.setTwoFingerSteering(enabled: enabled)
-
-		let section = SectionType.twoFingerSteering.sectionIndex(model: model)
-		let detailsIndexPath = IndexPath(row: 2, section: section)
-
-		if enabled {
-			tableView.insertRows(at: [detailsIndexPath], with: .fade)
-		} else {
-			tableView.deleteRows(at: [detailsIndexPath], with: .fade)
-		}
-	}
-
-
-
-	private func set(isIPadMouseEnabled: Bool) {
-		guard model.isIPadMouseEnabled != isIPadMouseEnabled else {
-			return
-		}
-
-		if isIPadMouseEnabled {
-			let sectionIndex = SectionType.twoFingerSteering.sectionIndex(model: model)
-			model.isIPadMouseEnabled = true
-			tableView.deleteSections(.init([sectionIndex]), with: .fade)
-		} else {
-			model.isIPadMouseEnabled = false
-			let sectionIndex = SectionType.twoFingerSteering.sectionIndex(model: model)
-			tableView.insertSections(.init([sectionIndex]), with: .fade)
 		}
 	}
 }

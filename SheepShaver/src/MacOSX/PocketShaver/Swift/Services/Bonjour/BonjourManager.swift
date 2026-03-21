@@ -535,7 +535,6 @@ class BonjourManager {
 
 	@objc
 	private func appWillSuspend() {
-		print("- appWillSuspend")
 		if case .thisDevice(let router) = routerResponsibiliyStatus {
 			recoverableRouter = router
 		}
@@ -544,7 +543,6 @@ class BonjourManager {
 
 	@objc
 	private func appDidResume() {
-		print("- appDidResume")
 		Task { @MainActor [weak self] in
 			self?.start()
 		}
