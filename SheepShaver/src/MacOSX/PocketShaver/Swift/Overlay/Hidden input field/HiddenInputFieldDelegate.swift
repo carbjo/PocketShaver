@@ -19,6 +19,7 @@ struct HiddenInputFieldOutput {
 
 class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
 	var didInputSDLKey: ((HiddenInputFieldOutput) -> Void)?
+	var willEndEditing: (() -> Void)?
 
 	func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
 		var keyboard: Keyboard?
@@ -135,5 +136,20 @@ class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
 		let withShift = capitalLetters.contains(str)
 
 		return .init(key: key, withShift: withShift, keyboard: keyboard)
+	}
+
+	func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool {
+		UIView.animate(withDuration: 0.2) {
+			textField.inputAccessoryView?.alpha = 1
+		}
+		return true
+	}
+
+	func textFieldShouldEndEditing(_ textField: UITextField) -> Bool {
+		UIView.animate(withDuration: 0.2) {
+			textField.inputAccessoryView?.alpha = 0
+		}
+		willEndEditing?()
+		return true
 	}
 }

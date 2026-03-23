@@ -50,6 +50,7 @@ class TableViewDiffableDataSource<T: Hashable, S: Hashable> : UITableViewDiffabl
 		if let sourceId = itemIdentifier(for: sourceIndexPath) {
 			if let destinationId = itemIdentifier(for: destinationIndexPath) {
 				guard sourceId != destinationId else {
+					completion?()
 					return // destination is same as source, no move.
 				}
 				// valid source and destination
