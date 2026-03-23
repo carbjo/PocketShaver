@@ -33,7 +33,8 @@ class PreferencesGeneralModel {
 
 	struct DiskEntry: Hashable {
 		let index: Int
-		let disk: Disk
+		let filename: String
+		let type: DiskType
 	}
 
 	struct MonitorResolutionsState: Hashable {
@@ -290,10 +291,11 @@ class PreferencesGeneralModel {
 	@MainActor
 	func diskEntry(for disk: Disk) -> DiskEntry {
 		let index = DiskManager.shared.diskArray.firstIndex(of: disk)!
-		return .init(index: index, disk: disk)
+		return .init(index: index, filename: disk.filename, type: disk.type)
 	}
 
 	@MainActor
+	@discardableResult
 	func setDiskEnabled(filename: String, isEnabled: Bool) -> DiskSelectionChangeResult {
 		guard var disk = disk(forFilename: filename) else {
 			return .init(prevIndex: 0, newIndex: 0, willBootFromCDChanged: false)

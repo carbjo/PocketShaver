@@ -123,7 +123,7 @@ class PreferencesGeneralViewController: UITableViewController {
 			guard let self else { return }
 			switch change {
 			case .selectedResolutionsChanged:
-				reloadData()
+				reloadSection(.monitorResolutions)
 			default:
 				break
 			}
@@ -171,30 +171,35 @@ class PreferencesGeneralViewController: UITableViewController {
 				)
 			case .disksDisk(let diskEntry):
 				let cell = tableView.dequeueReusableCell(withIdentifier: PreferencesGeneralDiskCell.reuseIdentifier, for: indexPath) as! PreferencesGeneralDiskCell
-				let disk = model.disk(forFilename: diskEntry.disk.filename)! // because mount toggle move cell logic does not update associated value data
+				let disk = model.disk(forFilename: diskEntry.filename)!
 				cell.configure(
 					disk: disk,
 					didSetIsEnabled: { [weak self] filename, isOn in
 						guard let self else { return }
 
+						if #unavailable(iOS 16.0) {
+							// iOS 15 can't handle code below
+							model.setDiskEnabled(filename: filename, isEnabled: isOn)
+							reloadData()
+							return
+						}
+
 						// The following muddle instead of a simple call to reloadData() is to make the
 						// cell do a _move_ animation rather than fade when switching the mount toggle.
-						let change = model.setDiskEnabled(filename: filename, isEnabled: isOn)
-
 						let baselineDisk = model.disk(forIndex: 0)
 						let baselineDiskEntry = model.diskEntry(for: baselineDisk)
 						let baselineDiskIndexPath = dataSource.indexPath(for: .disksDisk(baselineDiskEntry))!
 						let baselineDiskRowIndex = baselineDiskIndexPath.row
 						let diskSectionIndex = baselineDiskIndexPath.section
 
+						let change = model.setDiskEnabled(filename: filename, isEnabled: isOn)
+
 						let prevIndexPath = IndexPath(row: baselineDiskRowIndex + change.prevIndex, section: diskSectionIndex)
 						let newIndexPath = IndexPath(row: baselineDiskRowIndex + change.newIndex, section: diskSectionIndex)
 
 						tableView.performBatchUpdates {
 							self.dataSource.tableView(tableView, moveRowAt: prevIndexPath, to: newIndexPath) { [weak self] in
-								if change.willBootFromCDChanged {
-									self?.reloadData()
-								}
+								self?.reloadData(animatingDifferences: false) // To update snapshot
 							}
 						}
 					},
@@ -398,12 +403,15 @@ class PreferencesGeneralViewController: UITableViewController {
 			}
 		}
 
-		dataSource.canEditProvider = { identifier in
-			guard case .disksDisk(let diskEntry) = identifier else {
+		dataSource.canEditProvider = { [weak self] identifier in
+			guard let self,
+				  case .disksDisk(let diskEntry) = identifier else {
 				return false
 			}
 
-			return !diskEntry.disk.isEnabled
+			let disk = model.disk(forFilename: diskEntry.filename)!
+
+			return !disk.isEnabled
 		}
 
 		dataSource.commitEditProvider = { [weak self] identifier, editingStyle in
@@ -413,7 +421,8 @@ class PreferencesGeneralViewController: UITableViewController {
 				return
 			}
 
-			model.deleteDisk(diskEntry.disk)
+			let disk = model.disk(forFilename: diskEntry.filename)!
+			model.deleteDisk(disk)
 
 			reloadData()
 		}
@@ -425,6 +434,7 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private func reloadData(
+		animatingDifferences: Bool = true,
 		completion: (() -> Void)? = nil
 	) {
 		var snapshot = NSDiffableDataSourceSnapshot<Section, Row>()
@@ -449,7 +459,11 @@ class PreferencesGeneralViewController: UITableViewController {
 		} else {
 			for diskIndex in 0..<model.numberOfDisks {
 				let disk = model.disk(forIndex: diskIndex)
-				let diskEntry = PreferencesGeneralModel.DiskEntry(index: diskIndex, disk: disk)
+				let diskEntry = PreferencesGeneralModel.DiskEntry(
+					index: diskIndex,
+					filename: disk.filename,
+					type: disk.type
+				)
 				snapshot.appendItems([.disksDisk(diskEntry)])
 			}
 		}
@@ -516,8 +530,15 @@ class PreferencesGeneralViewController: UITableViewController {
 
 		dataSource.apply(
 			snapshot,
+			animatingDifferences: animatingDifferences,
 			completion: completion
 		)
+	}
+
+	func reloadSection(_ section: Section) {
+		var snapshot = dataSource.snapshot()
+		snapshot.reloadSections([section])
+		dataSource.apply(snapshot)
 	}
 
 	func presentRomFileMissingError() {

@@ -146,6 +146,10 @@ public class OverlayViewController: UIViewController {
 			self?.inputInteractionModel.handle(output)
 		}
 
+		hiddenInputFieldDelegate.willEndEditing = { [weak self] in
+			self?.transition(to: .normal, allowHiddenInputFieldResponserResignation: false)
+		}
+
 		setupGestureInputView()
 
 		if state != .normal {
@@ -241,7 +245,7 @@ public class OverlayViewController: UIViewController {
 		if UIDevice.isSimulator,
 		   motion == .motionShake {
 			// For debugging purposes
-			transition(to: .showingGamepad)
+			transition(to: .showingKeyboard)
 		}
 	}
 
@@ -275,6 +279,8 @@ public class OverlayViewController: UIViewController {
 		NotificationCenter.default.addObserver(self, selector: #selector(displayRelativeMouseCapabilityDialogueIfEligible), name: LocalNotifications.relativeMouseModeCapabilityFound, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayJaggyCursorWarningDialogueIfEligible), name: LocalNotifications.jaggyCursorResolutionSelected, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayGotIpAddress), name: LocalNotifications.gotIpAddress, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillChangePosition), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(keyboardDidChangePosition), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
 	}
 
 	private func loadGamepadSettings() {
@@ -283,13 +289,19 @@ public class OverlayViewController: UIViewController {
 		nextGamepadLayerView.load(config: GamepadManager.shared.nextConfig)
 	}
 
-	private func transition(to state: OverlayState) {
+	private func transition(
+		to state: OverlayState,
+		allowHiddenInputFieldResponserResignation: Bool = true
+	) {
 		self.state = state
 		switch state {
 		case .normal:
+			gamepadLayerView.alpha = 1
 			transformSDLContainerView(.identity)
 			dragInteractionModel.resetSdlViewVerticalOffset()
-			hiddenInputField.resignFirstResponder()
+			if allowHiddenInputFieldResponserResignation {
+				hiddenInputField.resignFirstResponder()
+			}
 			transformAllGamepadLayoutViews(.init(translationX: 0, y: -view.frame.size.height))
 			gestureInputView.set(state: state)
 			gamepadLayerView.isUserInteractionEnabled = false
@@ -356,6 +368,10 @@ public class OverlayViewController: UIViewController {
 				gamepadSettingsName: gamepadSettingsName,
 				showHints: MiscellaneousSettings.current.showHints
 			)
+
+			if result.state == .showingKeyboard {
+				gamepadLayerView.alpha = 0
+			}
 
 			UIView.animate(
 				withDuration: result.willTranslateInLongAxis ? 0.6 : 0.28,
@@ -651,6 +667,20 @@ public class OverlayViewController: UIViewController {
 			hint: "Got IP address \(ipAddress.string)",
 			atBottom: true
 		)
+	}
+
+	@objc
+	private func keyboardWillChangePosition(notification: NSNotification) {
+		if let keyboardFrame: NSValue = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
+			hiddenInputField.reportKeyboardWillChangePosition(keyboardFrame.cgRectValue)
+		}
+	}
+
+	@objc
+	private func keyboardDidChangePosition(notification: NSNotification) {
+		if let keyboardFrame: NSValue = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
+			hiddenInputField.reportKeyboardDidChangePosition(keyboardFrame.cgRectValue)
+		}
 	}
 }
 
