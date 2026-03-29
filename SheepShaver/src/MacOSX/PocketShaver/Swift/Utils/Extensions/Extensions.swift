@@ -132,6 +132,7 @@ extension UIButton {
 }
 
 extension FileManager {
+	@objc
 	static var documentUrl: URL {
 		Self.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 	}
