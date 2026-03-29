@@ -171,6 +171,8 @@
 		C79D23042F3F82C500D54A4C /* NetworkSettingsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79D23032F3F82BB00D54A4C /* NetworkSettingsObjC.mm */; };
 		C7A0EC162F4307BA0016533F /* Assets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A0EC152F4307B40016533F /* Assets.swift */; };
 		C7A9AB9A2EED61F2001EC4DB /* LocalNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */; };
+		C7B04B8D2F77B66100A36842 /* MemoryDump.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C7B04B8C2F77B65A00A36842 /* MemoryDump.cpp */; };
+		C7B04B902F77B6F900A36842 /* MemoryDumpObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7B04B8F2F77B6EF00A36842 /* MemoryDumpObjC.mm */; };
 		C7B23CC32F58122100B784E7 /* TableViewDiffableDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B23CC22F58121C00B784E7 /* TableViewDiffableDataSource.swift */; };
 		C7B23CC62F5C772B00B784E7 /* PreferencesTwoFingerSteeringDetailsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B23CC52F5C771C00B784E7 /* PreferencesTwoFingerSteeringDetailsViewController.swift */; };
 		C7B4E21A2F33962400246FBE /* Fonts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B4E2192F33962200246FBE /* Fonts.swift */; };
@@ -717,6 +719,11 @@
 		C79D23052F3F833B00D54A4C /* NetworkSettingsObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NetworkSettingsObjCCppHeader.h; sourceTree = "<group>"; };
 		C7A0EC152F4307B40016533F /* Assets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Assets.swift; sourceTree = "<group>"; };
 		C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotifications.swift; sourceTree = "<group>"; };
+		C7B04B8C2F77B65A00A36842 /* MemoryDump.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = MemoryDump.cpp; sourceTree = "<group>"; };
+		C7B04B8E2F77B68200A36842 /* MemoryDump.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MemoryDump.h; sourceTree = "<group>"; };
+		C7B04B8F2F77B6EF00A36842 /* MemoryDumpObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MemoryDumpObjC.mm; sourceTree = "<group>"; };
+		C7B04B912F77B75200A36842 /* MemoryDumpObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MemoryDumpObjC.h; sourceTree = "<group>"; };
+		C7B04B922F77B8FA00A36842 /* MemoryDumpObjCCpp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MemoryDumpObjCCpp.h; sourceTree = "<group>"; };
 		C7B23CC22F58121C00B784E7 /* TableViewDiffableDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableViewDiffableDataSource.swift; sourceTree = "<group>"; };
 		C7B23CC52F5C771C00B784E7 /* PreferencesTwoFingerSteeringDetailsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesTwoFingerSteeringDetailsViewController.swift; sourceTree = "<group>"; };
 		C7B4E2192F33962200246FBE /* Fonts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fonts.swift; sourceTree = "<group>"; };
@@ -1460,6 +1467,7 @@
 				C7DCEF3B2E86F53B00EAED05 /* Mouse Haptic Feedback */,
 				C7A9AB982EED61B4001EC4DB /* Local notifications */,
 				C79517E02F15446E00CAEDBF /* Right click */,
+				C7B04B8B2F77B64700A36842 /* Memory dump */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -1706,6 +1714,18 @@
 				C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */,
 			);
 			path = "Local notifications";
+			sourceTree = "<group>";
+		};
+		C7B04B8B2F77B64700A36842 /* Memory dump */ = {
+			isa = PBXGroup;
+			children = (
+				C7B04B8F2F77B6EF00A36842 /* MemoryDumpObjC.mm */,
+				C7B04B912F77B75200A36842 /* MemoryDumpObjC.h */,
+				C7B04B922F77B8FA00A36842 /* MemoryDumpObjCCpp.h */,
+				C7B04B8C2F77B65A00A36842 /* MemoryDump.cpp */,
+				C7B04B8E2F77B68200A36842 /* MemoryDump.h */,
+			);
+			path = "Memory dump";
 			sourceTree = "<group>";
 		};
 		C7B23CC42F5C770400B784E7 /* Two Finger Steering Details */ = {
@@ -2369,6 +2389,7 @@
 				E204B94C28BC3EBE0081FDCA /* udp.c in Sources */,
 				E204B94D28BC3EBE0081FDCA /* ip_input.c in Sources */,
 				E204B94E28BC3EBE0081FDCA /* bootp.c in Sources */,
+				C7B04B902F77B6F900A36842 /* MemoryDumpObjC.mm in Sources */,
 				E204B94F28BC3EBE0081FDCA /* prefs.cpp in Sources */,
 				E204B95028BC3EBE0081FDCA /* cdrom.cpp in Sources */,
 				C7F42CCC2E5A0C8200FA7169 /* RamAllocFailedAlertViewController.swift in Sources */,
@@ -2392,6 +2413,7 @@
 				C74035B32EDC33420045B9C6 /* PerformanceCounter.swift in Sources */,
 				C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */,
 				E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */,
+				C7B04B8D2F77B66100A36842 /* MemoryDump.cpp in Sources */,
 				C7699F152EC464990083B3B3 /* Colors.swift in Sources */,
 				C7C3D26E2E76F3BC0018DB8B /* GamepadAssignButtonViewController.swift in Sources */,
 				C790E8742F055D5200B784A6 /* ADBObjC.mm in Sources */,
