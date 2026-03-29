@@ -49,7 +49,7 @@ bool objc_getRelativeMouseTapToClick(void) {
 }
 
 bool objc_getSoundDisabled(void) {
-	return MiscellaneousSettingsObjC.isSoundDisabled;
+	return !MiscellaneousSettingsObjC.isAudioEnabled;
 }
 
 bool objc_getIsLinearGammaEnabled(void) {

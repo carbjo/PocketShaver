@@ -50,7 +50,11 @@ class MiscellaneousSettings: Codable {
 	private(set) var gestureHapticFeedback: Bool
 	private(set) var mouseHapticFeedback: Bool
 	private(set) var keyHapticFeedback: Bool
-	private(set) var soundDisabled: Bool
+	private(set) var audioEnabled: Bool {
+		didSet {
+			NotificationCenter.default.post(.init(name: LocalNotifications.audioEnabledChanged))
+		}
+	}
 	private(set) var fpsReporting: Bool {
 		didSet {
 			NotificationCenter.default.post(.init(name: LocalNotifications.performanceCounterSettingChanged))
@@ -89,7 +93,7 @@ class MiscellaneousSettings: Codable {
 		gestureHapticFeedback = true
 		mouseHapticFeedback = true
 		keyHapticFeedback = true
-		soundDisabled = false
+		audioEnabled = true
 		fpsReporting = false
 		networkTransferRateReportingEnabled = false
 		if UIScreen.supportsHighRefreshRate {
@@ -177,8 +181,8 @@ class MiscellaneousSettings: Codable {
 	}
 
 	@MainActor
-	func set(soundDisabled: Bool) {
-		self.soundDisabled = soundDisabled
+	func set(audioEnabled: Bool) {
+		self.audioEnabled = audioEnabled
 
 		saveAsCurrent()
 	}
@@ -324,8 +328,8 @@ public class MiscellaneousSettingsObjC: NSObject {
 	}
 
 	@MainActor
-	static func isSoundDisabled() -> Bool {
-		MiscellaneousSettings.current.soundDisabled
+	static func isAudioEnabled() -> Bool {
+		MiscellaneousSettings.current.audioEnabled
 	}
 
 	static func isRelativeMouseTapToClickOn() -> Bool {

@@ -89,17 +89,17 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	var soundDisabled: Bool {
+	var audioEnabled: Bool {
 		get {
-			miscSettings.soundDisabled
+			miscSettings.audioEnabled
 		}
 		set {
-			let previousValue = miscSettings.soundDisabled
-			miscSettings.set(soundDisabled: newValue)
+			let previousValue = miscSettings.audioEnabled
+			miscSettings.set(audioEnabled: newValue)
 
 			if mode == .duringEmulation,
 				newValue != previousValue {
-				objc_update_audio_disabled_setting(newValue)
+				objc_update_audio_enabled_setting(newValue)
 			}
 		}
 	}

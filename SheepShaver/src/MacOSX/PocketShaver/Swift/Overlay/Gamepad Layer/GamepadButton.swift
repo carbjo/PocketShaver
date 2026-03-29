@@ -29,6 +29,7 @@ class GamepadButton: UIButton {
 
 	private var isRelativeMouseModeEnabled: Bool
 	private var isIPadMousePassthroughOn: Bool
+
 	private var isEditing: Bool = false
 	private var isToggledOn: Bool = false
 
@@ -103,6 +104,10 @@ class GamepadButton: UIButton {
 		configure(isRelativeMouseModeEnabled: inputInteractionModel.isRelativeMouseModeEnabled)
 		configure(isIPadMousePassthroughOn: inputInteractionModel.iPadMousePassthrough)
 		configure(hoverOffsetMode: inputInteractionModel.hoverOffsetMode)
+		configure(
+			audioEnabled: inputInteractionModel.isAudioEnabled,
+			hostAudioVolume: inputInteractionModel.hostAudioVolume
+		)
 	}
 	
 	required init?(coder: NSCoder) { fatalError() }
@@ -117,6 +122,8 @@ class GamepadButton: UIButton {
 				configure(isRelativeMouseModeEnabled: isEnabled)
 			case .iPadMousePassthroughChanged(let isEnabled):
 				configure(isIPadMousePassthroughOn: isEnabled)
+			case .audioConfigurationChanged(let isEnabled, let hostAudioVolume):
+				configure(audioEnabled: isEnabled, hostAudioVolume: hostAudioVolume)
 			default: break
 			}
 		}.store(in: &anyCancellables)
@@ -140,6 +147,25 @@ class GamepadButton: UIButton {
 	private func configure(hoverOffsetMode: HoverOffsetMode) {
 		isToggledOn = isSelectedWith(hoverOffsetMode)
 		updateColor()
+	}
+
+	private func configure(audioEnabled: Bool, hostAudioVolume: InputInteractionModel.HostAudioVolume) {
+		guard specialButtonConfig == .audioEnabled else {
+			return
+		}
+
+		if audioEnabled {
+			switch hostAudioVolume {
+			case .low:
+				setImage(.init(resource: .speakerWave1), for: .normal)
+			case .mid:
+				setImage(.init(resource: .speakerWave2), for: .normal)
+			case .high:
+				setImage(.init(resource: .speakerWave3), for: .normal)
+			}
+		} else {
+			setImage(.init(resource: .speakerSlash), for: .normal)
+		}
 	}
 
 	override func point(inside point: CGPoint, with _: UIEvent?) -> Bool {
@@ -240,6 +266,7 @@ extension SpecialButton {
 		case .hoverDiagonallyToggle: return .twoIcons(.handRaised, .crossArrow)
 		case .cmdW: return .text("⌘-W")
 		case .rightClick: return .icon(.rightclick)
+		case .audioEnabled: return .icon(.speakerSlash) // will be reconfigured
 		}
 	}
 }
