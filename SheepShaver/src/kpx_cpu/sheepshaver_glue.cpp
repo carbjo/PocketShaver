@@ -1220,14 +1220,14 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 
 		// For hook sub-opcodes (200-207), log full PPC state
 		if (pre_subop >= 200 && pre_subop <= 207) {
-			printf("RAVE NATIVE_OP: subop=%d PC=0x%08x LR=0x%08x CTR=0x%08x SP=0x%08x R2=0x%08x\n",
-				   pre_subop, saved_pc, saved_lr, saved_ctr, saved_sp, saved_r2);
+			D(bug("RAVE NATIVE_OP: subop=%d PC=0x%08x LR=0x%08x CTR=0x%08x SP=0x%08x R2=0x%08x\n",
+				   pre_subop, saved_pc, saved_lr, saved_ctr, saved_sp, saved_r2));
 			// Dump instructions at LR (return address) to see what caller expects
-			printf("RAVE NATIVE_OP: instructions at LR 0x%08x:\n", saved_lr);
+			D(bug("RAVE NATIVE_OP: instructions at LR 0x%08x:\n", saved_lr));
 			for (int di = -2; di < 6; di++) {
 				uint32 addr = saved_lr + di * 4;
 				uint32 instr = ReadMacInt32(addr);
-				printf("  [0x%08x] %08x%s\n", addr, instr, di == 0 ? " <-- LR" : "");
+				D(bug("  [0x%08x] %08x%s\n", addr, instr, di == 0 ? " <-- LR" : ""));
 			}
 		}
 
@@ -1277,8 +1277,8 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 
 		// For sub-opcode 204 (DrawContextNew), log the return value
 		if (pre_subop == 204) {
-			printf("RAVE NATIVE_OP: DrawContextNew returning %d, blr will go to LR=0x%08x\n",
-				   (int32)rave_ret, lr());
+			D(bug("RAVE NATIVE_OP: DrawContextNew returning %d, blr will go to LR=0x%08x\n",
+				   (int32)rave_ret, lr()));
 		}
 		break;
 	}

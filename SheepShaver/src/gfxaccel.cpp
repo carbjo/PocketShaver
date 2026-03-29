@@ -444,10 +444,14 @@ bool NQD_bitblt_hook(uint32 p)
 	}
 
 	// CPU fallback: srcCopy (mode 0) with matching pixel sizes >= 8
-	if (ReadMacInt32(p + acclSrcPixelSize) >= 8 &&
+	// Restore mask/clip guards — CPU memmove path can't handle masked or clipped blits.
+	if (ReadMacInt32(p + 0x018) + ReadMacInt32(p + 0x128) == 0 &&
+		ReadMacInt32(p + 0x130) == 0 &&
+		ReadMacInt32(p + acclSrcPixelSize) >= 8 &&
 		ReadMacInt32(p + acclSrcPixelSize) == ReadMacInt32(p + acclDestPixelSize) &&
 		(int32)(ReadMacInt32(p + acclSrcRowBytes) ^ ReadMacInt32(p + acclDestRowBytes)) >= 0 &&
-		ReadMacInt32(p + acclTransferMode) == 0) {
+		ReadMacInt32(p + acclTransferMode) == 0 &&
+		(int32)ReadMacInt32(p + 0x15c) > 0) {
 		WriteMacInt32(p + acclDrawProc, NativeTVECT(NATIVE_NQD_BITBLT));
 		return true;
 	}

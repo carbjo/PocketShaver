@@ -111,10 +111,14 @@ void AddPrefsDefaults(void)
 	PrefsAddBool("nogui", false);
 	PrefsAddBool("noclipconversion", false);
 	PrefsAddBool("ignoresegv", true);
-	PrefsAddBool("ignoreillegal", true);
+	PrefsAddBool("ignoreillegal", false);
 
-
+#if USE_JIT
+	// JIT compiler specific options
+	PrefsAddBool("jit", true);
+#else
 	PrefsAddBool("jit", false);
+#endif
 	PrefsAddBool("jit68k", false);
 
 	PrefsAddInt32("keyboardtype", 5);
