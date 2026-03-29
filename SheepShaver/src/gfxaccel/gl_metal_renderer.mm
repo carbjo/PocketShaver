@@ -1203,6 +1203,29 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     [ms->currentEncoder setRenderPipelineState:pipeline];
     [ms->currentEncoder setDepthStencilState:dsState];
 
+    // Update viewport + depth range per draw (games change glDepthRange mid-frame,
+    // e.g. sky domes rendered with glDepthRange(1,1) to pin at far plane)
+    {
+        MTLViewport vp;
+        vp.originX = ctx->viewport[0];
+        vp.originY = ctx->viewport[1];
+        vp.width   = ctx->viewport[2];
+        vp.height  = ctx->viewport[3];
+        vp.znear   = ctx->depth_range_near;
+        vp.zfar    = ctx->depth_range_far;
+        [ms->currentEncoder setViewport:vp];
+    }
+
+    // Update scissor per draw
+    if (ctx->scissor_test) {
+        MTLScissorRect sr;
+        sr.x = ctx->scissor_box[0];
+        sr.y = ctx->scissor_box[1];
+        sr.width = ctx->scissor_box[2];
+        sr.height = ctx->scissor_box[3];
+        [ms->currentEncoder setScissorRect:sr];
+    }
+
     // Set stencil reference value when stencil test is active
     if (ctx->stencil_test) {
         [ms->currentEncoder setStencilReferenceValue:(uint32_t)(ctx->stencil.ref & 0xFF)];
@@ -1242,6 +1265,18 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
             // Use sampler derived from texture's filter/wrap parameters
             id<MTLSamplerState> sampler = GLMetalGetSampler(ms, &texIt->second);
             [ms->currentEncoder setFragmentSamplerState:sampler atIndex:0];
+            // Diagnostic: read back center pixel of sky texture at draw time
+            if (gl_logging_enabled && vertCount > 1000 && [mtlTex storageMode] == MTLStorageModeShared) {
+                int tw = (int)[mtlTex width], th = (int)[mtlTex height];
+                uint8_t px[4] = {0};
+                MTLRegion rgn = MTLRegionMake2D(tw/2, th/2, 1, 1);
+                [mtlTex getBytes:px bytesPerRow:4 fromRegion:rgn mipmapLevel:0];
+                // px is BGRA, print as RGBA
+                printf("GL_METAL: TEX_DIAG tex=%u %dx%d mips=%lu center_pixel=RGBA(%u,%u,%u,%u) minF=0x%x\n",
+                       texName, tw, th, (unsigned long)[mtlTex mipmapLevelCount],
+                       px[2], px[1], px[0], px[3],
+                       texIt->second.min_filter);
+            }
         } else if (ms->fallbackWhiteTexture) {
             // Texture was deleted or never uploaded -- bind 1x1 white so vertex
             // colors show through (GL_MODULATE: texel * vertex_color = vertex_color).
@@ -1271,8 +1306,12 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     // Align to 256 bytes for Metal buffer offset requirements
     ms->bufferOffset = (ms->bufferOffset + 255) & ~255;
 
-    GL_METAL_LOG("GLMetalFlushImmediateMode: drew %zu verts as prim %d, offset now %d",
-                 vertCount, (int)mtlPrim, ms->bufferOffset);
+    GL_METAL_LOG("GLMetalFlushImmediateMode: drew %zu verts as prim %d, offset now %d"
+                 " | tex=%d bound=%u env=%d depth=%d/%d/%d blend=%d fog=%d cull=%d",
+                 vertCount, (int)mtlPrim, ms->bufferOffset,
+                 fu.has_texture, ctx->tex_units[texUnit].bound_texture_2d,
+                 fu.texenv_mode, ctx->depth_test, ctx->depth_func, ctx->depth_mask,
+                 ctx->blend, ctx->fog_enabled, ctx->cull_face_enabled);
 }
 
 
@@ -1548,6 +1587,107 @@ void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_da
     GL_METAL_LOG("GLMetalBitmap: %dx%d at raster (%.1f, %.1f) zoom (%.1f, %.1f)",
                  width, height, ctx->raster_pos[0], ctx->raster_pos[1],
                  ctx->pixel_zoom_x, ctx->pixel_zoom_y);
+}
+
+
+/*
+ *  GLMetalClear - perform a mid-frame glClear by ending the current encoder
+ *  and starting a new render pass with selective clear/load actions.
+ *
+ *  Called from NativeGLClear when the render pass is already active.
+ *  Without this, mid-frame clears (e.g. depth-only clear between terrain
+ *  and sky passes) are silently lost.
+ */
+#define GL_COLOR_BUFFER_BIT_CLEAR   0x00004000
+#define GL_DEPTH_BUFFER_BIT_CLEAR   0x00000100
+#define GL_STENCIL_BUFFER_BIT_CLEAR 0x00000400
+
+void GLMetalClear(GLContext *ctx, uint32_t mask)
+{
+    GLMetalState *ms = (GLMetalState *)ctx->metal;
+    if (!ms || !ms->initialized) return;
+
+    // If no render pass is active yet, the next draw will trigger
+    // GLMetalBeginFrame which clears everything.  Just record the clear
+    // color/depth/stencil values (already done by NativeGLClear*) and return.
+    if (!ms->renderPassActive) return;
+
+    // End current encoder so we can create a new render pass
+    [ms->currentEncoder endEncoding];
+    ms->currentEncoder = nil;
+
+    // Commit current work
+    [ms->currentCommandBuffer commit];
+    ms->lastCommittedBuffer = ms->currentCommandBuffer;
+    ms->currentCommandBuffer = nil;
+
+    // Start a new command buffer
+    ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
+
+    // Build render pass descriptor with selective clear/load actions
+    MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
+
+    rpd.colorAttachments[0].texture = ms->overlayTexture;
+    if (mask & GL_COLOR_BUFFER_BIT_CLEAR) {
+        rpd.colorAttachments[0].loadAction = MTLLoadActionClear;
+        rpd.colorAttachments[0].clearColor = MTLClearColorMake(
+            ctx->clear_color[0], ctx->clear_color[1],
+            ctx->clear_color[2], 1.0);
+    } else {
+        rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
+    }
+    rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
+
+    if (ms->depthBuffer) {
+        rpd.depthAttachment.texture = ms->depthBuffer;
+        if (mask & GL_DEPTH_BUFFER_BIT_CLEAR) {
+            rpd.depthAttachment.loadAction = MTLLoadActionClear;
+            rpd.depthAttachment.clearDepth = ctx->clear_depth;
+        } else {
+            rpd.depthAttachment.loadAction = MTLLoadActionLoad;
+        }
+        rpd.depthAttachment.storeAction = MTLStoreActionStore;
+
+        rpd.stencilAttachment.texture = ms->depthBuffer;
+        if (mask & GL_STENCIL_BUFFER_BIT_CLEAR) {
+            rpd.stencilAttachment.loadAction = MTLLoadActionClear;
+            rpd.stencilAttachment.clearStencil = ctx->clear_stencil;
+        } else {
+            rpd.stencilAttachment.loadAction = MTLLoadActionLoad;
+        }
+        rpd.stencilAttachment.storeAction = MTLStoreActionStore;
+    }
+
+    ms->currentEncoder = [ms->currentCommandBuffer renderCommandEncoderWithDescriptor:rpd];
+    if (!ms->currentEncoder) {
+        GL_METAL_LOG("GLMetalClear: failed to create render encoder");
+        ms->renderPassActive = false;
+        return;
+    }
+
+    // Restore viewport and scissor on the new encoder
+    MTLViewport vp;
+    vp.originX = ctx->viewport[0];
+    vp.originY = ctx->viewport[1];
+    vp.width   = ctx->viewport[2];
+    vp.height  = ctx->viewport[3];
+    vp.znear   = ctx->depth_range_near;
+    vp.zfar    = ctx->depth_range_far;
+    [ms->currentEncoder setViewport:vp];
+
+    if (ctx->scissor_test) {
+        MTLScissorRect sr;
+        sr.x = ctx->scissor_box[0];
+        sr.y = ctx->scissor_box[1];
+        sr.width = ctx->scissor_box[2];
+        sr.height = ctx->scissor_box[3];
+        [ms->currentEncoder setScissorRect:sr];
+    }
+
+    // Reset ring buffer offset — previous work was committed
+    ms->bufferOffset = 0;
+
+    GL_METAL_LOG("GLMetalClear: mid-frame clear mask=0x%x", mask);
 }
 
 
@@ -2928,6 +3068,17 @@ static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode, const int32_t 
         GLVertex v;
         FetchArrayVertex(ctx, indices[j], v);
         ctx->im_vertices.push_back(v);
+    }
+
+    // Dump first 3 vertices for large draws (sky debug)
+    if (gl_logging_enabled && count > 1000) {
+        for (int d = 0; d < 3 && d < count; d++) {
+            const GLVertex &dv = ctx->im_vertices[d];
+            printf("GL_METAL: sky_debug v[%d] pos=(%.2f,%.2f,%.2f,%.2f) col=(%.3f,%.3f,%.3f,%.3f) tc=(%.3f,%.3f)\n",
+                   d, dv.position[0], dv.position[1], dv.position[2], dv.position[3],
+                   dv.color[0], dv.color[1], dv.color[2], dv.color[3],
+                   dv.texcoord[0][0], dv.texcoord[0][1]);
+        }
     }
 
     ctx->in_begin = false;

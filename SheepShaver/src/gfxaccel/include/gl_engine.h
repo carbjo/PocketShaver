@@ -1392,6 +1392,7 @@ extern void GLMetalUploadSubTexture3D(GLContext *ctx, GLTextureObject *texObj, i
 extern void GLMetalDestroyTexture(GLTextureObject *texObj);
 extern void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len);
 extern void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len);
+extern void GLMetalClear(GLContext *ctx, uint32_t mask);
 
 
 #endif /* GL_ENGINE_H */
