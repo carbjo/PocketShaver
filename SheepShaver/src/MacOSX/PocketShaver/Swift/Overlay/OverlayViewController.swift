@@ -52,6 +52,11 @@ public class OverlayViewController: UIViewController {
 		)
 	}()
 
+	/// Whether the on-screen gamepad should be suppressed entirely.
+	/// True when running as "Designed for iPad" on macOS — the user has a
+	/// physical keyboard and mouse, so touch gamepad controls are useless.
+	private static let hideGamepad: Bool = UIDevice.isiOSAppOnMac
+
 	private lazy var gamepadLayerView: GamepadLayerView = {
 		let view = GamepadLayerView(
 			inputInteractionModel: inputInteractionModel,
@@ -67,15 +72,20 @@ public class OverlayViewController: UIViewController {
 		)
 		view.isUserInteractionEnabled = (state == .showingGamepad || state == .editingGamepad)
 		view.alpha = 0
+		view.isHidden = Self.hideGamepad
 		return view
 	}()
 
 	private lazy var previousGamepadLayerView: GamepadLayerView = {
-		GamepadLayerView()
+		let view = GamepadLayerView()
+		view.isHidden = Self.hideGamepad
+		return view
 	}()
 
 	private lazy var nextGamepadLayerView: GamepadLayerView = {
-		GamepadLayerView()
+		let view = GamepadLayerView()
+		view.isHidden = Self.hideGamepad
+		return view
 	}()
 
 	private lazy var hiddenInputField: HiddenInputField = { [weak self] in
@@ -91,7 +101,7 @@ public class OverlayViewController: UIViewController {
 				informationView.showInformation(
 					for: .normal,
 					gamepadSettingsName: gamepadSettingsName,
-					showHints: MiscellaneousSettings.current.showHints
+					showHints: Self.hideGamepad ? false : MiscellaneousSettings.current.showHints
 				)
 			},
 			hiddenInputFieldDelegate: hiddenInputFieldDelegate
@@ -162,19 +172,21 @@ public class OverlayViewController: UIViewController {
 	public override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
 
-		if state != .showingGamepad {
-			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+		if !Self.hideGamepad {
+			if state != .showingGamepad {
+				gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+			}
 		}
 
 		if state == .normal {
 			informationView.showInformation(
 				for: .normal,
 				gamepadSettingsName: gamepadSettingsName,
-				showHints: MiscellaneousSettings.current.showHints,
+				showHints: Self.hideGamepad ? false : MiscellaneousSettings.current.showHints,
 				atBottom: true
 			)
 		}
-		if gamepadLayerView.alpha == 0 {
+		if !Self.hideGamepad, gamepadLayerView.alpha == 0 {
 			UIView.animate(withDuration: 0.2, delay: 0.5) {
 				self.gamepadLayerView.alpha = 1
 			}
@@ -278,12 +290,19 @@ public class OverlayViewController: UIViewController {
 	}
 
 	private func loadGamepadSettings() {
+		guard !Self.hideGamepad else { return }
 		gamepadLayerView.load(config: gamepadConfig)
 		previousGamepadLayerView.load(config: GamepadManager.shared.previousConfig)
 		nextGamepadLayerView.load(config: GamepadManager.shared.nextConfig)
 	}
 
 	private func transition(to state: OverlayState) {
+		// On Mac ("Designed for iPad"), only allow normal and keyboard states —
+		// the on-screen gamepad is hidden because the user has real input devices.
+		if Self.hideGamepad && (state == .showingGamepad || state == .editingGamepad) {
+			return
+		}
+
 		self.state = state
 		switch state {
 		case .normal:
@@ -354,7 +373,7 @@ public class OverlayViewController: UIViewController {
 			informationView.showInformation(
 				for: result.state,
 				gamepadSettingsName: gamepadSettingsName,
-				showHints: MiscellaneousSettings.current.showHints
+				showHints: Self.hideGamepad ? false : MiscellaneousSettings.current.showHints
 			)
 
 			UIView.animate(

@@ -2252,6 +2252,8 @@ static uint32 AllocateGestaltCallback(uint32 value)
 // Registration state (file-scope so RaveIsRegistered can access it)
 static bool rave_registered = false;
 static bool rave_reg_in_progress = false;
+static int rave_reg_attempts = 0;
+static const int RAVE_REG_MAX_ATTEMPTS = 3;
 
 bool RaveIsRegistered(void)
 {
@@ -2272,6 +2274,9 @@ void RaveRegisterEngine(void)
 	// action active until registration succeeds, so PatchAfterStartup (and
 	// hence RaveRegisterEngine) is called again on subsequent ticks.
 	if (rave_registered) {
+		return;
+	}
+	if (rave_reg_attempts >= RAVE_REG_MAX_ATTEMPTS) {
 		return;
 	}
 	if (rave_reg_in_progress) {
@@ -2326,8 +2331,13 @@ void RaveRegisterEngine(void)
 	}
 
 	if (qa_register == 0) {
-		RAVE_LOG("QARegisterEngine not found, skipping 3D acceleration (will retry next call)");
 		rave_reg_in_progress = false;
+		rave_reg_attempts++;
+		if (rave_reg_attempts >= RAVE_REG_MAX_ATTEMPTS)
+			RAVE_LOG("QARegisterEngine not found after %d attempts, giving up", rave_reg_attempts);
+		else
+			RAVE_LOG("QARegisterEngine not found, skipping 3D acceleration (attempt %d/%d, will retry)",
+			         rave_reg_attempts, RAVE_REG_MAX_ATTEMPTS);
 		return;
 	}
 

@@ -161,6 +161,19 @@ void *MetalCompositorGetOverlayTexture(void);
 void MetalCompositorSetOverlayActive(int active);
 
 /*
+ * Throttle 3D rendering to match the compositor's VBL cadence.
+ *
+ * Call after committing a 3D frame (RAVE RenderEnd, GL SwapBuffers).
+ * Sleeps the calling thread until the next VBL tick boundary so the
+ * 3D renderer doesn't outrun the compositor's present rate. This
+ * prevents wasted GPU frames and potential visual tearing on the
+ * shared offscreen texture.
+ *
+ * Safe to call when the compositor is not initialized (returns immediately).
+ */
+void MetalCompositorSync3DFramePacing(void);
+
+/*
  * Set the overlay's position and visible size within the Mac framebuffer.
  *
  * RAVE/GL 3D contexts have a specific rect within the Mac screen.

@@ -21,6 +21,7 @@ enum PreferencesLaunchMode {
 public class PreferencesViewController: UIViewController {
 	enum Tab: Int, CaseIterable {
 		case general
+		case graphics
 		case gamepad
 		case network
 		case advanced
@@ -28,16 +29,26 @@ public class PreferencesViewController: UIViewController {
 		var label: String {
 			switch self {
 			case .general: "General"
+			case .graphics: "Graphics"
 			case .gamepad: "Gamepad"
 			case .network: "Network"
 			case .advanced: "Advanced"
 			}
 		}
+
+		/// Tabs visible in the current environment.
+		/// Hides the Gamepad tab when running as "Designed for iPad" on macOS.
+		static var visibleCases: [Tab] {
+			if UIDevice.isiOSAppOnMac {
+				return allCases.filter { $0 != .gamepad }
+			}
+			return allCases
+		}
 	}
 
 	private lazy var tabSegmentedControl: UISegmentedControl = {
 		let segmentedControl = UISegmentedControl.withoutConstraints()
-		for (index, tab) in Tab.allCases.enumerated() {
+		for (index, tab) in Tab.visibleCases.enumerated() {
 			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
 		}
 		segmentedControl.selectedSegmentIndex = 0
@@ -64,6 +75,10 @@ public class PreferencesViewController: UIViewController {
 			mode: model.mode,
 			changeSubject: model.changeSubject
 		)
+	}()
+
+	private lazy var graphicsVC: PreferencesGraphicsViewController = {
+		PreferencesGraphicsViewController(changeSubject: model.changeSubject)
 	}()
 
 	private lazy var gamepadVC: PreferencesGamepadViewController = {
@@ -147,7 +162,10 @@ public class PreferencesViewController: UIViewController {
 		])
 
 		embedViewController(generalVC)
-		embedViewController(gamepadVC)
+		embedViewController(graphicsVC)
+		if !UIDevice.isiOSAppOnMac {
+			embedViewController(gamepadVC)
+		}
 		embedViewController(networkVC)
 		embedViewController(advancedVC)
 
@@ -181,6 +199,8 @@ public class PreferencesViewController: UIViewController {
 		switch tab {
 		case .general:
 			contentView.bringSubviewToFront(generalVC.view)
+		case .graphics:
+			contentView.bringSubviewToFront(graphicsVC.view)
 		case .gamepad:
 			contentView.bringSubviewToFront(gamepadVC.view)
 		case .network:
@@ -349,7 +369,7 @@ public class PreferencesViewController: UIViewController {
 
 	@objc
 	private func tabSegmentedControlChanged() {
-		display(tab: Tab.allCases[tabSegmentedControl.selectedSegmentIndex])
+		display(tab: Tab.visibleCases[tabSegmentedControl.selectedSegmentIndex])
 	}
 
 	@objc

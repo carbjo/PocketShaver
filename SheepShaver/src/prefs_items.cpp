@@ -111,7 +111,7 @@ void AddPrefsDefaults(void)
 	PrefsAddBool("nogui", false);
 	PrefsAddBool("noclipconversion", false);
 	PrefsAddBool("ignoresegv", true);
-	PrefsAddBool("ignoreillegal", false);
+	PrefsAddBool("ignoreillegal", true);
 
 
 	PrefsAddBool("jit", false);

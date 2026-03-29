@@ -23,14 +23,14 @@ struct GLVertexIn {
     float4 position [[attribute(0)]];
     float4 color    [[attribute(1)]];
     float3 normal   [[attribute(2)]];
-    float2 texcoord [[attribute(3)]];
+    float3 texcoord [[attribute(3)]];   // (s, t, q) — q enables projective texturing
 };
 
 struct GLVertexOut {
     float4 position     [[position]];
     float4 color;
     float3 eye_normal;
-    float2 texcoord;
+    float3 texcoord;    // (s, t, q) — interpolated, then divided per-fragment
     float3 eye_position;
     float  fog_factor;
 };
@@ -125,7 +125,7 @@ vertex GLVertexOut gl_vertex_main(
     }
     out.eye_normal = eye_normal;
 
-    // 4. Pass through texcoord
+    // 4. Pass through texcoord (s, t, q) for projective texturing
     out.texcoord = in.texcoord;
 
     // 5. Lighting or pass-through color
@@ -229,7 +229,9 @@ fragment float4 gl_fragment_main(
 
     // Texture application
     if (uniforms.has_texture) {
-        float4 tex_color = tex.sample(samp, in.texcoord);
+        // Projective texturing: divide s,t by q for perspective-correct mapping
+        float2 uv = (in.texcoord.z != 0.0) ? in.texcoord.xy / in.texcoord.z : in.texcoord.xy;
+        float4 tex_color = tex.sample(samp, uv);
 
         if (uniforms.texenv_mode == 0) {
             // GL_MODULATE: Cf = Ct * Cf

@@ -1122,7 +1122,13 @@ void driver_base::init()
 	if (!use_vosf) {
 		// Allocate memory for frame buffer
 		the_buffer_size = (aligned_height + 2) * pitch;
+#if TARGET_OS_IPHONE
+		// On iOS the Metal compositor reads the_buffer directly — the shadow
+		// copy used by update_display_static_bbox is never consulted.
+		the_buffer_copy = NULL;
+#else
 		the_buffer_copy = (uint8 *)calloc(1, the_buffer_size);
+#endif
 		the_buffer = (uint8 *)vm_acquire_framebuffer(the_buffer_size);
 		memset(the_buffer, 0, the_buffer_size);
 		D(bug("the_buffer = %p, the_buffer_copy = %p\n", the_buffer, the_buffer_copy));
@@ -1866,6 +1872,10 @@ void VideoVBL(void)
 		do_toggle_fullscreen();
 
 #if TARGET_OS_IPHONE
+	// Flush any pending batched NQD Metal dispatches before presenting,
+	// so all 2D drawing is visible in the framebuffer texture.
+	if (nqd_metal_available)
+		NQDMetalFlush();
 	MetalCompositorPresent();
 #else
 	present_sdl_video();
@@ -1894,6 +1904,10 @@ void VideoInterrupt(void)
 		do_toggle_fullscreen();
 
 #if TARGET_OS_IPHONE
+	// Flush any pending batched NQD Metal dispatches before presenting,
+	// so all 2D drawing is visible in the framebuffer texture.
+	if (nqd_metal_available)
+		NQDMetalFlush();
 	MetalCompositorPresent();
 #else
 	present_sdl_video();
@@ -2394,11 +2408,13 @@ static void force_complete_window_refresh()
 			UNLOCK_VOSF;
 		}
 #endif
+#if !TARGET_OS_IPHONE
 		// Ensure each byte of the_buffer_copy differs from the_buffer to force a full update.
 		const VIDEO_MODE &mode = VideoMonitors[0]->get_current_mode();
 		const int len = VIDEO_MODE_ROW_BYTES * VIDEO_MODE_Y;
 		for (int i = 0; i < len; i++)
 			the_buffer_copy[i] = !the_buffer[i];
+#endif
 	}
 }
 
@@ -2922,6 +2938,12 @@ static void video_refresh_window_static(void)
 	// Ungrab mouse if requested
 	possibly_ungrab_mouse();
 
+#if TARGET_OS_IPHONE
+	// On iOS the Metal compositor reads the shared buffer directly every
+	// VBL — the memcmp-based dirty detection (update_display_static_bbox)
+	// exists only for the SDL rendering path which is not used on iOS.
+	// Skipping it avoids burning CPU and thrashing the data cache.
+#else
 	// Update display (static variant)
 	static uint32 tick_counter = 0;
 	if (++tick_counter >= frame_skip) {
@@ -2932,6 +2954,7 @@ static void video_refresh_window_static(void)
 		else
 			update_display_static(drv);
 	}
+#endif
 }
 
 

@@ -603,6 +603,10 @@ void NQD_fillmask(uint32 p)
 bool NQD_sync_hook(uint32 arg)
 {
 	D(bug("accl_sync_hook %08x\n", arg));
+	// Flush any pending batched NQD Metal dispatches so all drawing is
+	// committed and visible before Mac OS continues.
+	if (nqd_metal_available)
+		NQDMetalFlush();
 	return true;
 }
 

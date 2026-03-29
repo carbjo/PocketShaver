@@ -455,6 +455,9 @@ static uint32_t gl_string_renderer_addr = 0;
 static uint32_t gl_string_version_addr  = 0;
 static uint32_t gl_string_extensions_addr = 0;
 
+// Flag for deferred clear
+static bool gl_clear_pending = false;
+static uint32_t gl_clear_mask_bits = 0;
 
 
 // =========================================================================
@@ -791,13 +794,10 @@ void NativeGLFrustum(GLContext *ctx, double l, double r, double b, double t, dou
 
 void NativeGLOrtho(GLContext *ctx, double l, double r, double b, double t, double n, double f)
 {
-	// Swap bottom and top to flip Y axis for Metal rendering.
-	// OpenGL has Y=0 at bottom, Metal has Y=0 at top. For orthographic
-	// projections (2D loading screens, menus), this produces the correct
-	// orientation. Perspective projections use glFrustum/gluPerspective
-	// which are not flipped — the 3D camera setup naturally produces
-	// correct Metal-space orientation.
-	mat4_ortho(gl_get_current_matrix(ctx), l, r, t, b, n, f);
+	// Pass parameters through unmodified — the game's projection matrix
+	// already encodes the Y orientation it expects.  The GL-to-Metal NDC
+	// depth remap is handled in the vertex shader (z * 0.5 + w * 0.5).
+	mat4_ortho(gl_get_current_matrix(ctx), l, r, b, t, n, f);
 }
 
 
@@ -1017,8 +1017,6 @@ void NativeGLClearColor(GLContext *ctx, float r, float g, float b, float a)
 	ctx->clear_color[1] = g;
 	ctx->clear_color[2] = b;
 	ctx->clear_color[3] = a;
-	if (gl_logging_enabled)
-		printf("GL: glClearColor(%.3f, %.3f, %.3f, %.3f)\n", r, g, b, a);
 }
 
 void NativeGLClearDepth(GLContext *ctx, double depth)
@@ -1051,13 +1049,11 @@ void NativeGLClear(GLContext *ctx, uint32_t mask)
 			}
 		}
 	}
-	// Perform the clear via Metal.  GLMetalClear handles both the
-	// mid-frame case (ends current encoder, starts a new render pass with
-	// selective clear actions) and the pre-frame case (returns early,
-	// letting GLMetalBeginFrame clear on the next draw call).
+	// Defer Metal clear bits to render time
 	uint32_t metal_bits = mask & ~GL_ACCUM_BUFFER_BIT;
 	if (metal_bits) {
-		GLMetalClear(ctx, metal_bits);
+		gl_clear_pending = true;
+		gl_clear_mask_bits = metal_bits;
 	}
 }
 
@@ -2543,14 +2539,6 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	                                           format, type, ctx->pixel_store, &dataLen);
 	if (!converted) return;
 
-	// Dump first 4 pixels of converted BGRA data for texture debugging
-	if (gl_logging_enabled && level == 0) {
-		fprintf(stderr, "GL:   -> tex=%u converted BGRA pixels[0..3]:", texName);
-		for (int px = 0; px < 4 && px < width * height; px++)
-			fprintf(stderr, " (%u,%u,%u,%u)", converted[px*4+2], converted[px*4+1], converted[px*4+0], converted[px*4+3]);
-		fprintf(stderr, "\n");
-		fflush(stderr);
-	}
 	GLMetalUploadTexture(ctx, &tex, level, width, height, converted, dataLen);
 	free(converted);
 }

@@ -983,6 +983,9 @@ uint32_t NativeAGLSwapBuffers(uint32_t ctx)
 	// so the cleared overlay doesn't cover 2D content before GL renders.
 	MetalCompositorSetOverlayActive(1);
 
+	// Throttle to VBL cadence — prevent 3D from outrunning the compositor
+	MetalCompositorSync3DFramePacing();
+
 	GL_LOG("aglSwapBuffers: presented frame for context %d", idx);
 	return 0;
 }
@@ -1787,6 +1790,8 @@ uint32_t NativeAGLDevicesOfPixelFormat(uint32_t pix, uint32_t ndevsPtr)
 // GL hook state
 static bool gl_hooks_installed = false;
 static bool gl_hooks_in_progress = false;
+static int gl_hooks_attempts = 0;
+static const int GL_HOOKS_MAX_ATTEMPTS = 3;
 
 /*
  *  GLInstallHooks - Hook GL/AGL function lookups via FindLibSymbol
@@ -1806,6 +1811,7 @@ static bool gl_hooks_in_progress = false;
 void GLInstallHooks()
 {
 	if (gl_hooks_installed) return;
+	if (gl_hooks_attempts >= GL_HOOKS_MAX_ATTEMPTS) return;
 	if (gl_hooks_in_progress) {
 		GL_LOG("GLInstallHooks: skipped (re-entrant call)");
 		return;
@@ -2316,7 +2322,12 @@ void GLInstallHooks()
 		gl_hooks_in_progress = false;
 	} else {
 		gl_hooks_in_progress = false;
-		GL_LOG("GLInstallHooks: patched 0 functions, will retry on next accRun");
+		gl_hooks_attempts++;
+		if (gl_hooks_attempts >= GL_HOOKS_MAX_ATTEMPTS)
+			GL_LOG("GLInstallHooks: OpenGL library not available after %d attempts, giving up", gl_hooks_attempts);
+		else
+			GL_LOG("GLInstallHooks: patched 0 functions, will retry on next accRun (attempt %d/%d)",
+			       gl_hooks_attempts, GL_HOOKS_MAX_ATTEMPTS);
 		return;
 	}
 }

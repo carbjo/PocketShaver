@@ -43,18 +43,6 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
-	var frameRateSetting: FrameRateSetting {
-		get {
-			MiscellaneousSettings.current.frameRateSetting
-		}
-		set {
-			MiscellaneousSettings.current.set(frameRateSetting: newValue)
-
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
-		}
-	}
-
-	@MainActor
 	var alwaysLandscapeMode: Bool {
 		get {
 			MiscellaneousSettings.current.alwaysLandscapeMode
@@ -129,46 +117,6 @@ class PreferencesAdvancedModel {
 	@MainActor
 	var currentRomFileDescription: String? {
 		RomManager.shared.currentRomFileVersion?.description
-	}
-
-	var nqdAccelEnabled: Bool {
-		get {
-			objc_findBool("nqdaccel")
-		}
-		set {
-			objc_replaceBool("nqdaccel", newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
-		}
-	}
-
-	var raveAccelEnabled: Bool {
-		get {
-			objc_findBool("raveaccel")
-		}
-		set {
-			objc_replaceBool("raveaccel", newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
-		}
-	}
-
-	var glAccelEnabled: Bool {
-		get {
-			objc_findBool("glaccel")
-		}
-		set {
-			objc_replaceBool("glaccel", newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
-		}
-	}
-
-	@MainActor
-	var gammaRampSetting: GammaRampSetting {
-		get {
-			MiscellaneousSettings.current.gammaRampSetting
-		}
-		set {
-			MiscellaneousSettings.current.set(gammaRampSetting: newValue)
-		}
 	}
 
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {

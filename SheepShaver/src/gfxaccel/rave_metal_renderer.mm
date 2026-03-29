@@ -2709,6 +2709,9 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 		         dont_swap ? "committed (DontSwap)" : "frame committed to offscreen");
 	}
 
+	// Throttle to VBL cadence — prevent 3D from outrunning the compositor
+	MetalCompositorSync3DFramePacing();
+
 	return kQANoErr;
 }
 

@@ -59,16 +59,6 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	var monitorResolutions: [MonitorResolutionOption] {
-		MonitorResolutionManager.shared.enabledResolutions
-	}
-
-	@MainActor
-	var willBootFromCD: Bool {
-		DiskManager.shared.willBootFromCD
-	}
-
-	@MainActor
 	var soundDisabled: Bool {
 		get {
 			MiscellaneousSettings.current.soundDisabled

@@ -24,7 +24,7 @@
 
 // Logging state -- disabled by default for GL (high call volume)
 #if ACCEL_LOGGING_ENABLED
-bool gl_logging_enabled = true;
+bool gl_logging_enabled = false;
 #endif
 
 // PPC stack pointer, saved by glue code before dispatch for 9+ arg access
@@ -1086,6 +1086,17 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		}
 	}
 
+	// Guard: core GL calls (sub_opcode < 600) require an active context.
+	// Games like THPS 2 may call glGetError before aglSetCurrentContext.
+	if (sub_opcode < GL_SUB_AGL_CHOOSEPIXELFORMAT && !gl_current_context) {
+		if (gl_logging_enabled) {
+			fprintf(stderr, "GL: GLDispatch sub_opcode=%u ignored (no current context)\n", sub_opcode);
+			fflush(stderr);
+		}
+		// Return GL_INVALID_OPERATION for glGetError, 0 for everything else
+		return (sub_opcode == GL_SUB_GET_ERROR) ? 0x0502 /* GL_INVALID_OPERATION */ : 0;
+	}
+
 	switch (sub_opcode) {
 
 		// --- Core GL: Accumulation, Alpha, Textures ---
@@ -1329,16 +1340,13 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_FRONT_FACE:
 			NativeGLFrontFace(gl_current_context, r3);
 			return 0;
-		case GL_SUB_FRUSTUM: {
-			// 6 double args from FPR
-			double args[6];
-			for (int i = 0; i < 6; i++) {
-				uint64_t b = ((uint64_t)float_bits[i*2] << 32) | float_bits[i*2+1];
-				memcpy(&args[i], &b, sizeof(double));
-			}
-			NativeGLFrustum(gl_current_context, args[0], args[1], args[2], args[3], args[4], args[5]);
+		case GL_SUB_FRUSTUM:
+			// FPR extraction already converts doubles to floats in float_bits[]
+			NativeGLFrustum(gl_current_context,
+				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
+				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3),
+				(double)float_arg(float_bits, 4), (double)float_arg(float_bits, 5));
 			return 0;
-		}
 		// --- Core GL: Gen, Get ---
 		case GL_SUB_GEN_LISTS: return NativeGLGenLists(gl_current_context, (int32_t)r3);
 		case GL_SUB_GEN_TEXTURES:
@@ -1517,15 +1525,13 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_NORMAL_POINTER: NativeGLNormalPointer(gl_current_context, r3, (int32_t)r4, r5); return 0;
 		// --- Core GL: Ortho, Pass, Pixel ---
-		case GL_SUB_ORTHO: {
-			double args[6];
-			for (int i = 0; i < 6; i++) {
-				uint64_t b = ((uint64_t)float_bits[i*2] << 32) | float_bits[i*2+1];
-				memcpy(&args[i], &b, sizeof(double));
-			}
-			NativeGLOrtho(gl_current_context, args[0], args[1], args[2], args[3], args[4], args[5]);
+		case GL_SUB_ORTHO:
+			// FPR extraction already converts doubles to floats in float_bits[]
+			NativeGLOrtho(gl_current_context,
+				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
+				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3),
+				(double)float_arg(float_bits, 4), (double)float_arg(float_bits, 5));
 			return 0;
-		}
 		case GL_SUB_PASS_THROUGH: NativeGLPassThrough(gl_current_context, float_arg(float_bits, 0)); return 0;
 		case GL_SUB_PIXEL_MAPFV: NativeGLPixelMapfv(gl_current_context, r3, (int32_t)r4, r5); return 0;
 		case GL_SUB_PIXEL_MAPUIV: NativeGLPixelMapuiv(gl_current_context, r3, (int32_t)r4, r5); return 0;
@@ -1601,7 +1607,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLReadPixels(gl_current_context, (int32_t)r3, (int32_t)r4,
 			                    (int32_t)r5, (int32_t)r6, r7, r8, r9);
 			return 0;
-		case GL_SUB_RECTD: { double a[4]; for(int i=0;i<4;i++){uint64_t b=((uint64_t)float_bits[i*2]<<32)|float_bits[i*2+1]; memcpy(&a[i],&b,8);} NativeGLRectd(gl_current_context,a[0],a[1],a[2],a[3]); return 0; }
+		case GL_SUB_RECTD: NativeGLRectd(gl_current_context, (double)float_arg(float_bits,0), (double)float_arg(float_bits,1), (double)float_arg(float_bits,2), (double)float_arg(float_bits,3)); return 0;
 		case GL_SUB_RECTDV: NativeGLRectdv(gl_current_context, r3, r4); return 0;
 		case GL_SUB_RECTF: NativeGLRectf(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2), float_arg(float_bits, 3)); return 0;
 		case GL_SUB_RECTFV: NativeGLRectfv(gl_current_context, r3, r4); return 0;
@@ -1610,29 +1616,21 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_RECTS: NativeGLRects(gl_current_context, (int16_t)r3, (int16_t)r4, (int16_t)r5, (int16_t)r6); return 0;
 		case GL_SUB_RECTSV: NativeGLRectsv(gl_current_context, r3, r4); return 0;
 		case GL_SUB_RENDER_MODE: return NativeGLRenderMode(gl_current_context, r3);
-		case GL_SUB_ROTATED: {
-			double args[4];
-			for (int i = 0; i < 4; i++) {
-				uint64_t b = ((uint64_t)float_bits[i*2] << 32) | float_bits[i*2+1];
-				memcpy(&args[i], &b, sizeof(double));
-			}
-			NativeGLRotated(gl_current_context, args[0], args[1], args[2], args[3]);
+		case GL_SUB_ROTATED:
+			NativeGLRotated(gl_current_context,
+				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
+				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3));
 			return 0;
-		}
 		case GL_SUB_ROTATEF:
 			NativeGLRotatef(gl_current_context,
 				float_arg(float_bits, 0), float_arg(float_bits, 1),
 				float_arg(float_bits, 2), float_arg(float_bits, 3));
 			return 0;
-		case GL_SUB_SCALED: {
-			double args[3];
-			for (int i = 0; i < 3; i++) {
-				uint64_t b = ((uint64_t)float_bits[i*2] << 32) | float_bits[i*2+1];
-				memcpy(&args[i], &b, sizeof(double));
-			}
-			NativeGLScaled(gl_current_context, args[0], args[1], args[2]);
+		case GL_SUB_SCALED:
+			NativeGLScaled(gl_current_context,
+				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
+				(double)float_arg(float_bits, 2));
 			return 0;
-		}
 		case GL_SUB_SCALEF:
 			NativeGLScalef(gl_current_context,
 				float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2));
@@ -1811,15 +1809,11 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			}
 			return 0;
 		// --- Core GL: Translate, Vertex, Viewport ---
-		case GL_SUB_TRANSLATED: {
-			double args[3];
-			for (int i = 0; i < 3; i++) {
-				uint64_t b = ((uint64_t)float_bits[i*2] << 32) | float_bits[i*2+1];
-				memcpy(&args[i], &b, sizeof(double));
-			}
-			NativeGLTranslated(gl_current_context, args[0], args[1], args[2]);
+		case GL_SUB_TRANSLATED:
+			NativeGLTranslated(gl_current_context,
+				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
+				(double)float_arg(float_bits, 2));
 			return 0;
-		}
 		case GL_SUB_TRANSLATEF:
 			NativeGLTranslatef(gl_current_context,
 				float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2));
@@ -2303,16 +2297,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLU_GETTESSPROPERTY: NativeGLUGetTessProperty(r3, r4, r5); return 0;
 		case GL_SUB_GLU_LOADSAMPLINGMATRICES: NativeGLULoadSamplingMatrices(r3, r4, r5, r6); return 0;
 		case GL_SUB_GLU_LOOKAT: {
-			double args[9];
-			for (int i = 0; i < 8; i++) {
-				uint64_t b = ((uint64_t)float_bits[i*2] << 32) | float_bits[i*2+1];
-				memcpy(&args[i], &b, sizeof(double));
-			}
-			if (num_float_args >= 18) {
-				uint64_t b = ((uint64_t)float_bits[16] << 32) | float_bits[17];
-				memcpy(&args[8], &b, sizeof(double));
-			} else {
-				args[8] = 0.0;
+			double args[9] = {0};
+			for (int i = 0; i < 9 && i < num_float_args; i++) {
+				args[i] = (double)float_arg(float_bits, i);
 			}
 			NativeGLULookAt(gl_current_context, args[0], args[1], args[2],
 			                args[3], args[4], args[5], args[6], args[7], args[8]);
@@ -2328,33 +2315,23 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLU_NURBSCURVE:    NativeGLUNurbsCurve(r3, (int32_t)r4, r5, (int32_t)r6, r7, (int32_t)r8, r9); return 0;
 		case GL_SUB_GLU_NURBSPROPERTY: NativeGLUNurbsProperty(r3, r4, float_arg(float_bits, 0)); return 0;
 		case GL_SUB_GLU_NURBSSURFACE:  NativeGLUNurbsSurface(r3, (int32_t)r4, r5, (int32_t)r6, r7, (int32_t)r8, (int32_t)r9, r10, gl_ppc_stack_arg(0), gl_ppc_stack_arg(1), gl_ppc_stack_arg(2)); return 0;
-		case GL_SUB_GLU_ORTHO2D: {
-			double args[4];
-			for (int i = 0; i < 4; i++) {
-				uint64_t b = ((uint64_t)float_bits[i*2] << 32) | float_bits[i*2+1];
-				memcpy(&args[i], &b, sizeof(double));
-			}
-			NativeGLUOrtho2D(gl_current_context, args[0], args[1], args[2], args[3]);
+		case GL_SUB_GLU_ORTHO2D:
+			NativeGLUOrtho2D(gl_current_context,
+				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
+				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3));
 			return 0;
-		}
 		case GL_SUB_GLU_PARTIALDISK: {
-			double dinner, douter, dstart, dsweep;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dinner, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&douter, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&dstart, &b2, 8);
-			uint64_t b3 = ((uint64_t)float_bits[6] << 32) | float_bits[7]; memcpy(&dsweep, &b3, 8);
-			NativeGLUPartialDisk(gl_current_context, r3, dinner, douter, (int32_t)r4, (int32_t)r5, dstart, dsweep);
+			NativeGLUPartialDisk(gl_current_context, r3,
+				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
+				(int32_t)r4, (int32_t)r5,
+				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3));
 			return 0;
 		}
-		case GL_SUB_GLU_PERSPECTIVE: {
-			double args[4];
-			for (int i = 0; i < 4; i++) {
-				uint64_t b = ((uint64_t)float_bits[i*2] << 32) | float_bits[i*2+1];
-				memcpy(&args[i], &b, sizeof(double));
-			}
-			NativeGLUPerspective(gl_current_context, args[0], args[1], args[2], args[3]);
+		case GL_SUB_GLU_PERSPECTIVE:
+			NativeGLUPerspective(gl_current_context,
+				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
+				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3));
 			return 0;
-		}
 		case GL_SUB_GLU_PICKMATRIX: {
 			double dx, dy, ddx, ddy;
 			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dx, &b0, 8);

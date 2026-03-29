@@ -42,6 +42,7 @@
 #include "metal_device_shared.h"
 #include "metal_compositor.h"
 #include "prefs.h"
+#include "MiscellaneousSettingsObjCCppHeader.h"
 
 // ---------------------------------------------------------------------------
 // Logging macros
@@ -130,6 +131,13 @@ static int                          overlay_x           = 0;
 static int                          overlay_y           = 0;
 static int                          overlay_viewport_w  = 0;
 static int                          overlay_viewport_h  = 0;
+
+// ---------------------------------------------------------------------------
+// Frame-pacing state — caps 3D rendering to the compositor's VBL cadence
+// ---------------------------------------------------------------------------
+
+static uint64_t                     frame_interval_usec = 0;   // microseconds per VBL frame
+static uint64_t                     last_3d_frame_usec  = 0;   // timestamp of last 3D frame gate
 
 // ---------------------------------------------------------------------------
 // bits_per_pixel_for_depth — convert VIDEO_DEPTH_* to actual bit count
@@ -380,6 +388,13 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
                    useNearest ? "nearest" : "linear",
                    compositor_use_fallback_texture ? " (fallback texture)" : "");
     compositor_initialized = true;
+
+    // Store VBL frame interval for 3D frame-pacing
+    int refresh_hz = objc_getFrameRateSetting();
+    if (refresh_hz <= 0) refresh_hz = 60;
+    frame_interval_usec = 1000000 / (uint64_t)refresh_hz;
+    last_3d_frame_usec = 0;  // reset on init
+
     return 0;
 }
 
@@ -887,6 +902,13 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
                    [fragmentName UTF8String],
                    useNearest ? "nearest" : "linear",
                    compositor_use_fallback_texture ? " (fallback texture)" : "");
+
+    // Re-read frame rate setting (may have changed in preferences before restart)
+    int refresh_hz = objc_getFrameRateSetting();
+    if (refresh_hz <= 0) refresh_hz = 60;
+    frame_interval_usec = 1000000 / (uint64_t)refresh_hz;
+    last_3d_frame_usec = 0;
+
     return 0;
 }
 
@@ -944,5 +966,45 @@ void MetalCompositorShutdown(void)
     compositor_pitch = 0;
     compositor_use_fallback_texture = false;
 
+    // Frame-pacing cleanup
+    frame_interval_usec = 0;
+    last_3d_frame_usec  = 0;
+
     COMPOSITOR_LOG("MetalCompositorShutdown: done");
+}
+
+// ---------------------------------------------------------------------------
+// MetalCompositorSync3DFramePacing — throttle 3D renderers to VBL cadence
+// ---------------------------------------------------------------------------
+//
+// Called from RAVE (NativeRenderEnd) and GL (NativeAGLSwapBuffers) after
+// committing a 3D frame to the offscreen overlay texture. Sleeps the
+// calling thread (the PPC emulator thread) until the next VBL tick
+// boundary so 3D rendering doesn't outrun the compositor's present rate.
+//
+// Without this, 3D apps can submit many frames between VBL ticks — the
+// intermediate frames are never seen (the compositor reads the texture
+// once per tick), wasting GPU time and potentially causing visual tearing
+// if a write is in progress during a compositor read.
+//
+// The gate is lightweight: just a timestamp comparison + usleep. No mutex
+// or semaphore — the 3D renderers and compositor are on separate threads
+// and the offscreen texture is the only shared resource.
+
+void MetalCompositorSync3DFramePacing(void)
+{
+    if (frame_interval_usec == 0) return;  // not initialized
+
+    uint64_t now = GetTicks_usec();
+
+    if (last_3d_frame_usec > 0) {
+        uint64_t elapsed = now - last_3d_frame_usec;
+        if (elapsed < frame_interval_usec) {
+            uint64_t wait = frame_interval_usec - elapsed;
+            Delay_usec(wait);
+            now = GetTicks_usec();
+        }
+    }
+
+    last_3d_frame_usec = now;
 }

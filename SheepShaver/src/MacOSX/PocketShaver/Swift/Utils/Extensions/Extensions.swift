@@ -75,6 +75,16 @@ extension UIDevice {
 		return false
 #endif
 	}
+
+	/// True when running as "Designed for iPad" (or Mac Catalyst) on macOS.
+	/// The on-screen gamepad is pointless there — the user has a real keyboard
+	/// and mouse/trackpad.
+	static let isiOSAppOnMac: Bool = {
+		if #available(iOS 14.0, *) {
+			return ProcessInfo.processInfo.isiOSAppOnMac
+		}
+		return false
+	}()
 }
 
 extension CGVector {

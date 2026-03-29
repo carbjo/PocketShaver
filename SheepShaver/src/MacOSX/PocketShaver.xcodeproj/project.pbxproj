@@ -384,6 +384,9 @@
 		NQD10A1B2C3D4E5F60102 /* nqd_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60002 /* nqd_shaders.metal */; };
 		NQD10A1B2C3D4E5F60201 /* nqd_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */; };
 		NQD10A1B2C3D4E5F60202 /* nqd_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60002 /* nqd_shaders.metal */; };
+		8ABF64CB116744DEA96F23A8 /* PreferencesGraphicsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC195E7C01CD46AE8EA0FF45 /* PreferencesGraphicsModel.swift */; };
+		EDB585A8BBC94BF1B40F819F /* PreferencesGraphicsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBB6A6D66781443DBC8EB47A /* PreferencesGraphicsViewController.swift */; };
+		14908D6C985347609EBF936D /* PreferencesGraphicsCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = D685ACE51CC345988018E6A7 /* PreferencesGraphicsCells.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -900,6 +903,9 @@
 		NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = nqd_metal_renderer.mm; path = ../gfxaccel/nqd_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
 		NQD10A1B2C3D4E5F60002 /* nqd_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = nqd_shaders.metal; path = ../gfxaccel/nqd_shaders.metal; sourceTree = SOURCE_ROOT; };
 		NQD10A1B2C3D4E5F60003 /* nqd_accel.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = nqd_accel.h; sourceTree = "<group>"; };
+		FC195E7C01CD46AE8EA0FF45 /* PreferencesGraphicsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGraphicsModel.swift; sourceTree = "<group>"; };
+		DBB6A6D66781443DBC8EB47A /* PreferencesGraphicsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGraphicsViewController.swift; sourceTree = "<group>"; };
+		D685ACE51CC345988018E6A7 /* PreferencesGraphicsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGraphicsCells.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1955,6 +1961,7 @@
 				C7F42CDA2E5B3C3400FA7169 /* Gamepad */,
 				C791A9AD2F423275001F7E2E /* Network */,
 				C7F42CDB2E5B3C4000FA7169 /* Advanced */,
+				28DC169798F642FEA5213719 /* Graphics */,
 				C74035B42EDC3AB60045B9C6 /* Shared UI */,
 				C75073782E65E12800D1E374 /* Preferences Handling */,
 				C707D0452F265798007BFE66 /* Onboardings */,
@@ -2042,6 +2049,16 @@
 				E420260A2412540D000508DF /* etherhelpertool */,
 			);
 			name = Generated;
+			sourceTree = "<group>";
+		};
+		28DC169798F642FEA5213719 /* Graphics */ = {
+			isa = PBXGroup;
+			children = (
+				FC195E7C01CD46AE8EA0FF45 /* PreferencesGraphicsModel.swift */,
+				DBB6A6D66781443DBC8EB47A /* PreferencesGraphicsViewController.swift */,
+				D685ACE51CC345988018E6A7 /* PreferencesGraphicsCells.swift */,
+			);
+			path = Graphics;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -2414,6 +2431,9 @@
 				E204B93928BC3EBE0081FDCA /* scsi_dummy.cpp in Sources */,
 				E204B93A28BC3EBE0081FDCA /* sbuf.c in Sources */,
 				C7C3D2772E781C270018DB8B /* PreferencesAdvancedModel.swift in Sources */,
+				8ABF64CB116744DEA96F23A8 /* PreferencesGraphicsModel.swift in Sources */,
+				EDB585A8BBC94BF1B40F819F /* PreferencesGraphicsViewController.swift in Sources */,
+				14908D6C985347609EBF936D /* PreferencesGraphicsCells.swift in Sources */,
 				C7699F172EC4663F0083B3B3 /* PreferencesCompatibilityListModel.swift in Sources */,
 				E204B93B28BC3EBE0081FDCA /* emul_op.cpp in Sources */,
 				C72FA6C42F0808AD0071889C /* SpecialButton.swift in Sources */,

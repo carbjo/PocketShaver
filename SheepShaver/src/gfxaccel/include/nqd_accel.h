@@ -60,6 +60,11 @@ extern void NQDMetalInit(void);
 // Release Metal resources and set nqd_metal_available = false.
 extern void NQDMetalCleanup(void);
 
+// Flush any pending batched NQD compute dispatches. Called at sync points
+// (NQD_sync_hook) and frame boundaries (MetalCompositorPresent). Safe to
+// call when no batch is pending (no-op).
+extern void NQDMetalFlush(void);
+
 // Metal-accelerated NQD operations. Each reads accl_params from Mac memory at address p.
 extern void NQDMetalBitblt(uint32 p);
 extern void NQDMetalFillRect(uint32 p);

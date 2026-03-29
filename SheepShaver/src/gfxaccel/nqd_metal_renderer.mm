@@ -53,6 +53,42 @@ static id<MTLBuffer>              nqd_ram_buffer   = nil;
 static uint8                     *nqd_ram_base     = nullptr; // host pointer that corresponds to Metal buffer start
 static uint32                     nqd_ram_size     = 0;       // size of the Metal buffer (== RAMSize)
 
+// ---------------------------------------------------------------------------
+// Batched command encoding state
+//
+// Instead of creating/committing a command buffer per NQD call, we accumulate
+// multiple compute dispatches into a single command buffer + encoder. The batch
+// is flushed (committed + waited) when:
+//   1. NQDMetalFlush() is called (from NQD_sync_hook or MetalCompositorPresent)
+//   2. A backward blit needs ordering guarantees
+//   3. A mask operation needs the mask buffer (which may be reused across calls)
+//
+// This amortizes command buffer creation and GPU submission overhead across
+// all NQD operations within a frame, which is the dominant perf bottleneck.
+// ---------------------------------------------------------------------------
+
+static id<MTLCommandBuffer>         nqd_batch_cmdbuf  = nil;
+static id<MTLComputeCommandEncoder> nqd_batch_encoder = nil;
+static int                          nqd_batch_count   = 0;
+
+// Maximum dispatches before an automatic flush. Prevents unbounded accumulation
+// (e.g. if sync_hook is never called). 128 dispatches ≈ one busy frame.
+static const int NQD_BATCH_MAX = 128;
+
+// ---------------------------------------------------------------------------
+// CPU fast-path threshold (in total pixels)
+//
+// For small rects, the Metal submission overhead (command buffer alloc,
+// encoder setup, GPU scheduling, waitUntilCompleted stall) far exceeds
+// the actual compute time. The CPU path (memset/memmove/XOR loop) is
+// faster for operations below this threshold.
+//
+// Even with batching, each dispatch adds encoder overhead. For tiny ops
+// (icons, cursors, text glyphs), CPU is still faster.
+// ---------------------------------------------------------------------------
+
+static const int NQD_CPU_THRESHOLD_PIXELS = 4096;  // ~64x64 or equivalent
+
 // Check if a Mac address is within the Metal-mapped RAM region.
 static inline bool nqd_addr_in_buffer(uint32 mac_addr)
 {
@@ -62,6 +98,71 @@ static inline bool nqd_addr_in_buffer(uint32 mac_addr)
 bool NQDMetalAddrInBuffer(uint32 mac_addr)
 {
     return nqd_addr_in_buffer(mac_addr);
+}
+
+// ---------------------------------------------------------------------------
+// Batch command buffer helpers
+// ---------------------------------------------------------------------------
+
+// Ensure we have an active batch command buffer + encoder.
+// Returns the encoder, creating a new batch if needed.
+static id<MTLComputeCommandEncoder> nqd_get_batch_encoder(void)
+{
+    if (!nqd_batch_encoder) {
+        nqd_batch_cmdbuf = [nqd_queue commandBuffer];
+        if (!nqd_batch_cmdbuf) {
+            NQD_ERR("nqd_get_batch_encoder: commandBuffer creation failed");
+            return nil;
+        }
+        nqd_batch_encoder = [nqd_batch_cmdbuf computeCommandEncoder];
+        if (!nqd_batch_encoder) {
+            NQD_ERR("nqd_get_batch_encoder: computeCommandEncoder creation failed");
+            nqd_batch_cmdbuf = nil;
+            return nil;
+        }
+        nqd_batch_count = 0;
+    }
+    return nqd_batch_encoder;
+}
+
+// Increment batch count and auto-flush if we've hit the max.
+static void nqd_batch_did_dispatch(void)
+{
+    nqd_batch_count++;
+    if (nqd_batch_count >= NQD_BATCH_MAX) {
+        NQDMetalFlush();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// NQDMetalFlush — commit the batched command buffer and wait for completion
+//
+// Called from NQD_sync_hook (Mac OS sync point) and before
+// MetalCompositorPresent (frame boundary). Also called internally when
+// ordering guarantees are needed (backward blits, mask buffer reuse).
+// ---------------------------------------------------------------------------
+
+void NQDMetalFlush(void)
+{
+    if (!nqd_batch_encoder) return;
+
+    @autoreleasepool {
+    [nqd_batch_encoder endEncoding];
+    [nqd_batch_cmdbuf commit];
+    [nqd_batch_cmdbuf waitUntilCompleted];
+
+    if (nqd_batch_cmdbuf.error) {
+        NQD_ERR("NQDMetalFlush: GPU error after %d dispatches: %s",
+                nqd_batch_count,
+                [[nqd_batch_cmdbuf.error localizedDescription] UTF8String]);
+    }
+
+    NQD_LOG("NQDMetalFlush: committed %d dispatches", nqd_batch_count);
+
+    nqd_batch_encoder = nil;
+    nqd_batch_cmdbuf = nil;
+    nqd_batch_count = 0;
+    } // @autoreleasepool
 }
 
 // ---------------------------------------------------------------------------
@@ -470,7 +571,11 @@ static bool nqd_decode_region(uint32 rgn_addr, int dest_width, int dest_height,
 void NQDMetalBltMask(uint32 p)
 {
     if (!nqd_metal_available) return;
-    @autoreleasepool {
+
+    // Flush any pending batch — mask ops use the shared mask buffer which
+    // may be overwritten between calls, so we need serial execution.
+    NQDMetalFlush();
+
     // Extract bitblt parameters (same as NQDMetalBitblt)
     int16 src_X  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 2) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 2);
     int16 src_Y  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 0) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 0);
@@ -545,14 +650,14 @@ void NQDMetalBltMask(uint32 p)
     uniforms.mask_stride   = mask_stride;
     uniforms.bits_per_pixel = src_pixel_size;
 
-    // Packed depths (< 8 bpp): always dispatch per-byte, even for arithmetic modes
-    // (shader handles inner pixel loop to avoid race conditions)
     NSUInteger total_threads = (pixel_mode && src_pixel_size >= 8)
         ? (NSUInteger)(width_pixels * height)
         : (NSUInteger)(width_bytes * height);
 
-    id<MTLCommandBuffer> cmdBuf = [nqd_queue commandBuffer];
-    id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
+    // Mask ops dispatch into a fresh batch (we flushed above) and immediately
+    // flush again, since the next mask call may overwrite nqd_mask_buffer.
+    id<MTLComputeCommandEncoder> encoder = nqd_get_batch_encoder();
+    if (!encoder) return;
 
     [encoder setComputePipelineState:nqd_bitblt_pipeline];
     [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:0];
@@ -567,15 +672,7 @@ void NQDMetalBltMask(uint32 p)
     MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
     [encoder dispatchThreads:grid threadsPerThreadgroup:group];
 
-    [encoder endEncoding];
-    [cmdBuf commit];
-    [cmdBuf waitUntilCompleted];
-
-    if (cmdBuf.error) {
-        NQD_ERR("NQDMetalBltMask: GPU error (mode %d, bits_per_pixel %u): %s",
-                transfer_mode, src_pixel_size, [[cmdBuf.error localizedDescription] UTF8String]);
-    }
-    } // @autoreleasepool
+    NQDMetalFlush();  // must complete before mask buffer is reused
 }
 
 // ---------------------------------------------------------------------------
@@ -588,7 +685,10 @@ void NQDMetalBltMask(uint32 p)
 void NQDMetalFillMask(uint32 p)
 {
     if (!nqd_metal_available) return;
-    @autoreleasepool {
+
+    // Flush any pending batch — mask ops use the shared mask buffer
+    NQDMetalFlush();
+
     // Extract fillrect parameters (same as NQDMetalFillRect)
     int16 dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
     int16 dest_Y = (int16)ReadMacInt16(p + NQD_acclDestRect + 0) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
@@ -607,7 +707,6 @@ void NQDMetalFillMask(uint32 p)
     uint32_t pen_mode = ReadMacInt32(p + NQD_acclPenMode);
     uint32_t fore_pen = htonl(ReadMacInt32(p + NQD_acclForePen));
     uint32_t back_pen = htonl(ReadMacInt32(p + NQD_acclBackPen));
-    // fill_color uses native byte order (no htonl) for Boolean mode byte extraction
     uint32_t fore_pen_native = ReadMacInt32(p + NQD_acclForePen);
     uint32_t back_pen_native = ReadMacInt32(p + NQD_acclBackPen);
     uint32_t fill_color = (pen_mode == 8) ? fore_pen_native : back_pen_native;
@@ -662,13 +761,12 @@ void NQDMetalFillMask(uint32 p)
     uniforms.mask_stride   = mask_stride;
     uniforms.bits_per_pixel = pixel_size;
 
-    // Packed depths (< 8 bpp): always dispatch per-byte
     NSUInteger total_threads = (pixel_mode && pixel_size >= 8)
         ? (NSUInteger)(width_pixels * height)
         : (NSUInteger)(width_bytes * height);
 
-    id<MTLCommandBuffer> cmdBuf = [nqd_queue commandBuffer];
-    id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
+    id<MTLComputeCommandEncoder> encoder = nqd_get_batch_encoder();
+    if (!encoder) return;
 
     [encoder setComputePipelineState:nqd_fillrect_pipeline];
     [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:0];
@@ -683,15 +781,7 @@ void NQDMetalFillMask(uint32 p)
     MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
     [encoder dispatchThreads:grid threadsPerThreadgroup:group];
 
-    [encoder endEncoding];
-    [cmdBuf commit];
-    [cmdBuf waitUntilCompleted];
-
-    if (cmdBuf.error) {
-        NQD_ERR("NQDMetalFillMask: GPU error (transfer_mode %d, bits_per_pixel %u): %s",
-                transfer_mode, pixel_size, [[cmdBuf.error localizedDescription] UTF8String]);
-    }
-    } // @autoreleasepool
+    NQDMetalFlush();  // must complete before mask buffer is reused
 }
 
 // ---------------------------------------------------------------------------
@@ -701,6 +791,9 @@ void NQDMetalFillMask(uint32 p)
 void NQDMetalCleanup(void)
 {
     NQD_LOG("NQDMetalCleanup: releasing Metal resources");
+
+    // Flush any pending batch before releasing resources
+    NQDMetalFlush();
 
     nqd_metal_available = false;
     nqd_ram_base = nullptr;
@@ -730,7 +823,7 @@ void NQDMetalCleanup(void)
 void NQDMetalBitblt(uint32 p)
 {
     if (!nqd_metal_available) return;
-    @autoreleasepool {
+
     // Extract parameters from accl_params in Mac memory
     int16 src_X  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 2) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 2);
     int16 src_Y  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 0) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 0);
@@ -755,140 +848,129 @@ void NQDMetalBitblt(uint32 p)
 
     // Read transfer mode and pen colors from accl_params
     uint32_t transfer_mode = ReadMacInt32(p + NQD_acclTransferMode);
-    uint32_t fore_pen = htonl(ReadMacInt32(p + NQD_acclForePen));
-    uint32_t back_pen = htonl(ReadMacInt32(p + NQD_acclBackPen));
-
-    // Pack HiliteRGB for hilite mode (50)
-    uint32_t hilite_color = (transfer_mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
-
-    bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
-
-    // Compute offsets within Mac RAM (Mac addresses are offsets from RAMBase)
-    uint8 *ram_base = nqd_ram_base;
 
     NQD_LOG("NQDMetalBitblt: src=(%d,%d) dst=(%d,%d) %dx%d bpp=%d bits_per_pixel=%u mode=%d src_rb=%d dst_rb=%d",
             src_X, src_Y, dest_X, dest_Y, width, height, bpp, src_pixel_size, transfer_mode, src_row_bytes, dest_row_bytes);
 
-    if (src_row_bytes > 0) {
-        // Forward blit — single dispatch covering all rows
-        uint8 *src_ptr = Mac2HostAddr(src_base) + (src_Y * src_row_bytes) + nqd_packed_byte_offset(src_X, src_pixel_size);
-        uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + nqd_packed_byte_offset(dest_X, src_pixel_size);
+    // -----------------------------------------------------------------------
+    // CPU fast path for small operations and simple modes
+    //
+    // For srcCopy (mode 0) on standard depths (>= 8bpp), memmove is faster
+    // than any Metal path for small rects. For backward blits (negative
+    // row_bytes), CPU is always preferred since Metal would need per-row
+    // serialization or a temp buffer.
+    //
+    // All Boolean modes (0-7) get CPU fast paths for small rects — the
+    // per-byte logic is trivial and doesn't benefit from GPU parallelism
+    // at these sizes.
+    // -----------------------------------------------------------------------
 
-        uint32_t src_offset = (uint32_t)(src_ptr - ram_base);
-        uint32_t dst_offset = (uint32_t)(dst_ptr - ram_base);
+    int total_pixels = (int)width * (int)height;
 
-        NQDBitbltUniforms uniforms;
-        uniforms.src_offset    = src_offset;
-        uniforms.dst_offset    = dst_offset;
-        uniforms.src_row_bytes = src_row_bytes;
-        uniforms.dst_row_bytes = dest_row_bytes;
-        uniforms.width_bytes   = width_bytes;
-        uniforms.height        = (uint32_t)height;
-        uniforms.transfer_mode = transfer_mode;
-        uniforms.pixel_size    = (uint32_t)bpp;
-        uniforms.width_pixels  = width_pixels;
-        uniforms.fore_pen      = fore_pen;
-        uniforms.back_pen      = back_pen;
-        uniforms.hilite_color  = hilite_color;
-        uniforms.mask_enabled  = 0;
-        uniforms.mask_offset   = 0;
-        uniforms.mask_stride   = 0;
-        uniforms.bits_per_pixel = src_pixel_size;
-        // Boolean (0-7): one thread per byte → width_bytes * height
-        // Arithmetic/hilite (32-39, 50): one thread per pixel → width_pixels * height
-        // Packed depths (< 8): always per-byte (shader inner loop for arithmetic)
-        NSUInteger total_threads = (pixel_mode && src_pixel_size >= 8)
-            ? (NSUInteger)(width_pixels * height)
-            : (NSUInteger)(width_bytes * height);
-
-        id<MTLCommandBuffer> cmdBuf = [nqd_queue commandBuffer];
-        id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
-
-        [encoder setComputePipelineState:nqd_bitblt_pipeline];
-        [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:0];
-        [encoder setBytes:&uniforms length:sizeof(uniforms) atIndex:1];
-        [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:2];  // dummy mask buffer (mask_enabled=0)
-
-        NSUInteger threadgroup_size = nqd_bitblt_pipeline.maxTotalThreadsPerThreadgroup;
-        if (threadgroup_size > 256) threadgroup_size = 256;
-        if (threadgroup_size > total_threads) threadgroup_size = total_threads;
-
-        MTLSize grid = MTLSizeMake(total_threads, 1, 1);
-        MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
-        [encoder dispatchThreads:grid threadsPerThreadgroup:group];
-
-        [encoder endEncoding];
-        [cmdBuf commit];
-        [cmdBuf waitUntilCompleted];
-
-        if (cmdBuf.error) {
-            NQD_ERR("NQDMetalBitblt: GPU error (mode %d, bits_per_pixel %u): %s",
-                    transfer_mode, src_pixel_size, [[cmdBuf.error localizedDescription] UTF8String]);
-        }
-    }
-    else {
-        // Backward blit (negative row_bytes) — overlapping src/dest.
-        // Dispatch one row at a time in reverse order for correctness.
+    if (src_row_bytes < 0) {
+        // Backward blit — always use CPU. Metal per-row dispatch was the
+        // worst case: N command buffers for N rows. CPU memmove is trivial.
+        NQDMetalFlush();  // ensure any pending GPU writes are visible to CPU
         int32 abs_src_rb = -src_row_bytes;
         int32 abs_dst_rb = -dest_row_bytes;
-
+        uint8 *src_start = Mac2HostAddr(src_base) + ((src_Y + height - 1) * abs_src_rb) + nqd_packed_byte_offset(src_X, src_pixel_size);
+        uint8 *dst_start = Mac2HostAddr(dest_base) + ((dest_Y + height - 1) * abs_dst_rb) + nqd_packed_byte_offset(dest_X, src_pixel_size);
         for (int row = height - 1; row >= 0; row--) {
-            uint8 *src_ptr = Mac2HostAddr(src_base) + ((src_Y + row) * abs_src_rb) + nqd_packed_byte_offset(src_X, src_pixel_size);
-            uint8 *dst_ptr = Mac2HostAddr(dest_base) + ((dest_Y + row) * abs_dst_rb) + nqd_packed_byte_offset(dest_X, src_pixel_size);
+            memmove(dst_start, src_start, width_bytes);
+            src_start -= abs_src_rb;
+            dst_start -= abs_dst_rb;
+        }
+        return;
+    }
 
-            uint32_t src_offset = (uint32_t)(src_ptr - ram_base);
-            uint32_t dst_offset = (uint32_t)(dst_ptr - ram_base);
-
-            NQDBitbltUniforms uniforms;
-            uniforms.src_offset    = src_offset;
-            uniforms.dst_offset    = dst_offset;
-            uniforms.src_row_bytes = abs_src_rb;
-            uniforms.dst_row_bytes = abs_dst_rb;
-            uniforms.width_bytes   = width_bytes;
-            uniforms.height        = 1; // single row
-            uniforms.transfer_mode = transfer_mode;
-            uniforms.pixel_size    = (uint32_t)bpp;
-            uniforms.width_pixels  = width_pixels;
-            uniforms.fore_pen      = fore_pen;
-            uniforms.back_pen      = back_pen;
-            uniforms.hilite_color  = hilite_color;
-            uniforms.mask_enabled  = 0;
-            uniforms.mask_offset   = 0;
-            uniforms.mask_stride   = 0;
-            uniforms.bits_per_pixel = src_pixel_size;
-
-            NSUInteger total_threads = (pixel_mode && src_pixel_size >= 8)
-                ? (NSUInteger)width_pixels
-                : (NSUInteger)width_bytes;
-
-            id<MTLCommandBuffer> cmdBuf = [nqd_queue commandBuffer];
-            id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
-
-            [encoder setComputePipelineState:nqd_bitblt_pipeline];
-            [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:0];
-            [encoder setBytes:&uniforms length:sizeof(uniforms) atIndex:1];
-            [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:2];  // dummy mask buffer (mask_enabled=0)
-
-            NSUInteger threadgroup_size = nqd_bitblt_pipeline.maxTotalThreadsPerThreadgroup;
-            if (threadgroup_size > 256) threadgroup_size = 256;
-            if (threadgroup_size > total_threads) threadgroup_size = total_threads;
-
-            MTLSize grid = MTLSizeMake(total_threads, 1, 1);
-            MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
-            [encoder dispatchThreads:grid threadsPerThreadgroup:group];
-
-            [encoder endEncoding];
-            [cmdBuf commit];
-            [cmdBuf waitUntilCompleted];
-
-            if (cmdBuf.error) {
-                NQD_ERR("NQDMetalBitblt: GPU error on row %d (mode %d, bits_per_pixel %u): %s",
-                        row, transfer_mode, src_pixel_size, [[cmdBuf.error localizedDescription] UTF8String]);
-                break;
+    if (transfer_mode <= 7 && src_pixel_size >= 8 && total_pixels < NQD_CPU_THRESHOLD_PIXELS) {
+        // Boolean bitblt modes, small rect, standard depth — CPU is faster.
+        NQDMetalFlush();  // ensure any pending GPU writes are visible to CPU
+        uint8 *src_ptr = Mac2HostAddr(src_base) + (src_Y * src_row_bytes) + (src_X * bpp);
+        uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + (dest_X * bpp);
+        int op_bytes = width * bpp;
+        if (transfer_mode == 0) {
+            // srcCopy — plain memmove
+            for (int row = 0; row < height; row++) {
+                memmove(dst_ptr, src_ptr, op_bytes);
+                src_ptr += src_row_bytes;
+                dst_ptr += dest_row_bytes;
+            }
+        } else {
+            // Modes 1-7: per-byte Boolean ops
+            for (int row = 0; row < height; row++) {
+                for (int b = 0; b < op_bytes; b++) {
+                    uint8_t s = src_ptr[b];
+                    uint8_t d = dst_ptr[b];
+                    switch (transfer_mode) {
+                        case 1: dst_ptr[b] = s | d;      break; // srcOr
+                        case 2: dst_ptr[b] = s ^ d;      break; // srcXor
+                        case 3: dst_ptr[b] = (~s) & d;   break; // srcBic
+                        case 4: dst_ptr[b] = ~s;          break; // notSrcCopy
+                        case 5: dst_ptr[b] = (~s) | d;   break; // notSrcOr
+                        case 6: dst_ptr[b] = (~s) ^ d;   break; // notSrcXor
+                        case 7: dst_ptr[b] = s & d;       break; // notSrcBic
+                    }
+                }
+                src_ptr += src_row_bytes;
+                dst_ptr += dest_row_bytes;
             }
         }
+        return;
     }
-    } // @autoreleasepool
+
+    // -----------------------------------------------------------------------
+    // Metal batched path — forward blit, single dispatch covering all rows
+    // -----------------------------------------------------------------------
+
+    uint32_t fore_pen = htonl(ReadMacInt32(p + NQD_acclForePen));
+    uint32_t back_pen = htonl(ReadMacInt32(p + NQD_acclBackPen));
+    uint32_t hilite_color = (transfer_mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
+    bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
+
+    uint8 *ram_base = nqd_ram_base;
+    uint8 *src_ptr = Mac2HostAddr(src_base) + (src_Y * src_row_bytes) + nqd_packed_byte_offset(src_X, src_pixel_size);
+    uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + nqd_packed_byte_offset(dest_X, src_pixel_size);
+
+    NQDBitbltUniforms uniforms;
+    uniforms.src_offset    = (uint32_t)(src_ptr - ram_base);
+    uniforms.dst_offset    = (uint32_t)(dst_ptr - ram_base);
+    uniforms.src_row_bytes = src_row_bytes;
+    uniforms.dst_row_bytes = dest_row_bytes;
+    uniforms.width_bytes   = width_bytes;
+    uniforms.height        = (uint32_t)height;
+    uniforms.transfer_mode = transfer_mode;
+    uniforms.pixel_size    = (uint32_t)bpp;
+    uniforms.width_pixels  = width_pixels;
+    uniforms.fore_pen      = fore_pen;
+    uniforms.back_pen      = back_pen;
+    uniforms.hilite_color  = hilite_color;
+    uniforms.mask_enabled  = 0;
+    uniforms.mask_offset   = 0;
+    uniforms.mask_stride   = 0;
+    uniforms.bits_per_pixel = src_pixel_size;
+
+    NSUInteger total_threads = (pixel_mode && src_pixel_size >= 8)
+        ? (NSUInteger)(width_pixels * height)
+        : (NSUInteger)(width_bytes * height);
+
+    id<MTLComputeCommandEncoder> encoder = nqd_get_batch_encoder();
+    if (!encoder) return;
+
+    [encoder setComputePipelineState:nqd_bitblt_pipeline];
+    [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:0];
+    [encoder setBytes:&uniforms length:sizeof(uniforms) atIndex:1];
+    [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:2];  // dummy mask buffer (mask_enabled=0)
+
+    NSUInteger threadgroup_size = nqd_bitblt_pipeline.maxTotalThreadsPerThreadgroup;
+    if (threadgroup_size > 256) threadgroup_size = 256;
+    if (threadgroup_size > total_threads) threadgroup_size = total_threads;
+
+    MTLSize grid = MTLSizeMake(total_threads, 1, 1);
+    MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
+    [encoder dispatchThreads:grid threadsPerThreadgroup:group];
+
+    nqd_batch_did_dispatch();
 }
 
 // ---------------------------------------------------------------------------
@@ -902,7 +984,7 @@ void NQDMetalBitblt(uint32 p)
 void NQDMetalFillRect(uint32 p)
 {
     if (!nqd_metal_available) return;
-    @autoreleasepool {
+
     // Extract parameters from accl_params
     int16 dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
     int16 dest_Y = (int16)ReadMacInt16(p + NQD_acclDestRect + 0) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
@@ -920,11 +1002,76 @@ void NQDMetalFillRect(uint32 p)
     // Read transfer mode and pen colors
     uint32_t transfer_mode = ReadMacInt32(p + NQD_acclTransferMode);
     uint32_t pen_mode = ReadMacInt32(p + NQD_acclPenMode);
+
+    NQD_LOG("NQDMetalFillRect: dst=(%d,%d) %dx%d bpp=%d bits_per_pixel=%u transfer_mode=%d mode=%d rb=%d",
+            dest_X, dest_Y, width, height, bpp, pixel_size, transfer_mode, pen_mode, dest_row_bytes);
+
+    // -----------------------------------------------------------------------
+    // CPU fast path for small Boolean fills on standard depths
+    //
+    // Boolean fill modes (8-15) do per-byte operations on a repeating fill
+    // pattern. For small rects, a tight CPU loop is much faster than Metal.
+    // -----------------------------------------------------------------------
+
+    int total_pixels = (int)width * (int)height;
+
+    if (transfer_mode >= 8 && transfer_mode <= 15 && pixel_size >= 8 && total_pixels < NQD_CPU_THRESHOLD_PIXELS) {
+        NQDMetalFlush();  // ensure any pending GPU writes are visible to CPU
+        uint32_t color = htonl((pen_mode == 8) ? ReadMacInt32(p + NQD_acclForePen) : ReadMacInt32(p + NQD_acclBackPen));
+        uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + (dest_X * bpp);
+        int fill_bytes = width * bpp;
+
+        if (transfer_mode == 8) {
+            // patCopy — just fill
+            if (bpp == 1) {
+                for (int row = 0; row < height; row++) {
+                    memset(dst_ptr, (uint8_t)(color & 0xFF), fill_bytes);
+                    dst_ptr += dest_row_bytes;
+                }
+            } else if (bpp == 2) {
+                uint16_t c16 = (uint16_t)(color & 0xFFFF);
+                for (int row = 0; row < height; row++) {
+                    uint16_t *p16 = (uint16_t *)dst_ptr;
+                    for (int col = 0; col < width; col++) p16[col] = c16;
+                    dst_ptr += dest_row_bytes;
+                }
+            } else {
+                for (int row = 0; row < height; row++) {
+                    uint32_t *p32 = (uint32_t *)dst_ptr;
+                    for (int col = 0; col < width; col++) p32[col] = color;
+                    dst_ptr += dest_row_bytes;
+                }
+            }
+        } else {
+            // Modes 9-15: per-byte Boolean ops with fill pattern
+            for (int row = 0; row < height; row++) {
+                for (int b = 0; b < fill_bytes; b++) {
+                    uint8_t byte_in_pixel = b % bpp;
+                    uint8_t shift = (3 - ((4 - bpp) + byte_in_pixel)) * 8;
+                    uint8_t fill = (uint8_t)((color >> shift) & 0xFF);
+                    uint8_t d = dst_ptr[b];
+                    switch (transfer_mode) {
+                        case 9:  dst_ptr[b] = fill | d;      break; // patOr
+                        case 10: dst_ptr[b] = fill ^ d;      break; // patXor
+                        case 11: dst_ptr[b] = (~fill) & d;   break; // patBic
+                        case 12: dst_ptr[b] = ~fill;          break; // notPatCopy
+                        case 13: dst_ptr[b] = (~fill) | d;   break; // notPatOr
+                        case 14: dst_ptr[b] = (~fill) ^ d;   break; // notPatXor
+                        case 15: dst_ptr[b] = fill & d;       break; // notPatBic
+                    }
+                }
+                dst_ptr += dest_row_bytes;
+            }
+        }
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // Metal batched path
+    // -----------------------------------------------------------------------
+
     uint32_t fore_pen = htonl(ReadMacInt32(p + NQD_acclForePen));
     uint32_t back_pen = htonl(ReadMacInt32(p + NQD_acclBackPen));
-
-    // Fill color: pen_mode == 8 → fore_pen, else → back_pen
-    // Uses native byte order (no htonl) for Boolean mode byte extraction in shader
     uint32_t fore_pen_native = ReadMacInt32(p + NQD_acclForePen);
     uint32_t back_pen_native = ReadMacInt32(p + NQD_acclBackPen);
     uint32_t fill_color = (pen_mode == 8) ? fore_pen_native : back_pen_native;
@@ -932,17 +1079,12 @@ void NQDMetalFillRect(uint32 p)
     uint32 width_bytes = nqd_packed_width_bytes(width, pixel_size);
     uint32 width_pixels = (uint32)width;
 
-    // Pack HiliteRGB for hilite mode (50)
     uint32_t hilite_color = (transfer_mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
-
     bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
 
     uint8 *ram_base = nqd_ram_base;
     uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + nqd_packed_byte_offset(dest_X, pixel_size);
     uint32_t dst_offset = (uint32_t)(dst_ptr - ram_base);
-
-    NQD_LOG("NQDMetalFillRect: dst=(%d,%d) %dx%d bpp=%d bits_per_pixel=%u transfer_mode=%d mode=%d fill=%08x rb=%d",
-            dest_X, dest_Y, width, height, bpp, pixel_size, transfer_mode, pen_mode, fill_color, dest_row_bytes);
 
     NQDFillRectUniforms uniforms;
     uniforms.dst_offset    = dst_offset;
@@ -962,16 +1104,12 @@ void NQDMetalFillRect(uint32 p)
     uniforms.mask_stride   = 0;
     uniforms.bits_per_pixel = pixel_size;
 
-    // Thread count depends on mode family:
-    // Boolean (8-15): one thread per byte → width_bytes * height
-    // Arithmetic/hilite (32-39, 50): one thread per pixel → width_pixels * height
-    // Packed depths (< 8): always per-byte (shader inner loop for arithmetic)
     NSUInteger total_threads = (pixel_mode && pixel_size >= 8)
         ? (NSUInteger)(width_pixels * height)
         : (NSUInteger)(width_bytes * height);
 
-    id<MTLCommandBuffer> cmdBuf = [nqd_queue commandBuffer];
-    id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
+    id<MTLComputeCommandEncoder> encoder = nqd_get_batch_encoder();
+    if (!encoder) return;
 
     [encoder setComputePipelineState:nqd_fillrect_pipeline];
     [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:0];
@@ -986,15 +1124,7 @@ void NQDMetalFillRect(uint32 p)
     MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
     [encoder dispatchThreads:grid threadsPerThreadgroup:group];
 
-    [encoder endEncoding];
-    [cmdBuf commit];
-    [cmdBuf waitUntilCompleted];
-
-    if (cmdBuf.error) {
-        NQD_ERR("NQDMetalFillRect: GPU error (transfer_mode %d, bits_per_pixel %u): %s",
-                transfer_mode, pixel_size, [[cmdBuf.error localizedDescription] UTF8String]);
-    }
-    } // @autoreleasepool
+    nqd_batch_did_dispatch();
 }
 
 // ---------------------------------------------------------------------------
@@ -1011,7 +1141,7 @@ void NQDMetalFillRect(uint32 p)
 void NQDMetalInvertRect(uint32 p)
 {
     if (!nqd_metal_available) return;
-    @autoreleasepool {
+
     // Extract parameters from accl_params
     int16 dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
     int16 dest_Y = (int16)ReadMacInt16(p + NQD_acclDestRect + 0) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
@@ -1026,25 +1156,57 @@ void NQDMetalInvertRect(uint32 p)
     int32 dest_row_bytes = (int32)ReadMacInt32(p + NQD_acclDestRowBytes);
     uint32 dest_base = ReadMacInt32(p + NQD_acclDestBaseAddr);
 
-    // For invert: transfer_mode=10 (patXor), fill with 0xFF bytes
-    // patXor(fill, dst) = fill ^ dst. With fill = all-ones → inverts all bits.
-    uint32_t transfer_mode = 10;  // patXor
-    uint32_t pen_mode = ReadMacInt32(p + NQD_acclPenMode);
-    uint32_t fore_pen = htonl(ReadMacInt32(p + NQD_acclForePen));
-    uint32_t back_pen = htonl(ReadMacInt32(p + NQD_acclBackPen));
-
-    // Invert fill color: all-ones pattern (XOR with 0xFF inverts every byte)
-    uint32_t fill_color = 0xFFFFFFFF;
-
     uint32 width_bytes = nqd_packed_width_bytes(width, pixel_size);
     uint32 width_pixels = (uint32)width;
+
+    NQD_LOG("NQDMetalInvertRect: dst=(%d,%d) %dx%d bpp=%d bits_per_pixel=%u rb=%d",
+            dest_X, dest_Y, width, height, bpp, pixel_size, dest_row_bytes);
+
+    // -----------------------------------------------------------------------
+    // CPU fast path for small inverts on standard depths
+    //
+    // Invert is just XOR with 0xFF per byte. A tight CPU loop is much faster
+    // than Metal for small rects, and competitive even for medium ones since
+    // the operation is purely sequential memory access.
+    // -----------------------------------------------------------------------
+
+    int total_pixels = (int)width * (int)height;
+
+    if (pixel_size >= 8 && total_pixels < NQD_CPU_THRESHOLD_PIXELS) {
+        NQDMetalFlush();  // ensure any pending GPU writes are visible to CPU
+        uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + (dest_X * bpp);
+        int invert_bytes = width * bpp;
+        for (int row = 0; row < height; row++) {
+            // XOR 8 bytes at a time for throughput
+            uint8 *p8 = dst_ptr;
+            int remaining = invert_bytes;
+            while (remaining >= 8) {
+                *(uint64_t *)p8 ^= 0xFFFFFFFFFFFFFFFFULL;
+                p8 += 8;
+                remaining -= 8;
+            }
+            while (remaining > 0) {
+                *p8 ^= 0xFF;
+                p8++;
+                remaining--;
+            }
+            dst_ptr += dest_row_bytes;
+        }
+        return;
+    }
+
+    // -----------------------------------------------------------------------
+    // Metal batched path — patXor with fill_color=0xFFFFFFFF
+    // -----------------------------------------------------------------------
+
+    uint32_t transfer_mode = 10;  // patXor
+    uint32_t fore_pen = htonl(ReadMacInt32(p + NQD_acclForePen));
+    uint32_t back_pen = htonl(ReadMacInt32(p + NQD_acclBackPen));
+    uint32_t fill_color = 0xFFFFFFFF;
 
     uint8 *ram_base = nqd_ram_base;
     uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + nqd_packed_byte_offset(dest_X, pixel_size);
     uint32_t dst_offset = (uint32_t)(dst_ptr - ram_base);
-
-    NQD_LOG("NQDMetalInvertRect: dst=(%d,%d) %dx%d bpp=%d bits_per_pixel=%u transfer_mode=%d (delegating to fill path) rb=%d",
-            dest_X, dest_Y, width, height, bpp, pixel_size, transfer_mode, dest_row_bytes);
 
     NQDFillRectUniforms uniforms;
     uniforms.dst_offset    = dst_offset;
@@ -1067,8 +1229,8 @@ void NQDMetalInvertRect(uint32 p)
     // patXor is a Boolean mode → per-byte dispatch
     NSUInteger total_threads = (NSUInteger)(width_bytes * height);
 
-    id<MTLCommandBuffer> cmdBuf = [nqd_queue commandBuffer];
-    id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
+    id<MTLComputeCommandEncoder> encoder = nqd_get_batch_encoder();
+    if (!encoder) return;
 
     [encoder setComputePipelineState:nqd_fillrect_pipeline];
     [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:0];
@@ -1083,13 +1245,5 @@ void NQDMetalInvertRect(uint32 p)
     MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
     [encoder dispatchThreads:grid threadsPerThreadgroup:group];
 
-    [encoder endEncoding];
-    [cmdBuf commit];
-    [cmdBuf waitUntilCompleted];
-
-    if (cmdBuf.error) {
-        NQD_ERR("NQDMetalInvertRect: GPU error (transfer_mode %d, bits_per_pixel %u): %s",
-                transfer_mode, pixel_size, [[cmdBuf.error localizedDescription] UTF8String]);
-    }
-    } // @autoreleasepool
+    nqd_batch_did_dispatch();
 }
