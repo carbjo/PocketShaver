@@ -410,6 +410,12 @@
    at runtime, so every Mac address maps reliably into host memory.  */
 #define MEM_BULK 1
 
+/* Use 64-bit Mach exception codes so that SIGSEGV fault addresses are not
+   truncated to 32 bits.  Required for MEM_BULK where VMBaseDiff is a
+   runtime value and the bottom 32 bits of a host address are not the
+   Mac address.  */
+#define HAVE_MACH64_VM 1
+
 /* Define to the address where bug reports for this package should be sent. */
 #define PACKAGE_BUGREPORT "Christian.Bauer@uni-mainz.de"
 

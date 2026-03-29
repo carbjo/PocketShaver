@@ -220,6 +220,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     compositor_layer.maximumDrawableCount = 3;         // triple buffering
     compositor_layer.framebufferOnly = YES;
     compositor_layer.drawableSize = CGSizeMake(width, height);  // Mac framebuffer dims
+    compositor_layer.contentsGravity = kCAGravityResizeAspect;  // preserve aspect ratio (letterbox)
 
     // --- CAMetalLayer scaling filter from user preference ---
     bool useNearest = PrefsFindBool("scale_nearest");
@@ -752,6 +753,7 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
 
     // --- Update layer drawable size ---
     compositor_layer.drawableSize = CGSizeMake(width, height);
+    compositor_layer.contentsGravity = kCAGravityResizeAspect;  // preserve aspect ratio (letterbox)
 
     // --- Update CAMetalLayer scaling filter from user preference ---
     bool useNearest = PrefsFindBool("scale_nearest");
