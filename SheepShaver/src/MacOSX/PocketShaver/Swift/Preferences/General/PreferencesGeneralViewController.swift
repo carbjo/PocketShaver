@@ -253,9 +253,9 @@ class PreferencesGeneralViewController: UITableViewController {
 			case .audioEnabledToggle:
 				return PreferencesEnabledSettingCell(
 					title: "Audio enabled",
-					isOn: !model.soundDisabled
+					isOn: model.audioEnabled
 				) { [weak self] newValue in
-					self?.model.soundDisabled = !newValue
+					self?.model.audioEnabled = newValue
 				}
 			case .audioInformation:
 				return PreferencesInformationCell(
