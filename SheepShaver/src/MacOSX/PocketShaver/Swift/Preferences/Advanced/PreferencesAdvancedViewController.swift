@@ -13,6 +13,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case ramSetting
 		case performanceMetrics
 		case uiOptions
+		case emulation
 		case relateiveMouseMode
 		case bootstrap
 		case resources
@@ -31,6 +32,10 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case uiOptionsHoverJustAbove
 		case uiOptionsAlwaysBootInLandscapeMode
 		case uiOptionsReportIpAddressAssignment
+
+		//emulation
+		case emulationIgnoreIllegalInstructions
+		case emulationIgnoreIllegalInstructionsInfo
 
 		//relateiveMouseMode
 		case relateiveMouseModeSetting
@@ -129,6 +134,18 @@ class PreferencesAdvancedViewController: UITableViewController {
 				) { [weak self] isOn in
 					self?.model.networkTransferRateReportingEnabled = isOn
 				}
+			case .emulationIgnoreIllegalInstructions:
+				return PreferencesEnabledSettingCell(
+					title: "Ignore illegal instructions",
+					isOn: model.ignoreIllegalInstructions
+				) { [weak self] isOn in
+					self?.model.ignoreIllegalInstructions = isOn
+				}
+			case .emulationIgnoreIllegalInstructionsInfo:
+				return PreferencesInformationCell(
+					text: "When enabled, unrecognized PowerPC instructions are skipped instead of crashing the emulator. May improve compatibility with some apps.",
+					separatorHidden: false
+				)
 			case .relateiveMouseModeSetting:
 				return PreferencesAdvancedRelativeMouseModeSettingCell(
 					initialRelativeMouseModeSetting: model.relativeMouseModeSetting
@@ -201,6 +218,8 @@ class PreferencesAdvancedViewController: UITableViewController {
 				return "Performance metrics"
 			case .uiOptions:
 				return "UI options"
+			case .emulation:
+				return "Emulation"
 			case .relateiveMouseMode:
 				return "Relative mouse mode"
 			case .bootstrap:
@@ -235,6 +254,12 @@ class PreferencesAdvancedViewController: UITableViewController {
 			snapshot.appendItems([.uiOptionsAlwaysBootInLandscapeMode])
 		}
 		snapshot.appendItems([.uiOptionsReportIpAddressAssignment])
+
+		snapshot.appendSections([.emulation])
+		snapshot.appendItems([
+			.emulationIgnoreIllegalInstructions,
+			.emulationIgnoreIllegalInstructionsInfo
+		])
 
 		snapshot.appendSections([.relateiveMouseMode])
 		snapshot.appendItems([

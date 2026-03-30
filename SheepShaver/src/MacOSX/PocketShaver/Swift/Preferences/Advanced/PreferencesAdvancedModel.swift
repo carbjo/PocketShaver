@@ -109,6 +109,16 @@ class PreferencesAdvancedModel {
 		}
 	}
 
+	var ignoreIllegalInstructions: Bool {
+		get {
+			objc_findBool("ignoreillegal")
+		}
+		set {
+			objc_replaceBool("ignoreillegal", newValue)
+			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+		}
+	}
+
 	@MainActor
 	var hasRomFile: Bool {
 		RomManager.shared.hasRomFile
