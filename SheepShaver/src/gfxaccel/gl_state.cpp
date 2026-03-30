@@ -2382,6 +2382,7 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 		case GL_BGRA_EXT:
 			if (type == GL_UNSIGNED_BYTE) srcBpp = 4;
 			else if (type == GL_UNSIGNED_SHORT_4_4_4_4) srcBpp = 2;
+			else if (type == GL_UNSIGNED_SHORT_5_5_5_1) srcBpp = 2;
 			break;
 		case GL_RGB:
 			if (type == GL_UNSIGNED_BYTE) srcBpp = 3;
@@ -2453,6 +2454,15 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 				uint8_t g = ((px >> 8)  & 0xF) * 17;
 				uint8_t b = ((px >> 4)  & 0xF) * 17;
 				uint8_t a = ((px)       & 0xF) * 17;
+				out[0] = b; out[1] = g; out[2] = r; out[3] = a;
+			}
+			else if ((format == GL_RGBA) && type == GL_UNSIGNED_SHORT_5_5_5_1) {
+				// Big-endian 16-bit: RGBA5551 — R(15:11) G(10:6) B(5:1) A(0)
+				uint16_t px = ReadMacInt16(pixAddr);
+				uint8_t r = ((px >> 11) & 0x1F) * 255 / 31;
+				uint8_t g = ((px >> 6)  & 0x1F) * 255 / 31;
+				uint8_t b = ((px >> 1)  & 0x1F) * 255 / 31;
+				uint8_t a = (px & 1) ? 0xFF : 0x00;
 				out[0] = b; out[1] = g; out[2] = r; out[3] = a;
 			}
 			else if (format == GL_RGB && type == GL_UNSIGNED_SHORT_5_6_5) {
