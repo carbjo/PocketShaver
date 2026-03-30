@@ -203,8 +203,8 @@ static const uint32 kAllOptionalFeatures =
 	kQAOptional_MipmapBias | kQAOptional_ChannelMask | kQAOptional_ZBufferMask |
 	kQAOptional_AlphaTest | kQAOptional_AccessTexture | kQAOptional_AccessBitmap |
 	kQAOptional_AccessDrawBuffer | kQAOptional_AccessZBuffer |
-	kQAOptional_ClearDrawBuffer | kQAOptional_ClearZBuffer; // GAP-016: OffscreenDrawContexts removed (not implemented)
-	// kQAOptional_OpenGL removed: GL tags 100-153 are stored but not consumed by the RAVE renderer
+	kQAOptional_ClearDrawBuffer | kQAOptional_ClearZBuffer | // GAP-016: OffscreenDrawContexts removed (not implemented)
+	kQAOptional_OpenGL;  // GL tags 100-153 are stored/retrieved via Set/GetInt — games rely on this for scissor, blend, wrap
 
 // OptionalFeatures2 bitmask -- only advertise what we support
 // Bit assignments now match DDK RAVE 1.6 Specification exactly.
