@@ -21,7 +21,7 @@ enum PreferencesGeneralRamSetting: Int, CaseIterable {
 	case n64
 	case n128
 	case n256
-	case n512 // Maximum that Mac OS 9.0.4 recognizes
+	case n512 // Maximum that Mac OS 9.0.4 recognizes (for now)
 }
 
 class PreferencesGeneralModel {
@@ -31,7 +31,29 @@ class PreferencesGeneralModel {
 		let willBootFromCDChanged: Bool
 	}
 
+	struct DiskEntry: Hashable {
+		let index: Int
+		let filename: String
+		let type: DiskType
+	}
+
+	struct MonitorResolutionsState: Hashable {
+		let enabledResolutions: [MonitorResolutionOption]
+		let willBootFromCD: Bool
+	}
+
+	struct TwoFingerSteeringSettings: Hashable {
+		let secondFingerClick: Bool
+		let secondFingerSwipe: Bool
+		let bootInHoverMode: Bool
+	}
+
 	private let mode: PreferencesLaunchMode
+
+	@MainActor
+	private var miscSettings: MiscellaneousSettings {
+		.current
+	}
 
 	let changeSubject: PassthroughSubject<PreferencesChange, Never>
 
@@ -59,17 +81,25 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	var soundDisabled: Bool {
+	var monitorResolutionsState: MonitorResolutionsState {
+		return .init(
+			enabledResolutions: MonitorResolutionManager.shared.enabledResolutions,
+			willBootFromCD: DiskManager.shared.willBootFromCD
+		)
+	}
+
+	@MainActor
+	var audioEnabled: Bool {
 		get {
-			MiscellaneousSettings.current.soundDisabled
+			miscSettings.audioEnabled
 		}
 		set {
-			let previousValue = MiscellaneousSettings.current.soundDisabled
-			MiscellaneousSettings.current.set(soundDisabled: newValue)
+			let previousValue = miscSettings.audioEnabled
+			miscSettings.set(audioEnabled: newValue)
 
 			if mode == .duringEmulation,
 				newValue != previousValue {
-				objc_update_audio_disabled_setting(newValue)
+				objc_update_audio_enabled_setting(newValue)
 			}
 		}
 	}
@@ -77,61 +107,40 @@ class PreferencesGeneralModel {
 	@MainActor
 	var isIPadMouseEnabled: Bool {
 		get {
-			MiscellaneousSettings.current.iPadMousePassthrough
+			miscSettings.iPadMousePassthrough
 		}
 		set {
-			MiscellaneousSettings.current.set(iPadMousePassthrough: newValue)
+			miscSettings.set(iPadMousePassthrough: newValue)
 			objc_update_sdl_ipad_mouse_setting(newValue)
 		}
 	}
 
 	@MainActor
-	var secondFingerClick: Bool {
-		get {
-			MiscellaneousSettings.current.secondFingerClick
-		}
-		set {
-			MiscellaneousSettings.current.set(secondFingerClick: newValue)
-		}
-	}
-
-	@MainActor
-	var secondFingerSwipe: Bool {
-		get {
-			MiscellaneousSettings.current.secondFingerSwipe
-		}
-		set {
-			MiscellaneousSettings.current.set(secondFingerSwipe: newValue)
-		}
-	}
-
-	@MainActor
-	var bootInHoverMode: Bool {
-		get {
-			MiscellaneousSettings.current.bootInHoverMode
-		}
-		set {
-			MiscellaneousSettings.current.set(bootInHoverMode: newValue)
-		}
+	var twoFingerSteeringSettings: TwoFingerSteeringSettings {
+		return .init(
+			secondFingerClick: miscSettings.secondFingerClick,
+			secondFingerSwipe: miscSettings.secondFingerSwipe,
+			bootInHoverMode: miscSettings.bootInHoverMode
+		)
 	}
 
 	@MainActor
 	var rightClickSetting: RightClickSetting {
 		get {
-			MiscellaneousSettings.current.rightClickSetting
+			miscSettings.rightClickSetting
 		}
 		set {
-			MiscellaneousSettings.current.set(rightClickSetting: newValue)
+			miscSettings.set(rightClickSetting: newValue)
 		}
 	}
 
 	@MainActor
 	var keyboardAutoOffsetSetting: KeyboardAutoOffsetSetting {
 		get {
-			MiscellaneousSettings.current.keyboardAutoOffsetSetting
+			miscSettings.keyboardAutoOffsetSetting
 		}
 		set {
-			MiscellaneousSettings.current.set(keyboardAutoOffsetSetting: newValue)
+			miscSettings.set(keyboardAutoOffsetSetting: newValue)
 		}
 	}
 
@@ -142,40 +151,40 @@ class PreferencesGeneralModel {
 	@MainActor
 	var isGestureHapticFeedbackOn: Bool {
 		get {
-			MiscellaneousSettings.current.gestureHapticFeedback
+			miscSettings.gestureHapticFeedback
 		}
 		set {
-			MiscellaneousSettings.current.set(gestureHapticFeedback: newValue)
+			miscSettings.set(gestureHapticFeedback: newValue)
 		}
 	}
 
 	@MainActor
 	var isMouseHapticFeedbackOn: Bool {
 		get {
-			MiscellaneousSettings.current.mouseHapticFeedback
+			miscSettings.mouseHapticFeedback
 		}
 		set {
-			MiscellaneousSettings.current.set(mouseHapticFeedback: newValue)
+			miscSettings.set(mouseHapticFeedback: newValue)
 		}
 	}
 
 	@MainActor
 	var isKeyHapticFeedbackOn: Bool {
 		get {
-			MiscellaneousSettings.current.keyHapticFeedback
+			miscSettings.keyHapticFeedback
 		}
 		set {
-			MiscellaneousSettings.current.set(keyHapticFeedback: newValue)
+			miscSettings.set(keyHapticFeedback: newValue)
 		}
 	}
 
 	@MainActor
 	var showHints: Bool {
 		get {
-			MiscellaneousSettings.current.showHints
+			miscSettings.showHints
 		}
 		set {
-			MiscellaneousSettings.current.set(showHints: newValue)
+			miscSettings.set(showHints: newValue)
 		}
 	}
 
@@ -200,7 +209,7 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	func createNewDisk(name: String, sizeInMb: Int) throws -> DiskDataChange {
+	func createNewDisk(name: String, sizeInMb: Int) throws -> Disk? {
 		guard sizeInMb > 0 else {
 			throw PreferencesGeneralError.fileCreationInvalidSize
 		}
@@ -217,15 +226,15 @@ class PreferencesGeneralModel {
 			throw PreferencesGeneralError.fileCreationFailedOtherError
 		}
 
-		let diskDataChange = DiskManager.shared.loadDiskData(
+		DiskManager.shared.loadDiskData(
 			requestEnableDiskWithFilename: fixedName
 		)
 
-		return diskDataChange
+		return disk(forFilename: fixedName)
 	}
 
 	@MainActor
-	func didSelectFileImport(url: URL) async throws -> DiskDataChange {
+	func didSelectFileImport(url: URL) async throws -> Disk? {
 		guard url.path.lowercased().hasSuffixMatchingSuffixes(in: DiskManager.supportedFileExtensions) else {
 			throw PreferencesGeneralError.fileImportWrongSuffix
 		}
@@ -252,13 +261,15 @@ class PreferencesGeneralModel {
 
 		let filename = url.lastPathComponent
 
-		return DiskManager.shared.loadDiskData(
+		DiskManager.shared.loadDiskData(
 			requestEnableDiskWithFilename: filename
 		)
+
+		return disk(forFilename: filename)
 	}
 
 	@MainActor
-	func didSelectReload() async throws -> DiskDataChange {
+	func didSelectReload() async throws {
 		DiskManager.shared.loadDiskData()
 	}
 
@@ -278,6 +289,13 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
+	func diskEntry(for disk: Disk) -> DiskEntry {
+		let index = DiskManager.shared.diskArray.firstIndex(of: disk)!
+		return .init(index: index, filename: disk.filename, type: disk.type)
+	}
+
+	@MainActor
+	@discardableResult
 	func setDiskEnabled(filename: String, isEnabled: Bool) -> DiskSelectionChangeResult {
 		guard var disk = disk(forFilename: filename) else {
 			return .init(prevIndex: 0, newIndex: 0, willBootFromCDChanged: false)
@@ -327,6 +345,6 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	func setTwoFingerSteering(enabled: Bool) {
-		MiscellaneousSettings.current.setTwoFingerSteering(enabled: enabled)
+		miscSettings.setTwoFingerSteering(enabled: enabled)
 	}
 }

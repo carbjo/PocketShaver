@@ -144,7 +144,9 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		if !UIScreen.isPortraitMode || UIDevice.isIPad {
 			rightStackView.addArrangedSubview(rightCmdButton)
 		}
-		rightStackView.addArrangedSubview(dismissKeyboardButton)
+		if !UIDevice.isIPad {
+			rightStackView.addArrangedSubview(dismissKeyboardButton)
+		}
 
 
 		NSLayoutConstraint.activate([

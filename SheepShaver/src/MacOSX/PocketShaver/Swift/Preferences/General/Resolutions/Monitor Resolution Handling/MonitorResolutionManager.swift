@@ -7,7 +7,7 @@
 
 import UIKit
 
-enum MonitorResolutionCategory: String, Codable, Equatable, CaseIterable {
+enum MonitorResolutionCategory: String, Codable, Equatable, CaseIterable, Hashable {
 	case pixelAlignedPortrait
 	case pixelAlignedLandscape
 	case standardResolution
@@ -15,12 +15,12 @@ enum MonitorResolutionCategory: String, Codable, Equatable, CaseIterable {
 	case standardHeightLandscape
 }
 
-struct MonitorResolution: Codable, Equatable {
+struct MonitorResolution: Codable, Equatable, Hashable {
 	let width: Int
 	let height: Int
 }
 
-struct MonitorResolutionOption: Codable, Equatable {
+struct MonitorResolutionOption: Codable, Equatable, Hashable {
 	let category: MonitorResolutionCategory
 	let resolution: MonitorResolution
 	let auxillaryInformation: String?

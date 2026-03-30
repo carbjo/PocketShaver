@@ -142,6 +142,7 @@ extension UIButton {
 }
 
 extension FileManager {
+	@objc
 	static var documentUrl: URL {
 		Self.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 	}
@@ -185,6 +186,10 @@ extension String {
 			}
 		}
 		return false
+	}
+
+	func substring(from: Int, to: Int) -> String {
+		String(self[index(startIndex, offsetBy: from)..<index(startIndex, offsetBy: to)])
 	}
 }
 

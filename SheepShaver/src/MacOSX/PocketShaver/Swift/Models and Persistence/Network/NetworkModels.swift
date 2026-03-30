@@ -23,6 +23,23 @@ struct HardwareAddress: Codable, Equatable, Hashable {
 		self.byte5 = byte5
 	}
 
+	init?(_ string: String) {
+		guard string.count == 17 else {
+			return nil
+		}
+
+		do {
+			byte0 = try UInt8(byteString: string.substring(from: 0, to: 2))
+			byte1 = try UInt8(byteString: string.substring(from: 3, to: 5))
+			byte2 = try UInt8(byteString: string.substring(from: 6, to: 8))
+			byte3 = try UInt8(byteString: string.substring(from: 9, to: 11))
+			byte4 = try UInt8(byteString: string.substring(from: 12, to: 14))
+			byte5 = try UInt8(byteString: string.substring(from: 15, to: 17))
+		} catch {
+			return nil
+		}
+	}
+
 	var string: String {
 		String(format: "%02x:%02x:%02x:%02x:%02x:%02x", byte0, byte1, byte2, byte3, byte4, byte5)
 	}
@@ -109,4 +126,62 @@ class IpAddress: NSObject {
 
 private func randomByte() -> UInt8 {
 	UInt8.random(in: UInt8.min ... UInt8.max)
+}
+
+private enum ByteDecodeErrors: Error {
+	case stringCharWasNotByte
+	case byteStringWasIncorrectLength
+}
+
+private extension UInt8 {
+
+	init(byteString: String) throws {
+		guard byteString.count == 2 else {
+			throw ByteDecodeErrors.byteStringWasIncorrectLength
+		}
+
+		let firstCharValue = try UInt8(byteChar: byteString[byteString.startIndex]) * 16
+		let secondCharValue = try UInt8(byteChar: byteString[byteString.index(byteString.startIndex, offsetBy: 1)])
+
+		self = firstCharValue + secondCharValue
+	}
+
+	init(byteChar: Character) throws {
+		switch byteChar {
+		case "0":
+			self = 0
+		case "1":
+			self = 1
+		case "2":
+			self = 2
+		case "3":
+			self = 3
+		case "4":
+			self = 4
+		case "5":
+			self = 5
+		case "6":
+			self = 6
+		case "7":
+			self = 7
+		case "8":
+			self = 8
+		case "9":
+			self = 9
+		case "a":
+			self = 10
+		case "b":
+			self = 11
+		case "c":
+			self = 12
+		case "d":
+			self = 13
+		case "e":
+			self = 14
+		case "f":
+			self = 15
+		default:
+			throw ByteDecodeErrors.stringCharWasNotByte
+		}
+	}
 }

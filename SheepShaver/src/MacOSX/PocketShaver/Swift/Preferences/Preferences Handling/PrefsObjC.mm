@@ -80,11 +80,11 @@ void objc_update_sdl_ipad_mouse_setting(BOOL isOn) {
 	SDL_SetHint(SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH, (isOn ? "1" : "0"));
 }
 
-void objc_update_audio_disabled_setting(BOOL isDisabled) {
-	if (isDisabled) {
-		close_audio();
-	} else {
+void objc_update_audio_enabled_setting(BOOL isEnabled) {
+	if (isEnabled) {
 		open_audio();
+	} else {
+		close_audio();
 	}
 }
 
