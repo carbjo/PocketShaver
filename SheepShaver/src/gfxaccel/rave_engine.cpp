@@ -1828,12 +1828,11 @@ uint32 NativeHookDrawContextNew(uint32 device, uint32 rect, uint32 clip,
 			ctx = SheepMem::ReserveProc(ctx_size);
 			RAVE_LOG("HOOK: allocated ctx=0x%08x from SheepMem proc", ctx);
 		}
-		RAVE_LOG("HOOK: got ctx=0x%08x, zeroing %d bytes at host %p",
-		       ctx, ctx_size, Mac2HostAddr(ctx));
-		memset(Mac2HostAddr(ctx), 0, ctx_size);
-
-		// NativeDrawPrivateNew writes the drawPrivate handle at offset 0,
-		// version at offset 4, and all 35 draw method TVECTs at offset 8+.
+		// NativeDrawPrivateNew writes all 37 fields (handle + version +
+		// 35 TVECTs), so we skip zeroing here.  A memset would create a
+		// window where stale Mac-side references see NULL TVECT pointers,
+		// causing the PPC to dereference address 0 and crash in zeroed
+		// SheepMem memory.
 		RAVE_LOG("HOOK: calling NativeDrawPrivateNew(ctx=0x%08x, dev=0x%08x, rect=0x%08x, clip=0x%08x, flags=0x%08x)",
 		       ctx, device, rect, clip, flags);
 		int32 err = NativeDrawPrivateNew(ctx, device, rect, clip, flags);
@@ -1967,6 +1966,11 @@ uint32 NativeHookDrawContextDelete(uint32 drawContextPtr) {
 		RAVE_LOG("HOOK: QADrawContextDelete(0x%08x) handle=%d -> native delete",
 		       drawContextPtr, handle);
 		NativeDrawPrivateDelete(handle);
+
+		// Invalidate the Mac-side handle so stale references via this
+		// address see handle=0 and fail gracefully in RaveGetContext(),
+		// rather than accidentally hitting a recycled handle slot.
+		WriteMacInt32(drawContextPtr + 0, 0);
 
 		// Recycle the Mac-side context address so the next QADrawContextNew
 		// can reuse it instead of permanently allocating from SheepMem.

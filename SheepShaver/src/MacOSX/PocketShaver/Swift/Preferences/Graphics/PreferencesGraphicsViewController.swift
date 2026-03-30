@@ -76,11 +76,17 @@ class PreferencesGraphicsViewController: UITableViewController {
 			guard let self else { return }
 			switch change {
 			case .selectedResolutionsChanged:
-				reloadData()
+				reloadSection(.monitorResolutions)
 			default:
 				break
 			}
 		}.store(in: &anyCancellables)
+	}
+
+	private func reloadSection(_ section: Section) {
+		var snapshot = dataSource.snapshot()
+		snapshot.reloadSections([section])
+		dataSource.apply(snapshot)
 	}
 
 	private func setupDataSource() {
@@ -88,9 +94,12 @@ class PreferencesGraphicsViewController: UITableViewController {
 			guard let self else { return UITableViewCell() }
 			switch itemIdentifier {
 			case .monitorResolutionsDisplay:
-				return PreferencesGeneralEnabledMonitorResolutionsCell(
-					monitorResolutions: model.monitorResolutions,
+				let monitorResolutionsState = PreferencesGeneralModel.MonitorResolutionsState(
+					enabledResolutions: model.monitorResolutions,
 					willBootFromCD: model.willBootFromCD
+				)
+				return PreferencesGeneralEnabledMonitorResolutionsCell(
+					monitorResolutionsState: monitorResolutionsState
 				) { [weak self] in
 					guard let self else { return }
 					let vc = preferencesResolutionsVC
