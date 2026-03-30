@@ -34,6 +34,7 @@ struct NQDBitbltUniforms {
     uint mask_offset;    // byte offset into mask_buffer where mask data starts
     uint mask_stride;    // mask row stride (width_bytes for Boolean, width_pixels for arithmetic)
     uint bits_per_pixel; // raw pixel depth in bits (1, 2, 4, 8, 16, or 32) — for packed pixel support
+    uint blend_weight;   // OpColor blend weight [0-65535] for mode 32 (blend). 0=all dst, 65535=all src.
 };
 
 // Uniform struct — must match NQDFillRectUniforms in nqd_metal_renderer.mm
@@ -54,6 +55,7 @@ struct NQDFillRectUniforms {
     uint mask_offset;    // byte offset into mask_buffer where mask data starts
     uint mask_stride;    // mask row stride (width_bytes for Boolean, width_pixels for arithmetic)
     uint bits_per_pixel; // raw pixel depth in bits (1, 2, 4, 8, 16, or 32) — for packed pixel support
+    uint blend_weight;   // OpColor blend weight [0-65535] for mode 32 (blend). 0=all dst, 65535=all src.
 };
 
 // ---------------------------------------------------------------------------
@@ -324,18 +326,19 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
             uint4 p_result;
 
             switch (u.transfer_mode) {
-                case 32: p_result = (sc + dc) / 2; break;
+                case 32: { // blend — weighted by OpColor
+                    uint w = u.blend_weight;
+                    p_result = (sc * w + dc * (65535u - w)) / 65535u;
+                    break;
+                }
                 case 33: p_result = min(sc + dc, uint4(cmax_p, cmax_p, cmax_p, cmax_p)); break;
-                case 34: p_result = min(sc + dc, uint4(cmax_p, cmax_p, cmax_p, cmax_p)); break;
+                case 34: p_result = (sc + dc) & uint4(cmax_p, cmax_p, cmax_p, cmax_p); break;  // addOver: modular wrap
                 case 35:
                     p_result.x = (dc.x > sc.x) ? (dc.x - sc.x) : 0;
                     p_result.y = p_result.z = p_result.w = 0;
                     break;
                 case 37: p_result = max(sc, dc); break;
-                case 38:
-                    p_result.x = (dc.x > sc.x) ? (dc.x - sc.x) : 0;
-                    p_result.y = p_result.z = p_result.w = 0;
-                    break;
+                case 38: p_result = (dc - sc) & uint4(cmax_p, cmax_p, cmax_p, cmax_p); break;  // subOver: modular wrap
                 case 39: p_result = min(sc, dc); break;
                 default: p_result = sc; break;
             }
@@ -392,16 +395,17 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
     uint4 result;
 
     switch (u.transfer_mode) {
-        case 32: {  // blend — 50% weight default
-            result = (sc + dc) / 2;
+        case 32: {  // blend — weighted by OpColor
+            uint w = u.blend_weight;
+            result = (sc * w + dc * (65535u - w)) / 65535u;
             break;
         }
         case 33: {  // addPin — add and clamp to max (white)
             result = min(sc + dc, uint4(cmax, cmax, cmax, cmax));
             break;
         }
-        case 34: {  // addOver — add with saturation
-            result = min(sc + dc, uint4(cmax, cmax, cmax, cmax));
+        case 34: {  // addOver — add with modular wrap
+            result = (sc + dc) & uint4(cmax, cmax, cmax, cmax);
             break;
         }
         case 35: {  // subPin — subtract and clamp to 0 (black)
@@ -416,11 +420,8 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
             result = max(sc, dc);
             break;
         }
-        case 38: {  // subOver — subtract with clamp to 0
-            result.x = (dc.x > sc.x) ? (dc.x - sc.x) : 0;
-            result.y = (dc.y > sc.y) ? (dc.y - sc.y) : 0;
-            result.z = (dc.z > sc.z) ? (dc.z - sc.z) : 0;
-            result.w = (dc.w > sc.w) ? (dc.w - sc.w) : 0;
+        case 38: {  // subOver — subtract with modular wrap
+            result = (dc - sc) & uint4(cmax, cmax, cmax, cmax);
             break;
         }
         case 39: {  // adMin — component-wise minimum
@@ -551,18 +552,15 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
             uint4 p_result;
 
             switch (u.transfer_mode) {
-                case 32: p_result = (fc + dc) / 2; break;
+                case 32: { uint w = u.blend_weight; p_result = (fc * w + dc * (65535u - w)) / 65535u; break; }
                 case 33: p_result = min(fc + dc, uint4(cmax_p, cmax_p, cmax_p, cmax_p)); break;
-                case 34: p_result = min(fc + dc, uint4(cmax_p, cmax_p, cmax_p, cmax_p)); break;
+                case 34: p_result = (fc + dc) & uint4(cmax_p, cmax_p, cmax_p, cmax_p); break;  // addOver: modular wrap
                 case 35:
                     p_result.x = (dc.x > fc.x) ? (dc.x - fc.x) : 0;
                     p_result.y = p_result.z = p_result.w = 0;
                     break;
                 case 37: p_result = max(fc, dc); break;
-                case 38:
-                    p_result.x = (dc.x > fc.x) ? (dc.x - fc.x) : 0;
-                    p_result.y = p_result.z = p_result.w = 0;
-                    break;
+                case 38: p_result = (dc - fc) & uint4(cmax_p, cmax_p, cmax_p, cmax_p); break;  // subOver: modular wrap
                 case 39: p_result = min(fc, dc); break;
                 default: p_result = fc; break;
             }
@@ -618,8 +616,9 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
     uint4 result;
 
     switch (u.transfer_mode) {
-        case 32: {  // blend — 50% weight
-            result = (fc + dc) / 2;
+        case 32: {  // blend — weighted by OpColor
+            uint w = u.blend_weight;
+            result = (fc * w + dc * (65535u - w)) / 65535u;
             break;
         }
         case 33: {  // addPin — add and clamp to max
@@ -641,11 +640,8 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
             result = max(fc, dc);
             break;
         }
-        case 38: {  // subOver — subtract with clamp to 0
-            result.x = (dc.x > fc.x) ? (dc.x - fc.x) : 0;
-            result.y = (dc.y > fc.y) ? (dc.y - fc.y) : 0;
-            result.z = (dc.z > fc.z) ? (dc.z - fc.z) : 0;
-            result.w = (dc.w > fc.w) ? (dc.w - fc.w) : 0;
+        case 38: {  // subOver — subtract with modular wrap
+            result = (dc - fc) & uint4(cmax, cmax, cmax, cmax);
             break;
         }
         case 39: {  // adMin — component-wise minimum

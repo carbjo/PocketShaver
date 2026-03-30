@@ -312,15 +312,18 @@ bool NQD_fillrect_hook(uint32 p)
 	D(bug("accl_fillrect_hook %08x\n", p));
 	NQD_set_dirty_area(p);
 
-	// Metal path: accept all valid fill pen modes when dest is in Metal-mapped RAM
+	// Metal path: accept solid-color fill modes when dest is in Metal-mapped RAM.
+	// Only accept patCopy (8) and arithmetic modes (32-39, 50) as solid fills.
+	// Other pattern modes (9, 11-15 = patOr, notPatCopy, etc.) may carry non-solid
+	// 8x8 bit patterns that the Metal kernel can't render -- let those fall back
+	// to software QuickDraw.
 	if (nqd_metal_available && ReadMacInt32(p + 0x284) != 0 &&
 		NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
 		const int transfer_mode = ReadMacInt32(p + acclTransferMode);
-		if ((transfer_mode >= 8 && transfer_mode <= 15) ||
+		if (transfer_mode == 8 ||
 			(transfer_mode >= 32 && transfer_mode <= 39) ||
 			transfer_mode == 50) {
-			// All fill modes via Metal — fillrect kernel handles full mode switch.
-			// Mode 10 (patXor/invert) also routes here when dispatched as fill.
+			// Solid fill via Metal (patCopy, arithmetic blend, hilite)
 			WriteMacInt32(p + acclDrawProc, NativeTVECT(NATIVE_NQD_FILLRECT));
 			return true;
 		}

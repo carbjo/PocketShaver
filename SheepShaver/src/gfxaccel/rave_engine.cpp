@@ -30,10 +30,16 @@
 #define DEBUG 0
 #include "debug.h"
 
-// RAVE error codes
-#define kQANoErr          0
-#define kQANotSupported  -1
-#define kQAError         -2
+// RAVE error codes (must match TQAError enum in RAVE.h)
+#define kQANoErr                    0
+#define kQAError                    1
+#define kQAOutOfMemory              2
+#define kQANotSupported             3
+#define kQAOutOfDate                4
+#define kQAParamErr                 5
+#define kQAGestaltUnknown           6
+#define kQADisplayModeUnsupported   7
+#define kQAOutOfVideoMemory         8
 
 // Free list for recycling TQADrawContext Mac addresses.
 // SheepMem::ReserveProc is a permanent bump allocator -- without recycling,
@@ -197,8 +203,8 @@ static const uint32 kAllOptionalFeatures =
 	kQAOptional_MipmapBias | kQAOptional_ChannelMask | kQAOptional_ZBufferMask |
 	kQAOptional_AlphaTest | kQAOptional_AccessTexture | kQAOptional_AccessBitmap |
 	kQAOptional_AccessDrawBuffer | kQAOptional_AccessZBuffer |
-	kQAOptional_ClearDrawBuffer | kQAOptional_ClearZBuffer | // GAP-016: OffscreenDrawContexts removed (not implemented)
-	kQAOptional_OpenGL;
+	kQAOptional_ClearDrawBuffer | kQAOptional_ClearZBuffer; // GAP-016: OffscreenDrawContexts removed (not implemented)
+	// kQAOptional_OpenGL removed: GL tags 100-153 are stored but not consumed by the RAVE renderer
 
 // OptionalFeatures2 bitmask -- only advertise what we support
 // Bit assignments now match DDK RAVE 1.6 Specification exactly.
@@ -1274,15 +1280,11 @@ int32_t NativeEngineBitmapBindColorTable(uint32_t bitmapAddr, uint32_t colorTabl
  *  AccessTextureEnd re-uploads modified pixel data back to the Metal texture.
  */
 
-// GAP-015: RAVE 1.6 spec defines AccessTexture with a mipmapLevel parameter,
-// but the PPC dispatch path (rave_dispatch.cpp) only forwards 4 arguments
-// (r3=textureAddr, r4=pixelTypePtr, r5=pixelBufferPtr, r6=rowBytesPtr).
-// The mipmapLevel (r7, 5th arg) is not dispatched. This is acceptable since
-// no known game uses per-mip-level access -- they always access level 0.
-// If mipmapLevel dispatch is ever needed, add r7 forwarding in rave_dispatch.cpp
-// case kRaveEngineAccessTexture and update this function signature.
-int32_t NativeEngineAccessTexture(uint32_t textureAddr, uint32_t pixelTypePtr,
-                                   uint32_t pixelBufferPtr, uint32_t rowBytesPtr)
+// SDK signature: TQAError TQAAccessTexture(TQATexture*, long mipmapLevel, long flags, TQAPixelBuffer*)
+// TQAPixelBuffer = TQADeviceMemory = {rowBytes(+0), pixelType(+4), width(+8), height(+12), baseAddr(+16)}
+// mipmapLevel is accepted but only level 0 data is returned (no known game uses per-mip access).
+int32_t NativeEngineAccessTexture(uint32_t textureAddr, uint32_t mipmapLevel,
+                                   uint32_t flags, uint32_t bufferStructAddr)
 {
 	uint32_t handle = RaveResourceFindByAddr(textureAddr);
 	if (handle == 0) return kQANotSupported;
@@ -1290,12 +1292,15 @@ int32_t NativeEngineAccessTexture(uint32_t textureAddr, uint32_t pixelTypePtr,
 	if (!entry || entry->type != kRaveResourceTexture) return kQANotSupported;
 	if (!entry->cpu_pixel_data || entry->cpu_pixel_mac_addr == 0) return kQANotSupported;
 
-	// Always returns level 0 data (see mipmapLevel note above)
-	WriteMacInt32(pixelTypePtr, entry->pixel_type);
-	WriteMacInt32(pixelBufferPtr, entry->cpu_pixel_mac_addr);
-	WriteMacInt32(rowBytesPtr, entry->row_bytes);
-	RAVE_LOG("AccessTexture: tex=0x%08x -> buf=0x%08x rowBytes=%d (level 0 only)",
-	         textureAddr, entry->cpu_pixel_mac_addr, entry->row_bytes);
+	// Populate TQAPixelBuffer (TQADeviceMemory) struct at bufferStructAddr
+	WriteMacInt32(bufferStructAddr + 0,  entry->row_bytes);
+	WriteMacInt32(bufferStructAddr + 4,  entry->pixel_type);
+	WriteMacInt32(bufferStructAddr + 8,  entry->width);
+	WriteMacInt32(bufferStructAddr + 12, entry->height);
+	WriteMacInt32(bufferStructAddr + 16, entry->cpu_pixel_mac_addr);
+	RAVE_LOG("AccessTexture: tex=0x%08x mip=%d flags=0x%x -> buf=0x%08x %dx%d rowBytes=%d",
+	         textureAddr, mipmapLevel, flags, entry->cpu_pixel_mac_addr,
+	         entry->width, entry->height, entry->row_bytes);
 	return kQANoErr;
 }
 
@@ -1371,8 +1376,10 @@ int32_t NativeEngineAccessTextureEnd(uint32_t textureAddr, uint32_t dirtyRectAdd
 	return kQANoErr;
 }
 
-int32_t NativeEngineAccessBitmap(uint32_t bitmapAddr, uint32_t pixelTypePtr,
-                                  uint32_t pixelBufferPtr, uint32_t rowBytesPtr)
+// SDK signature: TQAError TQAAccessBitmap(TQABitmap*, long flags, TQAPixelBuffer*)
+// TQAPixelBuffer = TQADeviceMemory = {rowBytes(+0), pixelType(+4), width(+8), height(+12), baseAddr(+16)}
+int32_t NativeEngineAccessBitmap(uint32_t bitmapAddr, uint32_t flags,
+                                  uint32_t bufferStructAddr)
 {
 	uint32_t handle = RaveResourceFindByAddr(bitmapAddr);
 	if (handle == 0) return kQANotSupported;
@@ -1380,11 +1387,15 @@ int32_t NativeEngineAccessBitmap(uint32_t bitmapAddr, uint32_t pixelTypePtr,
 	if (!entry || entry->type != kRaveResourceBitmap) return kQANotSupported;
 	if (!entry->cpu_pixel_data || entry->cpu_pixel_mac_addr == 0) return kQANotSupported;
 
-	WriteMacInt32(pixelTypePtr, entry->pixel_type);
-	WriteMacInt32(pixelBufferPtr, entry->cpu_pixel_mac_addr);
-	WriteMacInt32(rowBytesPtr, entry->row_bytes);
-	RAVE_LOG("AccessBitmap: bmp=0x%08x -> buf=0x%08x rowBytes=%d",
-	         bitmapAddr, entry->cpu_pixel_mac_addr, entry->row_bytes);
+	// Populate TQAPixelBuffer (TQADeviceMemory) struct at bufferStructAddr
+	WriteMacInt32(bufferStructAddr + 0,  entry->row_bytes);
+	WriteMacInt32(bufferStructAddr + 4,  entry->pixel_type);
+	WriteMacInt32(bufferStructAddr + 8,  entry->width);
+	WriteMacInt32(bufferStructAddr + 12, entry->height);
+	WriteMacInt32(bufferStructAddr + 16, entry->cpu_pixel_mac_addr);
+	RAVE_LOG("AccessBitmap: bmp=0x%08x flags=0x%x -> buf=0x%08x %dx%d rowBytes=%d",
+	         bitmapAddr, flags, entry->cpu_pixel_mac_addr,
+	         entry->width, entry->height, entry->row_bytes);
 	return kQANoErr;
 }
 
@@ -1564,8 +1575,9 @@ int32 NativeEngineGestalt(uint32 selector, uint32 responsePtr)
 		break;
 
 	case kQAGestalt_ASCIIName:
-		// Copy name string into Mac address space
+		// Copy name string into Mac address space (SDK specifies strcpy semantics, must NUL-terminate)
 		Host2Mac_memcpy(responsePtr, (uint8 *)kEngineASCIIName, kEngineASCIINameLength);
+		WriteMacInt8(responsePtr + kEngineASCIINameLength, 0);
 		RAVE_LOG("EngineGestalt: %s -> \"%s\"", gestalt_selector_names[selector], kEngineASCIIName);
 		break;
 
@@ -1603,11 +1615,12 @@ int32 NativeEngineGestalt(uint32 selector, uint32 responsePtr)
 		break;
 
 	case kQAGestalt_BitmapPixelTypesAllowed:
-		WriteMacInt32(responsePtr, (1 << kQAPixel_ARGB32) | (1 << kQAPixel_ARGB16) |
+		WriteMacInt32(responsePtr, (1 << kQAPixel_ARGB32) | (1 << kQAPixel_RGB32) |
+					  (1 << kQAPixel_ARGB16) | (1 << kQAPixel_RGB16) |
 					  (1 << kQAPixel_CL8) | (1 << kQAPixel_CL4) |
 					  (1 << kQAPixel_RGB8_332) | (1 << kQAPixel_ARGB16_4444) |
 					  (1 << kQAPixel_ACL16_88) | (1 << kQAPixel_I8) | (1 << kQAPixel_AI16_88));
-		RAVE_LOG("EngineGestalt: %s -> ARGB32|ARGB16|CL8|CL4|RGB8_332|ARGB16_4444|ACL16_88|I8|AI16_88", gestalt_selector_names[selector]);
+		RAVE_LOG("EngineGestalt: %s -> ARGB32|RGB32|ARGB16|RGB16|CL8|CL4|...", gestalt_selector_names[selector]);
 		break;
 
 	case kQAGestalt_BitmapPixelTypesPreferred:
@@ -2181,7 +2194,7 @@ uint32 NativeHookAccessBitmap(uint32 engine, uint32 bitmap, uint32 flags, uint32
 {
 	if (engine == rave_sentinel_engine) {
 		RAVE_LOG("HOOK: QAAccessBitmap(sentinel, bmp=0x%08x, flags=0x%x)", bitmap, flags);
-		return (uint32)NativeEngineAccessBitmap(bitmap, flags, buffer, 0);
+		return (uint32)NativeEngineAccessBitmap(bitmap, flags, buffer);
 	} else {
 		if (rave_orig_access_bitmap == 0) return (uint32)(int32)kQANotSupported;
 		const uint32 args[] = { engine, bitmap, flags, buffer };
@@ -2715,20 +2728,9 @@ int32_t NativeATITextureUpdate(uint32_t flags, uint32_t pixelType, uint32_t imag
  */
 int32_t NativeATIBindCodeBook(uint32_t textureAddr, uint32_t codebookPtr)
 {
-	uint32_t handle = RaveResourceFindByAddr(textureAddr);
-	RaveResourceEntry *entry = RaveResourceGet(handle);
-	if (!entry || entry->type != kRaveResourceTexture) {
-		RAVE_LOG("ATIBindCodeBook: texture not found at 0x%08x", textureAddr);
-		return kQAError;
-	}
-
-	if (codebookPtr == 0) {
-		RAVE_LOG("ATIBindCodeBook: null codebook pointer for texture 0x%08x", textureAddr);
-		return kQANoErr;  // No-op if null
-	}
-
-	RAVE_LOG("ATIBindCodeBook: texture 0x%08x codebook 0x%08x (stored, decompression on next update)",
+	// VQ codebook decompression is not implemented. Return kQANotSupported so
+	// callers know VQ textures won't render correctly with this engine.
+	RAVE_LOG("ATIBindCodeBook: texture 0x%08x codebook 0x%08x -> kQANotSupported (VQ not implemented)",
 	         textureAddr, codebookPtr);
-
-	return kQANoErr;
+	return kQANotSupported;
 }

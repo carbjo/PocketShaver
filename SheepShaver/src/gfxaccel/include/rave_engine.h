@@ -463,9 +463,12 @@ extern int32_t NativeEngineTextureBindColorTable(uint32_t textureAddr, uint32_t 
 extern int32_t NativeEngineBitmapBindColorTable(uint32_t bitmapAddr, uint32_t colorTableAddr);
 
 // AccessTexture/AccessBitmap CPU pixel access (RAVE 1.6)
-extern int32_t NativeEngineAccessTexture(uint32_t textureAddr, uint32_t pixelTypePtr, uint32_t pixelBufferPtr, uint32_t rowBytesPtr);
+// SDK signatures: AccessTexture(texture, mipmapLevel, flags, TQAPixelBuffer*)
+//                 AccessBitmap(bitmap, flags, TQAPixelBuffer*)
+// TQAPixelBuffer = TQADeviceMemory = {rowBytes(+0), pixelType(+4), width(+8), height(+12), baseAddr(+16)}
+extern int32_t NativeEngineAccessTexture(uint32_t textureAddr, uint32_t mipmapLevel, uint32_t flags, uint32_t bufferStructAddr);
 extern int32_t NativeEngineAccessTextureEnd(uint32_t textureAddr, uint32_t dirtyRectAddr);
-extern int32_t NativeEngineAccessBitmap(uint32_t bitmapAddr, uint32_t pixelTypePtr, uint32_t pixelBufferPtr, uint32_t rowBytesPtr);
+extern int32_t NativeEngineAccessBitmap(uint32_t bitmapAddr, uint32_t flags, uint32_t bufferStructAddr);
 extern int32_t NativeEngineAccessBitmapEnd(uint32_t bitmapAddr, uint32_t dirtyRectAddr);
 
 /*

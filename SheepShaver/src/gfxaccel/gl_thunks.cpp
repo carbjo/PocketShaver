@@ -373,6 +373,10 @@ static void InitFuncSignatures()
 	SIG(GL_SUB_MAP1F, 6, 0x06);  // target=int, u1=float, u2=float, stride=int, order=int, points=ptr
 	// map1d(target, u1, u2, stride, order, points)
 	SIG(GL_SUB_MAP1D, 6, 0x06);
+	// map2f(target, u1, u2, ustride, uorder, v1, v2, vstride, vorder, points)
+	SIG(GL_SUB_MAP2F, 10, 0x66);  // floats at positions 1,2,5,6 = 0x66
+	// map2d(target, u1, u2, ustride, uorder, v1, v2, vstride, vorder, points)
+	SIG(GL_SUB_MAP2D, 10, 0x66);
 	// map_grid1f(un, u1, u2) -- un=int, u1=float, u2=float
 	SIG(GL_SUB_MAP_GRID1F, 3, 0x06);
 	// map_grid1d(un, u1, u2)
@@ -381,8 +385,20 @@ static void InitFuncSignatures()
 	SIG(GL_SUB_MAP_GRID2F, 6, 0x36);  // float_mask: bits 1,2,4,5 = 0x36
 	// map_grid2d(un, u1, u2, vn, v1, v2) -- same pattern with doubles
 	SIG(GL_SUB_MAP_GRID2D, 6, 0x36);
-	// blend_color(r, g, b, a) -- 4 floats (GL 1.2 core, not EXT)
-	SIG(GL_SUB_BLEND_COLOR_1_2, 4, 0x0F);
+
+	// GLU functions with float/double args (previously missing):
+	// gluProject(objX, objY, objZ, model, proj, viewport, winX, winY, winZ)
+	SIG(GL_SUB_GLU_PROJECT, 9, 0x07);  // doubles at positions 0,1,2
+	// gluUnProject(winX, winY, winZ, model, proj, viewport, objX, objY, objZ)
+	SIG(GL_SUB_GLU_UNPROJECT, 9, 0x07);
+	// gluPartialDisk(quad, inner, outer, slices, loops, startAngle, sweepAngle)
+	SIG(GL_SUB_GLU_PARTIALDISK, 7, 0x66);  // doubles at positions 1,2,5,6
+	// gluTessProperty(tess, which, data)
+	SIG(GL_SUB_GLU_TESSPROPERTY, 3, 0x04);  // double at position 2
+	// gluTessNormal(tess, x, y, z)
+	SIG(GL_SUB_GLU_TESSNORMAL, 4, 0x0E);  // doubles at positions 1,2,3
+	// gluNurbsProperty(nurb, property, value)
+	SIG(GL_SUB_GLU_NURBSPROPERTY, 3, 0x04);  // float at position 2
 
 	#undef SIG
 }

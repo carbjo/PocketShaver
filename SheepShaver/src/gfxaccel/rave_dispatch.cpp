@@ -16,9 +16,13 @@
 #include "rave_engine.h"
 #include "rave_metal_renderer.h"
 
-// RAVE error codes
-#define kQANoErr           0
-#define kQANotSupported   -1
+// RAVE error codes (must match TQAError enum in RAVE.h)
+#define kQANoErr                    0
+#define kQAError                    1
+#define kQAOutOfMemory              2
+#define kQANotSupported             3
+#define kQAParamErr                 5
+#define kQAGestaltUnknown           6
 
 // Engine callback declarations (implemented in rave_engine.cpp)
 // Return TQAError (int32), take explicit PPC register values as args
@@ -224,11 +228,13 @@ uint32 RaveDispatch(uint32 r3, uint32 r4, uint32 r5,
 			return (uint32)NativeSubmitMultiTextureParams(r3, r4, r5);
 		// RAVE 1.6 buffer access and mid-frame clear
 		case kRaveDrawAccessDrawBuffer:     // 25
-			return (uint32)NativeAccessDrawBuffer(r3, r4, r5, r6);
+			// SDK: AccessDrawBuffer(ctx, TQAPixelBuffer*)
+			return (uint32)NativeAccessDrawBuffer(r3, r4);
 		case kRaveDrawAccessDrawBufferEnd:  // 26
 			return (uint32)NativeAccessDrawBufferEnd(r3, r4);
 		case kRaveDrawAccessZBuffer:        // 27
-			return (uint32)NativeAccessZBuffer(r3, r4, r5, r6);
+			// SDK: AccessZBuffer(ctx, TQAZBuffer*)
+			return (uint32)NativeAccessZBuffer(r3, r4);
 		case kRaveDrawAccessZBufferEnd:     // 28
 			return (uint32)NativeAccessZBufferEnd(r3, r4);
 		case kRaveDrawClearDrawBuffer:      // 29
@@ -306,11 +312,13 @@ uint32 RaveDispatch(uint32 r3, uint32 r4, uint32 r5,
 			return (uint32)NativeEngineBitmapBindColorTable(r3, r4);
 
 		case kRaveEngineAccessTexture:        // 114
+			// SDK: AccessTexture(texture, mipmapLevel, flags, TQAPixelBuffer*)
 			return (uint32)NativeEngineAccessTexture(r3, r4, r5, r6);
 		case kRaveEngineAccessTextureEnd:     // 115
 			return (uint32)NativeEngineAccessTextureEnd(r3, r4);
 		case kRaveEngineAccessBitmap:         // 116
-			return (uint32)NativeEngineAccessBitmap(r3, r4, r5, r6);
+			// SDK: AccessBitmap(bitmap, flags, TQAPixelBuffer*)
+			return (uint32)NativeEngineAccessBitmap(r3, r4, r5);
 		case kRaveEngineAccessBitmapEnd:      // 117
 			return (uint32)NativeEngineAccessBitmapEnd(r3, r4);
 

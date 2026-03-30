@@ -3161,13 +3161,11 @@ static int32_t RestartRenderPassWithLoad(RaveDrawPrivate *priv)
 
 
 /*
- *  GAP-020: AccessDrawBuffer return format verified correct.
- *  RAVE 1.6 spec: AccessDrawBuffer(ctx, rect, rowBytesPtr, pixelBufferPtr)
- *  PPC dispatch maps r3=ctx, r4=rect, r5=rowBytesPtr, r6=bufferPtrPtr.
- *  We write rowBytes to r5 and buffer mac addr to r6 -- matches spec order.
+ *  SDK: TQAError AccessDrawBuffer(const TQADrawContext*, TQAPixelBuffer*)
+ *  TQAPixelBuffer = TQADeviceMemory = {rowBytes(+0), pixelType(+4), width(+8), height(+12), baseAddr(+16)}
+ *  Populates the TQAPixelBuffer struct at bufferStructAddr with draw buffer info.
  */
-int32_t NativeAccessDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr,
-                                uint32_t rowBytesPtr, uint32_t bufferPtrPtr)
+int32_t NativeAccessDrawBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return kQAError;
@@ -3209,8 +3207,12 @@ int32_t NativeAccessDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr,
 	[blitCmdBuf waitUntilCompleted];
 	[ms->stagingDrawBuffer getBytes:ms->drawBufferCPU bytesPerRow:rowBytes
 	                     fromRegion:MTLRegionMake2D(0,0,w,h) mipmapLevel:0];
-	WriteMacInt32(bufferPtrPtr, ms->drawBufferCPUMac);
-	WriteMacInt32(rowBytesPtr, rowBytes);
+	// Populate TQAPixelBuffer (TQADeviceMemory) struct
+	WriteMacInt32(bufferStructAddr + 0,  rowBytes);
+	WriteMacInt32(bufferStructAddr + 4,  4 /* kQAPixel_ARGB32 */);
+	WriteMacInt32(bufferStructAddr + 8,  (uint32_t)w);
+	WriteMacInt32(bufferStructAddr + 12, (uint32_t)h);
+	WriteMacInt32(bufferStructAddr + 16, ms->drawBufferCPUMac);
 	ms->drawBufferAccessed = true;
 	ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
 	RAVE_LOG("AccessDrawBuffer: ctx=0x%08x %lux%lu buf=0x%08x rowBytes=%d",
@@ -3275,8 +3277,12 @@ int32_t NativeAccessDrawBufferEnd(uint32_t drawContextAddr, uint32_t dirtyRectAd
 }
 
 
-int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t rectAddr,
-                             uint32_t rowBytesPtr, uint32_t bufferPtrPtr)
+/*
+ *  SDK: TQAError AccessZBuffer(const TQADrawContext*, TQAZBuffer*)
+ *  TQAZBuffer = {width(+0), height(+4), rowBytes(+8), zbuffer(+12), zDepth(+16), isBigEndian(+20)}
+ *  Populates the TQAZBuffer struct at bufferStructAddr with Z buffer info.
+ */
+int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return kQAError;
@@ -3317,8 +3323,13 @@ int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t rectAddr,
 	[blitCmdBuf waitUntilCompleted];
 	[ms->stagingZBuffer getBytes:ms->zBufferCPU bytesPerRow:rowBytes
 	                  fromRegion:MTLRegionMake2D(0,0,w,h) mipmapLevel:0];
-	WriteMacInt32(bufferPtrPtr, ms->zBufferCPUMac);
-	WriteMacInt32(rowBytesPtr, rowBytes);
+	// Populate TQAZBuffer struct
+	WriteMacInt32(bufferStructAddr + 0,  (uint32_t)w);       // width
+	WriteMacInt32(bufferStructAddr + 4,  (uint32_t)h);       // height
+	WriteMacInt32(bufferStructAddr + 8,  rowBytes);           // rowBytes
+	WriteMacInt32(bufferStructAddr + 12, ms->zBufferCPUMac);  // zbuffer pointer
+	WriteMacInt32(bufferStructAddr + 16, 32);                  // zDepth (32-bit float)
+	WriteMacInt32(bufferStructAddr + 20, 1);                   // isBigEndian (PPC = big-endian)
 	ms->zBufferAccessed = true;
 	ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
 	RAVE_LOG("AccessZBuffer: ctx=0x%08x %lux%lu buf=0x%08x rowBytes=%d",

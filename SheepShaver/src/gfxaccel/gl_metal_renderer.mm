@@ -140,8 +140,9 @@ struct GLMetalVertex {
     float position[4];   // float4, offset 0
     float color[4];      // float4, offset 16
     float normal[3];     // float3, offset 32
-    float texcoord[3];   // float3 (s, t, q), offset 44 — q enables projective texturing
-    // Total stride = 56 bytes
+    float texcoord[3];   // float3 (s, t, q), offset 44 — q enables projective texturing (unit 0)
+    float texcoord1[3];  // float3 (s, t, q), offset 56 — unit 1 for multitexture
+    // Total stride = 68 bytes
 };
 
 // Must match GLVertexUniforms in gl_shaders.metal
@@ -157,6 +158,12 @@ struct GLMetalVertexUniforms {
     float   fog_start;
     float   fog_end;
     float   fog_density;
+    float   point_size;         // glPointSize value
+    int32_t two_side_lighting;  // GL_LIGHT_MODEL_TWO_SIDE
+    // User clip planes (must match GLVertexUniforms in gl_shaders.metal)
+    int32_t num_clip_planes;
+    float   _clip_pad[1];       // padding to align clip_planes to float4
+    float   clip_planes[6][4];  // 6 clip plane equations (float4 each)
 };
 
 // Must match GLFragmentUniforms in gl_shaders.metal
@@ -170,8 +177,9 @@ struct GLMetalFragmentUniforms {
     int32_t alpha_func;              // offset 52
     float   alpha_ref;               // offset 56
     int32_t has_texture;             // offset 60
-    int32_t shade_model;             // offset 64
-    int32_t _pad3, _pad4, _pad5;    // pad to 80 (16-byte struct alignment)
+    int32_t has_texture_3d;          // offset 64
+    int32_t shade_model;             // offset 68
+    int32_t _pad3, _pad4;           // pad to 80 (16-byte struct alignment)
 };
 
 // Must match GLLight in gl_shaders.metal
@@ -212,7 +220,7 @@ struct GLMetalLightingData {
 // Compile-time verification that C++ struct sizes match Metal shader expectations.
 // Metal float3 occupies 16 bytes (padded), float4 has 16-byte alignment.
 // If any of these fail, the struct layout doesn't match gl_shaders.metal.
-static_assert(sizeof(GLMetalVertexUniforms) == 208, "GLMetalVertexUniforms size must match Metal GLVertexUniforms (208 bytes)");
+static_assert(sizeof(GLMetalVertexUniforms) == 320, "GLMetalVertexUniforms size must match Metal GLVertexUniforms (320 bytes)");
 static_assert(sizeof(GLMetalFragmentUniforms) == 80, "GLMetalFragmentUniforms size must match Metal GLFragmentUniforms (80 bytes)");
 static_assert(sizeof(GLMetalLight) == 128, "GLMetalLight size must match Metal GLLight (128 bytes)");
 static_assert(sizeof(GLMetalMaterial) == 80, "GLMetalMaterial size must match Metal GLMaterialData (80 bytes)");
@@ -428,7 +436,11 @@ void GLMetalInit(GLContext *ctx)
     ms->vertexDescriptor.attributes[3].format = MTLVertexFormatFloat3;
     ms->vertexDescriptor.attributes[3].offset = 44;
     ms->vertexDescriptor.attributes[3].bufferIndex = 0;
-    // stride = 56
+
+    ms->vertexDescriptor.attributes[4].format = MTLVertexFormatFloat3;  // texcoord unit 1
+    ms->vertexDescriptor.attributes[4].offset = 56;
+    ms->vertexDescriptor.attributes[4].bufferIndex = 0;
+
     ms->vertexDescriptor.layouts[0].stride = sizeof(GLMetalVertex);
 
     // Allocate triple-buffered vertex ring buffers (4MB each)
@@ -493,8 +505,10 @@ static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext
     bool depth_write = ctx->depth_mask;
     uint32_t color_mask_bits = (ctx->color_mask[0] ? 1 : 0) | (ctx->color_mask[1] ? 2 : 0) |
                                (ctx->color_mask[2] ? 4 : 0) | (ctx->color_mask[3] ? 8 : 0);
-    bool has_texture = ctx->tex_units[ctx->active_texture].enabled_2d &&
-                       ctx->tex_units[ctx->active_texture].bound_texture_2d != 0;
+    bool has_texture = (ctx->tex_units[ctx->active_texture].enabled_2d &&
+                        ctx->tex_units[ctx->active_texture].bound_texture_2d != 0) ||
+                       (ctx->tex_units[ctx->active_texture].enabled_3d &&
+                        ctx->tex_units[ctx->active_texture].bound_texture_3d != 0);
 
     uint64_t key = MakePipelineKey(blend_enabled, blend_src, blend_dst,
                                     depth_write, color_mask_bits, has_texture);
@@ -779,6 +793,9 @@ static bool ExpandPrimitives(uint32_t gl_mode, const std::vector<GLVertex> &in,
         dst.texcoord[0] = src.texcoord[0][0];
         dst.texcoord[1] = src.texcoord[0][1];
         dst.texcoord[2] = src.texcoord[0][3];  // q for projective texturing
+        dst.texcoord1[0] = src.texcoord[1][0];  // unit 1
+        dst.texcoord1[1] = src.texcoord[1][1];
+        dst.texcoord1[2] = src.texcoord[1][3];
     };
 
     size_t n = in.size();
@@ -917,6 +934,9 @@ static void ConvertVertices(const std::vector<GLVertex> &in, std::vector<GLMetal
         out[i].texcoord[0] = in[i].texcoord[0][0];
         out[i].texcoord[1] = in[i].texcoord[0][1];
         out[i].texcoord[2] = in[i].texcoord[0][3];  // q for projective texturing
+        out[i].texcoord1[0] = in[i].texcoord[1][0];  // unit 1
+        out[i].texcoord1[1] = in[i].texcoord[1][1];
+        out[i].texcoord1[2] = in[i].texcoord[1][3];
     }
 }
 
@@ -1103,6 +1123,38 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
 
     if (vertCount == 0) return;
 
+    // ---- Flat shading: copy provoking vertex color to all vertices in each primitive ----
+    // GL spec: for GL_FLAT, the last vertex of each primitive (except line: first vertex)
+    // determines the color for the entire primitive.
+    if (ctx->shade_model == 0x1D00 /* GL_FLAT */ && vertCount > 0) {
+        // After expansion, all primitives are triangles, lines, or points.
+        // For triangles: provoking vertex is the LAST of each group of 3.
+        // For lines: provoking vertex is the LAST of each group of 2.
+        // For points: each vertex is its own primitive, no change needed.
+        if (mtlPrim == MTLPrimitiveTypeTriangle) {
+            for (size_t i = 0; i + 2 < vertCount; i += 3) {
+                // Last vertex (i+2) is the provoking vertex
+                memcpy(expandedVerts[i].color, expandedVerts[i + 2].color, sizeof(float) * 4);
+                memcpy(expandedVerts[i + 1].color, expandedVerts[i + 2].color, sizeof(float) * 4);
+            }
+        } else if (mtlPrim == MTLPrimitiveTypeLine) {
+            for (size_t i = 0; i + 1 < vertCount; i += 2) {
+                memcpy(expandedVerts[i].color, expandedVerts[i + 1].color, sizeof(float) * 4);
+            }
+        } else if (mtlPrim == MTLPrimitiveTypeTriangleStrip) {
+            // For strips, provoking vertex is the last vertex of each triangle
+            // Triangle i uses vertices i, i+1, i+2 — provoking is i+2
+            for (size_t i = 0; i + 2 < vertCount; i++) {
+                expandedVerts[i].color[0] = expandedVerts[i + 2].color[0];
+                expandedVerts[i].color[1] = expandedVerts[i + 2].color[1];
+                expandedVerts[i].color[2] = expandedVerts[i + 2].color[2];
+                expandedVerts[i].color[3] = expandedVerts[i + 2].color[3];
+            }
+        }
+        // Update vertData pointer in case expansion reallocated
+        vertData = expandedVerts.data();
+    }
+
     size_t vertBytes = vertCount * sizeof(GLMetalVertex);
 
     // ---- Check ring buffer space ----
@@ -1146,6 +1198,20 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     vu.fog_start = ctx->fog_start;
     vu.fog_end = ctx->fog_end;
     vu.fog_density = ctx->fog_density;
+    vu.point_size = ctx->point_size;
+    vu.two_side_lighting = ctx->light_model_two_side ? 1 : 0;
+
+    // ---- User clip planes ----
+    int nClipPlanes = 0;
+    memset(vu.clip_planes, 0, sizeof(vu.clip_planes));
+    memset(vu._clip_pad, 0, sizeof(vu._clip_pad));
+    for (int i = 0; i < 6; i++) {
+        if (ctx->clip_plane_enabled[i]) {
+            memcpy(vu.clip_planes[nClipPlanes], ctx->clip_planes[i], sizeof(float) * 4);
+            nClipPlanes++;
+        }
+    }
+    vu.num_clip_planes = nClipPlanes;
 
     // ---- Upload fragment uniforms ----
     GLMetalFragmentUniforms fu;
@@ -1161,8 +1227,12 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     fu.alpha_test_enabled = ctx->alpha_test ? 1 : 0;
     fu.alpha_func = GLAlphaFuncToShader(ctx->alpha_func);
     fu.alpha_ref = ctx->alpha_ref;
-    fu.has_texture = (ctx->tex_units[texUnit].enabled_2d &&
-                       ctx->tex_units[texUnit].bound_texture_2d != 0) ? 1 : 0;
+    fu.has_texture = ((ctx->tex_units[texUnit].enabled_2d &&
+                        ctx->tex_units[texUnit].bound_texture_2d != 0) ||
+                       (ctx->tex_units[texUnit].enabled_3d &&
+                        ctx->tex_units[texUnit].bound_texture_3d != 0)) ? 1 : 0;
+    fu.has_texture_3d = (ctx->tex_units[texUnit].enabled_3d &&
+                          ctx->tex_units[texUnit].bound_texture_3d != 0) ? 1 : 0;
     fu.shade_model = (ctx->shade_model == GL_SMOOTH) ? 1 : 0;
 
     // ---- Upload lighting data ----
@@ -1221,6 +1291,15 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
         [ms->currentEncoder setCullMode:MTLCullModeNone];
     }
 
+    // Polygon offset (depth bias)
+    if (ctx->polygon_offset_fill || ctx->polygon_offset_line || ctx->polygon_offset_point) {
+        [ms->currentEncoder setDepthBias:ctx->polygon_offset_units
+                              slopeScale:ctx->polygon_offset_factor
+                                   clamp:0.0f];
+    } else {
+        [ms->currentEncoder setDepthBias:0.0f slopeScale:0.0f clamp:0.0f];
+    }
+
     // Vertex data at buffer 0 (via vertex descriptor), uniforms at buffer 1, lighting at buffer 2
     // Use setVertexBytes/setFragmentBytes to copy uniform data inline into the
     // command encoder.  This avoids GPU race conditions: each draw call gets its
@@ -1236,11 +1315,14 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     // texture(0) and sampler(0) as parameters, so we must bind them even
     // when has_texture is false to satisfy Metal validation.
     if (fu.has_texture) {
-        uint32_t texName = ctx->tex_units[texUnit].bound_texture_2d;
+        uint32_t texName = fu.has_texture_3d
+            ? ctx->tex_units[texUnit].bound_texture_3d
+            : ctx->tex_units[texUnit].bound_texture_2d;
         auto texIt = ctx->texture_objects.find(texName);
         if (texIt != ctx->texture_objects.end() && texIt->second.metal_texture) {
             id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)(texIt->second.metal_texture);
-            [ms->currentEncoder setFragmentTexture:mtlTex atIndex:0];
+            int texIdx = fu.has_texture_3d ? 1 : 0;  // 3D textures at index 1
+            [ms->currentEncoder setFragmentTexture:mtlTex atIndex:texIdx];
             // Use sampler derived from texture's filter/wrap parameters
             id<MTLSamplerState> sampler = GLMetalGetSampler(ms, &texIt->second);
             [ms->currentEncoder setFragmentSamplerState:sampler atIndex:0];
@@ -2030,6 +2112,74 @@ static id<MTLSamplerState> GLMetalGetSampler(GLMetalState *ms, GLTextureObject *
 
 
 /*
+ *  GLMetalReadFramebufferRect -- read a rectangle from the framebuffer into a host BGRA8 buffer.
+ *  Returns a malloc'd buffer (caller must free), or NULL on failure.
+ *  Temporarily ends the current render encoder and restarts it with LoadAction::Load.
+ */
+uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int height, int *out_len)
+{
+    if (out_len) *out_len = 0;
+    GLMetalState *ms = (GLMetalState *)ctx->metal;
+    if (!ms || !ms->initialized) return NULL;
+
+    if (ms->renderPassActive && ms->currentEncoder) {
+        [ms->currentEncoder endEncoding];
+        ms->currentEncoder = nil;
+    }
+
+    id<MTLTexture> srcTex = ms->overlayTexture;
+    if (!srcTex) return NULL;
+
+    MTLTextureDescriptor *stagingDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                                          width:width
+                                                                                         height:height
+                                                                                      mipmapped:NO];
+    stagingDesc.usage = MTLTextureUsageShaderRead;
+    stagingDesc.storageMode = MTLStorageModeShared;
+    id<MTLTexture> staging = [ms->device newTextureWithDescriptor:stagingDesc];
+    if (!staging) return NULL;
+
+    id<MTLCommandBuffer> blitCmdBuf = [ms->commandQueue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [blitCmdBuf blitCommandEncoder];
+    [blit copyFromTexture:srcTex sourceSlice:0 sourceLevel:0
+             sourceOrigin:MTLOriginMake(x, y, 0) sourceSize:MTLSizeMake(width, height, 1)
+                toTexture:staging destinationSlice:0 destinationLevel:0
+        destinationOrigin:MTLOriginMake(0, 0, 0)];
+    [blit endEncoding];
+    [blitCmdBuf commit];
+    [blitCmdBuf waitUntilCompleted];
+
+    int bufLen = width * height * 4;
+    uint8_t *pixels = (uint8_t *)malloc(bufLen);
+    if (!pixels) return NULL;
+
+    [staging getBytes:pixels bytesPerRow:width * 4 fromRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0];
+
+    // Restart render encoder with LoadAction::Load to preserve content
+    if (ms->renderPassActive && ms->overlayTexture) {
+        MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
+        rpd.colorAttachments[0].texture = ms->overlayTexture;
+        rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
+        rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
+        if (ms->depthBuffer) {
+            rpd.depthAttachment.texture = ms->depthBuffer;
+            rpd.depthAttachment.loadAction = MTLLoadActionLoad;
+            rpd.depthAttachment.storeAction = MTLStoreActionStore;
+            rpd.stencilAttachment.texture = ms->depthBuffer;
+            rpd.stencilAttachment.loadAction = MTLLoadActionLoad;
+            rpd.stencilAttachment.storeAction = MTLStoreActionStore;
+        }
+        if (!ms->currentCommandBuffer)
+            ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
+        ms->currentEncoder = [ms->currentCommandBuffer renderCommandEncoderWithDescriptor:rpd];
+    }
+
+    if (out_len) *out_len = bufLen;
+    return pixels;
+}
+
+
+/*
  *  NativeGLReadPixels -- read pixels from framebuffer to PPC memory
  */
 void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int32_t height,
@@ -2401,11 +2551,22 @@ void NativeGLBegin(GLContext *ctx, uint32_t mode)
     GL_METAL_LOG("glBegin(0x%04x)", mode);
 }
 
+// Forward declaration from gl_state.cpp (selection hit recording)
+extern void GLSelectionRecordPrimitive(GLContext *ctx);
+
 void NativeGLEnd(GLContext *ctx)
 {
     ctx->in_begin = false;
-    GLMetalFlushImmediateMode(ctx);
-    GL_METAL_LOG("glEnd: flushed %zu vertices", ctx->im_vertices.size());
+    if (ctx->render_mode == 0x1C02 /* GL_SELECT */) {
+        // In selection mode, don't render -- just record hits from vertex Z values
+        GLSelectionRecordPrimitive(ctx);
+        ctx->im_vertices.clear();
+    } else {
+        GLMetalFlushImmediateMode(ctx);
+    }
+    GL_METAL_LOG("glEnd: %s %zu vertices",
+                 ctx->render_mode == 0x1C02 ? "selection" : "flushed",
+                 ctx->im_vertices.size());
 }
 
 

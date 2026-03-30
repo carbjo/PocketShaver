@@ -82,11 +82,11 @@ extern int32_t NativeGetNoticeMethod(uint32_t drawContextAddr, uint32_t method,
                                       uint32_t callbackOutPtr, uint32_t refConOutPtr);
 
 // RAVE 1.6 buffer access (draw/Z buffer readback + writeback)
-extern int32_t NativeAccessDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr,
-                                       uint32_t rowBytesPtr, uint32_t bufferPtrPtr);
+// SDK: AccessDrawBuffer(ctx, TQAPixelBuffer*)   -- TQAPixelBuffer = {rowBytes, pixelType, width, height, baseAddr}
+// SDK: AccessZBuffer(ctx, TQAZBuffer*)           -- TQAZBuffer = {width, height, rowBytes, zbuffer, zDepth, isBigEndian}
+extern int32_t NativeAccessDrawBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr);
 extern int32_t NativeAccessDrawBufferEnd(uint32_t drawContextAddr, uint32_t dirtyRectAddr);
-extern int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t rectAddr,
-                                    uint32_t rowBytesPtr, uint32_t bufferPtrPtr);
+extern int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr);
 extern int32_t NativeAccessZBufferEnd(uint32_t drawContextAddr, uint32_t dirtyRectAddr);
 
 // RAVE 1.6 mid-frame buffer clear (sub-rect clear)

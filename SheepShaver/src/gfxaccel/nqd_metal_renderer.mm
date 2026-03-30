@@ -186,6 +186,7 @@ struct NQDBitbltUniforms {
     uint32_t mask_offset;    // byte offset into mask_buffer where mask data starts
     uint32_t mask_stride;    // mask row stride (width_bytes for Boolean, width_pixels for arithmetic)
     uint32_t bits_per_pixel; // raw pixel depth in bits (1, 2, 4, 8, 16, or 32) — for packed pixel support
+    uint32_t blend_weight;   // OpColor blend weight [0-65535] for mode 32 (blend)
 };
 
 // Uniforms for fillrect — must match NQDFillRectUniforms in nqd_shaders.metal
@@ -206,7 +207,21 @@ struct NQDFillRectUniforms {
     uint32_t mask_offset;    // byte offset into mask_buffer where mask data starts
     uint32_t mask_stride;    // mask row stride (width_bytes for Boolean, width_pixels for arithmetic)
     uint32_t bits_per_pixel; // raw pixel depth in bits (1, 2, 4, 8, 16, or 32) — for packed pixel support
+    uint32_t blend_weight;   // OpColor blend weight [0-65535] for mode 32 (blend)
 };
+
+// ---------------------------------------------------------------------------
+// Helper: read OpColor blend weight from Mac low-memory 0x0A28.
+// OpColor is an RGBColor (3 x uint16). The red channel is used as the
+// single-valued blend weight for transfer mode 32 (blend).
+// Returns [0-65535] where 0 = all destination, 65535 = all source.
+// ---------------------------------------------------------------------------
+static inline uint32_t nqd_read_blend_weight()
+{
+    // OpColor at Mac low-memory 0x0DA0 is actually HiliteRGB.
+    // OpColor is at 0x0A28 (RGBColor: {red, green, blue} as big-endian uint16).
+    return (uint32_t)ReadMacInt16(0x0A28);
+}
 
 // ---------------------------------------------------------------------------
 // Helper: bytes per pixel
@@ -649,6 +664,7 @@ void NQDMetalBltMask(uint32 p)
     uniforms.mask_offset   = 0;
     uniforms.mask_stride   = mask_stride;
     uniforms.bits_per_pixel = src_pixel_size;
+    uniforms.blend_weight = nqd_read_blend_weight();
 
     NSUInteger total_threads = (pixel_mode && src_pixel_size >= 8)
         ? (NSUInteger)(width_pixels * height)
@@ -760,6 +776,7 @@ void NQDMetalFillMask(uint32 p)
     uniforms.mask_offset   = 0;
     uniforms.mask_stride   = mask_stride;
     uniforms.bits_per_pixel = pixel_size;
+    uniforms.blend_weight = nqd_read_blend_weight();
 
     NSUInteger total_threads = (pixel_mode && pixel_size >= 8)
         ? (NSUInteger)(width_pixels * height)
@@ -949,6 +966,7 @@ void NQDMetalBitblt(uint32 p)
     uniforms.mask_offset   = 0;
     uniforms.mask_stride   = 0;
     uniforms.bits_per_pixel = src_pixel_size;
+    uniforms.blend_weight = nqd_read_blend_weight();
 
     NSUInteger total_threads = (pixel_mode && src_pixel_size >= 8)
         ? (NSUInteger)(width_pixels * height)
@@ -1103,6 +1121,7 @@ void NQDMetalFillRect(uint32 p)
     uniforms.mask_offset   = 0;
     uniforms.mask_stride   = 0;
     uniforms.bits_per_pixel = pixel_size;
+    uniforms.blend_weight = nqd_read_blend_weight();
 
     NSUInteger total_threads = (pixel_mode && pixel_size >= 8)
         ? (NSUInteger)(width_pixels * height)
@@ -1225,6 +1244,7 @@ void NQDMetalInvertRect(uint32 p)
     uniforms.mask_offset   = 0;
     uniforms.mask_stride   = 0;
     uniforms.bits_per_pixel = pixel_size;
+    uniforms.blend_weight = nqd_read_blend_weight();
 
     // patXor is a Boolean mode → per-byte dispatch
     NSUInteger total_threads = (NSUInteger)(width_bytes * height);

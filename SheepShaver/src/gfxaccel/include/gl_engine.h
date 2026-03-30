@@ -1214,6 +1214,11 @@ struct GLContext {
     uint32_t render_mode;              // GL_RENDER, GL_SELECT, GL_FEEDBACK
     uint32_t selection_buffer_mac_ptr;
     int32_t  selection_buffer_size;
+    int32_t  selection_buffer_offset;  // current write position in selection buffer
+    int32_t  selection_hit_count;      // number of hit records written
+    bool     selection_hit_flag;       // true if any primitive was drawn since last name stack change
+    uint32_t selection_hit_z_min;      // min Z (as GLuint) for current hit
+    uint32_t selection_hit_z_max;      // max Z (as GLuint) for current hit
     uint32_t feedback_buffer_mac_ptr;
     int32_t  feedback_buffer_size;
     uint32_t feedback_type;
@@ -1392,6 +1397,9 @@ extern void GLMetalUploadSubTexture3D(GLContext *ctx, GLTextureObject *texObj, i
 extern void GLMetalDestroyTexture(GLTextureObject *texObj);
 extern void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len);
 extern void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len);
+// Read a rectangle from the framebuffer into a malloc'd BGRA8 buffer. Caller must free().
+// Returns NULL on failure. Output length written to *out_len.
+extern uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int height, int *out_len);
 
 
 #endif /* GL_ENGINE_H */

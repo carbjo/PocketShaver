@@ -20,19 +20,29 @@ using namespace metal;
 // ---- Vertex input/output ----
 
 struct GLVertexIn {
-    float4 position [[attribute(0)]];
-    float4 color    [[attribute(1)]];
-    float3 normal   [[attribute(2)]];
-    float3 texcoord [[attribute(3)]];   // (s, t, q) — q enables projective texturing
+    float4 position  [[attribute(0)]];
+    float4 color     [[attribute(1)]];
+    float3 normal    [[attribute(2)]];
+    float3 texcoord  [[attribute(3)]];   // (s, t, q) unit 0 — q enables projective texturing
+    float3 texcoord1 [[attribute(4)]];   // (s, t, q) unit 1 — for multitexture
 };
 
 struct GLVertexOut {
     float4 position     [[position]];
+    float  point_size   [[point_size]];
     float4 color;
     float3 eye_normal;
-    float3 texcoord;    // (s, t, q) — interpolated, then divided per-fragment
+    float3 texcoord;    // (s, t, q) unit 0 — interpolated, then divided per-fragment
+    float3 texcoord1;   // (s, t, q) unit 1 — for multitexture
     float3 eye_position;
     float  fog_factor;
+    float  clip_dist0;  // user clip plane distances (interpolated, discard if < 0)
+    float  clip_dist1;
+    float  clip_dist2;
+    float  clip_dist3;
+    float  clip_dist4;
+    float  clip_dist5;
+    int    num_clip_planes; // number of active clip planes
 };
 
 
@@ -50,6 +60,11 @@ struct GLVertexUniforms {
     float    fog_start;
     float    fog_end;
     float    fog_density;
+    float    point_size;         // glPointSize value (default 1.0)
+    int      two_side_lighting; // GL_LIGHT_MODEL_TWO_SIDE: negate normal for back-facing vertices
+    // User clip planes (GL_CLIP_PLANE0-5). Equation is dot(plane, eye_pos) >= 0.
+    int      num_clip_planes;   // number of enabled clip planes (0-6)
+    float4   clip_planes[6];    // plane equations in eye space
 };
 
 struct GLFragmentUniforms {
@@ -60,6 +75,7 @@ struct GLFragmentUniforms {
     int    alpha_func;          // 0=never,1=less,2=equal,3=lequal,4=greater,5=notequal,6=gequal,7=always
     float  alpha_ref;
     int    has_texture;
+    int    has_texture_3d;      // 1 = bound texture is 3D, sample from tex3d at index 1
     int    shade_model;         // 0=flat, 1=smooth
 };
 
@@ -113,6 +129,9 @@ vertex GLVertexOut gl_vertex_main(
     // Remap depth from GL NDC [-1,+1] to Metal NDC [0,+1].
     out.position.z = out.position.z * 0.5 + out.position.w * 0.5;
 
+    // Point size for GL_POINTS primitives
+    out.point_size = uniforms.point_size;
+
     // 2. Eye-space position (for fog distance and lighting)
     float4 eye_pos = uniforms.modelview_matrix * in.position;
     out.eye_position = eye_pos.xyz;
@@ -123,10 +142,19 @@ vertex GLVertexOut gl_vertex_main(
         float len = length(eye_normal);
         if (len > 0.0) eye_normal /= len;
     }
+    // Two-sided lighting: flip normal for back-facing vertices
+    // A vertex is back-facing if the normal points away from the eye (dot(N, -V) < 0)
+    if (uniforms.two_side_lighting && uniforms.lighting_enabled) {
+        float3 V = normalize(-eye_pos.xyz);
+        if (dot(eye_normal, V) < 0.0) {
+            eye_normal = -eye_normal;
+        }
+    }
     out.eye_normal = eye_normal;
 
-    // 4. Pass through texcoord (s, t, q) for projective texturing
+    // 4. Pass through texcoords (s, t, q) for projective texturing
     out.texcoord = in.texcoord;
+    out.texcoord1 = in.texcoord1;
 
     // 5. Lighting or pass-through color
     if (uniforms.lighting_enabled) {
@@ -213,6 +241,15 @@ vertex GLVertexOut gl_vertex_main(
         out.fog_factor = 1.0;
     }
 
+    // 7. User clip plane distances (dot(plane, eye_pos) for each enabled plane)
+    out.num_clip_planes = uniforms.num_clip_planes;
+    out.clip_dist0 = (uniforms.num_clip_planes > 0) ? dot(uniforms.clip_planes[0], eye_pos) : 1.0;
+    out.clip_dist1 = (uniforms.num_clip_planes > 1) ? dot(uniforms.clip_planes[1], eye_pos) : 1.0;
+    out.clip_dist2 = (uniforms.num_clip_planes > 2) ? dot(uniforms.clip_planes[2], eye_pos) : 1.0;
+    out.clip_dist3 = (uniforms.num_clip_planes > 3) ? dot(uniforms.clip_planes[3], eye_pos) : 1.0;
+    out.clip_dist4 = (uniforms.num_clip_planes > 4) ? dot(uniforms.clip_planes[4], eye_pos) : 1.0;
+    out.clip_dist5 = (uniforms.num_clip_planes > 5) ? dot(uniforms.clip_planes[5], eye_pos) : 1.0;
+
     return out;
 }
 
@@ -223,15 +260,30 @@ fragment float4 gl_fragment_main(
     GLVertexOut in [[stage_in]],
     constant GLFragmentUniforms &uniforms [[buffer(1)]],
     texture2d<float> tex [[texture(0)]],
+    texture3d<float> tex3d [[texture(1)]],
     sampler samp [[sampler(0)]])
 {
+    // User clip planes: discard if any clip distance is negative
+    if (in.num_clip_planes > 0 && in.clip_dist0 < 0.0) discard_fragment();
+    if (in.num_clip_planes > 1 && in.clip_dist1 < 0.0) discard_fragment();
+    if (in.num_clip_planes > 2 && in.clip_dist2 < 0.0) discard_fragment();
+    if (in.num_clip_planes > 3 && in.clip_dist3 < 0.0) discard_fragment();
+    if (in.num_clip_planes > 4 && in.clip_dist4 < 0.0) discard_fragment();
+    if (in.num_clip_planes > 5 && in.clip_dist5 < 0.0) discard_fragment();
+
     float4 color = in.color;
 
     // Texture application
     if (uniforms.has_texture) {
         // Projective texturing: divide s,t by q for perspective-correct mapping
         float2 uv = (in.texcoord.z != 0.0) ? in.texcoord.xy / in.texcoord.z : in.texcoord.xy;
-        float4 tex_color = tex.sample(samp, uv);
+        float4 tex_color;
+        if (uniforms.has_texture_3d) {
+            float3 uvw = float3(uv, in.texcoord1.x);  // use unit 1's s as the r (depth) coordinate
+            tex_color = tex3d.sample(samp, uvw);
+        } else {
+            tex_color = tex.sample(samp, uv);
+        }
 
         if (uniforms.texenv_mode == 0) {
             // GL_MODULATE: Cf = Ct * Cf

@@ -24,10 +24,12 @@
 
 #include <cstring>
 
-// RAVE error codes
-#define kQANoErr           0
-#define kQANotSupported   -1
-#define kQAError          -2
+// RAVE error codes (must match TQAError enum in RAVE.h)
+#define kQANoErr                    0
+#define kQAError                    1
+#define kQAOutOfMemory              2
+#define kQANotSupported             3
+#define kQAParamErr                 5
 
 // kQAContext flag bits
 #define kQAContext_NoZBuffer  (1 << 0)

@@ -1457,13 +1457,13 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLLogicOp(gl_current_context, r3);
 			return 0;
 		// --- Core GL: Map, Material, Matrix, Mult ---
-		case GL_SUB_MAP1D: NativeGLMap1d(gl_current_context, r3, 0, 0, (int32_t)r4, (int32_t)r5, r6); return 0;
+		case GL_SUB_MAP1D: NativeGLMap1d(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, (int32_t)r5, r6); return 0;
 		case GL_SUB_MAP1F: NativeGLMap1f(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, (int32_t)r5, r6); return 0;
-		case GL_SUB_MAP2D: NativeGLMap2d(gl_current_context, r3, 0, 0, (int32_t)r4, (int32_t)r5, 0, 0, (int32_t)r6, (int32_t)r7, r8); return 0;
+		case GL_SUB_MAP2D: NativeGLMap2d(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, (int32_t)r5, float_arg(float_bits, 2), float_arg(float_bits, 3), (int32_t)r6, (int32_t)r7, r8); return 0;
 		case GL_SUB_MAP2F: NativeGLMap2f(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, (int32_t)r5, float_arg(float_bits, 2), float_arg(float_bits, 3), (int32_t)r6, (int32_t)r7, r8); return 0;
-		case GL_SUB_MAP_GRID1D: NativeGLMapGrid1d(gl_current_context, (int32_t)r3, 0, 0); return 0;
+		case GL_SUB_MAP_GRID1D: NativeGLMapGrid1d(gl_current_context, (int32_t)r3, float_arg(float_bits, 0), float_arg(float_bits, 1)); return 0;
 		case GL_SUB_MAP_GRID1F: NativeGLMapGrid1f(gl_current_context, (int32_t)r3, float_arg(float_bits, 0), float_arg(float_bits, 1)); return 0;
-		case GL_SUB_MAP_GRID2D: NativeGLMapGrid2d(gl_current_context, (int32_t)r3, 0, 0, (int32_t)r4, 0, 0); return 0;
+		case GL_SUB_MAP_GRID2D: NativeGLMapGrid2d(gl_current_context, (int32_t)r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, float_arg(float_bits, 2), float_arg(float_bits, 3)); return 0;
 		case GL_SUB_MAP_GRID2F: NativeGLMapGrid2f(gl_current_context, (int32_t)r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, float_arg(float_bits, 2), float_arg(float_bits, 3)); return 0;
 		case GL_SUB_MATERIALF:
 			NativeGLMaterialf(gl_current_context, r3, r4, float_arg(float_bits, 0));
