@@ -109,7 +109,7 @@ class InputInteractionModel {
 		}
 
 		if miscSettings.relativeMouseModeSetting == .alwaysOn {
-			objc_setRelativeMouseMode(true)
+			cpp_setRelativeMouseMode(true)
 			handleRelativeMouseModeEnabled()
 		}
 		if (miscSettings.bootInHoverMode &&
@@ -194,6 +194,10 @@ class InputInteractionModel {
 				miscSettings.set(audioEnabled: newValue)
 				objc_update_audio_enabled_setting(newValue)
 			}
+		case .relativeMouseModeEnabled:
+			if !isDown {
+				toggleRelativeMouseMode()
+			}
 		}
 	}
 
@@ -248,7 +252,7 @@ class InputInteractionModel {
 			isSecondFingerDragging = false
 
 			self.silenceRelativeMouseModeChanges = true
-			objc_setRelativeMouseMode(false)
+			cpp_setRelativeMouseMode(false)
 			objc_ADBSetHoverGestureDragging(false)
 			self.silenceRelativeMouseModeChanges = false
 
@@ -419,16 +423,16 @@ class InputInteractionModel {
 		isSecondFingerDragging = true
 		hoverOffsetModeBeforeSecondFingerDrag = hoverOffsetMode
 		silenceRelativeMouseModeChanges = true
-		objc_setRelativeMouseMode(true)
+		cpp_setRelativeMouseMode(true)
 		objc_ADBSetHoverGestureDragging(true)
 		silenceRelativeMouseModeChanges = false
 	}
 
 	func toggleRelativeMouseMode() {
 		if isRelativeMouseModeEnabled {
-			objc_setRelativeMouseMode(false)
+			cpp_setRelativeMouseMode(false)
 		} else {
-			objc_setRelativeMouseMode(true)
+			cpp_setRelativeMouseMode(true)
 		}
 	}
 

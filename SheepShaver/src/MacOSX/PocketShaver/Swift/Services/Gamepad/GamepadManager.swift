@@ -190,23 +190,24 @@ private class GamepadSettings: Codable {
 		portraitConfigIndex = 0
 		landscapeConfigIndex = 0
 
-		let exampleRpgGameSideButtonLayout: GamepadConfig?
-		let isSideButtonLayoutSupported = UIScreen.hasNotch && !UIDevice.isIPad
-		if isSideButtonLayoutSupported {
-			if GamepadSideButtonLayout.layoutBasis.numberOfSlots > 1 {
-				exampleRpgGameSideButtonLayout = GamepadConfig.exampleRpgGameDoubleSideButtonLayout
-			} else {
-				exampleRpgGameSideButtonLayout = GamepadConfig.exampleRpgGameSingleSideButtonLayout
-			}
-		} else {
-			exampleRpgGameSideButtonLayout = nil
+		switch SideButtonAvailability.value {
+		case .none:
+			configurations = [
+				.exampleArcadeGameLayout,
+				.exampleFpsGameLayout
+			]
+		case .single:
+			configurations = [
+				.exampleArcadeGameSideButtonLayout,
+				.exampleRpgGameSingleSideButtonLayout
+			]
+		case .double:
+			configurations = [
+				.exampleArcadeGameSideButtonLayout,
+				.exampleRpgGameDoubleSideButtonLayout,
+				.exampleFpsGameDoubleSideButtonLayout
+			]
 		}
-
-		configurations = [
-			GamepadConfig.exampleArcadeGameLayout,
-			exampleRpgGameSideButtonLayout,
-			GamepadConfig.exampleFpsGameLayout
-		].compactMap({ $0 })
 	}
 
 	@MainActor
@@ -426,6 +427,23 @@ class GamepadManager {
 		if !isExampleConfig(landscapeConfig),
 		   let newLandscapeConfigIndex = settings.configurations.firstIndex(where: { $0 === landscapeConfig }) {
 			settings.landscapeConfigIndex = newLandscapeConfigIndex
+		}
+	}
+}
+
+fileprivate enum SideButtonAvailability {
+	case none
+	case single
+	case double
+
+	@MainActor
+	static var value: Self {
+		let isSideButtonLayoutSupported = UIScreen.hasNotch && !UIDevice.isIPad
+		if isSideButtonLayoutSupported {
+			let hasDoubleSlots = GamepadSideButtonLayout.layoutBasis.numberOfSlots > 1
+			return hasDoubleSlots ? .double : .single
+		} else {
+			return .none
 		}
 	}
 }

@@ -34,7 +34,7 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 	private lazy var relativeMouseModeButton: UIButton = {
 		let button = UIButton.withoutConstraints()
-		button.setImage(ImageResource.computermouse.asSymbolImage(),
+		button.setImage(ImageResource.arrowUpAndDownAndArrowLeftAndRight.asSymbolImage(),
 			for: .normal
 		)
 		button.configuration = buttonConfig()

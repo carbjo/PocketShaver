@@ -7,9 +7,17 @@
 
 import Foundation
 import Combine
+import CoreHaptics
 
 class PreferencesAdvancedModel {
 	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
+
+	private let mode: PreferencesLaunchMode
+
+	@MainActor
+	private var miscSettings: MiscellaneousSettings {
+		.current
+	}
 
 	var ramSetting: PreferencesGeneralRamSetting {
 		get {
@@ -25,42 +33,30 @@ class PreferencesAdvancedModel {
 	@MainActor
 	var fpsReportingEnabled: Bool {
 		get {
-			MiscellaneousSettings.current.fpsReporting
+			miscSettings.fpsReporting
 		}
 		set {
-			MiscellaneousSettings.current.set(fpsCounterEnabled: newValue)
+			miscSettings.set(fpsCounterEnabled: newValue)
 		}
 	}
 
 	@MainActor
 	var networkTransferRateReportingEnabled: Bool {
 		get {
-			MiscellaneousSettings.current.networkTransferRateReportingEnabled
+			miscSettings.networkTransferRateReportingEnabled
 		}
 		set {
-			MiscellaneousSettings.current.set(networkTransferRateReportingEnabled: newValue)
-		}
-	}
-
-	@MainActor
-	var frameRateSetting: FrameRateSetting {
-		get {
-			MiscellaneousSettings.current.frameRateSetting
-		}
-		set {
-			MiscellaneousSettings.current.set(frameRateSetting: newValue)
-
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			miscSettings.set(networkTransferRateReportingEnabled: newValue)
 		}
 	}
 
 	@MainActor
 	var alwaysLandscapeMode: Bool {
 		get {
-			MiscellaneousSettings.current.alwaysLandscapeMode
+			miscSettings.alwaysLandscapeMode
 		}
 		set {
-			MiscellaneousSettings.current.set(alwaysLandscapeMode: newValue)
+			miscSettings.set(alwaysLandscapeMode: newValue)
 
 			changeSubject.send(.alwaysLandscapeModeOptionToggled)
 		}
@@ -69,16 +65,16 @@ class PreferencesAdvancedModel {
 	@MainActor
 	var hoverJustAboveOffsetModifier: Float {
 		get {
-			MiscellaneousSettings.current.hoverJustAboveOffsetModifier
+			miscSettings.hoverJustAboveOffsetModifier
 		}
 		set {
-			MiscellaneousSettings.current.set(hoverJustAboveOffsetModifier: newValue)
+			miscSettings.set(hoverJustAboveOffsetModifier: newValue)
 		}
 	}
 
 	@MainActor
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
-		MiscellaneousSettings.current.shouldDisplayAlwaysLandscapeModeOption
+		miscSettings.shouldDisplayAlwaysLandscapeModeOption
 	}
 
 	@MainActor
@@ -94,16 +90,16 @@ class PreferencesAdvancedModel {
 	@MainActor
 	var relativeMouseModeSetting: RelativeMouseModeSetting {
 		get {
-			MiscellaneousSettings.current.relativeMouseModeSetting
+			miscSettings.relativeMouseModeSetting
 		}
 		set {
-			MiscellaneousSettings.current.set(relativeMouseModeSetting: newValue)
+			miscSettings.set(relativeMouseModeSetting: newValue)
 
 			switch newValue {
 			case .automatic:
-				objc_setRelativeMouseModeAutomatic();
+				cpp_setRelativeMouseModeAutomatic();
 			case .alwaysOn:
-				objc_setRelativeMouseMode(true);
+				cpp_setRelativeMouseMode(true);
 			default: break
 			}
 
@@ -114,10 +110,10 @@ class PreferencesAdvancedModel {
 	@MainActor
 	var relativeMouseTapToClick: Bool {
 		get {
-			MiscellaneousSettings.current.relativeMouseTapToClick
+			miscSettings.relativeMouseTapToClick
 		}
 		set {
-			MiscellaneousSettings.current.set(relativeMouseTapToClick: newValue)
+			miscSettings.set(relativeMouseTapToClick: newValue)
 		}
 	}
 
@@ -131,17 +127,55 @@ class PreferencesAdvancedModel {
 		RomManager.shared.currentRomFileVersion?.description
 	}
 
+	lazy var supportsHaptics: Bool = {
+		CHHapticEngine.capabilitiesForHardware().supportsHaptics
+	}()
+
 	@MainActor
-	var gammaRampSetting: GammaRampSetting {
+	var isGestureHapticFeedbackOn: Bool {
 		get {
-			MiscellaneousSettings.current.gammaRampSetting
+			miscSettings.gestureHapticFeedback
 		}
 		set {
-			MiscellaneousSettings.current.set(gammaRampSetting: newValue)
+			miscSettings.set(gestureHapticFeedback: newValue)
 		}
 	}
 
-	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
+	@MainActor
+	var isMouseHapticFeedbackOn: Bool {
+		get {
+			miscSettings.mouseHapticFeedback
+		}
+		set {
+			miscSettings.set(mouseHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var isKeyHapticFeedbackOn: Bool {
+		get {
+			miscSettings.keyHapticFeedback
+		}
+		set {
+			miscSettings.set(keyHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var gammaRampSetting: GammaRampSetting {
+		get {
+			miscSettings.gammaRampSetting
+		}
+		set {
+			miscSettings.set(gammaRampSetting: newValue)
+		}
+	}
+
+	init(
+		mode: PreferencesLaunchMode,
+		changeSubject: PassthroughSubject<PreferencesChange, Never>
+	) {
+		self.mode = mode
 		self.changeSubject = changeSubject
 	}
 

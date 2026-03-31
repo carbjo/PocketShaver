@@ -10,9 +10,14 @@
 #ifdef __cplusplus
 extern "C"
 #endif
-void objc_setRelativeMouseMode(BOOL isOn);
+void cpp_setRelativeMouseMode(BOOL isOn);
 
 #ifdef __cplusplus
 extern "C"
 #endif
-void objc_setRelativeMouseModeAutomatic();
+void cpp_setRelativeMouseModeAutomatic();
+
+#ifdef __cplusplus
+extern "C"
+#endif
+void cpp_updateFrameRateHz();

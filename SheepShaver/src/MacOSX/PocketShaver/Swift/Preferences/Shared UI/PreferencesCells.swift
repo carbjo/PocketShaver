@@ -74,19 +74,13 @@ class PreferencesInformationCell: UITableViewCell {
 		text: String,
 		upperMargin: Margin = .short,
 		lowerMargin: Margin = .medium,
-		tagConfig: StringTagConfig? = .init(),
+		tagConfig: StringTagConfig = .init(),
 		separatorHidden: Bool = true,
 		linkCallback: (() -> Void)? = nil
 	) {
-
-		let config = tagConfig ?? .init(
-			boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
-			highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText)
-		)
-
 		informationLabel = .init(
 			text: text,
-			config: config,
+			config: tagConfig,
 			font: .systemFont(ofSize: 14),
 			callback: linkCallback
 		)
@@ -114,31 +108,128 @@ class PreferencesInformationCell: UITableViewCell {
 	}
 }
 
+class PreferencesCardInformationCell: UITableViewCell {
+	private lazy var cardView: UIView = {
+		let view = UIView.withoutConstraints()
+		view.layer.cornerRadius = 8
+		view.backgroundColor = Colors.informationCardBackground
+		return view
+	}()
+
+	private lazy var infoIconImageView: UIImageView = {
+		let imageView = UIImageView.withoutConstraints()
+		imageView.image = UIImage(resource: ImageResource.infoCircle)
+		imageView.tintColor = Colors.secondaryText
+
+		NSLayoutConstraint.activate([
+			imageView.widthAnchor.constraint(equalToConstant: 22),
+			imageView.heightAnchor.constraint(equalToConstant: 22)
+		])
+
+		return imageView
+	}()
+
+	private let informationLabel: LinkLabel
+
+	init(
+		text: String,
+		tagConfig: StringTagConfig? = .init(),
+		separatorHidden: Bool = true,
+		linkCallback: (() -> Void)? = nil
+	) {
+
+		let config = tagConfig ?? .init(
+			boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
+			highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText)
+		)
+
+		informationLabel = .init(
+			text: text,
+			config: config,
+			font: .systemFont(ofSize: 14),
+			callback: linkCallback
+		)
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		if separatorHidden {
+			hideSeparator()
+		}
+
+		cardView.addSubview(infoIconImageView)
+		cardView.addSubview(informationLabel)
+		contentView.addSubview(cardView)
+
+		NSLayoutConstraint.activate([
+			cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+			cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+			cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+			cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+
+			infoIconImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
+			infoIconImageView.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+
+			informationLabel.leadingAnchor.constraint(equalTo: infoIconImageView.trailingAnchor, constant: 16),
+			informationLabel.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
+			informationLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
+			informationLabel.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -12).withPriority(.required - 1)
+		])
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	func configure(text: String) {
+		informationLabel.label.text = text
+	}
+}
+
 class PreferencesEmptyStateCell: UITableViewCell {
-	private lazy var titleLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.font = .boldSystemFont(ofSize: 18)
-		label.text = "No files found"
-		label.textAlignment = .center
-		return label
+	private lazy var stackView: UIStackView = {
+		let stackView = UIStackView.withoutConstraints()
+		stackView.axis = .vertical
+		stackView.spacing = 8
+		stackView.alignment = .center
+		stackView.distribution = .fill
+		return stackView
 	}()
 
 	init(
 		title: String,
+		titleTagConfig: StringTagConfig = .init(),
+		subtitles: [(String, StringTagConfig)] = [],
 		separatorHidden: Bool = false
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
 
-		contentView.addSubview(titleLabel)
+		let titleLabel = LinkLabel(
+			text: title,
+			config: titleTagConfig,
+			font: .boldSystemFont(ofSize: 18),
+			textColor: Colors.primaryText,
+			textAlignment: .center
+		)
+		stackView.addArrangedSubview(titleLabel)
+
+		for (subtitleText, subtitleConfig) in subtitles {
+			let subtitleLabel = LinkLabel(
+				text: subtitleText,
+				config: subtitleConfig,
+				font: .systemFont(ofSize: 14),
+				textAlignment: .center
+			)
+			stackView.addArrangedSubview(subtitleLabel)
+		}
+
+		contentView.addSubview(stackView)
+
+		let margin: CGFloat = UIScreen.isSESize ? 16 : 32
 
 		NSLayoutConstraint.activate([
-			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 24),
-			titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -24)
+			stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: margin),
+			stackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 24),
+			stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -margin),
+			stackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -24)
 		])
-
-		titleLabel.text = title
 
 		if separatorHidden {
 			hideSeparator()

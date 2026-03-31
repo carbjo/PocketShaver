@@ -15,4 +15,12 @@ enum Assets {
 	static var bonjour: UIImage {
 		.init(systemName: "bonjour")!
 	}
+
+	static var plus: UIImage {
+		.init(systemName: "plus")!
+	}
+
+	static var squareAndArrowDown: UIImage {
+		.init(systemName: "square.and.arrow.down")!
+	}
 }

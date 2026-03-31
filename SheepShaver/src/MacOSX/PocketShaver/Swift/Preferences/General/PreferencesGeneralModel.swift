@@ -7,7 +7,6 @@
 
 import Foundation
 import Combine
-import CoreHaptics
 
 enum PreferencesGeneralError: Error {
 	case fileWithFilenameAleadyExists
@@ -37,9 +36,9 @@ class PreferencesGeneralModel {
 		let type: DiskType
 	}
 
-	struct MonitorResolutionsState: Hashable {
-		let enabledResolutions: [MonitorResolutionOption]
-		let willBootFromCD: Bool
+	struct FrameRateState: Hashable {
+		let setting: FrameRateSetting
+		let hasChanged: Bool
 	}
 
 	struct TwoFingerSteeringSettings: Hashable {
@@ -48,7 +47,12 @@ class PreferencesGeneralModel {
 		let bootInHoverMode: Bool
 	}
 
-	private let mode: PreferencesLaunchMode
+	struct MonitorResolutionsState: Hashable {
+		let enabledResolutions: [MonitorResolutionOption]
+		let willBootFromCD: Bool
+	}
+
+	let mode: PreferencesLaunchMode
 
 	@MainActor
 	private var miscSettings: MiscellaneousSettings {
@@ -80,28 +84,36 @@ class PreferencesGeneralModel {
 		DiskManager.shared.diskArray.count
 	}
 
-	@MainActor
-	var monitorResolutionsState: MonitorResolutionsState {
-		return .init(
-			enabledResolutions: MonitorResolutionManager.shared.enabledResolutions,
-			willBootFromCD: DiskManager.shared.willBootFromCD
-		)
+	var supportedFileExtensions: [String] {
+		DiskManager.supportedFileExtensions
 	}
 
 	@MainActor
-	var audioEnabled: Bool {
+	private let originalFrameRateSetting = MiscellaneousSettings.current.frameRateSetting
+
+	@MainActor
+	var frameRateSetting: FrameRateSetting {
 		get {
-			miscSettings.audioEnabled
+			MiscellaneousSettings.current.frameRateSetting
 		}
 		set {
-			let previousValue = miscSettings.audioEnabled
-			miscSettings.set(audioEnabled: newValue)
+			MiscellaneousSettings.current.set(frameRateSetting: newValue)
 
-			if mode == .duringEmulation,
-				newValue != previousValue {
-				objc_update_audio_enabled_setting(newValue)
+			if mode == .startup {
+				cpp_updateFrameRateHz()
 			}
+
+			changeSubject.send(.frameRateSettingChanged)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
+	}
+
+	@MainActor
+	var frameRateState: FrameRateState {
+		.init(
+			setting: frameRateSetting,
+			hasChanged: frameRateSetting != originalFrameRateSetting
+		)
 	}
 
 	@MainActor
@@ -144,37 +156,27 @@ class PreferencesGeneralModel {
 		}
 	}
 
-	lazy var supportsHaptics: Bool = {
-		CHHapticEngine.capabilitiesForHardware().supportsHaptics
-	}()
-
 	@MainActor
-	var isGestureHapticFeedbackOn: Bool {
-		get {
-			miscSettings.gestureHapticFeedback
-		}
-		set {
-			miscSettings.set(gestureHapticFeedback: newValue)
-		}
+	var monitorResolutionsState: MonitorResolutionsState {
+		return .init(
+			enabledResolutions: MonitorResolutionManager.shared.enabledResolutions,
+			willBootFromCD: DiskManager.shared.willBootFromCD
+		)
 	}
 
 	@MainActor
-	var isMouseHapticFeedbackOn: Bool {
+	var audioEnabled: Bool {
 		get {
-			miscSettings.mouseHapticFeedback
+			miscSettings.audioEnabled
 		}
 		set {
-			miscSettings.set(mouseHapticFeedback: newValue)
-		}
-	}
+			let previousValue = miscSettings.audioEnabled
+			miscSettings.set(audioEnabled: newValue)
 
-	@MainActor
-	var isKeyHapticFeedbackOn: Bool {
-		get {
-			miscSettings.keyHapticFeedback
-		}
-		set {
-			miscSettings.set(keyHapticFeedback: newValue)
+			if mode == .duringEmulation,
+				newValue != previousValue {
+				objc_update_audio_enabled_setting(newValue)
+			}
 		}
 	}
 

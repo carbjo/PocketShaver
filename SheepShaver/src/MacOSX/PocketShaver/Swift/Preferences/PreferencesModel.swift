@@ -18,6 +18,7 @@ enum PreferencesChange {
 	case changeRequiringRestartAfterBootMade
 	case alwaysLandscapeModeOptionToggled
 	case selectedResolutionsChanged
+	case frameRateSettingChanged
 }
 
 class PreferencesModel {

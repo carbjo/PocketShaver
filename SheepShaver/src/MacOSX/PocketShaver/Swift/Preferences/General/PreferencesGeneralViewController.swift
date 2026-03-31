@@ -13,13 +13,13 @@ class PreferencesGeneralViewController: UITableViewController {
 		case setupInstructions
 		case bootstrap
 		case disks
-		case monitorResolutions
-		case audio
+		case frameRateSetting
 		case iPadMouse
 		case twoFingerSteering
 		case rightClick
 		case keyboardAutoOffset
-		case hapticFeedback
+		case monitorResolutions
+		case audio
 		case hints
 	}
 
@@ -32,19 +32,14 @@ class PreferencesGeneralViewController: UITableViewController {
 		case bootstrapError
 
 		// disks
-		case disksColumnDescription
+		case diskActionBar
 		case disksEmptyState
 		case disksDisk(PreferencesGeneralModel.DiskEntry)
-		case disksActions
 		case disksError
 
-		// monitorResolutions
-		case monitorResolutions(PreferencesGeneralModel.MonitorResolutionsState)
-		case monitorResolutionsInformation(Bool)
-
-		// audio
-		case audioEnabledToggle
-		case audioInformation
+		// frameRateSetting
+		case frameRateSettingToggle
+		case frameRateSettingInfo(PreferencesGeneralModel.FrameRateState)
 
 		// iPadMouse
 		case iPadMouse
@@ -62,10 +57,13 @@ class PreferencesGeneralViewController: UITableViewController {
 		case keyboardAutoOffset
 		case keyboardAutoOffsetInformation
 
-		// hapticFeedback
-		case hapticFeedbackSwipeGesturesToggle
-		case hapticFeedbackMouseClicksToggle
-		case hapticFeedbackGamepadKeyStrokesToggle
+		// monitorResolutions
+		case monitorResolutions(PreferencesGeneralModel.MonitorResolutionsState)
+		case monitorResolutionsInformation(Bool)
+
+		// audio
+		case audioEnabledToggle
+		case audioInformation
 
 		// hints
 		case hintsToggle
@@ -85,7 +83,7 @@ class PreferencesGeneralViewController: UITableViewController {
 
 	private var dataSource: TableViewDiffableDataSource<Section, Row>!
 
-	private let segmentedControlFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
+	private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
 	init(
 		mode: PreferencesLaunchMode,
@@ -124,6 +122,8 @@ class PreferencesGeneralViewController: UITableViewController {
 			switch change {
 			case .selectedResolutionsChanged:
 				reloadSection(.monitorResolutions)
+			case .frameRateSettingChanged:
+				reloadData()
 			default:
 				break
 			}
@@ -163,11 +163,39 @@ class PreferencesGeneralViewController: UITableViewController {
 				return PreferencesGeneralErrorCell(
 					title: "You need to bootstrap PocketShaver"
 				)
-			case .disksColumnDescription:
-				return PreferencesGeneralDiskColumnsDescriptionCell()
+			case .diskActionBar:
+				return PreferencesGeneralDiskActionBarCell(
+					didTapReloadButton: { [weak self] in
+						self?.reloadFileList()
+					},
+					didTapCreateAction: { [weak self] in
+						self?.displayCreateDiskDialogue()
+					},
+					didTapImportAction: { [weak self] in
+						self?.displayFileImport()
+					}
+				)
 			case .disksEmptyState:
 				return PreferencesEmptyStateCell(
-					title: "No files found"
+					title: "No disk files found",
+					subtitles: [
+						(
+							"Tap <img/> to create or import a disk file",
+							.init(
+								images: [
+									Assets.plus.asSymbolImage()
+								]
+							)
+						),
+						(
+							"Alternatively, add a file manually to PocketShaver share folder and tap <img/>",
+							.init(
+								images: [
+									ImageResource.arrowTriangleheadCounterclockwiseRotate90.asSymbolImage()
+								]
+							)
+						)
+					]
 				)
 			case .disksDisk(let diskEntry):
 				let cell = tableView.dequeueReusableCell(withIdentifier: PreferencesGeneralDiskCell.reuseIdentifier, for: indexPath) as! PreferencesGeneralDiskCell
@@ -212,57 +240,33 @@ class PreferencesGeneralViewController: UITableViewController {
 					}
 				)
 				return cell
-			case .disksActions:
-				return PreferencesGeneralDiskSectionActionsCell(
-					hasDskFile: model.hasDskFile,
-					didTapCreateDiskButton: { [weak self] in
-						self?.displayCreateDiskDialogue()
-					},
-					didTapReloadDisksButton: { [weak self] in
-						self?.reloadFileList()
-					},
-					didTapImportDiskButton: { [weak self] in
-						self?.displayFileImport()
-					}
-				)
 			case .disksError:
 				return PreferencesGeneralErrorCell(
 					title: "Must select to mount at least one disk file"
 				)
-			case .monitorResolutions(let monitorResolutionsState):
-				return PreferencesGeneralEnabledMonitorResolutionsCell(
-					monitorResolutionsState: monitorResolutionsState
-				) { [weak self] in
+			case .frameRateSettingToggle:
+				return PreferencesGeneralFrameRateSettingCell(
+					initialFrameRateSetting: model.frameRateSetting
+				) { [weak self] newFrameRateSetting in
 					guard let self else { return }
-					let vc = preferencesResolutionsVC
-					let navVC = UINavigationController()
-					navVC.viewControllers = [vc]
-
-					present(navVC, animated: true)
+					model.frameRateSetting = newFrameRateSetting
+					feedbackGenerator.impactOccurred()
 				}
-			case .monitorResolutionsInformation(let willBootFromCD):
-				var text = "Resolutions made available to Mac OS. "
-				if willBootFromCD {
-					text += "List is restricted since emulaton will boot from an install CD."
-				} else {
-					text += "Can be edited."
+			case .frameRateSettingInfo(let frameRateState):
+				var text = ""
+				if frameRateState.setting == .f120hz {
+					text += "At 120 hz, software with uncapped framerate might behave erratic."
 				}
-				return PreferencesInformationCell(
+				if model.mode == .duringEmulation,
+				   frameRateState.hasChanged {
+					if !text.isEmpty {
+						text += " "
+					}
+					text += "Changes in frame rate setting requires PocketShaver to restart."
+				}
+				return PreferencesCardInformationCell(
 					text: text
 				)
-			case .audioEnabledToggle:
-				return PreferencesEnabledSettingCell(
-					title: "Audio enabled",
-					isOn: model.audioEnabled
-				) { [weak self] newValue in
-					self?.model.audioEnabled = newValue
-				}
-			case .audioInformation:
-				return PreferencesInformationCell(
-					text: "Sound from other apps is lowered if audio is enabled during emulation. Having trouble getting audio to work? Read the <link>setup guide</link>."
-				) { [weak self] in
-					self?.displaySetupInstructions()
-				}
 			case .iPadMouse:
 				return PreferencesGeneralIPadMouseCell(
 					initialIPadMouseSetting: model.isIPadMouseEnabled
@@ -271,7 +275,7 @@ class PreferencesGeneralViewController: UITableViewController {
 
 					model.isIPadMouseEnabled = newValue
 					reloadData()
-					segmentedControlFeedbackGenerator.impactOccurred()
+					feedbackGenerator.impactOccurred()
 				}
 			case .twoFingerSteeringInformation:
 				return PreferencesInformationCell(
@@ -317,7 +321,7 @@ class PreferencesGeneralViewController: UITableViewController {
 					guard let self else { return }
 
 					model.rightClickSetting = newSetting
-					segmentedControlFeedbackGenerator.impactOccurred()
+					feedbackGenerator.impactOccurred()
 				}
 			case .rightClickInformation:
 				let text: String
@@ -335,32 +339,45 @@ class PreferencesGeneralViewController: UITableViewController {
 					guard let self else { return }
 					
 					model.keyboardAutoOffsetSetting = newSetting
-					segmentedControlFeedbackGenerator.impactOccurred()
+					feedbackGenerator.impactOccurred()
 				}
 			case .keyboardAutoOffsetInformation:
 				return PreferencesInformationCell(
 					text: "Controls how the screen scrolls when you three finger swipe up to present keyboard."
 				)
-			case .hapticFeedbackSwipeGesturesToggle:
-				return PreferencesEnabledSettingCell(
-					title: "Two / three finger swipe gestures",
-					isOn: model.isGestureHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isGestureHapticFeedbackOn = isOn
+			case .monitorResolutions(let monitorResolutionsState):
+				return PreferencesGeneralEnabledMonitorResolutionsCell(
+					monitorResolutionsState: monitorResolutionsState
+				) { [weak self] in
+					guard let self else { return }
+					let vc = preferencesResolutionsVC
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
 				}
-			case .hapticFeedbackMouseClicksToggle:
-				return PreferencesEnabledSettingCell(
-					title: "Mouse clicks",
-					isOn: model.isMouseHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isMouseHapticFeedbackOn = isOn
+			case .monitorResolutionsInformation(let willBootFromCD):
+				var text = "Resolutions made available to Mac OS. "
+				if willBootFromCD {
+					text += "List is restricted since emulaton will boot from an install CD."
+				} else {
+					text += "Can be edited."
 				}
-			case .hapticFeedbackGamepadKeyStrokesToggle:
+				return PreferencesInformationCell(
+					text: text
+				)
+			case .audioEnabledToggle:
 				return PreferencesEnabledSettingCell(
-					title: "Gamepad key strokes",
-					isOn: model.isKeyHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isKeyHapticFeedbackOn = isOn
+					title: "Audio enabled",
+					isOn: model.audioEnabled
+				) { [weak self] newValue in
+					self?.model.audioEnabled = newValue
+				}
+			case .audioInformation:
+				return PreferencesInformationCell(
+					text: "Sound from other apps is lowered if audio is enabled during emulation. Having trouble getting audio to work? Read the <link>setup guide</link>."
+				) { [weak self] in
+					self?.displaySetupInstructions()
 				}
 			case .hintsToggle:
 				return PreferencesEnabledSettingCell(
@@ -384,10 +401,8 @@ class PreferencesGeneralViewController: UITableViewController {
 				return "Bootstrap"
 			case .disks:
 				return "Disks"
-			case .monitorResolutions:
-				return "Monitor resolutions"
-			case .audio:
-				return "Audio"
+			case .frameRateSetting:
+				return "Frame rate setting"
 			case .iPadMouse:
 				return "Input mode"
 			case .twoFingerSteering:
@@ -396,8 +411,10 @@ class PreferencesGeneralViewController: UITableViewController {
 				return "Right click"
 			case .keyboardAutoOffset:
 				return "Software keyboard screen offset"
-			case .hapticFeedback:
-				return "Haptic feedback"
+			case .monitorResolutions:
+				return "Monitor resolutions"
+			case .audio:
+				return "Audio"
 			case .hints:
 				return "Hints"
 			}
@@ -453,7 +470,7 @@ class PreferencesGeneralViewController: UITableViewController {
 		}
 
 		snapshot.appendSections([.disks])
-		snapshot.appendItems([.disksColumnDescription])
+		snapshot.appendItems([.diskActionBar])
 		if model.numberOfDisks == 0 {
 			snapshot.appendItems([.disksEmptyState])
 		} else {
@@ -467,22 +484,19 @@ class PreferencesGeneralViewController: UITableViewController {
 				snapshot.appendItems([.disksDisk(diskEntry)])
 			}
 		}
-		snapshot.appendItems([.disksActions])
+
 		if model.isDisplayingNoDiskFilesError {
 			snapshot.appendItems([.disksError])
 		}
 
-		snapshot.appendSections([.monitorResolutions])
-		snapshot.appendItems([
-			.monitorResolutions(model.monitorResolutionsState),
-			.monitorResolutionsInformation(model.monitorResolutionsState.willBootFromCD)
-		])
-
-		snapshot.appendSections([.audio])
-		snapshot.appendItems([
-			.audioEnabledToggle,
-			.audioInformation
-		])
+		if UIScreen.supportsHighRefreshRate {
+			snapshot.appendSections([.frameRateSetting])
+			snapshot.appendItems([.frameRateSettingToggle])
+			if model.frameRateState.setting == .f120hz ||
+				(model.mode == .duringEmulation && model.frameRateState.hasChanged) {
+				snapshot.appendItems([.frameRateSettingInfo(model.frameRateState)])
+			}
+		}
 
 		if UIDevice.isIPad {
 			snapshot.appendSections([.iPadMouse])
@@ -514,14 +528,18 @@ class PreferencesGeneralViewController: UITableViewController {
 			.keyboardAutoOffsetInformation
 		])
 
-		if model.supportsHaptics {
-			snapshot.appendSections([.hapticFeedback])
-			snapshot.appendItems([
-				.hapticFeedbackSwipeGesturesToggle,
-				.hapticFeedbackMouseClicksToggle,
-				.hapticFeedbackGamepadKeyStrokesToggle
-			])
-		}
+		snapshot.appendSections([.monitorResolutions])
+		snapshot.appendItems([
+			.monitorResolutions(model.monitorResolutionsState),
+			.monitorResolutionsInformation(model.monitorResolutionsState.willBootFromCD)
+		])
+
+		snapshot.appendSections([.audio])
+		snapshot.appendItems([
+			.audioEnabledToggle,
+			.audioInformation
+		])
+
 		snapshot.appendSections([.hints])
 		snapshot.appendItems([
 			.hintsToggle,
@@ -552,11 +570,11 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	func presentNoDiskFilesError() {
-		let disksActionsIndexPath = dataSource.indexPath(for: .disksActions)!
+		let frameRateSectionIndexPath = dataSource.indexPath(for: .frameRateSettingToggle)!
 
 		model.isDisplayingNoDiskFilesError = true
 
-		tableView.scrollToRow(at: disksActionsIndexPath, at: .middle, animated: true)
+		tableView.scrollToRow(at: frameRateSectionIndexPath, at: .middle, animated: true)
 
 		reloadData()
 	}

@@ -203,7 +203,6 @@ static uint16 last_gamma_blue[256];
 static void VideoRefreshInit(void);
 static void (*video_refresh)(void);
 
-
 // Prototypes
 static int redraw_func(void *arg);
 static int present_sdl_video();
@@ -2889,6 +2888,10 @@ static void video_refresh_window_static(void)
 
 static void VideoRefreshInit(void)
 {
+#if TARGET_OS_IPHONE
+	setup_frame_rate();
+#endif
+
 	// TODO: set up specialised 8bpp VideoRefresh handlers ?
 	if (display_type == DISPLAY_SCREEN) {
 #if ENABLE_VOSF && (REAL_ADDRESSING || DIRECT_ADDRESSING)
@@ -2933,8 +2936,18 @@ void VideoRefresh(void)
 	do_video_refresh();
 }
 
-const int VIDEO_REFRESH_HZ = objc_getFrameRateSetting();
+#if TARGET_OS_IPHONE
+int VIDEO_REFRESH_HZ;
+int VIDEO_REFRESH_DELAY;
+
+void setup_frame_rate() {
+	VIDEO_REFRESH_HZ = objc_getFrameRateSetting();
+	VIDEO_REFRESH_DELAY = 1000000 / VIDEO_REFRESH_HZ;
+}
+#else
+const int VIDEO_REFRESH_HZ = 60;
 const int VIDEO_REFRESH_DELAY = 1000000 / VIDEO_REFRESH_HZ;
+#endif
 
 #ifndef USE_CPU_EMUL_SERVICES
 static int redraw_func(void *arg)

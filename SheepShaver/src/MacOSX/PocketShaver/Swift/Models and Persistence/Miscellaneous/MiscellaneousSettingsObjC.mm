@@ -12,7 +12,7 @@
 #include "adb.h"
 #include "utils_ios.h"
 
-void objc_setRelativeMouseMode(BOOL isOn) {
+void cpp_setRelativeMouseMode(BOOL isOn) {
 	if (isOn) {
 		set_relative_mouse_enabled();
 	} else {
@@ -20,7 +20,7 @@ void objc_setRelativeMouseMode(BOOL isOn) {
 	}
 }
 
-void objc_setRelativeMouseModeAutomatic() {
+void cpp_setRelativeMouseModeAutomatic() {
 	set_relative_mouse_automatic();
 }
 
@@ -30,6 +30,10 @@ void objc_reportRelativeMouseModeCapability() {
 
 int objc_getFrameRateSetting(void) {
 	return (int)MiscellaneousSettingsObjC.getFrameRateSetting;
+}
+
+void cpp_updateFrameRateHz() {
+	setup_frame_rate();
 }
 
 bool objc_getIPadMousePassthroughOn(void) {

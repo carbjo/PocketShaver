@@ -237,9 +237,21 @@ extension UIApplication {
 
 extension ImageResource {
 	func asSymbolImage() -> UIImage {
-		UIImage(resource: self)
-			.withRenderingMode(.alwaysTemplate)
+		UIImage(resource: self).asSymbolImage()
+	}
+}
+
+extension UIImage {
+	func asSymbolImage() -> UIImage {
+		withRenderingMode(.alwaysTemplate)
 			.applyingSymbolConfiguration(.init(pointSize: 12))!
+	}
+}
+
+extension UIImage {
+	func withUltraLightConfiguration() -> UIImage? {
+		let symbolConfiguration = UIImage.SymbolConfiguration(weight: .ultraLight)
+		return applyingSymbolConfiguration(symbolConfiguration)
 	}
 }
 
