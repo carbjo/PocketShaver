@@ -140,6 +140,13 @@ static uint64_t                     frame_interval_usec = 0;   // microseconds p
 static uint64_t                     last_3d_frame_usec  = 0;   // timestamp of last 3D frame gate
 
 // ---------------------------------------------------------------------------
+// Gamma fade state — set by DSpContext_FadeGamma* via MetalCompositorSetGammaMultiplier
+// ---------------------------------------------------------------------------
+
+static float                        compositor_gamma = 1.0f;
+static float                        compositor_zero_color[3] = {0.0f, 0.0f, 0.0f};
+
+// ---------------------------------------------------------------------------
 // bits_per_pixel_for_depth — convert VIDEO_DEPTH_* to actual bit count
 // ---------------------------------------------------------------------------
 
@@ -596,6 +603,23 @@ void MetalCompositorSetOverlayRect(int x, int y, int w, int h)
 }
 
 // ---------------------------------------------------------------------------
+// MetalCompositorSetGammaMultiplier — set gamma fade level for fragment shaders
+// ---------------------------------------------------------------------------
+
+void MetalCompositorSetGammaMultiplier(float gamma, const float *zero_color)
+{
+    compositor_gamma = gamma;
+    if (zero_color) {
+        compositor_zero_color[0] = zero_color[0];
+        compositor_zero_color[1] = zero_color[1];
+        compositor_zero_color[2] = zero_color[2];
+    }
+    COMPOSITOR_LOG("MetalCompositorSetGammaMultiplier: gamma=%.3f zero_color=(%.3f,%.3f,%.3f)",
+                   compositor_gamma,
+                   compositor_zero_color[0], compositor_zero_color[1], compositor_zero_color[2]);
+}
+
+// ---------------------------------------------------------------------------
 // MetalCompositorPresent — render one frame
 // ---------------------------------------------------------------------------
 
@@ -652,6 +676,15 @@ void MetalCompositorPresent(void)
         [enc setFragmentSamplerState:compositor_sampler atIndex:0];
     }
     // 16-bit mode: no extra bindings — shader reads directly
+
+    // Gamma fade uniform: pass gamma multiplier + zero-intensity color to all fragment shaders
+    // (buffer index 3 — matches GammaParams struct in compositor_shaders.metal)
+    struct { float gamma; float zero_color[3]; } gamma_params;
+    gamma_params.gamma = compositor_gamma;
+    gamma_params.zero_color[0] = compositor_zero_color[0];
+    gamma_params.zero_color[1] = compositor_zero_color[1];
+    gamma_params.zero_color[2] = compositor_zero_color[2];
+    [enc setFragmentBytes:&gamma_params length:sizeof(gamma_params) atIndex:3];
 
     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
 
@@ -971,6 +1004,12 @@ void MetalCompositorShutdown(void)
     // Frame-pacing cleanup
     frame_interval_usec = 0;
     last_3d_frame_usec  = 0;
+
+    // Gamma fade cleanup
+    compositor_gamma = 1.0f;
+    compositor_zero_color[0] = 0.0f;
+    compositor_zero_color[1] = 0.0f;
+    compositor_zero_color[2] = 0.0f;
 
     COMPOSITOR_LOG("MetalCompositorShutdown: done");
 }

@@ -23,6 +23,19 @@ struct CompositorVertexOut {
 };
 
 /*
+ *  GammaParams — gamma fade uniform passed at buffer index 3.
+ *
+ *  gamma:      0.0 = fully faded to zero_color, 1.0 = fully visible
+ *  zero_color: the RGB color the display fades toward (usually black)
+ *
+ *  Applied as: rgb = mix(zero_color, rgb, gamma)
+ */
+struct GammaParams {
+    float gamma;
+    float3 zero_color;
+};
+
+/*
  *  Fullscreen triangle trick: three vertices cover the entire clip space.
  *  Positions: (-1,-1), (3,-1), (-1,3)  — triangle covers [-1,1]x[-1,1]
  *
@@ -67,10 +80,13 @@ vertex CompositorVertexOut compositor_vertex(uint vid [[vertex_id]])
  */
 fragment float4 compositor_fragment_32bpp(CompositorVertexOut in [[stage_in]],
                                           texture2d<float> tex [[texture(0)]],
-                                          sampler samp [[sampler(0)]])
+                                          sampler samp [[sampler(0)]],
+                                          constant GammaParams &gp [[buffer(3)]])
 {
     float4 s = tex.sample(samp, in.texCoord);
-    return float4(s.g, s.r, s.a, 1.0);
+    float3 rgb = float3(s.g, s.r, s.a);
+    rgb = mix(gp.zero_color, rgb, gp.gamma);
+    return float4(rgb, 1.0);
 }
 
 /*
@@ -88,7 +104,8 @@ fragment float4 compositor_fragment_indexed(CompositorVertexOut in [[stage_in]],
                                             texture2d<uint, access::read> tex [[texture(0)]],
                                             constant uchar4 *palette [[buffer(0)]],
                                             constant uint &bits_per_pixel [[buffer(1)]],
-                                            constant uint &pixel_width [[buffer(2)]])
+                                            constant uint &pixel_width [[buffer(2)]],
+                                            constant GammaParams &gp [[buffer(3)]])
 {
     uint px = uint(in.texCoord.x * float(pixel_width));
     uint py = uint(in.texCoord.y * float(tex.get_height()));
@@ -113,7 +130,9 @@ fragment float4 compositor_fragment_indexed(CompositorVertexOut in [[stage_in]],
     }
 
     uchar4 color = palette[index];
-    return float4(float(color.r), float(color.g), float(color.b), 255.0) / 255.0;
+    float3 rgb = float3(float(color.r), float(color.g), float(color.b)) / 255.0;
+    rgb = mix(gp.zero_color, rgb, gp.gamma);
+    return float4(rgb, 1.0);
 }
 
 /*
@@ -128,7 +147,8 @@ fragment float4 compositor_fragment_indexed(CompositorVertexOut in [[stage_in]],
  *  available for MTLPixelFormatR16Uint.
  */
 fragment float4 compositor_fragment_16bpp(CompositorVertexOut in [[stage_in]],
-                                          texture2d<uint, access::read> tex [[texture(0)]])
+                                          texture2d<uint, access::read> tex [[texture(0)]],
+                                          constant GammaParams &gp [[buffer(3)]])
 {
     uint px = uint(in.texCoord.x * float(tex.get_width()));
     uint py = uint(in.texCoord.y * float(tex.get_height()));
@@ -147,7 +167,9 @@ fragment float4 compositor_fragment_16bpp(CompositorVertexOut in [[stage_in]],
     uint G = (packed >> 5) & 0x1F;
     uint B = packed & 0x1F;
 
-    return float4(float(R) / 31.0, float(G) / 31.0, float(B) / 31.0, 1.0);
+    float3 rgb = float3(float(R) / 31.0, float(G) / 31.0, float(B) / 31.0);
+    rgb = mix(gp.zero_color, rgb, gp.gamma);
+    return float4(rgb, 1.0);
 }
 
 /*

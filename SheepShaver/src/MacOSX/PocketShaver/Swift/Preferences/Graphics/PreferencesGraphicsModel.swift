@@ -86,6 +86,16 @@ class PreferencesGraphicsModel {
 		}
 	}
 
+	var dspAccelEnabled: Bool {
+		get {
+			objc_findBool("dspaccel")
+		}
+		set {
+			objc_replaceBool("dspaccel", newValue)
+			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+		}
+	}
+
 	// MARK: - Rendering Filter Mode (new)
 
 	var renderingFilterMode: RenderingFilterMode {

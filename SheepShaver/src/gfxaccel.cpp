@@ -25,6 +25,7 @@
 #include "video_defs.h"
 #include "rave_engine.h"
 #include "gl_engine.h"
+#include "dsp_engine.h"
 #include "nqd_accel.h"
 
 #define DEBUG 0
@@ -700,4 +701,9 @@ void VideoInstallAccel(void)
 	// GLInstallHooks has its own guards and returns immediately if already installed.
 	if (PrefsFindBool("glaccel"))
 		GLInstallHooks();
+
+	// Install DrawSprocket hooks for DSp function interception.
+	// DSpInstallHooks has its own guards and returns immediately if already installed.
+	if (PrefsFindBool("dspaccel"))
+		DSpInstallHooks();
 }

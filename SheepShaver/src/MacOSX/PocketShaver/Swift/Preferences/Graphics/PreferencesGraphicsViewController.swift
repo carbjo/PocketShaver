@@ -36,6 +36,7 @@ class PreferencesGraphicsViewController: UITableViewController {
 		case graphicsAccelerationNqdToggle
 		case graphicsAccelerationRaveToggle
 		case graphicsAccelerationGlToggle
+		case graphicsAccelerationDspToggle
 		case graphicsAccelerationInfo
 	}
 
@@ -177,6 +178,13 @@ class PreferencesGraphicsViewController: UITableViewController {
 				) { [weak self] isOn in
 					self?.model.glAccelEnabled = isOn
 				}
+			case .graphicsAccelerationDspToggle:
+				return PreferencesEnabledSettingCell(
+					title: "DrawSprocket Acceleration",
+					isOn: model.dspAccelEnabled
+				) { [weak self] isOn in
+					self?.model.dspAccelEnabled = isOn
+				}
 			case .graphicsAccelerationInfo:
 				return PreferencesInformationCell(
 					text: "Experimental — Requires Metal GPU. Changes take effect on restart."
@@ -239,6 +247,7 @@ class PreferencesGraphicsViewController: UITableViewController {
 			.graphicsAccelerationNqdToggle,
 			.graphicsAccelerationRaveToggle,
 			.graphicsAccelerationGlToggle,
+			.graphicsAccelerationDspToggle,
 			.graphicsAccelerationInfo
 		])
 

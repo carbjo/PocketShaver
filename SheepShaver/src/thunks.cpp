@@ -24,6 +24,7 @@
 #include "cpu_emulation.h"
 #include "rave_engine.h"
 #include "gl_engine.h"
+#include "dsp_engine.h"
 #include "xlowmem.h"
 
 // Native function declarations
@@ -108,6 +109,9 @@ uint32 NativeOpcode(int selector)
 		opcode = POWERPC_NATIVE_OP(0, selector);
 		break;
 	case NATIVE_OPENGL_DISPATCH:
+		opcode = POWERPC_NATIVE_OP(0, selector);
+		break;
+	case NATIVE_DSP_DISPATCH:
 		opcode = POWERPC_NATIVE_OP(0, selector);
 		break;
 	default:
@@ -287,6 +291,9 @@ bool ThunksInit(void)
 
 	// Initialize OpenGL TVECTs (must be after SheepMem is available)
 	GLThunksInit();
+
+	// Initialize DrawSprocket TVECTs (must be after SheepMem is available)
+	DSpThunksInit();
 
 #if POWERPC_GET_RESOURCE_THUNKS
 	generate_powerpc_thunks();

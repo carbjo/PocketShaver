@@ -174,6 +174,21 @@ void MetalCompositorSetOverlayActive(int active);
 void MetalCompositorSync3DFramePacing(void);
 
 /*
+ * Set the gamma multiplier for display fading.
+ *
+ * Called by DSpHandleFadeGamma/FadeGammaOut/FadeGammaIn to push the
+ * current gamma level to the compositor. The gamma value (0.0–1.0) and
+ * zero-intensity color (RGB, 0.0–1.0) are passed to all fragment shaders
+ * as a uniform at buffer index 3. The final RGB output is:
+ *   rgb = mix(zero_color, rgb, gamma)
+ *
+ * Parameters:
+ *   gamma      - gamma multiplier (0.0 = fully faded, 1.0 = fully visible)
+ *   zero_color - pointer to 3 floats (R, G, B) for the zero-intensity color
+ */
+void MetalCompositorSetGammaMultiplier(float gamma, const float *zero_color);
+
+/*
  * Set the overlay's position and visible size within the Mac framebuffer.
  *
  * RAVE/GL 3D contexts have a specific rect within the Mac screen.

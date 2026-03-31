@@ -41,6 +41,7 @@
 #include "timer.h"
 #include "rave_engine.h"
 #include "gl_engine.h"
+#include "dsp_engine.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1355,6 +1356,40 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		if (gpr(1) != saved_sp) gpr(1) = saved_sp;
 		if (gpr(2) != saved_r2) gpr(2) = saved_r2;
 
+		break;
+	}
+	case NATIVE_DSP_DISPATCH: {
+		// Save critical PPC registers (same pattern as RAVE/GL — re-entrant
+		// PPC execution can corrupt these during native dispatch).
+		uint32 saved_lr = lr();
+		uint32 saved_ctr = ctr();
+		uint32 saved_sp = gpr(1);
+		uint32 saved_r2 = gpr(2);
+
+		// Read sub-opcode from DSp scratch word
+		uint32 sub_opcode = ReadMacInt32(dsp_scratch_addr);
+
+		// DrawSprocket functions use only integer/pointer args (no floats),
+		// so we pass GPR args directly without FPR extraction.
+		gpr(3) = DSpDispatch(gpr(3), gpr(4), gpr(5), gpr(6), gpr(7), gpr(8));
+
+		// Restore registers that may have been corrupted
+		if (lr() != saved_lr) {
+			D(bug("DSP: LR corrupted during native op (sub=%d), restoring\n", sub_opcode));
+			lr() = saved_lr;
+		}
+		if (ctr() != saved_ctr) {
+			D(bug("DSP: CTR corrupted during native op (sub=%d), restoring\n", sub_opcode));
+			ctr() = saved_ctr;
+		}
+		if (gpr(1) != saved_sp) {
+			D(bug("DSP: SP corrupted during native op (sub=%d), restoring\n", sub_opcode));
+			gpr(1) = saved_sp;
+		}
+		if (gpr(2) != saved_r2) {
+			D(bug("DSP: R2(TOC) corrupted during native op (sub=%d), restoring\n", sub_opcode));
+			gpr(2) = saved_r2;
+		}
 		break;
 	}
 	default:
