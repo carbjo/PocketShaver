@@ -679,7 +679,14 @@ void MetalCompositorPresent(void)
 
     // Gamma fade uniform: pass gamma multiplier + zero-intensity color to all fragment shaders
     // (buffer index 3 — matches GammaParams struct in compositor_shaders.metal)
-    struct { float gamma; float zero_color[3]; } gamma_params;
+    // Must match Metal's GammaParams { float gamma; float3 zero_color; }
+    // float3 is 16-byte aligned in Metal, so pad to offset 16.
+    struct __attribute__((aligned(16))) {
+        float gamma;
+        float _pad[3];
+        float zero_color[4]; // float3 occupies 16 bytes in Metal (3 floats + padding)
+    } gamma_params;
+    memset(&gamma_params, 0, sizeof(gamma_params));
     gamma_params.gamma = compositor_gamma;
     gamma_params.zero_color[0] = compositor_zero_color[0];
     gamma_params.zero_color[1] = compositor_zero_color[1];
