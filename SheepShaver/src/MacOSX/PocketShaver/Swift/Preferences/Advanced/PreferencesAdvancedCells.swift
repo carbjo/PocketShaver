@@ -104,51 +104,6 @@ class PreferencesAdvancedMiscellaneousCell: UITableViewCell {
 	required init?(coder: NSCoder) { fatalError() }
 }
 
-class PreferencesAdvancedFrameRateSettingCell: UITableViewCell {
-	private lazy var segmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withoutConstraints()
-		for (index, tab) in FrameRateSetting.allCases.enumerated() {
-			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
-		}
-		segmentedControl.addTarget(self, action: #selector(tabSegmentedControlChanged), for: .valueChanged)
-		return segmentedControl
-	}()
-
-	private let didChangeSelection: ((FrameRateSetting) -> Void)
-
-	init(
-		initialFrameRateSetting: FrameRateSetting,
-		didChangeSelection: @escaping ((FrameRateSetting) -> Void)
-	) {
-		self.didChangeSelection = didChangeSelection
-
-		super.init(style: .default, reuseIdentifier: nil)
-
-		hideSeparator()
-
-		contentView.addSubview(segmentedControl)
-
-		NSLayoutConstraint.activate([
-			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
-			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
-			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
-		])
-
-		segmentedControl.selectedSegmentIndex = FrameRateSetting.allCases.enumerated().first(where: { initialFrameRateSetting == $1 })!.0
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
-
-	@objc private func tabSegmentedControlChanged() {
-		let index = segmentedControl.selectedSegmentIndex
-		let setting = FrameRateSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
-
-		didChangeSelection(setting)
-	}
-}
-
 class PreferencesAdvancedRelativeMouseModeSettingCell: UITableViewCell {
 	private lazy var segmentedControl: UISegmentedControl = {
 		let segmentedControl = UISegmentedControl.withoutConstraints()
@@ -415,16 +370,6 @@ class PreferencesAdvancedGammaRampSettingCell: UITableViewCell {
 extension PreferencesGeneralRamSetting {
 	var label: String {
 		"\(ramInMB) MB"
-	}
-}
-
-private extension FrameRateSetting {
-	var label: String {
-		switch self {
-		case .f60hz: return "60 hz"
-		case .f75hz: return "75 hz"
-		case .f120hz: return "120 hz"
-		}
 	}
 }
 

@@ -267,7 +267,7 @@ public class OverlayViewController: UIViewController {
 				}
 
 				informationView.show(
-					hintIcon: .computermouse,
+					hintIcon: .arrowUpAndDownAndArrowLeftAndRight,
 					hint: hint,
 					atBottom: state != .showingKeyboard
 				)

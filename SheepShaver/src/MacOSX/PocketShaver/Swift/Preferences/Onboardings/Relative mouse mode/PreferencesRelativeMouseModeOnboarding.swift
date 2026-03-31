@@ -53,7 +53,7 @@ Yes. But it is not always the most convenient steering method. If the software d
 			font: .boldSystemFont(ofSize: 18),
 			color: Colors.primaryText
 		),
-		images: [ImageResource.computermouse.asSymbolImage()]
+		images: [ImageResource.arrowUpAndDownAndArrowLeftAndRight.asSymbolImage()]
 	)
 )
 

@@ -101,7 +101,7 @@ class MiscellaneousSettings: Codable {
 		} else {
 			frameRateSetting = .f60hz
 		}
-		alwaysLandscapeMode = false
+		alwaysLandscapeMode = true
 		relativeMouseModeSetting = .manual
 		relativeMouseTapToClick = true
 		secondFingerClick = false
@@ -212,9 +212,6 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(alwaysLandscapeMode: Bool) {
 		self.alwaysLandscapeMode = alwaysLandscapeMode
-		if alwaysLandscapeMode {
-			InformationConsumption.current.reportHasDisplayedPortraitModeWarning()
-		}
 
 		saveAsCurrent()
 	}

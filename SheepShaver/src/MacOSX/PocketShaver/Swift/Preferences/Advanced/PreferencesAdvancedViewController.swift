@@ -11,10 +11,10 @@ import Combine
 class PreferencesAdvancedViewController: UITableViewController {
 	enum Section {
 		case ramSetting
-		case frameRateSetting
 		case performanceMetrics
 		case uiOptions
 		case relateiveMouseMode
+		case hapticFeedback
 		case gammaRampSetting
 		case bootstrap
 		case resources
@@ -23,10 +23,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 	enum Row: Hashable {
 		//ramSetting
 		case ramSetting
-
-		//frameRateSetting
-		case frameRateSettingToggle
-		case frameRateSettingInfo
 
 		//performanceMetrics
 		case performanceMetricsFpsCounterToggle
@@ -43,6 +39,11 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case relateiveMouseModeInfo
 		case relateiveMouseTapToClickToggle
 		case relateiveMouseTapToClickInfo
+
+		// hapticFeedback
+		case hapticFeedbackSwipeGesturesToggle
+		case hapticFeedbackMouseClicksToggle
+		case hapticFeedbackGamepadKeyStrokesToggle
 
 		//gammaRampSetting
 		case gammaRampSetting
@@ -66,8 +67,14 @@ class PreferencesAdvancedViewController: UITableViewController {
 	private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 	private let hoverJustAboveOffsetFeedbackGenerator = UISelectionFeedbackGenerator()
 
-	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
-		model = .init(changeSubject: changeSubject)
+	init(
+		mode: PreferencesLaunchMode,
+		changeSubject: PassthroughSubject<PreferencesChange, Never>
+	) {
+		model = .init(
+			mode: mode,
+			changeSubject: changeSubject
+		)
 
 		super.init(nibName: nil, bundle: nil)
 
@@ -97,18 +104,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 					model.ramSetting = newValue
 					feedbackGenerator.impactOccurred()
 				}
-			case .frameRateSettingToggle:
-				return PreferencesAdvancedFrameRateSettingCell(
-					initialFrameRateSetting: model.frameRateSetting
-				) { [weak self] newFrameRateSetting in
-					guard let self else { return }
-					model.frameRateSetting = newFrameRateSetting
-					feedbackGenerator.impactOccurred()
-				}
-			case .frameRateSettingInfo:
-				return PreferencesInformationCell(
-					text: "Most games and apps have a maximum frame rate of 60 hz, 75 hz or lower. Higher frame rate settings impact performance. Changes in frame rate setting requires PocketShaver to restart."
-				)
 			case .performanceMetricsFpsCounterToggle:
 				return PreferencesEnabledSettingCell(
 					title: "Show FPS counter",
@@ -163,7 +158,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 				return PreferencesInformationCell(
 					text: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the <img/> button above the keyboard. <link>Read more</link>.",
 					tagConfig: .init(
-						images: [ImageResource.computermouse.asSymbolImage()]
+						images: [ImageResource.arrowUpAndDownAndArrowLeftAndRight.asSymbolImage()]
 					),
 					separatorHidden: false
 				) { [weak self] in
@@ -185,6 +180,27 @@ class PreferencesAdvancedViewController: UITableViewController {
 				return PreferencesInformationCell(
 					text: "Setting only affects relative mouse mode."
 				)
+			case .hapticFeedbackSwipeGesturesToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Two / three finger swipe gestures",
+					isOn: model.isGestureHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isGestureHapticFeedbackOn = isOn
+				}
+			case .hapticFeedbackMouseClicksToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Mouse clicks",
+					isOn: model.isMouseHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isMouseHapticFeedbackOn = isOn
+				}
+			case .hapticFeedbackGamepadKeyStrokesToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Gamepad key strokes",
+					isOn: model.isKeyHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isKeyHapticFeedbackOn = isOn
+				}
 			case .gammaRampSetting:
 				return PreferencesAdvancedGammaRampSettingCell(
 					initialGammaRampSetting: model.gammaRampSetting
@@ -231,14 +247,14 @@ class PreferencesAdvancedViewController: UITableViewController {
 			switch section {
 			case .ramSetting:
 				return "RAM setting"
-			case .frameRateSetting:
-				return "Frame rate setting"
 			case .performanceMetrics:
 				return "Performance metrics"
 			case .uiOptions:
 				return "UI options"
 			case .relateiveMouseMode:
 				return "Relative mouse mode"
+			case .hapticFeedback:
+				return "Haptic feedback"
 			case .gammaRampSetting:
 				return "Gamma ramp"
 			case .bootstrap:
@@ -259,14 +275,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 		snapshot.appendSections([.ramSetting])
 		snapshot.appendItems([.ramSetting])
-
-		if UIScreen.supportsHighRefreshRate {
-			snapshot.appendSections([.frameRateSetting])
-			snapshot.appendItems([
-				.frameRateSettingToggle,
-				.frameRateSettingInfo
-			])
-		}
 
 		snapshot.appendSections([.performanceMetrics])
 		snapshot.appendItems([
@@ -289,6 +297,15 @@ class PreferencesAdvancedViewController: UITableViewController {
 			.relateiveMouseTapToClickToggle,
 			.relateiveMouseTapToClickInfo
 		])
+
+		if model.supportsHaptics {
+			snapshot.appendSections([.hapticFeedback])
+			snapshot.appendItems([
+				.hapticFeedbackSwipeGesturesToggle,
+				.hapticFeedbackMouseClicksToggle,
+				.hapticFeedbackGamepadKeyStrokesToggle
+			])
+		}
 
 		snapshot.appendSections([.gammaRampSetting])
 		snapshot.appendItems([

@@ -256,47 +256,70 @@ class PreferencesGeneralErrorCell: UITableViewCell {
 	required init?(coder: NSCoder) { fatalError() }
 }
 
-class PreferencesGeneralDiskColumnsDescriptionCell: UITableViewCell {
-	private lazy var titleLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.text = "Filename"
-		label.font = .boldSystemFont(ofSize: 14)
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		return label
-	}()
-
-	private lazy var enabledLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.text = "Mount"
-		label.font = .boldSystemFont(ofSize: 14)
-		return label
-	}()
-
-	private lazy var hiddenEnabledSwitch: UISwitch = {
-		let uiSwich = UISwitch.withoutConstraints()
-		uiSwich.isHidden = true
-		return uiSwich
-	}()
-
-	init() {
-		super.init(style: .default, reuseIdentifier: nil)
-
-		contentView.addSubview(titleLabel)
-		contentView.addSubview(hiddenEnabledSwitch)
-		contentView.addSubview(enabledLabel)
+class PreferencesGeneralDiskActionBarCell: UITableViewCell {
+	private lazy var reloadButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.tintColor = Colors.secondaryText
+		button.setImage(.init(resource: .arrowTriangleheadCounterclockwiseRotate90), for: .normal)
 
 		NSLayoutConstraint.activate([
-			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			titleLabel.centerYAnchor.constraint(equalTo: hiddenEnabledSwitch.centerYAnchor),
-			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: hiddenEnabledSwitch.leadingAnchor, constant: -16),
+			button.widthAnchor.constraint(equalToConstant: 44),
+			button.heightAnchor.constraint(equalToConstant: 44)
+		])
 
-			hiddenEnabledSwitch.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-			hiddenEnabledSwitch.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
-			hiddenEnabledSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+		return button
+	}()
 
-			enabledLabel.centerYAnchor.constraint(equalTo: hiddenEnabledSwitch.centerYAnchor),
-			enabledLabel.trailingAnchor.constraint(equalTo: hiddenEnabledSwitch.trailingAnchor)
+	private lazy var addButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.tintColor = Colors.secondaryText
+		button.setImage(Assets.plus, for: .normal)
+		button.showsMenuAsPrimaryAction = true
+
+		NSLayoutConstraint.activate([
+			button.widthAnchor.constraint(equalToConstant: 44),
+			button.heightAnchor.constraint(equalToConstant: 44)
+		])
+
+		return button
+	}()
+
+	init(
+		didTapReloadButton: @escaping (() -> Void),
+		didTapCreateAction: @escaping (() -> Void),
+		didTapImportAction: @escaping (() -> Void)
+	) {
+		super.init(style: .default, reuseIdentifier: nil)
+
+		let reloadAction = UIAction { _ in
+			didTapReloadButton()
+		}
+		reloadButton.addAction(reloadAction, for: .touchUpInside)
+
+		let createAction = UIAction(
+			title: "Create empty disk",
+			image: Assets.plus
+		) { _ in
+			didTapCreateAction()
+		}
+		let importAction = UIAction(
+			title: "Import disk file",
+			image: Assets.squareAndArrowDown
+		) { _ in
+			didTapImportAction()
+		}
+		let addMenu = UIMenu(title: "", children: [createAction, importAction])
+		addButton.menu = addMenu
+
+		contentView.addSubview(reloadButton)
+		contentView.addSubview(addButton)
+
+		NSLayoutConstraint.activate([
+			reloadButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
+			addButton.leadingAnchor.constraint(equalTo: reloadButton.trailingAnchor),
+			addButton.topAnchor.constraint(equalTo: contentView.topAnchor),
+			addButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			addButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
 		])
 	}
 
@@ -486,251 +509,48 @@ class PreferencesGeneralDiskCell: UITableViewCell {
 	}
 }
 
-class PreferencesGeneralDiskSectionActionsCell: UITableViewCell {
-	private lazy var informationLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		label.font = .systemFont(ofSize: 14)
-		label.textColor = Colors.secondaryText
-		let supportedFormatsString = DiskManager.supportedFileExtensions.map({ ".\($0)" }).joined(separator: ", ")
-		label.text = "Disks placed in the root of PocketShaver share folder will appear here. Supported formats: \(supportedFormatsString)."
-		return label
+class PreferencesGeneralFrameRateSettingCell: UITableViewCell {
+	private lazy var segmentedControl: UISegmentedControl = {
+		let segmentedControl = UISegmentedControl.withoutConstraints()
+		for (index, tab) in FrameRateSetting.allCases.enumerated() {
+			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
+		}
+		segmentedControl.addTarget(self, action: #selector(tabSegmentedControlChanged), for: .valueChanged)
+		return segmentedControl
 	}()
 
-	private lazy var buttonStackView: UIStackView = {
-		let stackView = UIStackView.withoutConstraints()
-		stackView.axis = .vertical
-		stackView.spacing = 12
-		stackView.distribution = .fill
-		stackView.alignment = .fill
-		return stackView
-	}()
-
-	private lazy var createDiskButton: UIButton = {
-		let button = UIButton.withoutConstraints()
-		button.configuration = .primaryActionConfig
-		button.setTitle("Create empty disk", for: .normal)
-		button.addTarget(self, action: #selector(createDiskButtonPushed), for: .touchUpInside)
-		return button
-	}()
-
-	private lazy var reloadDisksButton: UIButton = {
-		let button = UIButton.withoutConstraints()
-		button.configuration = .secondaryActionConfig
-		button.setTitle("Reload disk list", for: .normal)
-		button.addTarget(self, action: #selector(reloadDisksButtonPushed), for: .touchUpInside)
-		return button
-	}()
-
-	private lazy var importDiskButton: UIButton = {
-		let button = UIButton.withoutConstraints()
-		button.configuration = .secondaryActionConfig
-		button.setTitle("Import disk file", for: .normal)
-		button.addTarget(self, action: #selector(importDiskButtonPushed), for: .touchUpInside)
-		return button
-	}()
-
-	private let didTapCreateDiskButton: (() -> Void)
-	private let didTapReloadDisksButton: (() -> Void)
-	private let didTapImportDiskButton: (() -> Void)
+	private let didChangeSelection: ((FrameRateSetting) -> Void)
 
 	init(
-		hasDskFile: Bool,
-		didTapCreateDiskButton: @escaping (() -> Void),
-		didTapReloadDisksButton: @escaping (() -> Void),
-		didTapImportDiskButton: @escaping (() -> Void)
+		initialFrameRateSetting: FrameRateSetting,
+		didChangeSelection: @escaping ((FrameRateSetting) -> Void)
 	) {
-		self.didTapCreateDiskButton = didTapCreateDiskButton
-		self.didTapReloadDisksButton = didTapReloadDisksButton
-		self.didTapImportDiskButton = didTapImportDiskButton
+		self.didChangeSelection = didChangeSelection
 
 		super.init(style: .default, reuseIdentifier: nil)
 
 		hideSeparator()
 
-		contentView.addSubview(informationLabel)
-		buttonStackView.addArrangedSubview(createDiskButton)
-		buttonStackView.addArrangedSubview(reloadDisksButton)
-		buttonStackView.addArrangedSubview(importDiskButton)
-		contentView.addSubview(buttonStackView)
+		contentView.addSubview(segmentedControl)
 
 		NSLayoutConstraint.activate([
-			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-
-			reloadDisksButton.heightAnchor.constraint(equalToConstant: 44),
-			createDiskButton.heightAnchor.constraint(equalToConstant: 44),
-			importDiskButton.heightAnchor.constraint(equalToConstant: 44),
-
-			buttonStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-			buttonStackView.topAnchor.constraint(equalTo: informationLabel.bottomAnchor, constant: 12),
-			buttonStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-			buttonStackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
+			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
+			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
 		])
 
-		setupForHasDskFile(hasDskFile, animated: false)
+		segmentedControl.selectedSegmentIndex = FrameRateSetting.allCases.enumerated().first(where: { initialFrameRateSetting == $1 })!.0
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	func setupForHasDskFile(_ hasDskFile: Bool, animated: Bool) {
-		let block: (() -> Void)
-		if hasDskFile {
-			block = { [weak self] in
-				guard let self else { return }
-				buttonStackView.removeArrangedSubview(self.reloadDisksButton)
-				buttonStackView.insertArrangedSubview(self.reloadDisksButton, at: 0)
+	@objc private func tabSegmentedControlChanged() {
+		let index = segmentedControl.selectedSegmentIndex
+		let setting = FrameRateSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
 
-				createDiskButton.configuration = .secondaryActionConfig
-				createDiskButton.setTitle(self.createDiskButton.title(for: .normal), for: .normal)
-			}
-		} else {
-			block = { [weak self] in
-				guard let self else { return }
-				buttonStackView.removeArrangedSubview(self.createDiskButton)
-				buttonStackView.insertArrangedSubview(self.createDiskButton, at: 0)
-
-				createDiskButton.configuration = .primaryActionConfig
-				createDiskButton.setTitle(self.createDiskButton.title(for: .normal), for: .normal)
-			}
-		}
-
-
-		if animated {
-			UIView.animate(withDuration: 0.2) {
-				block()
-
-				self.buttonStackView.layoutIfNeeded()
-			}
-		} else {
-			block()
-		}
-	}
-
-	@objc
-	private func reloadDisksButtonPushed() {
-		didTapReloadDisksButton()
-	}
-
-	@objc
-	private func createDiskButtonPushed() {
-		didTapCreateDiskButton()
-	}
-
-	@objc
-	private func importDiskButtonPushed() {
-		didTapImportDiskButton()
-	}
-}
-
-class PreferencesGeneralEnabledMonitorResolutionsCell: UITableViewCell {
-	private lazy var editButton: UIButton = {
-		let button = UIButton.withoutConstraints()
-		button.setTitle("Edit", for: .normal)
-		button.setTitleColor(Colors.primaryText, for: .normal)
-		button.setTitleColor(Colors.highlightedText, for: .highlighted)
-		button.titleLabel?.font = .boldSystemFont(ofSize: 17)
-		button.addTarget(self, action: #selector(editButtonPushed), for: .touchUpInside)
-		return button
-	}()
-
-	private var titleLabel: LinkLabel?
-
-	private let didTapEditButton: (() -> Void)
-
-	init(
-		monitorResolutionsState: PreferencesGeneralModel.MonitorResolutionsState,
-		didTapEditButton: @escaping (() -> Void)
-	) {
-		self.didTapEditButton = didTapEditButton
-
-		super.init(style: .default, reuseIdentifier: nil)
-
-		contentView.addSubview(editButton)
-
-		NSLayoutConstraint.activate([
-			editButton.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
-			editButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
-			editButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
-		])
-
-		configure(
-			monitorResolutionsState: monitorResolutionsState
-		)
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
-
-	func configure(
-		monitorResolutionsState: PreferencesGeneralModel.MonitorResolutionsState
-	) {
-		let monitorResolutionCategoryIndex: (MonitorResolutionCategory) -> Int = { category in
-			MonitorResolutionCategory.allCases.firstIndex(of: category)!
-		}
-		let sortedMonitorResolutions = monitorResolutionsState.enabledResolutions.sorted { opt1, opt2 in
-			if monitorResolutionCategoryIndex(opt1.category) < monitorResolutionCategoryIndex(opt2.category) {
-				return true
-			}
-
-			if opt1.resolution.width < opt2.resolution.width {
-				return true
-			}
-
-			return opt1.resolution.height < opt2.resolution.height
-		}
-
-		var text = ""
-		var images: [UIImage] = []
-		for monitorResolution in sortedMonitorResolutions {
-			let categoryTagView = PreferencesGeneralTagView()
-				.configure(
-					text: monitorResolution.category.description
-				)
-			let categoryTagViewImage = categoryTagView.asImage()
-
-			text += "• \(monitorResolution.resolution.width) x \(monitorResolution.resolution.height) <img yOffset=-2/>"
-			if monitorResolution != sortedMonitorResolutions.last {
-				text += "\n"
-			}
-			images.append(categoryTagViewImage)
-		}
-
-		let titleLabel = LinkLabel(
-			text: text,
-			config: .init(
-				images: images,
-				highlightedImages: []
-			),
-			font: .systemFont(ofSize: 17),
-			textColor: Colors.primaryText
-		)
-
-		titleLabel.label.setContentHuggingPriority(.required, for: .horizontal)
-		titleLabel.label.setContentCompressionResistancePriority(.required, for: .vertical)
-
-		contentView.addSubview(titleLabel)
-
-		NSLayoutConstraint.activate([
-			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			titleLabel.centerYAnchor.constraint(equalTo: editButton.centerYAnchor),
-			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: editButton.leadingAnchor, constant: -16),
-			titleLabel.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
-			titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
-
-			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16).withPriority(.defaultHigh),
-			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.defaultHigh),
-			])
-
-		self.titleLabel = titleLabel
-
-		editButton.isHidden = monitorResolutionsState.willBootFromCD
-	}
-
-	@objc
-	private func editButtonPushed() {
-		didTapEditButton()
+		didChangeSelection(setting)
 	}
 }
 
@@ -975,6 +795,126 @@ class PreferencesGeneralKeyboardAutoOffsetCell: UITableViewCell {
 		let setting = KeyboardAutoOffsetSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
 
 		didChangeSelection(setting)
+	}
+}
+
+class PreferencesGeneralEnabledMonitorResolutionsCell: UITableViewCell {
+	private lazy var editButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.setTitle("Edit", for: .normal)
+		button.setTitleColor(Colors.primaryText, for: .normal)
+		button.setTitleColor(Colors.highlightedText, for: .highlighted)
+		button.titleLabel?.font = .boldSystemFont(ofSize: 17)
+		button.addTarget(self, action: #selector(editButtonPushed), for: .touchUpInside)
+		return button
+	}()
+
+	private var titleLabel: LinkLabel?
+
+	private let didTapEditButton: (() -> Void)
+
+	init(
+		monitorResolutionsState: PreferencesGeneralModel.MonitorResolutionsState,
+		didTapEditButton: @escaping (() -> Void)
+	) {
+		self.didTapEditButton = didTapEditButton
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		contentView.addSubview(editButton)
+
+		NSLayoutConstraint.activate([
+			editButton.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
+			editButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+			editButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+		])
+
+		configure(
+			monitorResolutionsState: monitorResolutionsState
+		)
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	func configure(
+		monitorResolutionsState: PreferencesGeneralModel.MonitorResolutionsState
+	) {
+		let monitorResolutionCategoryIndex: (MonitorResolutionCategory) -> Int = { category in
+			MonitorResolutionCategory.allCases.firstIndex(of: category)!
+		}
+		let sortedMonitorResolutions = monitorResolutionsState.enabledResolutions.sorted { opt1, opt2 in
+			if monitorResolutionCategoryIndex(opt1.category) < monitorResolutionCategoryIndex(opt2.category) {
+				return true
+			}
+
+			if opt1.resolution.width < opt2.resolution.width {
+				return true
+			}
+
+			return opt1.resolution.height < opt2.resolution.height
+		}
+
+		var text = ""
+		var images: [UIImage] = []
+		for monitorResolution in sortedMonitorResolutions {
+			let categoryTagView = PreferencesGeneralTagView()
+				.configure(
+					text: monitorResolution.category.description
+				)
+			let categoryTagViewImage = categoryTagView.asImage()
+
+			text += "• \(monitorResolution.resolution.width) x \(monitorResolution.resolution.height) <img yOffset=-2/>"
+			if monitorResolution != sortedMonitorResolutions.last {
+				text += "\n"
+			}
+			images.append(categoryTagViewImage)
+		}
+
+		let titleLabel = LinkLabel(
+			text: text,
+			config: .init(
+				images: images,
+				highlightedImages: []
+			),
+			font: .systemFont(ofSize: 17),
+			textColor: Colors.primaryText
+		)
+
+		titleLabel.label.setContentHuggingPriority(.required, for: .horizontal)
+		titleLabel.label.setContentCompressionResistancePriority(.required, for: .vertical)
+
+		contentView.addSubview(titleLabel)
+
+		NSLayoutConstraint.activate([
+			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			titleLabel.centerYAnchor.constraint(equalTo: editButton.centerYAnchor),
+			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: editButton.leadingAnchor, constant: -16),
+			titleLabel.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
+			titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+
+			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16).withPriority(.defaultHigh),
+			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.defaultHigh),
+			])
+
+		self.titleLabel = titleLabel
+
+		editButton.isHidden = monitorResolutionsState.willBootFromCD
+	}
+
+	@objc
+	private func editButtonPushed() {
+		didTapEditButton()
+	}
+}
+
+
+private extension FrameRateSetting {
+	var label: String {
+		switch self {
+		case .f60hz: return "60 hz"
+		case .f75hz: return "75 hz"
+		case .f120hz: return "120 hz"
+		}
 	}
 }
 
