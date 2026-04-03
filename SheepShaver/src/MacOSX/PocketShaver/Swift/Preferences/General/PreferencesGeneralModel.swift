@@ -41,12 +41,6 @@ class PreferencesGeneralModel {
 		let hasChanged: Bool
 	}
 
-	struct TwoFingerSteeringSettings: Hashable {
-		let secondFingerClick: Bool
-		let secondFingerSwipe: Bool
-		let bootInHoverMode: Bool
-	}
-
 	struct MonitorResolutionsState: Hashable {
 		let enabledResolutions: [MonitorResolutionOption]
 		let willBootFromCD: Bool
@@ -124,16 +118,28 @@ class PreferencesGeneralModel {
 		set {
 			miscSettings.set(iPadMousePassthrough: newValue)
 			objc_update_sdl_ipad_mouse_setting(newValue)
+
+			changeSubject.send(.iPadMouseEnabledChanged)
 		}
 	}
 
 	@MainActor
-	var twoFingerSteeringSettings: TwoFingerSteeringSettings {
-		return .init(
-			secondFingerClick: miscSettings.secondFingerClick,
-			secondFingerSwipe: miscSettings.secondFingerSwipe,
-			bootInHoverMode: miscSettings.bootInHoverMode
-		)
+	var twoFingerSteeringSetting: TwoFingerSteeringSetting {
+		get {
+			miscSettings.twoFingerSteeringSetting
+		}
+		set {
+			if twoFingerSteeringSetting == .off,
+			   newValue != .off {
+				miscSettings.set(relativeMouseModeClickGestureSetting: .secondFingerClick)
+			} else if twoFingerSteeringSetting != .off,
+					  newValue == .off,
+					  miscSettings.relativeMouseModeClickGestureSetting == .secondFingerClick {
+				miscSettings.set(relativeMouseModeClickGestureSetting: .tap)
+			}
+
+			miscSettings.set(twoFingerSteeringSetting: newValue)
+		}
 	}
 
 	@MainActor
@@ -343,10 +349,5 @@ class PreferencesGeneralModel {
 	@MainActor
 	func deleteDisk(_ disk: Disk) {
 		DiskManager.shared.remove(diskWithFilename: disk.filename)
-	}
-
-	@MainActor
-	func setTwoFingerSteering(enabled: Bool) {
-		miscSettings.setTwoFingerSteering(enabled: enabled)
 	}
 }

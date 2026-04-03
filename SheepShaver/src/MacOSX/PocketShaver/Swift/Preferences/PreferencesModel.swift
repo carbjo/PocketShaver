@@ -19,6 +19,7 @@ enum PreferencesChange {
 	case alwaysLandscapeModeOptionToggled
 	case selectedResolutionsChanged
 	case frameRateSettingChanged
+	case iPadMouseEnabledChanged
 }
 
 class PreferencesModel {

@@ -39,6 +39,18 @@ class TableViewDiffableDataSource<T: Hashable, S: Hashable> : UITableViewDiffabl
 		commitEditProvider(identifier, editingStyle)
 	}
 
+	func reloadSection(_ section: T) {
+		var snapshot = snapshot()
+		snapshot.reloadSections([section])
+		apply(snapshot)
+	}
+
+	func reloadItems(_ items: [S]) {
+		var snapshot = snapshot()
+		snapshot.reloadItems(items)
+		apply(snapshot)
+	}
+
 	// Source - https://stackoverflow.com/a/60736803
 	// Posted by alexkent, modified by community. See post 'Timeline' for change history
 	// Retrieved 2026-03-22, License - CC BY-SA 4.0

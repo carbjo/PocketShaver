@@ -570,7 +570,7 @@ class PreferencesGeneralTwoFingerSteeringDetailsCell: UITableViewCell {
 	private let didTapEditButton: (() -> Void)
 
 	init(
-		twoFingerSteeringSettings: PreferencesGeneralModel.TwoFingerSteeringSettings,
+		twoFingerSteeringSetting: TwoFingerSteeringSetting,
 		didTapEditButton: @escaping (() -> Void)
 	) {
 		self.didTapEditButton = didTapEditButton
@@ -586,34 +586,34 @@ class PreferencesGeneralTwoFingerSteeringDetailsCell: UITableViewCell {
 		])
 
 		configure(
-			twoFingerSteeringSettings: twoFingerSteeringSettings
+			twoFingerSteeringSetting: twoFingerSteeringSetting
 		)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
 	func configure(
-		twoFingerSteeringSettings: PreferencesGeneralModel.TwoFingerSteeringSettings
+		twoFingerSteeringSetting: TwoFingerSteeringSetting
 	) {
 		let text = """
 • Second finger click <img/>
 • Second finger swipe <img/>
 • Boot in hover mode <img/>
 """
-		var images: [UIImage] = []
 
-		images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
+		let enabledImage = ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor)
+		let disabledImage = ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.highlightedText)
 
-		if twoFingerSteeringSettings.secondFingerSwipe {
-			images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
-		} else {
-			images.append(ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.highlightedText))
-		}
-
-		if twoFingerSteeringSettings.bootInHoverMode {
-			images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
-		} else {
-			images.append(ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.highlightedText))
+		let images: [UIImage]
+		switch twoFingerSteeringSetting {
+		case .click:
+			images = [enabledImage, disabledImage, disabledImage]
+		case .clickPlusSwipe:
+			images = [enabledImage, enabledImage, disabledImage]
+		case .clickPlusSwipePlusBootInHoverMode:
+			images = [enabledImage, enabledImage, enabledImage]
+		default:
+			fatalError()
 		}
 
 		let titleLabel = LinkLabel(
