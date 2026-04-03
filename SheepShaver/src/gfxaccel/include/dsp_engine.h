@@ -114,11 +114,15 @@ enum {
 	DSP_SUB_ALT_BUFFER_DISPOSE            = 58,
 	DSP_SUB_ALT_BUFFER_INVAL_RECT         = 59,
 
-	DSP_SUB_COUNT                         = 60
+	/* Context enumeration (resolution detection) */
+	DSP_SUB_GET_FIRST_CONTEXT             = 60,
+	DSP_SUB_GET_NEXT_CONTEXT              = 61,
+
+	DSP_SUB_COUNT                         = 62
 };
 
 /* Room for future DrawSprocket extensions */
-#define DSP_MAX_SUBOPCODE 65
+#define DSP_MAX_SUBOPCODE 70
 
 /*
  *  TVECT table and scratch word
@@ -160,6 +164,16 @@ extern uint32_t DSpHandleContextGetAttributes(uint32_t r3, uint32_t r4);
 extern uint32_t DSpHandleContextGetDisplayID(uint32_t r3, uint32_t r4);
 extern uint32_t DSpHandleFindBestContext(uint32_t r3, uint32_t r4);
 extern uint32_t DSpHandleFindBestContextOnDisplayID(uint32_t r3, uint32_t r4, uint32_t r5);
+
+/* Context enumeration and lifecycle */
+extern uint32_t DSpHandleContextCountAttributes(uint32_t r3, uint32_t r4);
+extern uint32_t DSpHandleContextGetNthAttribute(uint32_t r3, uint32_t r4, uint32_t r5);
+extern uint32_t DSpHandleContextNew(uint32_t r3, uint32_t r4);
+extern uint32_t DSpHandleContextDispose(uint32_t r3);
+
+/* Context iteration (primary resolution enumeration API used by games) */
+extern uint32_t DSpHandleGetFirstContext(uint32_t r3, uint32_t r4);
+extern uint32_t DSpHandleGetNextContext(uint32_t r3, uint32_t r4);
 
 /* Context lifecycle and buffer handlers (S02) */
 extern uint32_t DSpHandleContextReserve(uint32_t r3, uint32_t r4);

@@ -42,7 +42,8 @@ enum {
 	kDSpInvalidContextErr   = -7001,
 	kDSpInvalidAttributeErr = -7002,
 	kDSpContextBusyErr      = -7003,
-	kDSpNotSupportedErr     = -7004
+	kDSpNotSupportedErr     = -7004,
+	kDSpContextNotFoundErr  = -7005
 };
 
 // ---- DSp Version: 1.7.3 = 0x01730000 (BCD major.minor.bugfix.stage) ----
@@ -56,13 +57,92 @@ static bool dsp_hooks_in_progress = false;
 static int dsp_hooks_attempts = 0;
 static const int DSP_HOOKS_MAX_ATTEMPTS = 3;
 
+// ---- Per-hook patch info for unpatch-call-repatch chaining ----
+// Used by DSpContext_GetAttributes to chain to original DrawSprocketLib
+// for context handles we don't recognize (handles from the original DSp).
+struct DSpHookPatchInfo {
+	uint32_t orig_tvect;          // Original TVECT address
+	uint32_t orig_code;           // Original code entry point
+	uint32_t saved_instr[4];      // Saved first 4 instructions
+	uint32_t hook_instr[4];       // Our hook patch instructions
+	bool     active;
+};
+
+// Track the hook patch index for DSpContext_GetAttributes (for chaining)
+static int dsp_hook_get_attrs_index = -1;
+static DSpHookPatchInfo dsp_hook_patches[70] = {};  // one per hookable function
+
+/*
+ *  DSpChainToOriginal - safely chain to original function via unpatch-call-repatch
+ *
+ *  Same pattern as RaveChainToOriginal: temporarily restore the original
+ *  instructions at the function's entry point, call via its TVECT, then
+ *  re-apply the hook patch. Safe because PPC emulation is single-threaded.
+ */
+static uint32_t DSpChainToOriginal(int hook_index, int nargs, const uint32_t *args)
+{
+	DSpHookPatchInfo &info = dsp_hook_patches[hook_index];
+	if (!info.active) {
+		return 0;
+	}
+
+	// Step 1: Restore original instructions
+	for (int j = 0; j < 4; j++)
+		WriteMacInt32(info.orig_code + j * 4, info.saved_instr[j]);
+
+	// Step 2: Flush instruction cache
+#if EMULATED_PPC
+	FlushCodeCache(info.orig_code, info.orig_code + 16);
+#endif
+
+	// Step 3: Call original via its TVECT
+	uint32_t result;
+	switch (nargs) {
+	case 1: result = call_macos1(info.orig_tvect, args[0]); break;
+	case 2: result = call_macos2(info.orig_tvect, args[0], args[1]); break;
+	case 3: result = call_macos3(info.orig_tvect, args[0], args[1], args[2]); break;
+	default: result = 0; break;
+	}
+
+	// Step 4: Re-apply hook patch
+	for (int j = 0; j < 4; j++)
+		WriteMacInt32(info.orig_code + j * 4, info.hook_instr[j]);
+
+	// Step 5: Flush instruction cache
+#if EMULATED_PPC
+	FlushCodeCache(info.orig_code, info.orig_code + 16);
+#endif
+
+	return result;
+}
+
 // ---- Engine State ----
 static bool dsp_started = false;
 
-// Single context handle — DrawSprocket in the emulator exposes one display.
-// This is a non-zero sentinel used to represent the emulator's display context.
-// We use a small fixed value since we don't allocate a real Mac-side struct.
-static const uint32_t kDSpContextSentinel = 0x44535043;  // 'DSPC'
+// Context handles — DrawSprocket in the emulator exposes one display with
+// multiple modes.  Each context handle encodes a VModes[] index in the low
+// byte so that DSpContext_GetAttributes can return per-mode information.
+//   Handle = kDSpContextBase | mode_index   (mode_index 0-63)
+static const uint32_t kDSpContextBase = 0x44535000;  // 'DSP\0' base tag
+
+static inline bool DSpIsValidContext(uint32_t ctx)
+{
+	return (ctx & 0xFFFFFF00) == kDSpContextBase;
+}
+
+static inline int DSpContextModeIndex(uint32_t ctx)
+{
+	return (int)(ctx & 0xFF);
+}
+
+// Default context: mode index 0 (or current mode)
+static inline uint32_t DSpContextForMode(int mode_index)
+{
+	return kDSpContextBase | (uint32_t)(mode_index & 0xFF);
+}
+
+// Legacy sentinel for backwards compat (same as mode 0)
+static const uint32_t kDSpContextSentinel = kDSpContextBase;
 
 // ---- Context Lifecycle State ----
 static bool dsp_context_reserved = false;
@@ -153,6 +233,86 @@ static uint32_t DSpDepthMask(uint32_t depth)
 	return (1u << depth);
 }
 
+// Convert viAppleMode to bit depth
+static uint32_t DSpAppleModeToDepth(uint32_t appleMode)
+{
+	switch (appleMode) {
+		case APPLE_1_BIT:  return 1;
+		case APPLE_2_BIT:  return 2;
+		case APPLE_4_BIT:  return 4;
+		case APPLE_8_BIT:  return 8;
+		case APPLE_16_BIT: return 16;
+		case APPLE_32_BIT: return 32;
+		default:           return 32;
+	}
+}
+
+// Count valid display modes in VModes[] (terminated by DIS_INVALID)
+static int DSpCountVModes(void)
+{
+	int count = 0;
+	for (int i = 0; VModes[i].viType != DIS_INVALID; i++)
+		count++;
+	return count;
+}
+
+// Write a DSpContextAttributes struct for VModes[index] into Mac memory at addr
+static void DSpWriteAttributesForMode(uint32_t addr, int mode_index)
+{
+	uint16_t width  = VModes[mode_index].viXsize;
+	uint16_t height = VModes[mode_index].viYsize;
+	uint32_t depth  = DSpAppleModeToDepth(VModes[mode_index].viAppleMode);
+	uint32_t depthMask = DSpDepthMask(depth);
+
+	// Zero the entire 76-byte struct first
+	for (int i = 0; i < 76; i += 4)
+		WriteMacInt32(addr + i, 0);
+
+	WriteMacInt32(addr + 0,  0);           // frequency = 0 (from monitor)
+	WriteMacInt32(addr + 4,  width);       // displayWidth
+	WriteMacInt32(addr + 8,  height);      // displayHeight
+	WriteMacInt32(addr + 20, 2);           // colorNeeds = kDSpColorNeeds_Require
+	WriteMacInt32(addr + 32, depthMask);   // backBufferDepthMask
+	WriteMacInt32(addr + 36, depthMask);   // displayDepthMask
+	WriteMacInt32(addr + 40, depth);       // backBufferBestDepth
+	WriteMacInt32(addr + 44, depth);       // displayBestDepth
+	WriteMacInt32(addr + 48, 1);           // pageCount = 1
+}
+
+// Find the VModes[] entry that best matches desired DSpContextAttributes at Mac addr.
+// Returns mode index, or cur_mode if no match.  Matching priority:
+//   1. Exact width+height+depth match
+//   2. Exact width+height match (any depth)
+//   3. Current mode (fallback)
+static int DSpFindBestModeMatch(uint32_t desired_attrs_addr)
+{
+	if (desired_attrs_addr == 0)
+		return (cur_mode >= 0) ? cur_mode : 0;
+
+	uint32_t want_w = ReadMacInt32(desired_attrs_addr + 4);   // displayWidth
+	uint32_t want_h = ReadMacInt32(desired_attrs_addr + 8);   // displayHeight
+	uint32_t want_d = ReadMacInt32(desired_attrs_addr + 40);  // backBufferBestDepth
+
+	int best_wh = -1;   // first width+height match
+	int best_whd = -1;  // first width+height+depth match
+	int count = DSpCountVModes();
+
+	for (int i = 0; i < count; i++) {
+		if (VModes[i].viXsize == want_w && VModes[i].viYsize == want_h) {
+			if (best_wh < 0) best_wh = i;
+			uint32_t mode_depth = DSpAppleModeToDepth(VModes[i].viAppleMode);
+			if (mode_depth == want_d) {
+				best_whd = i;
+				break;  // exact match
+			}
+		}
+	}
+
+	if (best_whd >= 0) return best_whd;
+	if (best_wh >= 0) return best_wh;
+	return (cur_mode >= 0) ? cur_mode : 0;
+}
+
 
 // ===========================================================================
 //  Key Handler Functions (called from DSpDispatch in dsp_dispatch.cpp)
@@ -239,15 +399,17 @@ uint32_t DSpHandleGetNextDisplayID(uint32_t r3, uint32_t r4)
  *
  *  r3 = pointer to DSpContextAttributes (desired)
  *  r4 = pointer to DSpContextReference output
- *  Writes our single context handle.
- *  Returns noErr.
+ *  Finds the VModes entry best matching the desired attributes and returns
+ *  a context handle encoding that mode index.
  */
 uint32_t DSpHandleFindBestContext(uint32_t r3, uint32_t r4)
 {
+	int best = DSpFindBestModeMatch(r3);
+	uint32_t ctx = DSpContextForMode(best);
 	if (r4 != 0) {
-		WriteMacInt32(r4, kDSpContextSentinel);
+		WriteMacInt32(r4, ctx);
 	}
-	DSP_LOG("DSpFindBestContext: desired=0x%08x -> context=0x%08x", r3, kDSpContextSentinel);
+	DSP_LOG("DSpFindBestContext: desired=0x%08x -> context=0x%08x (mode %d)", r3, ctx, best);
 	return kDSpNoErr;
 }
 
@@ -288,36 +450,36 @@ uint32_t DSpHandleContextGetAttributes(uint32_t r3, uint32_t r4)
 	if (r4 == 0)
 		return kDSpInvalidAttributeErr;
 
-	uint16_t width = DSpGetCurrentWidth();
-	uint16_t height = DSpGetCurrentHeight();
-	uint32_t depth = DSpGetCurrentDepth();
-	uint32_t depthMask = DSpDepthMask(depth);
-
-	// Zero the entire struct first
-	for (int i = 0; i < 76; i += 4) {
-		WriteMacInt32(r4 + i, 0);
+	// If context encodes a mode index, use that mode's attributes.
+	// Otherwise (r3 == 0 from DSpGetDisplayAttributes) use current mode.
+	// If r3 is a non-zero handle we don't recognize (from the original
+	// DrawSprocketLib), chain to the original function so it can resolve
+	// its own internal context handles correctly.
+	int mode_index;
+	if (DSpIsValidContext(r3)) {
+		mode_index = DSpContextModeIndex(r3);
+		int count = DSpCountVModes();
+		if (mode_index < 0 || mode_index >= count)
+			mode_index = (cur_mode >= 0) ? cur_mode : 0;
+	} else if (r3 == 0) {
+		// r3 == 0: called from DSpGetDisplayAttributes, use current mode
+		mode_index = (cur_mode >= 0) ? cur_mode : 0;
+	} else {
+		// Unrecognized handle — chain to original DrawSprocketLib
+		if (dsp_hook_get_attrs_index >= 0 && dsp_hook_patches[dsp_hook_get_attrs_index].active) {
+			const uint32_t args[] = { r3, r4 };
+			DSP_LOG("DSpContext_GetAttributes: chaining to original for context=0x%08x", r3);
+			return DSpChainToOriginal(dsp_hook_get_attrs_index, 2, args);
+		}
+		// Fallback: use current mode
+		mode_index = (cur_mode >= 0) ? cur_mode : 0;
 	}
 
-	// Fill in fields
-	WriteMacInt32(r4 + 0,  0);               // frequency = 0 (from monitor)
-	WriteMacInt32(r4 + 4,  width);            // displayWidth
-	WriteMacInt32(r4 + 8,  height);           // displayHeight
-	WriteMacInt32(r4 + 12, 0);               // reserved1
-	WriteMacInt32(r4 + 16, 0);               // reserved2
-	WriteMacInt32(r4 + 20, 2);               // colorNeeds = kDSpColorNeeds_Require
-	WriteMacInt32(r4 + 24, 0);               // colorTable = NULL
-	WriteMacInt32(r4 + 28, 0);               // contextOption = 0
-	WriteMacInt32(r4 + 32, depthMask);        // backBufferDepthMask
-	WriteMacInt32(r4 + 36, depthMask);        // displayDepthMask
-	WriteMacInt32(r4 + 40, depth);            // backBufferBestDepth
-	WriteMacInt32(r4 + 44, depth);            // displayBestDepth
-	WriteMacInt32(r4 + 48, 1);               // pageCount = 1
-	// filler[0..3] already zeroed
-	WriteMacInt32(r4 + 68, 0);               // gammaTableID = 0
-	WriteMacInt32(r4 + 72, 0);               // reserved3
+	DSpWriteAttributesForMode(r4, mode_index);
 
-	DSP_LOG("DSpContext_GetAttributes: context=0x%08x -> %dx%dx%d mask=0x%08x",
-	        r3, width, height, depth, depthMask);
+	DSP_LOG("DSpContext_GetAttributes: context=0x%08x mode=%d -> %dx%dx%d",
+	        r3, mode_index, VModes[mode_index].viXsize, VModes[mode_index].viYsize,
+	        DSpAppleModeToDepth(VModes[mode_index].viAppleMode));
 	return kDSpNoErr;
 }
 
@@ -347,10 +509,12 @@ uint32_t DSpHandleContextGetDisplayID(uint32_t r3, uint32_t r4)
  */
 uint32_t DSpHandleFindBestContextOnDisplayID(uint32_t r3, uint32_t r4, uint32_t r5)
 {
+	int best = DSpFindBestModeMatch(r4);
+	uint32_t ctx = DSpContextForMode(best);
 	if (r5 != 0) {
-		WriteMacInt32(r5, kDSpContextSentinel);
+		WriteMacInt32(r5, ctx);
 	}
-	DSP_LOG("DSpFindBestContextOnDisplayID: displayID=%d -> context=0x%08x", r3, kDSpContextSentinel);
+	DSP_LOG("DSpFindBestContextOnDisplayID: displayID=%d -> context=0x%08x (mode %d)", r3, ctx, best);
 	return kDSpNoErr;
 }
 
@@ -383,6 +547,155 @@ uint32_t DSpHandleGetDisplayAttributes(uint32_t r3, uint32_t r4)
 	return DSpHandleContextGetAttributes(0, r4);
 }
 
+/*
+ *  DSpHandleContextCountAttributes — DSP_SUB_CONTEXT_COUNT_ATTRIBUTES (opcode 19)
+ *
+ *  r3 = DSpContextReference (context handle)
+ *  r4 = pointer to UInt32 output (count of available display modes)
+ *
+ *  Games call this to find out how many display modes are available
+ *  before enumerating them with GetNthAttribute.
+ */
+uint32_t DSpHandleContextCountAttributes(uint32_t r3, uint32_t r4)
+{
+	if (r4 == 0)
+		return kDSpInvalidAttributeErr;
+
+	int count = DSpCountVModes();
+	WriteMacInt32(r4, count);
+	DSP_LOG("DSpContext_CountAttributes: context=0x%08x -> count=%d", r3, count);
+	return kDSpNoErr;
+}
+
+/*
+ *  DSpHandleContextGetNthAttribute — DSP_SUB_CONTEXT_GET_NTH_ATTRIBUTE (opcode 20)
+ *
+ *  r3 = DSpContextReference (context handle)
+ *  r4 = UInt32 index (0-based)
+ *  r5 = pointer to DSpContextAttributes output struct (76 bytes)
+ *
+ *  Writes the display attributes for the Nth available display mode.
+ */
+uint32_t DSpHandleContextGetNthAttribute(uint32_t r3, uint32_t r4, uint32_t r5)
+{
+	if (r5 == 0)
+		return kDSpInvalidAttributeErr;
+
+	int count = DSpCountVModes();
+	int index = (int)r4;
+
+	if (index < 0 || index >= count)
+		return kDSpInvalidAttributeErr;
+
+	DSpWriteAttributesForMode(r5, index);
+
+	DSP_LOG("DSpContext_GetNthAttribute: context=0x%08x index=%d -> %dx%dx%d",
+	        r3, index, VModes[index].viXsize, VModes[index].viYsize,
+	        DSpAppleModeToDepth(VModes[index].viAppleMode));
+	return kDSpNoErr;
+}
+
+/*
+ *  DSpHandleContextNew — DSP_SUB_NEW_CONTEXT (opcode 21)
+ *
+ *  r3 = pointer to DSpContextAttributes (desired)
+ *  r4 = pointer to DSpContextReference output
+ *
+ *  Creates a new context.  Since we expose a single emulated display,
+ *  we just write our sentinel context handle to the output pointer.
+ */
+uint32_t DSpHandleContextNew(uint32_t r3, uint32_t r4)
+{
+	int best = DSpFindBestModeMatch(r3);
+	uint32_t ctx = DSpContextForMode(best);
+	if (r4 != 0) {
+		WriteMacInt32(r4, ctx);
+	}
+	DSP_LOG("DSpContext_New: desired=0x%08x -> context=0x%08x (mode %d)", r3, ctx, best);
+	return kDSpNoErr;
+}
+
+/*
+ *  DSpHandleContextDispose — DSP_SUB_DISPOSE_CONTEXT (opcode 22)
+ *
+ *  r3 = DSpContextReference (context handle)
+ *
+ *  Disposes a context.  If the context is still reserved, release it first.
+ */
+uint32_t DSpHandleContextDispose(uint32_t r3)
+{
+	if (!DSpIsValidContext(r3))
+		return kDSpInvalidContextErr;
+
+	// If context is still reserved, release it
+	if (dsp_context_reserved) {
+		DSpHandleContextRelease(r3);
+	}
+	DSP_LOG("DSpContext_Dispose: context=0x%08x disposed", r3);
+	return kDSpNoErr;
+}
+
+
+/*
+ *  DSpHandleGetFirstContext — DSP_SUB_GET_FIRST_CONTEXT (opcode 60)
+ *
+ *  r3 = DisplayIDType (display ID, ignored — single display)
+ *  r4 = pointer to DSpContextReference output
+ *
+ *  Returns the first available display context (mode index 0).
+ *  Games use DSpGetFirstContext + DSpGetNextContext to iterate all
+ *  available resolutions, then call DSpContext_GetAttributes on each
+ *  to read width/height/depth.  This is the PRIMARY resolution
+ *  enumeration API in DrawSprocket 1.7.
+ */
+uint32_t DSpHandleGetFirstContext(uint32_t r3, uint32_t r4)
+{
+	int count = DSpCountVModes();
+	if (count == 0 || r4 == 0) {
+		DSP_LOG("DSpGetFirstContext: no modes or null output, returning kDSpNotSupportedErr");
+		return (uint32_t)kDSpNotSupportedErr;
+	}
+
+	uint32_t ctx = DSpContextForMode(0);
+	WriteMacInt32(r4, ctx);
+	DSP_LOG("DSpGetFirstContext: displayID=%d -> context=0x%08x (mode 0, %dx%d)",
+	        r3, ctx, VModes[0].viXsize, VModes[0].viYsize);
+	return kDSpNoErr;
+}
+
+
+/*
+ *  DSpHandleGetNextContext — DSP_SUB_GET_NEXT_CONTEXT (opcode 61)
+ *
+ *  r3 = DSpContextReference (current context)
+ *  r4 = pointer to DSpContextReference output (next context)
+ *
+ *  Returns the next available display context after r3.
+ *  When there are no more contexts, writes 0 to the output pointer
+ *  and returns kDSpContextNotFoundErr.
+ */
+uint32_t DSpHandleGetNextContext(uint32_t r3, uint32_t r4)
+{
+	if (r4 == 0)
+		return (uint32_t)kDSpInvalidAttributeErr;
+
+	int count = DSpCountVModes();
+	int current_index = DSpIsValidContext(r3) ? DSpContextModeIndex(r3) : -1;
+	int next_index = current_index + 1;
+
+	if (next_index >= count) {
+		WriteMacInt32(r4, 0);
+		DSP_LOG("DSpGetNextContext: context=0x%08x -> end of list", r3);
+		return (uint32_t)kDSpContextNotFoundErr;
+	}
+
+	uint32_t ctx = DSpContextForMode(next_index);
+	WriteMacInt32(r4, ctx);
+	DSP_LOG("DSpGetNextContext: context=0x%08x -> next=0x%08x (mode %d, %dx%d)",
+	        r3, ctx, next_index, VModes[next_index].viXsize, VModes[next_index].viYsize);
+	return kDSpNoErr;
+}
+
 
 // ===========================================================================
 //  Context Lifecycle Handlers (S02)
@@ -392,22 +705,33 @@ uint32_t DSpHandleGetDisplayAttributes(uint32_t r3, uint32_t r4)
  *  DSpHandleContextReserve — DSP_SUB_RESERVE (opcode 23)
  *
  *  r3 = DSpContextReference (sentinel)
- *  r4 = DSpContextAttributes* (desired attributes — ignored, we use current display)
+ *  r4 = DSpContextAttributes* (desired attributes — ignored, we use context's mode)
  *
  *  Allocates back buffer pixel data via Mac_sysalloc and constructs a valid
  *  CGrafPort + PixMap in SheepMem so games can obtain a CGrafPtr to draw into.
+ *
+ *  The context handle encodes a VModes[] index.  We use THAT mode's dimensions
+ *  and depth rather than the current display mode, so games that request a
+ *  specific resolution (e.g. 640x480) get a matching back buffer.
  */
 uint32_t DSpHandleContextReserve(uint32_t r3, uint32_t r4)
 {
-	if (r3 != kDSpContextSentinel)
-		return (uint32_t)-7001;  // kDSpInvalidContextErr
+	if (!DSpIsValidContext(r3))
+		return (uint32_t)kDSpInvalidContextErr;
 
 	if (dsp_context_reserved)
 		return (uint32_t)-7003;  // kDSpContextBusyErr
 
-	uint16_t width  = DSpGetCurrentWidth();
-	uint16_t height = DSpGetCurrentHeight();
-	uint32_t depth  = DSpGetCurrentDepth();
+	// Use the mode encoded in the context handle, not the current display mode.
+	// This ensures games that request a specific resolution get a matching buffer.
+	int mode_index = DSpContextModeIndex(r3);
+	int count = DSpCountVModes();
+	if (mode_index < 0 || mode_index >= count)
+		mode_index = (cur_mode >= 0) ? cur_mode : 0;
+
+	uint16_t width  = VModes[mode_index].viXsize;
+	uint16_t height = VModes[mode_index].viYsize;
+	uint32_t depth  = DSpAppleModeToDepth(VModes[mode_index].viAppleMode);
 
 	// Compute bytes per pixel
 	uint32_t bytesPerPixel;
@@ -508,7 +832,7 @@ uint32_t DSpHandleContextReserve(uint32_t r3, uint32_t r4)
  */
 uint32_t DSpHandleContextRelease(uint32_t r3)
 {
-	if (r3 != kDSpContextSentinel)
+	if (!DSpIsValidContext(r3))
 		return (uint32_t)-7001;  // kDSpInvalidContextErr
 
 	if (!dsp_context_reserved) {
@@ -574,7 +898,7 @@ uint32_t DSpHandleContextRelease(uint32_t r3)
  */
 uint32_t DSpHandleContextSetState(uint32_t r3, uint32_t r4)
 {
-	if (r3 != kDSpContextSentinel)
+	if (!DSpIsValidContext(r3))
 		return (uint32_t)-7001;  // kDSpInvalidContextErr
 
 	if (!dsp_context_reserved)
@@ -598,7 +922,7 @@ uint32_t DSpHandleContextSetState(uint32_t r3, uint32_t r4)
  */
 uint32_t DSpHandleContextGetState(uint32_t r3, uint32_t r4)
 {
-	if (r3 != kDSpContextSentinel)
+	if (!DSpIsValidContext(r3))
 		return (uint32_t)-7001;  // kDSpInvalidContextErr
 
 	uint32_t state = 0;  // inactive
@@ -621,7 +945,7 @@ uint32_t DSpHandleContextGetState(uint32_t r3, uint32_t r4)
  */
 uint32_t DSpHandleGetBackBuffer(uint32_t r3, uint32_t r4, uint32_t r5)
 {
-	if (r3 != kDSpContextSentinel)
+	if (!DSpIsValidContext(r3))
 		return (uint32_t)-7001;  // kDSpInvalidContextErr
 
 	if (!dsp_context_reserved)
@@ -644,7 +968,7 @@ uint32_t DSpHandleGetBackBuffer(uint32_t r3, uint32_t r4, uint32_t r5)
  */
 uint32_t DSpHandleGetFrontBuffer(uint32_t r3, uint32_t r4)
 {
-	if (r3 != kDSpContextSentinel)
+	if (!DSpIsValidContext(r3))
 		return (uint32_t)-7001;  // kDSpInvalidContextErr
 
 	if (!dsp_context_reserved)
@@ -678,7 +1002,7 @@ uint32_t DSpHandleGetFrontBuffer(uint32_t r3, uint32_t r4)
  */
 uint32_t DSpHandleSwapBuffers(uint32_t r3, uint32_t r4, uint32_t r5)
 {
-	if (r3 != kDSpContextSentinel)
+	if (!DSpIsValidContext(r3))
 		return (uint32_t)-7001;  // kDSpInvalidContextErr
 
 	if (!dsp_context_reserved || !dsp_context_active)
@@ -977,7 +1301,7 @@ uint32_t DSpHandleBlitRegion(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6)
  */
 uint32_t DSpHandleSetCLUTEntries(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6)
 {
-	if (r3 != kDSpContextSentinel)
+	if (!DSpIsValidContext(r3))
 		return (uint32_t)-7001;  // kDSpInvalidContextErr
 
 	if (!dsp_context_reserved)
@@ -1023,7 +1347,7 @@ uint32_t DSpHandleSetCLUTEntries(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t
  */
 uint32_t DSpHandleSetBlankingColor(uint32_t r3, uint32_t r4)
 {
-	if (r3 != kDSpContextSentinel)
+	if (!DSpIsValidContext(r3))
 		return (uint32_t)-7001;  // kDSpInvalidContextErr
 
 	dsp_blanking_color[0] = ReadMacInt16(r4 + 0);  // red
@@ -1043,7 +1367,7 @@ uint32_t DSpHandleSetBlankingColor(uint32_t r3, uint32_t r4)
  */
 uint32_t DSpHandleGetBlankingColor(uint32_t r3, uint32_t r4)
 {
-	if (r3 != kDSpContextSentinel)
+	if (!DSpIsValidContext(r3))
 		return (uint32_t)-7001;  // kDSpInvalidContextErr
 
 	WriteMacInt16(r4 + 0, dsp_blanking_color[0]);  // red
@@ -1065,7 +1389,7 @@ uint32_t DSpHandleGetBlankingColor(uint32_t r3, uint32_t r4)
  */
 uint32_t DSpHandleGlobalToLocal(uint32_t r3, uint32_t r4)
 {
-	if (r3 != kDSpContextSentinel)
+	if (!DSpIsValidContext(r3))
 		return (uint32_t)-7001;  // kDSpInvalidContextErr
 
 	// Identity: read and write back unchanged
@@ -1088,7 +1412,7 @@ uint32_t DSpHandleGlobalToLocal(uint32_t r3, uint32_t r4)
  */
 uint32_t DSpHandleLocalToGlobal(uint32_t r3, uint32_t r4)
 {
-	if (r3 != kDSpContextSentinel)
+	if (!DSpIsValidContext(r3))
 		return (uint32_t)-7001;  // kDSpInvalidContextErr
 
 	// Identity: read and write back unchanged
@@ -1488,8 +1812,12 @@ void DSpInstallHooks(void)
 
 	DSpSymbolEntry dsp_symbols[] = {
 		/* Startup / shutdown / version */
-		{ "\012DSpStartup",                      DSP_SUB_STARTUP,                       "DSpStartup" },
-		{ "\013DSpShutdown",                     DSP_SUB_SHUTDOWN,                      "DSpShutdown" },
+		// NOTE: DSpStartup and DSpShutdown are NOT hooked.  The original
+		// DrawSprocketLib initialization must run so it can build its internal
+		// context list from the Display Manager.  Without this, functions like
+		// DSpGetFirstContext / DSpGetNextContext (which we DON'T hook either)
+		// return no contexts, and games see an empty resolution list.
+		// DSpGetVersion is still hooked to report our version.
 		{ "\015DSpGetVersion",                   DSP_SUB_GET_VERSION,                   "DSpGetVersion" },
 		/* Display management */
 		{ "\024DSpGetFirstDisplayID",            DSP_SUB_GET_FIRST_DISPLAY_ID,          "DSpGetFirstDisplayID" },
@@ -1628,19 +1956,39 @@ void DSpInstallHooks(void)
 		// Read our hook thunk's code pointer
 		uint32_t hook_code = ReadMacInt32(hook_tvect);
 
+		// Save original instructions for unpatch-call-repatch chaining
+		uint32_t saved_instr[4];
+		for (int j = 0; j < 4; j++)
+			saved_instr[j] = ReadMacInt32(orig_code + j * 4);
+
 		// Build patch: lis r11,hi; ori r11,r11,lo; mtctr r11; bctr
 		uint32_t hook_hi = (hook_code >> 16) & 0xFFFF;
 		uint32_t hook_lo = hook_code & 0xFFFF;
 
+		uint32_t hook_instr[4];
+		hook_instr[0] = 0x3C000000 | (r11 << 21) | hook_hi;
+		hook_instr[1] = 0x60000000 | (r11 << 21) | (r11 << 16) | hook_lo;
+		hook_instr[2] = 0x7C0903A6 | (r11 << 21);
+		hook_instr[3] = 0x4E800420;
+
+		// Store patch info for chaining
+		if (i < 70) {
+			dsp_hook_patches[i].orig_tvect = orig_tvect;
+			dsp_hook_patches[i].orig_code  = orig_code;
+			for (int j = 0; j < 4; j++) {
+				dsp_hook_patches[i].saved_instr[j] = saved_instr[j];
+				dsp_hook_patches[i].hook_instr[j]  = hook_instr[j];
+			}
+			dsp_hook_patches[i].active = true;
+
+			// Track DSpContext_GetAttributes index for chaining
+			if (sub == DSP_SUB_CONTEXT_GET_ATTRIBUTES)
+				dsp_hook_get_attrs_index = (int)i;
+		}
+
 		// Overwrite first 4 instructions at orig_code
-		// lis r11, hook_code_hi
-		WriteMacInt32(orig_code + 0, 0x3C000000 | (r11 << 21) | hook_hi);
-		// ori r11, r11, hook_code_lo
-		WriteMacInt32(orig_code + 4, 0x60000000 | (r11 << 21) | (r11 << 16) | hook_lo);
-		// mtctr r11
-		WriteMacInt32(orig_code + 8, 0x7C0903A6 | (r11 << 21));
-		// bctr
-		WriteMacInt32(orig_code + 12, 0x4E800420);
+		for (int j = 0; j < 4; j++)
+			WriteMacInt32(orig_code + j * 4, hook_instr[j]);
 
 		// Flush instruction cache
 #if EMULATED_PPC

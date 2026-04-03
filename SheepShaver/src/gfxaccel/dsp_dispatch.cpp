@@ -122,18 +122,27 @@ uint32_t DSpDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		return DSpHandleFindBestContext(r3, r4);
 	case DSP_SUB_CONTEXT_COUNT_ATTRIBUTES:
 		DSP_LOG("DSpContext_CountAttributes(r3=0x%08x, r4=0x%08x)", r3, r4);
-		return kDSpNoErr;
+		return DSpHandleContextCountAttributes(r3, r4);
 	case DSP_SUB_CONTEXT_GET_NTH_ATTRIBUTE:
 		DSP_LOG("DSpContext_GetNthAttribute(r3=0x%08x, r4=0x%08x, r5=0x%08x)", r3, r4, r5);
-		return kDSpNoErr;
+		return DSpHandleContextGetNthAttribute(r3, r4, r5);
 
 	/* New context API */
 	case DSP_SUB_NEW_CONTEXT:
 		DSP_LOG("DSpContext_New(r3=0x%08x, r4=0x%08x)", r3, r4);
-		return kDSpNoErr;
+		return DSpHandleContextNew(r3, r4);
 	case DSP_SUB_DISPOSE_CONTEXT:
 		DSP_LOG("DSpContext_Dispose(r3=0x%08x)", r3);
-		return kDSpNoErr;
+		return DSpHandleContextDispose(r3);
+
+	/* Context iteration (primary resolution enumeration for games) */
+	case DSP_SUB_GET_FIRST_CONTEXT:
+		DSP_LOG("DSpGetFirstContext(r3=0x%08x, r4=0x%08x)", r3, r4);
+		return DSpHandleGetFirstContext(r3, r4);
+	case DSP_SUB_GET_NEXT_CONTEXT:
+		DSP_LOG("DSpGetNextContext(r3=0x%08x, r4=0x%08x)", r3, r4);
+		return DSpHandleGetNextContext(r3, r4);
+
 	case DSP_SUB_RESERVE:
 		DSP_LOG("DSpContext_Reserve(r3=0x%08x, r4=0x%08x)", r3, r4);
 		return DSpHandleContextReserve(r3, r4);
