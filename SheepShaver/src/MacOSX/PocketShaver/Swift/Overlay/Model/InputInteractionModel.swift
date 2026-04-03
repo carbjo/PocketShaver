@@ -226,8 +226,18 @@ class InputInteractionModel {
 	}
 
 	func beginSecondFingerClickIfEligible() {
+		if isRelativeMouseModeEnabled {
+			guard miscSettings.relativeMouseModeSecondFingerClick else {
+				return
+			}
+		} else {
+			guard miscSettings.secondFingerClick else {
+				return
+			}
+		}
+
 		guard objc_ADBHoversOnMouseDown(),
-		!miscSettings.iPadMousePassthrough else {
+			  !miscSettings.iPadMousePassthrough else {
 			return
 		}
 

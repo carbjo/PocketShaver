@@ -22,10 +22,23 @@ enum FrameRateSetting: String, Codable, CaseIterable {
 	}
 }
 
+enum TwoFingerSteeringSetting: String, Codable, CaseIterable, Hashable {
+	case off
+	case click
+	case clickPlusSwipe
+	case clickPlusSwipePlusBootInHoverMode
+}
+
 enum RelativeMouseModeSetting: String, Codable, CaseIterable {
 	case manual
 	case automatic
 	case alwaysOn
+}
+
+enum RelativeMouseModeClickGestureSetting: String, Codable, CaseIterable {
+	case off
+	case tap
+	case secondFingerClick
 }
 
 enum RightClickSetting: String, Codable, CaseIterable {
@@ -67,15 +80,30 @@ class MiscellaneousSettings: Codable {
 	}
 	private(set) var frameRateSetting: FrameRateSetting
 	private(set) var alwaysLandscapeMode: Bool
+	private(set) var twoFingerSteeringSetting: TwoFingerSteeringSetting
 	private(set) var relativeMouseModeSetting: RelativeMouseModeSetting
-	private(set) var relativeMouseTapToClick: Bool
-	private(set) var secondFingerClick: Bool
-	private(set) var secondFingerSwipe: Bool
-	private(set) var bootInHoverMode: Bool
+	private(set) var relativeMouseModeClickGestureSetting: RelativeMouseModeClickGestureSetting
 	private(set) var rightClickSetting: RightClickSetting
 	private(set) var keyboardAutoOffsetSetting: KeyboardAutoOffsetSetting
 	private(set) var hoverJustAboveOffsetModifier: Float
 	private(set) var gammaRampSetting: GammaRampSetting
+
+	var secondFingerClick: Bool {
+		twoFingerSteeringSetting != .off
+	}
+
+	var secondFingerSwipe: Bool {
+		twoFingerSteeringSetting == .clickPlusSwipe ||
+		twoFingerSteeringSetting == .clickPlusSwipePlusBootInHoverMode
+	}
+
+	var bootInHoverMode: Bool {
+		twoFingerSteeringSetting == .clickPlusSwipePlusBootInHoverMode
+	}
+
+	var relativeMouseModeSecondFingerClick: Bool {
+		relativeMouseModeClickGestureSetting == .secondFingerClick
+	}
 
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		if #available(iOS 16, *) {
@@ -102,11 +130,9 @@ class MiscellaneousSettings: Codable {
 			frameRateSetting = .f60hz
 		}
 		alwaysLandscapeMode = true
+		twoFingerSteeringSetting = .off
 		relativeMouseModeSetting = .manual
-		relativeMouseTapToClick = true
-		secondFingerClick = false
-		secondFingerSwipe = false
-		bootInHoverMode = false
+		relativeMouseModeClickGestureSetting = .tap
 		rightClickSetting = .control
 		keyboardAutoOffsetSetting = .middle
 		hoverJustAboveOffsetModifier = 1
@@ -134,7 +160,7 @@ class MiscellaneousSettings: Codable {
 
 	@MainActor
 	func updateCachedResponses() {
-		MiscellaneousCachedSettings.isRelativeMouseTapToClickOn = relativeMouseTapToClick
+		MiscellaneousCachedSettings.isRelativeMouseTapToClickOn = relativeMouseModeClickGestureSetting == .tap
 		MiscellaneousCachedSettings.framesPerSecond = frameRateSetting.frameRate
 		MiscellaneousCachedSettings.isMouseHapticFeedbackOn = mouseHapticFeedback
 		MiscellaneousCachedSettings.rightClickSetting = rightClickSetting
@@ -228,39 +254,16 @@ class MiscellaneousSettings: Codable {
 	}
 
 	@MainActor
-	func set(relativeMouseTapToClick: Bool) {
-		self.relativeMouseTapToClick = relativeMouseTapToClick
+	func set(relativeMouseModeClickGestureSetting: RelativeMouseModeClickGestureSetting) {
+		self.relativeMouseModeClickGestureSetting = relativeMouseModeClickGestureSetting
 
 		updateCachedResponses()
 		saveAsCurrent()
 	}
 
 	@MainActor
-	func set(secondFingerClick: Bool) {
-		self.secondFingerClick = secondFingerClick
-
-		saveAsCurrent()
-	}
-
-	@MainActor
-	func set(secondFingerSwipe: Bool) {
-		self.secondFingerSwipe = secondFingerSwipe
-
-		saveAsCurrent()
-	}
-
-	@MainActor
-	func set(bootInHoverMode: Bool) {
-		self.bootInHoverMode = bootInHoverMode
-
-		saveAsCurrent()
-	}
-
-	@MainActor
-	func setTwoFingerSteering(enabled: Bool) {
-		secondFingerClick = enabled
-		secondFingerSwipe = enabled
-		bootInHoverMode = enabled
+	func set(twoFingerSteeringSetting: TwoFingerSteeringSetting) {
+		self.twoFingerSteeringSetting = twoFingerSteeringSetting
 
 		saveAsCurrent()
 	}

@@ -10,7 +10,7 @@ import Combine
 import CoreHaptics
 
 class PreferencesAdvancedModel {
-	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
+	let changeSubject: PassthroughSubject<PreferencesChange, Never>
 
 	private let mode: PreferencesLaunchMode
 
@@ -108,12 +108,17 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
-	var relativeMouseTapToClick: Bool {
+	var isIPadMouseEnabled: Bool {
+		miscSettings.iPadMousePassthrough
+	}
+
+	@MainActor
+	var relativeMouseModeClickGestureSetting: RelativeMouseModeClickGestureSetting {
 		get {
-			miscSettings.relativeMouseTapToClick
+			miscSettings.relativeMouseModeClickGestureSetting
 		}
 		set {
-			miscSettings.set(relativeMouseTapToClick: newValue)
+			miscSettings.set(relativeMouseModeClickGestureSetting: newValue)
 		}
 	}
 

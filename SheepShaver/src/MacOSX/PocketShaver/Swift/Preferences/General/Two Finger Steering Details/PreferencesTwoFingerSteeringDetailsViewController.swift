@@ -64,12 +64,12 @@ class PreferencesTwoFingerSteeringDetailsViewController: UITableViewController {
 				) { [weak self] isOn in
 					guard let self else { return }
 
-					miscSettings.set(secondFingerClick: isOn)
+					miscSettings.set(twoFingerSteeringSetting: isOn ? .click : .off)
 					reportToggleSwitched()
 				}
 			case .secondFingerClickInstructions(let separatorHidden):
 				return PreferencesInformationCell(
-					text: "A second finger can be used for mouse clicking, while the first finger controls the position. Only has effect when a hover mode, or relative mouse mode, is enabled.",
+					text: "A second finger can be used for mouse clicking, while the first finger controls the position. Only has effect when a hover mode is enabled.",
 					separatorHidden: separatorHidden
 				)
 			case .secondFingerSwipeEnabledToggle:
@@ -79,7 +79,7 @@ class PreferencesTwoFingerSteeringDetailsViewController: UITableViewController {
 				) { [weak self] isOn in
 					guard let self else { return }
 
-					miscSettings.set(secondFingerSwipe: isOn)
+					miscSettings.set(twoFingerSteeringSetting: isOn ? .clickPlusSwipe : .click)
 					reportToggleSwitched()
 				}
 			case .secondFingerSwipeInstructions(let separatorHidden):
@@ -94,7 +94,7 @@ class PreferencesTwoFingerSteeringDetailsViewController: UITableViewController {
 				) { [weak self] isOn in
 					guard let self else { return }
 
-					miscSettings.set(bootInHoverMode: isOn)
+					miscSettings.set(twoFingerSteeringSetting: isOn ? .clickPlusSwipePlusBootInHoverMode : .clickPlusSwipe)
 					reportToggleSwitched()
 				}
 			case .bootInHoverModeInstructions:

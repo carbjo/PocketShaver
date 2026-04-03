@@ -14,6 +14,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case performanceMetrics
 		case uiOptions
 		case relateiveMouseMode
+		case relateiveMouseModeClickGesture
 		case hapticFeedback
 		case gammaRampSetting
 		case bootstrap
@@ -36,9 +37,11 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 		//relateiveMouseMode
 		case relateiveMouseModeSetting
-		case relateiveMouseModeInfo
-		case relateiveMouseTapToClickToggle
-		case relateiveMouseTapToClickInfo
+		case relateiveMouseModeInfo(RelativeMouseModeSetting)
+
+		// relateiveMouseModeClickGesture
+		case relativeMouseModeClickGestureSetting(RelativeMouseModeClickGestureSetting)
+		case relativeMouseModeClickGestureSettingInfo
 
 		// hapticFeedback
 		case hapticFeedbackSwipeGesturesToggle
@@ -61,6 +64,8 @@ class PreferencesAdvancedViewController: UITableViewController {
 	}
 
 	private let model: PreferencesAdvancedModel
+
+	private var anyCancellables = Set<AnyCancellable>()
 
 	private var dataSource: TableViewDiffableDataSource<Section, Row>!
 
@@ -90,6 +95,19 @@ class PreferencesAdvancedViewController: UITableViewController {
 		view.translatesAutoresizingMaskIntoConstraints = false
 
 		setupDataSource()
+		listenToChanges()
+	}
+
+	private func listenToChanges() {
+		model.changeSubject.sink{ [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .iPadMouseEnabledChanged:
+				reloadData()
+			default:
+				break
+			}
+		}.store(in: &anyCancellables)
 	}
 
 	private func setupDataSource() {
@@ -159,8 +177,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 					text: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the <img/> button above the keyboard. <link>Read more</link>.",
 					tagConfig: .init(
 						images: [ImageResource.arrowUpAndDownAndArrowLeftAndRight.asSymbolImage()]
-					),
-					separatorHidden: false
+					)
 				) { [weak self] in
 					guard let self else { return }
 					let vc = PreferencesRelativeMouseModeOnboardingViewController()
@@ -169,16 +186,23 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 					present(navVC, animated: true)
 				}
-			case .relateiveMouseTapToClickToggle:
-				return PreferencesEnabledSettingCell(
-					title: "Tap to click",
-					isOn: model.relativeMouseTapToClick
-				) { [weak self] isOn in
-					self?.model.relativeMouseTapToClick = isOn
+			case .relativeMouseModeClickGestureSetting(let setting):
+				return PreferencesRadioButtonChoiceCell(
+					title: setting.label,
+					isSelected: setting == model.relativeMouseModeClickGestureSetting
+				)
+			case .relativeMouseModeClickGestureSettingInfo:
+				let text: String
+				switch model.relativeMouseModeClickGestureSetting {
+				case .off:
+					text = "Click can only be performed with Gamepad button."
+				case .tap:
+					text = "A quick tap induces mouse click."
+				case .secondFingerClick:
+					text = "A second finger control mouse down / up action while the first finger controls the position, as with two finger steering."
 				}
-			case .relateiveMouseTapToClickInfo:
 				return PreferencesInformationCell(
-					text: "Setting only affects relative mouse mode."
+					text: text
 				)
 			case .hapticFeedbackSwipeGesturesToggle:
 				return PreferencesEnabledSettingCell(
@@ -253,6 +277,8 @@ class PreferencesAdvancedViewController: UITableViewController {
 				return "UI options"
 			case .relateiveMouseMode:
 				return "Relative mouse mode"
+			case .relateiveMouseModeClickGesture:
+				return "Relative mouse mode click gesture"
 			case .hapticFeedback:
 				return "Haptic feedback"
 			case .gammaRampSetting:
@@ -293,10 +319,16 @@ class PreferencesAdvancedViewController: UITableViewController {
 		snapshot.appendSections([.relateiveMouseMode])
 		snapshot.appendItems([
 			.relateiveMouseModeSetting,
-			.relateiveMouseModeInfo,
-			.relateiveMouseTapToClickToggle,
-			.relateiveMouseTapToClickInfo
+			.relateiveMouseModeInfo(model.relativeMouseModeSetting)
 		])
+
+		if !model.isIPadMouseEnabled {
+			snapshot.appendSections([.relateiveMouseModeClickGesture])
+			snapshot.appendItems(RelativeMouseModeClickGestureSetting.allCases.map({.relativeMouseModeClickGestureSetting($0)}))
+			snapshot.appendItems([
+				.relativeMouseModeClickGestureSettingInfo
+			])
+		}
 
 		if model.supportsHaptics {
 			snapshot.appendSections([.hapticFeedback])
@@ -387,50 +419,89 @@ class PreferencesAdvancedViewController: UITableViewController {
 		tableView.beginUpdates()
 		tableView.endUpdates()
 	}
+
+	private func updateRelativeMouseModeClickGestureSettingCells() {
+		for setting in RelativeMouseModeClickGestureSetting.allCases {
+			guard let indexPath = dataSource.indexPath(for: .relativeMouseModeClickGestureSetting(setting)),
+				  let cell = tableView.cellForRow(at: indexPath) as? PreferencesRadioButtonChoiceCell else {
+				continue
+			}
+
+			cell.configure(isSelected: setting == model.relativeMouseModeClickGestureSetting)
+		}
+
+		dataSource.reloadItems([.relativeMouseModeClickGestureSettingInfo])
+	}
 }
 
 extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableViewDelegate
 
 	override func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
 		let sectionType = dataSource.sectionIdentifier(for: indexPath.section)
-		return sectionType == .resources
+		let itemIdentifier = dataSource.itemIdentifier(for: indexPath)
+
+		if sectionType == .resources {
+			return true
+		}
+
+		if sectionType == .relateiveMouseModeClickGesture,
+		   case .relativeMouseModeClickGestureSetting = itemIdentifier {
+			return true
+		}
+
+		return false
 	}
 
 	override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
 		tableView.deselectRow(at: indexPath, animated: true)
 
+		let sectionType = dataSource.sectionIdentifier(for: indexPath.section)
 		let itemIdentifier = dataSource.itemIdentifier(for: indexPath)
-		switch itemIdentifier {
-		case .resourcesSetupInstuctions:
-			let vc = PreferencesSetupInstructionsViewController()
-			let navVC = UINavigationController()
-			navVC.viewControllers = [vc]
 
-			present(navVC, animated: true)
-		case .resourcesBootstrapCompatiblityList:
-			let vc = PreferencesCompatibilityListViewController()
-			let navVC = UINavigationController()
-			navVC.viewControllers = [vc]
+		switch sectionType {
+		case .resources:
+			switch itemIdentifier {
+			case .resourcesSetupInstuctions:
+				let vc = PreferencesSetupInstructionsViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
 
-			present(navVC, animated: true)
-		case .resourcesTwoFingerSteeringOnboarding:
-			let vc = PreferencesTwoFingerSteeringOnboardingViewController()
-			let navVC = UINavigationController()
-			navVC.viewControllers = [vc]
+				present(navVC, animated: true)
+			case .resourcesBootstrapCompatiblityList:
+				let vc = PreferencesCompatibilityListViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
 
-			present(navVC, animated: true)
-		case .resourcesRelativeMouseModeOnboarding:
-			let vc = PreferencesRelativeMouseModeOnboardingViewController()
-			let navVC = UINavigationController()
-			navVC.viewControllers = [vc]
+				present(navVC, animated: true)
+			case .resourcesTwoFingerSteeringOnboarding:
+				let vc = PreferencesTwoFingerSteeringOnboardingViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
 
-			present(navVC, animated: true)
-		case .resourcesLicenses:
-			let vc = PreferencesLicensesViewController()
-			let navVC = UINavigationController()
-			navVC.viewControllers = [vc]
+				present(navVC, animated: true)
+			case .resourcesRelativeMouseModeOnboarding:
+				let vc = PreferencesRelativeMouseModeOnboardingViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
 
-			present(navVC, animated: true)
+				present(navVC, animated: true)
+			case .resourcesLicenses:
+				let vc = PreferencesLicensesViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
+
+				present(navVC, animated: true)
+			default:
+				fatalError()
+			}
+		case .relateiveMouseModeClickGesture:
+			switch itemIdentifier {
+			case .relativeMouseModeClickGestureSetting(let setting):
+				model.relativeMouseModeClickGestureSetting = setting
+				updateRelativeMouseModeClickGestureSettingCells()
+			default:
+				fatalError()
+			}
 		default:
 			fatalError()
 		}
@@ -458,6 +529,16 @@ extension PreferencesAdvancedViewController: UIDocumentPickerDelegate {
 				let errorVC = UIAlertController.withError(error)
 				present(errorVC, animated: true)
 			}
+		}
+	}
+}
+
+private extension RelativeMouseModeClickGestureSetting {
+	var label: String {
+		switch self {
+		case .off: "Off"
+		case .tap: "Tap"
+		case .secondFingerClick: "Second finger click (recommended)"
 		}
 	}
 }

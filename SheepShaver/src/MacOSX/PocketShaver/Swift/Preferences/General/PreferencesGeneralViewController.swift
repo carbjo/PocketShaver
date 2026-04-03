@@ -47,7 +47,7 @@ class PreferencesGeneralViewController: UITableViewController {
 		// twoFingerSteering
 		case twoFingerSteeringInformation
 		case twoFingerSteeringEnabledToggle(Bool)
-		case twoFingerSteeringSettings(PreferencesGeneralModel.TwoFingerSteeringSettings)
+		case twoFingerSteeringSettings(TwoFingerSteeringSetting)
 
 		// rightClick
 		case rightClick
@@ -121,7 +121,7 @@ class PreferencesGeneralViewController: UITableViewController {
 			guard let self else { return }
 			switch change {
 			case .selectedResolutionsChanged:
-				reloadSection(.monitorResolutions)
+				dataSource.reloadSection(.monitorResolutions)
 			case .frameRateSettingChanged:
 				reloadData()
 			default:
@@ -297,12 +297,12 @@ class PreferencesGeneralViewController: UITableViewController {
 				) { [weak self] isOn in
 					guard let self else { return }
 
-					model.setTwoFingerSteering(enabled: isOn)
+					model.twoFingerSteeringSetting = isOn ? .clickPlusSwipePlusBootInHoverMode : .off
 					reloadData()
 				}
-			case .twoFingerSteeringSettings(let twoFingerSteeringSettings):
+			case .twoFingerSteeringSettings(let twoFingerSteeringSetting):
 				return PreferencesGeneralTwoFingerSteeringDetailsCell(
-					twoFingerSteeringSettings: twoFingerSteeringSettings
+					twoFingerSteeringSetting: twoFingerSteeringSetting
 				) { [weak self] in
 					guard let self else { return }
 
@@ -345,9 +345,9 @@ class PreferencesGeneralViewController: UITableViewController {
 				return PreferencesInformationCell(
 					text: "Controls how the screen scrolls when you three finger swipe up to present keyboard."
 				)
-			case .monitorResolutions(let monitorResolutionsState):
+			case .monitorResolutions:
 				return PreferencesGeneralEnabledMonitorResolutionsCell(
-					monitorResolutionsState: monitorResolutionsState
+					monitorResolutionsState: model.monitorResolutionsState
 				) { [weak self] in
 					guard let self else { return }
 					let vc = preferencesResolutionsVC
@@ -504,14 +504,15 @@ class PreferencesGeneralViewController: UITableViewController {
 		}
 
 		if !model.isIPadMouseEnabled {
+			let isTwoFingerSteeringEnabled = model.twoFingerSteeringSetting != .off
 			snapshot.appendSections([.twoFingerSteering])
 			snapshot.appendItems([
 				.twoFingerSteeringInformation,
-				.twoFingerSteeringEnabledToggle(model.twoFingerSteeringSettings.secondFingerClick)
+				.twoFingerSteeringEnabledToggle(isTwoFingerSteeringEnabled)
 			])
-			if model.twoFingerSteeringSettings.secondFingerClick {
+			if isTwoFingerSteeringEnabled {
 				snapshot.appendItems([
-					.twoFingerSteeringSettings(model.twoFingerSteeringSettings)
+					.twoFingerSteeringSettings(model.twoFingerSteeringSetting)
 				])
 			}
 		}
@@ -551,12 +552,6 @@ class PreferencesGeneralViewController: UITableViewController {
 			animatingDifferences: animatingDifferences,
 			completion: completion
 		)
-	}
-
-	func reloadSection(_ section: Section) {
-		var snapshot = dataSource.snapshot()
-		snapshot.reloadSections([section])
-		dataSource.apply(snapshot)
 	}
 
 	func presentRomFileMissingError() {

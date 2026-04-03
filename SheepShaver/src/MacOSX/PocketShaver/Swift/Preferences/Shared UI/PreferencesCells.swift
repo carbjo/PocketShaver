@@ -239,6 +239,57 @@ class PreferencesEmptyStateCell: UITableViewCell {
 	required init?(coder: NSCoder) { fatalError() }
 }
 
+class PreferencesRadioButtonChoiceCell: UITableViewCell {
+	private lazy var checkboxImageView: UIImageView = {
+		let view = UIImageView.withoutConstraints()
+		NSLayoutConstraint.activate([
+			view.widthAnchor.constraint(equalToConstant: 22),
+			view.heightAnchor.constraint(equalToConstant: 22)
+		])
+		view.tintColor = Colors.secondaryText
+		return view
+	}()
+
+	private lazy var titleLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.lineBreakMode = .byWordWrapping
+		label.font = .systemFont(ofSize: 14)
+		label.textColor = Colors.primaryText
+		return label
+	}()
+
+	init(
+		title: String,
+		isSelected: Bool
+	) {
+		super.init(style: .default, reuseIdentifier: nil)
+
+		titleLabel.text = title
+
+		contentView.addSubview(checkboxImageView)
+		contentView.addSubview(titleLabel)
+
+		NSLayoutConstraint.activate([
+			checkboxImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			checkboxImageView.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+
+			titleLabel.leadingAnchor.constraint(equalTo: checkboxImageView.trailingAnchor, constant: 8),
+			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
+		])
+
+		configure(isSelected: isSelected)
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	func configure(isSelected: Bool) {
+		checkboxImageView.image = UIImage(resource: isSelected ? .checkmarkCircleFill : .circle)
+	}
+}
+
 extension PreferencesInformationCell.Margin {
 	var value: CGFloat {
 		switch self {
