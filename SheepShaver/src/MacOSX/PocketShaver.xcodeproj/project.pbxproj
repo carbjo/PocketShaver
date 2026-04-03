@@ -224,6 +224,12 @@
 		COMP10A1B2C3D4E5F60202 /* compositor_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = COMP10A1B2C3D4E5F60002 /* compositor_shaders.metal */; };
 		D4E72B1A9C3F680B5A17EF06 /* rave_draw_context.mm in Sources */ = {isa = PBXBuildFile; fileRef = 8F6B3A2E17C9520D4E83AB05 /* rave_draw_context.mm */; };
 		D71765974E20350B2DEB6001 /* rave_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1E29650A76D40B3E857985D3 /* rave_thunks.cpp */; };
+		DSP10A1B2C3D4E5F60101 /* dsp_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60001 /* dsp_thunks.cpp */; };
+		DSP10A1B2C3D4E5F60102 /* dsp_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60002 /* dsp_dispatch.cpp */; };
+		DSP10A1B2C3D4E5F60103 /* dsp_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60003 /* dsp_engine.cpp */; };
+		DSP10A1B2C3D4E5F60201 /* dsp_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60001 /* dsp_thunks.cpp */; };
+		DSP10A1B2C3D4E5F60202 /* dsp_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60002 /* dsp_dispatch.cpp */; };
+		DSP10A1B2C3D4E5F60203 /* dsp_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60003 /* dsp_engine.cpp */; };
 		E1682C97D99E63F571AE4C9E /* rave_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 960A16820FECAB8FA9E61E00 /* rave_dispatch.cpp */; };
 		E204B90228BC3B640081FDCA /* ppc-dyngen-ops-x86_32.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F881E0624D100A3ADAB /* ppc-dyngen-ops-x86_32.hpp */; };
 		E204B90328BC3B640081FDCA /* basic-dyngen-ops.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F871E0624D100A3ADAB /* basic-dyngen-ops.hpp */; };
@@ -384,12 +390,6 @@
 		GL10A1B2C3D4E5F60204 /* gl_state.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60004 /* gl_state.cpp */; };
 		GL10A1B2C3D4E5F60205 /* gl_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */; };
 		GL10A1B2C3D4E5F60206 /* gl_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60006 /* gl_shaders.metal */; };
-		DSP10A1B2C3D4E5F60101 /* dsp_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60001 /* dsp_thunks.cpp */; };
-		DSP10A1B2C3D4E5F60102 /* dsp_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60002 /* dsp_dispatch.cpp */; };
-		DSP10A1B2C3D4E5F60103 /* dsp_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60003 /* dsp_engine.cpp */; };
-		DSP10A1B2C3D4E5F60201 /* dsp_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60001 /* dsp_thunks.cpp */; };
-		DSP10A1B2C3D4E5F60202 /* dsp_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60002 /* dsp_dispatch.cpp */; };
-		DSP10A1B2C3D4E5F60203 /* dsp_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60003 /* dsp_engine.cpp */; };
 		MTLD00000000000000000001 /* metal_device_shared.mm in Sources */ = {isa = PBXBuildFile; fileRef = MTLD00000000000000000010 /* metal_device_shared.mm */; };
 		MTLD00000000000000000002 /* metal_device_shared.mm in Sources */ = {isa = PBXBuildFile; fileRef = MTLD00000000000000000010 /* metal_device_shared.mm */; };
 		NQD10A1B2C3D4E5F60101 /* nqd_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */; };
@@ -827,6 +827,10 @@
 		COMP10A1B2C3D4E5F60003 /* metal_compositor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = metal_compositor.h; sourceTree = "<group>"; };
 		D685ACE51CC345988018E6A7 /* PreferencesGraphicsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGraphicsCells.swift; sourceTree = "<group>"; };
 		DBB6A6D66781443DBC8EB47A /* PreferencesGraphicsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGraphicsViewController.swift; sourceTree = "<group>"; };
+		DSP10A1B2C3D4E5F60001 /* dsp_thunks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_thunks.cpp; path = ../gfxaccel/dsp_thunks.cpp; sourceTree = SOURCE_ROOT; };
+		DSP10A1B2C3D4E5F60002 /* dsp_dispatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_dispatch.cpp; path = ../gfxaccel/dsp_dispatch.cpp; sourceTree = SOURCE_ROOT; };
+		DSP10A1B2C3D4E5F60003 /* dsp_engine.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_engine.cpp; path = ../gfxaccel/dsp_engine.cpp; sourceTree = SOURCE_ROOT; };
+		DSP10A1B2C3D4E5F60007 /* dsp_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_engine.h; sourceTree = "<group>"; };
 		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
 		E204B98A28BC3EBE0081FDCA /* PocketShaver.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketShaver.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -916,10 +920,6 @@
 		GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = gl_metal_renderer.mm; path = ../gfxaccel/gl_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
 		GL10A1B2C3D4E5F60006 /* gl_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = gl_shaders.metal; path = ../gfxaccel/gl_shaders.metal; sourceTree = SOURCE_ROOT; };
 		GL10A1B2C3D4E5F60007 /* gl_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = gl_engine.h; sourceTree = "<group>"; };
-		DSP10A1B2C3D4E5F60001 /* dsp_thunks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_thunks.cpp; path = ../gfxaccel/dsp_thunks.cpp; sourceTree = SOURCE_ROOT; };
-		DSP10A1B2C3D4E5F60002 /* dsp_dispatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_dispatch.cpp; path = ../gfxaccel/dsp_dispatch.cpp; sourceTree = SOURCE_ROOT; };
-		DSP10A1B2C3D4E5F60003 /* dsp_engine.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_engine.cpp; path = ../gfxaccel/dsp_engine.cpp; sourceTree = SOURCE_ROOT; };
-		DSP10A1B2C3D4E5F60007 /* dsp_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_engine.h; sourceTree = "<group>"; };
 		MTLD00000000000000000010 /* metal_device_shared.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = metal_device_shared.mm; path = ../gfxaccel/metal_device_shared.mm; sourceTree = SOURCE_ROOT; };
 		MTLD00000000000000000011 /* metal_device_shared.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = metal_device_shared.h; sourceTree = "<group>"; };
 		NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = nqd_metal_renderer.mm; path = ../gfxaccel/nqd_metal_renderer.mm; sourceTree = SOURCE_ROOT; };

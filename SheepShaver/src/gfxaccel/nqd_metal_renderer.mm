@@ -100,6 +100,32 @@ bool NQDMetalAddrInBuffer(uint32 mac_addr)
     return nqd_addr_in_buffer(mac_addr);
 }
 
+// Validate that a blit region [base + Y*row_bytes + X_byte_offset, extent rows]
+// stays within the Metal-mapped RAM buffer.  Returns false if any computed offset
+// would exceed nqd_ram_size, preventing an out-of-bounds GPU or CPU access.
+static inline bool nqd_region_in_buffer(uint32 mac_base, int32 row_bytes,
+                                        int16 start_y, int16 height,
+                                        int32 x_byte_offset)
+{
+    if (!nqd_addr_in_buffer(mac_base))
+        return false;
+    int32 abs_rb = (row_bytes < 0) ? -row_bytes : row_bytes;
+    // Compute the first and last byte offsets relative to mac_base
+    int64_t first_row = (row_bytes < 0)
+        ? (int64_t)(start_y + height - 1) * abs_rb
+        : (int64_t)start_y * abs_rb;
+    int64_t last_row = (row_bytes < 0)
+        ? (int64_t)start_y * abs_rb
+        : (int64_t)(start_y + height - 1) * abs_rb;
+    int64_t first_byte = first_row + x_byte_offset;
+    int64_t last_byte  = last_row  + x_byte_offset;
+    // Check both endpoints are within the buffer
+    int64_t base_off = (int64_t)mac_base - (int64_t)RAMBase;
+    if (base_off + first_byte < 0 || (uint64_t)(base_off + last_byte) >= nqd_ram_size)
+        return false;
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Batch command buffer helpers
 // ---------------------------------------------------------------------------
@@ -264,18 +290,18 @@ static inline uint32_t nqd_packed_width_bytes(int width, uint32_t pixel_size_bit
 // For packed depths (1/2/4), returns the byte containing pixel X.
 // ---------------------------------------------------------------------------
 
-static inline uint32_t nqd_packed_byte_offset(int x, uint32_t pixel_size_bits)
+static inline int32_t nqd_packed_byte_offset(int x, uint32_t pixel_size_bits)
 {
     switch (pixel_size_bits) {
-        case 1:  return (uint32_t)(x / 8);
-        case 2:  return (uint32_t)(x / 4);
-        case 4:  return (uint32_t)(x / 2);
-        case 8:  return (uint32_t)x;
+        case 1:  return (int32_t)(x / 8);
+        case 2:  return (int32_t)(x / 4);
+        case 4:  return (int32_t)(x / 2);
+        case 8:  return (int32_t)x;
         case 15:
-        case 16: return (uint32_t)(x * 2);
+        case 16: return (int32_t)(x * 2);
         case 24:
-        case 32: return (uint32_t)(x * 4);
-        default: return (uint32_t)x;
+        case 32: return (int32_t)(x * 4);
+        default: return (int32_t)x;
     }
 }
 
@@ -619,6 +645,15 @@ void NQDMetalBltMask(uint32 p)
 
     bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
 
+    // Bounds check: ensure src and dst regions fall within Metal-mapped RAM buffer
+    int32 src_x_byte_off = (int32)nqd_packed_byte_offset(src_X, src_pixel_size);
+    int32 dst_x_byte_off = (int32)nqd_packed_byte_offset(dest_X, src_pixel_size);
+    if (!nqd_region_in_buffer(src_base, src_row_bytes, src_Y, height, src_x_byte_off) ||
+        !nqd_region_in_buffer(dest_base, dest_row_bytes, dest_Y, height, dst_x_byte_off)) {
+        NQD_ERR("NQDMetalBltMask: region out of bounds, skipping");
+        return;
+    }
+
     // Read mask region address from accl_params
     uint32 mask_rgn_addr = ReadMacInt32(p + NQD_acclMaskAddr);
     NQD_LOG("NQDMetalBltMask: mask_rgn_addr=0x%08x mode=%d %dx%d bpp=%d bits_per_pixel=%u",
@@ -732,6 +767,13 @@ void NQDMetalFillMask(uint32 p)
 
     uint32_t hilite_color = (transfer_mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
     bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
+
+    // Bounds check: ensure dest region falls within Metal-mapped RAM buffer
+    int32 dst_x_byte_off = (int32)nqd_packed_byte_offset(dest_X, pixel_size);
+    if (!nqd_region_in_buffer(dest_base, dest_row_bytes, dest_Y, height, dst_x_byte_off)) {
+        NQD_ERR("NQDMetalFillMask: region out of bounds, skipping");
+        return;
+    }
 
     // Read mask region address from accl_params
     uint32 mask_rgn_addr = ReadMacInt32(p + NQD_acclMaskAddr);
@@ -868,6 +910,17 @@ void NQDMetalBitblt(uint32 p)
 
     NQD_LOG("NQDMetalBitblt: src=(%d,%d) dst=(%d,%d) %dx%d bpp=%d bits_per_pixel=%u mode=%d src_rb=%d dst_rb=%d",
             src_X, src_Y, dest_X, dest_Y, width, height, bpp, src_pixel_size, transfer_mode, src_row_bytes, dest_row_bytes);
+
+    // Bounds check: ensure the entire src and dst regions fall within the
+    // Metal-mapped RAM buffer.  Without this, bad accl_params can produce
+    // offsets past the end of the buffer → SIGSEGV (GPU or CPU path).
+    int32 src_x_byte_off = (int32)nqd_packed_byte_offset(src_X, src_pixel_size);
+    int32 dst_x_byte_off = (int32)nqd_packed_byte_offset(dest_X, src_pixel_size);
+    if (!nqd_region_in_buffer(src_base, src_row_bytes, src_Y, height, src_x_byte_off) ||
+        !nqd_region_in_buffer(dest_base, dest_row_bytes, dest_Y, height, dst_x_byte_off)) {
+        NQD_ERR("NQDMetalBitblt: region out of bounds, skipping");
+        return;
+    }
 
     // -----------------------------------------------------------------------
     // CPU fast path for small operations and simple modes
@@ -1023,6 +1076,13 @@ void NQDMetalFillRect(uint32 p)
 
     NQD_LOG("NQDMetalFillRect: dst=(%d,%d) %dx%d bpp=%d bits_per_pixel=%u transfer_mode=%d mode=%d rb=%d",
             dest_X, dest_Y, width, height, bpp, pixel_size, transfer_mode, pen_mode, dest_row_bytes);
+
+    // Bounds check: ensure dest region falls within Metal-mapped RAM buffer
+    int32 dst_x_byte_off = (int32)nqd_packed_byte_offset(dest_X, pixel_size);
+    if (!nqd_region_in_buffer(dest_base, dest_row_bytes, dest_Y, height, dst_x_byte_off)) {
+        NQD_ERR("NQDMetalFillRect: region out of bounds, skipping");
+        return;
+    }
 
     // -----------------------------------------------------------------------
     // CPU fast path for small Boolean fills on standard depths
@@ -1180,6 +1240,13 @@ void NQDMetalInvertRect(uint32 p)
 
     NQD_LOG("NQDMetalInvertRect: dst=(%d,%d) %dx%d bpp=%d bits_per_pixel=%u rb=%d",
             dest_X, dest_Y, width, height, bpp, pixel_size, dest_row_bytes);
+
+    // Bounds check: ensure dest region falls within Metal-mapped RAM buffer
+    int32 dst_x_byte_off = (int32)nqd_packed_byte_offset(dest_X, pixel_size);
+    if (!nqd_region_in_buffer(dest_base, dest_row_bytes, dest_Y, height, dst_x_byte_off)) {
+        NQD_ERR("NQDMetalInvertRect: region out of bounds, skipping");
+        return;
+    }
 
     // -----------------------------------------------------------------------
     // CPU fast path for small inverts on standard depths

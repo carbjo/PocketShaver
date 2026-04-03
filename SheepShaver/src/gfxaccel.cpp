@@ -20,6 +20,7 @@
 
 #include "sysdeps.h"
 
+#include "cpu_emulation.h"
 #include "prefs.h"
 #include "video.h"
 #include "video_defs.h"
@@ -35,6 +36,30 @@
 /*
  *	Utility functions
  */
+
+// Check if a Mac address is safe for the NQD software fallback to dereference.
+// Returns true for addresses within: RAM, ROM, DR Cache, or the screen framebuffer.
+// Addresses outside these regions (e.g. offscreen GWorlds in unmapped VM space)
+// would cause a SIGSEGV if passed to Mac2HostAddr and dereferenced.
+static inline bool nqd_addr_safe(uint32 mac_addr)
+{
+	// RAM region
+	if (mac_addr >= RAMBase && mac_addr < RAMBase + RAMSize)
+		return true;
+	// ROM region (Mac OS blits from ROM for icons, cursors, resources)
+	if (mac_addr >= ROMBase && mac_addr < ROMBase + ROM_AREA_SIZE)
+		return true;
+	// DR Cache region (dynamically recompiled code/data)
+	if (mac_addr >= DR_CACHE_BASE && mac_addr < DR_CACHE_BASE + DR_CACHE_SIZE)
+		return true;
+	// Screen framebuffer region (may be outside RAM for direct addressing)
+	if (screen_base != 0) {
+		uint32 fb_size = VModes[cur_mode].viRowBytes * VModes[cur_mode].viYsize;
+		if (mac_addr >= screen_base && mac_addr < screen_base + fb_size)
+			return true;
+	}
+	return false;
+}
 
 // Return bytes per pixel for requested depth
 static inline int bytes_per_pixel(int depth)
@@ -149,6 +174,10 @@ void NQD_invrect(uint32 p)
 		NQDMetalInvertRect(p);
 		return;
 	}
+
+	// Software fallback: bail if dest is outside safe memory regions
+	if (!nqd_addr_safe(ReadMacInt32(p + acclDestBaseAddr)))
+		return;
 
 	// Get inversion parameters
 	int16 dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
@@ -270,6 +299,10 @@ void NQD_fillrect(uint32 p)
 		return;
 	}
 
+	// Software fallback: bail if dest is outside safe memory regions
+	if (!nqd_addr_safe(ReadMacInt32(p + acclDestBaseAddr)))
+		return;
+
 	// Get filling parameters
 	int16 dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
 	int16 dest_Y = (int16)ReadMacInt16(p + acclDestRect + 0) - (int16)ReadMacInt16(p + acclDestBoundsRect + 0);
@@ -335,8 +368,10 @@ bool NQD_fillrect_hook(uint32 p)
 		}
 	}
 
-	// CPU fallback: original checks with pixel size >= 8 restriction
-	if (ReadMacInt32(p + 0x284) != 0 && ReadMacInt32(p + acclDestPixelSize) >= 8) {
+	// CPU fallback: original checks with pixel size >= 8 restriction.
+	// Also reject if dest is outside safe memory regions (would SIGSEGV).
+	if (ReadMacInt32(p + 0x284) != 0 && ReadMacInt32(p + acclDestPixelSize) >= 8 &&
+		nqd_addr_safe(ReadMacInt32(p + acclDestBaseAddr))) {
 		const int transfer_mode = ReadMacInt32(p + acclTransferMode);
 		if (transfer_mode == 8) {
 			// Fill
@@ -368,6 +403,11 @@ void NQD_bitblt(uint32 p)
 		NQDMetalBitblt(p);
 		return;
 	}
+
+	// Software fallback: bail if src or dest is outside safe memory regions
+	if (!nqd_addr_safe(ReadMacInt32(p + acclSrcBaseAddr)) ||
+		!nqd_addr_safe(ReadMacInt32(p + acclDestBaseAddr)))
+		return;
 
 	// Get blitting parameters
 	int16 src_X  = (int16)ReadMacInt16(p + acclSrcRect + 2) - (int16)ReadMacInt16(p + acclSrcBoundsRect + 2);
@@ -449,8 +489,11 @@ bool NQD_bitblt_hook(uint32 p)
 
 	// CPU fallback: srcCopy (mode 0) with matching pixel sizes >= 8
 	// Restore mask/clip guards — CPU memmove path can't handle masked or clipped blits.
+	// Also reject if src or dest is outside safe memory regions (would SIGSEGV).
 	if (ReadMacInt32(p + 0x018) + ReadMacInt32(p + 0x128) == 0 &&
 		ReadMacInt32(p + 0x130) == 0 &&
+		nqd_addr_safe(ReadMacInt32(p + acclSrcBaseAddr)) &&
+		nqd_addr_safe(ReadMacInt32(p + acclDestBaseAddr)) &&
 		ReadMacInt32(p + acclSrcPixelSize) >= 8 &&
 		ReadMacInt32(p + acclSrcPixelSize) == ReadMacInt32(p + acclDestPixelSize) &&
 		(int32)(ReadMacInt32(p + acclSrcRowBytes) ^ ReadMacInt32(p + acclDestRowBytes)) >= 0 &&
