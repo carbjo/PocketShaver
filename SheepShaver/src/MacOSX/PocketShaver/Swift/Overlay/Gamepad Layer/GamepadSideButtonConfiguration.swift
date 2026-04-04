@@ -21,7 +21,7 @@ enum GamepadSideButtonLayout: String, Codable, CaseIterable {
 	}
 
 	static var isSupported: Bool {
-		if UIDevice.isIPad {
+		if UIDevice.isIPadIdiom {
 			return false
 		}
 		if !UIScreen.hasNotch {

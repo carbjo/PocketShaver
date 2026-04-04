@@ -117,7 +117,7 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	init() {
 		showHints = true
-		iPadMousePassthrough = false
+		iPadMousePassthrough = UIDevice.deviceType == .mac
 		gestureHapticFeedback = true
 		mouseHapticFeedback = true
 		keyHapticFeedback = true

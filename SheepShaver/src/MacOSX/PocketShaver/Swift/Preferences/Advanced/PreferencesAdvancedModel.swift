@@ -12,7 +12,7 @@ import CoreHaptics
 class PreferencesAdvancedModel {
 	let changeSubject: PassthroughSubject<PreferencesChange, Never>
 
-	private let mode: PreferencesLaunchMode
+	let mode: PreferencesLaunchMode
 
 	@MainActor
 	private var miscSettings: MiscellaneousSettings {

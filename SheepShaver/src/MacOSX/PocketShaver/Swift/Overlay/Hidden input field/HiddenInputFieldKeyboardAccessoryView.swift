@@ -141,10 +141,10 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 		rightStackView.addArrangedSubview(relativeMouseModeButton)
 		rightStackView.addArrangedSubview(preferencesButton)
-		if !UIScreen.isPortraitMode || UIDevice.isIPad {
+		if !UIScreen.isPortraitMode || UIDevice.isIPadIdiom {
 			rightStackView.addArrangedSubview(rightCmdButton)
 		}
-		if !UIDevice.isIPad {
+		if !UIDevice.isIPadIdiom {
 			rightStackView.addArrangedSubview(dismissKeyboardButton)
 		}
 

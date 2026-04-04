@@ -45,7 +45,7 @@ extension UIScreen {
 	static let sideMarginForButtons: CGFloat = 8
 
 	static var isSmallSize: Bool {
-		if UIDevice.isIPad {
+		if UIDevice.isIPadIdiom {
 			return false
 		}
 
@@ -63,9 +63,25 @@ extension UIScreen {
 	}
 }
 
+enum DeviceType {
+	case iPhone
+	case iPad
+	case mac
+}
+
 extension UIDevice {
-	static var isIPad: Bool {
+	static var isIPadIdiom: Bool {
 		current.userInterfaceIdiom == .pad
+	}
+
+	static var deviceType: DeviceType {
+		if ProcessInfo.processInfo.isiOSAppOnMac {
+			return .mac
+		} else if current.userInterfaceIdiom == .pad {
+			return .iPad
+		} else {
+			return .iPhone
+		}
 	}
 
 	static var isSimulator: Bool {

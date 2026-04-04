@@ -24,6 +24,12 @@ void cpp_setRelativeMouseModeAutomatic() {
 	set_relative_mouse_automatic();
 }
 
+void cpp_toggle_relative_mouse_on_main() {
+	dispatch_sync(dispatch_get_main_queue(), ^{
+		toggle_relative_mouse();
+	});
+}
+
 void objc_reportRelativeMouseModeCapability() {
 	[LocalNotificationsObjCProxy sendRelativeMouseModeCapabilityFound];
 }
