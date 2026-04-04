@@ -279,6 +279,7 @@ public class OverlayViewController: UIViewController {
 		NotificationCenter.default.addObserver(self, selector: #selector(displayRelativeMouseCapabilityDialogueIfEligible), name: LocalNotifications.relativeMouseModeCapabilityFound, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayJaggyCursorWarningDialogueIfEligible), name: LocalNotifications.jaggyCursorResolutionSelected, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(displayGotIpAddress), name: LocalNotifications.gotIpAddress, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(presentPreferences), name: LocalNotifications.displayPreferencesRequested, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillChangePosition), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(keyboardDidChangePosition), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
 	}
@@ -460,6 +461,7 @@ public class OverlayViewController: UIViewController {
 		view.transform = transform.inverted()
 	}
 
+	@objc
 	private func presentPreferences() {
 		transformSDLContainerView(.identity)
 		dragInteractionModel.resetSdlViewVerticalOffset()

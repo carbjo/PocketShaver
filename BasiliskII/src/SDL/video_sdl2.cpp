@@ -79,8 +79,9 @@
 #include "cdrom.h"
 
 #if TARGET_OS_IPHONE
-#include "PerformanceCounterObjCCppHeader.h"
-#include "MiscellaneousSettingsObjCCppHeader.h"
+#import "PerformanceCounterObjCCppHeader.h"
+#import "MiscellaneousSettingsObjCCppHeader.h"
+#import "PreferencesViewControllerObjCCppHeader.h"
 #endif
 
 #define DEBUG 0
@@ -153,6 +154,8 @@ static bool classic_mode = false;					// Flag: Classic Mac video mode
 
 static bool use_keycodes = false;					// Flag: Use keycodes rather than keysyms
 static int keycode_table[256];						// X keycode -> Mac keycode translation table
+
+bool input_disabled = false;
 
 // SDL variables
 SDL_Window * sdl_window = NULL;				        // Wraps an OS-native window
@@ -2122,6 +2125,10 @@ void report_relative_mouse_capability() {
 	}
 }
 
+void set_input_disabled(bool is_disabled) {
+	input_disabled = is_disabled;
+}
+
 /*
  *  Can we set the MacOS cursor image into the window?
  */
@@ -2377,16 +2384,30 @@ static int SDLCALL on_sdl_event_generated(void *userdata, SDL_Event * event)
 		case SDL_KEYUP: {
 			SDL_Keysym const & ks = event->key.keysym;
 			switch (ks.sym) {
-				case SDLK_F5: {
-					if (is_hotkey_down(ks) && !PrefsFindBool("hardcursor")) {
 #if TARGET_OS_IPHONE
+				case SDLK_F5: {
+					if (opt_down) {
 						cpp_toggle_relative_mouse_on_main();
-#else
-						drv->toggle_mouse_grab();
-#endif
+						return EVENT_DROP_FROM_QUEUE;
+					}
+					break;
+				}
+				case SDLK_F6: {
+					if (opt_down) {
+						objc_displayPreferencesDuringEmulationOnMain();
 						return EVENT_DROP_FROM_QUEUE;
 					}
 				} break;
+#else
+				case SDLK_F5: {
+					if (is_hotkey_down(ks) && !PrefsFindBool("hardcursor")) {
+						drv->toggle_mouse_grab();
+						return EVENT_DROP_FROM_QUEUE;
+					}
+					break;
+				}
+#endif
+
 			}
 		} break;
 			
@@ -2445,6 +2466,10 @@ static void handle_events(void)
 
 			// Mouse button
 			case SDL_MOUSEBUTTONDOWN: {
+				if (input_disabled) {
+					break;
+				}
+
 				unsigned int button = event.button.button;
 				if (button == SDL_BUTTON_LEFT)
 					ADBMouseDown(0);
@@ -2467,6 +2492,10 @@ static void handle_events(void)
 
 			// Mouse moved
 			case SDL_MOUSEMOTION:
+				if (input_disabled) {
+					break;
+				}
+
 				if (mouse_grabbed) {
 					drv->mouse_moved(event.motion.xrel, event.motion.yrel);
 				} else {
@@ -2492,6 +2521,10 @@ static void handle_events(void)
 
 			// Keyboard
 			case SDL_KEYDOWN: {
+				if (input_disabled) {
+					break;
+				}
+
 				if (event.key.repeat)
 					break;
 				int code = CODE_INVALID;

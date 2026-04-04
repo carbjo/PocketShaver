@@ -181,9 +181,9 @@ class PreferencesAdvancedViewController: UITableViewController {
 					case .iPhone:
 						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping the <img/> button above the keyboard or as a gamepad button."
 					case .iPad:
-						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping the <img/> button above the software keyboard or as a gamepad button. Alternatively by pressing ctrl + F5, if using a hardware keyboard."
+						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping the <img/> button above the software keyboard or as a gamepad button. Alternatively by pressing option + F5, if using a hardware keyboard."
 					case .mac:
-						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by pressing ctrl + F5."
+						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by pressing option + F5."
 					}
 				}
 				return PreferencesInformationCell(

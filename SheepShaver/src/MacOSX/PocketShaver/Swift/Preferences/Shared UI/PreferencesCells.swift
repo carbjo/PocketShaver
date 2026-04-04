@@ -156,6 +156,8 @@ class PreferencesCardInformationCell: UITableViewCell {
 			hideSeparator()
 		}
 
+		cardView.setContentHuggingPriority(.required, for: .horizontal)
+
 		cardView.addSubview(infoIconImageView)
 		cardView.addSubview(informationLabel)
 		contentView.addSubview(cardView)
@@ -163,7 +165,7 @@ class PreferencesCardInformationCell: UITableViewCell {
 		NSLayoutConstraint.activate([
 			cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
 			cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-			cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+			cardView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -12),
 			cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
 
 			infoIconImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),

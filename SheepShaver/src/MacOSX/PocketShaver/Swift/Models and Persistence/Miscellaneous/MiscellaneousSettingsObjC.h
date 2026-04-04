@@ -21,3 +21,8 @@ void cpp_setRelativeMouseModeAutomatic();
 extern "C"
 #endif
 void cpp_updateFrameRateHz();
+
+#ifdef __cplusplus
+extern "C"
+#endif
+void cpp_setInputDisabled(bool isDisabled);

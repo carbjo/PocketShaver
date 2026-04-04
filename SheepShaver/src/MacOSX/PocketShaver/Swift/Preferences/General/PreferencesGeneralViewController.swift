@@ -12,6 +12,7 @@ class PreferencesGeneralViewController: UITableViewController {
 	enum Section {
 		case setupInstructions
 		case bootstrap
+		case presentCommandInfo
 		case disks
 		case frameRateSetting
 		case iPadMouse
@@ -30,6 +31,9 @@ class PreferencesGeneralViewController: UITableViewController {
 		// bootstrap
 		case bootstrap
 		case bootstrapError
+
+		// presentCommandInfo
+		case presentCommandInfo
 
 		// disks
 		case diskActionBar
@@ -162,6 +166,10 @@ class PreferencesGeneralViewController: UITableViewController {
 			case .bootstrapError:
 				return PreferencesGeneralErrorCell(
 					title: "You need to bootstrap PocketShaver"
+				)
+			case .presentCommandInfo:
+				return PreferencesCardInformationCell(
+					text: "This window can be accessed during emulation by pressing option + F6."
 				)
 			case .diskActionBar:
 				return PreferencesGeneralDiskActionBarCell(
@@ -399,6 +407,8 @@ class PreferencesGeneralViewController: UITableViewController {
 				return nil
 			case .bootstrap:
 				return "Bootstrap"
+			case .presentCommandInfo:
+				return nil
 			case .disks:
 				return "Disks"
 			case .frameRateSetting:
@@ -467,6 +477,12 @@ class PreferencesGeneralViewController: UITableViewController {
 			if model.isDisplayingRomFileMissingError {
 				snapshot.appendItems([.bootstrapError])
 			}
+		}
+
+		if UIDevice.deviceType == .mac,
+		   model.mode == .startup {
+			snapshot.appendSections([.presentCommandInfo])
+			snapshot.appendItems([.presentCommandInfo])
 		}
 
 		snapshot.appendSections([.disks])
@@ -567,11 +583,12 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	func presentNoDiskFilesError() {
-		let frameRateSectionIndexPath = dataSource.indexPath(for: .frameRateSettingToggle)!
+		let sectionAfterDiskIndex = dataSource.snapshot().indexOfSection(.disks)! + 1
+		let afterDiskIndexPath = IndexPath(row: 0, section: sectionAfterDiskIndex)
 
 		model.isDisplayingNoDiskFilesError = true
 
-		tableView.scrollToRow(at: frameRateSectionIndexPath, at: .middle, animated: true)
+		tableView.scrollToRow(at: afterDiskIndexPath, at: .bottom, animated: true)
 
 		reloadData()
 	}

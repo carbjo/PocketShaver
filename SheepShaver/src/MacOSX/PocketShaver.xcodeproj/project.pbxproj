@@ -761,7 +761,7 @@
 		C7F42CCF2E5A0F7200FA7169 /* RamAllocFailedAlertViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RamAllocFailedAlertViewControllerObjC.h; sourceTree = "<group>"; };
 		C7F42CD12E5B1BC000FA7169 /* PreferencesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesViewController.swift; sourceTree = "<group>"; };
 		C7F42CD32E5B201B00FA7169 /* PreferencesViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PreferencesViewControllerObjC.mm; sourceTree = "<group>"; };
-		C7F42CD52E5B202400FA7169 /* PreferencesViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PreferencesViewControllerObjC.h; sourceTree = "<group>"; };
+		C7F42CD52E5B202400FA7169 /* PreferencesViewControllerObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PreferencesViewControllerObjCCppHeader.h; sourceTree = "<group>"; };
 		C7F42CD72E5B384700FA7169 /* PreferencesGeneralViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGeneralViewController.swift; sourceTree = "<group>"; };
 		C7F42CDC2E5B3C5800FA7169 /* PreferencesResolutionsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesResolutionsViewController.swift; sourceTree = "<group>"; };
 		C7F42CDE2E5B3C6700FA7169 /* PreferencesGamepadViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGamepadViewController.swift; sourceTree = "<group>"; };
@@ -1900,7 +1900,7 @@
 				C750737C2E67440800D1E374 /* PreferencesModel.swift */,
 				C7F42CD12E5B1BC000FA7169 /* PreferencesViewController.swift */,
 				C7F42CD32E5B201B00FA7169 /* PreferencesViewControllerObjC.mm */,
-				C7F42CD52E5B202400FA7169 /* PreferencesViewControllerObjC.h */,
+				C7F42CD52E5B202400FA7169 /* PreferencesViewControllerObjCCppHeader.h */,
 				C7F42CD62E5B383B00FA7169 /* General */,
 				C7F42CDA2E5B3C3400FA7169 /* Gamepad */,
 				C791A9AD2F423275001F7E2E /* Network */,

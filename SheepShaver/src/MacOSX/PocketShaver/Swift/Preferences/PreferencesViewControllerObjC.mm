@@ -9,9 +9,9 @@
 
 __weak __typeof(PreferencesViewController) *vc;
 
-void objc_displayPreferences(void) {
+void objc_displayPreferencesStartup(void) {
 	@autoreleasepool {
-		vc = [PreferencesViewController present];
+		vc = [PreferencesViewController presentStartup];
 
 		while (!vc.isDone) {
 			[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
@@ -20,4 +20,10 @@ void objc_displayPreferences(void) {
 		[vc removeFromParentViewController];
 		[PreferencesViewController resetPrefsWindow];
 	}
+}
+
+void objc_displayPreferencesDuringEmulationOnMain(void) {
+	dispatch_sync(dispatch_get_main_queue(), ^{
+		[LocalNotificationsObjCProxy sendDisplayPreferencesRequested];
+	});
 }
