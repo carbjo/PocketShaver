@@ -325,7 +325,7 @@ class PreferencesGeneralViewController: UITableViewController {
 				}
 			case .rightClickInformation:
 				let text: String
-				if UIDevice.isIPad {
+				if UIDevice.deviceType == .iPad {
 					text = "If using bluetooth mouse, right click has to explicitly be enabled in iOS settings under General > Trackpad and Mouse > Secondary click.\nRight click can also be performed with a gamepad button."
 				} else {
 					text = "Right click can be performed with a gamepad button."
@@ -498,36 +498,38 @@ class PreferencesGeneralViewController: UITableViewController {
 			}
 		}
 
-		if UIDevice.isIPad {
-			snapshot.appendSections([.iPadMouse])
-			snapshot.appendItems([.iPadMouse])
-		}
-
-		if !model.isIPadMouseEnabled {
-			let isTwoFingerSteeringEnabled = model.twoFingerSteeringSetting != .off
-			snapshot.appendSections([.twoFingerSteering])
-			snapshot.appendItems([
-				.twoFingerSteeringInformation,
-				.twoFingerSteeringEnabledToggle(isTwoFingerSteeringEnabled)
-			])
-			if isTwoFingerSteeringEnabled {
-				snapshot.appendItems([
-					.twoFingerSteeringSettings(model.twoFingerSteeringSetting)
-				])
+		if UIDevice.deviceType != .mac {
+			if UIDevice.deviceType == .iPad {
+				snapshot.appendSections([.iPadMouse])
+				snapshot.appendItems([.iPadMouse])
 			}
+
+			if !model.isIPadMouseEnabled {
+				let isTwoFingerSteeringEnabled = model.twoFingerSteeringSetting != .off
+				snapshot.appendSections([.twoFingerSteering])
+				snapshot.appendItems([
+					.twoFingerSteeringInformation,
+					.twoFingerSteeringEnabledToggle(isTwoFingerSteeringEnabled)
+				])
+				if isTwoFingerSteeringEnabled {
+					snapshot.appendItems([
+						.twoFingerSteeringSettings(model.twoFingerSteeringSetting)
+					])
+				}
+			}
+
+			snapshot.appendSections([.rightClick])
+			snapshot.appendItems([
+				.rightClick,
+				.rightClickInformation
+			])
+
+			snapshot.appendSections([.keyboardAutoOffset])
+			snapshot.appendItems([
+				.keyboardAutoOffset,
+				.keyboardAutoOffsetInformation
+			])
 		}
-
-		snapshot.appendSections([.rightClick])
-		snapshot.appendItems([
-			.rightClick,
-			.rightClickInformation
-		])
-
-		snapshot.appendSections([.keyboardAutoOffset])
-		snapshot.appendItems([
-			.keyboardAutoOffset,
-			.keyboardAutoOffsetInformation
-		])
 
 		snapshot.appendSections([.monitorResolutions])
 		snapshot.appendItems([

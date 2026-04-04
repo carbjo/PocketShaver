@@ -438,7 +438,7 @@ fileprivate enum SideButtonAvailability {
 
 	@MainActor
 	static var value: Self {
-		let isSideButtonLayoutSupported = UIScreen.hasNotch && !UIDevice.isIPad
+		let isSideButtonLayoutSupported = UIScreen.hasNotch && !UIDevice.isIPadIdiom
 		if isSideButtonLayoutSupported {
 			let hasDoubleSlots = GamepadSideButtonLayout.layoutBasis.numberOfSlots > 1
 			return hasDoubleSlots ? .double : .single

@@ -37,7 +37,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 		//relateiveMouseMode
 		case relateiveMouseModeSetting
-		case relateiveMouseModeInfo(RelativeMouseModeSetting)
+		case relateiveMouseModeInfo
 
 		// relateiveMouseModeClickGesture
 		case relativeMouseModeClickGestureSetting(RelativeMouseModeClickGestureSetting)
@@ -171,10 +171,23 @@ class PreferencesAdvancedViewController: UITableViewController {
 					guard let self else { return }
 					model.relativeMouseModeSetting = newFrameRateSetting
 					feedbackGenerator.impactOccurred()
+					dataSource.reloadItems([.relateiveMouseModeInfo])
 				}
 			case .relateiveMouseModeInfo:
+				let duringEmulation = (model.mode == .startup) ? " during emulation" : ""
+				var toggleExplanation = ""
+				if model.relativeMouseModeSetting != .alwaysOn {
+					switch UIDevice.deviceType {
+					case .iPhone:
+						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping the <img/> button above the keyboard or as a gamepad button."
+					case .iPad:
+						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping the <img/> button above the software keyboard or as a gamepad button. Alternatively by pressing ctrl + F5, if using a hardware keyboard."
+					case .mac:
+						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by pressing ctrl + F5."
+					}
+				}
 				return PreferencesInformationCell(
-					text: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the <img/> button above the keyboard. <link>Read more</link>.",
+					text: "Some games and apps require relative mouse mode to function.\(toggleExplanation) <link>Read more</link>.",
 					tagConfig: .init(
 						images: [ImageResource.arrowUpAndDownAndArrowLeftAndRight.asSymbolImage()]
 					)
@@ -310,16 +323,18 @@ class PreferencesAdvancedViewController: UITableViewController {
 		])
 
 		snapshot.appendSections([.uiOptions])
-		snapshot.appendItems([.uiOptionsHoverJustAbove])
-		if model.shouldDisplayAlwaysLandscapeModeOption {
-			snapshot.appendItems([.uiOptionsAlwaysBootInLandscapeMode])
+		if UIDevice.deviceType != .mac {
+			snapshot.appendItems([.uiOptionsHoverJustAbove])
+			if model.shouldDisplayAlwaysLandscapeModeOption {
+				snapshot.appendItems([.uiOptionsAlwaysBootInLandscapeMode])
+			}
+			snapshot.appendItems([.uiOptionsReportIpAddressAssignment])
 		}
-		snapshot.appendItems([.uiOptionsReportIpAddressAssignment])
 
 		snapshot.appendSections([.relateiveMouseMode])
 		snapshot.appendItems([
 			.relateiveMouseModeSetting,
-			.relateiveMouseModeInfo(model.relativeMouseModeSetting)
+			.relateiveMouseModeInfo
 		])
 
 		if !model.isIPadMouseEnabled {

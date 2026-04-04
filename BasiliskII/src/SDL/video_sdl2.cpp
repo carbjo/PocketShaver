@@ -78,8 +78,10 @@
 #include "vm_alloc.h"
 #include "cdrom.h"
 
+#if TARGET_OS_IPHONE
 #include "PerformanceCounterObjCCppHeader.h"
 #include "MiscellaneousSettingsObjCCppHeader.h"
+#endif
 
 #define DEBUG 0
 #include "debug.h"
@@ -2101,6 +2103,10 @@ void set_relative_mouse_disabled() {
 	drv->ungrab_mouse();
 }
 
+void toggle_relative_mouse() {
+	drv->toggle_mouse_grab();
+}
+
 void set_relative_mouse_automatic() {
 	if (suggest_mouse_grab) {
 		set_relative_mouse_enabled();
@@ -2373,7 +2379,11 @@ static int SDLCALL on_sdl_event_generated(void *userdata, SDL_Event * event)
 			switch (ks.sym) {
 				case SDLK_F5: {
 					if (is_hotkey_down(ks) && !PrefsFindBool("hardcursor")) {
+#if TARGET_OS_IPHONE
+						cpp_toggle_relative_mouse_on_main();
+#else
 						drv->toggle_mouse_grab();
+#endif
 						return EVENT_DROP_FROM_QUEUE;
 					}
 				} break;
