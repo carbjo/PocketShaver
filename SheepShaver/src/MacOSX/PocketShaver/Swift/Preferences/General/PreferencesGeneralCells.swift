@@ -327,27 +327,39 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 }
 
 class PreferencesGeneralTagView: UIView {
+	// Will render in quadruple resolution when run on mac due to
+	// default resolution being way too blurry
+
 	private lazy var label: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.textColor = Colors.primaryBackground
-		label.font = label.font.withSize(9)
+		label.font = label.font.withSize(9 * resolutionMultiplier)
 		return label
 	}()
+
+	private var resolutionMultiplier: CGFloat {
+		switch UIDevice.deviceType {
+		case .mac:
+			return 4
+		default:
+			return 1
+		}
+	}
 
 	init() {
 		super.init(frame: .zero)
 
 		translatesAutoresizingMaskIntoConstraints = false
 
-		layer.cornerRadius = 4
+		layer.cornerRadius = 4 * resolutionMultiplier
 
 		addSubview(label)
 
 		NSLayoutConstraint.activate([
-			label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4.5),
-			label.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-			label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4.5),
-			label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+			label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4.5 * resolutionMultiplier),
+			label.topAnchor.constraint(equalTo: topAnchor, constant: 2 * resolutionMultiplier),
+			label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4.5 * resolutionMultiplier),
+			label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2 * resolutionMultiplier),
 		])
 	}
 
@@ -384,6 +396,48 @@ class PreferencesGeneralTagView: UIView {
 		layoutIfNeeded()
 
 		return self
+	}
+
+	func asImage() -> UIImage {
+		switch UIDevice.deviceType {
+		case .mac:
+			asQuadrupleResolutionImage()
+		default:
+			asDefaultResolutionImage()
+		}
+	}
+
+	private func asDefaultResolutionImage() -> UIImage {
+		let renderer = UIGraphicsImageRenderer(bounds: bounds)
+		return renderer.image { rendererContext in
+			layer.render(in: rendererContext.cgContext)
+		}
+	}
+
+	private func asQuadrupleResolutionImage() -> UIImage {
+		let renderer = UIGraphicsImageRenderer(
+			bounds: .init(
+				origin: .init(
+					x: 0,
+					y: bounds.size.height / 2
+				),
+				size: .init(
+					width: bounds.size.width,
+					height: bounds.size.height / resolutionMultiplier
+			 )
+			)
+		)
+
+		let height = self.bounds.height
+
+		return renderer.image { rendererContext in
+			rendererContext.cgContext.translateBy(x: 0, y: height / 2)
+			rendererContext.cgContext.scaleBy(
+				x: 1 / resolutionMultiplier,
+				y: 1 / resolutionMultiplier
+			)
+			layer.render(in: rendererContext.cgContext)
+		}
 	}
 }
 

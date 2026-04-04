@@ -328,8 +328,8 @@ class PreferencesAdvancedViewController: UITableViewController {
 			if model.shouldDisplayAlwaysLandscapeModeOption {
 				snapshot.appendItems([.uiOptionsAlwaysBootInLandscapeMode])
 			}
-			snapshot.appendItems([.uiOptionsReportIpAddressAssignment])
 		}
+		snapshot.appendItems([.uiOptionsReportIpAddressAssignment])
 
 		snapshot.appendSections([.relateiveMouseMode])
 		snapshot.appendItems([
