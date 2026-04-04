@@ -39,6 +39,9 @@
 #include "serial.h"
 #include "ether.h"
 #include "timer.h"
+#include "rave_engine.h"
+#include "gl_engine.h"
+#include "dsp_engine.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -384,6 +387,18 @@ int sheepshaver_cpu::compile1(codegen_context_t & cg_context)
 			dg.gen_store_T0_GPR(3);
 			status = COMPILE_CODE_OK;
 			break;
+		case NATIVE_NQD_BLTMASK_HOOK:
+			dg.gen_load_T0_GPR(3);
+			dg.gen_invoke_T0_ret_T0((uint32 (*)(uint32))NQD_bltmask_hook);
+			dg.gen_store_T0_GPR(3);
+			status = COMPILE_CODE_OK;
+			break;
+		case NATIVE_NQD_FILLMASK_HOOK:
+			dg.gen_load_T0_GPR(3);
+			dg.gen_invoke_T0_ret_T0((uint32 (*)(uint32))NQD_fillmask_hook);
+			dg.gen_store_T0_GPR(3);
+			status = COMPILE_CODE_OK;
+			break;
 		case NATIVE_NQD_BITBLT:
 			dg.gen_load_T0_GPR(3);
 			dg.gen_invoke_T0((void (*)(uint32))NQD_bitblt);
@@ -397,6 +412,16 @@ int sheepshaver_cpu::compile1(codegen_context_t & cg_context)
 		case NATIVE_NQD_FILLRECT:
 			dg.gen_load_T0_GPR(3);
 			dg.gen_invoke_T0((void (*)(uint32))NQD_fillrect);
+			status = COMPILE_CODE_OK;
+			break;
+		case NATIVE_NQD_BLTMASK:
+			dg.gen_load_T0_GPR(3);
+			dg.gen_invoke_T0((void (*)(uint32))NQD_bltmask);
+			status = COMPILE_CODE_OK;
+			break;
+		case NATIVE_NQD_FILLMASK:
+			dg.gen_load_T0_GPR(3);
+			dg.gen_invoke_T0((void (*)(uint32))NQD_fillmask);
 			status = COMPILE_CODE_OK;
 			break;
 		}
@@ -1125,6 +1150,18 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 	case NATIVE_NQD_FILLRECT:
 		NQD_fillrect(gpr(3));
 		break;
+	case NATIVE_NQD_BLTMASK_HOOK:
+		gpr(3) = NQD_bltmask_hook(gpr(3));
+		break;
+	case NATIVE_NQD_FILLMASK_HOOK:
+		gpr(3) = NQD_fillmask_hook(gpr(3));
+		break;
+	case NATIVE_NQD_BLTMASK:
+		NQD_bltmask(gpr(3));
+		break;
+	case NATIVE_NQD_FILLMASK:
+		NQD_fillmask(gpr(3));
+		break;
 	case NATIVE_SERIAL_NOTHING:
 	case NATIVE_SERIAL_OPEN:
 	case NATIVE_SERIAL_PRIME_IN:
@@ -1169,6 +1206,192 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 	case NATIVE_NAMED_CHECK_LOAD_INVOC:
 		named_check_load_invoc(gpr(3), gpr(4), gpr(5));
 		break;
+	case NATIVE_RAVE_DISPATCH: {
+		// Save critical PPC registers that re-entrant PPC code could corrupt.
+		// Metal/SDL initialization during DrawContextNew can trigger event
+		// processing or CFM callbacks that re-enter the PPC emulator.
+		uint32 saved_lr = lr();
+		uint32 saved_ctr = ctr();
+		uint32 saved_sp = gpr(1);
+		uint32 saved_r2 = gpr(2);
+		uint32 saved_pc = pc();
+
+		// Read sub-opcode BEFORE dispatch for targeted logging
+		uint32 pre_subop = ReadMacInt32(rave_scratch_addr);
+
+		// For hook sub-opcodes (200-207), log full PPC state
+		if (pre_subop >= 200 && pre_subop <= 207) {
+			D(bug("RAVE NATIVE_OP: subop=%d PC=0x%08x LR=0x%08x CTR=0x%08x SP=0x%08x R2=0x%08x\n",
+				   pre_subop, saved_pc, saved_lr, saved_ctr, saved_sp, saved_r2));
+			// Dump instructions at LR (return address) to see what caller expects
+			D(bug("RAVE NATIVE_OP: instructions at LR 0x%08x:\n", saved_lr));
+			for (int di = -2; di < 6; di++) {
+				uint32 addr = saved_lr + di * 4;
+				uint32 instr = ReadMacInt32(addr);
+				D(bug("  [0x%08x] %08x%s\n", addr, instr, di == 0 ? " <-- LR" : ""));
+			}
+		}
+
+		// PPC calling convention: float arguments go in FPR, not GPR.
+		// SetFloat(drawContext, tag, value) has value as a float in fpr(1).
+		// We must extract the float bits and place them in r5 so the
+		// dispatch handler receives the correct value via gpr(5).
+		if (pre_subop == 0) {  // kRaveDrawSetFloat
+			float fval = (float)fpr(1);
+			uint32 fbits;
+			memcpy(&fbits, &fval, sizeof(uint32));
+			gpr(5) = fbits;
+		}
+
+		uint32 rave_ret = RaveDispatch(gpr(3), gpr(4), gpr(5), gpr(6), gpr(7), gpr(8));
+		gpr(3) = rave_ret;
+
+		// GetFloat returns float bits in gpr(3). PPC caller also expects
+		// the float return value in fpr(1).
+		if (pre_subop == 3) {  // kRaveDrawGetFloat
+			float fval;
+			memcpy(&fval, &rave_ret, sizeof(float));
+			fpr(1) = (double)fval;
+		}
+
+		// Check all registers for corruption
+		if (lr() != saved_lr) {
+			printf("RAVE: LR CORRUPTED during native op! was 0x%08x, now 0x%08x — restoring\n",
+				   saved_lr, lr());
+			lr() = saved_lr;
+		}
+		if (ctr() != saved_ctr) {
+			printf("RAVE: CTR CORRUPTED during native op! was 0x%08x, now 0x%08x — restoring\n",
+				   saved_ctr, ctr());
+			ctr() = saved_ctr;
+		}
+		if (gpr(1) != saved_sp) {
+			printf("RAVE: SP CORRUPTED during native op! was 0x%08x, now 0x%08x — restoring\n",
+				   saved_sp, gpr(1));
+			gpr(1) = saved_sp;
+		}
+		if (gpr(2) != saved_r2) {
+			printf("RAVE: R2(TOC) CORRUPTED during native op! was 0x%08x, now 0x%08x — restoring\n",
+				   saved_r2, gpr(2));
+			gpr(2) = saved_r2;
+		}
+
+		// For sub-opcode 204 (DrawContextNew), log the return value
+		if (pre_subop == 204) {
+			D(bug("RAVE NATIVE_OP: DrawContextNew returning %d, blr will go to LR=0x%08x\n",
+				   (int32)rave_ret, lr()));
+		}
+		break;
+	}
+	case NATIVE_OPENGL_DISPATCH: {
+		// Save critical PPC registers (same pattern as RAVE -- Metal/SDL init
+		// can trigger re-entrant PPC execution that corrupts these).
+		uint32 saved_lr = lr();
+		uint32 saved_ctr = ctr();
+		uint32 saved_sp = gpr(1);
+		uint32 saved_r2 = gpr(2);
+
+		// Read sub-opcode from GL scratch word
+		uint32 sub_opcode = ReadMacInt32(gl_scratch_addr);
+
+		// Check dispatch-table flag: if set, the game called through the
+		// context's internal dispatch table and passed the context index
+		// in R3 with real GL args starting at R4.  Shift args left by one.
+		extern uint32_t gl_dt_flag_addr;
+		uint32 dt_flag = ReadMacInt32(gl_dt_flag_addr);
+		WriteMacInt32(gl_dt_flag_addr, 0);  // clear for next call
+
+		uint32 arg_r3, arg_r4, arg_r5, arg_r6, arg_r7, arg_r8, arg_r9, arg_r10;
+		if (dt_flag) {
+			// Dispatch-table path: skip context index in R3, shift args.
+			// r4-r10 become args 0-6. Arg 7 (r10) is set to 0 for now;
+			// functions with 9+ args (like glTexImage2D) read additional
+			// args from the PPC stack via gl_ppc_stack_arg().
+			arg_r3 = gpr(4);  arg_r4 = gpr(5);  arg_r5 = gpr(6);
+			arg_r6 = gpr(7);  arg_r7 = gpr(8);  arg_r8 = gpr(9);
+			arg_r9 = gpr(10); arg_r10 = 0;
+		} else {
+			// Stub-patching path: args in normal positions
+			arg_r3 = gpr(3);  arg_r4 = gpr(4);  arg_r5 = gpr(5);
+			arg_r6 = gpr(6);  arg_r7 = gpr(7);  arg_r8 = gpr(8);
+			arg_r9 = gpr(9);  arg_r10 = gpr(10);
+		}
+
+		// Generic FPR extraction based on function signature table.
+		// PPC ABI passes float/double args in FPR1-FPR13. We extract them
+		// into a uint32 array so GLDispatch can reconstruct float values.
+		// When dt_flag is set, FPR indices are also shifted by 1 since the
+		// context arg doesn't consume an FPR slot (it's an integer).
+		const GLFuncSignature& sig = gl_func_signatures[sub_opcode < GL_MAX_SUBOPCODE ? sub_opcode : 0];
+		uint32 float_bits[13];  // Max 13 FPR args in PPC ABI
+		int fpr_idx = 0;
+		for (int i = 0; i < sig.num_args && i < 8; i++) {
+			if (sig.float_mask & (1 << i)) {
+				// This arg position is a float/double -- extract from next FPR.
+				// PPC ABI: floats are promoted to double in FPR, cast back to float.
+				float fval = (float)fpr(1 + fpr_idx);
+				memcpy(&float_bits[fpr_idx], &fval, 4);
+				fpr_idx++;
+			}
+		}
+
+		// Save PPC stack pointer for functions with 9+ args (e.g., glTexImage2D)
+		// When dt_flag is set, stack args are shifted by 1 position because
+		// the context arg consumed one GPR slot, pushing all subsequent args.
+		{
+			extern uint32_t gl_ppc_sp;
+			extern int gl_ppc_stack_arg_offset;
+			gl_ppc_sp = saved_sp;
+			gl_ppc_stack_arg_offset = dt_flag ? 1 : 0;
+		}
+
+		// Call dispatch with GPR args and extracted float bits
+		gpr(3) = GLDispatch(arg_r3, arg_r4, arg_r5, arg_r6,
+		                    arg_r7, arg_r8, arg_r9, arg_r10,
+		                    float_bits, fpr_idx);
+
+		// Restore registers that may have been corrupted
+		lr() = saved_lr;
+		ctr() = saved_ctr;
+		if (gpr(1) != saved_sp) gpr(1) = saved_sp;
+		if (gpr(2) != saved_r2) gpr(2) = saved_r2;
+
+		break;
+	}
+	case NATIVE_DSP_DISPATCH: {
+		// Save critical PPC registers (same pattern as RAVE/GL — re-entrant
+		// PPC execution can corrupt these during native dispatch).
+		uint32 saved_lr = lr();
+		uint32 saved_ctr = ctr();
+		uint32 saved_sp = gpr(1);
+		uint32 saved_r2 = gpr(2);
+
+		// Read sub-opcode from DSp scratch word
+		uint32 sub_opcode = ReadMacInt32(dsp_scratch_addr);
+
+		// DrawSprocket functions use only integer/pointer args (no floats),
+		// so we pass GPR args directly without FPR extraction.
+		gpr(3) = DSpDispatch(gpr(3), gpr(4), gpr(5), gpr(6), gpr(7), gpr(8));
+
+		// Restore registers that may have been corrupted
+		if (lr() != saved_lr) {
+			D(bug("DSP: LR corrupted during native op (sub=%d), restoring\n", sub_opcode));
+			lr() = saved_lr;
+		}
+		if (ctr() != saved_ctr) {
+			D(bug("DSP: CTR corrupted during native op (sub=%d), restoring\n", sub_opcode));
+			ctr() = saved_ctr;
+		}
+		if (gpr(1) != saved_sp) {
+			D(bug("DSP: SP corrupted during native op (sub=%d), restoring\n", sub_opcode));
+			gpr(1) = saved_sp;
+		}
+		if (gpr(2) != saved_r2) {
+			D(bug("DSP: R2(TOC) corrupted during native op (sub=%d), restoring\n", sub_opcode));
+			gpr(2) = saved_r2;
+		}
+		break;
+	}
 	default:
 		printf("FATAL: NATIVE_OP called with bogus selector %d\n", selector);
 		QuitEmulator();

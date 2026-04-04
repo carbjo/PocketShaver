@@ -132,6 +132,8 @@ extension GamepadButtonAssignment {
 				return "Key combination Cmd-W. For closing windows."
 			case .rightClick:
 				return "Click with right mouse button. Configure in Preferences what this means."
+			case .audioEnabled:
+				return "Toggle audio enabled. Sound from other apps is lowered if audio is enabled."
 			}
 		case .joystick(let joystickType):
 			switch joystickType {

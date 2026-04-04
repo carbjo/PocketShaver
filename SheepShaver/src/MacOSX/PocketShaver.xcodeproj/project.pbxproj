@@ -75,13 +75,22 @@
 		087B91C01B780FFC00825F7F /* vm_alloc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 087B91BC1B780FFC00825F7F /* vm_alloc.cpp */; };
 		08CD42DC14B7B85B009CA2A2 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 08CD42DB14B7B85B009CA2A2 /* Cocoa.framework */; };
 		08CD42E814B7B8AA009CA2A2 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 08CD42E714B7B8AA009CA2A2 /* Carbon.framework */; };
+		14908D6C985347609EBF936D /* PreferencesGraphicsCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = D685ACE51CC345988018E6A7 /* PreferencesGraphicsCells.swift */; };
 		3D2C25B5221092BA00B635DE /* SheepVM.icns in Resources */ = {isa = PBXBuildFile; fileRef = 3D2C25B4221092BA00B635DE /* SheepVM.icns */; };
 		5D2143D524B2DD90008BB372 /* bincue.h in Headers */ = {isa = PBXBuildFile; fileRef = 5D2143D424B2DD90008BB372 /* bincue.h */; };
 		5D35961124B8F5FB0081EC8A /* bincue.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D35961024B8F5FA0081EC8A /* bincue.cpp */; };
 		5D55CB40225584D000FF8E81 /* cdrom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D55CB3F225584D000FF8E81 /* cdrom.cpp */; };
 		5DE93B46247C71F200B2C821 /* adb.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D3967BF2328D315003925D6 /* adb.cpp */; };
 		5DF4CB7F22B5BD5D00512A86 /* audio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4CB7E22B5BD5D00512A86 /* audio.cpp */; };
+		8ABF64CB116744DEA96F23A8 /* PreferencesGraphicsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC195E7C01CD46AE8EA0FF45 /* PreferencesGraphicsModel.swift */; };
+		A1B2C3D4E5F6A7B80004 /* rave_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B80001 /* rave_metal_renderer.mm */; };
+		A1B2C3D4E5F6A7B80005 /* rave_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B80003 /* rave_shaders.metal */; };
+		A1B2C3D4E5F6A7B80006 /* rave_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B80001 /* rave_metal_renderer.mm */; };
+		A1B2C3D4E5F6A7B80007 /* rave_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B80003 /* rave_shaders.metal */; };
+		A3B72E9F1C8D450E9F2A7B01 /* rave_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7D4F1A3E82C60D9B1E5F3C02 /* rave_engine.cpp */; };
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
+		B5C83D7A2E9F560C4A1B8D03 /* rave_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7D4F1A3E82C60D9B1E5F3C02 /* rave_engine.cpp */; };
+		C2A19E0F3B7D480A91F4DC04 /* rave_draw_context.mm in Sources */ = {isa = PBXBuildFile; fileRef = 8F6B3A2E17C9520D4E83AB05 /* rave_draw_context.mm */; };
 		C701C1AB2F29127800CC26E5 /* GamepadButtonSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = C701C1AA2F29127200CC26E5 /* GamepadButtonSize.swift */; };
 		C707D03F2F24DBCD007BFE66 /* InformationConsumption.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D03E2F24DBC9007BFE66 /* InformationConsumption.swift */; };
 		C707D0422F26176F007BFE66 /* AttributedString.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D0412F26176A007BFE66 /* AttributedString.swift */; };
@@ -171,6 +180,8 @@
 		C79D23042F3F82C500D54A4C /* NetworkSettingsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79D23032F3F82BB00D54A4C /* NetworkSettingsObjC.mm */; };
 		C7A0EC162F4307BA0016533F /* Assets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A0EC152F4307B40016533F /* Assets.swift */; };
 		C7A9AB9A2EED61F2001EC4DB /* LocalNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */; };
+		C7B04B8D2F77B66100A36842 /* MemoryDump.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C7B04B8C2F77B65A00A36842 /* MemoryDump.cpp */; };
+		C7B04B902F77B6F900A36842 /* MemoryDumpObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7B04B8F2F77B6EF00A36842 /* MemoryDumpObjC.mm */; };
 		C7B23CC32F58122100B784E7 /* TableViewDiffableDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B23CC22F58121C00B784E7 /* TableViewDiffableDataSource.swift */; };
 		C7B23CC62F5C772B00B784E7 /* PreferencesTwoFingerSteeringDetailsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B23CC52F5C771C00B784E7 /* PreferencesTwoFingerSteeringDetailsViewController.swift */; };
 		C7B4E21A2F33962400246FBE /* Fonts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B4E2192F33962200246FBE /* Fonts.swift */; };
@@ -189,6 +200,7 @@
 		C7C3D2772E781C270018DB8B /* PreferencesAdvancedModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2762E781C250018DB8B /* PreferencesAdvancedModel.swift */; };
 		C7C64B2B2E617DF200163200 /* DiskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2A2E617DF000163200 /* DiskManager.swift */; };
 		C7C64B2D2E617FB100163200 /* PrefsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */; };
+		C7CB34C42F6FC17F003E02E1 /* PreferencesGeneralCreateDiskDialogueFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7CB34C32F6FC16D003E02E1 /* PreferencesGeneralCreateDiskDialogueFactory.swift */; };
 		C7DCEF3D2E86F55600EAED05 /* MouseHapticFeedbackObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF3C2E86F54800EAED05 /* MouseHapticFeedbackObjC.mm */; };
 		C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */; };
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
@@ -206,6 +218,19 @@
 		C7F42CE32E5B448C00FA7169 /* PreferencesGeneralCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CE22E5B448A00FA7169 /* PreferencesGeneralCells.swift */; };
 		C7F42CE52E5B4C0100FA7169 /* PreferencesGeneralModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CE42E5B4BFD00FA7169 /* PreferencesGeneralModel.swift */; };
 		C7F42CE72E5B4E9200FA7169 /* PreferencesROMValidatorObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CE62E5B4E8600FA7169 /* PreferencesROMValidatorObjC.mm */; };
+		COMP10A1B2C3D4E5F60101 /* metal_compositor.mm in Sources */ = {isa = PBXBuildFile; fileRef = COMP10A1B2C3D4E5F60001 /* metal_compositor.mm */; };
+		COMP10A1B2C3D4E5F60102 /* compositor_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = COMP10A1B2C3D4E5F60002 /* compositor_shaders.metal */; };
+		COMP10A1B2C3D4E5F60201 /* metal_compositor.mm in Sources */ = {isa = PBXBuildFile; fileRef = COMP10A1B2C3D4E5F60001 /* metal_compositor.mm */; };
+		COMP10A1B2C3D4E5F60202 /* compositor_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = COMP10A1B2C3D4E5F60002 /* compositor_shaders.metal */; };
+		D4E72B1A9C3F680B5A17EF06 /* rave_draw_context.mm in Sources */ = {isa = PBXBuildFile; fileRef = 8F6B3A2E17C9520D4E83AB05 /* rave_draw_context.mm */; };
+		D71765974E20350B2DEB6001 /* rave_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1E29650A76D40B3E857985D3 /* rave_thunks.cpp */; };
+		DSP10A1B2C3D4E5F60101 /* dsp_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60001 /* dsp_thunks.cpp */; };
+		DSP10A1B2C3D4E5F60102 /* dsp_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60002 /* dsp_dispatch.cpp */; };
+		DSP10A1B2C3D4E5F60103 /* dsp_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60003 /* dsp_engine.cpp */; };
+		DSP10A1B2C3D4E5F60201 /* dsp_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60001 /* dsp_thunks.cpp */; };
+		DSP10A1B2C3D4E5F60202 /* dsp_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60002 /* dsp_dispatch.cpp */; };
+		DSP10A1B2C3D4E5F60203 /* dsp_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = DSP10A1B2C3D4E5F60003 /* dsp_engine.cpp */; };
+		E1682C97D99E63F571AE4C9E /* rave_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 960A16820FECAB8FA9E61E00 /* rave_dispatch.cpp */; };
 		E204B90228BC3B640081FDCA /* ppc-dyngen-ops-x86_32.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F881E0624D100A3ADAB /* ppc-dyngen-ops-x86_32.hpp */; };
 		E204B90328BC3B640081FDCA /* basic-dyngen-ops.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 08003F871E0624D100A3ADAB /* basic-dyngen-ops.hpp */; };
 		E204B90428BC3B640081FDCA /* basic-dyngen-ops-x86_64_macos.hpp in Headers */ = {isa = PBXBuildFile; fileRef = E4C9A03D1FD55CDC00CABBF9 /* basic-dyngen-ops-x86_64_macos.hpp */; };
@@ -350,6 +375,27 @@
 		E4C9A03E1FD55CDC00CABBF9 /* basic-dyngen-ops-x86_64_macos.hpp in Headers */ = {isa = PBXBuildFile; fileRef = E4C9A03D1FD55CDC00CABBF9 /* basic-dyngen-ops-x86_64_macos.hpp */; };
 		E4C9A0401FD55CE700CABBF9 /* ppc-dyngen-ops-x86_64_macos.hpp in Headers */ = {isa = PBXBuildFile; fileRef = E4C9A03F1FD55CE700CABBF9 /* ppc-dyngen-ops-x86_64_macos.hpp */; };
 		E4CBF46120CFC451009F40CC /* video_sdl.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E4CBF46020CFC451009F40CC /* video_sdl.cpp */; };
+		E70F85489609C42E8CA78DB9 /* rave_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1E29650A76D40B3E857985D3 /* rave_thunks.cpp */; };
+		EDB585A8BBC94BF1B40F819F /* PreferencesGraphicsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBB6A6D66781443DBC8EB47A /* PreferencesGraphicsViewController.swift */; };
+		FC57D6BBF4727E73706BAEF0 /* rave_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 960A16820FECAB8FA9E61E00 /* rave_dispatch.cpp */; };
+		GL10A1B2C3D4E5F60101 /* gl_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */; };
+		GL10A1B2C3D4E5F60102 /* gl_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */; };
+		GL10A1B2C3D4E5F60103 /* gl_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60003 /* gl_engine.cpp */; };
+		GL10A1B2C3D4E5F60104 /* gl_state.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60004 /* gl_state.cpp */; };
+		GL10A1B2C3D4E5F60105 /* gl_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */; };
+		GL10A1B2C3D4E5F60106 /* gl_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60006 /* gl_shaders.metal */; };
+		GL10A1B2C3D4E5F60201 /* gl_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */; };
+		GL10A1B2C3D4E5F60202 /* gl_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */; };
+		GL10A1B2C3D4E5F60203 /* gl_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60003 /* gl_engine.cpp */; };
+		GL10A1B2C3D4E5F60204 /* gl_state.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60004 /* gl_state.cpp */; };
+		GL10A1B2C3D4E5F60205 /* gl_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */; };
+		GL10A1B2C3D4E5F60206 /* gl_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60006 /* gl_shaders.metal */; };
+		MTLD00000000000000000001 /* metal_device_shared.mm in Sources */ = {isa = PBXBuildFile; fileRef = MTLD00000000000000000010 /* metal_device_shared.mm */; };
+		MTLD00000000000000000002 /* metal_device_shared.mm in Sources */ = {isa = PBXBuildFile; fileRef = MTLD00000000000000000010 /* metal_device_shared.mm */; };
+		NQD10A1B2C3D4E5F60101 /* nqd_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */; };
+		NQD10A1B2C3D4E5F60102 /* nqd_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60002 /* nqd_shaders.metal */; };
+		NQD10A1B2C3D4E5F60201 /* nqd_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */; };
+		NQD10A1B2C3D4E5F60202 /* nqd_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60002 /* nqd_shaders.metal */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -574,7 +620,9 @@
 		087B91BD1B780FFC00825F7F /* vm_alloc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = vm_alloc.h; path = ../CrossPlatform/vm_alloc.h; sourceTree = SOURCE_ROOT; };
 		08CD42DB14B7B85B009CA2A2 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = /System/Library/Frameworks/Cocoa.framework; sourceTree = "<absolute>"; };
 		08CD42E714B7B8AA009CA2A2 /* Carbon.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Carbon.framework; path = /System/Library/Frameworks/Carbon.framework; sourceTree = "<absolute>"; };
+		1E29650A76D40B3E857985D3 /* rave_thunks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = rave_thunks.cpp; path = ../gfxaccel/rave_thunks.cpp; sourceTree = SOURCE_ROOT; };
 		3D2C25B4221092BA00B635DE /* SheepVM.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = SheepVM.icns; sourceTree = "<group>"; };
+		42EDD1F85FDA3C858253DA00 /* rave_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = rave_engine.h; sourceTree = "<group>"; };
 		5D2143D424B2DD90008BB372 /* bincue.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = bincue.h; sourceTree = "<group>"; };
 		5D35961024B8F5FA0081EC8A /* bincue.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = bincue.cpp; path = ../../../BasiliskII/src/bincue.cpp; sourceTree = "<group>"; };
 		5D3967BF2328D315003925D6 /* adb.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = adb.cpp; path = ../../../BasiliskII/src/adb.cpp; sourceTree = "<group>"; };
@@ -588,6 +636,12 @@
 		5DDE950D2255C8B3004D0E79 /* audio_defs_macosx.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = audio_defs_macosx.h; path = ../../../BasiliskII/src/MacOSX/audio_defs_macosx.h; sourceTree = "<group>"; };
 		5DDE950E2255C8B3004D0E79 /* audio_macosx.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = audio_macosx.cpp; path = ../../../BasiliskII/src/MacOSX/audio_macosx.cpp; sourceTree = "<group>"; };
 		5DF4CB7E22B5BD5D00512A86 /* audio.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = audio.cpp; path = ../../../BasiliskII/src/audio.cpp; sourceTree = "<group>"; };
+		7D4F1A3E82C60D9B1E5F3C02 /* rave_engine.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = rave_engine.cpp; path = ../gfxaccel/rave_engine.cpp; sourceTree = SOURCE_ROOT; };
+		8F6B3A2E17C9520D4E83AB05 /* rave_draw_context.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = rave_draw_context.mm; path = ../gfxaccel/rave_draw_context.mm; sourceTree = SOURCE_ROOT; };
+		960A16820FECAB8FA9E61E00 /* rave_dispatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = rave_dispatch.cpp; path = ../gfxaccel/rave_dispatch.cpp; sourceTree = SOURCE_ROOT; };
+		A1B2C3D4E5F6A7B80001 /* rave_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = rave_metal_renderer.mm; path = ../gfxaccel/rave_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
+		A1B2C3D4E5F6A7B80002 /* rave_metal_renderer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = rave_metal_renderer.h; sourceTree = "<group>"; };
+		A1B2C3D4E5F6A7B80003 /* rave_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = rave_shaders.metal; path = ../gfxaccel/rave_shaders.metal; sourceTree = SOURCE_ROOT; };
 		A7B1921218C35D4700791D8D /* DiskType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DiskType.h; sourceTree = "<group>"; };
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
 		C701C1AA2F29127200CC26E5 /* GamepadButtonSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButtonSize.swift; sourceTree = "<group>"; };
@@ -716,6 +770,11 @@
 		C79D23052F3F833B00D54A4C /* NetworkSettingsObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NetworkSettingsObjCCppHeader.h; sourceTree = "<group>"; };
 		C7A0EC152F4307B40016533F /* Assets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Assets.swift; sourceTree = "<group>"; };
 		C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotifications.swift; sourceTree = "<group>"; };
+		C7B04B8C2F77B65A00A36842 /* MemoryDump.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = MemoryDump.cpp; sourceTree = "<group>"; };
+		C7B04B8E2F77B68200A36842 /* MemoryDump.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MemoryDump.h; sourceTree = "<group>"; };
+		C7B04B8F2F77B6EF00A36842 /* MemoryDumpObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MemoryDumpObjC.mm; sourceTree = "<group>"; };
+		C7B04B912F77B75200A36842 /* MemoryDumpObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MemoryDumpObjC.h; sourceTree = "<group>"; };
+		C7B04B922F77B8FA00A36842 /* MemoryDumpObjCCpp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MemoryDumpObjCCpp.h; sourceTree = "<group>"; };
 		C7B23CC22F58121C00B784E7 /* TableViewDiffableDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableViewDiffableDataSource.swift; sourceTree = "<group>"; };
 		C7B23CC52F5C771C00B784E7 /* PreferencesTwoFingerSteeringDetailsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesTwoFingerSteeringDetailsViewController.swift; sourceTree = "<group>"; };
 		C7B4E2192F33962200246FBE /* Fonts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fonts.swift; sourceTree = "<group>"; };
@@ -738,6 +797,7 @@
 		C7C64B2A2E617DF000163200 /* DiskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskManager.swift; sourceTree = "<group>"; };
 		C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PrefsObjC.mm; sourceTree = "<group>"; };
 		C7C64B2E2E617FC200163200 /* PrefsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PrefsObjC.h; sourceTree = "<group>"; };
+		C7CB34C32F6FC16D003E02E1 /* PreferencesGeneralCreateDiskDialogueFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGeneralCreateDiskDialogueFactory.swift; sourceTree = "<group>"; };
 		C7DCEF3C2E86F54800EAED05 /* MouseHapticFeedbackObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MouseHapticFeedbackObjC.mm; sourceTree = "<group>"; };
 		C7DCEF3E2E86F55C00EAED05 /* MouseHapticFeedbackObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MouseHapticFeedbackObjC.h; sourceTree = "<group>"; };
 		C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MiscellaneousSettingsObjC.mm; sourceTree = "<group>"; };
@@ -762,6 +822,15 @@
 		C7F42CE62E5B4E8600FA7169 /* PreferencesROMValidatorObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PreferencesROMValidatorObjC.mm; sourceTree = "<group>"; };
 		C7F42CE82E5B4E9800FA7169 /* PreferencesROMValidatorObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PreferencesROMValidatorObjC.h; sourceTree = "<group>"; };
 		C7F42CEA2E5B4FF700FA7169 /* PocketShaver-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "PocketShaver-Bridging-Header.h"; sourceTree = "<group>"; };
+		COMP10A1B2C3D4E5F60001 /* metal_compositor.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = metal_compositor.mm; path = ../gfxaccel/metal_compositor.mm; sourceTree = SOURCE_ROOT; };
+		COMP10A1B2C3D4E5F60002 /* compositor_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = compositor_shaders.metal; path = ../gfxaccel/compositor_shaders.metal; sourceTree = SOURCE_ROOT; };
+		COMP10A1B2C3D4E5F60003 /* metal_compositor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = metal_compositor.h; sourceTree = "<group>"; };
+		D685ACE51CC345988018E6A7 /* PreferencesGraphicsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGraphicsCells.swift; sourceTree = "<group>"; };
+		DBB6A6D66781443DBC8EB47A /* PreferencesGraphicsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGraphicsViewController.swift; sourceTree = "<group>"; };
+		DSP10A1B2C3D4E5F60001 /* dsp_thunks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_thunks.cpp; path = ../gfxaccel/dsp_thunks.cpp; sourceTree = SOURCE_ROOT; };
+		DSP10A1B2C3D4E5F60002 /* dsp_dispatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_dispatch.cpp; path = ../gfxaccel/dsp_dispatch.cpp; sourceTree = SOURCE_ROOT; };
+		DSP10A1B2C3D4E5F60003 /* dsp_engine.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_engine.cpp; path = ../gfxaccel/dsp_engine.cpp; sourceTree = SOURCE_ROOT; };
+		DSP10A1B2C3D4E5F60007 /* dsp_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_engine.h; sourceTree = "<group>"; };
 		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
 		E204B98A28BC3EBE0081FDCA /* PocketShaver.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketShaver.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -843,6 +912,19 @@
 		E4C9A03D1FD55CDC00CABBF9 /* basic-dyngen-ops-x86_64_macos.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = "basic-dyngen-ops-x86_64_macos.hpp"; path = "dyngen_precompiled/basic-dyngen-ops-x86_64_macos.hpp"; sourceTree = "<group>"; };
 		E4C9A03F1FD55CE700CABBF9 /* ppc-dyngen-ops-x86_64_macos.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = "ppc-dyngen-ops-x86_64_macos.hpp"; path = "dyngen_precompiled/ppc-dyngen-ops-x86_64_macos.hpp"; sourceTree = "<group>"; };
 		E4CBF46020CFC451009F40CC /* video_sdl.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = video_sdl.cpp; path = ../../../BasiliskII/src/SDL/video_sdl.cpp; sourceTree = "<group>"; };
+		FC195E7C01CD46AE8EA0FF45 /* PreferencesGraphicsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGraphicsModel.swift; sourceTree = "<group>"; };
+		GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_thunks.cpp; path = ../gfxaccel/gl_thunks.cpp; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_dispatch.cpp; path = ../gfxaccel/gl_dispatch.cpp; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60003 /* gl_engine.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_engine.cpp; path = ../gfxaccel/gl_engine.cpp; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60004 /* gl_state.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_state.cpp; path = ../gfxaccel/gl_state.cpp; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = gl_metal_renderer.mm; path = ../gfxaccel/gl_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60006 /* gl_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = gl_shaders.metal; path = ../gfxaccel/gl_shaders.metal; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60007 /* gl_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = gl_engine.h; sourceTree = "<group>"; };
+		MTLD00000000000000000010 /* metal_device_shared.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = metal_device_shared.mm; path = ../gfxaccel/metal_device_shared.mm; sourceTree = SOURCE_ROOT; };
+		MTLD00000000000000000011 /* metal_device_shared.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = metal_device_shared.h; sourceTree = "<group>"; };
+		NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = nqd_metal_renderer.mm; path = ../gfxaccel/nqd_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
+		NQD10A1B2C3D4E5F60002 /* nqd_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = nqd_shaders.metal; path = ../gfxaccel/nqd_shaders.metal; sourceTree = SOURCE_ROOT; };
+		NQD10A1B2C3D4E5F60003 /* nqd_accel.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = nqd_accel.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -956,6 +1038,26 @@
 				0856CD8914A99EEF000B1711 /* ether.cpp */,
 				0856CD8C14A99EEF000B1711 /* extfs.cpp */,
 				0856CD8D14A99EEF000B1711 /* gfxaccel.cpp */,
+				1E29650A76D40B3E857985D3 /* rave_thunks.cpp */,
+				960A16820FECAB8FA9E61E00 /* rave_dispatch.cpp */,
+				7D4F1A3E82C60D9B1E5F3C02 /* rave_engine.cpp */,
+				8F6B3A2E17C9520D4E83AB05 /* rave_draw_context.mm */,
+				A1B2C3D4E5F6A7B80001 /* rave_metal_renderer.mm */,
+				A1B2C3D4E5F6A7B80003 /* rave_shaders.metal */,
+				GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */,
+				GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */,
+				GL10A1B2C3D4E5F60003 /* gl_engine.cpp */,
+				GL10A1B2C3D4E5F60004 /* gl_state.cpp */,
+				GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */,
+				GL10A1B2C3D4E5F60006 /* gl_shaders.metal */,
+				DSP10A1B2C3D4E5F60001 /* dsp_thunks.cpp */,
+				DSP10A1B2C3D4E5F60002 /* dsp_dispatch.cpp */,
+				DSP10A1B2C3D4E5F60003 /* dsp_engine.cpp */,
+				NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */,
+				NQD10A1B2C3D4E5F60002 /* nqd_shaders.metal */,
+				MTLD00000000000000000010 /* metal_device_shared.mm */,
+				COMP10A1B2C3D4E5F60001 /* metal_compositor.mm */,
+				COMP10A1B2C3D4E5F60002 /* compositor_shaders.metal */,
 				0856CD8E14A99EEF000B1711 /* include */,
 				0856CDB114A99EEF000B1711 /* kpx_cpu */,
 				0856CE0514A99EEF000B1711 /* macos_util.cpp */,
@@ -1024,6 +1126,13 @@
 				0856CDA614A99EEF000B1711 /* serial_defs.h */,
 				0856CDA714A99EEF000B1711 /* sony.h */,
 				0856CDA814A99EEF000B1711 /* sys.h */,
+				42EDD1F85FDA3C858253DA00 /* rave_engine.h */,
+				A1B2C3D4E5F6A7B80002 /* rave_metal_renderer.h */,
+				GL10A1B2C3D4E5F60007 /* gl_engine.h */,
+				DSP10A1B2C3D4E5F60007 /* dsp_engine.h */,
+				NQD10A1B2C3D4E5F60003 /* nqd_accel.h */,
+				MTLD00000000000000000011 /* metal_device_shared.h */,
+				COMP10A1B2C3D4E5F60003 /* metal_compositor.h */,
 				0856CDA914A99EEF000B1711 /* thunks.h */,
 				0856CDAA14A99EEF000B1711 /* timer.h */,
 				0856CDAB14A99EEF000B1711 /* user_strings.h */,
@@ -1394,6 +1503,16 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		28DC169798F642FEA5213719 /* Graphics */ = {
+			isa = PBXGroup;
+			children = (
+				FC195E7C01CD46AE8EA0FF45 /* PreferencesGraphicsModel.swift */,
+				DBB6A6D66781443DBC8EB47A /* PreferencesGraphicsViewController.swift */,
+				D685ACE51CC345988018E6A7 /* PreferencesGraphicsCells.swift */,
+			);
+			path = Graphics;
+			sourceTree = "<group>";
+		};
 		C707D03D2F24DBB5007BFE66 /* Information consumption */ = {
 			isa = PBXGroup;
 			children = (
@@ -1458,6 +1577,7 @@
 				C7DCEF3B2E86F53B00EAED05 /* Mouse Haptic Feedback */,
 				C7A9AB982EED61B4001EC4DB /* Local notifications */,
 				C79517E02F15446E00CAEDBF /* Right click */,
+				C7B04B8B2F77B64700A36842 /* Memory dump */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -1706,6 +1826,18 @@
 			path = "Local notifications";
 			sourceTree = "<group>";
 		};
+		C7B04B8B2F77B64700A36842 /* Memory dump */ = {
+			isa = PBXGroup;
+			children = (
+				C7B04B8F2F77B6EF00A36842 /* MemoryDumpObjC.mm */,
+				C7B04B912F77B75200A36842 /* MemoryDumpObjC.h */,
+				C7B04B922F77B8FA00A36842 /* MemoryDumpObjCCpp.h */,
+				C7B04B8C2F77B65A00A36842 /* MemoryDump.cpp */,
+				C7B04B8E2F77B68200A36842 /* MemoryDump.h */,
+			);
+			path = "Memory dump";
+			sourceTree = "<group>";
+		};
 		C7B23CC42F5C770400B784E7 /* Two Finger Steering Details */ = {
 			isa = PBXGroup;
 			children = (
@@ -1731,6 +1863,14 @@
 				C73C7A012F002FE700FC0467 /* GamepadAssignKeyboardAccessoryView.swift */,
 			);
 			path = "Assign Button";
+			sourceTree = "<group>";
+		};
+		C7CB34C22F6FC155003E02E1 /* Create Disk */ = {
+			isa = PBXGroup;
+			children = (
+				C7CB34C32F6FC16D003E02E1 /* PreferencesGeneralCreateDiskDialogueFactory.swift */,
+			);
+			path = "Create Disk";
 			sourceTree = "<group>";
 		};
 		C7D405732E9BD55A009BEBA7 /* impluse-hfs */ = {
@@ -1875,6 +2015,7 @@
 				C7F42CDA2E5B3C3400FA7169 /* Gamepad */,
 				C791A9AD2F423275001F7E2E /* Network */,
 				C7F42CDB2E5B3C4000FA7169 /* Advanced */,
+				28DC169798F642FEA5213719 /* Graphics */,
 				C74035B42EDC3AB60045B9C6 /* Shared UI */,
 				C75073782E65E12800D1E374 /* Preferences Handling */,
 				C707D0452F265798007BFE66 /* Onboardings */,
@@ -1889,6 +2030,7 @@
 				C7F42CD72E5B384700FA7169 /* PreferencesGeneralViewController.swift */,
 				C7F42CE22E5B448A00FA7169 /* PreferencesGeneralCells.swift */,
 				C75073742E65E0CC00D1E374 /* Rom Handling */,
+				C7CB34C22F6FC155003E02E1 /* Create Disk */,
 				C75073752E65E0F100D1E374 /* Disk Handling */,
 				C7F42CD92E5B3C2300FA7169 /* Resolutions */,
 				C7B23CC42F5C770400B784E7 /* Two Finger Steering Details */,
@@ -2240,6 +2382,26 @@
 				E4202603241250EE000508DF /* runtool.c in Sources */,
 				0856D07B14A99EF1000B1711 /* sony.cpp in Sources */,
 				0856D07C14A99EF1000B1711 /* thunks.cpp in Sources */,
+				D71765974E20350B2DEB6001 /* rave_thunks.cpp in Sources */,
+				FC57D6BBF4727E73706BAEF0 /* rave_dispatch.cpp in Sources */,
+				A3B72E9F1C8D450E9F2A7B01 /* rave_engine.cpp in Sources */,
+				C2A19E0F3B7D480A91F4DC04 /* rave_draw_context.mm in Sources */,
+				A1B2C3D4E5F6A7B80004 /* rave_metal_renderer.mm in Sources */,
+				A1B2C3D4E5F6A7B80005 /* rave_shaders.metal in Sources */,
+				GL10A1B2C3D4E5F60101 /* gl_thunks.cpp in Sources */,
+				GL10A1B2C3D4E5F60102 /* gl_dispatch.cpp in Sources */,
+				GL10A1B2C3D4E5F60103 /* gl_engine.cpp in Sources */,
+				GL10A1B2C3D4E5F60104 /* gl_state.cpp in Sources */,
+				GL10A1B2C3D4E5F60105 /* gl_metal_renderer.mm in Sources */,
+				GL10A1B2C3D4E5F60106 /* gl_shaders.metal in Sources */,
+				DSP10A1B2C3D4E5F60101 /* dsp_thunks.cpp in Sources */,
+				DSP10A1B2C3D4E5F60102 /* dsp_dispatch.cpp in Sources */,
+				DSP10A1B2C3D4E5F60103 /* dsp_engine.cpp in Sources */,
+				NQD10A1B2C3D4E5F60101 /* nqd_metal_renderer.mm in Sources */,
+				NQD10A1B2C3D4E5F60102 /* nqd_shaders.metal in Sources */,
+				MTLD00000000000000000001 /* metal_device_shared.mm in Sources */,
+				COMP10A1B2C3D4E5F60101 /* metal_compositor.mm in Sources */,
+				COMP10A1B2C3D4E5F60102 /* compositor_shaders.metal in Sources */,
 				0856D07D14A99EF1000B1711 /* timer.cpp in Sources */,
 				0856D07E14A99EF1000B1711 /* about_window_unix.cpp in Sources */,
 				E44C460720D262B0000583AE /* ip_icmp.c in Sources */,
@@ -2317,6 +2479,9 @@
 				E204B93928BC3EBE0081FDCA /* scsi_dummy.cpp in Sources */,
 				E204B93A28BC3EBE0081FDCA /* sbuf.c in Sources */,
 				C7C3D2772E781C270018DB8B /* PreferencesAdvancedModel.swift in Sources */,
+				8ABF64CB116744DEA96F23A8 /* PreferencesGraphicsModel.swift in Sources */,
+				EDB585A8BBC94BF1B40F819F /* PreferencesGraphicsViewController.swift in Sources */,
+				14908D6C985347609EBF936D /* PreferencesGraphicsCells.swift in Sources */,
 				C7699F172EC4663F0083B3B3 /* PreferencesCompatibilityListModel.swift in Sources */,
 				E204B93B28BC3EBE0081FDCA /* emul_op.cpp in Sources */,
 				C72FA6C42F0808AD0071889C /* SpecialButton.swift in Sources */,
@@ -2358,6 +2523,7 @@
 				E204B94C28BC3EBE0081FDCA /* udp.c in Sources */,
 				E204B94D28BC3EBE0081FDCA /* ip_input.c in Sources */,
 				E204B94E28BC3EBE0081FDCA /* bootp.c in Sources */,
+				C7B04B902F77B6F900A36842 /* MemoryDumpObjC.mm in Sources */,
 				E204B94F28BC3EBE0081FDCA /* prefs.cpp in Sources */,
 				E204B95028BC3EBE0081FDCA /* cdrom.cpp in Sources */,
 				C7F42CCC2E5A0C8200FA7169 /* RamAllocFailedAlertViewController.swift in Sources */,
@@ -2381,6 +2547,27 @@
 				C74035B32EDC33420045B9C6 /* PerformanceCounter.swift in Sources */,
 				C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */,
 				E204B95928BC3EBE0081FDCA /* thunks.cpp in Sources */,
+				E70F85489609C42E8CA78DB9 /* rave_thunks.cpp in Sources */,
+				E1682C97D99E63F571AE4C9E /* rave_dispatch.cpp in Sources */,
+				B5C83D7A2E9F560C4A1B8D03 /* rave_engine.cpp in Sources */,
+				D4E72B1A9C3F680B5A17EF06 /* rave_draw_context.mm in Sources */,
+				A1B2C3D4E5F6A7B80006 /* rave_metal_renderer.mm in Sources */,
+				A1B2C3D4E5F6A7B80007 /* rave_shaders.metal in Sources */,
+				GL10A1B2C3D4E5F60201 /* gl_thunks.cpp in Sources */,
+				GL10A1B2C3D4E5F60202 /* gl_dispatch.cpp in Sources */,
+				GL10A1B2C3D4E5F60203 /* gl_engine.cpp in Sources */,
+				GL10A1B2C3D4E5F60204 /* gl_state.cpp in Sources */,
+				GL10A1B2C3D4E5F60205 /* gl_metal_renderer.mm in Sources */,
+				GL10A1B2C3D4E5F60206 /* gl_shaders.metal in Sources */,
+				DSP10A1B2C3D4E5F60201 /* dsp_thunks.cpp in Sources */,
+				DSP10A1B2C3D4E5F60202 /* dsp_dispatch.cpp in Sources */,
+				DSP10A1B2C3D4E5F60203 /* dsp_engine.cpp in Sources */,
+				NQD10A1B2C3D4E5F60201 /* nqd_metal_renderer.mm in Sources */,
+				NQD10A1B2C3D4E5F60202 /* nqd_shaders.metal in Sources */,
+				MTLD00000000000000000002 /* metal_device_shared.mm in Sources */,
+				COMP10A1B2C3D4E5F60201 /* metal_compositor.mm in Sources */,
+				COMP10A1B2C3D4E5F60202 /* compositor_shaders.metal in Sources */,
+				C7B04B8D2F77B66100A36842 /* MemoryDump.cpp in Sources */,
 				C7699F152EC464990083B3B3 /* Colors.swift in Sources */,
 				C7C3D26E2E76F3BC0018DB8B /* GamepadAssignButtonViewController.swift in Sources */,
 				C790E8742F055D5200B784A6 /* ADBObjC.mm in Sources */,
@@ -2415,6 +2602,7 @@
 				C72739C92E2BAA6500B1F165 /* HiddenInputFieldKeyboardAccessoryView.swift in Sources */,
 				C77F121B2F3879DE0033BE25 /* MCPeerID+Extensions.swift in Sources */,
 				C77F121C2F3879DE0033BE25 /* BonjourSession.swift in Sources */,
+				C7CB34C42F6FC17F003E02E1 /* PreferencesGeneralCreateDiskDialogueFactory.swift in Sources */,
 				C77F121D2F3879DE0033BE25 /* ProgressWatcher.swift in Sources */,
 				C77F121E2F3879DE0033BE25 /* Peer.swift in Sources */,
 				C7C3D26C2E75C4690018DB8B /* PreferencesGamepadEditConfigCells.swift in Sources */,
@@ -2556,6 +2744,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../Unix/dyngen_precompiled,
 				);
 				INSTALL_PATH = /usr/local/lib;
@@ -2595,6 +2784,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../Unix/dyngen_precompiled,
 				);
 				INSTALL_PATH = /usr/local/lib;
@@ -2671,6 +2861,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../CrossPlatform,
 				);
 				INFOPLIST_FILE = Info.plist.in;
@@ -2740,6 +2931,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../CrossPlatform,
 				);
 				INFOPLIST_EXPAND_BUILD_SETTINGS = NO;
@@ -2801,6 +2993,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../Unix/dyngen_precompiled,
 				);
 				INSTALL_PATH = /usr/local/lib;
@@ -2847,6 +3040,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../Unix/dyngen_precompiled,
 				);
 				INSTALL_PATH = /usr/local/lib;
@@ -2941,6 +3135,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../CrossPlatform,
 					"./SDL2.xcframework/**",
 					.,
@@ -3058,6 +3253,7 @@
 					../kpx_cpu/src,
 					../kpx_cpu/include,
 					../include,
+					../gfxaccel/include,
 					../CrossPlatform,
 					"./SDL2.xcframework/**",
 					.,

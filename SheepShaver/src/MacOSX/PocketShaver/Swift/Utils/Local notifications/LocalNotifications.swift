@@ -17,6 +17,8 @@ enum LocalNotifications {
 
 	static let iPadMousePassthroughChanged = NSNotification.Name("iPadMousePassthroughChanged")
 
+	static let audioEnabledChanged = NSNotification.Name("audioEnabledChanged")
+
 	static let jaggyCursorResolutionSelected = NSNotification.Name("jaggyCursorResolutionSelected")
 
 	static let gotIpAddress = NSNotification.Name("gotIpAddress")

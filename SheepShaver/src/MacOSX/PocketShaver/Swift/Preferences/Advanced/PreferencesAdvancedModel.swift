@@ -43,18 +43,6 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
-	var frameRateSetting: FrameRateSetting {
-		get {
-			MiscellaneousSettings.current.frameRateSetting
-		}
-		set {
-			MiscellaneousSettings.current.set(frameRateSetting: newValue)
-
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
-		}
-	}
-
-	@MainActor
 	var alwaysLandscapeMode: Bool {
 		get {
 			MiscellaneousSettings.current.alwaysLandscapeMode
@@ -121,6 +109,16 @@ class PreferencesAdvancedModel {
 		}
 	}
 
+	var ignoreIllegalInstructions: Bool {
+		get {
+			objc_findBool("ignoreillegal")
+		}
+		set {
+			objc_replaceBool("ignoreillegal", newValue)
+			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+		}
+	}
+
 	@MainActor
 	var hasRomFile: Bool {
 		RomManager.shared.hasRomFile
@@ -129,16 +127,6 @@ class PreferencesAdvancedModel {
 	@MainActor
 	var currentRomFileDescription: String? {
 		RomManager.shared.currentRomFileVersion?.description
-	}
-
-	@MainActor
-	var gammaRampSetting: GammaRampSetting {
-		get {
-			MiscellaneousSettings.current.gammaRampSetting
-		}
-		set {
-			MiscellaneousSettings.current.set(gammaRampSetting: newValue)
-		}
 	}
 
 	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {

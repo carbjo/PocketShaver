@@ -11,11 +11,10 @@ import Combine
 class PreferencesAdvancedViewController: UITableViewController {
 	enum Section {
 		case ramSetting
-		case frameRateSetting
 		case performanceMetrics
 		case uiOptions
+		case emulation
 		case relateiveMouseMode
-		case gammaRampSetting
 		case bootstrap
 		case resources
 	}
@@ -23,10 +22,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 	enum Row: Hashable {
 		//ramSetting
 		case ramSetting
-
-		//frameRateSetting
-		case frameRateSettingToggle
-		case frameRateSettingInfo
 
 		//performanceMetrics
 		case performanceMetricsFpsCounterToggle
@@ -38,15 +33,15 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case uiOptionsAlwaysBootInLandscapeMode
 		case uiOptionsReportIpAddressAssignment
 
+		//emulation
+		case emulationIgnoreIllegalInstructions
+		case emulationIgnoreIllegalInstructionsInfo
+
 		//relateiveMouseMode
 		case relateiveMouseModeSetting
 		case relateiveMouseModeInfo
 		case relateiveMouseTapToClickToggle
 		case relateiveMouseTapToClickInfo
-
-		//gammaRampSetting
-		case gammaRampSetting
-		case gammaRampSettingInfo
 
 		//bootstrap
 		case bootstrap
@@ -97,18 +92,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 					model.ramSetting = newValue
 					feedbackGenerator.impactOccurred()
 				}
-			case .frameRateSettingToggle:
-				return PreferencesAdvancedFrameRateSettingCell(
-					initialFrameRateSetting: model.frameRateSetting
-				) { [weak self] newFrameRateSetting in
-					guard let self else { return }
-					model.frameRateSetting = newFrameRateSetting
-					feedbackGenerator.impactOccurred()
-				}
-			case .frameRateSettingInfo:
-				return PreferencesInformationCell(
-					text: "Most games and apps have a maximum frame rate of 60 hz, 75 hz or lower. Higher frame rate settings impact performance. Changes in frame rate setting requires PocketShaver to restart."
-				)
 			case .performanceMetricsFpsCounterToggle:
 				return PreferencesEnabledSettingCell(
 					title: "Show FPS counter",
@@ -151,6 +134,18 @@ class PreferencesAdvancedViewController: UITableViewController {
 				) { [weak self] isOn in
 					self?.model.networkTransferRateReportingEnabled = isOn
 				}
+			case .emulationIgnoreIllegalInstructions:
+				return PreferencesEnabledSettingCell(
+					title: "Ignore illegal instructions",
+					isOn: model.ignoreIllegalInstructions
+				) { [weak self] isOn in
+					self?.model.ignoreIllegalInstructions = isOn
+				}
+			case .emulationIgnoreIllegalInstructionsInfo:
+				return PreferencesInformationCell(
+					text: "When enabled, unrecognized PowerPC instructions are skipped instead of crashing the emulator. May improve compatibility with some apps.",
+					separatorHidden: false
+				)
 			case .relateiveMouseModeSetting:
 				return PreferencesAdvancedRelativeMouseModeSettingCell(
 					initialRelativeMouseModeSetting: model.relativeMouseModeSetting
@@ -184,18 +179,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 			case .relateiveMouseTapToClickInfo:
 				return PreferencesInformationCell(
 					text: "Setting only affects relative mouse mode."
-				)
-			case .gammaRampSetting:
-				return PreferencesAdvancedGammaRampSettingCell(
-					initialGammaRampSetting: model.gammaRampSetting
-				) { [weak self] newGammaRampSetting in
-					guard let self else { return }
-					model.gammaRampSetting = newGammaRampSetting
-					feedbackGenerator.impactOccurred()
-				}
-			case .gammaRampSettingInfo:
-				return PreferencesInformationCell(
-					text: "Linear gamma ramp generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and, in some instances, produce a higher color dynamic. Has effect on next resolution change or restart of PocketShaver."
 				)
 			case .bootstrap:
 				return PreferencesAdvancedBootstrapCell(
@@ -231,16 +214,14 @@ class PreferencesAdvancedViewController: UITableViewController {
 			switch section {
 			case .ramSetting:
 				return "RAM setting"
-			case .frameRateSetting:
-				return "Frame rate setting"
 			case .performanceMetrics:
 				return "Performance metrics"
 			case .uiOptions:
 				return "UI options"
+			case .emulation:
+				return "Emulation"
 			case .relateiveMouseMode:
 				return "Relative mouse mode"
-			case .gammaRampSetting:
-				return "Gamma ramp"
 			case .bootstrap:
 				return "Bootstrap"
 			case .resources:
@@ -260,14 +241,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 		snapshot.appendSections([.ramSetting])
 		snapshot.appendItems([.ramSetting])
 
-		if UIScreen.supportsHighRefreshRate {
-			snapshot.appendSections([.frameRateSetting])
-			snapshot.appendItems([
-				.frameRateSettingToggle,
-				.frameRateSettingInfo
-			])
-		}
-
 		snapshot.appendSections([.performanceMetrics])
 		snapshot.appendItems([
 			.performanceMetricsFpsCounterToggle,
@@ -282,18 +255,18 @@ class PreferencesAdvancedViewController: UITableViewController {
 		}
 		snapshot.appendItems([.uiOptionsReportIpAddressAssignment])
 
+		snapshot.appendSections([.emulation])
+		snapshot.appendItems([
+			.emulationIgnoreIllegalInstructions,
+			.emulationIgnoreIllegalInstructionsInfo
+		])
+
 		snapshot.appendSections([.relateiveMouseMode])
 		snapshot.appendItems([
 			.relateiveMouseModeSetting,
 			.relateiveMouseModeInfo,
 			.relateiveMouseTapToClickToggle,
 			.relateiveMouseTapToClickInfo
-		])
-
-		snapshot.appendSections([.gammaRampSetting])
-		snapshot.appendItems([
-			.gammaRampSetting,
-			.gammaRampSettingInfo
 		])
 
 		if model.hasRomFile {

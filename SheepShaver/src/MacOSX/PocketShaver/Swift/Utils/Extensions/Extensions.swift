@@ -75,6 +75,16 @@ extension UIDevice {
 		return false
 #endif
 	}
+
+	/// True when running as "Designed for iPad" (or Mac Catalyst) on macOS.
+	/// The on-screen gamepad is pointless there — the user has a real keyboard
+	/// and mouse/trackpad.
+	static let isiOSAppOnMac: Bool = {
+		if #available(iOS 14.0, *) {
+			return ProcessInfo.processInfo.isiOSAppOnMac
+		}
+		return false
+	}()
 }
 
 extension CGVector {
@@ -132,6 +142,7 @@ extension UIButton {
 }
 
 extension FileManager {
+	@objc
 	static var documentUrl: URL {
 		Self.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 	}
@@ -175,6 +186,10 @@ extension String {
 			}
 		}
 		return false
+	}
+
+	func substring(from: Int, to: Int) -> String {
+		String(self[index(startIndex, offsetBy: from)..<index(startIndex, offsetBy: to)])
 	}
 }
 
