@@ -530,9 +530,7 @@ int MetalCompositorCreateOverlayTexture(int w, int h)
         pipeDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
 
         // Opaque overlay: the overlay covers the 2D framebuffer within its
-        // viewport rect. RAVE/GL apps don't manage alpha (often output 0),
-        // so alpha-based blending doesn't work. Instead, just overwrite
-        // the destination. Viewport clipping handles 2D/3D separation.
+        // viewport rect. The 3D content fully replaces the 2D content.
         pipeDesc.colorAttachments[0].blendingEnabled = NO;
         pipeDesc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
         pipeDesc.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
@@ -661,6 +659,7 @@ void MetalCompositorPresent(void)
     id<MTLRenderCommandEncoder> enc = [cmdBuf renderCommandEncoderWithDescriptor:passDesc];
     if (!enc) return;
 
+    // --- 2D framebuffer pass ---
     [enc setRenderPipelineState:compositor_pipeline];
     [enc setFragmentTexture:compositor_texture atIndex:0];
 
@@ -700,9 +699,6 @@ void MetalCompositorPresent(void)
         COMPOSITOR_LOG("MetalCompositorPresent: compositing 2D+3D");
 
         // Set viewport to the overlay's visible rect within the Mac framebuffer.
-        // overlay_viewport_w/h may be smaller than the overlay texture (e.g. the
-        // RAVE render viewport is 510x361 within a 640x480 texture). This ensures
-        // only the rendered portion covers the 2D framebuffer.
         int vp_w = (overlay_viewport_w > 0) ? overlay_viewport_w : overlay_width;
         int vp_h = (overlay_viewport_h > 0) ? overlay_viewport_h : overlay_height;
         MTLViewport overlayVP;
@@ -719,7 +715,6 @@ void MetalCompositorPresent(void)
         [enc setFragmentSamplerState:overlay_sampler atIndex:0];
 
         // Pass UV scale to map the viewport portion of the overlay texture.
-        // The overlay texture may be larger than the render viewport.
         float uv_scale[2] = {
             (float)vp_w / (float)overlay_width,
             (float)vp_h / (float)overlay_height

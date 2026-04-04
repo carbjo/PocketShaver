@@ -286,11 +286,19 @@ void RaveClearOverlayToTransparent(void)
 
 // ZFunction compare function mapping (RAVE -> Metal)
 // kQAZFunction_None(0), LT(1), EQ(2), LE(3), GT(4), NE(5), GE(6), Always(7), Never(8)
+//
+// NOTE: kQAZFunction_LT maps to LessEqual (not strictly Less).
+// Classic Mac RAVE games (Tomb Raider, etc.) draw layered 2D content
+// (background tiles, then menu text overlays) at the SAME z value,
+// relying on draw-order for visibility. With strict Less, later draws
+// at the same z are rejected by the depth test and become invisible.
+// ATI's real RAVE hardware treated LT as LE in practice — games depend
+// on this for multi-pass rendering at equal depth.
 static MTLCompareFunction ZFunctionToMTL(int zfunc)
 {
 	switch (zfunc) {
-		case 0:  return MTLCompareFunctionAlways;   // None: always pass, no write
-		case 1:  return MTLCompareFunctionLess;
+		case 0:  return MTLCompareFunctionAlways;      // None: always pass, no write
+		case 1:  return MTLCompareFunctionLessEqual;    // LT: use LE for same-z layering compat
 		case 2:  return MTLCompareFunctionEqual;
 		case 3:  return MTLCompareFunctionLessEqual;
 		case 4:  return MTLCompareFunctionGreater;
@@ -531,7 +539,16 @@ void RaveInitMetalResources(RaveDrawPrivate *priv)
 	// Cache the compositor's offscreen overlay texture
 	ms->overlayTexture = (__bridge id<MTLTexture>)MetalCompositorGetOverlayTexture();
 
-	ms->commandQueue = [ms->device newCommandQueue];
+	// Use the compositor's shared command queue so that RAVE command buffers
+	// and compositor command buffers execute in submission order.  This
+	// guarantees the overlay texture written by RAVE is fully rendered before
+	// the compositor reads it — without this, the compositor can sample stale
+	// (clear-to-black) content and the 3D overlay appears invisible.
+	ms->commandQueue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
+	if (!ms->commandQueue) {
+		RAVE_LOG("RaveInitMetalResources: SharedMetalCommandQueue failed, creating dedicated queue");
+		ms->commandQueue = [ms->device newCommandQueue];
+	}
 
 	// Load pre-compiled shader library (.metallib)
 	id<MTLLibrary> lib = [ms->device newDefaultLibrary];
@@ -2505,13 +2522,11 @@ int32 NativeRenderStart(uint32 drawContextAddr, uint32 dirtyRectAddr, uint32 ini
 	MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
 
 	// Color attachment: clear to background color with alpha=1.0 (opaque).
-	// The compositor uses MTLViewport set to the RAVE render rect to position
-	// the overlay correctly, so 2D content outside the 3D viewport is visible.
 	rpd.colorAttachments[0].clearColor = MTLClearColorMake(
 		priv->state[2].f,  // red
 		priv->state[3].f,  // green
 		priv->state[4].f,  // blue
-		1.0                // opaque — viewport positioning handles 2D visibility
+		1.0                // opaque
 	);
 	rpd.colorAttachments[0].loadAction = MTLLoadActionClear;
 
