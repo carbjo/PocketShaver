@@ -28,7 +28,9 @@ class HiddenInputField: UITextField {
 			didTapPreferencesButton: didTapPreferencesButton,
 			didTapDismissKeyboardButton: didTapDismissKeyboardButton
 		)
-		inputAccessoryView = accessoryView
+		if UIDevice.deviceType != .mac {
+			inputAccessoryView = accessoryView
+		}
 	}
 	
 	required init?(coder: NSCoder) { fatalError() }

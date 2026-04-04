@@ -98,6 +98,8 @@ public class OverlayViewController: UIViewController {
 		)
 	}()
 
+	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
+
 	private lazy var informationView: InformationView = {
 		let view = InformationView.withoutConstraints()
 		view.isHidden = true
@@ -122,8 +124,6 @@ public class OverlayViewController: UIViewController {
 		}
 		return model
 	}()
-	
-	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
 
 	private var anyCancellables = Set<AnyCancellable>()
 
@@ -161,6 +161,13 @@ public class OverlayViewController: UIViewController {
 		updatePerformanceCounter()
 
 		listenToChanges()
+
+		if UIDevice.deviceType == .mac {
+			// Needed to avoid macOS "alert sound" at every keystroke
+			// Hidden input field will ignore the actual key input since
+			// it will already be handle in SDL event pump in video_sdl2.cpp
+			hiddenInputField.becomeFirstResponder()
+		}
 	}
 
 	public override func viewDidAppear(_ animated: Bool) {
@@ -219,7 +226,7 @@ public class OverlayViewController: UIViewController {
 			nextGamepadLayerView.leadingAnchor.constraint(equalTo: gamepadLayerView.trailingAnchor),
 
 			hiddenInputField.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor),
+			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor, constant: -3000),
 
 			informationView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
 			informationView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -UIScreen.main.bounds.size.height / 4),
