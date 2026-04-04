@@ -161,10 +161,26 @@ public class PreferencesViewController: UIViewController {
 		listenToChanges()
 	}
 
+	public override func viewWillAppear(_ animated: Bool) {
+		super.viewWillAppear(animated)
+
+		if model.mode == .duringEmulation {
+			cpp_setInputDisabled(true)
+		}
+	}
+
 	public override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
 
 		MonitorResolutionManager.shared.registerSafeAreaInsets(view.safeAreaInsets)
+	}
+
+	public override func viewWillDisappear(_ animated: Bool) {
+		super.viewWillDisappear(animated)
+
+		if model.mode == .duringEmulation {
+			cpp_setInputDisabled(false)
+		}
 	}
 
 	public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -336,7 +352,7 @@ public class PreferencesViewController: UIViewController {
 	}
 
 	@objc
-	public static func present() -> PreferencesViewController {
+	public static func presentStartup() -> PreferencesViewController {
 		let vc = PreferencesViewController(mode: .startup)
 
 		prefsWindow.windowLevel = .normal

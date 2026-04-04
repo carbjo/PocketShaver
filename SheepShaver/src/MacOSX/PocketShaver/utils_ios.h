@@ -50,5 +50,6 @@ extern void toggle_relative_mouse();
 extern void set_relative_mouse_automatic();
 extern void report_relative_mouse_capability();
 extern void setup_frame_rate();
+extern void set_input_disabled(bool is_disabled);
 
 #endif

@@ -22,6 +22,8 @@ enum LocalNotifications {
 	static let jaggyCursorResolutionSelected = NSNotification.Name("jaggyCursorResolutionSelected")
 
 	static let gotIpAddress = NSNotification.Name("gotIpAddress")
+
+	static let displayPreferencesRequested = NSNotification.Name("displayPreferencesRequested")
 }
 
 
@@ -41,5 +43,9 @@ class LocalNotificationsObjCProxy: NSObject {
 
 	static func sendJaggyCursorResolutionSelected() {
 		NotificationCenter.default.post(name: LocalNotifications.jaggyCursorResolutionSelected, object: nil)
+	}
+
+	static func sendDisplayPreferencesRequested() {
+		NotificationCenter.default.post(name: LocalNotifications.displayPreferencesRequested, object: nil)
 	}
 }

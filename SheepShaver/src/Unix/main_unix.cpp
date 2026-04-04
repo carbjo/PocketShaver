@@ -163,7 +163,7 @@
 #if TARGET_OS_IPHONE
 #import "OverlayViewControllerObjC.h"
 #import "RamAllocFailedAlertViewControllerObjC.h"
-#import "PreferencesViewControllerObjC.h"
+#import "PreferencesViewControllerObjCCppHeader.h"
 #import "RomPathObjC.h"
 #import "MiscellaneousSettingsObjCCppHeader.h"
 #endif
@@ -687,7 +687,7 @@ static bool load_mac_rom(void)
 static bool check_prefs(void)
 {
 #if SHOW_IOS_PREFS_ON_LAUNCH
-	objc_displayPreferences();
+	objc_displayPreferencesStartup();
 #endif
 	return true;
 }

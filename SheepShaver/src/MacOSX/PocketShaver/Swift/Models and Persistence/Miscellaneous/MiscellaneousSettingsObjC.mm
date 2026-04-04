@@ -30,6 +30,10 @@ void cpp_toggle_relative_mouse_on_main() {
 	});
 }
 
+void cpp_setInputDisabled(bool isDisabled) {
+	set_input_disabled(isDisabled);
+}
+
 void objc_reportRelativeMouseModeCapability() {
 	[LocalNotificationsObjCProxy sendRelativeMouseModeCapabilityFound];
 }

@@ -42,9 +42,9 @@ class PreferencesRelativeMouseModeOnboardingCell: UITableViewCell {
 		case .iPhone:
 			toggleOnText = "By the <img/> button, located on top of the software keyboard. The software keyboard is accessed by swiping up with three fingers.\nThis button can also be added to a gamepad and toggled from there."
 		case .iPad:
-			toggleOnText = "By the <img/> button, located on top of the software keyboard. The software keyboard is accessed by swiping up with three fingers.\nThis button can also be added to a gamepad and toggled from there.\nAlternatively, you can toggle it by pressing ctrl + F5, if using a hardware keyboard."
+			toggleOnText = "By the <img/> button, located on top of the software keyboard. The software keyboard is accessed by swiping up with three fingers.\nThis button can also be added to a gamepad and toggled from there.\nAlternatively, you can toggle it by pressing option + F5, if using a hardware keyboard."
 		case .mac:
-			toggleOnText = "By pressing ctrl + F5 (during emulation)."
+			toggleOnText = "By pressing option + F5 (during emulation)."
 		}
 
 		var steerSection = """
