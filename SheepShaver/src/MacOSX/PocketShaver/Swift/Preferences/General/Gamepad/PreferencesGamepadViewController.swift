@@ -15,6 +15,10 @@ class PreferencesGamepadViewController: UITableViewController {
 		case gamepadLayouts
 	}
 
+	private lazy var doneButton: DoneButton = {
+		DoneButton(target: self, selector: #selector(doneButtonPressed))
+	}()
+
 	private var gamepadConfigs: [GamepadConfig] {
 		GamepadManager.shared.allConfigs
 	}
@@ -35,6 +39,8 @@ class PreferencesGamepadViewController: UITableViewController {
 		tableView.showsVerticalScrollIndicator = false
 		view.backgroundColor = Colors.primaryBackground
 		view.translatesAutoresizingMaskIntoConstraints = false
+
+		navigationItem.rightBarButtonItem = doneButton
 	}
 
 	func presentEditConfig(config: GamepadConfig) {
@@ -64,6 +70,11 @@ class PreferencesGamepadViewController: UITableViewController {
 		vc.didMove(toParent: parentVc)
 
 		vc.animatePresent()
+	}
+
+	@objc
+	private func doneButtonPressed() {
+		dismiss(animated: true)
 	}
 }
 

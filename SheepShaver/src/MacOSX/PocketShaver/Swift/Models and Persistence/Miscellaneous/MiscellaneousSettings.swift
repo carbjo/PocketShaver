@@ -105,13 +105,17 @@ class MiscellaneousSettings: Codable {
 		relativeMouseModeClickGestureSetting == .secondFingerClick
 	}
 
-	var shouldDisplayAlwaysLandscapeModeOption: Bool {
+	private static var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		if #available(iOS 16, *) {
 			return true
 		} else {
 			// Solution does not work in iOS 15.x
 			return false
 		}
+	}
+
+	var shouldDisplayAlwaysLandscapeModeOption: Bool {
+		Self.shouldDisplayAlwaysLandscapeModeOption
 	}
 
 	@MainActor
@@ -129,7 +133,7 @@ class MiscellaneousSettings: Codable {
 		} else {
 			frameRateSetting = .f60hz
 		}
-		alwaysLandscapeMode = true
+		alwaysLandscapeMode = Self.shouldDisplayAlwaysLandscapeModeOption
 		twoFingerSteeringSetting = .off
 		relativeMouseModeSetting = .manual
 		relativeMouseModeClickGestureSetting = .tap

@@ -16,7 +16,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case relateiveMouseMode
 		case relateiveMouseModeClickGesture
 		case hapticFeedback
-		case gammaRampSetting
 		case bootstrap
 		case resources
 	}
@@ -47,10 +46,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case hapticFeedbackSwipeGesturesToggle
 		case hapticFeedbackMouseClicksToggle
 		case hapticFeedbackGamepadKeyStrokesToggle
-
-		//gammaRampSetting
-		case gammaRampSetting
-		case gammaRampSettingInfo
 
 		//bootstrap
 		case bootstrap
@@ -238,18 +233,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 				) { [weak self] isOn in
 					self?.model.isKeyHapticFeedbackOn = isOn
 				}
-			case .gammaRampSetting:
-				return PreferencesAdvancedGammaRampSettingCell(
-					initialGammaRampSetting: model.gammaRampSetting
-				) { [weak self] newGammaRampSetting in
-					guard let self else { return }
-					model.gammaRampSetting = newGammaRampSetting
-					feedbackGenerator.impactOccurred()
-				}
-			case .gammaRampSettingInfo:
-				return PreferencesInformationCell(
-					text: "Linear gamma ramp generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and, in some instances, produce a higher color dynamic. Has effect on next resolution change or restart of PocketShaver."
-				)
 			case .bootstrap:
 				return PreferencesAdvancedBootstrapCell(
 					romDescription: model.currentRomFileDescription!,
@@ -294,8 +277,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 				return "Relative mouse mode click gesture"
 			case .hapticFeedback:
 				return "Haptic feedback"
-			case .gammaRampSetting:
-				return "Gamma ramp"
 			case .bootstrap:
 				return "Bootstrap"
 			case .resources:
@@ -354,12 +335,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 			])
 		}
 
-		snapshot.appendSections([.gammaRampSetting])
-		snapshot.appendItems([
-			.gammaRampSetting,
-			.gammaRampSettingInfo
-		])
-
 		if model.hasRomFile {
 			snapshot.appendSections([.bootstrap])
 			snapshot.appendItems([
@@ -370,8 +345,12 @@ class PreferencesAdvancedViewController: UITableViewController {
 		snapshot.appendSections([.resources])
 		snapshot.appendItems([
 			.resourcesSetupInstuctions,
-			.resourcesBootstrapCompatiblityList,
-			.resourcesTwoFingerSteeringOnboarding,
+			.resourcesBootstrapCompatiblityList
+		])
+		if UIDevice.deviceType != .mac {
+			snapshot.appendItems([.resourcesTwoFingerSteeringOnboarding])
+		}
+		snapshot.appendItems([
 			.resourcesRelativeMouseModeOnboarding,
 			.resourcesLicenses
 		])

@@ -36,16 +36,6 @@ class PreferencesGeneralModel {
 		let type: DiskType
 	}
 
-	struct FrameRateState: Hashable {
-		let setting: FrameRateSetting
-		let hasChanged: Bool
-	}
-
-	struct MonitorResolutionsState: Hashable {
-		let enabledResolutions: [MonitorResolutionOption]
-		let willBootFromCD: Bool
-	}
-
 	let mode: PreferencesLaunchMode
 
 	@MainActor
@@ -81,34 +71,6 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	private let originalFrameRateSetting = MiscellaneousSettings.current.frameRateSetting
-
-	@MainActor
-	var frameRateSetting: FrameRateSetting {
-		get {
-			MiscellaneousSettings.current.frameRateSetting
-		}
-		set {
-			MiscellaneousSettings.current.set(frameRateSetting: newValue)
-
-			if mode == .startup {
-				cpp_updateFrameRateHz()
-			}
-
-			changeSubject.send(.frameRateSettingChanged)
-			changeSubject.send(.changeRequiringRestartAfterBootMade)
-		}
-	}
-
-	@MainActor
-	var frameRateState: FrameRateState {
-		.init(
-			setting: frameRateSetting,
-			hasChanged: frameRateSetting != originalFrameRateSetting
-		)
-	}
-
-	@MainActor
 	var isIPadMouseEnabled: Bool {
 		get {
 			miscSettings.iPadMousePassthrough
@@ -119,6 +81,11 @@ class PreferencesGeneralModel {
 
 			changeSubject.send(.iPadMouseEnabledChanged)
 		}
+	}
+
+	@MainActor
+	var gamepadConfigs: [GamepadConfig] {
+		GamepadManager.shared.allConfigs
 	}
 
 	@MainActor
@@ -158,14 +125,6 @@ class PreferencesGeneralModel {
 		set {
 			miscSettings.set(keyboardAutoOffsetSetting: newValue)
 		}
-	}
-
-	@MainActor
-	var monitorResolutionsState: MonitorResolutionsState {
-		return .init(
-			enabledResolutions: MonitorResolutionManager.shared.enabledResolutions,
-			willBootFromCD: DiskManager.shared.willBootFromCD
-		)
 	}
 
 	@MainActor
@@ -209,9 +168,7 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	func didSelectMacOsInstallDiskCandidate(url: URL) async -> RomValidationResult {
-		let result = await RomManager.shared.didSelectMacOsInstallDiskCandidate(url: url)
-		changeSubject.send(.changeRequiringRestartAfterBootMade)
-		return result
+		await RomManager.shared.didSelectMacOsInstallDiskCandidate(url: url)
 	}
 
 	@MainActor
@@ -287,11 +244,6 @@ class PreferencesGeneralModel {
 	@MainActor
 	func disk(forFilename filename: String) -> Disk? {
 		DiskManager.shared.diskArray.first(where: { $0.filename == filename })
-	}
-
-	@MainActor
-	func diskIndex(forFilename filename: String) -> Int? {
-		DiskManager.shared.index(forFilename: filename)
 	}
 
 	@MainActor
