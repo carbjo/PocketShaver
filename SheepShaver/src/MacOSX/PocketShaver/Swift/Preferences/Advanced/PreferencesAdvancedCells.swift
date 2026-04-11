@@ -203,8 +203,9 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 
 			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
 			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8).withPriority(.required - 1),
 			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
+			containerView.widthAnchor.constraint(lessThanOrEqualToConstant: 500),
 		])
 
 		configure(with: romDescription)

@@ -80,10 +80,11 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 			readButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
 			readButton.heightAnchor.constraint(equalToConstant: 44),
 
-			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8).withPriority(.required - 1),
 			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8).withPriority(.defaultHigh),
 			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
+			containerView.widthAnchor.constraint(lessThanOrEqualToConstant: 500),
 
 			closeButton.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
 			closeButton.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
@@ -105,6 +106,60 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 }
 
 class PreferencesGeneralBootstrapCell: UITableViewCell {
+	private class BootstrapCompletedView: UIView {
+		private lazy var stackView: UIStackView = {
+			let stackView = UIStackView.withoutConstraints()
+			stackView.axis = .horizontal
+			stackView.spacing = 16
+			stackView.distribution = .fill
+			stackView.alignment = .center
+			return stackView
+		}()
+
+		private lazy var checkmarkIconImageView: UIImageView = {
+			let imageView = UIImageView.withoutConstraints()
+			imageView.image = UIImage(resource: .checkmarkCircleFill)
+			imageView.tintColor = Colors.okColor
+			imageView.contentMode = .scaleAspectFit
+
+			NSLayoutConstraint.activate([
+				imageView.widthAnchor.constraint(equalToConstant: 44),
+				imageView.heightAnchor.constraint(equalToConstant: 44)
+			])
+
+			return imageView
+		}()
+
+		private lazy var titleLabel: UILabel = {
+			let label = UILabel.withoutConstraints()
+			label.numberOfLines = 0
+			label.font = .systemFont(ofSize: 14)
+			label.textColor = Colors.secondaryText
+			label.text = "Congratulations, PocketShaver is successfully bootstrapped!\n\nYou can now install and run Mac OS up to version 9.0.4. For network support, Mac OS 9.0 - 9.0.4 is required."
+			return label
+		}()
+
+		init() {
+			super.init(frame: .zero)
+
+			translatesAutoresizingMaskIntoConstraints = false
+
+			stackView.addArrangedSubview(checkmarkIconImageView)
+			stackView.addArrangedSubview(titleLabel)
+
+			addSubview(stackView)
+
+			NSLayoutConstraint.activate([
+				stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+				stackView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+				stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+				stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
+			])
+		}
+
+		required init?(coder: NSCoder) { fatalError() }
+	}
+
 	private lazy var containerView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.layer.cornerRadius = 8
@@ -121,7 +176,7 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 		return label
 	}()
 
-	private lazy var buttonStackView: UIStackView = {
+	private lazy var stackView: UIStackView = {
 		let stackView = UIStackView.withoutConstraints()
 		stackView.axis = .vertical
 		stackView.spacing = 12
@@ -146,31 +201,34 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 		return button
 	}()
 
-	private lazy var checkmarkIconImageView: UIImageView = {
-		let imageView = UIImageView.withoutConstraints()
-		imageView.image = UIImage(resource: .checkmarkCircleFill)
-		imageView.tintColor = Colors.okColor
-		imageView.isHidden = true
-		imageView.contentMode = .scaleAspectFit
+	private lazy var doneButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.configuration = .secondaryActionConfig
+		button.setTitle("Ok", for: .normal)
+		button.isHidden = true
+		button.addTarget(self, action: #selector(doneButtonPushed), for: .touchUpInside)
+		return button
+	}()
 
-		NSLayoutConstraint.activate([
-			imageView.widthAnchor.constraint(equalToConstant: 44),
-			imageView.heightAnchor.constraint(equalToConstant: 44)
-		])
-
-		return imageView
+	private lazy var bootstrapCompletedView: BootstrapCompletedView = {
+		let view = BootstrapCompletedView()
+		view.isHidden = true
+		return view
 	}()
 
 	private let didTapSelectInstallDiskButton: (() -> Void)
 	private let didTapCompatibilityListButton: (() -> Void)
+	private let didTapDoneButton: (() -> Void)
 
 	init(
 		didTapSelectInstallDiskButton: @escaping (() -> Void),
-		didTapCompatibilityListButton: @escaping (() -> Void)
+		didTapCompatibilityListButton: @escaping (() -> Void),
+		didTapDoneButton: @escaping (() -> Void)
 
 	) {
 		self.didTapSelectInstallDiskButton = didTapSelectInstallDiskButton
 		self.didTapCompatibilityListButton = didTapCompatibilityListButton
+		self.didTapDoneButton = didTapDoneButton
 
 		super.init(style: .default, reuseIdentifier: nil)
 
@@ -178,41 +236,42 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 
 		contentView.addSubview(containerView)
 
-		containerView.addSubview(titleLabel)
-		containerView.addSubview(checkmarkIconImageView)
-		containerView.addSubview(buttonStackView)
-		buttonStackView.addArrangedSubview(selectInstallDiskFileButton)
-		buttonStackView.addArrangedSubview(displayCompatibilityListButton)
+		containerView.addSubview(stackView)
+		stackView.addArrangedSubview(titleLabel)
+		stackView.addArrangedSubview(bootstrapCompletedView)
+		stackView.addArrangedSubview(selectInstallDiskFileButton)
+		stackView.addArrangedSubview(displayCompatibilityListButton)
+		stackView.addArrangedSubview(doneButton)
+
 
 		NSLayoutConstraint.activate([
-			checkmarkIconImageView.centerXAnchor.constraint(equalTo: buttonStackView.centerXAnchor),
-			checkmarkIconImageView.centerYAnchor.constraint(equalTo: buttonStackView.centerYAnchor),
-
-			titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
-			titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-
-			buttonStackView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			buttonStackView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-			buttonStackView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-			buttonStackView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
+			stackView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			stackView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
+			stackView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+			stackView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
 
 			selectInstallDiskFileButton.heightAnchor.constraint(equalToConstant: 44),
 			displayCompatibilityListButton.heightAnchor.constraint(equalToConstant: 44),
+			doneButton.heightAnchor.constraint(equalToConstant: 44),
 
 			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
 			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8).withPriority(.defaultHigh),
+			containerView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8) ,
 			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
+			containerView.widthAnchor.constraint(lessThanOrEqualToConstant: 500),
 		])
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	func displayCheckmark() {
-		selectInstallDiskFileButton.alpha = 0
-		displayCompatibilityListButton.alpha = 0
-		checkmarkIconImageView.isHidden = false
+	func displayBootstrapCompleted() {
+		titleLabel.isHidden = true
+		selectInstallDiskFileButton.isHidden = true
+		displayCompatibilityListButton.isHidden = true
+
+		bootstrapCompletedView.isHidden = false
+		doneButton.isHidden = false
 	}
 
 	@objc
@@ -223,6 +282,11 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 	@objc
 	private func displayCompatibilityListButtonPushed() {
 		didTapCompatibilityListButton()
+	}
+
+	@objc
+	private func doneButtonPushed() {
+		didTapDoneButton()
 	}
 }
 
@@ -347,7 +411,7 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 			addButton.leadingAnchor.constraint(equalTo: reloadButton.trailingAnchor),
 			addButton.topAnchor.constraint(equalTo: contentView.topAnchor),
 			addButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
-			addButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+			addButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor).withPriority(.required - 1)
 		])
 	}
 
