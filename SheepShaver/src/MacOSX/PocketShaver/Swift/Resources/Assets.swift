@@ -27,4 +27,12 @@ enum Assets {
 	static var folder: UIImage {
 		.init(systemName: "folder")!
 	}
+
+	static var xmarkDiamondFill: UIImage {
+		.init(systemName: "xmark.diamond.fill")!
+	}
+
+	static var plusDiamondFill: UIImage {
+		.init(systemName: "plus.diamond.fill")!
+	}
 }

@@ -20,6 +20,7 @@ struct Colors {
 	static let popupCardBackground = UIColor(named: "popupCardBackground")!
 	static let okColor = UIColor(named: "ok")!
 	static let notOkColor = UIColor.red
+	static let notOkMildColor = UIColor(named: "notOkMild")!
 	static let thinBackground = UIColor(named: "thinBackground")!
 	static let thinWarningBackground = UIColor(named: "thinWarningBackground")!
 	static let bonjourGray = UIColor(named: "bonjourGray")!

@@ -227,7 +227,7 @@ enum NewWorldRomVersion: String, Codable {
 
 	var isInstallCompatible: Bool {
 		switch self {
-		case .v110, .v112, .v115, .v120, .v121, .v140, .v160, .v171,
+		case .v110, .v112, .v115, .v120, .v121, .v140, .v160,
 				.v181, .v231, .v251, .v300, .v311, .v321, .v350, .v360,
 				.v370, .v380, .v390, .v461, .v491, .v521, .v531, .v551:
 			return true

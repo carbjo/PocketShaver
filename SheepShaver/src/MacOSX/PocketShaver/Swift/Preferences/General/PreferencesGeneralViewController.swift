@@ -673,11 +673,20 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private func displayIncompatibleRomFoundDialogue(_ romType: NewWorldRomVersion) {
-		let alertVC = UIAlertController(
-			title: "Mac OS install disc image not compatible",
-			message: "The provided file is a Mac OS disk install image, but is not compatible for bootstrapping PocketShaver. The file is identified as belonging to category '\(romType.description)'. Check 'Compatibility list' for guidence.",
-			preferredStyle: .alert
-		)
+		let alertVC: UIAlertController
+		if romType.isInstallCompatible {
+			alertVC = UIAlertController(
+				title: "Almost.. but cannot bootrap with this file",
+				message: "PocketShaver can run this OS version, and you can use this disc for installing Mac OS onto a disk drive later. But the disc file cannot be used for bootstrapping.\nThe file is identified as belonging to category '\(romType.description)'. Check 'Bootstrap compatibility list' for guidence.",
+				preferredStyle: .alert
+			)
+		} else {
+			alertVC = UIAlertController(
+				title: "Mac OS install disc image not compatible",
+				message: "The provided file is a Mac OS disc install image, but not compatible with PocketShaver. The file is identified as belonging to category '\(romType.description)'. Check 'Bootstrap compatibility list' for guidence.",
+				preferredStyle: .alert
+			)
+		}
 
 		alertVC.addAction(.init(title: "Ok", style: .default))
 
