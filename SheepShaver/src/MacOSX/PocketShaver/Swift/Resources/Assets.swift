@@ -23,4 +23,8 @@ enum Assets {
 	static var squareAndArrowDown: UIImage {
 		.init(systemName: "square.and.arrow.down")!
 	}
+
+	static var folder: UIImage {
+		.init(systemName: "folder")!
+	}
 }
