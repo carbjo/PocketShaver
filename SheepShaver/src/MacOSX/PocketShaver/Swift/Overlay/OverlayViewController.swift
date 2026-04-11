@@ -252,7 +252,8 @@ public class OverlayViewController: UIViewController {
 		if UIDevice.isSimulator,
 		   motion == .motionShake {
 			// For debugging purposes
-			transition(to: .showingKeyboard)
+//			transition(to: .showingGamepad)
+//			transition(to: .showingKeyboard)
 		}
 	}
 

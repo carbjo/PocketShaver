@@ -257,6 +257,19 @@ class PreferencesGeneralErrorCell: UITableViewCell {
 }
 
 class PreferencesGeneralDiskActionBarCell: UITableViewCell {
+	private lazy var openShareFolderButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.tintColor = Colors.secondaryText
+		button.setImage(Assets.folder, for: .normal)
+
+		NSLayoutConstraint.activate([
+			button.widthAnchor.constraint(equalToConstant: 44),
+			button.heightAnchor.constraint(equalToConstant: 44)
+		])
+
+		return button
+	}()
+
 	private lazy var reloadButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.tintColor = Colors.secondaryText
@@ -285,11 +298,17 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 	}()
 
 	init(
+		didTapOpenShareFolderButton: @escaping (() -> Void),
 		didTapReloadButton: @escaping (() -> Void),
 		didTapCreateAction: @escaping (() -> Void),
 		didTapImportAction: @escaping (() -> Void)
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
+
+		let openShareFolderAction = UIAction { _ in
+			didTapOpenShareFolderButton()
+		}
+		openShareFolderButton.addAction(openShareFolderAction, for: .touchUpInside)
 
 		let reloadAction = UIAction { _ in
 			didTapReloadButton()
@@ -313,6 +332,15 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 
 		contentView.addSubview(reloadButton)
 		contentView.addSubview(addButton)
+
+		if UIDevice.deviceType == .mac {
+			contentView.addSubview(openShareFolderButton)
+
+			NSLayoutConstraint.activate([
+				openShareFolderButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
+				reloadButton.leadingAnchor.constraint(equalTo: openShareFolderButton.trailingAnchor),
+			])
+		}
 
 		NSLayoutConstraint.activate([
 			reloadButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),

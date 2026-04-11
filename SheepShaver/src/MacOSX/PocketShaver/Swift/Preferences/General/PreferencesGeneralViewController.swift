@@ -173,6 +173,9 @@ class PreferencesGeneralViewController: UITableViewController {
 				)
 			case .diskActionBar:
 				return PreferencesGeneralDiskActionBarCell(
+					didTapOpenShareFolderButton: { [weak self] in
+						self?.openDocumentsFolder()
+					},
 					didTapReloadButton: { [weak self] in
 						self?.reloadFileList()
 					},
@@ -184,9 +187,11 @@ class PreferencesGeneralViewController: UITableViewController {
 					}
 				)
 			case .disksEmptyState:
-				return PreferencesEmptyStateCell(
-					title: "No disk files found",
-					subtitles: [
+				let subtitles: [(String, StringTagConfig)]
+				switch UIDevice.deviceType {
+				case .iPhone,
+						.iPad:
+					subtitles = [
 						(
 							"Tap <img/> to create or import a disk file",
 							.init(
@@ -204,6 +209,38 @@ class PreferencesGeneralViewController: UITableViewController {
 							)
 						)
 					]
+				case .mac:
+					subtitles = [
+						(
+							"Click <img/> to create or import a disk file",
+							.init(
+								images: [
+									Assets.plus.asSymbolImage()
+								]
+							)
+						),
+						(
+							"Alternatively, add a file manually to PocketShaver share folder and click <img/>",
+							.init(
+								images: [
+									ImageResource.arrowTriangleheadCounterclockwiseRotate90.asSymbolImage()
+								]
+							)
+						),
+						(
+							"Click <img/> to open the share folder in Finder",
+							.init(
+								images: [
+									Assets.folder
+								]
+							)
+						)
+					]
+				}
+
+				return PreferencesEmptyStateCell(
+					title: "No disk files found",
+					subtitles: subtitles
 				)
 			case .disksDisk(let diskEntry):
 				let cell = tableView.dequeueReusableCell(withIdentifier: PreferencesGeneralDiskCell.reuseIdentifier, for: indexPath) as! PreferencesGeneralDiskCell
@@ -741,6 +778,13 @@ class PreferencesGeneralViewController: UITableViewController {
 		if !tableView.visibleCells.contains(cell) {
 			tableView.scrollToRow(at: cellIndexPath, at: .middle, animated: true)
 		}
+	}
+
+	// MARK: - Open documents folder
+
+	private func openDocumentsFolder() {
+		// Only works on mac. And is only needed there, too.
+		UIApplication.shared.open(FileManager.documentUrl)
 	}
 
 	// MARK: - Actions
