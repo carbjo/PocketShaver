@@ -1027,6 +1027,7 @@ int main(int argc, char *argv[])
 	if (vm_init() < 0) {
 		sprintf(str, "Could not initialize virtual memory system.\n");
 		ErrorAlert(str);
+		objc_displayRamAllocFailedAlert();
 		goto quit;
 	}
 	

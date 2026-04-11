@@ -21,14 +21,14 @@ enum PreferencesLaunchMode {
 public class PreferencesViewController: UIViewController {
 	enum Tab: Int, CaseIterable {
 		case general
-		case gamepad
+		case graphics
 		case network
 		case advanced
 
 		var label: String {
 			switch self {
 			case .general: "General"
-			case .gamepad: "Gamepad"
+			case .graphics: "Graphics"
 			case .network: "Network"
 			case .advanced: "Advanced"
 			}
@@ -65,9 +65,12 @@ public class PreferencesViewController: UIViewController {
 			changeSubject: model.changeSubject
 		)
 	}()
-
-	private lazy var gamepadVC: PreferencesGamepadViewController = {
-		PreferencesGamepadViewController(changeSubject: model.changeSubject)
+	
+	private lazy var graphicsVC: PreferencesGraphicsViewController = {
+		PreferencesGraphicsViewController(
+			mode: model.mode,
+			changeSubject: model.changeSubject
+		)
 	}()
 
 	private lazy var networkVC: PreferencesNetworkViewController = {
@@ -150,7 +153,7 @@ public class PreferencesViewController: UIViewController {
 		])
 
 		embedViewController(generalVC)
-		embedViewController(gamepadVC)
+		embedViewController(graphicsVC)
 		embedViewController(networkVC)
 		embedViewController(advancedVC)
 
@@ -200,8 +203,8 @@ public class PreferencesViewController: UIViewController {
 		switch tab {
 		case .general:
 			contentView.bringSubviewToFront(generalVC.view)
-		case .gamepad:
-			contentView.bringSubviewToFront(gamepadVC.view)
+		case .graphics:
+			contentView.bringSubviewToFront(graphicsVC.view)
 		case .network:
 			contentView.bringSubviewToFront(networkVC.view)
 		case .advanced:

@@ -14,12 +14,11 @@ class PreferencesGeneralViewController: UITableViewController {
 		case bootstrap
 		case presentCommandInfo
 		case disks
-		case frameRateSetting
+		case gamepadOverlays
 		case iPadMouse
 		case twoFingerSteering
 		case rightClick
 		case keyboardAutoOffset
-		case monitorResolutions
 		case audio
 		case hints
 	}
@@ -41,9 +40,8 @@ class PreferencesGeneralViewController: UITableViewController {
 		case disksDisk(PreferencesGeneralModel.DiskEntry)
 		case disksError
 
-		// frameRateSetting
-		case frameRateSettingToggle
-		case frameRateSettingInfo(PreferencesGeneralModel.FrameRateState)
+		// gamepadOverlays
+		case gamepadOverlays
 
 		// iPadMouse
 		case iPadMouse
@@ -60,10 +58,6 @@ class PreferencesGeneralViewController: UITableViewController {
 		// keyboardAutoOffset
 		case keyboardAutoOffset
 		case keyboardAutoOffsetInformation
-
-		// monitorResolutions
-		case monitorResolutions(PreferencesGeneralModel.MonitorResolutionsState)
-		case monitorResolutionsInformation(Bool)
 
 		// audio
 		case audioEnabledToggle
@@ -82,8 +76,6 @@ class PreferencesGeneralViewController: UITableViewController {
 	private let model: PreferencesGeneralModel
 	private let preferencesResolutionsVC: PreferencesResolutionsViewController
 	private let createDiskDialogueFactory = PreferencesGeneralCreateDiskDialogueFactory()
-
-	private var anyCancellables = Set<AnyCancellable>()
 
 	private var dataSource: TableViewDiffableDataSource<Section, Row>!
 
@@ -121,18 +113,6 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private func listenToChanges() {
-		model.changeSubject.sink{ [weak self] change in
-			guard let self else { return }
-			switch change {
-			case .selectedResolutionsChanged:
-				dataSource.reloadSection(.monitorResolutions)
-			case .frameRateSettingChanged:
-				reloadData()
-			default:
-				break
-			}
-		}.store(in: &anyCancellables)
-
 		NotificationCenter.default.addObserver(self, selector: #selector(appDidResume), name: UIScene.didActivateNotification, object: nil)
 	}
 
@@ -296,29 +276,16 @@ class PreferencesGeneralViewController: UITableViewController {
 				return PreferencesGeneralErrorCell(
 					title: "Must select to mount at least one disk file"
 				)
-			case .frameRateSettingToggle:
-				return PreferencesGeneralFrameRateSettingCell(
-					initialFrameRateSetting: model.frameRateSetting
-				) { [weak self] newFrameRateSetting in
-					guard let self else { return }
-					model.frameRateSetting = newFrameRateSetting
-					feedbackGenerator.impactOccurred()
-				}
-			case .frameRateSettingInfo(let frameRateState):
-				var text = ""
-				if frameRateState.setting == .f120hz {
-					text += "At 120 hz, software with uncapped framerate might behave erratic."
-				}
-				if model.mode == .duringEmulation,
-				   frameRateState.hasChanged {
-					if !text.isEmpty {
-						text += " "
+			case .gamepadOverlays:
+				return PreferencesGeneralGamepadOverlaysCell(
+					gamepadConfigs: model.gamepadConfigs) { [weak self] in
+						guard let self else { return }
+						let vc = PreferencesGamepadViewController(changeSubject: model.changeSubject)
+						let navVC = UINavigationController()
+						navVC.viewControllers = [vc]
+
+						present(navVC, animated: true)
 					}
-					text += "Changes in frame rate setting requires PocketShaver to restart."
-				}
-				return PreferencesCardInformationCell(
-					text: text
-				)
 			case .iPadMouse:
 				return PreferencesGeneralIPadMouseCell(
 					initialIPadMouseSetting: model.isIPadMouseEnabled
@@ -397,27 +364,6 @@ class PreferencesGeneralViewController: UITableViewController {
 				return PreferencesInformationCell(
 					text: "Controls how the screen scrolls when you three finger swipe up to present keyboard."
 				)
-			case .monitorResolutions:
-				return PreferencesGeneralEnabledMonitorResolutionsCell(
-					monitorResolutionsState: model.monitorResolutionsState
-				) { [weak self] in
-					guard let self else { return }
-					let vc = preferencesResolutionsVC
-					let navVC = UINavigationController()
-					navVC.viewControllers = [vc]
-
-					present(navVC, animated: true)
-				}
-			case .monitorResolutionsInformation(let willBootFromCD):
-				var text = "Resolutions made available to Mac OS. "
-				if willBootFromCD {
-					text += "List is restricted since emulaton will boot from an install CD."
-				} else {
-					text += "Can be edited."
-				}
-				return PreferencesInformationCell(
-					text: text
-				)
 			case .audioEnabledToggle:
 				return PreferencesEnabledSettingCell(
 					title: "Audio enabled",
@@ -426,8 +372,12 @@ class PreferencesGeneralViewController: UITableViewController {
 					self?.model.audioEnabled = newValue
 				}
 			case .audioInformation:
+				var soundFromOtherAppsPrefix = ""
+				if UIDevice.deviceType != .mac {
+					soundFromOtherAppsPrefix = "Sound from other apps is lowered if audio is enabled during emulation. "
+				}
 				return PreferencesInformationCell(
-					text: "Sound from other apps is lowered if audio is enabled during emulation. Having trouble getting audio to work? Read the <link>setup guide</link>."
+					text: "\(soundFromOtherAppsPrefix)Having trouble getting audio to work? Read the <link>setup guide</link>."
 				) { [weak self] in
 					self?.displaySetupInstructions()
 				}
@@ -455,8 +405,8 @@ class PreferencesGeneralViewController: UITableViewController {
 				return nil
 			case .disks:
 				return "Disks"
-			case .frameRateSetting:
-				return "Frame rate setting"
+			case .gamepadOverlays:
+				return "Gamepad overlays"
 			case .iPadMouse:
 				return "Input mode"
 			case .twoFingerSteering:
@@ -465,8 +415,6 @@ class PreferencesGeneralViewController: UITableViewController {
 				return "Right click"
 			case .keyboardAutoOffset:
 				return "Software keyboard screen offset"
-			case .monitorResolutions:
-				return "Monitor resolutions"
 			case .audio:
 				return "Audio"
 			case .hints:
@@ -549,16 +497,10 @@ class PreferencesGeneralViewController: UITableViewController {
 			snapshot.appendItems([.disksError])
 		}
 
-		if UIScreen.supportsHighRefreshRate {
-			snapshot.appendSections([.frameRateSetting])
-			snapshot.appendItems([.frameRateSettingToggle])
-			if model.frameRateState.setting == .f120hz ||
-				(model.mode == .duringEmulation && model.frameRateState.hasChanged) {
-				snapshot.appendItems([.frameRateSettingInfo(model.frameRateState)])
-			}
-		}
-
 		if UIDevice.deviceType != .mac {
+			snapshot.appendSections([.gamepadOverlays])
+			snapshot.appendItems([.gamepadOverlays])
+
 			if UIDevice.deviceType == .iPad {
 				snapshot.appendSections([.iPadMouse])
 				snapshot.appendItems([.iPadMouse])
@@ -591,12 +533,6 @@ class PreferencesGeneralViewController: UITableViewController {
 			])
 		}
 
-		snapshot.appendSections([.monitorResolutions])
-		snapshot.appendItems([
-			.monitorResolutions(model.monitorResolutionsState),
-			.monitorResolutionsInformation(model.monitorResolutionsState.willBootFromCD)
-		])
-
 		snapshot.appendSections([.audio])
 		snapshot.appendItems([
 			.audioEnabledToggle,
@@ -604,10 +540,10 @@ class PreferencesGeneralViewController: UITableViewController {
 		])
 
 		snapshot.appendSections([.hints])
-		snapshot.appendItems([
-			.hintsToggle,
-			.hintsInformation
-		])
+		snapshot.appendItems([.hintsToggle])
+		if UIDevice.deviceType != .mac {
+			snapshot.appendItems([.hintsInformation])
+		}
 
 		dataSource.apply(
 			snapshot,
@@ -687,7 +623,7 @@ class PreferencesGeneralViewController: UITableViewController {
 			)
 		} else {
 			alertVC = UIAlertController(
-				title: "Mac OS install disc image not compatible",
+				title: "Not compatible",
 				message: "The provided file is a Mac OS disc install image, but not compatible with PocketShaver. The file is identified as belonging to category '\(romType.description)'. Check 'Bootstrap compatibility list' for guidence.",
 				preferredStyle: .alert
 			)
