@@ -156,11 +156,18 @@ class PreferencesGeneralViewController: UITableViewController {
 					},
 					didTapCompatibilityListButton: { [weak self] in
 						guard let self else { return }
+
 						let vc = PreferencesCompatibilityListViewController()
 						let navVC = UINavigationController()
 						navVC.viewControllers = [vc]
 
 						present(navVC, animated: true)
+					},
+					didTapDoneButton: { [weak self] in
+						guard let self else { return }
+
+						model.shouldDisplayBootstrapSection = false
+						reloadData()
 					}
 				)
 			case .bootstrapError:
@@ -508,7 +515,7 @@ class PreferencesGeneralViewController: UITableViewController {
 			snapshot.appendItems([.setupInstructions])
 		}
 
-		if !model.hasRomFile {
+		if model.shouldDisplayBootstrapSection {
 			snapshot.appendSections([.bootstrap])
 			snapshot.appendItems([.bootstrap])
 			if model.isDisplayingRomFileMissingError {
@@ -648,16 +655,14 @@ class PreferencesGeneralViewController: UITableViewController {
 		present(pickerVC, animated: true)
 	}
 
-	private func animateRomFound() {
+	private func animateBootstrapCompleted() {
 		guard let cell = tableView.visibleCells.first(where: { $0 is PreferencesGeneralBootstrapCell }) as? PreferencesGeneralBootstrapCell else {
 			return
 		}
 
-		cell.displayCheckmark()
-
-		DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-			self?.reloadData()
-		}
+		cell.displayBootstrapCompleted()
+		tableView.beginUpdates()
+		tableView.endUpdates()
 	}
 
 	private func displayNoRomFoundDialogue() {
@@ -829,7 +834,7 @@ extension PreferencesGeneralViewController: UIDocumentPickerDelegate {
 				let validationResult = await model.didSelectMacOsInstallDiskCandidate(url: url)
 				switch validationResult {
 				case .success:
-					animateRomFound()
+					animateBootstrapCompleted()
 				case .incompatibleRom(let newWorldRomVersion):
 					displayIncompatibleRomFoundDialogue(newWorldRomVersion)
 				case .invalidFile:

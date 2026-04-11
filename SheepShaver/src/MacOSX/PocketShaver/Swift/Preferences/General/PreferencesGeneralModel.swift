@@ -64,9 +64,7 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	var hasRomFile: Bool {
-		RomManager.shared.hasRomFile
-	}
+	var shouldDisplayBootstrapSection = !RomManager.shared.hasRomFile
 
 	@MainActor
 	var hasDskFile: Bool {
