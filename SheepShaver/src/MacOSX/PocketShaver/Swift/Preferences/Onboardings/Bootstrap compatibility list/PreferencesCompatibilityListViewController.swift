@@ -36,12 +36,14 @@ class PreferencesCompatibilityListViewController: UITableViewController {
 		case .newWorldRomVersion(let newWorldRomVersion):
 			return PreferencesCompatibilityListCell(
 				title: newWorldRomVersion.description,
-				isCompatible: newWorldRomVersion.isBootstrapCompatible
+				isBootstrapCompatible: newWorldRomVersion.isBootstrapCompatible,
+				isInstallCompatible: newWorldRomVersion.isInstallCompatible
 			)
 		case .other(let description):
 			return PreferencesCompatibilityListCell(
 				title: description,
-				isCompatible: false
+				isBootstrapCompatible: false,
+				isInstallCompatible: false
 			)
 		}
 	}

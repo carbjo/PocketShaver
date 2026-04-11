@@ -15,6 +15,7 @@ class PreferencesCompatibilityModel {
 
 	let entries: [Entry] = [
 		.other("Mac OS 8.0 and lower"),
+		
 		.newWorldRomVersion(.v110),
 		.other("Any Mac OS 8.1 install disc other than the one bundled on iMac, Rev A"),
 		.newWorldRomVersion(.v112),
@@ -27,6 +28,20 @@ class PreferencesCompatibilityModel {
 		.newWorldRomVersion(.v181),
 		.newWorldRomVersion(.v231),
 		.newWorldRomVersion(.v251),
-		.other("Mac OS 9.0 and higher"),
+		.newWorldRomVersion(.v300),
+		.newWorldRomVersion(.v311),
+		.newWorldRomVersion(.v321),
+		.newWorldRomVersion(.v350),
+		.newWorldRomVersion(.v360),
+		.newWorldRomVersion(.v370),
+		.newWorldRomVersion(.v380),
+		.newWorldRomVersion(.v390),
+		.newWorldRomVersion(.v461),
+		.newWorldRomVersion(.v491),
+		.newWorldRomVersion(.v521),
+		.newWorldRomVersion(.v531),
+		.newWorldRomVersion(.v551),
+
+		.other("Mac OS 9.1 and higher"),
 	]
 }

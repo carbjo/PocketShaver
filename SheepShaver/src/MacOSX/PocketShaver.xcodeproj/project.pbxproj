@@ -1426,7 +1426,7 @@
 			isa = PBXGroup;
 			children = (
 				C7C383792E7861EF0051C5A4 /* Setup Instructions */,
-				C7699F102EC45D540083B3B3 /* Compatibility list */,
+				C7699F102EC45D540083B3B3 /* Bootstrap compatibility list */,
 				C707D0482F2657F9007BFE66 /* Relative mouse mode */,
 				C707D04B2F266B5D007BFE66 /* Two finger steering */,
 			);
@@ -1576,14 +1576,14 @@
 			path = "Preferences Handling";
 			sourceTree = "<group>";
 		};
-		C7699F102EC45D540083B3B3 /* Compatibility list */ = {
+		C7699F102EC45D540083B3B3 /* Bootstrap compatibility list */ = {
 			isa = PBXGroup;
 			children = (
 				C7699F162EC4663B0083B3B3 /* PreferencesCompatibilityListModel.swift */,
 				C7699F112EC45D870083B3B3 /* PreferencesCompatibilityListViewController.swift */,
 				C7699F182EC466440083B3B3 /* PreferencesCompatibilityListCells.swift */,
 			);
-			path = "Compatibility list";
+			path = "Bootstrap compatibility list";
 			sourceTree = "<group>";
 		};
 		C7699F132EC464840083B3B3 /* Resources */ = {

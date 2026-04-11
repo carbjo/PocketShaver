@@ -117,7 +117,7 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = Colors.secondaryText
-		label.text = "Tap button below to select a compatible Mac OS install disc file. This is needed to bootstrap PocketShaver."
+		label.text = "Tap button below to select a Mac OS install disc file and bootstrap PocketShaver.\n\nBootstrapping is not the same as installing Mac OS onto a disk file."
 		return label
 	}()
 
@@ -141,7 +141,7 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 	private lazy var displayCompatibilityListButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .secondaryActionConfig
-		button.setTitle("Compatibility list", for: .normal)
+		button.setTitle("Bootstrap compatibility list", for: .normal)
 		button.addTarget(self, action: #selector(displayCompatibilityListButtonPushed), for: .touchUpInside)
 		return button
 	}()
