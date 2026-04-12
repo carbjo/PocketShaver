@@ -113,6 +113,16 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
+	var bootInRelativeMouseMode: Bool {
+		get {
+			miscSettings.bootInRelativeMouseMode
+		}
+		set {
+			miscSettings.set(bootInRelativeMouseMode: newValue)
+		}
+	}
+
+	@MainActor
 	var relativeMouseModeClickGestureSetting: RelativeMouseModeClickGestureSetting {
 		get {
 			miscSettings.relativeMouseModeClickGestureSetting

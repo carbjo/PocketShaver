@@ -37,6 +37,8 @@ class PreferencesAdvancedViewController: UITableViewController {
 		//relateiveMouseMode
 		case relateiveMouseModeSetting
 		case relateiveMouseModeInfo
+		case relateiveMouseModeBoot
+		case relateiveMouseModeBootInfo
 
 		// relateiveMouseModeClickGesture
 		case relativeMouseModeClickGestureSetting(RelativeMouseModeClickGestureSetting)
@@ -166,7 +168,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 					guard let self else { return }
 					model.relativeMouseModeSetting = newFrameRateSetting
 					feedbackGenerator.impactOccurred()
-					dataSource.reloadItems([.relateiveMouseModeInfo])
+					reloadData()
 				}
 			case .relateiveMouseModeInfo:
 				let duringEmulation = (model.mode == .startup) ? " during emulation" : ""
@@ -194,6 +196,17 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 					present(navVC, animated: true)
 				}
+			case .relateiveMouseModeBoot:
+				return PreferencesEnabledSettingCell(
+					title: "Boot with relative mouse mode on",
+					isOn: model.bootInRelativeMouseMode
+				) { [weak self] isOn in
+					self?.model.bootInRelativeMouseMode = isOn
+				}
+			case .relateiveMouseModeBootInfo:
+				return PreferencesInformationCell(
+					text: "Only has effect when input is set to Mouse."
+				)
 			case .relativeMouseModeClickGestureSetting(let setting):
 				return PreferencesRadioButtonChoiceCell(
 					title: setting.label,
@@ -317,6 +330,22 @@ class PreferencesAdvancedViewController: UITableViewController {
 			.relateiveMouseModeSetting,
 			.relateiveMouseModeInfo
 		])
+		if model.relativeMouseModeSetting != .alwaysOn {
+			switch UIDevice.deviceType {
+			case .iPad:
+				guard MiscellaneousSettings.current.iPadMousePassthrough else {
+					break
+				}
+				snapshot.appendItems([
+					.relateiveMouseModeBoot,
+					.relateiveMouseModeBootInfo
+				])
+			case .mac:
+				snapshot.appendItems([.relateiveMouseModeBoot])
+			case .iPhone:
+				break
+			}
+		}
 
 		if !model.isIPadMouseEnabled {
 			snapshot.appendSections([.relateiveMouseModeClickGesture])

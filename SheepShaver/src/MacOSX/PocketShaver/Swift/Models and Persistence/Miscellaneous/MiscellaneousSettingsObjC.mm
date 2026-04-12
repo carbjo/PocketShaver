@@ -25,7 +25,8 @@ void cpp_setRelativeMouseModeAutomatic() {
 }
 
 void cpp_toggle_relative_mouse_on_main() {
-	dispatch_sync(dispatch_get_main_queue(), ^{
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.001 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+		// Delay to not be inside event pump when calling
 		toggle_relative_mouse();
 	});
 }
@@ -68,4 +69,8 @@ bool objc_getSoundDisabled(void) {
 
 bool objc_getIsLinearGammaEnabled(void) {
 	return MiscellaneousSettingsObjC.isLinearGammaEnabled;
+}
+
+bool objc_getShouldBootInRelativeMouseMode(void) {
+	return MiscellaneousSettingsObjC.shouldBootInRelativeMouseMode;
 }
