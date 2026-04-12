@@ -74,7 +74,9 @@ public class PreferencesViewController: UIViewController {
 	}()
 
 	private lazy var networkVC: PreferencesNetworkViewController = {
-		PreferencesNetworkViewController()
+		PreferencesNetworkViewController(
+			mode: model.mode
+		)
 	}()
 
 	private lazy var advancedVC: PreferencesAdvancedViewController = {

@@ -21,6 +21,7 @@ class PreferencesNetworkViewController: UITableViewController {
 		// Service type
 		case serviceTypeSlirp
 		case serviceTypeBonjour
+		case serviceTypeChangeWarning
 
 		// Bonjour role
 		case bonjourRolePicker
@@ -47,10 +48,20 @@ class PreferencesNetworkViewController: UITableViewController {
 		case bonjourClientHostRoomHostClientListOtherClient(BonjourManager.Client)
 	}
 
-	private let model = PreferencesNetworkModel()
+	private let model: PreferencesNetworkModel
 	private var anyCancellables = Set<AnyCancellable>()
 
 	private var dataSource: TableViewDiffableDataSource<Section, Row>!
+
+	init(
+		mode: PreferencesLaunchMode
+	) {
+		model = .init(mode: mode)
+
+		super.init(nibName: nil, bundle: nil)
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
@@ -96,6 +107,16 @@ class PreferencesNetworkViewController: UITableViewController {
 				return PreferencesNetworkServiceTypeCell(
 					serviceType: .bonjour,
 					isSelected: model.serviceType == .bonjour
+				)
+			case .serviceTypeChangeWarning:
+				return PreferencesCardInformationCell(
+					text: "It might take a while before Mac OS assigns the new IP address. You can force this by restarting or changing configuration inside the <mark>TCP/IP</mark> app.",
+					tagConfig: .init(
+						highlightedAppearance: .init(
+							font: Fonts.geneva.ofSize(14)!,
+							color: Colors.primaryText
+						)
+					)
 				)
 			case .bonjourRolePicker:
 				return PreferencesNetworkBonjourRolePickerCell(
@@ -239,6 +260,9 @@ class PreferencesNetworkViewController: UITableViewController {
 			.serviceTypeSlirp,
 			.serviceTypeBonjour
 		])
+		if model.shouldDisplayServiceTypeChangeWarning {
+			snapshot.appendItems([.serviceTypeChangeWarning])
+		}
 
 		if model.serviceType == .slirp {
 			dataSource.apply(snapshot)
