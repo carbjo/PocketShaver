@@ -87,6 +87,7 @@ class MiscellaneousSettings: Codable {
 	private(set) var keyboardAutoOffsetSetting: KeyboardAutoOffsetSetting
 	private(set) var hoverJustAboveOffsetModifier: Float
 	private(set) var gammaRampSetting: GammaRampSetting
+	private(set) var bootInRelativeMouseMode: Bool
 
 	var secondFingerClick: Bool {
 		twoFingerSteeringSetting != .off
@@ -97,12 +98,25 @@ class MiscellaneousSettings: Codable {
 		twoFingerSteeringSetting == .clickPlusSwipePlusBootInHoverMode
 	}
 
-	var bootInHoverMode: Bool {
+	var shouldBootInHoverMode: Bool {
 		twoFingerSteeringSetting == .clickPlusSwipePlusBootInHoverMode
 	}
 
 	var relativeMouseModeSecondFingerClick: Bool {
 		relativeMouseModeClickGestureSetting == .secondFingerClick
+	}
+
+	var shouldBootInRelativeMouseMode: Bool {
+		if relativeMouseModeSetting == .alwaysOn {
+			return true
+		}
+
+		if UIDevice.deviceType == .mac ||
+			(UIDevice.deviceType == .iPad && iPadMousePassthrough),
+		   bootInRelativeMouseMode {
+			return true
+		}
+		return false
 	}
 
 	private static var shouldDisplayAlwaysLandscapeModeOption: Bool {
@@ -141,6 +155,7 @@ class MiscellaneousSettings: Codable {
 		keyboardAutoOffsetSetting = .middle
 		hoverJustAboveOffsetModifier = 1
 		gammaRampSetting = .osDefined
+		bootInRelativeMouseMode = UIDevice.deviceType == .mac
 	}
 
 	@MainActor
@@ -300,6 +315,13 @@ class MiscellaneousSettings: Codable {
 
 		saveAsCurrent()
 	}
+
+	@MainActor
+	func set(bootInRelativeMouseMode: Bool) {
+		self.bootInRelativeMouseMode = bootInRelativeMouseMode
+
+		saveAsCurrent()
+	}
 }
 
 class MiscellaneousCachedSettings {
@@ -347,5 +369,10 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func isLinearGammaEnabled() -> Bool {
 		MiscellaneousSettings.current.gammaRampSetting == .linear
+	}
+
+	@MainActor
+	static func shouldBootInRelativeMouseMode() -> Bool {
+		MiscellaneousSettings.current.shouldBootInRelativeMouseMode
 	}
 }

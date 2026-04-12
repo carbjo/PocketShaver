@@ -90,7 +90,7 @@ class PreferencesTwoFingerSteeringDetailsViewController: UITableViewController {
 			case .bootInHoverModeEnabledToggle:
 				return PreferencesEnabledSettingCell(
 					title: "Boot in hover mode",
-					isOn: miscSettings.bootInHoverMode
+					isOn: miscSettings.shouldBootInHoverMode
 				) { [weak self] isOn in
 					guard let self else { return }
 

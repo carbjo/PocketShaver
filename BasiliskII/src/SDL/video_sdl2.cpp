@@ -1129,7 +1129,9 @@ void driver_base::init()
 	sdl_palette->colors[1] = (SDL_Color){ .r = 0, .g = 0, .b = 0, .a = 255 };
 	SDL_SetSurfacePalette(s, sdl_palette);
 
+#if !TARGET_OS_IPHONE
 	if (PrefsFindBool("init_grab") && !PrefsFindBool("hardcursor")) grab_mouse();
+#endif
 }
 
 void driver_base::adapt_to_video_mode() {
@@ -1461,7 +1463,10 @@ bool VideoInit(bool classic)
 #if TARGET_OS_IPHONE
 	bool touch_input = !objc_getIPadMousePassthroughOn();
 	ADBSetTouchInput(touch_input);
-	mouse_grabbed = objc_getRelateiveMouseModeSettingIsAlwaysOn();
+	if (objc_getShouldBootInRelativeMouseMode()) {
+		drv->grab_mouse();
+	}
+//	mouse_grabbed = objc_getShouldBootInRelativeMouseMode();//objc_getRelateiveMouseModeSettingIsAlwaysOn();
 #endif
 	
 	// Get screen mode from preferences
@@ -2107,6 +2112,9 @@ void set_relative_mouse_disabled() {
 }
 
 void toggle_relative_mouse() {
+	if (mouse_grabbed && objc_getRelateiveMouseModeSettingIsAlwaysOn()) {
+		return;
+	}
 	drv->toggle_mouse_grab();
 }
 

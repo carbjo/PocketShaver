@@ -44,7 +44,7 @@ class InputInteractionModel {
 
 	private var hostAudioVolumeChangeObservation: NSKeyValueObservation!
 
-	private(set) var hoverOffsetMode: HoverOffsetMode = MiscellaneousSettings.current.bootInHoverMode ? .justAbove : .off {
+	private(set) var hoverOffsetMode: HoverOffsetMode = MiscellaneousSettings.current.shouldBootInHoverMode ? .justAbove : .off {
 		didSet {
 			updateADBHoverOffset()
 		}
@@ -108,11 +108,11 @@ class InputInteractionModel {
 			}
 		}
 
-		if miscSettings.relativeMouseModeSetting == .alwaysOn {
+		if miscSettings.shouldBootInRelativeMouseMode {
 			cpp_setRelativeMouseMode(true)
 			handleRelativeMouseModeEnabled()
 		}
-		if (miscSettings.bootInHoverMode &&
+		if (miscSettings.shouldBootInHoverMode &&
 			!miscSettings.iPadMousePassthrough &&
 			miscSettings.relativeMouseModeSetting != .alwaysOn) {
 			hoverOffsetMode = .diagonallyAbove
