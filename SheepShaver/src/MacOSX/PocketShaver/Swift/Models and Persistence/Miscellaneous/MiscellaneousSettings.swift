@@ -65,17 +65,17 @@ class MiscellaneousSettings: Codable {
 	private(set) var keyHapticFeedback: Bool
 	private(set) var audioEnabled: Bool {
 		didSet {
-			NotificationCenter.default.post(.init(name: LocalNotifications.audioEnabledChanged))
+			LocalNotification.send(.audioEnabledChanged)
 		}
 	}
 	private(set) var fpsReporting: Bool {
 		didSet {
-			NotificationCenter.default.post(.init(name: LocalNotifications.performanceCounterSettingChanged))
+			LocalNotification.send(.performanceCounterSettingChanged)
 		}
 	}
 	private(set) var networkTransferRateReportingEnabled: Bool {
 		didSet {
-			NotificationCenter.default.post(.init(name: LocalNotifications.performanceCounterSettingChanged))
+			LocalNotification.send(.performanceCounterSettingChanged)
 		}
 	}
 	private(set) var frameRateSetting: FrameRateSetting
@@ -196,7 +196,7 @@ class MiscellaneousSettings: Codable {
 	func set(iPadMousePassthrough: Bool) {
 		self.iPadMousePassthrough = iPadMousePassthrough
 
-		NotificationCenter.default.post(name: LocalNotifications.iPadMousePassthroughChanged, object: nil)
+		LocalNotification.send(.iPadMousePassthroughChanged)
 
 		objc_ADBSetTouchInput(!iPadMousePassthrough)
 

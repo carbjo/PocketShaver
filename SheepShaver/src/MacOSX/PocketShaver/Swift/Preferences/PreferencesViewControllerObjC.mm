@@ -24,6 +24,6 @@ void objc_displayPreferencesStartup(void) {
 
 void objc_displayPreferencesDuringEmulationOnMain(void) {
 	dispatch_sync(dispatch_get_main_queue(), ^{
-		[LocalNotificationsObjCProxy sendDisplayPreferencesRequested];
+		[LocalNotificationObjCProxy sendDisplayPreferencesRequested];
 	});
 }

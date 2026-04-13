@@ -157,9 +157,9 @@ class PreferencesAdvancedViewController: UITableViewController {
 			case .uiOptionsReportIpAddressAssignment:
 				return PreferencesEnabledSettingCell(
 					title: "Report IP address assignment",
-					isOn: model.networkTransferRateReportingEnabled
+					isOn: model.reportIpAddressAssignment
 				) { [weak self] isOn in
-					self?.model.networkTransferRateReportingEnabled = isOn
+					self?.model.reportIpAddressAssignment = isOn
 				}
 			case .relateiveMouseModeSetting:
 				return PreferencesAdvancedRelativeMouseModeSettingCell(

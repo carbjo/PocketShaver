@@ -97,11 +97,11 @@ class InputInteractionModel {
 	static let shared = InputInteractionModel()
 
 	init() {
-		NotificationCenter.default.addObserver(self, selector: #selector(handleRelativeMouseModeEnabled), name: LocalNotifications.relativeMouseModeEnabled, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(handleRelativeMouseModeDisabled), name: LocalNotifications.relativeMouseModeDisabled, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(handleRelativeMouseModeSettingChanged), name: LocalNotifications.relativeMouseModeSettingChanged, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(handleIPadMousePassthroughChanged), name: LocalNotifications.iPadMousePassthroughChanged, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(handleAudioConfigurationChanged), name: LocalNotifications.audioEnabledChanged, object: nil)
+		LocalNotification.observe(.relativeMouseModeEnabled, self, #selector(handleRelativeMouseModeEnabled))
+		LocalNotification.observe(.relativeMouseModeDisabled, self, #selector(handleRelativeMouseModeDisabled))
+		LocalNotification.observe(.relativeMouseModeSettingChanged, self, #selector(handleRelativeMouseModeSettingChanged))
+		LocalNotification.observe(.iPadMousePassthroughChanged, self, #selector(handleIPadMousePassthroughChanged))
+		LocalNotification.observe(.audioEnabledChanged, self, #selector(handleAudioConfigurationChanged))
 		hostAudioVolumeChangeObservation = AVAudioSession.sharedInstance().observe(\.outputVolume) { [weak self] _, _ in
 			Task { @MainActor in
 				self?.handleAudioConfigurationChanged()

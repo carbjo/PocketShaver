@@ -151,6 +151,6 @@ class NetworkSettingsObjCProxy: NSObject {
 	}
 
 	static func reportGotIpAddress(_ ipAddress: IpAddress) {
-		NotificationCenter.default.post(name: LocalNotifications.gotIpAddress, object: ipAddress)
+		LocalNotification.send(.gotIpAddress, object: ipAddress)
 	}
 }

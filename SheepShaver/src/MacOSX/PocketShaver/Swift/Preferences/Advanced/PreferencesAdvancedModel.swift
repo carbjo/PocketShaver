@@ -103,7 +103,7 @@ class PreferencesAdvancedModel {
 			default: break
 			}
 
-			NotificationCenter.default.post(name: LocalNotifications.relativeMouseModeSettingChanged, object: nil)
+			LocalNotification.send(.relativeMouseModeSettingChanged)
 		}
 	}
 

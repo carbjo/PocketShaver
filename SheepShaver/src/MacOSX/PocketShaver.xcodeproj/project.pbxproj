@@ -170,7 +170,7 @@
 		C79D23022F3F7CC100D54A4C /* NetworkSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79D23012F3F7CBA00D54A4C /* NetworkSettings.swift */; };
 		C79D23042F3F82C500D54A4C /* NetworkSettingsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79D23032F3F82BB00D54A4C /* NetworkSettingsObjC.mm */; };
 		C7A0EC162F4307BA0016533F /* Assets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A0EC152F4307B40016533F /* Assets.swift */; };
-		C7A9AB9A2EED61F2001EC4DB /* LocalNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */; };
+		C7A9AB9A2EED61F2001EC4DB /* LocalNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A9AB992EED61F0001EC4DB /* LocalNotification.swift */; };
 		C7B04B8D2F77B66100A36842 /* MemoryDump.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C7B04B8C2F77B65A00A36842 /* MemoryDump.cpp */; };
 		C7B04B902F77B6F900A36842 /* MemoryDumpObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7B04B8F2F77B6EF00A36842 /* MemoryDumpObjC.mm */; };
 		C7B23CC32F58122100B784E7 /* TableViewDiffableDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B23CC22F58121C00B784E7 /* TableViewDiffableDataSource.swift */; };
@@ -721,7 +721,7 @@
 		C79D23032F3F82BB00D54A4C /* NetworkSettingsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = NetworkSettingsObjC.mm; sourceTree = "<group>"; };
 		C79D23052F3F833B00D54A4C /* NetworkSettingsObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NetworkSettingsObjCCppHeader.h; sourceTree = "<group>"; };
 		C7A0EC152F4307B40016533F /* Assets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Assets.swift; sourceTree = "<group>"; };
-		C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotifications.swift; sourceTree = "<group>"; };
+		C7A9AB992EED61F0001EC4DB /* LocalNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotification.swift; sourceTree = "<group>"; };
 		C7B04B8C2F77B65A00A36842 /* MemoryDump.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = MemoryDump.cpp; sourceTree = "<group>"; };
 		C7B04B8E2F77B68200A36842 /* MemoryDump.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MemoryDump.h; sourceTree = "<group>"; };
 		C7B04B8F2F77B6EF00A36842 /* MemoryDumpObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MemoryDumpObjC.mm; sourceTree = "<group>"; };
@@ -1471,7 +1471,7 @@
 				C791A9A82F41AC2B001F7E2E /* Disk file extractor */,
 				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
 				C7DCEF3B2E86F53B00EAED05 /* Mouse Haptic Feedback */,
-				C7A9AB982EED61B4001EC4DB /* Local notifications */,
+				C7A9AB982EED61B4001EC4DB /* Local notification */,
 				C79517E02F15446E00CAEDBF /* Right click */,
 				C7B04B8B2F77B64700A36842 /* Memory dump */,
 			);
@@ -1714,12 +1714,12 @@
 			path = Network;
 			sourceTree = "<group>";
 		};
-		C7A9AB982EED61B4001EC4DB /* Local notifications */ = {
+		C7A9AB982EED61B4001EC4DB /* Local notification */ = {
 			isa = PBXGroup;
 			children = (
-				C7A9AB992EED61F0001EC4DB /* LocalNotifications.swift */,
+				C7A9AB992EED61F0001EC4DB /* LocalNotification.swift */,
 			);
-			path = "Local notifications";
+			path = "Local notification";
 			sourceTree = "<group>";
 		};
 		C7B04B8B2F77B64700A36842 /* Memory dump */ = {
@@ -2504,7 +2504,7 @@
 				C7C3D2752E781ACF0018DB8B /* PreferencesAdvancedCells.swift in Sources */,
 				C74E10792EA9228F00150945 /* ImpMutableBTreeFile.m in Sources */,
 				C74E107A2EA9228F00150945 /* ImpBTreeHeaderNode.m in Sources */,
-				C7A9AB9A2EED61F2001EC4DB /* LocalNotifications.swift in Sources */,
+				C7A9AB9A2EED61F2001EC4DB /* LocalNotification.swift in Sources */,
 				C74E107B2EA9228F00150945 /* ImpBTreeMapNode.m in Sources */,
 				C74E107C2EA9228F00150945 /* ImpComparisonUtilities.m in Sources */,
 				C74E107D2EA9228F00150945 /* ImpBTreeIndexNode.m in Sources */,
