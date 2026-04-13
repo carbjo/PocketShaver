@@ -282,12 +282,12 @@ public class OverlayViewController: UIViewController {
 			default: break
 			}
 		}.store(in: &anyCancellables)
-
-		NotificationCenter.default.addObserver(self, selector: #selector(updatePerformanceCounter), name: LocalNotifications.performanceCounterSettingChanged, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(displayRelativeMouseCapabilityDialogueIfEligible), name: LocalNotifications.relativeMouseModeCapabilityFound, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(displayJaggyCursorWarningDialogueIfEligible), name: LocalNotifications.jaggyCursorResolutionSelected, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(displayGotIpAddress), name: LocalNotifications.gotIpAddress, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(presentPreferences), name: LocalNotifications.displayPreferencesRequested, object: nil)
+		LocalNotification.observe(.performanceCounterSettingChanged, self, #selector(updatePerformanceCounter))
+		LocalNotification.observe(.relativeMouseModeCapabilityFound, self, #selector(displayRelativeMouseCapabilityDialogueIfEligible))
+		LocalNotification.observe(.jaggyCursorResolutionSelected, self, #selector(displayJaggyCursorWarningDialogueIfEligible))
+		LocalNotification.observe(.gotIpAddress, self, #selector(displayGotIpAddress))
+		LocalNotification.observe(.displayPreferencesRequested, self, #selector(presentPreferences))
+		LocalNotification.observe(.enteredKeyboardModeWhileUsingHardwareKeyboard, self, #selector(handleEnteredKeyboardModeWhileUsingHardwareKeyboard))
 		NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillChangePosition), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(keyboardDidChangePosition), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
 	}
@@ -675,6 +675,16 @@ public class OverlayViewController: UIViewController {
 
 		informationView.show(
 			hint: "Got IP address \(ipAddress.string)",
+			atBottom: true
+		)
+	}
+
+	@objc
+	private func handleEnteredKeyboardModeWhileUsingHardwareKeyboard() {
+		transition(to: .normal)
+
+		informationView.show(
+			hint: "Keyboard mode not available while using hardware keyboard",
 			atBottom: true
 		)
 	}

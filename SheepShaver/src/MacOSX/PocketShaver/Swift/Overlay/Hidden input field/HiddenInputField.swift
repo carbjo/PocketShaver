@@ -41,11 +41,21 @@ class HiddenInputField: UITextField {
 		}
 
 		if !keyboardRect.isDocked {
+			// To avoid the user seing a jumping special key bar. Will be faded in again.
+			inputAccessoryView.alpha = 0
+		} else if keyboardRect.height < 80 {
+			// To prevent displaying software keyboard when using hardware keyboard. Will not be faded in again.
 			inputAccessoryView.alpha = 0
 		}
 	}
 
 	func reportKeyboardDidChangePosition(_ keyboardRect: CGRect) {
+		guard keyboardRect.height > 80 else {
+			LocalNotification.send(.enteredKeyboardModeWhileUsingHardwareKeyboard)
+
+			return
+		}
+
 		guard let inputAccessoryView else {
 			return
 		}

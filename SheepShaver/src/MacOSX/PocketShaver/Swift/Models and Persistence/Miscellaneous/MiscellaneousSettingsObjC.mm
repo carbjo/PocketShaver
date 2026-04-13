@@ -36,7 +36,7 @@ void cpp_setInputDisabled(bool isDisabled) {
 }
 
 void objc_reportRelativeMouseModeCapability() {
-	[LocalNotificationsObjCProxy sendRelativeMouseModeCapabilityFound];
+	[LocalNotificationObjCProxy sendRelativeMouseModeCapabilityFound];
 }
 
 int objc_getFrameRateSetting(void) {
