@@ -539,10 +539,12 @@ class PreferencesGeneralViewController: UITableViewController {
 			.audioInformation
 		])
 
-		snapshot.appendSections([.hints])
-		snapshot.appendItems([.hintsToggle])
 		if UIDevice.deviceType != .mac {
-			snapshot.appendItems([.hintsInformation])
+			snapshot.appendSections([.hints])
+			snapshot.appendItems([.hintsToggle])
+			if UIDevice.deviceType != .mac {
+				snapshot.appendItems([.hintsInformation])
+			}
 		}
 
 		dataSource.apply(
