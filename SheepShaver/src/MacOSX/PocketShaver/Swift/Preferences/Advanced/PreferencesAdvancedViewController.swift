@@ -36,7 +36,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 		//relateiveMouseMode
 		case relateiveMouseModeSetting
-		case relateiveMouseModeInfo
+		case relateiveMouseModeInfo(RelativeMouseModeSetting)
 		case relateiveMouseModeBoot
 		case relateiveMouseModeBootInfo
 
@@ -170,10 +170,10 @@ class PreferencesAdvancedViewController: UITableViewController {
 					feedbackGenerator.impactOccurred()
 					reloadData()
 				}
-			case .relateiveMouseModeInfo:
+			case .relateiveMouseModeInfo(let relativeMouseModeSetting):
 				let duringEmulation = (model.mode == .startup) ? " during emulation" : ""
 				var toggleExplanation = ""
-				if model.relativeMouseModeSetting != .alwaysOn {
+				if relativeMouseModeSetting != .alwaysOn {
 					switch UIDevice.deviceType {
 					case .iPhone:
 						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping the <img/> button above the keyboard or as a gamepad button."
@@ -328,7 +328,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 		snapshot.appendSections([.relateiveMouseMode])
 		snapshot.appendItems([
 			.relateiveMouseModeSetting,
-			.relateiveMouseModeInfo
+			.relateiveMouseModeInfo(model.relativeMouseModeSetting)
 		])
 		if model.relativeMouseModeSetting != .alwaysOn {
 			switch UIDevice.deviceType {

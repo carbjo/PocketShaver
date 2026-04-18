@@ -95,9 +95,13 @@ class PreferencesNetworkViewController: UITableViewController {
 			guard let self else { return UITableViewCell() }
 			switch itemIdentifier {
 			case .osVersionWarningCell:
-				return PreferencesNetworkOSVersionWarningCell { [weak self] in
-					self?.model.hasDismissedOsWarning = true
-				}
+				return PreferencesCardInformationCell(
+					informationType: .warning,
+					text: "Network in PocketShaver requires Mac OS 9.0 - 9.0.4",
+					didTapCloseButton: { [weak self] in
+						self?.model.hasDismissedOsWarning = true
+					}
+				)
 			case .serviceTypeSlirp:
 				return PreferencesNetworkServiceTypeCell(
 					serviceType: .slirp,

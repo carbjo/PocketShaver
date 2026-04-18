@@ -40,9 +40,9 @@ class PreferencesSetupInstructionsCell: UITableViewCell {
 			color: Colors.primaryText
 		),
 		images: [
-			Assets.plus,
-			Assets.plus,
-			UIDevice.deviceType == .mac ? Assets.folder : nil,
+			Assets.plus.withTintColor(Colors.primaryText),
+			Assets.plus.withTintColor(Colors.primaryText),
+			UIDevice.deviceType == .mac ? Assets.folder.withTintColor(Colors.primaryText) : nil,
 			warningTriangle,
 			warningTriangle,
 			warningTriangle,

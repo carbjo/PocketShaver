@@ -32,6 +32,8 @@ class PreferencesEnabledSettingCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		titleLabel.text = title
 		enabledSwitch.isOn = isOn
 
@@ -87,6 +89,8 @@ class PreferencesInformationCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		if separatorHidden {
 			hideSeparator()
 		}
@@ -109,6 +113,11 @@ class PreferencesInformationCell: UITableViewCell {
 }
 
 class PreferencesCardInformationCell: UITableViewCell {
+	enum InformationType {
+		case info
+		case warning
+	}
+
 	private lazy var cardView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.layer.cornerRadius = 8
@@ -116,7 +125,7 @@ class PreferencesCardInformationCell: UITableViewCell {
 		return view
 	}()
 
-	private lazy var infoIconImageView: UIImageView = {
+	private lazy var iconImageView: UIImageView = {
 		let imageView = UIImageView.withoutConstraints()
 		imageView.image = UIImage(resource: ImageResource.infoCircle)
 		imageView.tintColor = Colors.secondaryText
@@ -129,15 +138,26 @@ class PreferencesCardInformationCell: UITableViewCell {
 		return imageView
 	}()
 
+	private lazy var closeButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.setImage(.init(resource: .xmarkCircleFill), for: .normal)
+		button.tintColor = Colors.secondaryText
+		button.addTarget(self, action: #selector(closeButtonPushed), for: .touchUpInside)
+		return button
+	}()
+
 	private let informationLabel: LinkLabel
 
+	private let didTapCloseButton: (() -> Void)?
+
 	init(
+		informationType: InformationType = .info,
 		text: String,
 		tagConfig: StringTagConfig? = .init(),
 		separatorHidden: Bool = true,
-		linkCallback: (() -> Void)? = nil
+		didTapCloseButton: (() -> Void)? = nil,
+		linkCallback: (() -> Void)? = nil,
 	) {
-
 		let config = tagConfig ?? .init(
 			boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText),
 			highlightedAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.highlightedText)
@@ -150,7 +170,18 @@ class PreferencesCardInformationCell: UITableViewCell {
 			callback: linkCallback
 		)
 
+		self.didTapCloseButton = didTapCloseButton
+
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
+
+		switch informationType {
+		case .info:
+			iconImageView.image = UIImage(resource: ImageResource.infoCircle)
+		case .warning:
+			iconImageView.image = ImageResource.exclamationmarkTriangle.asSymbolImage()
+		}
 
 		if separatorHidden {
 			hideSeparator()
@@ -158,22 +189,38 @@ class PreferencesCardInformationCell: UITableViewCell {
 
 		cardView.setContentHuggingPriority(.required, for: .horizontal)
 
-		cardView.addSubview(infoIconImageView)
+		cardView.addSubview(iconImageView)
 		cardView.addSubview(informationLabel)
 		contentView.addSubview(cardView)
+
+		if didTapCloseButton != nil {
+			cardView.addSubview(closeButton)
+
+			NSLayoutConstraint.activate([
+				cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+
+				closeButton.leadingAnchor.constraint(equalTo: informationLabel.trailingAnchor, constant: 8),
+				closeButton.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+				closeButton.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16)
+			])
+		} else {
+			NSLayoutConstraint.activate([
+				cardView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -12),
+				informationLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16)
+			])
+		}
 
 		NSLayoutConstraint.activate([
 			cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
 			cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-			cardView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -12),
+
 			cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
 
-			infoIconImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
-			infoIconImageView.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+			iconImageView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
+			iconImageView.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
 
-			informationLabel.leadingAnchor.constraint(equalTo: infoIconImageView.trailingAnchor, constant: 16),
+			informationLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 16),
 			informationLabel.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
-			informationLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
 			informationLabel.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -12).withPriority(.required - 1)
 		])
 	}
@@ -182,6 +229,11 @@ class PreferencesCardInformationCell: UITableViewCell {
 
 	func configure(text: String) {
 		informationLabel.label.text = text
+	}
+
+	@objc
+	private func closeButtonPushed() {
+		didTapCloseButton?()
 	}
 }
 
@@ -202,6 +254,8 @@ class PreferencesEmptyStateCell: UITableViewCell {
 		separatorHidden: Bool = false
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		let titleLabel = LinkLabel(
 			text: title,
@@ -266,6 +320,8 @@ class PreferencesRadioButtonChoiceCell: UITableViewCell {
 		isSelected: Bool
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		titleLabel.text = title
 

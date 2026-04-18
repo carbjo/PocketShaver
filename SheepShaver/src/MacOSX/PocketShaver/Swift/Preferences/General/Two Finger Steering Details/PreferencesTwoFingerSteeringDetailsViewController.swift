@@ -45,7 +45,7 @@ class PreferencesTwoFingerSteeringDetailsViewController: UITableViewController {
 		super.viewDidLoad()
 
 		view.translatesAutoresizingMaskIntoConstraints = false
-		view.backgroundColor = .white
+		view.backgroundColor = Colors.primaryBackground
 		tableView.showsVerticalScrollIndicator = false
 
 		navigationItem.rightBarButtonItem = doneButton

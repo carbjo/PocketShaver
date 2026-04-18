@@ -30,8 +30,6 @@ class PreferencesResolutionsViewController: UITableViewController {
 		self.changeSubject = changeSubject
 
 		super.init(nibName: nil, bundle: nil)
-
-		view.backgroundColor = Colors.primaryBackground
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
@@ -40,7 +38,7 @@ class PreferencesResolutionsViewController: UITableViewController {
 		super.viewDidLoad()
 
 		view.translatesAutoresizingMaskIntoConstraints = false
-		view.backgroundColor = .white
+		view.backgroundColor = Colors.primaryBackground
 		tableView.showsVerticalScrollIndicator = false
 
 		navigationItem.rightBarButtonItem = doneButton
@@ -158,8 +156,8 @@ extension PreferencesResolutionsViewController { // UITableViewDataSource
 			}
 
 			if indexPath.row == availableResolutions.count {
-				return PreferencesResolutionsFooterCell(
-					title: category.explanation
+				return PreferencesInformationCell(
+					text: category.explanation
 				)
 			}
 
