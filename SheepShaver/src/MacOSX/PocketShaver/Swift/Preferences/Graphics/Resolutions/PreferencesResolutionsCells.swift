@@ -24,6 +24,8 @@ class PreferencesResolutionsInformationCell: UITableViewCell {
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		contentView.addSubview(titleLabel)
@@ -63,38 +65,6 @@ class PreferencesResolutionsInformationCell: UITableViewCell {
 		titleLabel.attributedText = "This list controls what monitor resolutions are available to Mac OS. Changing active resolution is still done with Monitors app, inside Mac OS.\n\n• \(orientationString)\n\n• When booting from an installation CD, the operating system will always pick the highest possible resolution, without any possibility of changing it.\n\n• Mac OS allows a maximum number of \(maxNumberOfSimultaniousResolutions) monitor resolutions to be available simultaniously. Current number of selected resolutions: <b>\(currentMonitorResolutionCount)</b>"
 			.withTagsReplaced(by: .init(boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)))
 	}
-}
-
-class PreferencesResolutionsFooterCell: UITableViewCell {
-	private lazy var titleLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.font = .systemFont(ofSize: 14)
-		label.textColor = Colors.secondaryText
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		return label
-	}()
-
-	init(
-		title: String
-	) {
-		super.init(style: .default, reuseIdentifier: nil)
-
-		hideSeparator()
-
-		titleLabel.text = title
-
-		contentView.addSubview(titleLabel)
-
-		NSLayoutConstraint.activate([
-			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-			titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1)
-		])
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
 }
 
 class PreferencesResolutionsMonitorResolutionCell: UITableViewCell {
@@ -150,6 +120,8 @@ class PreferencesResolutionsMonitorResolutionCell: UITableViewCell {
 		self.didSetIsEnabled = didSetIsEnabled
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		titleLabel.text = option.label
 

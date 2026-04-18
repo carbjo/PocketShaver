@@ -41,6 +41,8 @@ class PreferencesAdvancedRamStepperCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		contentView.addSubview(stepper)
@@ -88,6 +90,8 @@ class PreferencesAdvancedMiscellaneousCell: UITableViewCell {
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		titleLabel.text = title
 
 		contentView.addSubview(titleLabel)
@@ -123,6 +127,8 @@ class PreferencesAdvancedRelativeMouseModeSettingCell: UITableViewCell {
 		self.didChangeSelection = didChangeSelection
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		hideSeparator()
 
@@ -182,6 +188,8 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 		self.didTapSelectInstallDiskButton = didTapSelectInstallDiskButton
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		hideSeparator()
 
@@ -268,6 +276,8 @@ class PreferencesAdvancedJustAboveOffsetSettingCell: UITableViewCell {
 		self.didChangeValue = didChangeValue
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		contentView.addSubview(titleLabel)
 		contentView.addSubview(slider)

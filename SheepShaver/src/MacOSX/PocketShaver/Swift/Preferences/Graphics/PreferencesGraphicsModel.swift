@@ -10,8 +10,8 @@ import Combine
 /// Nearest-neighbor produces a sharp, retro pixelated look;
 /// bilinear produces a smooth, interpolated image.
 enum RenderingFilterMode: String, Codable, CaseIterable {
-	case nearestNeighbor
 	case bilinear
+	case nearestNeighbor
 }
 
 class PreferencesGraphicsModel {

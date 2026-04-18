@@ -73,6 +73,8 @@ class PreferencesGamepadConfigHeaderCell: UITableViewHeaderFooterView {
 
 		super.init(reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		editButton.setContentHuggingPriority(.required, for: .horizontal)
 		editButton.setContentHuggingPriority(.required, for: .vertical)
 
@@ -155,6 +157,8 @@ class PreferencesGamepadConfigCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		contentView.addSubview(titleLabel)
 		contentView.addSubview(settingsButton)
 
@@ -212,6 +216,8 @@ class PreferencesGamepadConfigsEmptyStateCell: UITableViewCell {
 
 	init() {
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		hideSeparator()
 

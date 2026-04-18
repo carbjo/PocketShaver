@@ -58,6 +58,8 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		titleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
@@ -141,6 +143,8 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 
 		init() {
 			super.init(frame: .zero)
+
+			backgroundColor = Colors.primaryBackground
 
 			translatesAutoresizingMaskIntoConstraints = false
 
@@ -303,6 +307,8 @@ class PreferencesGeneralErrorCell: UITableViewCell {
 	init(title: String) {
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		errorLabel.text = title
@@ -368,6 +374,8 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 		didTapImportAction: @escaping (() -> Void)
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		let openShareFolderAction = UIAction { _ in
 			didTapOpenShareFolderButton()
@@ -440,6 +448,8 @@ class PreferencesGeneralTagView: UIView {
 
 	init() {
 		super.init(frame: .zero)
+
+		backgroundColor = Colors.primaryBackground
 
 		translatesAutoresizingMaskIntoConstraints = false
 
@@ -552,6 +562,8 @@ class PreferencesGeneralDiskCell: UITableViewCell {
 
 	override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
 		super.init(style: .default, reuseIdentifier: Self.reuseIdentifier)
+
+		backgroundColor = Colors.primaryBackground
 
 		contentView.addSubview(enabledIndicationView)
 		contentView.addSubview(enabledSwitch)
@@ -678,6 +690,8 @@ class PreferencesGeneralGamepadOverlaysCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		contentView.addSubview(editButton)
 
 		NSLayoutConstraint.activate([
@@ -759,6 +773,8 @@ class PreferencesGeneralTwoFingerSteeringDetailsCell: UITableViewCell {
 		self.didTapEditButton = didTapEditButton
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		contentView.addSubview(editButton)
 
@@ -868,6 +884,8 @@ class PreferencesGeneralIPadMouseCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		contentView.addSubview(segmentedControl)
@@ -910,6 +928,8 @@ class PreferencesGeneralRightClickCell: UITableViewCell {
 		self.didChangeSelection = didChangeSelection
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		hideSeparator()
 
@@ -955,6 +975,8 @@ class PreferencesGeneralKeyboardAutoOffsetCell: UITableViewCell {
 		self.didChangeSelection = didChangeSelection
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		hideSeparator()
 

@@ -153,7 +153,7 @@ class PreferencesGraphicsViewController: UITableViewController {
 				}
 			case .renderingFilterModeInfo:
 				return PreferencesInformationCell(
-					text: "Nearest neighbor gives a sharp, retro pixelated look. Bilinear produces a smoother image through interpolation. Takes effect on next resolution change or restart."
+					text: "Bilinear produces a smooth image through interpolation. Nearest neighbor gives a sharp, \"retro\" pixelated look. Takes effect on next resolution change or restart."
 				)
 			case .gammaRampSetting:
 				return PreferencesGraphicsGammaRampSettingCell(
@@ -210,7 +210,7 @@ class PreferencesGraphicsViewController: UITableViewController {
 			case .monitorResolutions:
 				return "Monitor resolutions"
 			case .rendering:
-				return "Rendering"
+				return "Rendering filter"
 			case .gammaRampSetting:
 				return "Gamma ramp"
 			case .graphicsAcceleration:

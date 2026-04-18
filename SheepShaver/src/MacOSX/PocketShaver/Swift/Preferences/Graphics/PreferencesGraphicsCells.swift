@@ -25,6 +25,8 @@ class PreferencesGraphicsFrameRateSettingCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		contentView.addSubview(segmentedControl)
@@ -72,6 +74,8 @@ class PreferencesGraphicsEnabledMonitorResolutionsCell: UITableViewCell {
 		self.didTapEditButton = didTapEditButton
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		contentView.addSubview(editButton)
 
@@ -182,6 +186,8 @@ class PreferencesGraphicsRenderingFilterCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		contentView.addSubview(segmentedControl)
@@ -226,6 +232,8 @@ class PreferencesGraphicsGammaRampSettingCell: UITableViewCell {
 		self.didChangeSelection = didChangeSelection
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		hideSeparator()
 
