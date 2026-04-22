@@ -7,6 +7,106 @@
 
 import UIKit
 
+class PreferencesGeneralWelcomeCell: UITableViewCell {
+	private lazy var cardView: UIView = {
+		let view = UIView.withoutConstraints()
+		view.layer.cornerRadius = 8
+		view.backgroundColor = Colors.informationCardBackground
+		return view
+	}()
+
+	private lazy var welcomeStackView: UIStackView = {
+		let stackView = UIStackView.withoutConstraints()
+		stackView.axis = .horizontal
+		stackView.spacing = 24
+		stackView.distribution = .fill
+		stackView.alignment = .center
+		return stackView
+	}()
+
+	private lazy var logoContainerView: UIView = {
+		let view = UIView.withoutConstraints()
+		view.layer.cornerRadius = 8
+		view.backgroundColor = Colors.launchScreen
+
+		NSLayoutConstraint.activate([
+			view.widthAnchor.constraint(equalToConstant: 70),
+			view.heightAnchor.constraint(equalToConstant: 70)
+		])
+
+		return view
+	}()
+
+	private lazy var logoImageView: UIImageView = {
+		let imageView = UIImageView.withoutConstraints()
+		imageView.image = UIImage(named: "sheepicon")
+		imageView.tintColor = Colors.secondaryText
+
+		NSLayoutConstraint.activate([
+			imageView.widthAnchor.constraint(equalToConstant: 70),
+			imageView.heightAnchor.constraint(equalToConstant: 70)
+		])
+
+		return imageView
+	}()
+
+	private let welcomeLabel: LinkLabel
+	private let informationLabel: LinkLabel
+
+	init() {
+		welcomeLabel = .init(
+			text: "Welcome!",
+			config: .init(),
+			font: .systemFont(ofSize: 60),
+			callback: nil
+		)
+
+		informationLabel = .init(
+			text: "This window can be accessed during emulation by pressing option + F6.",
+			config: .init(),
+			font: .systemFont(ofSize: 14),
+			callback: nil
+		)
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
+
+		hideSeparator()
+
+		cardView.setContentHuggingPriority(.required, for: .horizontal)
+
+		logoContainerView.addSubview(logoImageView)
+		cardView.addSubview(welcomeStackView)
+		welcomeStackView.addArrangedSubview(logoContainerView)
+		welcomeStackView.addArrangedSubview(welcomeLabel)
+		cardView.addSubview(informationLabel)
+		contentView.addSubview(cardView)
+
+		NSLayoutConstraint.activate([
+			cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+			cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+
+			cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+
+			welcomeStackView.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 32),
+			welcomeStackView.centerXAnchor.constraint(equalTo: cardView.centerXAnchor),
+
+			logoImageView.centerXAnchor.constraint(equalTo: logoContainerView.centerXAnchor),
+			logoImageView.centerYAnchor.constraint(equalTo: logoContainerView.centerYAnchor),
+
+			informationLabel.topAnchor.constraint(equalTo: welcomeStackView.bottomAnchor, constant: 24),
+			informationLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 50),
+			informationLabel.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -32).withPriority(.required - 1),
+			informationLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -50),
+
+			cardView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -12),
+		])
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+}
+
 class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 	private lazy var containerView: UIView = {
 		let view = UIView.withoutConstraints()
@@ -143,8 +243,6 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 
 		init() {
 			super.init(frame: .zero)
-
-			backgroundColor = Colors.primaryBackground
 
 			translatesAutoresizingMaskIntoConstraints = false
 

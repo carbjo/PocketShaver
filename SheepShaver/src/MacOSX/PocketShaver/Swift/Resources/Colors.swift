@@ -24,4 +24,5 @@ struct Colors {
 	static let thinBackground = UIColor(named: "thinBackground")!
 	static let thinWarningBackground = UIColor(named: "thinWarningBackground")!
 	static let bonjourGray = UIColor(named: "bonjourGray")!
+	static let launchScreen = UIColor(named: "launchScreen")!
 }

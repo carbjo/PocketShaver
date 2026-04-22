@@ -12,7 +12,7 @@ class PreferencesGeneralViewController: UITableViewController {
 	enum Section {
 		case setupInstructions
 		case bootstrap
-		case presentCommandInfo
+		case welcome
 		case disks
 		case gamepadOverlays
 		case iPadMouse
@@ -31,8 +31,8 @@ class PreferencesGeneralViewController: UITableViewController {
 		case bootstrap
 		case bootstrapError
 
-		// presentCommandInfo
-		case presentCommandInfo
+		// welcome
+		case welcome
 
 		// disks
 		case diskActionBar
@@ -154,10 +154,8 @@ class PreferencesGeneralViewController: UITableViewController {
 				return PreferencesGeneralErrorCell(
 					title: "You need to bootstrap PocketShaver"
 				)
-			case .presentCommandInfo:
-				return PreferencesCardInformationCell(
-					text: "This window can be accessed during emulation by pressing option + F6."
-				)
+			case .welcome:
+				return PreferencesGeneralWelcomeCell()
 			case .diskActionBar:
 				return PreferencesGeneralDiskActionBarCell(
 					didTapOpenShareFolderButton: { [weak self] in
@@ -400,11 +398,11 @@ class PreferencesGeneralViewController: UITableViewController {
 			case .setupInstructions:
 				return nil
 			case .bootstrap:
-				return "Bootstrap"
-			case .presentCommandInfo:
+				return nil
+			case .welcome:
 				return nil
 			case .disks:
-				return "Disks"
+				return UIDevice.deviceType == .iPad ? "Disks" : nil
 			case .gamepadOverlays:
 				return "Gamepad overlays"
 			case .iPadMouse:
@@ -469,12 +467,10 @@ class PreferencesGeneralViewController: UITableViewController {
 			if model.isDisplayingRomFileMissingError {
 				snapshot.appendItems([.bootstrapError])
 			}
-		}
-
-		if UIDevice.deviceType == .mac,
+		} else if UIDevice.deviceType == .mac,
 		   model.mode == .startup {
-			snapshot.appendSections([.presentCommandInfo])
-			snapshot.appendItems([.presentCommandInfo])
+			snapshot.appendSections([.welcome])
+			snapshot.appendItems([.welcome])
 		}
 
 		snapshot.appendSections([.disks])
