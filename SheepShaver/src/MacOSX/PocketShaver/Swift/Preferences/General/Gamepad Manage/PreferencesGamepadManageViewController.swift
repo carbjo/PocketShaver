@@ -1,5 +1,5 @@
 //
-//  PreferencesGamepadViewController.swift
+//  PreferencesGamepadManageViewController.swift
 //  SheepShaver_Xcode8
 //
 //  Created by Carl Björkman on 2025-08-24.
@@ -8,7 +8,7 @@
 import UIKit
 import Combine
 
-class PreferencesGamepadViewController: UITableViewController {
+class PreferencesGamepadManageViewController: UITableViewController {
 	@MainActor
 	enum SectionType: Int, CaseIterable {
 		case information
@@ -78,7 +78,7 @@ class PreferencesGamepadViewController: UITableViewController {
 	}
 }
 
-extension PreferencesGamepadViewController { // UITableViewDataSource, UITableViewDelegate
+extension PreferencesGamepadManageViewController { // UITableViewDataSource, UITableViewDelegate
 
 	override func numberOfSections(in tableView: UITableView) -> Int {
 		SectionType.count
@@ -100,7 +100,7 @@ extension PreferencesGamepadViewController { // UITableViewDataSource, UITableVi
 		case .information:
 			return UIView.withoutConstraints()
 		case .gamepadLayouts:
-			return PreferencesGamepadConfigHeaderCell(
+			return PreferencesGamepadManageConfigHeaderCell(
 				shouldShowEdit: !gamepadConfigs.isEmpty,
 				didTapEditButton: {
 					tableView.setEditing(!tableView.isEditing, animated: true)
@@ -123,14 +123,14 @@ extension PreferencesGamepadViewController { // UITableViewDataSource, UITableVi
 		let sectionType = SectionType(sectionIndex: indexPath.section)
 		switch sectionType {
 		case .information:
-			return PreferencesGamepadInformationCell()
+			return PreferencesGamepadManageInformationCell()
 		case .gamepadLayouts:
 			if gamepadConfigs.isEmpty {
-				return PreferencesGamepadConfigsEmptyStateCell()
+				return PreferencesGamepadManageConfigsEmptyStateCell()
 			}
 
 			let gamepadConfig = gamepadConfigs[indexPath.row]
-			return PreferencesGamepadConfigCell(
+			return PreferencesGamepadManageConfigCell(
 				gamepadConfig: gamepadConfig
 			) { [weak self] in
 				self?.presentEditConfig(config: gamepadConfig)
@@ -174,7 +174,7 @@ extension PreferencesGamepadViewController { // UITableViewDataSource, UITableVi
 		GamepadManager.shared.remove(at: indexPath.row)
 
 		if gamepadConfigs.isEmpty {
-			if let gamepadConfigHeaderCell = tableView.headerView(forSection: SectionType.gamepadLayouts.rawValue) as? PreferencesGamepadConfigHeaderCell {
+			if let gamepadConfigHeaderCell = tableView.headerView(forSection: SectionType.gamepadLayouts.rawValue) as? PreferencesGamepadManageConfigHeaderCell {
 				gamepadConfigHeaderCell.config(shouldShowEdit: false)
 			}
 
@@ -190,7 +190,7 @@ extension PreferencesGamepadViewController { // UITableViewDataSource, UITableVi
 	}
 }
 
-extension PreferencesGamepadViewController.SectionType {
+extension PreferencesGamepadManageViewController.SectionType {
 	init(sectionIndex: Int) {
 		self = Self(rawValue: sectionIndex)!
 	}

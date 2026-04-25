@@ -27,16 +27,23 @@ enum GamepadSideButtonLayout: String, Codable, CaseIterable {
 		if !UIScreen.hasNotch {
 			return false
 		}
-		if UIScreen.isPortraitMode {
-			return false
-		}
 		return true
 	}
 
+	static var isAvailable: Bool {
+		isSupported && !UIScreen.isPortraitMode
+	}
+
 	var centerXOffset: CGFloat {
-		let safeAreaOffset = UIApplication.safeAreaInsets.left
+		let safeAreaInset: CGFloat
+		if UIApplication.safeAreaInsets.left > 0 {
+			safeAreaInset = UIApplication.safeAreaInsets.left
+		} else {
+			// Thumbnail mode
+			safeAreaInset = 62
+		}
 		let sideMargin: CGFloat = UIScreen.sideMarginForButtons
-		let offsetToNormalButtons = safeAreaOffset + sideMargin
+		let offsetToNormalButtons = safeAreaInset + sideMargin
 		let offset = offsetToNormalButtons / 2
 
 		switch self {
@@ -75,7 +82,7 @@ enum GamepadSideButtonLayout: String, Codable, CaseIterable {
 extension GamepadSideButtonLayout {
 	@MainActor
 	static var layoutBasis: LayoutBasis {
-		let screenHeight: CGFloat = UIScreen.main.bounds.height
+		let screenHeight: CGFloat = UIScreen.landscapeModeSize.height
 
 		let modelName = UIDevice.modelName.replacingOccurrences(of: "Simulator ", with: "")
 

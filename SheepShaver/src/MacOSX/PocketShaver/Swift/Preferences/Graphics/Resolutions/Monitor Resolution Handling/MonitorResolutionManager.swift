@@ -113,7 +113,7 @@ public class MonitorResolutionManager: NSObject {
 	}
 
 	var is4to3ratioDevice: Bool {
-		Self.getPortraitModeSize().width / Self.getPortraitModeSize().height == 3/4
+		UIScreen.portraitModeSize.width / UIScreen.portraitModeSize.height == 3/4
 	}
 
 	var enabledResolutions: [MonitorResolutionOption] {
@@ -217,7 +217,7 @@ public class MonitorResolutionManager: NSObject {
 
 		if hasInsets { // status bar alone does not count, since it will be hidden
 			let portraitMargins = Margins(isPortrait: true, edgeInsets: .init(top: largestInset, left: 0, bottom: largestInset, right: 0))
-			availableResolutions[.pixelAlignedPortrait]!.append(contentsOf: Self.getPixelAlignedResolutions(size: Self.getPortraitModeSize(), margins: portraitMargins))
+			availableResolutions[.pixelAlignedPortrait]!.append(contentsOf: Self.getPixelAlignedResolutions(size: UIScreen.portraitModeSize, margins: portraitMargins))
 			availableResolutions[.standardWidthPortrait]!.append(Self.getScaledToFitResolution(forWidth: 640, margins: portraitMargins))
 			availableResolutions[.standardWidthPortrait]!.append(Self.getScaledToFitResolution(forWidth: 800, margins: portraitMargins))
 
@@ -225,7 +225,7 @@ public class MonitorResolutionManager: NSObject {
 			let landscapeMargins = Margins(isPortrait: false, edgeInsets: .init(top: 0, left: largestInset, bottom: 0, right: largestInset))
 			let maxWidth480HeightWithMarginsResolution = Self.getScaledToFitResolution(forHeight: 480, margins: landscapeMargins)
 
-			availableResolutions[.pixelAlignedLandscape]!.append(contentsOf: Self.getPixelAlignedResolutions(size: Self.getLandscapeModeSize(), margins: landscapeMargins))
+			availableResolutions[.pixelAlignedLandscape]!.append(contentsOf: Self.getPixelAlignedResolutions(size: UIScreen.landscapeModeSize, margins: landscapeMargins))
 			availableResolutions[.standardHeightLandscape]!.append(maxWidth480HeightWithMarginsResolution)
 			availableResolutions[.standardHeightLandscape]!.append(Self.getScaledToFitResolution(forHeight: 600, margins: landscapeMargins))
 			self.maxWidth480HeightWithMarginsResolution = maxWidth480HeightWithMarginsResolution
@@ -267,9 +267,9 @@ public class MonitorResolutionManager: NSObject {
 	private static func getAvailableResolutions(for category: MonitorResolutionCategory) -> [MonitorResolutionOption] {
 		switch category {
 		case .pixelAlignedPortrait:
-			return Self.getPixelAlignedResolutions(size: getPortraitModeSize())
+			return Self.getPixelAlignedResolutions(size: UIScreen.portraitModeSize)
 		case .pixelAlignedLandscape:
-			return Self.getPixelAlignedResolutions(size: getLandscapeModeSize())
+			return Self.getPixelAlignedResolutions(size: UIScreen.landscapeModeSize)
 		case .standardResolution:
 			return [
 				.init(
@@ -358,7 +358,7 @@ public class MonitorResolutionManager: NSObject {
 	}
 
 	private static func getScaledToFitResolution(forHeight height: Int, margins: Margins? = nil) -> MonitorResolutionOption {
-		let screenSize = getLandscapeModeSize()
+		let screenSize = UIScreen.landscapeModeSize
 		let widthToHeightRatio = screenSize.width / screenSize.height
 		let width: Int
 		if let margins {
@@ -376,7 +376,7 @@ public class MonitorResolutionManager: NSObject {
 	}
 
 	private static func getScaledToFitResolution(forWidth width: Int, margins: Margins? = nil) -> MonitorResolutionOption {
-		let screenSize = getPortraitModeSize()
+		let screenSize = UIScreen.portraitModeSize
 		let heightToWidthRatio = screenSize.height / screenSize.width
 		let height: Int
 		if let margins {
@@ -391,22 +391,6 @@ public class MonitorResolutionManager: NSObject {
 			resolution: .init(width: width, height: height),
 			auxillaryInformation: auxillaryInformation
 		)
-	}
-
-	private static func getPortraitModeSize() -> CGSize {
-		let mainScreen = UIScreen.main
-		let screenHeight = mainScreen.bounds.size.height
-		let screenWidth = mainScreen.bounds.size.width
-		if screenHeight > screenWidth {
-			return .init(width: screenWidth, height: screenHeight)
-		} else {
-			return .init(width: screenHeight, height: screenWidth)
-		}
-	}
-
-	private static func getLandscapeModeSize() -> CGSize {
-		let portraitModeSize = getPortraitModeSize()
-		return .init(width: portraitModeSize.height, height: portraitModeSize.width)
 	}
 }
 
@@ -450,13 +434,13 @@ extension MonitorResolutionManager.Margins {
 	// "non-edge inset affected" side takes the full length
 	func ratioWithFixedSide() -> CGFloat {
 		if isPortrait {
-			let portraitScreenSize = MonitorResolutionManager.getPortraitModeSize()
+			let portraitScreenSize = UIScreen.portraitModeSize
 			let maxInset = max(edgeInsets.top, edgeInsets.bottom)
 			let preferedTotalVerticalInset = maxInset*2
 			let adjustedHeight = portraitScreenSize.height - preferedTotalVerticalInset
 			return adjustedHeight / portraitScreenSize.width
 		} else {
-			let landscapeScreenSize = MonitorResolutionManager.getLandscapeModeSize()
+			let landscapeScreenSize = UIScreen.landscapeModeSize
 			let maxInset = max(edgeInsets.left, edgeInsets.right)
 			let preferedTotalHorizontalInset = maxInset*2
 			let adjustedWidth = landscapeScreenSize.width - preferedTotalHorizontalInset

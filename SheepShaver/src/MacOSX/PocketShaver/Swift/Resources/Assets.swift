@@ -35,4 +35,8 @@ enum Assets {
 	static var plusDiamondFill: UIImage {
 		.init(systemName: "plus.diamond.fill")!
 	}
+
+	static var arrowRightArrowLeft: UIImage {
+		.init(systemName: "arrow.right.arrow.left")!
+	}
 }

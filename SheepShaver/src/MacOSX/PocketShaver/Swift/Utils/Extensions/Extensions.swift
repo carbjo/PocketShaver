@@ -61,6 +61,22 @@ extension UIScreen {
 	static var supportsHighRefreshRate: Bool {
 		return main.maximumFramesPerSecond > 60
 	}
+
+	static var portraitModeSize: CGSize {
+		let mainScreen = main
+		let screenHeight = mainScreen.bounds.size.height
+		let screenWidth = mainScreen.bounds.size.width
+		if screenHeight > screenWidth {
+			return .init(width: screenWidth, height: screenHeight)
+		} else {
+			return .init(width: screenHeight, height: screenWidth)
+		}
+	}
+
+	static var landscapeModeSize: CGSize {
+		let portraitModeSize = self.portraitModeSize
+		return .init(width: portraitModeSize.height, height: portraitModeSize.width)
+	}
 }
 
 enum DeviceType {
@@ -295,5 +311,66 @@ extension Data {
 			print(String(format:"%02x", self[i]), terminator: "")
 		}
 		print("")
+	}
+}
+
+protocol ImageDerivable: UIView {
+	var resolutionMultiplier: CGFloat { get }
+
+	func asImage() -> UIImage
+}
+
+extension ImageDerivable {
+	var resolutionMultiplier: CGFloat {
+		switch UIDevice.deviceType {
+			// Will render in quadruple resolution when run on mac due to
+			// default resolution being way too blurry
+		case .mac:
+			return 4
+		default:
+			return 1
+		}
+	}
+
+	func asImage() -> UIImage {
+		switch UIDevice.deviceType {
+		case .mac:
+			asQuadrupleResolutionImage()
+		default:
+			asDefaultResolutionImage()
+		}
+	}
+
+	private func asDefaultResolutionImage() -> UIImage {
+		let renderer = UIGraphicsImageRenderer(bounds: bounds)
+		return renderer.image { rendererContext in
+			layer.render(in: rendererContext.cgContext)
+		}
+	}
+
+	private func asQuadrupleResolutionImage() -> UIImage {
+		let renderer = UIGraphicsImageRenderer(
+			bounds: .init(
+				origin: .init(
+					x: 0,
+					y: bounds.size.height / 2
+				),
+				size: .init(
+					width: bounds.size.width,
+					height: bounds.size.height / resolutionMultiplier
+			 )
+			)
+		)
+
+		let height = self.bounds.height
+
+		return renderer.image { rendererContext in
+			rendererContext.cgContext.translateBy(x: 0, y: height / 2)
+			rendererContext.cgContext.scaleBy(
+				x: 1 / resolutionMultiplier,
+				y: 1 / resolutionMultiplier
+			)
+			layer.render(in: rendererContext.cgContext)
+		}
 	}
 }

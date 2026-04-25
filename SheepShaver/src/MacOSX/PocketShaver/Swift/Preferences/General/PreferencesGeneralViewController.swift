@@ -74,7 +74,7 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private let model: PreferencesGeneralModel
-	private let preferencesResolutionsVC: PreferencesResolutionsViewController
+	private var anyCancellables = Set<AnyCancellable>()
 	private let createDiskDialogueFactory = PreferencesGeneralCreateDiskDialogueFactory()
 
 	private var dataSource: TableViewDiffableDataSource<Section, Row>!
@@ -89,8 +89,6 @@ class PreferencesGeneralViewController: UITableViewController {
 			mode: mode,
 			changeSubject: changeSubject
 		)
-
-		preferencesResolutionsVC = PreferencesResolutionsViewController(changeSubject: changeSubject)
 
 		super.init(nibName: nil, bundle: nil)
 
@@ -113,6 +111,16 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private func listenToChanges() {
+		model.changeSubject.sink { [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .gamepadLayoutsDidUpdate:
+				dataSource.reloadSection(.gamepadOverlays)
+			default: break
+			}
+
+		}.store(in: &anyCancellables)
+
 		NotificationCenter.default.addObserver(self, selector: #selector(appDidResume), name: UIScene.didActivateNotification, object: nil)
 	}
 
@@ -276,9 +284,11 @@ class PreferencesGeneralViewController: UITableViewController {
 				)
 			case .gamepadOverlays:
 				return PreferencesGeneralGamepadOverlaysCell(
-					gamepadConfigs: model.gamepadConfigs) { [weak self] in
+					containerVC: self,
+					gamepadConfigs: model.gamepadConfigs
+				) { [weak self] in
 						guard let self else { return }
-						let vc = PreferencesGamepadViewController(changeSubject: model.changeSubject)
+						let vc = PreferencesGamepadManageViewController(changeSubject: model.changeSubject)
 						let navVC = UINavigationController()
 						navVC.viewControllers = [vc]
 
@@ -388,7 +398,7 @@ class PreferencesGeneralViewController: UITableViewController {
 				}
 			case .hintsInformation:
 				return PreferencesInformationCell(
-					text: "Gamepad layout names are shown even when hints are turned off."
+					text: "Gamepad overlay names are shown even when hints are turned off."
 				)
 			}
 		}

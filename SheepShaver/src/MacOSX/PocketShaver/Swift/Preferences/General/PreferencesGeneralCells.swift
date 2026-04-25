@@ -27,7 +27,7 @@ class PreferencesGeneralWelcomeCell: UITableViewCell {
 	private lazy var logoContainerView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.layer.cornerRadius = 8
-		view.backgroundColor = Colors.launchScreen
+		view.clipsToBounds = true
 
 		NSLayoutConstraint.activate([
 			view.widthAnchor.constraint(equalToConstant: 70),
@@ -39,7 +39,7 @@ class PreferencesGeneralWelcomeCell: UITableViewCell {
 
 	private lazy var logoImageView: UIImageView = {
 		let imageView = UIImageView.withoutConstraints()
-		imageView.image = UIImage(named: "sheepicon")
+		imageView.image = UIImage(resource: .logo)
 		imageView.tintColor = Colors.secondaryText
 
 		NSLayoutConstraint.activate([
@@ -524,25 +524,13 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 	required init?(coder: NSCoder) { fatalError() }
 }
 
-class PreferencesGeneralTagView: UIView {
-	// Will render in quadruple resolution when run on mac due to
-	// default resolution being way too blurry
-
+class PreferencesGeneralTagView: UIView, ImageDerivable {
 	private lazy var label: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.textColor = Colors.primaryBackground
 		label.font = label.font.withSize(9 * resolutionMultiplier)
 		return label
 	}()
-
-	private var resolutionMultiplier: CGFloat {
-		switch UIDevice.deviceType {
-		case .mac:
-			return 4
-		default:
-			return 1
-		}
-	}
 
 	init() {
 		super.init(frame: .zero)
@@ -596,48 +584,6 @@ class PreferencesGeneralTagView: UIView {
 		layoutIfNeeded()
 
 		return self
-	}
-
-	func asImage() -> UIImage {
-		switch UIDevice.deviceType {
-		case .mac:
-			asQuadrupleResolutionImage()
-		default:
-			asDefaultResolutionImage()
-		}
-	}
-
-	private func asDefaultResolutionImage() -> UIImage {
-		let renderer = UIGraphicsImageRenderer(bounds: bounds)
-		return renderer.image { rendererContext in
-			layer.render(in: rendererContext.cgContext)
-		}
-	}
-
-	private func asQuadrupleResolutionImage() -> UIImage {
-		let renderer = UIGraphicsImageRenderer(
-			bounds: .init(
-				origin: .init(
-					x: 0,
-					y: bounds.size.height / 2
-				),
-				size: .init(
-					width: bounds.size.width,
-					height: bounds.size.height / resolutionMultiplier
-			 )
-			)
-		)
-
-		let height = self.bounds.height
-
-		return renderer.image { rendererContext in
-			rendererContext.cgContext.translateBy(x: 0, y: height / 2)
-			rendererContext.cgContext.scaleBy(
-				x: 1 / resolutionMultiplier,
-				y: 1 / resolutionMultiplier
-			)
-			layer.render(in: rendererContext.cgContext)
-		}
 	}
 }
 
@@ -776,71 +722,53 @@ class PreferencesGeneralGamepadOverlaysCell: UITableViewCell {
 		return button
 	}()
 
-	private var titleLabel: LinkLabel?
+	private let previewVC: PreferencesGamepadThumbnailsViewController
 
 	private let didTapEditButton: (() -> Void)
 
 	init(
+		containerVC: UIViewController,
 		gamepadConfigs: [GamepadConfig],
 		didTapEditButton: @escaping (() -> Void)
 	) {
 		self.didTapEditButton = didTapEditButton
 
+		previewVC = .init(gamepadConfigs: gamepadConfigs)
+
 		super.init(style: .default, reuseIdentifier: nil)
 
 		backgroundColor = Colors.primaryBackground
 
+		contentView.addSubview(previewVC.view)
 		contentView.addSubview(editButton)
 
+		previewVC.willMove(toParent: containerVC)
+		containerVC.addChild(previewVC)
+		previewVC.didMove(toParent: containerVC)
+
 		NSLayoutConstraint.activate([
+			previewVC.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+			previewVC.view.topAnchor.constraint(equalTo: contentView.topAnchor),
+			previewVC.view.trailingAnchor.constraint(equalTo: editButton.trailingAnchor).withPriority(.required - 1),
+			previewVC.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor).withPriority(.required - 1),
+
 			editButton.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
 			editButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
 			editButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			editButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 		])
-
-		configure(
-			gamepadConfigs: gamepadConfigs
-		)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	func configure(
-		gamepadConfigs: [GamepadConfig],
-	) {
+	override func layoutSubviews() {
+		super.layoutSubviews()
 
-		var text = ""
-		for gamepadConfig in gamepadConfigs {
-			if text != "" {
-				text += "\n"
-			}
-			text += "• \(gamepadConfig.name)"
-		}
+		previewVC.setRightInset(editButton.frame.width + 12)
+	}
 
-		let titleLabel = LinkLabel(
-			text: text,
-			config: .init(),
-			font: .systemFont(ofSize: 14),
-			textColor: Colors.secondaryText
-		)
-
-		titleLabel.label.setContentHuggingPriority(.required, for: .horizontal)
-		titleLabel.label.setContentCompressionResistancePriority(.required, for: .vertical)
-
-		contentView.addSubview(titleLabel)
-
-		NSLayoutConstraint.activate([
-			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			titleLabel.centerYAnchor.constraint(equalTo: editButton.centerYAnchor),
-			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: editButton.leadingAnchor, constant: -16),
-			titleLabel.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
-			titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
-
-			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16).withPriority(.defaultHigh),
-			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.defaultHigh),
-			])
-
-		self.titleLabel = titleLabel
+	deinit {
+		previewVC.removeFromParent()
 	}
 
 	@objc
