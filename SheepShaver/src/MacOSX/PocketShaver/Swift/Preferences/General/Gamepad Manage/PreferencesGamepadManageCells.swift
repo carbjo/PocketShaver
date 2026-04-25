@@ -7,14 +7,14 @@
 
 import UIKit
 
-class PreferencesGamepadInformationCell: UITableViewCell {
+class PreferencesGamepadManageInformationCell: UITableViewCell {
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = Colors.secondaryText
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
-		label.text = "Here you can edit, rearrange and delete your gamepad layouts.\n\n• Use three finger swipe down gesture during emulation to access gamepad mode.\n\n• To create new layouts, edit an Empty layout in gamepad mode."
+		label.text = "Use three finger swipe down gesture during emulation to put a gamepad overlay on top of your emulation screen.\n\nUse three finger swipe down gesture again to edit it.\n\nTo create new a layout, edit an Empty layout. They are always available to the left of your first gamepad overlay and to the right of your last one."
 		return label
 	}()
 
@@ -42,7 +42,7 @@ class PreferencesGamepadInformationCell: UITableViewCell {
 	}
 }
 
-class PreferencesGamepadConfigHeaderCell: UITableViewHeaderFooterView {
+class PreferencesGamepadManageConfigHeaderCell: UITableViewHeaderFooterView {
 
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
@@ -50,13 +50,15 @@ class PreferencesGamepadConfigHeaderCell: UITableViewHeaderFooterView {
 		label.textColor = Colors.sectionHeaderText
 		label.numberOfLines = 0
 		label.lineBreakMode = .byWordWrapping
-		label.text = "Gamepad layouts"
+		label.text = "Gamepad overlays"
 		return label
 	}()
 
 	private lazy var editButton: UIButton = {
 		let button = UIButton(type: .system)
 		button.translatesAutoresizingMaskIntoConstraints = false
+		button.tintColor = Colors.primaryText
+		button.titleLabel?.font = .boldSystemFont(ofSize: 15)
 		button.setTitle("Edit", for: .normal)
 		button.addTarget(self, action: #selector(editButtonPushed), for: .touchUpInside)
 		return button
@@ -108,7 +110,7 @@ class PreferencesGamepadConfigHeaderCell: UITableViewHeaderFooterView {
 	}
 }
 
-class PreferencesGamepadConfigCell: UITableViewCell {
+class PreferencesGamepadManageConfigCell: UITableViewCell {
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0
@@ -205,11 +207,11 @@ class PreferencesGamepadConfigCell: UITableViewCell {
 	}
 }
 
-class PreferencesGamepadConfigsEmptyStateCell: UITableViewCell {
+class PreferencesGamepadManageConfigsEmptyStateCell: UITableViewCell {
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.font = .boldSystemFont(ofSize: 18)
-		label.text = "No gamepad layouts saved"
+		label.text = "No gamepad overlays saved"
 		label.textAlignment = .center
 		return label
 	}()

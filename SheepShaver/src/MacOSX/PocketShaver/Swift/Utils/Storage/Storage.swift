@@ -24,7 +24,7 @@ class Storage {
 	init() {
 		let appSupportUrl = FileManager.appSupportUrl
 
-		if !FileManager.default.fileExists(atPath: appSupportUrl.path) {
+		if !Self.fileOrDictionaryExists(at: appSupportUrl) {
 			do {
 				try FileManager.default.createDirectory(at: appSupportUrl, withIntermediateDirectories: true, attributes: nil)
 			} catch {
@@ -64,6 +64,10 @@ class Storage {
 
 	static func urlForDocumentFile(filename: String) -> URL {
 		FileManager.documentUrl.appendingPathComponent(filename)
+	}
+
+	static func fileOrDictionaryExists(at url: URL) -> Bool {
+		FileManager.default.fileExists(atPath: url.path)
 	}
 
 	static func deleteIfExists(_ url: URL) {

@@ -7,40 +7,40 @@
 
 import UIKit
 
-enum GamepadSide: Codable, Equatable {
+enum GamepadSide: Codable, Equatable, Hashable {
 	case left
 	case right
 }
 
-struct GamepadButtonPosition: Codable, Equatable {
+struct GamepadButtonPosition: Codable, Equatable, Hashable {
 	let side: GamepadSide
 	let row: Int
 	let index: Int
 }
 
-enum GamepadButtonAssignment: Codable, Equatable {
+enum GamepadButtonAssignment: Codable, Equatable, Hashable {
 	case key(SDLKey)
 	case specialButton(SpecialButton)
 	case joystick(JoystickType)
 }
 
-struct GamepadButtonMapping: Codable, Equatable {
+struct GamepadButtonMapping: Codable, Equatable, Hashable {
 	let position: GamepadButtonPosition
 	let assignment: GamepadButtonAssignment
 }
 
-enum GamepadVisibilitySetting: Codable, Equatable {
+enum GamepadVisibilitySetting: Codable, Equatable, Hashable {
 	case both
 	case portraitOnly
 	case landscapeOnly
 }
 
-struct GamepadSideButtonPosition: Codable, Equatable {
+struct GamepadSideButtonPosition: Codable, Equatable, Hashable {
 	let layout: GamepadSideButtonLayout
 	let index: Int
 }
 
-struct GamepadSideButtonMapping: Codable, Equatable {
+struct GamepadSideButtonMapping: Codable, Equatable, Hashable {
 	let position: GamepadSideButtonPosition
 	let assignment: GamepadButtonAssignment
 }

@@ -36,14 +36,13 @@ class PreferencesGeneralModel {
 		let type: DiskType
 	}
 
+
+	// MARK: - Variables
+
 	let mode: PreferencesLaunchMode
 
-	@MainActor
-	private var miscSettings: MiscellaneousSettings {
-		.current
-	}
-
 	let changeSubject: PassthroughSubject<PreferencesChange, Never>
+	private var anyCancellables = Set<AnyCancellable>()
 
 	var isDisplayingRomFileMissingError = false
 	var isDisplayingNoDiskFilesError = false
@@ -55,6 +54,14 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	var shouldDisplayBootstrapSection = !RomManager.shared.hasRomFile
+
+
+	// MARK: - Computed properties
+
+	@MainActor
+	private var miscSettings: MiscellaneousSettings {
+		.current
+	}
 
 	@MainActor
 	var hasDskFile: Bool {
@@ -153,12 +160,33 @@ class PreferencesGeneralModel {
 		}
 	}
 
+
+	// MARK: - Initializer
+
 	init(
 		mode: PreferencesLaunchMode,
 		changeSubject: PassthroughSubject<PreferencesChange, Never>
 	) {
 		self.mode = mode
 		self.changeSubject = changeSubject
+
+		Task { @MainActor in
+			listenToChanges()
+		}
+	}
+
+
+	// MARK: - Functions
+
+	@MainActor
+	private func listenToChanges() {
+		GamepadManager.shared.changeSubject.sink { [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .layoutsDidUpdate:
+				changeSubject.send(.gamepadLayoutsDidUpdate)
+			}
+		}.store(in: &anyCancellables)
 	}
 
 	@MainActor

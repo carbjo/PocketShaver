@@ -88,7 +88,6 @@ public class PreferencesViewController: UIViewController {
 
 	private var anyCancellables = Set<AnyCancellable>()
 
-
 	@objc public private(set) var isDone: Bool = false
 
 	private var displayedViewController: UIViewController?
