@@ -16,6 +16,7 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case relateiveMouseMode
 		case relateiveMouseModeClickGesture
 		case hapticFeedback
+		case cpuEmulation
 		case bootstrap
 		case resources
 	}
@@ -48,6 +49,9 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case hapticFeedbackSwipeGesturesToggle
 		case hapticFeedbackMouseClicksToggle
 		case hapticFeedbackGamepadKeyStrokesToggle
+
+		// cpuEmulation
+		case ignoreIllegalInstructions
 
 		//bootstrap
 		case bootstrap
@@ -246,6 +250,13 @@ class PreferencesAdvancedViewController: UITableViewController {
 				) { [weak self] isOn in
 					self?.model.isKeyHapticFeedbackOn = isOn
 				}
+			case .ignoreIllegalInstructions:
+				return PreferencesEnabledSettingCell(
+					title: "Ignore illegal CPU instructions",
+					isOn: model.ignoreIllegalInstructions
+				) { [weak self] isOn in
+					self?.model.ignoreIllegalInstructions = isOn
+				}
 			case .bootstrap:
 				return PreferencesAdvancedBootstrapCell(
 					romDescription: model.currentRomFileDescription!,
@@ -290,6 +301,8 @@ class PreferencesAdvancedViewController: UITableViewController {
 				return "Relative mouse mode click gesture"
 			case .hapticFeedback:
 				return "Haptic feedback"
+			case .cpuEmulation:
+				return "CPU emulation"
 			case .bootstrap:
 				return "Bootstrap"
 			case .resources:
@@ -363,6 +376,9 @@ class PreferencesAdvancedViewController: UITableViewController {
 				.hapticFeedbackGamepadKeyStrokesToggle
 			])
 		}
+
+		snapshot.appendSections([.cpuEmulation])
+		snapshot.appendItems([.ignoreIllegalInstructions])
 
 		if model.hasRomFile {
 			snapshot.appendSections([.bootstrap])

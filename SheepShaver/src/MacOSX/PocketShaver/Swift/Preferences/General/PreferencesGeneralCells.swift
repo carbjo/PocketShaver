@@ -527,12 +527,17 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 	required init?(coder: NSCoder) { fatalError() }
 
 	private func rotateReloadButton() {
-		UIView.animate(withDuration: 0.12, delay: 0.0, options: .curveEaseIn, animations: {
-			self.reloadButton.transform = self.reloadButton.transform.rotated(by: .pi)
+		// Split in to parts to force it to make the rotation counter clockwise
+		UIView.animate(withDuration: 0.10, delay: 0.0, options: .curveEaseIn, animations: {
+			self.reloadButton.transform = self.reloadButton.transform.rotated(by: .pi * -4/5)
 		}) { _ in
-			UIView.animate(withDuration: 0.12, delay: 0.0, options: .curveEaseOut, animations: {
-				self.reloadButton.transform = self.reloadButton.transform.rotated(by: .pi)
-			})
+			UIView.animate(withDuration: 0.05, delay: 0.0, options: .curveLinear, animations: {
+				self.reloadButton.transform = self.reloadButton.transform.rotated(by: .pi * -2/5)
+			}) {  _ in
+				UIView.animate(withDuration: 0.10, delay: 0.0, options: .curveEaseOut, animations: {
+					self.reloadButton.transform = self.reloadButton.transform.rotated(by: .pi * -4/5)
+				})
+			}
 		}
 	}
 }

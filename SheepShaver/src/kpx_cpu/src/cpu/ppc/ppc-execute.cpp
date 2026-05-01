@@ -42,6 +42,11 @@
 #include "prefs.h"
 #endif
 
+#ifdef TARGET_OS_IPHONE
+#import "FatalErrorAlertViewControllerObjCCppHeader.h"
+#import "MiscellaneousSettingsObjCCppHeader.h"
+#endif
+
 #if ENABLE_MON
 #include "mon.h"
 #include "mon_disass.h"
@@ -58,12 +63,21 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 {
 	fprintf(stderr, "Illegal instruction at %08x, opcode = %08x\n", pc(), opcode);
 
+#ifdef TARGET_OS_IPHONE
+	if (objc_getIgnoreIllegalInstructions()) {
+		increment_pc(4);
+		return;
+	} else {
+		objc_displayEncounteredIllegalInstructionAlert();
+	}
+#else
 #ifdef SHEEPSHAVER
 	if (PrefsFindBool("ignoreillegal")) {
 		increment_pc(4);
 		return;
 	}
-#endif
+#endif // SHEEPSHAVER
+#endif // TARGET_OS_IPHONE
 
 #if ENABLE_MON
 	disass_ppc(stdout, pc(), opcode);

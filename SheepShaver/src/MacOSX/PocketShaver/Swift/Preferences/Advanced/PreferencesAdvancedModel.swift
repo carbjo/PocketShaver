@@ -177,12 +177,12 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
-	var gammaRampSetting: GammaRampSetting {
+	var ignoreIllegalInstructions: Bool {
 		get {
-			miscSettings.gammaRampSetting
+			miscSettings.ignoreIllegalInstructions
 		}
 		set {
-			miscSettings.set(gammaRampSetting: newValue)
+			miscSettings.set(ignoreIllegalInstructions: newValue)
 		}
 	}
 

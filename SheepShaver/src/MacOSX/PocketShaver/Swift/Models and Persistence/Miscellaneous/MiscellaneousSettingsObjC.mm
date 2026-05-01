@@ -74,3 +74,7 @@ bool objc_getIsLinearGammaEnabled(void) {
 bool objc_getShouldBootInRelativeMouseMode(void) {
 	return MiscellaneousSettingsObjC.shouldBootInRelativeMouseMode;
 }
+
+bool objc_getIgnoreIllegalInstructions(void) {
+	return MiscellaneousSettingsObjC.isIgnoreIllegalInstructionsEnabled;
+}
