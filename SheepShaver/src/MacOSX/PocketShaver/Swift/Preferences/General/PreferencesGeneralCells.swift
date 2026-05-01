@@ -480,8 +480,11 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 		}
 		openShareFolderButton.addAction(openShareFolderAction, for: .touchUpInside)
 
-		let reloadAction = UIAction { _ in
+		let reloadAction = UIAction { [weak self] _ in
+			guard let self else { return }
 			didTapReloadButton()
+
+			rotateReloadButton()
 		}
 		reloadButton.addAction(reloadAction, for: .touchUpInside)
 
@@ -522,6 +525,16 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
+
+	private func rotateReloadButton() {
+		UIView.animate(withDuration: 0.12, delay: 0.0, options: .curveEaseIn, animations: {
+			self.reloadButton.transform = self.reloadButton.transform.rotated(by: .pi)
+		}) { _ in
+			UIView.animate(withDuration: 0.12, delay: 0.0, options: .curveEaseOut, animations: {
+				self.reloadButton.transform = self.reloadButton.transform.rotated(by: .pi)
+			})
+		}
+	}
 }
 
 class PreferencesGeneralTagView: UIView, ImageDerivable {
