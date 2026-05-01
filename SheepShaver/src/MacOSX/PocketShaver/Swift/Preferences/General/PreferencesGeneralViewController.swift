@@ -171,6 +171,8 @@ class PreferencesGeneralViewController: UITableViewController {
 					},
 					didTapReloadButton: { [weak self] in
 						self?.reloadFileList()
+
+						UINotificationFeedbackGenerator().notificationOccurred(.success)
 					},
 					didTapCreateAction: { [weak self] in
 						self?.displayCreateDiskDialogue()
