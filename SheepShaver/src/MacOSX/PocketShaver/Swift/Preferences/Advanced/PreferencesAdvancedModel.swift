@@ -19,6 +19,7 @@ class PreferencesAdvancedModel {
 		.current
 	}
 
+	@MainActor
 	var ramSetting: PreferencesGeneralRamSetting {
 		get {
 			PreferencesGeneralRamSetting.current
@@ -26,7 +27,7 @@ class PreferencesAdvancedModel {
 		set {
 			PreferencesGeneralRamSetting.current = newValue
 
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
@@ -204,13 +205,13 @@ class PreferencesAdvancedModel {
 
 extension PreferencesGeneralRamSetting {
 
+	@MainActor
 	static var current: Self {
 		get {
-			let persistedRamInMbValue = objc_findInt32("ramsize")
-			return .init(ramInMB: persistedRamInMbValue)
+			return .init(ramInMB: MiscellaneousSettings.current.ramInMb)
 		}
 		set {
-			objc_replaceInt32("ramsize", newValue.ramInMB)
+			MiscellaneousSettings.current.set(ramInMb: newValue.ramInMB)
 		}
 	}
 
@@ -221,11 +222,14 @@ extension PreferencesGeneralRamSetting {
 		case .n128: 128
 		case .n256: 256
 		case .n512: 512
+		case .n1024: 1024
 		}
 	}
 
 	init(ramInMB: Int) {
-		if ramInMB >= Self.n512.ramInMB {
+		if ramInMB >= Self.n1024.ramInMB {
+			self = .n1024
+		} else if ramInMB >= Self.n512.ramInMB {
 			self = .n512
 		} else if ramInMB >= Self.n256.ramInMB {
 			self = .n256

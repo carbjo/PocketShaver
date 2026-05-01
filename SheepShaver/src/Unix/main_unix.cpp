@@ -1105,10 +1105,18 @@ int main(int argc, char *argv[])
 #endif
 	
 	// Create area for Mac RAM
+#ifdef TARGET_OS_IPHONE
+	if (!check_prefs())
+		goto quit;
+	
+	RAMSize = objc_getRamInMb() * 1024 * 1024;
+#else
 	RAMSize = PrefsFindInt32("ramsize");
 	if (RAMSize <= 1000) {
 		RAMSize *= 1024 * 1024;
 	}
+#endif
+
 	if (RAMSize < 16 * 1024 * 1024) {
 		WarningAlert(GetString(STR_SMALL_RAM_WARN));
 		RAMSize = 16 * 1024 * 1024;
@@ -1206,11 +1214,6 @@ int main(int argc, char *argv[])
 		ErrorAlert(str);
 		goto quit;
 	}
-	
-#if TARGET_OS_IPHONE
-	if (!check_prefs())
-		goto quit;
-#endif
 	
 	// Load Mac ROM
 	if (!load_mac_rom())
