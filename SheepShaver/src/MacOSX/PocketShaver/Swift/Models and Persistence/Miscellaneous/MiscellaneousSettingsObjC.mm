@@ -78,3 +78,7 @@ bool objc_getShouldBootInRelativeMouseMode(void) {
 bool objc_getIgnoreIllegalInstructions(void) {
 	return MiscellaneousSettingsObjC.isIgnoreIllegalInstructionsEnabled;
 }
+
+int objc_getRamInMb(void) {
+	return (int)MiscellaneousSettingsObjC.getRamInMb;
+}

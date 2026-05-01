@@ -21,16 +21,6 @@ class PreferencesAdvancedRamStepperCell: UITableViewCell {
 		UILabel.withoutConstraints()
 	}()
 
-	private lazy var informationLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		label.font = .systemFont(ofSize: 14)
-		label.textColor = Colors.secondaryText
-		label.text = "Changes in RAM value requires PocketShaver to restart."
-		return label
-	}()
-
 	private let didChangeStepperValue: ((PreferencesGeneralRamSetting) -> Void)
 
 	init(
@@ -47,7 +37,6 @@ class PreferencesAdvancedRamStepperCell: UITableViewCell {
 
 		contentView.addSubview(stepper)
 		contentView.addSubview(stepperLabel)
-		contentView.addSubview(informationLabel)
 
 		NSLayoutConstraint.activate([
 			stepper.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
@@ -55,11 +44,7 @@ class PreferencesAdvancedRamStepperCell: UITableViewCell {
 
 			stepperLabel.centerYAnchor.constraint(equalTo: stepper.centerYAnchor),
 			stepperLabel.leadingAnchor.constraint(equalTo: stepper.trailingAnchor, constant: 16),
-
-			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			informationLabel.topAnchor.constraint(equalTo: stepper.bottomAnchor, constant: 16),
-			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
+			stepperLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
 		])
 
 		stepper.value = Double(initialRamSettting.rawValue)
@@ -335,7 +320,12 @@ class PreferencesAdvancedJustAboveOffsetSettingCell: UITableViewCell {
 
 extension PreferencesGeneralRamSetting {
 	var label: String {
-		"\(ramInMB) MB"
+		switch self {
+		case .n1024:
+			"1 GB"
+		default:
+			"\(ramInMB) MB"
+		}
 	}
 }
 

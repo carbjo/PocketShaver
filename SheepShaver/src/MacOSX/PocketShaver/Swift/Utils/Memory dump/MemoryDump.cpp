@@ -9,9 +9,10 @@
 #include <cstdlib>
 #include "sysdeps.h"
 #include "cpu_emulation.h"
+#include "prefs.h"
 
 void cpp_dump_mem(const char *path) {
-	const size_t size = 1024 * 1024 * 64;
+	const size_t size = 1024 * 1024 * PrefsFindInt32("ramsize");
 	void *data = (void *)Mac2HostAddr(0x10000000);
 	if(data != NULL)
 	{
@@ -19,7 +20,7 @@ void cpp_dump_mem(const char *path) {
 		if(out != NULL)
 		{
 			size_t to_go = size;
-			const size_t wrote = fwrite(data, to_go, 1, out);
+			fwrite(data, to_go, 1, out);
 		}
 		fclose(out);
 	}

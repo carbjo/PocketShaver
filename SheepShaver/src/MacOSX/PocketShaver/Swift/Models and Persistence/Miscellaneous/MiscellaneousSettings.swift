@@ -89,6 +89,8 @@ class MiscellaneousSettings: Codable {
 	private(set) var gammaRampSetting: GammaRampSetting
 	private(set) var bootInRelativeMouseMode: Bool
 	private(set) var ignoreIllegalInstructions: Bool
+	private(set) var ramInMb: Int
+
 
 	var secondFingerClick: Bool {
 		twoFingerSteeringSetting != .off
@@ -158,6 +160,7 @@ class MiscellaneousSettings: Codable {
 		gammaRampSetting = .osDefined
 		bootInRelativeMouseMode = UIDevice.deviceType == .mac
 		ignoreIllegalInstructions = false
+		ramInMb = 512
 	}
 
 	@MainActor
@@ -331,6 +334,13 @@ class MiscellaneousSettings: Codable {
 
 		saveAsCurrent()
 	}
+
+	@MainActor
+	func set(ramInMb: Int) {
+		self.ramInMb = ramInMb
+
+		saveAsCurrent()
+	}
 }
 
 class MiscellaneousCachedSettings {
@@ -388,5 +398,10 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func isIgnoreIllegalInstructionsEnabled() -> Bool {
 		MiscellaneousSettings.current.ignoreIllegalInstructions
+	}
+
+	@MainActor
+	static func getRamInMb() -> Int {
+		MiscellaneousSettings.current.ramInMb
 	}
 }
