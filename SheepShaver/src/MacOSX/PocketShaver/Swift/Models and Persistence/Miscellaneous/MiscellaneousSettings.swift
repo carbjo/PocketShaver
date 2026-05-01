@@ -88,6 +88,7 @@ class MiscellaneousSettings: Codable {
 	private(set) var hoverJustAboveOffsetModifier: Float
 	private(set) var gammaRampSetting: GammaRampSetting
 	private(set) var bootInRelativeMouseMode: Bool
+	private(set) var ignoreIllegalInstructions: Bool
 
 	var secondFingerClick: Bool {
 		twoFingerSteeringSetting != .off
@@ -156,6 +157,7 @@ class MiscellaneousSettings: Codable {
 		hoverJustAboveOffsetModifier = 1
 		gammaRampSetting = .osDefined
 		bootInRelativeMouseMode = UIDevice.deviceType == .mac
+		ignoreIllegalInstructions = false
 	}
 
 	@MainActor
@@ -322,6 +324,13 @@ class MiscellaneousSettings: Codable {
 
 		saveAsCurrent()
 	}
+
+	@MainActor
+	func set(ignoreIllegalInstructions: Bool) {
+		self.ignoreIllegalInstructions = ignoreIllegalInstructions
+
+		saveAsCurrent()
+	}
 }
 
 class MiscellaneousCachedSettings {
@@ -374,5 +383,10 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func shouldBootInRelativeMouseMode() -> Bool {
 		MiscellaneousSettings.current.shouldBootInRelativeMouseMode
+	}
+
+	@MainActor
+	static func isIgnoreIllegalInstructionsEnabled() -> Bool {
+		MiscellaneousSettings.current.ignoreIllegalInstructions
 	}
 }

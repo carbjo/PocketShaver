@@ -162,7 +162,7 @@
 
 #if TARGET_OS_IPHONE
 #import "OverlayViewControllerObjC.h"
-#import "RamAllocFailedAlertViewControllerObjC.h"
+#import "FatalErrorAlertViewControllerObjCCppHeader.h"
 #import "PreferencesViewControllerObjCCppHeader.h"
 #import "RomPathObjC.h"
 #import "MiscellaneousSettingsObjCCppHeader.h"

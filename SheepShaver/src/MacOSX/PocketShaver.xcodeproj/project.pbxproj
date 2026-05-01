@@ -205,8 +205,8 @@
 		C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */; };
 		C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */; };
 		C7E7B4A62EB7BFF6005844C2 /* PreferencesLicensesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E7B4A52EB7BFEA005844C2 /* PreferencesLicensesViewController.swift */; };
-		C7F42CCC2E5A0C8200FA7169 /* RamAllocFailedAlertViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCB2E5A0C6D00FA7169 /* RamAllocFailedAlertViewController.swift */; };
-		C7F42CCE2E5A0F6F00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCD2E5A0F6B00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm */; };
+		C7F42CCC2E5A0C8200FA7169 /* FatalErrorAlertViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCB2E5A0C6D00FA7169 /* FatalErrorAlertViewController.swift */; };
+		C7F42CCE2E5A0F6F00FA7169 /* FatalErrorAlertViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCD2E5A0F6B00FA7169 /* FatalErrorAlertViewControllerObjC.mm */; };
 		C7F42CD22E5B1BC700FA7169 /* PreferencesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CD12E5B1BC000FA7169 /* PreferencesViewController.swift */; };
 		C7F42CD42E5B202000FA7169 /* PreferencesViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CD32E5B201B00FA7169 /* PreferencesViewControllerObjC.mm */; };
 		C7F42CD82E5B384F00FA7169 /* PreferencesGeneralViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CD72E5B384700FA7169 /* PreferencesGeneralViewController.swift */; };
@@ -770,9 +770,9 @@
 		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
 		C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDLKey.swift; sourceTree = "<group>"; };
 		C7E7B4A52EB7BFEA005844C2 /* PreferencesLicensesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesLicensesViewController.swift; sourceTree = "<group>"; };
-		C7F42CCB2E5A0C6D00FA7169 /* RamAllocFailedAlertViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RamAllocFailedAlertViewController.swift; sourceTree = "<group>"; };
-		C7F42CCD2E5A0F6B00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RamAllocFailedAlertViewControllerObjC.mm; sourceTree = "<group>"; };
-		C7F42CCF2E5A0F7200FA7169 /* RamAllocFailedAlertViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RamAllocFailedAlertViewControllerObjC.h; sourceTree = "<group>"; };
+		C7F42CCB2E5A0C6D00FA7169 /* FatalErrorAlertViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FatalErrorAlertViewController.swift; sourceTree = "<group>"; };
+		C7F42CCD2E5A0F6B00FA7169 /* FatalErrorAlertViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = FatalErrorAlertViewControllerObjC.mm; sourceTree = "<group>"; };
+		C7F42CCF2E5A0F7200FA7169 /* FatalErrorAlertViewControllerObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FatalErrorAlertViewControllerObjCCppHeader.h; sourceTree = "<group>"; };
 		C7F42CD12E5B1BC000FA7169 /* PreferencesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesViewController.swift; sourceTree = "<group>"; };
 		C7F42CD32E5B201B00FA7169 /* PreferencesViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = PreferencesViewControllerObjC.mm; sourceTree = "<group>"; };
 		C7F42CD52E5B202400FA7169 /* PreferencesViewControllerObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PreferencesViewControllerObjCCppHeader.h; sourceTree = "<group>"; };
@@ -1477,7 +1477,7 @@
 				C707D0402F261758007BFE66 /* Extensions */,
 				C70B65E32E7A7BD00039680A /* Storage */,
 				C791A9A82F41AC2B001F7E2E /* Disk file extractor */,
-				C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */,
+				C7F42CCA2E5A0C5200FA7169 /* Fatal Error Alert */,
 				C7DCEF3B2E86F53B00EAED05 /* Mouse Haptic Feedback */,
 				C7A9AB982EED61B4001EC4DB /* Local notification */,
 				C79517E02F15446E00CAEDBF /* Right click */,
@@ -1928,14 +1928,14 @@
 			path = Gamepad;
 			sourceTree = "<group>";
 		};
-		C7F42CCA2E5A0C5200FA7169 /* Ram Alloc Failed Alert */ = {
+		C7F42CCA2E5A0C5200FA7169 /* Fatal Error Alert */ = {
 			isa = PBXGroup;
 			children = (
-				C7F42CCB2E5A0C6D00FA7169 /* RamAllocFailedAlertViewController.swift */,
-				C7F42CCD2E5A0F6B00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm */,
-				C7F42CCF2E5A0F7200FA7169 /* RamAllocFailedAlertViewControllerObjC.h */,
+				C7F42CCB2E5A0C6D00FA7169 /* FatalErrorAlertViewController.swift */,
+				C7F42CCD2E5A0F6B00FA7169 /* FatalErrorAlertViewControllerObjC.mm */,
+				C7F42CCF2E5A0F7200FA7169 /* FatalErrorAlertViewControllerObjCCppHeader.h */,
 			);
-			path = "Ram Alloc Failed Alert";
+			path = "Fatal Error Alert";
 			sourceTree = "<group>";
 		};
 		C7F42CD02E5B1BB100FA7169 /* Preferences */ = {
@@ -2441,7 +2441,7 @@
 				C7B04B902F77B6F900A36842 /* MemoryDumpObjC.mm in Sources */,
 				E204B94F28BC3EBE0081FDCA /* prefs.cpp in Sources */,
 				E204B95028BC3EBE0081FDCA /* cdrom.cpp in Sources */,
-				C7F42CCC2E5A0C8200FA7169 /* RamAllocFailedAlertViewController.swift in Sources */,
+				C7F42CCC2E5A0C8200FA7169 /* FatalErrorAlertViewController.swift in Sources */,
 				C750737A2E65E14F00D1E374 /* DiskCreation.mm in Sources */,
 				C7C64B2B2E617DF200163200 /* DiskManager.swift in Sources */,
 				C7393CCD2E6DC6A200D06705 /* PreferencesResolutionsCells.swift in Sources */,
@@ -2455,7 +2455,7 @@
 				C73660E22E34C9190055AA91 /* GamepadButton.swift in Sources */,
 				E204B95828BC3EBE0081FDCA /* sony.cpp in Sources */,
 				C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */,
-				C7F42CCE2E5A0F6F00FA7169 /* RamAllocFailedAlertViewControllerObjC.mm in Sources */,
+				C7F42CCE2E5A0F6F00FA7169 /* FatalErrorAlertViewControllerObjC.mm in Sources */,
 				C77F12262F39D5800033BE25 /* BonjourManager.swift in Sources */,
 				C7699F0E2EBF56E30083B3B3 /* PreferencesROMValidatorCpp.cpp in Sources */,
 				C7DCEF3D2E86F55600EAED05 /* MouseHapticFeedbackObjC.mm in Sources */,
