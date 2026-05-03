@@ -65,23 +65,25 @@ class RomManager {
 					continuation.resume(returning: RomValidationResult.error(error))
 				}
 
-				let isRomValid = validateROM(tmpRomUrl.path)
-
-				if isRomValid {
-					do {
-						if FileManager.default.fileExists(atPath: romUrl.path) {
-							try FileManager.default.removeItem(at: romUrl)
-						}
-						try FileManager.default.moveItem(at: tmpRomUrl, to: romUrl)
-						continuation.resume(returning: RomValidationResult.success)
-					} catch {
-						continuation.resume(returning: RomValidationResult.error(error))
-					}
-				} else if let md5Hash = try? Storage.getFileMd5Hash(tmpRomUrl),
-						  let newWorldRomVersion = NewWorldRomVersion(md5hash: md5Hash) {
-					continuation.resume(returning: RomValidationResult.incompatibleRom(newWorldRomVersion))
-				} else {
+				guard let md5Hash = try? Storage.getFileMd5Hash(tmpRomUrl),
+					  let newWorldRomVersion = NewWorldRomVersion(md5hash: md5Hash) else {
 					continuation.resume(returning: RomValidationResult.invalidFile)
+					return
+				}
+
+				guard newWorldRomVersion.isBootstrapCompatible else {
+					continuation.resume(returning: RomValidationResult.incompatibleRom(newWorldRomVersion))
+					return
+				}
+
+				do {
+					if FileManager.default.fileExists(atPath: romUrl.path) {
+						try FileManager.default.removeItem(at: romUrl)
+					}
+					try FileManager.default.moveItem(at: tmpRomUrl, to: romUrl)
+					continuation.resume(returning: RomValidationResult.success)
+				} catch {
+					continuation.resume(returning: RomValidationResult.error(error))
 				}
 			}
 		}
