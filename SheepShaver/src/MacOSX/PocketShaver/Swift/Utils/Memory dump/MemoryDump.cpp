@@ -9,10 +9,10 @@
 #include <cstdlib>
 #include "sysdeps.h"
 #include "cpu_emulation.h"
-#include "prefs.h"
+#include "MiscellaneousSettingsObjCCppHeader.h"
 
 void cpp_dump_mem(const char *path) {
-	const size_t size = 1024 * 1024 * PrefsFindInt32("ramsize");
+	const size_t size = 1024 * 1024 * objc_getRamInMb();
 	void *data = (void *)Mac2HostAddr(0x10000000);
 	if(data != NULL)
 	{
