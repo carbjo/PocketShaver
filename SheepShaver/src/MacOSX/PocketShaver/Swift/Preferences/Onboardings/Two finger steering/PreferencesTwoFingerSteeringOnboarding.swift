@@ -24,7 +24,7 @@ class PreferencesTwoFingerSteeringOnboardingCell: UITableViewCell {
 """
 <b>How do I enable Two finger steering?</b>
 
-Two finger steering can only be done in a hover mode, so make sure that one of the four hover modes is enabled (only one can be enabled at a time).
+Two finger steering can only be done in a hover mode, so make sure that one of the four hover modes is enabled.
 
 This can be done by either toggling one of them on via a Gamepad button, or if 'Boot in hover mode' is selected in Preferences under General tab (this option is only visible if 'Second finger click' and 'Second finger swipe' is enabled).
 

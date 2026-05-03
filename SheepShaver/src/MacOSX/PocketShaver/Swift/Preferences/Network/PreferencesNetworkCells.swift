@@ -7,91 +7,6 @@
 
 import UIKit
 
-class PreferencesNetworkOSVersionWarningCell: UITableViewCell {
-	private lazy var containerView: UIView = {
-		let view = UIView.withoutConstraints()
-		view.layer.cornerRadius = 8
-		view.backgroundColor = Colors.informationCardBackground
-		return view
-	}()
-
-	private lazy var warningIconImageView: UIImageView = {
-		let imageView = UIImageView.withoutConstraints()
-		imageView.image = ImageResource.exclamationmarkTriangle.asSymbolImage()
-		let length: CGFloat = UIScreen.isSESize ? 22 : 26
-		NSLayoutConstraint.activate([
-			imageView.widthAnchor.constraint(equalToConstant: length),
-			imageView.heightAnchor.constraint(equalToConstant: length)
-		])
-		imageView.tintColor = Colors.secondaryText
-		return imageView
-	}()
-
-	private lazy var titleLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.font = .systemFont(ofSize: 15)
-		label.textColor = Colors.secondaryText
-		label.text = "Network in PocketShaver requires Mac OS 9.0 - 9.0.4"
-		return label
-	}()
-
-	private lazy var closeButton: UIButton = {
-		let button = UIButton.withoutConstraints()
-		button.setImage(.init(resource: .xmarkCircleFill), for: .normal)
-		button.tintColor = Colors.secondaryText
-		button.addTarget(self, action: #selector(closeButtonPushed), for: .touchUpInside)
-		return button
-	}()
-
-	private let didTapCloseButton: (() -> Void)
-
-	init(
-		didTapCloseButton: @escaping (() -> Void)
-	) {
-		self.didTapCloseButton = didTapCloseButton
-
-		super.init(style: .default, reuseIdentifier: nil)
-
-		hideSeparator()
-
-		titleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-		closeButton.setContentHuggingPriority(.required, for: .horizontal)
-		titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-		closeButton.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-		contentView.addSubview(containerView)
-		containerView.addSubview(warningIconImageView)
-		containerView.addSubview(titleLabel)
-		containerView.addSubview(closeButton)
-
-		NSLayoutConstraint.activate([
-			warningIconImageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			warningIconImageView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-
-			titleLabel.leadingAnchor.constraint(equalTo: warningIconImageView.trailingAnchor, constant: 8),
-			titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
-			titleLabel.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
-
-			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
-			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
-
-			closeButton.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
-			closeButton.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
-			closeButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16)
-		])
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
-
-	@objc
-	private func closeButtonPushed() {
-		didTapCloseButton()
-	}
-}
-
 class PreferencesNetworkServiceTypeCell: UITableViewCell {
 	private lazy var checkboxImageView: UIImageView = {
 		let view = UIImageView.withoutConstraints()
@@ -137,6 +52,8 @@ class PreferencesNetworkServiceTypeCell: UITableViewCell {
 		isSelected: Bool
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		setupViews()
 		configure(serviceType: serviceType)
@@ -211,6 +128,8 @@ class PreferencesNetworkBonjourRolePickerCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		contentView.addSubview(segmentedControl)
@@ -249,6 +168,8 @@ class PreferencesGeneralLanColumnsDescriptionCell: UITableViewCell {
 		columnTitle: String
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		contentView.addSubview(titleLabel)
 
@@ -302,6 +223,8 @@ class PreferencesNetworkRouterCell: UITableViewCell {
 		separatorHidden: Bool
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		if separatorHidden {
 			hideSeparator()

@@ -45,7 +45,7 @@ extension UIScreen {
 	static let sideMarginForButtons: CGFloat = 8
 
 	static var isSmallSize: Bool {
-		if UIDevice.isIPad {
+		if UIDevice.isIPadIdiom {
 			return false
 		}
 
@@ -61,11 +61,43 @@ extension UIScreen {
 	static var supportsHighRefreshRate: Bool {
 		return main.maximumFramesPerSecond > 60
 	}
+
+	static var portraitModeSize: CGSize {
+		let mainScreen = main
+		let screenHeight = mainScreen.bounds.size.height
+		let screenWidth = mainScreen.bounds.size.width
+		if screenHeight > screenWidth {
+			return .init(width: screenWidth, height: screenHeight)
+		} else {
+			return .init(width: screenHeight, height: screenWidth)
+		}
+	}
+
+	static var landscapeModeSize: CGSize {
+		let portraitModeSize = self.portraitModeSize
+		return .init(width: portraitModeSize.height, height: portraitModeSize.width)
+	}
+}
+
+enum DeviceType {
+	case iPhone
+	case iPad
+	case mac
 }
 
 extension UIDevice {
-	static var isIPad: Bool {
+	static var isIPadIdiom: Bool {
 		current.userInterfaceIdiom == .pad
+	}
+
+	static var deviceType: DeviceType {
+		if ProcessInfo.processInfo.isiOSAppOnMac {
+			return .mac
+		} else if current.userInterfaceIdiom == .pad {
+			return .iPad
+		} else {
+			return .iPhone
+		}
 	}
 
 	static var isSimulator: Bool {
@@ -132,6 +164,7 @@ extension UIButton {
 }
 
 extension FileManager {
+	@objc
 	static var documentUrl: URL {
 		Self.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 	}
@@ -175,6 +208,10 @@ extension String {
 			}
 		}
 		return false
+	}
+
+	func substring(from: Int, to: Int) -> String {
+		String(self[index(startIndex, offsetBy: from)..<index(startIndex, offsetBy: to)])
 	}
 }
 
@@ -232,9 +269,21 @@ extension UIApplication {
 
 extension ImageResource {
 	func asSymbolImage() -> UIImage {
-		UIImage(resource: self)
-			.withRenderingMode(.alwaysTemplate)
+		UIImage(resource: self).asSymbolImage()
+	}
+}
+
+extension UIImage {
+	func asSymbolImage() -> UIImage {
+		withRenderingMode(.alwaysTemplate)
 			.applyingSymbolConfiguration(.init(pointSize: 12))!
+	}
+}
+
+extension UIImage {
+	func withUltraLightConfiguration() -> UIImage? {
+		let symbolConfiguration = UIImage.SymbolConfiguration(weight: .ultraLight)
+		return applyingSymbolConfiguration(symbolConfiguration)
 	}
 }
 
@@ -256,25 +305,72 @@ extension UIViewController {
 	}
 }
 
-// Source - https://stackoverflow.com/a/41288197
-// Posted by Naveed J., modified by community. See post 'Timeline' for change history
-// Retrieved 2026-01-31, License - CC BY-SA 4.0
-
-extension UIView {
-
-	func asImage() -> UIImage {
-		let renderer = UIGraphicsImageRenderer(bounds: bounds)
-		return renderer.image { rendererContext in
-			layer.render(in: rendererContext.cgContext)
-		}
-	}
-}
-
 extension Data {
 	func printHexString() {
 		for i in 0..<count {
 			print(String(format:"%02x", self[i]), terminator: "")
 		}
 		print("")
+	}
+}
+
+protocol ImageDerivable: UIView {
+	var resolutionMultiplier: CGFloat { get }
+
+	func asImage() -> UIImage
+}
+
+extension ImageDerivable {
+	var resolutionMultiplier: CGFloat {
+		switch UIDevice.deviceType {
+			// Will render in quadruple resolution when run on mac due to
+			// default resolution being way too blurry
+		case .mac:
+			return 4
+		default:
+			return 1
+		}
+	}
+
+	func asImage() -> UIImage {
+		switch UIDevice.deviceType {
+		case .mac:
+			asQuadrupleResolutionImage()
+		default:
+			asDefaultResolutionImage()
+		}
+	}
+
+	private func asDefaultResolutionImage() -> UIImage {
+		let renderer = UIGraphicsImageRenderer(bounds: bounds)
+		return renderer.image { rendererContext in
+			layer.render(in: rendererContext.cgContext)
+		}
+	}
+
+	private func asQuadrupleResolutionImage() -> UIImage {
+		let renderer = UIGraphicsImageRenderer(
+			bounds: .init(
+				origin: .init(
+					x: 0,
+					y: bounds.size.height / 2
+				),
+				size: .init(
+					width: bounds.size.width,
+					height: bounds.size.height / resolutionMultiplier
+			 )
+			)
+		)
+
+		let height = self.bounds.height
+
+		return renderer.image { rendererContext in
+			rendererContext.cgContext.translateBy(x: 0, y: height / 2)
+			rendererContext.cgContext.scaleBy(
+				x: 1 / resolutionMultiplier,
+				y: 1 / resolutionMultiplier
+			)
+			layer.render(in: rendererContext.cgContext)
+		}
 	}
 }

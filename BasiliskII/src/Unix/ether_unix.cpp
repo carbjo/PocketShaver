@@ -1125,11 +1125,11 @@ void receive_rawdata_func(unsigned char *data, int length) {
     *pkt_len = short_length;
     memcpy(packet_buffer + 2, data, length);
 
-    printf("r %d ", length);
+//    printf("r %d ", length);
 //    for (int i = 0; i< length + 2; i++) {
 //        printf("%02x", packet_buffer[i]);
 //    }
-    printf("\n");
+//    printf("\n");
 
     SetInterruptFlag(INTFLAG_ETHER);
     TriggerInterrupt();

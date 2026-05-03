@@ -59,15 +59,15 @@ void objc_reportVideoSize(unsigned short width, unsigned short height, unsigned 
 							(depth == APPLE_8_BIT || depth == APPLE_16_BIT);
 
 	if (isJaggyCursorResolution) {
-		[LocalNotificationsObjCProxy sendJaggyCursorResolutionSelected];
+		[LocalNotificationObjCProxy sendJaggyCursorResolutionSelected];
 	}
 }
 
 void objc_reportRelativeMouseModeEnabled() {
-	[LocalNotificationsObjCProxy sendRelativeMouseModeEnabled];
+	[LocalNotificationObjCProxy sendRelativeMouseModeEnabled];
 }
 
 void objc_reportRelativeMouseModeDisabled() {
-	[LocalNotificationsObjCProxy sendRelativeMouseModeDisabled];
+	[LocalNotificationObjCProxy sendRelativeMouseModeDisabled];
 }
 

@@ -13,3 +13,7 @@ bool objc_getRelateiveMouseModeSettingIsAutomatic(void);
 bool objc_getRelativeMouseTapToClick(void);
 bool objc_getSoundDisabled(void);
 bool objc_getIsLinearGammaEnabled(void);
+void cpp_toggle_relative_mouse_on_main(void);
+bool objc_getShouldBootInRelativeMouseMode(void);
+bool objc_getIgnoreIllegalInstructions(void);
+int objc_getRamInMb(void);

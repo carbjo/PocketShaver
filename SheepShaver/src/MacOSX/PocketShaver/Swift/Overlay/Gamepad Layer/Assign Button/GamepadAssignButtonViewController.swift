@@ -135,7 +135,7 @@ class GamepadAssignButtonViewController: UIViewController {
 		if UIScreen.isSESize,
 		   !UIScreen.isPortraitMode {
 			sizeMode = .tiny
-		} else if !UIDevice.isIPad,
+		} else if !UIDevice.isIPadIdiom,
 			 !UIScreen.isPortraitMode {
 			sizeMode = .small
 		} else {
@@ -144,7 +144,9 @@ class GamepadAssignButtonViewController: UIViewController {
 
 		super.init(nibName: nil, bundle: nil)
 
-		searchTextField.inputAccessoryView = searchTextFieldAccessoryView
+		if !UIDevice.isIPadIdiom {
+			searchTextField.inputAccessoryView = searchTextFieldAccessoryView
+		}
 	}
 
 	override func viewDidLoad() {
@@ -260,7 +262,6 @@ class GamepadAssignButtonViewController: UIViewController {
 		searchTextField.resignFirstResponder()
 
 		UIView.animate(withDuration: 0.2) {
-			self.searchTextFieldAccessoryView.fadeOutDismissKeyboardButton()
 			self.view.backgroundColor = UIColor(red: 0, green: 0, blue: 0, alpha: 0)
 			self.cardView.alpha = 0
 		} completion: { [weak self] _ in
@@ -335,6 +336,14 @@ extension GamepadAssignButtonViewController: UITextFieldDelegate {
 		model.input(searchString: text)
 
 		tableView.reloadData()
+
+		return true
+	}
+
+	func textFieldShouldEndEditing(_ textField: UITextField) -> Bool {
+		UIView.animate(withDuration: 0.2) {
+			self.searchTextFieldAccessoryView.fadeOutDismissKeyboardButton()
+		}
 
 		return true
 	}

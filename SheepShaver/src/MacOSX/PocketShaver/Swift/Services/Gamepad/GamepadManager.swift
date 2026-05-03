@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import Combine
 
 class GamepadConfig: Codable {
 	private(set) var name: String
@@ -190,23 +191,24 @@ private class GamepadSettings: Codable {
 		portraitConfigIndex = 0
 		landscapeConfigIndex = 0
 
-		let exampleRpgGameSideButtonLayout: GamepadConfig?
-		let isSideButtonLayoutSupported = UIScreen.hasNotch && !UIDevice.isIPad
-		if isSideButtonLayoutSupported {
-			if GamepadSideButtonLayout.layoutBasis.numberOfSlots > 1 {
-				exampleRpgGameSideButtonLayout = GamepadConfig.exampleRpgGameDoubleSideButtonLayout
-			} else {
-				exampleRpgGameSideButtonLayout = GamepadConfig.exampleRpgGameSingleSideButtonLayout
-			}
-		} else {
-			exampleRpgGameSideButtonLayout = nil
+		switch SideButtonAvailability.value {
+		case .none:
+			configurations = [
+				.exampleArcadeGameLayout,
+				.exampleFpsGameLayout
+			]
+		case .single:
+			configurations = [
+				.exampleArcadeGameSideButtonLayout,
+				.exampleRpgGameSingleSideButtonLayout
+			]
+		case .double:
+			configurations = [
+				.exampleArcadeGameSideButtonLayout,
+				.exampleRpgGameDoubleSideButtonLayout,
+				.exampleFpsGameDoubleSideButtonLayout
+			]
 		}
-
-		configurations = [
-			GamepadConfig.exampleArcadeGameLayout,
-			exampleRpgGameSideButtonLayout,
-			GamepadConfig.exampleFpsGameLayout
-		].compactMap({ $0 })
 	}
 
 	@MainActor
@@ -221,7 +223,13 @@ private class GamepadSettings: Codable {
 @MainActor
 class GamepadManager {
 
+	enum Changes {
+		case layoutsDidUpdate
+	}
+
 	static let shared = GamepadManager()
+
+	let changeSubject = PassthroughSubject<Changes, Never>()
 
 	private var beginningEmptyLayoutConfig = GamepadConfig.emptyLayout
 	private var endEmptyLayoutConfig = GamepadConfig.emptyLayout
@@ -347,16 +355,32 @@ class GamepadManager {
 				settings.configurations.insert(beginningEmptyLayoutConfig, at: 0)
 				beginningEmptyLayoutConfig = GamepadConfig.emptyLayout
 			}
+
+			GamepadThumbnailCache.shared.register(newConfig: config)
 		} else if config === endEmptyLayoutConfig {
 			modifyAndRetainIndices {
 				settings.configurations.append(endEmptyLayoutConfig)
 				endEmptyLayoutConfig = GamepadConfig.emptyLayout
 			}
+
+			GamepadThumbnailCache.shared.register(newConfig: config)
 		} else {
-			guard settings.configurations.contains(where: { $0 === config }) else {
+			guard let index = settings.configurations.firstIndex(where: { $0 === config }) else {
 				assert(false) // Should never happen
 				return
 			}
+
+			var oldConfig: GamepadConfig? = nil
+			if let oldData = Storage.shared.load(from: .gamepad),
+			   let oldSettings = try? JSONDecoder().decode(GamepadSettings.self, from: oldData),
+			   index < oldSettings.configurations.count {
+				oldConfig = oldSettings.configurations[index]
+			}
+
+			GamepadThumbnailCache.shared.register(
+				oldConfig: oldConfig,
+				newConfig: config
+			)
 		}
 
 		saveChanges()
@@ -364,6 +388,8 @@ class GamepadManager {
 
 	private func saveChanges() {
 		settings.saveAsCurrent()
+
+		changeSubject.send(.layoutsDidUpdate)
 	}
 
 	fileprivate func setAsCurrentConfig(_ config: GamepadConfig) {
@@ -427,5 +453,38 @@ class GamepadManager {
 		   let newLandscapeConfigIndex = settings.configurations.firstIndex(where: { $0 === landscapeConfig }) {
 			settings.landscapeConfigIndex = newLandscapeConfigIndex
 		}
+	}
+}
+
+fileprivate enum SideButtonAvailability {
+	case none
+	case single
+	case double
+
+	@MainActor
+	static var value: Self {
+		let isSideButtonLayoutSupported = UIScreen.hasNotch && !UIDevice.isIPadIdiom
+		if isSideButtonLayoutSupported {
+			let hasDoubleSlots = GamepadSideButtonLayout.layoutBasis.numberOfSlots > 1
+			return hasDoubleSlots ? .double : .single
+		} else {
+			return .none
+		}
+	}
+}
+
+extension GamepadConfig: Hashable {
+	func hash(into hasher: inout Hasher) {
+		hasher.combine(name)
+		hasher.combine(mappings)
+		hasher.combine(sideButtonMappings)
+		hasher.combine(visibilitySetting)
+	}
+	
+	static func == (lhs: GamepadConfig, rhs: GamepadConfig) -> Bool {
+		lhs.name == rhs.name &&
+		lhs.mappings == rhs.mappings &&
+		lhs.sideButtonMappings == rhs.sideButtonMappings &&
+		lhs.visibilitySetting == rhs.visibilitySetting
 	}
 }

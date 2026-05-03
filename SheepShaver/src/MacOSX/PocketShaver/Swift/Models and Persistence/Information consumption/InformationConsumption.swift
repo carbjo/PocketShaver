@@ -10,7 +10,6 @@ import Foundation
 class InformationConsumption: Codable {
 	private(set) var hasReadSetupInstructions: Bool
 	private(set) var hasDismissedSetupInstructions: Bool
-	private(set) var hasDisplayedPortraitModeWarning: Bool
 	private(set) var hasDisplayedFirstRelativeMouseDetectionDialogue: Bool
 	private(set) var hasDisplayedJaggyCursorWarningDialogue: Bool
 
@@ -28,7 +27,6 @@ class InformationConsumption: Codable {
 	init() {
 		hasReadSetupInstructions = false
 		hasDismissedSetupInstructions = false
-		hasDisplayedPortraitModeWarning = false
 		hasDisplayedFirstRelativeMouseDetectionDialogue = false
 		hasDisplayedJaggyCursorWarningDialogue = false
 	}
@@ -51,14 +49,6 @@ class InformationConsumption: Codable {
 	@MainActor
 	func reportHasDismissedSetupInstructions() {
 		hasDismissedSetupInstructions = true
-
-		saveAsCurrent()
-	}
-
-
-	@MainActor
-	func reportHasDisplayedPortraitModeWarning() {
-		hasDisplayedPortraitModeWarning = true
 
 		saveAsCurrent()
 	}

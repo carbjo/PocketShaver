@@ -35,7 +35,9 @@
 #include <SDL2/SDL_config_wingdk.h>
 #elif defined(__XBOXONE__) || defined(__XBOXSERIES__)
 #include <SDL2/SDL_config_xbox.h>
-#elif defined(__IPHONEOS__) || defined(__MACOSX__)
+#elif defined(__MACOSX__)
+#include <SDL2/SDL_config_macosx.h>
+#elif defined(__IPHONEOS__)
 #include <SDL2/SDL_config_iphoneos.h>
 #elif defined(__ANDROID__)
 #include <SDL2/SDL_config_android.h>

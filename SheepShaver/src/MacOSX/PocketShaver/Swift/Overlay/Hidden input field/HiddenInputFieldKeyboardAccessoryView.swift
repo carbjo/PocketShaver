@@ -34,7 +34,7 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 	private lazy var relativeMouseModeButton: UIButton = {
 		let button = UIButton.withoutConstraints()
-		button.setImage(ImageResource.computermouse.asSymbolImage(),
+		button.setImage(ImageResource.arrowUpAndDownAndArrowLeftAndRight.asSymbolImage(),
 			for: .normal
 		)
 		button.configuration = buttonConfig()
@@ -141,10 +141,12 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 		rightStackView.addArrangedSubview(relativeMouseModeButton)
 		rightStackView.addArrangedSubview(preferencesButton)
-		if !UIScreen.isPortraitMode || UIDevice.isIPad {
+		if !UIScreen.isPortraitMode || UIDevice.isIPadIdiom {
 			rightStackView.addArrangedSubview(rightCmdButton)
 		}
-		rightStackView.addArrangedSubview(dismissKeyboardButton)
+		if !UIDevice.isIPadIdiom {
+			rightStackView.addArrangedSubview(dismissKeyboardButton)
+		}
 
 
 		NSLayoutConstraint.activate([

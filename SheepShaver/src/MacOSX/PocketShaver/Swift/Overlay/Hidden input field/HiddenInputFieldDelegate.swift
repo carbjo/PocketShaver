@@ -19,8 +19,22 @@ struct HiddenInputFieldOutput {
 
 class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
 	var didInputSDLKey: ((HiddenInputFieldOutput) -> Void)?
+	var willEndEditing: (() -> Void)?
 
 	func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+		handleInput(string, from: textField)
+
+		textField.text = "  " // Needed so that it is always possible to backspace
+
+		return true
+	}
+
+	private func handleInput(_ string: String, from textField: UITextField) {
+		guard UIDevice.deviceType != .mac else {
+			// Actual key input since will already be handle in SDL event pump in video_sdl2.cpp
+			return
+		}
+
 		var keyboard: Keyboard?
 		if let primaryLanguage = textField.textInputMode?.primaryLanguage {
 			keyboard = Keyboard(rawValue: primaryLanguage)
@@ -33,10 +47,6 @@ class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
 		} else {
 			print("Could not find SDLKey for \(string)")
 		}
-
-		textField.text = "  " // Needed so that it is always possible to backspace
-
-		return true
 	}
 
 	private func sdlKey(for str: String, keyboard: Keyboard?) -> HiddenInputFieldOutput? {
@@ -135,5 +145,20 @@ class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
 		let withShift = capitalLetters.contains(str)
 
 		return .init(key: key, withShift: withShift, keyboard: keyboard)
+	}
+
+	func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool {
+		UIView.animate(withDuration: 0.2) {
+			textField.inputAccessoryView?.alpha = 1
+		}
+		return true
+	}
+
+	func textFieldShouldEndEditing(_ textField: UITextField) -> Bool {
+		UIView.animate(withDuration: 0.2) {
+			textField.inputAccessoryView?.alpha = 0
+		}
+		willEndEditing?()
+		return true
 	}
 }

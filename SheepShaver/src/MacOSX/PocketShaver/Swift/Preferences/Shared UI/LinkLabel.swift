@@ -28,6 +28,7 @@ class LinkLabel: UIView {
 		config: StringTagConfig,
 		font: UIFont = .systemFont(ofSize: 14),
 		textColor: UIColor = Colors.secondaryText,
+		textAlignment: NSTextAlignment = .left,
 		callback: (() -> Void)? = nil
 	) {
 		self.callback = callback
@@ -51,6 +52,7 @@ class LinkLabel: UIView {
 
 		label.font = font
 		label.textColor = textColor
+		label.textAlignment = textAlignment
 
 		addSubview(label)
 

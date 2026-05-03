@@ -152,6 +152,10 @@ class InformationView: UIVisualEffectView {
 		showHints: Bool,
 		atBottom: Bool = false
 	) {
+		guard UIDevice.deviceType != .mac else {
+			return
+		}
+
 		if showHints {
 			switch state {
 			case .normal:

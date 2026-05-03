@@ -12,6 +12,7 @@ class GamepadButton: UIButton {
 	enum Label {
 		case text(String)
 		case icon(ImageResource)
+		case thinIcon(ImageResource)
 		case twoIcons(ImageResource, ImageResource)
 	}
 
@@ -29,6 +30,7 @@ class GamepadButton: UIButton {
 
 	private var isRelativeMouseModeEnabled: Bool
 	private var isIPadMousePassthroughOn: Bool
+
 	private var isEditing: Bool = false
 	private var isToggledOn: Bool = false
 
@@ -70,6 +72,8 @@ class GamepadButton: UIButton {
 			setTitle(text, for: .normal)
 		case .icon(let icon):
 			setImage(.init(resource: icon), for: .normal)
+		case .thinIcon(let icon):
+			setImage(.init(resource: icon).withUltraLightConfiguration(), for: .normal)
 		case .twoIcons(let icon1, let icon2):
 			iconStackView.addArrangedSubview(createImageView(forIcon: icon1))
 			iconStackView.addArrangedSubview(createImageView(forIcon: icon2))
@@ -103,6 +107,10 @@ class GamepadButton: UIButton {
 		configure(isRelativeMouseModeEnabled: inputInteractionModel.isRelativeMouseModeEnabled)
 		configure(isIPadMousePassthroughOn: inputInteractionModel.iPadMousePassthrough)
 		configure(hoverOffsetMode: inputInteractionModel.hoverOffsetMode)
+		configure(
+			audioEnabled: inputInteractionModel.isAudioEnabled,
+			hostAudioVolume: inputInteractionModel.hostAudioVolume
+		)
 	}
 	
 	required init?(coder: NSCoder) { fatalError() }
@@ -117,6 +125,8 @@ class GamepadButton: UIButton {
 				configure(isRelativeMouseModeEnabled: isEnabled)
 			case .iPadMousePassthroughChanged(let isEnabled):
 				configure(isIPadMousePassthroughOn: isEnabled)
+			case .audioConfigurationChanged(let isEnabled, let hostAudioVolume):
+				configure(audioEnabled: isEnabled, hostAudioVolume: hostAudioVolume)
 			default: break
 			}
 		}.store(in: &anyCancellables)
@@ -129,6 +139,9 @@ class GamepadButton: UIButton {
 
 	private func configure(isRelativeMouseModeEnabled: Bool) {
 		self.isRelativeMouseModeEnabled = isRelativeMouseModeEnabled
+		if specialButtonConfig == .relativeMouseModeEnabled {
+			isToggledOn = isRelativeMouseModeEnabled
+		}
 		updateColor()
 	}
 
@@ -140,6 +153,28 @@ class GamepadButton: UIButton {
 	private func configure(hoverOffsetMode: HoverOffsetMode) {
 		isToggledOn = isSelectedWith(hoverOffsetMode)
 		updateColor()
+	}
+
+	private func configure(audioEnabled: Bool, hostAudioVolume: InputInteractionModel.HostAudioVolume) {
+		guard specialButtonConfig == .audioEnabled else {
+			return
+		}
+
+		let imageResource: ImageResource
+		if audioEnabled {
+			switch hostAudioVolume {
+			case .low:
+				imageResource = .speakerWave1
+			case .mid:
+				imageResource = .speakerWave2
+			case .high:
+				imageResource = .speakerWave3
+			}
+		} else {
+			imageResource = .speakerSlash
+		}
+		let symbolConfiguration = UIImage.SymbolConfiguration(weight: .ultraLight)
+		setImage(.init(resource: imageResource).withUltraLightConfiguration(), for: .normal)
 	}
 
 	override func point(inside point: CGPoint, with _: UIEvent?) -> Bool {
@@ -240,6 +275,8 @@ extension SpecialButton {
 		case .hoverDiagonallyToggle: return .twoIcons(.handRaised, .crossArrow)
 		case .cmdW: return .text("⌘-W")
 		case .rightClick: return .icon(.rightclick)
+		case .audioEnabled: return .icon(.speakerSlash) // placeholder
+		case .relativeMouseModeEnabled: return .thinIcon(.arrowUpAndDownAndArrowLeftAndRight)
 		}
 	}
 }

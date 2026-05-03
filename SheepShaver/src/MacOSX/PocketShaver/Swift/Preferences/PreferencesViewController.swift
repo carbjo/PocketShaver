@@ -21,14 +21,14 @@ enum PreferencesLaunchMode {
 public class PreferencesViewController: UIViewController {
 	enum Tab: Int, CaseIterable {
 		case general
-		case gamepad
+		case graphics
 		case network
 		case advanced
 
 		var label: String {
 			switch self {
 			case .general: "General"
-			case .gamepad: "Gamepad"
+			case .graphics: "Graphics"
 			case .network: "Network"
 			case .advanced: "Advanced"
 			}
@@ -65,21 +65,28 @@ public class PreferencesViewController: UIViewController {
 			changeSubject: model.changeSubject
 		)
 	}()
-
-	private lazy var gamepadVC: PreferencesGamepadViewController = {
-		PreferencesGamepadViewController(changeSubject: model.changeSubject)
+	
+	private lazy var graphicsVC: PreferencesGraphicsViewController = {
+		PreferencesGraphicsViewController(
+			mode: model.mode,
+			changeSubject: model.changeSubject
+		)
 	}()
 
 	private lazy var networkVC: PreferencesNetworkViewController = {
-		PreferencesNetworkViewController()
+		PreferencesNetworkViewController(
+			mode: model.mode
+		)
 	}()
 
 	private lazy var advancedVC: PreferencesAdvancedViewController = {
-		PreferencesAdvancedViewController(changeSubject: model.changeSubject)
+		PreferencesAdvancedViewController(
+			mode: model.mode,
+			changeSubject: model.changeSubject
+		)
 	}()
 
 	private var anyCancellables = Set<AnyCancellable>()
-
 
 	@objc public private(set) var isDone: Bool = false
 
@@ -147,7 +154,7 @@ public class PreferencesViewController: UIViewController {
 		])
 
 		embedViewController(generalVC)
-		embedViewController(gamepadVC)
+		embedViewController(graphicsVC)
 		embedViewController(networkVC)
 		embedViewController(advancedVC)
 
@@ -158,10 +165,26 @@ public class PreferencesViewController: UIViewController {
 		listenToChanges()
 	}
 
+	public override func viewWillAppear(_ animated: Bool) {
+		super.viewWillAppear(animated)
+
+		if model.mode == .duringEmulation {
+			cpp_setInputDisabled(true)
+		}
+	}
+
 	public override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
 
 		MonitorResolutionManager.shared.registerSafeAreaInsets(view.safeAreaInsets)
+	}
+
+	public override func viewWillDisappear(_ animated: Bool) {
+		super.viewWillDisappear(animated)
+
+		if model.mode == .duringEmulation {
+			cpp_setInputDisabled(false)
+		}
 	}
 
 	public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -181,8 +204,8 @@ public class PreferencesViewController: UIViewController {
 		switch tab {
 		case .general:
 			contentView.bringSubviewToFront(generalVC.view)
-		case .gamepad:
-			contentView.bringSubviewToFront(gamepadVC.view)
+		case .graphics:
+			contentView.bringSubviewToFront(graphicsVC.view)
 		case .network:
 			contentView.bringSubviewToFront(networkVC.view)
 		case .advanced:
@@ -252,13 +275,6 @@ public class PreferencesViewController: UIViewController {
 		do {
 			try model.validate()
 
-			if UIScreen.isPortraitMode,
-			   !InformationConsumption.current.hasDisplayedPortraitModeWarning {
-				displayPortraitModeWarning()
-
-				return
-			}
-
 			let bootBlock = { [weak self] in
 				guard let self else { return }
 
@@ -317,36 +333,6 @@ public class PreferencesViewController: UIViewController {
 		present(alertVC, animated: true)
 	}
 
-	private func displayPortraitModeWarning() {
-		InformationConsumption.current.reportHasDisplayedPortraitModeWarning()
-
-		let alertVC = UIAlertController(
-			title: "Landscape mode recommended",
-			message: "It is recommended to boot in Landscape mode. Once booted, it is not possible to switch between portrait and landscape mode by rotating the device.\n\nThis warning will not be shown again.",
-			preferredStyle: .alert
-		)
-
-		if MiscellaneousSettings.current.shouldDisplayAlwaysLandscapeModeOption {
-			alertVC.addAction(.init(title: "Always boot in Landscape mode", style: .default, handler: { [weak self] _ in
-				MiscellaneousSettings.current.set(alwaysLandscapeMode: true)
-				self?.boot()
-			}))
-			alertVC.addAction(.init(title: "Boot in Landscape mode", style: .default, handler: { [weak self] _ in
-				self?.boot(forceLandscape: true)
-			}))
-		}
-
-		alertVC.addAction(.init(title: "Boot in Portrait mode", style: .default, handler: { [weak self] _ in
-			self?.boot()
-		}))
-
-		if !MiscellaneousSettings.current.shouldDisplayAlwaysLandscapeModeOption {
-			alertVC.addAction(.init(title: "Cancel", style: .cancel, handler: nil))
-		}
-
-		present(alertVC, animated: true)
-	}
-
 	@objc
 	private func tabSegmentedControlChanged() {
 		display(tab: Tab.allCases[tabSegmentedControl.selectedSegmentIndex])
@@ -370,7 +356,7 @@ public class PreferencesViewController: UIViewController {
 	}
 
 	@objc
-	public static func present() -> PreferencesViewController {
+	public static func presentStartup() -> PreferencesViewController {
 		let vc = PreferencesViewController(mode: .startup)
 
 		prefsWindow.windowLevel = .normal
