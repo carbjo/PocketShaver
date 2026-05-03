@@ -7,10 +7,19 @@
 
 import Foundation
 import Combine
+import CoreHaptics
 
 class PreferencesAdvancedModel {
-	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
+	let changeSubject: PassthroughSubject<PreferencesChange, Never>
 
+	let mode: PreferencesLaunchMode
+
+	@MainActor
+	private var miscSettings: MiscellaneousSettings {
+		.current
+	}
+
+	@MainActor
 	var ramSetting: PreferencesGeneralRamSetting {
 		get {
 			PreferencesGeneralRamSetting.current
@@ -18,49 +27,37 @@ class PreferencesAdvancedModel {
 		set {
 			PreferencesGeneralRamSetting.current = newValue
 
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
 	@MainActor
 	var fpsReportingEnabled: Bool {
 		get {
-			MiscellaneousSettings.current.fpsReporting
+			miscSettings.fpsReporting
 		}
 		set {
-			MiscellaneousSettings.current.set(fpsCounterEnabled: newValue)
+			miscSettings.set(fpsCounterEnabled: newValue)
 		}
 	}
 
 	@MainActor
 	var networkTransferRateReportingEnabled: Bool {
 		get {
-			MiscellaneousSettings.current.networkTransferRateReportingEnabled
+			miscSettings.networkTransferRateReportingEnabled
 		}
 		set {
-			MiscellaneousSettings.current.set(networkTransferRateReportingEnabled: newValue)
-		}
-	}
-
-	@MainActor
-	var frameRateSetting: FrameRateSetting {
-		get {
-			MiscellaneousSettings.current.frameRateSetting
-		}
-		set {
-			MiscellaneousSettings.current.set(frameRateSetting: newValue)
-
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			miscSettings.set(networkTransferRateReportingEnabled: newValue)
 		}
 	}
 
 	@MainActor
 	var alwaysLandscapeMode: Bool {
 		get {
-			MiscellaneousSettings.current.alwaysLandscapeMode
+			miscSettings.alwaysLandscapeMode
 		}
 		set {
-			MiscellaneousSettings.current.set(alwaysLandscapeMode: newValue)
+			miscSettings.set(alwaysLandscapeMode: newValue)
 
 			changeSubject.send(.alwaysLandscapeModeOptionToggled)
 		}
@@ -69,16 +66,16 @@ class PreferencesAdvancedModel {
 	@MainActor
 	var hoverJustAboveOffsetModifier: Float {
 		get {
-			MiscellaneousSettings.current.hoverJustAboveOffsetModifier
+			miscSettings.hoverJustAboveOffsetModifier
 		}
 		set {
-			MiscellaneousSettings.current.set(hoverJustAboveOffsetModifier: newValue)
+			miscSettings.set(hoverJustAboveOffsetModifier: newValue)
 		}
 	}
 
 	@MainActor
 	var shouldDisplayAlwaysLandscapeModeOption: Bool {
-		MiscellaneousSettings.current.shouldDisplayAlwaysLandscapeModeOption
+		miscSettings.shouldDisplayAlwaysLandscapeModeOption
 	}
 
 	@MainActor
@@ -94,30 +91,45 @@ class PreferencesAdvancedModel {
 	@MainActor
 	var relativeMouseModeSetting: RelativeMouseModeSetting {
 		get {
-			MiscellaneousSettings.current.relativeMouseModeSetting
+			miscSettings.relativeMouseModeSetting
 		}
 		set {
-			MiscellaneousSettings.current.set(relativeMouseModeSetting: newValue)
+			miscSettings.set(relativeMouseModeSetting: newValue)
 
 			switch newValue {
 			case .automatic:
-				objc_setRelativeMouseModeAutomatic();
+				cpp_setRelativeMouseModeAutomatic();
 			case .alwaysOn:
-				objc_setRelativeMouseMode(true);
+				cpp_setRelativeMouseMode(true);
 			default: break
 			}
 
-			NotificationCenter.default.post(name: LocalNotifications.relativeMouseModeSettingChanged, object: nil)
+			LocalNotification.send(.relativeMouseModeSettingChanged)
 		}
 	}
 
 	@MainActor
-	var relativeMouseTapToClick: Bool {
+	var isIPadMouseEnabled: Bool {
+		miscSettings.iPadMousePassthrough
+	}
+
+	@MainActor
+	var bootInRelativeMouseMode: Bool {
 		get {
-			MiscellaneousSettings.current.relativeMouseTapToClick
+			miscSettings.bootInRelativeMouseMode
 		}
 		set {
-			MiscellaneousSettings.current.set(relativeMouseTapToClick: newValue)
+			miscSettings.set(bootInRelativeMouseMode: newValue)
+		}
+	}
+
+	@MainActor
+	var relativeMouseModeClickGestureSetting: RelativeMouseModeClickGestureSetting {
+		get {
+			miscSettings.relativeMouseModeClickGestureSetting
+		}
+		set {
+			miscSettings.set(relativeMouseModeClickGestureSetting: newValue)
 		}
 	}
 
@@ -131,17 +143,55 @@ class PreferencesAdvancedModel {
 		RomManager.shared.currentRomFileVersion?.description
 	}
 
+	lazy var supportsHaptics: Bool = {
+		CHHapticEngine.capabilitiesForHardware().supportsHaptics
+	}()
+
 	@MainActor
-	var gammaRampSetting: GammaRampSetting {
+	var isGestureHapticFeedbackOn: Bool {
 		get {
-			MiscellaneousSettings.current.gammaRampSetting
+			miscSettings.gestureHapticFeedback
 		}
 		set {
-			MiscellaneousSettings.current.set(gammaRampSetting: newValue)
+			miscSettings.set(gestureHapticFeedback: newValue)
 		}
 	}
 
-	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
+	@MainActor
+	var isMouseHapticFeedbackOn: Bool {
+		get {
+			miscSettings.mouseHapticFeedback
+		}
+		set {
+			miscSettings.set(mouseHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var isKeyHapticFeedbackOn: Bool {
+		get {
+			miscSettings.keyHapticFeedback
+		}
+		set {
+			miscSettings.set(keyHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var ignoreIllegalInstructions: Bool {
+		get {
+			miscSettings.ignoreIllegalInstructions
+		}
+		set {
+			miscSettings.set(ignoreIllegalInstructions: newValue)
+		}
+	}
+
+	init(
+		mode: PreferencesLaunchMode,
+		changeSubject: PassthroughSubject<PreferencesChange, Never>
+	) {
+		self.mode = mode
 		self.changeSubject = changeSubject
 	}
 
@@ -155,13 +205,13 @@ class PreferencesAdvancedModel {
 
 extension PreferencesGeneralRamSetting {
 
+	@MainActor
 	static var current: Self {
 		get {
-			let persistedRamInMbValue = objc_findInt32("ramsize")
-			return .init(ramInMB: persistedRamInMbValue)
+			return .init(ramInMB: MiscellaneousSettings.current.ramInMb)
 		}
 		set {
-			objc_replaceInt32("ramsize", newValue.ramInMB)
+			MiscellaneousSettings.current.set(ramInMb: newValue.ramInMB)
 		}
 	}
 
@@ -172,11 +222,14 @@ extension PreferencesGeneralRamSetting {
 		case .n128: 128
 		case .n256: 256
 		case .n512: 512
+		case .n1024: 1024
 		}
 	}
 
 	init(ramInMB: Int) {
-		if ramInMB >= Self.n512.ramInMB {
+		if ramInMB >= Self.n1024.ramInMB {
+			self = .n1024
+		} else if ramInMB >= Self.n512.ramInMB {
 			self = .n512
 		} else if ramInMB >= Self.n256.ramInMB {
 			self = .n256

@@ -132,6 +132,10 @@ extension GamepadButtonAssignment {
 				return "Key combination Cmd-W. For closing windows."
 			case .rightClick:
 				return "Click with right mouse button. Configure in Preferences what this means."
+			case .audioEnabled:
+				return "Toggle audio enabled. Sound from other apps is lowered if audio is enabled."
+			case .relativeMouseModeEnabled:
+				return "Toggle relative mouse mode (more info on this mode in Preferences under Advanced tab)."
 			}
 		case .joystick(let joystickType):
 			switch joystickType {
@@ -170,7 +174,7 @@ private let alternativeNames: [GamepadAssignEntry] = [
 	.init(identifier: "Control", assignment: .key(.ctrl)),
 	.init(identifier: "Opt", assignment: .key(.alt)),
 	.init(identifier: "Option", assignment: .key(.alt)),
-	.init(identifier: "Escape", assignment: .key(.alt)),
+	.init(identifier: "Escape", assignment: .key(.escape)),
 	.init(identifier: "Scrollock", assignment: .key(.scrollock)),
 	.init(identifier: "Less than", assignment: .key(.lessThan)),
 	.init(identifier: "Click", assignment: .specialButton(.mouseClick)),

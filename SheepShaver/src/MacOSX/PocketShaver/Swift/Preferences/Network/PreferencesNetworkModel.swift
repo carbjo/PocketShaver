@@ -9,11 +9,6 @@ import UIKit
 import Combine
 
 class PreferencesNetworkModel {
-	struct TableViewChange {
-		let deletedIndices: Set<Int>
-		let insertedIndices: Set<Int>
-	}
-
 	enum Change {
 		case didUpdate
 	}
@@ -25,6 +20,8 @@ class PreferencesNetworkModel {
 
 	private var anyCancellables = Set<AnyCancellable>()
 	let changeSubject = PassthroughSubject<Change, Never>()
+
+	let mode: PreferencesLaunchMode
 
 	@MainActor
 	var hasDismissedOsWarning: Bool {
@@ -45,6 +42,14 @@ class PreferencesNetworkModel {
 		set {
 			NetworkSettings.current.set(serviceType: newValue)
 		}
+	}
+
+	@MainActor
+	private let originalServiceType: NetworkServiceType = NetworkSettings.current.serviceType
+
+	@MainActor
+	var shouldDisplayServiceTypeChangeWarning: Bool {
+		mode == .duringEmulation && serviceType != originalServiceType
 	}
 
 	@MainActor
@@ -104,7 +109,11 @@ class PreferencesNetworkModel {
 	}
 
 	@MainActor
-	init() {
+	init(
+		mode: PreferencesLaunchMode,
+	) {
+		self.mode = mode
+
 		listenToChanges()
 	}
 

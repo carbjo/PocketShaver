@@ -22,10 +22,23 @@ enum FrameRateSetting: String, Codable, CaseIterable {
 	}
 }
 
+enum TwoFingerSteeringSetting: String, Codable, CaseIterable, Hashable {
+	case off
+	case click
+	case clickPlusSwipe
+	case clickPlusSwipePlusBootInHoverMode
+}
+
 enum RelativeMouseModeSetting: String, Codable, CaseIterable {
 	case manual
 	case automatic
 	case alwaysOn
+}
+
+enum RelativeMouseModeClickGestureSetting: String, Codable, CaseIterable {
+	case off
+	case tap
+	case secondFingerClick
 }
 
 enum RightClickSetting: String, Codable, CaseIterable {
@@ -50,30 +63,66 @@ class MiscellaneousSettings: Codable {
 	private(set) var gestureHapticFeedback: Bool
 	private(set) var mouseHapticFeedback: Bool
 	private(set) var keyHapticFeedback: Bool
-	private(set) var soundDisabled: Bool
+	private(set) var audioEnabled: Bool {
+		didSet {
+			LocalNotification.send(.audioEnabledChanged)
+		}
+	}
 	private(set) var fpsReporting: Bool {
 		didSet {
-			NotificationCenter.default.post(.init(name: LocalNotifications.performanceCounterSettingChanged))
+			LocalNotification.send(.performanceCounterSettingChanged)
 		}
 	}
 	private(set) var networkTransferRateReportingEnabled: Bool {
 		didSet {
-			NotificationCenter.default.post(.init(name: LocalNotifications.performanceCounterSettingChanged))
+			LocalNotification.send(.performanceCounterSettingChanged)
 		}
 	}
 	private(set) var frameRateSetting: FrameRateSetting
 	private(set) var alwaysLandscapeMode: Bool
+	private(set) var twoFingerSteeringSetting: TwoFingerSteeringSetting
 	private(set) var relativeMouseModeSetting: RelativeMouseModeSetting
-	private(set) var relativeMouseTapToClick: Bool
-	private(set) var secondFingerClick: Bool
-	private(set) var secondFingerSwipe: Bool
-	private(set) var bootInHoverMode: Bool
+	private(set) var relativeMouseModeClickGestureSetting: RelativeMouseModeClickGestureSetting
 	private(set) var rightClickSetting: RightClickSetting
 	private(set) var keyboardAutoOffsetSetting: KeyboardAutoOffsetSetting
 	private(set) var hoverJustAboveOffsetModifier: Float
 	private(set) var gammaRampSetting: GammaRampSetting
+	private(set) var bootInRelativeMouseMode: Bool
+	private(set) var ignoreIllegalInstructions: Bool
+	private(set) var ramInMb: Int
 
-	var shouldDisplayAlwaysLandscapeModeOption: Bool {
+
+	var secondFingerClick: Bool {
+		twoFingerSteeringSetting != .off
+	}
+
+	var secondFingerSwipe: Bool {
+		twoFingerSteeringSetting == .clickPlusSwipe ||
+		twoFingerSteeringSetting == .clickPlusSwipePlusBootInHoverMode
+	}
+
+	var shouldBootInHoverMode: Bool {
+		twoFingerSteeringSetting == .clickPlusSwipePlusBootInHoverMode
+	}
+
+	var relativeMouseModeSecondFingerClick: Bool {
+		relativeMouseModeClickGestureSetting == .secondFingerClick
+	}
+
+	var shouldBootInRelativeMouseMode: Bool {
+		if relativeMouseModeSetting == .alwaysOn {
+			return true
+		}
+
+		if UIDevice.deviceType == .mac ||
+			(UIDevice.deviceType == .iPad && iPadMousePassthrough),
+		   bootInRelativeMouseMode {
+			return true
+		}
+		return false
+	}
+
+	private static var shouldDisplayAlwaysLandscapeModeOption: Bool {
 		if #available(iOS 16, *) {
 			return true
 		} else {
@@ -82,14 +131,18 @@ class MiscellaneousSettings: Codable {
 		}
 	}
 
+	var shouldDisplayAlwaysLandscapeModeOption: Bool {
+		Self.shouldDisplayAlwaysLandscapeModeOption
+	}
+
 	@MainActor
 	init() {
 		showHints = true
-		iPadMousePassthrough = false
+		iPadMousePassthrough = UIDevice.deviceType == .mac
 		gestureHapticFeedback = true
 		mouseHapticFeedback = true
 		keyHapticFeedback = true
-		soundDisabled = false
+		audioEnabled = true
 		fpsReporting = false
 		networkTransferRateReportingEnabled = false
 		if UIScreen.supportsHighRefreshRate {
@@ -97,16 +150,17 @@ class MiscellaneousSettings: Codable {
 		} else {
 			frameRateSetting = .f60hz
 		}
-		alwaysLandscapeMode = false
+		alwaysLandscapeMode = Self.shouldDisplayAlwaysLandscapeModeOption
+		twoFingerSteeringSetting = .off
 		relativeMouseModeSetting = .manual
-		relativeMouseTapToClick = true
-		secondFingerClick = false
-		secondFingerSwipe = false
-		bootInHoverMode = false
+		relativeMouseModeClickGestureSetting = .tap
 		rightClickSetting = .control
 		keyboardAutoOffsetSetting = .middle
 		hoverJustAboveOffsetModifier = 1
 		gammaRampSetting = .osDefined
+		bootInRelativeMouseMode = UIDevice.deviceType == .mac
+		ignoreIllegalInstructions = false
+		ramInMb = 512
 	}
 
 	@MainActor
@@ -130,7 +184,7 @@ class MiscellaneousSettings: Codable {
 
 	@MainActor
 	func updateCachedResponses() {
-		MiscellaneousCachedSettings.isRelativeMouseTapToClickOn = relativeMouseTapToClick
+		MiscellaneousCachedSettings.isRelativeMouseTapToClickOn = relativeMouseModeClickGestureSetting == .tap
 		MiscellaneousCachedSettings.framesPerSecond = frameRateSetting.frameRate
 		MiscellaneousCachedSettings.isMouseHapticFeedbackOn = mouseHapticFeedback
 		MiscellaneousCachedSettings.rightClickSetting = rightClickSetting
@@ -147,7 +201,7 @@ class MiscellaneousSettings: Codable {
 	func set(iPadMousePassthrough: Bool) {
 		self.iPadMousePassthrough = iPadMousePassthrough
 
-		NotificationCenter.default.post(name: LocalNotifications.iPadMousePassthroughChanged, object: nil)
+		LocalNotification.send(.iPadMousePassthroughChanged)
 
 		objc_ADBSetTouchInput(!iPadMousePassthrough)
 
@@ -177,8 +231,8 @@ class MiscellaneousSettings: Codable {
 	}
 
 	@MainActor
-	func set(soundDisabled: Bool) {
-		self.soundDisabled = soundDisabled
+	func set(audioEnabled: Bool) {
+		self.audioEnabled = audioEnabled
 
 		saveAsCurrent()
 	}
@@ -208,9 +262,6 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(alwaysLandscapeMode: Bool) {
 		self.alwaysLandscapeMode = alwaysLandscapeMode
-		if alwaysLandscapeMode {
-			InformationConsumption.current.reportHasDisplayedPortraitModeWarning()
-		}
 
 		saveAsCurrent()
 	}
@@ -227,39 +278,16 @@ class MiscellaneousSettings: Codable {
 	}
 
 	@MainActor
-	func set(relativeMouseTapToClick: Bool) {
-		self.relativeMouseTapToClick = relativeMouseTapToClick
+	func set(relativeMouseModeClickGestureSetting: RelativeMouseModeClickGestureSetting) {
+		self.relativeMouseModeClickGestureSetting = relativeMouseModeClickGestureSetting
 
 		updateCachedResponses()
 		saveAsCurrent()
 	}
 
 	@MainActor
-	func set(secondFingerClick: Bool) {
-		self.secondFingerClick = secondFingerClick
-
-		saveAsCurrent()
-	}
-
-	@MainActor
-	func set(secondFingerSwipe: Bool) {
-		self.secondFingerSwipe = secondFingerSwipe
-
-		saveAsCurrent()
-	}
-
-	@MainActor
-	func set(bootInHoverMode: Bool) {
-		self.bootInHoverMode = bootInHoverMode
-
-		saveAsCurrent()
-	}
-
-	@MainActor
-	func setTwoFingerSteering(enabled: Bool) {
-		secondFingerClick = enabled
-		secondFingerSwipe = enabled
-		bootInHoverMode = enabled
+	func set(twoFingerSteeringSetting: TwoFingerSteeringSetting) {
+		self.twoFingerSteeringSetting = twoFingerSteeringSetting
 
 		saveAsCurrent()
 	}
@@ -289,6 +317,27 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(gammaRampSetting: GammaRampSetting) {
 		self.gammaRampSetting = gammaRampSetting
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(bootInRelativeMouseMode: Bool) {
+		self.bootInRelativeMouseMode = bootInRelativeMouseMode
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(ignoreIllegalInstructions: Bool) {
+		self.ignoreIllegalInstructions = ignoreIllegalInstructions
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(ramInMb: Int) {
+		self.ramInMb = ramInMb
 
 		saveAsCurrent()
 	}
@@ -324,8 +373,8 @@ public class MiscellaneousSettingsObjC: NSObject {
 	}
 
 	@MainActor
-	static func isSoundDisabled() -> Bool {
-		MiscellaneousSettings.current.soundDisabled
+	static func isAudioEnabled() -> Bool {
+		MiscellaneousSettings.current.audioEnabled
 	}
 
 	static func isRelativeMouseTapToClickOn() -> Bool {
@@ -339,5 +388,20 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func isLinearGammaEnabled() -> Bool {
 		MiscellaneousSettings.current.gammaRampSetting == .linear
+	}
+
+	@MainActor
+	static func shouldBootInRelativeMouseMode() -> Bool {
+		MiscellaneousSettings.current.shouldBootInRelativeMouseMode
+	}
+
+	@MainActor
+	static func isIgnoreIllegalInstructionsEnabled() -> Bool {
+		MiscellaneousSettings.current.ignoreIllegalInstructions
+	}
+
+	@MainActor
+	static func getRamInMb() -> Int {
+		MiscellaneousSettings.current.ramInMb
 	}
 }

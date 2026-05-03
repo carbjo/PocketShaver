@@ -8,6 +8,19 @@
 import UIKit
 
 class PreferencesTwoFingerSteeringDetailsViewController: UITableViewController {
+	enum Section {
+		case main
+	}
+
+	enum Row: Hashable {
+		case secondFingerClickEnabledToggle
+		case secondFingerClickInstructions(Bool)
+		case secondFingerSwipeEnabledToggle
+		case secondFingerSwipeInstructions(Bool)
+		case bootInHoverModeEnabledToggle
+		case bootInHoverModeInstructions
+	}
+
 	private lazy var doneButton: DoneButton = {
 		DoneButton(target: self, selector: #selector(doneButtonPressed))
 	}()
@@ -17,6 +30,8 @@ class PreferencesTwoFingerSteeringDetailsViewController: UITableViewController {
 	}
 
 	private let didChangeCallback: (() -> Void)
+
+	private var dataSource: TableViewDiffableDataSource<Section, Row>!
 
 	init(didChangeCallback: @escaping () -> Void) {
 		self.didChangeCallback = didChangeCallback
@@ -30,134 +45,104 @@ class PreferencesTwoFingerSteeringDetailsViewController: UITableViewController {
 		super.viewDidLoad()
 
 		view.translatesAutoresizingMaskIntoConstraints = false
-		view.backgroundColor = .white
+		view.backgroundColor = Colors.primaryBackground
 		tableView.showsVerticalScrollIndicator = false
 
 		navigationItem.rightBarButtonItem = doneButton
+
+		setupDataSource()
 	}
 
-	override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-		if miscSettings.secondFingerSwipe {
-			return 6
-		} else if miscSettings.secondFingerClick {
-			return 4
-		} else {
-			return 2
-		}
-	}
+	private func setupDataSource() {
+		dataSource = .init(tableView: tableView) { [weak self] tableView, indexPath, itemIdentifier in
+			guard let self else { return UITableViewCell() }
+			switch itemIdentifier {
+			case .secondFingerClickEnabledToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Second finger click",
+					isOn: miscSettings.secondFingerClick
+				) { [weak self] isOn in
+					guard let self else { return }
 
-	override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-		switch indexPath.row {
-		case 0:
-			return PreferencesEnabledSettingCell(
-				title: "Second finger click",
-				isOn: miscSettings.secondFingerClick
-			) { [weak self] isOn in
-				self?.set(secondFingerClick: isOn)
-			}
-		case 1:
-			return PreferencesInformationCell(
-				text: "A second finger can be used for mouse clicking, while the first finger controls the position. Only has effect when a hover mode, or relative mouse mode, is enabled.",
-				separatorHidden: !miscSettings.secondFingerClick
-			)
-		case 2:
-			return PreferencesEnabledSettingCell(
-				title: "Second finger swipe",
-				isOn: miscSettings.secondFingerSwipe
-			) { [weak self] isOn in
-				self?.set(secondFingerSwipe: isOn)
-			}
-		case 3:
-			return PreferencesInformationCell(
-				text: "A second finger can be used for quickly swiping between the four mouse hover modes. Only has effect when a hover mode is already enabled.",
-				separatorHidden: !miscSettings.secondFingerSwipe
-			)
-		case 4:
-			return PreferencesEnabledSettingCell(
-				title: "Boot in hover mode",
-				isOn: miscSettings.bootInHoverMode
-			) { [weak self] isOn in
-				self?.set(bootInHoverMode: isOn)
-			}
-		case 5:
-			return PreferencesInformationCell(
-				text: "Hover (just above) is on by default when booting, making Two finger steering available from the start."
-			)
-		default: fatalError()
-		}
-	}
-
-	private func set(
-		secondFingerClick: Bool? = nil,
-		secondFingerSwipe: Bool? = nil,
-		bootInHoverMode: Bool? = nil
-	) {
-		let prevSecondFingerClick = miscSettings.secondFingerClick
-		let prevSecondFingerSwipe = miscSettings.secondFingerSwipe
-
-		let secondFingerClick = secondFingerClick ?? miscSettings.secondFingerClick
-		var secondFingerSwipe = secondFingerSwipe ?? miscSettings.secondFingerSwipe
-		var bootInHoverMode = bootInHoverMode ?? miscSettings.bootInHoverMode
-
-		if !secondFingerClick {
-			secondFingerSwipe = false
-			bootInHoverMode = false
-		} else if !secondFingerSwipe {
-			bootInHoverMode = false
-		}
-
-		miscSettings.set(secondFingerClick: secondFingerClick)
-		miscSettings.set(secondFingerSwipe: secondFingerSwipe)
-		miscSettings.set(bootInHoverMode: bootInHoverMode)
-
-
-		let sectionIndex = 0
-
-		tableView.performBatchUpdates {
-			if !prevSecondFingerClick,
-			   secondFingerClick {
-				tableView.insertRows(at: [
-					.init(row: 2, section: sectionIndex),
-					.init(row: 3, section: sectionIndex)
-				], with: .fade)
-				tableView.reloadRows(at: [
-					.init(row: 1, section: sectionIndex)
-				], with: .fade)
-			} else if prevSecondFingerClick,
-					  !secondFingerClick {
-				tableView.deleteRows(at: [
-					.init(row: 2, section: sectionIndex),
-					.init(row: 3, section: sectionIndex)
-				], with: .fade)
-				tableView.reloadRows(at: [
-					.init(row: 1, section: sectionIndex)
-				], with: .fade)
-			}
-			if !prevSecondFingerSwipe,
-			   secondFingerSwipe {
-				tableView.insertRows(at: [
-					.init(row: 4, section: sectionIndex),
-					.init(row: 5, section: sectionIndex)
-				], with: .fade)
-				if secondFingerClick {
-					tableView.reloadRows(at: [
-						.init(row: 3, section: sectionIndex)
-					], with: .fade)
+					miscSettings.set(twoFingerSteeringSetting: isOn ? .click : .off)
+					reportToggleSwitched()
 				}
-			} else if prevSecondFingerSwipe,
-					  !secondFingerSwipe {
-				tableView.deleteRows(at: [
-					.init(row: 4, section: sectionIndex),
-					.init(row: 5, section: sectionIndex)
-				], with: .fade)
-				if secondFingerClick {
-					tableView.reloadRows(at: [
-						.init(row: 3, section: sectionIndex)
-					], with: .fade)
+			case .secondFingerClickInstructions(let separatorHidden):
+				return PreferencesInformationCell(
+					text: "A second finger can be used for mouse clicking, while the first finger controls the position. Only has effect when a hover mode is enabled.",
+					separatorHidden: separatorHidden
+				)
+			case .secondFingerSwipeEnabledToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Second finger swipe",
+					isOn: miscSettings.secondFingerSwipe
+				) { [weak self] isOn in
+					guard let self else { return }
+
+					miscSettings.set(twoFingerSteeringSetting: isOn ? .clickPlusSwipe : .click)
+					reportToggleSwitched()
 				}
+			case .secondFingerSwipeInstructions(let separatorHidden):
+				return PreferencesInformationCell(
+					text: "A second finger can be used for quickly swiping between the four mouse hover modes. Only has effect when a hover mode is already enabled.",
+					separatorHidden: separatorHidden
+				)
+			case .bootInHoverModeEnabledToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Boot in hover mode",
+					isOn: miscSettings.shouldBootInHoverMode
+				) { [weak self] isOn in
+					guard let self else { return }
+
+					miscSettings.set(twoFingerSteeringSetting: isOn ? .clickPlusSwipePlusBootInHoverMode : .clickPlusSwipe)
+					reportToggleSwitched()
+				}
+			case .bootInHoverModeInstructions:
+				return PreferencesInformationCell(
+					text: "Hover (diagnoally above) is on by default when booting, making Two finger steering available from the start."
+				)
 			}
 		}
 
+		dataSource.defaultRowAnimation = .fade
+		tableView.dataSource = dataSource
+
+		reloadData()
+	}
+
+	private func reloadData() {
+		var snapshot = NSDiffableDataSourceSnapshot<Section, Row>()
+
+		snapshot.appendSections([.main])
+
+		snapshot.appendItems([
+			.secondFingerClickEnabledToggle,
+			.secondFingerClickInstructions(!miscSettings.secondFingerClick)
+		])
+
+		if miscSettings.secondFingerClick {
+			snapshot.appendItems([
+				.secondFingerSwipeEnabledToggle,
+				.secondFingerSwipeInstructions(!miscSettings.secondFingerSwipe)
+			])
+
+			if miscSettings.secondFingerSwipe {
+				snapshot.appendItems([
+					.bootInHoverModeEnabledToggle,
+					.bootInHoverModeInstructions
+				])
+			}
+		}
+
+		dataSource.apply(snapshot)
+	}
+
+	override func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
+		false
+	}
+
+	func reportToggleSwitched() {
+		reloadData()
 		didChangeCallback()
 	}
 

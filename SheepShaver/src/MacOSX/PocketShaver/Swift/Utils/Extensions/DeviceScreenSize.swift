@@ -18,7 +18,7 @@ extension UIScreen {
 		if isSESize,
 		   isPortraitMode {
 			return .tiny
-		} else if !UIDevice.isIPad,
+		} else if !UIDevice.isIPadIdiom,
 				  isPortraitMode {
 			return .small
 		} else {

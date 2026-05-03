@@ -78,8 +78,11 @@
 #include "vm_alloc.h"
 #include "cdrom.h"
 
-#include "PerformanceCounterObjCCppHeader.h"
-#include "MiscellaneousSettingsObjCCppHeader.h"
+#if TARGET_OS_IPHONE
+#import "PerformanceCounterObjCCppHeader.h"
+#import "MiscellaneousSettingsObjCCppHeader.h"
+#import "PreferencesViewControllerObjCCppHeader.h"
+#endif
 
 #define DEBUG 0
 #include "debug.h"
@@ -152,6 +155,8 @@ static bool classic_mode = false;					// Flag: Classic Mac video mode
 static bool use_keycodes = false;					// Flag: Use keycodes rather than keysyms
 static int keycode_table[256];						// X keycode -> Mac keycode translation table
 
+bool input_disabled = false;
+
 // SDL variables
 SDL_Window * sdl_window = NULL;				        // Wraps an OS-native window
 static SDL_Surface * host_surface = NULL;			// Surface in host-OS display format
@@ -202,7 +207,6 @@ static uint16 last_gamma_blue[256];
 // Video refresh function
 static void VideoRefreshInit(void);
 static void (*video_refresh)(void);
-
 
 // Prototypes
 static int redraw_func(void *arg);
@@ -481,6 +485,7 @@ static int sdl_depth_of_video_depth(int video_depth)
 static void sdl_display_dimensions(int &width, int &height)
 {
 	SDL_DisplayMode desktop_mode;
+	desktop_mode.refresh_rate = objc_getFrameRateSetting();
 	const int display_index = 0;	// TODO: try supporting multiple displays
 	if (SDL_GetDesktopDisplayMode(display_index, &desktop_mode) != 0) {
 		// TODO: report a warning, here?
@@ -748,6 +753,7 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 	
 	if (flags & SDL_WINDOW_FULLSCREEN) {
 		SDL_DisplayMode desktop_mode;
+		desktop_mode.refresh_rate = objc_getFrameRateSetting();
 		if (SDL_GetDesktopDisplayMode(0, &desktop_mode) != 0) {
 			shutdown_sdl_video();
 			return NULL;
@@ -1123,7 +1129,9 @@ void driver_base::init()
 	sdl_palette->colors[1] = (SDL_Color){ .r = 0, .g = 0, .b = 0, .a = 255 };
 	SDL_SetSurfacePalette(s, sdl_palette);
 
+#if !TARGET_OS_IPHONE
 	if (PrefsFindBool("init_grab") && !PrefsFindBool("hardcursor")) grab_mouse();
+#endif
 }
 
 void driver_base::adapt_to_video_mode() {
@@ -1455,7 +1463,10 @@ bool VideoInit(bool classic)
 #if TARGET_OS_IPHONE
 	bool touch_input = !objc_getIPadMousePassthroughOn();
 	ADBSetTouchInput(touch_input);
-	mouse_grabbed = objc_getRelateiveMouseModeSettingIsAlwaysOn();
+	if (objc_getShouldBootInRelativeMouseMode()) {
+		drv->grab_mouse();
+	}
+//	mouse_grabbed = objc_getShouldBootInRelativeMouseMode();//objc_getRelateiveMouseModeSettingIsAlwaysOn();
 #endif
 	
 	// Get screen mode from preferences
@@ -1500,6 +1511,7 @@ bool VideoInit(bool classic)
 	// Mac screen depth follows X depth
 	screen_depth = 32;
 	SDL_DisplayMode desktop_mode;
+	desktop_mode.refresh_rate = objc_getFrameRateSetting();
 	if (SDL_GetDesktopDisplayMode(0, &desktop_mode) == 0) {
 		screen_depth = SDL_BITSPERPIXEL(desktop_mode.format);
 	}
@@ -2099,6 +2111,13 @@ void set_relative_mouse_disabled() {
 	drv->ungrab_mouse();
 }
 
+void toggle_relative_mouse() {
+	if (mouse_grabbed && objc_getRelateiveMouseModeSettingIsAlwaysOn()) {
+		return;
+	}
+	drv->toggle_mouse_grab();
+}
+
 void set_relative_mouse_automatic() {
 	if (suggest_mouse_grab) {
 		set_relative_mouse_enabled();
@@ -2112,6 +2131,10 @@ void report_relative_mouse_capability() {
 	if (objc_getRelateiveMouseModeSettingIsAutomatic()) {
 		set_relative_mouse_enabled();
 	}
+}
+
+void set_input_disabled(bool is_disabled) {
+	input_disabled = is_disabled;
 }
 
 /*
@@ -2369,12 +2392,30 @@ static int SDLCALL on_sdl_event_generated(void *userdata, SDL_Event * event)
 		case SDL_KEYUP: {
 			SDL_Keysym const & ks = event->key.keysym;
 			switch (ks.sym) {
+#if TARGET_OS_IPHONE
+				case SDLK_F5: {
+					if (opt_down) {
+						cpp_toggle_relative_mouse_on_main();
+						return EVENT_DROP_FROM_QUEUE;
+					}
+					break;
+				}
+				case SDLK_F6: {
+					if (opt_down) {
+						objc_displayPreferencesDuringEmulationOnMain();
+						return EVENT_DROP_FROM_QUEUE;
+					}
+				} break;
+#else
 				case SDLK_F5: {
 					if (is_hotkey_down(ks) && !PrefsFindBool("hardcursor")) {
 						drv->toggle_mouse_grab();
 						return EVENT_DROP_FROM_QUEUE;
 					}
-				} break;
+					break;
+				}
+#endif
+
 			}
 		} break;
 			
@@ -2433,6 +2474,10 @@ static void handle_events(void)
 
 			// Mouse button
 			case SDL_MOUSEBUTTONDOWN: {
+				if (input_disabled) {
+					break;
+				}
+
 				unsigned int button = event.button.button;
 				if (button == SDL_BUTTON_LEFT)
 					ADBMouseDown(0);
@@ -2455,6 +2500,10 @@ static void handle_events(void)
 
 			// Mouse moved
 			case SDL_MOUSEMOTION:
+				if (input_disabled) {
+					break;
+				}
+
 				if (mouse_grabbed) {
 					drv->mouse_moved(event.motion.xrel, event.motion.yrel);
 				} else {
@@ -2480,6 +2529,10 @@ static void handle_events(void)
 
 			// Keyboard
 			case SDL_KEYDOWN: {
+				if (input_disabled) {
+					break;
+				}
+
 				if (event.key.repeat)
 					break;
 				int code = CODE_INVALID;
@@ -2886,6 +2939,10 @@ static void video_refresh_window_static(void)
 
 static void VideoRefreshInit(void)
 {
+#if TARGET_OS_IPHONE
+	setup_frame_rate();
+#endif
+
 	// TODO: set up specialised 8bpp VideoRefresh handlers ?
 	if (display_type == DISPLAY_SCREEN) {
 #if ENABLE_VOSF && (REAL_ADDRESSING || DIRECT_ADDRESSING)
@@ -2930,8 +2987,18 @@ void VideoRefresh(void)
 	do_video_refresh();
 }
 
-const int VIDEO_REFRESH_HZ = objc_getFrameRateSetting();
+#if TARGET_OS_IPHONE
+int VIDEO_REFRESH_HZ;
+int VIDEO_REFRESH_DELAY;
+
+void setup_frame_rate() {
+	VIDEO_REFRESH_HZ = objc_getFrameRateSetting();
+	VIDEO_REFRESH_DELAY = 1000000 / VIDEO_REFRESH_HZ;
+}
+#else
+const int VIDEO_REFRESH_HZ = 60;
 const int VIDEO_REFRESH_DELAY = 1000000 / VIDEO_REFRESH_HZ;
+#endif
 
 #ifndef USE_CPU_EMUL_SERVICES
 static int redraw_func(void *arg)

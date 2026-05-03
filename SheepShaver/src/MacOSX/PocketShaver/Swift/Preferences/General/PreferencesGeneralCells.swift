@@ -7,6 +7,106 @@
 
 import UIKit
 
+class PreferencesGeneralWelcomeCell: UITableViewCell {
+	private lazy var cardView: UIView = {
+		let view = UIView.withoutConstraints()
+		view.layer.cornerRadius = 8
+		view.backgroundColor = Colors.informationCardBackground
+		return view
+	}()
+
+	private lazy var welcomeStackView: UIStackView = {
+		let stackView = UIStackView.withoutConstraints()
+		stackView.axis = .horizontal
+		stackView.spacing = 24
+		stackView.distribution = .fill
+		stackView.alignment = .center
+		return stackView
+	}()
+
+	private lazy var logoContainerView: UIView = {
+		let view = UIView.withoutConstraints()
+		view.layer.cornerRadius = 8
+		view.clipsToBounds = true
+
+		NSLayoutConstraint.activate([
+			view.widthAnchor.constraint(equalToConstant: 70),
+			view.heightAnchor.constraint(equalToConstant: 70)
+		])
+
+		return view
+	}()
+
+	private lazy var logoImageView: UIImageView = {
+		let imageView = UIImageView.withoutConstraints()
+		imageView.image = UIImage(resource: .logo)
+		imageView.tintColor = Colors.secondaryText
+
+		NSLayoutConstraint.activate([
+			imageView.widthAnchor.constraint(equalToConstant: 70),
+			imageView.heightAnchor.constraint(equalToConstant: 70)
+		])
+
+		return imageView
+	}()
+
+	private let welcomeLabel: LinkLabel
+	private let informationLabel: LinkLabel
+
+	init() {
+		welcomeLabel = .init(
+			text: "Welcome!",
+			config: .init(),
+			font: .systemFont(ofSize: 60),
+			callback: nil
+		)
+
+		informationLabel = .init(
+			text: "This window can be accessed during emulation by pressing option + F6.",
+			config: .init(),
+			font: .systemFont(ofSize: 14),
+			callback: nil
+		)
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
+
+		hideSeparator()
+
+		cardView.setContentHuggingPriority(.required, for: .horizontal)
+
+		logoContainerView.addSubview(logoImageView)
+		cardView.addSubview(welcomeStackView)
+		welcomeStackView.addArrangedSubview(logoContainerView)
+		welcomeStackView.addArrangedSubview(welcomeLabel)
+		cardView.addSubview(informationLabel)
+		contentView.addSubview(cardView)
+
+		NSLayoutConstraint.activate([
+			cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+			cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+
+			cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+
+			welcomeStackView.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 32),
+			welcomeStackView.centerXAnchor.constraint(equalTo: cardView.centerXAnchor),
+
+			logoImageView.centerXAnchor.constraint(equalTo: logoContainerView.centerXAnchor),
+			logoImageView.centerYAnchor.constraint(equalTo: logoContainerView.centerYAnchor),
+
+			informationLabel.topAnchor.constraint(equalTo: welcomeStackView.bottomAnchor, constant: 24),
+			informationLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 50),
+			informationLabel.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -32).withPriority(.required - 1),
+			informationLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -50),
+
+			cardView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -12),
+		])
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+}
+
 class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 	private lazy var containerView: UIView = {
 		let view = UIView.withoutConstraints()
@@ -58,6 +158,8 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		titleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
@@ -80,10 +182,11 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 			readButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
 			readButton.heightAnchor.constraint(equalToConstant: 44),
 
-			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8).withPriority(.required - 1),
 			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8).withPriority(.defaultHigh),
 			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
+			containerView.widthAnchor.constraint(lessThanOrEqualToConstant: 500),
 
 			closeButton.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
 			closeButton.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
@@ -105,6 +208,60 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 }
 
 class PreferencesGeneralBootstrapCell: UITableViewCell {
+	private class BootstrapCompletedView: UIView {
+		private lazy var stackView: UIStackView = {
+			let stackView = UIStackView.withoutConstraints()
+			stackView.axis = .horizontal
+			stackView.spacing = 16
+			stackView.distribution = .fill
+			stackView.alignment = .center
+			return stackView
+		}()
+
+		private lazy var checkmarkIconImageView: UIImageView = {
+			let imageView = UIImageView.withoutConstraints()
+			imageView.image = UIImage(resource: .checkmarkCircleFill)
+			imageView.tintColor = Colors.okColor
+			imageView.contentMode = .scaleAspectFit
+
+			NSLayoutConstraint.activate([
+				imageView.widthAnchor.constraint(equalToConstant: 44),
+				imageView.heightAnchor.constraint(equalToConstant: 44)
+			])
+
+			return imageView
+		}()
+
+		private lazy var titleLabel: UILabel = {
+			let label = UILabel.withoutConstraints()
+			label.numberOfLines = 0
+			label.font = .systemFont(ofSize: 14)
+			label.textColor = Colors.secondaryText
+			label.text = "Congratulations, PocketShaver is successfully bootstrapped!\n\nYou can now install and run Mac OS up to version 9.0.4. For network support, Mac OS 9.0 - 9.0.4 is required."
+			return label
+		}()
+
+		init() {
+			super.init(frame: .zero)
+
+			translatesAutoresizingMaskIntoConstraints = false
+
+			stackView.addArrangedSubview(checkmarkIconImageView)
+			stackView.addArrangedSubview(titleLabel)
+
+			addSubview(stackView)
+
+			NSLayoutConstraint.activate([
+				stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+				stackView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+				stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+				stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
+			])
+		}
+
+		required init?(coder: NSCoder) { fatalError() }
+	}
+
 	private lazy var containerView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.layer.cornerRadius = 8
@@ -117,11 +274,11 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 		label.numberOfLines = 0
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = Colors.secondaryText
-		label.text = "Tap button below to select a compatible Mac OS install disc file. This is needed to bootstrap PocketShaver."
+		label.text = "Tap button below to select a Mac OS install disc file and bootstrap PocketShaver.\n\nBootstrapping is not the same as installing Mac OS onto a disk file."
 		return label
 	}()
 
-	private lazy var buttonStackView: UIStackView = {
+	private lazy var stackView: UIStackView = {
 		let stackView = UIStackView.withoutConstraints()
 		stackView.axis = .vertical
 		stackView.spacing = 12
@@ -141,36 +298,39 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 	private lazy var displayCompatibilityListButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .secondaryActionConfig
-		button.setTitle("Compatibility list", for: .normal)
+		button.setTitle("Bootstrap compatibility list", for: .normal)
 		button.addTarget(self, action: #selector(displayCompatibilityListButtonPushed), for: .touchUpInside)
 		return button
 	}()
 
-	private lazy var checkmarkIconImageView: UIImageView = {
-		let imageView = UIImageView.withoutConstraints()
-		imageView.image = UIImage(resource: .checkmarkCircleFill)
-		imageView.tintColor = Colors.okColor
-		imageView.isHidden = true
-		imageView.contentMode = .scaleAspectFit
+	private lazy var doneButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.configuration = .secondaryActionConfig
+		button.setTitle("Ok", for: .normal)
+		button.isHidden = true
+		button.addTarget(self, action: #selector(doneButtonPushed), for: .touchUpInside)
+		return button
+	}()
 
-		NSLayoutConstraint.activate([
-			imageView.widthAnchor.constraint(equalToConstant: 44),
-			imageView.heightAnchor.constraint(equalToConstant: 44)
-		])
-
-		return imageView
+	private lazy var bootstrapCompletedView: BootstrapCompletedView = {
+		let view = BootstrapCompletedView()
+		view.isHidden = true
+		return view
 	}()
 
 	private let didTapSelectInstallDiskButton: (() -> Void)
 	private let didTapCompatibilityListButton: (() -> Void)
+	private let didTapDoneButton: (() -> Void)
 
 	init(
 		didTapSelectInstallDiskButton: @escaping (() -> Void),
-		didTapCompatibilityListButton: @escaping (() -> Void)
+		didTapCompatibilityListButton: @escaping (() -> Void),
+		didTapDoneButton: @escaping (() -> Void)
 
 	) {
 		self.didTapSelectInstallDiskButton = didTapSelectInstallDiskButton
 		self.didTapCompatibilityListButton = didTapCompatibilityListButton
+		self.didTapDoneButton = didTapDoneButton
 
 		super.init(style: .default, reuseIdentifier: nil)
 
@@ -178,41 +338,42 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 
 		contentView.addSubview(containerView)
 
-		containerView.addSubview(titleLabel)
-		containerView.addSubview(checkmarkIconImageView)
-		containerView.addSubview(buttonStackView)
-		buttonStackView.addArrangedSubview(selectInstallDiskFileButton)
-		buttonStackView.addArrangedSubview(displayCompatibilityListButton)
+		containerView.addSubview(stackView)
+		stackView.addArrangedSubview(titleLabel)
+		stackView.addArrangedSubview(bootstrapCompletedView)
+		stackView.addArrangedSubview(selectInstallDiskFileButton)
+		stackView.addArrangedSubview(displayCompatibilityListButton)
+		stackView.addArrangedSubview(doneButton)
+
 
 		NSLayoutConstraint.activate([
-			checkmarkIconImageView.centerXAnchor.constraint(equalTo: buttonStackView.centerXAnchor),
-			checkmarkIconImageView.centerYAnchor.constraint(equalTo: buttonStackView.centerYAnchor),
-
-			titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
-			titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-
-			buttonStackView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-			buttonStackView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-			buttonStackView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-			buttonStackView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
+			stackView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
+			stackView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 16),
+			stackView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+			stackView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
 
 			selectInstallDiskFileButton.heightAnchor.constraint(equalToConstant: 44),
 			displayCompatibilityListButton.heightAnchor.constraint(equalToConstant: 44),
+			doneButton.heightAnchor.constraint(equalToConstant: 44),
 
 			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
 			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8).withPriority(.defaultHigh),
+			containerView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -8) ,
 			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
+			containerView.widthAnchor.constraint(lessThanOrEqualToConstant: 500),
 		])
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	func displayCheckmark() {
-		selectInstallDiskFileButton.alpha = 0
-		displayCompatibilityListButton.alpha = 0
-		checkmarkIconImageView.isHidden = false
+	func displayBootstrapCompleted() {
+		titleLabel.isHidden = true
+		selectInstallDiskFileButton.isHidden = true
+		displayCompatibilityListButton.isHidden = true
+
+		bootstrapCompletedView.isHidden = false
+		doneButton.isHidden = false
 	}
 
 	@objc
@@ -223,6 +384,11 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 	@objc
 	private func displayCompatibilityListButtonPushed() {
 		didTapCompatibilityListButton()
+	}
+
+	@objc
+	private func doneButtonPushed() {
+		didTapDoneButton()
 	}
 }
 
@@ -238,6 +404,8 @@ class PreferencesGeneralErrorCell: UITableViewCell {
 
 	init(title: String) {
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		hideSeparator()
 
@@ -256,75 +424,148 @@ class PreferencesGeneralErrorCell: UITableViewCell {
 	required init?(coder: NSCoder) { fatalError() }
 }
 
-class PreferencesGeneralDiskColumnsDescriptionCell: UITableViewCell {
-	private lazy var titleLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.text = "Filename"
-		label.font = .boldSystemFont(ofSize: 14)
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		return label
-	}()
-
-	private lazy var enabledLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.text = "Mount"
-		label.font = .boldSystemFont(ofSize: 14)
-		return label
-	}()
-
-	private lazy var hiddenEnabledSwitch: UISwitch = {
-		let uiSwich = UISwitch.withoutConstraints()
-		uiSwich.isHidden = true
-		return uiSwich
-	}()
-
-	init() {
-		super.init(style: .default, reuseIdentifier: nil)
-
-		contentView.addSubview(titleLabel)
-		contentView.addSubview(hiddenEnabledSwitch)
-		contentView.addSubview(enabledLabel)
+class PreferencesGeneralDiskActionBarCell: UITableViewCell {
+	private lazy var openShareFolderButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.tintColor = Colors.secondaryText
+		button.setImage(Assets.folder, for: .normal)
 
 		NSLayoutConstraint.activate([
-			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			titleLabel.centerYAnchor.constraint(equalTo: hiddenEnabledSwitch.centerYAnchor),
-			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: hiddenEnabledSwitch.leadingAnchor, constant: -16),
+			button.widthAnchor.constraint(equalToConstant: 44),
+			button.heightAnchor.constraint(equalToConstant: 44)
+		])
 
-			hiddenEnabledSwitch.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-			hiddenEnabledSwitch.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
-			hiddenEnabledSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+		return button
+	}()
 
-			enabledLabel.centerYAnchor.constraint(equalTo: hiddenEnabledSwitch.centerYAnchor),
-			enabledLabel.trailingAnchor.constraint(equalTo: hiddenEnabledSwitch.trailingAnchor)
+	private lazy var reloadButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.tintColor = Colors.secondaryText
+		button.setImage(.init(resource: .arrowTriangleheadCounterclockwiseRotate90), for: .normal)
+
+		NSLayoutConstraint.activate([
+			button.widthAnchor.constraint(equalToConstant: 44),
+			button.heightAnchor.constraint(equalToConstant: 44)
+		])
+
+		return button
+	}()
+
+	private lazy var addButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.tintColor = Colors.secondaryText
+		button.setImage(Assets.plus, for: .normal)
+		button.showsMenuAsPrimaryAction = true
+
+		NSLayoutConstraint.activate([
+			button.widthAnchor.constraint(equalToConstant: 44),
+			button.heightAnchor.constraint(equalToConstant: 44)
+		])
+
+		return button
+	}()
+
+	init(
+		didTapOpenShareFolderButton: @escaping (() -> Void),
+		didTapReloadButton: @escaping (() -> Void),
+		didTapCreateAction: @escaping (() -> Void),
+		didTapImportAction: @escaping (() -> Void)
+	) {
+		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
+
+		let openShareFolderAction = UIAction { _ in
+			didTapOpenShareFolderButton()
+		}
+		openShareFolderButton.addAction(openShareFolderAction, for: .touchUpInside)
+
+		let reloadAction = UIAction { [weak self] _ in
+			guard let self else { return }
+			didTapReloadButton()
+
+			rotateReloadButton()
+		}
+		reloadButton.addAction(reloadAction, for: .touchUpInside)
+
+		let createAction = UIAction(
+			title: "Create empty disk",
+			image: Assets.plus
+		) { _ in
+			didTapCreateAction()
+		}
+		let importAction = UIAction(
+			title: "Import disk file",
+			image: Assets.squareAndArrowDown
+		) { _ in
+			didTapImportAction()
+		}
+		let addMenu = UIMenu(title: "", children: [createAction, importAction])
+		addButton.menu = addMenu
+
+		contentView.addSubview(reloadButton)
+		contentView.addSubview(addButton)
+
+		if UIDevice.deviceType == .mac {
+			contentView.addSubview(openShareFolderButton)
+
+			NSLayoutConstraint.activate([
+				openShareFolderButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
+				reloadButton.leadingAnchor.constraint(equalTo: openShareFolderButton.trailingAnchor),
+			])
+		}
+
+		NSLayoutConstraint.activate([
+			reloadButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
+			addButton.leadingAnchor.constraint(equalTo: reloadButton.trailingAnchor),
+			addButton.topAnchor.constraint(equalTo: contentView.topAnchor),
+			addButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			addButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor).withPriority(.required - 1)
 		])
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
+
+	private func rotateReloadButton() {
+		// Split in to parts to force it to make the rotation counter clockwise
+		UIView.animate(withDuration: 0.10, delay: 0.0, options: .curveEaseIn, animations: {
+			self.reloadButton.transform = self.reloadButton.transform.rotated(by: .pi * -4/5)
+		}) { _ in
+			UIView.animate(withDuration: 0.05, delay: 0.0, options: .curveLinear, animations: {
+				self.reloadButton.transform = self.reloadButton.transform.rotated(by: .pi * -2/5)
+			}) {  _ in
+				UIView.animate(withDuration: 0.10, delay: 0.0, options: .curveEaseOut, animations: {
+					self.reloadButton.transform = self.reloadButton.transform.rotated(by: .pi * -4/5)
+				})
+			}
+		}
+	}
 }
 
-class PreferencesGeneralTagView: UIView {
+class PreferencesGeneralTagView: UIView, ImageDerivable {
 	private lazy var label: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.textColor = Colors.primaryBackground
-		label.font = label.font.withSize(9)
+		label.font = label.font.withSize(9 * resolutionMultiplier)
 		return label
 	}()
 
 	init() {
 		super.init(frame: .zero)
 
+		backgroundColor = Colors.primaryBackground
+
 		translatesAutoresizingMaskIntoConstraints = false
 
-		layer.cornerRadius = 4
+		layer.cornerRadius = 4 * resolutionMultiplier
 
 		addSubview(label)
 
 		NSLayoutConstraint.activate([
-			label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4.5),
-			label.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-			label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4.5),
-			label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+			label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4.5 * resolutionMultiplier),
+			label.topAnchor.constraint(equalTo: topAnchor, constant: 2 * resolutionMultiplier),
+			label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4.5 * resolutionMultiplier),
+			label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2 * resolutionMultiplier),
 		])
 	}
 
@@ -383,6 +624,8 @@ class PreferencesGeneralDiskCell: UITableViewCell {
 
 	override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
 		super.init(style: .default, reuseIdentifier: Self.reuseIdentifier)
+
+		backgroundColor = Colors.primaryBackground
 
 		contentView.addSubview(enabledIndicationView)
 		contentView.addSubview(enabledSwitch)
@@ -486,146 +729,7 @@ class PreferencesGeneralDiskCell: UITableViewCell {
 	}
 }
 
-class PreferencesGeneralDiskSectionActionsCell: UITableViewCell {
-	private lazy var informationLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		label.font = .systemFont(ofSize: 14)
-		label.textColor = Colors.secondaryText
-		let supportedFormatsString = DiskManager.supportedFileExtensions.map({ ".\($0)" }).joined(separator: ", ")
-		label.text = "Disks placed in the root of PocketShaver share folder will appear here. Supported formats: \(supportedFormatsString)."
-		return label
-	}()
-
-	private lazy var buttonStackView: UIStackView = {
-		let stackView = UIStackView.withoutConstraints()
-		stackView.axis = .vertical
-		stackView.spacing = 12
-		stackView.distribution = .fill
-		stackView.alignment = .fill
-		return stackView
-	}()
-
-	private lazy var createDiskButton: UIButton = {
-		let button = UIButton.withoutConstraints()
-		button.configuration = .primaryActionConfig
-		button.setTitle("Create empty disk", for: .normal)
-		button.addTarget(self, action: #selector(createDiskButtonPushed), for: .touchUpInside)
-		return button
-	}()
-
-	private lazy var reloadDisksButton: UIButton = {
-		let button = UIButton.withoutConstraints()
-		button.configuration = .secondaryActionConfig
-		button.setTitle("Reload disk list", for: .normal)
-		button.addTarget(self, action: #selector(reloadDisksButtonPushed), for: .touchUpInside)
-		return button
-	}()
-
-	private lazy var importDiskButton: UIButton = {
-		let button = UIButton.withoutConstraints()
-		button.configuration = .secondaryActionConfig
-		button.setTitle("Import disk file", for: .normal)
-		button.addTarget(self, action: #selector(importDiskButtonPushed), for: .touchUpInside)
-		return button
-	}()
-
-	private let didTapCreateDiskButton: (() -> Void)
-	private let didTapReloadDisksButton: (() -> Void)
-	private let didTapImportDiskButton: (() -> Void)
-
-	init(
-		hasDskFile: Bool,
-		didTapCreateDiskButton: @escaping (() -> Void),
-		didTapReloadDisksButton: @escaping (() -> Void),
-		didTapImportDiskButton: @escaping (() -> Void)
-	) {
-		self.didTapCreateDiskButton = didTapCreateDiskButton
-		self.didTapReloadDisksButton = didTapReloadDisksButton
-		self.didTapImportDiskButton = didTapImportDiskButton
-
-		super.init(style: .default, reuseIdentifier: nil)
-
-		hideSeparator()
-
-		contentView.addSubview(informationLabel)
-		buttonStackView.addArrangedSubview(createDiskButton)
-		buttonStackView.addArrangedSubview(reloadDisksButton)
-		buttonStackView.addArrangedSubview(importDiskButton)
-		contentView.addSubview(buttonStackView)
-
-		NSLayoutConstraint.activate([
-			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			informationLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-
-			reloadDisksButton.heightAnchor.constraint(equalToConstant: 44),
-			createDiskButton.heightAnchor.constraint(equalToConstant: 44),
-			importDiskButton.heightAnchor.constraint(equalToConstant: 44),
-
-			buttonStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-			buttonStackView.topAnchor.constraint(equalTo: informationLabel.bottomAnchor, constant: 12),
-			buttonStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-			buttonStackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
-		])
-
-		setupForHasDskFile(hasDskFile, animated: false)
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
-
-	func setupForHasDskFile(_ hasDskFile: Bool, animated: Bool) {
-		let block: (() -> Void)
-		if hasDskFile {
-			block = { [weak self] in
-				guard let self else { return }
-				buttonStackView.removeArrangedSubview(self.reloadDisksButton)
-				buttonStackView.insertArrangedSubview(self.reloadDisksButton, at: 0)
-
-				createDiskButton.configuration = .secondaryActionConfig
-				createDiskButton.setTitle(self.createDiskButton.title(for: .normal), for: .normal)
-			}
-		} else {
-			block = { [weak self] in
-				guard let self else { return }
-				buttonStackView.removeArrangedSubview(self.createDiskButton)
-				buttonStackView.insertArrangedSubview(self.createDiskButton, at: 0)
-
-				createDiskButton.configuration = .primaryActionConfig
-				createDiskButton.setTitle(self.createDiskButton.title(for: .normal), for: .normal)
-			}
-		}
-
-
-		if animated {
-			UIView.animate(withDuration: 0.2) {
-				block()
-
-				self.buttonStackView.layoutIfNeeded()
-			}
-		} else {
-			block()
-		}
-	}
-
-	@objc
-	private func reloadDisksButtonPushed() {
-		didTapReloadDisksButton()
-	}
-
-	@objc
-	private func createDiskButtonPushed() {
-		didTapCreateDiskButton()
-	}
-
-	@objc
-	private func importDiskButtonPushed() {
-		didTapImportDiskButton()
-	}
-}
-
-class PreferencesGeneralEnabledMonitorResolutionsCell: UITableViewCell {
+class PreferencesGeneralGamepadOverlaysCell: UITableViewCell {
 	private lazy var editButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.setTitle("Edit", for: .normal)
@@ -636,99 +740,53 @@ class PreferencesGeneralEnabledMonitorResolutionsCell: UITableViewCell {
 		return button
 	}()
 
-	private var titleLabel: LinkLabel?
+	private let previewVC: PreferencesGamepadThumbnailsViewController
 
 	private let didTapEditButton: (() -> Void)
 
 	init(
-		monitorResolutions: [MonitorResolutionOption],
-		willBootFromCD: Bool,
+		containerVC: UIViewController,
+		gamepadConfigs: [GamepadConfig],
 		didTapEditButton: @escaping (() -> Void)
 	) {
 		self.didTapEditButton = didTapEditButton
 
+		previewVC = .init(gamepadConfigs: gamepadConfigs)
+
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
+		contentView.addSubview(previewVC.view)
 		contentView.addSubview(editButton)
 
+		previewVC.willMove(toParent: containerVC)
+		containerVC.addChild(previewVC)
+		previewVC.didMove(toParent: containerVC)
+
 		NSLayoutConstraint.activate([
+			previewVC.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+			previewVC.view.topAnchor.constraint(equalTo: contentView.topAnchor),
+			previewVC.view.trailingAnchor.constraint(equalTo: editButton.trailingAnchor).withPriority(.required - 1),
+			previewVC.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor).withPriority(.required - 1),
+
 			editButton.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
 			editButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
 			editButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			editButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 		])
-
-		configure(
-			monitorResolutions: monitorResolutions,
-			willBootFromCD: willBootFromCD
-		)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	func configure(
-		monitorResolutions: [MonitorResolutionOption],
-		willBootFromCD: Bool
-	) {
-		let monitorResolutionCategoryIndex: (MonitorResolutionCategory) -> Int = { category in
-			MonitorResolutionCategory.allCases.firstIndex(of: category)!
-		}
-		let sortedMonitorResolutions = monitorResolutions.sorted { opt1, opt2 in
-			if monitorResolutionCategoryIndex(opt1.category) < monitorResolutionCategoryIndex(opt2.category) {
-				return true
-			}
+	override func layoutSubviews() {
+		super.layoutSubviews()
 
-			if opt1.resolution.width < opt2.resolution.width {
-				return true
-			}
+		previewVC.setRightInset(editButton.frame.width + 12)
+	}
 
-			return opt1.resolution.height < opt2.resolution.height
-		}
-
-		var text = ""
-		var images: [UIImage] = []
-		for monitorResolution in sortedMonitorResolutions {
-			let categoryTagView = PreferencesGeneralTagView()
-				.configure(
-					text: monitorResolution.category.description
-				)
-			let categoryTagViewImage = categoryTagView.asImage()
-
-			text += "• \(monitorResolution.resolution.width) x \(monitorResolution.resolution.height) <img yOffset=-2/>"
-			if monitorResolution != sortedMonitorResolutions.last {
-				text += "\n"
-			}
-			images.append(categoryTagViewImage)
-		}
-
-		let titleLabel = LinkLabel(
-			text: text,
-			config: .init(
-				images: images,
-				highlightedImages: []
-			),
-			font: .systemFont(ofSize: 17),
-			textColor: Colors.primaryText
-		)
-
-		titleLabel.label.setContentHuggingPriority(.required, for: .horizontal)
-		titleLabel.label.setContentCompressionResistancePriority(.required, for: .vertical)
-
-		contentView.addSubview(titleLabel)
-
-		NSLayoutConstraint.activate([
-			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			titleLabel.centerYAnchor.constraint(equalTo: editButton.centerYAnchor),
-			titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: editButton.leadingAnchor, constant: -16),
-			titleLabel.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
-			titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
-
-			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16).withPriority(.defaultHigh),
-			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.defaultHigh),
-			])
-
-		self.titleLabel = titleLabel
-
-		editButton.isHidden = willBootFromCD
+	deinit {
+		previewVC.removeFromParent()
 	}
 
 	@objc
@@ -753,13 +811,14 @@ class PreferencesGeneralTwoFingerSteeringDetailsCell: UITableViewCell {
 	private let didTapEditButton: (() -> Void)
 
 	init(
-		isSecondFingerSwipeEnabled: Bool,
-		isBootInHoverModeEnabled: Bool,
+		twoFingerSteeringSetting: TwoFingerSteeringSetting,
 		didTapEditButton: @escaping (() -> Void)
 	) {
 		self.didTapEditButton = didTapEditButton
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		contentView.addSubview(editButton)
 
@@ -770,36 +829,34 @@ class PreferencesGeneralTwoFingerSteeringDetailsCell: UITableViewCell {
 		])
 
 		configure(
-			isSecondFingerSwipeEnabled: isSecondFingerSwipeEnabled,
-			isBootInHoverModeEnabled: isBootInHoverModeEnabled
+			twoFingerSteeringSetting: twoFingerSteeringSetting
 		)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
 	func configure(
-		isSecondFingerSwipeEnabled: Bool,
-		isBootInHoverModeEnabled: Bool
+		twoFingerSteeringSetting: TwoFingerSteeringSetting
 	) {
 		let text = """
 • Second finger click <img/>
 • Second finger swipe <img/>
-• Boot in hover mode on <img/>
+• Boot in hover mode <img/>
 """
-		var images: [UIImage] = []
 
-		images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
+		let enabledImage = ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor)
+		let disabledImage = ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.highlightedText)
 
-		if isSecondFingerSwipeEnabled {
-			images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
-		} else {
-			images.append(ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.highlightedText))
-		}
-
-		if isBootInHoverModeEnabled {
-			images.append(ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor))
-		} else {
-			images.append(ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.highlightedText))
+		let images: [UIImage]
+		switch twoFingerSteeringSetting {
+		case .click:
+			images = [enabledImage, disabledImage, disabledImage]
+		case .clickPlusSwipe:
+			images = [enabledImage, enabledImage, disabledImage]
+		case .clickPlusSwipePlusBootInHoverMode:
+			images = [enabledImage, enabledImage, enabledImage]
+		default:
+			fatalError()
 		}
 
 		let titleLabel = LinkLabel(
@@ -871,6 +928,8 @@ class PreferencesGeneralIPadMouseCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		contentView.addSubview(segmentedControl)
@@ -913,6 +972,8 @@ class PreferencesGeneralRightClickCell: UITableViewCell {
 		self.didChangeSelection = didChangeSelection
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		hideSeparator()
 
@@ -958,6 +1019,8 @@ class PreferencesGeneralKeyboardAutoOffsetCell: UITableViewCell {
 		self.didChangeSelection = didChangeSelection
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		hideSeparator()
 
