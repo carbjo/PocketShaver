@@ -9,13 +9,16 @@ import UIKit
 
 class GamepadButtonStackViewCollectionStackView: UIStackView {
 
+	private let mode: GamepadLayerView.Mode
 	private let didRequestAssignmentAtRowAndIndex: ((Int, Int) -> Void)
 
 	init(
 		side: GamepadSide,
+		mode: GamepadLayerView.Mode,
 		inputInteractionModel: InputInteractionModel,
 		didRequestAssignmentAtRowAndIndex: @escaping ((Int, Int) -> Void)
 	) {
+		self.mode = mode
 		self.didRequestAssignmentAtRowAndIndex = didRequestAssignmentAtRowAndIndex
 
 		super.init(frame: .zero)
@@ -37,7 +40,15 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 		side: GamepadSide,
 		inputInteractionModel: InputInteractionModel
 	) {
-		let screenHeight = UIScreen.main.bounds.height - UIApplication.safeAreaInsets.top - UIApplication.safeAreaInsets.bottom
+		let screenHeight: CGFloat
+		switch mode {
+		case .default:
+			screenHeight = UIScreen.main.bounds.height - UIApplication.safeAreaInsets.top - UIApplication.safeAreaInsets.bottom
+		case .thumbnail:
+			// Still render full size for correct number of rows
+			// Force to landscape since device might be held in portrait
+			screenHeight = UIScreen.landscapeModeSize.height
+		}
 		let length = GamepadButtonSize.regular.length
 		let stackViewHeight: CGFloat = length + spacing
 		let availableHeight = screenHeight
@@ -57,6 +68,7 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 					side: side,
 					row: row,
 					isSettingsButtonRow: settingsButtonRange.contains(orientationCorrectedRow),
+					mode: mode,
 					inputInteractionModel: inputInteractionModel
 				) { [weak self] index in
 					guard let self else { return }
@@ -126,7 +138,7 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 	private func getOrientationCorrectedRow(for row: Int) -> Int? {
 		let orientationCorrectedRow = arrangedSubviews.count - 1 - row // Build from bottom to top
 		guard orientationCorrectedRow >= 0,
-			  let stackView = arrangedSubviews[orientationCorrectedRow] as? GamepadButtonStackView else {
+			  arrangedSubviews[orientationCorrectedRow] is GamepadButtonStackView else {
 			print("-- unexpected")
 			return nil
 		}

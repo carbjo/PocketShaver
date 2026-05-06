@@ -13,8 +13,10 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case ramSetting
 		case performanceMetrics
 		case uiOptions
-		case emulation
 		case relateiveMouseMode
+		case relateiveMouseModeClickGesture
+		case hapticFeedback
+		case cpuEmulation
 		case bootstrap
 		case resources
 	}
@@ -33,15 +35,24 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case uiOptionsAlwaysBootInLandscapeMode
 		case uiOptionsReportIpAddressAssignment
 
-		//emulation
-		case emulationIgnoreIllegalInstructions
-		case emulationIgnoreIllegalInstructionsInfo
-
 		//relateiveMouseMode
 		case relateiveMouseModeSetting
-		case relateiveMouseModeInfo
-		case relateiveMouseTapToClickToggle
-		case relateiveMouseTapToClickInfo
+		case relateiveMouseModeInfo(RelativeMouseModeSetting)
+		case relateiveMouseModeBoot
+		case relateiveMouseModeBootInfo
+
+		// relateiveMouseModeClickGesture
+		case relativeMouseModeClickGestureSetting(RelativeMouseModeClickGestureSetting)
+		case relativeMouseModeClickGestureSettingInfo
+
+		// hapticFeedback
+		case hapticFeedbackSwipeGesturesToggle
+		case hapticFeedbackMouseClicksToggle
+		case hapticFeedbackGamepadKeyStrokesToggle
+
+		// cpuEmulation
+		case ignoreIllegalInstructions
+		case ignoreIllegalInstructionsInfo
 
 		//bootstrap
 		case bootstrap
@@ -56,13 +67,21 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 	private let model: PreferencesAdvancedModel
 
+	private var anyCancellables = Set<AnyCancellable>()
+
 	private var dataSource: TableViewDiffableDataSource<Section, Row>!
 
 	private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 	private let hoverJustAboveOffsetFeedbackGenerator = UISelectionFeedbackGenerator()
 
-	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
-		model = .init(changeSubject: changeSubject)
+	init(
+		mode: PreferencesLaunchMode,
+		changeSubject: PassthroughSubject<PreferencesChange, Never>
+	) {
+		model = .init(
+			mode: mode,
+			changeSubject: changeSubject
+		)
 
 		super.init(nibName: nil, bundle: nil)
 
@@ -78,6 +97,19 @@ class PreferencesAdvancedViewController: UITableViewController {
 		view.translatesAutoresizingMaskIntoConstraints = false
 
 		setupDataSource()
+		listenToChanges()
+	}
+
+	private func listenToChanges() {
+		model.changeSubject.sink{ [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .iPadMouseEnabledChanged:
+				reloadData()
+			default:
+				break
+			}
+		}.store(in: &anyCancellables)
 	}
 
 	private func setupDataSource() {
@@ -130,22 +162,10 @@ class PreferencesAdvancedViewController: UITableViewController {
 			case .uiOptionsReportIpAddressAssignment:
 				return PreferencesEnabledSettingCell(
 					title: "Report IP address assignment",
-					isOn: model.networkTransferRateReportingEnabled
+					isOn: model.reportIpAddressAssignment
 				) { [weak self] isOn in
-					self?.model.networkTransferRateReportingEnabled = isOn
+					self?.model.reportIpAddressAssignment = isOn
 				}
-			case .emulationIgnoreIllegalInstructions:
-				return PreferencesEnabledSettingCell(
-					title: "Ignore illegal instructions",
-					isOn: model.ignoreIllegalInstructions
-				) { [weak self] isOn in
-					self?.model.ignoreIllegalInstructions = isOn
-				}
-			case .emulationIgnoreIllegalInstructionsInfo:
-				return PreferencesInformationCell(
-					text: "When enabled, unrecognized PowerPC instructions are skipped instead of crashing the emulator. May improve compatibility with some apps.",
-					separatorHidden: false
-				)
 			case .relateiveMouseModeSetting:
 				return PreferencesAdvancedRelativeMouseModeSettingCell(
 					initialRelativeMouseModeSetting: model.relativeMouseModeSetting
@@ -153,14 +173,26 @@ class PreferencesAdvancedViewController: UITableViewController {
 					guard let self else { return }
 					model.relativeMouseModeSetting = newFrameRateSetting
 					feedbackGenerator.impactOccurred()
+					reloadData()
 				}
-			case .relateiveMouseModeInfo:
+			case .relateiveMouseModeInfo(let relativeMouseModeSetting):
+				let duringEmulation = (model.mode == .startup) ? " during emulation" : ""
+				var toggleExplanation = ""
+				if relativeMouseModeSetting != .alwaysOn {
+					switch UIDevice.deviceType {
+					case .iPhone:
+						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping the <img/> button above the keyboard or as a gamepad button."
+					case .iPad:
+						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping the <img/> button above the software keyboard or as a gamepad button. Alternatively by pressing option + F5, if using a hardware keyboard."
+					case .mac:
+						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by pressing option + F5."
+					}
+				}
 				return PreferencesInformationCell(
-					text: "Some games and apps require relative mouse mode to function. If set to Manual or Automatic, Relative mouse mode can be toggled on and off by tapping the <img/> button above the keyboard. <link>Read more</link>.",
+					text: "Some games and apps require relative mouse mode to function.\(toggleExplanation) <link>Read more</link>.",
 					tagConfig: .init(
-						images: [ImageResource.computermouse.asSymbolImage()]
-					),
-					separatorHidden: false
+						images: [ImageResource.arrowUpAndDownAndArrowLeftAndRight.asSymbolImage()]
+					)
 				) { [weak self] in
 					guard let self else { return }
 					let vc = PreferencesRelativeMouseModeOnboardingViewController()
@@ -169,16 +201,66 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 					present(navVC, animated: true)
 				}
-			case .relateiveMouseTapToClickToggle:
+			case .relateiveMouseModeBoot:
 				return PreferencesEnabledSettingCell(
-					title: "Tap to click",
-					isOn: model.relativeMouseTapToClick
+					title: "Boot with relative mouse mode on",
+					isOn: model.bootInRelativeMouseMode
 				) { [weak self] isOn in
-					self?.model.relativeMouseTapToClick = isOn
+					self?.model.bootInRelativeMouseMode = isOn
 				}
-			case .relateiveMouseTapToClickInfo:
+			case .relateiveMouseModeBootInfo:
 				return PreferencesInformationCell(
-					text: "Setting only affects relative mouse mode."
+					text: "Only has effect when input is set to Mouse."
+				)
+			case .relativeMouseModeClickGestureSetting(let setting):
+				return PreferencesRadioButtonChoiceCell(
+					title: setting.label,
+					isSelected: setting == model.relativeMouseModeClickGestureSetting
+				)
+			case .relativeMouseModeClickGestureSettingInfo:
+				let text: String
+				switch model.relativeMouseModeClickGestureSetting {
+				case .off:
+					text = "Click can only be performed with Gamepad button."
+				case .tap:
+					text = "A quick tap induces mouse click."
+				case .secondFingerClick:
+					text = "A second finger control mouse down / up action while the first finger controls the position, as with two finger steering."
+				}
+				return PreferencesInformationCell(
+					text: text
+				)
+			case .hapticFeedbackSwipeGesturesToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Two / three finger swipe gestures",
+					isOn: model.isGestureHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isGestureHapticFeedbackOn = isOn
+				}
+			case .hapticFeedbackMouseClicksToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Mouse clicks",
+					isOn: model.isMouseHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isMouseHapticFeedbackOn = isOn
+				}
+			case .hapticFeedbackGamepadKeyStrokesToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Gamepad key strokes",
+					isOn: model.isKeyHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isKeyHapticFeedbackOn = isOn
+				}
+			case .ignoreIllegalInstructions:
+				return PreferencesEnabledSettingCell(
+					title: "Ignore illegal CPU instructions",
+					isOn: model.ignoreIllegalInstructions
+				) { [weak self] isOn in
+					self?.model.ignoreIllegalInstructions = isOn
+				}
+			case .ignoreIllegalInstructionsInfo:
+				return PreferencesInformationCell(
+					text: "When enabled, unrecognized PowerPC instructions are skipped instead of crashing the emulator. May improve compatibility with some software."
 				)
 			case .bootstrap:
 				return PreferencesAdvancedBootstrapCell(
@@ -218,10 +300,14 @@ class PreferencesAdvancedViewController: UITableViewController {
 				return "Performance metrics"
 			case .uiOptions:
 				return "UI options"
-			case .emulation:
-				return "Emulation"
 			case .relateiveMouseMode:
 				return "Relative mouse mode"
+			case .relateiveMouseModeClickGesture:
+				return "Relative mouse mode click gesture"
+			case .hapticFeedback:
+				return "Haptic feedback"
+			case .cpuEmulation:
+				return "CPU emulation"
 			case .bootstrap:
 				return "Bootstrap"
 			case .resources:
@@ -249,24 +335,57 @@ class PreferencesAdvancedViewController: UITableViewController {
 		])
 
 		snapshot.appendSections([.uiOptions])
-		snapshot.appendItems([.uiOptionsHoverJustAbove])
-		if model.shouldDisplayAlwaysLandscapeModeOption {
-			snapshot.appendItems([.uiOptionsAlwaysBootInLandscapeMode])
+		if UIDevice.deviceType != .mac {
+			snapshot.appendItems([.uiOptionsHoverJustAbove])
+			if model.shouldDisplayAlwaysLandscapeModeOption {
+				snapshot.appendItems([.uiOptionsAlwaysBootInLandscapeMode])
+			}
 		}
 		snapshot.appendItems([.uiOptionsReportIpAddressAssignment])
-
-		snapshot.appendSections([.emulation])
-		snapshot.appendItems([
-			.emulationIgnoreIllegalInstructions,
-			.emulationIgnoreIllegalInstructionsInfo
-		])
 
 		snapshot.appendSections([.relateiveMouseMode])
 		snapshot.appendItems([
 			.relateiveMouseModeSetting,
-			.relateiveMouseModeInfo,
-			.relateiveMouseTapToClickToggle,
-			.relateiveMouseTapToClickInfo
+			.relateiveMouseModeInfo(model.relativeMouseModeSetting)
+		])
+		if model.relativeMouseModeSetting != .alwaysOn {
+			switch UIDevice.deviceType {
+			case .iPad:
+				guard MiscellaneousSettings.current.iPadMousePassthrough else {
+					break
+				}
+				snapshot.appendItems([
+					.relateiveMouseModeBoot,
+					.relateiveMouseModeBootInfo
+				])
+			case .mac:
+				snapshot.appendItems([.relateiveMouseModeBoot])
+			case .iPhone:
+				break
+			}
+		}
+
+		if !model.isIPadMouseEnabled {
+			snapshot.appendSections([.relateiveMouseModeClickGesture])
+			snapshot.appendItems(RelativeMouseModeClickGestureSetting.allCases.map({.relativeMouseModeClickGestureSetting($0)}))
+			snapshot.appendItems([
+				.relativeMouseModeClickGestureSettingInfo
+			])
+		}
+
+		if model.supportsHaptics {
+			snapshot.appendSections([.hapticFeedback])
+			snapshot.appendItems([
+				.hapticFeedbackSwipeGesturesToggle,
+				.hapticFeedbackMouseClicksToggle,
+				.hapticFeedbackGamepadKeyStrokesToggle
+			])
+		}
+
+		snapshot.appendSections([.cpuEmulation])
+		snapshot.appendItems([
+			.ignoreIllegalInstructions,
+			.ignoreIllegalInstructionsInfo
 		])
 
 		if model.hasRomFile {
@@ -279,8 +398,12 @@ class PreferencesAdvancedViewController: UITableViewController {
 		snapshot.appendSections([.resources])
 		snapshot.appendItems([
 			.resourcesSetupInstuctions,
-			.resourcesBootstrapCompatiblityList,
-			.resourcesTwoFingerSteeringOnboarding,
+			.resourcesBootstrapCompatiblityList
+		])
+		if UIDevice.deviceType != .mac {
+			snapshot.appendItems([.resourcesTwoFingerSteeringOnboarding])
+		}
+		snapshot.appendItems([
 			.resourcesRelativeMouseModeOnboarding,
 			.resourcesLicenses
 		])
@@ -343,50 +466,89 @@ class PreferencesAdvancedViewController: UITableViewController {
 		tableView.beginUpdates()
 		tableView.endUpdates()
 	}
+
+	private func updateRelativeMouseModeClickGestureSettingCells() {
+		for setting in RelativeMouseModeClickGestureSetting.allCases {
+			guard let indexPath = dataSource.indexPath(for: .relativeMouseModeClickGestureSetting(setting)),
+				  let cell = tableView.cellForRow(at: indexPath) as? PreferencesRadioButtonChoiceCell else {
+				continue
+			}
+
+			cell.configure(isSelected: setting == model.relativeMouseModeClickGestureSetting)
+		}
+
+		dataSource.reloadItems([.relativeMouseModeClickGestureSettingInfo])
+	}
 }
 
 extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableViewDelegate
 
 	override func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
 		let sectionType = dataSource.sectionIdentifier(for: indexPath.section)
-		return sectionType == .resources
+		let itemIdentifier = dataSource.itemIdentifier(for: indexPath)
+
+		if sectionType == .resources {
+			return true
+		}
+
+		if sectionType == .relateiveMouseModeClickGesture,
+		   case .relativeMouseModeClickGestureSetting = itemIdentifier {
+			return true
+		}
+
+		return false
 	}
 
 	override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
 		tableView.deselectRow(at: indexPath, animated: true)
 
+		let sectionType = dataSource.sectionIdentifier(for: indexPath.section)
 		let itemIdentifier = dataSource.itemIdentifier(for: indexPath)
-		switch itemIdentifier {
-		case .resourcesSetupInstuctions:
-			let vc = PreferencesSetupInstructionsViewController()
-			let navVC = UINavigationController()
-			navVC.viewControllers = [vc]
 
-			present(navVC, animated: true)
-		case .resourcesBootstrapCompatiblityList:
-			let vc = PreferencesCompatibilityListViewController()
-			let navVC = UINavigationController()
-			navVC.viewControllers = [vc]
+		switch sectionType {
+		case .resources:
+			switch itemIdentifier {
+			case .resourcesSetupInstuctions:
+				let vc = PreferencesSetupInstructionsViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
 
-			present(navVC, animated: true)
-		case .resourcesTwoFingerSteeringOnboarding:
-			let vc = PreferencesTwoFingerSteeringOnboardingViewController()
-			let navVC = UINavigationController()
-			navVC.viewControllers = [vc]
+				present(navVC, animated: true)
+			case .resourcesBootstrapCompatiblityList:
+				let vc = PreferencesCompatibilityListViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
 
-			present(navVC, animated: true)
-		case .resourcesRelativeMouseModeOnboarding:
-			let vc = PreferencesRelativeMouseModeOnboardingViewController()
-			let navVC = UINavigationController()
-			navVC.viewControllers = [vc]
+				present(navVC, animated: true)
+			case .resourcesTwoFingerSteeringOnboarding:
+				let vc = PreferencesTwoFingerSteeringOnboardingViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
 
-			present(navVC, animated: true)
-		case .resourcesLicenses:
-			let vc = PreferencesLicensesViewController()
-			let navVC = UINavigationController()
-			navVC.viewControllers = [vc]
+				present(navVC, animated: true)
+			case .resourcesRelativeMouseModeOnboarding:
+				let vc = PreferencesRelativeMouseModeOnboardingViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
 
-			present(navVC, animated: true)
+				present(navVC, animated: true)
+			case .resourcesLicenses:
+				let vc = PreferencesLicensesViewController()
+				let navVC = UINavigationController()
+				navVC.viewControllers = [vc]
+
+				present(navVC, animated: true)
+			default:
+				fatalError()
+			}
+		case .relateiveMouseModeClickGesture:
+			switch itemIdentifier {
+			case .relativeMouseModeClickGestureSetting(let setting):
+				model.relativeMouseModeClickGestureSetting = setting
+				updateRelativeMouseModeClickGestureSettingCells()
+			default:
+				fatalError()
+			}
 		default:
 			fatalError()
 		}
@@ -414,6 +576,16 @@ extension PreferencesAdvancedViewController: UIDocumentPickerDelegate {
 				let errorVC = UIAlertController.withError(error)
 				present(errorVC, animated: true)
 			}
+		}
+	}
+}
+
+private extension RelativeMouseModeClickGestureSetting {
+	var label: String {
+		switch self {
+		case .off: "Off"
+		case .tap: "Tap"
+		case .secondFingerClick: "Second finger click (recommended)"
 		}
 	}
 }

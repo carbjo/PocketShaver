@@ -12,13 +12,14 @@ class PreferencesGeneralViewController: UITableViewController {
 	enum Section {
 		case setupInstructions
 		case bootstrap
+		case welcome
 		case disks
-		case audio
+		case gamepadOverlays
 		case iPadMouse
 		case twoFingerSteering
 		case rightClick
 		case keyboardAutoOffset
-		case hapticFeedback
+		case audio
 		case hints
 	}
 
@@ -30,16 +31,17 @@ class PreferencesGeneralViewController: UITableViewController {
 		case bootstrap
 		case bootstrapError
 
+		// welcome
+		case welcome
+
 		// disks
-		case disksColumnDescription
+		case diskActionBar
 		case disksEmptyState
 		case disksDisk(PreferencesGeneralModel.DiskEntry)
-		case disksActions
 		case disksError
 
-		// audio
-		case audioEnabledToggle
-		case audioInformation
+		// gamepadOverlays
+		case gamepadOverlays
 
 		// iPadMouse
 		case iPadMouse
@@ -47,7 +49,7 @@ class PreferencesGeneralViewController: UITableViewController {
 		// twoFingerSteering
 		case twoFingerSteeringInformation
 		case twoFingerSteeringEnabledToggle(Bool)
-		case twoFingerSteeringSettings(PreferencesGeneralModel.TwoFingerSteeringSettings)
+		case twoFingerSteeringSettings(TwoFingerSteeringSetting)
 
 		// rightClick
 		case rightClick
@@ -57,10 +59,9 @@ class PreferencesGeneralViewController: UITableViewController {
 		case keyboardAutoOffset
 		case keyboardAutoOffsetInformation
 
-		// hapticFeedback
-		case hapticFeedbackSwipeGesturesToggle
-		case hapticFeedbackMouseClicksToggle
-		case hapticFeedbackGamepadKeyStrokesToggle
+		// audio
+		case audioEnabledToggle
+		case audioInformation
 
 		// hints
 		case hintsToggle
@@ -73,13 +74,12 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private let model: PreferencesGeneralModel
-	private let createDiskDialogueFactory = PreferencesGeneralCreateDiskDialogueFactory()
-
 	private var anyCancellables = Set<AnyCancellable>()
+	private let createDiskDialogueFactory = PreferencesGeneralCreateDiskDialogueFactory()
 
 	private var dataSource: TableViewDiffableDataSource<Section, Row>!
 
-	private let segmentedControlFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
+	private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
 	init(
 		mode: PreferencesLaunchMode,
@@ -111,6 +111,16 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private func listenToChanges() {
+		model.changeSubject.sink { [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .gamepadLayoutsDidUpdate:
+				dataSource.reloadSection(.gamepadOverlays)
+			default: break
+			}
+
+		}.store(in: &anyCancellables)
+
 		NotificationCenter.default.addObserver(self, selector: #selector(appDidResume), name: UIScene.didActivateNotification, object: nil)
 	}
 
@@ -134,22 +144,98 @@ class PreferencesGeneralViewController: UITableViewController {
 					},
 					didTapCompatibilityListButton: { [weak self] in
 						guard let self else { return }
+
 						let vc = PreferencesCompatibilityListViewController()
 						let navVC = UINavigationController()
 						navVC.viewControllers = [vc]
 
 						present(navVC, animated: true)
+					},
+					didTapDoneButton: { [weak self] in
+						guard let self else { return }
+
+						model.shouldDisplayBootstrapSection = false
+						reloadData()
 					}
 				)
 			case .bootstrapError:
 				return PreferencesGeneralErrorCell(
 					title: "You need to bootstrap PocketShaver"
 				)
-			case .disksColumnDescription:
-				return PreferencesGeneralDiskColumnsDescriptionCell()
+			case .welcome:
+				return PreferencesGeneralWelcomeCell()
+			case .diskActionBar:
+				return PreferencesGeneralDiskActionBarCell(
+					didTapOpenShareFolderButton: { [weak self] in
+						self?.openDocumentsFolder()
+					},
+					didTapReloadButton: { [weak self] in
+						self?.reloadFileList()
+
+						UINotificationFeedbackGenerator().notificationOccurred(.success)
+					},
+					didTapCreateAction: { [weak self] in
+						self?.displayCreateDiskDialogue()
+					},
+					didTapImportAction: { [weak self] in
+						self?.displayFileImport()
+					}
+				)
 			case .disksEmptyState:
+				let subtitles: [(String, StringTagConfig)]
+				switch UIDevice.deviceType {
+				case .iPhone,
+						.iPad:
+					subtitles = [
+						(
+							"Tap <img/> to create or import a disk file",
+							.init(
+								images: [
+									Assets.plus.asSymbolImage()
+								]
+							)
+						),
+						(
+							"Alternatively, add a file manually to PocketShaver share folder and tap <img/>",
+							.init(
+								images: [
+									ImageResource.arrowTriangleheadCounterclockwiseRotate90.asSymbolImage()
+								]
+							)
+						)
+					]
+				case .mac:
+					subtitles = [
+						(
+							"Click <img/> to create or import a disk file",
+							.init(
+								images: [
+									Assets.plus.asSymbolImage()
+								]
+							)
+						),
+						(
+							"Alternatively, add a file manually to PocketShaver share folder and click <img/>",
+							.init(
+								images: [
+									ImageResource.arrowTriangleheadCounterclockwiseRotate90.asSymbolImage()
+								]
+							)
+						),
+						(
+							"Click <img/> to open the share folder in Finder",
+							.init(
+								images: [
+									Assets.folder
+								]
+							)
+						)
+					]
+				}
+
 				return PreferencesEmptyStateCell(
-					title: "No files found"
+					title: "No disk files found",
+					subtitles: subtitles
 				)
 			case .disksDisk(let diskEntry):
 				let cell = tableView.dequeueReusableCell(withIdentifier: PreferencesGeneralDiskCell.reuseIdentifier, for: indexPath) as! PreferencesGeneralDiskCell
@@ -194,36 +280,22 @@ class PreferencesGeneralViewController: UITableViewController {
 					}
 				)
 				return cell
-			case .disksActions:
-				return PreferencesGeneralDiskSectionActionsCell(
-					hasDskFile: model.hasDskFile,
-					didTapCreateDiskButton: { [weak self] in
-						self?.displayCreateDiskDialogue()
-					},
-					didTapReloadDisksButton: { [weak self] in
-						self?.reloadFileList()
-					},
-					didTapImportDiskButton: { [weak self] in
-						self?.displayFileImport()
-					}
-				)
 			case .disksError:
 				return PreferencesGeneralErrorCell(
 					title: "Must select to mount at least one disk file"
 				)
-			case .audioEnabledToggle:
-				return PreferencesEnabledSettingCell(
-					title: "Audio enabled",
-					isOn: model.audioEnabled
-				) { [weak self] newValue in
-					self?.model.audioEnabled = newValue
-				}
-			case .audioInformation:
-				return PreferencesInformationCell(
-					text: "Sound from other apps is lowered if audio is enabled during emulation. Having trouble getting audio to work? Read the <link>setup guide</link>."
+			case .gamepadOverlays:
+				return PreferencesGeneralGamepadOverlaysCell(
+					containerVC: self,
+					gamepadConfigs: model.gamepadConfigs
 				) { [weak self] in
-					self?.displaySetupInstructions()
-				}
+						guard let self else { return }
+						let vc = PreferencesGamepadManageViewController(changeSubject: model.changeSubject)
+						let navVC = UINavigationController()
+						navVC.viewControllers = [vc]
+
+						present(navVC, animated: true)
+					}
 			case .iPadMouse:
 				return PreferencesGeneralIPadMouseCell(
 					initialIPadMouseSetting: model.isIPadMouseEnabled
@@ -232,7 +304,7 @@ class PreferencesGeneralViewController: UITableViewController {
 
 					model.isIPadMouseEnabled = newValue
 					reloadData()
-					segmentedControlFeedbackGenerator.impactOccurred()
+					feedbackGenerator.impactOccurred()
 				}
 			case .twoFingerSteeringInformation:
 				return PreferencesInformationCell(
@@ -254,12 +326,12 @@ class PreferencesGeneralViewController: UITableViewController {
 				) { [weak self] isOn in
 					guard let self else { return }
 
-					model.setTwoFingerSteering(enabled: isOn)
+					model.twoFingerSteeringSetting = isOn ? .clickPlusSwipePlusBootInHoverMode : .off
 					reloadData()
 				}
-			case .twoFingerSteeringSettings(let twoFingerSteeringSettings):
+			case .twoFingerSteeringSettings(let twoFingerSteeringSetting):
 				return PreferencesGeneralTwoFingerSteeringDetailsCell(
-					twoFingerSteeringSettings: twoFingerSteeringSettings
+					twoFingerSteeringSetting: twoFingerSteeringSetting
 				) { [weak self] in
 					guard let self else { return }
 
@@ -278,11 +350,11 @@ class PreferencesGeneralViewController: UITableViewController {
 					guard let self else { return }
 
 					model.rightClickSetting = newSetting
-					segmentedControlFeedbackGenerator.impactOccurred()
+					feedbackGenerator.impactOccurred()
 				}
 			case .rightClickInformation:
 				let text: String
-				if UIDevice.isIPad {
+				if UIDevice.deviceType == .iPad {
 					text = "If using bluetooth mouse, right click has to explicitly be enabled in iOS settings under General > Trackpad and Mouse > Secondary click.\nRight click can also be performed with a gamepad button."
 				} else {
 					text = "Right click can be performed with a gamepad button."
@@ -296,32 +368,28 @@ class PreferencesGeneralViewController: UITableViewController {
 					guard let self else { return }
 					
 					model.keyboardAutoOffsetSetting = newSetting
-					segmentedControlFeedbackGenerator.impactOccurred()
+					feedbackGenerator.impactOccurred()
 				}
 			case .keyboardAutoOffsetInformation:
 				return PreferencesInformationCell(
 					text: "Controls how the screen scrolls when you three finger swipe up to present keyboard."
 				)
-			case .hapticFeedbackSwipeGesturesToggle:
+			case .audioEnabledToggle:
 				return PreferencesEnabledSettingCell(
-					title: "Two / three finger swipe gestures",
-					isOn: model.isGestureHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isGestureHapticFeedbackOn = isOn
+					title: "Audio enabled",
+					isOn: model.audioEnabled
+				) { [weak self] newValue in
+					self?.model.audioEnabled = newValue
 				}
-			case .hapticFeedbackMouseClicksToggle:
-				return PreferencesEnabledSettingCell(
-					title: "Mouse clicks",
-					isOn: model.isMouseHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isMouseHapticFeedbackOn = isOn
+			case .audioInformation:
+				var soundFromOtherAppsPrefix = ""
+				if UIDevice.deviceType != .mac {
+					soundFromOtherAppsPrefix = "Sound from other apps is lowered if audio is enabled during emulation. "
 				}
-			case .hapticFeedbackGamepadKeyStrokesToggle:
-				return PreferencesEnabledSettingCell(
-					title: "Gamepad key strokes",
-					isOn: model.isKeyHapticFeedbackOn
-				) { [weak self] isOn in
-					self?.model.isKeyHapticFeedbackOn = isOn
+				return PreferencesInformationCell(
+					text: "\(soundFromOtherAppsPrefix)Having trouble getting audio to work? Read the <link>setup guide</link>."
+				) { [weak self] in
+					self?.displaySetupInstructions()
 				}
 			case .hintsToggle:
 				return PreferencesEnabledSettingCell(
@@ -332,7 +400,7 @@ class PreferencesGeneralViewController: UITableViewController {
 				}
 			case .hintsInformation:
 				return PreferencesInformationCell(
-					text: "Gamepad layout names are shown even when hints are turned off."
+					text: "Gamepad overlay names are shown even when hints are turned off."
 				)
 			}
 		}
@@ -342,11 +410,13 @@ class PreferencesGeneralViewController: UITableViewController {
 			case .setupInstructions:
 				return nil
 			case .bootstrap:
-				return "Bootstrap"
+				return nil
+			case .welcome:
+				return nil
 			case .disks:
-				return "Disks"
-			case .audio:
-				return "Audio"
+				return UIDevice.deviceType == .iPad ? "Disks" : nil
+			case .gamepadOverlays:
+				return "Gamepad overlays"
 			case .iPadMouse:
 				return "Input mode"
 			case .twoFingerSteering:
@@ -355,8 +425,8 @@ class PreferencesGeneralViewController: UITableViewController {
 				return "Right click"
 			case .keyboardAutoOffset:
 				return "Software keyboard screen offset"
-			case .hapticFeedback:
-				return "Haptic feedback"
+			case .audio:
+				return "Audio"
 			case .hints:
 				return "Hints"
 			}
@@ -403,16 +473,20 @@ class PreferencesGeneralViewController: UITableViewController {
 			snapshot.appendItems([.setupInstructions])
 		}
 
-		if !model.hasRomFile {
+		if model.shouldDisplayBootstrapSection {
 			snapshot.appendSections([.bootstrap])
 			snapshot.appendItems([.bootstrap])
 			if model.isDisplayingRomFileMissingError {
 				snapshot.appendItems([.bootstrapError])
 			}
+		} else if UIDevice.deviceType == .mac,
+		   model.mode == .startup {
+			snapshot.appendSections([.welcome])
+			snapshot.appendItems([.welcome])
 		}
 
 		snapshot.appendSections([.disks])
-		snapshot.appendItems([.disksColumnDescription])
+		snapshot.appendItems([.diskActionBar])
 		if model.numberOfDisks == 0 {
 			snapshot.appendItems([.disksEmptyState])
 		} else {
@@ -426,9 +500,45 @@ class PreferencesGeneralViewController: UITableViewController {
 				snapshot.appendItems([.disksDisk(diskEntry)])
 			}
 		}
-		snapshot.appendItems([.disksActions])
+
 		if model.isDisplayingNoDiskFilesError {
 			snapshot.appendItems([.disksError])
+		}
+
+		if UIDevice.deviceType != .mac {
+			snapshot.appendSections([.gamepadOverlays])
+			snapshot.appendItems([.gamepadOverlays])
+
+			if UIDevice.deviceType == .iPad {
+				snapshot.appendSections([.iPadMouse])
+				snapshot.appendItems([.iPadMouse])
+			}
+
+			if !model.isIPadMouseEnabled {
+				let isTwoFingerSteeringEnabled = model.twoFingerSteeringSetting != .off
+				snapshot.appendSections([.twoFingerSteering])
+				snapshot.appendItems([
+					.twoFingerSteeringInformation,
+					.twoFingerSteeringEnabledToggle(isTwoFingerSteeringEnabled)
+				])
+				if isTwoFingerSteeringEnabled {
+					snapshot.appendItems([
+						.twoFingerSteeringSettings(model.twoFingerSteeringSetting)
+					])
+				}
+			}
+
+			snapshot.appendSections([.rightClick])
+			snapshot.appendItems([
+				.rightClick,
+				.rightClickInformation
+			])
+
+			snapshot.appendSections([.keyboardAutoOffset])
+			snapshot.appendItems([
+				.keyboardAutoOffset,
+				.keyboardAutoOffsetInformation
+			])
 		}
 
 		snapshot.appendSections([.audio])
@@ -437,61 +547,19 @@ class PreferencesGeneralViewController: UITableViewController {
 			.audioInformation
 		])
 
-		if UIDevice.isIPad {
-			snapshot.appendSections([.iPadMouse])
-			snapshot.appendItems([.iPadMouse])
-		}
-
-		if !model.isIPadMouseEnabled {
-			snapshot.appendSections([.twoFingerSteering])
-			snapshot.appendItems([
-				.twoFingerSteeringInformation,
-				.twoFingerSteeringEnabledToggle(model.twoFingerSteeringSettings.secondFingerClick)
-			])
-			if model.twoFingerSteeringSettings.secondFingerClick {
-				snapshot.appendItems([
-					.twoFingerSteeringSettings(model.twoFingerSteeringSettings)
-				])
+		if UIDevice.deviceType != .mac {
+			snapshot.appendSections([.hints])
+			snapshot.appendItems([.hintsToggle])
+			if UIDevice.deviceType != .mac {
+				snapshot.appendItems([.hintsInformation])
 			}
 		}
-
-		snapshot.appendSections([.rightClick])
-		snapshot.appendItems([
-			.rightClick,
-			.rightClickInformation
-		])
-
-		snapshot.appendSections([.keyboardAutoOffset])
-		snapshot.appendItems([
-			.keyboardAutoOffset,
-			.keyboardAutoOffsetInformation
-		])
-
-		if model.supportsHaptics {
-			snapshot.appendSections([.hapticFeedback])
-			snapshot.appendItems([
-				.hapticFeedbackSwipeGesturesToggle,
-				.hapticFeedbackMouseClicksToggle,
-				.hapticFeedbackGamepadKeyStrokesToggle
-			])
-		}
-		snapshot.appendSections([.hints])
-		snapshot.appendItems([
-			.hintsToggle,
-			.hintsInformation
-		])
 
 		dataSource.apply(
 			snapshot,
 			animatingDifferences: animatingDifferences,
 			completion: completion
 		)
-	}
-
-	func reloadSection(_ section: Section) {
-		var snapshot = dataSource.snapshot()
-		snapshot.reloadSections([section])
-		dataSource.apply(snapshot)
 	}
 
 	func presentRomFileMissingError() {
@@ -505,11 +573,12 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	func presentNoDiskFilesError() {
-		let disksActionsIndexPath = dataSource.indexPath(for: .disksActions)!
+		let sectionAfterDiskIndex = dataSource.snapshot().indexOfSection(.disks)! + 1
+		let afterDiskIndexPath = IndexPath(row: 0, section: sectionAfterDiskIndex)
 
 		model.isDisplayingNoDiskFilesError = true
 
-		tableView.scrollToRow(at: disksActionsIndexPath, at: .middle, animated: true)
+		tableView.scrollToRow(at: afterDiskIndexPath, at: .bottom, animated: true)
 
 		reloadData()
 	}
@@ -532,16 +601,14 @@ class PreferencesGeneralViewController: UITableViewController {
 		present(pickerVC, animated: true)
 	}
 
-	private func animateRomFound() {
+	private func animateBootstrapCompleted() {
 		guard let cell = tableView.visibleCells.first(where: { $0 is PreferencesGeneralBootstrapCell }) as? PreferencesGeneralBootstrapCell else {
 			return
 		}
 
-		cell.displayCheckmark()
-
-		DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-			self?.reloadData()
-		}
+		cell.displayBootstrapCompleted()
+		tableView.beginUpdates()
+		tableView.endUpdates()
 	}
 
 	private func displayNoRomFoundDialogue() {
@@ -557,11 +624,20 @@ class PreferencesGeneralViewController: UITableViewController {
 	}
 
 	private func displayIncompatibleRomFoundDialogue(_ romType: NewWorldRomVersion) {
-		let alertVC = UIAlertController(
-			title: "Mac OS install disc image not compatible",
-			message: "The provided file is a Mac OS disk install image, but is not compatible for bootstrapping PocketShaver. The file is identified as belonging to category '\(romType.description)'. Check 'Compatibility list' for guidence.",
-			preferredStyle: .alert
-		)
+		let alertVC: UIAlertController
+		if romType.isInstallCompatible {
+			alertVC = UIAlertController(
+				title: "Almost.. but cannot bootrap with this file",
+				message: "PocketShaver can run this OS version, and you can use this disc for installing Mac OS onto a disk drive later. But the disc file cannot be used for bootstrapping.\nThe file is identified as belonging to category '\(romType.description)'. Check 'Bootstrap compatibility list' for guidence.",
+				preferredStyle: .alert
+			)
+		} else {
+			alertVC = UIAlertController(
+				title: "Not compatible",
+				message: "The provided file is a Mac OS disc install image, but not compatible with PocketShaver. The file is identified as belonging to category '\(romType.description)'. Check 'Bootstrap compatibility list' for guidence.",
+				preferredStyle: .alert
+			)
+		}
 
 		alertVC.addAction(.init(title: "Ok", style: .default))
 
@@ -664,6 +740,13 @@ class PreferencesGeneralViewController: UITableViewController {
 		}
 	}
 
+	// MARK: - Open documents folder
+
+	private func openDocumentsFolder() {
+		// Only works on mac. And is only needed there, too.
+		UIApplication.shared.open(FileManager.documentUrl)
+	}
+
 	// MARK: - Actions
 
 	@objc
@@ -697,7 +780,7 @@ extension PreferencesGeneralViewController: UIDocumentPickerDelegate {
 				let validationResult = await model.didSelectMacOsInstallDiskCandidate(url: url)
 				switch validationResult {
 				case .success:
-					animateRomFound()
+					animateBootstrapCompleted()
 				case .incompatibleRom(let newWorldRomVersion):
 					displayIncompatibleRomFoundDialogue(newWorldRomVersion)
 				case .invalidFile:

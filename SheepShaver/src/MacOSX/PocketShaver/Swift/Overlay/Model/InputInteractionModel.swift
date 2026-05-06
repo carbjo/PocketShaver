@@ -44,7 +44,7 @@ class InputInteractionModel {
 
 	private var hostAudioVolumeChangeObservation: NSKeyValueObservation!
 
-	private(set) var hoverOffsetMode: HoverOffsetMode = MiscellaneousSettings.current.bootInHoverMode ? .justAbove : .off {
+	private(set) var hoverOffsetMode: HoverOffsetMode = MiscellaneousSettings.current.shouldBootInHoverMode ? .justAbove : .off {
 		didSet {
 			updateADBHoverOffset()
 		}
@@ -97,22 +97,22 @@ class InputInteractionModel {
 	static let shared = InputInteractionModel()
 
 	init() {
-		NotificationCenter.default.addObserver(self, selector: #selector(handleRelativeMouseModeEnabled), name: LocalNotifications.relativeMouseModeEnabled, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(handleRelativeMouseModeDisabled), name: LocalNotifications.relativeMouseModeDisabled, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(handleRelativeMouseModeSettingChanged), name: LocalNotifications.relativeMouseModeSettingChanged, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(handleIPadMousePassthroughChanged), name: LocalNotifications.iPadMousePassthroughChanged, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(handleAudioConfigurationChanged), name: LocalNotifications.audioEnabledChanged, object: nil)
+		LocalNotification.observe(.relativeMouseModeEnabled, self, #selector(handleRelativeMouseModeEnabled))
+		LocalNotification.observe(.relativeMouseModeDisabled, self, #selector(handleRelativeMouseModeDisabled))
+		LocalNotification.observe(.relativeMouseModeSettingChanged, self, #selector(handleRelativeMouseModeSettingChanged))
+		LocalNotification.observe(.iPadMousePassthroughChanged, self, #selector(handleIPadMousePassthroughChanged))
+		LocalNotification.observe(.audioEnabledChanged, self, #selector(handleAudioConfigurationChanged))
 		hostAudioVolumeChangeObservation = AVAudioSession.sharedInstance().observe(\.outputVolume) { [weak self] _, _ in
 			Task { @MainActor in
 				self?.handleAudioConfigurationChanged()
 			}
 		}
 
-		if miscSettings.relativeMouseModeSetting == .alwaysOn {
-			objc_setRelativeMouseMode(true)
+		if miscSettings.shouldBootInRelativeMouseMode {
+			cpp_setRelativeMouseMode(true)
 			handleRelativeMouseModeEnabled()
 		}
-		if (miscSettings.bootInHoverMode &&
+		if (miscSettings.shouldBootInHoverMode &&
 			!miscSettings.iPadMousePassthrough &&
 			miscSettings.relativeMouseModeSetting != .alwaysOn) {
 			hoverOffsetMode = .diagonallyAbove
@@ -194,6 +194,10 @@ class InputInteractionModel {
 				miscSettings.set(audioEnabled: newValue)
 				objc_update_audio_enabled_setting(newValue)
 			}
+		case .relativeMouseModeEnabled:
+			if !isDown {
+				toggleRelativeMouseMode()
+			}
 		}
 	}
 
@@ -222,8 +226,18 @@ class InputInteractionModel {
 	}
 
 	func beginSecondFingerClickIfEligible() {
+		if isRelativeMouseModeEnabled {
+			guard miscSettings.relativeMouseModeSecondFingerClick else {
+				return
+			}
+		} else {
+			guard miscSettings.secondFingerClick else {
+				return
+			}
+		}
+
 		guard objc_ADBHoversOnMouseDown(),
-		!miscSettings.iPadMousePassthrough else {
+			  !miscSettings.iPadMousePassthrough else {
 			return
 		}
 
@@ -248,7 +262,7 @@ class InputInteractionModel {
 			isSecondFingerDragging = false
 
 			self.silenceRelativeMouseModeChanges = true
-			objc_setRelativeMouseMode(false)
+			cpp_setRelativeMouseMode(false)
 			objc_ADBSetHoverGestureDragging(false)
 			self.silenceRelativeMouseModeChanges = false
 
@@ -419,16 +433,16 @@ class InputInteractionModel {
 		isSecondFingerDragging = true
 		hoverOffsetModeBeforeSecondFingerDrag = hoverOffsetMode
 		silenceRelativeMouseModeChanges = true
-		objc_setRelativeMouseMode(true)
+		cpp_setRelativeMouseMode(true)
 		objc_ADBSetHoverGestureDragging(true)
 		silenceRelativeMouseModeChanges = false
 	}
 
 	func toggleRelativeMouseMode() {
 		if isRelativeMouseModeEnabled {
-			objc_setRelativeMouseMode(false)
+			cpp_setRelativeMouseMode(false)
 		} else {
-			objc_setRelativeMouseMode(true)
+			cpp_setRelativeMouseMode(true)
 		}
 	}
 

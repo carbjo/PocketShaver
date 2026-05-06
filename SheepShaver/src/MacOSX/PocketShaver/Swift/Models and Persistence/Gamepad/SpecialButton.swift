@@ -16,6 +16,7 @@ enum SpecialButton: String, Codable, CaseIterable {
 	case hoverSidewaysToggle
 	case hoverFarAboveToggle
 	case audioEnabled
+	case relativeMouseModeEnabled
 
 	var label: String {
 		switch self {
@@ -27,6 +28,7 @@ enum SpecialButton: String, Codable, CaseIterable {
 		case .cmdW: return "Cmd-W"
 		case .rightClick: return "Right click"
 		case .audioEnabled: return "Audio enabled"
+		case .relativeMouseModeEnabled: return "Relative mouse mode enabled (toggle)"
 		}
 	}
 }

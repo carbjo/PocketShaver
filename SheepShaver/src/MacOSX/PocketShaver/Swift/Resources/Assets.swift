@@ -15,4 +15,28 @@ enum Assets {
 	static var bonjour: UIImage {
 		.init(systemName: "bonjour")!
 	}
+
+	static var plus: UIImage {
+		.init(systemName: "plus")!
+	}
+
+	static var squareAndArrowDown: UIImage {
+		.init(systemName: "square.and.arrow.down")!
+	}
+
+	static var folder: UIImage {
+		.init(systemName: "folder")!
+	}
+
+	static var xmarkDiamondFill: UIImage {
+		.init(systemName: "xmark.diamond.fill")!
+	}
+
+	static var plusDiamondFill: UIImage {
+		.init(systemName: "plus.diamond.fill")!
+	}
+
+	static var arrowRightArrowLeft: UIImage {
+		.init(systemName: "arrow.right.arrow.left")!
+	}
 }

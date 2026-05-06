@@ -162,8 +162,8 @@
 
 #if TARGET_OS_IPHONE
 #import "OverlayViewControllerObjC.h"
-#import "RamAllocFailedAlertViewControllerObjC.h"
-#import "PreferencesViewControllerObjC.h"
+#import "FatalErrorAlertViewControllerObjCCppHeader.h"
+#import "PreferencesViewControllerObjCCppHeader.h"
 #import "RomPathObjC.h"
 #import "MiscellaneousSettingsObjCCppHeader.h"
 #endif
@@ -182,16 +182,12 @@
 // Interrupts in native mode?
 #define INTERRUPTS_IN_NATIVE_MODE 1
 
-// Debugging:
-#define SHOW_WARNING_BEFORE_LOADING_ROM (TARGET_OS_IPHONE && 0)
-
 // Constants
 const char ROM_FILE_NAME[] = "ROM";
 const char ROM_FILE_NAME2[] = ".rom";
 
 #if !REAL_ADDRESSING
-// FIXME: needs to be >= 0x04000000
-const uintptr RAM_BASE = 0x10000000;		// Base address of RAM
+const uintptr RAM_BASE = 0x00000000;		// Base address of RAM
 #endif
 const uintptr ROM_BASE = 0x50000000;		// Base address of ROM
 #if REAL_ADDRESSING
@@ -641,27 +637,6 @@ static bool load_mac_rom(void)
 		}
 	}
 	
-#if SHOW_WARNING_BEFORE_LOADING_ROM
-	// This works.
-	SDL_MessageBoxButtonData aButtonData;
-	aButtonData.buttonid = 0;
-	aButtonData.text = "OK";
-	aButtonData.flags = SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT;
-
-	SDL_MessageBoxData aMessageBoxData;
-	aMessageBoxData.message = "About to load Mac ROM...";
-	aMessageBoxData.title = "Loading ROM";
-	aMessageBoxData.numbuttons = 1;
-	aMessageBoxData.flags = SDL_MESSAGEBOX_INFORMATION;
-	aMessageBoxData.window = NULL;
-	aMessageBoxData.colorScheme = NULL;
-	aMessageBoxData.buttons = &aButtonData;
-		
-	int aButtonID = -1;
-//	UIKit_ShowMessageBox(&aMessageBoxData, &aButtonID);
-	SDL_ShowMessageBox(&aMessageBoxData, &aButtonID);
-#endif
-	
 	printf("%s", GetString(STR_READING_ROM_FILE));
 	rom_size = lseek(rom_fd, 0, SEEK_END);
 	lseek(rom_fd, 0, SEEK_SET);
@@ -687,7 +662,7 @@ static bool load_mac_rom(void)
 static bool check_prefs(void)
 {
 #if SHOW_IOS_PREFS_ON_LAUNCH
-	objc_displayPreferences();
+	objc_displayPreferencesStartup();
 #endif
 	return true;
 }
@@ -1027,6 +1002,7 @@ int main(int argc, char *argv[])
 	if (vm_init() < 0) {
 		sprintf(str, "Could not initialize virtual memory system.\n");
 		ErrorAlert(str);
+		objc_displayRamAllocFailedAlert();
 		goto quit;
 	}
 	
@@ -1104,10 +1080,18 @@ int main(int argc, char *argv[])
 #endif
 	
 	// Create area for Mac RAM
+#ifdef TARGET_OS_IPHONE
+	if (!check_prefs())
+		goto quit;
+	
+	RAMSize = objc_getRamInMb() * 1024 * 1024;
+#else
 	RAMSize = PrefsFindInt32("ramsize");
 	if (RAMSize <= 1000) {
 		RAMSize *= 1024 * 1024;
 	}
+#endif
+
 	if (RAMSize < 16 * 1024 * 1024) {
 		WarningAlert(GetString(STR_SMALL_RAM_WARN));
 		RAMSize = 16 * 1024 * 1024;
@@ -1205,11 +1189,6 @@ int main(int argc, char *argv[])
 		ErrorAlert(str);
 		goto quit;
 	}
-	
-#if TARGET_OS_IPHONE
-	if (!check_prefs())
-		goto quit;
-#endif
 	
 	// Load Mac ROM
 	if (!load_mac_rom())

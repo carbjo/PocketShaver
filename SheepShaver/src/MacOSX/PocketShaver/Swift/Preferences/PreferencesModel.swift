@@ -18,6 +18,9 @@ enum PreferencesChange {
 	case changeRequiringRestartAfterBootMade
 	case alwaysLandscapeModeOptionToggled
 	case selectedResolutionsChanged
+	case frameRateSettingChanged
+	case iPadMouseEnabledChanged
+	case gamepadLayoutsDidUpdate
 }
 
 class PreferencesModel {
@@ -38,6 +41,7 @@ class PreferencesModel {
 			NetworkSettings.initIfNeeded()
 			objc_update_sdl_ipad_mouse_setting(MiscellaneousSettings.current.iPadMousePassthrough)
 			UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+			GamepadThumbnailCache.shared.preloadImages()
 		}
 	}
 

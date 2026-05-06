@@ -108,6 +108,8 @@ public class OverlayViewController: UIViewController {
 		)
 	}()
 
+	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
+
 	private lazy var informationView: InformationView = {
 		let view = InformationView.withoutConstraints()
 		view.isHidden = true
@@ -132,8 +134,6 @@ public class OverlayViewController: UIViewController {
 		}
 		return model
 	}()
-	
-	private let hiddenInputFieldDelegate = HiddenInputFieldDelegate()
 
 	private var anyCancellables = Set<AnyCancellable>()
 
@@ -171,6 +171,13 @@ public class OverlayViewController: UIViewController {
 		updatePerformanceCounter()
 
 		listenToChanges()
+
+		if UIDevice.deviceType == .mac {
+			// Needed to avoid macOS "alert sound" at every keystroke
+			// Hidden input field will ignore the actual key input since
+			// it will already be handle in SDL event pump in video_sdl2.cpp
+			hiddenInputField.becomeFirstResponder()
+		}
 	}
 
 	public override func viewDidAppear(_ animated: Bool) {
@@ -231,7 +238,7 @@ public class OverlayViewController: UIViewController {
 			nextGamepadLayerView.leadingAnchor.constraint(equalTo: gamepadLayerView.trailingAnchor),
 
 			hiddenInputField.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor),
+			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor, constant: -3000),
 
 			informationView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
 			informationView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -UIScreen.main.bounds.size.height / 4),
@@ -257,7 +264,8 @@ public class OverlayViewController: UIViewController {
 		if UIDevice.isSimulator,
 		   motion == .motionShake {
 			// For debugging purposes
-			transition(to: .showingKeyboard)
+//			transition(to: .showingGamepad)
+//			transition(to: .showingKeyboard)
 		}
 	}
 
@@ -279,18 +287,19 @@ public class OverlayViewController: UIViewController {
 				}
 
 				informationView.show(
-					hintIcon: .computermouse,
+					hintIcon: .arrowUpAndDownAndArrowLeftAndRight,
 					hint: hint,
 					atBottom: state != .showingKeyboard
 				)
 			default: break
 			}
 		}.store(in: &anyCancellables)
-
-		NotificationCenter.default.addObserver(self, selector: #selector(updatePerformanceCounter), name: LocalNotifications.performanceCounterSettingChanged, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(displayRelativeMouseCapabilityDialogueIfEligible), name: LocalNotifications.relativeMouseModeCapabilityFound, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(displayJaggyCursorWarningDialogueIfEligible), name: LocalNotifications.jaggyCursorResolutionSelected, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(displayGotIpAddress), name: LocalNotifications.gotIpAddress, object: nil)
+		LocalNotification.observe(.performanceCounterSettingChanged, self, #selector(updatePerformanceCounter))
+		LocalNotification.observe(.relativeMouseModeCapabilityFound, self, #selector(displayRelativeMouseCapabilityDialogueIfEligible))
+		LocalNotification.observe(.jaggyCursorResolutionSelected, self, #selector(displayJaggyCursorWarningDialogueIfEligible))
+		LocalNotification.observe(.gotIpAddress, self, #selector(displayGotIpAddress))
+		LocalNotification.observe(.displayPreferencesRequested, self, #selector(presentPreferences))
+		LocalNotification.observe(.enteredKeyboardModeWhileUsingHardwareKeyboard, self, #selector(handleEnteredKeyboardModeWhileUsingHardwareKeyboard))
 		NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillChangePosition), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(keyboardDidChangePosition), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
 	}
@@ -479,6 +488,7 @@ public class OverlayViewController: UIViewController {
 		view.transform = transform.inverted()
 	}
 
+	@objc
 	private func presentPreferences() {
 		transformSDLContainerView(.identity)
 		dragInteractionModel.resetSdlViewVerticalOffset()
@@ -689,6 +699,16 @@ public class OverlayViewController: UIViewController {
 	}
 
 	@objc
+	private func handleEnteredKeyboardModeWhileUsingHardwareKeyboard() {
+		transition(to: .normal)
+
+		informationView.show(
+			hint: "Keyboard mode not available while using hardware keyboard",
+			atBottom: true
+		)
+	}
+
+	@objc
 	private func keyboardWillChangePosition(notification: NSNotification) {
 		if let keyboardFrame: NSValue = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
 			hiddenInputField.reportKeyboardWillChangePosition(keyboardFrame.cgRectValue)
@@ -739,7 +759,6 @@ extension OverlayViewController {
 		}
 
 		let vc = OverlayViewController()
-
 
 		sdlVC.embed(vc)
 	}

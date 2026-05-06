@@ -135,7 +135,7 @@ class GamepadAssignButtonViewController: UIViewController {
 		if UIScreen.isSESize,
 		   !UIScreen.isPortraitMode {
 			sizeMode = .tiny
-		} else if !UIDevice.isIPad,
+		} else if !UIDevice.isIPadIdiom,
 			 !UIScreen.isPortraitMode {
 			sizeMode = .small
 		} else {
@@ -144,7 +144,7 @@ class GamepadAssignButtonViewController: UIViewController {
 
 		super.init(nibName: nil, bundle: nil)
 
-		if !UIDevice.isIPad {
+		if !UIDevice.isIPadIdiom {
 			searchTextField.inputAccessoryView = searchTextFieldAccessoryView
 		}
 	}

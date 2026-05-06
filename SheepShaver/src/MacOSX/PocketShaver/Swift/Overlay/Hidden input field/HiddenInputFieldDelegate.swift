@@ -22,6 +22,19 @@ class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
 	var willEndEditing: (() -> Void)?
 
 	func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+		handleInput(string, from: textField)
+
+		textField.text = "  " // Needed so that it is always possible to backspace
+
+		return true
+	}
+
+	private func handleInput(_ string: String, from textField: UITextField) {
+		guard UIDevice.deviceType != .mac else {
+			// Actual key input since will already be handle in SDL event pump in video_sdl2.cpp
+			return
+		}
+
 		var keyboard: Keyboard?
 		if let primaryLanguage = textField.textInputMode?.primaryLanguage {
 			keyboard = Keyboard(rawValue: primaryLanguage)
@@ -34,10 +47,6 @@ class HiddenInputFieldDelegate: NSObject, UITextFieldDelegate {
 		} else {
 			print("Could not find SDLKey for \(string)")
 		}
-
-		textField.text = "  " // Needed so that it is always possible to backspace
-
-		return true
 	}
 
 	private func sdlKey(for str: String, keyboard: Keyboard?) -> HiddenInputFieldOutput? {

@@ -21,16 +21,6 @@ class PreferencesAdvancedRamStepperCell: UITableViewCell {
 		UILabel.withoutConstraints()
 	}()
 
-	private lazy var informationLabel: UILabel = {
-		let label = UILabel.withoutConstraints()
-		label.numberOfLines = 0
-		label.lineBreakMode = .byWordWrapping
-		label.font = .systemFont(ofSize: 14)
-		label.textColor = Colors.secondaryText
-		label.text = "Changes in RAM value requires PocketShaver to restart."
-		return label
-	}()
-
 	private let didChangeStepperValue: ((PreferencesGeneralRamSetting) -> Void)
 
 	init(
@@ -41,11 +31,12 @@ class PreferencesAdvancedRamStepperCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		contentView.addSubview(stepper)
 		contentView.addSubview(stepperLabel)
-		contentView.addSubview(informationLabel)
 
 		NSLayoutConstraint.activate([
 			stepper.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
@@ -53,11 +44,7 @@ class PreferencesAdvancedRamStepperCell: UITableViewCell {
 
 			stepperLabel.centerYAnchor.constraint(equalTo: stepper.centerYAnchor),
 			stepperLabel.leadingAnchor.constraint(equalTo: stepper.trailingAnchor, constant: 16),
-
-			informationLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			informationLabel.topAnchor.constraint(equalTo: stepper.bottomAnchor, constant: 16),
-			informationLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-			informationLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
+			stepperLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
 		])
 
 		stepper.value = Double(initialRamSettting.rawValue)
@@ -88,6 +75,8 @@ class PreferencesAdvancedMiscellaneousCell: UITableViewCell {
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		titleLabel.text = title
 
 		contentView.addSubview(titleLabel)
@@ -102,51 +91,6 @@ class PreferencesAdvancedMiscellaneousCell: UITableViewCell {
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
-}
-
-class PreferencesAdvancedFrameRateSettingCell: UITableViewCell {
-	private lazy var segmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withoutConstraints()
-		for (index, tab) in FrameRateSetting.allCases.enumerated() {
-			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
-		}
-		segmentedControl.addTarget(self, action: #selector(tabSegmentedControlChanged), for: .valueChanged)
-		return segmentedControl
-	}()
-
-	private let didChangeSelection: ((FrameRateSetting) -> Void)
-
-	init(
-		initialFrameRateSetting: FrameRateSetting,
-		didChangeSelection: @escaping ((FrameRateSetting) -> Void)
-	) {
-		self.didChangeSelection = didChangeSelection
-
-		super.init(style: .default, reuseIdentifier: nil)
-
-		hideSeparator()
-
-		contentView.addSubview(segmentedControl)
-
-		NSLayoutConstraint.activate([
-			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
-			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
-			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
-		])
-
-		segmentedControl.selectedSegmentIndex = FrameRateSetting.allCases.enumerated().first(where: { initialFrameRateSetting == $1 })!.0
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
-
-	@objc private func tabSegmentedControlChanged() {
-		let index = segmentedControl.selectedSegmentIndex
-		let setting = FrameRateSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
-
-		didChangeSelection(setting)
-	}
 }
 
 class PreferencesAdvancedRelativeMouseModeSettingCell: UITableViewCell {
@@ -168,6 +112,8 @@ class PreferencesAdvancedRelativeMouseModeSettingCell: UITableViewCell {
 		self.didChangeSelection = didChangeSelection
 
 		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
 
 		hideSeparator()
 
@@ -228,6 +174,8 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		hideSeparator()
 
 		contentView.addSubview(containerView)
@@ -248,8 +196,9 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 
 			containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
 			containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+			containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8).withPriority(.required - 1),
 			containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16).withPriority(.required - 1),
+			containerView.widthAnchor.constraint(lessThanOrEqualToConstant: 500),
 		])
 
 		configure(with: romDescription)
@@ -313,6 +262,8 @@ class PreferencesAdvancedJustAboveOffsetSettingCell: UITableViewCell {
 
 		super.init(style: .default, reuseIdentifier: nil)
 
+		backgroundColor = Colors.primaryBackground
+
 		contentView.addSubview(titleLabel)
 		contentView.addSubview(slider)
 		contentView.addSubview(hiddenValueLabel)
@@ -367,63 +318,13 @@ class PreferencesAdvancedJustAboveOffsetSettingCell: UITableViewCell {
 	}
 }
 
-class PreferencesAdvancedGammaRampSettingCell: UITableViewCell {
-	private lazy var segmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withoutConstraints()
-		for (index, tab) in GammaRampSetting.allCases.enumerated() {
-			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
-		}
-		segmentedControl.addTarget(self, action: #selector(tabSegmentedControlChanged), for: .valueChanged)
-		return segmentedControl
-	}()
-
-	private let didChangeSelection: ((GammaRampSetting) -> Void)
-
-	init(
-		initialGammaRampSetting: GammaRampSetting,
-		didChangeSelection: @escaping ((GammaRampSetting) -> Void)
-	) {
-		self.didChangeSelection = didChangeSelection
-
-		super.init(style: .default, reuseIdentifier: nil)
-
-		hideSeparator()
-
-		contentView.addSubview(segmentedControl)
-
-		NSLayoutConstraint.activate([
-			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
-			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
-			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
-			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
-		])
-
-		segmentedControl.selectedSegmentIndex = GammaRampSetting.allCases.enumerated().first(where: { initialGammaRampSetting == $1 })!.0
-	}
-
-	required init?(coder: NSCoder) { fatalError() }
-
-	@objc private func tabSegmentedControlChanged() {
-		let index = segmentedControl.selectedSegmentIndex
-		let setting = GammaRampSetting.allCases.enumerated().first(where: { index == $0.0 })!.1
-
-		didChangeSelection(setting)
-	}
-}
-
 extension PreferencesGeneralRamSetting {
 	var label: String {
-		"\(ramInMB) MB"
-	}
-}
-
-private extension FrameRateSetting {
-	var label: String {
 		switch self {
-		case .f60hz: return "60 hz"
-		case .f75hz: return "75 hz"
-		case .f120hz: return "120 hz"
+		case .n1024:
+			"1 GB"
+		default:
+			"\(ramInMB) MB"
 		}
 	}
 }
@@ -434,15 +335,6 @@ private extension RelativeMouseModeSetting {
 		case .manual: return "Manual"
 		case .automatic: return "Automatic"
 		case .alwaysOn: return "Always on"
-		}
-	}
-}
-
-private extension GammaRampSetting {
-	var label: String {
-		switch self {
-		case .osDefined: return "OS defined"
-		case .linear: return "Linear"
 		}
 	}
 }

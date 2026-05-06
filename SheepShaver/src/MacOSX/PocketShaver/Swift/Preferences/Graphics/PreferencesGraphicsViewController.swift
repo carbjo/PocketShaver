@@ -8,29 +8,21 @@ import Combine
 
 class PreferencesGraphicsViewController: UITableViewController {
 	enum Section {
+		case frameRateSetting
 		case monitorResolutions
 		case rendering
-		case frameRateSetting
 		case gammaRampSetting
 		case graphicsAcceleration
 	}
 
 	enum Row: Hashable {
-		// monitorResolutions
-		case monitorResolutionsDisplay
-		case monitorResolutionsInfo
-
-		// rendering
-		case renderingFilterMode
-		case renderingFilterModeInfo
-
 		// frameRateSetting
 		case frameRateSettingToggle
-		case frameRateSettingInfo
+		case frameRateSettingInfo(PreferencesGraphicsModel.FrameRateState)
 
-		// gammaRampSetting
-		case gammaRampSetting
-		case gammaRampSettingInfo
+		// monitorResolutions
+		case monitorResolutions(PreferencesGraphicsModel.MonitorResolutionsState)
+		case monitorResolutionsInformation(Bool)
 
 		// graphicsAcceleration
 		case graphicsAccelerationNqdToggle
@@ -38,6 +30,14 @@ class PreferencesGraphicsViewController: UITableViewController {
 		case graphicsAccelerationGlToggle
 		case graphicsAccelerationDspToggle
 		case graphicsAccelerationInfo
+
+		// rendering
+		case renderingFilterMode
+		case renderingFilterModeInfo
+
+		// gammaRampSetting
+		case gammaRampSetting
+		case gammaRampSettingInfo
 	}
 
 	private let model: PreferencesGraphicsModel
@@ -50,9 +50,12 @@ class PreferencesGraphicsViewController: UITableViewController {
 
 	private var anyCancellables = Set<AnyCancellable>()
 
-	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
+	init(
+		mode: PreferencesLaunchMode,
+		changeSubject: PassthroughSubject<PreferencesChange, Never>
+	) {
 		self.changeSubject = changeSubject
-		model = .init(changeSubject: changeSubject)
+		model = .init(mode: mode, changeSubject: changeSubject)
 		preferencesResolutionsVC = PreferencesResolutionsViewController(changeSubject: changeSubject)
 
 		super.init(nibName: nil, bundle: nil)
@@ -76,6 +79,8 @@ class PreferencesGraphicsViewController: UITableViewController {
 		changeSubject.sink { [weak self] change in
 			guard let self else { return }
 			switch change {
+			case .frameRateSettingChanged:
+				reloadData()
 			case .selectedResolutionsChanged:
 				reloadSection(.monitorResolutions)
 			default:
@@ -94,13 +99,32 @@ class PreferencesGraphicsViewController: UITableViewController {
 		dataSource = .init(tableView: tableView) { [weak self] tableView, indexPath, itemIdentifier in
 			guard let self else { return UITableViewCell() }
 			switch itemIdentifier {
-			case .monitorResolutionsDisplay:
-				let monitorResolutionsState = PreferencesGeneralModel.MonitorResolutionsState(
-					enabledResolutions: model.monitorResolutions,
-					willBootFromCD: model.willBootFromCD
+			case .frameRateSettingToggle:
+				return PreferencesGraphicsFrameRateSettingCell(
+					initialFrameRateSetting: model.frameRateSetting
+				) { [weak self] newFrameRateSetting in
+					guard let self else { return }
+					model.frameRateSetting = newFrameRateSetting
+					feedbackGenerator.impactOccurred()
+				}
+			case .frameRateSettingInfo(let frameRateState):
+				var text = ""
+				if frameRateState.setting == .f120hz {
+					text += "At 120 hz, software with uncapped framerate might behave erratic."
+				}
+				if model.mode == .duringEmulation,
+				   frameRateState.hasChanged {
+					if !text.isEmpty {
+						text += " "
+					}
+					text += "Changes in frame rate setting requires PocketShaver to restart."
+				}
+				return PreferencesCardInformationCell(
+					text: text
 				)
-				return PreferencesGeneralEnabledMonitorResolutionsCell(
-					monitorResolutionsState: monitorResolutionsState
+			case .monitorResolutions:
+				return PreferencesGraphicsEnabledMonitorResolutionsCell(
+					monitorResolutionsState: model.monitorResolutionsState
 				) { [weak self] in
 					guard let self else { return }
 					let vc = preferencesResolutionsVC
@@ -109,15 +133,16 @@ class PreferencesGraphicsViewController: UITableViewController {
 
 					present(navVC, animated: true)
 				}
-			case .monitorResolutionsInfo:
+			case .monitorResolutionsInformation(let willBootFromCD):
 				var text = "Resolutions made available to Mac OS. "
-				if model.willBootFromCD {
-					text += "List is restricted since emulation will boot from an install CD."
+				if willBootFromCD {
+					text += "List is restricted since emulaton will boot from an install CD."
 				} else {
 					text += "Can be edited."
 				}
-				return PreferencesInformationCell(text: text)
-
+				return PreferencesInformationCell(
+					text: text
+				)
 			case .renderingFilterMode:
 				return PreferencesGraphicsRenderingFilterCell(
 					initialFilterMode: model.renderingFilterMode
@@ -128,24 +153,10 @@ class PreferencesGraphicsViewController: UITableViewController {
 				}
 			case .renderingFilterModeInfo:
 				return PreferencesInformationCell(
-					text: "Nearest neighbor gives a sharp, retro pixelated look. Bilinear produces a smoother image through interpolation. Takes effect on next resolution change or restart."
+					text: "Bilinear produces a smooth image through interpolation. Nearest neighbor gives a sharp, \"retro\" pixelated look. Takes effect on next resolution change or restart."
 				)
-
-			case .frameRateSettingToggle:
-				return PreferencesAdvancedFrameRateSettingCell(
-					initialFrameRateSetting: model.frameRateSetting
-				) { [weak self] newFrameRateSetting in
-					guard let self else { return }
-					model.frameRateSetting = newFrameRateSetting
-					feedbackGenerator.impactOccurred()
-				}
-			case .frameRateSettingInfo:
-				return PreferencesInformationCell(
-					text: "Most games and apps have a maximum frame rate of 60 hz, 75 hz or lower. Higher frame rate settings impact performance. Changes in frame rate setting requires PocketShaver to restart."
-				)
-
 			case .gammaRampSetting:
-				return PreferencesAdvancedGammaRampSettingCell(
+				return PreferencesGraphicsGammaRampSettingCell(
 					initialGammaRampSetting: model.gammaRampSetting
 				) { [weak self] newGammaRampSetting in
 					guard let self else { return }
@@ -154,9 +165,8 @@ class PreferencesGraphicsViewController: UITableViewController {
 				}
 			case .gammaRampSettingInfo:
 				return PreferencesInformationCell(
-					text: "Linear gamma ramp generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and, in some instances, produce a higher color dynamic. Has effect on next resolution change or restart of PocketShaver."
+					text: "Linear gamma ramp generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and, in some instances, produce a higher color dynamic. Takes effect on next resolution change or restart."
 				)
-
 			case .graphicsAccelerationNqdToggle:
 				return PreferencesEnabledSettingCell(
 					title: "NQD Acceleration",
@@ -186,24 +196,28 @@ class PreferencesGraphicsViewController: UITableViewController {
 					self?.model.dspAccelEnabled = isOn
 				}
 			case .graphicsAccelerationInfo:
+				var takesEffectOnRestartSuffix = ""
+				if model.mode == .duringEmulation {
+					takesEffectOnRestartSuffix = " Changes take effect on restart."
+				}
 				return PreferencesInformationCell(
-					text: "Experimental — Requires Metal GPU. Changes take effect on restart."
+					text: "Experimental — Requires Metal GPU." + takesEffectOnRestartSuffix
 				)
 			}
 		}
 
 		dataSource.sectionTitleProvider = { section in
 			switch section {
-			case .monitorResolutions:
-				return "Monitor resolutions"
-			case .rendering:
-				return "Rendering"
 			case .frameRateSetting:
 				return "Frame rate setting"
-			case .gammaRampSetting:
-				return "Gamma ramp"
+			case .monitorResolutions:
+				return "Monitor resolutions"
 			case .graphicsAcceleration:
 				return "Graphics Acceleration"
+			case .rendering:
+				return "Rendering filter"
+			case .gammaRampSetting:
+				return "Gamma ramp"
 			}
 		}
 
@@ -216,30 +230,19 @@ class PreferencesGraphicsViewController: UITableViewController {
 	private func reloadData() {
 		var snapshot = NSDiffableDataSourceSnapshot<Section, Row>()
 
-		snapshot.appendSections([.monitorResolutions])
-		snapshot.appendItems([
-			.monitorResolutionsDisplay,
-			.monitorResolutionsInfo
-		])
-
-		snapshot.appendSections([.rendering])
-		snapshot.appendItems([
-			.renderingFilterMode,
-			.renderingFilterModeInfo
-		])
-
 		if UIScreen.supportsHighRefreshRate {
 			snapshot.appendSections([.frameRateSetting])
-			snapshot.appendItems([
-				.frameRateSettingToggle,
-				.frameRateSettingInfo
-			])
+			snapshot.appendItems([.frameRateSettingToggle])
+			if model.frameRateState.setting == .f120hz ||
+				(model.mode == .duringEmulation && model.frameRateState.hasChanged) {
+				snapshot.appendItems([.frameRateSettingInfo(model.frameRateState)])
+			}
 		}
 
-		snapshot.appendSections([.gammaRampSetting])
+		snapshot.appendSections([.monitorResolutions])
 		snapshot.appendItems([
-			.gammaRampSetting,
-			.gammaRampSettingInfo
+			.monitorResolutions(model.monitorResolutionsState),
+			.monitorResolutionsInformation(model.monitorResolutionsState.willBootFromCD)
 		])
 
 		snapshot.appendSections([.graphicsAcceleration])
@@ -249,6 +252,18 @@ class PreferencesGraphicsViewController: UITableViewController {
 			.graphicsAccelerationGlToggle,
 			.graphicsAccelerationDspToggle,
 			.graphicsAccelerationInfo
+		])
+
+		snapshot.appendSections([.rendering])
+		snapshot.appendItems([
+			.renderingFilterMode,
+			.renderingFilterModeInfo
+		])
+
+		snapshot.appendSections([.gammaRampSetting])
+		snapshot.appendItems([
+			.gammaRampSetting,
+			.gammaRampSettingInfo
 		])
 
 		dataSource.apply(snapshot)

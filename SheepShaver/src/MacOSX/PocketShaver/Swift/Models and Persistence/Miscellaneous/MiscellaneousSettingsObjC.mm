@@ -12,7 +12,7 @@
 #include "adb.h"
 #include "utils_ios.h"
 
-void objc_setRelativeMouseMode(BOOL isOn) {
+void cpp_setRelativeMouseMode(BOOL isOn) {
 	if (isOn) {
 		set_relative_mouse_enabled();
 	} else {
@@ -20,16 +20,31 @@ void objc_setRelativeMouseMode(BOOL isOn) {
 	}
 }
 
-void objc_setRelativeMouseModeAutomatic() {
+void cpp_setRelativeMouseModeAutomatic() {
 	set_relative_mouse_automatic();
 }
 
+void cpp_toggle_relative_mouse_on_main() {
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.001 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+		// Delay to not be inside event pump when calling
+		toggle_relative_mouse();
+	});
+}
+
+void cpp_setInputDisabled(bool isDisabled) {
+	set_input_disabled(isDisabled);
+}
+
 void objc_reportRelativeMouseModeCapability() {
-	[LocalNotificationsObjCProxy sendRelativeMouseModeCapabilityFound];
+	[LocalNotificationObjCProxy sendRelativeMouseModeCapabilityFound];
 }
 
 int objc_getFrameRateSetting(void) {
 	return (int)MiscellaneousSettingsObjC.getFrameRateSetting;
+}
+
+void cpp_updateFrameRateHz() {
+	setup_frame_rate();
 }
 
 bool objc_getIPadMousePassthroughOn(void) {
@@ -54,4 +69,16 @@ bool objc_getSoundDisabled(void) {
 
 bool objc_getIsLinearGammaEnabled(void) {
 	return MiscellaneousSettingsObjC.isLinearGammaEnabled;
+}
+
+bool objc_getShouldBootInRelativeMouseMode(void) {
+	return MiscellaneousSettingsObjC.shouldBootInRelativeMouseMode;
+}
+
+bool objc_getIgnoreIllegalInstructions(void) {
+	return MiscellaneousSettingsObjC.isIgnoreIllegalInstructionsEnabled;
+}
+
+int objc_getRamInMb(void) {
+	return (int)MiscellaneousSettingsObjC.getRamInMb;
 }

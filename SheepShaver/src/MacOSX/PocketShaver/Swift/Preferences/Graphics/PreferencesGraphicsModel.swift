@@ -10,26 +10,40 @@ import Combine
 /// Nearest-neighbor produces a sharp, retro pixelated look;
 /// bilinear produces a smooth, interpolated image.
 enum RenderingFilterMode: String, Codable, CaseIterable {
-	case nearestNeighbor
 	case bilinear
+	case nearestNeighbor
 }
 
 class PreferencesGraphicsModel {
+
+	struct FrameRateState: Hashable {
+		let setting: FrameRateSetting
+		let hasChanged: Bool
+	}
+
+	struct MonitorResolutionsState: Hashable {
+		let enabledResolutions: [MonitorResolutionOption]
+		let willBootFromCD: Bool
+	}
+
 	private let changeSubject: PassthroughSubject<PreferencesChange, Never>
+
+	let mode: PreferencesLaunchMode
 
 	// MARK: - Monitor Resolutions (moved from General)
 
 	@MainActor
-	var monitorResolutions: [MonitorResolutionOption] {
-		MonitorResolutionManager.shared.enabledResolutions
-	}
-
-	@MainActor
-	var willBootFromCD: Bool {
-		DiskManager.shared.willBootFromCD
+	var monitorResolutionsState: MonitorResolutionsState {
+		return .init(
+			enabledResolutions: MonitorResolutionManager.shared.enabledResolutions,
+			willBootFromCD: DiskManager.shared.willBootFromCD
+		)
 	}
 
 	// MARK: - Frame Rate Setting (moved from Advanced)
+
+	@MainActor
+	private let originalFrameRateSetting = MiscellaneousSettings.current.frameRateSetting
 
 	@MainActor
 	var frameRateSetting: FrameRateSetting {
@@ -38,8 +52,22 @@ class PreferencesGraphicsModel {
 		}
 		set {
 			MiscellaneousSettings.current.set(frameRateSetting: newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+
+			if mode == .startup {
+				cpp_updateFrameRateHz()
+			}
+
+			changeSubject.send(.frameRateSettingChanged)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
+	}
+
+	@MainActor
+	var frameRateState: FrameRateState {
+		.init(
+			setting: frameRateSetting,
+			hasChanged: frameRateSetting != originalFrameRateSetting
+		)
 	}
 
 	// MARK: - Gamma Ramp Setting (moved from Advanced)
@@ -54,7 +82,7 @@ class PreferencesGraphicsModel {
 		}
 	}
 
-	// MARK: - Graphics Acceleration (moved from Advanced)
+	// MARK: - Graphics Acceleration
 
 	var nqdAccelEnabled: Bool {
 		get {
@@ -62,7 +90,7 @@ class PreferencesGraphicsModel {
 		}
 		set {
 			objc_replaceBool("nqdaccel", newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
@@ -72,7 +100,7 @@ class PreferencesGraphicsModel {
 		}
 		set {
 			objc_replaceBool("raveaccel", newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
@@ -82,7 +110,7 @@ class PreferencesGraphicsModel {
 		}
 		set {
 			objc_replaceBool("glaccel", newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
@@ -92,7 +120,7 @@ class PreferencesGraphicsModel {
 		}
 		set {
 			objc_replaceBool("dspaccel", newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
@@ -111,7 +139,11 @@ class PreferencesGraphicsModel {
 
 	// MARK: - Init
 
-	init(changeSubject: PassthroughSubject<PreferencesChange, Never>) {
+	init(
+		mode: PreferencesLaunchMode,
+		changeSubject: PassthroughSubject<PreferencesChange, Never>
+	) {
+		self.mode = mode
 		self.changeSubject = changeSubject
 	}
 }

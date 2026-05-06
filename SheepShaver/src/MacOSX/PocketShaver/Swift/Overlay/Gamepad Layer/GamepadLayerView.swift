@@ -7,8 +7,13 @@
 
 import UIKit
 
-class GamepadLayerView: UIView {
-	
+class GamepadLayerView: UIView, ImageDerivable {
+
+	enum Mode {
+		case `default`
+		case thumbnail
+	}
+
 	private let leftCollectionStackView: GamepadButtonStackViewCollectionStackView
 	private let rightCollectionStackView: GamepadButtonStackViewCollectionStackView
 	private var sideButtonStackViews: [GamepadSideButtonLayout: GamepadSideButtonStackView] = [:]
@@ -17,24 +22,31 @@ class GamepadLayerView: UIView {
 		GamepadSettingsButton()
 	}()
 
+	private let inputInteractionModel: InputInteractionModel
+	private let didRequestAssignmentForSideButton: ((GamepadSideButtonPosition) -> Void)
 	private let didRequestLayoutSettings: (() -> Void)
 
 	init(
+		mode: Mode = .default,
 		inputInteractionModel: InputInteractionModel,
 		didRequestAssignmentForButton: @escaping ((GamepadButtonPosition) -> Void),
 		didRequestAssignmentForSideButton: @escaping ((GamepadSideButtonPosition) -> Void),
 		didRequestLayoutSettings: @escaping (() -> Void)
 	) {
+		self.inputInteractionModel = inputInteractionModel
+		self.didRequestAssignmentForSideButton = didRequestAssignmentForSideButton
 		self.didRequestLayoutSettings = didRequestLayoutSettings
 
 		self.leftCollectionStackView = GamepadButtonStackViewCollectionStackView(
 			side: .left,
+			mode: mode,
 			inputInteractionModel: inputInteractionModel
 		) { row, index in
 			didRequestAssignmentForButton(.init(side: .left, row: row, index: index))
 		}
 		self.rightCollectionStackView = GamepadButtonStackViewCollectionStackView(
 			side: .right,
+			mode: mode,
 			inputInteractionModel: inputInteractionModel
 		) { row, index in
 			didRequestAssignmentForButton(.init(side: .right, row: row, index: index))
@@ -51,11 +63,23 @@ class GamepadLayerView: UIView {
 		let sideMargin: CGFloat = UIScreen.sideMarginForButtons
 		let settingsButtonLength = GamepadSettingsButton.length
 
+		let safeAreaInsets: UIEdgeInsets
+		switch mode {
+		case .default:
+			safeAreaInsets = UIApplication.safeAreaInsets
+		case .thumbnail:
+			if GamepadSideButtonLayout.isSupported {
+				safeAreaInsets = .init(top: 0, left: 62, bottom: 0, right: 62)
+			} else {
+				safeAreaInsets = .zero
+			}
+		}
+
 		NSLayoutConstraint.activate([
-			leftCollectionStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin + UIApplication.safeAreaInsets.left),
+			leftCollectionStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin + safeAreaInsets.left),
 			leftCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
-			rightCollectionStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideMargin - UIApplication.safeAreaInsets.right),
+			rightCollectionStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideMargin - safeAreaInsets.right),
 			rightCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
 			settingsButton.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -64,42 +88,45 @@ class GamepadLayerView: UIView {
 			settingsButton.heightAnchor.constraint(equalToConstant: settingsButtonLength)
 		])
 
-		if GamepadSideButtonLayout.isSupported {
+		let showSideButtons: Bool
+		switch mode {
+		case .default:
+			showSideButtons = GamepadSideButtonLayout.isAvailable
+		case .thumbnail:
+			showSideButtons = GamepadSideButtonLayout.isSupported
+		}
+
+		if showSideButtons {
 			addStackView(
 				for: .topLeft,
 				horizontalAnchor: leadingAnchor,
-				verticalAnchor: topAnchor,
-				inputInteractionModel: inputInteractionModel,
-				didRequestAssignmentForSideButton: didRequestAssignmentForSideButton
+				verticalAnchor: topAnchor
 			)
 			addStackView(
 				for: .topRight,
 				horizontalAnchor: trailingAnchor,
-				verticalAnchor: topAnchor,
-				inputInteractionModel: inputInteractionModel,
-				didRequestAssignmentForSideButton: didRequestAssignmentForSideButton
+				verticalAnchor: topAnchor
 			)
 			addStackView(
 				for: .bottomLeft,
 				horizontalAnchor: leadingAnchor,
-				verticalAnchor: bottomAnchor,
-				inputInteractionModel: inputInteractionModel,
-				didRequestAssignmentForSideButton: didRequestAssignmentForSideButton
+				verticalAnchor: bottomAnchor
 			)
 			addStackView(
 				for: .bottomRight,
 				horizontalAnchor: trailingAnchor,
-				verticalAnchor: bottomAnchor,
-				inputInteractionModel: inputInteractionModel,
-				didRequestAssignmentForSideButton: didRequestAssignmentForSideButton
+				verticalAnchor: bottomAnchor
 			)
 		}
 
 		settingsButton.addTarget(self, action: #selector(didTapSettingsButton), for: .touchUpInside)
 	}
 
-	convenience init() {
+	convenience init(
+		mode: Mode = .default
+	) {
 		self.init(
+			mode: mode,
 			inputInteractionModel: .init(),
 			didRequestAssignmentForButton: {_ in },
 			didRequestAssignmentForSideButton: {_ in },
@@ -110,6 +137,18 @@ class GamepadLayerView: UIView {
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
+
+	static func asImage(config: GamepadConfig, size: CGSize) -> UIImage {
+		let gamepadLayerView = GamepadLayerView(mode: .thumbnail)
+		gamepadLayerView.load(config: config)
+		NSLayoutConstraint.activate([
+			gamepadLayerView.widthAnchor.constraint(equalToConstant: size.width),
+			gamepadLayerView.heightAnchor.constraint(equalToConstant: size.height),
+		])
+		gamepadLayerView.layoutIfNeeded()
+
+		return gamepadLayerView.asImage()
+	}
 
 	override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
 		for view in subviews {
@@ -175,17 +214,15 @@ class GamepadLayerView: UIView {
 	private func addStackView(
 		for sideButtonLayout: GamepadSideButtonLayout,
 		horizontalAnchor: NSLayoutXAxisAnchor,
-		verticalAnchor: NSLayoutYAxisAnchor,
-		inputInteractionModel: InputInteractionModel,
-		didRequestAssignmentForSideButton: @escaping ((GamepadSideButtonPosition) -> Void)
+		verticalAnchor: NSLayoutYAxisAnchor
 	) {
 		let stackView = GamepadSideButtonStackView(
 			sideButtonLayout: sideButtonLayout,
 			horizontalAnchor: horizontalAnchor,
 			verticalAnchor: verticalAnchor,
 			inputInteractionModel: inputInteractionModel
-		) { index in
-			didRequestAssignmentForSideButton(.init(layout: sideButtonLayout, index: index))
+		) { [weak self] index in
+			self?.didRequestAssignmentForSideButton(.init(layout: sideButtonLayout, index: index))
 		}
 
 		addSubview(stackView)

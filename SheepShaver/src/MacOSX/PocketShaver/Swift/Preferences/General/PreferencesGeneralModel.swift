@@ -7,7 +7,6 @@
 
 import Foundation
 import Combine
-import CoreHaptics
 
 enum PreferencesGeneralError: Error {
 	case fileWithFilenameAleadyExists
@@ -21,7 +20,8 @@ enum PreferencesGeneralRamSetting: Int, CaseIterable {
 	case n64
 	case n128
 	case n256
-	case n512 // Maximum that Mac OS 9.0.4 recognizes (for now)
+	case n512
+	case n1024
 }
 
 class PreferencesGeneralModel {
@@ -37,25 +37,13 @@ class PreferencesGeneralModel {
 		let type: DiskType
 	}
 
-	struct MonitorResolutionsState: Hashable {
-		let enabledResolutions: [MonitorResolutionOption]
-		let willBootFromCD: Bool
-	}
 
-	struct TwoFingerSteeringSettings: Hashable {
-		let secondFingerClick: Bool
-		let secondFingerSwipe: Bool
-		let bootInHoverMode: Bool
-	}
+	// MARK: - Variables
 
-	private let mode: PreferencesLaunchMode
-
-	@MainActor
-	private var miscSettings: MiscellaneousSettings {
-		.current
-	}
+	let mode: PreferencesLaunchMode
 
 	let changeSubject: PassthroughSubject<PreferencesChange, Never>
+	private var anyCancellables = Set<AnyCancellable>()
 
 	var isDisplayingRomFileMissingError = false
 	var isDisplayingNoDiskFilesError = false
@@ -66,8 +54,14 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	var hasRomFile: Bool {
-		RomManager.shared.hasRomFile
+	var shouldDisplayBootstrapSection = !RomManager.shared.hasRomFile
+
+
+	// MARK: - Computed properties
+
+	@MainActor
+	private var miscSettings: MiscellaneousSettings {
+		.current
 	}
 
 	@MainActor
@@ -80,28 +74,8 @@ class PreferencesGeneralModel {
 		DiskManager.shared.diskArray.count
 	}
 
-	@MainActor
-	var monitorResolutionsState: MonitorResolutionsState {
-		return .init(
-			enabledResolutions: MonitorResolutionManager.shared.enabledResolutions,
-			willBootFromCD: DiskManager.shared.willBootFromCD
-		)
-	}
-
-	@MainActor
-	var audioEnabled: Bool {
-		get {
-			miscSettings.audioEnabled
-		}
-		set {
-			let previousValue = miscSettings.audioEnabled
-			miscSettings.set(audioEnabled: newValue)
-
-			if mode == .duringEmulation,
-				newValue != previousValue {
-				objc_update_audio_enabled_setting(newValue)
-			}
-		}
+	var supportedFileExtensions: [String] {
+		DiskManager.supportedFileExtensions
 	}
 
 	@MainActor
@@ -112,16 +86,33 @@ class PreferencesGeneralModel {
 		set {
 			miscSettings.set(iPadMousePassthrough: newValue)
 			objc_update_sdl_ipad_mouse_setting(newValue)
+
+			changeSubject.send(.iPadMouseEnabledChanged)
 		}
 	}
 
 	@MainActor
-	var twoFingerSteeringSettings: TwoFingerSteeringSettings {
-		return .init(
-			secondFingerClick: miscSettings.secondFingerClick,
-			secondFingerSwipe: miscSettings.secondFingerSwipe,
-			bootInHoverMode: miscSettings.bootInHoverMode
-		)
+	var gamepadConfigs: [GamepadConfig] {
+		GamepadManager.shared.allConfigs
+	}
+
+	@MainActor
+	var twoFingerSteeringSetting: TwoFingerSteeringSetting {
+		get {
+			miscSettings.twoFingerSteeringSetting
+		}
+		set {
+			if twoFingerSteeringSetting == .off,
+			   newValue != .off {
+				miscSettings.set(relativeMouseModeClickGestureSetting: .secondFingerClick)
+			} else if twoFingerSteeringSetting != .off,
+					  newValue == .off,
+					  miscSettings.relativeMouseModeClickGestureSetting == .secondFingerClick {
+				miscSettings.set(relativeMouseModeClickGestureSetting: .tap)
+			}
+
+			miscSettings.set(twoFingerSteeringSetting: newValue)
+		}
 	}
 
 	@MainActor
@@ -144,37 +135,19 @@ class PreferencesGeneralModel {
 		}
 	}
 
-	lazy var supportsHaptics: Bool = {
-		CHHapticEngine.capabilitiesForHardware().supportsHaptics
-	}()
-
 	@MainActor
-	var isGestureHapticFeedbackOn: Bool {
+	var audioEnabled: Bool {
 		get {
-			miscSettings.gestureHapticFeedback
+			miscSettings.audioEnabled
 		}
 		set {
-			miscSettings.set(gestureHapticFeedback: newValue)
-		}
-	}
+			let previousValue = miscSettings.audioEnabled
+			miscSettings.set(audioEnabled: newValue)
 
-	@MainActor
-	var isMouseHapticFeedbackOn: Bool {
-		get {
-			miscSettings.mouseHapticFeedback
-		}
-		set {
-			miscSettings.set(mouseHapticFeedback: newValue)
-		}
-	}
-
-	@MainActor
-	var isKeyHapticFeedbackOn: Bool {
-		get {
-			miscSettings.keyHapticFeedback
-		}
-		set {
-			miscSettings.set(keyHapticFeedback: newValue)
+			if mode == .duringEmulation,
+				newValue != previousValue {
+				objc_update_audio_enabled_setting(newValue)
+			}
 		}
 	}
 
@@ -188,12 +161,33 @@ class PreferencesGeneralModel {
 		}
 	}
 
+
+	// MARK: - Initializer
+
 	init(
 		mode: PreferencesLaunchMode,
 		changeSubject: PassthroughSubject<PreferencesChange, Never>
 	) {
 		self.mode = mode
 		self.changeSubject = changeSubject
+
+		Task { @MainActor in
+			listenToChanges()
+		}
+	}
+
+
+	// MARK: - Functions
+
+	@MainActor
+	private func listenToChanges() {
+		GamepadManager.shared.changeSubject.sink { [weak self] change in
+			guard let self else { return }
+			switch change {
+			case .layoutsDidUpdate:
+				changeSubject.send(.gamepadLayoutsDidUpdate)
+			}
+		}.store(in: &anyCancellables)
 	}
 
 	@MainActor
@@ -203,9 +197,7 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	func didSelectMacOsInstallDiskCandidate(url: URL) async -> RomValidationResult {
-		let result = await RomManager.shared.didSelectMacOsInstallDiskCandidate(url: url)
-		changeSubject.send(.changeRequiringRestartAfterBootMade)
-		return result
+		await RomManager.shared.didSelectMacOsInstallDiskCandidate(url: url)
 	}
 
 	@MainActor
@@ -284,11 +276,6 @@ class PreferencesGeneralModel {
 	}
 
 	@MainActor
-	func diskIndex(forFilename filename: String) -> Int? {
-		DiskManager.shared.index(forFilename: filename)
-	}
-
-	@MainActor
 	func diskEntry(for disk: Disk) -> DiskEntry {
 		let index = DiskManager.shared.diskArray.firstIndex(of: disk)!
 		return .init(index: index, filename: disk.filename, type: disk.type)
@@ -341,10 +328,5 @@ class PreferencesGeneralModel {
 	@MainActor
 	func deleteDisk(_ disk: Disk) {
 		DiskManager.shared.remove(diskWithFilename: disk.filename)
-	}
-
-	@MainActor
-	func setTwoFingerSteering(enabled: Bool) {
-		miscSettings.setTwoFingerSteering(enabled: enabled)
 	}
 }
