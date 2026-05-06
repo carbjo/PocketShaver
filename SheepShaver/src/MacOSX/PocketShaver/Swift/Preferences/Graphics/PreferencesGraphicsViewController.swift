@@ -169,28 +169,28 @@ class PreferencesGraphicsViewController: UITableViewController {
 				)
 			case .graphicsAccelerationNqdToggle:
 				return PreferencesEnabledSettingCell(
-					title: "NQD Acceleration",
+					title: "NQD acceleration",
 					isOn: model.nqdAccelEnabled
 				) { [weak self] isOn in
 					self?.model.nqdAccelEnabled = isOn
 				}
 			case .graphicsAccelerationRaveToggle:
 				return PreferencesEnabledSettingCell(
-					title: "RAVE Acceleration",
+					title: "RAVE acceleration",
 					isOn: model.raveAccelEnabled
 				) { [weak self] isOn in
 					self?.model.raveAccelEnabled = isOn
 				}
 			case .graphicsAccelerationGlToggle:
 				return PreferencesEnabledSettingCell(
-					title: "OpenGL Acceleration",
+					title: "OpenGL acceleration",
 					isOn: model.glAccelEnabled
 				) { [weak self] isOn in
 					self?.model.glAccelEnabled = isOn
 				}
 			case .graphicsAccelerationDspToggle:
 				return PreferencesEnabledSettingCell(
-					title: "DrawSprocket Acceleration",
+					title: "DrawSprocket acceleration",
 					isOn: model.dspAccelEnabled
 				) { [weak self] isOn in
 					self?.model.dspAccelEnabled = isOn
@@ -213,7 +213,7 @@ class PreferencesGraphicsViewController: UITableViewController {
 			case .monitorResolutions:
 				return "Monitor resolutions"
 			case .graphicsAcceleration:
-				return "Graphics Acceleration"
+				return "Graphics acceleration"
 			case .rendering:
 				return "Rendering filter"
 			case .gammaRampSetting:

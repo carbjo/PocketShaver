@@ -43,6 +43,7 @@
 #include "metal_compositor.h"
 #include "prefs.h"
 #include "MiscellaneousSettingsObjCCppHeader.h"
+#include "OverlayViewControllerObjC.h"
 
 // ---------------------------------------------------------------------------
 // Logging macros
@@ -234,7 +235,8 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     compositor_layer.minificationFilter = useNearest ? kCAFilterNearest : kCAFilterLinear;
     compositor_layer.magnificationFilter = useNearest ? kCAFilterNearest : kCAFilterLinear;
 
-    [uiWindow addSubview:compositor_view];
+	UIView *sdlView = UIApplication.sharedApplication.delegate.window.rootViewController.view;
+    [sdlView addSubview:compositor_view];
 
     COMPOSITOR_LOG("View created: layer=%p view=%p drawableSize=%dx%d windowBounds=%.0fx%.0f",
                    compositor_layer, compositor_view, width, height,
@@ -945,6 +947,8 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
     if (refresh_hz <= 0) refresh_hz = 60;
     frame_interval_usec = 1000000 / (uint64_t)refresh_hz;
     last_3d_frame_usec = 0;
+
+	objc_reportVideoSize(width, height, depth);
 
     return 0;
 }
