@@ -733,6 +733,7 @@
 		C751A2032F46D706007E63D9 /* UdpChecksum.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UdpChecksum.h; sourceTree = "<group>"; };
 		C75A604E2E62D04000253CA3 /* PreferencesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesManager.swift; sourceTree = "<group>"; };
 		C75CBADD2EF2E10C00F576ED /* GamepadJoystick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadJoystick.swift; sourceTree = "<group>"; };
+		C75F51A92FB5A7DE0079F1FE /* touch_input_config.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = touch_input_config.h; sourceTree = "<group>"; };
 		C7699F0D2EBF56CF0083B3B3 /* PreferencesROMValidatorCpp.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = PreferencesROMValidatorCpp.cpp; sourceTree = "<group>"; };
 		C7699F0F2EBF57270083B3B3 /* PreferencesROMValidatorCpp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PreferencesROMValidatorCpp.h; sourceTree = "<group>"; };
 		C7699F112EC45D870083B3B3 /* PreferencesCompatibilityListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesCompatibilityListViewController.swift; sourceTree = "<group>"; };
@@ -1084,6 +1085,7 @@
 				0856CEC014A99EF0000B1711 /* sony.cpp */,
 				0856CEC114A99EF0000B1711 /* thunks.cpp */,
 				0856CEC214A99EF0000B1711 /* timer.cpp */,
+				C75F51A92FB5A7DE0079F1FE /* touch_input_config.h */,
 				0856CEC314A99EF0000B1711 /* Unix */,
 				0856CF7714A99EF0000B1711 /* user_strings.cpp */,
 				0856CF7814A99EF0000B1711 /* video.cpp */,

@@ -14,6 +14,7 @@
 #import "MiscellaneousSettingsObjC.h"
 #import "MouseHapticFeedbackObjC.h"
 #import "ADBObjC.h"
+#import "touch_input_config.h"
 
 void objc_initOverlayViewController(void) {
 	@autoreleasepool {
@@ -31,24 +32,39 @@ void objc_reportVideoSize(unsigned short width, unsigned short height, unsigned 
 
 	double offsetMultiplier = 0.33;
 
+	bool isBoundedByHeight;
+	double screenMarginPercentage;
+
 	if (emulatedAspectRatio >= deviceApsectRatio) {
 		// Screen is bounded by width
 		multiplier = width / deviceScreenSize.width;
 
 		offsetModeX = width * offsetMultiplier;
 		offsetModeY = offsetModeX / deviceApsectRatio;
+
+		isBoundedByHeight = false;
+		screenMarginPercentage = (1 - (deviceApsectRatio / emulatedAspectRatio)) / 2;
 	} else {
 		// Screen is bounded by height
 		multiplier = height / deviceScreenSize.height;
 
 		offsetModeY = height * offsetMultiplier;
 		offsetModeX = offsetModeY * deviceApsectRatio;
+
+		isBoundedByHeight = true;
+		screenMarginPercentage = (1 - (emulatedAspectRatio / deviceApsectRatio)) / 2;
 	}
 
 	int tolerance = round(10 * multiplier);
-	int screenMiddleX = width / 2;
 
-	ADBConfigure(screenMiddleX, tolerance);
+	TouchInputConfig touchInputConfig;
+	touchInputConfig.screen_width = width;
+	touchInputConfig.screen_height = height;
+	touchInputConfig.screen_margin_percentage = screenMarginPercentage;
+	touchInputConfig.margin_is_horizontal_axis = isBoundedByHeight;
+	touchInputConfig.double_click_tolerance = tolerance;
+
+	ADBConfigure(touchInputConfig);
 	[InputInteractionModelObjC configureWithOffsetX:offsetModeX offsetY:offsetModeY];
 
 	BOOL isClassicResolution = (width == 640 && height == 480) ||

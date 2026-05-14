@@ -169,7 +169,7 @@ class PreferencesGraphicsViewController: UITableViewController {
 				)
 			case .graphicsAccelerationNqdToggle:
 				return PreferencesEnabledSettingCell(
-					title: "NQD acceleration",
+					title: "Native QuickDraw acceleration",
 					isOn: model.nqdAccelEnabled
 				) { [weak self] isOn in
 					self?.model.nqdAccelEnabled = isOn

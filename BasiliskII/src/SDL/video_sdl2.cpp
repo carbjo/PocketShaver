@@ -660,6 +660,7 @@ public:
 	void resume(void) {}
 	void toggle_mouse_grab(void);
 	void mouse_moved(int x, int y) { ADBMouseMoved(x, y); }
+	void touch_moved(float x, float y, long long fingerId) { ADBTouchMoved(x, y, fingerId); }
 
 	void disable_mouse_accel(void);
 	void restore_mouse_accel(void);
@@ -2582,6 +2583,41 @@ static void handle_events(void)
 					drv->mouse_moved(event.motion.x, event.motion.y);
 				}
 				break;
+
+				case SDL_FINGERMOTION: {
+					if (input_disabled) {
+						break;
+					}
+
+					if (mouse_grabbed) {
+						drv->touch_moved(event.tfinger.x, event.tfinger.y, event.tfinger.fingerId);
+					} else {
+						drv->touch_moved(event.tfinger.x, event.tfinger.y, event.tfinger.fingerId);
+					}
+					break;
+				}
+
+				case SDL_FINGERDOWN: {
+					if (input_disabled) {
+						break;
+					}
+
+					if (!mouse_grabbed) {
+						drv->touch_moved(event.tfinger.x, event.tfinger.y, event.tfinger.fingerId);
+					}
+
+					ADBTouchDown(event.tfinger.x, event.tfinger.y, event.tfinger.fingerId);
+					break;
+				}
+
+				case SDL_FINGERUP: {
+					if (!mouse_grabbed) {
+						drv->touch_moved(event.tfinger.x, event.tfinger.y, event.tfinger.fingerId);
+					}
+
+					ADBTouchUp(event.tfinger.fingerId);
+					break;
+				}
 
 			case SDL_MOUSEWHEEL:
 				if (!event.wheel.y) break;

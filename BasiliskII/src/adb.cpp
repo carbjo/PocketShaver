@@ -95,8 +95,7 @@ static B2_mutex *mouse_lock;
 static time_t latest_mouse_down_time;
 static time_t relative_mouse_mode_off_time;
 
-// tolernace used to determine wheather to move mouse or not during	potential double click event
-static int double_click_mouse_move_tolerance = 10;
+static TouchInputConfig touch_input_config;
 
 BeginAnimationState::BeginAnimationState(int inp_x, int inp_y) {
 	x = inp_x;
@@ -289,11 +288,12 @@ int getYOffset()
 }
 
 
+
 /*
  *  Mouse was moved (x/y are absolute or relative, depending on ADBSetRelMouseMode())
  */
 
-void ADBMouseMoved(int x, int y)
+void MouseMoved(int x, int y)
 {
 	if (is_animating) {
 		return;
@@ -307,8 +307,8 @@ void ADBMouseMoved(int x, int y)
 		if (touch_input &&
 			!mouse_down &&
 			!hover_mode &&
-			abs(mouse_x - x) <= double_click_mouse_move_tolerance &&
-			abs(mouse_y - y) <= double_click_mouse_move_tolerance) {
+			abs(mouse_x - x) <= touch_input_config.double_click_tolerance &&
+			abs(mouse_y - y) <= touch_input_config.double_click_tolerance) {
 			time_t now;
 			time(&now);
 			if (difftime(now, latest_mouse_down_time) < 1) {
@@ -334,6 +334,74 @@ void ADBMouseMoved(int x, int y)
 	B2_unlock_mutex(mouse_lock);
 	SetInterruptFlag(INTFLAG_ADB);
 	TriggerInterrupt();
+}
+
+void ADBMouseMoved(int x, int y) {
+	if (touch_input) {
+		return;
+	}
+
+	MouseMoved(x, y);
+}
+
+
+long long lastFingerId = 0;
+float last_touch_x_percentage = -1;
+float last_touch_y_percentage = -1;
+
+void ADBTouchMoved(float x_percentage, float y_percentage, long long fingerId) {
+	if (!touch_input) {
+		return;
+	}
+
+	if (lastFingerId != 0 && fingerId != lastFingerId) {
+		return;
+	}
+
+	if (lastFingerId == 0 && fingerId != 0) {
+		lastFingerId = fingerId;
+	}
+
+	if (relative_mouse) {
+		float dx = x_percentage - last_touch_x_percentage;
+		float dy = y_percentage - last_touch_y_percentage;
+
+		last_touch_x_percentage = x_percentage;
+		last_touch_y_percentage = y_percentage;
+
+		int res_x = touch_input_config.screen_width * dx;
+		int res_y = touch_input_config.screen_height * dy;
+
+		MouseMoved(res_x, res_y);
+		return;
+	}
+
+	float adjusted_x_percentage = x_percentage;
+	float adjusted_y_percentage = y_percentage;
+	if (touch_input_config.margin_is_horizontal_axis) {
+		if (x_percentage < touch_input_config.screen_margin_percentage) {
+			adjusted_x_percentage = 0;
+		} else if (x_percentage > 1 - touch_input_config.screen_margin_percentage) {
+			adjusted_x_percentage = 1;
+		} else {
+			float x_max_percentage = 1 - touch_input_config.screen_margin_percentage*2;
+			adjusted_x_percentage = ((x_percentage - touch_input_config.screen_margin_percentage)/x_max_percentage);
+		}
+	} else {
+		if (y_percentage < touch_input_config.screen_margin_percentage) {
+			adjusted_y_percentage = 0;
+		} else if (y_percentage > 1 - touch_input_config.screen_margin_percentage) {
+			adjusted_y_percentage = 1;
+		} else {
+			float y_max_percentage = 1 - touch_input_config.screen_margin_percentage*2;
+			adjusted_y_percentage = ((y_percentage - touch_input_config.screen_margin_percentage)/y_max_percentage);
+		}
+	}
+
+	int res_x = touch_input_config.screen_width * adjusted_x_percentage;
+	int res_y = touch_input_config.screen_height * adjusted_y_percentage;
+
+	MouseMoved(res_x, res_y);
 }
 
 void ADBMouseClick(int button) {
@@ -365,7 +433,7 @@ void ADBWriteMouseDown(int button) {
  *  Mouse button pressed
  */
 
-void ADBMouseDown(int button)
+void MouseDown(int button)
 {
 	if (is_hover_gesture_dragging) {
 		return;
@@ -397,6 +465,27 @@ void ADBMouseDown(int button)
 	time(&latest_mouse_down_time);
 }
 
+void ADBMouseDown(int button) {
+	if (touch_input) {
+		return;
+	}
+
+	MouseDown(button);
+}
+
+void ADBTouchDown(float x_percentage, float y_percentage, long long fingerId) {
+	if (!touch_input || (lastFingerId != 0 && lastFingerId != fingerId)) {
+		return;
+	}
+
+	if (relative_mouse) {
+		last_touch_x_percentage = x_percentage;
+		last_touch_y_percentage = y_percentage;
+	}
+
+	MouseDown(0);
+}
+
 void ADBWriteMouseUp(int button) {
 	// O2S: Add button to buffer
 	button_buffer[button_write_ptr] = button | 0x80;
@@ -414,8 +503,15 @@ void ADBWriteMouseUp(int button) {
  *  Mouse button released
  */
 
-void ADBMouseUp(int button)
+void MouseUp(int button, long long fingerId)
 {
+	if (lastFingerId != 0 && fingerId == lastFingerId) {
+		lastFingerId = 0;
+	}
+	if (fingerId == 0) {
+		lastFingerId = 0;
+	}
+
 	if (is_hover_gesture_dragging) {
 		return;
 	}
@@ -432,8 +528,8 @@ void ADBMouseUp(int button)
 		time_t now;
 		time(&now);
 
-		if (last_mouse_down_delta_x < double_click_mouse_move_tolerance &&
-			last_mouse_down_delta_y < double_click_mouse_move_tolerance &&
+		if (last_mouse_down_delta_x < touch_input_config.double_click_tolerance &&
+			last_mouse_down_delta_y < touch_input_config.double_click_tolerance &&
 			difftime(now, latest_mouse_down_time) < 1) {
 			if (objc_getRelativeMouseTapToClick()) {
 				ADBMouseClick(button);
@@ -450,9 +546,26 @@ void ADBMouseUp(int button)
 	mouse_down = false;
 }
 
-void ADBConfigure(int new_screen_middle_x, int new_double_click_mouse_move_tolerance) {
-	screen_middle_x = new_screen_middle_x;
-	double_click_mouse_move_tolerance = new_double_click_mouse_move_tolerance;
+void ADBMouseUp(int button) {
+	if (touch_input) {
+		return;
+	}
+
+	MouseUp(button, 0);
+}
+
+void ADBTouchUp(long long fingerId) {
+	if (!touch_input) {
+		return;
+	}
+
+	MouseUp(0, fingerId);
+}
+
+void ADBConfigure(TouchInputConfig new_config) {
+	touch_input_config = new_config;
+	screen_middle_x = new_config.screen_width / 2;
+//	double_click_mouse_move_tolerance = new_double_click_mouse_move_tolerance;
 }
 
 /*
@@ -481,6 +594,7 @@ void ADBEnableHoverModeWith(int offset_x_inp, int offset_y_inp) {
 
 	if (mouse_down) {
 		ADBMouseUp(0);
+		ADBTouchUp(0);
 	}
 }
 

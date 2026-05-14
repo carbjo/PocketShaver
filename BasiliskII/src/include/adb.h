@@ -21,6 +21,8 @@
 #ifndef ADB_H
 #define ADB_H
 
+#include "touch_input_config.h"
+
 #ifdef __cplusplus
 extern "C"
 #endif
@@ -36,9 +38,12 @@ extern void ADBExit(void);
 
 extern void ADBOp(uint8 op, uint8 *data);
 
+extern void ADBTouchMoved(float x_percentage, float y_percentage, long long fingerId);
 extern void ADBMouseMoved(int x, int y);
 extern void ADBMouseDown(int button);
+extern void ADBTouchDown(float x_percentage, float y_percentage, long long fingerId);
 extern void ADBMouseUp(int button);
+extern void ADBTouchUp(long long fingerId);
 
 extern void ADBKeyDown(int code);
 extern void ADBKeyUp(int code);
@@ -49,7 +54,7 @@ extern void ADBMouseClick(int button);
 
 extern void ADBInterrupt(void);
 
-extern void ADBConfigure(int new_screen_middle_x, int new_double_click_mouse_move_tolerance);
+extern void ADBConfigure(TouchInputConfig);
 extern void ADBSetRelMouseMode(bool relative);
 extern void ADBSetTouchInput(bool is_on);
 extern bool ADBHoversOnMouseDown();
