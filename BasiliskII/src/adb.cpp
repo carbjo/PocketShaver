@@ -358,11 +358,11 @@ void ADBTouchMoved(float x_percentage, float y_percentage, long long fingerId) {
 		return;
 	}
 
-	if (lastFingerId == 0 && fingerId != 0) {
-		lastFingerId = fingerId;
-	}
-
 	if (relative_mouse) {
+		if (lastFingerId == 0) {
+			return;
+		}
+
 		float dx = x_percentage - last_touch_x_percentage;
 		float dy = y_percentage - last_touch_y_percentage;
 
@@ -374,6 +374,13 @@ void ADBTouchMoved(float x_percentage, float y_percentage, long long fingerId) {
 
 		MouseMoved(res_x, res_y);
 		return;
+	} else {
+		// In absolute mode, first move event determines which finger
+		// controls mouse position, to allow the reposition of mouse position
+		// before click (as to not create a unintentional drag move)
+		if (lastFingerId == 0 && fingerId != 0) {
+			lastFingerId = fingerId;
+		}
 	}
 
 	float adjusted_x_percentage = x_percentage;
@@ -474,11 +481,22 @@ void ADBMouseDown(int button) {
 }
 
 void ADBTouchDown(float x_percentage, float y_percentage, long long fingerId) {
-	if (!touch_input || (lastFingerId != 0 && lastFingerId != fingerId)) {
+	if (!touch_input) {
+		return;
+	}
+	if (lastFingerId != 0 && lastFingerId != fingerId) {
 		return;
 	}
 
 	if (relative_mouse) {
+		if (lastFingerId != 0) {
+			// In relative mode, first touch down event determines which finger
+			// controls mouse position, to set last x and y percentage correctly
+			// without causing race condition (from subsequent move events)
+			return;
+		}
+		lastFingerId = fingerId;
+
 		last_touch_x_percentage = x_percentage;
 		last_touch_y_percentage = y_percentage;
 	}
@@ -559,13 +577,16 @@ void ADBTouchUp(long long fingerId) {
 		return;
 	}
 
+	if (lastFingerId == fingerId) {
+		lastFingerId = 0;
+	}
+
 	MouseUp(0, fingerId);
 }
 
 void ADBConfigure(TouchInputConfig new_config) {
 	touch_input_config = new_config;
 	screen_middle_x = new_config.screen_width / 2;
-//	double_click_mouse_move_tolerance = new_double_click_mouse_move_tolerance;
 }
 
 /*
