@@ -101,13 +101,13 @@ class GamepadJoystick: UIControl {
 
 	init(
 		mode: Mode,
-		inputInteractionModel: InputInteractionModel,
+		inputInteractionModel: InputInteractionModel?,
 		hideLabels: Bool,
 		isEditing: Bool,
 		didRequestAssignment: @escaping (() -> Void)
 	) {
 		self.mode = mode
-		self.isRelativeMouseModeEnabled = inputInteractionModel.isRelativeMouseModeEnabled
+		self.isRelativeMouseModeEnabled = inputInteractionModel?.isRelativeMouseModeEnabled ?? true
 		self.hideLabels = hideLabels
 		self.isEditing = isEditing
 		self.didRequestAssignment = didRequestAssignment
@@ -146,9 +146,11 @@ class GamepadJoystick: UIControl {
 
 		set(isEditing: isEditing)
 
-		listenToChanges(from: inputInteractionModel)
-		
-		configure(isRelativeMouseModeEnabled: inputInteractionModel.isRelativeMouseModeEnabled)
+		if let inputInteractionModel {
+			listenToChanges(from: inputInteractionModel)
+			
+			configure(isRelativeMouseModeEnabled: inputInteractionModel.isRelativeMouseModeEnabled)
+		}
 	}
 
 	required init?(coder: NSCoder) { fatalError() }

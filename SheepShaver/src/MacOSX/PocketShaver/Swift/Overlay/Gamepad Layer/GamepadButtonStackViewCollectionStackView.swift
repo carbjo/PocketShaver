@@ -15,7 +15,7 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 	init(
 		side: GamepadSide,
 		mode: GamepadLayerView.Mode,
-		inputInteractionModel: InputInteractionModel,
+		inputInteractionModel: InputInteractionModel?,
 		didRequestAssignmentAtRowAndIndex: @escaping ((Int, Int) -> Void)
 	) {
 		self.mode = mode
@@ -38,7 +38,7 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 
 	private func setupStackViews(
 		side: GamepadSide,
-		inputInteractionModel: InputInteractionModel
+		inputInteractionModel: InputInteractionModel?
 	) {
 		let screenHeight: CGFloat
 		switch mode {
