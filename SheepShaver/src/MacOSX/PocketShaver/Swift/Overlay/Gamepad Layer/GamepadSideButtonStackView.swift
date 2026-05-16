@@ -8,7 +8,7 @@
 import UIKit
 
 class GamepadSideButtonStackView: UIStackView {
-	private let inputInteractionModel: InputInteractionModel
+	private let inputInteractionModel: InputInteractionModel?
 	private let didRequestAssignmentAtIndex: ((Int) -> Void)
 
 	private var isEditing: Bool = false
@@ -17,7 +17,7 @@ class GamepadSideButtonStackView: UIStackView {
 		sideButtonLayout: GamepadSideButtonLayout,
 		horizontalAnchor: NSLayoutXAxisAnchor,
 		verticalAnchor: NSLayoutYAxisAnchor,
-		inputInteractionModel: InputInteractionModel,
+		inputInteractionModel: InputInteractionModel?,
 		didRequestAssignmentAtIndex: @escaping ((Int) -> Void)
 	) {
 		self.inputInteractionModel = inputInteractionModel
@@ -66,14 +66,14 @@ class GamepadSideButtonStackView: UIStackView {
 			pushKey: { [weak self] in
 				// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
 				// Should not assume EN layout, specifically
-				self?.inputInteractionModel.handle(
+				self?.inputInteractionModel?.handle(
 					key,
 					isDown: true,
 					hapticAllowed: true
 				)
 			},
 			releaseKey: { [weak self] in
-				self?.inputInteractionModel.handle(
+				self?.inputInteractionModel?.handle(
 					key,
 					isDown: false,
 					hapticAllowed: true
@@ -100,13 +100,13 @@ class GamepadSideButtonStackView: UIStackView {
 			inputInteractionModel: inputInteractionModel,
 			isEditing: isEditing,
 			pushKey: { [weak self] in
-				self?.inputInteractionModel.handle(
+				self?.inputInteractionModel?.handle(
 					specialButton,
 					isDown: true
 				)
 			},
 			releaseKey: { [weak self] in
-				self?.inputInteractionModel.handle(
+				self?.inputInteractionModel?.handle(
 					specialButton,
 					isDown: false
 				)
