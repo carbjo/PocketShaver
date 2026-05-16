@@ -1046,7 +1046,7 @@ void update_sdl_video(SDL_Surface *s, int numrects, SDL_Rect *rects)
     for (int i = 0; i < numrects; ++i) {
         SDL_UnionRect(&sdl_update_video_rect, &rects[i], &sdl_update_video_rect);
     }
-	objc_reportFrameRender();
+
     SDL_UnlockMutex(sdl_update_video_mutex);
 }
 
@@ -3033,6 +3033,8 @@ static void video_refresh_window_static(void)
 	// VBL — the memcmp-based dirty detection (update_display_static_bbox)
 	// exists only for the SDL rendering path which is not used on iOS.
 	// Skipping it avoids burning CPU and thrashing the data cache.
+
+	objc_reportFrameRender();
 #else
 	// Update display (static variant)
 	static uint32 tick_counter = 0;

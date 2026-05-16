@@ -767,10 +767,12 @@ extension OverlayViewController {
 extension OverlayViewController: PerformanceCounterDelegate {
 
 	func performanceCounter(_ counter: PerformanceCounter, didUpdateWithReport report: PerformanceCounterReport) {
+		let cappedFramesRendered = min(report.framesRendered, MiscellaneousSettings.current.frameRateSetting.frameRate)
+		
 		if MiscellaneousSettings.current.fpsReporting && MiscellaneousSettings.current.networkTransferRateReportingEnabled {
-			performanceLabel.text = "\(report.framesRendered)\n\(report.bytesTransferredString)"
+			performanceLabel.text = "\(cappedFramesRendered)\n\(report.bytesTransferredString)"
 		} else if MiscellaneousSettings.current.fpsReporting {
-			performanceLabel.text = "\(report.framesRendered)"
+			performanceLabel.text = "\(cappedFramesRendered)"
 		} else if MiscellaneousSettings.current.networkTransferRateReportingEnabled {
 			performanceLabel.text = "\(report.bytesTransferredString)"
 		}

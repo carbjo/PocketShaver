@@ -27,7 +27,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 		//performanceMetrics
 		case performanceMetricsFpsCounterToggle
-		case performanceMetricsFpsCounterInfo
 		case performanceMetricsNetworkTransferRateToggle
 
 		//uiOptions
@@ -131,11 +130,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 				) { [weak self] isOn in
 					self?.model.fpsReportingEnabled = isOn
 				}
-			case .performanceMetricsFpsCounterInfo:
-				return PreferencesInformationCell(
-					text: "PocketShaver only renders frames when there are visual changes. Therefore, low FPS count does not always mean low performace.",
-					separatorHidden: false
-				)
 			case .performanceMetricsNetworkTransferRateToggle:
 				return PreferencesEnabledSettingCell(
 					title: "Show network transfer rate",
@@ -330,7 +324,6 @@ class PreferencesAdvancedViewController: UITableViewController {
 		snapshot.appendSections([.performanceMetrics])
 		snapshot.appendItems([
 			.performanceMetricsFpsCounterToggle,
-			.performanceMetricsFpsCounterInfo,
 			.performanceMetricsNetworkTransferRateToggle
 		])
 
