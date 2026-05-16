@@ -386,23 +386,11 @@ void ADBTouchMoved(float x_percentage, float y_percentage, long long fingerId) {
 	float adjusted_x_percentage = x_percentage;
 	float adjusted_y_percentage = y_percentage;
 	if (touch_input_config.margin_is_horizontal_axis) {
-		if (x_percentage < touch_input_config.screen_margin_percentage) {
-			adjusted_x_percentage = 0;
-		} else if (x_percentage > 1 - touch_input_config.screen_margin_percentage) {
-			adjusted_x_percentage = 1;
-		} else {
-			float x_max_percentage = 1 - touch_input_config.screen_margin_percentage*2;
-			adjusted_x_percentage = ((x_percentage - touch_input_config.screen_margin_percentage)/x_max_percentage);
-		}
+		float x_max_percentage = 1 - touch_input_config.screen_margin_percentage*2;
+		adjusted_x_percentage = ((x_percentage - touch_input_config.screen_margin_percentage)/x_max_percentage);
 	} else {
-		if (y_percentage < touch_input_config.screen_margin_percentage) {
-			adjusted_y_percentage = 0;
-		} else if (y_percentage > 1 - touch_input_config.screen_margin_percentage) {
-			adjusted_y_percentage = 1;
-		} else {
-			float y_max_percentage = 1 - touch_input_config.screen_margin_percentage*2;
-			adjusted_y_percentage = ((y_percentage - touch_input_config.screen_margin_percentage)/y_max_percentage);
-		}
+		float y_max_percentage = 1 - touch_input_config.screen_margin_percentage*2;
+		adjusted_y_percentage = ((y_percentage - touch_input_config.screen_margin_percentage)/y_max_percentage);
 	}
 
 	int res_x = touch_input_config.screen_width * adjusted_x_percentage;
