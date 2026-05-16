@@ -40,7 +40,7 @@ class GamepadButton: UIButton {
 		label: Label,
 		buttonSize: GamepadButtonSize,
 		specialButtonConfig: SpecialButton? = nil,
-		inputInteractionModel: InputInteractionModel,
+		inputInteractionModel: InputInteractionModel?,
 		isEditing: Bool,
 		pushKey: @escaping (() -> Void),
 		releaseKey: @escaping (() -> Void),
@@ -50,8 +50,8 @@ class GamepadButton: UIButton {
 		self.didPush = pushKey
 		self.didRelease = releaseKey
 		self.didRequestAssignment = didRequestAssignment
-		self.isRelativeMouseModeEnabled = inputInteractionModel.isRelativeMouseModeEnabled
-		self.isIPadMousePassthroughOn = inputInteractionModel.iPadMousePassthrough
+		self.isRelativeMouseModeEnabled = inputInteractionModel?.isRelativeMouseModeEnabled ?? true
+		self.isIPadMousePassthroughOn = inputInteractionModel?.iPadMousePassthrough ?? false
 
 		super.init(frame: .zero)
 
@@ -102,15 +102,17 @@ class GamepadButton: UIButton {
 
 		set(isEditing: isEditing)
 
-		listenToChanges(from: inputInteractionModel)
+		if let inputInteractionModel {
+			listenToChanges(from: inputInteractionModel)
 
-		configure(isRelativeMouseModeEnabled: inputInteractionModel.isRelativeMouseModeEnabled)
-		configure(isIPadMousePassthroughOn: inputInteractionModel.iPadMousePassthrough)
-		configure(hoverOffsetMode: inputInteractionModel.hoverOffsetMode)
-		configure(
-			audioEnabled: inputInteractionModel.isAudioEnabled,
-			hostAudioVolume: inputInteractionModel.hostAudioVolume
-		)
+			configure(isRelativeMouseModeEnabled: inputInteractionModel.isRelativeMouseModeEnabled)
+			configure(isIPadMousePassthroughOn: inputInteractionModel.iPadMousePassthrough)
+			configure(hoverOffsetMode: inputInteractionModel.hoverOffsetMode)
+			configure(
+				audioEnabled: inputInteractionModel.isAudioEnabled,
+				hostAudioVolume: inputInteractionModel.hostAudioVolume
+			)
+		}
 	}
 	
 	required init?(coder: NSCoder) { fatalError() }

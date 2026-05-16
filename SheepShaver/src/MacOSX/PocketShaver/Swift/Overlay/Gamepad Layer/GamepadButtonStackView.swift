@@ -12,7 +12,7 @@ class GamepadButtonStackView: UIStackView {
 	private let row: Int
 
 	private let mode: GamepadLayerView.Mode
-	private let inputInteractionModel: InputInteractionModel
+	private let inputInteractionModel: InputInteractionModel?
 	private let didRequestAssignmentAtIndex: ((Int) -> Void)
 
 	private var isEditing: Bool = false
@@ -22,7 +22,7 @@ class GamepadButtonStackView: UIStackView {
 		row: Int,
 		isSettingsButtonRow: Bool,
 		mode: GamepadLayerView.Mode,
-		inputInteractionModel: InputInteractionModel,
+		inputInteractionModel: InputInteractionModel?,
 		didRequestAssignmentAtIndex: @escaping ((Int) -> Void)
 	) {
 		self.side = side
@@ -90,14 +90,14 @@ class GamepadButtonStackView: UIStackView {
 			pushKey: { [weak self] in
 				// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
 				// Should not assume EN layout, specifically
-				self?.inputInteractionModel.handle(
+				self?.inputInteractionModel?.handle(
 					key,
 					isDown: true,
 					hapticAllowed: true
 				)
 			},
 			releaseKey: { [weak self] in
-				self?.inputInteractionModel.handle(
+				self?.inputInteractionModel?.handle(
 					key,
 					isDown: false,
 					hapticAllowed: true
@@ -128,13 +128,13 @@ class GamepadButtonStackView: UIStackView {
 			inputInteractionModel: inputInteractionModel,
 			isEditing: isEditing,
 			pushKey: { [weak self] in
-				self?.inputInteractionModel.handle(
+				self?.inputInteractionModel?.handle(
 					specialButton,
 					isDown: true
 				)
 			},
 			releaseKey: { [weak self] in
-				self?.inputInteractionModel.handle(
+				self?.inputInteractionModel?.handle(
 					specialButton,
 					isDown: false
 				)
@@ -161,13 +161,13 @@ class GamepadButtonStackView: UIStackView {
 		switch joystickType {
 		case .mouse:
 			mode = .mouse({ [weak self] delta in
-				self?.inputInteractionModel.handleFireMouseJoystick(with: delta)
+				self?.inputInteractionModel?.handleFireMouseJoystick(with: delta)
 			})
 		case .wasd4way:
 			mode = .wasd(
 				.fourWay,
 				{ [weak self] sdlKey, isDown in
-					self?.inputInteractionModel.handle(
+					self?.inputInteractionModel?.handle(
 						sdlKey,
 						isDown: isDown,
 						hapticAllowed: false
@@ -178,7 +178,7 @@ class GamepadButtonStackView: UIStackView {
 			mode = .wasd(
 				.eightWay,
 				{ [weak self] sdlKey, isDown in
-					self?.inputInteractionModel.handle(
+					self?.inputInteractionModel?.handle(
 						sdlKey,
 						isDown: isDown,
 						hapticAllowed: false
