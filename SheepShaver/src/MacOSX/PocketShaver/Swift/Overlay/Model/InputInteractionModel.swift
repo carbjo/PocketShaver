@@ -96,7 +96,7 @@ class InputInteractionModel {
 
 	static let shared = InputInteractionModel()
 
-	init() {
+	private init() {
 		LocalNotification.observe(.relativeMouseModeEnabled, self, #selector(handleRelativeMouseModeEnabled))
 		LocalNotification.observe(.relativeMouseModeDisabled, self, #selector(handleRelativeMouseModeDisabled))
 		LocalNotification.observe(.relativeMouseModeSettingChanged, self, #selector(handleRelativeMouseModeSettingChanged))

@@ -22,13 +22,13 @@ class GamepadLayerView: UIView, ImageDerivable {
 		GamepadSettingsButton()
 	}()
 
-	private let inputInteractionModel: InputInteractionModel
+	private let inputInteractionModel: InputInteractionModel?
 	private let didRequestAssignmentForSideButton: ((GamepadSideButtonPosition) -> Void)
 	private let didRequestLayoutSettings: (() -> Void)
 
 	init(
 		mode: Mode = .default,
-		inputInteractionModel: InputInteractionModel,
+		inputInteractionModel: InputInteractionModel?,
 		didRequestAssignmentForButton: @escaping ((GamepadButtonPosition) -> Void),
 		didRequestAssignmentForSideButton: @escaping ((GamepadSideButtonPosition) -> Void),
 		didRequestLayoutSettings: @escaping (() -> Void)
@@ -127,7 +127,7 @@ class GamepadLayerView: UIView, ImageDerivable {
 	) {
 		self.init(
 			mode: mode,
-			inputInteractionModel: .init(),
+			inputInteractionModel: nil,
 			didRequestAssignmentForButton: {_ in },
 			didRequestAssignmentForSideButton: {_ in },
 			didRequestLayoutSettings: {}
