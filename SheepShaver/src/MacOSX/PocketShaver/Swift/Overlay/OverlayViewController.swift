@@ -164,9 +164,9 @@ public class OverlayViewController: UIViewController {
 
 		if UIDevice.deviceType == .mac {
 			// Needed to avoid macOS "alert sound" at every keystroke
-			// Hidden input field will ignore the actual key input since
+			// OverlayViewController will ignore the actual key input since
 			// it will already be handle in SDL event pump in video_sdl2.cpp
-			hiddenInputField.becomeFirstResponder()
+			becomeFirstResponder()
 		}
 	}
 
@@ -744,6 +744,9 @@ extension OverlayViewController {
 
 		sdlVC.embed(vc)
 	}
+
+	// No-op implementation so that key strokes on macOS does not result in "alert sound"
+	public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {}
 }
 
 extension OverlayViewController: PerformanceCounterDelegate {
