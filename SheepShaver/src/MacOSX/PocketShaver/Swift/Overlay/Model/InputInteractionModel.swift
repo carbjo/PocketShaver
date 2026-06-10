@@ -17,6 +17,30 @@ enum HoverOffsetMode {
 	case diagonallyAbove
 }
 
+/// Input-event kinds forwarded to
+/// DSp contexts via DSpEventService.swift's Combine subscription.
+/// Mirrors the DSp 1.7 EventRecord.what enumeration subset (classic
+/// Mac toolbox values; see dsp_event_record.h kDSpEvent_*).
+enum DSpInputEventKind {
+	case keyDown     // kDSpEvent_KeyDown = 3
+	case keyUp       // kDSpEvent_KeyUp = 4
+	case mouseDown   // kDSpEvent_MouseDown = 1
+	case mouseUp     // kDSpEvent_MouseUp = 2
+}
+
+/// Swift-side value type that InputInteractionModel
+/// publishes on dspInputEventSubject. DSpEventService.swift's Combine
+/// subscription translates this into the 7-arg
+/// DSpHostBridge_EnqueueEventToActiveContexts C call. Fields map 1:1
+/// to DSpEventRecord (dsp_event_record.h).
+struct DSpInputEvent {
+	let kind: DSpInputEventKind
+	let keyCode: Int        // SDLKey.enValue for key events; 0 for mouse
+	let buttonIndex: Int    // 1 = primary (mouse click) per classic Mac; 0 for key
+	let modifiers: UInt16   // modifier mask; 0 (unused)
+	let timestamp: UInt32   // TickCount equivalent; 0 (unused)
+}
+
 @MainActor
 class InputInteractionModel {
 	enum Change {
@@ -94,6 +118,22 @@ class InputInteractionModel {
 
 	let changeSubject = PassthroughSubject<Change, Never>()
 
+	/// Input-event fan-out channel for
+	/// DSpEventService. Publishes AFTER the existing objc_ADB* calls in
+	/// handle() methods — observer-only, does not alter primary delivery
+	/// path (existing gamepad/keyboard/mouse tests
+	/// continue to exercise the objc_ADB path identically).
+	///
+	/// Subscribers: DSpEventService.shared.install() attaches a .sink on
+	/// this subject that translates DSpInputEvent →
+	/// DSpHostBridge_EnqueueEventToActiveContexts. Publishing happens on
+	/// main thread (class is @MainActor); subscription runs on main
+	/// thread (Combine default for main-published subjects); C bridge
+	/// walks dsp_context_table on main thread; SPSC-ring write fences
+	/// cross-thread visibility via memory_order_release on events_head
+	/// for the emul-thread ProcessEvent reader.
+	let dspInputEventSubject = PassthroughSubject<DSpInputEvent, Never>()
+
 	static let shared = InputInteractionModel()
 
 	private init() {
@@ -133,6 +173,19 @@ class InputInteractionModel {
 			objc_ADBKeyUp(key.enValue)
 		}
 
+		// Publish the key event to DSpEventService
+		// AFTER the primary ADB delivery — observer-only.
+		// Gamepad-mapped-to-key events route through here too (GamepadButton
+		// dispatches via handle(key:) with the mapped SDLKey per the current
+		// GamepadConfig), so DSp sees gamepad events as keyboard events.
+		dspInputEventSubject.send(DSpInputEvent(
+			kind: isDown ? .keyDown : .keyUp,
+			keyCode: Int(key.enValue),
+			buttonIndex: 0,
+			modifiers: 0,
+			timestamp: 0
+		))
+
 		if isDown,
 		   hapticAllowed,
 		   miscSettings.keyHapticFeedback {
@@ -166,6 +219,16 @@ class InputInteractionModel {
 			if isDown {
 				objc_ADBWriteMouseDown(0)
 
+				// Publish mouseDown to DSp AFTER
+				// primary ADB delivery — observer-only.
+				dspInputEventSubject.send(DSpInputEvent(
+					kind: .mouseDown,
+					keyCode: 0,
+					buttonIndex: 1,  // classic Mac: 1 = primary (left) button
+					modifiers: 0,
+					timestamp: 0
+				))
+
 				Task { @MainActor in
 					if miscSettings.keyHapticFeedback {
 						objc_mousedownHapticFeedback() // Same haptic feedback as mouse click
@@ -173,6 +236,15 @@ class InputInteractionModel {
 				}
 			} else {
 				objc_ADBWriteMouseUp(0)
+
+				// Publish mouseUp to DSp.
+				dspInputEventSubject.send(DSpInputEvent(
+					kind: .mouseUp,
+					keyCode: 0,
+					buttonIndex: 1,
+					modifiers: 0,
+					timestamp: 0
+				))
 			}
 		case .cmdW:
 			if !isDown {

@@ -398,6 +398,133 @@ extension SDLKey {
 	}
 }
 
+// MARK: - UIKeyboardHIDUsage → SDLKey mapping (for physical keyboard interception on DFiP)
+
+import UIKit
+
+extension SDLKey {
+
+	/// Map a `UIKeyboardHIDUsage` value from a physical key press to the
+	/// corresponding `SDLKey`.  Returns `nil` for unmapped HID codes.
+	init?(fromHIDUsage usage: UIKeyboardHIDUsage) {
+		switch usage {
+		// Letters
+		case .keyboardA: self = .a
+		case .keyboardB: self = .b
+		case .keyboardC: self = .c
+		case .keyboardD: self = .d
+		case .keyboardE: self = .e
+		case .keyboardF: self = .f
+		case .keyboardG: self = .g
+		case .keyboardH: self = .h
+		case .keyboardI: self = .i
+		case .keyboardJ: self = .j
+		case .keyboardK: self = .k
+		case .keyboardL: self = .l
+		case .keyboardM: self = .m
+		case .keyboardN: self = .n
+		case .keyboardO: self = .o
+		case .keyboardP: self = .p
+		case .keyboardQ: self = .q
+		case .keyboardR: self = .r
+		case .keyboardS: self = .s
+		case .keyboardT: self = .t
+		case .keyboardU: self = .u
+		case .keyboardV: self = .v
+		case .keyboardW: self = .w
+		case .keyboardX: self = .x
+		case .keyboardY: self = .y
+		case .keyboardZ: self = .z
+
+		// Digits
+		case .keyboard0: self = .n0
+		case .keyboard1: self = .n1
+		case .keyboard2: self = .n2
+		case .keyboard3: self = .n3
+		case .keyboard4: self = .n4
+		case .keyboard5: self = .n5
+		case .keyboard6: self = .n6
+		case .keyboard7: self = .n7
+		case .keyboard8: self = .n8
+		case .keyboard9: self = .n9
+
+		// Symbols
+		case .keyboardHyphen:              self = .minus
+		case .keyboardEqualSign:           self = .equals
+		case .keyboardOpenBracket:         self = .leftsquarebracket
+		case .keyboardCloseBracket:        self = .rightsquarebracket
+		case .keyboardBackslash:           self = .backslash
+		case .keyboardSemicolon:           self = .semicolon
+		case .keyboardQuote:               self = .quote
+		case .keyboardComma:               self = .comma
+		case .keyboardPeriod:              self = .period
+		case .keyboardSlash:               self = .slash
+		case .keyboardGraveAccentAndTilde: self = .backquote
+		case .keyboardSpacebar:            self = .space
+
+		// Modifiers
+		case .keyboardLeftShift, .keyboardRightShift:     self = .shift
+		case .keyboardLeftAlt, .keyboardRightAlt:         self = .alt
+		case .keyboardLeftControl, .keyboardRightControl: self = .ctrl
+		case .keyboardLeftGUI, .keyboardRightGUI:         self = .cmd
+		case .keyboardCapsLock:                           self = .capslock
+
+		// Function keys
+		case .keyboardF1:  self = .F1
+		case .keyboardF2:  self = .F2
+		case .keyboardF3:  self = .F3
+		case .keyboardF4:  self = .F4
+		case .keyboardF5:  self = .F5
+		case .keyboardF6:  self = .F6
+		case .keyboardF7:  self = .F7
+		case .keyboardF8:  self = .F8
+		case .keyboardF9:  self = .F9
+		case .keyboardF10: self = .F10
+		case .keyboardF11: self = .F11
+		case .keyboardF12: self = .F12
+
+		// Navigation
+		case .keyboardReturnOrEnter:     self = .enter
+		case .keyboardDeleteOrBackspace: self = .backspace
+		case .keyboardDeleteForward:     self = .delete
+		case .keyboardTab:               self = .tab
+		case .keyboardEscape:            self = .escape
+		case .keyboardInsert:            self = .insert
+		case .keyboardHome:              self = .home
+		case .keyboardEnd:               self = .end
+		case .keyboardPageUp:            self = .pageup
+		case .keyboardPageDown:          self = .pagedown
+
+		// Arrows
+		case .keyboardUpArrow:    self = .up
+		case .keyboardDownArrow:  self = .down
+		case .keyboardLeftArrow:  self = .left
+		case .keyboardRightArrow: self = .right
+
+		// Keypad
+		case .keypad0:         self = .kp0
+		case .keypad1:         self = .kp1
+		case .keypad2:         self = .kp2
+		case .keypad3:         self = .kp3
+		case .keypad4:         self = .kp4
+		case .keypad5:         self = .kp5
+		case .keypad6:         self = .kp6
+		case .keypad7:         self = .kp7
+		case .keypad8:         self = .kp8
+		case .keypad9:         self = .kp9
+		case .keypadPeriod:    self = .kpPeriod
+		case .keypadPlus:      self = .kpPlus
+		case .keypadHyphen:    self = .kpMinus
+		case .keypadAsterisk:  self = .kpMultiply
+		case .keypadSlash:     self = .kpDivide
+		case .keypadEnter:     self = .kpEnter
+		case .keypadEqualSign: self = .kpEquals
+
+		default: return nil
+		}
+	}
+}
+
 @objcMembers
 class SDLKeyObjCProxy: NSObject {
 	static var cmdValue: NSInteger {

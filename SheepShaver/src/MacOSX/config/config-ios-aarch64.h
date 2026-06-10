@@ -8,8 +8,17 @@
 /* Define if building universal (internal helper macro) */
 /* #undef AC_APPLE_UNIVERSAL_BUILD */
 
-/* Define if using a PowerPC CPU emulator. */
+/* Define if using a PowerPC CPU emulator.
+ *
+ * Under TESTING_BUILD=1 (PocketShaverTests target), the test
+ * bundle compiles gfxaccel sources with EMULATED_PPC=0 so Mac2HostAddr
+ * collapses to identity and the test bundle does not link libkpx_cpu_ios.a.
+ * Respect any pre-existing command-line
+ * definition instead of hard-overriding it here.
+ */
+#ifndef EMULATED_PPC
 #define EMULATED_PPC 1
+#endif
 
 /* Define to enable dyngen engine */
 #define ENABLE_DYNGEN 0
@@ -409,6 +418,12 @@
    failures.  vm_init() reserves one contiguous region and sets VMBaseDiff
    at runtime, so every Mac address maps reliably into host memory.  */
 #define MEM_BULK 1
+
+/* Use 64-bit Mach exception codes so that SIGSEGV fault addresses are not
+   truncated to 32 bits.  Required for MEM_BULK where VMBaseDiff is a
+   runtime value and the bottom 32 bits of a host address are not the
+   Mac address.  */
+#define HAVE_MACH64_VM 1
 
 /* Define to the address where bug reports for this package should be sent. */
 #define PACKAGE_BUGREPORT "Christian.Bauer@uni-mainz.de"

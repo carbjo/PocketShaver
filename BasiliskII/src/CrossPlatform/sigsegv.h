@@ -122,7 +122,11 @@ extern "C" {
 #endif
 
 #ifdef __x86_64__
+#ifdef HAVE_MACH64_VM
+#define SIGSEGV_FAULT_ADDRESS_FAST		((uint64_t)code[1])
+#else
 #define SIGSEGV_FAULT_ADDRESS_FAST		(((uint64_t)code[1])|0x100000000)
+#endif
 #else
 #define SIGSEGV_FAULT_ADDRESS_FAST		code[1]
 #endif

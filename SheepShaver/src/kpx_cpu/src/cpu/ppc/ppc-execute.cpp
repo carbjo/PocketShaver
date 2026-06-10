@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
+#include <string.h>
 #ifdef __MINGW64__
 #include <fenv.h>
 #endif
@@ -32,6 +33,7 @@
 #include "cpu/ppc/ppc-operands.hpp"
 #include "cpu/ppc/ppc-operations.hpp"
 #include "cpu/ppc/ppc-execute.hpp"
+#include "cpu/ppc/ppc-stfiwx.hpp"
 
 #ifndef SHEEPSHAVER
 #include "basic-kernel.hpp"
@@ -40,6 +42,7 @@
 #ifdef SHEEPSHAVER
 #include "main.h"
 #include "prefs.h"
+#include "cpu_emulation.h"
 #endif
 
 #ifdef TARGET_OS_IPHONE
@@ -62,6 +65,50 @@
 void powerpc_cpu::execute_illegal(uint32 opcode)
 {
 	fprintf(stderr, "Illegal instruction at %08x, opcode = %08x\n", pc(), opcode);
+	
+	// Backtrace: walk PPC stack frames to show call chain
+	fprintf(stderr, "  PPC Backtrace (stack frame walk):\n");
+	{
+		uint32 sp = gpr(1);
+		uint32 ret_lr = lr();
+		fprintf(stderr, "    frame 0: PC=0x%08x LR=0x%08x SP=0x%08x\n", pc(), ret_lr, sp);
+		for (int frame = 1; frame < 12 && sp != 0 && sp < 0x50000000; frame++) {
+			uint32 prev_sp = vm_read_memory_4(sp);  // backchain pointer
+			if (prev_sp == 0 || prev_sp <= sp || prev_sp >= 0x50000000) break;
+			uint32 saved_lr = vm_read_memory_4(prev_sp + 8);  // saved LR in caller's frame
+			uint32 call_instr = 0;
+			if (saved_lr >= 4 && saved_lr < 0x50000000)
+				call_instr = vm_read_memory_4(saved_lr - 4);
+			fprintf(stderr, "    frame %d: saved_LR=0x%08x SP=0x%08x call_instr=0x%08x\n",
+					frame, saved_lr, prev_sp, call_instr);
+			sp = prev_sp;
+		}
+	}
+
+	// Dump PPC register state for crash analysis
+	fprintf(stderr, "  LR=0x%08x CTR=0x%08x CR=0x%08x XER=0x%08x\n",
+			lr(), ctr(), cr().get(), xer().get());
+	fprintf(stderr, "  R0=0x%08x R1(SP)=0x%08x R2(TOC)=0x%08x R3=0x%08x\n",
+			gpr(0), gpr(1), gpr(2), gpr(3));
+	fprintf(stderr, "  R4=0x%08x R5=0x%08x R6=0x%08x R7=0x%08x\n",
+			gpr(4), gpr(5), gpr(6), gpr(7));
+	fprintf(stderr, "  R8=0x%08x R9=0x%08x R10=0x%08x R11=0x%08x\n",
+			gpr(8), gpr(9), gpr(10), gpr(11));
+	fprintf(stderr, "  R12=0x%08x R13=0x%08x\n", gpr(12), gpr(13));
+	// Dump instructions around the crash address
+	fprintf(stderr, "  Instructions around PC:\n");
+	for (int di = -4; di <= 4; di++) {
+		uint32 addr = pc() + di * 4;
+		uint32 instr = vm_read_memory_4(addr);
+		fprintf(stderr, "    [0x%08x] %08x%s\n", addr, instr, di == 0 ? " <-- CRASH" : "");
+	}
+	// Dump a few words at LR to help understand call chain
+	fprintf(stderr, "  Instructions at LR 0x%08x:\n", lr());
+	for (int di = -2; di <= 2; di++) {
+		uint32 addr = lr() + di * 4;
+		uint32 instr = vm_read_memory_4(addr);
+		fprintf(stderr, "    [0x%08x] %08x\n", addr, instr);
+	}
 
 #ifdef TARGET_OS_IPHONE
 	if (objc_getIgnoreIllegalInstructions()) {
@@ -588,8 +635,10 @@ void powerpc_cpu::execute_loadstore(uint32 opcode)
 
 	if (LD)
 		operand_RD::set(this, opcode, OP::apply(memory_helper<SZ, RX>::load(ea)));
-	else
-		memory_helper<SZ, RX>::store(ea, operand_RS::get(this, opcode));
+	else {
+		const uint32 store_value = operand_RS::get(this, opcode);
+		memory_helper<SZ, RX>::store(ea, store_value);
+	}
 
 	if (UP)
 		RA::set(this, opcode, ea);
@@ -619,8 +668,10 @@ void powerpc_cpu::execute_loadstore_multiple(uint32 opcode)
 	while (r <= 31) {
 		if (LD)
 			gpr(r) = vm_read_memory_4(ea);
-		else
-			vm_write_memory_4(ea, gpr(r));
+		else {
+			const uint32 store_value = gpr(r);
+			vm_write_memory_4(ea, store_value);
+		}
 		r++;
 		ea += 4;
 	}
@@ -657,13 +708,26 @@ void powerpc_cpu::execute_fp_loadstore(uint32 opcode)
 		v = operand_fp_dw_RS::get(this, opcode);
 		if (DB)
 			vm_write_memory_8(ea, v);
-		else
-			vm_write_memory_4(ea, fp_store_single_convert(v));
+		else {
+			const uint32 store_value = fp_store_single_convert(v);
+			vm_write_memory_4(ea, store_value);
+		}
 	}
 
 	if (UP)
 		RA::set(this, opcode, ea);
 
+	increment_pc(4);
+}
+
+void powerpc_cpu::execute_stfiwx(uint32 opcode)
+{
+	const uint32 a = operand_RA_or_0::get(this, opcode);
+	const uint32 b = operand_RB::get(this, opcode);
+	const uint32 ea = PPCStfiwxEffectiveAddress(a, b);
+	const uint32 store_value = PPCStfiwxStoreWord(operand_fp_dw_RS::get(this, opcode));
+
+	vm_write_memory_4(ea, store_value);
 	increment_pc(4);
 }
 
@@ -739,7 +803,8 @@ void powerpc_cpu::execute_store_string(uint32 opcode)
 	int rs = rS_field::extract(opcode);
 	int sh = 24;
 	for (int i = 0; i < nb; i++) {
-		vm_write_memory_1(ea + i, gpr(rs) >> sh);
+		const uint32 store_value = (gpr(rs) >> sh) & 0xff;
+		vm_write_memory_1(ea + i, store_value);
 		sh -= 8;
 		if (sh < 0) {
 			sh = 24;
@@ -776,16 +841,17 @@ void powerpc_cpu::execute_stwcx(uint32 opcode)
 	const uint32 ea = RA::get(this, opcode) + operand_RB::get(this, opcode);
 	cr().clear(0);
 	if (regs().reserve_valid) {
-		if (regs().reserve_addr == ea /* physical_addr(EA) */
+			if (regs().reserve_addr == ea /* physical_addr(EA) */
 #if KPX_MAX_CPUS != 1
-			/* HACK: if another processor wrote to the reserved block,
-			   nothing happens, i.e. we should operate as if reserve == 0 */
-			&& regs().reserve_data == vm_read_memory_4(ea)
+				/* HACK: if another processor wrote to the reserved block,
+				   nothing happens, i.e. we should operate as if reserve == 0 */
+				&& regs().reserve_data == vm_read_memory_4(ea)
 #endif
-			) {
-			vm_write_memory_4(ea, operand_RS::get(this, opcode));
-			cr().set(0, standalone_CR_EQ_field::mask());
-		}
+				) {
+				const uint32 store_value = operand_RS::get(this, opcode);
+				vm_write_memory_4(ea, store_value);
+				cr().set(0, standalone_CR_EQ_field::mask());
+			}
 		regs().reserve_valid = 0;
 	}
 	cr().set_so(0, xer().get_so());

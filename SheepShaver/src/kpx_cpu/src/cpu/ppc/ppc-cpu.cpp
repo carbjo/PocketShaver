@@ -20,12 +20,17 @@
 
 #include "sysdeps.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <assert.h>
 #include "vm_alloc.h"
 #include "cpu/vm.hpp"
 #include "cpu/ppc/ppc-cpu.hpp"
 #ifndef SHEEPSHAVER
 #include "basic-kernel.hpp"
+#endif
+
+#ifdef SHEEPSHAVER
+#include "cpu_emulation.h"  // RAMBase / RAMSize / ROMBase / ROM_SIZE for in_guest_range
 #endif
 
 #if PPC_ENABLE_JIT
@@ -66,8 +71,8 @@ static int ppc_refcount = 0;
 
 #ifdef DO_CONVENTION_CALL_STATICS
 template<> bool nv_mem_fun1_t<void, powerpc_cpu, uint32>::do_convention_call_init_done = false;
-template<> int nv_mem_fun1_t<void, powerpc_cpu, uint32>::do_convention_call_code_len = 0;
 template<> int nv_mem_fun1_t<void, powerpc_cpu, uint32>::do_convention_call_pf_offset = 0;
+template<> int nv_mem_fun1_t<void, powerpc_cpu, uint32>::do_convention_call_code_len = 0;
 #endif
 
 void powerpc_cpu::set_register(int id, any_register const & value)

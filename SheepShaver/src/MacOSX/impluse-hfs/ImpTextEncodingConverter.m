@@ -36,7 +36,20 @@ enum {
 }
 
 - (NSString *_Nonnull const) stringFromHFSUniStr255:(ConstHFSUniStr255Param)unicodeName swapBytes:(bool const)shouldSwap {
-	return [[self class] stringFromHFSUniStr255:unicodeName swapBytes:shouldSwap];
+	UniCharCount const length = shouldSwap ? OSSwapInt16(unicodeName->length) : unicodeName->length;
+	if (length == 0) {
+		return @"";
+	}
+	if (shouldSwap) {
+		unichar swapped[256];
+		UniCharCount const clampedLen = (length <= 255) ? length : 255;
+		for (UniCharCount i = 0; i < clampedLen; i++) {
+			swapped[i] = OSSwapInt16(unicodeName->unicode[i]);
+		}
+		return [NSString stringWithCharacters:swapped length:clampedLen];
+	} else {
+		return [NSString stringWithCharacters:unicodeName->unicode length:length];
+	}
 }
 - (NSString *_Nonnull const) stringFromHFSUniStr255:(ConstHFSUniStr255Param _Nonnull const)unicodeName {
 #if __LITTLE_ENDIAN__

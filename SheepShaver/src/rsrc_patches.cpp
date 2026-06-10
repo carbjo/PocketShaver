@@ -110,6 +110,66 @@ static uint32 find_rsrc_data(const uint8 *rsrc, uint32 max, const uint8 *search,
 // 680x0 code pattern matching helper
 #define PM(N, V) (p[N] == htons(V))
 
+/*
+ *  DII splash-hang fix: keep Sound Manager component PEF code resources resident.
+ *
+ *  A Sound Manager component's 'nift' PEF code section is present and intact when
+ *  the resource loads, but the unlocked/purgeable resource handle is purged or
+ *  heap-moved after CFM bakes its absolute code pointer.  The prepared dispatch
+ *  TVector then dangles into freed+zeroed memory, so the app (e.g. the Diablo II
+ *  splash) branches into a zeroed block and the PPC thread dies.
+ *
+ *  Fix: lock the handle (HNoPurge + HLock) so it can be neither purged nor moved.
+ *  Boot-safe split: handles are RECORDED at load time (pure host-side writes, no
+ *  guest code -> safe even from the native get_resource thunk), then LOCKED by
+ *  DrainPendingResourceLocks(), which runs only from the 60Hz VBL interrupt
+ *  (emul_op.cpp OP_IRQ / INTFLAG_VIA, gated by HasMacStarted()) -- a legal
+ *  Execute68kTrap context.  Locking directly from the native thunk corrupts boot.
+ */
+#define MAX_PENDING_RESOURCE_LOCKS 64
+static uint32 pending_resource_locks[MAX_PENDING_RESOURCE_LOCKS];
+static int pending_resource_lock_count = 0;
+
+// Record a 'nift' PEF resource handle to lock later.  Guest-state READ-ONLY
+// (ReadMacInt + a host array write) -> safe to call from ANY context.
+void maybe_queue_nift_lock(uint32 type, uint32 h)
+{
+	if (type != FOURCC('n','i','f','t') || h == 0)
+		return;
+	uint32 p = ReadMacInt32(h);
+	if (p == 0)
+		return;
+	if (ReadMacInt32(p) != FOURCC('J','o','y','!'))		// not a PEF container
+		return;
+	for (int i = 0; i < pending_resource_lock_count; i++)
+		if (pending_resource_locks[i] == h)
+			return;										// already queued
+	if (pending_resource_lock_count < MAX_PENDING_RESOURCE_LOCKS)
+		pending_resource_locks[pending_resource_lock_count++] = h;
+}
+
+// Lock every queued handle (HNoPurge + HLock).  Runs guest traps, so it MUST be
+// called only from a legal context (the 60Hz VBL interrupt) -- never the thunk.
+void DrainPendingResourceLocks(void)
+{
+	static bool draining = false;
+	if (draining || pending_resource_lock_count == 0)
+		return;
+	draining = true;
+	while (pending_resource_lock_count > 0) {
+		uint32 h = pending_resource_locks[--pending_resource_lock_count];
+		if (h == 0 || ReadMacInt32(h) == 0)
+			continue;									// empty / already-purged handle
+		M68kRegisters r;
+		r.a[0] = h;
+		Execute68kTrap(0xa04a, &r);					// HNoPurge(h)
+		r.a[0] = h;
+		Execute68kTrap(0xa029, &r);					// HLock(h)
+		D(bug("DII fix: locked 'nift' PEF resource handle %08x\n", h));
+	}
+	draining = false;
+}
+
 void CheckLoad(uint32 type, int16 id, uint16 *p, uint32 size)
 {
 	uint16 *p16;
@@ -660,6 +720,7 @@ void check_load_invoc(uint32 type, int16 id, uint32 h)
 		return;
 	uint32 size = ReadMacInt32(p - 2 * 4) & 0xffffff;
 
+	maybe_queue_nift_lock(type, h);		// DII fix: schedule sound-component PEF lock (no trap here)
 	CheckLoad(type, id, (uint16 *)Mac2HostAddr(p), size);
 }
 

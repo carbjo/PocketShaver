@@ -122,7 +122,7 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 		label.font = .systemFont(ofSize: 14)
 		label.textColor = Colors.secondaryText
 
-		var string = "Read initial setup instructions if you plan to install Classic Mac OS from scratch. Contains crucial tip on how to <b>not get stuck in installation progress</b> and <b>get audio working</b>, after intallation.\n\nThe instructions can still be accessed from Advanced tab, after dismissal."
+		var string = "Read initial setup instructions if you want to install Classic Mac OS from scratch. Contains crucial tips on how to <b>not get stuck in installation progress</b> and <b>get audio working</b>, after installation.\n\nThe instructions can still be accessed from Advanced tab, after dismissal."
 
 		label.attributedText = string
 			.withTagsReplaced(by: .init(boldAppearance: .init(font: .boldSystemFont(ofSize: 14), color: Colors.primaryText)))

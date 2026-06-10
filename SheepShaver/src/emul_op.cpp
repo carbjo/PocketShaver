@@ -320,6 +320,8 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 #endif
 					ExecuteNative(NATIVE_VIDEO_VBL);
 
+					DrainPendingResourceLocks();	// DII fix: lock queued sound-component PEF handles (safe VBL context)
+
 					static int tick_counter = 0;
 					if (++tick_counter >= 60) {
 						tick_counter = 0;
@@ -472,6 +474,7 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 				break;
 			uint16 *p = (uint16 *)Mac2HostAddr(adr);
 			uint32 size = ReadMacInt32(adr - 8) & 0xffffff;
+			maybe_queue_nift_lock(type, r->a[0]);	// DII fix: schedule sound-component PEF lock
 			CheckLoad(type, id, p, size);
 			break;
 		}

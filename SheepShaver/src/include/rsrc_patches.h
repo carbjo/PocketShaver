@@ -25,4 +25,12 @@ extern void CheckLoad(uint32 type, int16 id, uint16 *p, uint32 size);
 extern void CheckLoad(uint32 type, const char *name, uint16 *p, uint32 size);
 extern void PatchNativeResourceManager(void);
 
+// DII splash-hang fix: lock Sound Manager component PEF code resources so they
+// are not purged/heap-moved after CFM prepares them.  maybe_queue_nift_lock()
+// records a handle at load (safe anywhere); DrainPendingResourceLocks() locks
+// queued handles and MUST be called only from a legal Execute68kTrap context
+// (the 60Hz VBL interrupt), never the native get_resource thunk.
+extern void maybe_queue_nift_lock(uint32 type, uint32 h);
+extern void DrainPendingResourceLocks(void);
+
 #endif

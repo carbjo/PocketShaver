@@ -158,7 +158,7 @@ class MiscellaneousSettings: Codable {
 		keyboardAutoOffsetSetting = .middle
 		hoverJustAboveOffsetModifier = 1
 		gammaRampSetting = .osDefined
-		bootInRelativeMouseMode = UIDevice.deviceType == .mac
+		bootInRelativeMouseMode = false
 		ignoreIllegalInstructions = false
 		ramInMb = 512
 	}

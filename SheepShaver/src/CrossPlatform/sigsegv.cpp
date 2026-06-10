@@ -681,6 +681,18 @@ extern kern_return_t mach_exception_raise_state_identity(mach_port_t, mach_port_
 	thread_state_t, mach_msg_type_number_t, thread_state_t, mach_msg_type_number_t *);
 }
 
+// With HAVE_MACH64_VM, we need the MIG-generated mach_exc_server() stub and
+// the mach_exception_raise*() user stubs.  These are normally generated from
+// /usr/include/mach/mach_exc.defs and are NOT part of libSystem on iOS.
+// Include the pre-generated C sources directly (they are pure C, but we are
+// already inside a .cpp translation unit, so wrap in extern "C").
+#ifdef HAVE_MACH64_VM
+extern "C" {
+#include "mach_excServer.c"
+#include "mach_excUser.c"
+}
+#endif
+
 // Could make this dynamic by looking for a result of MIG_ARRAY_TOO_LARGE
 #define HANDLER_COUNT 64
 
@@ -2695,7 +2707,7 @@ sigsegv_address_t sigsegv_get_fault_address(sigsegv_info_t *SIP)
 			if (use_fast_path < 0)
 				use_fast_path = addr == SIP->addr;
 		}
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IPHONE && !defined(HAVE_MACH64_VM)
 		addr = VMBaseDiff + addr;
 #endif
 		SIP->addr = addr;
