@@ -9,15 +9,11 @@
 
 #include <stdint.h>
 
+#include "overlay_clear_policy.h"
+
 static inline float RaveOverlayClearAlpha(float guest_clear_alpha)
 {
-	if (guest_clear_alpha < 0.0f) {
-		return 0.0f;
-	}
-	if (guest_clear_alpha > 1.0f) {
-		return 1.0f;
-	}
-	return guest_clear_alpha;
+	return OverlayClearClampAlpha(guest_clear_alpha);
 }
 
 static inline int RaveOverlayCoversMode(
@@ -45,8 +41,6 @@ static inline float RaveOverlayEffectiveClearAlpha(
     uint32_t mode_width,
     uint32_t mode_height)
 {
-	float alpha = RaveOverlayClearAlpha(guest_clear_alpha);
-
 	(void)r;
 	(void)g;
 	(void)b;
@@ -55,16 +49,14 @@ static inline float RaveOverlayEffectiveClearAlpha(
 	(void)mode_width;
 	(void)mode_height;
 
-	if (alpha == 0.0f) {
-		return 1.0f;
-	}
-	return alpha;
+	return OverlayClearEffectiveAlpha(false, guest_clear_alpha);
 }
 
 static inline float RaveOverlayPremultipliedClearComponent(
-    float guest_clear_component, float guest_clear_alpha)
+    float guest_clear_component, float effective_clear_alpha)
 {
-	return guest_clear_component * RaveOverlayClearAlpha(guest_clear_alpha);
+	return OverlayClearPremultipliedComponent(guest_clear_component,
+	                                          effective_clear_alpha);
 }
 
 #endif /* RAVE_OVERLAY_CLEAR_POLICY_H */

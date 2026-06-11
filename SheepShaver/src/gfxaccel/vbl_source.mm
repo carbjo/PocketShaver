@@ -18,10 +18,13 @@
  *    - Cadence derived from inter-callback delta (17+) or
  *      CADisplayLink.duration (13.4-16).
  *    - Monotonic uint64 tick count incremented per VBL callback.
- *    - dispatch_semaphore for 3D frame pacing (no usleep/nanosleep).
+ *    - Per-engine 3D deadline pacing via mach_wait_until.
  *
- *  Threading: VBL callbacks fire on the main RunLoop.  Tick and cadence
- *  counters are C11 _Atomic for read-mostly access from emul thread.
+ *  Threading: VBL callbacks fire on the UIKit main RunLoop, which is also
+ *  the emul thread in the current iOS build. They can therefore re-enter
+ *  gfxaccel at runloop pump points rather than racing in parallel. Tick and
+ *  cadence counters remain C11 _Atomic for read-mostly/future-thread-split
+ *  access; see gfxaccel_threading_policy.h.
  */
 
 #import <Foundation/Foundation.h>
@@ -29,10 +32,12 @@
 #import <Metal/Metal.h>
 
 #include "vbl_source.h"
+#include "gfxaccel_threading_policy.h"
 
 #include <stdatomic.h>
 #include <cstdio>
-#include <dispatch/dispatch.h>
+#include <mach/kern_return.h>
+#include <mach/mach_time.h>
 
 // ---------------------------------------------------------------------------
 // Logging macros
@@ -50,15 +55,16 @@
 
 static VBLSourceCallbackFn s_callback     = NULL;
 static void               *s_callback_ctx = NULL;
+static int                 s_callback_depth = 0;
 
 /* Up to 4 secondary callbacks, invoked AFTER the
  * primary callback in every VBL tick path (CADisplayLink displayLinkFired:
  * AND the iOS 17+ metalDisplayLink:needsUpdate: delegate).
  *
  * Threading: No _Atomic is needed on the secondary-callback array.
- * Registration happens at DSpInit time on the emul thread BEFORE any VBL
- * tick fires; deregistration at DSpShutdown; no in-flight mutations. This
- * matches the existing s_callback non-atomic pattern. */
+ * Registration happens at DSpInit time on the main==emul thread BEFORE any
+ * VBL tick fires; deregistration at DSpShutdown; no in-flight mutations.
+ * This matches the existing s_callback non-atomic pattern. */
 static VBLSourceCallbackFn s_secondary_cb[VBL_SECONDARY_CALLBACK_MAX]  = {NULL};
 static void               *s_secondary_ctx[VBL_SECONDARY_CALLBACK_MAX] = {NULL};
 
@@ -71,14 +77,47 @@ static inline void DrainSecondaryCallbacks(void *drawable, double ts)
 	}
 }
 
-// C11 _Atomic for read-mostly counters -- minimal threading exception;
-// no mutex needed.  Written once per VBL callback on
-// main thread, read from emul thread.
-static _Atomic uint64_t    s_tick_count   = 0;
-static _Atomic uint64_t    s_cadence_usec = 16667;  // default 60 Hz
+static inline void FireVBLCallbackChain(void *drawable, double ts)
+{
+	if (s_callback_depth != 0) {
+		/* Potentially per-tick for titles whose guest VBL/fade procs pump
+		 * the runloop across a vsync boundary — rate-limit to the first
+		 * skip plus one summary per 600 skips (~10 s at 60 Hz) so the
+		 * always-on VBL_LOG cannot become per-frame stdout spam. */
+		static uint64_t s_nested_skip_count = 0;
+		s_nested_skip_count++;
+		if (s_nested_skip_count == 1 || (s_nested_skip_count % 600u) == 0) {
+			VBL_LOG("skipping nested VBL callback chain (skips=%llu)",
+			        (unsigned long long)s_nested_skip_count);
+		}
+		return;
+	}
 
-static dispatch_semaphore_t s_pacing_semaphore = NULL;
+	s_callback_depth++;
+	if (s_callback) {
+		s_callback(s_callback_ctx, drawable, ts);
+	}
+	DrainSecondaryCallbacks(drawable, ts);
+	s_callback_depth--;
+}
+
+extern "C" int vbl_source_in_callback_chain(void)
+{
+	return s_callback_depth != 0;
+}
+
+// C11 _Atomic for read-mostly counters -- minimal threading exception;
+// no mutex needed. Written once per VBL callback on the main==emul thread;
+// read by the same thread today and by tests/future split code.
+static _Atomic uint64_t    s_tick_count   = 0;
+static _Atomic uint64_t    s_cadence_usec = GFX_FRAME_PACING_DEFAULT_USEC;
+static _Atomic uint64_t    s_cadence_abs  = 0;
+static _Atomic uint64_t    s_last_tick_abs = 0;
+static _Atomic uint64_t    s_engine_next_deadline_abs[kGfxFramePacingEngineCount];
+static _Atomic uint64_t    s_engine_seen_tick[kGfxFramePacingEngineCount];
+
 static int                  s_initialized      = 0;
+static mach_timebase_info_data_t s_timebase     = {0, 0};
 
 // iOS 17+ state -- stored as `id` to avoid compile-time type references
 // on older deployment targets.
@@ -86,6 +125,39 @@ static id                   s_metal_display_link = nil;
 
 // iOS 13.4-16 state
 static id                   s_ca_display_link    = nil;
+
+static uint64_t vbl_source_usec_to_abs(uint64_t usec)
+{
+	if (s_timebase.numer == 0 || s_timebase.denom == 0) {
+		if (mach_timebase_info(&s_timebase) != KERN_SUCCESS ||
+		    s_timebase.numer == 0 || s_timebase.denom == 0) {
+			return usec * 1000;
+		}
+	}
+	__uint128_t ns = (__uint128_t)usec * 1000u;
+	ns *= s_timebase.denom;
+	ns /= s_timebase.numer;
+	if (ns == 0) return 1;
+	return (uint64_t)ns;
+}
+
+static void vbl_source_store_cadence_usec(uint64_t cadence_usec)
+{
+	uint64_t clamped = GfxFramePacingClampCadenceUsec(cadence_usec);
+	atomic_store_explicit(&s_cadence_usec, clamped, memory_order_relaxed);
+	atomic_store_explicit(&s_cadence_abs, vbl_source_usec_to_abs(clamped),
+	                      memory_order_relaxed);
+}
+
+static void vbl_source_reset_deadlines(void)
+{
+	for (int i = 0; i < kGfxFramePacingEngineCount; i++) {
+		atomic_store_explicit(&s_engine_next_deadline_abs[i], 0,
+		                      memory_order_relaxed);
+		atomic_store_explicit(&s_engine_seen_tick[i], 0,
+		                      memory_order_relaxed);
+	}
+}
 
 // ---------------------------------------------------------------------------
 // iOS 17+ delegate: CAMetalDisplayLinkDelegate
@@ -111,26 +183,18 @@ API_AVAILABLE(ios(17))
 		uint64_t delta_usec = (uint64_t)(
 			(update.targetPresentationTimestamp - s_last_target_ts) * 1e6);
 		if (delta_usec > 0) {
-			atomic_store_explicit(&s_cadence_usec, delta_usec,
-			                     memory_order_relaxed);
+			vbl_source_store_cadence_usec(delta_usec);
 		}
 	}
 	s_last_target_ts = update.targetPresentationTimestamp;
 
-	// Signal 3D pacing semaphore
+	// Record VBL time for 3D deadline pacing.
 	vbl_source_signal_3d_pacing();
 
-	// Fire user callback with drawable + timestamp
-	if (s_callback) {
-		s_callback(s_callback_ctx,
-		           (__bridge void *)update.drawable,
-		           update.targetPresentationTimestamp);
-	}
-
-	// Fan-out to registered secondary callbacks
-	// (e.g., DSpVBLReleaseCallback for VBL-bounded release drain).
-	DrainSecondaryCallbacks((__bridge void *)update.drawable,
-	                         update.targetPresentationTimestamp);
+	// Fire primary + secondary callbacks, guarded against same-thread
+	// re-entrancy through guest CallMacOS*/runloop pump points.
+	FireVBLCallbackChain((__bridge void *)update.drawable,
+	                     update.targetPresentationTimestamp);
 }
 
 @end
@@ -155,21 +219,15 @@ static VBLMetalDisplayLinkDelegate *s_delegate = nil;
 	// Update cadence from link.duration
 	uint64_t dur_usec = (uint64_t)(link.duration * 1e6);
 	if (dur_usec > 0) {
-		atomic_store_explicit(&s_cadence_usec, dur_usec,
-		                     memory_order_relaxed);
+		vbl_source_store_cadence_usec(dur_usec);
 	}
 
-	// Signal 3D pacing semaphore
+	// Record VBL time for 3D deadline pacing.
 	vbl_source_signal_3d_pacing();
 
-	// Fire user callback (no drawable on legacy path)
-	if (s_callback) {
-		s_callback(s_callback_ctx, NULL, link.targetTimestamp);
-	}
-
-	// Fan-out to registered secondary callbacks
-	// (e.g., DSpVBLReleaseCallback for VBL-bounded release drain).
-	DrainSecondaryCallbacks(NULL, link.targetTimestamp);
+	// Fire primary + secondary callbacks, guarded against same-thread
+	// re-entrancy through guest CallMacOS*/runloop pump points.
+	FireVBLCallbackChain(NULL, link.targetTimestamp);
 }
 
 @end
@@ -193,14 +251,15 @@ int32_t vbl_source_init(void *cametal_layer,
 	s_callback     = callback;
 	s_callback_ctx = ctx;
 
-	// Create pacing semaphore
-	s_pacing_semaphore = dispatch_semaphore_create(0);
+	vbl_source_store_cadence_usec(GFX_FRAME_PACING_DEFAULT_USEC);
+	vbl_source_reset_deadlines();
 
 	// CAMetalDisplayLink (iOS 17+) is disabled: it forbids
 	// [layer nextDrawable] and requires all rendering to happen inside the
-	// delegate callback. The emulator's threading model (PPC emul thread
-	// presents, display link fires on main thread) makes this impractical
-	// without a major architectural refactor, and ProMotion is already honored
+	// delegate callback. PocketShaver's current iOS model runs PPC emulation,
+	// UIKit pumping, and presentation on the same main==emul thread, so moving
+	// rendering wholly inside the delegate would require a major architectural
+	// refactor. ProMotion is already honored
 	// via CADisplayLink's preferredFrameRateRange = (60,120) — there is no
 	// pacing benefit to the revive. Using CADisplayLink for timing for ALL iOS
 	// versions; nextDrawable for drawables. vbl_source_uses_metal_display_link()
@@ -266,10 +325,10 @@ void vbl_source_shutdown(void)
 	s_callback_ctx = NULL;
 
 	atomic_store_explicit(&s_tick_count, 0, memory_order_relaxed);
-	atomic_store_explicit(&s_cadence_usec, 16667, memory_order_relaxed);
-
-	s_pacing_semaphore = NULL;
-	s_initialized      = 0;
+	atomic_store_explicit(&s_last_tick_abs, 0, memory_order_relaxed);
+	vbl_source_store_cadence_usec(GFX_FRAME_PACING_DEFAULT_USEC);
+	vbl_source_reset_deadlines();
+	s_initialized = 0;
 
 	VBL_LOG("vbl_source_shutdown: done");
 }
@@ -317,33 +376,101 @@ void vbl_source_set_paused(int paused)
 }
 
 // ---------------------------------------------------------------------------
-// Public API: 3D pacing semaphore
+// Public API: 3D deadline pacing
 // ---------------------------------------------------------------------------
+
+extern "C"
+int32_t vbl_source_sync_3d_pacing_for_engine(int32_t engine_id)
+{
+	if (!s_initialized) {
+		return kGfxAccelErrVBLNotInitialized;
+	}
+
+	if (engine_id < 0 || engine_id >= kGfxFramePacingEngineCount) {
+		engine_id = kGfxFramePacingEngineLegacy;
+	}
+
+	uint64_t period_abs = atomic_load_explicit(&s_cadence_abs,
+	                                           memory_order_relaxed);
+	if (period_abs == 0) {
+		period_abs = vbl_source_usec_to_abs(GFX_FRAME_PACING_DEFAULT_USEC);
+	}
+
+	uint64_t now = mach_absolute_time();
+	uint64_t tick = atomic_load_explicit(&s_tick_count, memory_order_relaxed);
+	uint64_t last_tick_abs = atomic_load_explicit(&s_last_tick_abs,
+	                                             memory_order_relaxed);
+	uint64_t deadline = atomic_load_explicit(
+		&s_engine_next_deadline_abs[engine_id], memory_order_relaxed);
+
+	bool tick_is_fresh =
+		last_tick_abs != 0 &&
+		now <= last_tick_abs + period_abs * GFX_FRAME_PACING_STALE_TICKS;
+
+	if (!tick_is_fresh) {
+		uint64_t fallback_deadline = now + period_abs;
+		if (deadline == 0 || deadline <= now ||
+		    deadline > fallback_deadline + period_abs) {
+			deadline = fallback_deadline;
+		}
+	} else if (deadline == 0 ||
+	           deadline > last_tick_abs + 2u * period_abs) {
+		/* First sync for this engine, or its deadline chain ran
+		 * implausibly far ahead of the live tick grid (cadence change /
+		 * long idle): re-anchor to the first boundary after the latest
+		 * tick. NOTE: deliberately NOT re-anchored on every new tick —
+		 * doing so discarded the engine's own already-crossed boundary
+		 * and forced a full period wait per call, which made co-resident
+		 * engines (DSp+GL) pace to CONSECUTIVE boundaries: two periods
+		 * per guest frame, the CORE-10 half-rate symptom. */
+		deadline = last_tick_abs + period_abs;
+	}
+
+	if (tick_is_fresh && deadline <= now) {
+		/* A vblank boundary already passed since this engine's last
+		 * sync (frame took >= one period, or another engine's wait on
+		 * this shared thread carried us across the boundary). The
+		 * boundary is consumed WITHOUT sleeping so every co-resident
+		 * engine paces to the SAME vblank, and a slow frame under the
+		 * DSP-06 throttle counts its render time toward the cap instead
+		 * of stacking full waits on top of it. */
+		while (deadline <= now) {
+			deadline += period_abs;
+		}
+		atomic_store_explicit(&s_engine_next_deadline_abs[engine_id],
+		                      deadline, memory_order_relaxed);
+		atomic_store_explicit(&s_engine_seen_tick[engine_id], tick,
+		                      memory_order_relaxed);
+		return 0;  // kGfxAccelNoErr (boundary already satisfied)
+	}
+
+	while (deadline <= now) {
+		deadline += period_abs;
+	}
+
+	kern_return_t wait_result = mach_wait_until(deadline);
+	if (wait_result != KERN_SUCCESS) {
+		return kGfxAccelErrVBLTimeout;
+	}
+
+	atomic_store_explicit(&s_engine_next_deadline_abs[engine_id],
+	                      deadline + period_abs, memory_order_relaxed);
+	atomic_store_explicit(&s_engine_seen_tick[engine_id], tick,
+	                      memory_order_relaxed);
+	return 0;  // kGfxAccelNoErr
+}
 
 extern "C"
 int32_t vbl_source_sync_3d_pacing(void)
 {
-	if (!s_initialized || s_pacing_semaphore == NULL) {
-		return kGfxAccelErrVBLNotInitialized;
-	}
-
-	// 33 ms timeout (~2 frames at 60 Hz)
-	long result = dispatch_semaphore_wait(
-		s_pacing_semaphore,
-		dispatch_time(DISPATCH_TIME_NOW, 33333333));
-
-	if (result != 0) {
-		return kGfxAccelErrVBLTimeout;
-	}
-	return 0;  // kGfxAccelNoErr
+	return vbl_source_sync_3d_pacing_for_engine(kGfxFramePacingEngineLegacy);
 }
 
 extern "C"
 void vbl_source_signal_3d_pacing(void)
 {
-	if (s_pacing_semaphore != NULL) {
-		dispatch_semaphore_signal(s_pacing_semaphore);
-	}
+	atomic_store_explicit(&s_last_tick_abs, mach_absolute_time(),
+	                      memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +530,6 @@ void vbl_source_testing_reset(void)
 	// Belt-and-suspenders: explicitly zero everything
 	s_callback         = NULL;
 	s_callback_ctx     = NULL;
-	s_pacing_semaphore = NULL;
 	s_metal_display_link = nil;
 	s_ca_display_link    = nil;
 	s_delegate           = nil;
@@ -417,7 +543,9 @@ void vbl_source_testing_reset(void)
 	}
 
 	atomic_store_explicit(&s_tick_count, 0, memory_order_relaxed);
-	atomic_store_explicit(&s_cadence_usec, 16667, memory_order_relaxed);
+	atomic_store_explicit(&s_last_tick_abs, 0, memory_order_relaxed);
+	vbl_source_store_cadence_usec(GFX_FRAME_PACING_DEFAULT_USEC);
+	vbl_source_reset_deadlines();
 }
 
 extern "C"
@@ -427,7 +555,7 @@ void vbl_source_testing_simulate_vbl_tick(void)
 	// Increment tick count
 	atomic_fetch_add_explicit(&s_tick_count, 1, memory_order_relaxed);
 
-	// Signal pacing semaphore
+	// Record VBL time for deadline pacing.
 	vbl_source_signal_3d_pacing();
 
 	// Fire user callback (NULL drawable, 0 timestamp for test)

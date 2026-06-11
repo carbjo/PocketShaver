@@ -84,7 +84,8 @@ enum {
 /*
  *  osEvt subtype constants — encoded into the high byte of the
  *  EventRecord.message field per Inside Macintosh: Toolbox Essentials.
- *  Used for bg/fg suspend/resume osEvt enqueue. MouseMovedMessage is
+ *  Used when decoding guest-supplied suspend/resume osEvt records.
+ *  MouseMovedMessage is
  *  emitted if mouse-move events are observed (currently observer-only —
  *  InputInteractionModel doesn't publish raw mouse moves).
  */

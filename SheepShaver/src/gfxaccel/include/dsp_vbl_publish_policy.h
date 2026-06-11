@@ -18,7 +18,7 @@ static inline bool DSpShouldPublishActiveContextOnVBL(uint32_t active_owner,
 {
 	if (!has_active_context) return false;
 	if (active_owner != dsp_owner) return has_presentable_front_staging;
-	return !explicit_swap_observed;
+	return has_presentable_front_staging || !explicit_swap_observed;
 }
 
 static inline bool DSpShouldFlushNQDBeforeStagingDrain(bool has_back_buffer_staging,

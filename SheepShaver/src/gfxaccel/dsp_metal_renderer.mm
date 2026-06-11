@@ -387,14 +387,10 @@ extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
 		        buffer_size, w, h, bpp);
 		return false;
 	}
-	/* NOTE: gfxaccel_resources_heap_alloc_buffer returns an unretained
-	 * __bridge void* whose underlying id<MTLBuffer> has been retained
-	 * by the heap module. We take an owning reference here via __bridge
-	 * (non-transfer) so that when ARC releases ctx->back_buffer the
-	 * heap's reference remains — the buffer lives for the mode lifetime
-	 * under the bump-allocator model and is reclaimed on
-	 * gfxaccel_resources_heap_reset. */
-	id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buf_raw;
+	/* The heap API returns a retained object. Transfer it into ARC so the
+	 * DSp release paths can actually drop the Metal resource before resetting
+	 * the bump offset. */
+	id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buf_raw;
 	ctx->back_buffer = buf;
 
 	/* Rule 1 bug fix: at 1/2/4 bpp we use the R8Uint shader-
@@ -429,6 +425,7 @@ extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
 	if (tex == nil) {
 		DSP_LOG("DSpAllocateBackBuffer: newTextureWithDescriptor returned nil "
 		        "(bpp=%u, alignedRB=%u)", bpp, alignedRB);
+		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 		ctx->back_buffer = nil;
 		return false;
 	}
@@ -462,6 +459,7 @@ extern "C" void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
 	if (ctx->back_buffer != nil) {
 		gfxaccel_resources_clear_buffer_owner(
 		    (__bridge void *)ctx->back_buffer);
+		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 	}
 	/* Texture FIRST (drops the view
 	 * reference into the buffer memory), buffer SECOND. Some iOS Metal
@@ -478,6 +476,13 @@ extern "C" void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
 	ctx->back_buffer  = nil;
 	DSpReleaseBackBufferStaging(ctx);
 	ctx->cgrafptr_mac_addr = 0;
+	if (gfxaccel_resources_heap_live_allocation_count(kHeapEngineDSp) == 0) {
+		uint64_t reclaimed = gfxaccel_resources_heap_reset(kHeapEngineDSp);
+		if (reclaimed > 0) {
+			DSP_LOG("DSp heap reset after DSpReleaseBackBufferNow reclaimed %llu bytes",
+			        (unsigned long long)reclaimed);
+		}
+	}
 }
 
 /* ---------------------------------------------------------------------- *
@@ -872,6 +877,7 @@ static const char *kDSpUnpackShaderSource =
     "    constant uint &bits_per_pixel [[buffer(3)]],\n"
     "    constant uint &pixel_width [[buffer(4)]])\n"
     "{\n"
+    "    (void)fade_active;\n"
     "    uint px = uint(in.texCoord.x * float(pixel_width));\n"
     "    uint py = uint(in.texCoord.y * float(tex.get_height()));\n"
     "    px = min(px, pixel_width - 1);\n"
@@ -896,11 +902,6 @@ static const char *kDSpUnpackShaderSource =
     "    float r = float(gamma_lut[clut_rgb[clut_offset + 0u]])        / 255.0;\n"
     "    float g = float(gamma_lut[256u + clut_rgb[clut_offset + 1u]]) / 255.0;\n"
     "    float b = float(gamma_lut[512u + clut_rgb[clut_offset + 2u]]) / 255.0;\n"
-    "    if (fade_active == 0u) {\n"
-    "        r = pow(r, 1.8 / 2.2);\n"
-    "        g = pow(g, 1.8 / 2.2);\n"
-    "        b = pow(b, 1.8 / 2.2);\n"
-    "    }\n"
     "    return float4(r, g, b, 1.0);\n"
     "}\n"
     "\n"
@@ -913,6 +914,7 @@ static const char *kDSpUnpackShaderSource =
     "    constant uint &bits_per_pixel [[buffer(3)]],\n"
     "    constant uint &pixel_width [[buffer(4)]])\n"
     "{\n"
+    "    (void)fade_active;\n"
     "    uint px = uint(in.texCoord.x * float(pixel_width));\n"
     "    uint py = uint(in.texCoord.y * float(tex.get_height()));\n"
     "    px = min(px, pixel_width - 1);\n"
@@ -937,11 +939,6 @@ static const char *kDSpUnpackShaderSource =
     "    float r = float(gamma_lut[clut_rgb[clut_offset + 0u]])        / 255.0;\n"
     "    float g = float(gamma_lut[256u + clut_rgb[clut_offset + 1u]]) / 255.0;\n"
     "    float b = float(gamma_lut[512u + clut_rgb[clut_offset + 2u]]) / 255.0;\n"
-    "    if (fade_active == 0u) {\n"
-    "        r = pow(r, 1.8 / 2.2);\n"
-    "        g = pow(g, 1.8 / 2.2);\n"
-    "        b = pow(b, 1.8 / 2.2);\n"
-    "    }\n"
     "    return float4(g, r, 1.0, b);\n"
     "}\n"
     "\n"
@@ -950,6 +947,7 @@ static const char *kDSpUnpackShaderSource =
     "    constant uchar *gamma_lut,\n"
     "    uint fade_active)\n"
     "{\n"
+    "    (void)fade_active;\n"
     "    uint R = (packed >> 10) & 0x1F;\n"
     "    uint G = (packed >>  5) & 0x1F;\n"
     "    uint B =  packed        & 0x1F;\n"
@@ -959,11 +957,6 @@ static const char *kDSpUnpackShaderSource =
     "    float r = float(gamma_lut[idx_r])        / 255.0;\n"
     "    float g = float(gamma_lut[256u + idx_g]) / 255.0;\n"
     "    float b = float(gamma_lut[512u + idx_b]) / 255.0;\n"
-    "    if (fade_active == 0u) {\n"
-    "        r = pow(r, 1.8 / 2.2);\n"
-    "        g = pow(g, 1.8 / 2.2);\n"
-    "        b = pow(b, 1.8 / 2.2);\n"
-    "    }\n"
     "    return float4(r, g, b, 1.0);\n"
     "}\n"
     "\n"
@@ -981,7 +974,7 @@ static const char *kDSpUnpackShaderSource =
     "/* Non-visible-path twin: DSp force-resize to 32bpp routes the\n"
     " * visible pixels through compositor_fragment_32bpp via the blit fast-path;\n"
     " * this unpack pass is hit only for the rare R16Uint-back / non-BGRA\n"
-    " * framebuffer case. We sample the same planar gamma_lut + fade_active the\n"
+    " * framebuffer case. We sample the same display-ready planar gamma_lut the\n"
     " * compositor present shaders use, for four-shader consistency. */\n"
     "fragment float4 dsp_unpack_fragment_16bpp(\n"
     "    DSpUnpackVertexOut in [[stage_in]],\n"
@@ -1252,13 +1245,16 @@ static bool DSpEncodeUnpackTextureRenderPass(DSpContextPrivate *ctx,
 	[re setRenderPipelineState:pso];
 	[re setFragmentTexture:source_texture atIndex:0];
 
-	/* Bind gamma LUT (buffer 0) + fade_active (buffer 1). Normal DSp
-	 * back-buffer presents use the same display gamma as the compositor.
-	 * RAVE/DSp front-staging overlays use identity gamma so their 2D pixels
-	 * are color-matched with the already-BGRA RAVE layer in the same frame.
+	/* Bind gamma LUT (buffer 0) + compatibility fade_active (buffer 1).
+	 * Normal DSp back-buffer presents use the same display-ready gamma LUT
+	 * as the compositor. RAVE/DSp front-staging overlays use identity gamma
+	 * so their 2D pixels are color-matched with the already-BGRA RAVE layer
+	 * in the same frame.
 	 *
 	 * dsp_unpack_fragment_16bpp reads gamma_lut[idx] UNCONDITIONALLY, so
-	 * buffer index 0 MUST always be bound. */
+	 * buffer index 0 MUST always be bound. The inline shader still accepts
+	 * fade_active at buffer 1 to keep the binding layout stable, but the LUT
+	 * is already composed for display/fade policy before it reaches Metal. */
 	id<MTLBuffer> gamma_buf = nil;
 	if (use_display_gamma) {
 		gamma_buf = (__bridge id<MTLBuffer>)MetalCompositorGetGammaLUTBuffer();
@@ -1442,25 +1438,26 @@ extern "C" bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx,
 		row_bytes,
 		front_depth);
 
+	/* Re-encode is keyed on CONTENT hash only — never on gamma_gen /
+	 * fade_active. The encoded bytes are gamma-independent (the front path
+	 * has DSpFrontStagingUsesDisplayGamma() == false and the compositor
+	 * applies gamma at present time), so a gamma-keyed re-encode would
+	 * re-blit this stale front-staging snapshot over freshly swapped
+	 * frames on EVERY fade tick (gamma_gen bumps per VBL during fades). */
 	const uint32_t current_hash =
 	    DSpFrontStagingHashBytes(front_host, buffer_size);
-	const DMCModeSnapshot *snap = dmc_current_snapshot();
-	const uint32_t gamma_gen = snap ? snap->gamma_gen : 0u;
-	const uint32_t fade_active = (snap && snap->fade_active) ? 1u : 0u;
-	if (!DSpFrontStagingShouldEncodeHashForGamma(
+	if (!DSpFrontStagingShouldEncodeHash(
 	        &ctx->front_staging_present_state,
 	        current_hash,
-	        buffer_size,
-	        gamma_gen,
-	        fade_active)) {
+	        buffer_size)) {
 		const uint32_t skips =
 		    ctx->front_staging_present_state.unchanged_skips;
 		if (skips <= 3 || (skips % 120u) == 0) {
 			DSP_VLOG("DSpEncodeFrontBufferStagingToFramebuffer: skipped "
 			         "unchanged front staging addr=0x%08x rowBytes=%u "
-			         "%ux%u@%u hash=0x%08x gammaGen=%u fade=%u skips=%u",
+			         "%ux%u@%u hash=0x%08x skips=%u",
 			         baseAddr_mac, row_bytes, w, h, front_depth,
-			         current_hash, gamma_gen, fade_active, skips);
+			         current_hash, skips);
 		}
 		return true;
 	}
@@ -1546,17 +1543,14 @@ extern "C" bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx,
 		                                      framebuffer_texture);
 	}
 	if (ok) {
-		DSpFrontStagingRememberHashForGamma(
+		DSpFrontStagingRememberHash(
 		    &ctx->front_staging_present_state,
 		    current_hash,
-		    buffer_size,
-		    gamma_gen,
-		    fade_active);
+		    buffer_size);
 		DSP_VLOG("DSpEncodeFrontBufferStagingToFramebuffer: presented "
 		         "front staging addr=0x%08x rowBytes=%u %ux%u@%u "
-		         "hash=0x%08x gammaGen=%u fade=%u",
-		         baseAddr_mac, row_bytes, w, h, front_depth, current_hash,
-		         gamma_gen, fade_active);
+		         "hash=0x%08x",
+		         baseAddr_mac, row_bytes, w, h, front_depth, current_hash);
 	}
 	return ok;
 }

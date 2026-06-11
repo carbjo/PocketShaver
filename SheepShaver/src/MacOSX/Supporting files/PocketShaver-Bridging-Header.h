@@ -29,9 +29,8 @@
 // DSpIdleTimerService.swift calls DSpHostBridge_GetActiveFullscreen() on
 // willEnterForegroundNotification to decide whether to re-assert
 // UIApplication.shared.isIdleTimerDisabled. dsp_host_bridge.h also exposes
-// DSpHostBridge_OnBackground / OnForeground /
-// EnqueueEvent / EnqueueEventToActiveContexts — DSpEventService.swift
-// consumes all four entries. Header is pure-C with
+// DSpHostBridge_EnqueueEvent / EnqueueEventToActiveContexts —
+// DSpEventService.swift consumes the input fan-out entries. Header is pure-C with
 // extern "C" guards; ../gfxaccel/include is already on HEADER_SEARCH_PATHS
 // for this target.
 #import "dsp_host_bridge.h"

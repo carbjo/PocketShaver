@@ -11,7 +11,7 @@
  *  Foundation module that owns every Metal resource (MTLBuffer / MTLTexture) that
  *  crosses the engine <-> compositor boundary:
  *
- *    - Per-engine overlay texture fleet (one MTLTexture per engine slot,
+ *    - Per-engine overlay texture fleet (two MTLTextures per engine slot,
  *      same-resolution recycle, no global refcount).
  *    - Zero-copy framebuffer MTLBuffer wrapping emulated Mac RAM via
  *      newBufferWithBytesNoCopy + MTLResourceStorageModeShared
@@ -218,12 +218,12 @@ void *gfxaccel_resources_get_framebuffer_buffer(void *host_base, uint32_t length
 /*
  * Vend an overlay MTLTexture for the named engine.
  *
- * Per-engine: each engine owns exactly one overlay texture at a time.
- * No global refcount. Same-resolution call returns the cached texture
- * (recycle path); different-resolution call releases
- * the prior texture and allocates a new one. Different engines get
- * different textures even at the same dimensions (no implicit sharing;
- * the refcount model goes away by construction).
+ * Per-engine: each engine may own two overlay textures for ping-pong
+ * presentation. No global refcount. Same-resolution call returns the cached
+ * texture at index 0 (recycle path); different-resolution call releases the
+ * prior pair and allocates a new index-0 texture. Different engines get
+ * different textures even at the same dimensions (no implicit sharing; the
+ * refcount model goes away by construction).
  *
  * Texture is created with usage = RenderTarget | ShaderRead and
  * storageMode = Private (compute/render target; no CPU readback path).
@@ -237,6 +237,20 @@ void *gfxaccel_resources_vend_overlay_texture(uint32_t engine_id,
                                               uint32_t width,
                                               uint32_t height,
                                               uint32_t pixel_format);
+
+/*
+ * Vend one texture from an engine's two-texture overlay pair.
+ *
+ * texture_index must be 0 or 1. Both indices for an engine share dimensions
+ * and pixel format; a different size/format releases the existing pair.
+ * Existing single-texture callers should keep using
+ * gfxaccel_resources_vend_overlay_texture(), which is equivalent to index 0.
+ */
+void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine_id,
+                                                      uint32_t texture_index,
+                                                      uint32_t width,
+                                                      uint32_t height,
+                                                      uint32_t pixel_format);
 
 /*
  * Release the overlay texture for the named engine.

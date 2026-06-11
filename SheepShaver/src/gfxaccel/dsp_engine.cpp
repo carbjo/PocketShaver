@@ -33,7 +33,9 @@
 #include "dsp_draw_context.h"
 #include "dsp_mode_enumerate.h"        /* mode cache lifecycle */
 #include "vbl_source.h"
+#include "gfxaccel_threading_policy.h"
 #include "gfxaccel_resources.h"
+#include "gfxaccel_resources_heap.h"
 #include "display_mode_controller.h"   /* DMCOwner enum + dmc_set_active_owner signature */
 
 #include <stdatomic.h>                  /* _Atomic uint32_t bg/fg pending flag */
@@ -45,13 +47,14 @@
  * dropped BEFORE the back_buffer goes away and re-applied at foreground
  * resume.
  *
- * Threading note: DSpOnBackground / DSpOnForeground below run on the
- * OBSERVER'S MAIN THREAD and only flip an atomic. The actual table walk
- * + PixMap mutation must execute on the EMUL THREAD per the
- * DSpContextPrivate single-writer convention; the emul-thread bridges
- * DSpHandleBackgroundFromEmulThread / DSpHandleForegroundFromEmulThread
- * (in dsp_draw_context.mm) own the walks. The references below in
- * DSpOnBackground / DSpOnForeground are documentation-only. */
+ * Threading note: DSpOnBackground / DSpOnForeground below run from the
+ * UIKit lifecycle hook and only flip an atomic. In the current iOS build the
+ * hook and emulation share the main==emul thread, so the atomic is primarily
+ * a re-entry deferral gate: the actual table walk + PixMap mutation must run
+ * later from DSpHandleBackgroundFromEmulThread /
+ * DSpHandleForegroundFromEmulThread (in dsp_draw_context.mm), not inside the
+ * notification callback. The references below in DSpOnBackground /
+ * DSpOnForeground are documentation-only. */
 extern "C" void DSpRedirectMainDevicePixMap(struct DSpContextPrivate *ctx);
 extern "C" void DSpRestoreMainDevicePixMap(struct DSpContextPrivate *ctx);
 
@@ -107,12 +110,16 @@ typedef int16 (*DSpNewGestaltProc)(uint32, uint32);
 typedef int16 (*DSpReplaceGestaltProc)(uint32, uint32, uint32);
 
 /*
- *  Main-thread flag-and-drain pending state.
- *    0 = none, 1 = background enter pending, 2 = foreground enter pending.
+ *  Main-thread flag-and-drain pending state. BITMASK, not a slot:
+ *    bit 0 (kDSpPendingBackground) = background enter pending
+ *    bit 1 (kDSpPendingForeground) = foreground enter pending
+ *  fetch_or accumulation means a foreground event can never erase a
+ *  still-undrained background event (the pre-fix slot overwrite lost the
+ *  whole background transition whenever VBL was paused between the two).
  *  Written by main-thread (observer hook via gfxaccel_resources.mm C shim);
  *  read + cleared by emul-thread (VBL secondary-callback drain chain in
- *  dsp_draw_context.mm). Matches the memory-warning single-word
- *  atomic pattern — _Atomic counters are the ONE
+ *  dsp_draw_context.mm, or the synchronous drain below). Matches the
+ *  memory-warning single-word atomic pattern — _Atomic counters are the ONE
  *  sanctioned DSp concurrency primitive; no mutex / @synchronized.
  */
 static _Atomic uint32_t s_dsp_bg_fg_pending = 0;
@@ -120,48 +127,51 @@ static _Atomic uint32_t s_dsp_bg_fg_pending = 0;
 /* ---------------------------------------------------------------------- *
  *  Background / Foreground hook bodies                                  *
  *  -------------------------------------------------------------------- *
- *  Both run on the OBSERVER'S MAIN THREAD
+ *  Both run on the OBSERVER'S MAIN THREAD == EMUL THREAD
  *  (BackgroundLifecycleObserver.swift + gfxaccel_resources.mm C shim
- *  already handle NSNotificationCenter registration). These
- *  hook bodies are allocation-free atomic stores so the
- *  50 ms main-thread budget is inviolate.
+ *  already handle NSNotificationCenter registration; see
+ *  gfxaccel_threading_policy.h for the main==emul ground truth).
  *
- *  No dsp_context_table reads/writes happen here — that's the emul
- *  thread's exclusive scope, drained from the VBL secondary callback
- *  via DSpVBLBackgroundForegroundDrain → DSpExchangeBgFgPending bridge.
+ *  Each hook sets its pending bit, then drains SYNCHRONOUSLY via
+ *  DSpDrainLifecycleSync. The synchronous drain is required on the
+ *  background edge: gfxaccel_handle_background_enter pauses the VBL
+ *  source before this hook runs, so the VBL drain chain that used to be
+ *  the sole consumer can never fire while backgrounded — back buffers
+ *  were never released and the PixMap redirect never dropped.
+ *  DSpDrainLifecycleSync defers to the in-flight tick when called inside
+ *  the VBL callback chain, and SwapBuffers' re-entry revalidation
+ *  (DSpRevalidateSwapContext) defends the table against drains landing
+ *  inside a busyProc runloop pump.
  */
 static void DSpOnBackground(void * /*ctx*/)
 {
-	atomic_store_explicit(&s_dsp_bg_fg_pending, 1u,
-	                      memory_order_release);
-	/* The PixMap-redirect drop happens on the
-	 * EMUL THREAD inside DSpHandleBackgroundFromEmulThread, which walks
-	 * dsp_context_table[] and calls DSpRestoreMainDevicePixMap on every
-	 * Active context BEFORE DSpQueueReleaseAtVBLPartial frees the
-	 * back_buffer. Touching the table from this main-thread hook would
-	 * race with the emul-thread single-writer; the atomic flag above is
-	 * the documented cross-thread bridge. */
-	DSP_LOG("OnBackground: pending flag set (main thread)");
+	atomic_fetch_or_explicit(&s_dsp_bg_fg_pending, kDSpPendingBackground,
+	                         memory_order_release);
+	DSP_LOG("OnBackground: pending bit set; draining synchronously");
+	/* GPU work was already drained by gfxaccel_handle_background_enter
+	 * (Step 2 waitUntilCompleted) before this hook (Step 4), so the
+	 * back-buffer release below cannot race in-flight encodes. */
+	DSpDrainLifecycleSync();
 }
 
 static void DSpOnForeground(void * /*ctx*/)
 {
-	atomic_store_explicit(&s_dsp_bg_fg_pending, 2u,
-	                      memory_order_release);
-	/* The PixMap-redirect re-apply happens on the
-	 * EMUL THREAD inside DSpHandleForegroundFromEmulThread, which walks
-	 * dsp_context_table[] and calls DSpRedirectMainDevicePixMap on every
-	 * context resuming Active. Same threading rationale as
-	 * DSpOnBackground above. */
-	DSP_LOG("OnForeground: pending flag set (main thread)");
+	atomic_fetch_or_explicit(&s_dsp_bg_fg_pending, kDSpPendingForeground,
+	                         memory_order_release);
+	DSP_LOG("OnForeground: pending bit set; draining synchronously");
+	/* Synchronous drain re-allocates back buffers immediately so the
+	 * first post-resume frame presents instead of waiting one VBL; if a
+	 * background bit is still pending (sync bg drain was skipped while
+	 * nested), the drain processes background-then-foreground in order. */
+	DSpDrainLifecycleSync();
 }
 
 /*
- *  Emul-thread bridge. Called from DSpVBLBackgroundForegroundDrain in
+ *  VBL-drain bridge. Called from DSpVBLBackgroundForegroundDrain in
  *  dsp_draw_context.mm — isolates s_dsp_bg_fg_pending so the draw-context
  *  file doesn't need to know about the atomic. atomic_exchange clears the
- *  slot with acquire semantics so the emul-thread reader sees every
- *  release-store the main-thread writer performed.
+ *  slot with acquire semantics so the drain sees every release-store the
+ *  lifecycle hook performed.
  */
 extern "C" uint32_t DSpExchangeBgFgPending(void)
 {
@@ -459,6 +469,17 @@ int32_t DSpShutdownHandler(void)
 		 * release FIFO isn't invoked after full teardown. Idempotent:
 		 * unregister is a search-and-remove that does nothing when the
 		 * callback isn't in the table. */
+		DSpVBLReleaseCallback(NULL, NULL, 0.0);
+		if (gfxaccel_resources_heap_live_allocation_count(kHeapEngineDSp) == 0) {
+			uint64_t reclaimed = gfxaccel_resources_heap_reset(kHeapEngineDSp);
+			if (reclaimed > 0) {
+				DSP_LOG("DSpShutdownHandler: DSp heap reset reclaimed %llu bytes",
+				        (unsigned long long)reclaimed);
+			}
+		} else {
+			DSP_LOG("DSpShutdownHandler: DSp heap reset skipped; live allocations=%u",
+			        (unsigned)gfxaccel_resources_heap_live_allocation_count(kHeapEngineDSp));
+		}
 		vbl_source_unregister_secondary_callback(DSpVBLReleaseCallback);
 		/* Symmetric clear of the bg/fg hook slots + reset the pending-flag
 		 * so a follow-up re-init doesn't re-drain stale state. */

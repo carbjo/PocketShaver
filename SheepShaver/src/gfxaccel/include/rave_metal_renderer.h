@@ -28,7 +28,8 @@ extern void RaveClearOverlayToTransparent(void);
 
 // Fan-out hooks: small C-linkage probes so rave_engine.cpp's
 // RaveOnAttach / RaveOnDetach handlers can interrogate / drive RAVE's
-// per-engine overlay state without needing direct ObjC++ access.
+// per-engine overlay state, including the preserved logical overlay binding
+// used after DMC mode-exit detach, without needing direct ObjC++ access.
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -109,6 +110,8 @@ extern int32_t NativeBitmapNewFromDrawContext(uint32_t drawContextAddr, uint32_t
 // Metal texture creation/upload functions (called from rave_engine.cpp via void* bridge)
 extern void *RaveCreateMetalTexture(uint32_t width, uint32_t height, uint32_t mipLevels,
                                      const uint8_t *pixelData, uint32_t bytesPerRow);
+// Copies pixelData into a Metal staging buffer before returning, then uploads
+// asynchronously via the current RAVE command queue when available.
 extern void RaveUploadMipLevel(void *metalTexture, uint32_t level, uint32_t width, uint32_t height,
                                 const uint8_t *pixelData, uint32_t bytesPerRow);
 extern void RaveGenerateMipmaps(void *metalTexture);

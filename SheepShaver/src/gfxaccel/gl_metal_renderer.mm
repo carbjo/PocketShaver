@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstddef>   // offsetof for clip_planes alignment static_assert
 #include <cmath>
+#include <dispatch/dispatch.h>
 #include <unordered_map>
 #include <vector>
 
@@ -33,7 +34,6 @@
 #include "rave_metal_renderer.h"  // for RaveCreateMetalOverlay (shared-refcount API deleted)
 #include "metal_compositor.h"    // for MetalCompositorSubmitFrame, CompositeLayer, FrameDescriptor
 #include "gfxaccel_resources.h"  // per-engine overlay vending for kGfxEngineGL
-#include "gfxaccel_resources_heap.h"  // heap sub-allocation for GL buffers
 #include "display_mode_controller.h"  // dmc_current_snapshot() for FrameDescriptor generation
 #include "accel_logging.h"
 #include "metal_device_shared.h"
@@ -50,23 +50,25 @@ extern uint32 Mac_sysalloc(uint32 size);
  *  GL per-engine overlay state (mirrors RAVE).
  *
  *  Replaces the legacy compositor-owned overlay texture + SetOverlayActive +
- *  Sync3DFramePacing cluster with per-engine ownership. GL owns exactly one
- *  overlay MTLTexture at a time, vended by
- *  gfxaccel_resources_vend_overlay_texture(kGfxEngineGL, ...) and released
- *  via gfxaccel_resources_release_overlay_texture. Same-resolution rebind =
- *  cache-hit recycle; resolution change = re-vend. Display-mode handoff
- *  may release the vended texture while keeping the drawable binding and
- *  dimensions intact; the next present/render pass can lazily re-vend for
+ *  Sync3DFramePacing cluster with per-engine ownership. GL owns a
+ *  two-texture overlay pair, vended by
+ *  gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL, ...) and
+ *  released via gfxaccel_resources_release_overlay_texture. Same-resolution
+ *  rebind = cache-hit recycle; resolution change = re-vend. Display-mode
+ *  handoff may release the vended textures while keeping the drawable binding
+ *  and dimensions intact; the next present/render pass can lazily re-vend for
  *  the still-bound drawable.
  *
  *  NativeAGLSwapBuffers emits a kLayerSlotOverlay CompositeLayer via
  *  MetalCompositorSubmitFrame — the "active" signal is the presence of the
- *  layer in the descriptor, not a separate enable call. SubmitFrame's hidden
- *  dispatch_semaphore(3) subsumes the legacy per-frame pacing call.
+ *  layer in the descriptor, not a separate enable call. SubmitFrame is
+ *  cache-only in production; Step 3 restores real per-frame pacing.
  */
-static id<MTLTexture> s_gl_overlay_tex = nil;     /* cached vended handle */
+static id<MTLTexture> s_gl_overlay_pair[2] = { nil, nil };
+static id<MTLTexture> s_gl_overlay_tex = nil;     /* current render target */
 static uint32_t       s_gl_overlay_w   = 0;
 static uint32_t       s_gl_overlay_h   = 0;
+static uint32_t       s_gl_overlay_write_index = 0;
 static int32_t        s_gl_dst_left    = 0;
 static int32_t        s_gl_dst_top     = 0;
 static int32_t        s_gl_dst_width   = 0;
@@ -79,6 +81,23 @@ static bool gl_overlay_drawable_bound(void)
         s_gl_dst_width > 0 && s_gl_dst_height > 0,
         s_gl_dst_width,
         s_gl_dst_height);
+}
+
+static bool gl_overlay_has_cached_texture(void)
+{
+    return s_gl_overlay_pair[0] != nil ||
+           s_gl_overlay_pair[1] != nil ||
+           s_gl_overlay_tex != nil;
+}
+
+static void gl_clear_compositor_cached_overlay(const char *reason)
+{
+    const DMCModeSnapshot *snap = dmc_current_snapshot();
+    const bool gl_owner = snap && snap->active_owner == (uint32_t)kDMCOwnerGL;
+    if (!gl_overlay_has_cached_texture() && !gl_owner) return;
+
+    GL_METAL_VLOG("clearing compositor cached overlay on GL %s", reason);
+    MetalCompositorSubmitFrame_ClearCachedOverlay();
 }
 
 // ---------------------------------------------------------------------------
@@ -128,9 +147,12 @@ extern "C" void GLTesting_Reset(void)
 	gl_testing_queue   = nil;
 	gl_testing_bundle  = nil;
 	gl_testing_overlay = nil;
+	s_gl_overlay_pair[0] = nil;
+	s_gl_overlay_pair[1] = nil;
 	s_gl_overlay_tex   = nil;
 	s_gl_overlay_w     = 0;
 	s_gl_overlay_h     = 0;
+	s_gl_overlay_write_index = 0;
 	s_gl_overlay_committed_frame = false;
 }
 
@@ -142,25 +164,62 @@ extern "C" void GLTesting_Reset(void)
  *  Returns the MTLTexture handle on success or nil on failure (vend may
  *  return NULL during early startup or if SharedMetalDevice() is nil).
  */
+static void gl_release_overlay_texture(void);
+
 static id<MTLTexture> gl_acquire_overlay_texture(uint32_t width, uint32_t height)
 {
-    if (s_gl_overlay_tex != nil &&
-        s_gl_overlay_w == width &&
-        s_gl_overlay_h == height) {
-        return s_gl_overlay_tex;  /* cache-hit */
+#ifdef TESTING_BUILD
+    if (gl_testing_overlay != nil) {
+        return gl_testing_overlay;
     }
-    void *raw = gfxaccel_resources_vend_overlay_texture(
-                    kGfxEngineGL, width, height,
-                    MTLPixelFormatBGRA8Unorm);
-    if (raw == NULL) {
-        GL_METAL_LOG("gl_acquire_overlay_texture: vend(%ux%u) returned NULL", width, height);
-        return nil;
+#endif
+    if ((s_gl_overlay_pair[0] != nil || s_gl_overlay_pair[1] != nil) &&
+        (s_gl_overlay_w != width || s_gl_overlay_h != height)) {
+        gl_release_overlay_texture();
     }
-    s_gl_overlay_tex = (__bridge id<MTLTexture>)raw;
-    s_gl_overlay_w = width;
-    s_gl_overlay_h = height;
-    s_gl_overlay_committed_frame = false;
+
+    if (s_gl_overlay_pair[0] == nil || s_gl_overlay_pair[1] == nil) {
+        void *raw0 = gfxaccel_resources_vend_overlay_texture_indexed(
+                        kGfxEngineGL, 0, width, height,
+                        MTLPixelFormatBGRA8Unorm);
+        void *raw1 = gfxaccel_resources_vend_overlay_texture_indexed(
+                        kGfxEngineGL, 1, width, height,
+                        MTLPixelFormatBGRA8Unorm);
+        if (raw0 == NULL || raw1 == NULL) {
+            GL_METAL_LOG("gl_acquire_overlay_texture: vend pair(%ux%u) returned NULL", width, height);
+            if (raw0 != NULL) {
+                gfxaccel_resources_release_overlay_texture(kGfxEngineGL, raw0);
+            }
+            if (raw1 != NULL) {
+                gfxaccel_resources_release_overlay_texture(kGfxEngineGL, raw1);
+            }
+            s_gl_overlay_pair[0] = nil;
+            s_gl_overlay_pair[1] = nil;
+            s_gl_overlay_tex = nil;
+            s_gl_overlay_write_index = 0;
+            s_gl_overlay_committed_frame = false;
+            return nil;
+        }
+        s_gl_overlay_pair[0] = (__bridge id<MTLTexture>)raw0;
+        s_gl_overlay_pair[1] = (__bridge id<MTLTexture>)raw1;
+        s_gl_overlay_w = width;
+        s_gl_overlay_h = height;
+        s_gl_overlay_committed_frame = false;
+    }
+
+    s_gl_overlay_tex = s_gl_overlay_pair[s_gl_overlay_write_index];
     return s_gl_overlay_tex;
+}
+
+static void gl_advance_overlay_texture_after_submit(void)
+{
+#ifdef TESTING_BUILD
+    if (gl_testing_overlay != nil) return;
+#endif
+    if (s_gl_overlay_pair[0] == nil || s_gl_overlay_pair[1] == nil) return;
+    s_gl_overlay_write_index ^= 1u;
+    s_gl_overlay_tex = s_gl_overlay_pair[s_gl_overlay_write_index];
+    s_gl_overlay_committed_frame = false;
 }
 
 /*
@@ -169,10 +228,18 @@ static id<MTLTexture> gl_acquire_overlay_texture(uint32_t width, uint32_t height
  */
 static void gl_release_overlay_texture(void)
 {
-    if (s_gl_overlay_tex == nil) return;
-    gfxaccel_resources_release_overlay_texture(
-        kGfxEngineGL, (__bridge void *)s_gl_overlay_tex);
+    if (s_gl_overlay_pair[0] != nil) {
+        gfxaccel_resources_release_overlay_texture(
+            kGfxEngineGL, (__bridge void *)s_gl_overlay_pair[0]);
+    }
+    if (s_gl_overlay_pair[1] != nil) {
+        gfxaccel_resources_release_overlay_texture(
+            kGfxEngineGL, (__bridge void *)s_gl_overlay_pair[1]);
+    }
+    s_gl_overlay_pair[0] = nil;
+    s_gl_overlay_pair[1] = nil;
     s_gl_overlay_tex = nil;
+    s_gl_overlay_write_index = 0;
     s_gl_overlay_committed_frame = false;
 }
 
@@ -215,6 +282,7 @@ extern "C" void gl_overlay_bind(int32_t left, int32_t top, int32_t width, int32_
 extern "C" void gl_overlay_unbind(void)
 {
     GL_METAL_LOG("gl_overlay_unbind: releasing per-engine overlay");
+    gl_clear_compositor_cached_overlay("unbind");
     gl_release_overlay_texture();
     s_gl_dst_left = 0;
     s_gl_dst_top = 0;
@@ -228,9 +296,9 @@ extern "C" void gl_overlay_unbind(void)
  *  gl_overlay_present - called from NativeAGLSwapBuffers.
  *
  *  Emits a single kLayerSlotOverlay CompositeLayer for GL's cached overlay
- *  via MetalCompositorSubmitFrame. Replaces the legacy overlay-activate +
- *  per-frame-pacing pair — SubmitFrame's semaphore provides pacing and the
- *  layer presence is the "active" signal.
+ *  via MetalCompositorSubmitFrame. Replaces the legacy overlay-activate path;
+ *  the layer presence is the "active" signal. SubmitFrame is cache-only in
+ *  production; Step 3 restores real pacing.
  *
  *  A bind-only texture is not a frame. If the app swaps before issuing any
  *  GL draw/clear that commits a command buffer, skip SubmitFrame so the
@@ -307,6 +375,8 @@ extern "C" void gl_overlay_present(void)
         GL_METAL_VLOG("gl_overlay_present: SubmitFrame stale generation; dropping frame");
     } else if (err != kGfxAccelNoErr) {
         GL_METAL_VLOG("gl_overlay_present: SubmitFrame returned %d", err);
+    } else {
+        gl_advance_overlay_texture_after_submit();
     }
     /* Declare GL owner — fast no-op when already GL (idempotent). */
     (void)dmc_set_active_owner(kDMCOwnerGL);
@@ -321,7 +391,10 @@ extern "C" void gl_overlay_present(void)
  */
 extern "C" int gl_has_active_overlay(void)
 {
-    return (s_gl_overlay_tex != nil || gl_overlay_drawable_bound()) ? 1 : 0;
+    return (s_gl_overlay_pair[0] != nil ||
+            s_gl_overlay_pair[1] != nil ||
+            s_gl_overlay_tex != nil ||
+            gl_overlay_drawable_bound()) ? 1 : 0;
 }
 
 /*
@@ -330,7 +403,10 @@ extern "C" int gl_has_active_overlay(void)
  */
 extern "C" int gl_get_overlay_dims(uint32_t *outW, uint32_t *outH)
 {
-    if (s_gl_overlay_tex == nil && (s_gl_overlay_w == 0 || s_gl_overlay_h == 0)) return 0;
+    if (s_gl_overlay_pair[0] == nil &&
+        s_gl_overlay_pair[1] == nil &&
+        s_gl_overlay_tex == nil &&
+        (s_gl_overlay_w == 0 || s_gl_overlay_h == 0)) return 0;
     if (outW) *outW = s_gl_overlay_w;
     if (outH) *outH = s_gl_overlay_h;
     return 1;
@@ -345,6 +421,7 @@ extern "C" int gl_get_overlay_dims(uint32_t *outW, uint32_t *outH)
 extern "C" void gl_release_overlay_for_detach(void)
 {
     const bool preserve_binding = gl_overlay_drawable_bound();
+    gl_clear_compositor_cached_overlay("detach");
     gl_release_overlay_texture();
     if (!preserve_binding) {
         s_gl_dst_left = 0;
@@ -511,7 +588,8 @@ struct GLMetalFragmentUniforms {
     int32_t color_sum_enabled;       // offset 72 — EXT_secondary_color / GL_COLOR_SUM (consumes former _pad3)
     int32_t has_texture_unit1;       // offset 76 — ARB_multitexture: unit 1 has a bound+enabled 2D texture (consumes former _pad4)
     int32_t texenv1_mode;            // offset 80 — unit-1 texenv mode (GLTexEnvModeToShader: 0=modulate..4=add)
-    int32_t _pad5, _pad6, _pad7;     // offset 84-92 (pad to 96, 16-byte struct alignment)
+    int32_t force_opaque_output;     // offset 84 — window overlay with GL blending disabled stores coverage alpha
+    int32_t _pad6, _pad7;            // offset 88-92 (pad to 96, 16-byte struct alignment)
 };
 
 // Must match GLLight in gl_shaders.metal
@@ -589,6 +667,9 @@ struct GLMetalState {
     id<MTLBuffer>               vertexBuffers[GL_RING_BUFFER_COUNT];
     int                         currentBufferIndex;
     int                         bufferOffset;
+    dispatch_semaphore_t        ringSemaphore;
+    bool                        ringSlotAcquired;
+    uint32_t                    ringSlotsInCommandBuffer;
 
     // Uniform buffers
     id<MTLBuffer>               vertexUniformBuffer;
@@ -618,6 +699,78 @@ struct GLMetalState {
 	id<MTLSamplerState>         linearSampler;
     id<MTLSamplerState>         nearestSampler;
 };
+
+static void GLMetalRingSignalSlots(dispatch_semaphore_t sem,
+                                   uint32_t slotCount)
+{
+    for (uint32_t i = 0; i < slotCount; i++) {
+        dispatch_semaphore_signal(sem);
+    }
+}
+
+static void GLMetalAdvanceRingSlot(GLMetalState *ms)
+{
+    ms->currentBufferIndex = (ms->currentBufferIndex + 1) % GL_RING_BUFFER_COUNT;
+    ms->bufferOffset = 0;
+    ms->ringSlotAcquired = false;
+}
+
+static bool GLMetalAcquireRingSlot(GLMetalState *ms)
+{
+    if (!ms || !ms->ringSemaphore) {
+        return false;
+    }
+
+    dispatch_semaphore_wait(ms->ringSemaphore, DISPATCH_TIME_FOREVER);
+    ms->ringSlotAcquired = true;
+    ms->ringSlotsInCommandBuffer++;
+    return true;
+}
+
+static bool GLMetalEnsureRingSlot(GLMetalState *ms)
+{
+    if (!ms) {
+        return false;
+    }
+    return ms->ringSlotAcquired || GLMetalAcquireRingSlot(ms);
+}
+
+static void GLMetalRegisterRingCompletion(GLMetalState *ms,
+                                          id<MTLCommandBuffer> commandBuffer)
+{
+    if (!ms) {
+        return;
+    }
+
+    uint32_t slotsConsumed = ms->ringSlotsInCommandBuffer;
+    if (slotsConsumed == 0) {
+        return;
+    }
+
+    dispatch_semaphore_t sem = ms->ringSemaphore;
+    ms->ringSlotsInCommandBuffer = 0;
+    GLMetalAdvanceRingSlot(ms);
+
+    if (commandBuffer != nil) {
+        [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> completedCommandBuffer) {
+            (void)completedCommandBuffer;
+            GLMetalRingSignalSlots(sem, slotsConsumed);
+        }];
+    } else {
+        GLMetalRingSignalSlots(sem, slotsConsumed);
+    }
+}
+
+static void GLMetalCommitCommandBuffer(GLMetalState *ms,
+                                       id<MTLCommandBuffer> commandBuffer)
+{
+    if (!commandBuffer) {
+        return;
+    }
+
+    GLMetalRegisterRingCompletion(ms, commandBuffer);
+    [commandBuffer commit];
+}
 
 
 // Forward declarations
@@ -2120,6 +2273,9 @@ void GLMetalInit(GLContext *ctx)
     ms->initialized = false;
     ms->currentBufferIndex = 0;
     ms->bufferOffset = 0;
+    ms->ringSemaphore = NULL;
+    ms->ringSlotAcquired = false;
+    ms->ringSlotsInCommandBuffer = 0;
     ms->renderPassActive = false;
 
     // Get the shared Metal device directly from the compositor.
@@ -2216,52 +2372,36 @@ void GLMetalInit(GLContext *ctx)
     // corrupts position too. stride auto-grows to sizeof(GLMetalVertex) == 80.
     ms->vertexDescriptor.layouts[0].stride = sizeof(GLMetalVertex);
 
-    // Allocate triple-buffered vertex ring buffers (4MB each) from kHeapEngineGL
+    // Allocate long-lived GL staging buffers directly from the device. They
+    // outlive mode-exit reset scopes and must not pin or alias the placement heap.
     for (int i = 0; i < GL_RING_BUFFER_COUNT; i++) {
-        ms->vertexBuffers[i] = (__bridge_transfer id<MTLBuffer>)
-            gfxaccel_resources_heap_alloc_buffer(kHeapEngineGL,
-                                                 GL_RING_BUFFER_SIZE,
-                                                 MTLResourceStorageModeShared);
+        ms->vertexBuffers[i] = [ms->device newBufferWithLength:GL_RING_BUFFER_SIZE
+                                                        options:MTLResourceStorageModeShared];
         if (!ms->vertexBuffers[i]) {
-            GL_METAL_LOG("heap alloc failed for GL ring buffer %d, falling back to device", i);
-            // heap-exempt: startup fallback, removed once init ordering confirmed
-            ms->vertexBuffers[i] = [ms->device newBufferWithLength:GL_RING_BUFFER_SIZE
-                                                           options:MTLResourceStorageModeShared];
+            GL_METAL_LOG("device alloc failed for GL ring buffer %d", i);
         }
     }
     ms->currentBufferIndex = 0;
     ms->bufferOffset = 0;
+    ms->ringSemaphore = dispatch_semaphore_create(GL_RING_BUFFER_COUNT);
+    ms->ringSlotAcquired = false;
+    ms->ringSlotsInCommandBuffer = 0;
 
-    // Allocate uniform buffers from kHeapEngineGL
-    ms->vertexUniformBuffer = (__bridge_transfer id<MTLBuffer>)
-        gfxaccel_resources_heap_alloc_buffer(kHeapEngineGL,
-                                             (uint32_t)sizeof(GLMetalVertexUniforms),
-                                             MTLResourceStorageModeShared);
+    // Uniform buffers have context lifetime, so keep them off the bump heap too.
+    ms->vertexUniformBuffer = [ms->device newBufferWithLength:sizeof(GLMetalVertexUniforms)
+                                                      options:MTLResourceStorageModeShared];
     if (!ms->vertexUniformBuffer) {
-        GL_METAL_LOG("heap alloc failed for GL vertex uniform buffer");
-        // heap-exempt: startup fallback, removed once init ordering confirmed
-        ms->vertexUniformBuffer = [ms->device newBufferWithLength:sizeof(GLMetalVertexUniforms)
-                                                          options:MTLResourceStorageModeShared];
+        GL_METAL_LOG("device alloc failed for GL vertex uniform buffer");
     }
-    ms->fragmentUniformBuffer = (__bridge_transfer id<MTLBuffer>)
-        gfxaccel_resources_heap_alloc_buffer(kHeapEngineGL,
-                                             (uint32_t)sizeof(GLMetalFragmentUniforms),
-                                             MTLResourceStorageModeShared);
+    ms->fragmentUniformBuffer = [ms->device newBufferWithLength:sizeof(GLMetalFragmentUniforms)
+                                                        options:MTLResourceStorageModeShared];
     if (!ms->fragmentUniformBuffer) {
-        GL_METAL_LOG("heap alloc failed for GL fragment uniform buffer");
-        // heap-exempt: startup fallback, removed once init ordering confirmed
-        ms->fragmentUniformBuffer = [ms->device newBufferWithLength:sizeof(GLMetalFragmentUniforms)
-                                                            options:MTLResourceStorageModeShared];
+        GL_METAL_LOG("device alloc failed for GL fragment uniform buffer");
     }
-    ms->lightUniformBuffer = (__bridge_transfer id<MTLBuffer>)
-        gfxaccel_resources_heap_alloc_buffer(kHeapEngineGL,
-                                             (uint32_t)sizeof(GLMetalLightingData),
-                                             MTLResourceStorageModeShared);
+    ms->lightUniformBuffer = [ms->device newBufferWithLength:sizeof(GLMetalLightingData)
+                                                     options:MTLResourceStorageModeShared];
     if (!ms->lightUniformBuffer) {
-        GL_METAL_LOG("heap alloc failed for GL light uniform buffer");
-        // heap-exempt: startup fallback, removed once init ordering confirmed
-        ms->lightUniformBuffer = [ms->device newBufferWithLength:sizeof(GLMetalLightingData)
-                                                         options:MTLResourceStorageModeShared];
+        GL_METAL_LOG("device alloc failed for GL light uniform buffer");
     }
 
     // Create sampler states
@@ -2531,7 +2671,7 @@ void GLMetalBeginFrame(GLContext *ctx)
     if (ms->renderPassActive) return;
 
     // GL renders into its per-engine overlay texture (vended
-    // via gfxaccel_resources_vend_overlay_texture(kGfxEngineGL, ...) in
+    // via gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL, ...) in
     // NativeAGLSetDrawable's gl_overlay_bind path). The compositor picks
     // this up when NativeAGLSwapBuffers fires gl_overlay_present and
     // emits a kLayerSlotOverlay CompositeLayer via SubmitFrame.
@@ -2925,9 +3065,9 @@ static int32_t GLAlphaFuncToShader(uint32_t gl_func) {
 /*
  *  GLMetalFlushAndResetRingBuffer - mid-frame flush when ring buffer is full
  *
- *  Commits the current command buffer, resets the ring buffer write offset to 0,
+ *  Commits the current command buffer, rotates to the next gated ring slot,
  *  and begins a new render pass with MTLLoadActionLoad to preserve existing
- *  framebuffer content.  The caller (GLMetalFlushImmediateMode) sets all per-draw
+ *  framebuffer content. The caller (GLMetalFlushImmediateMode) sets all per-draw
  *  Metal state (pipeline, depth-stencil, cull, textures, uniforms) after this
  *  returns, so we only need to restore viewport and scissor on the new encoder.
  *
@@ -2947,15 +3087,16 @@ static bool GLMetalFlushAndResetRingBuffer(GLContext *ctx)
         ms->currentEncoder = nil;
     }
 
-    // (b) Commit current command buffer and wait for completion
+    // (b) Commit current command buffer. Ring slot reuse is gated by the
+    //     command buffer completion handler; no CPU-side wait is needed here.
     if (ms->currentCommandBuffer) {
-        [ms->currentCommandBuffer commit];
-        [ms->currentCommandBuffer waitUntilCompleted];
+        GLMetalCommitCommandBuffer(ms, ms->currentCommandBuffer);
         ms->lastCommittedBuffer = ms->currentCommandBuffer;
         ms->currentCommandBuffer = nil;
     }
 
-    // (c) Reset ring buffer write offset to 0
+    // (c) The commit helper rotates consumed ring slots; keep the offset reset
+    //     even if this path is reached without prior ring staging.
     ms->bufferOffset = 0;
 
     // (d) Create a new command buffer
@@ -3136,16 +3277,23 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     size_t vertBytes = vertCount * sizeof(GLMetalVertex);
 
     // ---- Check ring buffer space ----
+    if ((int)vertBytes > GL_RING_BUFFER_SIZE) {
+        GL_METAL_VLOG("GLMetalFlushImmediateMode: single draw exceeds ring buffer (%zu > %d)",
+                     vertBytes, GL_RING_BUFFER_SIZE);
+        return;
+    }
+    if (!GLMetalEnsureRingSlot(ms)) {
+        GL_METAL_VLOG("GLMetalFlushImmediateMode: ring buffer slot unavailable");
+        return;
+    }
     if (ms->bufferOffset + (int)vertBytes > GL_RING_BUFFER_SIZE) {
         // Mid-frame flush: commit current work, reset ring buffer, restart encoder
         if (!GLMetalFlushAndResetRingBuffer(ctx)) {
             GL_METAL_VLOG("GLMetalFlushImmediateMode: ring buffer flush failed, dropping draw");
             return;
         }
-        // After flush, offset is 0 — verify the single draw fits in the buffer
-        if ((int)vertBytes > GL_RING_BUFFER_SIZE) {
-            GL_METAL_VLOG("GLMetalFlushImmediateMode: single draw exceeds ring buffer (%zu > %d)",
-                         vertBytes, GL_RING_BUFFER_SIZE);
+        if (!GLMetalEnsureRingSlot(ms)) {
+            GL_METAL_VLOG("GLMetalFlushImmediateMode: ring buffer slot unavailable after flush");
             return;
         }
     }
@@ -3215,6 +3363,12 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     fu.has_texture_unit1 = (GLMetalTexture2DEnabledForDraw(ctx, 1) &&
                             ctx->tex_units[1].bound_texture_2d != 0) ? 1 : 0;
     fu.texenv1_mode = GLTexEnvModeToShader(ctx->tex_units[1].env_mode);
+    {
+        const bool isOffscreen =
+            GLContextGetOffscreenDrawable(ctx, NULL, NULL, NULL, NULL);
+        fu.force_opaque_output =
+            GLMetalForceOpaqueOverlayOutput(isOffscreen, ctx->blend) ? 1 : 0;
+    }
 
     // ---- Upload lighting data ----
     GLMetalLightingData ld_val;
@@ -3477,6 +3631,12 @@ void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgr
     fu_local.alpha_ref = 0;
     fu_local.has_texture = 1;
     fu_local.shade_model = 1;  // smooth
+    {
+        const bool isOffscreen =
+            GLContextGetOffscreenDrawable(ctx, NULL, NULL, NULL, NULL);
+        fu_local.force_opaque_output =
+            GLMetalForceOpaqueOverlayOutput(isOffscreen, ctx->blend) ? 1 : 0;
+    }
 
     // Get pipeline with current blend state (DrawPixels respects existing blend)
     // Temporarily override depth_mask for pipeline key (no depth write for pixel draws)
@@ -3606,6 +3766,7 @@ void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_da
     fu_local2.alpha_ref = 0;
     fu_local2.has_texture = 1;
     fu_local2.shade_model = 1;
+    fu_local2.force_opaque_output = 0;
 
     // Pipeline with blend enabled (SrcAlpha/OneMinusSrcAlpha) for bitmap transparency
     // Temporarily override blend state and depth_mask for pipeline key
@@ -3680,7 +3841,7 @@ void GLMetalEndFrame(GLContext *ctx)
     ms->currentEncoder = nil;
 
     id<MTLCommandBuffer> committedBuffer = ms->currentCommandBuffer;
-    [committedBuffer commit];
+    GLMetalCommitCommandBuffer(ms, committedBuffer);
     ms->lastCommittedBuffer = committedBuffer;
     ms->currentCommandBuffer = nil;
 
@@ -3691,10 +3852,6 @@ void GLMetalEndFrame(GLContext *ctx)
     if (GLShouldInvalidateOffscreenReadbackAfterGLFlush(true, didReadback)) {
         GLMetalInvalidateLatestOffscreenReadback("end frame without offscreen readback");
     }
-
-    // Advance ring buffer
-    ms->currentBufferIndex = (ms->currentBufferIndex + 1) % GL_RING_BUFFER_COUNT;
-    ms->bufferOffset = 0;
 
     GL_METAL_VLOG("GLMetalEndFrame: frame committed, buffer index now %d", ms->currentBufferIndex);
 }
@@ -3714,7 +3871,7 @@ void NativeGLFinish(GLContext *ctx)
     }
     if (ms->currentCommandBuffer) {
         id<MTLCommandBuffer> committedBuffer = ms->currentCommandBuffer;
-        [committedBuffer commit];
+        GLMetalCommitCommandBuffer(ms, committedBuffer);
         [committedBuffer waitUntilCompleted];
         ms->lastCommittedBuffer = committedBuffer;
         ms->currentCommandBuffer = nil;
@@ -3749,7 +3906,7 @@ void NativeGLFlush(GLContext *ctx)
     }
     if (ms->currentCommandBuffer) {
         id<MTLCommandBuffer> committedBuffer = ms->currentCommandBuffer;
-        [committedBuffer commit];
+        GLMetalCommitCommandBuffer(ms, committedBuffer);
         ms->lastCommittedBuffer = committedBuffer;
         ms->currentCommandBuffer = nil;
         ms->renderPassActive = false;
@@ -3797,7 +3954,7 @@ void GLMetalRelease(GLContext *ctx)
         ms->currentEncoder = nil;
     }
     if (ms->currentCommandBuffer) {
-        [ms->currentCommandBuffer commit];
+        GLMetalCommitCommandBuffer(ms, ms->currentCommandBuffer);
         [ms->currentCommandBuffer waitUntilCompleted];
         ms->currentCommandBuffer = nil;
     }
@@ -4249,7 +4406,7 @@ static void GLMetalEndAndCommitForReadback(GLMetalState *ms)
 
     if (ms->currentCommandBuffer) {
         id<MTLCommandBuffer> committedBuffer = ms->currentCommandBuffer;
-        [committedBuffer commit];
+        GLMetalCommitCommandBuffer(ms, committedBuffer);
         [committedBuffer waitUntilCompleted];
         ms->lastCommittedBuffer = committedBuffer;
         ms->currentCommandBuffer = nil;

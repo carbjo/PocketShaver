@@ -124,8 +124,8 @@ struct DMCModeSnapshot {
 	uint32_t       pitch;
 	uint32_t       palette_gen;             /* bumped on every CLUT change */
 	uint32_t       gamma_gen;               /* bumped on every gamma change */
-	uint8_t        gamma_lut[768];          /* Planar: 256 R + 256 G + 256 B */
-	uint32_t       fade_active;             /* 1 while a DSp gamma fade is in progress; gates the shader pow(1.8/2.2) so the LUT marches linearly (DSp-1.7). Published atomically WITH gamma_lut. */
+	uint8_t        gamma_lut[768];          /* Mac-side planar LUT: 256 R + 256 G + 256 B */
+	uint32_t       fade_active;             /* 1 while a DSp gamma fade is in progress; gates the compositor's static 1.8->2.2 display-LUT composition so the LUT marches linearly (DSp-1.7). Published atomically WITH gamma_lut. */
 	uint32_t       vbl_usec;
 	uint32_t       active_owner;            /* DMCOwner value */
 	uint8_t        blanking_rgba[4];        /* RGBA; only meaningful in Blanking state */
@@ -136,9 +136,10 @@ struct DMCModeSnapshot {
 /*
  * Subscriber callback contract. Both callbacks are nullable. Exit fires
  * BEFORE the outgoing snapshot is retired; Enter fires AFTER the incoming
- * snapshot is published. A later revision will deliver exits in registration
- * order (FIFO) and enters in reverse order (LIFO). This revision stores but does not
- * dispatch subscribers.
+ * snapshot is published. Exits dispatch in registration order (FIFO);
+ * enters dispatch in reverse registration order (LIFO). If enter rejects a
+ * transition, rollback compensates with exit(rejected) then advisory
+ * enter(restored).
  *
  * Return kDMCNoErr to accept the transition; non-zero return on enter
  * triggers a rollback. Exit returns are advisory only.

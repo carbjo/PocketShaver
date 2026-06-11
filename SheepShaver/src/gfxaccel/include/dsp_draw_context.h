@@ -367,9 +367,9 @@ extern int32_t  DSpContext_RestoreHandler(uint32_t inFlatContext, uint32_t outRe
  *                          (old->queued_child == newRef, else kDSpInternalErr
  *                          per PDF p.27 "returns an error"); kills the OLD
  *                          context's piggyback VBL proc (old->vbl_proc_ptr = 0 —
- *                          the VBL service walk early-outs on ==0); makes the
- *                          new context active (new->state = Active); clears
- *                          old->queued_child.
+ *                          the VBL service walk early-outs on ==0); deactivates
+ *                          OLD through SetState(Inactive); activates NEW through
+ *                          SetState(Active); clears old->queued_child.
  *
  *  queued_child is a RAM-only single-writer emul-thread field — ZERO new
  *  concurrency primitive. Decl lands WITH the body per-export.
@@ -377,6 +377,7 @@ extern int32_t  DSpContext_RestoreHandler(uint32_t inFlatContext, uint32_t outRe
 extern int32_t  DSpContext_QueueHandler(uint32_t parentCtx, uint32_t childCtx,
                                         uint32_t inDesiredAttributes);
 extern int32_t  DSpContext_SwitchHandler(uint32_t oldCtx, uint32_t newCtx);
+extern void     DSpContext_SetStateSwitchHandoff(uint32_t oldCtxRef);
 
 /*
  *  CLUT handlers.
@@ -519,6 +520,27 @@ extern void     DSpVBLServiceCallback(void *ctx, void *drawable, double ts);
 extern void     DSpVBLBackgroundForegroundDrain(void);
 
 /*
+ *  Pending-lifecycle bitmask bits carried in the dsp_engine.cpp atomic and
+ *  returned by DSpExchangeBgFgPending. Accumulated with fetch_or so a
+ *  foreground event cannot erase an undrained background event.
+ */
+enum {
+	kDSpPendingBackground = 1u << 0,
+	kDSpPendingForeground = 1u << 1
+};
+
+/*
+ *  Synchronous lifecycle drain. Runs the background/foreground drain plus
+ *  the VBL release-FIFO drain immediately on the calling (main==emul)
+ *  thread. Called from the UIKit lifecycle hooks (dsp_engine.cpp) because
+ *  gfxaccel_handle_background_enter pauses the VBL source before invoking
+ *  them — the VBL drain chain cannot run while backgrounded. No-ops
+ *  (leaving the pending bits set for the in-flight tick's own drain) when
+ *  called from inside the VBL callback chain.
+ */
+extern void     DSpDrainLifecycleSync(void);
+
+/*
  *  Emul-thread handler bodies invoked from the VBL
  *  drain. Exported so test-harness code (and the draw-context drain
  *  dispatcher) can invoke them directly. Both iterate the DSp context
@@ -532,9 +554,9 @@ extern void     DSpHandleForegroundFromEmulThread(void);
 /*
  *  Atomic bridge. Implementation lives in
  *  dsp_engine.cpp so the _Atomic uint32_t flag is owned by the engine
- *  lifecycle module; dsp_draw_context.mm calls this from the VBL drain
+ *  lifecycle module; dsp_draw_context.mm calls this from the drain paths
  *  to read + clear the pending state in one acquire-ordered exchange.
- *  Returns 0=none, 1=background pending, 2=foreground pending.
+ *  Returns a kDSpPending* bitmask (0 = none pending).
  */
 extern uint32_t DSpExchangeBgFgPending(void);
 
@@ -711,9 +733,11 @@ extern int32_t DSpTesting_GetDirtyRectGridUnitsByValues(uint32_t ctxRef,
 extern int32_t DSpTesting_GetMaxFrameRateByValue(uint32_t ctxRef,
                                                  uint32_t *outMaxFPS);
 extern int32_t DSpTesting_SetMaxFrameRateByValue(uint32_t ctxRef,
-                                                 uint32_t inMaxFPS);
+                                                  uint32_t inMaxFPS);
+extern uint32_t DSpTesting_MaxFrameRatePacingVBLs(uint32_t maxFrameRate,
+                                                   uint64_t cadenceUsec);
 extern int32_t DSpTesting_GetMonitorFrequencyByValue(uint32_t ctxRef,
-                                                     uint32_t *outFixed);
+                                                      uint32_t *outFixed);
 extern int32_t DSpTesting_SetDirtyRectGridSizeByValues(uint32_t ctxRef,
                                                        uint32_t w,
                                                        uint32_t h);
@@ -849,17 +873,14 @@ extern int32_t DSpTesting_RestoreFromHost(const uint8_t *blob, uint32_t blob_len
 
 /*
  *  Queue/Switch TESTING_BUILD host helpers
- *  (sub-ops 742-743). Both thin wrappers around the production handlers: the
- *  Queue/Switch logic is pure RAM-only bookkeeping on DSpContextPrivate fields
- *  (queued_child, state, vbl_proc_ptr) with NO guest-RAM struct deref, so the
- *  by-value wrappers can call straight through. inDesiredAttributes is passed as
- *  0 (no attribute override) in the contract path — the production guest-RAM
- *  apply-on-non-zero branch is exercised on device/Catalyst. These let the
- *  deferred-switch + old-VBL-proc-kill + switch-without-queue-error contract
- *  tests run with NO EMULATED_PPC frame, NO ROM, NO render (protects
- *  the 30s test budget). DSpTesting_GetQueuedChildByValue reads parent->queued_child
- *  so the test can assert the staged handle is recorded by Queue and cleared by
- *  Switch.
+ *  (sub-ops 742-743). Queue remains RAM-only for the no-attribute contract
+ *  path. Switch calls the production SetState-backed path so DMC owner/mode,
+ *  MainDevice PixMap redirect, and active-fullscreen side effects match the
+ *  real handler. inDesiredAttributes is passed as 0 (no attribute override) in
+ *  the contract path — the production guest-RAM apply-on-non-zero branch is
+ *  exercised on device/Catalyst. DSpTesting_GetQueuedChildByValue reads
+ *  parent->queued_child so tests can assert the staged handle is recorded by
+ *  Queue and cleared only after Switch applies.
  */
 extern int32_t DSpTesting_QueueByValue(uint32_t parentCtx, uint32_t childCtx,
                                        uint32_t inDesiredAttributes);

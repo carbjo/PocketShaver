@@ -268,13 +268,13 @@ struct DSpContextPrivate {
 	 * the 16-byte EventRecord copy is a plain memcpy because the
 	 * head/tail atomic update fences the visibility of the slot data).
 	 *
-	 * paused_by_background: set to 1 by DSpHostBridge_OnBackground
-	 * when the bg lifecycle hook auto-Pauses an Active context.
-	 * Cleared to 0 by DSpHostBridge_OnForeground after
+	 * paused_by_background: set to 1 by DSpHandleBackgroundFromEmulThread
+	 * when the atomic lifecycle drain auto-Pauses an Active context.
+	 * Cleared to 0 by DSpHandleForegroundFromEmulThread after
 	 * auto-Resuming. User-initiated DSpContext_SetState(Paused) does NOT
 	 * touch this flag — so a context the user paused before backgrounding
 	 * stays Paused after foreground (it has paused_by_background == 0, so
-	 * OnForeground's walk skips it). Default-initialized to 0 by
+	 * the foreground drain skips it). Default-initialized to 0 by
 	 * `new DSpContextPrivate()` (POD default init preserves the existing
 	 * zero-init contract for non-ObjC fields).
 	 *
@@ -301,8 +301,8 @@ struct DSpContextPrivate {
 	/* Cheap-family query bookkeeping fields.
 	 *
 	 * max_frame_rate (sub-ops 734/735): the app-suggested max frames/sec cap.
-	 * DSp 1.7 PDF p.44 "does not guarantee" — store-only bookkeeping; 0 means
-	 * no restriction. The actual buffer-swap pacing belongs to SwapBuffers.
+	 * DSp 1.7 PDF p.44 "does not guarantee"; 0 means no restriction.
+	 * SwapBuffers consults this field to multiply the DSp VBL pacing lane.
 	 * dirty_grid_w / dirty_grid_h (sub-ops 736/737):
 	 * the app-suggested dirty-rect grid cell size, rounded up to a multiple of
 	 * the 32x32 base grid unit at Set time; 0 means "default to the base unit"
@@ -343,10 +343,11 @@ struct DSpContextPrivate {
 	 * old->queued_child == newRef (a prior Queue) before it applies the switch,
 	 * else it returns an error (PDF p.27 "If you did not queue the contexts you
 	 * want to switch ... DSpContext_Switch returns an error"). Switch clears
-	 * this field after applying. This is pure RAM-only single-writer emul-thread
-	 * bookkeeping — there is NO cross-thread queue (the field name "queued"
-	 * refers to the DSp deferred-switch concept, not a concurrent data
-	 * structure).
+	 * this field after applying. The staging field is pure RAM-only
+	 * single-writer emul-thread bookkeeping; the switch application itself
+	 * routes through the SetState machinery. There is NO cross-thread queue
+	 * (the field name "queued" refers to the DSp deferred-switch concept, not
+	 * a concurrent data structure).
 	 *
 	 * Threading: single-writer emul-thread — same contract as every other
 	 * DSpContextPrivate field. NO _Atomic, NO mutex (the events_head/

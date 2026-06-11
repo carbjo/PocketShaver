@@ -63,15 +63,14 @@ void DSpHostBridge_SetActiveFullscreen(bool active);
 bool DSpHostBridge_GetActiveFullscreen(void);
 
 /* ============================================================
- * DSp event integration C bridge.
+ * DSp input-event integration C bridge.
  *
- * Four C-linkage entries that DSpEventService.swift calls to inject iOS
- * bg/fg lifecycle signals + iOS input events into per-context DSp event
- * queues: bg/fg lifecycle and per-context SPSC event ring write.
+ * C-linkage entries that DSpEventService.swift calls to inject iOS input
+ * events into per-context DSp event queues.
  *
- * All four entries are pure-C signatures (no Objective-C / Metal
+ * The entries are pure-C signatures (no Objective-C / Metal
  * types); consumable from .cpp / .mm / Swift bridging header alike.
- * Threading: all four are called on the main thread (Swift observers
+ * Threading: called on the main thread (Swift input subscription
  * run on main queue). Internal walks of dsp_context_table happen on
  * the calling thread (main); the SPSC ring atomic head/tail handle
  * cross-thread visibility for the ring reader at dequeue time.
@@ -85,33 +84,6 @@ bool DSpHostBridge_GetActiveFullscreen(void);
  * DSpTesting_DequeueContextEvent. The producer side below is kept (the
  * SPSC input-fanout ring is retained).
  * ============================================================ */
-
-/*
- *  Background lifecycle hook. Called from BackgroundLifecycleObserver via
- *  DSpEventService.swift when the iOS app
- *  transitions to background. Walks dsp_context_table; for each Active
- *  context: enqueues a context-loss event (kDSpContextReason_Lost as the
- *  message field of an osEvt EventRecord per DSp 1.7 PDF p.~92), enqueues
- *  an osEvt(suspendResumeMessage cleared = suspend), calls
- *  DSpContext_SetState(Paused), sets paused_by_background = 1.
- *
- *  Threading: called on main thread (BackgroundLifecycleObserver fires on
- *  the main queue via UIApplication.didEnterBackgroundNotification observer).
- */
-void DSpHostBridge_OnBackground(void);
-
-/*
- *  Foreground lifecycle hook. Called from BackgroundLifecycleObserver via
- *  DSpEventService.swift when the iOS app
- *  transitions to foreground. Walks dsp_context_table; for each Paused
- *  context with paused_by_background == 1: calls DSpContext_SetState(Active),
- *  enqueues an osEvt(suspendResumeMessage set = resume), clears
- *  paused_by_background. The flag distinguishes user-Paused contexts (which
- *  stay Paused after fg) from bg-induced-Paused contexts (which auto-resume).
- *
- *  Threading: called on main thread.
- */
-void DSpHostBridge_OnForeground(void);
 
 /*
  *  Push a single DSp event onto a specific context's SPSC ring. Called from

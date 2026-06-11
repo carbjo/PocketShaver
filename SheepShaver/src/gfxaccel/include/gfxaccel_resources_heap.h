@@ -14,10 +14,11 @@
  *
  *  Design notes:
  *    - Separate module from gfxaccel_resources.{h,cpp,mm}.
- *    - Four MTLHeaps (NQD / RAVE / GL / Compositor).
+ *    - Five MTLHeaps (NQD / RAVE / GL / Compositor / DSp).
  *    - iOS 17+ -> MTLHeapTypePlacement; 13.4-16.x -> Automatic.
- *    - Per-heap ceilings (32 / 128 / 96 / 48 MiB).
+ *    - Per-heap ceilings (32 / 128 / 96 / 48 / 32 MiB).
  *    - Heap creation is lazy (first use, not init).
+ *    - Bump reset is legal only when the heap has no live sub-allocations.
  *    - Three-tier eviction: LRU purge -> PSO flush -> loud assert.
  *    - Memory-warning C shim called from Swift observer.
  *    - Compositor handshake via dispatch_semaphore.
@@ -48,13 +49,13 @@ extern "C" {
 /*
  * GfxHeapId enum.
  *
- * Four heaps partition ownership:
+ * Five heaps partition ownership:
  *   - NQD:        mask buffer, scratch textures (engine-private).
- *   - RAVE:       overlay texture + per-draw vertex/index ring buffer.
- *   - GL:         overlay texture + ring buffers + uniform buffers.
+ *   - RAVE:       engine-private transient heap resources.
+ *   - GL:         engine-private transient heap resources.
  *   - Compositor: resources crossing the engine<->compositor boundary
- *                 (DepthStencil, palette buffer, overlay textures vended
- *                 by vend_overlay_texture).
+ *                 when a future resource has mode-bounded heap lifetime.
+ *   - DSp:        back buffers and alt buffers.
  */
 typedef enum {
 	kHeapEngineNQD   = 0,
@@ -140,6 +141,45 @@ void *gfxaccel_resources_heap_alloc_texture(uint32_t heap_id,
  */
 uint64_t gfxaccel_resources_heap_reset(uint32_t heap_id);
 
+/*
+ * Record that one heap sub-allocation has been released by its owner.
+ * This is accounting only; ownership of the underlying Objective-C object
+ * stays with the caller. Reset refuses to zero a heap's bump offset while
+ * this count is non-zero.
+ */
+void gfxaccel_resources_heap_note_allocation_released(uint32_t heap_id);
+
+/*
+ * Return the number of live heap sub-allocations tracked for heap_id.
+ * Invalid heap_id returns 0.
+ */
+uint32_t gfxaccel_resources_heap_live_allocation_count(uint32_t heap_id);
+
+/* --- GPU-completion latch --- */
+
+/*
+ * Record that a command buffer referencing memory sub-allocated from
+ * heap_id is about to be committed. MUST be called BEFORE the commit
+ * (addCompletedHandler is illegal after commit). The bump reset
+ * (gfxaccel_resources_heap_reset) defers — returns 0, next_offset
+ * untouched — while any noted command buffer has not yet completed, so
+ * a reset + immediate re-alloc cannot placement-alias bytes an
+ * in-flight GPU read may still touch (heaps are hazard-untracked; the
+ * live-allocation count covers CPU ownership only). command_buffer is
+ * an id<MTLCommandBuffer> bridged as void*; NULL is a no-op.
+ */
+void gfxaccel_resources_heap_note_gpu_commit(uint32_t heap_id,
+                                             void *command_buffer);
+
+/*
+ * Bump-reset variant for callers that have already proven GPU idleness
+ * (e.g. the background-enter path runs after an explicit
+ * waitUntilCompleted on the shared queue — see gfxaccel_resources.mm
+ * Step 2). Skips the GPU-completion latch; the live-allocation gate
+ * still applies. Same return semantics as gfxaccel_resources_heap_reset.
+ */
+uint64_t gfxaccel_resources_heap_reset_gpu_idle(uint32_t heap_id);
+
 /* --- Engine attach/detach --- */
 
 /*
@@ -162,17 +202,16 @@ void gfxaccel_resources_heap_engine_detach(uint32_t engine_id,
 
 /*
  * C shim called from the Swift MemoryWarningObserver on the main thread.
- * dispatch_async's the eviction work to the emul serial queue and returns
- * immediately (<=1 ms on main thread).
+ * Marks an atomic pending-eviction flag and returns immediately. The next
+ * SubmitFrame call drains the eviction request on the engine call path.
  */
 void gfxaccel_handle_memory_warning(void);
 
 /*
- * Compositor handshake: called from SubmitFrame to wait for
- * an in-progress eviction to complete before presenting. Blocks for
- * up to frame_interval_usec microseconds. Returns kGfxAccelResNoErr
- * if eviction completed (or none was pending), or
- * kGfxAccelResErrMemoryWarningTimeout if the timeout expired.
+ * Compositor handshake: called from SubmitFrame to run a pending memory-warning
+ * eviction on the engine call path. frame_interval_usec is retained for ABI
+ * compatibility. Returns kGfxAccelResNoErr if no eviction was pending or the
+ * eviction pipeline was drained.
  */
 int32_t gfxaccel_heap_wait_for_eviction(uint64_t frame_interval_usec);
 
@@ -211,7 +250,8 @@ void gfxaccel_rave_ring_shutdown(void);
  * into the current write position. Sets *out_offset to the byte offset
  * into the ring buffer for use with setVertexBuffer:offset:atIndex:.
  * Advances write offset by size aligned to 256 bytes.
- * If current slot overflows, advances to next slot (waits on semaphore).
+ * Waits before the first write to each slot. If current slot overflows,
+ * advances to the next slot and waits before staging there.
  * Returns the ring buffer as void* (caller bridge-casts to id<MTLBuffer>).
  * Returns NULL if ring is not initialized or data/out_offset is NULL.
  */
@@ -219,10 +259,23 @@ void *gfxaccel_rave_ring_stage(const void *data, uint32_t size,
                                uint32_t *out_offset);
 
 /*
- * Called at end of RAVE frame submission (after command buffer commit).
- * Signals the semaphore and advances to the next ring slot.
+ * Called when a RAVE command buffer that may reference ring-backed vertex data
+ * is submitted. command_buffer is an id<MTLCommandBuffer> bridged as void*.
+ * Registers completion-handler signals for every slot consumed since the
+ * previous submission and advances to the next slot for subsequent staging.
  */
-void gfxaccel_rave_ring_frame_end(void);
+void gfxaccel_rave_ring_frame_end(void *command_buffer);
+
+/*
+ * Returns 1 when the in-progress (uncommitted) submission window holds
+ * enough ring slots that a worst-case draw sequence could block acquiring
+ * a credit the window itself holds — only frame_end (commit) returns those
+ * credits, so without a mid-frame commit the wait could never complete.
+ * The RAVE renderer polls this at draw-sequence boundaries (before per-draw
+ * encoder state is applied) and commits + restarts the render pass when set.
+ * Returns 0 if the ring is not initialized.
+ */
+int32_t gfxaccel_rave_ring_submission_near_exhaustion(void);
 
 /*
  * Returns the ring buffer as void* for direct setVertexBuffer calls.
@@ -272,10 +325,14 @@ void gfxaccel_heap_testing_set_ceiling(uint32_t heap_id, uint32_t bytes);
  * gfxaccel_heap_testing_is_placement: returns 1 if the heap was created
  * with MTLHeapTypePlacement, 0 if Automatic, -1 if the heap has not
  * been created yet. Used to assert the iOS-17 Placement gate fired.
+ *
+ * gfxaccel_heap_testing_live_allocations: returns the current live
+ * sub-allocation count for the heap.
  */
 uint64_t gfxaccel_heap_testing_next_offset(uint32_t heap_id);
 uint64_t gfxaccel_heap_testing_heap_size(uint32_t heap_id);
 int32_t  gfxaccel_heap_testing_is_placement(uint32_t heap_id);
+uint32_t gfxaccel_heap_testing_live_allocations(uint32_t heap_id);
 
 #endif /* TESTING_BUILD */
 

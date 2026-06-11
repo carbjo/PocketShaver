@@ -19,12 +19,11 @@
  *    - @available(iOS 17, *) branch inside vbl_source_init().
  *    - vbl_source_get_cadence_usec() for the dynamic frame interval.
  *    - vbl_source_get_tick_count() monotonic counter.
- *    - 3D pacing semaphore (dispatch_semaphore, no usleep/nanosleep).
+ *    - 3D deadline pacing uses mach_wait_until with independent per-engine
+ *      frame deadlines.
  *
  *  Threading: VBL callbacks fire on the main RunLoop thread.  Tick count
  *  and cadence are read from the emul thread via C11 _Atomic.
- *  The pacing semaphore crosses the
- *  main -> emul thread boundary via dispatch_semaphore.
  *
  *  C-callable throughout: the header can be included from .cpp, .mm, or
  *  Swift-via-bridging-header without pulling in QuartzCore / Metal types.
@@ -35,6 +34,7 @@
 #define VBL_SOURCE_H
 
 #include <stdint.h>
+#include "gfx_frame_pacing_policy.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,7 +78,7 @@ int32_t  vbl_source_init(void *cametal_layer,
 
 /*
  * Shut down the VBL source.  Invalidates display link, nil-s out statics,
- * resets tick/cadence, destroys pacing semaphore.  Idempotent.
+ * and resets tick/cadence/deadline state. Idempotent.
  */
 void     vbl_source_shutdown(void);
 
@@ -110,19 +110,35 @@ int      vbl_source_uses_metal_display_link(void);
  */
 void     vbl_source_set_paused(int paused);
 
-/* --- 3D pacing semaphore --- */
+/*
+ * Returns nonzero while the calling thread is inside the VBL primary/
+ * secondary callback chain (same-thread nesting query; see
+ * gfxaccel_threading_policy.h). Used by synchronous lifecycle drains to
+ * defer to the in-flight tick's own drain instead of nesting.
+ */
+int      vbl_source_in_callback_chain(void);
+
+/* --- 3D deadline pacing --- */
 
 /*
- * Blocks the calling thread until the next VBL callback signals the
- * pacing semaphore, or until a 33 ms timeout expires (~2 frames at
- * 60 Hz).  Returns kGfxAccelNoErr on signal, kGfxAccelErrVBLTimeout
- * on timeout, kGfxAccelErrVBLNotInitialized if VBL source is not up.
+ * Blocks the calling thread until that engine's next frame deadline.
+ * Deadlines are derived from the last display-link tick plus the current
+ * cadence. If ticks stop, the caller falls back to one cadence interval from
+ * now instead of a fixed 33 ms timeout. Returns kGfxAccelNoErr on success,
+ * kGfxAccelErrVBLTimeout if mach_wait_until fails, or
+ * kGfxAccelErrVBLNotInitialized if VBL source is not up.
+ */
+int32_t  vbl_source_sync_3d_pacing_for_engine(int32_t engine_id);
+
+/*
+ * Legacy wrapper kept for staged caller migration. New engine code should call
+ * vbl_source_sync_3d_pacing_for_engine() with a GfxFramePacingEngine value.
  */
 int32_t  vbl_source_sync_3d_pacing(void);
 
 /*
- * Signal the 3D pacing semaphore.  Called internally from the VBL
- * callback.  Exposed here for completeness; callers should not
+ * Record a VBL tick for deadline pacing. Called internally from the VBL
+ * callback. Exposed here for tests and API continuity; callers should not
  * normally invoke this directly.
  */
 void     vbl_source_signal_3d_pacing(void);
@@ -170,8 +186,8 @@ void     vbl_source_testing_reset(void);
 
 /*
  * Fire the callback chain manually without a real display link:
- * increment tick count, update cadence (if applicable), signal pacing
- * semaphore, and call s_callback.  For unit tests only.
+ * increment tick count, update cadence (if applicable), record a pacing tick,
+ * and call s_callback. For unit tests only.
  */
 void     vbl_source_testing_simulate_vbl_tick(void);
 

@@ -192,7 +192,7 @@ static void InitFuncSignatures()
 
 	// Helper macro: set signature for a sub-opcode
 	#define SIG(sub, nargs, fmask) \
-		gl_func_signatures[sub] = { (uint8_t)(nargs), (uint8_t)(fmask) }
+		gl_func_signatures[sub] = { (uint8_t)(nargs), (uint16_t)(fmask) }
 
 	// Core GL functions with float arguments:
 	// Note: the "ctx" pointer is arg0 in the dispatch table but is NOT
@@ -360,7 +360,7 @@ static void InitFuncSignatures()
 	// gluPerspective(fovy, aspect, zNear, zFar) -- 4 doubles
 	SIG(GL_SUB_GLU_PERSPECTIVE, 4, 0x0F);
 	// gluLookAt(eyeX..upZ) -- 9 doubles
-	SIG(GL_SUB_GLU_LOOKAT, 9, 0xFF);  // only 8 bits available, first 8 tracked
+	SIG(GL_SUB_GLU_LOOKAT, 9, 0x1FF);
 	// gluOrtho2D(left, right, bottom, top) -- 4 doubles
 	SIG(GL_SUB_GLU_ORTHO2D, 4, 0x0F);
 	// gluSphere(quad, radius, slices, stacks)

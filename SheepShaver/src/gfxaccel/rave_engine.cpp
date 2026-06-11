@@ -373,6 +373,7 @@ RaveResourceEntry rave_resource_table[RAVE_MAX_RESOURCES] = {};
 // instead of O(RAVE_MAX_RESOURCES) now that the table is 4096. Monotonic (never lowered
 // on free) so it can never under-scan a live entry.
 static uint32_t g_rave_resource_high_water = 0;
+static uint32_t g_rave_resource_next_generation = 1;
 
 // Per-hook patch info for unpatch-call-repatch chaining
 RaveHookPatchInfo rave_hook_patches[RAVE_NUM_HOOKED_APIS] = {};
@@ -455,6 +456,9 @@ uint32_t RaveResourceAlloc(RaveResourceType type) {
 			memset(&rave_resource_table[i], 0, sizeof(RaveResourceEntry));
 			rave_resource_table[i].type = type;
 			rave_resource_table[i].transparent_index = -1;
+			rave_resource_table[i].generation = g_rave_resource_next_generation++;
+			if (g_rave_resource_next_generation == 0)
+				g_rave_resource_next_generation = 1;
 			// Allocate a 4-byte Mac-visible address for the PPC side
 			uint32_t mac_addr = SheepMem::Reserve(4);
 			rave_resource_table[i].mac_addr = mac_addr;
@@ -520,6 +524,15 @@ RaveResourceEntry *RaveResourceGet(uint32_t handle) {
 	RaveResourceEntry *entry = &rave_resource_table[handle - 1];
 	if (entry->type == kRaveResourceFree) return nullptr;
 	return entry;
+}
+
+static bool RaveForgetRTTAndFreeResource(uint32_t handle)
+{
+	RaveResourceEntry *entry = RaveResourceGet(handle);
+	if (!entry) return false;
+	if (entry->type == kRaveResourceTexture || entry->type == kRaveResourceBitmap)
+		RaveForgetRTTResourceHandle(handle, entry->generation);
+	return RaveResourceFree(handle);
 }
 
 uint32_t RaveResourceFindByAddr(uint32_t mac_addr) {
@@ -851,6 +864,9 @@ static void RaveUploadGeneratedMips(void *metalTexture, const uint8_t *level0,
 	const uint8_t *src = level0;       // level 0 is caller-owned; never freed here
 	uint8_t *prevOwned = nullptr;      // owned downsampled buffers for levels >= 1
 
+	// One pass break for the whole chain, not one per level (D-R-4).
+	RaveTextureUploadBatchBegin();
+
 	for (uint32_t level = 1; level < mipLevels; level++) {
 		uint32_t dw = (sw > 1) ? sw / 2 : 1;
 		uint32_t dh = (sh > 1) ? sh / 2 : 1;
@@ -880,6 +896,8 @@ static void RaveUploadGeneratedMips(void *metalTexture, const uint8_t *level0,
 		sw = dw;
 		sh = dh;
 	}
+
+	RaveTextureUploadBatchEnd();
 
 	if (prevOwned) delete[] prevOwned;
 }
@@ -1562,7 +1580,7 @@ void NativeEngineTextureDelete(uint32_t textureAddr)
 {
 	uint32_t handle = RaveResourceFindByAddr(textureAddr);
 	if (handle != 0) {
-		RaveResourceFree(handle);
+		RaveForgetRTTAndFreeResource(handle);
 	}
 }
 
@@ -1592,7 +1610,7 @@ void NativeEngineBitmapDelete(uint32_t bitmapAddr)
 {
 	uint32_t handle = RaveResourceFindByAddr(bitmapAddr);
 	if (handle != 0) {
-		RaveResourceFree(handle);
+		RaveForgetRTTAndFreeResource(handle);
 	}
 }
 
@@ -1760,12 +1778,15 @@ int32_t NativeEngineAccessTextureEnd(uint32_t textureAddr, uint32_t dirtyRectAdd
 
 	// Re-upload level 0
 	if (entry->metal_texture) {
+		// Batch level 0 + regenerated chain into one pass break (D-R-4).
+		RaveTextureUploadBatchBegin();
 		RaveUploadMipLevel(entry->metal_texture, 0, w, h, expanded, w * 4);
 		// Regenerate mipmaps if multi-level — CPU downsample from the fresh level 0
 		// (deterministic; the Metal blit path was leaving high-mips black on refresh).
 		if (entry->mip_levels > 1) {
 			RaveUploadGeneratedMips(entry->metal_texture, expanded, w, h, entry->mip_levels);
 		}
+		RaveTextureUploadBatchEnd();
 	}
 
 	delete[] expanded;
@@ -2470,7 +2491,7 @@ uint32 NativeHookTextureDelete(uint32 enginePtr, uint32 texturePtr) {
 	if (resHandle != 0) {
 		RAVE_LOG("HOOK: QATextureDelete(engine=0x%08x, tex=0x%08x) -> resource handle %d freed",
 		       enginePtr, texturePtr, resHandle);
-		RaveResourceFree(resHandle);
+		RaveForgetRTTAndFreeResource(resHandle);
 		return kQANoErr;
 	}
 	// Not ours, chain to original
@@ -2493,7 +2514,7 @@ uint32 NativeHookBitmapDelete(uint32 enginePtr, uint32 bitmapPtr) {
 	if (resHandle != 0) {
 		RAVE_LOG("HOOK: QABitmapDelete(engine=0x%08x, bmp=0x%08x) -> resource handle %d freed",
 		       enginePtr, bitmapPtr, resHandle);
-		RaveResourceFree(resHandle);
+		RaveForgetRTTAndFreeResource(resHandle);
 		return kQANoErr;
 	}
 	if (rave_orig_bitmap_delete == 0) return kQANoErr;
@@ -2742,9 +2763,10 @@ bool RaveIsRegistered(void)
  * out DMC on_mode_enter/exit events to engines via these callbacks.
  *
  * Lifecycle:
- *   - on_mode_enter (LIFO) -> RaveOnAttach: pre-vend an overlay texture for
- *     the new mode's resolution IF RAVE has an active context. Otherwise
- *     skip; the next RaveCreateMetalOverlay call will vend lazily.
+ *   - on_mode_enter (LIFO) -> RaveOnAttach: pre-vend overlay texture pair for
+ *     the new mode's resolution IF RAVE has an active or preserved logical
+ *     overlay binding. Otherwise skip; the next RaveCreateMetalOverlay call
+ *     will vend lazily.
  *   - on_mode_exit  (FIFO) -> RaveOnDetach: release the cached overlay
  *     handle back to the resource manager so RAVE doesn't pin a stale
  *     allocation across the mode switch.
@@ -2761,10 +2783,10 @@ static int32_t RaveOnAttach(uint32_t /* engine_id */,
                             const struct DMCModeSnapshot *incoming,
                             void * /* ctx */)
 {
-	/* If RAVE has no active overlay at attach time, skip pre-vending —
-	 * the next RaveCreateMetalOverlay (driven by an actual RAVE context
-	 * creation) will vend lazily. This is the common case for non-RAVE
-	 * workloads (e.g. pure-2D apps switching modes). */
+	/* If RAVE has no active or preserved logical overlay binding at attach
+	 * time, skip pre-vending — the next RaveCreateMetalOverlay (driven by
+	 * an actual RAVE context creation) will vend lazily. This is the common
+	 * case for non-RAVE workloads (e.g. pure-2D apps switching modes). */
 	if (!rave_has_active_overlay()) {
 		return 0;  /* kGfxAccelResNoErr — accept the transition */
 	}
@@ -2772,19 +2794,28 @@ static int32_t RaveOnAttach(uint32_t /* engine_id */,
 		return 0;  /* defensive — accept transition with no pre-vend */
 	}
 
-	/* RAVE was active in the outgoing mode; pre-vend at the incoming
+	/* RAVE was active in the outgoing mode; pre-vend the pair at the incoming
 	 * mode's resolution so the compositor sees an overlay on its first
 	 * present after the mode switch. Vend
 	 * format is BGRA8Unorm (= MTLPixelFormatBGRA8Unorm = 80). */
-	void *tex = gfxaccel_resources_vend_overlay_texture(
+	void *tex0 = gfxaccel_resources_vend_overlay_texture_indexed(
 	                kGfxEngineRAVE,
+	                0,
 	                incoming->width,
 	                incoming->height,
 	                80 /* MTLPixelFormatBGRA8Unorm */);
-	if (tex == NULL) {
+	void *tex1 = gfxaccel_resources_vend_overlay_texture_indexed(
+	                kGfxEngineRAVE,
+	                1,
+	                incoming->width,
+	                incoming->height,
+	                80 /* MTLPixelFormatBGRA8Unorm */);
+	if (tex0 == NULL || tex1 == NULL) {
+		if (tex0 != NULL) gfxaccel_resources_release_overlay_texture(kGfxEngineRAVE, tex0);
+		if (tex1 != NULL) gfxaccel_resources_release_overlay_texture(kGfxEngineRAVE, tex1);
 		/* Vend failed — reject the transition. The rollback path is
 		 * safe under concurrent DMC readers. */
-		return -3009;  /* kDMCErrSubscriberRejected */
+		return kDMCErrSubscriberRejected;
 	}
 	return 0;
 }
@@ -3184,7 +3215,7 @@ void RaveInstallHooks(void)
  *
  *  Re-uploads texture contents for an already-allocated texture.
  *  Maps ATI-specific pixel types (1000-1003) to standard equivalents,
- *  then uses existing ConvertPixels + RaveUploadMipLevel infrastructure.
+ *  then uses existing ConvertPixels + queued RaveUploadMipLevel infrastructure.
  */
 
 // ATI-specific pixel type constants
@@ -3254,6 +3285,8 @@ int32_t NativeATITextureUpdate(uint32_t flags, uint32_t pixelType, uint32_t imag
 
 	// Re-upload to existing Metal texture at level 0
 	if (entry->metal_texture) {
+		// Batch level 0 + regenerated chain into one pass break (D-R-4).
+		RaveTextureUploadBatchBegin();
 		RaveUploadMipLevel(entry->metal_texture, 0, width, height, bgra_data, bgra_row_bytes);
 
 		// Generate mipmaps if texture has mip levels — CPU downsample from the fresh
@@ -3261,6 +3294,7 @@ int32_t NativeATITextureUpdate(uint32_t flags, uint32_t pixelType, uint32_t imag
 		if (entry->mip_levels > 1) {
 			RaveUploadGeneratedMips(entry->metal_texture, bgra_data, width, height, entry->mip_levels);
 		}
+		RaveTextureUploadBatchEnd();
 	} else {
 		// DIAGNOSTIC: the texture is not yet realized, so this update is
 		// silently lost; the texture later realizes from its (possibly stale

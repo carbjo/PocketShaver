@@ -41,6 +41,7 @@
 #if TARGET_OS_IPHONE
 #include "display_mode_controller.h"
 #include "dsp_video_status_policy.h"
+#include "metal_compositor.h"
 #endif
 
 #define DEBUG 0
@@ -254,6 +255,49 @@ static bool allocate_gamma_table(VidLocals *csSave, uint32 size)
 	 return a > b? a : b;
  }
 
+#if TARGET_OS_IPHONE
+static void publish_gamma_lut_to_display_controller(VidLocals *csSave)
+{
+	uint8 lut[768];
+	for (int i=0; i<256; i++) {
+		lut[i] = lut[256 + i] = lut[512 + i] = (uint8)i;
+	}
+
+	if (csSave != NULL && csSave->gammaTable != 0) {
+		uint32 gamma_table = csSave->gammaTable;
+		int chan_cnt = ReadMacInt16(gamma_table + gChanCnt);
+		int data_width = ReadMacInt16(gamma_table + gDataWidth);
+		int data_cnt = ReadMacInt16(gamma_table + gDataCnt);
+		if ((chan_cnt == 1 || chan_cnt == 3) &&
+		    data_width >= 1 && data_width <= 8 &&
+		    data_cnt == (1 << data_width)) {
+			uint32 p = gamma_table + gFormulaData + ReadMacInt16(gamma_table + gFormulaSize);
+			uint8 *red_gamma = Mac2HostAddr(p);
+			uint8 *green_gamma = red_gamma;
+			uint8 *blue_gamma = red_gamma;
+			if (chan_cnt == 3 && red_gamma != NULL) {
+				green_gamma = red_gamma + data_cnt;
+				blue_gamma = green_gamma + data_cnt;
+			}
+			if (red_gamma != NULL && green_gamma != NULL && blue_gamma != NULL) {
+				const int shift = 8 - data_width;
+				for (int i=0; i<256; i++) {
+					int idx = i >> shift;
+					lut[i] = red_gamma[idx];
+					lut[256 + i] = green_gamma[idx];
+					lut[512 + i] = blue_gamma[idx];
+				}
+			}
+		}
+	}
+
+	int32_t err = dmc_record_gamma_change_with_lut(lut);
+	if (err == kDMCNoErr || err == kDMCErrNotInitialized) {
+		MetalCompositorUpdateGammaLUT(lut);
+	}
+}
+#endif
+
 static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 {
 	if (gamma == 0 || objc_getIsLinearGammaEnabled()) { // Build linear ramp, 256 entries
@@ -279,9 +323,7 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 		}
 		video_set_gamma(256);
 #if TARGET_OS_IPHONE
-		// Bump DMC gamma_gen so subscribers can observe the linear-ramp change
-		// (DMC seam — additive to the existing video_set_gamma path).
-		dmc_record_gamma_change();
+		publish_gamma_lut_to_display_controller(csSave);
 #endif
 	} else { // User-supplied gamma table
 
@@ -341,9 +383,7 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 		}
 		video_set_gamma(data_cnt);
 #if TARGET_OS_IPHONE
-		// Bump DMC gamma_gen so subscribers can observe the custom-ramp change
-		// (DMC seam — additive to the existing video_set_gamma path).
-		dmc_record_gamma_change();
+		publish_gamma_lut_to_display_controller(csSave);
 #endif
 	}
 	return noErr;
@@ -389,6 +429,14 @@ static int16 VideoControl(uint32 pb, VidLocals *csSave)
 #ifdef __BEOS__
 				// Windows are gamma-corrected by BeOS
 				const bool can_do_gamma = (display_type == DIS_SCREEN);
+#elif TARGET_OS_IPHONE
+				/* The compositor gamma LUT is the single owner of driver
+				 * gamma on iOS: publish_gamma_lut_to_display_controller
+				 * delivers the guest table to the GPU present path, and
+				 * compositor_fragment_indexed applies it after the palette
+				 * lookup. Baking it into mac_pal here as well would apply
+				 * the table twice on indexed paths (see gfx_color_policy.h). */
+				const bool can_do_gamma = false;
 #else
 				const bool can_do_gamma = true;
 #endif

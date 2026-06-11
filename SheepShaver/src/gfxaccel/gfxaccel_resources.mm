@@ -9,7 +9,7 @@
  *  (at your option) any later version.
  *
  *  Metal-side half of gfxaccel_resources. Owns:
- *    - per-engine overlay texture fleet (one MTLTexture per engine slot,
+ *    - per-engine overlay texture fleet (two MTLTextures per engine slot,
  *      same-resolution recycle);
  *    - the framebuffer MTLBuffer wrapping emulated Mac RAM via the
  *      zero-copy newBufferWithBytesNoCopy path (byte-identical to
@@ -49,18 +49,14 @@
 // ---------------------------------------------------------------------------
 
 typedef struct {
-	id<MTLTexture> tex;
+	id<MTLTexture> tex[2];
 	uint32_t       w;
 	uint32_t       h;
 	uint32_t       fmt;         // stored as uint32_t so the bridging header
 	                            // can pass numeric MTLPixelFormat values
 } GfxResOverlaySlot;
 
-static GfxResOverlaySlot s_overlay_fleet[kGfxEngineCount] = {
-	{ nil, 0, 0, 0 },
-	{ nil, 0, 0, 0 },
-	{ nil, 0, 0, 0 },
-};
+static GfxResOverlaySlot s_overlay_fleet[kGfxEngineCount] = {};
 
 static id<MTLBuffer>  s_framebuffer_buffer    = nil;
 static void          *s_framebuffer_host_base = NULL;
@@ -90,9 +86,10 @@ static void gfxres_clear_owner_map_on_shutdown(void);
 extern "C" void gfxaccel_resources_mm_init_metal_state(void)
 {
 	// Zero the overlay fleet. No MTLTextures are allocated until an
-	// engine calls gfxaccel_resources_vend_overlay_texture().
+	// engine calls gfxaccel_resources_vend_overlay_texture_indexed().
 	for (uint32_t i = 0; i < (uint32_t)kGfxEngineCount; ++i) {
-		s_overlay_fleet[i].tex = nil;
+		s_overlay_fleet[i].tex[0] = nil;
+		s_overlay_fleet[i].tex[1] = nil;
 		s_overlay_fleet[i].w   = 0;
 		s_overlay_fleet[i].h   = 0;
 		s_overlay_fleet[i].fmt = 0;
@@ -110,7 +107,8 @@ extern "C" void gfxaccel_resources_mm_init_metal_state(void)
 extern "C" void gfxaccel_resources_mm_shutdown_metal_state(void)
 {
 	for (uint32_t i = 0; i < (uint32_t)kGfxEngineCount; ++i) {
-		s_overlay_fleet[i].tex = nil;  // ARC release
+		s_overlay_fleet[i].tex[0] = nil;  // ARC release
+		s_overlay_fleet[i].tex[1] = nil;
 		s_overlay_fleet[i].w   = 0;
 		s_overlay_fleet[i].h   = 0;
 		s_overlay_fleet[i].fmt = 0;
@@ -196,19 +194,41 @@ extern "C" void *gfxaccel_resources_get_framebuffer_buffer(void *host_base, uint
 // Per-engine overlay texture fleet
 // ---------------------------------------------------------------------------
 
+extern "C" void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine_id,
+                                                                 uint32_t texture_index,
+                                                                 uint32_t width,
+                                                                 uint32_t height,
+                                                                 uint32_t pixel_format);
+
 extern "C" void *gfxaccel_resources_vend_overlay_texture(uint32_t engine_id,
                                                          uint32_t width,
                                                          uint32_t height,
                                                          uint32_t pixel_format)
 {
+	return gfxaccel_resources_vend_overlay_texture_indexed(
+	    engine_id, 0, width, height, pixel_format);
+}
+
+extern "C" void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine_id,
+                                                                 uint32_t texture_index,
+                                                                 uint32_t width,
+                                                                 uint32_t height,
+                                                                 uint32_t pixel_format)
+{
 	if (engine_id >= (uint32_t)kGfxEngineCount) {
-		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture: engine_id=%u "
+		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture_indexed: engine_id=%u "
 		                "out of range (max=%u)\n",
 		        (unsigned)engine_id, (unsigned)kGfxEngineCount);
 		return NULL;
 	}
+	if (texture_index >= 2) {
+		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture_indexed(engine_id=%u): "
+		                "texture_index=%u out of range\n",
+		        (unsigned)engine_id, (unsigned)texture_index);
+		return NULL;
+	}
 	if (width == 0 || height == 0) {
-		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture(engine_id=%u): "
+		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture_indexed(engine_id=%u): "
 		                "invalid dimensions %ux%u\n",
 		        (unsigned)engine_id, (unsigned)width, (unsigned)height);
 		return NULL;
@@ -216,23 +236,27 @@ extern "C" void *gfxaccel_resources_vend_overlay_texture(uint32_t engine_id,
 
 	GfxResOverlaySlot *slot = &s_overlay_fleet[engine_id];
 
-	// Cache hit: same engine, same dimensions + format (recycle).
-	if (slot->tex != nil &&
+	// Cache hit: same engine, same pair index, same dimensions + format.
+	if (slot->tex[texture_index] != nil &&
 	    slot->w == width &&
 	    slot->h == height &&
 	    slot->fmt == pixel_format) {
-		return (__bridge void *)slot->tex;
+		return (__bridge void *)slot->tex[texture_index];
 	}
 
-	// Cache miss: release prior texture and allocate a fresh one.
-	slot->tex = nil;  // ARC release
-	slot->w = 0;
-	slot->h = 0;
-	slot->fmt = 0;
+	// Size/format change invalidates the pair as a unit.
+	if ((slot->tex[0] != nil || slot->tex[1] != nil) &&
+	    (slot->w != width || slot->h != height || slot->fmt != pixel_format)) {
+		slot->tex[0] = nil;  // ARC release
+		slot->tex[1] = nil;
+		slot->w = 0;
+		slot->h = 0;
+		slot->fmt = 0;
+	}
 
 	id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
 	if (device == nil) {
-		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture(engine_id=%u): "
+		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture_indexed(engine_id=%u): "
 		                "SharedMetalDevice() returned nil\n",
 		        (unsigned)engine_id);
 		return NULL;
@@ -248,20 +272,20 @@ extern "C" void *gfxaccel_resources_vend_overlay_texture(uint32_t engine_id,
 
 	id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
 	if (tex == nil) {
-		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture(engine_id=%u): "
+		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture_indexed(engine_id=%u): "
 		                "newTextureWithDescriptor returned nil "
-		                "(%ux%u fmt=%u)\n",
-		        (unsigned)engine_id, (unsigned)width, (unsigned)height,
-		        (unsigned)pixel_format);
+		                "(idx=%u %ux%u fmt=%u)\n",
+		        (unsigned)engine_id, (unsigned)texture_index,
+		        (unsigned)width, (unsigned)height, (unsigned)pixel_format);
 		return NULL;
 	}
 
-	slot->tex = tex;
+	slot->tex[texture_index] = tex;
 	slot->w   = width;
 	slot->h   = height;
 	slot->fmt = pixel_format;
 
-	return (__bridge void *)slot->tex;
+	return (__bridge void *)slot->tex[texture_index];
 }
 
 extern "C" void gfxaccel_resources_release_overlay_texture(uint32_t engine_id,
@@ -279,21 +303,27 @@ extern "C" void gfxaccel_resources_release_overlay_texture(uint32_t engine_id,
 	GfxResOverlaySlot *slot = &s_overlay_fleet[engine_id];
 
 	id<MTLTexture> passed = (__bridge id<MTLTexture>)texture;
-	if (slot->tex != passed) {
+	uint32_t matched_index = 2;
+	if (slot->tex[0] == passed) matched_index = 0;
+	if (slot->tex[1] == passed) matched_index = 1;
+	if (matched_index >= 2) {
 		// Unknown/stale handle. Log and return - we don't own this
 		// texture so we can't release it safely, and we don't know
 		// which engine actually does.
 		fprintf(stderr, "[gfxaccel_resources] release_overlay_texture(engine_id=%u): "
-		                "texture=%p does not match cached slot (%p); ignoring\n",
+		                "texture=%p does not match cached pair (%p, %p); ignoring\n",
 		        (unsigned)engine_id, texture,
-		        (__bridge void *)slot->tex);
+		        (__bridge void *)slot->tex[0],
+		        (__bridge void *)slot->tex[1]);
 		return;
 	}
 
-	slot->tex = nil;  // ARC release
-	slot->w   = 0;
-	slot->h   = 0;
-	slot->fmt = 0;
+	slot->tex[matched_index] = nil;  // ARC release
+	if (slot->tex[0] == nil && slot->tex[1] == nil) {
+		slot->w   = 0;
+		slot->h   = 0;
+		slot->fmt = 0;
+	}
 }
 
 // ---------------------------------------------------------------------------

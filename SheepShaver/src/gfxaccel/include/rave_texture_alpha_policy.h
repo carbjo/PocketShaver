@@ -38,6 +38,13 @@
 #define RAVE_GL_ONE_MINUS_DST_COLOR       0x0307u
 #define RAVE_GL_SRC_ALPHA_SATURATE        0x0308u
 
+#define RAVE_TEXTURE_OP_FORCE_OPAQUE_ALPHA 0x40000000
+
+static inline int RaveTextureDiagUsesOpaqueAlphaGuard(uint32_t diag_alpha_zero)
+{
+	return diag_alpha_zero == 0;
+}
+
 static inline int RaveTextureRgbCoverageIsMostlyBlack(uint32_t rgb_nonzero_pixels,
                                                        uint32_t total_pixels)
 {

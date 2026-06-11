@@ -10,6 +10,8 @@
 #include <cmath>
 #include <cstdint>
 
+#include "overlay_clear_policy.h"
+
 /*
  * Fixed-function draw state helpers shared by the renderer and focused tests.
  *
@@ -48,19 +50,13 @@ static inline unsigned GLMetalDrawableColorWriteMask(bool is_offscreen,
 
 static inline float GLMetalClampClearAlpha(float alpha)
 {
-	if (alpha < 0.0f)
-		return 0.0f;
-	if (alpha > 1.0f)
-		return 1.0f;
-	return alpha;
+	return OverlayClearClampAlpha(alpha);
 }
 
 static inline float GLMetalOverlayClearAlpha(bool is_offscreen,
                                              float guest_clear_alpha)
 {
-	if (is_offscreen)
-		return GLMetalClampClearAlpha(guest_clear_alpha);
-	return 0.0f;
+	return OverlayClearEffectiveAlpha(is_offscreen, guest_clear_alpha);
 }
 
 static inline float GLMetalOverlayClearColorComponent(
@@ -68,7 +64,14 @@ static inline float GLMetalOverlayClearColorComponent(
 {
 	if (is_offscreen)
 		return guest_clear_component;
-	return guest_clear_component * effective_clear_alpha;
+	return OverlayClearPremultipliedComponent(guest_clear_component,
+	                                          effective_clear_alpha);
+}
+
+static inline bool GLMetalForceOpaqueOverlayOutput(bool is_offscreen,
+                                                   bool blend_enabled)
+{
+	return !is_offscreen && !blend_enabled;
 }
 
 struct GLMetalRenderTargetSize {

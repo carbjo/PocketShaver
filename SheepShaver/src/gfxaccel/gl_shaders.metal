@@ -82,6 +82,7 @@ struct GLFragmentUniforms {
     int    color_sum_enabled;   // GL_COLOR_SUM (EXT_secondary_color): add secondary color after texturing
     int    has_texture_unit1;   // ARB_multitexture: unit 1 has a bound+enabled 2D texture (sample tex1 with texcoord1)
     int    texenv1_mode;        // unit-1 texenv mode (0=modulate,1=decal,2=blend,3=replace,4=add)
+    int    force_opaque_output; // window overlay, GL blending disabled: store coverage alpha
 };
 
 struct GLLight {
@@ -379,6 +380,10 @@ fragment float4 gl_fragment_main(
         if (!pass) {
             discard_fragment();
         }
+    }
+
+    if (uniforms.force_opaque_output) {
+        color.a = 1.0;
     }
 
     return color;

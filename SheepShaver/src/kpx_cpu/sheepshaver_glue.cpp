@@ -1320,13 +1320,15 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		// Generic FPR extraction based on function signature table.
 		// PPC ABI passes float/double args in FPR1-FPR13. We extract them
 		// into a uint32 array so GLDispatch can reconstruct float values.
-		// When dt_flag is set, FPR indices are also shifted by 1 since the
-		// context arg doesn't consume an FPR slot (it's an integer).
+		// Dispatch-table calls shift GPR args only; FPR numbering is unchanged
+		// because the context index is an integer argument.
 		const GLFuncSignature& sig = gl_func_signatures[sub_opcode < GL_MAX_SUBOPCODE ? sub_opcode : 0];
-		uint32 float_bits[13];  // Max 13 FPR args in PPC ABI
+		const int max_ppc_fpr_args = 13;
+		const int max_float_mask_bits = (int)(sizeof(sig.float_mask) * 8);
+		uint32 float_bits[max_ppc_fpr_args] = {0};  // Max 13 FPR args in PPC ABI
 		int fpr_idx = 0;
-		for (int i = 0; i < sig.num_args && i < 8; i++) {
-			if (sig.float_mask & (1 << i)) {
+		for (int i = 0; i < sig.num_args && i < max_float_mask_bits && fpr_idx < max_ppc_fpr_args; i++) {
+			if (sig.float_mask & (1u << i)) {
 				// This arg position is a float/double -- extract from next FPR.
 				// PPC ABI: floats are promoted to double in FPR, cast back to float.
 				float fval = (float)fpr(1 + fpr_idx);

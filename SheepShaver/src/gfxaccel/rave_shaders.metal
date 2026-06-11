@@ -241,14 +241,6 @@ fragment float4 rave_fragment(VertexOut in [[stage_in]],
         }
     }
 
-    // Classic Mac 1.8 -> sRGB 2.2 display-gamma correction. The 2D framebuffer
-    // present shaders (compositor_shaders.metal) apply this, but the 3D overlay
-    // composite path does not, so RAVE content authored for 1.8-gamma Macs is
-    // shown uncorrected on the 2.2 panel and comes out crushed-dark. Apply at the
-    // content source, before premultiply, so the overlay texture lands in the
-    // same display space as the 2D framebuffer. max() guards pow() vs negatives.
-    color.rgb = pow(max(color.rgb, 0.0), float3(1.8 / 2.2));
-
     if (premultiply_output) {
         color.rgb *= color.a;
     }

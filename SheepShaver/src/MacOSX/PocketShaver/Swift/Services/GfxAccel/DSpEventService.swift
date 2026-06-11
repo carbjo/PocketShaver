@@ -1,5 +1,5 @@
 /*
- *  DSpEventService.swift - iOS bg/fg observer half.
+ *  DSpEventService.swift - iOS input-event fan-out half.
  *
  *  (C) 2026 Sierra Burkhart (sierra760)
  *
@@ -8,25 +8,17 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Observes UIApplication.didEnterBackground / willEnterForeground on
- *  the main queue and calls DSpHostBridge_OnBackground / OnForeground
- *  (C-bridge entries) which walk dsp_context_table,
- *  enqueue osEvts + context-loss events, call DSpContext_SetStateHandler
- *  Active<->Paused, and manage the paused_by_background flag.
+ *  Handles the kbd/gamepad/mouse input fan-out half via
+ *  InputInteractionModel's input-event-subject subscription.
  *
- *  This class also handles the kbd/gamepad/mouse input fan-out half —
- *  additional observer tokens + the InputInteractionModel
- *  input-event-subject subscription.
+ *  Background/foreground lifecycle belongs to
+ *  BackgroundLifecycleObserver.swift -> gfxaccel_handle_background_enter /
+ *  _foreground_enter. That path only sets atomic pending flags and the DSp
+ *  VBL drain consumes them at a safe emul-thread point.
  *
  *  Follows the DSpIdleTimerService.swift singleton
- *  pattern EXACTLY: @objc public final class with static shared;
- *  install() / uninstall() lifecycle; NotificationCenter queue: .main
- *  observers; C function calls in closure bodies; deinit cleanup.
- *
- *  paused_by_background distinguishes user-Paused (stays Paused
- *  on fg) from bg-induced-Paused (auto-resumes on fg). The flag
- *  management happens inside DSpHostBridge_OnBackground/OnForeground —
- *  Swift observer is a thin call-through.
+ *  pattern for singleton/lifecycle cleanup, but intentionally does not
+ *  observe UIApplication lifecycle notifications.
  */
 
 import UIKit
@@ -35,10 +27,6 @@ import Combine
 @objc public final class DSpEventService: NSObject {
 
 	@objc public static let shared = DSpEventService()
-
-	/* Observer tokens (bg/fg half). */
-	private var backgroundToken: NSObjectProtocol?
-	private var foregroundToken: NSObjectProtocol?
 
 	/* Input-event Combine subscription.
 	 * Attached in install() to InputInteractionModel.shared.dspInputEventSubject;
@@ -49,32 +37,7 @@ import Combine
 	private var inputEventSubscription: AnyCancellable?
 
 	@objc public func install() {
-		guard backgroundToken == nil else { return }
-
-		/* Background enqueues context-loss +
-		 * suspend osEvt + SetState(Paused). The
-		 * observer's queue: .main hops delivery to main thread before
-		 * calling DSpHostBridge_OnBackground, matching the threading
-		 * contract documented in dsp_host_bridge.mm OnBackground body. */
-		backgroundToken = NotificationCenter.default.addObserver(
-			forName: UIApplication.didEnterBackgroundNotification,
-			object: nil,
-			queue: .main
-		) { [weak self] _ in
-			_ = self  // prevent unused capture warning
-			DSpHostBridge_OnBackground()
-		}
-
-		/* Foreground enqueues resume osEvt + SetState(Active)
-		 * for bg-induced-Paused contexts; user-Paused skipped. */
-		foregroundToken = NotificationCenter.default.addObserver(
-			forName: UIApplication.willEnterForegroundNotification,
-			object: nil,
-			queue: .main
-		) { [weak self] _ in
-			_ = self  // prevent unused capture warning
-			DSpHostBridge_OnForeground()
-		}
+		guard inputEventSubscription == nil else { return }
 
 		/*
 		 *  Input-event fan-out.
@@ -103,15 +66,6 @@ import Combine
 	}
 
 	@objc public func uninstall() {
-		if let t = backgroundToken {
-			NotificationCenter.default.removeObserver(t)
-			backgroundToken = nil
-		}
-		if let t = foregroundToken {
-			NotificationCenter.default.removeObserver(t)
-			foregroundToken = nil
-		}
-
 		/* Cancel the Combine input-event subscription. */
 		inputEventSubscription?.cancel()
 		inputEventSubscription = nil

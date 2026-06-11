@@ -9,12 +9,15 @@
  *  (at your option) any later version.
  *
  *  Engine-blind: the compositor sees only CompositeLayer PODs with
- *  opaque source-texture handles. Strict slot order (Underlay ->
- *  Framebuffer -> Overlay) is enforced by a double for-loop over
- *  (slot, submission index); same-slot entries composite in submission
- *  order. Stale-generation rejection gates BEFORE the semaphore wait
- *  (cheap-fail first; never consume a drawable slot for a frame we
- *  won't draw).
+ *  opaque source-texture handles. In production SubmitFrame is a
+ *  validate-and-cache shim: it rejects malformed/stale descriptors, stores
+ *  the last kLayerSlotOverlay layer in a single mailbox, and returns.
+ *  MetalCompositorPresent is the sole production drawable owner/presenter.
+ *  Underlay/framebuffer layers are accepted but ignored in production.
+ *
+ *  The strict slot-order encoder (Underlay -> Framebuffer -> Overlay; same-
+ *  slot entries in submission order) is retained only for TESTING_BUILD when
+ *  an offscreen render target is armed via MetalCompositorTesting.
  *
  *  Split from metal_compositor.mm so the test target can compile this
  *  module without pulling in SDL2 (which isn't available in the test
@@ -74,16 +77,14 @@
  *      size so the viewport is the default (no behavior change).
  *
  *  The cache retains the source MTLTexture by strong reference so it
- *  remains valid even if the submitting engine releases its own handle.
+ *  remains valid even if the submitting engine releases its own handle. It
+ *  is not a pixel snapshot; the submitting engine must not redraw that
+ *  texture until it submits a different overlay texture.
  *
- *  Concurrency: s_inflight_semaphore bounds in-flight drawables to 3
- *  (matching CAMetalLayer.maximumDrawableCount). Wait on SubmitFrame
- *  entry (AFTER cheap validation gates), signal in
- *  addCompletedHandler (GPU completion, NOT CPU present).
- *  __block retain breaks the strong cycle on the block capture
- *  to avoid a strong capture cycle.  In production (cache-only path) the semaphore is NOT
- *  consumed -- SubmitFrame does no GPU work so there is nothing to
- *  gate on.
+ *  Concurrency: production SubmitFrame does no GPU work and does not consume
+ *  s_inflight_semaphore. TESTING_BUILD's offscreen encode path uses the
+ *  semaphore to serialize in-flight test command buffers and signals it from
+ *  addCompletedHandler (GPU completion).
  */
 
 #import <Metal/Metal.h>
@@ -95,6 +96,7 @@
 
 #include "metal_compositor.h"
 #include "display_mode_controller.h"
+#include "gfxaccel_resources_heap.h"
 #include "vbl_source.h"
 
 // ---------------------------------------------------------------------------
@@ -118,6 +120,7 @@ static id<MTLLibrary>                 s_library            = nil;
 static CAMetalLayer                  *s_layer              = nil;    // nil in headless/testing mode
 static dispatch_semaphore_t           s_inflight_semaphore = NULL;
 static id<MTLRenderPipelineState>     s_pipe_for_blend[3]  = { nil, nil, nil };
+static id<MTLRenderPipelineState>     s_pipe_display_premultiplied = nil;
 
 /*
  * Framebuffer-texture publication.
@@ -140,8 +143,7 @@ static id<MTLTexture>                 s_framebuffer_texture = nil;
 
 /*
  * Target presentation timestamp set by the VBL callback via
- * MetalCompositorSubmitFrame_SetTargetTimestamp().  Read by SubmitFrame
- * to schedule present(at:) instead of immediate present.
+ * MetalCompositorSubmitFrame_SetTargetTimestamp().
  *
  * C11 _Atomic double -- written from VBL callback (main thread), read
  * from emul thread.  Same minimal-primitive rationale as vbl_source.mm's
@@ -227,9 +229,12 @@ static int submitframe_build_pipelines(void)
 
     id<MTLFunction> vfunc = [lib newFunctionWithName:@"submitframe_vertex"];
     id<MTLFunction> ffunc = [lib newFunctionWithName:@"submitframe_fragment"];
-    if (!vfunc || !ffunc) {
+    id<MTLFunction> display_ffunc =
+        [lib newFunctionWithName:@"submitframe_fragment_display_premultiplied"];
+    if (!vfunc || !ffunc || !display_ffunc) {
         COMPSF_ERR("submitframe_build_pipelines: shader function lookup "
-                   "(vertex=%p fragment=%p)", vfunc, ffunc);
+                   "(vertex=%p fragment=%p display=%p)",
+                   vfunc, ffunc, display_ffunc);
         return -1;
     }
 
@@ -276,7 +281,30 @@ static int submitframe_build_pipelines(void)
         s_pipe_for_blend[(int)mode] = pso;
     }
 
-    COMPSF_LOG("submitframe_build_pipelines: built 3 blend-mode PSOs");
+    {
+        MTLRenderPipelineDescriptor *pd = [[MTLRenderPipelineDescriptor alloc] init];
+        pd.vertexFunction   = vfunc;
+        pd.fragmentFunction = display_ffunc;
+        pd.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+        pd.colorAttachments[0].blendingEnabled             = YES;
+        pd.colorAttachments[0].sourceRGBBlendFactor        = MTLBlendFactorOne;
+        pd.colorAttachments[0].destinationRGBBlendFactor   = MTLBlendFactorOneMinusSourceAlpha;
+        pd.colorAttachments[0].sourceAlphaBlendFactor      = MTLBlendFactorOne;
+        pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        pd.colorAttachments[0].rgbBlendOperation           = MTLBlendOperationAdd;
+        pd.colorAttachments[0].alphaBlendOperation         = MTLBlendOperationAdd;
+
+        NSError *err = nil;
+        s_pipe_display_premultiplied =
+            [s_device newRenderPipelineStateWithDescriptor:pd error:&err];
+        if (!s_pipe_display_premultiplied) {
+            COMPSF_ERR("submitframe_build_pipelines: display premult PSO failed: %s",
+                       [[err localizedDescription] UTF8String]);
+            return -1;
+        }
+    }
+
+    COMPSF_LOG("submitframe_build_pipelines: built blend-mode + display PSOs");
     return 0;
 }
 
@@ -364,6 +392,62 @@ static void submitframe_encode_layer(id<MTLRenderCommandEncoder> enc,
     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
 }
 
+static void submitframe_encode_layer_display_gamma(id<MTLRenderCommandEncoder> enc,
+                                                   const struct CompositeLayer *layer,
+                                                   id<MTLBuffer> display_gamma_lut)
+{
+    if (!enc || !layer) return;
+    if (layer->blend != kBlendPremultiplied ||
+        display_gamma_lut == nil ||
+        s_pipe_display_premultiplied == nil) {
+        submitframe_encode_layer(enc, layer);
+        return;
+    }
+
+    [enc setRenderPipelineState:s_pipe_display_premultiplied];
+
+    if (layer->dst_size_w > 0.0f && layer->dst_size_h > 0.0f) {
+        MTLViewport vp;
+        vp.originX = (double)layer->dst_origin_x;
+        vp.originY = (double)layer->dst_origin_y;
+        vp.width   = (double)layer->dst_size_w;
+        vp.height  = (double)layer->dst_size_h;
+        vp.znear   = 0.0;
+        vp.zfar    = 1.0;
+        [enc setViewport:vp];
+    }
+
+    id<MTLTexture> src = (__bridge id<MTLTexture>)layer->source;
+    [enc setFragmentTexture:src atIndex:0];
+
+    typedef struct {
+        float src_origin[2];
+        float src_size[2];
+        float dst_origin[2];
+        float dst_size[2];
+        float alpha;
+        float _pad[3];
+    } LayerUniform;
+
+    LayerUniform u;
+    u.src_origin[0] = (float)layer->src_origin_x;
+    u.src_origin[1] = (float)layer->src_origin_y;
+    u.src_size[0]   = (float)layer->src_size_w;
+    u.src_size[1]   = (float)layer->src_size_h;
+    u.dst_origin[0] = layer->dst_origin_x;
+    u.dst_origin[1] = layer->dst_origin_y;
+    u.dst_size[0]   = layer->dst_size_w;
+    u.dst_size[1]   = layer->dst_size_h;
+    u.alpha         = layer->alpha;
+    u._pad[0] = u._pad[1] = u._pad[2] = 0.0f;
+
+    [enc setVertexBytes:&u length:sizeof(u) atIndex:0];
+    [enc setFragmentBytes:&u length:sizeof(u) atIndex:0];
+    [enc setFragmentBuffer:display_gamma_lut offset:0 atIndex:1];
+
+    [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+}
+
 // ---------------------------------------------------------------------------
 // Overlay cache helpers (rave-overlay-flicker-black fix).
 // ---------------------------------------------------------------------------
@@ -435,9 +519,9 @@ extern "C" void MetalCompositorSubmitFrame_ClearCachedOverlay(void)
 // ---------------------------------------------------------------------------
 
 /*
- * Called from the VBL callback to set the target presentation timestamp
- * for the next SubmitFrame present(at:) call.  Declared in
- * metal_compositor.h under extern "C".
+ * Called from the VBL callback to preserve the older SubmitFrame-present API
+ * shape. Production SubmitFrame no longer presents, so the stored value is
+ * currently unused. Declared in metal_compositor.h under extern "C".
  */
 extern "C"
 void MetalCompositorSubmitFrame_SetTargetTimestamp(double ts)
@@ -448,15 +532,19 @@ void MetalCompositorSubmitFrame_SetTargetTimestamp(double ts)
 /*
  * MetalCompositorSync3DFramePacing.
  *
- * Thin wrapper that routes to VBLSource's pacing semaphore.  RAVE/GL
- * engines include only metal_compositor.h, not vbl_source.h.  Returns
- * kGfxAccelNoErr on success, kGfxAccelErrVBLTimeout on timeout (~33 ms),
- * or kGfxAccelErrVBLNotInitialized if VBLSource is not running.
+ * Thin wrapper that routes to VBLSource's per-engine deadline pacing.
+ * RAVE/GL engines include only metal_compositor.h, not vbl_source.h.
  */
+extern "C"
+int32_t MetalCompositorSync3DFramePacingForEngine(int32_t engine_id)
+{
+	return vbl_source_sync_3d_pacing_for_engine(engine_id);
+}
+
 extern "C"
 int32_t MetalCompositorSync3DFramePacing(void)
 {
-	return vbl_source_sync_3d_pacing();
+	return MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineLegacy);
 }
 
 // ---------------------------------------------------------------------------
@@ -475,10 +563,11 @@ int32_t MetalCompositorSync3DFramePacing(void)
 // remain visible.
 
 extern "C" void MetalCompositorSubmitFrame_EncodeCachedOverlay(
-    void *render_encoder, const struct CompositeLayer *layer)
+    void *render_encoder, const struct CompositeLayer *layer, void *display_gamma_lut)
 {
     id<MTLRenderCommandEncoder> enc = (__bridge id<MTLRenderCommandEncoder>)render_encoder;
-    submitframe_encode_layer(enc, layer);
+    id<MTLBuffer> gamma = (__bridge id<MTLBuffer>)display_gamma_lut;
+    submitframe_encode_layer_display_gamma(enc, layer, gamma);
 }
 
 // ---------------------------------------------------------------------------
@@ -537,8 +626,11 @@ extern "C" int MetalCompositorSubmitFrame_BindPresentationContext(
 
     /* Release any prior PSOs. */
     for (int i = 0; i < 3; ++i) s_pipe_for_blend[i] = nil;
+    s_pipe_display_premultiplied = nil;
 
     if (submitframe_build_pipelines() != 0) {
+        for (int i = 0; i < 3; ++i) s_pipe_for_blend[i] = nil;
+        s_pipe_display_premultiplied = nil;
         s_device  = nil;
         s_queue   = nil;
         s_layer   = nil;
@@ -551,6 +643,7 @@ extern "C" int MetalCompositorSubmitFrame_BindPresentationContext(
         if (s_inflight_semaphore == NULL) {
             COMPSF_ERR("Bind: dispatch_semaphore_create(3) failed");
             for (int i = 0; i < 3; ++i) s_pipe_for_blend[i] = nil;
+            s_pipe_display_premultiplied = nil;
             s_device  = nil;
             s_queue   = nil;
             s_layer   = nil;
@@ -604,6 +697,7 @@ extern "C" void MetalCompositorSubmitFrame_UnbindPresentationContext(void)
         s_inflight_semaphore = nil;
     }
     for (int i = 0; i < 3; ++i) s_pipe_for_blend[i] = nil;
+    s_pipe_display_premultiplied = nil;
 #ifdef TESTING_BUILD
     s_test_next_render_target = NULL;
 #endif
@@ -691,6 +785,11 @@ extern "C" int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc
         return kGfxAccelErrStaleGeneration;
     }
 
+    int32_t eviction_err = gfxaccel_heap_wait_for_eviction(0);
+    if (eviction_err != kGfxAccelResNoErr) {
+        return eviction_err;
+    }
+
     // 3. Guard against un-bound compositor.
     if (s_inflight_semaphore == NULL) {
         COMPSF_ERR("SubmitFrame: inflight semaphore NULL - bind not called");
@@ -707,8 +806,7 @@ extern "C" int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc
     //    framebuffer.  We cache the LAST overlay-slot layer in the
     //    descriptor; a typical RAVE/GL frame submits a single overlay
     //    layer, so "last" == "only" in practice.  Framebuffer / underlay
-    //    layers are NOT cached -- those come from NQD via
-    //    compositor_texture which Present already draws from.
+    //    layers are NOT cached and are ignored in production.
     for (int32_t i = (int32_t)desc->layer_count - 1; i >= 0; --i) {
         if (desc->layers[i].slot == kLayerSlotOverlay) {
             submitframe_cache_store(&desc->layers[i]);

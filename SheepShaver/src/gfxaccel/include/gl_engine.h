@@ -747,12 +747,12 @@ enum {
  *
  *  float_mask: bit N = 1 means arg N is a float/double (comes from FPR).
  *              bit N = 0 means arg N is int/pointer (comes from GPR).
- *  For functions with > 8 args, only the first 8 are tracked (PPC ABI
- *  passes additional args on the stack regardless of type).
+ *  PPC ABI passes floating-point args in FPR1-FPR13, so signatures can
+ *  describe up to 13 PPC-visible floating-point args.
  */
 struct GLFuncSignature {
     uint8_t num_args;    // Total argument count (excluding ctx pointer)
-    uint8_t float_mask;  // Bit per arg: 1=float/double, 0=int/ptr
+    uint16_t float_mask; // Bit per arg: 1=float/double, 0=int/ptr
 };
 
 

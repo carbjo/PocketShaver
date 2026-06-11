@@ -27,8 +27,8 @@ struct NQDBitbltUniforms {
     uint transfer_mode;
     uint pixel_size;     // bytes per pixel (1, 2, or 4)
     uint width_pixels;   // width in pixels (used for arithmetic/hilite modes)
-    uint fore_pen;       // foreground pen color (big-endian packed, from accl_params)
-    uint back_pen;       // background pen color (big-endian packed, from accl_params)
+    uint fore_pen;       // 8/16/32bpp logical pixel; 1/2/4bpp htonl-packed pen
+    uint back_pen;       // 8/16/32bpp logical pixel; 1/2/4bpp htonl-packed pen
     uint hilite_color;   // HiliteRGB packed to pixel depth (from Mac low-memory 0x0DA0)
     uint mask_enabled;   // 1 = mask gating active, 0 = no mask
     uint mask_offset;    // byte offset into mask_buffer where mask data starts
@@ -48,13 +48,13 @@ struct NQDFillRectUniforms {
     int  row_bytes;
     uint width_bytes;
     uint height;
-    uint fill_color;     // 32-bit fill pattern (fore or back pen, htonl'd)
+    uint fill_color;     // fill pixel/index pattern, logical at standard depths
     uint bpp;            // bytes per pixel (1, 2, or 4)
     uint transfer_mode;  // pen mode: 8-15 (Boolean), 32-39 (arithmetic), 50 (hilite)
     uint pixel_size;     // bytes per pixel (same as bpp; kept for naming consistency with bitblt)
     uint width_pixels;   // width in pixels (used for arithmetic/hilite per-pixel dispatch)
-    uint fore_pen;       // foreground pen color (big-endian packed)
-    uint back_pen;       // background pen color (big-endian packed)
+    uint fore_pen;       // 8/16/32bpp logical pixel; 1/2/4bpp htonl-packed pen
+    uint back_pen;       // 8/16/32bpp logical pixel; 1/2/4bpp htonl-packed pen
     uint hilite_color;   // HiliteRGB packed to pixel depth
     uint mask_enabled;   // 1 = mask gating active, 0 = no mask
     uint mask_offset;    // byte offset into mask_buffer where mask data starts
@@ -81,10 +81,9 @@ struct NQDFillRectUniforms {
 // Instead, manually assemble multi-byte values from individual bytes.
 // ---------------------------------------------------------------------------
 
-// Read a pixel from the buffer at byte address addr, returning it as a uint32.
-// The returned value preserves big-endian byte layout in its bits so that
-// whole-pixel comparisons (transparent, hilite) match the pen colors passed
-// from the host (which are also in big-endian byte order via htonl).
+// Read a standard-depth pixel from the buffer at byte address addr, returning
+// its logical 8/16/32bpp value. 16bpp keeps the raw 1555 high bit exactly as
+// stored, so whole-pixel comparisons must pass pens in the same logical form.
 static inline uint nqd_read_pixel(device uint8_t *buffer, uint addr, uint bpp)
 {
     if (bpp == 1) {
@@ -229,10 +228,8 @@ static inline uint nqd_comp_max(uint bpp, uint bits_per_pixel_val)
 // ---------------------------------------------------------------------------
 // Pen index extraction for sub-byte (1/2/4-bit) destination depths.
 //
-// fore_pen / back_pen arrive in the uniform already byte-swapped by the
-// renderer's htonl() so that for STANDARD depths (8/16/32) the pen equals the
-// big-endian-in-bits value nqd_read_pixel() produces — that is what the mode-36
-// (transparent) / mode-50 (hilite) whole-pixel COMPARISONS rely on.
+// Standard depths (8/16/32) compare whole pixels against the logical value
+// returned by nqd_read_pixel(); their uniform pen fields are not byte-swapped.
 //
 // For a SUB-BYTE (packed) depth the pixel value is a small index that the Mac
 // stores in the big-endian LEAST-significant byte of the 4-byte pen field
@@ -277,9 +274,11 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
         uint row = gid / u.width_bytes;
         uint col = gid % u.width_bytes;
 
-        // Mask check for byte-mode: col is byte column, mask_stride is width_bytes
+        // Mask check for byte-mode. Standard depths use a pixel-column mask;
+        // packed Boolean paths keep byte-column masks.
         if (u.mask_enabled) {
-            uint mask_addr = u.mask_offset + row * u.mask_stride + col;
+            uint mask_col = (u.bits_per_pixel >= 8) ? (col / u.pixel_size) : col;
+            uint mask_addr = u.mask_offset + row * u.mask_stride + mask_col;
             if (mask_buffer[mask_addr] == 0) return;
         }
 
@@ -487,7 +486,9 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
     uint src_pixel = nqd_read_pixel(buffer, src_addr, bpp);
     uint dst_pixel = nqd_read_pixel(buffer, dst_addr, bpp);
 
-    // Mode 36 (transparent): skip write if src matches background
+    // Mode 36 (transparent): skip write if src matches background.
+    // At standard depths u.back_pen is the logical 8/16/32bpp value returned by
+    // nqd_read_pixel(); 16bpp compares the raw 1555 word including bit 15.
     if (u.transfer_mode == 36) {
         if (src_pixel != u.back_pen) {
             nqd_write_pixel(buffer, dst_addr, bpp, src_pixel);
@@ -499,7 +500,7 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
     // colour -> highlight colour ONLY (IWQD 4-41/4-43). The prior
     // `else if (dst == hilite_color) -> back_pen` reverse arm corrupted dest
     // pixels that legitimately equalled the hilite colour; it is deleted so
-    // such pixels are preserved.
+    // such pixels are preserved. At standard depths u.back_pen is logical.
     if (u.transfer_mode == 50) {
         if (dst_pixel == u.back_pen) {
             nqd_write_pixel(buffer, dst_addr, bpp, u.hilite_color);
@@ -589,9 +590,11 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
         uint row = gid / u.width_bytes;
         uint col = gid % u.width_bytes;
 
-        // Mask check for byte-mode: col is byte column, mask_stride is width_bytes
+        // Mask check for byte-mode. Standard depths use a pixel-column mask;
+        // packed Boolean paths keep byte-column masks.
         if (u.mask_enabled) {
-            uint mask_addr = u.mask_offset + row * u.mask_stride + col;
+            uint mask_col = (u.bits_per_pixel >= 8) ? (col / u.pixel_size) : col;
+            uint mask_addr = u.mask_offset + row * u.mask_stride + mask_col;
             if (mask_buffer[mask_addr] == 0) return;
         }
 
@@ -758,7 +761,9 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
     uint fill_pixel = u.fill_color;
     uint dst_pixel = nqd_read_pixel(buffer, dst_addr, bpp);
 
-    // Mode 36 (transparent): skip write if fill matches background
+    // Mode 36 (transparent): skip write if fill matches background.
+    // At standard depths u.back_pen is the logical 8/16/32bpp value returned by
+    // nqd_read_pixel(); 16bpp compares the raw 1555 word including bit 15.
     if (u.transfer_mode == 36) {
         if (fill_pixel != u.back_pen) {
             nqd_write_pixel(buffer, dst_addr, bpp, fill_pixel);
@@ -770,7 +775,7 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
     // colour -> highlight colour ONLY (IWQD 4-41/4-43). The prior
     // `else if (dst == hilite_color) -> back_pen` reverse arm corrupted dest
     // pixels that legitimately equalled the hilite colour; it is deleted so
-    // such pixels are preserved.
+    // such pixels are preserved. At standard depths u.back_pen is logical.
     if (u.transfer_mode == 50) {
         if (dst_pixel == u.back_pen) {
             nqd_write_pixel(buffer, dst_addr, bpp, u.hilite_color);

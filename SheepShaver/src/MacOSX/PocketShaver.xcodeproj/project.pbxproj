@@ -381,6 +381,8 @@
 		E70F85489609C42E8CA78DB9 /* rave_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1E29650A76D40B3E857985D3 /* rave_thunks.cpp */; };
 		FC57D6BBF4727E73706BAEF0 /* rave_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 960A16820FECAB8FA9E61E00 /* rave_dispatch.cpp */; };
 		GFXA10A1B2C3D4E5F60101 /* MemoryWarningObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = GFXA10A1B2C3D4E5F60001 /* MemoryWarningObserver.swift */; };
+		GFXA10A1B2C3D4E5F60111 /* gfxaccel_arc_shim.mm in Sources */ = {isa = PBXBuildFile; fileRef = GFXA10A1B2C3D4E5F60002 /* gfxaccel_arc_shim.mm */; };
+		GFXA10A1B2C3D4E5F60211 /* gfxaccel_arc_shim.mm in Sources */ = {isa = PBXBuildFile; fileRef = GFXA10A1B2C3D4E5F60002 /* gfxaccel_arc_shim.mm */; };
 		GFXH10A1B2C3D4E5F60101 /* gfxaccel_resources_heap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GFXH10A1B2C3D4E5F60001 /* gfxaccel_resources_heap.cpp */; };
 		GFXH10A1B2C3D4E5F60111 /* gfxaccel_resources_heap.mm in Sources */ = {isa = PBXBuildFile; fileRef = GFXH10A1B2C3D4E5F60002 /* gfxaccel_resources_heap.mm */; };
 		GFXH10A1B2C3D4E5F60201 /* gfxaccel_resources_heap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GFXH10A1B2C3D4E5F60001 /* gfxaccel_resources_heap.cpp */; };
@@ -389,8 +391,6 @@
 		GFXR10A1B2C3D4E5F60111 /* gfxaccel_resources.mm in Sources */ = {isa = PBXBuildFile; fileRef = GFXR10A1B2C3D4E5F60002 /* gfxaccel_resources.mm */; };
 		GFXR10A1B2C3D4E5F60201 /* gfxaccel_resources.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GFXR10A1B2C3D4E5F60001 /* gfxaccel_resources.cpp */; };
 		GFXR10A1B2C3D4E5F60211 /* gfxaccel_resources.mm in Sources */ = {isa = PBXBuildFile; fileRef = GFXR10A1B2C3D4E5F60002 /* gfxaccel_resources.mm */; };
-		GFXA10A1B2C3D4E5F60111 /* gfxaccel_arc_shim.mm in Sources */ = {isa = PBXBuildFile; fileRef = GFXA10A1B2C3D4E5F60002 /* gfxaccel_arc_shim.mm */; };
-		GFXA10A1B2C3D4E5F60211 /* gfxaccel_arc_shim.mm in Sources */ = {isa = PBXBuildFile; fileRef = GFXA10A1B2C3D4E5F60002 /* gfxaccel_arc_shim.mm */; };
 		GL10A1B2C3D4E5F60101 /* gl_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */; };
 		GL10A1B2C3D4E5F60102 /* gl_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */; };
 		GL10A1B2C3D4E5F60103 /* gl_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60003 /* gl_engine.cpp */; };
@@ -404,8 +404,6 @@
 		GL10A1B2C3D4E5F60205 /* gl_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */; };
 		GL10A1B2C3D4E5F60206 /* gl_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60006 /* gl_shaders.metal */; };
 		HST0603000000000000BF01 /* BackgroundLifecycleObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = HST0603000000000000FR01 /* BackgroundLifecycleObserver.swift */; };
-		PST2004000000000000BF01 /* DSpIdleTimerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = PST2004000000000000FR01 /* DSpIdleTimerService.swift */; };
-		PST2102000000000000BF01 /* DSpEventService.swift in Sources */ = {isa = PBXBuildFile; fileRef = PST2102000000000000FR01 /* DSpEventService.swift */; };
 		MTLD00000000000000000001 /* metal_device_shared.mm in Sources */ = {isa = PBXBuildFile; fileRef = MTLD00000000000000000010 /* metal_device_shared.mm */; };
 		MTLD00000000000000000002 /* metal_device_shared.mm in Sources */ = {isa = PBXBuildFile; fileRef = MTLD00000000000000000010 /* metal_device_shared.mm */; };
 		NQD10A1B2C3D4E5F60101 /* nqd_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */; };
@@ -415,27 +413,29 @@
 		PSA0602000000000000BF01 /* pso_archive.mm in Sources */ = {isa = PBXBuildFile; fileRef = PSA0602000000000000FR01 /* pso_archive.mm */; };
 		PSA0602000000000000BF02 /* pso_archive.mm in Sources */ = {isa = PBXBuildFile; fileRef = PSA0602000000000000FR01 /* pso_archive.mm */; };
 		PST1501DSPBF0100000101 /* dsp_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST1501DSPFR0100000001 /* dsp_engine.cpp */; };
-		PST1501DSPBF0200000101 /* dsp_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST1501DSPFR0200000001 /* dsp_dispatch.cpp */; };
-		PST1501DSPBF0300000101 /* dsp_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST1501DSPFR0300000001 /* dsp_thunks.cpp */; };
 		PST1501DSPBF0100000201 /* dsp_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST1501DSPFR0100000001 /* dsp_engine.cpp */; };
+		PST1501DSPBF0200000101 /* dsp_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST1501DSPFR0200000001 /* dsp_dispatch.cpp */; };
 		PST1501DSPBF0200000201 /* dsp_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST1501DSPFR0200000001 /* dsp_dispatch.cpp */; };
+		PST1501DSPBF0300000101 /* dsp_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST1501DSPFR0300000001 /* dsp_thunks.cpp */; };
 		PST1501DSPBF0300000201 /* dsp_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST1501DSPFR0300000001 /* dsp_thunks.cpp */; };
-		PST2210BBF0100000101 /* dsp_install_hooks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST2210B00000000000FR01 /* dsp_install_hooks.cpp */; };
-		PST2210BBF0100000201 /* dsp_install_hooks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST2210B00000000000FR01 /* dsp_install_hooks.cpp */; };
 		PST1601DSPBF0600000101 /* dsp_draw_context.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1601DSPFR0600000001 /* dsp_draw_context.mm */; };
 		PST1601DSPBF0600000201 /* dsp_draw_context.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1601DSPFR0600000001 /* dsp_draw_context.mm */; };
 		PST1602DSPBF0800000101 /* dsp_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1602DSPFR0800000001 /* dsp_metal_renderer.mm */; };
 		PST1602DSPBF0800000201 /* dsp_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1602DSPFR0800000001 /* dsp_metal_renderer.mm */; };
-		PST1612DSPBF9400000101 /* dsp_clut_gamma.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1612DSPFR9400000001 /* dsp_clut_gamma.mm */; };
-		PST1612DSPBF9400000201 /* dsp_clut_gamma.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1612DSPFR9400000001 /* dsp_clut_gamma.mm */; };
-		PST1611DSPBF9300000101 /* dsp_flatten_restore.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1611DSPFR9300000001 /* dsp_flatten_restore.mm */; };
-		PST1611DSPBF9300000201 /* dsp_flatten_restore.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1611DSPFR9300000001 /* dsp_flatten_restore.mm */; };
 		PST1610DSPBF9100000101 /* dsp_alt_buffer.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1610DSPFR9100000001 /* dsp_alt_buffer.mm */; };
 		PST1610DSPBF9100000201 /* dsp_alt_buffer.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1610DSPFR9100000001 /* dsp_alt_buffer.mm */; };
+		PST1611DSPBF9300000101 /* dsp_flatten_restore.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1611DSPFR9300000001 /* dsp_flatten_restore.mm */; };
+		PST1611DSPBF9300000201 /* dsp_flatten_restore.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1611DSPFR9300000001 /* dsp_flatten_restore.mm */; };
+		PST1612DSPBF9400000101 /* dsp_clut_gamma.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1612DSPFR9400000001 /* dsp_clut_gamma.mm */; };
+		PST1612DSPBF9400000201 /* dsp_clut_gamma.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST1612DSPFR9400000001 /* dsp_clut_gamma.mm */; };
 		PST1701DSPBF1200000101 /* dsp_mode_enumerate.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST1701DSPFR1200000001 /* dsp_mode_enumerate.cpp */; };
 		PST1701DSPBF1200000201 /* dsp_mode_enumerate.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST1701DSPFR1200000001 /* dsp_mode_enumerate.cpp */; };
 		PST2001DSPBF0100000101 /* dsp_host_bridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST2001DSPFR0100000001 /* dsp_host_bridge.mm */; };
 		PST2001DSPBF0100000201 /* dsp_host_bridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST2001DSPFR0100000001 /* dsp_host_bridge.mm */; };
+		PST2004000000000000BF01 /* DSpIdleTimerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = PST2004000000000000FR01 /* DSpIdleTimerService.swift */; };
+		PST2102000000000000BF01 /* DSpEventService.swift in Sources */ = {isa = PBXBuildFile; fileRef = PST2102000000000000FR01 /* DSpEventService.swift */; };
+		PST2210BBF0100000101 /* dsp_install_hooks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST2210B00000000000FR01 /* dsp_install_hooks.cpp */; };
+		PST2210BBF0100000201 /* dsp_install_hooks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST2210B00000000000FR01 /* dsp_install_hooks.cpp */; };
 		VBL0502000000000000BF01 /* vbl_source.mm in Sources */ = {isa = PBXBuildFile; fileRef = VBL0502000000000000FR01 /* vbl_source.mm */; };
 /* End PBXBuildFile section */
 
@@ -958,12 +958,12 @@
 		E4C9A03F1FD55CE700CABBF9 /* ppc-dyngen-ops-x86_64_macos.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = "ppc-dyngen-ops-x86_64_macos.hpp"; path = "dyngen_precompiled/ppc-dyngen-ops-x86_64_macos.hpp"; sourceTree = "<group>"; };
 		E4CBF46020CFC451009F40CC /* video_sdl.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = video_sdl.cpp; path = ../../../BasiliskII/src/SDL/video_sdl.cpp; sourceTree = "<group>"; };
 		GFXA10A1B2C3D4E5F60001 /* MemoryWarningObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryWarningObserver.swift; sourceTree = "<group>"; };
+		GFXA10A1B2C3D4E5F60002 /* gfxaccel_arc_shim.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = gfxaccel_arc_shim.mm; path = ../gfxaccel/gfxaccel_arc_shim.mm; sourceTree = SOURCE_ROOT; };
 		GFXH10A1B2C3D4E5F60001 /* gfxaccel_resources_heap.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gfxaccel_resources_heap.cpp; path = ../gfxaccel/gfxaccel_resources_heap.cpp; sourceTree = SOURCE_ROOT; };
 		GFXH10A1B2C3D4E5F60002 /* gfxaccel_resources_heap.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = gfxaccel_resources_heap.mm; path = ../gfxaccel/gfxaccel_resources_heap.mm; sourceTree = SOURCE_ROOT; };
 		GFXH10A1B2C3D4E5F60003 /* gfxaccel_resources_heap.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = gfxaccel_resources_heap.h; sourceTree = "<group>"; };
 		GFXR10A1B2C3D4E5F60001 /* gfxaccel_resources.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gfxaccel_resources.cpp; path = ../gfxaccel/gfxaccel_resources.cpp; sourceTree = SOURCE_ROOT; };
 		GFXR10A1B2C3D4E5F60002 /* gfxaccel_resources.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = gfxaccel_resources.mm; path = ../gfxaccel/gfxaccel_resources.mm; sourceTree = SOURCE_ROOT; };
-		GFXA10A1B2C3D4E5F60002 /* gfxaccel_arc_shim.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = gfxaccel_arc_shim.mm; path = ../gfxaccel/gfxaccel_arc_shim.mm; sourceTree = SOURCE_ROOT; };
 		GFXR10A1B2C3D4E5F60003 /* gfxaccel_resources.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = gfxaccel_resources.h; sourceTree = "<group>"; };
 		GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_thunks.cpp; path = ../gfxaccel/gl_thunks.cpp; sourceTree = SOURCE_ROOT; };
 		GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_dispatch.cpp; path = ../gfxaccel/gl_dispatch.cpp; sourceTree = SOURCE_ROOT; };
@@ -973,8 +973,6 @@
 		GL10A1B2C3D4E5F60006 /* gl_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = gl_shaders.metal; path = ../gfxaccel/gl_shaders.metal; sourceTree = SOURCE_ROOT; };
 		GL10A1B2C3D4E5F60007 /* gl_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = gl_engine.h; sourceTree = "<group>"; };
 		HST0603000000000000FR01 /* BackgroundLifecycleObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundLifecycleObserver.swift; sourceTree = "<group>"; };
-		PST2004000000000000FR01 /* DSpIdleTimerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DSpIdleTimerService.swift; sourceTree = "<group>"; };
-		PST2102000000000000FR01 /* DSpEventService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DSpEventService.swift; sourceTree = "<group>"; };
 		MTLD00000000000000000010 /* metal_device_shared.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = metal_device_shared.mm; path = ../gfxaccel/metal_device_shared.mm; sourceTree = SOURCE_ROOT; };
 		MTLD00000000000000000011 /* metal_device_shared.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = metal_device_shared.h; sourceTree = "<group>"; };
 		NQD10A1B2C3D4E5F60001 /* nqd_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = nqd_metal_renderer.mm; path = ../gfxaccel/nqd_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
@@ -985,24 +983,26 @@
 		PST1501DSPFR0100000001 /* dsp_engine.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_engine.cpp; path = ../gfxaccel/dsp_engine.cpp; sourceTree = SOURCE_ROOT; };
 		PST1501DSPFR0200000001 /* dsp_dispatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_dispatch.cpp; path = ../gfxaccel/dsp_dispatch.cpp; sourceTree = SOURCE_ROOT; };
 		PST1501DSPFR0300000001 /* dsp_thunks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_thunks.cpp; path = ../gfxaccel/dsp_thunks.cpp; sourceTree = SOURCE_ROOT; };
-		PST2210B00000000000FR01 /* dsp_install_hooks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_install_hooks.cpp; path = ../gfxaccel/dsp_install_hooks.cpp; sourceTree = SOURCE_ROOT; };
+		PST1501DSPFR0400000001 /* dsp_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_engine.h; sourceTree = "<group>"; };
+		PST1501DSPFR0500000001 /* dsp_dispatch.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_dispatch.h; sourceTree = "<group>"; };
 		PST1601DSPFR0600000001 /* dsp_draw_context.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_draw_context.mm; path = ../gfxaccel/dsp_draw_context.mm; sourceTree = SOURCE_ROOT; };
 		PST1601DSPFR0700000001 /* dsp_draw_context.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_draw_context.h; sourceTree = "<group>"; };
 		PST1602DSPFR0800000001 /* dsp_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_metal_renderer.mm; path = ../gfxaccel/dsp_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
-		PST1612DSPFR9400000001 /* dsp_clut_gamma.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_clut_gamma.mm; path = ../gfxaccel/dsp_clut_gamma.mm; sourceTree = SOURCE_ROOT; };
-		PST1612DSPFR9500000001 /* dsp_clut_gamma.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = dsp_clut_gamma.h; path = ../gfxaccel/dsp_clut_gamma.h; sourceTree = SOURCE_ROOT; };
-		PST1611DSPFR9300000001 /* dsp_flatten_restore.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_flatten_restore.mm; path = ../gfxaccel/dsp_flatten_restore.mm; sourceTree = SOURCE_ROOT; };
-		PST1610DSPFR9100000001 /* dsp_alt_buffer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_alt_buffer.mm; path = ../gfxaccel/dsp_alt_buffer.mm; sourceTree = SOURCE_ROOT; };
-		PST1610DSPFR9200000001 /* dsp_alt_buffer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = dsp_alt_buffer.h; path = ../gfxaccel/dsp_alt_buffer.h; sourceTree = SOURCE_ROOT; };
 		PST1602DSPFR0900000001 /* dsp_metal_renderer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_metal_renderer.h; sourceTree = "<group>"; };
 		PST1602DSPFR1000000001 /* dsp_context_private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = dsp_context_private.h; path = ../gfxaccel/dsp_context_private.h; sourceTree = SOURCE_ROOT; };
 		PST1603DSPFR1100000001 /* dsp_engine_internal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = dsp_engine_internal.h; path = ../gfxaccel/dsp_engine_internal.h; sourceTree = SOURCE_ROOT; };
+		PST1610DSPFR9100000001 /* dsp_alt_buffer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_alt_buffer.mm; path = ../gfxaccel/dsp_alt_buffer.mm; sourceTree = SOURCE_ROOT; };
+		PST1610DSPFR9200000001 /* dsp_alt_buffer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = dsp_alt_buffer.h; path = ../gfxaccel/dsp_alt_buffer.h; sourceTree = SOURCE_ROOT; };
+		PST1611DSPFR9300000001 /* dsp_flatten_restore.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_flatten_restore.mm; path = ../gfxaccel/dsp_flatten_restore.mm; sourceTree = SOURCE_ROOT; };
+		PST1612DSPFR9400000001 /* dsp_clut_gamma.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_clut_gamma.mm; path = ../gfxaccel/dsp_clut_gamma.mm; sourceTree = SOURCE_ROOT; };
+		PST1612DSPFR9500000001 /* dsp_clut_gamma.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = dsp_clut_gamma.h; path = ../gfxaccel/dsp_clut_gamma.h; sourceTree = SOURCE_ROOT; };
 		PST1701DSPFR1200000001 /* dsp_mode_enumerate.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_mode_enumerate.cpp; path = ../gfxaccel/dsp_mode_enumerate.cpp; sourceTree = SOURCE_ROOT; };
 		PST1701DSPFR1300000001 /* dsp_mode_enumerate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_mode_enumerate.h; sourceTree = "<group>"; };
 		PST2001DSPFR0100000001 /* dsp_host_bridge.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_host_bridge.mm; path = ../gfxaccel/dsp_host_bridge.mm; sourceTree = SOURCE_ROOT; };
 		PST2001DSPFR0200000001 /* dsp_host_bridge.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = dsp_host_bridge.h; path = ../gfxaccel/include/dsp_host_bridge.h; sourceTree = SOURCE_ROOT; };
-		PST1501DSPFR0400000001 /* dsp_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_engine.h; sourceTree = "<group>"; };
-		PST1501DSPFR0500000001 /* dsp_dispatch.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_dispatch.h; sourceTree = "<group>"; };
+		PST2004000000000000FR01 /* DSpIdleTimerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DSpIdleTimerService.swift; sourceTree = "<group>"; };
+		PST2102000000000000FR01 /* DSpEventService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DSpEventService.swift; sourceTree = "<group>"; };
+		PST2210B00000000000FR01 /* dsp_install_hooks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_install_hooks.cpp; path = ../gfxaccel/dsp_install_hooks.cpp; sourceTree = SOURCE_ROOT; };
 		VBL0502000000000000FR01 /* vbl_source.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = vbl_source.mm; path = ../gfxaccel/vbl_source.mm; sourceTree = SOURCE_ROOT; };
 		VBL0502000000000000FR02 /* vbl_source.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = vbl_source.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -3276,7 +3276,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = NO;
-				DEVELOPMENT_TEAM = 7K4RY698N6;
+				DEVELOPMENT_TEAM = 2LK9LNU9V8;
 				ENABLE_TESTABILITY = YES;
 				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj *.framework";
 				FRAMEWORK_SEARCH_PATHS = (
@@ -3396,7 +3396,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = NO;
-				DEVELOPMENT_TEAM = 7K4RY698N6;
+				DEVELOPMENT_TEAM = 2LK9LNU9V8;
 				ENABLE_TESTABILITY = YES;
 				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj *.framework";
 				FRAMEWORK_SEARCH_PATHS = (

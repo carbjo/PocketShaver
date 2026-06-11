@@ -48,6 +48,8 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_texture(uint32_t heap_id,
 extern "C" void gfxaccel_resources_heap_mm_lru_purge(void);
 extern "C" uint32_t gfxaccel_resources_heap_mm_heap_count(void);
 extern "C" uint64_t gfxaccel_resources_heap_mm_reset(uint32_t heap_id);
+extern "C" void gfxaccel_resources_heap_mm_note_allocation_released(uint32_t heap_id);
+extern "C" uint32_t gfxaccel_resources_heap_mm_live_allocation_count(uint32_t heap_id);
 #ifdef TESTING_BUILD
 extern "C" void gfxaccel_resources_heap_mm_set_ceiling(uint32_t heap_id,
                                                         uint32_t bytes);
@@ -132,8 +134,9 @@ static uint32_t g_ceiling_override[kHeapCount] = { 0, 0, 0, 0, 0 };
 // on_mode_exit. Any engine-owned subscribers (or gfxaccel_resources's own
 // engine-detach fan-out) register at or before index 2 (they attach
 // from video_install_accel inside the gfxaccel_resources engine fan-out,
-// not as independent DMC subscribers), so engine-owned MTLBuffer /
-// MTLTexture refs are released BEFORE the bump counter is zeroed.
+// not as independent DMC subscribers). The reset path still enforces this
+// ordering instead of trusting it: if a heap has live sub-allocations, reset
+// logs an error and skips so placement heaps cannot alias live bytes.
 //
 // Registration failure (e.g., kDMCErrSubscriberAlreadyRegistered during
 // a test fixture's repeated init/shutdown cycle) is logged but non-fatal:
@@ -146,7 +149,7 @@ static int32_t s_heap_reset_on_mode_exit(const struct DMCModeSnapshot *outgoing,
 	(void)outgoing;
 	(void)ctx;
 	for (uint32_t i = 0; i < (uint32_t)kHeapCount; ++i) {
-		if (i == (uint32_t)kHeapEngineDSp) continue;  // kHeapDSp is reset ONLY at DSpShutdown, NEVER on DMC mode exit. Bump-with-conditional-reset preserves DSp back buffer + per-context overlays across mode switches.
+		if (i == (uint32_t)kHeapEngineDSp) continue;  // kHeapDSp is reset by DSp release/shutdown when idle, NEVER on DMC mode exit. This preserves DSp back buffers and alt buffers across mode switches.
 		uint64_t reclaimed = gfxaccel_resources_heap_mm_reset(i);
 		if (reclaimed > 0) {
 			fprintf(stderr,
@@ -273,6 +276,24 @@ extern "C" uint64_t gfxaccel_resources_heap_reset(uint32_t heap_id)
 	return gfxaccel_resources_heap_mm_reset(heap_id);
 }
 
+extern "C" void gfxaccel_resources_heap_note_allocation_released(uint32_t heap_id)
+{
+	if (heap_id >= kHeapCount) {
+		fprintf(stderr, "[gfxaccel-heap] note_allocation_released: heap_id=%u "
+		                "out of range\n", (unsigned)heap_id);
+		return;
+	}
+	gfxaccel_resources_heap_mm_note_allocation_released(heap_id);
+}
+
+extern "C" uint32_t gfxaccel_resources_heap_live_allocation_count(uint32_t heap_id)
+{
+	if (heap_id >= kHeapCount) {
+		return 0;
+	}
+	return gfxaccel_resources_heap_mm_live_allocation_count(heap_id);
+}
+
 // ---------------------------------------------------------------------------
 // Public API - Engine attach/detach
 // ---------------------------------------------------------------------------
@@ -345,6 +366,11 @@ extern "C" uint32_t gfxaccel_heap_testing_heap_count(void)
 extern "C" uint32_t gfxaccel_heap_testing_pso_cache_count(void)
 {
 	return (uint32_t)g_pso_cache.size();
+}
+
+extern "C" uint32_t gfxaccel_heap_testing_live_allocations(uint32_t heap_id)
+{
+	return gfxaccel_resources_heap_live_allocation_count(heap_id);
 }
 
 extern "C" void gfxaccel_heap_testing_reset(void)

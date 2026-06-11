@@ -9,13 +9,12 @@
  *  (at your option) any later version.
  *
  *  Observes UIApplicationDidReceiveMemoryWarningNotification on the main
- *  thread and calls the C shim gfxaccel_handle_memory_warning() which
- *  dispatch_async's eviction work to the emul serial queue.
+ *  thread and calls the C shim gfxaccel_handle_memory_warning() which marks
+ *  a pending eviction request. The next compositor SubmitFrame drains that
+ *  request on the engine call path.
  *
  *  Swift singleton calls C shim from main thread; the C shim returns in
- *  <=1 ms (dispatch_async only). No std::mutex / std::atomic;
- *  synchronization is via the emul serial queue owned by
- *  gfxaccel_resources_heap.mm.
+ *  <=1 ms and does not mutate heap state from UIKit's notification callback.
  */
 
 import UIKit

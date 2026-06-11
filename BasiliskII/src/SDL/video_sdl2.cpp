@@ -1158,9 +1158,32 @@ void driver_base::init()
 		int fb_width = VIDEO_MODE_X;
 		int fb_height = VIDEO_MODE_Y;
 		if (MetalCompositorIsInitialized()) {
-			MetalCompositorResize(fb_width, fb_height, VIDEO_MODE_DEPTH, VIDEO_MODE_ROW_BYTES, pitch, the_buffer, the_buffer_size);
+			int metal_rc = MetalCompositorResize(fb_width, fb_height,
+			                                      VIDEO_MODE_DEPTH,
+			                                      VIDEO_MODE_ROW_BYTES,
+			                                      pitch, the_buffer,
+			                                      the_buffer_size);
+			if (metal_rc != 0) {
+				fprintf(stderr, "[metal_compositor] resize FAILED (err=%d) "
+				                "for %dx%d depth=%d rb=%d pitch=%d - "
+				                "preserving previous compositor state\n",
+				        metal_rc, fb_width, fb_height, VIDEO_MODE_DEPTH,
+				        VIDEO_MODE_ROW_BYTES, pitch);
+			}
 		} else {
-			MetalCompositorInit(fb_width, fb_height, VIDEO_MODE_DEPTH, VIDEO_MODE_ROW_BYTES, pitch, the_buffer, the_buffer_size);
+			int metal_rc = MetalCompositorInit(fb_width, fb_height,
+			                                    VIDEO_MODE_DEPTH,
+			                                    VIDEO_MODE_ROW_BYTES,
+			                                    pitch, the_buffer,
+			                                    the_buffer_size);
+			if (metal_rc != 0) {
+				fprintf(stderr, "[metal_compositor] init FAILED (err=%d) "
+				                "for %dx%d depth=%d rb=%d pitch=%d\n",
+				        metal_rc, fb_width, fb_height, VIDEO_MODE_DEPTH,
+				        VIDEO_MODE_ROW_BYTES, pitch);
+				MetalCompositorShutdown();
+				return;
+			}
 			// metal_compositor subscribes
 			// to DMC FIRST during MetalCompositorInit above; gfxaccel_resources
 			// subscribes SECOND here. LIFO on_mode_enter dispatch fires

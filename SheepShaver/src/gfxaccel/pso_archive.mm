@@ -320,6 +320,8 @@ extern "C" int32_t pso_archive_testing_capture_stock(const char *output_path)
 			[library newFunctionWithName:@"submitframe_vertex"];
 		id<MTLFunction> sfFragment =
 			[library newFunctionWithName:@"submitframe_fragment"];
+		id<MTLFunction> sfDisplayPremultiplied =
+			[library newFunctionWithName:@"submitframe_fragment_display_premultiplied"];
 
 		if (sfVertex && sfFragment) {
 			// Opaque (no blending)
@@ -365,6 +367,25 @@ extern "C" int32_t pso_archive_testing_capture_stock(const char *output_path)
 				pd.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
 				pd.colorAttachments[0].blendingEnabled           = YES;
 				pd.colorAttachments[0].sourceRGBBlendFactor      = MTLBlendFactorSourceAlpha;
+				pd.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+				pd.colorAttachments[0].sourceAlphaBlendFactor    = MTLBlendFactorOne;
+				pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+				pd.colorAttachments[0].rgbBlendOperation   = MTLBlendOperationAdd;
+				pd.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+
+				err = nil;
+				[archive addRenderPipelineFunctionsWithDescriptor:pd
+				                                           error:&err];
+			}
+
+			if (sfDisplayPremultiplied) {
+				MTLRenderPipelineDescriptor *pd =
+					[[MTLRenderPipelineDescriptor alloc] init];
+				pd.vertexFunction   = sfVertex;
+				pd.fragmentFunction = sfDisplayPremultiplied;
+				pd.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+				pd.colorAttachments[0].blendingEnabled           = YES;
+				pd.colorAttachments[0].sourceRGBBlendFactor      = MTLBlendFactorOne;
 				pd.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
 				pd.colorAttachments[0].sourceAlphaBlendFactor    = MTLBlendFactorOne;
 				pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;

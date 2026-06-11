@@ -397,10 +397,69 @@ static const uint16_t gl_dispatch_sub_opcodes[GL_DISPATCH_TABLE_ENTRIES] = {
 // diagnostic named handle+0x550=slot 339 and handle+0x554=slot 340). Add more
 // rows here as other games surface other extension slots.
 struct GLDispatchExtSlot { uint16_t slot; uint16_t sub_opcode; };
+#define GL_EXT_DISPATCH_SLOT(sub) ((uint16_t)(337 + ((sub) - GL_EXT_FIRST)))
 static const GLDispatchExtSlot gl_dispatch_ext_slots[] = {
-	{ 339, GL_SUB_LOCK_ARRAYS_EXT },     // glLockArraysEXT   (EXT_compiled_vertex_array)
-	{ 340, GL_SUB_UNLOCK_ARRAYS_EXT },   // glUnlockArraysEXT
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_BLEND_COLOR_EXT), GL_SUB_BLEND_COLOR_EXT },       // glBlendColorEXT
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_BLEND_EQUATION_EXT), GL_SUB_BLEND_EQUATION_EXT }, // glBlendEquationEXT
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_LOCK_ARRAYS_EXT), GL_SUB_LOCK_ARRAYS_EXT },       // glLockArraysEXT
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_UNLOCK_ARRAYS_EXT), GL_SUB_UNLOCK_ARRAYS_EXT },   // glUnlockArraysEXT
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_CLIENT_ACTIVE_TEXTURE_ARB), GL_SUB_CLIENT_ACTIVE_TEXTURE_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_ACTIVE_TEXTURE_ARB), GL_SUB_ACTIVE_TEXTURE_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD1D_ARB), GL_SUB_MULTI_TEX_COORD1D_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD1DV_ARB), GL_SUB_MULTI_TEX_COORD1DV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD1F_ARB), GL_SUB_MULTI_TEX_COORD1F_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD1FV_ARB), GL_SUB_MULTI_TEX_COORD1FV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD1I_ARB), GL_SUB_MULTI_TEX_COORD1I_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD1IV_ARB), GL_SUB_MULTI_TEX_COORD1IV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD1S_ARB), GL_SUB_MULTI_TEX_COORD1S_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD1SV_ARB), GL_SUB_MULTI_TEX_COORD1SV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD2D_ARB), GL_SUB_MULTI_TEX_COORD2D_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD2DV_ARB), GL_SUB_MULTI_TEX_COORD2DV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD2F_ARB), GL_SUB_MULTI_TEX_COORD2F_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD2FV_ARB), GL_SUB_MULTI_TEX_COORD2FV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD2I_ARB), GL_SUB_MULTI_TEX_COORD2I_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD2IV_ARB), GL_SUB_MULTI_TEX_COORD2IV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD2S_ARB), GL_SUB_MULTI_TEX_COORD2S_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD2SV_ARB), GL_SUB_MULTI_TEX_COORD2SV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD3D_ARB), GL_SUB_MULTI_TEX_COORD3D_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD3DV_ARB), GL_SUB_MULTI_TEX_COORD3DV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD3F_ARB), GL_SUB_MULTI_TEX_COORD3F_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD3FV_ARB), GL_SUB_MULTI_TEX_COORD3FV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD3I_ARB), GL_SUB_MULTI_TEX_COORD3I_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD3IV_ARB), GL_SUB_MULTI_TEX_COORD3IV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD3S_ARB), GL_SUB_MULTI_TEX_COORD3S_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD3SV_ARB), GL_SUB_MULTI_TEX_COORD3SV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD4D_ARB), GL_SUB_MULTI_TEX_COORD4D_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD4DV_ARB), GL_SUB_MULTI_TEX_COORD4DV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD4F_ARB), GL_SUB_MULTI_TEX_COORD4F_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD4FV_ARB), GL_SUB_MULTI_TEX_COORD4FV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD4I_ARB), GL_SUB_MULTI_TEX_COORD4I_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD4IV_ARB), GL_SUB_MULTI_TEX_COORD4IV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD4S_ARB), GL_SUB_MULTI_TEX_COORD4S_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULTI_TEX_COORD4SV_ARB), GL_SUB_MULTI_TEX_COORD4SV_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_LOAD_TRANSPOSE_MATRIXD_ARB), GL_SUB_LOAD_TRANSPOSE_MATRIXD_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_LOAD_TRANSPOSE_MATRIXF_ARB), GL_SUB_LOAD_TRANSPOSE_MATRIXF_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULT_TRANSPOSE_MATRIXD_ARB), GL_SUB_MULT_TRANSPOSE_MATRIXD_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_MULT_TRANSPOSE_MATRIXF_ARB), GL_SUB_MULT_TRANSPOSE_MATRIXF_ARB },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARYCOLOR3B_EXT), GL_SUB_SECONDARYCOLOR3B_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARYCOLOR3BV_EXT), GL_SUB_SECONDARYCOLOR3BV_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARYCOLOR3D_EXT), GL_SUB_SECONDARYCOLOR3D_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3DV_EXT), GL_SUB_SECONDARY_COLOR3DV_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3F_EXT), GL_SUB_SECONDARY_COLOR3F_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3FV_EXT), GL_SUB_SECONDARY_COLOR3FV_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3I_EXT), GL_SUB_SECONDARY_COLOR3I_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3IV_EXT), GL_SUB_SECONDARY_COLOR3IV_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3S_EXT), GL_SUB_SECONDARY_COLOR3S_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3SV_EXT), GL_SUB_SECONDARY_COLOR3SV_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3UB_EXT), GL_SUB_SECONDARY_COLOR3UB_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3UBV_EXT), GL_SUB_SECONDARY_COLOR3UBV_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3UI_EXT), GL_SUB_SECONDARY_COLOR3UI_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3UIV_EXT), GL_SUB_SECONDARY_COLOR3UIV_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3US_EXT), GL_SUB_SECONDARY_COLOR3US_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR3USV_EXT), GL_SUB_SECONDARY_COLOR3USV_EXT },
+	{ GL_EXT_DISPATCH_SLOT(GL_SUB_SECONDARY_COLOR_POINTER_EXT), GL_SUB_SECONDARY_COLOR_POINTER_EXT },
 };
+#undef GL_EXT_DISPATCH_SLOT
 
 // Size of Mac-side context handle: 4 bytes for slot index + an over-allocated
 // dispatch table. We size for GL_CTX_DISPATCH_SLOTS (not just the 336 core
@@ -1165,7 +1224,7 @@ uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 	GLCaptureOwnerBeforeDrawableBind(idx);
 
 	// Vend a per-engine overlay texture via
-	// gfxaccel_resources_vend_overlay_texture(kGfxEngineGL, ...).
+	// gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL, ...).
 	// gl_overlay_bind caches the destination rect for SubmitFrame emission
 	// in NativeAGLSwapBuffers (gl_overlay_present). Cache-hit: same dims
 	// returns the cached handle; different dims re-vends.
@@ -1223,14 +1282,14 @@ uint32_t NativeAGLSwapBuffers(uint32_t ctx)
 
 	// gl_overlay_present emits a single kLayerSlotOverlay CompositeLayer via
 	// MetalCompositorSubmitFrame — the layer's presence IS the "active"
-	// signal, and SubmitFrame's hidden dispatch_semaphore(3) subsumes the
-	// sleep-based pacing call. gl_overlay_present also declares GL as the
-	// active DMC owner internally (an idempotent early-return makes it a fast
-	// no-op when owner already matches).
+	// signal. SubmitFrame is cache-only in production; Step 3 restores real
+	// pacing. gl_overlay_present also declares GL as the active DMC owner
+	// internally (an idempotent early-return makes it a fast no-op when owner
+	// already matches).
 	gl_overlay_present();
 
-	// Throttle to VBL cadence — prevent 3D from outrunning the compositor
-	MetalCompositorSync3DFramePacing();
+	// Throttle to GL's own VBL cadence lane.
+	MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineGL);
 
 	GL_VLOG("aglSwapBuffers: presented frame for context %d", idx);
 	return 0;
@@ -2228,7 +2287,7 @@ uint32_t NativeAGLDevicesOfPixelFormat(uint32_t pix, uint32_t ndevsPtr)
 // rave_engine.cpp.
 //
 // Lifecycle:
-//   - on_mode_enter (LIFO) -> GLOnAttach: pre-vend an overlay texture for
+//   - on_mode_enter (LIFO) -> GLOnAttach: pre-vend overlay texture pair for
 //     the new mode's resolution IF GL has an active overlay. Otherwise
 //     skip; the next gl_overlay_bind will vend lazily.
 //   - on_mode_exit  (FIFO) -> GLOnDetach: release the cached overlay
@@ -2255,16 +2314,25 @@ static int32_t GLOnAttach(uint32_t /* engine_id */,
 		return 0;  /* defensive */
 	}
 
-	/* GL was active in the outgoing mode; pre-vend at the incoming mode's
+	/* GL was active in the outgoing mode; pre-vend the pair at the incoming mode's
 	 * resolution so the compositor sees an overlay on its first present
 	 * after the mode switch. Vend format is
 	 * BGRA8Unorm (= MTLPixelFormatBGRA8Unorm = 80). */
-	void *tex = gfxaccel_resources_vend_overlay_texture(
+	void *tex0 = gfxaccel_resources_vend_overlay_texture_indexed(
 	                kGfxEngineGL,
+	                0,
 	                incoming->width,
 	                incoming->height,
 	                80 /* MTLPixelFormatBGRA8Unorm */);
-	if (tex == NULL) {
+	void *tex1 = gfxaccel_resources_vend_overlay_texture_indexed(
+	                kGfxEngineGL,
+	                1,
+	                incoming->width,
+	                incoming->height,
+	                80 /* MTLPixelFormatBGRA8Unorm */);
+	if (tex0 == NULL || tex1 == NULL) {
+		if (tex0 != NULL) gfxaccel_resources_release_overlay_texture(kGfxEngineGL, tex0);
+		if (tex1 != NULL) gfxaccel_resources_release_overlay_texture(kGfxEngineGL, tex1);
 		/* Vend failed — reject the transition. The rollback path is safe
 		 * under concurrent DMC readers. */
 		return -3009;  /* kDMCErrSubscriberRejected */
@@ -2744,10 +2812,69 @@ void GLInstallHooks()
 	};
 	const int num_gl = sizeof(gl_symbols) / sizeof(gl_symbols[0]);
 
-	// GL 1.2 / EXT palette entry points are not part of the fixed AGL context
-	// dispatch table above. Hook them separately so older games can discover a
-	// color-table path without changing GL_DISPATCH_TABLE_ENTRIES indexing.
+	// GL 1.2 / advertised extension entry points are not part of the fixed AGL
+	// context dispatch table above. Hook them separately so older games can
+	// discover them without changing GL_DISPATCH_TABLE_ENTRIES indexing.
 	GLSymbolEntry gl_extra_symbols[] = {
+		{ "\017glBlendColorEXT", GL_SUB_BLEND_COLOR_EXT, "glBlendColorEXT" },
+		{ "\022glBlendEquationEXT", GL_SUB_BLEND_EQUATION_EXT, "glBlendEquationEXT" },
+		{ "\017glLockArraysEXT", GL_SUB_LOCK_ARRAYS_EXT, "glLockArraysEXT" },
+		{ "\021glUnlockArraysEXT", GL_SUB_UNLOCK_ARRAYS_EXT, "glUnlockArraysEXT" },
+		{ "\030glClientActiveTextureARB", GL_SUB_CLIENT_ACTIVE_TEXTURE_ARB, "glClientActiveTextureARB" },
+		{ "\022glActiveTextureARB", GL_SUB_ACTIVE_TEXTURE_ARB, "glActiveTextureARB" },
+		{ "\024glMultiTexCoord1dARB", GL_SUB_MULTI_TEX_COORD1D_ARB, "glMultiTexCoord1dARB" },
+		{ "\025glMultiTexCoord1dvARB", GL_SUB_MULTI_TEX_COORD1DV_ARB, "glMultiTexCoord1dvARB" },
+		{ "\024glMultiTexCoord1fARB", GL_SUB_MULTI_TEX_COORD1F_ARB, "glMultiTexCoord1fARB" },
+		{ "\025glMultiTexCoord1fvARB", GL_SUB_MULTI_TEX_COORD1FV_ARB, "glMultiTexCoord1fvARB" },
+		{ "\024glMultiTexCoord1iARB", GL_SUB_MULTI_TEX_COORD1I_ARB, "glMultiTexCoord1iARB" },
+		{ "\025glMultiTexCoord1ivARB", GL_SUB_MULTI_TEX_COORD1IV_ARB, "glMultiTexCoord1ivARB" },
+		{ "\024glMultiTexCoord1sARB", GL_SUB_MULTI_TEX_COORD1S_ARB, "glMultiTexCoord1sARB" },
+		{ "\025glMultiTexCoord1svARB", GL_SUB_MULTI_TEX_COORD1SV_ARB, "glMultiTexCoord1svARB" },
+		{ "\024glMultiTexCoord2dARB", GL_SUB_MULTI_TEX_COORD2D_ARB, "glMultiTexCoord2dARB" },
+		{ "\025glMultiTexCoord2dvARB", GL_SUB_MULTI_TEX_COORD2DV_ARB, "glMultiTexCoord2dvARB" },
+		{ "\024glMultiTexCoord2fARB", GL_SUB_MULTI_TEX_COORD2F_ARB, "glMultiTexCoord2fARB" },
+		{ "\025glMultiTexCoord2fvARB", GL_SUB_MULTI_TEX_COORD2FV_ARB, "glMultiTexCoord2fvARB" },
+		{ "\024glMultiTexCoord2iARB", GL_SUB_MULTI_TEX_COORD2I_ARB, "glMultiTexCoord2iARB" },
+		{ "\025glMultiTexCoord2ivARB", GL_SUB_MULTI_TEX_COORD2IV_ARB, "glMultiTexCoord2ivARB" },
+		{ "\024glMultiTexCoord2sARB", GL_SUB_MULTI_TEX_COORD2S_ARB, "glMultiTexCoord2sARB" },
+		{ "\025glMultiTexCoord2svARB", GL_SUB_MULTI_TEX_COORD2SV_ARB, "glMultiTexCoord2svARB" },
+		{ "\024glMultiTexCoord3dARB", GL_SUB_MULTI_TEX_COORD3D_ARB, "glMultiTexCoord3dARB" },
+		{ "\025glMultiTexCoord3dvARB", GL_SUB_MULTI_TEX_COORD3DV_ARB, "glMultiTexCoord3dvARB" },
+		{ "\024glMultiTexCoord3fARB", GL_SUB_MULTI_TEX_COORD3F_ARB, "glMultiTexCoord3fARB" },
+		{ "\025glMultiTexCoord3fvARB", GL_SUB_MULTI_TEX_COORD3FV_ARB, "glMultiTexCoord3fvARB" },
+		{ "\024glMultiTexCoord3iARB", GL_SUB_MULTI_TEX_COORD3I_ARB, "glMultiTexCoord3iARB" },
+		{ "\025glMultiTexCoord3ivARB", GL_SUB_MULTI_TEX_COORD3IV_ARB, "glMultiTexCoord3ivARB" },
+		{ "\024glMultiTexCoord3sARB", GL_SUB_MULTI_TEX_COORD3S_ARB, "glMultiTexCoord3sARB" },
+		{ "\025glMultiTexCoord3svARB", GL_SUB_MULTI_TEX_COORD3SV_ARB, "glMultiTexCoord3svARB" },
+		{ "\024glMultiTexCoord4dARB", GL_SUB_MULTI_TEX_COORD4D_ARB, "glMultiTexCoord4dARB" },
+		{ "\025glMultiTexCoord4dvARB", GL_SUB_MULTI_TEX_COORD4DV_ARB, "glMultiTexCoord4dvARB" },
+		{ "\024glMultiTexCoord4fARB", GL_SUB_MULTI_TEX_COORD4F_ARB, "glMultiTexCoord4fARB" },
+		{ "\025glMultiTexCoord4fvARB", GL_SUB_MULTI_TEX_COORD4FV_ARB, "glMultiTexCoord4fvARB" },
+		{ "\024glMultiTexCoord4iARB", GL_SUB_MULTI_TEX_COORD4I_ARB, "glMultiTexCoord4iARB" },
+		{ "\025glMultiTexCoord4ivARB", GL_SUB_MULTI_TEX_COORD4IV_ARB, "glMultiTexCoord4ivARB" },
+		{ "\024glMultiTexCoord4sARB", GL_SUB_MULTI_TEX_COORD4S_ARB, "glMultiTexCoord4sARB" },
+		{ "\025glMultiTexCoord4svARB", GL_SUB_MULTI_TEX_COORD4SV_ARB, "glMultiTexCoord4svARB" },
+		{ "\031glLoadTransposeMatrixdARB", GL_SUB_LOAD_TRANSPOSE_MATRIXD_ARB, "glLoadTransposeMatrixdARB" },
+		{ "\031glLoadTransposeMatrixfARB", GL_SUB_LOAD_TRANSPOSE_MATRIXF_ARB, "glLoadTransposeMatrixfARB" },
+		{ "\031glMultTransposeMatrixdARB", GL_SUB_MULT_TRANSPOSE_MATRIXD_ARB, "glMultTransposeMatrixdARB" },
+		{ "\031glMultTransposeMatrixfARB", GL_SUB_MULT_TRANSPOSE_MATRIXF_ARB, "glMultTransposeMatrixfARB" },
+		{ "\025glSecondaryColor3bEXT", GL_SUB_SECONDARYCOLOR3B_EXT, "glSecondaryColor3bEXT" },
+		{ "\026glSecondaryColor3bvEXT", GL_SUB_SECONDARYCOLOR3BV_EXT, "glSecondaryColor3bvEXT" },
+		{ "\025glSecondaryColor3dEXT", GL_SUB_SECONDARYCOLOR3D_EXT, "glSecondaryColor3dEXT" },
+		{ "\026glSecondaryColor3dvEXT", GL_SUB_SECONDARY_COLOR3DV_EXT, "glSecondaryColor3dvEXT" },
+		{ "\025glSecondaryColor3fEXT", GL_SUB_SECONDARY_COLOR3F_EXT, "glSecondaryColor3fEXT" },
+		{ "\026glSecondaryColor3fvEXT", GL_SUB_SECONDARY_COLOR3FV_EXT, "glSecondaryColor3fvEXT" },
+		{ "\025glSecondaryColor3iEXT", GL_SUB_SECONDARY_COLOR3I_EXT, "glSecondaryColor3iEXT" },
+		{ "\026glSecondaryColor3ivEXT", GL_SUB_SECONDARY_COLOR3IV_EXT, "glSecondaryColor3ivEXT" },
+		{ "\025glSecondaryColor3sEXT", GL_SUB_SECONDARY_COLOR3S_EXT, "glSecondaryColor3sEXT" },
+		{ "\026glSecondaryColor3svEXT", GL_SUB_SECONDARY_COLOR3SV_EXT, "glSecondaryColor3svEXT" },
+		{ "\026glSecondaryColor3ubEXT", GL_SUB_SECONDARY_COLOR3UB_EXT, "glSecondaryColor3ubEXT" },
+		{ "\027glSecondaryColor3ubvEXT", GL_SUB_SECONDARY_COLOR3UBV_EXT, "glSecondaryColor3ubvEXT" },
+		{ "\026glSecondaryColor3uiEXT", GL_SUB_SECONDARY_COLOR3UI_EXT, "glSecondaryColor3uiEXT" },
+		{ "\027glSecondaryColor3uivEXT", GL_SUB_SECONDARY_COLOR3UIV_EXT, "glSecondaryColor3uivEXT" },
+		{ "\026glSecondaryColor3usEXT", GL_SUB_SECONDARY_COLOR3US_EXT, "glSecondaryColor3usEXT" },
+		{ "\027glSecondaryColor3usvEXT", GL_SUB_SECONDARY_COLOR3USV_EXT, "glSecondaryColor3usvEXT" },
+		{ "\032glSecondaryColorPointerEXT", GL_SUB_SECONDARY_COLOR_POINTER_EXT, "glSecondaryColorPointerEXT" },
 		{ "\014glColorTable", GL_SUB_COLOR_TABLE, "glColorTable" },
 		{ "\017glColorTableEXT", GL_SUB_COLOR_TABLE, "glColorTableEXT" },
 		{ "\027glColorTableParameterfv", GL_SUB_COLOR_TABLE_PARAMETERFV, "glColorTableParameterfv" },
@@ -2767,22 +2894,65 @@ void GLInstallHooks()
 	};
 	const int num_gl_extra = sizeof(gl_extra_symbols) / sizeof(gl_extra_symbols[0]);
 
-	// GLU functions in OpenGLUtility. Pangea's engine (Cro-Mag Rally, Bugdom,
-	// Nanosaur) sets up its entire 3D camera with gluPerspective (PROJECTION)
-	// and gluLookAt (MODELVIEW). These were never searched/patched before, so
-	// the app's calls hit the unhooked library stub and silently no-op: the
-	// PROJECTION matrix stays identity and the MODELVIEW lacks the camera view,
-	// so all 3D world geometry transforms off-screen (renders black) while the
-	// 2D HUD -- which uses glLoadIdentity/NDC -- still appears. The native
-	// handlers (NativeGLUPerspective/LookAt/Ortho2D) and dispatch cases already
-	// exist and are correct; this table is the missing link that routes the
-	// app's GLU imports to them. Only the matrix-setup GLU calls are wired here
-	// (verified-complete handlers, consistent float-arg marshaling); other GLU
-	// entry points stay on the diagnostic path until a game needs them.
+	// GLU functions in OpenGLUtility. The 700..753 bridge has dispatch cases
+	// and native handlers for every GLU sub-opcode; install all exported names
+	// so classic games can reach quadrics, tessellation, mipmap helpers, and
+	// matrix utilities through their normal CFM imports.
 	GLSymbolEntry glu_symbols[] = {
+		{ "\015gluBeginCurve", GL_SUB_GLU_BEGINCURVE, "gluBeginCurve" },
+		{ "\017gluBeginPolygon", GL_SUB_GLU_BEGINPOLYGON, "gluBeginPolygon" },
+		{ "\017gluBeginSurface", GL_SUB_GLU_BEGINSURFACE, "gluBeginSurface" },
+		{ "\014gluBeginTrim", GL_SUB_GLU_BEGINTRIM, "gluBeginTrim" },
+		{ "\021gluBuild1DMipmaps", GL_SUB_GLU_BUILD1DMIPMAPS, "gluBuild1DMipmaps" },
+		{ "\021gluBuild2DMipmaps", GL_SUB_GLU_BUILD2DMIPMAPS, "gluBuild2DMipmaps" },
+		{ "\013gluCylinder", GL_SUB_GLU_CYLINDER, "gluCylinder" },
+		{ "\026gluDeleteNurbsRenderer", GL_SUB_GLU_DELETENURBSRENDERER, "gluDeleteNurbsRenderer" },
+		{ "\034gluDeleteNurbsTessellatorEXT", GL_SUB_GLU_DELETENURBSTESSELLATOREXT, "gluDeleteNurbsTessellatorEXT" },
+		{ "\020gluDeleteQuadric", GL_SUB_GLU_DELETEQUADRIC, "gluDeleteQuadric" },
+		{ "\015gluDeleteTess", GL_SUB_GLU_DELETETESS, "gluDeleteTess" },
+		{ "\007gluDisk", GL_SUB_GLU_DISK, "gluDisk" },
+		{ "\013gluEndCurve", GL_SUB_GLU_ENDCURVE, "gluEndCurve" },
+		{ "\015gluEndPolygon", GL_SUB_GLU_ENDPOLYGON, "gluEndPolygon" },
+		{ "\015gluEndSurface", GL_SUB_GLU_ENDSURFACE, "gluEndSurface" },
+		{ "\012gluEndTrim", GL_SUB_GLU_ENDTRIM, "gluEndTrim" },
+		{ "\016gluErrorString", GL_SUB_GLU_ERRORSTRING, "gluErrorString" },
+		{ "\023gluGetNurbsProperty", GL_SUB_GLU_GETNURBSPROPERTY, "gluGetNurbsProperty" },
+		{ "\014gluGetString", GL_SUB_GLU_GETSTRING, "gluGetString" },
+		{ "\022gluGetTessProperty", GL_SUB_GLU_GETTESSPROPERTY, "gluGetTessProperty" },
+		{ "\027gluLoadSamplingMatrices", GL_SUB_GLU_LOADSAMPLINGMATRICES, "gluLoadSamplingMatrices" },
+		{ "\011gluLookAt", GL_SUB_GLU_LOOKAT, "gluLookAt" },
+		{ "\023gluNewNurbsRenderer", GL_SUB_GLU_NEWNURBSRENDERER, "gluNewNurbsRenderer" },
+		{ "\031gluNewNurbsTessellatorEXT", GL_SUB_GLU_NEWNURBSTESSELLATOREXT, "gluNewNurbsTessellatorEXT" },
+		{ "\015gluNewQuadric", GL_SUB_GLU_NEWQUADRIC, "gluNewQuadric" },
+		{ "\012gluNewTess", GL_SUB_GLU_NEWTESS, "gluNewTess" },
+		{ "\016gluNextContour", GL_SUB_GLU_NEXTCONTOUR, "gluNextContour" },
+		{ "\020gluNurbsCallback", GL_SUB_GLU_NURBSCALLBACK, "gluNurbsCallback" },
+		{ "\027gluNurbsCallbackDataEXT", GL_SUB_GLU_NURBSCALLBACKDATAEXT, "gluNurbsCallbackDataEXT" },
+		{ "\015gluNurbsCurve", GL_SUB_GLU_NURBSCURVE, "gluNurbsCurve" },
+		{ "\020gluNurbsProperty", GL_SUB_GLU_NURBSPROPERTY, "gluNurbsProperty" },
+		{ "\017gluNurbsSurface", GL_SUB_GLU_NURBSSURFACE, "gluNurbsSurface" },
+		{ "\012gluOrtho2D", GL_SUB_GLU_ORTHO2D, "gluOrtho2D" },
+		{ "\016gluPartialDisk", GL_SUB_GLU_PARTIALDISK, "gluPartialDisk" },
 		{ "\016gluPerspective", GL_SUB_GLU_PERSPECTIVE, "gluPerspective" },
-		{ "\011gluLookAt",      GL_SUB_GLU_LOOKAT,      "gluLookAt" },
-		{ "\012gluOrtho2D",     GL_SUB_GLU_ORTHO2D,     "gluOrtho2D" },
+		{ "\015gluPickMatrix", GL_SUB_GLU_PICKMATRIX, "gluPickMatrix" },
+		{ "\012gluProject", GL_SUB_GLU_PROJECT, "gluProject" },
+		{ "\013gluPwlCurve", GL_SUB_GLU_PWLCURVE, "gluPwlCurve" },
+		{ "\022gluQuadricCallback", GL_SUB_GLU_QUADRICCALLBACK, "gluQuadricCallback" },
+		{ "\023gluQuadricDrawStyle", GL_SUB_GLU_QUADRICDRAWSTYLE, "gluQuadricDrawStyle" },
+		{ "\021gluQuadricNormals", GL_SUB_GLU_QUADRICNORMALS, "gluQuadricNormals" },
+		{ "\025gluQuadricOrientation", GL_SUB_GLU_QUADRICORIENTATION, "gluQuadricOrientation" },
+		{ "\021gluQuadricTexture", GL_SUB_GLU_QUADRICTEXTURE, "gluQuadricTexture" },
+		{ "\015gluScaleImage", GL_SUB_GLU_SCALEIMAGE, "gluScaleImage" },
+		{ "\011gluSphere", GL_SUB_GLU_SPHERE, "gluSphere" },
+		{ "\023gluTessBeginContour", GL_SUB_GLU_TESSBEGINCONTOUR, "gluTessBeginContour" },
+		{ "\023gluTessBeginPolygon", GL_SUB_GLU_TESSBEGINPOLYGON, "gluTessBeginPolygon" },
+		{ "\017gluTessCallback", GL_SUB_GLU_TESSCALLBACK, "gluTessCallback" },
+		{ "\021gluTessEndContour", GL_SUB_GLU_TESSENDCONTOUR, "gluTessEndContour" },
+		{ "\021gluTessEndPolygon", GL_SUB_GLU_TESSENDPOLYGON, "gluTessEndPolygon" },
+		{ "\015gluTessNormal", GL_SUB_GLU_TESSNORMAL, "gluTessNormal" },
+		{ "\017gluTessProperty", GL_SUB_GLU_TESSPROPERTY, "gluTessProperty" },
+		{ "\015gluTessVertex", GL_SUB_GLU_TESSVERTEX, "gluTessVertex" },
+		{ "\014gluUnProject", GL_SUB_GLU_UNPROJECT, "gluUnProject" },
 	};
 	const int num_glu = sizeof(glu_symbols) / sizeof(glu_symbols[0]);
 
@@ -2824,9 +2994,8 @@ void GLInstallHooks()
 	}
 	GL_LOG("GLInstallHooks: found %d core GL functions, %d not found", gl_found, gl_notfound);
 
-	// Search color-table extension functions without expanding the AGL context
-	// dispatch table. The next F/A-18 log should show whether OpenGLLibrary
-	// exposes these symbols, and whether palette uploads then reach gl_state.
+	// Search GL/extension functions without expanding the core AGL context
+	// dispatch table.
 	int gl_extra_found = 0, gl_extra_notfound = 0;
 	for (int i = 0; i < num_gl_extra; i++) {
 		uint32_t tvect = FindLibSymbol(gl_lib, gl_extra_symbols[i].pascal_sym);
@@ -2838,7 +3007,7 @@ void GLInstallHooks()
 			gl_extra_notfound++;
 		}
 	}
-	GL_LOG("GLInstallHooks: found %d color-table GL functions, %d not found",
+	GL_LOG("GLInstallHooks: found %d extra GL functions, %d not found",
 	       gl_extra_found, gl_extra_notfound);
 
 	// Search GLU functions. They normally live in the separate OpenGLUtility
@@ -2875,6 +3044,7 @@ void GLInstallHooks()
 
 	const uint32_t r11 = 11;
 	int patched_count = 0;
+	int synthetic_count = 0;
 
 	for (size_t i = 0; i < cached_tvects.size(); i++) {
 		uint32_t orig_tvect = cached_tvects[i].tvect;
@@ -2883,6 +3053,17 @@ void GLInstallHooks()
 
 		if (hook_tvect == 0) {
 			GL_LOG("  hook TVECT for %s (sub %d) not allocated!", cached_tvects[i].name, sub);
+			continue;
+		}
+
+		// FindLibSymbol's synthetic fallback returns our own
+		// gl_method_tvects[sub] when the guest library lacks the export.
+		// Patching it would overwrite our thunk with a branch-to-self;
+		// the synthetic TVECT already points at our dispatcher, so skip it.
+		if (orig_tvect == hook_tvect) {
+			synthetic_count++;
+			GL_LOG("  synthetic %s: TVECT 0x%08x is our own thunk, no patch needed",
+			       cached_tvects[i].name, orig_tvect);
 			continue;
 		}
 
@@ -2916,7 +3097,8 @@ void GLInstallHooks()
 		       cached_tvects[i].name, orig_code, hook_code);
 	}
 
-	GL_LOG("GLInstallHooks: patched %d functions total", patched_count);
+	GL_LOG("GLInstallHooks: patched %d real exports, %d synthetic (skipped)",
+	       patched_count, synthetic_count);
 
 	if (patched_count > 0) {
 		gl_hooks_installed = true;
@@ -3856,6 +4038,22 @@ static void FireQuadricError(GLUQuadricState *q, uint32_t error_code)
 	GL_LOG("FireQuadricError: cb=0x%08x error=%u", cb, error_code);
 }
 
+/*
+ *  Upper clamp for tessellation counts on the immediate-mode shape
+ *  generators. Classic-era titles use at most a few dozen; anything
+ *  large is either a guest bug or a mis-decoded wire argument, and an
+ *  unbounded count hangs the main==emul thread emitting geometry.
+ */
+#define GLU_TESS_COUNT_MAX 256
+static inline int32_t ClampTessCount(int32_t v, const char *what)
+{
+	if (v > GLU_TESS_COUNT_MAX) {
+		GL_LOG("quadric: clamping %s %d -> %d", what, v, GLU_TESS_COUNT_MAX);
+		return GLU_TESS_COUNT_MAX;
+	}
+	return v;
+}
+
 
 /*
  *  NativeGLUSphere(quad, radius, slices, stacks)
@@ -3873,6 +4071,8 @@ void NativeGLUSphere(GLContext *ctx, uint32_t quad_handle,
 		FireQuadricError(GLUQuadricFromHandle(quad_handle), GLU_INVALID_VALUE);
 		return;
 	}
+	slices = ClampTessCount(slices, "slices");
+	stacks = ClampTessCount(stacks, "stacks");
 
 	GLUQuadricState *q = GLUQuadricFromHandle(quad_handle);
 	bool gen_normals = (q && q->normals != GLU_NONE_);
@@ -3940,6 +4140,8 @@ void NativeGLUCylinder(GLContext *ctx, uint32_t quad_handle,
 {
 	GL_LOG("gluCylinder: base=%f top=%f height=%f slices=%d stacks=%d", base, top, height, slices, stacks);
 	if (!ctx || slices < 2 || stacks < 1) return;
+	slices = ClampTessCount(slices, "slices");
+	stacks = ClampTessCount(stacks, "stacks");
 
 	GLUQuadricState *q = GLUQuadricFromHandle(quad_handle);
 	bool gen_normals = (q && q->normals != GLU_NONE_);
@@ -4000,6 +4202,8 @@ void NativeGLUDisk(GLContext *ctx, uint32_t quad_handle,
 {
 	GL_LOG("gluDisk: inner=%f outer=%f slices=%d loops=%d", inner, outer, slices, loops);
 	if (!ctx || slices < 2 || loops < 1) return;
+	slices = ClampTessCount(slices, "slices");
+	loops  = ClampTessCount(loops, "loops");
 
 	GLUQuadricState *q = GLUQuadricFromHandle(quad_handle);
 	bool gen_normals = (q && q->normals != GLU_NONE_);
@@ -4051,6 +4255,8 @@ void NativeGLUPartialDisk(GLContext *ctx, uint32_t quad_handle,
 	GL_LOG("gluPartialDisk: inner=%f outer=%f slices=%d loops=%d start=%f sweep=%f",
 	       inner, outer, slices, loops, start, sweep);
 	if (!ctx || slices < 2 || loops < 1) return;
+	slices = ClampTessCount(slices, "slices");
+	loops  = ClampTessCount(loops, "loops");
 
 	GLUQuadricState *q = GLUQuadricFromHandle(quad_handle);
 	bool gen_normals = (q && q->normals != GLU_NONE_);
@@ -5921,6 +6127,8 @@ void NativeGLUTSolidTorus(GLContext *ctx, double innerRadius, double outerRadius
 {
 	GL_LOG("glutSolidTorus: inner=%f outer=%f sides=%d rings=%d", innerRadius, outerRadius, sides, rings);
 	if (!ctx || sides < 3 || rings < 3) return;
+	sides = ClampTessCount(sides, "sides");
+	rings = ClampTessCount(rings, "rings");
 
 	float ir = (float)innerRadius, or_ = (float)outerRadius;
 
@@ -5957,6 +6165,8 @@ void NativeGLUTWireTorus(GLContext *ctx, double innerRadius, double outerRadius,
 {
 	GL_LOG("glutWireTorus: inner=%f outer=%f sides=%d rings=%d", innerRadius, outerRadius, sides, rings);
 	if (!ctx || sides < 3 || rings < 3) return;
+	sides = ClampTessCount(sides, "sides");
+	rings = ClampTessCount(rings, "rings");
 
 	float ir = (float)innerRadius, or_ = (float)outerRadius;
 

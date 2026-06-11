@@ -43,7 +43,9 @@ extern uint32 Mac_sysalloc(uint32 size);
  *  Maps uint32 handles (1-based) to native RaveDrawPrivate pointers.
  *  Max 8 simultaneous contexts (games typically use 1-2).
  */
+#ifndef RAVE_MAX_CONTEXTS
 #define RAVE_MAX_CONTEXTS 8
+#endif
 
 static RaveDrawPrivate *context_table[RAVE_MAX_CONTEXTS] = {};
 static uint32_t next_handle = 1;

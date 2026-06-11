@@ -25,7 +25,6 @@
 #include "nqd_main_device_policy.h"
 #include "nqd_packed_fill_policy.h"
 #include "metal_device_shared.h"
-#include "gfxaccel_resources_heap.h"
 
 // ---------------------------------------------------------------------------
 // Diagnostic logging
@@ -70,10 +69,11 @@ static struct NQDLogInit {
 // The DSp back-buffer lives in a SEPARATE MTLBuffer allocated out of
 // kHeapCompositor — it is NOT in nqd_ram_buffer, so an NQD op
 // targeting the DSp back-buffer can never reach this file. Every NQD
-// op that does reach us targets the emulator's main framebuffer
-// (the_buffer — also the MTLBuffer the compositor_texture is a view
-// over) or an app-owned offscreen pixmap in guest RAM. Writes to
-// either are SAFE regardless of DSp owner state:
+// op that reaches us targets either the emulator's visible framebuffer
+// (the_buffer — host-side memory wrapped by the compositor texture) or an
+// app-owned offscreen pixmap in guest RAM. Screen-visible NQD ops are still
+// CPU-handled; Metal acceleration covers offscreen/redirected destinations.
+// Writes to either path are SAFE regardless of DSp owner state:
 //   - main framebuffer writes: visible via MetalCompositorPresent
 //     (compositor_texture is a zero-copy view over the_buffer) until
 //     a DSp SwapBuffers blit overwrites them. Well-behaved DSp apps
@@ -304,8 +304,8 @@ struct NQDBitbltUniforms {
     uint32_t transfer_mode;
     uint32_t pixel_size;     // bytes per pixel (1, 2, or 4)
     uint32_t width_pixels;   // width in pixels (for arithmetic/hilite modes)
-    uint32_t fore_pen;       // foreground pen color (big-endian packed)
-    uint32_t back_pen;       // background pen color (big-endian packed)
+    uint32_t fore_pen;       // 8/16/32bpp logical pixel; 1/2/4bpp htonl-packed pen
+    uint32_t back_pen;       // 8/16/32bpp logical pixel; 1/2/4bpp htonl-packed pen
     uint32_t hilite_color;   // HiliteRGB packed to pixel depth
     uint32_t mask_enabled;   // 1 = mask gating active, 0 = no mask
     uint32_t mask_offset;    // byte offset into mask_buffer where mask data starts
@@ -351,13 +351,13 @@ struct NQDFillRectUniforms {
     int32_t  row_bytes;
     uint32_t width_bytes;
     uint32_t height;
-    uint32_t fill_color;     // 32-bit fill pattern (fore or back pen, htonl'd)
+    uint32_t fill_color;     // fill pixel/index pattern, logical at standard depths
     uint32_t bpp;            // bytes per pixel (1, 2, or 4)
     uint32_t transfer_mode;  // pen mode: 8-15 (Boolean), 32-39 (arithmetic), 50 (hilite)
     uint32_t pixel_size;     // bytes per pixel (same as bpp)
     uint32_t width_pixels;   // width in pixels (for arithmetic/hilite per-pixel dispatch)
-    uint32_t fore_pen;       // foreground pen color (big-endian packed)
-    uint32_t back_pen;       // background pen color (big-endian packed)
+    uint32_t fore_pen;       // 8/16/32bpp logical pixel; 1/2/4bpp htonl-packed pen
+    uint32_t back_pen;       // 8/16/32bpp logical pixel; 1/2/4bpp htonl-packed pen
     uint32_t hilite_color;   // HiliteRGB packed to pixel depth
     uint32_t mask_enabled;   // 1 = mask gating active, 0 = no mask
     uint32_t mask_offset;    // byte offset into mask_buffer where mask data starts
@@ -370,6 +370,13 @@ struct NQDFillRectUniforms {
     uint32_t blend_weight_g;
     uint32_t blend_weight_b;
 };
+
+static inline uint32_t nqd_uniform_pen_for_depth(uint32_t logical_pen, uint32_t bits_per_pixel)
+{
+    // Standard-depth kernels compare against nqd_read_pixel()'s logical value.
+    // Packed kernels extract the Mac pen LSByte from an htonl-packed word.
+    return (bits_per_pixel < 8) ? htonl(logical_pen) : logical_pen;
+}
 
 // ---------------------------------------------------------------------------
 // Helper: read OpColor blend weight from Mac low-memory 0x0A28.
@@ -797,6 +804,134 @@ static inline uint32_t nqd_packed_byte_offset(int x, uint32_t pixel_size_bits)
         case 32: return (uint32_t)(x * 4);
         default: return (uint32_t)x;
     }
+}
+
+static bool nqd_resolve_rect_extent(const char *op_name,
+                                    const char *label,
+                                    uint32 base,
+                                    int32 row_bytes,
+                                    int x,
+                                    int y,
+                                    int width,
+                                    int height,
+                                    uint32_t bits_per_pixel,
+                                    uint32_t *out_offset)
+{
+    if (width <= 0 || height <= 0) return false;
+    if (x < 0 || y < 0) {
+        NQD_ERR("%s: %s negative rect origin x=%d y=%d",
+                op_name, label, x, y);
+        return false;
+    }
+    if (base < RAMBase) {
+        NQD_ERR("%s: %s base 0x%08x below RAMBase 0x%08x",
+                op_name, label, base, RAMBase);
+        return false;
+    }
+
+    uint64_t base_offset = (uint64_t)(base - RAMBase);
+    if (base_offset >= (uint64_t)nqd_ram_size) {
+        NQD_ERR("%s: %s base 0x%08x outside mapped RAM size=%llu",
+                op_name, label, base,
+                (unsigned long long)nqd_ram_size);
+        return false;
+    }
+
+    uint64_t x_offset = (uint64_t)nqd_packed_byte_offset(x, bits_per_pixel);
+    uint64_t row_width = (uint64_t)nqd_packed_width_bytes(width, bits_per_pixel);
+    if (row_width == 0 || row_width > (uint64_t)INT64_MAX) {
+        NQD_ERR("%s: %s invalid row width=%llu",
+                op_name, label, (unsigned long long)row_width);
+        return false;
+    }
+
+    int64_t origin = (int64_t)base_offset +
+                     (int64_t)y * (int64_t)row_bytes +
+                     (int64_t)x_offset;
+    int64_t last_row = origin +
+                       (int64_t)(height - 1) * (int64_t)row_bytes;
+    int64_t lo = (row_bytes >= 0) ? origin : last_row;
+    int64_t hi_row = (row_bytes >= 0) ? last_row : origin;
+    int64_t hi = hi_row + (int64_t)row_width;
+
+    if (origin < 0 || lo < 0 || hi < lo ||
+        (uint64_t)hi > (uint64_t)nqd_ram_size) {
+        NQD_ERR("%s: %s rect extent OOB base=0x%08x rowBytes=%d "
+                "rect=(%d,%d %dx%d) bits=%u range=[%lld,%lld) ram=%llu",
+                op_name, label, base, row_bytes, x, y, width, height,
+                bits_per_pixel, (long long)lo, (long long)hi,
+                (unsigned long long)nqd_ram_size);
+        return false;
+    }
+
+    if (out_offset) *out_offset = (uint32_t)origin;
+    return true;
+}
+
+static bool nqd_abs_row_bytes_checked(int32 row_bytes, int32 *out_row_bytes)
+{
+    int64_t value = (row_bytes < 0) ? -(int64_t)row_bytes : (int64_t)row_bytes;
+    if (value > (int64_t)INT32_MAX) return false;
+    if (out_row_bytes) *out_row_bytes = (int32)value;
+    return true;
+}
+
+static inline bool nqd_same_surface_rects_overlap(uint32_t src_base,
+                                                  int32_t src_row_bytes,
+                                                  uint32_t src_pixel_size,
+                                                  int src_X,
+                                                  int src_Y,
+                                                  uint32_t dest_base,
+                                                  int32_t dest_row_bytes,
+                                                  uint32_t dest_pixel_size,
+                                                  int dest_X,
+                                                  int dest_Y,
+                                                  int width,
+                                                  int height)
+{
+    if (src_base != dest_base) return false;
+    if (src_row_bytes != dest_row_bytes) return false;
+    if (src_row_bytes <= 0) return false;
+    if (src_pixel_size != dest_pixel_size) return false;
+    if (src_X == dest_X && src_Y == dest_Y) return false;
+
+    return dest_X < src_X + width &&
+           src_X < dest_X + width &&
+           dest_Y < src_Y + height &&
+           src_Y < dest_Y + height;
+}
+
+// ---------------------------------------------------------------------------
+// NQDMetalBitbltSameSurfaceOverlap — hook-side overlap probe.
+//
+// Reads the bitblt accl_params at p (same packet decode as NQDMetalBitblt)
+// and reports whether src and dest describe overlapping rects on the same
+// surface. NQD_bitblt_hook uses this to decline the overlap families the
+// GPU path cannot order — packed-depth Boolean and arithmetic/hilite — to
+// software QuickDraw: the nqd_bitblt kernel is one flat unordered dispatch,
+// and only the standard-depth Boolean family diverts same-surface overlaps
+// to the ordered CPU scratch path inside NQDMetalBitblt (NQD-02).
+// ---------------------------------------------------------------------------
+
+bool NQDMetalBitbltSameSurfaceOverlap(uint32 p)
+{
+    int16 src_X  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 2) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 2);
+    int16 src_Y  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 0) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 0);
+    int16 dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
+    int16 dest_Y = (int16)ReadMacInt16(p + NQD_acclDestRect + 0) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
+    int16 width  = (int16)ReadMacInt16(p + NQD_acclDestRect + 6) - (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
+    int16 height = (int16)ReadMacInt16(p + NQD_acclDestRect + 4) - (int16)ReadMacInt16(p + NQD_acclDestRect + 0);
+    if (width <= 0 || height <= 0) return false;
+
+    return nqd_same_surface_rects_overlap(ReadMacInt32(p + NQD_acclSrcBaseAddr),
+                                          (int32)ReadMacInt32(p + NQD_acclSrcRowBytes),
+                                          ReadMacInt32(p + NQD_acclSrcPixelSize),
+                                          src_X, src_Y,
+                                          ReadMacInt32(p + NQD_acclDestBaseAddr),
+                                          (int32)ReadMacInt32(p + NQD_acclDestRowBytes),
+                                          ReadMacInt32(p + NQD_acclDestPixelSize),
+                                          dest_X, dest_Y,
+                                          width, height);
 }
 
 // ---------------------------------------------------------------------------
@@ -1314,15 +1449,11 @@ static void nqd_ensure_mask_buffer(NSUInteger needed)
     if (nqd_mask_buffer && nqd_mask_buffer_size >= needed) return;
     // Round up to 4 KB granularity for reuse
     NSUInteger alloc_size = (needed + 4095) & ~(NSUInteger)4095;
-    nqd_mask_buffer = (__bridge_transfer id<MTLBuffer>)
-        gfxaccel_resources_heap_alloc_buffer(kHeapEngineNQD,
-                                             (uint32_t)alloc_size,
-                                             MTLResourceStorageModeShared);
+    nqd_mask_buffer = [nqd_device newBufferWithLength:alloc_size
+                                              options:MTLResourceStorageModeShared];
     if (!nqd_mask_buffer) {
-        NQD_ERR("heap alloc failed for mask buffer (%lu bytes); falling back to device alloc",
+        NQD_ERR("device alloc failed for mask buffer (%lu bytes)",
                 (unsigned long)alloc_size);
-        nqd_mask_buffer = [nqd_device newBufferWithLength:alloc_size
-                                                  options:MTLResourceStorageModeShared];  // heap-exempt: startup fallback
     }
     nqd_mask_buffer_size = alloc_size;
     NQD_LOG("nqd_ensure_mask_buffer: allocated %lu bytes", (unsigned long)alloc_size);
@@ -1332,16 +1463,43 @@ static void nqd_ensure_mask_buffer(NSUInteger needed)
 // nqd_decode_region — QuickDraw Region to 1-byte-per-cell bitmap
 //
 // Takes a Mac address pointing to a QuickDraw Region, the destination rect
-// dimensions (for coordinate mapping), and an output buffer pointer + size.
+// origin/dimensions (for coordinate mapping), and an output buffer pointer +
+// size.
 // Returns true on success. The output bitmap is 1 byte per cell where 1 means
 // "inside region" and 0 means "outside".
 //
-// For mask_width: this is either width_bytes (Boolean modes) or width_pixels
-// (arithmetic modes). The caller provides the correct stride.
+// mask_stride is either width_pixels (standard-depth Boolean and all
+// pixel-mode arithmetic/hilite paths) or width_bytes (packed Boolean paths).
 // ---------------------------------------------------------------------------
 
-static bool nqd_decode_region(uint32 rgn_addr, int dest_width, int dest_height,
-                               uint8_t *out_mask, NSUInteger mask_size)
+static inline void nqd_set_mask_pixel(uint8_t *out_mask,
+                                      int mask_row,
+                                      int pixel_col,
+                                      int width_pixels,
+                                      int dest_height,
+                                      int mask_stride,
+                                      uint32_t bits_per_pixel,
+                                      bool pixel_mask_columns)
+{
+    if (mask_row < 0 || mask_row >= dest_height) return;
+    if (pixel_col < 0 || pixel_col >= width_pixels) return;
+    int mask_col = pixel_mask_columns
+        ? pixel_col
+        : (int)nqd_packed_byte_offset(pixel_col, bits_per_pixel);
+    if (mask_col < 0 || mask_col >= mask_stride) return;
+    out_mask[mask_row * mask_stride + mask_col] = 1;
+}
+
+static bool nqd_decode_region(uint32 rgn_addr,
+                              int rect_left,
+                              int rect_top,
+                              int width_pixels,
+                              int dest_height,
+                              int mask_stride,
+                              uint32_t bits_per_pixel,
+                              bool pixel_mask_columns,
+                              uint8_t *out_mask,
+                              NSUInteger mask_size)
 {
     if (rgn_addr == 0) {
         NQD_ERR("nqd_decode_region: null region address");
@@ -1368,29 +1526,44 @@ static bool nqd_decode_region(uint32 rgn_addr, int dest_width, int dest_height,
 
     int rgn_width  = bbox_right - bbox_left;
 
-    NQD_VLOG("nqd_decode_region: rgnSize=%u bbox=(%d,%d,%d,%d) dest=%dx%d",
+    NQD_VLOG("nqd_decode_region: rgnSize=%u bbox=(%d,%d,%d,%d) rect=(%d,%d %dx%d) stride=%d pixelMask=%u",
              rgnSize, bbox_top, bbox_left, bbox_bottom, bbox_right,
-             dest_width, dest_height);
+             rect_left, rect_top, width_pixels, dest_height, mask_stride,
+             pixel_mask_columns ? 1u : 0u);
 
     // Ensure output buffer is large enough
-    NSUInteger needed = (NSUInteger)(dest_width * dest_height);
+    NSUInteger needed = (NSUInteger)(mask_stride * dest_height);
     if (needed > mask_size) {
         NQD_ERR("nqd_decode_region: mask_size %lu < needed %lu",
                 (unsigned long)mask_size, (unsigned long)needed);
         return false;
     }
 
-    // Rectangular region (rgnSize == 10): fill all 1s (region = bbox = dest rect)
+    memset(out_mask, 0, needed);
+
+    // Rectangular region: fill the intersection of bbox and destination rect.
     if (rgnSize == 10) {
-        NQD_VLOG("nqd_decode_region: rectangular region — filling all 1s");
-        memset(out_mask, 1, needed);
+        int top = (bbox_top > rect_top) ? bbox_top : rect_top;
+        int bottom = (bbox_bottom < rect_top + dest_height)
+            ? bbox_bottom
+            : rect_top + dest_height;
+        int left = (bbox_left > rect_left) ? bbox_left : rect_left;
+        int right = (bbox_right < rect_left + width_pixels)
+            ? bbox_right
+            : rect_left + width_pixels;
+        for (int row = top; row < bottom; row++) {
+            int mask_row = row - rect_top;
+            for (int x = left; x < right; x++) {
+                nqd_set_mask_pixel(out_mask, mask_row, x - rect_left,
+                                   width_pixels, dest_height, mask_stride,
+                                   bits_per_pixel, pixel_mask_columns);
+            }
+        }
+        NQD_VLOG("nqd_decode_region: rectangular region decoded");
         return true;
     }
 
     // Complex region: decode RLE scanline data
-    // Initialize mask to all 0s; we'll set 1s for inside pixels
-    memset(out_mask, 0, needed);
-
     // Scanline state: tracks which columns are "inside" the region.
     // The region scanline data works by inversion: each h-point toggles inside/outside.
     // State persists across scanlines (running state).
@@ -1417,11 +1590,14 @@ static bool nqd_decode_region(uint32 rgn_addr, int dest_width, int dest_height,
 
         // Fill mask rows from prev_v to v_coord using current col_state
         for (int row = prev_v; row < v_coord; row++) {
-            int mask_row = row - bbox_top;
-            if (mask_row < 0 || mask_row >= dest_height) continue;
-            for (int c = 0; c < max_cols && c < dest_width; c++) {
+            int mask_row = row - rect_top;
+            for (int c = 0; c < max_cols; c++) {
                 if (col_state[c]) {
-                    out_mask[mask_row * dest_width + c] = 1;
+                    nqd_set_mask_pixel(out_mask, mask_row,
+                                       (bbox_left + c) - rect_left,
+                                       width_pixels, dest_height,
+                                       mask_stride, bits_per_pixel,
+                                       pixel_mask_columns);
                 }
             }
         }
@@ -1455,11 +1631,14 @@ static bool nqd_decode_region(uint32 rgn_addr, int dest_width, int dest_height,
 
     // Fill remaining rows from prev_v to bbox_bottom
     for (int row = prev_v; row < bbox_bottom; row++) {
-        int mask_row = row - bbox_top;
-        if (mask_row < 0 || mask_row >= dest_height) continue;
-        for (int c = 0; c < max_cols && c < dest_width; c++) {
+        int mask_row = row - rect_top;
+        for (int c = 0; c < max_cols; c++) {
             if (col_state[c]) {
-                out_mask[mask_row * dest_width + c] = 1;
+                nqd_set_mask_pixel(out_mask, mask_row,
+                                   (bbox_left + c) - rect_left,
+                                   width_pixels, dest_height,
+                                   mask_stride, bits_per_pixel,
+                                   pixel_mask_columns);
             }
         }
     }
@@ -1503,10 +1682,14 @@ void NQDMetalBltMask(uint32 p)
     uint32 dest_base = ReadMacInt32(p + NQD_acclDestBaseAddr);
     int32 src_row_bytes = (int32)ReadMacInt32(p + NQD_acclSrcRowBytes);
     int32 dest_row_bytes = (int32)ReadMacInt32(p + NQD_acclDestRowBytes);
+    int32 src_effective_row_bytes = 0;
+    int32 dest_effective_row_bytes = 0;
+    uint32_t src_offset = 0;
+    uint32_t dst_offset = 0;
 
     uint32_t transfer_mode = ReadMacInt32(p + NQD_acclTransferMode);
-    uint32_t fore_pen = htonl(ReadMacInt32(p + NQD_acclForePen));
-    uint32_t back_pen = htonl(ReadMacInt32(p + NQD_acclBackPen));
+    uint32_t fore_pen = nqd_uniform_pen_for_depth(ReadMacInt32(p + NQD_acclForePen), src_pixel_size);
+    uint32_t back_pen = nqd_uniform_pen_for_depth(ReadMacInt32(p + NQD_acclBackPen), src_pixel_size);
     uint32_t hilite_color = (transfer_mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
 
     bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
@@ -1516,14 +1699,37 @@ void NQDMetalBltMask(uint32 p)
     NQD_VLOG("NQDMetalBltMask: mask_rgn_addr=0x%08x mode=%d %dx%d bpp=%d bits_per_pixel=%u",
              mask_rgn_addr, transfer_mode, width, height, bpp, src_pixel_size);
 
-    // Determine mask stride based on mode
-    uint32_t mask_stride = pixel_mode ? width_pixels : width_bytes;
+    if (!nqd_abs_row_bytes_checked(src_row_bytes, &src_effective_row_bytes) ||
+        !nqd_abs_row_bytes_checked(dest_row_bytes, &dest_effective_row_bytes)) {
+        NQD_ERR("NQDMetalBltMask: invalid rowBytes src=%d dest=%d",
+                src_row_bytes, dest_row_bytes);
+        return;
+    }
+    if (!nqd_resolve_rect_extent("NQDMetalBltMask", "src",
+                                  src_base, src_effective_row_bytes,
+                                  src_X, src_Y, width, height,
+                                  src_pixel_size, &src_offset) ||
+        !nqd_resolve_rect_extent("NQDMetalBltMask", "dest",
+                                  dest_base, dest_effective_row_bytes,
+                                  dest_X, dest_Y, width, height,
+                                  src_pixel_size, &dst_offset)) {
+        return;
+    }
+
+    // Standard-depth Boolean byte shaders map byte columns back to pixels;
+    // packed Boolean keeps the existing coarse byte-column mask until packed
+    // sub-byte ops are declined/fixed separately.
+    bool pixel_mask_columns = pixel_mode || src_pixel_size >= 8;
+    uint32_t mask_stride = pixel_mask_columns ? width_pixels : width_bytes;
     NSUInteger mask_size = (NSUInteger)(mask_stride * (uint32)height);
 
     // Allocate mask bitmap on CPU, decode region
     std::vector<uint8_t> cpu_mask(mask_size, 0);
-    if (!nqd_decode_region(mask_rgn_addr, (int)mask_stride, (int)height,
-                            cpu_mask.data(), mask_size)) {
+    if (!nqd_decode_region(mask_rgn_addr, dest_X, dest_Y,
+                            (int)width_pixels, (int)height,
+                            (int)mask_stride, src_pixel_size,
+                            pixel_mask_columns, cpu_mask.data(),
+                            mask_size)) {
         NQD_ERR("NQDMetalBltMask: region decode failed, skipping");
         return;
     }
@@ -1532,18 +1738,11 @@ void NQDMetalBltMask(uint32 p)
     nqd_ensure_mask_buffer(mask_size);
     memcpy([nqd_mask_buffer contents], cpu_mask.data(), mask_size);
 
-    // Compute offsets
-    uint8 *ram_base = nqd_ram_base;
-    uint8 *src_ptr = Mac2HostAddr(src_base) + (src_Y * abs(src_row_bytes)) + nqd_packed_byte_offset(src_X, src_pixel_size);
-    uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * abs(dest_row_bytes)) + nqd_packed_byte_offset(dest_X, src_pixel_size);
-    uint32_t src_offset = (uint32_t)(src_ptr - ram_base);
-    uint32_t dst_offset = (uint32_t)(dst_ptr - ram_base);
-
     NQDBitbltUniforms uniforms;
     uniforms.src_offset    = src_offset;
     uniforms.dst_offset    = dst_offset;
-    uniforms.src_row_bytes = abs(src_row_bytes);
-    uniforms.dst_row_bytes = abs(dest_row_bytes);
+    uniforms.src_row_bytes = src_effective_row_bytes;
+    uniforms.dst_row_bytes = dest_effective_row_bytes;
     uniforms.width_bytes   = width_bytes;
     uniforms.height        = (uint32_t)height;
     uniforms.transfer_mode = transfer_mode;
@@ -1621,13 +1820,14 @@ void NQDMetalFillMask(uint32 p)
     if (pixel_size < 8) bpp = 1;  // packed depths: byte-level ops
     int32 dest_row_bytes = (int32)ReadMacInt32(p + NQD_acclDestRowBytes);
     uint32 dest_base = ReadMacInt32(p + NQD_acclDestBaseAddr);
+    uint32_t dst_offset = 0;
 
     uint32_t transfer_mode = ReadMacInt32(p + NQD_acclTransferMode);
     uint32_t pen_mode = ReadMacInt32(p + NQD_acclPenMode);
-    uint32_t fore_pen = htonl(ReadMacInt32(p + NQD_acclForePen));
-    uint32_t back_pen = htonl(ReadMacInt32(p + NQD_acclBackPen));
     uint32_t fore_pen_native = ReadMacInt32(p + NQD_acclForePen);
     uint32_t back_pen_native = ReadMacInt32(p + NQD_acclBackPen);
+    uint32_t fore_pen = nqd_uniform_pen_for_depth(fore_pen_native, pixel_size);
+    uint32_t back_pen = nqd_uniform_pen_for_depth(back_pen_native, pixel_size);
     uint32_t fill_color = (pen_mode == 8) ? fore_pen_native : back_pen_native;
 
     uint32 width_bytes = nqd_packed_width_bytes(width, pixel_size);
@@ -1641,14 +1841,27 @@ void NQDMetalFillMask(uint32 p)
     NQD_VLOG("NQDMetalFillMask: mask_rgn_addr=0x%08x mode=%d %dx%d bpp=%d bits_per_pixel=%u",
              mask_rgn_addr, transfer_mode, width, height, bpp, pixel_size);
 
-    // Determine mask stride based on mode
-    uint32_t mask_stride = pixel_mode ? width_pixels : width_bytes;
+    if (!nqd_resolve_rect_extent("NQDMetalFillMask", "dest",
+                                  dest_base, dest_row_bytes,
+                                  dest_X, dest_Y, width, height,
+                                  pixel_size, &dst_offset)) {
+        return;
+    }
+
+    // Standard-depth Boolean byte shaders map byte columns back to pixels;
+    // packed Boolean keeps the existing coarse byte-column mask until packed
+    // sub-byte ops are declined/fixed separately.
+    bool pixel_mask_columns = pixel_mode || pixel_size >= 8;
+    uint32_t mask_stride = pixel_mask_columns ? width_pixels : width_bytes;
     NSUInteger mask_size = (NSUInteger)(mask_stride * (uint32)height);
 
     // Allocate mask bitmap on CPU, decode region
     std::vector<uint8_t> cpu_mask(mask_size, 0);
-    if (!nqd_decode_region(mask_rgn_addr, (int)mask_stride, (int)height,
-                            cpu_mask.data(), mask_size)) {
+    if (!nqd_decode_region(mask_rgn_addr, dest_X, dest_Y,
+                            (int)width_pixels, (int)height,
+                            (int)mask_stride, pixel_size,
+                            pixel_mask_columns, cpu_mask.data(),
+                            mask_size)) {
         NQD_ERR("NQDMetalFillMask: region decode failed, skipping");
         return;
     }
@@ -1656,11 +1869,6 @@ void NQDMetalFillMask(uint32 p)
     // Copy mask into GPU buffer
     nqd_ensure_mask_buffer(mask_size);
     memcpy([nqd_mask_buffer contents], cpu_mask.data(), mask_size);
-
-    // Compute offset
-    uint8 *ram_base = nqd_ram_base;
-    uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + nqd_packed_byte_offset(dest_X, pixel_size);
-    uint32_t dst_offset = (uint32_t)(dst_ptr - ram_base);
 
     NQDFillRectUniforms uniforms;
     uniforms.dst_offset    = dst_offset;
@@ -1930,17 +2138,54 @@ void NQDMetalBitblt(uint32 p)
         return;
     }
 
-    if (transfer_mode <= 7 && src_pixel_size >= 8 && total_pixels < NQD_CPU_THRESHOLD_PIXELS) {
+    const bool same_surface_overlap =
+        nqd_same_surface_rects_overlap(src_base,
+                                       src_row_bytes,
+                                       src_pixel_size,
+                                       src_X,
+                                       src_Y,
+                                       dest_base,
+                                       dest_row_bytes,
+                                       dest_pixel_size,
+                                       dest_X,
+                                       dest_Y,
+                                       width,
+                                       height);
+
+    if (transfer_mode <= 7 && src_pixel_size >= 8 &&
+        (total_pixels < NQD_CPU_THRESHOLD_PIXELS || same_surface_overlap)) {
         // Boolean bitblt modes, small rect, standard depth — CPU is faster.
+        // Same-surface overlaps also need CPU ordering: the GPU path is a
+        // flat dispatch, while QuickDraw observes sequential source pixels.
+        // The other dispatch families (packed-depth Boolean and
+        // arithmetic/hilite) never reach the Metal path with a same-surface
+        // overlap: NQD_bitblt_hook probes NQDMetalBitbltSameSurfaceOverlap()
+        // and declines those to software QuickDraw.
         NQDMetalFlush();  // ensure any pending GPU writes are visible to CPU
         uint8 *src_ptr = Mac2HostAddr(src_base) + (src_Y * src_row_bytes) + (src_X * bpp);
         uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + (dest_X * bpp);
         int op_bytes = width * bpp;
+        int cpu_src_row_bytes = src_row_bytes;
+        std::vector<uint8_t> overlap_scratch;
+        if (same_surface_overlap) {
+            overlap_scratch.resize((size_t)op_bytes * (size_t)height);
+            for (int row = 0; row < height; row++) {
+                memcpy(&overlap_scratch[(size_t)row * (size_t)op_bytes],
+                       src_ptr + row * src_row_bytes,
+                       (size_t)op_bytes);
+            }
+            src_ptr = overlap_scratch.data();
+            cpu_src_row_bytes = op_bytes;
+            NQD_VLOG("NQDMetalBitblt: CPU scratch for overlapping same-surface "
+                     "blit src=(%d,%d) dst=(%d,%d) %dx%d bits=%u mode=%u",
+                     src_X, src_Y, dest_X, dest_Y, width, height,
+                     src_pixel_size, transfer_mode);
+        }
         if (transfer_mode == 0) {
             // srcCopy — plain memmove
             for (int row = 0; row < height; row++) {
                 memmove(dst_ptr, src_ptr, op_bytes);
-                src_ptr += src_row_bytes;
+                src_ptr += cpu_src_row_bytes;
                 dst_ptr += dest_row_bytes;
             }
         } else {
@@ -1959,7 +2204,7 @@ void NQDMetalBitblt(uint32 p)
                         case 7: dst_ptr[b] = s & d;       break; // notSrcBic
                     }
                 }
-                src_ptr += src_row_bytes;
+                src_ptr += cpu_src_row_bytes;
                 dst_ptr += dest_row_bytes;
             }
         }
@@ -1979,18 +2224,32 @@ void NQDMetalBitblt(uint32 p)
     // Metal batched path — forward blit, single dispatch covering all rows
     // -----------------------------------------------------------------------
 
-    uint32_t fore_pen = htonl(ReadMacInt32(p + NQD_acclForePen));
-    uint32_t back_pen = htonl(ReadMacInt32(p + NQD_acclBackPen));
+    uint32_t fore_pen = nqd_uniform_pen_for_depth(ReadMacInt32(p + NQD_acclForePen), src_pixel_size);
+    uint32_t back_pen = nqd_uniform_pen_for_depth(ReadMacInt32(p + NQD_acclBackPen), src_pixel_size);
     uint32_t hilite_color = (transfer_mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
     bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
-
-    uint8 *ram_base = nqd_ram_base;
-    uint8 *src_ptr = Mac2HostAddr(src_base) + (src_Y * src_row_bytes) + nqd_packed_byte_offset(src_X, src_pixel_size);
-    uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + nqd_packed_byte_offset(dest_X, src_pixel_size);
+    uint32_t src_offset = 0;
+    uint32_t dst_offset = 0;
+    // Both extents are validated at the SOURCE depth: the nqd_bitblt kernel
+    // addresses dst with the same src-derived byte span it reads (width_bytes
+    // and the per-pixel column stride both come from src_pixel_size), so the
+    // dest clamp must cover exactly that span (mirrors NQDMetalBltMask).
+    // After MainDevice depth coercion src/dest depths can diverge; validating
+    // dest at dest_pixel_size would under-bound the kernel's writes.
+    if (!nqd_resolve_rect_extent("NQDMetalBitblt", "src",
+                                  src_base, src_row_bytes,
+                                  src_X, src_Y, width, height,
+                                  src_pixel_size, &src_offset) ||
+        !nqd_resolve_rect_extent("NQDMetalBitblt", "dest",
+                                  dest_base, dest_row_bytes,
+                                  dest_X, dest_Y, width, height,
+                                  src_pixel_size, &dst_offset)) {
+        return;
+    }
 
     NQDBitbltUniforms uniforms;
-    uniforms.src_offset    = (uint32_t)(src_ptr - ram_base);
-    uniforms.dst_offset    = (uint32_t)(dst_ptr - ram_base);
+    uniforms.src_offset    = src_offset;
+    uniforms.dst_offset    = dst_offset;
     uniforms.src_row_bytes = src_row_bytes;
     uniforms.dst_row_bytes = dest_row_bytes;
     uniforms.width_bytes   = width_bytes;
@@ -2306,10 +2565,10 @@ extern "C" void NQDMetalFillRect_WithHost(void *accl_params_host)
     // (transfer_mode 8-15, total < 4096 px) dereferences Mac2HostAddr
     // which the caller has already sidestepped by setting
     // transfer_mode=0 via PSFakeMacRAM_WriteAcclParamsFillRect.
-    uint32_t fore_pen        = htonl(r32(ph, NQD_acclForePen));
-    uint32_t back_pen        = htonl(r32(ph, NQD_acclBackPen));
     uint32_t fore_pen_native = r32(ph, NQD_acclForePen);
     uint32_t back_pen_native = r32(ph, NQD_acclBackPen);
+    uint32_t fore_pen        = nqd_uniform_pen_for_depth(fore_pen_native, pixel_size);
+    uint32_t back_pen        = nqd_uniform_pen_for_depth(back_pen_native, pixel_size);
     uint32_t fill_color      = (pen_mode == 8) ? fore_pen_native : back_pen_native;
 
     uint32 width_bytes  = nqd_packed_width_bytes(width, pixel_size);
@@ -2432,8 +2691,8 @@ extern "C" void NQDMetalBitblt_WithHost(void *accl_params_host)
     int32 dest_row_bytes = (int32)r32(ph, NQD_acclDestRowBytes);
 
     uint32_t transfer_mode = r32(ph, NQD_acclTransferMode);
-    uint32_t fore_pen      = htonl(r32(ph, NQD_acclForePen));
-    uint32_t back_pen      = htonl(r32(ph, NQD_acclBackPen));
+    uint32_t fore_pen      = nqd_uniform_pen_for_depth(r32(ph, NQD_acclForePen), src_pixel_size);
+    uint32_t back_pen      = nqd_uniform_pen_for_depth(r32(ph, NQD_acclBackPen), src_pixel_size);
     // Mirror the production NQDMetalBitblt path: mode 50 (hilite) must pack the
     // HiliteRGB to pixel depth so the kernel sees the real highlight colour.
     // Safe under EMULATED_PPC=0 because nqd_pack_hilite_color()'s raw lowmem
@@ -2660,10 +2919,10 @@ void NQDMetalFillRect(uint32 p)
     // Metal batched path
     // -----------------------------------------------------------------------
 
-    uint32_t fore_pen = htonl(ReadMacInt32(p + NQD_acclForePen));
-    uint32_t back_pen = htonl(ReadMacInt32(p + NQD_acclBackPen));
     uint32_t fore_pen_native = ReadMacInt32(p + NQD_acclForePen);
     uint32_t back_pen_native = ReadMacInt32(p + NQD_acclBackPen);
+    uint32_t fore_pen = nqd_uniform_pen_for_depth(fore_pen_native, pixel_size);
+    uint32_t back_pen = nqd_uniform_pen_for_depth(back_pen_native, pixel_size);
     uint32_t fill_color = (pen_mode == 8) ? fore_pen_native : back_pen_native;
 
     uint32 width_bytes = nqd_packed_width_bytes(width, pixel_size);
@@ -2671,10 +2930,13 @@ void NQDMetalFillRect(uint32 p)
 
     uint32_t hilite_color = (transfer_mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
     bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
-
-    uint8 *ram_base = nqd_ram_base;
-    uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + nqd_packed_byte_offset(dest_X, pixel_size);
-    uint32_t dst_offset = (uint32_t)(dst_ptr - ram_base);
+    uint32_t dst_offset = 0;
+    if (!nqd_resolve_rect_extent("NQDMetalFillRect", "dest",
+                                  dest_base, dest_row_bytes,
+                                  dest_X, dest_Y, width, height,
+                                  pixel_size, &dst_offset)) {
+        return;
+    }
 
     NQDFillRectUniforms uniforms;
     uniforms.dst_offset    = dst_offset;
@@ -2802,13 +3064,17 @@ void NQDMetalInvertRect(uint32 p)
     // -----------------------------------------------------------------------
 
     uint32_t transfer_mode = 10;  // patXor
-    uint32_t fore_pen = htonl(ReadMacInt32(p + NQD_acclForePen));
-    uint32_t back_pen = htonl(ReadMacInt32(p + NQD_acclBackPen));
+    uint32_t fore_pen = nqd_uniform_pen_for_depth(ReadMacInt32(p + NQD_acclForePen), pixel_size);
+    uint32_t back_pen = nqd_uniform_pen_for_depth(ReadMacInt32(p + NQD_acclBackPen), pixel_size);
     uint32_t fill_color = 0xFFFFFFFF;
 
-    uint8 *ram_base = nqd_ram_base;
-    uint8 *dst_ptr = Mac2HostAddr(dest_base) + (dest_Y * dest_row_bytes) + nqd_packed_byte_offset(dest_X, pixel_size);
-    uint32_t dst_offset = (uint32_t)(dst_ptr - ram_base);
+    uint32_t dst_offset = 0;
+    if (!nqd_resolve_rect_extent("NQDMetalInvertRect", "dest",
+                                  dest_base, dest_row_bytes,
+                                  dest_X, dest_Y, width, height,
+                                  pixel_size, &dst_offset)) {
+        return;
+    }
 
     NQDFillRectUniforms uniforms;
     uniforms.dst_offset    = dst_offset;

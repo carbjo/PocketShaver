@@ -22,6 +22,15 @@ struct CompositorVertexOut {
     float2 texCoord;
 };
 
+static inline float3 apply_display_gamma_lut(float3 c,
+                                             constant uchar *gamma_lut)
+{
+    uint3 idx = uint3(round(saturate(c) * 255.0));
+    return float3(float(gamma_lut[idx.r])        / 255.0,
+                  float(gamma_lut[256u + idx.g]) / 255.0,
+                  float(gamma_lut[512u + idx.b]) / 255.0);
+}
+
 /*
  *  Fullscreen triangle trick: three vertices cover the entire clip space.
  *  Positions: (-1,-1), (3,-1), (-1,3)  — triangle covers [-1,1]x[-1,1]
@@ -68,32 +77,13 @@ vertex CompositorVertexOut compositor_vertex(uint vid [[vertex_id]])
 fragment float4 compositor_fragment_32bpp(CompositorVertexOut in [[stage_in]],
                                           texture2d<float> tex [[texture(0)]],
                                           sampler samp [[sampler(0)]],
-                                          constant uchar *gamma_lut [[buffer(0)]],
-                                          constant uint &fade_active [[buffer(1)]])
+                                          constant uchar *gamma_lut [[buffer(0)]])
 {
     float4 s = tex.sample(samp, in.texCoord);
     // Recover (R, G, B) from the big-endian swizzle.
     float3 c = float3(s.g, s.r, s.a);
 
-    // Apply the planar gamma LUT (first 256 = R, next 256 = G, last
-    // 256 = B) so a DSp FadeGamma is VISIBLE at 32bpp (the depth DSp games are
-    // force-resized to). Indices are round([0,1]*255) ∈ [0,255], so the planar
-    // offsets land in [0,767] by construction — no OOB read (trusted buffer).
-    uint3 idx = uint3(round(c * 255.0));
-    float r = float(gamma_lut[idx.r])         / 255.0;
-    float g = float(gamma_lut[256u + idx.g])  / 255.0;
-    float b = float(gamma_lut[512u + idx.b])  / 255.0;
-
-    // Apply the Classic-Mac 1.8 -> 2.2 correction at direct
-    // color too for cross-depth consistency when NOT fading; bypass during a
-    // fade so the LUT marches linearly (DSp-1.7).
-    if (fade_active == 0u) {
-        r = pow(r, 1.8 / 2.2);
-        g = pow(g, 1.8 / 2.2);
-        b = pow(b, 1.8 / 2.2);
-    }
-
-    return float4(r, g, b, 1.0);
+    return float4(apply_display_gamma_lut(c, gamma_lut), 1.0);
 }
 
 /*
@@ -112,8 +102,7 @@ fragment float4 compositor_fragment_indexed(CompositorVertexOut in [[stage_in]],
                                             constant uchar4 *palette [[buffer(0)]],
                                             constant uint &bits_per_pixel [[buffer(1)]],
                                             constant uchar *gamma_lut [[buffer(2)]],
-                                            constant uint &pixel_width [[buffer(3)]],
-                                            constant uint &fade_active [[buffer(4)]])
+                                            constant uint &pixel_width [[buffer(3)]])
 {
     uint px = uint(in.texCoord.x * float(pixel_width));
     uint py = uint(in.texCoord.y * float(tex.get_height()));
@@ -139,23 +128,11 @@ fragment float4 compositor_fragment_indexed(CompositorVertexOut in [[stage_in]],
 
     uchar4 color = palette[index];
 
-    // Apply gamma LUT (planar: first 256 = R, next 256 = G, last 256 = B)
-    float r = float(gamma_lut[color.r]) / 255.0;
-    float g = float(gamma_lut[256 + color.g]) / 255.0;
-    float b = float(gamma_lut[512 + color.b]) / 255.0;
-
-    // Apply Classic Mac 1.8 -> sRGB 2.2 gamma correction.
-    // Classic Mac apps authored palettes for 1.8 gamma CRT; modern iOS is 2.2.
-    // During a fade the LUT already encodes the DSp-1.7 linear ramp;
-    // bypass the static 1.8->2.2 correction so the fade marches linearly in
-    // display space (composing the static pow over a fading LUT warps the ramp).
-    if (fade_active == 0u) {
-        r = pow(r, 1.8 / 2.2);
-        g = pow(g, 1.8 / 2.2);
-        b = pow(b, 1.8 / 2.2);
-    }
-
-    return float4(r, g, b, 1.0);
+    return float4(apply_display_gamma_lut(float3(float(color.r),
+                                                float(color.g),
+                                                float(color.b)) / 255.0,
+                                          gamma_lut),
+                  1.0);
 }
 
 /*
@@ -171,8 +148,7 @@ fragment float4 compositor_fragment_indexed(CompositorVertexOut in [[stage_in]],
  */
 fragment float4 compositor_fragment_16bpp(CompositorVertexOut in [[stage_in]],
                                           texture2d<uint, access::read> tex [[texture(0)]],
-                                          constant uchar *gamma_lut [[buffer(0)]],
-                                          constant uint &fade_active [[buffer(1)]])
+                                          constant uchar *gamma_lut [[buffer(0)]])
 {
     uint px = uint(in.texCoord.x * float(tex.get_width()));
     uint py = uint(in.texCoord.y * float(tex.get_height()));
@@ -191,25 +167,13 @@ fragment float4 compositor_fragment_16bpp(CompositorVertexOut in [[stage_in]],
     uint G = (packed >> 5) & 0x1F;
     uint B = packed & 0x1F;
 
-    // Scale each 5-bit channel (0..31) to the 8-bit LUT index range
-    // (0..255), then apply the planar gamma LUT so a DSp FadeGamma is visible
-    // at 16bpp too. (255*31)/31 = 255, so indices land in [0,255] -> [0,767].
-    uint idx_r = (R * 255u) / 31u;
-    uint idx_g = (G * 255u) / 31u;
-    uint idx_b = (B * 255u) / 31u;
-    float r = float(gamma_lut[idx_r])         / 255.0;
-    float g = float(gamma_lut[256u + idx_g])  / 255.0;
-    float b = float(gamma_lut[512u + idx_b])  / 255.0;
-
-    // Static 1.8 -> 2.2 correction when NOT fading; bypass
-    // during a fade so the LUT marches linearly (DSp-1.7).
-    if (fade_active == 0u) {
-        r = pow(r, 1.8 / 2.2);
-        g = pow(g, 1.8 / 2.2);
-        b = pow(b, 1.8 / 2.2);
-    }
-
-    return float4(r, g, b, 1.0);
+    uint3 idx = uint3((R * 255u) / 31u,
+                      (G * 255u) / 31u,
+                      (B * 255u) / 31u);
+    return float4(float(gamma_lut[idx.r])         / 255.0,
+                  float(gamma_lut[256u + idx.g])  / 255.0,
+                  float(gamma_lut[512u + idx.b])  / 255.0,
+                  1.0);
 }
 
 /*
@@ -291,6 +255,24 @@ fragment float4 submitframe_fragment(SubmitFrameVOut in [[stage_in]],
     /* Apply per-layer alpha for non-Opaque blend modes. kBlendOpaque
      * pipelines disable blending entirely so the alpha multiplier is
      * ignored even though we compute it. */
+    c.a *= u.alpha;
+    return c;
+}
+
+fragment float4 submitframe_fragment_display_premultiplied(SubmitFrameVOut in [[stage_in]],
+                                    texture2d<float> tex [[texture(0)]],
+                                    constant SubmitFrameUniform &u [[buffer(0)]],
+                                    constant uchar *gamma_lut [[buffer(1)]])
+{
+    constexpr sampler samp(filter::linear, address::clamp_to_edge);
+    float4 c = tex.sample(samp, in.uv);
+    if (c.a > 0.0) {
+        float3 straight_rgb = c.rgb / c.a;
+        c.rgb = apply_display_gamma_lut(straight_rgb, gamma_lut) * c.a;
+    } else {
+        c.rgb = float3(0.0);
+    }
+    c.rgb *= u.alpha;
     c.a *= u.alpha;
     return c;
 }

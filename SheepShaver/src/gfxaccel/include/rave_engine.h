@@ -139,6 +139,10 @@ enum {
 	kRaveDrawMethodCount          = 35
 };
 
+#ifndef RAVE_MAX_CONTEXTS
+#define RAVE_MAX_CONTEXTS 8
+#endif
+
 // Engine method sub-opcodes, offset by 100
 // Order matches DDK TQAEngineMethodTag exactly so that
 // DDK tag N -> sub-opcode (100 + N) with no mapping table needed.
@@ -522,6 +526,7 @@ enum RaveResourceType {
 struct RaveResourceEntry {
 	RaveResourceType type;
 	uint32_t         mac_addr;   // SheepMem address visible to PPC side
+	uint32_t         generation; // increments whenever a resource table slot is reused
 
 	// Metal texture data
 	void            *metal_texture;   // id<MTLTexture> stored as void* for C++ header
@@ -589,6 +594,8 @@ extern bool RaveResourceFree(uint32_t handle);
 extern RaveResourceEntry *RaveResourceGet(uint32_t handle);
 // Lookup by Mac address. Returns 1-based handle, or 0 if not found.
 extern uint32_t RaveResourceFindByAddr(uint32_t mac_addr);
+// Remove a render-to-texture handle token from live draw contexts.
+extern void RaveForgetRTTResourceHandle(uint32_t handle, uint32_t generation);
 
 // Lookup a RAVE texture entry whose
 // pixmap_mac_addr matches `pixmapAddr`. Returns nullptr if no match
@@ -678,6 +685,11 @@ extern void *RaveCreateMetalTexture(uint32_t width, uint32_t height, uint32_t mi
                                      const uint8_t *pixelData, uint32_t bytesPerRow);
 extern void RaveUploadMipLevel(void *metalTexture, uint32_t level, uint32_t width, uint32_t height,
                                 const uint8_t *pixelData, uint32_t bytesPerRow);
+/* Bracket a multi-mip upload so the active render pass is broken once for
+ * the whole chain instead of once per RaveUploadMipLevel call. Depth-counted;
+ * safe to nest. */
+extern void RaveTextureUploadBatchBegin(void);
+extern void RaveTextureUploadBatchEnd(void);
 extern void RaveGenerateMipmaps(void *metalTexture);
 extern void RaveReleaseTexture(void *metalTexture);
 

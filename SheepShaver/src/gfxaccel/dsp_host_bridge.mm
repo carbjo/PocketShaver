@@ -114,17 +114,10 @@ extern "C" bool DSpHostBridge_GetActiveFullscreen(void)
  * ============================================================
  * File-static SPSC-ring writer helpers.
  *
- * DSpContext_EnqueueOSEvtOnContext + DSpContext_EnqueueContextLossOnContext
- * are implementation details of DSpHostBridge_OnBackground /
- * DSpHostBridge_OnForeground; NOT exposed in dsp_host_bridge.h. Called
- * ONLY from main-thread observer callbacks (DSpEventService.swift
- * posts to queue: .main; the observer fires on main thread).
- *
  * The SPSC-ring write logic + overflow policy are centralized in
- * dsp_enqueue_into_ring. The OS-event helpers DELEGATE to this shared
- * helper; DSpHostBridge_EnqueueEvent +
- * DSpHostBridge_EnqueueEventToActiveContexts call it too. All 4 enqueue
- * paths share one implementation so future changes happen in one place.
+ * dsp_enqueue_into_ring. DSpHostBridge_EnqueueEvent and
+ * DSpHostBridge_EnqueueEventToActiveContexts both call it, so future
+ * changes happen in one place.
  *
  * SPSC writer-side contract: plain slot-data
  * store + memory_order_release atomic store to events_head fences the
@@ -143,13 +136,12 @@ extern "C" bool DSpHostBridge_GetActiveFullscreen(void)
 /*
  *  Extracted ring-write helper.
  *
- *  Shared by all four enqueue paths (EnqueueOSEvt +
- *  EnqueueContextLoss; EnqueueEvent + [transitively]
- *  EnqueueEventToActiveContexts). Centralizes the SPSC-ring write
- *  logic + overflow policy so future changes happen in one place.
+ *  Shared by EnqueueEvent, EnqueueEventToActiveContexts, and the
+ *  TESTING_BUILD enqueue helper. Centralizes the SPSC-ring write logic +
+ *  overflow policy so future changes happen in one place.
  *
- *  Threading: called on main thread (all 4 callers are
- *  main-thread paths). memory_order_release on events_head
+ *  Threading: called on main thread (all live callers are
+ *  main-thread input/test paths). memory_order_release on events_head
  *  advance fences the slot payload for the ring reader. The original
  *  emul-thread reader DSpContext_ProcessEventHandler has been RETIRED;
  *  the ring's only surviving reader is the
@@ -161,7 +153,7 @@ extern "C" bool DSpHostBridge_GetActiveFullscreen(void)
  */
 /* Declared `extern "C"` so DSpTesting_EnqueueEventToCtx
  * (in dsp_draw_context.mm, a different TU) can dispatch through the same
- * SPSC-ring write helper used by all 4 production enqueue paths. No
+ * SPSC-ring write helper used by the production enqueue path. No
  * prototype added to any public header — the symbol is linker-visible
  * cross-TU but invisible to external consumers. */
 extern "C" void dsp_enqueue_into_ring(DSpContextPrivate *ctx,
@@ -192,164 +184,6 @@ extern "C" void dsp_enqueue_into_ring(DSpContextPrivate *ctx,
 
 	atomic_store_explicit(&ctx->events_head, head + 1u,
 	                      memory_order_release);
-}
-
-/*
- *  Construct a 16-byte osEvt DSpEventRecord and push it onto ctx's
- *  SPSC events_queue. File-static — implementation detail of
- *  OnBackground/OnForeground; not exposed in dsp_host_bridge.h.
- *
- *  subtype: kDSpOSEvt_SuspendResumeMessage or kDSpOSEvt_MouseMovedMessage.
- *  resume: true → sets kDSpOSEvtMsg_ResumeFlag bit (fg); false → clears (bg).
- *
- *  Delegates to dsp_enqueue_into_ring.
- *  Behavior-neutral: same SPSC-ring write logic, same overflow policy,
- *  same memory ordering as the earlier inlined implementation.
- */
-static void DSpContext_EnqueueOSEvtOnContext(DSpContextPrivate *ctx,
-                                              uint16_t subtype,
-                                              bool resume)
-{
-	if (ctx == nullptr) return;
-	/* Build the osEvt message: high byte = subtype; low bit = resume. */
-	uint32_t message = ((uint32_t)subtype << 24) |
-	                   (resume ? (uint32_t)kDSpOSEvtMsg_ResumeFlag : 0u);
-	dsp_enqueue_into_ring(ctx, (uint16_t)kDSpEvent_OSEvt, message,
-	                      /*when*/ 0u, /*where_v*/ 0, /*where_h*/ 0,
-	                      /*modifiers*/ 0u);
-}
-
-/*
- *  Construct a 16-byte context-loss DSpEventRecord (osEvt kind; reason
- *  code in message field) and push it onto ctx's SPSC events_queue.
- *  File-static — implementation detail of OnBackground.
- *
- *  reason: kDSpContextReason_Lost (= 1 default). Encoded
- *  directly into the message field (low 32 bits); NOT high-byte-subtype-
- *  encoded because context-loss is a distinct osEvt variant from
- *  suspend/resume (no subtype byte per DSp 1.7 PDF p.~92 spec — reason
- *  code goes straight into message).
- *
- *  This event enqueues AHEAD of the suspend osEvt so DSp
- *  apps that only poll ProcessEvent for context-loss codes see them
- *  before the suspend signal arrives.
- *
- *  Delegates to dsp_enqueue_into_ring. Behavior-neutral.
- */
-static void DSpContext_EnqueueContextLossOnContext(DSpContextPrivate *ctx,
-                                                    uint32_t reason)
-{
-	if (ctx == nullptr) return;
-	dsp_enqueue_into_ring(ctx, (uint16_t)kDSpEvent_OSEvt, reason,
-	                      /*when*/ 0u, /*where_v*/ 0, /*where_h*/ 0,
-	                      /*modifiers*/ 0u);
-}
-
-extern "C" void DSpHostBridge_OnBackground(void)
-{
-	/*
-	 *  Bg lifecycle hook.
-	 *
-	 *  Per DSp 1.7 PDF p.~92-95, on app bg each Active DSp
-	 *  context receives a context-loss osEvt (reason code =
-	 *  kDSpContextReason_Lost) AHEAD of a suspend osEvt
-	 *  (subtype = SuspendResumeMessage, resume-flag cleared). Then the
-	 *  context transitions Active→Paused via the existing
-	 *  DSpContext_SetStateHandler. The paused_by_background flag is set
-	 *  so DSpHostBridge_OnForeground can distinguish user-Paused
-	 *  contexts (stay Paused after fg) from bg-induced-Paused contexts
-	 *  (auto-resume on fg).
-	 *
-	 *  Walk order = index order (dsp_context_table[0..DSP_MAX_CONTEXTS-1])
-	 *  matching the DSpVBLServiceCallback walk.
-	 *
-	 *  Threading: called on main thread (DSpEventService observer fires
-	 *  on queue: .main). The dsp_context_table walk happens on main
-	 *  thread too — safe because dsp_context_table is
-	 *  single-writer-emul-thread for structural
-	 *  changes (add/remove entries); reads from main thread see the
-	 *  current snapshot because table mutation only happens at
-	 *  Reserve/Release time which is emul-thread. The SetStateHandler
-	 *  call is safe to invoke from main thread because the contract
-	 *  allows cross-thread SetState — the handler takes appropriate
-	 *  locking via DMC.
-	 */
-	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
-		DSpContextPrivate *ctx = DSpGetContext(i + 1u);
-		if (ctx == nullptr) continue;
-		if (ctx->state != (uint32_t)kDSpContextState_Active) continue;
-
-		/* Context-loss event FIRST (ahead of suspend osEvt). */
-		DSpContext_EnqueueContextLossOnContext(ctx,
-			(uint32_t)kDSpContextReason_Lost);
-
-		/* Suspend osEvt (resume-flag cleared = bg). */
-		DSpContext_EnqueueOSEvtOnContext(ctx,
-			(uint16_t)kDSpOSEvt_SuspendResumeMessage, false);
-
-		/* Transition Active→Paused via the existing handler.
-		 * ctx->handle is the public ctxRef (index+1 per DSpGetContext;
-		 * see dsp_draw_context.mm DSpGetContext). */
-		(void)DSpContext_SetStateHandler(ctx->handle,
-			(uint32_t)kDSpContextState_Paused);
-
-		/* Mark this context as bg-induced-paused. */
-		ctx->paused_by_background = 1;
-
-		DSP_LOG("DSpHostBridge_OnBackground: ctx handle=%u transitioned "
-		        "Active->Paused (context-loss + suspend osEvt enqueued; "
-		        "paused_by_background=1)",
-		        ctx->handle);
-	}
-}
-
-extern "C" void DSpHostBridge_OnForeground(void)
-{
-	/*
-	 *  Fg lifecycle hook.
-	 *
-	 *  Per DSp 1.7 PDF p.~92-95, on app fg each bg-induced-
-	 *  Paused DSp context (paused_by_background == 1) transitions
-	 *  Paused→Active via DSpContext_SetStateHandler, then receives a
-	 *  resume osEvt (subtype = SuspendResumeMessage, resume-flag set).
-	 *  The paused_by_background flag is cleared.
-	 *
-	 *  User-Paused contexts (paused_by_background == 0) are SKIPPED —
-	 *  they stay Paused after fg. This is the user-vs-bg pause
-	 *  distinction that preserves the user's explicit state choice.
-	 *
-	 *  Order: SetState(Active) BEFORE osEvt(resume) is the spec order
-	 *  per DSp 1.7 PDF p.~93 — the state transitions first, then the
-	 *  resume notification fires. (Note: bg path is opposite — events
-	 *  enqueue first, THEN state transitions. Fg path swaps the order
-	 *  because the spec wants the app to see Active state before it
-	 *  reads the resume osEvt.)
-	 *
-	 *  Threading: called on main thread (DSpEventService observer fires
-	 *  on queue: .main); same rationale as OnBackground.
-	 */
-	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
-		DSpContextPrivate *ctx = DSpGetContext(i + 1u);
-		if (ctx == nullptr) continue;
-		if (ctx->state != (uint32_t)kDSpContextState_Paused) continue;
-		if (ctx->paused_by_background == 0) continue; /* user-paused, skip */
-
-		/* Transition Paused→Active FIRST. */
-		(void)DSpContext_SetStateHandler(ctx->handle,
-			(uint32_t)kDSpContextState_Active);
-
-		/* Enqueue resume osEvt (resume-flag set = fg). */
-		DSpContext_EnqueueOSEvtOnContext(ctx,
-			(uint16_t)kDSpOSEvt_SuspendResumeMessage, true);
-
-		/* Clear the bg-induced flag. */
-		ctx->paused_by_background = 0;
-
-		DSP_LOG("DSpHostBridge_OnForeground: ctx handle=%u transitioned "
-		        "Paused->Active (resume osEvt enqueued; "
-		        "paused_by_background=0)",
-		        ctx->handle);
-	}
 }
 
 extern "C" void DSpHostBridge_EnqueueEvent(uint32_t ctx_idx, uint16_t what,

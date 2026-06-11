@@ -1784,7 +1784,10 @@ uint32_t NativeGLGetString(GLContext *ctx, uint32_t name)
 	switch (name) {
 	case GL_VENDOR:     return alloc_string(gl_string_vendor_addr,   "ATI Technologies Inc.");
 	case GL_RENDERER:   return alloc_string(gl_string_renderer_addr, "ATI Rage 128 Pro OpenGL Engine");
-	case GL_VERSION:    return alloc_string(gl_string_version_addr,  "1.2");
+	case GL_VERSION:
+		// Report the complete core contract. 1.2-era features that this backend
+		// implements are exposed as explicit extension tokens below.
+		return alloc_string(gl_string_version_addr,  "1.1");
 	// The EXT texture-env COMBINE extension token is DE-ADVERTISED.
 	// The GL_COMBINE_EXT (0x8570) crossbar is store-only — env_mode is recorded but
 	// GLTexEnvModeToShader has no GL_COMBINE case (it falls to default = modulate), so
@@ -1805,12 +1808,28 @@ uint32_t NativeGLGetString(GLContext *ctx, uint32_t name)
 	// GLARBExtensionTests gate tests assert the token's absence. (The umbrella token is
 	// intentionally NOT spelled out as a literal here so the source-scan absence assertion
 	// stays robust — same robustness discipline as the COMBINE de-advertisement.)
+	//
+	// DELIBERATE (texture compression): the ARB compression token is ABSENT from the
+	// string below. Only 2D DXT upload/sub-upload paths decompress into Metal textures;
+	// the 1D, 3D, and readback handlers explicitly log known limitations. Advertising
+	// the full extension would invite conformant callers into silent no-op paths.
+	//
+	// DELIBERATE (fog coordinate): the per-vertex fog-coordinate extension token is
+	// ABSENT from the string below. This backend tracks a passive vertex/current
+	// field, but it has no glFogCoord* or glFogCoordPointer entry points, no
+	// FOG_COORDINATE_SOURCE state, and no dispatch sub-opcodes. Advertising that
+	// extension would be a pure reachability lie.
+	//
+	// DELIBERATE (texture LOD bias): ABSENT from the string below. The extension
+	// has no entry points, but it does require GL_TEXTURE_FILTER_CONTROL /
+	// GL_TEXTURE_LOD_BIAS TexEnv state, which this backend does not consume.
 	case GL_EXTENSIONS: {
 		static const char *extensions =
-			"GL_ARB_multitexture GL_ARB_transpose_matrix GL_ARB_texture_compression "
+			"GL_ARB_multitexture GL_ARB_transpose_matrix "
+			"GL_EXT_abgr GL_EXT_bgra GL_EXT_packed_pixels "
 			"GL_EXT_blend_color GL_EXT_blend_equation GL_EXT_compiled_vertex_array "
 			"GL_EXT_secondary_color GL_EXT_stencil_wrap "
-			"GL_EXT_fog_coord GL_EXT_texture_lod_bias GL_EXT_paletted_texture";
+			"GL_EXT_paletted_texture";
 		{
 			static bool s_logged_extensions = false;
 			if (!s_logged_extensions) {

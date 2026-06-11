@@ -289,7 +289,7 @@ enum {
  *  DSp context options — bit-or at Reserve time via
  *  DSpContextAttributes.contextOptions. Values per DrawSprocket1.7.pdf
  *  p.74. SwapBuffers consults kDSpContextOption_DontSyncVBL to decide
- *  whether to block on vbl_source_sync_3d_pacing before submitting the
+ *  whether to block on the DSp frame-pacing lane before submitting the
  *  composite layer. PageFlip and QD3DAccel are accepted
  *  for attribute-struct round-trip fidelity; their behaviors are covered
  *  by other infrastructure (CAMetalLayer.maximumDrawableCount=3 already
@@ -298,7 +298,7 @@ enum {
 enum {
 	kDSpContextOption_QD3DAccel   = 1u << 0,  /* "Not implemented" per PDF; accept + no-op */
 	kDSpContextOption_PageFlip    = 1u << 1,  /* CAMetalLayer.maximumDrawableCount=3 handles */
-	kDSpContextOption_DontSyncVBL = 1u << 2   /* SwapBuffers skips vbl_source_sync_3d_pacing */
+	kDSpContextOption_DontSyncVBL = 1u << 2   /* SwapBuffers skips DSp frame pacing */
 };
 
 /*

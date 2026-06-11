@@ -30,6 +30,12 @@ int main(int argc, char * argv[]) {
 	 * ensures the first didEnterBackground is never missed. */
 	[GfxAccelBackgroundLifecycleObserver.shared install];
 
+	/* Install memory-pressure observer. The notification arrives on the
+	 * main thread; the C shim only marks an atomic pending-eviction flag.
+	 * The next compositor SubmitFrame drains that request on the engine
+	 * call path, keeping heap mutation off UIKit's notification callback. */
+	[GfxAccelMemoryWarningObserver.shared install];
+
 	/* Install DSp idle-timer
 	 * observer. Observes UIApplication.didEnterBackground /
 	 * willEnterForeground + the custom DSpHostBridge.activeFullscreenChanged
@@ -39,16 +45,10 @@ int main(int argc, char * argv[]) {
 	 * install-at-startup is comfortable timing). */
 	[DSpIdleTimerService.shared install];
 
-	/* Install DSp event
-	 * integration observer. Observes UIApplication.didEnterBackground /
-	 * willEnterForeground; calls DSpHostBridge_OnBackground/OnForeground
-	 * which walk dsp_context_table to enqueue osEvts + context-loss
-	 * events + transition SetState Active<->Paused + manage
-	 * paused_by_background flag. Must install BEFORE any DSp context is
-	 * Reserved — otherwise the bg/fg observers miss the first transition.
-	 * The background/foreground and idle-timer precedents show
-	 * install-at-startup is correct timing. DSpEventService also handles
-	 * kbd/gamepad/mouse fan-out — no main.mm change needed for that. */
+	/* Install DSp input-event integration. Background/foreground DSp
+	 * lifecycle is handled by GfxAccelBackgroundLifecycleObserver through
+	 * gfxaccel_resources' atomic flag-and-drain path; DSpEventService only
+	 * fans out kbd/gamepad/mouse events to active DSp contexts. */
 	[DSpEventService.shared install];
 
 	return main_ios(argc, argv);		// This is in SS/Source/Unix/main_Unix.cpp
@@ -68,4 +68,3 @@ main(int argc, char *argv[])
 	return SDL_UIKitRunApp(argc, argv, SDL_main);
 }
 #endif /* !SDL_MAIN_HANDLED */
-

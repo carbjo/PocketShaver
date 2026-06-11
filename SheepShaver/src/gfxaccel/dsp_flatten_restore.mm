@@ -502,10 +502,14 @@ extern "C" int32_t DSpContext_QueueHandler(uint32_t parentCtx, uint32_t childCtx
 /* Core deferred-switch apply shared by the production handler + the
  * TESTING_BUILD host helper. Requires a prior Queue (old->queued_child ==
  * newRef, else kDSpInternalErr per PDF p.27 "returns an error" — no partial
- * switch, reject-before-mutate). Kills the OLD context's
- * piggyback VBL proc (old->vbl_proc_ptr = 0 — the VBL service walk at
- * dsp_metal_renderer.mm early-outs on ==0), makes the new context active
- * (new->state = Active), and clears old->queued_child. */
+ * switch, reject-before-mutate). Routes the OLD context out through
+ * SetState(Inactive), then kills its piggyback VBL proc (old->vbl_proc_ptr
+ * = 0 — the VBL service walk at dsp_metal_renderer.mm early-outs on ==0),
+ * routes the NEW context in through SetState(Active), then clears
+ * old->queued_child. Failure paths unwind: a failed deactivation leaves old
+ * untouched; a failed activation restores old's VBL proc and re-activates
+ * it (best effort), so the switch never strands the display with no Active
+ * context or a killed VBL proc on an Active context. */
 static int32_t DSpSwitchCore(uint32_t oldCtx, uint32_t newCtx)
 {
 	DSpContextPrivate *old = DSpGetContext(oldCtx);
@@ -525,19 +529,53 @@ static int32_t DSpSwitchCore(uint32_t oldCtx, uint32_t newCtx)
 		        oldCtx, newCtx, old->queued_child);
 		return kDSpInternalErr;
 	}
+	/* Route through SetState so DMC ownership/mode, MainDevice PixMap
+	 * redirect/restore, and aggregate Active-fullscreen state all follow the
+	 * same path as direct DSpContext_SetState calls. The handoff guard keeps
+	 * old->Inactive from restoring the intermediate QuickDraw display mode;
+	 * Switch then activates the new context immediately per PDF p.27. */
+	DSpContext_SetStateSwitchHandoff(oldCtx);
+	int32_t rc = DSpContext_SetStateHandler(
+	    oldCtx, (uint32_t)kDSpContextState_Inactive);
+	DSpContext_SetStateSwitchHandoff(0);
+	if (rc != kDSpNoErr) {
+		/* Nothing mutated yet — old stays Active with its VBL proc
+		 * intact (no partial switch). */
+		DSP_LOG("Switch: old=%u SetState(Inactive) failed rc=%d",
+		        oldCtx, rc);
+		return rc;
+	}
 	/* PDF p.27: "switching contexts will kill any piggyback VBL routines
 	 * attached to the context you are switching out." Clearing vbl_proc_ptr is
 	 * the SetVBLProc(0) uninstall path (p.81) — the DSpVBLServiceCallback walk
-	 * skips contexts with vbl_proc_ptr == 0. */
+	 * skips contexts with vbl_proc_ptr == 0. Killed only AFTER the old
+	 * context's deactivation succeeds, so a SetState failure can never leave
+	 * an Active context with its VBL proc already destroyed. */
+	uint32_t saved_vbl_proc   = old->vbl_proc_ptr;
+	uint32_t saved_vbl_refcon = old->vbl_proc_refcon;
 	old->vbl_proc_ptr    = 0;
 	old->vbl_proc_refcon = 0;
-	/* Make the new context active (same state scalar GetCurrentContext walks
-	 * for). Single-display: there is no intermediate default-mode switch. */
-	neu->state = (uint32_t)kDSpContextState_Active;
+	rc = DSpContext_SetStateHandler(
+	    newCtx, (uint32_t)kDSpContextState_Active);
+	if (rc != kDSpNoErr) {
+		/* Unwind the half-completed switch: restore the old context's VBL
+		 * proc and re-activate it (best effort) so a failed activation never
+		 * leaves the display with NO Active context. queued_child stays
+		 * staged so the app may retry the Switch. */
+		old->vbl_proc_ptr    = saved_vbl_proc;
+		old->vbl_proc_refcon = saved_vbl_refcon;
+		int32_t rb = DSpContext_SetStateHandler(
+		    oldCtx, (uint32_t)kDSpContextState_Active);
+		DSP_LOG("Switch: new=%u SetState(Active) failed rc=%d; rolled back "
+		        "old=%u to Active (rollback rc=%d)",
+		        newCtx, rc, oldCtx, rb);
+		(void)rb; /* log-only when ACCEL_LOGGING_ENABLED=0 */
+		return rc;
+	}
 	/* Clear the staged switch — a subsequent Switch needs a fresh Queue. */
 	old->queued_child = 0;
-	DSP_LOG("Switch: old=%u -> new=%u active, old VBL proc killed, "
-	        "queued_child cleared", oldCtx, newCtx);
+	DSP_LOG("Switch: old=%u inactive -> new=%u active via SetState, "
+	        "old VBL proc killed, queued_child cleared", oldCtx, newCtx);
 	return kDSpNoErr;
 }
 
@@ -545,8 +583,9 @@ static int32_t DSpSwitchCore(uint32_t oldCtx, uint32_t newCtx)
  *
  *  DSp 1.7 PDF p.27: DSpContext_Switch(inOldContext, inNewContext). Switches
  *  the display context immediately. Requires a prior Queue (else returns an
- *  error). Kills the OLD context's piggyback VBL proc. Makes the new context
- *  active. Unresolved ctxRefs -> kDSpInvalidContextErr. */
+ *  error). Kills the OLD context's piggyback VBL proc, deactivates OLD through
+ *  SetState, and activates NEW through SetState. Unresolved ctxRefs ->
+ *  kDSpInvalidContextErr. */
 extern "C" int32_t DSpContext_SwitchHandler(uint32_t oldCtx, uint32_t newCtx)
 {
 	return DSpSwitchCore(oldCtx, newCtx);
@@ -584,4 +623,3 @@ extern "C" int32_t DSpTesting_GetQueuedChildByValue(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 #endif
-

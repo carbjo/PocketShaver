@@ -159,6 +159,34 @@ static void RaveFillFogUniforms(RaveDrawPrivate *priv, FragmentUniforms *fragUni
 #define kQAPixel_RGB32        3
 
 static int32_t RestartRenderPassWithLoad(RaveDrawPrivate *priv);
+static const uint64_t kRavePipelineKeyInvalid = ~0ULL;
+
+static uint32_t RaveNormalizeChannelMask(uint32_t channelMask)
+{
+	return channelMask == 0 ? 0xF : (channelMask & 0xF);
+}
+
+static uint64_t RavePipelineBindingKey(int pipeIdx, uint32_t channelMask,
+                                       bool usesGLPipeline,
+                                       uint32_t glBlendSrc, uint32_t glBlendDst,
+                                       bool msaa, bool hasDepthAttachment)
+{
+	uint64_t key = (uint64_t)(pipeIdx & 0x3F);
+	key |= ((uint64_t)(channelMask & 0xF) << 6);
+	key |= ((uint64_t)(usesGLPipeline ? 1 : 0) << 10);
+	key |= ((uint64_t)(msaa ? 1 : 0) << 11);
+	key |= ((uint64_t)(hasDepthAttachment ? 1 : 0) << 12);
+	if (usesGLPipeline) {
+		key |= ((uint64_t)(glBlendSrc & 0xFFFF) << 16);
+		key |= ((uint64_t)(glBlendDst & 0xFFFF) << 32);
+	}
+	return key;
+}
+
+struct RaveRTTResourceToken {
+	uint32_t handle;
+	uint32_t generation;
+};
 
 /*
  *  RaveMetalState - Opaque Metal resource container
@@ -173,7 +201,7 @@ struct RaveMetalState {
 	id<MTLRenderPipelineState>  pipelines[48];     // 16 function constant combos x 3 blend modes
 	id<MTLDepthStencilState>    depthStates[9];     // 9 ZFunction values (depth write enabled)
 	id<MTLDepthStencilState>    depthStatesNoWrite[9]; // 9 ZFunction values (depth write disabled)
-	int                         currentPipelineIdx; // currently bound pipeline (-1 = none)
+	uint64_t                    currentPipelineKey; // full signature of currently bound pipeline
 	id<MTLTexture>              depthBuffer;
 
 	id<MTLCommandBuffer>        currentCommandBuffer;
@@ -236,37 +264,77 @@ struct RaveMetalState {
 	std::unordered_map<uint64_t, id<MTLRenderPipelineState>> maskedPipelines;
 
 	// GL blend pipeline cache (kQABlend_OpenGL = 2)
-	// Key: (funcConstBits << 48) | (msaa << 32) | (glBlendSrc << 16) | glBlendDst
+	// Key includes func consts, sample/depth variants, channel mask, and GL blend factors.
 	std::unordered_map<uint64_t, id<MTLRenderPipelineState>> glBlendPipelines;
 
 	// RTT texture handles (TextureNewFromDrawContext / BitmapNewFromDrawContext)
-	std::vector<uint32_t>       rttTextureHandles;
+	std::vector<RaveRTTResourceToken> rttTextureHandles;
 };
+
+static bool RaveSetVertexData(RaveMetalState *ms, const void *data,
+                              size_t dataSize, NSUInteger bufferIndex)
+{
+	if (!ms || !ms->currentEncoder || !data) return false;
+	if (dataSize > 4096) {
+		uint32_t ringOffset = 0;
+		void *ringBuf = gfxaccel_rave_ring_stage(data, (uint32_t)dataSize, &ringOffset);
+		if (!ringBuf) return false;
+		[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf
+		                              offset:ringOffset atIndex:bufferIndex];
+	} else {
+		[ms->currentEncoder setVertexBytes:data length:dataSize atIndex:bufferIndex];
+	}
+	return true;
+}
+
+static void CommitRaveCommandBufferWithRing(id<MTLCommandBuffer> commandBuffer)
+{
+	if (!commandBuffer) {
+		return;
+	}
+	gfxaccel_rave_ring_frame_end((__bridge void *)commandBuffer);
+	[commandBuffer commit];
+}
 
 
 /*
  *  RAVE per-engine overlay state.
  *
  *  Replaces the legacy shared-overlay refcount + deferred-destroy machinery
- *  with per-engine ownership. RAVE owns exactly one overlay MTLTexture at a
- *  time, vended by
- *  gfxaccel_resources_vend_overlay_texture(kGfxEngineRAVE, ...) and
- *  released via gfxaccel_resources_release_overlay_texture. Same
- *  resolution = cache-hit recycle; resolution change = re-vend.
+ *  with per-engine ownership. RAVE owns a two-texture overlay pair, vended by
+ *  gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineRAVE, ...) and
+ *  released via gfxaccel_resources_release_overlay_texture. Same resolution =
+ *  cache-hit recycle; resolution change = re-vend. RenderEnd submits the
+ *  just-rendered texture, then flips the write index so the next frame cannot
+ *  redraw the texture cached by MetalCompositorSubmitFrame.
  *
  *  Deferred-destroy is gone because per-engine ownership eliminates the
  *  shared-refcount race that motivated it.
  *
- *  The legacy 3D-frame-pacing throttle call is gone too. SubmitFrame's
- *  hidden dispatch_semaphore(3) subsumes pacing.
+ *  RenderEnd paces on RAVE's own deadline lane; SubmitFrame does not pace
+ *  production.
  */
-static id<MTLTexture> s_rave_overlay_tex = nil;     /* cached vended handle */
+static id<MTLTexture> s_rave_overlay_pair[2] = { nil, nil };
+static id<MTLTexture> s_rave_overlay_tex = nil;     /* current render target */
 static uint32_t       s_rave_overlay_w   = 0;
 static uint32_t       s_rave_overlay_h   = 0;
+static uint32_t       s_rave_overlay_write_index = 0;
+static bool           s_rave_overlay_binding_preserved = false;
 static int32_t        s_rave_dst_left    = 0;
 static int32_t        s_rave_dst_top     = 0;
 static int32_t        s_rave_dst_width   = 0;
 static int32_t        s_rave_dst_height  = 0;
+
+static void rave_clear_overlay_binding_state(void)
+{
+	s_rave_overlay_w = 0;
+	s_rave_overlay_h = 0;
+	s_rave_overlay_binding_preserved = false;
+	s_rave_dst_left = 0;
+	s_rave_dst_top = 0;
+	s_rave_dst_width = 0;
+	s_rave_dst_height = 0;
+}
 
 #ifdef TESTING_BUILD
 // ---------------------------------------------------------------------------
@@ -315,9 +383,11 @@ extern "C" void RaveTesting_Reset(void)
 	rave_testing_queue   = nil;
 	rave_testing_bundle  = nil;
 	rave_testing_overlay = nil;
+	s_rave_overlay_pair[0] = nil;
+	s_rave_overlay_pair[1] = nil;
 	s_rave_overlay_tex   = nil;
-	s_rave_overlay_w     = 0;
-	s_rave_overlay_h     = 0;
+	s_rave_overlay_write_index = 0;
+	rave_clear_overlay_binding_state();
 }
 
 /*
@@ -343,6 +413,8 @@ extern "C" int RaveTesting_CountPipelines(struct RaveDrawPrivate *priv)
  *  Returns the MTLTexture handle on success or nil on failure (vend may
  *  return NULL during early startup or if SharedMetalDevice() is nil).
  */
+static void rave_release_overlay_texture(void);
+
 static id<MTLTexture> rave_acquire_overlay_texture(uint32_t width, uint32_t height)
 {
 #ifdef TESTING_BUILD
@@ -350,22 +422,51 @@ static id<MTLTexture> rave_acquire_overlay_texture(uint32_t width, uint32_t heig
 		return rave_testing_overlay;
 	}
 #endif
-	if (s_rave_overlay_tex != nil &&
-	    s_rave_overlay_w == width &&
-	    s_rave_overlay_h == height) {
-		return s_rave_overlay_tex;  /* cache-hit */
+	if ((s_rave_overlay_pair[0] != nil || s_rave_overlay_pair[1] != nil) &&
+	    (s_rave_overlay_w != width || s_rave_overlay_h != height)) {
+		rave_release_overlay_texture();
 	}
-	void *raw = gfxaccel_resources_vend_overlay_texture(
-	                kGfxEngineRAVE, width, height,
-	                MTLPixelFormatBGRA8Unorm);
-	if (raw == NULL) {
-		RAVE_LOG("rave_acquire_overlay_texture: vend(%ux%u) returned NULL", width, height);
-		return nil;
+
+	if (s_rave_overlay_pair[0] == nil || s_rave_overlay_pair[1] == nil) {
+		void *raw0 = gfxaccel_resources_vend_overlay_texture_indexed(
+		                kGfxEngineRAVE, 0, width, height,
+		                MTLPixelFormatBGRA8Unorm);
+		void *raw1 = gfxaccel_resources_vend_overlay_texture_indexed(
+		                kGfxEngineRAVE, 1, width, height,
+		                MTLPixelFormatBGRA8Unorm);
+		if (raw0 == NULL || raw1 == NULL) {
+			RAVE_LOG("rave_acquire_overlay_texture: vend pair(%ux%u) returned NULL", width, height);
+			if (raw0 != NULL) {
+				gfxaccel_resources_release_overlay_texture(kGfxEngineRAVE, raw0);
+			}
+			if (raw1 != NULL) {
+				gfxaccel_resources_release_overlay_texture(kGfxEngineRAVE, raw1);
+			}
+			s_rave_overlay_pair[0] = nil;
+			s_rave_overlay_pair[1] = nil;
+			s_rave_overlay_tex = nil;
+			s_rave_overlay_write_index = 0;
+			rave_clear_overlay_binding_state();
+			return nil;
+		}
+		s_rave_overlay_pair[0] = (__bridge id<MTLTexture>)raw0;
+		s_rave_overlay_pair[1] = (__bridge id<MTLTexture>)raw1;
+		s_rave_overlay_w = width;
+		s_rave_overlay_h = height;
 	}
-	s_rave_overlay_tex = (__bridge id<MTLTexture>)raw;
-	s_rave_overlay_w = width;
-	s_rave_overlay_h = height;
+
+	s_rave_overlay_tex = s_rave_overlay_pair[s_rave_overlay_write_index];
 	return s_rave_overlay_tex;
+}
+
+static void rave_advance_overlay_texture_after_submit(void)
+{
+#ifdef TESTING_BUILD
+	if (rave_testing_overlay != nil) return;
+#endif
+	if (s_rave_overlay_pair[0] == nil || s_rave_overlay_pair[1] == nil) return;
+	s_rave_overlay_write_index ^= 1u;
+	s_rave_overlay_tex = s_rave_overlay_pair[s_rave_overlay_write_index];
 }
 
 /*
@@ -374,12 +475,18 @@ static id<MTLTexture> rave_acquire_overlay_texture(uint32_t width, uint32_t heig
  */
 static void rave_release_overlay_texture(void)
 {
-	if (s_rave_overlay_tex == nil) return;
-	gfxaccel_resources_release_overlay_texture(
-	    kGfxEngineRAVE, (__bridge void *)s_rave_overlay_tex);
+	if (s_rave_overlay_pair[0] != nil) {
+		gfxaccel_resources_release_overlay_texture(
+		    kGfxEngineRAVE, (__bridge void *)s_rave_overlay_pair[0]);
+	}
+	if (s_rave_overlay_pair[1] != nil) {
+		gfxaccel_resources_release_overlay_texture(
+		    kGfxEngineRAVE, (__bridge void *)s_rave_overlay_pair[1]);
+	}
+	s_rave_overlay_pair[0] = nil;
+	s_rave_overlay_pair[1] = nil;
 	s_rave_overlay_tex = nil;
-	s_rave_overlay_w = 0;
-	s_rave_overlay_h = 0;
+	s_rave_overlay_write_index = 0;
 }
 
 static void RaveSetCompositorDestinationRect(
@@ -401,37 +508,51 @@ static void RaveSetCompositorDestinationRect(
 }
 
 /*
- *  rave_has_active_overlay - true iff RAVE currently holds a vended overlay.
+ *  rave_has_active_overlay - true iff RAVE currently holds a vended overlay
+ *  or still has a logical RAVE overlay binding whose texture can be lazily
+ *  re-vended after a DMC mode-exit detach.
  *  Used by the gfxaccel_resources fan-out attach/detach handlers (in
  *  rave_engine.cpp) to decide whether to pre-vend on mode-enter / release
  *  on mode-exit.
  */
 extern "C" int rave_has_active_overlay(void)
 {
-	return (s_rave_overlay_tex != nil) ? 1 : 0;
+	return (s_rave_overlay_pair[0] != nil ||
+	        s_rave_overlay_pair[1] != nil ||
+	        s_rave_overlay_tex != nil ||
+	        s_rave_overlay_binding_preserved) ? 1 : 0;
 }
 
 /*
  *  rave_get_overlay_dims - export current overlay dimensions for the
  *  fan-out attach handler (so it can re-vend at the previously-active
  *  resolution if RAVE was active before the mode switch). Returns 0 if
- *  RAVE has no active overlay.
+ *  RAVE has no cached or preserved dimensions.
  */
 extern "C" int rave_get_overlay_dims(uint32_t *outW, uint32_t *outH)
 {
-	if (s_rave_overlay_tex == nil) return 0;
+	if (s_rave_overlay_pair[0] == nil &&
+	    s_rave_overlay_pair[1] == nil &&
+	    s_rave_overlay_tex == nil &&
+	    (s_rave_overlay_w == 0 || s_rave_overlay_h == 0)) return 0;
 	if (outW) *outW = s_rave_overlay_w;
 	if (outH) *outH = s_rave_overlay_h;
 	return 1;
 }
 
 /*
- *  rave_release_overlay_for_detach - external entry to release the cached
- *  overlay (called from gfxaccel_resources fan-out detach handler).
+ *  rave_release_overlay_for_detach - external entry called from the
+ *  gfxaccel_resources fan-out detach handler. Releases the cached Metal
+ *  texture but preserves the logical RAVE overlay binding and dimensions so
+ *  the mode-enter attach handler can pre-vend and veto if vending fails.
  */
 extern "C" void rave_release_overlay_for_detach(void)
 {
+	const bool preserve_binding = rave_has_active_overlay() &&
+	                              s_rave_overlay_w != 0 &&
+	                              s_rave_overlay_h != 0;
 	rave_release_overlay_texture();
+	s_rave_overlay_binding_preserved = preserve_binding;
 }
 
 void RaveCreateMetalOverlay(int32_t left, int32_t top, int32_t width, int32_t height)
@@ -441,6 +562,7 @@ void RaveCreateMetalOverlay(int32_t left, int32_t top, int32_t width, int32_t he
 		RAVE_LOG("RaveCreateMetalOverlay: vend(%dx%d) FAILED", width, height);
 		return;
 	}
+	s_rave_overlay_binding_preserved = true;
 	RaveSetCompositorDestinationRect(left, top, width, height);
 	/* Declare RAVE as the active owner so DMC subscribers / snapshot
 	 * readers know which engine drives mode semantics. The idempotent
@@ -455,6 +577,7 @@ void RaveDestroyMetalOverlay(void)
 {
 	RAVE_LOG("RaveDestroyMetalOverlay: releasing per-engine overlay");
 	rave_release_overlay_texture();
+	rave_clear_overlay_binding_state();
 	/* Return ownership to QuickDraw (2D framebuffer) so DMC reflects the
 	 * post-3D state. */
 	(void)dmc_set_active_owner(kDMCOwnerQuickDraw);
@@ -473,6 +596,7 @@ void RaveDestroyMetalOverlay(void)
 void RaveClearOverlayToTransparent(void)
 {
 	rave_release_overlay_texture();
+	rave_clear_overlay_binding_state();
 	/* Return ownership to QuickDraw on late overlay cleanup. */
 	(void)dmc_set_active_owner(kDMCOwnerQuickDraw);
 	RAVE_LOG("Overlay released (clear to transparent)");
@@ -931,7 +1055,7 @@ void RaveInitMetalResources(RaveDrawPrivate *priv)
 	}
 
 	ms->renderPassActive = false;
-	ms->currentPipelineIdx = -1;
+	ms->currentPipelineKey = kRavePipelineKeyInvalid;
 	ms->msaaActive = false;
 	ms->msaaResourcesReady = false;
 
@@ -965,12 +1089,10 @@ void RaveReleaseMetalResources(RaveDrawPrivate *priv)
 {
 	RaveMetalState *ms = priv->metal;
 	if (!ms) return;
-
-	// Release RAVE ring buffer.
-	gfxaccel_rave_ring_shutdown();
+	const bool releaseGlobalRing = (rave_context_count <= 1);
 
 	// Metal resource cleanup:
-	// (1) RTT texture handles: freed from resource table (created by this context)
+	// (1) RTT texture handles: disowned, NOT freed (RAVE 1.6 either-order delete)
 	// (2) 48+48 pipeline states: nil'd (ARC releases)
 	// (3) 9+9 depth-stencil states: nil'd (ARC releases)
 	// (4) 3 samplers: nil'd (ARC releases)
@@ -979,14 +1101,18 @@ void RaveReleaseMetalResources(RaveDrawPrivate *priv)
 	// (7) MSAA textures + pipelines: nil'd (ARC releases)
 	// (8) Depth buffer, shader library, vertex descriptor: nil'd (ARC releases)
 	// (9) Command queue, device, command buffers: nil'd (ARC releases)
-	// (10) RAVE ring buffer: shutdown'd
+	// (10) RAVE ring buffer: shutdown'd only after the last context releases
 
-	// Free RTT (render-to-texture) handles created by this draw context
-	for (uint32_t rttHandle : ms->rttTextureHandles) {
-		RaveResourceFree(rttHandle);
-	}
+	// RTT (render-to-texture) resources created by this draw context stay
+	// live in the resource table: RAVE 1.6 (pp.40-41) allows the texture or
+	// bitmap and its source context to be deleted in either order, so the
+	// guest's handle must survive this context. Each entry owns a standalone
+	// MTLTexture (no reference back into this context) and is freed when the
+	// guest deletes the resource itself (NativeEngineTextureDelete ->
+	// RaveForgetRTTAndFreeResource). The token list is only context-membership
+	// bookkeeping for RenderEnd's overlay->RTT blit.
 	if (!ms->rttTextureHandles.empty()) {
-		RAVE_LOG("RaveReleaseMetalResources: freed %zu RTT texture handles",
+		RAVE_LOG("RaveReleaseMetalResources: disowned %zu live RTT texture handles",
 		         ms->rttTextureHandles.size());
 	}
 	ms->rttTextureHandles.clear();
@@ -997,7 +1123,7 @@ void RaveReleaseMetalResources(RaveDrawPrivate *priv)
 		ms->currentEncoder = nil;
 	}
 	if (ms->currentCommandBuffer) {
-		[ms->currentCommandBuffer commit];
+		CommitRaveCommandBufferWithRing(ms->currentCommandBuffer);
 		[ms->currentCommandBuffer waitUntilCompleted];
 		ms->currentCommandBuffer = nil;
 	}
@@ -1043,6 +1169,13 @@ void RaveReleaseMetalResources(RaveDrawPrivate *priv)
 	delete ms;
 	priv->metal = nullptr;
 
+	// RAVE's vertex ring is process-global, not per-context. NativeDrawPrivateDelete
+	// decrements rave_context_count after this call, so a pre-delete count of one
+	// means the context being released is the last live owner.
+	if (releaseGlobalRing) {
+		gfxaccel_rave_ring_shutdown();
+	}
+
 	RAVE_LOG("Metal resources released");
 }
 
@@ -1055,6 +1188,28 @@ static RaveDrawPrivate *GetContextFromDrawAddr(uint32 drawContextAddr)
 {
 	uint32 handle = ReadMacInt32(drawContextAddr + 0);
 	return RaveGetContext(handle);
+}
+
+void RaveForgetRTTResourceHandle(uint32_t handle, uint32_t generation)
+{
+	if (handle == 0 || generation == 0) return;
+
+	for (uint32_t ctxHandle = 1; ctxHandle <= RAVE_MAX_CONTEXTS; ctxHandle++) {
+		RaveDrawPrivate *ctx = RaveGetContext(ctxHandle);
+		if (!ctx || !ctx->metal) continue;
+
+		RaveMetalState *ms = ctx->metal;
+		auto &handles = ms->rttTextureHandles;
+		size_t oldSize = handles.size();
+		handles.erase(std::remove_if(handles.begin(), handles.end(),
+			[handle, generation](const RaveRTTResourceToken &token) {
+				return token.handle == handle && token.generation == generation;
+			}), handles.end());
+		if (handles.size() != oldSize) {
+			RAVE_LOG("RaveForgetRTTResourceHandle: removed handle=%u gen=%u from ctx=%u",
+			         handle, generation, ctxHandle);
+		}
+	}
 }
 
 
@@ -1083,14 +1238,17 @@ static MTLBlendFactor GLBlendToMTL(uint32_t glFactor) {
  *  GetGLBlendPipeline - get or lazily create a pipeline with GL blend factors
  *
  *  Used when kQABlend_OpenGL (blend mode 2) is active. Caches pipelines
- *  keyed by (funcConstBits, glBlendSrc, glBlendDst, msaa).
+ *  keyed by function constants, channel mask, GL blend factors, sample count,
+ *  and whether the active pass has a depth attachment.
  */
 static id<MTLRenderPipelineState> GetGLBlendPipeline(RaveMetalState *ms, int funcConstBits,
                                                      uint32_t glBlendSrc, uint32_t glBlendDst,
+                                                     uint32_t channelMask,
                                                      bool msaa, bool hasDepthAttachment) {
 	uint64_t key = ((uint64_t)(funcConstBits & 0xF) << 48) | ((uint64_t)(msaa ? 1 : 0) << 32)
 	             | ((uint64_t)(glBlendSrc & 0xFFFF) << 16) | (uint64_t)(glBlendDst & 0xFFFF);
 	if (hasDepthAttachment) key |= (1ULL << 33);
+	key |= ((uint64_t)(channelMask & 0xF) << 34);
 
 	auto it = ms->glBlendPipelines.find(key);
 	if (it != ms->glBlendPipelines.end()) return it->second;
@@ -1136,6 +1294,7 @@ static id<MTLRenderPipelineState> GetGLBlendPipeline(RaveMetalState *ms, int fun
 	pipeDesc.colorAttachments[0].destinationRGBBlendFactor = GLBlendToMTL(glBlendDst);
 	pipeDesc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
 	pipeDesc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+	pipeDesc.colorAttachments[0].writeMask = RaveChannelMaskToMTL(channelMask);
 
 	id<MTLRenderPipelineState> pipeline = [ms->device newRenderPipelineStateWithDescriptor:pipeDesc error:&err];
 	if (!pipeline) {
@@ -1152,6 +1311,36 @@ static id<MTLRenderPipelineState> GetGLBlendPipeline(RaveMetalState *ms, int fun
 
 
 /*
+ *  RaveFlushRingWindowIfNearExhaustion - commit the ring submission window
+ *  before it can self-deadlock.
+ *
+ *  Ring slot credits consumed by the current (uncommitted) submission are
+ *  only signal-registered at commit (gfxaccel_rave_ring_frame_end), so a
+ *  window that staged into every slot would wait forever acquiring the next
+ *  one. Mirror GL's mid-frame flush (GLMetalFlushAndResetRingBuffer): commit
+ *  and restart with LoadActionLoad. Must run at a draw-sequence boundary,
+ *  BEFORE any per-draw encoder state is applied — a mid-draw restart would
+ *  orphan bindings already encoded for the draw in progress, whereas here
+ *  the caller applies everything on the new encoder.
+ */
+static void RaveFlushRingWindowIfNearExhaustion(RaveDrawPrivate *priv)
+{
+	if (!gfxaccel_rave_ring_submission_near_exhaustion()) return;
+
+	RaveMetalState *ms = priv->metal;
+	if (!ms || !ms->renderPassActive || !ms->currentEncoder || !ms->currentCommandBuffer) return;
+
+	[ms->currentEncoder endEncoding];
+	ms->currentEncoder = nil;
+	CommitRaveCommandBufferWithRing(ms->currentCommandBuffer);
+	ms->lastCommittedBuffer = ms->currentCommandBuffer;
+	ms->currentCommandBuffer = nil;
+	RestartRenderPassWithLoad(priv);
+	RAVE_VLOG("RaveFlushRingWindowIfNearExhaustion: ring window committed mid-frame");
+}
+
+
+/*
  *  ApplyDirtyState - set pipeline and depth state on encoder per dirty flags
  *
  *  textured: when true, selects has_texture=1 pipeline variant and binds
@@ -1161,6 +1350,56 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 {
 	RaveMetalState *ms = priv->metal;
 	if (!ms->currentEncoder) return;
+
+	// Ring-exhaustion guard: every per-draw bind below lands on the (possibly
+	// fresh) encoder this leaves behind.
+	RaveFlushRingWindowIfNearExhaustion(priv);
+	if (!ms->currentEncoder) return;
+
+	// Texture realize / live pixmap refresh can break and restart the render
+	// pass (fenced staging upload), so run them BEFORE any per-draw encoder
+	// state below: a restart's fresh encoder silently drops bindings already
+	// issued for this draw (pipeline/depth/scissor/texture), leaving the draw
+	// that triggered the break to render with missing state.
+	//
+	// Deferred texture creation: if metal_texture is nil but we have a pixmap
+	// address, the texture was created with placeholder data at QATextureNew
+	// time. The game has since written the real pixels into Mac memory. Read
+	// them now and create the Metal texture.
+	//
+	// Live pixmap re-upload: the original RAVE software renderer reads from
+	// the pixmap on every draw call (no GPU upload step). QD3D's Interactive
+	// Renderer writes directly to the pixmap between frames. We must re-read
+	// and re-upload every frame to match this behavior.
+	RaveResourceEntry *tex_entry = nullptr;
+	RaveResourceEntry *tex2_entry = nullptr;
+	if (textured) {
+		uint32_t tex_mac_addr = priv->state[13].i;  // kQATag_Texture
+		if (tex_mac_addr != 0) {
+			tex_entry = RaveResourceGet(RaveResourceFindByAddr(tex_mac_addr));
+			if (tex_entry) {
+				if (!tex_entry->metal_texture && tex_entry->pixmap_mac_addr != 0) {
+					RaveRealizeDeferredTexture(tex_entry);
+				}
+				else if (RaveTextureNeedsLivePixmapRefresh(tex_entry)) {
+					RaveRefreshTextureFromPixmap(tex_entry);
+				}
+			}
+		}
+		if (priv->multiTextureActive && priv->multiTextureHandle != 0) {
+			tex2_entry = RaveResourceGet(RaveResourceFindByAddr(priv->multiTextureHandle));
+			if (tex2_entry) {
+				if (!tex2_entry->metal_texture && tex2_entry->pixmap_mac_addr != 0) {
+					RaveRealizeDeferredTexture(tex2_entry);
+				}
+				else if (RaveTextureNeedsLivePixmapRefresh(tex2_entry)) {
+					RaveRefreshTextureFromPixmap(tex2_entry);
+				}
+			}
+		}
+		// A failed restart leaves no encoder to bind on.
+		if (!ms->currentEncoder) return;
+	}
 
 	// Determine current pipeline index
 	// bit 0 = has_texture, bit 1 = has_fog, bit 2 = has_alpha_test, bit 3 = has_multi_texture
@@ -1173,40 +1412,46 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 
 	id<MTLRenderPipelineState> selectedPipeline = nil;
 	const bool hasDepthAttachment = RaveContextUsesMetalDepthAttachment(priv->flags) != 0;
+	uint32_t channelMask = RaveNormalizeChannelMask(priv->state[27].i);  // kQATag_ChannelMask
 
 	if (blend_mode == 2) {
 		// kQABlend_OpenGL: use GL blend factors from tags 109/110
 		uint32_t glSrc = priv->state[109].i;  // kQATagGL_BlendSrc
 		uint32_t glDst = priv->state[110].i;  // kQATagGL_BlendDst
 		selectedPipeline = GetGLBlendPipeline(ms, func_const_bits, glSrc, glDst,
-		                                      ms->msaaActive, hasDepthAttachment);
+		                                      channelMask, ms->msaaActive,
+		                                      hasDepthAttachment);
 	}
 
 	int pipe_idx = (blend_mode == 2 ? 0 : (blend_mode < 0 || blend_mode > 1 ? 0 : blend_mode)) * 16 + func_const_bits;
+	const uint32_t glSrc = blend_mode == 2 ? priv->state[109].i : 0;
+	const uint32_t glDst = blend_mode == 2 ? priv->state[110].i : 0;
+	uint64_t pipelineKey = RavePipelineBindingKey(pipe_idx, channelMask, blend_mode == 2,
+	                                             glSrc, glDst, ms->msaaActive,
+	                                             hasDepthAttachment);
 
-	if (forceAll || pipe_idx != ms->currentPipelineIdx || selectedPipeline != nil) {
+	if (forceAll || pipelineKey != ms->currentPipelineKey) {
 		if (selectedPipeline) {
 			// GL blend pipeline (kQABlend_OpenGL)
 			[ms->currentEncoder setRenderPipelineState:selectedPipeline];
-			ms->currentPipelineIdx = pipe_idx;
+			ms->currentPipelineKey = pipelineKey;
 		} else {
 			// Channel mask applied uniformly in all draw paths.
 			// Test: RAVERenderingStateTests.testChannelMask_RedOnly
 			// Paths covered: ApplyDirtyState (all Draw* methods), FlushZSortBuffer,
 			// NativeDrawBitmap, NativeClearDrawBuffer.
-			uint32_t channelMask = priv->state[27].i;  // kQATag_ChannelMask, default 0xF (all)
-			if (channelMask != 0xF && channelMask != 0) {
+			if (channelMask != 0xF) {
 				id<MTLRenderPipelineState> maskedPipe = GetMaskedPipeline(
 					ms, pipe_idx, channelMask, ms->msaaActive, hasDepthAttachment);
 				if (maskedPipe) {
 					[ms->currentEncoder setRenderPipelineState:maskedPipe];
-					ms->currentPipelineIdx = pipe_idx;
+					ms->currentPipelineKey = pipelineKey;
 				}
 			} else {
 				id<MTLRenderPipelineState> __strong *pipeArray = ms->msaaActive ? ms->msaaPipelines : ms->pipelines;
 				if (pipe_idx >= 0 && pipe_idx < 48 && pipeArray[pipe_idx]) {
 					[ms->currentEncoder setRenderPipelineState:pipeArray[pipe_idx]];
-					ms->currentPipelineIdx = pipe_idx;
+					ms->currentPipelineKey = pipelineKey;
 				}
 			}
 		}
@@ -1236,31 +1481,14 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 	// Bind texture and sampler when rendering textured geometry
 	bool boundTexOpaque = false;  // reused by the opaque-texture guard below (avoids a 2nd lookup)
 	if (textured) {
-		// Bind texture from kQATag_Texture (state[13])
-		uint32_t tex_mac_addr = priv->state[13].i;
-		if (tex_mac_addr != 0) {
-			uint32_t tex_handle = RaveResourceFindByAddr(tex_mac_addr);
-			RaveResourceEntry *tex_entry = RaveResourceGet(tex_handle);
-			if (tex_entry) {
-				boundTexOpaque = (tex_entry->diag_alpha_zero == 0);
-				// Deferred texture creation: if metal_texture is nil but we have
-				// a pixmap address, the texture was created with placeholder data
-				// at QATextureNew time. The game has since written the real pixels
-				// into Mac memory. Read them now and create the Metal texture.
-				if (!tex_entry->metal_texture && tex_entry->pixmap_mac_addr != 0) {
-					RaveRealizeDeferredTexture(tex_entry);
-				}
-				// Live pixmap re-upload: the original RAVE software renderer reads
-				// from the pixmap on every draw call (no GPU upload step). QD3D's
-				// Interactive Renderer writes directly to the pixmap between frames.
-				// We must re-read and re-upload every frame to match this behavior.
-				else if (RaveTextureNeedsLivePixmapRefresh(tex_entry)) {
-					RaveRefreshTextureFromPixmap(tex_entry);
-				}
-				if (tex_entry->metal_texture) {
-					id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)tex_entry->metal_texture;
-					[ms->currentEncoder setFragmentTexture:mtlTex atIndex:0];
-				}
+		// Bind texture from kQATag_Texture (state[13]); realized/refreshed above,
+		// before any encoder state was issued for this draw.
+		if (tex_entry) {
+			boundTexOpaque =
+				RaveTextureDiagUsesOpaqueAlphaGuard(tex_entry->diag_alpha_zero);
+			if (tex_entry->metal_texture) {
+				id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)tex_entry->metal_texture;
+				[ms->currentEncoder setFragmentTexture:mtlTex atIndex:0];
 			}
 		}
 
@@ -1287,19 +1515,9 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 
 		// Multi-texture: bind second texture and sampler at indices 1
 		if (priv->multiTextureActive && priv->multiTextureHandle != 0) {
-			uint32_t tex2_handle = RaveResourceFindByAddr(priv->multiTextureHandle);
-			RaveResourceEntry *tex2_entry = RaveResourceGet(tex2_handle);
-			if (tex2_entry) {
-				if (!tex2_entry->metal_texture && tex2_entry->pixmap_mac_addr != 0) {
-					RaveRealizeDeferredTexture(tex2_entry);
-				}
-				else if (RaveTextureNeedsLivePixmapRefresh(tex2_entry)) {
-					RaveRefreshTextureFromPixmap(tex2_entry);
-				}
-				if (tex2_entry->metal_texture) {
-					id<MTLTexture> mtlTex2 = (__bridge id<MTLTexture>)tex2_entry->metal_texture;
-					[ms->currentEncoder setFragmentTexture:mtlTex2 atIndex:1];
-				}
+			if (tex2_entry && tex2_entry->metal_texture) {
+				id<MTLTexture> mtlTex2 = (__bridge id<MTLTexture>)tex2_entry->metal_texture;
+				[ms->currentEncoder setFragmentTexture:mtlTex2 atIndex:1];
 			}
 			// Use same sampler filter for second texture
 			int filter = (int)priv->state[11].i;
@@ -1325,7 +1543,7 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 		// textures (alpha0>0) are untouched. boundTexOpaque was captured during the
 		// texture bind above, so this reuses that lookup rather than repeating it.
 		if (boundTexOpaque) {
-			fragUniforms.texture_op |= 0x40000000;
+			fragUniforms.texture_op |= RAVE_TEXTURE_OP_FORCE_OPAQUE_ALPHA;
 		}
 	}
 	RaveFillFogUniforms(priv, &fragUniforms);
@@ -1473,6 +1691,11 @@ static void FlushZSortBuffer(RaveDrawPrivate *priv)
 	RaveMetalState *ms = priv->metal;
 	if (!ms || !ms->currentEncoder) return;
 
+	// Ring-exhaustion guard: all batch state below is applied after this, so
+	// a restart here cannot orphan encoder bindings.
+	RaveFlushRingWindowIfNearExhaustion(priv);
+	if (!ms->currentEncoder) return;
+
 	// Sort back-to-front (higher Z = farther = draw first)
 	std::sort(priv->zsortBuffer, priv->zsortBuffer + priv->zsortCount,
 	          [](const ZSortTriangle &a, const ZSortTriangle &b) {
@@ -1519,14 +1742,19 @@ static void FlushZSortBuffer(RaveDrawPrivate *priv)
 	int32_t  curTexOp   = 0;
 	int      curFilter  = 0;
 	bool     curTextured = false;
+	bool     curTexOpaque = false;
 
 	auto flushBatch = [&]() {
 		if (batchCount == 0) return;
 		uint32_t vertCount = batchCount * 3;
 		size_t dataSize = vertCount * sizeof(RaveVertex);
 
-		// Set fragment uniforms with the current batch's textureOp
+		// Set fragment uniforms with the current batch's textureOp. Z-sorted
+		// texture batches use the same opaque-texture guard as the immediate path.
 		fragUniforms.texture_op = curTextured ? curTexOp : 0;
+		if (curTextured && curTexOpaque) {
+			fragUniforms.texture_op |= RAVE_TEXTURE_OP_FORCE_OPAQUE_ALPHA;
+		}
 		[ms->currentEncoder setFragmentBytes:&fragUniforms length:sizeof(fragUniforms) atIndex:0];
 
 		if (dataSize > 4096) {
@@ -1582,18 +1810,38 @@ static void FlushZSortBuffer(RaveDrawPrivate *priv)
 			curTexAddr = tri->textureMacAddr;
 			curTexOp = tri->textureOp;
 			curFilter = tri->filterMode;
+			curTexOpaque = false;
+
+			// Texture realize / live pixmap refresh can break and restart the
+			// render pass (fenced staging upload) — run it after the previous
+			// batch's flush but before the pipeline/depth/texture binds below,
+			// so a restart cannot orphan state already issued for this batch
+			// (same hazard as ApplyDirtyState's texture section).
+			RaveResourceEntry *tex_entry = nullptr;
+			if (tri->textured && tri->textureMacAddr != 0) {
+				tex_entry = RaveResourceGet(RaveResourceFindByAddr(tri->textureMacAddr));
+				if (tex_entry) {
+					if (!tex_entry->metal_texture && tex_entry->pixmap_mac_addr != 0) {
+						RaveRealizeDeferredTexture(tex_entry);
+					}
+					else if (RaveTextureNeedsLivePixmapRefresh(tex_entry)) {
+						RaveRefreshTextureFromPixmap(tex_entry);
+					}
+				}
+			}
+
 			const bool hasDepthAttachment = RaveContextUsesMetalDepthAttachment(priv->flags) != 0;
 
+			uint32_t channelMask = RaveNormalizeChannelMask(priv->state[27].i);  // kQATag_ChannelMask
 			if (usesGLPipeline) {
 				id<MTLRenderPipelineState> glPipe = GetGLBlendPipeline(
 					ms, func_const_bits, tri->glBlendSrc, tri->glBlendDst,
-					ms->msaaActive, hasDepthAttachment);
+					channelMask, ms->msaaActive, hasDepthAttachment);
 				if (glPipe)
 					[ms->currentEncoder setRenderPipelineState:glPipe];
 			} else {
 				// Apply channel mask in z-sort flush path (same as ApplyDirtyState)
-				uint32_t channelMask = priv->state[27].i;  // kQATag_ChannelMask
-				if (channelMask != 0xF && channelMask != 0) {
+				if (channelMask != 0xF) {
 					id<MTLRenderPipelineState> maskedPipe = GetMaskedPipeline(
 						ms, pipe_idx, channelMask, ms->msaaActive, hasDepthAttachment);
 					if (maskedPipe)
@@ -1607,15 +1855,9 @@ static void FlushZSortBuffer(RaveDrawPrivate *priv)
 			RaveSetDepthStencilStateForDraw(priv, blend_mode, tri->glBlendSrc, tri->glBlendDst);
 
 			if (tri->textured && tri->textureMacAddr != 0) {
-				uint32_t tex_handle = RaveResourceFindByAddr(tri->textureMacAddr);
-				RaveResourceEntry *tex_entry = RaveResourceGet(tex_handle);
 				if (tex_entry) {
-					if (!tex_entry->metal_texture && tex_entry->pixmap_mac_addr != 0) {
-						RaveRealizeDeferredTexture(tex_entry);
-					}
-					else if (RaveTextureNeedsLivePixmapRefresh(tex_entry)) {
-						RaveRefreshTextureFromPixmap(tex_entry);
-					}
+					curTexOpaque =
+						RaveTextureDiagUsesOpaqueAlphaGuard(tex_entry->diag_alpha_zero);
 					if (tex_entry->metal_texture) {
 						id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)tex_entry->metal_texture;
 						[ms->currentEncoder setFragmentTexture:mtlTex atIndex:0];
@@ -1635,6 +1877,7 @@ static void FlushZSortBuffer(RaveDrawPrivate *priv)
 	// Flush final batch
 	flushBatch();
 	delete[] batchVerts;
+	ms->currentPipelineKey = kRavePipelineKeyInvalid;
 
 	RAVE_LOG("ZSort: flushed %d triangles in %d draw calls", priv->zsortCount, drawCalls);
 	priv->zsortCount = 0;
@@ -1781,8 +2024,8 @@ int32 NativeDrawTriTexture(uint32 drawContextAddr, uint32 v0Addr, uint32 v1Addr,
 	// multi-texture UV2 only applies if staging count matches)
 	if (priv->multiTextureActive && priv->multiTexStagingCount >= 3) {
 		size_t multiTexSize = 3 * 16;  // 4 floats per vertex
-		[ms->currentEncoder setVertexBytes:priv->multiTexStagingBuffer
-		                            length:multiTexSize atIndex:3];
+		if (!RaveSetVertexData(ms, priv->multiTexStagingBuffer, multiTexSize, 3))
+			return kQANoErr;
 	}
 
 	[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
@@ -2114,8 +2357,8 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	// Bind UV2 staging buffer for multi-texture at buffer index 3
 	if (priv->multiTextureActive && priv->multiTexStagingCount > 0) {
 		size_t multiTexSize = priv->multiTexStagingCount * 16;  // 4 floats per vertex
-		[ms->currentEncoder setVertexBytes:priv->multiTexStagingBuffer
-		                            length:multiTexSize atIndex:3];
+		if (!RaveSetVertexData(ms, priv->multiTexStagingBuffer, multiTexSize, 3))
+			return kQANoErr;
 	}
 
 	switch (vertexMode) {
@@ -2512,9 +2755,9 @@ int32 NativeDrawBitmap(uint32 drawContextAddr, uint32 vertexAddr, uint32 bitmapM
 	int pipe_idx = 1 + blend_mode * 16;  // has_texture=1
 
 	// Apply channel mask in bitmap draw path (same as ApplyDirtyState)
-	uint32_t channelMask = priv->state[27].i;  // kQATag_ChannelMask
+	uint32_t channelMask = RaveNormalizeChannelMask(priv->state[27].i);  // kQATag_ChannelMask
 	const bool hasDepthAttachment = RaveContextUsesMetalDepthAttachment(priv->flags) != 0;
-	if (channelMask != 0xF && channelMask != 0) {
+	if (channelMask != 0xF) {
 		id<MTLRenderPipelineState> maskedPipe = GetMaskedPipeline(
 			ms, pipe_idx, channelMask, ms->msaaActive, hasDepthAttachment);
 		if (maskedPipe)
@@ -2553,7 +2796,7 @@ int32 NativeDrawBitmap(uint32 drawContextAddr, uint32 vertexAddr, uint32 bitmapM
 	ms->triangleCount += 2;
 
 	// Force pipeline re-selection on next draw (we changed pipeline/depth)
-	ms->currentPipelineIdx = -1;
+	ms->currentPipelineKey = kRavePipelineKeyInvalid;
 	priv->dirty_flags |= 1;  // force depth state re-application
 
 	return kQANoErr;
@@ -2751,7 +2994,11 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 				uv2Out++;
 			}
 			size_t uv2Size = uv2Out * 16;
-			[ms->currentEncoder setVertexBytes:uv2Indexed length:uv2Size atIndex:3];
+			if (!RaveSetVertexData(ms, uv2Indexed, uv2Size, 3)) {
+				delete[] uv2Indexed;
+				delete[] verts;
+				return kQANoErr;
+			}
 			delete[] uv2Indexed;
 		}
 
@@ -2843,7 +3090,7 @@ static void EndAndCommitCurrentRenderPass(RaveMetalState *ms)
 		ms->currentEncoder = nil;
 	}
 	if (ms->currentCommandBuffer) {
-		[ms->currentCommandBuffer commit];
+		CommitRaveCommandBufferWithRing(ms->currentCommandBuffer);
 		[ms->currentCommandBuffer waitUntilCompleted];
 		ms->currentCommandBuffer = nil;
 	}
@@ -3164,8 +3411,9 @@ int32 NativeRenderStart(uint32 drawContextAddr, uint32 dirtyRectAddr, uint32 ini
 	// Build render pass descriptor
 	MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
 
-	// Color attachment: honor the guest clear alpha. RAVE overlays composite
-	// over the 2D framebuffer, so an opaque forced clear tints untouched 2D.
+	// Color attachment: use the shared overlay clear policy. Zero-alpha clears
+	// are promoted to opaque so the guest RGB remains a scene backdrop; nonzero
+	// guest alpha is preserved and RGB is premultiplied by that effective alpha.
 	const struct DMCModeSnapshot *clearSnap = dmc_current_snapshot();
 	const uint32_t clearModeWidth = clearSnap ? clearSnap->width : 0;
 	const uint32_t clearModeHeight = clearSnap ? clearSnap->height : 0;
@@ -3185,7 +3433,7 @@ int32 NativeRenderStart(uint32 drawContextAddr, uint32 dirtyRectAddr, uint32 ini
 		// MSAA: render to multisample texture, resolve to offscreen overlay
 		rpd.colorAttachments[0].texture = ms->msaaColorTexture;
 		rpd.colorAttachments[0].resolveTexture = ms->overlayTexture;
-		rpd.colorAttachments[0].storeAction = MTLStoreActionMultisampleResolve;
+		rpd.colorAttachments[0].storeAction = MTLStoreActionStoreAndMultisampleResolve;
 	} else {
 		rpd.colorAttachments[0].texture = ms->overlayTexture;
 		rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
@@ -3197,7 +3445,7 @@ int32 NativeRenderStart(uint32 drawContextAddr, uint32 dirtyRectAddr, uint32 ini
 		if (depthTex) {
 			rpd.depthAttachment.texture = depthTex;
 			rpd.depthAttachment.loadAction = MTLLoadActionClear;
-			rpd.depthAttachment.storeAction = MTLStoreActionDontCare;
+			rpd.depthAttachment.storeAction = MTLStoreActionStore;
 			rpd.depthAttachment.clearDepth = 1.0;
 		}
 	}
@@ -3244,7 +3492,7 @@ int32 NativeRenderStart(uint32 drawContextAddr, uint32 dirtyRectAddr, uint32 ini
 	RaveSetDepthStencilStateForCurrentDraw(priv);
 
 	ms->renderPassActive = true;
-	ms->currentPipelineIdx = -1;  // Force pipeline selection on first draw
+	ms->currentPipelineKey = kRavePipelineKeyInvalid;  // Force pipeline selection on first draw
 
 	// Reset per-frame diagnostic counters
 	ms->drawCallCount = 0;
@@ -3331,8 +3579,10 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 		id<MTLTexture> srcTex = ms->overlayTexture;
 		NSUInteger w = srcTex.width;
 		NSUInteger h = srcTex.height;
-		for (uint32_t rttHandle : ms->rttTextureHandles) {
-			RaveResourceEntry *entry = RaveResourceGet(rttHandle);
+		for (const RaveRTTResourceToken &token : ms->rttTextureHandles) {
+			RaveResourceEntry *entry = RaveResourceGet(token.handle);
+			if (entry && entry->generation != token.generation)
+				entry = nullptr;
 			if (entry && entry->metal_texture) {
 				id<MTLTexture> rttTex = (__bridge id<MTLTexture>)entry->metal_texture;
 				[blit copyFromTexture:srcTex
@@ -3357,26 +3607,16 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 	int32_t dont_swap = (int32_t)priv->state[32].i;
 
 	if (ms->currentCommandBuffer) {
-		[ms->currentCommandBuffer commit];
+		CommitRaveCommandBufferWithRing(ms->currentCommandBuffer);
 	}
-
-	// Signal ring buffer frame-end after commit.
-	// Advances to next ring slot and signals the semaphore so the slot
-	// can be reused after GPU work completes.
-	gfxaccel_rave_ring_frame_end();
 
 	ms->lastCommittedBuffer = ms->currentCommandBuffer;
 	ms->currentEncoder = nil;
 	ms->currentCommandBuffer = nil;
 	ms->renderPassActive = false;
 
-	// Write modified rect to Mac memory if requested
-	if (modifiedRectAddr != 0) {
-		WriteMacInt32(modifiedRectAddr + 0,  (uint32)priv->left);
-		WriteMacInt32(modifiedRectAddr + 4,  (uint32)(priv->left + priv->width));
-		WriteMacInt32(modifiedRectAddr + 8,  (uint32)priv->top);
-		WriteMacInt32(modifiedRectAddr + 12, (uint32)(priv->top + priv->height));
-	}
+	// modifiedRect is a const input from the guest, not an output parameter.
+	(void)modifiedRectAddr;
 
 	// Fire kQAMethod_RenderCompletion (selector 0) after present/commit
 	FireNoticeMethod(priv, 0);
@@ -3392,11 +3632,6 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 		         dont_swap ? "committed (DontSwap)" : "frame committed to offscreen");
 	}
 
-	// Legacy 3D-frame-pacing throttle call deleted — SubmitFrame's hidden
-	// dispatch_semaphore(3) subsumes the sleep-based pacing. The throttle
-	// declaration remains in metal_compositor.h (still called by GL until
-	// GL migrates; later removed entirely).
-	//
 	// Emit a CompositeLayer for the just-rendered overlay via
 	// MetalCompositorSubmitFrame. The
 	// compositor sees this as a single kLayerSlotOverlay layer with
@@ -3405,9 +3640,10 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 	// shows. dmc_set_active_owner already declared RAVE in
 	// RaveCreateMetalOverlay; the idempotent fast-path handles the
 	// per-frame re-declaration.
-	if (s_rave_overlay_tex != nil) {
+	id<MTLTexture> submittedOverlay = ms->overlayTexture ?: s_rave_overlay_tex;
+	if (submittedOverlay != nil) {
 		struct CompositeLayer layer;
-		layer.source       = (__bridge void *)s_rave_overlay_tex;
+		layer.source       = (__bridge void *)submittedOverlay;
 		layer.src_origin_x = 0;
 		layer.src_origin_y = 0;
 		layer.src_size_w   = s_rave_overlay_w;
@@ -3432,10 +3668,15 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 			RAVE_LOG("RenderEnd: SubmitFrame stale generation; dropping frame");
 		} else if (err != kGfxAccelNoErr) {
 			RAVE_LOG("RenderEnd: SubmitFrame returned %d", err);
+		} else {
+			rave_advance_overlay_texture_after_submit();
 		}
 		/* Re-declare RAVE owner — fast no-op when already RAVE. */
 		(void)dmc_set_active_owner(kDMCOwnerRAVE);
 	}
+
+	// SubmitFrame is cache-only in production; pace RAVE render ends explicitly.
+	MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineRAVE);
 
 	return kQANoErr;
 }
@@ -3561,7 +3802,7 @@ int32 NativeTextureNewFromDrawContext(uint32 drawContextAddr, uint32 flags, uint
 		entry->cpu_pixel_data_size = cpuBufSize;
 	}
 
-	priv->metal->rttTextureHandles.push_back(handle);
+	priv->metal->rttTextureHandles.push_back({ handle, entry->generation });
 
 	RAVE_LOG("TextureNewFromDrawContext: %dx%d handle=%d mac=0x%08x",
 	         w, h, handle, entry->mac_addr);
@@ -3630,7 +3871,7 @@ int32 NativeBitmapNewFromDrawContext(uint32 drawContextAddr, uint32 flags, uint3
 		entry->cpu_pixel_data_size = cpuBufSize;
 	}
 
-	priv->metal->rttTextureHandles.push_back(handle);
+	priv->metal->rttTextureHandles.push_back({ handle, entry->generation });
 
 	RAVE_LOG("BitmapNewFromDrawContext: %dx%d handle=%d mac=0x%08x",
 	         w, h, handle, entry->mac_addr);
@@ -3656,10 +3897,7 @@ int32 NativeRenderAbort(uint32 drawContextAddr)
 
 	[ms->currentEncoder endEncoding];
 	// Must commit even on abort per Metal rules
-	[ms->currentCommandBuffer commit];
-
-	// Signal ring buffer frame-end on abort too.
-	gfxaccel_rave_ring_frame_end();
+	CommitRaveCommandBufferWithRing(ms->currentCommandBuffer);
 
 	ms->currentEncoder = nil;
 	ms->currentCommandBuffer = nil;
@@ -3697,7 +3935,7 @@ int32 NativeFlush(uint32 drawContextAddr)
 
 	// End current encoder and commit (non-blocking, no present)
 	[ms->currentEncoder endEncoding];
-	[ms->currentCommandBuffer commit];
+	CommitRaveCommandBufferWithRing(ms->currentCommandBuffer);
 	ms->lastCommittedBuffer = ms->currentCommandBuffer;
 
 	// Create new command buffer to continue encoding
@@ -3710,7 +3948,7 @@ int32 NativeFlush(uint32 drawContextAddr)
 		rpd.colorAttachments[0].texture = ms->msaaColorTexture;
 		rpd.colorAttachments[0].resolveTexture = ms->overlayTexture;
 		rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
-		rpd.colorAttachments[0].storeAction = MTLStoreActionMultisampleResolve;
+		rpd.colorAttachments[0].storeAction = MTLStoreActionStoreAndMultisampleResolve;
 	} else {
 		rpd.colorAttachments[0].texture = ms->overlayTexture;
 		rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
@@ -3722,7 +3960,7 @@ int32 NativeFlush(uint32 drawContextAddr)
 		if (depthTex) {
 			rpd.depthAttachment.texture = depthTex;
 			rpd.depthAttachment.loadAction = MTLLoadActionLoad;
-			rpd.depthAttachment.storeAction = MTLStoreActionDontCare;
+			rpd.depthAttachment.storeAction = MTLStoreActionStore;
 		}
 	}
 
@@ -3763,7 +4001,7 @@ int32 NativeFlush(uint32 drawContextAddr)
 	[ms->currentEncoder setVertexBytes:&vertUniforms length:sizeof(vertUniforms) atIndex:2];
 
 	// Force pipeline re-bind on next draw after flush
-	ms->currentPipelineIdx = -1;
+	ms->currentPipelineKey = kRavePipelineKeyInvalid;
 
 	// Restore depth stencil state for the current draw state.
 	RaveSetDepthStencilStateForCurrentDraw(priv);
@@ -3837,7 +4075,7 @@ static int32_t RestartRenderPassWithLoad(RaveDrawPrivate *priv)
 		rpd.colorAttachments[0].texture = ms->msaaColorTexture;
 		rpd.colorAttachments[0].resolveTexture = ms->overlayTexture;
 		rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
-		rpd.colorAttachments[0].storeAction = MTLStoreActionMultisampleResolve;
+		rpd.colorAttachments[0].storeAction = MTLStoreActionStoreAndMultisampleResolve;
 	} else {
 		rpd.colorAttachments[0].texture = ms->overlayTexture;
 		rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
@@ -3848,7 +4086,7 @@ static int32_t RestartRenderPassWithLoad(RaveDrawPrivate *priv)
 		if (depthTex) {
 			rpd.depthAttachment.texture = depthTex;
 			rpd.depthAttachment.loadAction = MTLLoadActionLoad;
-			rpd.depthAttachment.storeAction = MTLStoreActionDontCare;
+			rpd.depthAttachment.storeAction = MTLStoreActionStore;
 		}
 	}
 	ms->currentEncoder = [ms->currentCommandBuffer renderCommandEncoderWithDescriptor:rpd];
@@ -3874,7 +4112,7 @@ static int32_t RestartRenderPassWithLoad(RaveDrawPrivate *priv)
 	vertUniforms.point_width = priv->state[5].f;
 	if (vertUniforms.point_width < 1.0f) vertUniforms.point_width = 1.0f;
 	[ms->currentEncoder setVertexBytes:&vertUniforms length:sizeof(vertUniforms) atIndex:2];
-	ms->currentPipelineIdx = -1;
+	ms->currentPipelineKey = kRavePipelineKeyInvalid;
 	RaveSetDepthStencilStateForCurrentDraw(priv);
 	return kQANoErr;
 }
@@ -3947,10 +4185,9 @@ int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 	if (!priv || !priv->metal) return kQAError;
 	RaveMetalState *ms = priv->metal;
 	if (!ms->renderPassActive || !ms->depthBuffer) return kQAError;
-	if (ms->currentEncoder) {
-		[ms->currentEncoder endEncoding];
-		ms->currentEncoder = nil;
-	}
+
+	EndAndCommitCurrentRenderPass(ms);
+
 	NSUInteger w = ms->depthBuffer.width;
 	NSUInteger h = ms->depthBuffer.height;
 	if (!ms->stagingZBuffer ||
@@ -3972,6 +4209,21 @@ int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 		ms->zBufferCPUSize = bufSize;
 	}
 	id<MTLCommandBuffer> blitCmdBuf = [ms->commandQueue commandBuffer];
+	if (ms->msaaActive && ms->msaaDepthTexture) {
+		// The MSAA pass renders depth into msaaDepthTexture, so ms->depthBuffer
+		// is stale here. Blits cannot copy across sample counts; resolve
+		// (sample 0) into depthBuffer with an empty load/resolve pass so the
+		// readback below sees the depth the pass actually produced.
+		MTLRenderPassDescriptor *resolveDesc = [MTLRenderPassDescriptor renderPassDescriptor];
+		resolveDesc.depthAttachment.texture = ms->msaaDepthTexture;
+		resolveDesc.depthAttachment.resolveTexture = ms->depthBuffer;
+		resolveDesc.depthAttachment.loadAction = MTLLoadActionLoad;
+		resolveDesc.depthAttachment.storeAction = MTLStoreActionMultisampleResolve;
+		resolveDesc.depthAttachment.depthResolveFilter = MTLMultisampleDepthResolveFilterSample0;
+		id<MTLRenderCommandEncoder> resolveEnc =
+			[blitCmdBuf renderCommandEncoderWithDescriptor:resolveDesc];
+		[resolveEnc endEncoding];
+	}
 	id<MTLBlitCommandEncoder> blit = [blitCmdBuf blitCommandEncoder];
 	[blit copyFromTexture:ms->depthBuffer sourceSlice:0 sourceLevel:0
 	         sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(w,h,1)
@@ -3980,8 +4232,15 @@ int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 	[blit endEncoding];
 	[blitCmdBuf commit];
 	[blitCmdBuf waitUntilCompleted];
-	[ms->stagingZBuffer getBytes:ms->zBufferCPU bytesPerRow:rowBytes
+
+	const NSUInteger pixelCount = w * h;
+	std::vector<uint32_t> hostDepth(pixelCount);
+	[ms->stagingZBuffer getBytes:hostDepth.data() bytesPerRow:rowBytes
 	                  fromRegion:MTLRegionMake2D(0,0,w,h) mipmapLevel:0];
+	for (NSUInteger i = 0; i < pixelCount; i++) {
+		WriteMacInt32(ms->zBufferCPUMac + (uint32_t)(i * sizeof(uint32_t)), hostDepth[i]);
+	}
+
 	// Populate TQAZBuffer struct
 	WriteMacInt32(bufferStructAddr + 0,  (uint32_t)w);       // width
 	WriteMacInt32(bufferStructAddr + 4,  (uint32_t)h);       // height
@@ -3990,7 +4249,6 @@ int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 	WriteMacInt32(bufferStructAddr + 16, 32);                  // zDepth (32-bit float)
 	WriteMacInt32(bufferStructAddr + 20, 1);                   // isBigEndian (PPC = big-endian)
 	ms->zBufferAccessed = true;
-	ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
 	RAVE_VLOG("AccessZBuffer: ctx=0x%08x %lux%lu buf=0x%08x rowBytes=%d",
 	         drawContextAddr, (unsigned long)w, (unsigned long)h, ms->zBufferCPUMac, rowBytes);
 	return kQANoErr;
@@ -4006,8 +4264,13 @@ int32_t NativeAccessZBufferEnd(uint32_t drawContextAddr, uint32_t dirtyRectAddr)
 	NSUInteger w = ms->depthBuffer.width;
 	NSUInteger h = ms->depthBuffer.height;
 	uint32_t rowBytes = (uint32_t)(w * 4);
+	const NSUInteger pixelCount = w * h;
+	std::vector<uint32_t> hostDepth(pixelCount);
+	for (NSUInteger i = 0; i < pixelCount; i++) {
+		hostDepth[i] = ReadMacInt32(ms->zBufferCPUMac + (uint32_t)(i * sizeof(uint32_t)));
+	}
 	[ms->stagingZBuffer replaceRegion:MTLRegionMake2D(0,0,w,h)
-	                      mipmapLevel:0 withBytes:ms->zBufferCPU
+	                      mipmapLevel:0 withBytes:hostDepth.data()
 	                      bytesPerRow:rowBytes];
 	id<MTLCommandBuffer> blitCmdBuf = [ms->commandQueue commandBuffer];
 	id<MTLBlitCommandEncoder> blit = [blitCmdBuf blitCommandEncoder];
@@ -4019,6 +4282,13 @@ int32_t NativeAccessZBufferEnd(uint32_t drawContextAddr, uint32_t dirtyRectAddr)
 	[blitCmdBuf commit];
 	[blitCmdBuf waitUntilCompleted];
 	ms->zBufferAccessed = false;
+	if (ms->msaaActive) {
+		// Mirror AccessDrawBufferEnd: the upload above wrote depthBuffer, so
+		// resume single-sampled — restarting with msaaDepthTexture attached
+		// would drop the guest's depth edits.
+		ms->msaaActive = false;
+		RAVE_VLOG("AccessZBufferEnd: continuing frame without MSAA after CPU depth access");
+	}
 	int32_t result = RestartRenderPassWithLoad(priv);
 	RAVE_VLOG("AccessZBufferEnd: ctx=0x%08x depth uploaded, render pass restarted", drawContextAddr);
 	return result;
@@ -4078,9 +4348,8 @@ int32_t NativeClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint3
 	[ms->currentEncoder setScissorRect:clearScissor];
 	int pipe_idx = 0;
 	// Apply channel mask from state[27] (kQATag_ChannelMask, default 0xF = all)
-	uint32_t channelMask = priv->state[27].i;
+	uint32_t channelMask = RaveNormalizeChannelMask(priv->state[27].i);
 	const bool hasDepthAttachment = RaveContextUsesMetalDepthAttachment(priv->flags) != 0;
-	if (channelMask == 0) channelMask = 0xF;  // treat 0 as default (all channels)
 	if (channelMask != 0xF) {
 		// Use masked pipeline variant to respect per-channel write control
 		id<MTLRenderPipelineState> maskedPipe = GetMaskedPipeline(
@@ -4092,8 +4361,10 @@ int32_t NativeClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint3
 		if (pipeArray[pipe_idx])
 			[ms->currentEncoder setRenderPipelineState:pipeArray[pipe_idx]];
 	}
-	if (hasDepthAttachment && ms->depthAlwaysWriteState)
-		[ms->currentEncoder setDepthStencilState:ms->depthAlwaysWriteState];
+	// ClearDrawBuffer is color-only. Use an always-pass, no-write depth state so
+	// the clear quad ignores existing Z without clobbering the depth attachment.
+	if (hasDepthAttachment && ms->depthStatesNoWrite[7])
+		[ms->currentEncoder setDepthStencilState:ms->depthStatesNoWrite[7]];
 	float x0 = 0.0f, y0 = 0.0f;
 	float x1 = (float)priv->width, y1 = (float)priv->height;
 	float z = 0.0f;
@@ -4114,7 +4385,7 @@ int32_t NativeClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint3
 	fullScissor.width = (NSUInteger)priv->width;
 	fullScissor.height = (NSUInteger)priv->height;
 	[ms->currentEncoder setScissorRect:fullScissor];
-	ms->currentPipelineIdx = -1;
+	ms->currentPipelineKey = kRavePipelineKeyInvalid;
 	RaveSetDepthStencilStateForCurrentDraw(priv);
 	RAVE_LOG("ClearDrawBuffer: ctx=0x%08x rect=(%d,%d,%d,%d) initialCtx=0x%08x bg=(%.2f,%.2f,%.2f,%.2f) mask=0x%x",
 	         drawContextAddr, left, top, right, bottom, initialContextAddr, r, g, b, a, channelMask);
@@ -4201,7 +4472,7 @@ int32_t NativeClearZBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint32_t
 	fullScissor.width = (NSUInteger)priv->width;
 	fullScissor.height = (NSUInteger)priv->height;
 	[ms->currentEncoder setScissorRect:fullScissor];
-	ms->currentPipelineIdx = -1;
+	ms->currentPipelineKey = kRavePipelineKeyInvalid;
 	RaveSetDepthStencilStateForCurrentDraw(priv);
 	RAVE_LOG("ClearZBuffer: ctx=0x%08x rect=(%d,%d,%d,%d) initialCtx=0x%08x depth=%.4f",
 	         drawContextAddr, left, top, right, bottom, initialContextAddr, clearDepth);
@@ -4247,18 +4518,146 @@ void *RaveCreateMetalTexture(uint32_t width, uint32_t height, uint32_t mipLevels
 }
 
 
-// replaceRegion origin (0,0), size (width,height) at specified mip level.
-// bytesPerRow must be width*4 for BGRA8 at that mip level (caller responsible).
+static RaveDrawPrivate *RaveCurrentDrawContext(void)
+{
+	if (rave_current_draw_context_addr == 0) {
+		return nullptr;
+	}
+
+	uint32_t handle = ReadMacInt32(rave_current_draw_context_addr + 0);
+	return RaveGetContext(handle);
+}
+
+static bool RaveEndActiveRenderPassForTextureUpload(RaveDrawPrivate *priv)
+{
+	if (!priv || !priv->metal) {
+		return false;
+	}
+
+	RaveMetalState *ms = priv->metal;
+	if (!ms->renderPassActive || !ms->currentEncoder || !ms->currentCommandBuffer) {
+		return false;
+	}
+
+	[ms->currentEncoder endEncoding];
+	ms->currentEncoder = nil;
+	CommitRaveCommandBufferWithRing(ms->currentCommandBuffer);
+	ms->lastCommittedBuffer = ms->currentCommandBuffer;
+	ms->currentCommandBuffer = nil;
+	return true;
+}
+
+static id<MTLCommandQueue> RaveTextureUploadCommandQueue(RaveDrawPrivate *priv)
+{
+	if (priv && priv->metal && priv->metal->commandQueue) {
+		return priv->metal->commandQueue;
+	}
+	return (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
+}
+
+/*
+ *  Texture-upload batch scope: a multi-mip upload (level 0 + generated chain)
+ *  brackets the whole chain in one Begin/End so the active render pass is
+ *  broken/committed/restarted once, not once per mip level. Depth-counted so
+ *  a call-site bracket nesting around RaveUploadGeneratedMips' internal
+ *  bracket stays balanced. Emul-thread only (gfxaccel threading policy).
+ */
+static uint32_t s_rave_upload_batch_depth = 0;
+static bool s_rave_upload_batch_restart = false;
+static RaveDrawPrivate *s_rave_upload_batch_ctx = nullptr;
+
+void RaveTextureUploadBatchBegin(void)
+{
+	if (s_rave_upload_batch_depth++ != 0) return;
+	s_rave_upload_batch_ctx = RaveCurrentDrawContext();
+	s_rave_upload_batch_restart =
+		RaveEndActiveRenderPassForTextureUpload(s_rave_upload_batch_ctx);
+}
+
+void RaveTextureUploadBatchEnd(void)
+{
+	if (s_rave_upload_batch_depth == 0) return;
+	if (--s_rave_upload_batch_depth != 0) return;
+	if (s_rave_upload_batch_restart) {
+		RestartRenderPassWithLoad(s_rave_upload_batch_ctx);
+	}
+	s_rave_upload_batch_restart = false;
+	s_rave_upload_batch_ctx = nullptr;
+}
+
+// Upload through a staging buffer + blit so CPU writes do not race in-flight
+// sampling of the shared texture. bytesPerRow must be width*4 for BGRA8 at the
+// specified mip level (caller responsible).
 void RaveUploadMipLevel(void *metalTexture, uint32_t level, uint32_t width, uint32_t height,
                          const uint8_t *pixelData, uint32_t bytesPerRow)
 {
-	if (!metalTexture) return;
+	if (!metalTexture || !pixelData || width == 0 || height == 0 || bytesPerRow == 0) return;
 
 	id<MTLTexture> tex = (__bridge id<MTLTexture>)metalTexture;
-	[tex replaceRegion:MTLRegionMake2D(0, 0, width, height)
-	       mipmapLevel:level
-	         withBytes:pixelData
-	       bytesPerRow:bytesPerRow];
+	RaveDrawPrivate *currentCtx = RaveCurrentDrawContext();
+	// Inside a Begin/End batch the pass was already broken once for the whole
+	// mip chain — do not re-break it per level.
+	bool restartRenderPass = (s_rave_upload_batch_depth == 0) &&
+		RaveEndActiveRenderPassForTextureUpload(currentCtx);
+	auto restartIfNeeded = [&]() {
+		if (restartRenderPass) {
+			RestartRenderPassWithLoad(currentCtx);
+		}
+	};
+
+	id<MTLCommandQueue> queue = RaveTextureUploadCommandQueue(currentCtx);
+	if (!queue) {
+		RAVE_LOG("RaveUploadMipLevel: no command queue for texture upload");
+		restartIfNeeded();
+		return;
+	}
+
+	id<MTLDevice> device = tex.device;
+	if (!device) {
+		RAVE_LOG("RaveUploadMipLevel: texture has no device");
+		restartIfNeeded();
+		return;
+	}
+
+	NSUInteger bytesPerImage = (NSUInteger)bytesPerRow * (NSUInteger)height;
+	id<MTLBuffer> staging = [device newBufferWithLength:bytesPerImage
+	                                            options:MTLResourceStorageModeShared];
+	if (!staging) {
+		RAVE_LOG("RaveUploadMipLevel: failed to allocate %lu byte staging buffer",
+		         (unsigned long)bytesPerImage);
+		restartIfNeeded();
+		return;
+	}
+	memcpy([staging contents], pixelData, bytesPerImage);
+
+	id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
+	id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
+	if (!cmdBuf || !blit) {
+		RAVE_LOG("RaveUploadMipLevel: failed to create upload command buffer");
+		restartIfNeeded();
+		return;
+	}
+
+	[blit copyFromBuffer:staging
+	        sourceOffset:0
+	   sourceBytesPerRow:(NSUInteger)bytesPerRow
+	 sourceBytesPerImage:bytesPerImage
+	          sourceSize:MTLSizeMake((NSUInteger)width, (NSUInteger)height, 1)
+	           toTexture:tex
+	    destinationSlice:0
+	    destinationLevel:(NSUInteger)level
+	   destinationOrigin:MTLOriginMake(0, 0, 0)];
+	[blit endEncoding];
+
+	id<MTLBuffer> keepAliveStaging = staging;
+	id<MTLTexture> keepAliveTexture = tex;
+	[cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> completedCommandBuffer) {
+		(void)completedCommandBuffer;
+		(void)keepAliveStaging;
+		(void)keepAliveTexture;
+	}];
+	[cmdBuf commit];
+	restartIfNeeded();
 }
 
 
@@ -4335,10 +4734,15 @@ void RaveRefreshTextureFromPixmap(RaveResourceEntry *entry)
 	entry->diag_index_zero = 0;
 	entry->diag_rgb_nonzero = sourceStats.rgb;
 
-	// Replace Metal texture contents
-	id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)entry->metal_texture;
-	MTLRegion region = MTLRegionMake2D(0, 0, w, h);
-	[mtlTex replaceRegion:region mipmapLevel:0 withBytes:expanded bytesPerRow:w * 4];
+	// Replace Metal texture contents through the fenced staging+blit path
+	// (RAVE-05): a raw replaceRegion CPU-writes a shared texture that prior
+	// committed in-flight frames may still be sampling. While the source is
+	// still empty the texture already holds the zeros uploaded when it was
+	// realized, so skip the byte-identical re-upload — it would otherwise
+	// break the render pass on every draw that polls this texture.
+	if (hasData) {
+		RaveUploadMipLevel(entry->metal_texture, 0, w, h, expanded, w * 4);
+	}
 
 	delete[] expanded;
 

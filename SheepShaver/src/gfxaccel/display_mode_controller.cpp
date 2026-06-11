@@ -21,8 +21,9 @@
  *    - Every legal transition fires on_mode_exit in REGISTRATION ORDER
  *      (FIFO) BEFORE the snapshot swap, then on_mode_enter in REVERSE
  *      REGISTRATION ORDER (LIFO) AFTER the swap. If any on_mode_enter
- *      returns non-zero, the controller rolls back to the outgoing
- *      snapshot and returns kDMCErrSubscriberRejected.
+ *      returns non-zero, the controller fires exit for the rejected
+ *      snapshot, republishes the outgoing snapshot, fires advisory enter
+ *      for the restored snapshot, and returns kDMCErrSubscriberRejected.
  *    - Late subscribers receive a synthetic on_mode_enter with the
  *      current snapshot so they start observably in-sync.
  *
@@ -55,6 +56,7 @@
 
 #include "sysdeps.h"
 #include "display_mode_controller.h"
+#include "gfx_color_policy.h"
 
 #include <cstring>
 #include <cstdlib>
@@ -243,15 +245,11 @@ static DMCModeSnapshot *dmc_testing_alloc_raw_snapshot(void) {
 	return (DMCModeSnapshot *)malloc(sizeof(DMCModeSnapshot));
 }
 
-// Initialize gamma_lut[768] to identity ramp (input == output). Called for
-// freshly-allocated snapshots where there is no outgoing snapshot to copy from.
-// Planar layout: 256 R entries + 256 G entries + 256 B entries.
+// Initialize gamma_lut[768] to the Mac-side identity ramp (input == output).
+// The compositor composes the display-space 1.8->2.2 policy when it uploads
+// this snapshot into its GPU-visible LUT.
 static void dmc_init_identity_gamma(DMCModeSnapshot *snap) {
-	for (int i = 0; i < 256; i++) {
-		snap->gamma_lut[i]       = (uint8_t)i;  // R
-		snap->gamma_lut[256 + i] = (uint8_t)i;  // G
-		snap->gamma_lut[512 + i] = (uint8_t)i;  // B
-	}
+	GfxColorFillIdentityGammaLUT(snap->gamma_lut);
 }
 
 // Heap-allocate a fresh snapshot populated from a DMCModeDesc. Fields the
@@ -371,7 +369,7 @@ static void dmc_retire_snapshot(const DMCModeSnapshot *old_snap, uint32_t this_g
 // dmc_internal_fire_enter_events iterates subscribers in REVERSE REGISTRATION
 // ORDER (index N-1 -> 0). A non-zero on_mode_enter return aborts further
 // dispatch and propagates kDMCErrSubscriberRejected up to the caller, which
-// rolls the transition back.
+// compensates and rolls the transition back.
 //
 // Both helpers are called with s_write_mutex held (by the outer public
 // API). Subscriber callbacks MUST NOT re-enter a dmc_* write API; if they
@@ -420,6 +418,43 @@ static int32_t dmc_internal_fire_enter_events(const DMCModeSnapshot *incoming) {
 	return kDMCNoErr;
 }
 
+static void dmc_internal_fire_enter_events_advisory(
+	const DMCModeSnapshot *incoming,
+	const char *reason)
+{
+	if (incoming == NULL) return;
+	for (size_t i = s_subscribers.size(); i > 0; --i) {
+		size_t idx = i - 1;
+		if (s_subscribers[idx].on_mode_enter != NULL) {
+#ifdef TESTING_BUILD
+			s_dmc_current_dispatch_index = (uint32_t)(s_subscribers.size() - 1 - idx);
+#endif
+			int32_t r = s_subscribers[idx].on_mode_enter(incoming,
+			                                             s_subscribers[idx].ctx);
+			if (r != kDMCNoErr) {
+				DMC_ERR("subscriber %s on_mode_enter returned %d during "
+				        "%s - rollback compensation continues",
+				        s_subscribers[idx].name != NULL ? s_subscribers[idx].name : "?",
+				        (int)r, reason != NULL ? reason : "rollback compensation");
+			}
+		}
+	}
+}
+
+static void dmc_internal_compensate_rejected_transition(
+	const DMCModeSnapshot *rejected,
+	const DMCModeSnapshot *restored,
+	DMCState restored_state,
+	const char *reason)
+{
+	if (rejected != NULL) {
+		dmc_internal_fire_exit_events(rejected);
+	}
+	s_current.store(restored, std::memory_order_release);
+	s_state = restored_state;
+	dmc_internal_fire_enter_events_advisory(restored, reason);
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 //
@@ -430,7 +465,7 @@ static int32_t dmc_internal_fire_enter_events(const DMCModeSnapshot *incoming) {
 //   3. DMC_ASSERT_EMUL_THREAD();  (NOP under TESTING_BUILD)
 //   4. FSM / validation checks.
 //   5. Allocate incoming snapshot, fire exits, publish (atomic release),
-//      fire enters, retire outgoing (or rollback on enter veto).
+//      fire enters, retire outgoing (or compensate + rollback on enter veto).
 //
 // dmc_current_snapshot is the ONLY read path; it is lock-free and callable
 // from any thread (acquire-load on s_current).
@@ -481,9 +516,9 @@ int32_t dmc_create(const struct DMCModeDesc *initial_mode) {
 	if (enter_err != kDMCNoErr) {
 		// Rollback: undo T1. Since there is no prior snapshot, we tear
 		// back down to Quiescent.
-		s_current.store(NULL, std::memory_order_release);
+		dmc_internal_compensate_rejected_transition(
+		    snap, NULL, kDMCStateQuiescent, "dmc_create enter veto");
 		free(snap);
-		s_state = kDMCStateQuiescent;
 		s_dmc_initialized = false;
 		s_next_generation--;
 		return kDMCErrSubscriberRejected;
@@ -671,8 +706,10 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 	                                                         carry_blanking);
 	if (incoming == NULL) {
 		// Allocation failure - roll back to prior stable state. No enter
-		// has fired yet. Uniform kDMCErrOutOfMemory.
+		// has fired yet, but exits already ran and must be compensated.
 		s_state = src_state;
+		dmc_internal_fire_enter_events_advisory(
+		    outgoing, "dmc_request_mode_switch allocation rollback");
 		return kDMCErrOutOfMemory;
 	}
 	incoming->palette_gen = carry_palette_gen;
@@ -693,9 +730,11 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 	// Fire enter (LIFO) AFTER publication.
 	int32_t enter_err = dmc_internal_fire_enter_events(incoming);
 	if (enter_err != kDMCNoErr) {
-		// Rollback: re-publish outgoing, retire the rejected incoming.
-		s_current.store(outgoing, std::memory_order_release);
-		s_state = src_state;
+		// Rollback: compensate subscribers, re-publish outgoing, and
+		// retire the rejected incoming.
+		dmc_internal_compensate_rejected_transition(
+		    incoming, outgoing, src_state,
+		    "dmc_request_mode_switch enter veto");
 		// Route the rejected snapshot through
 		// the retirement ring so concurrent readers get one more publish of
 		// grace before it is freed. incoming->generation + 1 is the ring slot
@@ -766,8 +805,11 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 	                                                          owner,
 	                                                          NULL);
 	if (incoming == NULL) {
-		// Uniform kDMCErrOutOfMemory on alloc failure.
+		// Uniform kDMCErrOutOfMemory on alloc failure; exits already
+		// ran and must be compensated.
 		s_state = src_state;
+		dmc_internal_fire_enter_events_advisory(
+		    outgoing, "dmc_set_active_owner allocation rollback");
 		return kDMCErrOutOfMemory;
 	}
 	s_next_generation++;
@@ -777,8 +819,9 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 
 	int32_t enter_err = dmc_internal_fire_enter_events(incoming);
 	if (enter_err != kDMCNoErr) {
-		s_current.store(outgoing, std::memory_order_release);
-		s_state = src_state;
+		dmc_internal_compensate_rejected_transition(
+		    incoming, outgoing, src_state,
+		    "dmc_set_active_owner enter veto");
 		// Route the rejected snapshot through
 		// the retirement ring. See dmc_request_mode_switch rollback site for
 		// the uniform-across-4-sites rationale.
@@ -821,8 +864,11 @@ int32_t dmc_request_blanking(const uint8_t rgba[4]) {
 	                                                          (uint32_t)kDMCOwnerBlanking,
 	                                                          rgba);
 	if (incoming == NULL) {
-		// Uniform kDMCErrOutOfMemory on alloc failure.
+		// Uniform kDMCErrOutOfMemory on alloc failure; exits already
+		// ran and must be compensated.
 		s_state = src_state;
+		dmc_internal_fire_enter_events_advisory(
+		    outgoing, "dmc_request_blanking allocation rollback");
 		return kDMCErrOutOfMemory;
 	}
 	s_next_generation++;
@@ -831,8 +877,9 @@ int32_t dmc_request_blanking(const uint8_t rgba[4]) {
 
 	int32_t enter_err = dmc_internal_fire_enter_events(incoming);
 	if (enter_err != kDMCNoErr) {
-		s_current.store(outgoing, std::memory_order_release);
-		s_state = src_state;
+		dmc_internal_compensate_rejected_transition(
+		    incoming, outgoing, src_state,
+		    "dmc_request_blanking enter veto");
 		// Route the rejected snapshot through
 		// the retirement ring. See dmc_request_mode_switch rollback site for
 		// the uniform-across-4-sites rationale.
@@ -872,8 +919,11 @@ int32_t dmc_end_blanking(void) {
 	                                                          (uint32_t)kDMCOwnerQuickDraw,
 	                                                          NULL);
 	if (incoming == NULL) {
-		// Uniform kDMCErrOutOfMemory on alloc failure.
+		// Uniform kDMCErrOutOfMemory on alloc failure; exits already
+		// ran and must be compensated.
 		s_state = src_state;
+		dmc_internal_fire_enter_events_advisory(
+		    outgoing, "dmc_end_blanking allocation rollback");
 		return kDMCErrOutOfMemory;
 	}
 	s_next_generation++;
@@ -882,8 +932,9 @@ int32_t dmc_end_blanking(void) {
 
 	int32_t enter_err = dmc_internal_fire_enter_events(incoming);
 	if (enter_err != kDMCNoErr) {
-		s_current.store(outgoing, std::memory_order_release);
-		s_state = src_state;
+		dmc_internal_compensate_rejected_transition(
+		    incoming, outgoing, src_state,
+		    "dmc_end_blanking enter veto");
 		// Route the rejected snapshot through
 		// the retirement ring. See dmc_request_mode_switch rollback site for
 		// the uniform-across-4-sites rationale.

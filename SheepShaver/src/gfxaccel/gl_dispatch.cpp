@@ -755,12 +755,22 @@ static struct GLLogInit {
 #endif
 
 /*
- *  Helper: reconstruct float from extracted FPR bits
+ *  Helpers for FPR arguments captured by sheepshaver_glue.cpp.
+ *
+ *  Wire format: one 32-bit float payload per PPC FPR argument. The glue casts
+ *  each guest float/double FPR value down to float and copies that raw word into
+ *  float_bits[n]. Dispatchers for *d entry points must therefore widen that one
+ *  word back to double; they must not reconstruct a 64-bit double from adjacent
+ *  float_bits slots.
  */
 static inline float float_arg(const uint32_t* float_bits, int index) {
 	float f;
 	memcpy(&f, &float_bits[index], 4);
 	return f;
+}
+
+static inline double double_arg(const uint32_t* float_bits, int index) {
+	return (double)float_arg(float_bits, index);
 }
 
 // ============================================================================
@@ -1127,7 +1137,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_BIND_TEXTURE:
 			NativeGLBindTexture(gl_current_context, r3, r4);
 			return 0;
-		case GL_SUB_BITMAP: NativeGLBitmap(gl_current_context, (int32_t)r3, (int32_t)r4, float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2), float_arg(float_bits, 3), r5); return 0;
+		case GL_SUB_BITMAP: /* w,h w0-1; 4 floats w2-5; bitmap ptr w6=r9 */ NativeGLBitmap(gl_current_context, (int32_t)r3, (int32_t)r4, float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2), float_arg(float_bits, 3), r9); return 0;
 		case GL_SUB_BLEND_FUNC:
 			NativeGLBlendFunc(gl_current_context, r3, r4);
 			return 0;
@@ -1163,11 +1173,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLColor3bv(gl_current_context, r3);
 			return 0;
 		case GL_SUB_COLOR3D: {
-			double dr, dg, db;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dr, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dg, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&db, &b2, 8);
-			NativeGLColor3d(gl_current_context, dr, dg, db);
+			NativeGLColor3d(gl_current_context,
+			                double_arg(float_bits, 0),
+			                double_arg(float_bits, 1),
+			                double_arg(float_bits, 2));
 			return 0;
 		}
 		case GL_SUB_COLOR3DV:
@@ -1216,12 +1225,11 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLColor4bv(gl_current_context, r3);
 			return 0;
 		case GL_SUB_COLOR4D: {
-			double dr, dg, db, da;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dr, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dg, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&db, &b2, 8);
-			uint64_t b3 = ((uint64_t)float_bits[6] << 32) | float_bits[7]; memcpy(&da, &b3, 8);
-			NativeGLColor4d(gl_current_context, dr, dg, db, da);
+			NativeGLColor4d(gl_current_context,
+			                double_arg(float_bits, 0),
+			                double_arg(float_bits, 1),
+			                double_arg(float_bits, 2),
+			                double_arg(float_bits, 3));
 			return 0;
 		}
 		case GL_SUB_COLOR4DV:
@@ -1324,11 +1332,17 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLEnd(gl_current_context);
 			return 0;
 		case GL_SUB_END_LIST: NativeGLEndList(gl_current_context); return 0;
-		case GL_SUB_EVAL_COORD1D: { double d; uint64_t b=((uint64_t)float_bits[0]<<32)|float_bits[1]; memcpy(&d,&b,8); NativeGLEvalCoord1d(gl_current_context, d); return 0; }
+		case GL_SUB_EVAL_COORD1D:
+			NativeGLEvalCoord1d(gl_current_context, double_arg(float_bits, 0));
+			return 0;
 		case GL_SUB_EVAL_COORD1DV: NativeGLEvalCoord1dv(gl_current_context, r3); return 0;
 		case GL_SUB_EVAL_COORD1F: NativeGLEvalCoord1f(gl_current_context, float_arg(float_bits, 0)); return 0;
 		case GL_SUB_EVAL_COORD1FV: NativeGLEvalCoord1fv(gl_current_context, r3); return 0;
-		case GL_SUB_EVAL_COORD2D: { double du,dv; uint64_t b0=((uint64_t)float_bits[0]<<32)|float_bits[1]; memcpy(&du,&b0,8); uint64_t b1=((uint64_t)float_bits[2]<<32)|float_bits[3]; memcpy(&dv,&b1,8); NativeGLEvalCoord2d(gl_current_context, du, dv); return 0; }
+		case GL_SUB_EVAL_COORD2D:
+			NativeGLEvalCoord2d(gl_current_context,
+			                    double_arg(float_bits, 0),
+			                    double_arg(float_bits, 1));
+			return 0;
 		case GL_SUB_EVAL_COORD2DV: NativeGLEvalCoord2dv(gl_current_context, r3); return 0;
 		case GL_SUB_EVAL_COORD2F: NativeGLEvalCoord2f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1)); return 0;
 		case GL_SUB_EVAL_COORD2FV: NativeGLEvalCoord2fv(gl_current_context, r3); return 0;
@@ -1410,7 +1424,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_INDEX_MASK: NativeGLIndexMask(gl_current_context, r3); return 0;
 		case GL_SUB_INDEX_POINTER: NativeGLIndexPointer(gl_current_context, r3, (int32_t)r4, r5); return 0;
-		case GL_SUB_INDEXD: { double d; uint64_t b=((uint64_t)float_bits[0]<<32)|float_bits[1]; memcpy(&d,&b,8); NativeGLIndexd(gl_current_context, d); return 0; }
+		case GL_SUB_INDEXD:
+			NativeGLIndexd(gl_current_context, double_arg(float_bits, 0));
+			return 0;
 		case GL_SUB_INDEXDV: NativeGLIndexdv(gl_current_context, r3); return 0;
 		case GL_SUB_INDEXF: NativeGLIndexf(gl_current_context, float_arg(float_bits, 0)); return 0;
 		case GL_SUB_INDEXFV: NativeGLIndexfv(gl_current_context, r3); return 0;
@@ -1472,14 +1488,14 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLLogicOp(gl_current_context, r3);
 			return 0;
 		// --- Core GL: Map, Material, Matrix, Mult ---
-		case GL_SUB_MAP1D: NativeGLMap1d(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, (int32_t)r5, r6); return 0;
-		case GL_SUB_MAP1F: NativeGLMap1f(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, (int32_t)r5, r6); return 0;
-		case GL_SUB_MAP2D: NativeGLMap2d(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, (int32_t)r5, float_arg(float_bits, 2), float_arg(float_bits, 3), (int32_t)r6, (int32_t)r7, r8); return 0;
-		case GL_SUB_MAP2F: NativeGLMap2f(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, (int32_t)r5, float_arg(float_bits, 2), float_arg(float_bits, 3), (int32_t)r6, (int32_t)r7, r8); return 0;
+		case GL_SUB_MAP1D: /* target w0; u1/u2 doubles w1-4; stride w5=r8, order w6=r9, points w7=r10 */ NativeGLMap1d(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r8, (int32_t)r9, r10); return 0;
+		case GL_SUB_MAP1F: /* target w0; u1/u2 floats w1-2; stride w3=r6, order w4=r7, points w5=r8 */ NativeGLMap1f(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r6, (int32_t)r7, r8); return 0;
+		case GL_SUB_MAP2D: /* target w0; u1/u2 w1-4; ustride w5=r8, uorder w6=r9; v1 w7-8, v2 w9-10; vstride w11, vorder w12, points w13 */ NativeGLMap2d(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r8, (int32_t)r9, float_arg(float_bits, 2), float_arg(float_bits, 3), (int32_t)gl_ppc_stack_arg(3), (int32_t)gl_ppc_stack_arg(4), gl_ppc_stack_arg(5)); return 0;
+		case GL_SUB_MAP2F: /* target w0; u1/u2 floats w1-2; ustride w3=r6, uorder w4=r7; v1/v2 w5-6; vstride w7=r10, vorder w8, points w9 */ NativeGLMap2f(gl_current_context, r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r6, (int32_t)r7, float_arg(float_bits, 2), float_arg(float_bits, 3), (int32_t)r10, (int32_t)gl_ppc_stack_arg(0), gl_ppc_stack_arg(1)); return 0;
 		case GL_SUB_MAP_GRID1D: NativeGLMapGrid1d(gl_current_context, (int32_t)r3, float_arg(float_bits, 0), float_arg(float_bits, 1)); return 0;
 		case GL_SUB_MAP_GRID1F: NativeGLMapGrid1f(gl_current_context, (int32_t)r3, float_arg(float_bits, 0), float_arg(float_bits, 1)); return 0;
-		case GL_SUB_MAP_GRID2D: NativeGLMapGrid2d(gl_current_context, (int32_t)r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, float_arg(float_bits, 2), float_arg(float_bits, 3)); return 0;
-		case GL_SUB_MAP_GRID2F: NativeGLMapGrid2f(gl_current_context, (int32_t)r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r4, float_arg(float_bits, 2), float_arg(float_bits, 3)); return 0;
+		case GL_SUB_MAP_GRID2D: /* un w0; u1/u2 doubles w1-4; vn w5=r8 */ NativeGLMapGrid2d(gl_current_context, (int32_t)r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r8, float_arg(float_bits, 2), float_arg(float_bits, 3)); return 0;
+		case GL_SUB_MAP_GRID2F: /* un w0; u1/u2 floats w1-2; vn w3=r6 */ NativeGLMapGrid2f(gl_current_context, (int32_t)r3, float_arg(float_bits, 0), float_arg(float_bits, 1), (int32_t)r6, float_arg(float_bits, 2), float_arg(float_bits, 3)); return 0;
 		case GL_SUB_MATERIALF:
 			NativeGLMaterialf(gl_current_context, r3, r4, float_arg(float_bits, 0));
 			return 0;
@@ -1510,11 +1526,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLNormal3bv(gl_current_context, r3);
 			return 0;
 		case GL_SUB_NORMAL3D: {
-			double dx, dy, dz;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dx, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dy, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&dz, &b2, 8);
-			NativeGLNormal3d(gl_current_context, dx, dy, dz);
+			NativeGLNormal3d(gl_current_context,
+			                 double_arg(float_bits, 0),
+			                 double_arg(float_bits, 1),
+			                 double_arg(float_bits, 2));
 			return 0;
 		}
 		case GL_SUB_NORMAL3DV:
@@ -1593,7 +1608,11 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_PUSH_NAME: NativeGLPushName(gl_current_context, r3); return 0;
 		// --- Core GL: Raster, Read, Rect, Render, Rotate, Scale ---
-		case GL_SUB_RASTER_POS2D: { double dx,dy; uint64_t b0=((uint64_t)float_bits[0]<<32)|float_bits[1]; memcpy(&dx,&b0,8); uint64_t b1=((uint64_t)float_bits[2]<<32)|float_bits[3]; memcpy(&dy,&b1,8); NativeGLRasterPos2d(gl_current_context,dx,dy); return 0; }
+		case GL_SUB_RASTER_POS2D:
+			NativeGLRasterPos2d(gl_current_context,
+			                    double_arg(float_bits, 0),
+			                    double_arg(float_bits, 1));
+			return 0;
 		case GL_SUB_RASTER_POS2DV: NativeGLRasterPos2dv(gl_current_context, r3); return 0;
 		case GL_SUB_RASTER_POS2F: NativeGLRasterPos2f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1)); return 0;
 		case GL_SUB_RASTER_POS2FV: NativeGLRasterPos2fv(gl_current_context, r3); return 0;
@@ -1601,7 +1620,12 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_RASTER_POS2IV: NativeGLRasterPos2iv(gl_current_context, r3); return 0;
 		case GL_SUB_RASTER_POS2S: NativeGLRasterPos2s(gl_current_context, (int16_t)r3, (int16_t)r4); return 0;
 		case GL_SUB_RASTER_POS2SV: NativeGLRasterPos2sv(gl_current_context, r3); return 0;
-		case GL_SUB_RASTER_POS3D: { double dx,dy,dz; uint64_t b0=((uint64_t)float_bits[0]<<32)|float_bits[1]; memcpy(&dx,&b0,8); uint64_t b1=((uint64_t)float_bits[2]<<32)|float_bits[3]; memcpy(&dy,&b1,8); uint64_t b2=((uint64_t)float_bits[4]<<32)|float_bits[5]; memcpy(&dz,&b2,8); NativeGLRasterPos3d(gl_current_context,dx,dy,dz); return 0; }
+		case GL_SUB_RASTER_POS3D:
+			NativeGLRasterPos3d(gl_current_context,
+			                    double_arg(float_bits, 0),
+			                    double_arg(float_bits, 1),
+			                    double_arg(float_bits, 2));
+			return 0;
 		case GL_SUB_RASTER_POS3DV: NativeGLRasterPos3dv(gl_current_context, r3); return 0;
 		case GL_SUB_RASTER_POS3F: NativeGLRasterPos3f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2)); return 0;
 		case GL_SUB_RASTER_POS3FV: NativeGLRasterPos3fv(gl_current_context, r3); return 0;
@@ -1609,7 +1633,13 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_RASTER_POS3IV: NativeGLRasterPos3iv(gl_current_context, r3); return 0;
 		case GL_SUB_RASTER_POS3S: NativeGLRasterPos3s(gl_current_context, (int16_t)r3, (int16_t)r4, (int16_t)r5); return 0;
 		case GL_SUB_RASTER_POS3SV: NativeGLRasterPos3sv(gl_current_context, r3); return 0;
-		case GL_SUB_RASTER_POS4D: { double dx,dy,dz,dw; uint64_t b0=((uint64_t)float_bits[0]<<32)|float_bits[1]; memcpy(&dx,&b0,8); uint64_t b1=((uint64_t)float_bits[2]<<32)|float_bits[3]; memcpy(&dy,&b1,8); uint64_t b2=((uint64_t)float_bits[4]<<32)|float_bits[5]; memcpy(&dz,&b2,8); uint64_t b3=((uint64_t)float_bits[6]<<32)|float_bits[7]; memcpy(&dw,&b3,8); NativeGLRasterPos4d(gl_current_context,dx,dy,dz,dw); return 0; }
+		case GL_SUB_RASTER_POS4D:
+			NativeGLRasterPos4d(gl_current_context,
+			                    double_arg(float_bits, 0),
+			                    double_arg(float_bits, 1),
+			                    double_arg(float_bits, 2),
+			                    double_arg(float_bits, 3));
+			return 0;
 		case GL_SUB_RASTER_POS4DV: NativeGLRasterPos4dv(gl_current_context, r3); return 0;
 		case GL_SUB_RASTER_POS4F: NativeGLRasterPos4f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2), float_arg(float_bits, 3)); return 0;
 		case GL_SUB_RASTER_POS4FV: NativeGLRasterPos4fv(gl_current_context, r3); return 0;
@@ -1669,8 +1699,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		// --- Core GL: TexCoord ---
 		case GL_SUB_TEX_COORD1D: {
-			double ds; uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&ds, &b0, 8);
-			NativeGLTexCoord1d(gl_current_context, ds); return 0;
+			NativeGLTexCoord1d(gl_current_context, double_arg(float_bits, 0)); return 0;
 		}
 		case GL_SUB_TEX_COORD1DV: NativeGLTexCoord1dv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD1F: NativeGLTexCoord1f(gl_current_context, float_arg(float_bits, 0)); return 0;
@@ -1680,10 +1709,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_TEX_COORD1S: NativeGLTexCoord1s(gl_current_context, (int16_t)r3); return 0;
 		case GL_SUB_TEX_COORD1SV: NativeGLTexCoord1sv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD2D: {
-			double ds, dt;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&ds, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dt, &b1, 8);
-			NativeGLTexCoord2d(gl_current_context, ds, dt); return 0;
+			NativeGLTexCoord2d(gl_current_context,
+			                   double_arg(float_bits, 0),
+			                   double_arg(float_bits, 1)); return 0;
 		}
 		case GL_SUB_TEX_COORD2DV: NativeGLTexCoord2dv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD2F: NativeGLTexCoord2f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1)); return 0;
@@ -1693,11 +1721,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_TEX_COORD2S: NativeGLTexCoord2s(gl_current_context, (int16_t)r3, (int16_t)r4); return 0;
 		case GL_SUB_TEX_COORD2SV: NativeGLTexCoord2sv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD3D: {
-			double ds, dt, dr;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&ds, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dt, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&dr, &b2, 8);
-			NativeGLTexCoord3d(gl_current_context, ds, dt, dr); return 0;
+			NativeGLTexCoord3d(gl_current_context,
+			                   double_arg(float_bits, 0),
+			                   double_arg(float_bits, 1),
+			                   double_arg(float_bits, 2)); return 0;
 		}
 		case GL_SUB_TEX_COORD3DV: NativeGLTexCoord3dv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD3F: NativeGLTexCoord3f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2)); return 0;
@@ -1707,12 +1734,11 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_TEX_COORD3S: NativeGLTexCoord3s(gl_current_context, (int16_t)r3, (int16_t)r4, (int16_t)r5); return 0;
 		case GL_SUB_TEX_COORD3SV: NativeGLTexCoord3sv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD4D: {
-			double ds, dt, dr, dq;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&ds, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dt, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&dr, &b2, 8);
-			uint64_t b3 = ((uint64_t)float_bits[6] << 32) | float_bits[7]; memcpy(&dq, &b3, 8);
-			NativeGLTexCoord4d(gl_current_context, ds, dt, dr, dq); return 0;
+			NativeGLTexCoord4d(gl_current_context,
+			                   double_arg(float_bits, 0),
+			                   double_arg(float_bits, 1),
+			                   double_arg(float_bits, 2),
+			                   double_arg(float_bits, 3)); return 0;
 		}
 		case GL_SUB_TEX_COORD4DV: NativeGLTexCoord4dv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD4F: NativeGLTexCoord4f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2), float_arg(float_bits, 3)); return 0;
@@ -1736,10 +1762,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLTexEnviv(gl_current_context, r3, r4, r5);
 			return 0;
 		case GL_SUB_TEX_GEND: {
-			double d;
-			uint64_t b = ((uint64_t)float_bits[0] << 32) | float_bits[1];
-			memcpy(&d, &b, sizeof(double));
-			NativeGLTexGend(gl_current_context, r3, r4, d);
+			NativeGLTexGend(gl_current_context, r3, r4,
+			                double_arg(float_bits, 0));
 			return 0;
 		}
 		case GL_SUB_TEX_GENDV:
@@ -1836,10 +1860,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 				float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2));
 			return 0;
 		case GL_SUB_VERTEX2D: {
-			double dx, dy;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dx, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dy, &b1, 8);
-			NativeGLVertex2d(gl_current_context, dx, dy); return 0;
+			NativeGLVertex2d(gl_current_context,
+			                 double_arg(float_bits, 0),
+			                 double_arg(float_bits, 1)); return 0;
 		}
 		case GL_SUB_VERTEX2DV: NativeGLVertex2dv(gl_current_context, r3); return 0;
 		case GL_SUB_VERTEX2F:
@@ -1851,11 +1874,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_VERTEX2S: NativeGLVertex2s(gl_current_context, (int16_t)r3, (int16_t)r4); return 0;
 		case GL_SUB_VERTEX2SV: NativeGLVertex2sv(gl_current_context, r3); return 0;
 		case GL_SUB_VERTEX3D: {
-			double dx, dy, dz;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dx, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dy, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&dz, &b2, 8);
-			NativeGLVertex3d(gl_current_context, dx, dy, dz); return 0;
+			NativeGLVertex3d(gl_current_context,
+			                 double_arg(float_bits, 0),
+			                 double_arg(float_bits, 1),
+			                 double_arg(float_bits, 2)); return 0;
 		}
 		case GL_SUB_VERTEX3DV: NativeGLVertex3dv(gl_current_context, r3); return 0;
 		case GL_SUB_VERTEX3F:
@@ -1867,12 +1889,11 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_VERTEX3S: NativeGLVertex3s(gl_current_context, (int16_t)r3, (int16_t)r4, (int16_t)r5); return 0;
 		case GL_SUB_VERTEX3SV: NativeGLVertex3sv(gl_current_context, r3); return 0;
 		case GL_SUB_VERTEX4D: {
-			double dx, dy, dz, dw;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dx, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dy, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&dz, &b2, 8);
-			uint64_t b3 = ((uint64_t)float_bits[6] << 32) | float_bits[7]; memcpy(&dw, &b3, 8);
-			NativeGLVertex4d(gl_current_context, dx, dy, dz, dw); return 0;
+			NativeGLVertex4d(gl_current_context,
+			                 double_arg(float_bits, 0),
+			                 double_arg(float_bits, 1),
+			                 double_arg(float_bits, 2),
+			                 double_arg(float_bits, 3)); return 0;
 		}
 		case GL_SUB_VERTEX4DV: NativeGLVertex4dv(gl_current_context, r3); return 0;
 		case GL_SUB_VERTEX4F:
@@ -1917,8 +1938,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 
 		// MultiTexCoord 1D variants
 		case GL_SUB_MULTI_TEX_COORD1D_ARB: {
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; double d0; memcpy(&d0, &b0, 8);
-			NativeGLMultiTexCoord1fARB(gl_current_context, r3, (float)d0);
+			NativeGLMultiTexCoord1fARB(gl_current_context, r3,
+			                           float_arg(float_bits, 0));
 			return 0;
 		}
 		case GL_SUB_MULTI_TEX_COORD1DV_ARB:
@@ -1945,9 +1966,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 
 		// MultiTexCoord 2D variants
 		case GL_SUB_MULTI_TEX_COORD2D_ARB: {
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; double d0; memcpy(&d0, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; double d1; memcpy(&d1, &b1, 8);
-			NativeGLMultiTexCoord2fARB(gl_current_context, r3, (float)d0, (float)d1);
+			NativeGLMultiTexCoord2fARB(gl_current_context, r3,
+			                           float_arg(float_bits, 0),
+			                           float_arg(float_bits, 1));
 			return 0;
 		}
 		case GL_SUB_MULTI_TEX_COORD2DV_ARB:
@@ -1974,10 +1995,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 
 		// MultiTexCoord 3D variants
 		case GL_SUB_MULTI_TEX_COORD3D_ARB: {
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; double d0; memcpy(&d0, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; double d1; memcpy(&d1, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; double d2; memcpy(&d2, &b2, 8);
-			NativeGLMultiTexCoord3fARB(gl_current_context, r3, (float)d0, (float)d1, (float)d2);
+			NativeGLMultiTexCoord3fARB(gl_current_context, r3,
+			                           float_arg(float_bits, 0),
+			                           float_arg(float_bits, 1),
+			                           float_arg(float_bits, 2));
 			return 0;
 		}
 		case GL_SUB_MULTI_TEX_COORD3DV_ARB:
@@ -2004,11 +2025,11 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 
 		// MultiTexCoord 4D variants
 		case GL_SUB_MULTI_TEX_COORD4D_ARB: {
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; double d0; memcpy(&d0, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; double d1; memcpy(&d1, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; double d2; memcpy(&d2, &b2, 8);
-			uint64_t b3 = ((uint64_t)float_bits[6] << 32) | float_bits[7]; double d3; memcpy(&d3, &b3, 8);
-			NativeGLMultiTexCoord4fARB(gl_current_context, r3, (float)d0, (float)d1, (float)d2, (float)d3);
+			NativeGLMultiTexCoord4fARB(gl_current_context, r3,
+			                           float_arg(float_bits, 0),
+			                           float_arg(float_bits, 1),
+			                           float_arg(float_bits, 2),
+			                           float_arg(float_bits, 3));
 			return 0;
 		}
 		case GL_SUB_MULTI_TEX_COORD4DV_ARB:
@@ -2078,10 +2099,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLSecondaryColor3bvEXT(gl_current_context, r3);
 			return 0;
 		case GL_SUB_SECONDARYCOLOR3D_EXT: {
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; double d0; memcpy(&d0, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; double d1; memcpy(&d1, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; double d2; memcpy(&d2, &b2, 8);
-			NativeGLSecondaryColor3fEXT(gl_current_context, (float)d0, (float)d1, (float)d2);
+			NativeGLSecondaryColor3fEXT(gl_current_context,
+			                            float_arg(float_bits, 0),
+			                            float_arg(float_bits, 1),
+			                            float_arg(float_bits, 2));
 			return 0;
 		}
 		case GL_SUB_SECONDARY_COLOR3DV_EXT:
@@ -2277,6 +2298,16 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_AGL_RESETLIBRARY:         return NativeAGLResetLibrary();
 
 		// --- GLU (700-753) --- real handlers in gl_engine.cpp
+		//
+		// CFM/PowerOpen wire format for mixed float/int signatures: every
+		// parameter consumes words sequentially (doubles 2, everything
+		// else 1); words 0-7 map to r3-r10 and words >=8 to
+		// gl_ppc_stack_arg(word-8); float/double VALUES arrive in the
+		// FPR capture (float_bits) while their GPR word slots are
+		// SKIPPED (undefined in prototyped calls). Post-float ints/
+		// pointers therefore land in LATER registers than a dense
+		// count suggests — reading the skipped shadow registers yields
+		// garbage (the D-5-2 guest-memory-corruption class).
 		case GL_SUB_GLU_BEGINCURVE:    NativeGLUBeginCurve(r3); return 0;
 		case GL_SUB_GLU_BEGINPOLYGON:  NativeGLUBeginPolygon(r3); return 0;
 		case GL_SUB_GLU_BEGINSURFACE:  NativeGLUBeginSurface(r3); return 0;
@@ -2286,11 +2317,13 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLU_BUILD2DMIPMAPS:
 			return NativeGLUBuild2DMipmaps(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, r7, r8, r9);
 		case GL_SUB_GLU_CYLINDER: {
-			double dbase, dtop, dheight;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dbase, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dtop, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&dheight, &b2, 8);
-			NativeGLUCylinder(gl_current_context, r3, dbase, dtop, dheight, (int32_t)r4, (int32_t)r5);
+			NativeGLUCylinder(gl_current_context, r3,
+			                  double_arg(float_bits, 0),
+			                  double_arg(float_bits, 1),
+			                  double_arg(float_bits, 2),
+			                  /* quad w0=r3; 3 doubles w1-6; slices w7;
+			                   * stacks w8 (first stack word) */
+			                  (int32_t)r10, (int32_t)gl_ppc_stack_arg(0));
 			return 0;
 		}
 		case GL_SUB_GLU_DELETENURBSRENDERER:      NativeGLUDeleteNurbsRenderer(r3); return 0;
@@ -2298,10 +2331,11 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLU_DELETEQUADRIC:             NativeGLUDeleteQuadric(r3); return 0;
 		case GL_SUB_GLU_DELETETESS:                NativeGLUDeleteTess(r3); return 0;
 		case GL_SUB_GLU_DISK: {
-			double dinner, douter;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dinner, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&douter, &b1, 8);
-			NativeGLUDisk(gl_current_context, r3, dinner, douter, (int32_t)r4, (int32_t)r5);
+			NativeGLUDisk(gl_current_context, r3,
+			              double_arg(float_bits, 0),
+			              double_arg(float_bits, 1),
+			              /* quad w0=r3; 2 doubles w1-4; slices w5; loops w6 */
+			              (int32_t)r8, (int32_t)r9);
 			return 0;
 		}
 		case GL_SUB_GLU_ENDCURVE:     NativeGLUEndCurve(r3); return 0;
@@ -2316,7 +2350,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLU_LOOKAT: {
 			double args[9] = {0};
 			for (int i = 0; i < 9 && i < num_float_args; i++) {
-				args[i] = (double)float_arg(float_bits, i);
+				args[i] = double_arg(float_bits, i);
 			}
 			NativeGLULookAt(gl_current_context, args[0], args[1], args[2],
 			                args[3], args[4], args[5], args[6], args[7], args[8]);
@@ -2340,7 +2374,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLU_PARTIALDISK: {
 			NativeGLUPartialDisk(gl_current_context, r3,
 				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
-				(int32_t)r4, (int32_t)r5,
+				/* quad w0=r3; inner/outer w1-4; slices w5; loops w6 */
+				(int32_t)r8, (int32_t)r9,
 				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3));
 			return 0;
 		}
@@ -2350,20 +2385,27 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3));
 			return 0;
 		case GL_SUB_GLU_PICKMATRIX: {
-			double dx, dy, ddx, ddy;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dx, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dy, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&ddx, &b2, 8);
-			uint64_t b3 = ((uint64_t)float_bits[6] << 32) | float_bits[7]; memcpy(&ddy, &b3, 8);
-			NativeGLUPickMatrix(gl_current_context, dx, dy, ddx, ddy, r3);
+			NativeGLUPickMatrix(gl_current_context,
+			                    double_arg(float_bits, 0),
+			                    double_arg(float_bits, 1),
+			                    double_arg(float_bits, 2),
+			                    double_arg(float_bits, 3),
+			                    /* 4 doubles w0-7; viewport ptr w8 */
+			                    gl_ppc_stack_arg(0));
 			return 0;
 		}
 		case GL_SUB_GLU_PROJECT: {
-			double dobjX, dobjY, dobjZ;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dobjX, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dobjY, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&dobjZ, &b2, 8);
-			return NativeGLUProject(gl_current_context, dobjX, dobjY, dobjZ, r3, r4, r5, r6, r7, r8);
+			/* 3 doubles w0-5; model w6=r9, proj w7=r10, viewport w8,
+			 * winx/winy/winz out-pointers w9-11. The old r3-r8 read the
+			 * doubles' skipped shadows — WriteMacDouble through those
+			 * garbage registers corrupted guest memory. */
+			return NativeGLUProject(gl_current_context,
+			                        double_arg(float_bits, 0),
+			                        double_arg(float_bits, 1),
+			                        double_arg(float_bits, 2),
+			                        r9, r10, gl_ppc_stack_arg(0),
+			                        gl_ppc_stack_arg(1), gl_ppc_stack_arg(2),
+			                        gl_ppc_stack_arg(3));
 		}
 		case GL_SUB_GLU_PWLCURVE:        NativeGLUPwlCurve(r3, (int32_t)r4, r5, (int32_t)r6, r7); return 0;
 		case GL_SUB_GLU_QUADRICCALLBACK:  NativeGLUQuadricCallback(r3, r4, r5); return 0;
@@ -2372,11 +2414,12 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLU_QUADRICORIENTATION: NativeGLUQuadricOrientation(r3, r4); return 0;
 		case GL_SUB_GLU_QUADRICTEXTURE:   NativeGLUQuadricTexture(r3, r4); return 0;
 		case GL_SUB_GLU_SCALEIMAGE:
-			return NativeGLUScaleImage(gl_current_context, r3, (int32_t)r4, (int32_t)r5, r6, r7, (int32_t)r8, (int32_t)r9, r10, 0);
+			return NativeGLUScaleImage(gl_current_context, r3, (int32_t)r4, (int32_t)r5, r6, r7, (int32_t)r8, (int32_t)r9, r10, gl_ppc_stack_arg(0));
 		case GL_SUB_GLU_SPHERE: {
-			double dradius;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dradius, &b0, 8);
-			NativeGLUSphere(gl_current_context, r3, dradius, (int32_t)r4, (int32_t)r5);
+			NativeGLUSphere(gl_current_context, r3,
+			                double_arg(float_bits, 0),
+			                /* quad w0=r3; radius w1-2; slices w3; stacks w4 */
+			                (int32_t)r6, (int32_t)r7);
 			return 0;
 		}
 		case GL_SUB_GLU_TESSBEGINCONTOUR: NativeGLUTessBeginContour(r3); return 0;
@@ -2385,26 +2428,26 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLU_TESSENDCONTOUR:   NativeGLUTessEndContour(r3); return 0;
 		case GL_SUB_GLU_TESSENDPOLYGON:   NativeGLUTessEndPolygon(r3); return 0;
 		case GL_SUB_GLU_TESSNORMAL: {
-			double dx, dy, dz;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dx, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dy, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&dz, &b2, 8);
-			NativeGLUTessNormal(r3, dx, dy, dz);
+			NativeGLUTessNormal(r3,
+			                    double_arg(float_bits, 0),
+			                    double_arg(float_bits, 1),
+			                    double_arg(float_bits, 2));
 			return 0;
 		}
 		case GL_SUB_GLU_TESSPROPERTY: {
-			double ddata;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&ddata, &b0, 8);
-			NativeGLUTessProperty(r3, r4, ddata);
+			NativeGLUTessProperty(r3, r4, double_arg(float_bits, 0));
 			return 0;
 		}
 		case GL_SUB_GLU_TESSVERTEX:  NativeGLUTessVertex(r3, r4, r5); return 0;
 		case GL_SUB_GLU_UNPROJECT: {
-			double dwinX, dwinY, dwinZ;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dwinX, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dwinY, &b1, 8);
-			uint64_t b2 = ((uint64_t)float_bits[4] << 32) | float_bits[5]; memcpy(&dwinZ, &b2, 8);
-			return NativeGLUUnProject(gl_current_context, dwinX, dwinY, dwinZ, r3, r4, r5, r6, r7, r8);
+			/* Same layout as gluProject above. */
+			return NativeGLUUnProject(gl_current_context,
+			                          double_arg(float_bits, 0),
+			                          double_arg(float_bits, 1),
+			                          double_arg(float_bits, 2),
+			                          r9, r10, gl_ppc_stack_arg(0),
+			                          gl_ppc_stack_arg(1), gl_ppc_stack_arg(2),
+			                          gl_ppc_stack_arg(3));
 		}
 
 		// --- GLUT (800-915) --- real handlers in gl_engine.cpp
@@ -2499,54 +2542,56 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLUT_BITMAPLENGTH:      return (uint32_t)NativeGLUTBitmapLength(r3, r4);
 		case GL_SUB_GLUT_STROKELENGTH:      return (uint32_t)NativeGLUTStrokeLength(r3, r4);
 		case GL_SUB_GLUT_WIRESPHERE: {
-			double dr; uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dr, &b0, 8);
-			NativeGLUTWireSphere(gl_current_context, dr, (int32_t)r3, (int32_t)r4); return 0;
+			/* radius w0-1; slices w2=r5, stacks w3=r6 */
+			NativeGLUTWireSphere(gl_current_context, double_arg(float_bits, 0),
+			                     (int32_t)r5, (int32_t)r6); return 0;
 		}
 		case GL_SUB_GLUT_SOLIDSPHERE: {
-			double dr; uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&dr, &b0, 8);
-			NativeGLUTSolidSphere(gl_current_context, dr, (int32_t)r3, (int32_t)r4); return 0;
+			/* radius w0-1; slices w2=r5, stacks w3=r6 */
+			NativeGLUTSolidSphere(gl_current_context, double_arg(float_bits, 0),
+			                      (int32_t)r5, (int32_t)r6); return 0;
 		}
 		case GL_SUB_GLUT_WIRECONE: {
-			double db, dh;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&db, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dh, &b1, 8);
-			NativeGLUTWireCone(gl_current_context, db, dh, (int32_t)r3, (int32_t)r4); return 0;
+			/* base/height w0-3; slices w4=r7, stacks w5=r8 */
+			NativeGLUTWireCone(gl_current_context,
+			                   double_arg(float_bits, 0),
+			                   double_arg(float_bits, 1),
+			                   (int32_t)r7, (int32_t)r8); return 0;
 		}
 		case GL_SUB_GLUT_SOLIDCONE: {
-			double db, dh;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&db, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&dh, &b1, 8);
-			NativeGLUTSolidCone(gl_current_context, db, dh, (int32_t)r3, (int32_t)r4); return 0;
+			/* base/height w0-3; slices w4=r7, stacks w5=r8 */
+			NativeGLUTSolidCone(gl_current_context,
+			                    double_arg(float_bits, 0),
+			                    double_arg(float_bits, 1),
+			                    (int32_t)r7, (int32_t)r8); return 0;
 		}
 		case GL_SUB_GLUT_WIRECUBE: {
-			double ds; uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&ds, &b0, 8);
-			NativeGLUTWireCube(gl_current_context, ds); return 0;
+			NativeGLUTWireCube(gl_current_context, double_arg(float_bits, 0)); return 0;
 		}
 		case GL_SUB_GLUT_SOLIDCUBE: {
-			double ds; uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&ds, &b0, 8);
-			NativeGLUTSolidCube(gl_current_context, ds); return 0;
+			NativeGLUTSolidCube(gl_current_context, double_arg(float_bits, 0)); return 0;
 		}
 		case GL_SUB_GLUT_WIRETORUS: {
-			double di, do_;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&di, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&do_, &b1, 8);
-			NativeGLUTWireTorus(gl_current_context, di, do_, (int32_t)r3, (int32_t)r4); return 0;
+			/* inner/outer w0-3; nsides w4=r7, rings w5=r8 */
+			NativeGLUTWireTorus(gl_current_context,
+			                    double_arg(float_bits, 0),
+			                    double_arg(float_bits, 1),
+			                    (int32_t)r7, (int32_t)r8); return 0;
 		}
 		case GL_SUB_GLUT_SOLIDTORUS: {
-			double di, do_;
-			uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&di, &b0, 8);
-			uint64_t b1 = ((uint64_t)float_bits[2] << 32) | float_bits[3]; memcpy(&do_, &b1, 8);
-			NativeGLUTSolidTorus(gl_current_context, di, do_, (int32_t)r3, (int32_t)r4); return 0;
+			/* inner/outer w0-3; nsides w4=r7, rings w5=r8 */
+			NativeGLUTSolidTorus(gl_current_context,
+			                     double_arg(float_bits, 0),
+			                     double_arg(float_bits, 1),
+			                     (int32_t)r7, (int32_t)r8); return 0;
 		}
 		case GL_SUB_GLUT_WIREDODECAHEDRON:  NativeGLUTWireDodecahedron(gl_current_context); return 0;
 		case GL_SUB_GLUT_SOLIDDODECAHEDRON: NativeGLUTSolidDodecahedron(gl_current_context); return 0;
 		case GL_SUB_GLUT_WIRETEAPOT: {
-			double ds; uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&ds, &b0, 8);
-			NativeGLUTWireTeapot(gl_current_context, ds); return 0;
+			NativeGLUTWireTeapot(gl_current_context, double_arg(float_bits, 0)); return 0;
 		}
 		case GL_SUB_GLUT_SOLIDTEAPOT: {
-			double ds; uint64_t b0 = ((uint64_t)float_bits[0] << 32) | float_bits[1]; memcpy(&ds, &b0, 8);
-			NativeGLUTSolidTeapot(gl_current_context, ds); return 0;
+			NativeGLUTSolidTeapot(gl_current_context, double_arg(float_bits, 0)); return 0;
 		}
 		case GL_SUB_GLUT_WIREOCTAHEDRON:    NativeGLUTWireOctahedron(gl_current_context); return 0;
 		case GL_SUB_GLUT_SOLIDOCTAHEDRON:   NativeGLUTSolidOctahedron(gl_current_context); return 0;

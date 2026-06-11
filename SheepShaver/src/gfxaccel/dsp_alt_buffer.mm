@@ -53,6 +53,20 @@
 // ===== AltBuffer record table + lifecycle =================================
 static DSpAltBufferRecord dsp_alt_buffer_table[DSP_MAX_ALT_BUFFERS] = {};
 
+static void DSpResetHeapIfIdleAfterAltBufferRelease(const char *reason)
+{
+	uint32_t live = gfxaccel_resources_heap_live_allocation_count(kHeapEngineDSp);
+	if (live != 0) {
+		return;
+	}
+	uint64_t reclaimed = gfxaccel_resources_heap_reset(kHeapEngineDSp);
+	if (reclaimed > 0) {
+		DSP_LOG("DSp heap reset after %s reclaimed %llu bytes",
+		        reason ? reason : "alt-buffer release",
+		        (unsigned long long)reclaimed);
+	}
+}
+
 /* Zero a record's fields WITHOUT memset (DSpAltBufferRecord holds ARC
  * id<MTLBuffer>/id<MTLTexture> fields — memset over them bypasses ARC and is
  * undefined, -Wnontrivial-memcall). ObjC fields are assigned nil (ARC
@@ -69,7 +83,11 @@ static void DSpClearAltBufferRecord(DSpAltBufferRecord *rec)
 	}
 	rec->in_use            = false;
 	rec->texture           = nil;   /* texture is a view over backing — drop it first */
-	rec->backing           = nil;   /* heap bump-allocator reclaims on mode reset */
+	if (rec->backing != nil) {
+		gfxaccel_resources_clear_buffer_owner((__bridge void *)rec->backing);
+		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
+	}
+	rec->backing           = nil;   /* DSp heap resets when all DSp buffers are idle */
 	rec->cgrafptr_mac_addr = 0;
 	rec->baseaddr_mac      = 0;
 	rec->baseaddr_size     = 0;
@@ -116,6 +134,7 @@ static void DSpFreeAltBuffer(uint32_t handle)
 {
 	if (handle == 0 || handle > DSP_MAX_ALT_BUFFERS) return;
 	DSpClearAltBufferRecord(&dsp_alt_buffer_table[handle - 1]);
+	DSpResetHeapIfIdleAfterAltBufferRelease("alt-buffer free");
 }
 
 /* --------------------------------------------------------------------- *
@@ -123,18 +142,17 @@ static void DSpFreeAltBuffer(uint32_t handle)
  *                                                                       *
  *  Real Metal-backed AltBuffer implementations reusing the              *
  *  engine-blind gfxaccel infra: each alt-buffer backs onto the          *
- *  DSp heap (kHeapEngineDSp) — NOT the one-per-engine overlay slot       *
- *  so N alt-buffers coexist; the designated underlay                     *
- *  routes into the existing SwapBuffers/GetBackBuffer SubmitFrame via a   *
- *  CompositeLayer{slot=kLayerSlotUnderlay} (slot only, NEVER             *
- *  kGfxEngineDSp — SC #5). ZERO new concurrency primitives:             *
+ *  DSp heap (kHeapEngineDSp) — NOT the one-per-engine overlay slot, so   *
+ *  N alt-buffers coexist. A designated underlay feeds the                *
+ *  DSpRestoreBackBufferFromUnderlay CPU dirty-band restore path when     *
+ *  host-visible 32-bpp backing is available. ZERO new concurrency        *
+ *  primitives:                                                          *
  *  every record field is single-writer emul-thread RAM + the            *
  *  existing single MTLCommandQueue.                                      *
  *                                                                       *
- *  Alt-buffers use a fixed BGRA8Unorm 32-bpp backing so the compositor   *
- *  CompositeLayer.source contract (BGRA8Unorm) is satisfied             *
- *  without a per-depth unpack pass. The CGrafPort GetCGrafPtr emits      *
- *  describes the same BGRA8Unorm surface (4 bytes/pixel).                *
+ *  Alt-buffers use a fixed BGRA8Unorm 32-bpp backing; the CGrafPort      *
+ *  GetCGrafPtr emits describes the same BGRA8Unorm surface               *
+ *  (4 bytes/pixel).                                                      *
  * --------------------------------------------------------------------- */
 
 /* Alt-buffer CGrafPort byte size. Alt buffers keep the compact PixMap-shaped
@@ -182,7 +200,7 @@ static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 		        buffer_size, w, h);
 		return false;
 	}
-	id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buf_raw;
+	id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buf_raw;
 
 	MTLTextureDescriptor *desc = [MTLTextureDescriptor new];
 	desc.textureType = MTLTextureType2D;
@@ -198,6 +216,7 @@ static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 	if (tex == nil) {
 		DSP_LOG("DSpAllocAltBufferBacking: newTextureWithDescriptor returned nil "
 		        "(%ux%u alignedRB=%u)", w, h, alignedRB);
+		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 		return false;
 	}
 
@@ -736,13 +755,13 @@ extern "C" int32_t DSpTesting_GetUnderlayAltBufferByValue(uint32_t ctxRef,
 
 // ===== Underlay staging -> backing sync ===================================
 /* Mirror an alt-buffer's guest-RAM staging (where the guest draws through the
- * GetCGrafPtr CGrafPort) into its Metal backing, so the texture view that the
- * compositor underlay layer AND the CPU underlay-restore copy read reflects the
- * guest's pixels. NQD/QuickDraw draws land in the guest-RAM staging; the Metal
- * backing is a separate allocation that would otherwise stay empty. Both sides
- * are BGRA8Unorm 32-bpp at the same 256-aligned row stride, so a flat copy of
- * the backing extent is exact. No-op on StorageModePrivate (simulator —
- * contents NULL) or when the alt-buffer has no owned guest staging. */
+ * GetCGrafPtr CGrafPort) into its Metal backing, so the CPU
+ * underlay-restore copy reads the guest's pixels. NQD/QuickDraw draws land in
+ * the guest-RAM staging; the Metal backing is a separate allocation that would
+ * otherwise stay empty. Both sides are BGRA8Unorm 32-bpp at the same
+ * 256-aligned row stride, so a flat copy of the backing extent is exact. No-op
+ * on StorageModePrivate (simulator — contents NULL) or when the alt-buffer has
+ * no owned guest staging. */
 void DSpSyncAltBufferStagingToBacking(DSpAltBufferRecord *rec)
 {
 	if (rec == nullptr || rec->backing == nil) return;
@@ -758,6 +777,56 @@ void DSpSyncAltBufferStagingToBacking(DSpAltBufferRecord *rec)
 	memcpy(dst, src, copy_bytes);
 }
 
+/* --- Background/foreground backing lifecycle (D-4-1) ----------------------
+ *
+ * The Metal backing is a derived cache: the guest's pixel source of truth is
+ * the guest-RAM staging block (baseaddr_mac) it draws through via the
+ * GetCGrafPtr CGrafPort, and DSpSyncAltBufferStagingToBacking rebuilds the
+ * backing from it. Alt-buffer backings therefore release on background and
+ * re-create on foreground exactly like back buffers. Without this, any title
+ * holding one alt buffer kept the DSp heap live count nonzero forever — the
+ * bump heap could never reset, and every background/foreground cycle leaked
+ * a back-buffer-sized region toward the 32 MiB ceiling (CORE-09 ratchet). */
+void DSpReleaseAltBufferBackingsForBackground(void)
+{
+	uint32_t released = 0;
+	for (int i = 0; i < DSP_MAX_ALT_BUFFERS; i++) {
+		DSpAltBufferRecord *rec = &dsp_alt_buffer_table[i];
+		if (!rec->in_use || rec->backing == nil) continue;
+		/* Texture is a view over the backing — drop it first. Guest
+		 * staging, dims, and in_use stay intact for foreground restore. */
+		rec->texture = nil;
+		gfxaccel_resources_clear_buffer_owner((__bridge void *)rec->backing);
+		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
+		rec->backing = nil;
+		released++;
+	}
+	if (released > 0) {
+		DSP_LOG("Background: released %u alt-buffer backing(s)", released);
+		DSpResetHeapIfIdleAfterAltBufferRelease("background alt-buffer release");
+	}
+}
+
+void DSpRestoreAltBufferBackingsForForeground(void)
+{
+	for (int i = 0; i < DSP_MAX_ALT_BUFFERS; i++) {
+		DSpAltBufferRecord *rec = &dsp_alt_buffer_table[i];
+		if (!rec->in_use || rec->backing != nil) continue;
+		if (rec->width == 0 || rec->height == 0) continue;
+		if (!DSpAllocAltBufferBacking(rec, rec->width, rec->height)) {
+			/* Leave backing nil — sync/blit paths nil-check it; the next
+			 * foreground retries, matching the back-buffer policy. */
+			DSP_LOG("Foreground: alt-buffer %d backing re-alloc FAILED "
+			        "(retry on next fg)", i + 1);
+			continue;
+		}
+		/* Repopulate from the guest-RAM staging (source of truth). */
+		DSpSyncAltBufferStagingToBacking(rec);
+		DSP_LOG("Foreground: alt-buffer %d backing restored (%ux%u)",
+		        i + 1, rec->width, rec->height);
+	}
+}
+
 /* Free every in-use alt-buffer record (test-harness context reset). Replaces
  * the inline loop formerly in dsp_testing_reset_contexts. */
 void DSpResetAltBufferTable(void)
@@ -767,4 +836,5 @@ void DSpResetAltBufferTable(void)
 			DSpFreeAltBuffer((uint32_t)(i + 1));
 		}
 	}
+	DSpResetHeapIfIdleAfterAltBufferRelease("alt-buffer table reset");
 }

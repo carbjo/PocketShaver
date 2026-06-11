@@ -56,6 +56,46 @@ static inline int bytes_per_pixel(int depth)
 	return bpp;
 }
 
+static inline bool NQD_packed_depth_supported(uint32 pixel_size)
+{
+	return pixel_size == 1 || pixel_size == 2 || pixel_size == 4;
+}
+
+static inline bool NQD_packed_x_byte_aligned(int32 x, uint32 pixel_size)
+{
+	if (pixel_size >= 8)
+		return true;
+	if (!NQD_packed_depth_supported(pixel_size))
+		return false;
+	return ((x * (int32)pixel_size) & 7) == 0;
+}
+
+static inline bool NQD_packed_rect_edges_byte_aligned(int32 x, int32 width, uint32 pixel_size)
+{
+	return NQD_packed_x_byte_aligned(x, pixel_size) &&
+	       NQD_packed_x_byte_aligned(x + width, pixel_size);
+}
+
+static inline bool NQD_dest_rect_byte_aligned_for_depth(uint32 p, uint32 pixel_size)
+{
+	if (pixel_size >= 8)
+		return true;
+	int32 dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
+	int32 width  = (int16)ReadMacInt16(p + acclDestRect + 6) - (int16)ReadMacInt16(p + acclDestRect + 2);
+	return NQD_packed_rect_edges_byte_aligned(dest_X, width, pixel_size);
+}
+
+static inline bool NQD_bitblt_rects_byte_aligned_for_depth(uint32 p, uint32 pixel_size)
+{
+	if (pixel_size >= 8)
+		return true;
+	int32 src_X  = (int16)ReadMacInt16(p + acclSrcRect + 2) - (int16)ReadMacInt16(p + acclSrcBoundsRect + 2);
+	int32 dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
+	int32 width  = (int16)ReadMacInt16(p + acclDestRect + 6) - (int16)ReadMacInt16(p + acclDestRect + 2);
+	return NQD_packed_rect_edges_byte_aligned(src_X, width, pixel_size) &&
+	       NQD_packed_rect_edges_byte_aligned(dest_X, width, pixel_size);
+}
+
 // Pass-through dirty areas to redraw functions
 static inline void NQD_set_dirty_area(uint32 p)
 {
@@ -319,7 +359,8 @@ bool NQD_fillrect_hook(uint32 p)
 	// 8x8 bit patterns that the Metal kernel can't render -- let those fall back
 	// to software QuickDraw.
 	if (nqd_metal_available && ReadMacInt32(p + 0x284) != 0 &&
-		NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
+		NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr)) &&
+		NQD_dest_rect_byte_aligned_for_depth(p, ReadMacInt32(p + acclDestPixelSize))) {
 		const int transfer_mode = ReadMacInt32(p + acclTransferMode);
 		if (transfer_mode == 8 ||
 			(transfer_mode >= 32 && transfer_mode <= 39) ||
@@ -383,6 +424,7 @@ void NQD_bitblt(uint32 p)
 	// And perform the blit
 	const int bpp = bytes_per_pixel(ReadMacInt32(p + acclSrcPixelSize));
 	width *= bpp;
+	NQDMetalFlush();  // ensure pending NQD GPU writes are visible to CPU
 	if ((int32)ReadMacInt32(p + acclSrcRowBytes) > 0) {
 		const int src_row_bytes = (int32)ReadMacInt32(p + acclSrcRowBytes);
 		const int dst_row_bytes = (int32)ReadMacInt32(p + acclDestRowBytes);
@@ -438,7 +480,8 @@ bool NQD_bitblt_hook(uint32 p)
 		NQDMetalAddrInBuffer(ReadMacInt32(p + acclSrcBaseAddr)) &&
 		NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr)) &&
 		ReadMacInt32(p + acclSrcPixelSize) == ReadMacInt32(p + acclDestPixelSize) &&
-		(int32)(ReadMacInt32(p + acclSrcRowBytes) ^ ReadMacInt32(p + acclDestRowBytes)) >= 0) {
+		(int32)(ReadMacInt32(p + acclSrcRowBytes) ^ ReadMacInt32(p + acclDestRowBytes)) >= 0 &&
+		NQD_bitblt_rects_byte_aligned_for_depth(p, ReadMacInt32(p + acclSrcPixelSize))) {
 		const uint32 mode = ReadMacInt32(p + acclTransferMode);
 		// The colorizing Boolean SOURCE modes
 		// (1, 3-7 — srcOr/srcBic/notSrcCopy/notSrcOr/notSrcXor/notSrcBic) at a
@@ -457,10 +500,22 @@ bool NQD_bitblt_hook(uint32 p)
 		if (colorizing_bool && src_px >= 8) {
 			// Fall through to the CPU fallback / software QuickDraw (DELIBERATE).
 		} else if (mode <= 7 || (mode >= 32 && mode <= 39) || mode == 50) {
-			// All accelerated transfer modes via Metal — no pre-check on
-			// 0x018, 0x128, 0x130, 0x15c.
-			WriteMacInt32(p + acclDrawProc, NativeTVECT(NATIVE_NQD_BITBLT));
-			return true;
+			// Same-surface overlapping blits: the nqd_bitblt kernel is one
+			// flat unordered dispatch, and only the standard-depth Boolean
+			// family diverts overlaps to the ordered CPU scratch path inside
+			// NQDMetalBitblt (NQD-02). Packed-depth Boolean and
+			// arithmetic/hilite (32-39, 50) overlaps have no ordered route on
+			// the accelerated path — decline them to software QuickDraw
+			// (DELIBERATE), which observes sequential source reads.
+			if ((src_px < 8 || mode >= 32) &&
+				NQDMetalBitbltSameSurfaceOverlap(p)) {
+				// Fall through to the CPU fallback / software QuickDraw.
+			} else {
+				// All accelerated transfer modes via Metal — no pre-check on
+				// 0x018, 0x128, 0x130, 0x15c.
+				WriteMacInt32(p + acclDrawProc, NativeTVECT(NATIVE_NQD_BITBLT));
+				return true;
+			}
 		}
 	}
 
@@ -531,6 +586,9 @@ bool NQD_bltmask_hook(uint32 arg)
 	if (ReadMacInt32(arg + acclSrcPixelSize) != ReadMacInt32(arg + acclDestPixelSize)) {
 		return false;
 	}
+	if (!NQD_bitblt_rects_byte_aligned_for_depth(arg, ReadMacInt32(arg + acclSrcPixelSize))) {
+		return false;
+	}
 
 	const uint32 mode = ReadMacInt32(arg + acclTransferMode);
 	if (!(mode <= 7 || (mode >= 32 && mode <= 39) || mode == 50)) {
@@ -579,6 +637,9 @@ bool NQD_fillmask_hook(uint32 arg)
 
 	// Check 0x284 field (same as fillrect_hook)
 	if (ReadMacInt32(arg + 0x284) == 0) {
+		return false;
+	}
+	if (!NQD_dest_rect_byte_aligned_for_depth(arg, ReadMacInt32(arg + acclDestPixelSize))) {
 		return false;
 	}
 

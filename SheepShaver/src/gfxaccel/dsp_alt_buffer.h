@@ -55,15 +55,23 @@ struct DSpAltBufferRecord {
 DSpAltBufferRecord *DSpGetAltBuffer(uint32_t handle);
 
 /* Mirror an alt-buffer's guest-RAM staging (where the guest draws through the
- * GetCGrafPtr CGrafPort) into its Metal backing, so the texture view that the
- * compositor underlay layer AND the CPU underlay-restore copy read reflects
- * the guest's pixels. No-op on StorageModePrivate (simulator) or when the
- * alt-buffer has no owned guest staging. */
+ * GetCGrafPtr CGrafPort) into its Metal backing, so the CPU
+ * underlay-restore copy reads the guest's pixels. No-op on StorageModePrivate
+ * (simulator) or when the alt-buffer has no owned guest staging. */
 void DSpSyncAltBufferStagingToBacking(DSpAltBufferRecord *rec);
 #endif /* __OBJC__ */
 
 /* Free every in-use alt-buffer record. Used by the test-harness context reset
  * so each case starts with an empty table. Safe to call from non-ObjC TUs. */
 void DSpResetAltBufferTable(void);
+
+/* Background/foreground Metal-backing lifecycle (D-4-1 heap ratchet fix).
+ * Release drops every in-use record's backing+texture (guest staging, dims,
+ * and in_use survive) so the DSp bump heap can reach live==0 and reset while
+ * backgrounded; restore re-allocates and repopulates from guest staging.
+ * Called from DSpHandleBackgroundFromEmulThread / ...Foreground... only.
+ * Safe to call from non-ObjC TUs. */
+void DSpReleaseAltBufferBackingsForBackground(void);
+void DSpRestoreAltBufferBackingsForForeground(void);
 
 #endif /* DSP_ALT_BUFFER_H */

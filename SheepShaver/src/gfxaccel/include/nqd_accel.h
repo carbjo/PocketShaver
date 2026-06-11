@@ -76,6 +76,14 @@ extern void NQDMetalFillMask(uint32 p);
 // Used by callers to decide whether Metal acceleration is safe.
 extern bool NQDMetalAddrInBuffer(uint32 mac_addr);
 
+// Hook-side probe: true when the bitblt accl_params at p describe src/dest
+// rects that overlap on the same surface. NQD_bitblt_hook uses this to
+// decline overlap families the flat GPU dispatch cannot order (packed-depth
+// Boolean, arithmetic/hilite) to software QuickDraw; standard-depth Boolean
+// overlaps stay accepted (NQDMetalBitblt diverts them to an ordered CPU
+// scratch path).
+extern bool NQDMetalBitbltSameSurfaceOverlap(uint32 p);
+
 // ---------------------------------------------------------------------------
 // 1:1 bitblt (DSpBlit_Fastest, sub-op 711).
 //

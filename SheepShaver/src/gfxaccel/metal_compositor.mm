@@ -45,6 +45,8 @@
 #include "metal_device_shared.h"
 #include "metal_compositor.h"
 #include "display_mode_controller.h"
+#include "gfx_color_policy.h"
+#include "gfxaccel_threading_policy.h"
 #include "gfxaccel_resources.h"
 #include "gfxaccel_resources_heap.h"
 #include "metal_compositor_drawable_policy.h"
@@ -135,43 +137,43 @@ static id<MTLSamplerState>          compositor_sampler  = nil;
 // Lifecycle flag for Metal compositor state.
 static bool                         compositor_initialized = false;
 
-// Double-buffered palette. Two 256x4-byte MTLBuffers allocated from
-// kHeapCompositor. Writer (emul thread) writes to back buffer. VBL callback
-// swaps front/back atomically. Reader (compositor encode) binds front buffer
-// to fragment shader. C11 _Atomic for index swap -- minimal threading
-// primitive.
+// Double-buffered palette. Two 256x4-byte MTLBuffers allocated directly from
+// the device. Writers on the current main==emul thread apply complete/partial
+// updates to the back buffer. The VBL callback, also on main==emul today,
+// promotes the back buffer only when dirty. Reader (compositor encode) binds
+// front buffer to fragment shader. C11 _Atomic for index/dirty latching is
+// kept as a minimal future-thread-split/test primitive.
 static id<MTLBuffer>                s_palette_buffers[2] = { nil, nil };
 static _Atomic uint8_t              s_palette_front_idx  = 0;
+static _Atomic uint8_t              s_palette_dirty      = 0;
+static _Atomic uint8_t              s_palette_back_in_sync = 1;
+
+static void reset_palette_latch_state(void)
+{
+    atomic_store_explicit(&s_palette_front_idx, 0, memory_order_relaxed);
+    atomic_store_explicit(&s_palette_dirty, 0, memory_order_relaxed);
+    atomic_store_explicit(&s_palette_back_in_sync, 1, memory_order_relaxed);
+}
 
 // VBL-delivered drawable (iOS 17+ CAMetalDisplayLink path).
 // The display link callback stores the drawable here; present paths consume it
 // instead of calling [layer nextDrawable] (which throws when a display link is attached).
 static id<CAMetalDrawable>          s_vbl_drawable       = nil;
 
-// Gamma LUT buffer. 768 bytes planar: 256 R + 256 G + 256 B.
-// Allocated from kHeapCompositor. Bound at fragment buffer index 2 for the
-// indexed-mode shader. Updated from DMCModeSnapshot gamma_lut on each
-// DMC gamma generation bump.
+// Display-ready gamma LUT buffer. 768 bytes planar: 256 R + 256 G + 256 B.
+// Allocated directly from the device. Updated from DMCModeSnapshot gamma_lut
+// on each DMC gamma generation bump after composing the shared display policy.
 static id<MTLBuffer>                gamma_lut_buffer    = nil;
 
-// Identity-LUT fallback buffer. A permanently-allocated
-// 768-byte planar identity ramp bound whenever gamma_lut_buffer is nil so the
-// gamma-sampling fragment shaders NEVER read an unbound buffer index (UB).
-// Allocated at init alongside gamma_lut_buffer for ALL depths (16/32bpp present
-// paths sample the LUT too, not just indexed). Read-only after init.
+// Identity-LUT fallback buffer for paths that deliberately bypass display
+// gamma, e.g. DSp staging into the compositor's 32-bit framebuffer layout.
+// Read-only after init.
 static id<MTLBuffer>                gamma_identity_buffer = nil;
 
 // Compositor-side latched fade_active. Latched in
 // compositor_vbl_callback FROM THE SAME gen-gated DMCModeSnapshot that drives
-// the gamma LUT copy, so the (gamma_lut_buffer contents, fade_active) pair the
-// present shaders see always traces back to ONE coherent snapshot. The present
-// encode binds THIS value — it must NOT re-fetch a fresh dmc_current_snapshot()
-// (which could pair a mid-fade LUT with a stale end-of-fade flag → one warped
-// frame; the exact torn read this code exists to fix). The flag
-// rides the EXISTING VBL-callback latch path; ZERO new concurrency primitives
-// — the VBL callback and MetalCompositorPresent both run on the main
-// thread, so a plain file-static is the correct same-thread carrier (matching
-// the s_last_gamma_gen / frame_interval_usec main-thread statics).
+// the gamma LUT composition, so diagnostics and DSp staging hash policy see
+// the same fade state used to build gamma_lut_buffer.
 static uint32_t                     s_latched_fade_active = 0;
 
 // Depth-aware state (added in S02)
@@ -434,39 +436,35 @@ static int bits_per_pixel_for_depth(int depth)
 
 // ---------------------------------------------------------------------------
 // fill_identity_gamma_lut — write a 768-byte planar identity ramp (256 R +
-// 256 G + 256 B) into a buffer's contents. Shared by the live gamma_lut_buffer
-// init and the gamma_identity_buffer fallback.
+// 256 G + 256 B) into a buffer's contents.
 // ---------------------------------------------------------------------------
 
 static void fill_identity_gamma_lut(uint8_t *lut)
 {
-    for (int i = 0; i < 256; i++) {
-        lut[i]       = (uint8_t)i;
-        lut[256 + i] = (uint8_t)i;
-        lut[512 + i] = (uint8_t)i;
-    }
+    GfxColorFillIdentityGammaLUT(lut);
 }
 
 // ---------------------------------------------------------------------------
-// alloc_gamma_buffer — allocate a 768-byte shared MTLBuffer from kHeapCompositor
-// (with a device fallback if the heap is exhausted) and seed it with an
-// identity ramp. Returns nil only if BOTH allocation paths fail. Shared by the
-// live gamma_lut_buffer and the gamma_identity_buffer.
+// alloc_gamma_buffer — allocate a 768-byte shared MTLBuffer and seed it with
+// either the display-ready default LUT or a no-op identity ramp. Gamma buffers
+// persist across frame ownership handoffs, so they stay off resettable heaps.
 // ---------------------------------------------------------------------------
 
-static id<MTLBuffer> alloc_gamma_buffer(const char *label)
+static id<MTLBuffer> alloc_gamma_buffer(id<MTLDevice> device,
+                                        const char *label,
+                                        bool display_default)
 {
-    id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)
-        gfxaccel_resources_heap_alloc_buffer(kHeapCompositor, 768,
-                                             MTLResourceStorageModeShared);
+    id<MTLBuffer> buf = [device newBufferWithLength:768
+                                            options:MTLResourceStorageModeShared];
     if (!buf) {
-        COMPOSITOR_ERR("alloc_gamma_buffer(%s): heap alloc failed; falling back", label);
-        // heap-exempt: gamma LUT fallback (only if heap is exhausted)
-        buf = [compositor_device newBufferWithLength:768
-                                             options:MTLResourceStorageModeShared];
+        COMPOSITOR_ERR("alloc_gamma_buffer(%s): device alloc failed", label);
     }
     if (buf) {
-        fill_identity_gamma_lut((uint8_t *)buf.contents);
+        if (display_default) {
+            GfxColorFillDefaultDisplayGammaLUT((uint8_t *)buf.contents);
+        } else {
+            fill_identity_gamma_lut((uint8_t *)buf.contents);
+        }
     }
     return buf;
 }
@@ -483,6 +481,185 @@ static const char *texture_format_name(MTLPixelFormat fmt)
         case MTLPixelFormatBGRA8Unorm:  return "BGRA8Unorm";
         default:                        return "Unknown";
     }
+}
+
+struct CompositorDepthResources {
+    id<MTLBuffer>              buffer;
+    id<MTLTexture>             texture;
+    id<MTLBuffer>              palette_buffers[2];
+    id<MTLBuffer>              gamma_lut;
+    id<MTLBuffer>              gamma_identity;
+    id<MTLLibrary>             library;
+    id<MTLRenderPipelineState> pipeline;
+    id<MTLSamplerState>        sampler;
+    NSString                  *fragment_name;
+    MTLPixelFormat             tex_format;
+    NSUInteger                 tex_width;
+    bool                       use_fallback_texture;
+};
+
+static int MetalCompositorBuildDepthResources(const char *op,
+                                              id<MTLDevice> device,
+                                              int width, int height,
+                                              int depth, int row_bytes,
+                                              int pitch, void *buffer,
+                                              uint32_t buffer_size,
+                                              bool use_nearest,
+                                              bool allow_null_buffer,
+                                              CompositorDepthResources *out)
+{
+    if (!device || !out) {
+        COMPOSITOR_ERR("%s: FAILED — missing Metal device or output record", op);
+        return -1;
+    }
+
+    int bits_per_pixel = bits_per_pixel_for_depth(depth);
+    if (bits_per_pixel == 0) {
+        COMPOSITOR_ERR("%s: FAILED — unknown depth value %d", op, depth);
+        return -1;
+    }
+
+    if (buffer != NULL) {
+        out->buffer = (__bridge id<MTLBuffer>)gfxaccel_resources_get_framebuffer_buffer(
+            buffer, buffer_size);
+        if (!out->buffer) {
+            COMPOSITOR_ERR("%s: FAILED — gfxaccel_resources_get_framebuffer_buffer "
+                           "returned NULL (buffer=%p size=%u)",
+                           op, buffer, buffer_size);
+            return -1;
+        }
+    } else if (!allow_null_buffer) {
+        COMPOSITOR_ERR("%s: FAILED — NULL framebuffer buffer for initial compositor setup",
+                       op);
+        return -1;
+    }
+
+    if (depth <= VIDEO_DEPTH_8BIT) {
+        out->tex_format = MTLPixelFormatR8Uint;
+        out->tex_width = (NSUInteger)row_bytes;
+    } else if (depth == VIDEO_DEPTH_16BIT) {
+        out->tex_format = MTLPixelFormatR16Uint;
+        out->tex_width = (NSUInteger)width;
+    } else {
+        out->tex_format = MTLPixelFormatBGRA8Unorm;
+        out->tex_width = (NSUInteger)width;
+    }
+
+    MTLTextureDescriptor *texDesc = [[MTLTextureDescriptor alloc] init];
+    texDesc.textureType = MTLTextureType2D;
+    texDesc.pixelFormat = out->tex_format;
+    texDesc.width = out->tex_width;
+    texDesc.height = (NSUInteger)height;
+    texDesc.storageMode = MTLStorageModeShared;
+    texDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
+
+    int texBytesPerRow = (depth <= VIDEO_DEPTH_8BIT) ? row_bytes : pitch;
+    bool bytesPerRowAligned = (texBytesPerRow % 16 == 0);
+
+    if (bytesPerRowAligned && out->buffer != nil) {
+        out->texture = [out->buffer newTextureWithDescriptor:texDesc
+                                                      offset:0
+                                                 bytesPerRow:(NSUInteger)texBytesPerRow];
+    }
+
+    if (!out->texture) {
+        COMPOSITOR_LOG("%s: buffer texture skipped/failed for %s "
+                       "(bytesPerRow=%d aligned=%d), using standalone texture with replaceRegion",
+                       op, texture_format_name(out->tex_format),
+                       texBytesPerRow, bytesPerRowAligned);
+        texDesc.storageMode = MTLStorageModeShared;
+        out->texture = [device newTextureWithDescriptor:texDesc];
+        if (!out->texture) {
+            COMPOSITOR_ERR("%s: FAILED — newTextureWithDescriptor fallback "
+                           "(format=%s width=%lu height=%d)",
+                           op, texture_format_name(out->tex_format),
+                           (unsigned long)out->tex_width, height);
+            return -1;
+        }
+        out->use_fallback_texture = true;
+    }
+
+    if (depth <= VIDEO_DEPTH_8BIT) {
+        for (int i = 0; i < 2; i++) {
+            out->palette_buffers[i] = [device newBufferWithLength:256 * 4
+                                                          options:MTLResourceStorageModeShared];
+            if (!out->palette_buffers[i]) {
+                COMPOSITOR_ERR("%s: FAILED — palette_buffer[%d] creation", op, i);
+                return -1;
+            }
+            memset(out->palette_buffers[i].contents, 0, 256 * 4);
+        }
+    }
+
+    out->gamma_lut      = alloc_gamma_buffer(device, "gamma_lut_buffer", true);
+    out->gamma_identity = alloc_gamma_buffer(device, "gamma_identity_buffer", false);
+    if (!out->gamma_lut || !out->gamma_identity) {
+        COMPOSITOR_ERR("%s: FAILED — gamma buffer creation (lut=%p identity=%p)",
+                       op, out->gamma_lut, out->gamma_identity);
+        return -1;
+    }
+
+    id<MTLLibrary> library = compositor_library;
+    if (!library) {
+        library = [device newDefaultLibrary];
+    }
+    if (!library) {
+        COMPOSITOR_ERR("%s: FAILED — newDefaultLibrary returned nil", op);
+        return -1;
+    }
+    out->library = library;
+
+    id<MTLFunction> vertexFunc = [library newFunctionWithName:@"compositor_vertex"];
+    if (!vertexFunc) {
+        COMPOSITOR_ERR("%s: FAILED — vertex function 'compositor_vertex' not found", op);
+        return -1;
+    }
+
+    if (depth <= VIDEO_DEPTH_8BIT) {
+        out->fragment_name = @"compositor_fragment_indexed";
+    } else if (depth == VIDEO_DEPTH_16BIT) {
+        out->fragment_name = @"compositor_fragment_16bpp";
+    } else {
+        out->fragment_name = @"compositor_fragment_32bpp";
+    }
+
+    id<MTLFunction> fragmentFunc = [library newFunctionWithName:out->fragment_name];
+    if (!fragmentFunc) {
+        COMPOSITOR_ERR("%s: FAILED — fragment function '%s' not found",
+                       op, [out->fragment_name UTF8String]);
+        return -1;
+    }
+
+    MTLRenderPipelineDescriptor *pipeDesc = [[MTLRenderPipelineDescriptor alloc] init];
+    pipeDesc.vertexFunction = vertexFunc;
+    pipeDesc.fragmentFunction = fragmentFunc;
+    pipeDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+
+    NSError *pipeError = nil;
+    out->pipeline = [device newRenderPipelineStateWithDescriptor:pipeDesc
+                                                           error:&pipeError];
+    if (!out->pipeline) {
+        COMPOSITOR_ERR("%s: FAILED — pipeline creation for '%s': %s",
+                       op, [out->fragment_name UTF8String],
+                       [[pipeError localizedDescription] UTF8String]);
+        return -1;
+    }
+
+    if (depth == VIDEO_DEPTH_32BIT) {
+        MTLSamplerDescriptor *sampDesc = [[MTLSamplerDescriptor alloc] init];
+        sampDesc.minFilter = use_nearest ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
+        sampDesc.magFilter = use_nearest ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
+        sampDesc.sAddressMode = MTLSamplerAddressModeClampToEdge;
+        sampDesc.tAddressMode = MTLSamplerAddressModeClampToEdge;
+
+        out->sampler = [device newSamplerStateWithDescriptor:sampDesc];
+        if (!out->sampler) {
+            COMPOSITOR_ERR("%s: FAILED — sampler creation", op);
+            return -1;
+        }
+    }
+
+    return 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -505,21 +682,20 @@ static void compositor_vbl_callback(void *ctx, void *drawable, double target_ts)
 	// 2. Propagate target timestamp for present(at:)
 	MetalCompositorSubmitFrame_SetTargetTimestamp(target_ts);
 
-	// 3. Copy gamma LUT from DMC snapshot to compositor buffer if gamma_gen
+	// 3. Compose the display-ready gamma LUT from the DMC snapshot if gamma_gen
 	//    changed, AND latch fade_active FROM THE SAME snapshot.
 	//    The producer publishes (gamma_lut, fade_active) atomically in
 	//    one snapshot bump and bumps gamma_gen on EVERY fade_active change
 	//    (dmc_record_gamma_change_with_lut_fade), so latching fade_active at the
-	//    gen-gate keeps the latched flag coherent with the LUT bytes now in
-	//    gamma_lut_buffer. MetalCompositorPresent binds s_latched_fade_active —
-	//    it does NOT re-fetch a fresh dmc_current_snapshot() (that fresh read was
-	//    the torn-snapshot bug: a mid-fade LUT could pair with an end-of-fade
-	//    flag → one warped frame). One snapshot, one (LUT, flag) pair.
+	//    gen-gate keeps the display policy coherent with the LUT bytes now in
+	//    gamma_lut_buffer. One snapshot, one (LUT, flag) pair.
 	const DMCModeSnapshot *snap = dmc_current_snapshot();
 	if (snap != NULL && gamma_lut_buffer != nil) {
 		static uint32_t s_last_gamma_gen = 0;
 		if (snap->gamma_gen != s_last_gamma_gen) {
-			memcpy(gamma_lut_buffer.contents, snap->gamma_lut, 768);
+			GfxColorBuildDisplayGammaLUT(snap->gamma_lut,
+			                             snap->fade_active != 0,
+			                             (uint8_t *)gamma_lut_buffer.contents);
 			s_latched_fade_active = snap->fade_active ? 1u : 0u;
 			s_last_gamma_gen = snap->gamma_gen;
 			COMPOSITOR_LOG("VBL callback: updated gamma LUT (gen=%u fade_active=%u)",
@@ -535,6 +711,12 @@ static void compositor_vbl_callback(void *ctx, void *drawable, double target_ts)
 int MetalCompositorInit(int width, int height, int depth, int row_bytes,
                         int pitch, void *buffer, uint32_t buffer_size)
 {
+    if (compositor_initialized) {
+        COMPOSITOR_LOG("MetalCompositorInit: already initialized; resizing existing compositor");
+        return MetalCompositorResize(width, height, depth, row_bytes,
+                                     pitch, buffer, buffer_size);
+    }
+
     // --- Store depth state ---
     compositor_depth = depth;
     compositor_pixel_width = width;
@@ -601,8 +783,6 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         compositor_layer.colorspace = cs;
         if (cs) CGColorSpaceRelease(cs);
     }
-
-    [uiWindow addSubview:compositor_view];
 
     COMPOSITOR_LOG("View created: layer=%p view=%p framebuffer=%dx%d drawableSize=%dx%d windowBounds=%.0fx%.0f",
                    compositor_layer, compositor_view,
@@ -698,33 +878,24 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     // --- Double-buffered palette for indexed depths ---
     if (depth <= VIDEO_DEPTH_8BIT) {
         for (int i = 0; i < 2; i++) {
-            s_palette_buffers[i] = (__bridge_transfer id<MTLBuffer>)
-                gfxaccel_resources_heap_alloc_buffer(kHeapCompositor, 256 * 4,
-                                                     MTLResourceStorageModeShared);
-            if (!s_palette_buffers[i]) {
-                COMPOSITOR_ERR("MetalCompositorInit: palette_buffer[%d] heap alloc failed; falling back", i);
-                // heap-exempt: palette fallback (only if heap is exhausted)
-                s_palette_buffers[i] = [compositor_device newBufferWithLength:256 * 4
-                                                                     options:MTLResourceStorageModeShared];
-            }
+            s_palette_buffers[i] = [compositor_device newBufferWithLength:256 * 4
+                                                                   options:MTLResourceStorageModeShared];
             if (!s_palette_buffers[i]) {
                 COMPOSITOR_ERR("MetalCompositorInit: FAILED — palette_buffer[%d] creation", i);
                 return -1;
             }
             memset(s_palette_buffers[i].contents, 0, 256 * 4);
         }
-        atomic_store_explicit(&s_palette_front_idx, 0, memory_order_relaxed);
+        reset_palette_latch_state();
         COMPOSITOR_LOG("MetalCompositorInit: s_palette_buffers[2] created (256x4 bytes each)");
     }
 
-    // --- Gamma LUT buffers for ALL depths (LUT sampling extends to the
-    //     16bpp + 32bpp present shaders, so the live buffer is
-    //     no longer indexed-only). gamma_identity_buffer is the fallback
-    //     bound whenever gamma_lut_buffer is nil so the gamma-sampling shaders
-    //     never read an unbound buffer index. Both seed with an identity ramp;
-    //     the VBL callback overwrites gamma_lut_buffer with the DMC fade LUT. ---
-    gamma_lut_buffer      = alloc_gamma_buffer("gamma_lut_buffer");
-    gamma_identity_buffer = alloc_gamma_buffer("gamma_identity_buffer");
+    // --- Gamma LUT buffers for ALL depths. gamma_lut_buffer is display-ready:
+    //     source DMC LUT composed with the shared display policy. The separate
+    //     identity buffer stays a no-op fallback for DSp staging paths that
+    //     explicitly bypass display gamma. ---
+    gamma_lut_buffer      = alloc_gamma_buffer(compositor_device, "gamma_lut_buffer", true);
+    gamma_identity_buffer = alloc_gamma_buffer(compositor_device, "gamma_identity_buffer", false);
     if (!gamma_lut_buffer || !gamma_identity_buffer) {
         // A nil gamma buffer is a hard init failure — proceeding would
         // encode a present whose shaders dereference an unbound argument (UB).
@@ -802,7 +973,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         compositor_sampler = nil;
     }
 
-    COMPOSITOR_LOG("MetalCompositorInit: success — depth=%d (%dbpp) format=%s "
+    COMPOSITOR_LOG("MetalCompositorInit: resources ready — depth=%d (%dbpp) format=%s "
                    "pixel_width=%d tex_width=%lu shader=%s filter=%s%s",
                    depth, compositor_bits_per_pixel,
                    texture_format_name(texFormat),
@@ -810,35 +981,11 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
                    [fragmentName UTF8String],
                    useNearest ? "nearest" : "linear",
                    compositor_use_fallback_texture ? " (fallback texture)" : "");
-    compositor_initialized = true;
-
-    // Subscribe to DMC FIRST:
-    // compositor registered first → reverse-order enter makes compositor LAST
-    // to re-enter, after every engine has bound its new overlay. Subsequent
-    // Init calls (after Shutdown/Init cycles) are idempotent on the subscriber
-    // front: if the name is already registered, dmc_subscribe returns
-    // kDMCErrSubscriberAlreadyRegistered — which we tolerate silently.
-    {
-        static DMCSubscriber compositor_sub = {
-            /* .name          = */ "compositor",
-            /* .on_mode_exit  = */ MetalCompositor_OnModeExit,
-            /* .on_mode_enter = */ MetalCompositor_OnModeEnter,
-            /* .ctx           = */ NULL,
-        };
-        int32_t sub_err = dmc_subscribe(&compositor_sub);
-        if (sub_err != kDMCNoErr && sub_err != kDMCErrSubscriberAlreadyRegistered) {
-            COMPOSITOR_ERR("dmc_subscribe('compositor') FAILED err=%d — "
-                           "falling back to local cadence", (int)sub_err);
-        }
-    }
 
     // Read VBL cadence from the controller snapshot if available; fall back to
-    // direct objc_getFrameRateSetting() query. (A just-subscribed subscriber
-    // receives a catchup synthetic on_mode_enter, which will
-    // populate frame_interval_usec via MetalCompositor_OnModeEnter — but only
-    // if the controller already had a published snapshot with vbl_usec > 0.
-    // The initial dmc_create at VideoInit sets vbl_usec = 0, so the fallback
-    // path is the normal first-boot behavior.)
+    // direct objc_getFrameRateSetting() query. The subscribe below may also
+    // receive a catchup synthetic on_mode_enter and refresh this from the same
+    // snapshot when vbl_usec is populated.
     const DMCModeSnapshot *snap = dmc_current_snapshot();
     if (snap != NULL && snap->vbl_usec > 0) {
         frame_interval_usec = snap->vbl_usec;
@@ -861,6 +1008,31 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         COMPOSITOR_ERR("MetalCompositorInit: FAILED — SubmitFrame bind err=%d", sf_err);
         return -1;
     }
+
+    compositor_initialized = true;
+    [uiWindow addSubview:compositor_view];
+
+    // Subscribe to DMC FIRST:
+    // compositor registered first → reverse-order enter makes compositor LAST
+    // to re-enter, after every engine has bound its new overlay. Subsequent
+    // Init calls (after Shutdown/Init cycles) are idempotent on the subscriber
+    // front: if the name is already registered, dmc_subscribe returns
+    // kDMCErrSubscriberAlreadyRegistered — which we tolerate silently.
+    {
+        static DMCSubscriber compositor_sub = {
+            /* .name          = */ "compositor",
+            /* .on_mode_exit  = */ MetalCompositor_OnModeExit,
+            /* .on_mode_enter = */ MetalCompositor_OnModeEnter,
+            /* .ctx           = */ NULL,
+        };
+        int32_t sub_err = dmc_subscribe(&compositor_sub);
+        if (sub_err != kDMCNoErr && sub_err != kDMCErrSubscriberAlreadyRegistered) {
+            COMPOSITOR_ERR("dmc_subscribe('compositor') FAILED err=%d — "
+                           "falling back to local cadence", (int)sub_err);
+        }
+    }
+
+    COMPOSITOR_LOG("MetalCompositorInit: success");
 
     // Initialize VBL source with display-link-driven callbacks
     int32_t vbl_err = vbl_source_init((__bridge void *)compositor_layer,
@@ -889,10 +1061,16 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
     if (num_colors > 256) num_colors = 256;
     if (num_colors <= 0 || !pal) return;
 
-    // Write to back buffer. The VBL-latched swap ensures
-    // palette-animating apps can hammer the palette at any rate without
-    // stalling the render queue -- each VBL picks up the latest back state.
+    // Write to back buffer. Palette updates may be partial, so after a latch
+    // the old front buffer must be copied into the new back buffer before
+    // applying the next update.
     uint8_t back = 1 - atomic_load_explicit(&s_palette_front_idx, memory_order_relaxed);
+    if (!atomic_load_explicit(&s_palette_back_in_sync, memory_order_acquire)) {
+        uint8_t front = 1 - back;
+        memcpy(s_palette_buffers[back].contents,
+               s_palette_buffers[front].contents,
+               256 * 4);
+    }
     uint8_t *dst = (uint8_t *)s_palette_buffers[back].contents;
     for (int i = 0; i < num_colors; i++) {
         dst[i * 4 + 0] = pal[i * 3 + 0];  // R
@@ -900,34 +1078,39 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
         dst[i * 4 + 2] = pal[i * 3 + 2];  // B
         dst[i * 4 + 3] = 255;              // A
     }
+    atomic_store_explicit(&s_palette_back_in_sync, 1, memory_order_release);
+    atomic_store_explicit(&s_palette_dirty, 1, memory_order_release);
 
     COMPOSITOR_LOG("MetalCompositorUpdatePalette: wrote %d colors to back buffer", num_colors);
 }
 
 // ---------------------------------------------------------------------------
-// MetalCompositorPaletteLatch — VBL-latched swap
+// MetalCompositorPaletteLatch — VBL-latched dirty swap
 // ---------------------------------------------------------------------------
 // Called from the VBL callback BEFORE any command encoding for the frame
-// begins. Promotes back->front atomically so the compositor always reads
-// a complete, consistent palette.
+// begins. Promotes back->front only after an update so the compositor does
+// not alternate between fresh and stale palette buffers on clean VBLs.
 
 void MetalCompositorPaletteLatch(void)
 {
+    if (!atomic_load_explicit(&s_palette_dirty, memory_order_acquire)) return;
     uint8_t old = atomic_load_explicit(&s_palette_front_idx, memory_order_relaxed);
     atomic_store_explicit(&s_palette_front_idx, 1 - old, memory_order_release);
+    atomic_store_explicit(&s_palette_dirty, 0, memory_order_release);
+    atomic_store_explicit(&s_palette_back_in_sync, 0, memory_order_release);
 }
 
 // ---------------------------------------------------------------------------
-// MetalCompositorUpdateGammaLUT — copy gamma LUT from DMC snapshot
+// MetalCompositorUpdateGammaLUT — upload display-ready gamma LUT
 // ---------------------------------------------------------------------------
-// Called when the DMC gamma generation counter changes. Copies 768 bytes (planar: 256 R + 256 G +
-// 256 B) from the snapshot's gamma_lut into the gamma_lut_buffer MTLBuffer
-// so the compositor fragment shader can apply per-channel gamma correction.
+// Called when a Mac-side gamma LUT changes outside the VBL snapshot latch.
+// The source LUT is composed with the shared non-fade display policy before
+// becoming visible to the compositor shaders.
 
 void MetalCompositorUpdateGammaLUT(const uint8_t *lut)
 {
     if (!gamma_lut_buffer || !lut) return;
-    memcpy(gamma_lut_buffer.contents, lut, 768);
+    GfxColorBuildDisplayGammaLUT(lut, false, (uint8_t *)gamma_lut_buffer.contents);
     COMPOSITOR_LOG("MetalCompositorUpdateGammaLUT: updated 768 bytes");
 }
 
@@ -975,6 +1158,14 @@ void *MetalCompositorConsumeVBLDrawable(void)
 void MetalCompositorPresent(void)
 {
     if (!compositor_layer || !compositor_pipeline) return;
+
+    // Drain any pending memory-warning eviction on the VBL present path.
+    // SubmitFrame carries the same drain on the 3D-engine call path
+    // (metal_compositor_submitframe.mm), but pure-2D/NQD sessions never
+    // call SubmitFrame -- Present runs every VBL in all modes (same
+    // emul/main thread), so the request executes regardless of which
+    // present path is live.
+    (void)gfxaccel_heap_wait_for_eviction(0);
 
     @autoreleasepool {
 
@@ -1038,21 +1229,10 @@ void MetalCompositorPresent(void)
     [enc setRenderPipelineState:compositor_pipeline];
     [enc setFragmentTexture:compositor_texture atIndex:0];
 
-    // Bind the fade flag that was LATCHED in
-    // compositor_vbl_callback from the SAME gen-gated snapshot as the gamma LUT
-    // now sitting in gamma_lut_buffer. We do NOT re-fetch dmc_current_snapshot()
-    // here — a fresh present-time read could observe a newer fade_active than
-    // the LUT bytes the VBL callback latched, pairing a mid-fade LUT with an
-    // end-of-fade flag on the final fade frame (torn read: one
-    // warped frame). The (LUT, fade_active) pair the shader sees must come from
-    // one coherent snapshot/gen.
-    uint32_t fade_active = s_latched_fade_active;
-
-    // The gamma-sampling shaders read the LUT buffer index
-    // unconditionally, so it MUST always be bound. Prefer the live
-    // gamma_lut_buffer; fall back to the permanently-allocated identity buffer
-    // if the live buffer is nil (pre-init / alloc-failure window). NEVER leave
-    // the buffer index unbound — that is undefined behavior in the shader.
+    // The visible shaders read a display-ready LUT unconditionally. Prefer the
+    // live compositor LUT; fall back to the permanently-allocated identity
+    // buffer only to avoid an unbound shader argument in a pre-init /
+    // alloc-failure window.
     id<MTLBuffer> gamma_to_bind = gamma_lut_buffer ? gamma_lut_buffer
                                                    : gamma_identity_buffer;
 
@@ -1070,24 +1250,15 @@ void MetalCompositorPresent(void)
         uint32_t pw  = (uint32_t)compositor_pixel_width;
         [enc setFragmentBytes:&pw  length:sizeof(pw)  atIndex:3];
 
-        // fade_active lands at the next free buffer index 4.
-        [enc setFragmentBytes:&fade_active length:sizeof(fade_active) atIndex:4];
     } else if (compositor_depth == VIDEO_DEPTH_16BIT) {
-        // 16bpp now samples the gamma LUT. The 16bpp shader's buffer
-        // namespace is empty (it previously bound nothing), so gamma_lut=0,
-        // fade_active=1 (separate per-branch index namespaces).
-        // Always bound.
+        // 16bpp samples the display-ready gamma LUT. Always bound.
         [enc setFragmentBuffer:gamma_to_bind offset:0 atIndex:0];
-        [enc setFragmentBytes:&fade_active length:sizeof(fade_active) atIndex:1];
     } else if (compositor_depth == VIDEO_DEPTH_32BIT) {
         // 32-bit mode: bind sampler (sampler-state index, NOT a buffer index — no
         // collision with the gamma_lut buffer at index 0).
         [enc setFragmentSamplerState:compositor_sampler atIndex:0];
-        // Bind the gamma LUT + fade flag so a DSp FadeGamma is visible
-        // at the DSp force-resized 32bpp depth (the VISIBLE present path).
-        // Always bound.
+        // Bind the display-ready gamma LUT. Always bound.
         [enc setFragmentBuffer:gamma_to_bind offset:0 atIndex:0];
-        [enc setFragmentBytes:&fade_active length:sizeof(fade_active) atIndex:1];
     }
 
     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
@@ -1119,7 +1290,7 @@ void MetalCompositorPresent(void)
                                                 (NSUInteger)drawable.texture.width,
                                                 (NSUInteger)drawable.texture.height);
             MetalCompositorSubmitFrame_EncodeCachedOverlay(
-                (__bridge void *)enc, &cached);
+                (__bridge void *)enc, &cached, (__bridge void *)gamma_to_bind);
             MetalCompositorSubmitFrame_ReleaseCachedOverlay(cached_tex_retained);
         }
     }
@@ -1150,239 +1321,81 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
                        "(use MetalCompositorInit for first init)");
         return -1;
     }
+    if (!compositor_device || !compositor_layer) {
+        COMPOSITOR_ERR("MetalCompositorResize: FAILED — initialized flag set without "
+                       "device/layer (device=%p layer=%p)",
+                       compositor_device, compositor_layer);
+        return -1;
+    }
 
     // Capture old dimensions/depth for diagnostic log
     int old_width = compositor_pixel_width;
     int old_height = compositor_pixel_height;
     int old_depth = compositor_depth;
+    (void)old_width;
+    (void)old_height;
+    (void)old_depth;
 
-    // --- Release old depth-dependent resources ---
-    compositor_buffer   = nil;
-    compositor_texture  = nil;
-    s_palette_buffers[0] = nil;
-    s_palette_buffers[1] = nil;
-    atomic_store_explicit(&s_palette_front_idx, 0, memory_order_relaxed);
-    gamma_lut_buffer      = nil;
-    gamma_identity_buffer = nil;  // rebuilt below (always-bound fallback)
-    compositor_pipeline = nil;
-    compositor_sampler  = nil;
-
-    // --- Update depth state ---
-    compositor_depth = depth;
-    compositor_pixel_width = width;
-    compositor_pixel_height = height;
-    compositor_bits_per_pixel = bits_per_pixel_for_depth(depth);
-    compositor_row_bytes = row_bytes;
-    compositor_pitch = pitch;
-    compositor_use_fallback_texture = false;
-
-    if (compositor_bits_per_pixel == 0) {
+    int new_bits_per_pixel = bits_per_pixel_for_depth(depth);
+    if (new_bits_per_pixel == 0) {
         COMPOSITOR_ERR("MetalCompositorResize: FAILED — unknown depth value %d", depth);
         return -1;
     }
 
-    // --- Update layer drawable size ---
     MetalCompositorDrawableSize target_size =
         MetalCompositorCurrentDrawableSize(width, height);
+    bool useNearest = PrefsFindBool("scale_nearest");
+
+    CompositorDepthResources new_resources = {};
+    if (MetalCompositorBuildDepthResources("MetalCompositorResize",
+                                           compositor_device,
+                                           width, height,
+                                           depth, row_bytes,
+                                           pitch, buffer,
+                                           buffer_size,
+                                           useNearest,
+                                           true,
+                                           &new_resources) != 0) {
+        return -1;
+    }
+
+    // --- Commit new depth state and resources. Old resources are released only
+    // after the complete replacement set has been built successfully.
+    compositor_depth = depth;
+    compositor_pixel_width = width;
+    compositor_pixel_height = height;
+    compositor_bits_per_pixel = new_bits_per_pixel;
+    compositor_row_bytes = row_bytes;
+    compositor_pitch = pitch;
+    compositor_use_fallback_texture = new_resources.use_fallback_texture;
+
+    compositor_texture = new_resources.texture;
+    compositor_buffer = new_resources.buffer;
+    s_palette_buffers[0] = new_resources.palette_buffers[0];
+    s_palette_buffers[1] = new_resources.palette_buffers[1];
+    reset_palette_latch_state();
+    gamma_lut_buffer      = new_resources.gamma_lut;
+    gamma_identity_buffer = new_resources.gamma_identity;
+    compositor_library = new_resources.library;
+    compositor_pipeline = new_resources.pipeline;
+    compositor_sampler = new_resources.sampler;
+
+    // --- Update layer state only after the resource swap is safe.
     compositor_layer.drawableSize = CGSizeMake(target_size.width, target_size.height);
     compositor_layer.contentsGravity = kCAGravityResizeAspect;  // preserve aspect ratio (letterbox)
-
-    // --- Update CAMetalLayer scaling filter from user preference ---
-    bool useNearest = PrefsFindBool("scale_nearest");
     compositor_layer.minificationFilter = useNearest ? kCAFilterNearest : kCAFilterLinear;
     compositor_layer.magnificationFilter = useNearest ? kCAFilterNearest : kCAFilterLinear;
 
-    // Re-declare sRGB color space on resize
+    // Re-declare sRGB color space on resize.
     {
-        // CGColorSpaceCreateWithName returns a +1 retained CGColorSpaceRef;
-        // CAMetalLayer.colorspace is a Core Foundation property whose setter
-        // retains.  Without CGColorSpaceRelease we leak one CGColorSpaceRef
-        // per Resize (Nanosaur mode-switch path hits this every scene
-        // transition).
         CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
         compositor_layer.colorspace = cs;
         if (cs) CGColorSpaceRelease(cs);
     }
 
-    // --- Zero-copy shared buffer wrapping the_buffer ---
-    // gfxaccel_resources is the sole framebuffer MTLBuffer provider; a nil
-    // return is a hard Resize failure (no newBufferWithBytesNoCopy fallback).
-    //
-    // A NULL `buffer` argument indicates a non-QuickDraw owner
-    // (DSp etc.) where the engine writes pixels via render pass directly to
-    // compositor_texture; no CPU-side host buffer is needed. Skip the
-    // buffer-backed texture path; the standalone-texture fallback below
-    // allocates a fresh MTLTexture sized from texDesc.
-    if (buffer != NULL) {
-        compositor_buffer = (__bridge id<MTLBuffer>)gfxaccel_resources_get_framebuffer_buffer(
-            buffer, buffer_size);
-        if (!compositor_buffer) {
-            COMPOSITOR_ERR("MetalCompositorResize: FAILED — gfxaccel_resources_get_framebuffer_buffer "
-                           "returned NULL (buffer=%p size=%u)", buffer, buffer_size);
-            return -1;
-        }
-    } else {
-        compositor_buffer = nil;
-    }
-
-    // --- Select texture format and dimensions per depth ---
-    MTLPixelFormat texFormat;
-    NSUInteger texWidth;
-
-    if (depth <= VIDEO_DEPTH_8BIT) {
-        texFormat = MTLPixelFormatR8Uint;
-        texWidth = (NSUInteger)row_bytes;
-    } else if (depth == VIDEO_DEPTH_16BIT) {
-        texFormat = MTLPixelFormatR16Uint;
-        texWidth = (NSUInteger)width;
-    } else {
-        texFormat = MTLPixelFormatBGRA8Unorm;
-        texWidth = (NSUInteger)width;
-    }
-
-    // --- Texture view over the shared buffer ---
-    MTLTextureDescriptor *texDesc = [[MTLTextureDescriptor alloc] init];
-    texDesc.textureType = MTLTextureType2D;
-    texDesc.pixelFormat = texFormat;
-    texDesc.width = texWidth;
-    texDesc.height = (NSUInteger)height;
-    texDesc.storageMode = MTLStorageModeShared;
-    // Include RenderTarget usage so the DSp
-    // engine's mismatched-format present pass (R16Uint xRGB1555 ->
-    // BGRA8Unorm at 16 bpp) can use this texture as a color attachment.
-    // ShaderRead is still primary (the compositor's own present pass
-    // samples it). Engine-blindness invariant preserved: this is just a
-    // usage-flag extension; no engine identifiers introduced.
-    texDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
-
-    int texBytesPerRow = (depth <= VIDEO_DEPTH_8BIT) ? row_bytes : pitch;
-    bool bytesPerRowAligned = (texBytesPerRow % 16 == 0);
-
-    if (bytesPerRowAligned && compositor_buffer != nil) {
-        compositor_texture = [compositor_buffer newTextureWithDescriptor:texDesc
-                                                                 offset:0
-                                                            bytesPerRow:(NSUInteger)texBytesPerRow];
-    }
-
-    if (!compositor_texture) {
-        COMPOSITOR_LOG("MetalCompositorResize: buffer texture skipped/failed for %s "
-                       "(bytesPerRow=%d aligned=%d), using standalone texture with replaceRegion",
-                       texture_format_name(texFormat), texBytesPerRow, bytesPerRowAligned);
-        texDesc.storageMode = MTLStorageModeShared;
-        compositor_texture = [compositor_device newTextureWithDescriptor:texDesc];
-        if (!compositor_texture) {
-            COMPOSITOR_ERR("MetalCompositorResize: FAILED — newTextureWithDescriptor fallback "
-                           "(format=%s width=%lu height=%d)",
-                           texture_format_name(texFormat), (unsigned long)texWidth, height);
-            return -1;
-        }
-        compositor_use_fallback_texture = true;
-    }
-
-    // --- Re-publish framebuffer texture to SubmitFrame module ---
-    // compositor_texture was just rebuilt; keep the DSp-facing accessor in sync.
+    // --- Re-publish framebuffer texture to SubmitFrame module.
     MetalCompositorSubmitFrame_SetFramebufferTexture(
         (__bridge void *)compositor_texture);
-
-    // --- Double-buffered palette for indexed depths ---
-    if (depth <= VIDEO_DEPTH_8BIT) {
-        for (int i = 0; i < 2; i++) {
-            s_palette_buffers[i] = (__bridge_transfer id<MTLBuffer>)
-                gfxaccel_resources_heap_alloc_buffer(kHeapCompositor, 256 * 4,
-                                                     MTLResourceStorageModeShared);
-            if (!s_palette_buffers[i]) {
-                COMPOSITOR_ERR("MetalCompositorResize: palette_buffer[%d] heap alloc failed; falling back", i);
-                // heap-exempt: palette fallback (only if heap is exhausted)
-                s_palette_buffers[i] = [compositor_device newBufferWithLength:256 * 4
-                                                                     options:MTLResourceStorageModeShared];
-            }
-            if (!s_palette_buffers[i]) {
-                COMPOSITOR_ERR("MetalCompositorResize: FAILED — palette_buffer[%d] creation", i);
-                return -1;
-            }
-            memset(s_palette_buffers[i].contents, 0, 256 * 4);
-        }
-        atomic_store_explicit(&s_palette_front_idx, 0, memory_order_relaxed);
-    }
-
-    // --- Gamma LUT buffers for ALL depths (16/32bpp LUT
-    //     sampling). gamma_identity_buffer is the always-bound fallback.
-    //     A mode switch to 32bpp mid-fade must keep a bound gamma buffer so the
-    //     DSp fade stays visible. The next DMC gamma-gen bump (mid-fade push or
-    //     final-frame push) re-copies the live LUT in compositor_vbl_callback. ---
-    gamma_lut_buffer      = alloc_gamma_buffer("gamma_lut_buffer");
-    gamma_identity_buffer = alloc_gamma_buffer("gamma_identity_buffer");
-    if (!gamma_lut_buffer || !gamma_identity_buffer) {
-        COMPOSITOR_ERR("MetalCompositorResize: FAILED — gamma buffer creation "
-                       "(lut=%p identity=%p)", gamma_lut_buffer, gamma_identity_buffer);
-        return -1;
-    }
-
-    // --- Shader library (reuse cached instance) ---
-    if (!compositor_library) {
-        compositor_library = [compositor_device newDefaultLibrary];
-    }
-    id<MTLLibrary> library = compositor_library;
-    if (!library) {
-        COMPOSITOR_ERR("MetalCompositorResize: FAILED — newDefaultLibrary returned nil");
-        return -1;
-    }
-
-    id<MTLFunction> vertexFunc = [library newFunctionWithName:@"compositor_vertex"];
-    if (!vertexFunc) {
-        COMPOSITOR_ERR("MetalCompositorResize: FAILED — vertex function 'compositor_vertex' not found");
-        return -1;
-    }
-
-    // --- Select fragment function by depth ---
-    NSString *fragmentName;
-    if (depth <= VIDEO_DEPTH_8BIT) {
-        fragmentName = @"compositor_fragment_indexed";
-    } else if (depth == VIDEO_DEPTH_16BIT) {
-        fragmentName = @"compositor_fragment_16bpp";
-    } else {
-        fragmentName = @"compositor_fragment_32bpp";
-    }
-
-    id<MTLFunction> fragmentFunc = [library newFunctionWithName:fragmentName];
-    if (!fragmentFunc) {
-        COMPOSITOR_ERR("MetalCompositorResize: FAILED — fragment function '%s' not found",
-                       [fragmentName UTF8String]);
-        return -1;
-    }
-
-    // --- Render pipeline ---
-    MTLRenderPipelineDescriptor *pipeDesc = [[MTLRenderPipelineDescriptor alloc] init];
-    pipeDesc.vertexFunction = vertexFunc;
-    pipeDesc.fragmentFunction = fragmentFunc;
-    pipeDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-
-    NSError *pipeError = nil;
-    compositor_pipeline = [compositor_device newRenderPipelineStateWithDescriptor:pipeDesc
-                                                                           error:&pipeError];
-    if (!compositor_pipeline) {
-        COMPOSITOR_ERR("MetalCompositorResize: FAILED — pipeline creation for '%s': %s",
-                       [fragmentName UTF8String],
-                       [[pipeError localizedDescription] UTF8String]);
-        return -1;
-    }
-
-    // --- Sampler state for 32-bit mode ---
-    if (depth == VIDEO_DEPTH_32BIT) {
-        MTLSamplerDescriptor *sampDesc = [[MTLSamplerDescriptor alloc] init];
-        sampDesc.minFilter = useNearest ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
-        sampDesc.magFilter = useNearest ? MTLSamplerMinMagFilterNearest : MTLSamplerMinMagFilterLinear;
-        sampDesc.sAddressMode = MTLSamplerAddressModeClampToEdge;
-        sampDesc.tAddressMode = MTLSamplerAddressModeClampToEdge;
-
-        compositor_sampler = [compositor_device newSamplerStateWithDescriptor:sampDesc];
-        if (!compositor_sampler) {
-            COMPOSITOR_ERR("MetalCompositorResize: FAILED — sampler creation");
-            return -1;
-        }
-    } else {
-        compositor_sampler = nil;
-    }
 
     COMPOSITOR_LOG("MetalCompositorResize: %dx%d depth=%d → framebuffer=%dx%d drawable=%dx%d depth=%d (%dbpp) "
                    "format=%s shader=%s filter=%s%s",
@@ -1390,8 +1403,8 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
                    width, height,
                    target_size.width, target_size.height,
                    depth, compositor_bits_per_pixel,
-                   texture_format_name(texFormat),
-                   [fragmentName UTF8String],
+                   texture_format_name(new_resources.tex_format),
+                   [new_resources.fragment_name UTF8String],
                    useNearest ? "nearest" : "linear",
                    compositor_use_fallback_texture ? " (fallback texture)" : "");
 
@@ -1484,7 +1497,7 @@ void MetalCompositorShutdown(void)
     compositor_buffer   = nil;
     s_palette_buffers[0] = nil;
     s_palette_buffers[1] = nil;
-    atomic_store_explicit(&s_palette_front_idx, 0, memory_order_relaxed);
+    reset_palette_latch_state();
     gamma_lut_buffer      = nil;
     gamma_identity_buffer = nil;
     s_latched_fade_active = 0;  // clear latched fade on teardown
@@ -1533,7 +1546,7 @@ int MetalCompositorTesting_InitPaletteBuffers(void *device)
         if (!s_palette_buffers[i]) return -1;
         memset(s_palette_buffers[i].contents, 0, 256 * 4);
     }
-    atomic_store_explicit(&s_palette_front_idx, 0, memory_order_relaxed);
+    reset_palette_latch_state();
     return 0;
 }
 
@@ -1541,7 +1554,7 @@ void MetalCompositorTesting_ShutdownPaletteBuffers(void)
 {
     s_palette_buffers[0] = nil;
     s_palette_buffers[1] = nil;
-    atomic_store_explicit(&s_palette_front_idx, 0, memory_order_relaxed);
+    reset_palette_latch_state();
 }
 
 // Gamma LUT buffer introspection hook.

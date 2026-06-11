@@ -44,6 +44,7 @@
 #include "dsp_vbl_publish_policy.h"
 #include "dsp_pixmap_offsets.h"    /* PixMap field offsets + LMADDR_MAIN_DEVICE / GDEVICE_OFF_PMAP */
 #include "dsp_metal_renderer.h"    /* DSpAllocateBackBuffer / DSpEncodeBackBufferBlit / DSpGetBackBufferCGrafPtr */
+#include "gfxaccel_threading_policy.h"
 #include "gfxaccel_resources.h"    /* per-buffer owner-tag API */
 #include "gfxaccel_resources_heap.h" /* kHeapEngineDSp + heap_alloc_buffer for AltBuffer backing */
 #include "dsp_alt_buffer.h"        /* AltBuffer subsystem: record table + handlers (extracted) */
@@ -227,9 +228,9 @@ static int                dsp_context_count                   = 0;
  * Single-writer emul-thread: DSpVBLServiceCallback fires from the VBL
  * secondary-callback drain on the emul thread.
  *
- * Many-reader emul-thread: GetVBLCount runs on the emul thread's
- * NATIVE_DSP_DISPATCH seam; any future main-thread reader would also
- * be covered by the atomic.
+ * Reader: GetVBLCount runs through NATIVE_DSP_DISPATCH on the same
+ * main==emul thread today; any future thread-split reader would also be
+ * covered by the atomic.
  *
  * C11 _Atomic primitive per the read-mostly precedent — exact
  * mirror of vbl_source.mm's s_tick_count pattern (documented inline
@@ -345,8 +346,41 @@ struct DSpReleaseEntry {
 };
 
 static DSpReleaseEntry    dsp_release_queue[DSP_RELEASE_QUEUE_CAPACITY];
-static _Atomic uint32_t   dsp_release_head = 0;  /* emul thread writes */
-static _Atomic uint32_t   dsp_release_tail = 0;  /* VBL thread writes */
+static _Atomic uint32_t   dsp_release_head = 0;  /* producer writes */
+static _Atomic uint32_t   dsp_release_tail = 0;  /* VBL drain writes */
+
+/* Set across DSpDrainLifecycleSync's drain calls. The background edge
+ * runs after gfxaccel_handle_background_enter Step 2 committed an empty
+ * command buffer on the shared queue and waited for completion
+ * (gfxaccel_resources.mm), so GPU work referencing the DSp heap is
+ * provably complete — resets reached from that drain may skip the
+ * GPU-completion latch instead of deferring while the VBL source is
+ * paused (no retry tick would fire). The foreground edge inherits the
+ * same guarantee: the VBL source stays paused through the background
+ * window and back buffers were already released, so no new DSp-heap
+ * command buffer can have been committed in between. Emul-thread only
+ * (gfxaccel_threading_policy.h). */
+static bool dsp_lifecycle_gpu_drained = false;
+
+static void DSpResetHeapIfIdle(const char *reason)
+{
+	uint32_t live = gfxaccel_resources_heap_live_allocation_count(kHeapEngineDSp);
+	if (live != 0) {
+		return;
+	}
+	/* Latch-gated by default: gfxaccel_resources_heap_reset defers while
+	 * a command buffer noted via gfxaccel_resources_heap_note_gpu_commit
+	 * (SwapBuffers / VBL-publish presents reading back_texture) is still
+	 * in flight; the VBL release drain retries every tick. */
+	uint64_t reclaimed = dsp_lifecycle_gpu_drained
+	    ? gfxaccel_resources_heap_reset_gpu_idle(kHeapEngineDSp)
+	    : gfxaccel_resources_heap_reset(kHeapEngineDSp);
+	if (reclaimed > 0) {
+		DSP_LOG("DSp heap reset after %s reclaimed %llu bytes",
+		        reason ? reason : "release",
+		        (unsigned long long)reclaimed);
+	}
+}
 
 static void DSpReleaseNow(DSpContextPrivate *ctx)
 {
@@ -356,6 +390,7 @@ static void DSpReleaseNow(DSpContextPrivate *ctx)
 	if (ctx->back_buffer != nil) {
 		gfxaccel_resources_clear_buffer_owner(
 		    (__bridge void *)ctx->back_buffer);
+		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 	}
 	/* Texture first, buffer second. */
 	ctx->back_texture = nil;
@@ -364,6 +399,7 @@ static void DSpReleaseNow(DSpContextPrivate *ctx)
 	ctx->cgrafptr_mac_addr = 0;
 	DSpReleaseFrontBufferStaging(ctx);
 	delete ctx;
+	DSpResetHeapIfIdle("synchronous release");
 }
 
 extern "C" int32_t DSpReleaseMetadataContextHandle(uint32_t ctxRef)
@@ -455,11 +491,15 @@ static void DSpQueueReleaseAtVBLPartial(DSpContextPrivate *ctx)
 		/* Synchronous partial: texture + buffer only:
 		 * texture first); struct is NOT deleted — bg restore path will
 		 * re-alloc into it. */
+		if (ctx->back_buffer != nil) {
+			gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
+		}
 		ctx->back_texture = nil;
 		ctx->back_buffer  = nil;
 		DSpReleaseBackBufferStaging(ctx);
 		ctx->cgrafptr_mac_addr = 0;
 		DSpReleaseFrontBufferStaging(ctx);
+		DSpResetHeapIfIdle("synchronous partial release");
 		return;
 	}
 	dsp_release_queue[head].back_buffer  = ctx->back_buffer;
@@ -486,6 +526,9 @@ extern "C" void DSpVBLReleaseCallback(void * /*ctx*/,
 		DSpReleaseEntry *entry = &dsp_release_queue[tail];
 		/* Drop texture reference first, buffer second. */
 		entry->back_texture = nil;
+		if (entry->back_buffer != nil) {
+			gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
+		}
 		entry->back_buffer  = nil;
 		if (entry->ctx_to_free != nullptr) {
 			delete entry->ctx_to_free;
@@ -495,6 +538,7 @@ extern "C" void DSpVBLReleaseCallback(void * /*ctx*/,
 	}
 	atomic_store_explicit(&dsp_release_tail, tail,
 	                      memory_order_release);
+	DSpResetHeapIfIdle("VBL release drain");
 
 	/* Chain the background/foreground drain off the same VBL hook so
 	 * state transitions happen AFTER releases (drain-first ordering). */
@@ -814,8 +858,8 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 			// This context just completed, but
 			// fade_active is the OR across ALL contexts — publish end_lut with
 			// any_still_fading so a concurrent lower/higher-index fade is not
-			// clobbered to 0. The compositor restores the static pow(1.8/2.2)
-			// only once NO context is fading.
+			// clobbered to 0. The compositor restores its static display-LUT
+			// composition only once NO context is fading.
 			int32_t rv = dmc_record_gamma_change_with_lut_fade(
 			    ctx->fade_state.end_lut, (int)any_still_fading);
 			if (rv != kDMCNoErr) {
@@ -952,10 +996,9 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
 
 		/* Snapshot the proc + refcon + handle to local vars so the call
 		 * sees a consistent tuple even if (hypothetically) the fields
-		 * were mutated concurrently. In practice single-writer
-		 * emul-thread makes this an invariant — snapshotting is defense-
-		 * in-depth against a future cross-thread race if the invariant
-		 * weakens. */
+		 * were mutated by future code. In practice single-writer
+		 * main==emul execution makes this an invariant — snapshotting is
+		 * defense-in-depth if a future thread split weakens it. */
 		const uint32_t proc_addr    = ctx->vbl_proc_ptr;
 		const uint32_t proc_refcon  = ctx->vbl_proc_refcon;
 		const uint32_t proc_handle  = ctx->handle;
@@ -977,9 +1020,12 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
 
 /*
  *  DSpVBLCompositorPublishCallback: VBL-driven auto-publish shim that
- *  surfaces the DSp back buffer to the compositor whenever DSp owns the
- *  display. Closes the third blocker — classic-pattern DSp apps
- *  (Reserve + main-port QD draws, no SwapBuffers) get pixels on screen.
+ *  surfaces the DSp back/front staging surfaces to the compositor when
+ *  DSp owns the display, or when DSp front staging is presentable under a
+ *  non-DSp owner. Closes the third blocker — classic-pattern DSp apps
+ *  (Reserve + main-port QD draws, no SwapBuffers) get pixels on screen —
+ *  while keeping mixed SwapBuffers + front-buffer drawing visible after
+ *  the first explicit swap.
  *
  *  Registers as the 5th VBL secondary callback (after the 4th-slot
  *  DSpVBLServiceCallback). The chain order
@@ -988,7 +1034,8 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
  *  the "after user-VBLProc dispatch" ordering automatically.
  *
  *  Body shape mirrors DSpContext_SwapBuffersHandler (lines 2078-2192):
- *    Gate 1 — active_owner must be kDMCOwnerDSp (dmc_current_snapshot).
+ *    Gate 1 — stable DMC snapshot (DSp-owned display, or presentable front
+ *             staging under a non-DSp owner).
  *    Gate 2 — find the first Active DSp context with a live back_buffer.
  *    Step 1 — staging drain (guest-RAM staging → back_buffer.contents) per
  *             Landmine-1; mirrors SwapBuffers lines 2123-2136.
@@ -1120,6 +1167,12 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 		if (!front_presented) {
 			DSpEncodePresentToFramebuffer(active, (__bridge void *)cb, fb_tex_raw);
 		}
+		/* Register the GPU-completion latch BEFORE commit
+		 * (addCompletedHandler is illegal afterwards): the encoded present
+		 * reads back_texture — DSp-heap memory — so the heap bump reset
+		 * must defer until this buffer completes. */
+		gfxaccel_resources_heap_note_gpu_commit(kHeapEngineDSp,
+		                                        (__bridge void *)cb);
 		[cb commit];
 	}
 
@@ -1304,9 +1357,9 @@ static void DSpInvalBackBufferRect_Accumulate(DSpContextPrivate *ctx,
  *  (single-writer invariant). The back-buffer is MTLStorageModeShared,
  *  so CPU writes via ctx->back_buffer.contents
  *  require NO GPU fence / MTLSharedEvent / MTLFence — the compositor
- *  reads the dirty region on the next VBL tick from the main thread,
- *  but only after SwapBuffers (not BlankFill) publishes the rect into
- *  the blit queue, so there's no read-during-write hazard.
+ *  reads the dirty region on the next VBL tick on the same main==emul
+ *  thread, and only after SwapBuffers (not BlankFill) publishes the rect
+ *  into the blit queue, so there's no read-during-write hazard.
  *
  *  Return codes:
  *    kDSpNoErr                - success (including degenerate-rect no-op)
@@ -1624,10 +1677,13 @@ extern "C" int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef,
  * ProcessEvent export, which let the GUEST READ enqueued events OUT). That
  * handler — and its header decl — are RETIRED (retire, NOT
  * repurpose). The SPSC
- * input-fanout ring it observed is KEPT (provably alive: 2 live producers —
- * iOS input fanout via DSpHostBridge_EnqueueEventToActiveContexts and bg/fg
- * suspend/resume via DSpHostBridge_OnBackground/OnForeground). The ~18
- * DSpEventTests ring-observation methods migrate to the
+ * input-fanout ring it observed is KEPT for iOS input fanout via
+ * DSpHostBridge_EnqueueEventToActiveContexts. UIKit background/foreground
+ * lifecycle no longer writes osEvt records into this ring; it flows through
+ * GfxAccelBackgroundLifecycleObserver -> gfxaccel_resources atomic
+ * flag-and-drain -> DSpHandleBackgroundFromEmulThread /
+ * DSpHandleForegroundFromEmulThread. The ~18 DSpEventTests
+ * ring-observation methods migrate to the
  * TESTING_BUILD DSpTesting_DequeueContextEvent host helper instead.
  *
  * Per DSp 1.7 PDF p.58:
@@ -1641,14 +1697,14 @@ extern "C" int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef,
  *   what(+0,u16) message(+2,u32) when(+6,u32) where_v(+10,i16)
  *   where_h(+12,i16) modifiers(+14,u16).
  *
- * osEvt suspend/resume decode (mirrors DSpContext_EnqueueOSEvtOnContext in
- * dsp_host_bridge.mm): an osEvt (what == kDSpEvent_OSEvt) whose message high
- * byte == kDSpOSEvt_SuspendResumeMessage carries the resume flag in
- * message bit 0 (kDSpOSEvtMsg_ResumeFlag): set = resume (foreground), clear =
- * suspend (background). On suspend we drive every Active context to Paused
- * (mirroring DSpHostBridge_OnBackground's state-drive direction + the
- * paused_by_background bookkeeping); on resume we drive every
- * bg-induced-Paused context back to Active (mirroring OnForeground). We mark
+ * osEvt suspend/resume decode: an osEvt (what == kDSpEvent_OSEvt) whose
+ * message high byte == kDSpOSEvt_SuspendResumeMessage carries the resume flag
+ * in message bit 0 (kDSpOSEvtMsg_ResumeFlag): set = resume (foreground),
+ * clear = suspend (background). On suspend we drive every Active context to
+ * Paused (mirroring DSpHandleBackgroundFromEmulThread's state-drive direction
+ * + the paused_by_background bookkeeping); on resume we drive every
+ * bg-induced-Paused context back to Active (mirroring
+ * DSpHandleForegroundFromEmulThread). We mark
  * the event consumed ONLY for that suspend/resume osEvt. For everything DSp
  * does NOT handle we return outEventWasProcessed = false — HONEST, never a
  * silent always-true stub. The full consumed-event-set refinement is a
@@ -1674,20 +1730,20 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 	bool consumed = false;
 
 	/* osEvt suspend/resume is the documented event DSp consumes for
-	 * context suspend/resume. Decode mirrors the producer side in
-	 * dsp_host_bridge.mm: high byte = subtype, bit 0 = resume flag.
+	 * context suspend/resume: high byte = subtype, bit 0 = resume flag.
 	 *
 	 * SCOPE (explicit, NOT a silent partial-fidelity stub):
 	 * this handler drives the DSp context STATE MACHINE only — the
 	 * Active<->Paused flag transition + the paused_by_background
-	 * bookkeeping, matching DSpHostBridge_OnBackground/OnForeground's
-	 * state-drive DIRECTION. It does NOT perform the Metal back-buffer
+	 * bookkeeping, matching DSpHandleBackgroundFromEmulThread /
+	 * DSpHandleForegroundFromEmulThread's state-drive DIRECTION. It does
+	 * NOT perform the Metal back-buffer
 	 * release / re-alloc + cold-start that the iOS NotificationCenter
 	 * lifecycle path performs via DSpHandleBackgroundFromEmulThread /
 	 * DSpHandleForegroundFromEmulThread (DSpQueueReleaseAtVBLPartial +
 	 * DSpAllocateBackBuffer). So an app that drives suspend/resume through
-	 * DSpProcessEvent (rather than relying on the OnBackground/OnForeground
-	 * hooks) gets a correct STATE transition but keeps its back-buffer
+	 * DSpProcessEvent (rather than relying on the host lifecycle
+	 * flag-and-drain path) gets a correct STATE transition but keeps its back-buffer
 	 * allocated across the suspend and does not cold-start on resume.
 	 * Wiring the full resource lifecycle here is deferred: the two
 	 * production halves run on different threads and gate on different
@@ -1703,12 +1759,12 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 			if (resume) {
 				/* Resume (foreground): drive every bg-induced-Paused
 				 * context back to Active. Matches
-				 * DSpHostBridge_OnForeground's state-drive direction —
-				 * SetState(Active) then clear paused_by_background;
+				 * DSpHandleForegroundFromEmulThread's state-drive
+				 * direction — SetState(Active) then clear paused_by_background;
 				 * user-Paused contexts (paused_by_background == 0) stay
 				 * Paused (distinction preserved). Uses the public
 				 * DSpGetContext(i+1) accessor — same handle->slot mapping
-				 * and bounds/null guard as OnForeground, not the
+				 * and bounds/null guard as the foreground drain, not the
 				 * raw dsp_context_table[] array. */
 				for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
 					DSpContextPrivate *ctx = DSpGetContext(i + 1u);
@@ -1721,10 +1777,10 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 				}
 			} else {
 				/* Suspend (background): drive every Active context to
-				 * Paused. Matches DSpHostBridge_OnBackground's
+				 * Paused. Matches DSpHandleBackgroundFromEmulThread's
 				 * state-drive direction — SetState(Paused) + mark
 				 * paused_by_background so a later resume auto-restores.
-				 * Uses DSpGetContext(i+1) to match OnBackground exactly. */
+				 * Uses DSpGetContext(i+1) to match the background drain. */
 				for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
 					DSpContextPrivate *ctx = DSpGetContext(i + 1u);
 					if (ctx == nullptr) continue;
@@ -1780,7 +1836,7 @@ extern "C" void DSpHandleBackgroundFromEmulThread(void)
 		 * emulated lowmem so PixMap.baseAddr no longer references a
 		 * MTLBuffer that is about to be released. (See documentation in
 		 * dsp_engine.cpp:DSpOnBackground explaining why this MUST run
-		 * here on the emul thread rather than in the main-thread hook.) */
+		 * here from the VBL drain rather than inside the lifecycle hook.) */
 		DSpRestoreMainDevicePixMap(ctx);
 
 		/* Persist metadata — attr + palette/gamma generation counters.
@@ -1808,6 +1864,13 @@ extern "C" void DSpHandleBackgroundFromEmulThread(void)
 		        "(back-buffer queued for VBL partial release)",
 		        ctx->handle);
 	}
+
+	/* D-4-1: alt-buffer Metal backings release alongside the back
+	 * buffers — otherwise their live allocations pin the DSp bump heap
+	 * (no reset possible) and every bg/fg cycle leaks a back-buffer-
+	 * sized region toward the heap ceiling. Guest staging survives;
+	 * foreground re-allocates and repopulates from it. */
+	DSpReleaseAltBufferBackingsForBackground();
 }
 
 /*
@@ -1869,14 +1932,20 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 		/* Landmine-7: re-apply the MainDevice PixMap redirect
 		 * AFTER back_buffer is re-allocated above and ctx->state is set
 		 * to Active. (See documentation in dsp_engine.cpp:DSpOnForeground
-		 * explaining why this MUST run here on the emul thread rather
-		 * than in the main-thread hook.) */
+		 * explaining why this MUST run here from the VBL drain rather
+		 * than inside the lifecycle hook.) */
 		DSpRedirectMainDevicePixMap(ctx);
 
 		DSP_LOG("Foreground: ctx=%u Paused->Active "
 		        "(back-buffer re-allocated; dirty_cold_start=1)",
 		        ctx->handle);
 	}
+
+	/* D-4-1: re-create alt-buffer Metal backings released on background
+	 * and repopulate them from their guest-RAM staging. Failure leaves a
+	 * nil backing (nil-checked everywhere) and retries next foreground,
+	 * matching the back-buffer policy above. */
+	DSpRestoreAltBufferBackingsForForeground();
 }
 
 /*
@@ -1886,27 +1955,163 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
  *  then dispatches to the matching emul-thread handler.
  *
  *  Threading contract:
- *    - Main thread: observer hook sets pending flag (store-release).
- *    - Emul thread: VBL drain exchanges flag to 0 (acquire-exchange)
- *      and performs the table mutation here. No mutex; the _Atomic
- *      uint32_t is the only sanctioned cross-thread primitive.
+ *    - UIKit lifecycle hook stores a pending flag (store-release).
+ *    - VBL drain exchanges flag to 0 (acquire-exchange) at a controlled
+ *      callback point and performs the table mutation here.
  *
- *  Caveat acknowledged: on iOS 13.4-16 the CADisplayLink fallback
- *  delivers VBL callbacks on main thread; the CAMetalDisplayLink
- *  iOS 17+ path runs on emul. Simulator closure targets iOS 17+;
- *  older-iOS physical-device UAT is queued for device UAT.
+ *  In the current iOS build both bullets run on the same main==emul thread;
+ *  the atomic is a deliberate deferral primitive that also preserves the
+ *  bridge if a future thread split moves emulation off the UIKit main thread.
  */
 extern "C" void DSpVBLBackgroundForegroundDrain(void)
 {
 	uint32_t pending = DSpExchangeBgFgPending();
-	if (pending == 1u) {
+	/* Bitmask, background first: a bg+fg pair accumulated while no drain
+	 * could run (e.g. sync drain skipped inside the VBL chain) nets out
+	 * to release-then-restore in the correct order. */
+	if (pending & kDSpPendingBackground) {
 		DSpHandleBackgroundFromEmulThread();
-	} else if (pending == 2u) {
+	}
+	if (pending & kDSpPendingForeground) {
 		DSpHandleForegroundFromEmulThread();
 	}
 }
 
+/*
+ *  Synchronous lifecycle drain — see dsp_draw_context.h. Runs the bg/fg
+ *  transition drain, then the release-FIFO drain so back buffers queued by
+ *  DSpQueueReleaseAtVBLPartial are actually freed NOW (the VBL release
+ *  callback that normally drains the FIFO is paused during background —
+ *  deferring the free to it would hold the memory through the entire
+ *  background period, defeating the release). The chained
+ *  DSpVBLBackgroundForegroundDrain inside DSpVBLReleaseCallback re-runs
+ *  against a now-zero pending mask (no-op).
+ */
+extern "C" void DSpDrainLifecycleSync(void)
+{
+	if (vbl_source_in_callback_chain()) {
+		/* Mid-tick: the in-flight chain's own DSpVBLReleaseCallback ->
+		 * DSpVBLBackgroundForegroundDrain will consume the pending bits
+		 * after the current callback unwinds; nesting the table walk here
+		 * would re-enter the state machine. */
+		DSP_LOG("DrainLifecycleSync: deferred to in-flight VBL chain");
+		return;
+	}
+	/* GPU work was drained on the background edge (waitUntilCompleted in
+	 * gfxaccel_handle_background_enter Step 2) and the VBL source is
+	 * paused, so resets reached from this drain may bypass the heap's
+	 * GPU-completion latch — see dsp_lifecycle_gpu_drained. */
+	dsp_lifecycle_gpu_drained = true;
+	DSpVBLBackgroundForegroundDrain();
+	DSpVBLReleaseCallback(NULL, NULL, 0.0);
+	dsp_lifecycle_gpu_drained = false;
+}
+
 /* --- DSpContext_ReserveHandler --- */
+
+enum {
+	kDSpColorTable_ctSize = 6,
+	kDSpColorTable_ctTable = 8,
+	kDSpColorSpec_value = 0,
+	kDSpColorSpec_red = 2,
+	kDSpColorSpec_green = 4,
+	kDSpColorSpec_blue = 6,
+	kDSpColorSpec_stride = 8
+};
+
+/* Apply DSpContextAttributes.colorTable (a classic QuickDraw CTabHandle) to
+ * the context's indexed CLUT. The handle points to a master pointer, whose
+ * pointee is ColorTable { ctSeed, ctFlags, ctSize, ctTable[] }. ctSize is
+ * one-less-than-count; each ColorSpec.value supplies the destination CLUT
+ * index. Direct-color contexts ignore the table per the PDF. */
+static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
+                                      uint32_t colorTableHandle,
+                                      uint32_t depth_bits)
+{
+	if (ctx == nullptr || colorTableHandle == 0) return;
+	if (depth_bits != 1 && depth_bits != 2 &&
+	    depth_bits != 4 && depth_bits != 8) {
+		return;
+	}
+
+	/* Validate every guest extent BEFORE dereferencing it (the
+	 * NQDMetalAddrInBuffer reject-first idiom, dsp_flatten_restore.mm) — a
+	 * garbage non-NULL CTabHandle in the Reserve attributes must fall back
+	 * to the default CLUT, not fault the ReadMacInt* translation layer. */
+	if (!NQDMetalAddrInBuffer(colorTableHandle) ||
+	    !NQDMetalAddrInBuffer(colorTableHandle + 3u)) {
+		DSP_LOG("Reserve: colorTable handle=0x%08x out of mapped RAM; "
+		        "default indexed CLUT retained", colorTableHandle);
+		return;
+	}
+	uint32_t colorTableAddr = ReadMacInt32(colorTableHandle);
+	if (colorTableAddr == 0) {
+		DSP_LOG("Reserve: colorTable handle=0x%08x is nil/purged; "
+		        "default indexed CLUT retained", colorTableHandle);
+		return;
+	}
+	/* ColorTable header: ctSeed/ctFlags/ctSize = 8 bytes before ctTable. */
+	if (!NQDMetalAddrInBuffer(colorTableAddr) ||
+	    !NQDMetalAddrInBuffer(colorTableAddr + kDSpColorTable_ctTable - 1u)) {
+		DSP_LOG("Reserve: colorTable handle=0x%08x table=0x%08x header out "
+		        "of mapped RAM; default indexed CLUT retained",
+		        colorTableHandle, colorTableAddr);
+		return;
+	}
+	int16_t ctSize = (int16_t)ReadMacInt16(colorTableAddr + kDSpColorTable_ctSize);
+	if (ctSize < 0) {
+		DSP_LOG("Reserve: colorTable handle=0x%08x table=0x%08x "
+		        "has negative ctSize=%d; default indexed CLUT retained",
+		        colorTableHandle, colorTableAddr, (int)ctSize);
+		return;
+	}
+
+	uint32_t entry_count = (uint32_t)ctSize + 1u;
+	if (entry_count > 256u) entry_count = 256u;
+
+	/* Full ColorSpec array extent (header + entry_count * 8 bytes). */
+	uint32_t table_bytes = kDSpColorTable_ctTable +
+	                       entry_count * kDSpColorSpec_stride;
+	if (!NQDMetalAddrInBuffer(colorTableAddr + table_bytes - 1u)) {
+		DSP_LOG("Reserve: colorTable handle=0x%08x table=0x%08x ctTable "
+		        "extent %u bytes out of mapped RAM; default indexed CLUT "
+		        "retained", colorTableHandle, colorTableAddr, table_bytes);
+		return;
+	}
+
+	uint8_t staged[256 * 3];
+	memcpy(staged, ctx->clut_bytes, sizeof(staged));
+	uint32_t applied = 0;
+	for (uint32_t i = 0; i < entry_count; i++) {
+		uint32_t e = colorTableAddr + kDSpColorTable_ctTable +
+		             i * kDSpColorSpec_stride;
+		int16_t value = (int16_t)ReadMacInt16(e + kDSpColorSpec_value);
+		if (value < 0 || value > 255) continue;
+		uint32_t idx = (uint32_t)value;
+		staged[idx * 3 + 0] = (uint8_t)(ReadMacInt16(e + kDSpColorSpec_red) >> 8);
+		staged[idx * 3 + 1] = (uint8_t)(ReadMacInt16(e + kDSpColorSpec_green) >> 8);
+		staged[idx * 3 + 2] = (uint8_t)(ReadMacInt16(e + kDSpColorSpec_blue) >> 8);
+		applied++;
+	}
+	if (applied == 0) {
+		DSP_LOG("Reserve: colorTable handle=0x%08x table=0x%08x "
+		        "had no valid ColorSpec.value entries; default indexed CLUT retained",
+		        colorTableHandle, colorTableAddr);
+		return;
+	}
+
+	int32_t rv = DSpSetCLUTCore(ctx, 0, 255, staged);
+	if (rv == kDSpNoErr) {
+		memcpy(ctx->clut_bytes_latched, ctx->clut_bytes, 768);
+		DSP_LOG("Reserve: applied colorTable handle=0x%08x table=0x%08x "
+		        "entries=%u applied=%u depth=%u",
+		        colorTableHandle, colorTableAddr, entry_count, applied, depth_bits);
+	} else {
+		DSP_LOG("Reserve: DSpSetCLUTCore failed for colorTable handle=0x%08x "
+		        "table=0x%08x rv=%d; default indexed CLUT retained",
+		        colorTableHandle, colorTableAddr, rv);
+	}
+}
 
 /*
  *  Core Reserve body extracted to operate on an already-extracted
@@ -1984,6 +2189,7 @@ static int32_t DSpContext_Reserve_Core(const DSpContextAttributes *attr,
 	ctx->attr.displayDepthMask    = displayDepthMask;
 	ctx->attr.pageCount           = pageCount;
 	ctx->attr.colorNeeds          = colorNeeds;
+	ctx->attr.colorTable          = attr->colorTable;
 	ctx->attr.contextOptions      = contextOptions;
 	ctx->state                    = kDSpContextState_Inactive;
 	/* Debug session `dsp-sims-enumeration-stall` fix (2026-04-19): Reserve
@@ -2004,6 +2210,7 @@ static int32_t DSpContext_Reserve_Core(const DSpContextAttributes *attr,
 	ctx->dirty_grid_h             = 0;
 	DSpInitDefaultCLUT(ctx->clut_bytes, ctx->clut_bytes_latched,
 	                   backBufferBestDepth);
+	DSpApplyReserveColorTable(ctx, ctx->attr.colorTable, backBufferBestDepth);
 
 	if (!DSpAllocateBackBuffer(ctx,
 	                            ctx->attr.backBufferWidth,
@@ -2148,6 +2355,7 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	ctx->attr.displayDepthMask    = actualDisplayMask;
 	ctx->attr.pageCount           = pageCount;
 	ctx->attr.colorNeeds          = colorNeeds;
+	ctx->attr.colorTable          = attr->colorTable;
 	ctx->attr.contextOptions      = contextOptions;
 
 	/* Reserve transitions this context off the enumeration chain —
@@ -2159,6 +2367,10 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	ctx->dirty_empty            = true;
 	ctx->dirty_cold_start       = true;   /* PDF p.38 — first swap = full */
 	ctx->explicit_swap_observed = false;
+	DSpInitDefaultCLUT(ctx->clut_bytes, ctx->clut_bytes_latched,
+	                   backBufferBestDepth);
+	DSpApplyReserveColorTable(ctx, ctx->attr.colorTable,
+	                          backBufferBestDepth);
 
 	/* Allocate Metal back-buffer + texture on the existing ctx. The
 	 * MTLBuffer / MTLTexture slots were nil before (this was a metadata-
@@ -2504,14 +2716,69 @@ extern "C" void *DSpTesting_GetBackTextureHandle(uint32_t ctxRef)
 
 /* --- DSpContext_SwapBuffersHandler --- */
 
-/* Pre-swap busyProc gate (PDF p.39). DSp 1.7 header documents busyProc
- * as Boolean (*)(void *refCon) where the return value signals readiness:
- * non-zero = "constraints satisfied, may proceed"; zero = "still not
- * ready". If busyProcAddr is 0 the caller skipped the gate — proceed
- * immediately. Poll cadence is 0.5 ms with a 2-VBL total budget
- * (~33 ms at 60 Hz) so an infinite-loop PPC busyProc cannot hang the
- * emul thread. */
-static bool DSpPollBusyProc(uint32_t busyProcAddr, uint32_t userRefCon)
+static uint32_t DSpMaxFrameRatePacingVBLs(uint32_t maxFrameRate,
+                                          uint64_t cadenceUsec)
+{
+	if (maxFrameRate == 0) return 1;
+
+	if (cadenceUsec == 0) {
+		cadenceUsec = GFX_FRAME_PACING_DEFAULT_USEC;
+	} else {
+		cadenceUsec = GfxFramePacingClampCadenceUsec(cadenceUsec);
+	}
+
+	uint64_t refreshHz = (1000000ULL + cadenceUsec / 2u) / cadenceUsec;
+	if (refreshHz == 0) refreshHz = 1;
+	if ((uint64_t)maxFrameRate >= refreshHz) return 1;
+
+	uint64_t vbls = (refreshHz + (uint64_t)maxFrameRate - 1u) /
+	                (uint64_t)maxFrameRate;
+	if (vbls == 0) return 1;
+	if (vbls > UINT32_MAX) return UINT32_MAX;
+	return (uint32_t)vbls;
+}
+
+static void DSpSyncSwapFramePacing(uint32_t ctxRef, uint32_t maxFrameRate)
+{
+	uint64_t cadenceUsec = vbl_source_get_cadence_usec();
+	uint32_t pacingVBLs = DSpMaxFrameRatePacingVBLs(maxFrameRate,
+	                                                cadenceUsec);
+	if (maxFrameRate != 0 && pacingVBLs > 1) {
+		DSP_VLOG("SwapBuffers: ctx=%u maxFrameRate=%u cadence=%llu "
+		         "-> pacing %u VBLs",
+		         ctxRef, maxFrameRate,
+		         (unsigned long long)cadenceUsec, pacingVBLs);
+	}
+
+	for (uint32_t i = 0; i < pacingVBLs; i++) {
+		int32_t rc =
+		    vbl_source_sync_3d_pacing_for_engine(kGfxFramePacingEngineDSp);
+		if (rc != kGfxAccelNoErr) {
+			DSP_LOG("SwapBuffers: frame pacing sync failed rc=%d "
+			        "(ctx=%u, pass=%u/%u)",
+			        rc, ctxRef, i + 1u, pacingVBLs);
+			break;
+		}
+	}
+}
+
+#ifdef TESTING_BUILD
+extern "C" uint32_t DSpTesting_MaxFrameRatePacingVBLs(uint32_t maxFrameRate,
+                                                       uint64_t cadenceUsec)
+{
+	return DSpMaxFrameRatePacingVBLs(maxFrameRate, cadenceUsec);
+}
+#endif
+
+/* Pre-swap busyProc gate. DrawSprocket 1.7 defines DSpCallbackProcPtr as
+ * Boolean (*)(DSpContextReference inContext, void *inRefCon), shared by
+ * SwapBuffers and SetVBLProc. The callback returns false when its checks are
+ * complete and true while it is still busy. If busyProcAddr is 0 the caller
+ * skipped the gate — proceed immediately. Poll cadence is 0.5 ms with a
+ * 2-VBL total budget (~33 ms at 60 Hz) so an infinite-loop PPC busyProc
+ * cannot hang the emul thread. */
+static bool DSpPollBusyProc(uint32_t ctxRef, uint32_t busyProcAddr,
+                            uint32_t userRefCon)
 {
 	if (busyProcAddr == 0) return true;
 
@@ -2521,17 +2788,15 @@ static bool DSpPollBusyProc(uint32_t busyProcAddr, uint32_t userRefCon)
 	uint64_t elapsed = 0;
 	const uint32_t poll_step_usec = 500;  /* 0.5 ms */
 
-	/* Wire busyProc through CallMacOS1. Precedent: rave_engine.cpp
-	 * :2731 uses CallMacOS1(qa_register_t, ...) to fire a PPC TVECT from
-	 * native code; ether.cpp + macos_util.cpp use the same pattern.
-	 * busyProc is a TVECT address (PDF p.39: "an application-supplied
-	 * callback function"); the signature is Boolean (*)(void *refCon) —
-	 * classic Boolean is an 8-bit value, so only the low byte matters. */
-	typedef uint32 (*busyproc_fn_t)(uint32 refcon_mac);
+	/* busyProc is a 32-bit TVECT address (PDF p.39: "an
+	 * application-supplied callback function"). call_macos2 is used
+	 * directly because the platform CallMacOS2 macro widens 32-bit guest
+	 * values through uintptr before narrowing them back to uint32 here.
+	 * Classic Boolean is an 8-bit value, so only the low byte matters. */
 	while (elapsed < timeout_usec) {
-		uint32 rv = CallMacOS1(busyproc_fn_t, busyProcAddr, userRefCon);
-		if ((rv & 0xff) != 0) {
-			return true;   /* busyProc signalled "ready to swap" */
+		uint32 rv = call_macos2(busyProcAddr, ctxRef, userRefCon);
+		if ((rv & 0xff) == 0) {
+			return true;   /* busyProc signalled "checks complete" */
 		}
 		usleep(poll_step_usec);
 		elapsed += poll_step_usec;
@@ -2540,6 +2805,41 @@ static bool DSpPollBusyProc(uint32_t busyProcAddr, uint32_t userRefCon)
 	        "userRefCon=0x%08x elapsed=%llu)",
 	        busyProcAddr, userRefCon, (unsigned long long)elapsed);
 	return false;
+}
+
+static int32_t DSpRevalidateSwapContext(uint32_t ctxRef,
+                                        DSpContextPrivate *expected,
+                                        uint32_t entry_state,
+                                        DSpContextPrivate **outCtx,
+                                        const char *site)
+{
+	DSpContextPrivate *fresh = DSpGetContext(ctxRef);
+	if (fresh == nullptr || fresh != expected) {
+		DSP_LOG("SwapBuffers: ctxRef=%u was released/replaced during %s",
+		        ctxRef, site);
+		return kDSpInvalidContextErr;
+	}
+	/* Re-entry guard, not a state mandate: reject only when the state
+	 * CHANGED across the re-entry window (guest busyProc / frame-pacing
+	 * runloop pump). A context that ENTERED the swap non-Active (e.g.
+	 * Paused by a background transition) swapped fine pre-revalidation and
+	 * still must — classic apps expect SwapBuffers to succeed unless
+	 * something is critically wrong. */
+	if (fresh->state != entry_state) {
+		DSP_LOG("SwapBuffers: ctxRef=%u state changed during %s "
+		        "(entry=%u now=%u)",
+		        ctxRef, site, entry_state, fresh->state);
+		return kDSpInvalidContextErr;
+	}
+	if (fresh->back_texture == nil || fresh->back_buffer == nil) {
+		DSP_LOG("SwapBuffers: ctxRef=%u lost back-buffer during %s",
+		        ctxRef, site);
+		return kDSpInternalErr;
+	}
+	if (outCtx != nullptr) {
+		*outCtx = fresh;
+	}
+	return kDSpNoErr;
 }
 
 extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
@@ -2558,16 +2858,29 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 
 	ctx->explicit_swap_observed = true;
 
+	/* State captured at entry — revalidation rejects on CHANGE during the
+	 * busyProc / frame-pacing re-entry windows, not on non-Active per se. */
+	const uint32_t entry_state = ctx->state;
+
 	/* Pre-swap busyProc gate (PDF p.39 — constraints-before-swap, NOT
 	 * post-swap completion). */
-	if (!DSpPollBusyProc(busyProcAddr, userRefCon)) {
-		DSP_LOG("SwapBuffers: busyProc gate timed out (2 VBL cap)");
-		return kDSpInternalErr;
+	if (!DSpPollBusyProc(ctxRef, busyProcAddr, userRefCon)) {
+		DSP_LOG("SwapBuffers: busyProc gate timed out (2 VBL cap); "
+		        "proceeding with swap");
 	}
+	int32_t revalidate_rc =
+	    DSpRevalidateSwapContext(ctxRef, ctx, entry_state, &ctx, "busyProc");
+	if (revalidate_rc != kDSpNoErr) return revalidate_rc;
 
-	/* VBL sync unless kDSpContextOption_DontSyncVBL is set. */
+	/* VBL sync unless kDSpContextOption_DontSyncVBL is set. max_frame_rate
+	 * multiplies the same DSp pacing lane, so a 60-fps cap on a 120-Hz
+	 * display waits for two VBL periods instead of one. */
 	if ((ctx->attr.contextOptions & kDSpContextOption_DontSyncVBL) == 0) {
-		vbl_source_sync_3d_pacing();
+		DSpSyncSwapFramePacing(ctxRef, ctx->max_frame_rate);
+		revalidate_rc =
+		    DSpRevalidateSwapContext(ctxRef, ctx, entry_state, &ctx,
+		                             "frame pacing");
+		if (revalidate_rc != kDSpNoErr) return revalidate_rc;
 	}
 
 	/* Explicit pre-blit into the compositor-owned
@@ -2648,6 +2961,12 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 		if (!front_presented) {
 			DSpEncodePresentToFramebuffer(ctx, (__bridge void *)cb, fb_tex_raw);
 		}
+		/* Register the GPU-completion latch BEFORE commit
+		 * (addCompletedHandler is illegal afterwards): the encoded present
+		 * reads back_texture — DSp-heap memory — so the heap bump reset
+		 * must defer until this buffer completes. */
+		gfxaccel_resources_heap_note_gpu_commit(kHeapEngineDSp,
+		                                        (__bridge void *)cb);
 		[cb commit];
 	}
 
@@ -3275,21 +3594,15 @@ extern "C" int DSpTesting_ResolveBlitSide(uint32_t cgrafptr_mac, uint32_t rect_m
  *  DSpContext_GetBackBufferHandler.
  *
  *  When ctx has a designated underlay AND the back buffer has dirty areas,
- *  this:
- *    (1) copies the dirty sub-rect underlay->back_buffer (CPU memcpy on the
- *        MTLStorageModeShared backing — the alt-buffer is BGRA8Unorm 32-bpp;
- *        a copy is only attempted when both contents pointers are non-NULL,
- *        which holds on device/Catalyst — on the simulator the heap forces
- *        StorageModePrivate so the copy is skipped and only the compositor
- *        layer routes), and
- *    (2) routes the underlay into the existing frame via a
- *        CompositeLayer{slot=kLayerSlotUnderlay} added to the SubmitFrame —
- *        slot only, NEVER kGfxEngineDSp (SC #5, engine-blind).
+ *  this copies the dirty sub-rect underlay->back_buffer (CPU memcpy on the
+ *  MTLStorageModeShared backing — the alt-buffer is BGRA8Unorm 32-bpp; a copy
+ *  is only attempted when both contents pointers are non-NULL, which holds on
+ *  device/Catalyst — on the simulator the heap forces StorageModePrivate so
+ *  the copy is skipped).
  *
  *  No-op when no underlay is designated or the back buffer is clean. Single-
  *  writer emul-thread; ZERO new concurrency primitive — the copy is a
- *  plain memcpy and the layer joins the existing single MTLCommandQueue
- *  frame path. */
+ *  plain memcpy. */
 
 
 static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
@@ -3301,9 +3614,9 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
 		ctx->underlay_alt_buffer = 0;
 		return;
 	}
-	/* Mirror the guest-drawn staging into the underlay's Metal backing so both
-	 * the CPU dirty-band restore and the compositor underlay layer below read
-	 * the guest's pixels (NQD draws land in the guest-RAM staging, not Metal). */
+	/* Mirror the guest-drawn staging into the underlay's Metal backing so the
+	 * CPU dirty-band restore reads the guest's pixels (NQD draws land in the
+	 * guest-RAM staging, not Metal). */
 	DSpSyncAltBufferStagingToBacking(u);
 	/* Only restore the BACK buffer's invalid (dirty) areas (PDF p.51). When
 	 * the back buffer is clean there is nothing to clean. */
@@ -3324,17 +3637,15 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
 	 * format matches its depth; for the golden underlay-restore path the
 	 * context + underlay are both 32-bpp BGRA8Unorm so the copy is a direct
 	 * row-wise memcpy of the dirty band. Skipped on StorageModePrivate
-	 * (simulator) where contents is NULL — the compositor layer below still
-	 * routes the underlay.
+	 * (simulator) where contents is NULL.
 	 *
 	 * Known M1 approximation: the dirty-band CPU restore only runs for
 	 * a 32-bpp back buffer because the underlay is always allocated BGRA8Unorm
 	 * (DSpAllocAltBufferBacking). An 8/16-bpp context would need a per-pixel
 	 * format conversion that is NOT implemented, so the PDF-p.51 "clean a back
-	 * buffer" restore silently no-ops at those depths (only the compositor
-	 * underlay layer below routes). This mirrors the project's IsBusy /
-	 * swap-in-flight M1-deferral pattern; the depth conversion is deferred. The
-	 * else-branch below logs the skipped restore rather than silently no-op'ing. */
+	 * buffer" restore no-ops at those depths; production SubmitFrame ignores
+	 * underlay-slot layers, so there is no compositor fallback. The else-branch
+	 * below logs the skipped restore rather than silently no-op'ing. */
 	void *u_contents  = u->backing.contents;
 	void *bb_contents = ctx->back_buffer.contents;
 	if (u_contents != NULL && bb_contents != NULL &&
@@ -3359,38 +3670,9 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
 		 * Make the skipped restore observable instead of silently no-op'ing. */
 		DSP_LOG("UnderlayRestore: ctx=%u underlay=%u back-buffer depth=%u (not "
 		        "32-bpp) — CPU dirty-band restore SKIPPED (known M1 approximation, "
-		        "depth-conversion deferred); compositor underlay layer still routes",
+		        "depth-conversion deferred; no compositor underlay fallback)",
 		        ctx->handle, ctx->underlay_alt_buffer,
 		        ctx->attr.backBufferBestDepth);
-	}
-
-	/* (2) Route the underlay into the frame via the engine-blind compositor
-	 * named slot (slot only — NEVER pass kGfxEngineDSp, SC #5). The
-	 * underlay layer is z-ordered BELOW the framebuffer layer. */
-	void *u_tex = (__bridge void *)u->texture;
-	if (u_tex != NULL) {
-		struct CompositeLayer layer;
-		std::memset(&layer, 0, sizeof(layer));
-		layer.source       = u_tex;          /* BGRA8Unorm DSp-owned alt-buffer texture */
-		layer.src_origin_x = 0;
-		layer.src_origin_y = 0;
-		layer.src_size_w   = u->width;
-		layer.src_size_h   = u->height;
-		layer.dst_origin_x = 0.0f;
-		layer.dst_origin_y = 0.0f;
-		layer.dst_size_w   = (float)u->width;
-		layer.dst_size_h   = (float)u->height;
-		layer.slot         = kLayerSlotUnderlay;   /* slot only — engine-blind */
-		layer.blend        = kBlendOpaque;
-		layer.alpha        = 1.0f;
-
-		const struct DMCModeSnapshot *snap = dmc_current_snapshot();
-		struct FrameDescriptor desc;
-		desc.layers               = &layer;
-		desc.layer_count          = 1;
-		desc.generation           = snap ? snap->generation : 0;
-		desc.vbl_tick_target_usec = 0;
-		(void)MetalCompositorSubmitFrame(&desc);
 	}
 }
 
@@ -3940,6 +4222,13 @@ extern "C" void DSpRestoreMainDevicePixMap(DSpContextPrivate *ctx)
  *  mode controller holds the sanctioned project-wide serialization
  *  carve-out.
  */
+static uint32_t s_dsp_setstate_switch_handoff_ctx = 0;
+
+extern "C" void DSpContext_SetStateSwitchHandoff(uint32_t oldCtxRef)
+{
+	s_dsp_setstate_switch_handoff_ctx = oldCtxRef;
+}
+
 extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
@@ -3997,7 +4286,8 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	 * compositor OnModeEnter; palette/gamma/blanking carry; atomic
 	 * snapshot publish; subscriber FIFO/LIFO fan-out). SetState just
 	 * fires the event at the right moment with the right guards. */
-	if (state == (uint32_t)kDSpContextState_Active) {
+	if (state == (uint32_t)kDSpContextState_Active &&
+	    prev_state != (uint32_t)kDSpContextState_Active) {
 		const DMCModeSnapshot *snap = dmc_current_snapshot();
 		const uint32_t display_depth =
 		    DSpDisplayModeDepth(ctx->attr.backBufferBestDepth,
@@ -4064,17 +4354,12 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	ctx->state = state;
 
 	/*
-	 *  Paused-persistence clause: on a
-	 *  successful Paused -> Active transition, replay the stored CLUT
-	 *  into the compositor so the app sees its pre-Pause palette state
-	 *  on the next frame. Only fires on the specific Paused -> Active
-	 *  edge; other transitions (e.g. Inactive -> Active, Active ->
-	 *  Paused, Active -> Inactive) do NOT push because:
-	 *    - Inactive -> Active: ctx->clut_bytes starts with the default
-	 *      indexed CLUT, so it is safe to push even before the app
-	 *      installs a custom CLUT.
-	 *    - Active -> *: the compositor retains the last-pushed CLUT; no
-	 *      push needed on the way out.
+	 *  Activation CLUT replay: on any successful non-idempotent transition
+	 *  to Active, replay the stored CLUT into the compositor so the first
+	 *  active frame observes the default CLUT, a Reserve colorTable, or a
+	 *  Paused-context SetCLUTEntries update. Active -> * transitions do not
+	 *  push because the compositor retains the last-pushed CLUT on the way
+	 *  out.
 	 *
 	 *  Uses the same API pair as the Set handler:
 	 *  MetalCompositorUpdatePalette(full 256 entries) +
@@ -4086,14 +4371,14 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	 *  updated to Active and the DMC owner swap has succeeded. Idempotent
 	 *  self-transitions were short-circuited at function entry (prev_state
 	 *  == state returned kDSpNoErr above), so prev_state != state holds
-	 *  here — the edge check is over the actual transition.
+	 *  here — state == Active and prev_state != Active means this is an
+	 *  actual activation edge.
 	 */
-	if (prev_state == (uint32_t)kDSpContextState_Paused &&
-	    state == (uint32_t)kDSpContextState_Active) {
+	if (state == (uint32_t)kDSpContextState_Active) {
 		MetalCompositorUpdatePalette(ctx->clut_bytes, 256);
 		dmc_record_palette_change();
-		DSP_LOG("SetState: Paused->Active CLUT replay (ctx=%u) -> OK",
-		        ctxRef);
+		DSP_LOG("SetState: %u->Active CLUT replay (ctx=%u) -> OK",
+		        prev_state, ctxRef);
 	}
 
 	/*
@@ -4147,11 +4432,20 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	if (state == (uint32_t)kDSpContextState_Active) {
 		DSpRedirectMainDevicePixMap(ctx);
 	} else {
+		const bool switch_handoff =
+		    (state == (uint32_t)kDSpContextState_Inactive) &&
+		    (s_dsp_setstate_switch_handoff_ctx == ctxRef);
 		DMCModeDesc restored_qd_mode = {};
 		const bool have_restored_qd_mode =
-		    !any_active && DSpBuildSavedQuickDrawModeDesc(ctx, &restored_qd_mode);
+		    !switch_handoff &&
+		    !any_active &&
+		    DSpBuildSavedQuickDrawModeDesc(ctx, &restored_qd_mode);
 		DSpRestoreMainDevicePixMap(ctx);
 		DSpReleaseFrontBufferStaging(ctx);
+		if (switch_handoff) {
+			DSP_LOG("SetState: ctx=%u switch handoff suppressed "
+			        "intermediate QuickDraw mode restore", ctxRef);
+		}
 		if (have_restored_qd_mode) {
 			const DMCModeSnapshot *snap = dmc_current_snapshot();
 			const bool mode_differs =
@@ -6643,10 +6937,10 @@ extern "C" int32_t DSpTesting_ReadContextEventsQueueDepth(uint32_t ctxRef,
  *  the guest-RAM WriteMacInt* marshalling. This lifts the body of the
  *  RETIRED guest-facing dequeue export (the old non-canonical
  *  sub-op-600 ProcessEvent reader) so the ~18 DSpEventTests ring-observation
- *  methods survive its retirement: the ring + its two live producers
- *  (DSpHostBridge_EnqueueEventToActiveContexts iOS input fanout +
- *  DSpHostBridge_OnBackground/OnForeground bg/fg suspend/resume) are KEPT
- *  (provably alive).
+ *  methods survive its retirement: the ring + its live iOS input-fanout
+ *  producer (DSpHostBridge_EnqueueEventToActiveContexts) are KEPT
+ *  (provably alive). Background/foreground lifecycle no longer writes to
+ *  this ring; it uses the atomic lifecycle flag-and-drain path.
  *
  *  The atomics here operate on the EXISTING sanctioned ring atomics
  *  (events_head / events_tail) behind #ifdef TESTING_BUILD — NO new

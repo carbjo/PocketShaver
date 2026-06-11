@@ -72,9 +72,9 @@
  *  the production handler has already checked the same invariants, so
  *  the re-check is cheap.
  */
-static int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
-                               uint32_t first, uint32_t last,
-                               const uint8_t *entries_host_range)
+int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
+                       uint32_t first, uint32_t last,
+                       const uint8_t *entries_host_range)
 {
 	if (ctx == nullptr) return kDSpInvalidContextErr;
 	if (entries_host_range == nullptr) return kDSpInvalidAttributesErr;
@@ -153,9 +153,9 @@ static int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
  *    through the public DMC API, never a direct generation-counter
  *    assignment.
  *
- *  Paused persistence:
+ *  Inactive/Paused persistence:
  *    When ctx->state != Active, the write lands only in ctx->clut_bytes.
- *    The Paused -> Active transition inside DSpContext_SetStateHandler
+ *    The next transition to Active inside DSpContext_SetStateHandler
  *    replays the stored clut_bytes via the same
  *    MetalCompositorUpdatePalette + dmc_record_palette_change pair.
  */
