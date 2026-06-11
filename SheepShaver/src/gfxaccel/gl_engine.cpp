@@ -48,12 +48,6 @@
 // GLTesting_IsTestBuild() is a trivial probe so tests can assert the
 // TESTING_BUILD compilation path is active for this translation unit.
 // ---------------------------------------------------------------------------
-#ifdef TESTING_BUILD
-extern "C" int GLTesting_IsTestBuild(void)
-{
-	return 1;
-}
-#endif /* TESTING_BUILD */
 
 // ---- GL Constants ----
 // AGL error codes (from agl.h)

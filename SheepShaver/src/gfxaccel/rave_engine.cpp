@@ -42,22 +42,6 @@
 #define DEBUG 0
 #include "debug.h"
 
-#ifdef TESTING_BUILD
-// ---------------------------------------------------------------------------
-// TESTING_BUILD probe for rave_engine.cpp.
-//
-// rave_engine.cpp does NOT call SharedMetalDevice() or any singleton that
-// fails in test context.  ConvertPixels and RavePixelFormatName are pure
-// CPU functions callable from tests with only PSFakeMacRAM installed.
-//
-// RaveTesting_IsTestBuild() is a trivial probe so tests can assert the
-// TESTING_BUILD compilation path is active for this translation unit.
-// ---------------------------------------------------------------------------
-extern "C" int RaveTesting_IsTestBuild(void)
-{
-	return 1;
-}
-#endif /* TESTING_BUILD */
 
 // RAVE error codes (must match TQAError enum in RAVE.h)
 #define kQANoErr                    0

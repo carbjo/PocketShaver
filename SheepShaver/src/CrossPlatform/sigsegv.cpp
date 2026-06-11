@@ -2741,12 +2741,15 @@ sigsegv_address_t sigsegv_get_fault_instruction_address(sigsegv_info_t *SIP)
 #define EXTERN extern
 #endif
 
-EXTERN uint8_t gZeroPage[0x3000], gKernelData[0x2000];
+EXTERN uint8_t gZeroPage[0x3000], gKernelData[0x4000];
 EXTERN uint32_t RAMBase, ROMBase, ROMEnd;
 
+// 16 KB kernel-data window (struct in the upper 8 KB, nanokernel stack
+// slack in the lower 8 KB) — keep in sync with vm_do_get_real_address in
+// kpx_cpu/src/cpu/vm.hpp.
 template<typename T> T safeLoad(uint32_t a) {
 	if (a < 0x3000) return *(T *)&gZeroPage[a];
-	else if ((a & ~0x1fff) == 0x68ffe000 || (a & ~0x1fff) == 0x5fffe000) return *(T *)&gKernelData[a & 0x1fff];
+	else if ((a & ~0x3fff) == 0x68ffc000 || (a & ~0x3fff) == 0x5fffc000) return *(T *)&gKernelData[a & 0x3fff];
 	else if (a >= RAMBase && a < ROMEnd) {
 #if TARGET_OS_IPHONE
 		return *(T *)(VMBaseDiff + a);
@@ -2759,7 +2762,7 @@ template<typename T> T safeLoad(uint32_t a) {
 }
 template<typename T> void safeStore(uint32_t a, T d) {
 	if (a < 0x3000) *(T *)&gZeroPage[a] = d;
-	else if ((a & ~0x1fff) == 0x68ffe000 || (a & ~0x1fff) == 0x5fffe000) *(T *)&gKernelData[a & 0x1fff] = d;
+	else if ((a & ~0x3fff) == 0x68ffc000 || (a & ~0x3fff) == 0x5fffc000) *(T *)&gKernelData[a & 0x3fff] = d;
 	else if (a >= RAMBase && a < ROMBase) *(T *)(uint64_t)a = d;
 }
 

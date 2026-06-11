@@ -180,6 +180,10 @@ public:
 	// Handle MacOS interrupt
 	void interrupt(uint32 entry);
 
+	// Diagnostic accessors (crash-context dump, vm watch logging)
+	uint32 cur_pc()			{ return pc(); }
+	uint32 cur_gpr(int i)	{ return gpr(i); }
+
 	// Make sure the SIGSEGV handler can access CPU registers
 	friend sigsegv_return_t sigsegv_handler(sigsegv_info_t *sip);
 };
@@ -790,6 +794,62 @@ static void dump_disassembly(const uint32 pc, const int prefix_count, const int 
 	}
 }
 
+// Crash-context diagnostics (StarCraft post-splash SIGSEGV investigation):
+// validated guest reads only -- a wild pc/sp must not re-fault inside the
+// signal handler (dump_disassembly previously died reading unmapped memory).
+static bool guest_addr_ok(uint32 a, uint32 len)
+{
+	if (a >= RAMBase && a - RAMBase < RAMSize && RAMSize - (a - RAMBase) >= len)
+		return true;
+	if (a >= ROMBase && a - ROMBase < ROM_AREA_SIZE && ROM_AREA_SIZE - (a - ROMBase) >= len)
+		return true;
+	const uint32 kbase = (uint32)(KERNEL_DATA_BASE & ~0x3fffu);
+	const uint32 kend = (uint32)(KERNEL_DATA_BASE + KERNEL_AREA_SIZE);
+	if (a >= kbase && a < kend && kend - a >= len)
+		return true;
+	return false;
+}
+
+static void dump_crash_context(sheepshaver_cpu *cpu)
+{
+	// Guest stack crawl. PowerOpen ABI: back chain at [sp], saved LR at [sp+8].
+	uint32 sp = cpu->cur_gpr(1);
+	fprintf(stderr, "guest stack crawl (r1=%08x):\n", sp);
+	for (int depth = 0; depth < 32; depth++) {
+		if (!guest_addr_ok(sp, 12)) {
+			fprintf(stderr, "  [%2d] sp %08x (unmapped; stop)\n", depth, sp);
+			break;
+		}
+		uint32 back = ReadMacInt32(sp);
+		uint32 saved_lr = ReadMacInt32(sp + 8);
+		fprintf(stderr, "  [%2d] sp %08x back %08x lr %08x\n", depth, sp, back, saved_lr);
+		if (back <= sp || back - sp > 0x100000)
+			break;
+		sp = back;
+	}
+
+	// Window around the kernel-data interrupt stack. The StarCraft dump showed
+	// this region holding little-endian copies of its own guest addresses;
+	// flag any word still matching that signature.
+	const uint32 lo = (uint32)KERNEL_DATA_BASE - 0x200;
+	const uint32 hi = (uint32)KERNEL_DATA_BASE + 0x40;
+	fprintf(stderr, "kernel-area dump [%08x..%08x) ('<' = LE self-address):\n", lo, hi);
+	for (uint32 a = lo; a < hi; a += 16) {
+		if (!guest_addr_ok(a, 16))
+			continue;
+		fprintf(stderr, "  %08x:", a);
+		for (int i = 0; i < 4; i++) {
+			uint32 w = ReadMacInt32(a + i * 4);
+			uint32 le = ((w & 0xff) << 24) | ((w & 0xff00) << 8) | ((w >> 8) & 0xff00) | (w >> 24);
+			fprintf(stderr, " %08x%c", w, (le - (a + i * 4)) <= 0x100 ? '<' : ' ');
+		}
+		fprintf(stderr, "\n");
+	}
+
+	extern void RsrcLocksDumpOnCrash(void);
+	RsrcLocksDumpOnCrash();
+}
+
 sigsegv_return_t sigsegv_handler(sigsegv_info_t *sip)
 {
 #if ENABLE_VOSF
@@ -859,7 +919,11 @@ sigsegv_return_t sigsegv_handler(sigsegv_info_t *sip)
 	fprintf(stderr, "  ea %p\n", sigsegv_get_fault_address(sip));
 	dump_registers();
 	dump_log();
-	dump_disassembly(pc, 8, 8);
+	dump_crash_context(cpu);
+	if (guest_addr_ok(pc - 8 * 4, (8 + 8 + 1) * 4))
+		dump_disassembly(pc, 8, 8);
+	else
+		fprintf(stderr, "  (pc %08x outside mapped guest areas; disassembly skipped)\n", pc);
 
 	enter_mon();
 	QuitEmulator();

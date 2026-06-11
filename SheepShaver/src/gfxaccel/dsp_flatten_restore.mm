@@ -310,62 +310,6 @@ extern "C" int32_t DSpContext_RestoreHandler(uint32_t inFlatContext,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  Flatten/Restore host-helper twins. They operate on a plain
- *  host uint8_t* big-endian blob so the round-trip contract + golden fixture
- *  tests run with NO EMULATED_PPC frame, NO ROM, NO render (keeps
- *  the suite well under the 30s budget). The serialize/deserialize cores are
- *  shared with the guest-RAM handlers, so the host helpers are observationally
- *  identical to the production path.
- */
-extern "C" int32_t DSpTesting_GetFlattenedSizeByValue(uint32_t ctxRef,
-                                                      uint32_t *outSize)
-{
-	if (outSize == nullptr) return kDSpInvalidAttributesErr;
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	*outSize = DSP_FLAT_SIZE;
-	return kDSpNoErr;
-}
-
-extern "C" int32_t DSpTesting_FlattenToHost(uint32_t ctxRef, uint8_t *blob,
-                                            uint32_t blob_cap)
-{
-	if (blob == nullptr) return kDSpInvalidAttributesErr;
-	if (blob_cap < DSP_FLAT_SIZE) return kDSpInvalidAttributesErr;
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	DSpFlattenSerializeToHost(ctx, blob);
-	return kDSpNoErr;
-}
-
-extern "C" int32_t DSpTesting_RestoreFromHost(const uint8_t *blob,
-                                              uint32_t blob_len,
-                                              uint32_t *outRestoredCtxRef)
-{
-	if (blob == nullptr || outRestoredCtxRef == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	if (blob_len < DSP_FLAT_SIZE) return kDSpInvalidAttributesErr;
-
-	DSpContextAttributes attr = {};
-	uint32_t mfr = 0, gw = 0, gh = 0;
-	int32_t rc = DSpFlattenDeserializeFromHost(blob, &attr, &mfr, &gw, &gh);
-	if (rc != kDSpNoErr) return rc;   /* kDSpContextNotFoundErr on bad magic/version */
-
-	uint32_t newRef = DSpAllocFirstContextHandle(&attr, DSP_ENUMERATION_INDEX_NONE);
-	if (newRef == 0) return kDSpContextNotFoundErr;
-	DSpContextPrivate *ctx = DSpGetContext(newRef);
-	if (ctx != nullptr) {
-		ctx->max_frame_rate = mfr;
-		ctx->dirty_grid_w   = gw;
-		ctx->dirty_grid_h   = gh;
-	}
-	*outRestoredCtxRef = newRef;
-	return kDSpNoErr;
-}
-#endif
 
 /* ===================================================================== *
  *  Queue/Switch (sub-ops 742-743).
@@ -591,35 +535,3 @@ extern "C" int32_t DSpContext_SwitchHandler(uint32_t oldCtx, uint32_t newCtx)
 	return DSpSwitchCore(oldCtx, newCtx);
 }
 
-#ifdef TESTING_BUILD
-/*
- *  Queue/Switch host-helper twins. Queue/Switch is pure RAM-only
- *  bookkeeping on DSpContextPrivate fields with NO guest-RAM struct deref, so
- *  the by-value wrappers call straight through the shared cores. The contract
- *  path passes inDesiredAttributes = 0 (no attribute override); the guest-RAM
- *  apply-on-non-zero branch is exercised on device/Catalyst. These run the
- *  deferred-switch + old-VBL-proc-kill + switch-without-queue-error contract
- *  with NO EMULATED_PPC frame, NO ROM, NO render.
- */
-extern "C" int32_t DSpTesting_QueueByValue(uint32_t parentCtx, uint32_t childCtx,
-                                           uint32_t inDesiredAttributes)
-{
-	(void)inDesiredAttributes;   /* contract path uses 0; guest-RAM apply is device-only */
-	return DSpQueueCore(parentCtx, childCtx);
-}
-
-extern "C" int32_t DSpTesting_SwitchByValue(uint32_t oldCtx, uint32_t newCtx)
-{
-	return DSpSwitchCore(oldCtx, newCtx);
-}
-
-extern "C" int32_t DSpTesting_GetQueuedChildByValue(uint32_t ctxRef,
-                                                    uint32_t *outChild)
-{
-	if (outChild == nullptr) return kDSpInvalidAttributesErr;
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	*outChild = ctx->queued_child;
-	return kDSpNoErr;
-}
-#endif

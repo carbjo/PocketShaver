@@ -317,50 +317,6 @@ extern "C" int32_t DSpAltBuffer_NewHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_AltBuffer_NewByStruct(
-    uint32_t ctxRef,
-    uint8_t inVRAMBuffer,
-    const struct DSpAltBufferAttributes *inAttributes,
-    uint32_t *outAltBuffer)
-{
-	(void)inVRAMBuffer;
-	if (outAltBuffer == nullptr) return kDSpInvalidAttributesErr;
-	*outAltBuffer = 0;
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-
-	uint32_t w, h, options;
-	bool underlay_capable;
-	if (inAttributes == nullptr) {
-		w = DSpContextBackBufferWidth(ctx);
-		h = DSpContextBackBufferHeight(ctx);
-		options = 0;
-		underlay_capable = true;
-	} else {
-		w = inAttributes->width;
-		h = inAttributes->height;
-		options = inAttributes->options;
-		underlay_capable = false;
-	}
-	/* Mirror the production handler's dim guard so test paths exercise
-	 * the same reject behavior. */
-	if (w == 0 || h == 0 || w > DSP_ALT_MAX_DIM || h > DSP_ALT_MAX_DIM)
-		return kDSpInvalidAttributesErr;
-
-	uint32_t handle = DSpAllocAltBufferHandle();
-	if (handle == 0) return kDSpInternalErr;
-	DSpAltBufferRecord *rec = &dsp_alt_buffer_table[handle - 1];
-	rec->options          = options;
-	rec->underlay_capable = underlay_capable;
-	if (!DSpAllocAltBufferBacking(rec, w, h)) {
-		DSpFreeAltBuffer(handle);
-		return kDSpInternalErr;
-	}
-	*outAltBuffer = handle;
-	return kDSpNoErr;
-}
-#endif
 
 /* --- DSpAltBuffer_DisposeHandler (sub-op 701) ---
  *
@@ -391,39 +347,6 @@ extern "C" int32_t DSpAltBuffer_DisposeHandler(uint32_t altBuffer)
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_AltBuffer_DisposeByValue(uint32_t altBuffer)
-{
-	return DSpAltBuffer_DisposeHandler(altBuffer);
-}
-
-/* Host helper: fill the whole alt-buffer backing with a solid BGRA color
- * (golden underlay seed). On simulator the heap forces StorageModePrivate
- * so .contents is NULL — return kDSpInternalErr so the caller XCTSkips the
- * GPU-effect assertion. */
-extern "C" int32_t DSpTesting_AltBuffer_FillBacking(uint32_t altBuffer,
-                                                    uint8_t b, uint8_t g,
-                                                    uint8_t r, uint8_t a)
-{
-	DSpAltBufferRecord *rec = DSpGetAltBuffer(altBuffer);
-	if (rec == nullptr) return kDSpInvalidAttributesErr;
-	void *contents = rec->backing.contents;   /* NULL on StorageModePrivate */
-	if (contents == NULL) return kDSpInternalErr;
-	uint32_t row_bytes = rec->width * 4u;
-	uint32_t alignedRB = (row_bytes + 255u) & ~255u;
-	uint8_t *base = (uint8_t *)contents;
-	for (uint32_t y = 0; y < rec->height; y++) {
-		uint8_t *row = base + (uint32_t)y * alignedRB;
-		for (uint32_t x = 0; x < rec->width; x++) {
-			row[x * 4 + 0] = b;
-			row[x * 4 + 1] = g;
-			row[x * 4 + 2] = r;
-			row[x * 4 + 3] = a;
-		}
-	}
-	return kDSpNoErr;
-}
-#endif
 
 /* --- DSpAltBuffer_GetCGrafPtrHandler (sub-op 702) ---
  *
@@ -540,34 +463,6 @@ extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_AltBuffer_GetCGrafPtrByValue(uint32_t altBuffer,
-                                                           uint32_t bufferKind,
-                                                           uint32_t *outCGrafPtr)
-{
-	if (outCGrafPtr == nullptr) return kDSpInvalidAttributesErr;
-	*outCGrafPtr = 0;
-	/* Validate kind + handle up front so the error paths don't reserve a
-	 * scratch out-cell needlessly (matches the production guard order). */
-	if (bufferKind != (uint32_t)kDSpBufferKind_Normal) {
-		return kDSpInvalidAttributesErr;
-	}
-	if (DSpGetAltBuffer(altBuffer) == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	/* Drive the production handler with a real guest-scratch out-cell, then
-	 * read the emitted CGrafPort Mac address back through the host-safe
-	 * dsp_testing_read_mac_int32 shim (avoids the truncated-guest-address
-	 * SEGV that a raw WriteMacInt32 to a Swift pointer would hit on the
-	 * arm64 simulator). */
-	uint32_t out_cell = DSpReserveGuestScratch(4);
-	if (out_cell == 0) return kDSpInternalErr;
-	int32_t rc = DSpAltBuffer_GetCGrafPtrHandler(altBuffer, bufferKind, out_cell);
-	if (rc != kDSpNoErr) return rc;
-	*outCGrafPtr = dsp_testing_read_mac_int32(out_cell);
-	return kDSpNoErr;
-}
-#endif
 
 /* Per-alt-buffer dirty-rect accumulator. Clamps to the alt-buffer's bounds
  * (ASVS V5) then unions into the record's dirty rect — same shape + semantics
@@ -642,34 +537,6 @@ extern "C" int32_t DSpAltBuffer_InvalRectHandler(uint32_t altBuffer,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_AltBuffer_InvalRectByValue(uint32_t altBuffer,
-                                                         int16_t top, int16_t left,
-                                                         int16_t bottom, int16_t right)
-{
-	DSpAltBufferRecord *rec = DSpGetAltBuffer(altBuffer);
-	if (rec == nullptr) return kDSpInvalidAttributesErr;
-	DSpAltBufferInvalRect_Accumulate(rec, top, left, bottom, right);
-	return kDSpNoErr;
-}
-
-extern "C" int32_t DSpTesting_AltBuffer_GetDirtyRectByValues(uint32_t altBuffer,
-                                                             int16_t *outTop,
-                                                             int16_t *outLeft,
-                                                             int16_t *outBottom,
-                                                             int16_t *outRight,
-                                                             uint8_t *outEmpty)
-{
-	DSpAltBufferRecord *rec = DSpGetAltBuffer(altBuffer);
-	if (rec == nullptr) return kDSpInvalidAttributesErr;
-	if (outTop)    *outTop    = rec->dirty_top;
-	if (outLeft)   *outLeft   = rec->dirty_left;
-	if (outBottom) *outBottom = rec->dirty_bottom;
-	if (outRight)  *outRight  = rec->dirty_right;
-	if (outEmpty)  *outEmpty  = rec->dirty_empty ? 1 : 0;
-	return kDSpNoErr;
-}
-#endif
 
 /* --- DSpContext_SetUnderlayAltBufferHandler (sub-op 705) ---
  *
@@ -710,13 +577,6 @@ extern "C" int32_t DSpContext_SetUnderlayAltBufferHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_SetUnderlayAltBufferByValue(uint32_t ctxRef,
-                                                          uint32_t inNewUnderlay)
-{
-	return DSpContext_SetUnderlayAltBufferHandler(ctxRef, inNewUnderlay);
-}
-#endif
 
 /* --- DSpContext_GetUnderlayAltBufferHandler (sub-op 704) ---
  *
@@ -741,17 +601,6 @@ extern "C" int32_t DSpContext_GetUnderlayAltBufferHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_GetUnderlayAltBufferByValue(uint32_t ctxRef,
-                                                          uint32_t *outUnderlay)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (outUnderlay == nullptr) return kDSpInvalidAttributesErr;
-	*outUnderlay = ctx->underlay_alt_buffer;
-	return kDSpNoErr;
-}
-#endif
 
 // ===== Underlay staging -> backing sync ===================================
 /* Mirror an alt-buffer's guest-RAM staging (where the guest draws through the

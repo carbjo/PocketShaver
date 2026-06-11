@@ -87,7 +87,6 @@ extern "C" void DSpRestoreMainDevicePixMap(DSpContextPrivate *ctx);
  *  emission + staging-region path without corrupting memory.
  */
 
-#ifndef TESTING_BUILD
 /* DSp exposes these blocks as guest PixMap.baseAddr storage. Once exposed,
  * do not DisposePtr them: launch-time CFM/component allocations may reuse
  * the same system-heap range and execute stale frame bytes. */
@@ -168,13 +167,9 @@ static void DSpPrewarmPixelStagingSpare(void)
 	DSP_LOG("DSpReserveGuestPixelStaging: prewarmed spare 0x%08x alloc=%u",
 	        mac_addr, (unsigned)kDSpPixelStagingAllocFloor);
 }
-#endif
 
 extern "C" uint32_t DSpReserveGuestPixelStaging(uint32_t size)
 {
-#ifdef TESTING_BUILD
-	return dsp_testing_alloc_guest_scratch(size);
-#else
 	if (size == 0) return 0;
 
 	for (uint32_t i = 0; i < kDSpPixelStagingPoolCapacity; i++) {
@@ -219,17 +214,11 @@ extern "C" uint32_t DSpReserveGuestPixelStaging(uint32_t size)
 		        mac_addr, size);
 	}
 	return mac_addr;
-#endif
 }
 
 extern "C" uint32_t DSpGuardStagingWrite(uint32_t mac_addr, uint32_t size,
                                          const char *site)
 {
-#ifdef TESTING_BUILD
-	(void)mac_addr;
-	(void)site;
-	return size;
-#else
 	if (mac_addr == 0 || size == 0) return size;
 
 	DSpPixelStagingPoolBlock *block = DSpFindPixelStagingBlock(mac_addr);
@@ -252,7 +241,6 @@ extern "C" uint32_t DSpGuardStagingWrite(uint32_t mac_addr, uint32_t size,
 		return block->alloc_size;
 	}
 	return size;
-#endif
 }
 
 extern "C" void DSpQuarantineGuestPixelStaging(
@@ -260,11 +248,6 @@ extern "C" void DSpQuarantineGuestPixelStaging(
 	uint32_t size,
 	bool allocated_from_mac_system_heap)
 {
-#ifdef TESTING_BUILD
-	(void)mac_addr;
-	(void)size;
-	(void)allocated_from_mac_system_heap;
-#else
 	if (mac_addr == 0) return;
 
 	DSpPixelStagingPoolBlock *block = DSpFindPixelStagingBlock(mac_addr);
@@ -304,17 +287,12 @@ extern "C" void DSpQuarantineGuestPixelStaging(
 	DSP_LOG("DSpQuarantineGuestPixelStaging: pool full; leaving exposed "
 	        "staging 0x%08x size=%u allocated",
 	        mac_addr, size);
-#endif
 }
 
 extern "C" void DSpDiscardUnusedGuestPixelStaging(
 	uint32_t mac_addr,
 	bool allocated_from_mac_system_heap)
 {
-#ifdef TESTING_BUILD
-	(void)mac_addr;
-	(void)allocated_from_mac_system_heap;
-#else
 	if (mac_addr == 0) return;
 
 	DSpPixelStagingPoolBlock *block = DSpFindPixelStagingBlock(mac_addr);
@@ -336,7 +314,6 @@ extern "C" void DSpDiscardUnusedGuestPixelStaging(
 	if (allocated_from_mac_system_heap) {
 		Mac_sysfree(mac_addr);
 	}
-#endif
 }
 
 extern "C" void DSpReleaseBackBufferStaging(DSpContextPrivate *ctx)
@@ -736,9 +713,7 @@ extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 			}
 			ctx->staging_mac_addr = baseAddr_mac;
 			ctx->staging_size = buffer_size;
-			#ifndef TESTING_BUILD
 			ctx->staging_owned_sysheap = true;
-			#endif
 			uint32_t seed_n = DSpGuardStagingWrite(baseAddr_mac, buffer_size,
 			                                       "GetBackBufferCGrafPtr.seed");
 			if (back_contents != NULL) {

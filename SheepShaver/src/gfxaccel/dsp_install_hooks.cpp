@@ -25,9 +25,6 @@
 #include "dsp_fragment_name_policy.h"
 #include "accel_logging.h"       // ACCEL_LOGGING_ENABLED gate
 
-#ifdef TESTING_BUILD
-#include "thunks.h"              // SheepMem::ReserveProc for synthetic test TVECT alloc
-#endif
 
 #include <cstring>
 #include <cstdio>
@@ -454,54 +451,3 @@ bool DSpInstallHooksSweepComplete(void)
 }
 
 // ----- TESTING_BUILD hook -----
-#ifdef TESTING_BUILD
-/*
- *  Test helper — allocates (or accepts) a synthetic orig_tvect
- *  region and exercises dsp_install_patch_one() against it pointing at
- *  dsp_method_tvects[sub_opcode].
- *
- *  If synth_orig_tvect == 0, reserve a 32-byte SheepMem block: use bytes
- *  [0..3] as the TVECT word (pointing at offset 16) and bytes [16..31] as
- *  the 16-byte orig_code region that the 4-instruction patch overwrites.
- *
- *  Executing the patched orig_code through the PPC emulator to verify
- *  end-to-end routing into DSpDispatch requires the test-target execute-
- *  macos-code shim — on simulator this path may be unavailable,
- *  so dispatch_count may remain 0 and the Swift test XCTSkips. The patch
- *  itself still runs, validating the 4-instruction overwrite + TVECT-deref
- *  fast-path is wired correctly.
- */
-extern "C" void dsp_testing_run_install_patch_on_synthetic_tvect(uint32_t synth_orig_tvect, int sub_opcode)
-{
-	if (sub_opcode < 0 || sub_opcode >= DSP_MAX_SUBOPCODE) {
-		DSP_LOG("testing: sub_opcode %d out of range", sub_opcode);
-		return;
-	}
-	uint32_t hook_tvect = dsp_method_tvects[sub_opcode];
-	if (hook_tvect == 0) {
-		DSP_LOG("testing: hook TVECT[%d] is zero", sub_opcode);
-		return;
-	}
-
-	// If caller did not supply a synth TVECT, reserve one via SheepMem.
-	// Layout: 32 bytes — [0..3] = TVECT code_ptr (→ offset 16), [16..31] = orig_code.
-	if (synth_orig_tvect == 0) {
-		uint32_t block = SheepMem::ReserveProc(32);
-		if (block == 0) {
-			DSP_LOG("testing: SheepMem::ReserveProc(32) returned 0 — skipping");
-			return;
-		}
-		WriteMacInt32(block, block + 16);  // TVECT code_ptr = orig_code addr
-		synth_orig_tvect = block;
-	}
-
-	(void)dsp_install_patch_one(synth_orig_tvect, hook_tvect, "testing-synthetic");
-
-	// Note on PPC execution: running the patched orig_code to verify end-to-end
-	// dispatch-counter routing requires the test-target's existing
-	// execute-macos-code shim. On simulator that shim is not wired
-	// for this code path; Swift-side test handles the unavailable-shim case via
-	// XCTSkipIf(dispatch_count == 0). Device UAT covers the hardware
-	// execution path end-to-end.
-}
-#endif /* TESTING_BUILD */

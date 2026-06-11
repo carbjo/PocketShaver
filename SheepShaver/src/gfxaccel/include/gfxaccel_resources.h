@@ -335,28 +335,6 @@ void gfxaccel_set_dsp_background_hook(GfxAccelLifecycleHookFn fn, void *ctx);
 void gfxaccel_set_dsp_foreground_hook(GfxAccelLifecycleHookFn fn, void *ctx);
 
 /* --- TESTING_BUILD introspection --- */
-#ifdef TESTING_BUILD
-/*
- * Returns 1 if gfxaccel_resources_init() has completed successfully and
- * gfxaccel_resources_shutdown() has not yet reset the state, 0 otherwise.
- * Used by ResourceManagerLifecycleTests to probe init/shutdown idempotency
- * without exposing the static flag to production code paths.
- */
-uint32_t gfxaccel_resources_testing_is_initialized(void);
-
-/*
- * Returns the current number of engines registered with the fan-out
- * registry. Used by ResourceManagerLifecycleTests to confirm register /
- * unregister bookkeeping.
- */
-uint32_t gfxaccel_resources_testing_engine_count(void);
-
-/*
- * Reset the per-buffer owner-tag map. Called between
- * test cases to ensure isolation from prior-case state.
- */
-void gfxaccel_resources_testing_reset_buffer_owner_map(void);
-#endif
 
 #ifdef __cplusplus
 }

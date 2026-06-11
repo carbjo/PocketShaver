@@ -216,7 +216,11 @@ uint8 *ROMBaseHost;		// Base address of Mac ROM (host address space)
 uint32 ROMEnd;
 
 #if defined(__APPLE__) && (defined(__x86_64__) || defined(__aarch64__)) || defined(MEM_BULK)
-uint8 gZeroPage[0x3000], gKernelData[0x2000];
+// gKernelData is a 16 KB window: KernelData struct in the upper 8 KB
+// (0x68ffe000 / 0x5fffe000), nanokernel stack slack in the lower 8 KB
+// (0x68ffc000 / 0x5fffc000). See vm_do_get_real_address in
+// kpx_cpu/src/cpu/vm.hpp.
+uint8 gZeroPage[0x3000], gKernelData[0x4000];
 #endif
 
 // Global variables

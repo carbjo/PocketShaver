@@ -83,22 +83,6 @@
 uint32_t dsp_caller_lr = 0;
 uint32_t dsp_caller_r11 = 0;
 
-#ifdef TESTING_BUILD
-/* Test counter: increments once per DSpDispatch entry. Used by
- * DSpInstallHooksTests to verify that a patched DrawSprocketLib symbol
- * actually routes execution through DSpDispatch. */
-static unsigned long dsp_testing_dispatch_count = 0;
-
-extern "C" uint32_t dsp_testing_get_dispatch_count(void)
-{
-	return (uint32_t)dsp_testing_dispatch_count;
-}
-
-extern "C" void dsp_testing_reset_dispatch_count(void)
-{
-	dsp_testing_dispatch_count = 0;
-}
-#endif
 
 uint32_t DSpDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
                      uint32_t r6, uint32_t r7, uint32_t r8)
@@ -119,9 +103,6 @@ uint32_t DSpDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	/* dsp_caller_lr / dsp_caller_r11 remain populated by sheepshaver_glue.cpp
 	 * and available for any future caller-mapping diagnostic. */
 
-#ifdef TESTING_BUILD
-	dsp_testing_dispatch_count++;
-#endif
 
 	/* r3..r6 carry the first four guest args under the scratch-based-subop
 	 * contract. r7 and r8 are unused by every case post-shift (FadeGamma +

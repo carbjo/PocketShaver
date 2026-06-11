@@ -116,30 +116,12 @@ static const DMCModeSnapshot *                s_retired[2] = { NULL, NULL };
 // thread's outer call.
 static thread_local bool                      s_in_dmc_call = false;
 
-#ifdef TESTING_BUILD
-// At-call-time dispatch position within the current broadcast. Set by the
-// fire-exit/fire-enter helpers BEFORE each callback invocation so the
-// recorder can observe broadcast order via dmc_testing_current_dispatch_index().
-// thread_local so concurrent-writer tests see a per-thread
-// value even when the mutex serializes the calls.
-static thread_local uint32_t                  s_dmc_current_dispatch_index = 0;
-
-// Test-only allocation-failure injector. When `true`,
-// the next controller-internal snapshot allocation (via the internal
-// dmc_testing_alloc_* wrappers) returns NULL and clears the flag. Accessed
-// exclusively under s_write_mutex (the writer thread that arms the flag
-// and the writer thread that consumes it are serialized, so no atomic is
-// required — the existing mutex already covers the consumer path).
-static bool                                   s_force_next_alloc_failure = false;
-#endif
 
 // Thread-identity baseline (production assertion gate). In production this
 // is captured on the first dmc_create call; subsequent writes from any
 // other thread trigger assert(0). TESTING_BUILD gates this out because
 // XCTest runs writer work on arbitrary worker threads.
-#ifndef TESTING_BUILD
 static pthread_t                              s_emul_thread = 0;
-#endif
 
 // ---------------------------------------------------------------------------
 // Re-entry guard RAII helper.
@@ -173,7 +155,6 @@ struct DMCReentryScope {
 // so concurrent-writer tests can exercise the controller from arbitrary
 // XCTest worker threads.
 // ---------------------------------------------------------------------------
-#ifndef TESTING_BUILD
 #define DMC_ASSERT_EMUL_THREAD() \
 	do { \
 		if (s_emul_thread != 0 && pthread_self() != s_emul_thread) { \
@@ -182,9 +163,6 @@ struct DMCReentryScope {
 			assert(0 && "DMC write from wrong thread"); \
 		} \
 	} while (0)
-#else
-#define DMC_ASSERT_EMUL_THREAD() do { } while (0)
-#endif
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -226,22 +204,10 @@ static int32_t dmc_validate_mode_desc(const DMCModeDesc *m) {
 // exhaust real system memory. Callers MUST hold s_write_mutex when invoking
 // these (every call site is already inside the writer mutex by construction).
 static DMCModeSnapshot *dmc_testing_alloc_snapshot(void) {
-#ifdef TESTING_BUILD
-	if (s_force_next_alloc_failure) {
-		s_force_next_alloc_failure = false;
-		return NULL;
-	}
-#endif
 	return (DMCModeSnapshot *)calloc(1, sizeof(DMCModeSnapshot));
 }
 
 static DMCModeSnapshot *dmc_testing_alloc_raw_snapshot(void) {
-#ifdef TESTING_BUILD
-	if (s_force_next_alloc_failure) {
-		s_force_next_alloc_failure = false;
-		return NULL;
-	}
-#endif
 	return (DMCModeSnapshot *)malloc(sizeof(DMCModeSnapshot));
 }
 
@@ -380,9 +346,6 @@ static void dmc_retire_snapshot(const DMCModeSnapshot *old_snap, uint32_t this_g
 static void dmc_internal_fire_exit_events(const DMCModeSnapshot *outgoing) {
 	for (size_t i = 0; i < s_subscribers.size(); ++i) {
 		if (s_subscribers[i].on_mode_exit != NULL) {
-#ifdef TESTING_BUILD
-			s_dmc_current_dispatch_index = (uint32_t)i;
-#endif
 			int32_t r = s_subscribers[i].on_mode_exit(outgoing, s_subscribers[i].ctx);
 			if (r != kDMCNoErr) {
 				DMC_LOG("subscriber %s on_mode_exit returned %d (advisory; not vetoable)",
@@ -404,9 +367,6 @@ static int32_t dmc_internal_fire_enter_events(const DMCModeSnapshot *incoming) {
 	for (size_t i = s_subscribers.size(); i > 0; --i) {
 		size_t idx = i - 1;  // walk in reverse without size_t underflow
 		if (s_subscribers[idx].on_mode_enter != NULL) {
-#ifdef TESTING_BUILD
-			s_dmc_current_dispatch_index = (uint32_t)(s_subscribers.size() - 1 - idx);
-#endif
 			int32_t r = s_subscribers[idx].on_mode_enter(incoming, s_subscribers[idx].ctx);
 			if (r != kDMCNoErr) {
 				DMC_ERR("subscriber %s on_mode_enter returned %d - initiating rollback",
@@ -426,9 +386,6 @@ static void dmc_internal_fire_enter_events_advisory(
 	for (size_t i = s_subscribers.size(); i > 0; --i) {
 		size_t idx = i - 1;
 		if (s_subscribers[idx].on_mode_enter != NULL) {
-#ifdef TESTING_BUILD
-			s_dmc_current_dispatch_index = (uint32_t)(s_subscribers.size() - 1 - idx);
-#endif
 			int32_t r = s_subscribers[idx].on_mode_enter(incoming,
 			                                             s_subscribers[idx].ctx);
 			if (r != kDMCNoErr) {
@@ -488,11 +445,9 @@ int32_t dmc_create(const struct DMCModeDesc *initial_mode) {
 		return verr;
 	}
 
-#ifndef TESTING_BUILD
 	if (s_emul_thread == 0) {
 		s_emul_thread = pthread_self();
 	}
-#endif
 
 	const uint8_t default_blanking[4] = { 0x00, 0x00, 0x00, 0xFF };
 	DMCModeSnapshot *snap = dmc_alloc_snapshot_from_desc(initial_mode,
@@ -600,9 +555,6 @@ int32_t dmc_subscribe(const struct DMCSubscriber *sub) {
 	// own init path.
 	const DMCModeSnapshot *cur = s_current.load(std::memory_order_relaxed);
 	if (cur != NULL && copy.on_mode_enter != NULL) {
-#ifdef TESTING_BUILD
-		s_dmc_current_dispatch_index = 0;
-#endif
 		(void)copy.on_mode_enter(cur, copy.ctx);
 	}
 	return kDMCNoErr;
@@ -1097,96 +1049,3 @@ int32_t dmc_set_blanking_color(const uint8_t rgba[4]) {
 // Production app target (PocketShaver) does NOT define TESTING_BUILD; these
 // symbols are therefore not present in the shipped .ipa.
 // ---------------------------------------------------------------------------
-#ifdef TESTING_BUILD
-extern "C" void dmc_testing_reset(void) {
-	// Best-effort mutex acquire. setUp is single-threaded per XCTest
-	// convention, but taking the lock here is defensive and also clears
-	// any lingering thread_local reentry flag deterministically. If a
-	// previous test aborted mid-call with s_in_dmc_call=true set, the
-	// defensive reset below restores the invariant.
-	std::lock_guard<std::mutex> guard(s_write_mutex);
-	s_in_dmc_call = false;  // defensive
-
-	const DMCModeSnapshot *cur = s_current.load(std::memory_order_relaxed);
-	if (cur != NULL) {
-		free((void *)cur);
-	}
-	s_current.store(NULL, std::memory_order_release);
-	for (int i = 0; i < 2; ++i) {
-		if (s_retired[i] != NULL) {
-			free((void *)s_retired[i]);
-			s_retired[i] = NULL;
-		}
-	}
-	s_state            = kDMCStateQuiescent;
-	s_next_generation  = 1;
-	s_dmc_initialized  = false;
-	// Clear real subscriber vector so stale borrowed-name
-	// pointers from the previous test don't linger across reset.
-	s_subscribers.clear();
-	s_dmc_current_dispatch_index = 0;
-	s_force_next_alloc_failure = false;  // clear across tests
-}
-
-extern "C" uint32_t dmc_testing_state(void) {
-	return (uint32_t)s_state;
-}
-
-extern "C" uint32_t dmc_testing_subscriber_count(void) {
-	return (uint32_t)s_subscribers.size();
-}
-
-// Read-only introspection for the registration-order test. Returns the
-// borrowed name C-string of the
-// subscriber at position idx (NULL if idx >= size). No new state, no
-// new mutex; reuses the existing s_subscribers vector whose single-
-// writer invariant is already established.
-extern "C" const char *dmc_testing_subscriber_name_at(uint32_t idx) {
-	if (idx >= (uint32_t)s_subscribers.size()) {
-		return NULL;
-	}
-	return s_subscribers[idx].name;
-}
-
-extern "C" uint32_t dmc_testing_current_dispatch_index(void) {
-	return s_dmc_current_dispatch_index;
-}
-
-extern "C" void dmc_testing_set_emul_thread(void) {
-	// NOP under TESTING_BUILD - the production thread-identity assertion
-	// is gated out in test builds. The symbol exists so concurrent-writer
-	// tests can document intent ("this thread is the synthetic emul-thread
-	// for this run") without leaking cross-build thread-identity state
-	// into the controller.
-}
-
-extern "C" uint64_t dmc_testing_retired_count(void) {
-	std::lock_guard<std::mutex> guard(s_write_mutex);
-	uint64_t n = 0;
-	for (int i = 0; i < 2; ++i) {
-		if (s_retired[i] != NULL) {
-			n++;
-		}
-	}
-	return n;
-}
-
-// Arm the one-shot allocation-failure injector. The flag
-// persists ONLY until the next snapshot allocation consumes it (see
-// dmc_testing_alloc_snapshot / dmc_testing_alloc_raw_snapshot wrappers).
-// Serialized via s_write_mutex so an armed flag is not lost to a concurrent
-// reset or parallel writer.
-extern "C" void dmc_testing_force_next_alloc_failure(void) {
-	std::lock_guard<std::mutex> guard(s_write_mutex);
-	s_force_next_alloc_failure = true;
-}
-
-// Introspection. Returns the current (not cleared)
-// flag value so tests can assert the one-shot semantics: armed by
-// dmc_testing_force_next_alloc_failure, cleared after a single consuming
-// allocation call.
-extern "C" bool dmc_testing_would_next_alloc_fail(void) {
-	std::lock_guard<std::mutex> guard(s_write_mutex);
-	return s_force_next_alloc_failure;
-}
-#endif /* TESTING_BUILD */

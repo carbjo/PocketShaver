@@ -410,15 +410,6 @@ extern "C" void gfxaccel_resources_clear_buffer_owner(void *buffer)
 	}
 }
 
-#ifdef TESTING_BUILD
-extern "C" void gfxaccel_resources_testing_reset_buffer_owner_map(void)
-{
-	for (uint32_t i = 0; i < GFXRES_OWNER_MAP_CAP; ++i) {
-		s_owner_map[i].buffer    = NULL;
-		s_owner_map[i].engine_id = 0;
-	}
-}
-#endif
 
 // Owner-map clear helper invoked by the shutdown path.
 // File-local (static) — outside the TESTING_BUILD block so production
@@ -442,26 +433,6 @@ static void gfxres_clear_owner_map_on_shutdown(void)
 
 int s_nqd_fb_drop_count = 0;
 
-#ifdef TESTING_BUILD
-extern "C" int dsp_testing_get_nqd_fb_drop_count(void)
-{
-	return s_nqd_fb_drop_count;
-}
-
-extern "C" void dsp_testing_reset_nqd_fb_drop_count(void)
-{
-	s_nqd_fb_drop_count = 0;
-}
-
-/*
- * NQD-side alias. Both names target the same storage so the coexistence
- * tests can query via whichever surface they prefer.
- */
-extern "C" int NQDTesting_GetFramebufferDropCount(void)
-{
-	return s_nqd_fb_drop_count;
-}
-#endif
 
 // ---------------------------------------------------------------------------
 // Background/Foreground lifecycle

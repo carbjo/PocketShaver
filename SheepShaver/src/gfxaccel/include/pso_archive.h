@@ -115,32 +115,6 @@ uint32_t pso_archive_is_available(void);
 void pso_archive_set_on_descriptor(void *descriptor);
 
 /* --- TESTING_BUILD introspection --- */
-#ifdef TESTING_BUILD
-
-/*
- * Returns 1 if pso_archive_init() has completed (regardless of
- * whether an archive is loaded), 0 otherwise.
- */
-uint32_t pso_archive_testing_is_initialized(void);
-
-/*
- * Full teardown + reset for test isolation.
- */
-void pso_archive_testing_reset(void);
-
-/*
- * Capture all stock PSO descriptors into a binary archive and
- * serialize to output_path.
- *
- * Scope: Compositor (depth-variant fragment passes) +
- * NQD (2 compute kernels) stock descriptors only. RAVE and GL
- * PSO descriptors will be added later.
- *
- * Returns 0 on success, negative error code on failure.
- */
-int32_t pso_archive_testing_capture_stock(const char *output_path);
-
-#endif /* TESTING_BUILD */
 
 #ifdef __cplusplus
 }

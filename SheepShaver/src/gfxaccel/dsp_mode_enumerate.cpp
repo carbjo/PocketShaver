@@ -301,33 +301,6 @@ extern "C" int32_t DSpGetFirstContextHandler(uint32_t displayID,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD helper: host-ptr wrapper around the core logic.
- *  Side-steps the EMULATED_PPC=0 Mac-address SEGV on arm64 iOS simulator
- *  when the fake RAM mmap lands above 4 GiB. displayID is implicit 0
- *  (main display).
- */
-extern "C" int32_t DSpTesting_GetFirstContextByStruct(uint32_t *outContextRef)
-{
-	if (outContextRef == nullptr) return kDSpInvalidAttributesErr;
-	return DSpGetFirstContext_Core(outContextRef);
-}
-
-/*
- *  Host-ptr wrapper that takes an explicit displayID, mirroring
- *  DSpGetFirstContextHandler's full validation surface. Used by
- *  DSpModeTests to confirm the lifted single-screen policy accepts non-zero
- *  Display-Manager IDs (e.g. 256, captured from The Sims UAT).
- */
-extern "C" int32_t DSpTesting_GetFirstContextByStructWithDisplayID(
-    uint32_t displayID, uint32_t *outContextRef)
-{
-	if (outContextRef == nullptr) return kDSpInvalidAttributesErr;
-	(void)displayID;  /* lifted policy: any displayID maps to single screen */
-	return DSpGetFirstContext_Core(outContextRef);
-}
-#endif
 
 /* =========================================================================
  *  DSpGetNextContext (sub-opcode 203).
@@ -491,28 +464,6 @@ extern "C" int32_t DSpGetNextContextHandler(uint32_t prevCtxRef,
 	return rc;
 }
 
-#ifdef TESTING_BUILD
-/* Twin of DSpTesting_GetFirstContextByStructWithDisplayID.
- * Side-steps EMULATED_PPC=0 simulator SEGV by taking a host
- * uint32_t* instead of round-tripping through WriteMacInt32.
- *
- * Debug session `dsp-sims-enumeration-stall` fix (2026-04-19): delegates
- * to DSpGetNextContext_Core so the enumeration cursor advancement logic
- * is byte-identical to the production Mac-memory path. Pre-fix this
- * returned kDSpContextNotFoundErr unconditionally (stub terminator). */
-extern "C" int32_t DSpTesting_GetNextContext(uint32_t prevCtxRef,
-                                              uint32_t *outContextRef)
-{
-	if (outContextRef == nullptr) return kDSpInvalidAttributesErr;
-	int32_t rc = DSpGetNextContext_Core(prevCtxRef, outContextRef);
-	/* For kDSpInvalidContextErr leave *outContextRef untouched (same
-	 * convention as handler path); both kDSpNoErr and
-	 * kDSpContextNotFoundErr write the result (including the 0
-	 * terminator for NotFound). Caller must initialize *outContextRef
-	 * before the call if it cares about that case. */
-	return rc;
-}
-#endif
 
 /* =========================================================================
  *  DSpFindBestContext (sub-opcode 201).
@@ -810,80 +761,3 @@ extern "C" int32_t DSpFindBestContextHandler(uint32_t attrAddr,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD helper — twin of
- *  DSpTesting_GetFirstContextByStruct. Takes a host-struct request and
- *  returns the allocated context handle via *outContextRef.  Bypasses
- *  ReadMacInt* / WriteMacInt32 so the above-4GiB scratch SEGV on arm64
- *  iOS simulator can't trip the test.
- *
- *  DSpTesting_FindBestContextByStruct semantics match
- *  DSpFindBestContextHandler exactly: same result codes, same Core body
- *  via DSpFindBestContext_Core, same AllocAndWriteBack helper. Only the
- *  Mac-memory round-trip is elided.
- */
-extern "C" int32_t DSpTesting_FindBestContextByStruct(
-    const DSpContextAttributes *req, uint32_t *outContextRef)
-{
-	if (req == nullptr || outContextRef == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-
-	const DSpContextAttributes *best = DSpFindBestContext_Core(req);
-	if (best == nullptr) {
-		return kDSpContextNotFoundErr;
-	}
-
-	uint32_t handle = 0;
-	if (!DSpFindBestContext_AllocAndWriteBack(best, &handle)) {
-		return kDSpInternalErr;
-	}
-
-	*outContextRef = handle;
-	return kDSpNoErr;
-}
-
-/*
- *  TESTING_BUILD helpers — direct seed / clear of s_dsp_modes.
- *
- *  PocketShaverTests does not link video.cpp; the PSRAVEStubs.mm VModes[]
- *  stub has one DIS_INVALID terminator entry so DSpBuildModesFromVModes()
- *  produces an empty s_dsp_modes vector. FindBest tests that exercise
- *  Tier 1/2/3 fallback behavior (rather than Tier 0 empty-cache
- *  rejection) need a populated cache. These helpers are the minimal seam
- *  that lets a test install a host-constructed mode list directly.
- *
- *  Threading: same single-writer emul-thread contract as the production
- *  builder. Tests that call these are main-thread XCTest; no emul thread.
- *
- *  Sort discipline: matches DSpBuildModesFromVModes stable_sort
- *  on (depth asc, width asc, height asc) so Tier 2 Fallback A/B behavior
- *  is deterministic across runs.
- */
-extern "C" void dsp_testing_seed_modes(const DSpContextAttributes *modes,
-                                        size_t count)
-{
-	s_dsp_modes.clear();
-	if (modes == nullptr || count == 0) {
-		return;
-	}
-	s_dsp_modes.reserve(count);
-	for (size_t i = 0; i < count; i++) {
-		s_dsp_modes.push_back(modes[i]);
-	}
-	std::stable_sort(s_dsp_modes.begin(), s_dsp_modes.end(),
-		[](const DSpContextAttributes &a, const DSpContextAttributes &b) {
-			if (a.backBufferBestDepth != b.backBufferBestDepth)
-				return a.backBufferBestDepth < b.backBufferBestDepth;
-			if (a.displayWidth != b.displayWidth)
-				return a.displayWidth < b.displayWidth;
-			return a.displayHeight < b.displayHeight;
-		});
-}
-
-extern "C" void dsp_testing_clear_modes(void)
-{
-	DSpClearModes();
-}
-#endif

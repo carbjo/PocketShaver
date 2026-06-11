@@ -181,22 +181,6 @@ static bool                     s_overlay_cache_valid = false;
 static struct CompositeLayer    s_overlay_cache_layer;
 static id<MTLTexture>           s_overlay_cache_tex   = nil;
 
-#ifdef TESTING_BUILD
-static void                          *s_test_next_render_target = NULL;
-
-/* TESTING_BUILD-only SubmitFrame counter storage. Plain uint64_t:
- * TESTING_BUILD test paths invoke SubmitFrame from the test runner
- * thread only; the counter is monotonic + read-mostly +
- * single-thread-invoked under test. This primitive does NOT appear in
- * production builds.
- *
- * The storage + read/reset helpers live HERE because the
- * PocketShaverTests target compiles metal_compositor_submitframe.mm but
- * NOT metal_compositor.mm. Co-locating the symbols in the test-built TU
- * avoids the undefined-symbol link failure that the counter-instrumented
- * tests would otherwise hit. */
-static uint64_t g_testing_submitframe_count = 0;
-#endif
 
 // ---------------------------------------------------------------------------
 // submitframe_build_pipelines - lazy one-time PSO cache
@@ -698,9 +682,6 @@ extern "C" void MetalCompositorSubmitFrame_UnbindPresentationContext(void)
     }
     for (int i = 0; i < 3; ++i) s_pipe_for_blend[i] = nil;
     s_pipe_display_premultiplied = nil;
-#ifdef TESTING_BUILD
-    s_test_next_render_target = NULL;
-#endif
     s_device  = nil;
     s_queue   = nil;
     s_layer   = nil;
@@ -716,25 +697,6 @@ extern "C" void MetalCompositorSubmitFrame_UnbindPresentationContext(void)
     os_unfair_lock_unlock(&s_overlay_cache_lock);
 }
 
-#ifdef TESTING_BUILD
-extern "C" void MetalCompositorTesting_SetNextRenderTarget(void *offscreen_texture)
-{
-    s_test_next_render_target = offscreen_texture;
-}
-
-extern "C" int MetalCompositorTesting_InitHeadless(void *device, void *queue)
-{
-    /* Headless mode: no CAMetalLayer. Delegate to the bind-path but pass
-     * NULL for the layer - SubmitFrame callers MUST pair with
-     * MetalCompositorTesting_SetNextRenderTarget before every call. */
-    return MetalCompositorSubmitFrame_BindPresentationContext(device, queue, NULL);
-}
-
-extern "C" void MetalCompositorTesting_ShutdownHeadless(void)
-{
-    MetalCompositorSubmitFrame_UnbindPresentationContext();
-}
-#endif /* TESTING_BUILD */
 
 // ---------------------------------------------------------------------------
 // MetalCompositorSubmitFrame - public entry point
@@ -770,13 +732,6 @@ extern "C" int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc
         }
     }
 
-#ifdef TESTING_BUILD
-    /* TESTING_BUILD single-thread invocation invariant; plain uint64_t.
-     * Counted AFTER the cheap validation early-returns so a well-formed
-     * descriptor is the precondition for the increment. Storage is
-     * defined near the top of this file. */
-    g_testing_submitframe_count++;
-#endif
 
     // 2. Stale-generation rejection (cheap atomic load; closes the UAF
     //    under subscriber-reject rollback).
@@ -819,149 +774,9 @@ extern "C" int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc
     //    with an explicit SetNextRenderTarget has a place to encode to,
     //    and those tests rely on the composited output for byte-level
     //    readback.
-#ifdef TESTING_BUILD
-    if (s_test_next_render_target == NULL) {
-        /* Headless test without a render target: treat as cache-only
-         * success (validation gates passed, no GPU work to do).  This
-         * mirrors production behavior so contract tests that don't set
-         * a render target still return kGfxAccelNoErr. */
-        return kGfxAccelNoErr;
-    }
-#else
     /* Production: Present is the sole drawable owner.  Cache is populated,
      * nothing more to do.  No semaphore consumed -- we do no GPU work. */
     return kGfxAccelNoErr;
-#endif
 
-#ifdef TESTING_BUILD
-    // 6. TESTING_BUILD encode path (runs only when SetNextRenderTarget
-    //    was armed).  Wait on the inflight gate (tests use this to
-    //    serialize the burst test), encode all layers into the supplied
-    //    offscreen target, commit with a completion-handler signal; no
-    //    presentDrawable call because there is no drawable.
-    dispatch_semaphore_wait(s_inflight_semaphore, DISPATCH_TIME_FOREVER);
-
-    @autoreleasepool {
-        id<MTLTexture> render_target = (__bridge id<MTLTexture>)s_test_next_render_target;
-        s_test_next_render_target = NULL;   /* one-shot */
-
-        // Build render pass targeting the test offscreen texture.
-        MTLRenderPassDescriptor *passDesc = [MTLRenderPassDescriptor renderPassDescriptor];
-        passDesc.colorAttachments[0].texture     = render_target;
-        passDesc.colorAttachments[0].loadAction  = MTLLoadActionClear;
-        passDesc.colorAttachments[0].clearColor  = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
-        passDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
-
-        id<MTLCommandBuffer> cmdBuf = [s_queue commandBuffer];
-        if (!cmdBuf) {
-            dispatch_semaphore_signal(s_inflight_semaphore);
-            return kGfxAccelErrPipelineUnavailable;
-        }
-
-        id<MTLRenderCommandEncoder> enc = [cmdBuf renderCommandEncoderWithDescriptor:passDesc];
-        if (!enc) {
-            dispatch_semaphore_signal(s_inflight_semaphore);
-            return kGfxAccelErrPipelineUnavailable;
-        }
-
-        // Strict slot order (Underlay -> Framebuffer -> Overlay); same-slot
-        // entries composite in submission order.  Engine-blind.
-        for (int slot = (int)kLayerSlotUnderlay; slot < (int)kLayerSlotCount; ++slot) {
-            for (uint32_t i = 0; i < desc->layer_count; ++i) {
-                if ((int)desc->layers[i].slot == slot) {
-                    submitframe_encode_layer(enc, &desc->layers[i]);
-                }
-            }
-        }
-
-        [enc endEncoding];
-
-        // Signal on GPU completion. __block retain avoids a strong capture cycle.
-        __block dispatch_semaphore_t block_sem = s_inflight_semaphore;
-        [cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull __unused cb) {
-            dispatch_semaphore_signal(block_sem);
-        }];
-
-        [cmdBuf commit];
-    }
-
-    return kGfxAccelNoErr;
-#endif
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD read/reset helpers for the VBL-publish-shim counter
- *  test. Plain uint64_t storage (see the g_testing_submitframe_count
- *  definition near the top of this file); helpers + storage colocated in
- *  the test-built TU (PocketShaverTests links
- *  metal_compositor_submitframe.mm but NOT metal_compositor.mm).
- */
-extern "C" uint64_t DSpTesting_GetSubmitFrameCount(void)
-{
-    return g_testing_submitframe_count;
-}
-
-extern "C" void DSpTesting_ResetSubmitFrameCount(void)
-{
-    g_testing_submitframe_count = 0;
-}
-
-/*
- *  Golden-PNG capture helper.
- *
- *  Snapshot the compositor's last-published framebuffer texture into a
- *  caller-owned BGRA8888 byte buffer + width/height out-params. Callers
- *  (Swift tests in DSpClassicPatternRenderingTests) free the returned
- *  buffer via free(3) after readback.
- *
- *  Wraps MetalCompositorGetFramebufferTexture() (which returns an
- *  id<MTLTexture> via void*) and uses [tex getBytes:] for the BGRA8Unorm
- *  readback. On the iOS simulator the framebuffer texture is Shared
- *  storage (CompositorTesting_MakeSolidTexture publishes a Shared-storage
- *  texture in DSpTestEnvironment init), so getBytes succeeds without
- *  needing an intermediate blit. Returns NULL buffer + 0 width/height on
- *  any failure (NULL texture, non-Shared storage, malloc failure).
- */
-extern "C" void DSpTesting_CaptureCompositorOutput(uint8_t **out_bytes,
-                                                    uint32_t *out_width,
-                                                    uint32_t *out_height)
-{
-    if (out_bytes == NULL || out_width == NULL || out_height == NULL) return;
-    *out_bytes  = NULL;
-    *out_width  = 0;
-    *out_height = 0;
-
-    void *fb_tex_raw = MetalCompositorGetFramebufferTexture();
-    if (fb_tex_raw == NULL) return;
-
-    @autoreleasepool {
-        id<MTLTexture> tex = (__bridge id<MTLTexture>)fb_tex_raw;
-        NSUInteger w = tex.width;
-        NSUInteger h = tex.height;
-        if (w == 0 || h == 0) return;
-
-        /* Shared storage required for getBytes. Test environments use
-         * Shared-storage framebuffer textures (CompositorTesting_MakeSolidTexture
-         * + DSpTestEnvironment); production CAMetalLayer drawables are
-         * not reachable via this helper but unit tests do not run
-         * against the live drawable. */
-        if (tex.storageMode != MTLStorageModeShared) return;
-
-        const NSUInteger row_bytes = w * 4u;
-        const NSUInteger total = row_bytes * h;
-        uint8_t *buf = (uint8_t *)malloc(total);
-        if (buf == NULL) return;
-
-        MTLRegion region = MTLRegionMake2D(0, 0, w, h);
-        [tex getBytes:buf
-           bytesPerRow:row_bytes
-            fromRegion:region
-           mipmapLevel:0];
-
-        *out_bytes  = buf;
-        *out_width  = (uint32_t)w;
-        *out_height = (uint32_t)h;
-    }
-}
-#endif /* TESTING_BUILD */

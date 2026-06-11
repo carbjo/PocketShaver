@@ -284,57 +284,6 @@ int32_t gfxaccel_rave_ring_submission_near_exhaustion(void);
 void *gfxaccel_rave_ring_buffer_ptr(void);
 
 /* --- TESTING_BUILD introspection --- */
-#ifdef TESTING_BUILD
-
-/*
- * Returns 1 if gfxaccel_resources_heap_init() has completed and
- * shutdown has not reset, 0 otherwise.
- */
-uint32_t gfxaccel_heap_testing_is_initialized(void);
-
-/*
- * Returns the count of non-nil heaps currently alive.
- */
-uint32_t gfxaccel_heap_testing_heap_count(void);
-
-/*
- * Returns the number of entries in the PSO cache.
- */
-uint32_t gfxaccel_heap_testing_pso_cache_count(void);
-
-/*
- * Full teardown + reset for test isolation.
- */
-void gfxaccel_heap_testing_reset(void);
-
-/*
- * Override the ceiling for a specific heap_id (bytes). Pass 0 to
- * restore the default ceiling. Used by tests to pin a small budget.
- */
-void gfxaccel_heap_testing_set_ceiling(uint32_t heap_id, uint32_t bytes);
-
-/*
- * Bump-allocator introspection hooks.
- *
- * gfxaccel_heap_testing_next_offset: returns the current per-heap bump
- * offset (advances on each alloc; reset on DMC on_mode_exit / shutdown).
- *
- * gfxaccel_heap_testing_heap_size: returns the heap's size in bytes
- * (matches the testing ceiling if set; otherwise the default ceiling).
- *
- * gfxaccel_heap_testing_is_placement: returns 1 if the heap was created
- * with MTLHeapTypePlacement, 0 if Automatic, -1 if the heap has not
- * been created yet. Used to assert the iOS-17 Placement gate fired.
- *
- * gfxaccel_heap_testing_live_allocations: returns the current live
- * sub-allocation count for the heap.
- */
-uint64_t gfxaccel_heap_testing_next_offset(uint32_t heap_id);
-uint64_t gfxaccel_heap_testing_heap_size(uint32_t heap_id);
-int32_t  gfxaccel_heap_testing_is_placement(uint32_t heap_id);
-uint32_t gfxaccel_heap_testing_live_allocations(uint32_t heap_id);
-
-#endif /* TESTING_BUILD */
 
 #ifdef __cplusplus
 }

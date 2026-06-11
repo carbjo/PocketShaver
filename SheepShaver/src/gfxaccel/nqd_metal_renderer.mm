@@ -124,59 +124,6 @@ static id<MTLBuffer>              nqd_ram_buffer   = nil;
 static uint8                     *nqd_ram_base     = nullptr; // host pointer that corresponds to Metal buffer start
 static uint32                     nqd_ram_size     = 0;       // size of the Metal buffer (== RAMSize)
 
-#ifdef TESTING_BUILD
-// ---------------------------------------------------------------------------
-// Test-only device/queue override.
-//
-// When TESTING_BUILD is defined (ONLY on the PocketShaverTests target —
-// never on the production app target), tests may inject their own
-// per-test id<MTLDevice> + id<MTLCommandQueue> by calling
-// NQDTesting_SetDevice() BEFORE NQDMetalInit().  NQDMetalInit() then
-// uses the injected pair instead of SharedMetalDevice() /
-// SharedMetalCommandQueue().  NQDTesting_Reset() clears all file-static
-// state between tests so each XCTestCase starts with a fresh slate.
-//
-// NQDTesting_SetBundle() lets tests inject the
-// NSBundle that `newDefaultLibrary` should load `default.metallib` from.
-// Under xctest without a host app, `[MTLDevice newDefaultLibrary]` looks
-// at NSBundle.mainBundle, which is the `xctest` runner — NOT the
-// `.xctest` bundle that actually contains `default.metallib`.  Tests
-// pass `[NSBundle bundleForClass:[<TestClass> class]]` to resolve the
-// real test bundle; NQDMetalInit then uses
-// `newDefaultLibraryWithBundle:` when the override is non-nil.
-//
-// Production builds (TESTING_BUILD undefined) do not see these symbols;
-// the preprocessor drops the entire block.
-// ---------------------------------------------------------------------------
-static id<NSObject> nqd_testing_bundle = nil;
-
-extern "C" void NQDTesting_SetDevice(void *device, void *queue)
-{
-	nqd_device = (__bridge id<MTLDevice>)device;
-	nqd_queue  = (__bridge id<MTLCommandQueue>)queue;
-}
-
-extern "C" void NQDTesting_SetBundle(void *bundle)
-{
-	nqd_testing_bundle = (__bridge id<NSObject>)bundle;
-}
-
-extern "C" void NQDTesting_Reset(void)
-{
-	nqd_metal_available        = false;
-	nqd_device                 = nil;
-	nqd_queue                  = nil;
-	nqd_bitblt_pipeline        = nil;
-	nqd_bitblt_scaled_pipeline = nil;  // clear the scaled pipeline too so test
-	                                   // isolation is complete — production
-	                                   // NQDMetalCleanup already clears it.
-	nqd_fillrect_pipeline      = nil;
-	nqd_ram_buffer             = nil;
-	nqd_ram_base               = nullptr;
-	nqd_ram_size               = 0;
-	nqd_testing_bundle         = nil;
-}
-#endif /* TESTING_BUILD */
 
 // ---------------------------------------------------------------------------
 // Batched command encoding state
@@ -389,60 +336,15 @@ static inline uint32_t nqd_uniform_pen_for_depth(uint32_t logical_pen, uint32_t 
 // port's GrafVars handle is genuinely unreachable (port==0 / OOB / basic
 // GrafPort), and only with a logged NQD_LOG message — never silently.
 // ---------------------------------------------------------------------------
-#ifdef TESTING_BUILD
-// Test-only seams for the two raw lowmem reads in the blend path.
-// Under EMULATED_PPC=0 (the test build) ReadMacInt32/16 are raw host-pointer
-// dereferences, so reading guest lowmem addresses 0x0916 (thePort) and 0x0A28
-// (OpColor scalar) would data-fault (the EMULATED_PPC=0
-// caveat documented at the non-blend zero-set sites). These seams let the
-// headless logic gate inject a fake thePort (which may point INTO the
-// fake RAM so steps 3-5 of the walk run for real) and a fake 0x0A28 scalar.
-// Production builds (TESTING_BUILD undefined) never see these; the raw lowmem
-// reads are used directly and are safe because ReadMacInt* maps guest memory.
-static bool     nqd_test_lowmem_override   = false;
-static uint32_t nqd_test_theport_0x0916    = 0;
-static uint16_t nqd_test_opcolor_0x0A28    = 0;
-
-extern "C" void NQDTesting_SetLowmemOverride(int enable,
-                                             uint32_t theport_0x0916,
-                                             uint16_t opcolor_0x0A28)
-{
-    nqd_test_lowmem_override = (enable != 0);
-    nqd_test_theport_0x0916  = theport_0x0916;
-    nqd_test_opcolor_0x0A28  = opcolor_0x0A28;
-}
-#endif /* TESTING_BUILD */
 
 static inline uint16_t nqd_read_lowmem_opcolor_scalar()
 {
-#ifdef TESTING_BUILD
-    if (nqd_test_lowmem_override) return nqd_test_opcolor_0x0A28;
-    // Under EMULATED_PPC=0 (the test build) ReadMacInt16(0x0A28) is
-    // a literal host-pointer deref of unmapped lowmem (SIGSEGV). Every
-    // *_WithHost dispatch reaches this via the unconditional blend walk.
-    // With no override set, return 0 — the safe headless default (no OpColor
-    // weight). Production (TESTING_BUILD undefined) keeps the real read below.
-    return 0;
-#else
     return (uint16_t)ReadMacInt16(0x0A28);
-#endif
 }
 
 static inline uint32_t nqd_read_lowmem_theport()
 {
-#ifdef TESTING_BUILD
-    if (nqd_test_lowmem_override) return nqd_test_theport_0x0916;
-    // Under EMULATED_PPC=0 ReadMacInt32(0x0916) is a raw host-ptr
-    // deref of unmapped fake-RAM lowmem (deterministic SIGSEGV). Every
-    // *_WithHost dispatch hits this through the unconditional blend
-    // walk in NQDMetalBitblt_WithHost. With no override set, return 0 (thePort
-    // == 0) — nqd_read_rgb_op_color() then takes the safe lowmem-0x0A28
-    // fallback, which is itself overridden/zeroed above. Production
-    // (TESTING_BUILD undefined) keeps the real read below.
-    return 0;
-#else
     return ReadMacInt32(0x0916);
-#endif
 }
 
 // In-RAM walk reads for nqd_read_rgb_op_color() Steps 2-5. Under production
@@ -455,23 +357,11 @@ static inline uint32_t nqd_read_lowmem_theport()
 // (PSFakeMacRAM / *_WithHost) — so the GrafVars walk is exercisable headlessly.
 static inline uint16_t nqd_walk_read16(uint32_t mac_addr)
 {
-#ifdef TESTING_BUILD
-    if (nqd_test_lowmem_override && RAMBaseHost &&
-        mac_addr >= RAMBase && (mac_addr - RAMBase) < RAMSize) {
-        return *(const uint16_t *)(RAMBaseHost + (mac_addr - RAMBase));
-    }
-#endif
     return (uint16_t)ReadMacInt16(mac_addr);
 }
 
 static inline uint32_t nqd_walk_read32(uint32_t mac_addr)
 {
-#ifdef TESTING_BUILD
-    if (nqd_test_lowmem_override && RAMBaseHost &&
-        mac_addr >= RAMBase && (mac_addr - RAMBase) < RAMSize) {
-        return *(const uint32_t *)(RAMBaseHost + (mac_addr - RAMBase));
-    }
-#endif
     return ReadMacInt32(mac_addr);
 }
 
@@ -732,23 +622,6 @@ static inline NQDRgbOpColor nqd_read_rgb_op_color()
     return out;
 }
 
-#ifdef TESTING_BUILD
-// Headless gate hook: exposes the per-channel rgbOpColor walk
-// (and its logged lowmem 0x0A28 fallback) to NQDTransferModeTests so the
-// 3-channel / fallback behaviour can be asserted on a host with no GPU (the
-// headless logic gate). Forward-declared in the test as
-// `extern "C" void NQDTesting_ReadRgbOpColor(uint32_t *r, uint32_t *g,
-// uint32_t *b)`. Thin forwarder so the static-inline helper need not be
-// exported. Defined AFTER nqd_read_rgb_op_color() (use-after-declaration).
-extern "C" void NQDTesting_ReadRgbOpColor(uint32_t *out_r, uint32_t *out_g,
-                                          uint32_t *out_b)
-{
-	NQDRgbOpColor op = nqd_read_rgb_op_color();
-	if (out_r) *out_r = op.r;
-	if (out_g) *out_g = op.g;
-	if (out_b) *out_b = op.b;
-}
-#endif /* TESTING_BUILD */
 
 // ---------------------------------------------------------------------------
 // Helper: bytes per pixel
@@ -942,28 +815,6 @@ void NQDMetalInit(void)
 {
     NQD_LOG("NQDMetalInit: starting");
 
-#ifdef TESTING_BUILD
-    // Test injection path: if the test has already called
-    // NQDTesting_SetDevice(), honour the injected pair.  Otherwise fall
-    // back to the shared singletons so legacy smoke tests still work.
-    if (!nqd_device) {
-        nqd_device = (__bridge id<MTLDevice>)SharedMetalDevice();
-    }
-    if (!nqd_device) {
-        NQD_ERR("NQDMetalInit: no injected device + SharedMetalDevice failed — no Metal GPU");
-        return;
-    }
-    NQD_LOG("NQDMetalInit: device=%p (%s)", nqd_device, [[nqd_device name] UTF8String]);
-
-    if (!nqd_queue) {
-        nqd_queue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
-    }
-    if (!nqd_queue) {
-        NQD_ERR("NQDMetalInit: no injected queue + SharedMetalCommandQueue failed");
-        nqd_device = nil;
-        return;
-    }
-#else
     // Production path (TESTING_BUILD undefined): always use shared singletons.
     nqd_device = (__bridge id<MTLDevice>)SharedMetalDevice();
     if (!nqd_device) {
@@ -979,32 +830,10 @@ void NQDMetalInit(void)
         nqd_device = nil;
         return;
     }
-#endif /* TESTING_BUILD */
 
     // Load shader library (compiled into app bundle as default metallib)
     id<MTLLibrary> library = nil;
-#ifdef TESTING_BUILD
-    if (nqd_testing_bundle) {
-        // Under xctest (no host app), NSBundle.mainBundle is the `xctest`
-        // runner, not the `.xctest` bundle that actually contains
-        // `default.metallib`.  Tests call NQDTesting_SetBundle() with
-        // `[NSBundle bundleForClass:<TestClass>]` to direct the loader
-        // at the right bundle.
-        NSError *libErr = nil;
-        NSBundle *bundle = (NSBundle *)nqd_testing_bundle;
-        library = [nqd_device newDefaultLibraryWithBundle:bundle error:&libErr];
-        if (!library) {
-            NQD_ERR("NQDMetalInit: newDefaultLibraryWithBundle:%s failed: %s",
-                    [[bundle bundlePath] UTF8String],
-                    libErr ? [[libErr localizedDescription] UTF8String] : "(no error)");
-        }
-    }
-    if (!library) {
-        library = [nqd_device newDefaultLibrary];
-    }
-#else
     library = [nqd_device newDefaultLibrary];
-#endif
     if (!library) {
         NQD_ERR("NQDMetalInit: newDefaultLibrary failed — no .metallib in bundle");
         nqd_queue = nil;
@@ -1119,42 +948,10 @@ static inline bool nqd_is_pixel_mode(uint32_t mode)
 // framebuffer byte order (big-endian packed via htonl pattern).
 // ---------------------------------------------------------------------------
 
-#ifdef TESTING_BUILD
-// Test-only seam for the HiliteRGB lowmem read. Under EMULATED_PPC=0 (the test
-// build) ReadMacInt16 is a raw host-pointer dereference, so reading guest lowmem
-// 0x0DA0/0x0DA2/0x0DA4 (HiliteRGB) would data-fault (same EMULATED_PPC=0 caveat
-// as the thePort/OpColor seam above). This lets the
-// one-directional-hilite pixel gate inject a known HiliteRGB so u.hilite_color
-// is deterministic. Production builds never see this; the raw lowmem reads are
-// used directly and are safe because ReadMacInt* maps guest memory.
-static bool     nqd_test_hilite_override = false;
-static uint16_t nqd_test_hilite_r        = 0;
-static uint16_t nqd_test_hilite_g        = 0;
-static uint16_t nqd_test_hilite_b        = 0;
-
-extern "C" void NQDTesting_SetHiliteOverride(int enable,
-                                             uint16_t r, uint16_t g, uint16_t b)
-{
-    nqd_test_hilite_override = (enable != 0);
-    nqd_test_hilite_r = r;
-    nqd_test_hilite_g = g;
-    nqd_test_hilite_b = b;
-}
-#endif /* TESTING_BUILD */
 
 static uint32_t nqd_pack_hilite_color(int bpp)
 {
     uint16 r16, g16, b16;
-#ifdef TESTING_BUILD
-    if (nqd_test_hilite_override) {
-        // SHORT-CIRCUIT the raw lowmem reads: under EMULATED_PPC=0 a raw
-        // ReadMacInt16(0x0DA0) is a literal host-pointer deref and would
-        // data-fault. The injected HiliteRGB stands in for the lowmem read.
-        r16 = nqd_test_hilite_r;
-        g16 = nqd_test_hilite_g;
-        b16 = nqd_test_hilite_b;
-    } else
-#endif
     {
         r16 = (uint16)ReadMacInt16(0x0DA0);
         g16 = (uint16)ReadMacInt16(0x0DA2);
@@ -2525,273 +2322,6 @@ bool NQDMetalBitbltScaled(uint32 src_base, int32 src_row_bytes,
 // For arithmetic modes (32-39) and hilite (50), dispatches per-pixel threads.
 // ---------------------------------------------------------------------------
 
-#ifdef TESTING_BUILD
-// ---------------------------------------------------------------------------
-// NQDMetalFillRect_WithHost — test-only entry that reads accl_params via
-// the host pointer instead of the Mac-address ABI.
-//
-// Rationale: under EMULATED_PPC=0 on iOS
-// simulator, RAMBaseHost lives above 4 GiB, so ReadMacInt*(mac_addr)
-// (which under EMULATED_PPC=0 is literally *(uint16 *)(uintptr_t)mac_addr)
-// data-faults.  Production builds use EMULATED_PPC=1 with a vm_read
-// translation layer and are unaffected.  This helper accepts a
-// host-side pointer to the accl_params struct and resolves the
-// dest_base Mac address to a host pointer via RAMBase/RAMBaseHost
-// arithmetic.  It dispatches to the same Metal fillrect pipeline the
-// production path uses, so the test exercises the real kernel.
-//
-// Declared extern "C" for linker-symbol parity with the other
-// NQDTesting_* hooks.
-// ---------------------------------------------------------------------------
-
-extern "C" void NQDMetalFillRect_WithHost(void *accl_params_host)
-{
-    if (!nqd_metal_available) return;
-    if (!accl_params_host) return;
-
-    const uint8_t *ph = (const uint8_t *)accl_params_host;
-
-    // Raw host-side reads — accl_params was written by PSFakeMacRAM in
-    // host-native byte order (little-endian on arm64 iOS simulator),
-    // matching the EMULATED_PPC=0 ReadMacInt* pointer-cast semantics.
-    auto r16 = [](const uint8_t *b, size_t o) -> int16 { return (int16)(*(const uint16_t *)(b + o)); };
-    auto r32 = [](const uint8_t *b, size_t o) -> uint32 { return *(const uint32_t *)(b + o); };
-
-    int16 dest_X = r16(ph, NQD_acclDestRect + 2) - r16(ph, NQD_acclDestBoundsRect + 2);
-    int16 dest_Y = r16(ph, NQD_acclDestRect + 0) - r16(ph, NQD_acclDestBoundsRect + 0);
-    int16 width  = r16(ph, NQD_acclDestRect + 6) - r16(ph, NQD_acclDestRect + 2);
-    int16 height = r16(ph, NQD_acclDestRect + 4) - r16(ph, NQD_acclDestRect + 0);
-
-    if (width <= 0 || height <= 0) return;
-
-    uint32 pixel_size = r32(ph, NQD_acclDestPixelSize);
-    int bpp = nqd_bytes_per_pixel(pixel_size);
-    if (pixel_size < 8) bpp = 1;
-    int32 dest_row_bytes = (int32)r32(ph, NQD_acclDestRowBytes);
-    uint32 dest_base = r32(ph, NQD_acclDestBaseAddr);
-
-    uint32_t transfer_mode = r32(ph, NQD_acclTransferMode);
-    uint32_t pen_mode      = r32(ph, NQD_acclPenMode);
-
-    // Only Metal path is supported in testing — the CPU fast path
-    // (transfer_mode 8-15, total < 4096 px) dereferences Mac2HostAddr
-    // which the caller has already sidestepped by setting
-    // transfer_mode=0 via PSFakeMacRAM_WriteAcclParamsFillRect.
-    uint32_t fore_pen_native = r32(ph, NQD_acclForePen);
-    uint32_t back_pen_native = r32(ph, NQD_acclBackPen);
-    uint32_t fore_pen        = nqd_uniform_pen_for_depth(fore_pen_native, pixel_size);
-    uint32_t back_pen        = nqd_uniform_pen_for_depth(back_pen_native, pixel_size);
-    uint32_t fill_color      = (pen_mode == 8) ? fore_pen_native : back_pen_native;
-
-    uint32 width_bytes  = nqd_packed_width_bytes(width, pixel_size);
-    uint32 width_pixels = (uint32)width;
-
-    bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
-
-    // Resolve dest host pointer via RAMBase/RAMBaseHost arithmetic
-    // (32-bit-ABI-safe even when RAMBaseHost is above 4 GiB).
-    if (dest_base < RAMBase || dest_base - RAMBase >= nqd_ram_size) {
-        NQD_ERR("NQDMetalFillRect_WithHost: dest_base 0x%08x out of mapped RAM [0x%08x..0x%08x]",
-                dest_base, RAMBase, RAMBase + nqd_ram_size);
-        return;
-    }
-    uint32_t dst_offset = (dest_base - RAMBase)
-                        + (uint32_t)(dest_Y * dest_row_bytes)
-                        + nqd_packed_byte_offset(dest_X, pixel_size);
-
-    NQDFillRectUniforms uniforms;
-    uniforms.dst_offset    = dst_offset;
-    uniforms.row_bytes     = dest_row_bytes;
-    uniforms.width_bytes   = width_bytes;
-    uniforms.height        = (uint32_t)height;
-    uniforms.fill_color    = fill_color;
-    uniforms.bpp           = (uint32_t)bpp;
-    uniforms.transfer_mode = transfer_mode;
-    uniforms.pixel_size    = (uint32_t)bpp;
-    uniforms.width_pixels  = width_pixels;
-    uniforms.fore_pen      = fore_pen;
-    uniforms.back_pen      = back_pen;
-    // Mirror the production NQDMetalFillRect path: mode 50 (hilite) must pack
-    // the HiliteRGB to pixel depth so the kernel's one-directional replace
-    // writes the real highlight colour. The prior hardcoded 0
-    // meant this test-only host entry could never exercise mode 50 faithfully.
-    // Safe under EMULATED_PPC=0 because nqd_pack_hilite_color()'s lowmem read
-    // routes through the NQDTesting_SetHiliteOverride seam in the test build.
-    uniforms.hilite_color  = (transfer_mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
-    uniforms.mask_enabled  = 0;
-    uniforms.mask_offset   = 0;
-    uniforms.mask_stride   = 0;
-    uniforms.bits_per_pixel = pixel_size;
-    // Non-blend path — zero all 3 rgbOpColor channels.
-    uniforms.blend_weight_r = 0;
-    uniforms.blend_weight_g = 0;
-    uniforms.blend_weight_b = 0;
-
-    NSUInteger total_threads = (pixel_mode && pixel_size >= 8)
-        ? (NSUInteger)(width_pixels * height)
-        : (NSUInteger)(width_bytes * height);
-
-    id<MTLComputeCommandEncoder> encoder = nqd_get_batch_encoder();
-    if (!encoder) return;
-
-    [encoder setComputePipelineState:nqd_fillrect_pipeline];
-    [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:0];
-    [encoder setBytes:&uniforms length:sizeof(uniforms) atIndex:1];
-    [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:2];  // dummy mask buffer
-
-    NSUInteger threadgroup_size = nqd_fillrect_pipeline.maxTotalThreadsPerThreadgroup;
-    if (threadgroup_size > 256) threadgroup_size = 256;
-    if (threadgroup_size > total_threads) threadgroup_size = total_threads;
-
-    MTLSize grid  = MTLSizeMake(total_threads, 1, 1);
-    MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
-    [encoder dispatchThreads:grid threadsPerThreadgroup:group];
-
-    nqd_batch_did_dispatch();
-}
-
-// ---------------------------------------------------------------------------
-// NQDMetalBitblt_WithHost — test-only entry that reads accl_params via
-// the host pointer instead of the Mac-address ABI.
-//
-// Rationale: under EMULATED_PPC=0 on iOS simulator,
-// RAMBaseHost lives above 4 GiB, so ReadMacInt*(mac_addr) data-faults.
-// The production NQDMetalBitblt reads accl_params via ReadMacInt16/32;
-// this helper accepts a host-side pointer and resolves both src_base
-// and dest_base Mac addresses to host pointers via RAMBase arithmetic.
-// It dispatches to the same production nqd_bitblt Metal compute kernel.
-//
-// Unlike the production path, this ALWAYS takes the Metal path (never
-// the CPU fast-path) — tests want to validate the GPU kernel.
-//
-// Declared extern "C" for linker-symbol parity with the other
-// NQDTesting_* hooks.
-// ---------------------------------------------------------------------------
-
-extern "C" void NQDMetalBitblt_WithHost(void *accl_params_host)
-{
-    if (!nqd_metal_available) return;
-    if (!accl_params_host) return;
-
-    const uint8_t *ph = (const uint8_t *)accl_params_host;
-
-    // Raw host-side reads — accl_params was written by PSFakeMacRAM in
-    // host-native byte order (little-endian on arm64 iOS simulator),
-    // matching the EMULATED_PPC=0 ReadMacInt* pointer-cast semantics.
-    auto r16 = [](const uint8_t *b, size_t o) -> int16 { return (int16)(*(const uint16_t *)(b + o)); };
-    auto r32 = [](const uint8_t *b, size_t o) -> uint32 { return *(const uint32_t *)(b + o); };
-
-    // Extract parameters — mirrors production NQDMetalBitblt (line 950-974)
-    int16 src_X  = r16(ph, NQD_acclSrcRect + 2) - r16(ph, NQD_acclSrcBoundsRect + 2);
-    int16 src_Y  = r16(ph, NQD_acclSrcRect + 0) - r16(ph, NQD_acclSrcBoundsRect + 0);
-    int16 dest_X = r16(ph, NQD_acclDestRect + 2) - r16(ph, NQD_acclDestBoundsRect + 2);
-    int16 dest_Y = r16(ph, NQD_acclDestRect + 0) - r16(ph, NQD_acclDestBoundsRect + 0);
-    int16 width  = r16(ph, NQD_acclDestRect + 6) - r16(ph, NQD_acclDestRect + 2);
-    int16 height = r16(ph, NQD_acclDestRect + 4) - r16(ph, NQD_acclDestRect + 0);
-
-    if (width <= 0 || height <= 0) return;
-
-    uint32 src_pixel_size = r32(ph, NQD_acclSrcPixelSize);
-    int bpp = nqd_bytes_per_pixel(src_pixel_size);
-    if (src_pixel_size < 8) bpp = 1;  // packed depths: byte-level ops
-    uint32 width_bytes  = nqd_packed_width_bytes(width, src_pixel_size);
-    uint32 width_pixels = (uint32)width;
-
-    uint32 src_base      = r32(ph, NQD_acclSrcBaseAddr);
-    uint32 dest_base     = r32(ph, NQD_acclDestBaseAddr);
-    int32 src_row_bytes  = (int32)r32(ph, NQD_acclSrcRowBytes);
-    int32 dest_row_bytes = (int32)r32(ph, NQD_acclDestRowBytes);
-
-    uint32_t transfer_mode = r32(ph, NQD_acclTransferMode);
-    uint32_t fore_pen      = nqd_uniform_pen_for_depth(r32(ph, NQD_acclForePen), src_pixel_size);
-    uint32_t back_pen      = nqd_uniform_pen_for_depth(r32(ph, NQD_acclBackPen), src_pixel_size);
-    // Mirror the production NQDMetalBitblt path: mode 50 (hilite) must pack the
-    // HiliteRGB to pixel depth so the kernel sees the real highlight colour.
-    // Safe under EMULATED_PPC=0 because nqd_pack_hilite_color()'s raw lowmem
-    // read (0x0DA0) routes through the NQDTesting_SetHiliteOverride seam in the
-    // test build — the override SHORT-CIRCUITS the data-faulting deref. The
-    // 1-bit Table 4-2 srcXor revert drives mode 50 at 1bpp through
-    // this entry, so the override is required to exercise it without a fault.
-    // The prior hardcoded 0 meant this host entry could never
-    // reach mode 50 faithfully.
-    uint32_t hilite_color  = (transfer_mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
-    bool pixel_mode        = nqd_is_pixel_mode(transfer_mode);
-
-    // Resolve src_base and dest_base via RAMBase arithmetic
-    // (32-bit-ABI-safe even when RAMBaseHost is above 4 GiB).
-    if (src_base < RAMBase || src_base - RAMBase >= nqd_ram_size) {
-        NQD_ERR("NQDMetalBitblt_WithHost: src_base 0x%08x out of mapped RAM [0x%08x..0x%08x]",
-                src_base, RAMBase, RAMBase + nqd_ram_size);
-        return;
-    }
-    if (dest_base < RAMBase || dest_base - RAMBase >= nqd_ram_size) {
-        NQD_ERR("NQDMetalBitblt_WithHost: dest_base 0x%08x out of mapped RAM [0x%08x..0x%08x]",
-                dest_base, RAMBase, RAMBase + nqd_ram_size);
-        return;
-    }
-
-    uint32_t src_offset = (src_base - RAMBase)
-                        + (uint32_t)(src_Y * src_row_bytes)
-                        + nqd_packed_byte_offset(src_X, src_pixel_size);
-    uint32_t dst_offset = (dest_base - RAMBase)
-                        + (uint32_t)(dest_Y * dest_row_bytes)
-                        + nqd_packed_byte_offset(dest_X, src_pixel_size);
-
-    NQDBitbltUniforms uniforms;
-    uniforms.src_offset     = src_offset;
-    uniforms.dst_offset     = dst_offset;
-    uniforms.src_row_bytes  = src_row_bytes;
-    uniforms.dst_row_bytes  = dest_row_bytes;
-    uniforms.width_bytes    = width_bytes;
-    uniforms.height         = (uint32_t)height;
-    uniforms.transfer_mode  = transfer_mode;
-    uniforms.pixel_size     = (uint32_t)bpp;
-    uniforms.width_pixels   = width_pixels;
-    uniforms.fore_pen       = fore_pen;
-    uniforms.back_pen       = back_pen;
-    uniforms.hilite_color   = hilite_color;
-    uniforms.mask_enabled   = 0;
-    uniforms.mask_offset    = 0;
-    uniforms.mask_stride    = 0;
-    uniforms.bits_per_pixel = src_pixel_size;
-    {   // Per-channel rgbOpColor blend weights for mode 32.
-        // Mirrors the production NQDMetalBitblt call-site. Under EMULATED_PPC=0
-        // the lowmem reads route through the TESTING_BUILD seam
-        // (NQDTesting_SetLowmemOverride), so blend mode 32 IS now testable via
-        // _WithHost — the pixel gate relies on this.
-        // Gate the walk on blend mode 32 (its only consumer), matching
-        // the production call-sites — narrows the guest-controlled OOB-read
-        // surface and skips the walk on non-blend dispatches.
-        NQDRgbOpColor _op = (transfer_mode == 32) ? nqd_read_rgb_op_color()
-                                                  : NQDRgbOpColor{0, 0, 0};
-        uniforms.blend_weight_r = _op.r;
-        uniforms.blend_weight_g = _op.g;
-        uniforms.blend_weight_b = _op.b;
-    }
-
-    NSUInteger total_threads = (pixel_mode && src_pixel_size >= 8)
-        ? (NSUInteger)(width_pixels * height)
-        : (NSUInteger)(width_bytes * height);
-
-    id<MTLComputeCommandEncoder> encoder = nqd_get_batch_encoder();
-    if (!encoder) return;
-
-    [encoder setComputePipelineState:nqd_bitblt_pipeline];
-    [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:0];
-    [encoder setBytes:&uniforms length:sizeof(uniforms) atIndex:1];
-    [encoder setBuffer:nqd_ram_buffer offset:0 atIndex:2];  // dummy mask buffer (mask_enabled=0)
-
-    NSUInteger threadgroup_size = nqd_bitblt_pipeline.maxTotalThreadsPerThreadgroup;
-    if (threadgroup_size > 256) threadgroup_size = 256;
-    if (threadgroup_size > total_threads) threadgroup_size = total_threads;
-
-    MTLSize grid  = MTLSizeMake(total_threads, 1, 1);
-    MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
-    [encoder dispatchThreads:grid threadsPerThreadgroup:group];
-
-    nqd_batch_did_dispatch();
-}
-#endif /* TESTING_BUILD */
 
 void NQDMetalFillRect(uint32 p)
 {

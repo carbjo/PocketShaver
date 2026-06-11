@@ -137,6 +137,39 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 		fprintf(stderr, "    [0x%08x] %08x\n", addr, instr);
 	}
 
+	// Cross-TOC import calls reach here through a TVector held in r12
+	// (glue: lwz r12,off(r2); lwz r0,0(r12); mtctr r0; lwz r2,4(r12); bctr).
+	// Dump its neighborhood, and scan back from pc for the page-aligned PEF
+	// container header ('Joy!') so the dead fragment can be identified.
+	{
+		uint32 tv = gpr(12);
+		if (tv >= 0x1000 && tv < 0x50000000) {
+			fprintf(stderr, "  TVector neighborhood (r12=0x%08x):\n", tv);
+			for (int di = -2; di <= 5; di++) {
+				uint32 addr = tv + di * 4;
+				fprintf(stderr, "    [0x%08x] %08x%s\n", addr, vm_read_memory_4(addr),
+						di == 0 ? " <-- code ptr" : (di == 1 ? " <-- TOC" : ""));
+			}
+		}
+		if (pc() >= 0x1000 && pc() < 0x50000000) {
+			uint32 base = pc() & ~0xfffu;
+			bool found = false;
+			for (int pages = 0; pages < 8192 && base >= 0x1000; pages++, base -= 0x1000) {
+				if (vm_read_memory_4(base) == 0x4a6f7921) {	// 'Joy!'
+					fprintf(stderr, "  PEF container candidate at 0x%08x (pc offset +0x%x):\n",
+							base, pc() - base);
+					for (int di = 0; di < 8; di++)
+						fprintf(stderr, "    [0x%08x] %08x\n", base + di * 4,
+								vm_read_memory_4(base + di * 4));
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+				fprintf(stderr, "  no 'Joy!' PEF header within 32 MiB below pc\n");
+		}
+	}
+
 #ifdef TARGET_OS_IPHONE
 	if (objc_getIgnoreIllegalInstructions()) {
 		increment_pc(4);

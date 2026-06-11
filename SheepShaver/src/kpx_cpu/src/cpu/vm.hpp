@@ -209,11 +209,19 @@ static inline uint8 * vm_do_get_real_address(vm_addr_t addr)
 {
 	uintptr a = vm_wrap_address(addr);
 #if defined(__APPLE__) && (defined(__x86_64__) || defined(__aarch64__)) || defined(MEM_BULK)
-	extern uint8 gZeroPage[0x3000], gKernelData[0x2000];
+	extern uint8 gZeroPage[0x3000], gKernelData[0x4000];
 #ifndef MEM_BULK
 	if (a < 0x3000) return &gZeroPage[a];
 #endif
-	if ((a & ~0x1fff) == 0x68ffe000 || (a & ~0x1fff) == 0x5fffe000) return &gKernelData[a & 0x1fff];
+	// 16 KB kernel-data window: KernelData struct in the upper 8 KB
+	// (0x68ffe000 / 0x5fffe000); the lower 8 KB is the stack slack the
+	// nanokernel dips into below KERNEL_DATA_BASE. Platforms that map the
+	// kernel area as a SHMLBA-rounded shm segment get that slack for free;
+	// without it those pushes land in unmapped memory and get silently
+	// skipped under ignoresegv, leaving stale registers on interrupt
+	// return (wild-jump crashes: StarCraft post-splash, DII container
+	// clobbers).
+	if ((a & ~0x3fff) == 0x68ffc000 || (a & ~0x3fff) == 0x5fffc000) return &gKernelData[a & 0x3fff];
 #endif
 	return (uint8 *)(VMBaseDiff + a);
 }

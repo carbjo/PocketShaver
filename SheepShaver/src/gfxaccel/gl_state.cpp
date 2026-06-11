@@ -3126,15 +3126,6 @@ uint8_t *GLConvertMacPixelsToBGRA8(GLContext *ctx,
 // target can link against, with a simplified pixel-store parameter
 // (just unpack_alignment) to keep the test API minimal.
 // ---------------------------------------------------------------------------
-#ifdef TESTING_BUILD
-extern "C" uint8_t *GLTesting_ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
-                                                    uint32_t format, uint32_t type,
-                                                    int unpack_alignment, int *outLen)
-{
-	GLPixelStore ps = {4, 0, 0, 0, unpack_alignment, 0, 0, 0};
-	return ConvertPixelsToBGRA8(mac_pixels, width, height, format, type, ps, nullptr, outLen);
-}
-#endif /* TESTING_BUILD */
 
 
 /*

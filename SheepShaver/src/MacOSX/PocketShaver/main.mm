@@ -22,6 +22,15 @@ extern "C" int main_ios(int argc, char* argv[]);
 
 // Because main is #defined as SDL_main, this function is actually SDL_main. This gets called from -[SDLUIKitDelegate postFinishLaunch].
 int main(int argc, char * argv[]) {
+	/* Diagnostic stdio capture: when PS_STDIO_FILE is set (Xcode scheme env
+	 * or launchctl setenv), mirror stdout+stderr to that file so emulator
+	 * printf/fprintf diagnostics survive launches without an attached
+	 * console (LaunchServices `open`, tap-to-launch, resume relaunches). */
+	if (const char *stdio_path = getenv("PS_STDIO_FILE")) {
+		if (freopen(stdio_path, "a", stderr)) setvbuf(stderr, NULL, _IONBF, 0);
+		if (freopen(stdio_path, "a", stdout)) setvbuf(stdout, NULL, _IOLBF, 0);
+		fprintf(stderr, "--- PS_STDIO_FILE capture started ---\n");
+	}
 	/* Install background/foreground observer
 	 * so gfxaccel_handle_background_enter / _foreground_enter run on the
 	 * OS lifecycle transitions. Install here — SDL's UIKit delegate is

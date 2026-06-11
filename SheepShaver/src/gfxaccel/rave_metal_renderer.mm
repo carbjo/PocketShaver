@@ -336,76 +336,6 @@ static void rave_clear_overlay_binding_state(void)
 	s_rave_dst_height = 0;
 }
 
-#ifdef TESTING_BUILD
-// ---------------------------------------------------------------------------
-// Test-only device/queue/bundle/overlay override.
-//
-// Mirrors the NQD TESTING_BUILD pattern (nqd_metal_renderer.mm).
-// When TESTING_BUILD is defined (ONLY on the PocketShaverTests target --
-// never on the production app target), tests may inject their own
-// per-test id<MTLDevice> + id<MTLCommandQueue> by calling
-// RaveTesting_SetDevice() BEFORE RaveInitMetalResources().
-// RaveInitMetalResources() then uses the injected pair instead of
-// SharedMetalDevice().  RaveTesting_SetBundle() lets tests inject the
-// NSBundle for shader library loading (same as NQDTesting_SetBundle).
-// RaveTesting_SetTestOverlayTexture() lets tests inject a standalone
-// MTLTexture as the render target, bypassing gfxaccel_resources
-// (which requires compositor init that tests don't have).
-// RaveTesting_Reset() clears all injected state between tests.
-//
-// Production builds (TESTING_BUILD undefined) do not see these symbols;
-// the preprocessor drops the entire block.
-// ---------------------------------------------------------------------------
-static id<MTLDevice>       rave_testing_device  = nil;
-static id<MTLCommandQueue> rave_testing_queue   = nil;
-static id<NSObject>        rave_testing_bundle  = nil;
-static id<MTLTexture>      rave_testing_overlay = nil;
-
-extern "C" void RaveTesting_SetDevice(void *device, void *queue)
-{
-	rave_testing_device = (__bridge id<MTLDevice>)device;
-	rave_testing_queue  = (__bridge id<MTLCommandQueue>)queue;
-}
-
-extern "C" void RaveTesting_SetBundle(void *bundle)
-{
-	rave_testing_bundle = (__bridge id<NSObject>)bundle;
-}
-
-extern "C" void RaveTesting_SetTestOverlayTexture(void *texture)
-{
-	rave_testing_overlay = (__bridge id<MTLTexture>)texture;
-}
-
-extern "C" void RaveTesting_Reset(void)
-{
-	rave_testing_device  = nil;
-	rave_testing_queue   = nil;
-	rave_testing_bundle  = nil;
-	rave_testing_overlay = nil;
-	s_rave_overlay_pair[0] = nil;
-	s_rave_overlay_pair[1] = nil;
-	s_rave_overlay_tex   = nil;
-	s_rave_overlay_write_index = 0;
-	rave_clear_overlay_binding_state();
-}
-
-/*
- *  RaveTesting_CountPipelines - return count of non-nil base pipeline slots.
- *  Test accessor for PSO cache validation.
- *  Returns -1 if metal state is null.
- */
-extern "C" int RaveTesting_CountPipelines(struct RaveDrawPrivate *priv)
-{
-	if (!priv || !priv->metal) return -1;
-	RaveMetalState *ms = priv->metal;
-	int count = 0;
-	for (int i = 0; i < 48; i++) {
-		if (ms->pipelines[i] != nil) count++;
-	}
-	return count;
-}
-#endif /* TESTING_BUILD */
 
 /*
  *  rave_acquire_overlay_texture - vend (or cache-hit) the per-engine overlay.
@@ -417,11 +347,6 @@ static void rave_release_overlay_texture(void);
 
 static id<MTLTexture> rave_acquire_overlay_texture(uint32_t width, uint32_t height)
 {
-#ifdef TESTING_BUILD
-	if (rave_testing_overlay != nil) {
-		return rave_testing_overlay;
-	}
-#endif
 	if ((s_rave_overlay_pair[0] != nil || s_rave_overlay_pair[1] != nil) &&
 	    (s_rave_overlay_w != width || s_rave_overlay_h != height)) {
 		rave_release_overlay_texture();
@@ -461,9 +386,6 @@ static id<MTLTexture> rave_acquire_overlay_texture(uint32_t width, uint32_t heig
 
 static void rave_advance_overlay_texture_after_submit(void)
 {
-#ifdef TESTING_BUILD
-	if (rave_testing_overlay != nil) return;
-#endif
 	if (s_rave_overlay_pair[0] == nil || s_rave_overlay_pair[1] == nil) return;
 	s_rave_overlay_write_index ^= 1u;
 	s_rave_overlay_tex = s_rave_overlay_pair[s_rave_overlay_write_index];
@@ -896,15 +818,7 @@ void RaveInitMetalResources(RaveDrawPrivate *priv)
 	priv->metal = ms;
 
 	// Get device from shared Metal device (compositor owns the device lifecycle).
-#ifdef TESTING_BUILD
-	if (rave_testing_device != nil) {
-		ms->device = rave_testing_device;
-	} else {
-#endif
 	ms->device = (__bridge id<MTLDevice>)SharedMetalDevice();
-#ifdef TESTING_BUILD
-	}
-#endif
 	if (!ms->device) {
 		RAVE_LOG("RaveInitMetalResources: SharedMetalDevice failed");
 		return;
@@ -912,51 +826,22 @@ void RaveInitMetalResources(RaveDrawPrivate *priv)
 
 	// Initialize RAVE ring buffer for per-draw vertex staging.
 	// Replaces 15+ newBufferWithBytes: calls per frame with ring sub-allocation.
-#ifdef TESTING_BUILD
-	if (rave_testing_device == nil) {
-		// Only init ring buffer in production -- tests don't need it
-		gfxaccel_rave_ring_init();
-	}
-#else
 	gfxaccel_rave_ring_init();
-#endif
 
 	// Cache RAVE's per-engine overlay texture (vended via gfxaccel_resources;
 	// replaces the legacy compositor-allocated overlay path).
 	// May be nil here at first init - NativeRenderStart re-fetches per frame.
 	ms->overlayTexture = s_rave_overlay_tex;
 
-#ifdef TESTING_BUILD
-	if (rave_testing_queue != nil) {
-		ms->commandQueue = rave_testing_queue;
-	} else {
-#endif
 	ms->commandQueue = [ms->device newCommandQueue];
-#ifdef TESTING_BUILD
-	}
-#endif
 
 	// Load pre-compiled shader library (.metallib)
 	id<MTLLibrary> lib = nil;
-#ifdef TESTING_BUILD
-	if (rave_testing_bundle != nil) {
-		NSError *err = nil;
-		lib = [ms->device newDefaultLibraryWithBundle:(NSBundle *)rave_testing_bundle error:&err];
-		if (!lib) {
-			RAVE_LOG("RaveInitMetalResources: newDefaultLibraryWithBundle failed: %s",
-			         err ? [[err localizedDescription] UTF8String] : "unknown");
-			return;
-		}
-	} else {
-#endif
 	lib = [ms->device newDefaultLibrary];
 	if (!lib) {
 		RAVE_LOG("RaveInitMetalResources: newDefaultLibrary failed (no .metallib?)");
 		return;
 	}
-#ifdef TESTING_BUILD
-	}
-#endif
 	ms->shaderLibrary = lib;
 	const bool hasDepthAttachment = RaveContextUsesMetalDepthAttachment(priv->flags) != 0;
 

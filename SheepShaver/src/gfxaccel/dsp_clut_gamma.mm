@@ -236,79 +236,6 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 	return rv;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD wrapper — host-struct pattern (see
- *  DSpTesting_InvalBackBufferRectByValue / DSpTesting_GetStateByStruct).
- *  Accepts a host-memory (last-first+1)*3 byte array instead of a
- *  guest Mac address. Bypasses the ReadMacInt8 loop entirely.
- *
- *  This 3-byte/8-bit host-struct wrapper is UNCHANGED by the
- *  ColorSpec wire-path: DSpIndexedDepthCompositeTests (the known-flaky
- *  byte-exact composite baseline) drives it with a 3-byte knownCLUT and
- *  must not be destabilized. The 8-byte ColorSpec wire-path is exercised
- *  by the SEPARATE DSpTesting_SetCLUTEntriesByColorSpec wrapper below
- *  (used by DSpPaletteTests + DSpCLUTAnimationTests). Both ultimately
- *  land identical 8-bit values in clut_bytes via DSpSetCLUTCore.
- */
-extern "C" int32_t DSpTesting_SetCLUTEntriesByStruct(uint32_t ctxRef,
-                                                     uint32_t first,
-                                                     uint32_t last,
-                                                     const uint8_t *entries_host)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (entries_host == nullptr) return kDSpInvalidAttributesErr;
-	if (first > 255 || last > 255) return kDSpInvalidAttributesErr;
-	if (first > last) return kDSpInvalidAttributesErr;
-	return DSpSetCLUTCore(ctx, first, last, entries_host);
-}
-
-/*
- *  TESTING_BUILD wrapper — 8-byte ColorSpec
- *  wire-path. Bypasses the guest-RAM ReadMacInt16 loop but exercises the
- *  REAL 16->8 down-convert the production handler does: `entries_host`
- *  points to a host-memory array of `inEntryCount` 8-byte ColorSpec
- *  structs (value@+0 SInt16 ignored, 16-bit big-endian r@+2/g@+4/b@+6).
- *  Arg order matches production: (ctxRef, entries_host, inStartingEntry,
- *  inEntryCount) — pointer-before-index. Used by DSpPaletteTests +
- *  DSpCLUTAnimationTests; the production path
- *  (DSpContext_SetCLUTEntriesHandler) remains authoritative for real apps.
- */
-extern "C" int32_t DSpTesting_SetCLUTEntriesByColorSpec(uint32_t ctxRef,
-                                                        const uint8_t *entries_host,
-                                                        uint32_t inStartingEntry,
-                                                        uint32_t inEntryCount)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (entries_host == nullptr) return kDSpInvalidAttributesErr;
-	/* Overflow-safe headroom check (CWE-190) — mirror production
-	 * DSpContext_SetCLUTEntriesHandler: never sum guest-controlled
-	 * operands. The first clause bounds inStartingEntry <= 255, so
-	 * 256 - inStartingEntry is in [1..256] and cannot underflow. */
-	if (inStartingEntry > 255 || inEntryCount == 0 ||
-	    inEntryCount > 256 - inStartingEntry) {
-		return kDSpInvalidAttributesErr;
-	}
-
-	const uint32_t start = inStartingEntry;
-	const uint32_t count = inEntryCount;
-	const uint32_t last  = start + count - 1;
-
-	/* Mirror the production 8-byte ColorSpec / 16-bit-big-endian read +
-	 * 16->8 down-convert, but from a host buffer instead of guest RAM. */
-	uint8_t staged[256 * 3];
-	for (uint32_t i = 0; i < count; i++) {
-		const uint8_t *e = entries_host + i * 8;  /* 8-byte ColorSpec stride */
-		/* value@+0 (SInt16) ignored; channels are 16-bit big-endian. */
-		staged[i * 3 + 0] = e[2];  /* r high byte */
-		staged[i * 3 + 1] = e[4];  /* g high byte */
-		staged[i * 3 + 2] = e[6];  /* b high byte */
-	}
-	return DSpSetCLUTCore(ctx, start, last, staged);
-}
-#endif
 
 /*
  *  Core read path shared by the production
@@ -655,26 +582,6 @@ extern "C" int32_t DSpContext_SetGammaHandler(uint32_t ctxRef,
 	return rv;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD wrapper — host-LUT pattern (mirrors
- *  DSpTesting_SetCLUTEntriesByStruct). Accepts a 768-byte host-memory
- *  LUT instead of a guest Mac GammaTable* address. Bypasses the
- *  DSpReadGammaLUTFromGuest loop entirely.
- *
- *  Used by DSpGammaTests to exercise SetGamma at simulator
- *  speed without guest-RAM plumbing. The production path
- *  (DSpContext_SetGammaHandler) remains authoritative for real apps.
- */
-extern "C" int32_t DSpTesting_SetGammaByLUT(uint32_t ctxRef,
-                                              const uint8_t *lut_host_768)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (lut_host_768 == nullptr) return kDSpInvalidAttributesErr;
-	return DSpSetGammaCore(ctx, lut_host_768);
-}
-#endif
 
 /*
  *  Classic Mac GammaTable convention:
@@ -784,23 +691,3 @@ extern "C" int32_t DSpContext_GetGammaHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD wrapper — host-LUT pattern (mirrors
- *  DSpTesting_GetCLUTEntriesByStruct). Reads the current DMC snapshot's
- *  gamma_lut[768] into the caller's host buffer. Bypasses the
- *  DSpWriteGammaLUTToGuest loop entirely.
- *
- *  Used by DSpGammaTests for round-trip + reference-curve
- *  assertions without guest-RAM plumbing. The production path
- *  (DSpContext_GetGammaHandler) remains authoritative for real apps.
- */
-extern "C" int32_t DSpTesting_GetGammaByLUT(uint32_t ctxRef,
-                                              uint8_t *lut_out_host_768)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (lut_out_host_768 == nullptr) return kDSpInvalidAttributesErr;
-	return DSpGetGammaCore(ctx, lut_out_host_768);
-}
-#endif

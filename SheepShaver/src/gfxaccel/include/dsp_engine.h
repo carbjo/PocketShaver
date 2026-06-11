@@ -622,9 +622,6 @@ extern uint32_t DSpGetVersionHandler(uint32_t outVersionAddr);
  *  the PocketShaverTests target). DSpStartupTests.swift calls this from
  *  setUp/tearDown for test isolation.
  */
-#ifdef TESTING_BUILD
-extern void dsp_testing_reset(void);
-#endif
 
 #ifdef __cplusplus
 }
@@ -638,23 +635,6 @@ extern void dsp_testing_reset(void);
  * so dsp_dispatch.cpp can read it. */
 extern uint32_t dsp_scratch_addr;
 
-#ifdef TESTING_BUILD
-/* Test hooks (bodies in dsp_thunks.cpp / dsp_install_hooks.cpp / dsp_dispatch.cpp) */
-#ifdef __cplusplus
-extern "C" {
-#endif
-uint32_t dsp_testing_peek_tvect(int sub_opcode);
-uint32_t dsp_testing_get_dispatch_count(void);
-void dsp_testing_reset_dispatch_count(void);
-void dsp_testing_run_install_patch_on_synthetic_tvect(uint32_t synth_orig_tvect, int sub_opcode);
-/* Stage/read the scratch word so Swift tests can simulate the PPC thunk's
- * stw step without the emulator. */
-int dsp_testing_set_scratch(uint32_t value);
-uint32_t dsp_testing_peek_scratch(void);
-#ifdef __cplusplus
-}
-#endif
-#endif /* TESTING_BUILD */
 
 /*
  *  Logging. Follows the RAVE/GL pattern - an ACCEL_LOGGING_ENABLED gate

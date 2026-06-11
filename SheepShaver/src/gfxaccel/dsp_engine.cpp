@@ -545,14 +545,3 @@ extern "C" uint32_t DSpMapStateToDMCOwner(uint32_t dsp_state)
  *  TESTING_BUILD=1 in its GCC_PREPROCESSOR_DEFINITIONS) — production
  *  PocketShaver and SheepShaver builds do NOT compile this hook.
  */
-#ifdef TESTING_BUILD
-extern "C" void dsp_testing_reset(void)
-{
-	if (dsp_resource_handlers_registered) {
-		gfxaccel_resources_unregister_engine(kGfxEngineDSp);
-	}
-	dsp_resource_handlers_registered = false;
-	dsp_startup_refcount              = 0;
-	dsp_registered                    = false;
-}
-#endif

@@ -119,44 +119,6 @@ static void gl_clear_compositor_cached_overlay(const char *reason)
 // Production builds (TESTING_BUILD undefined) do not see these symbols;
 // the preprocessor drops the entire block.
 // ---------------------------------------------------------------------------
-#ifdef TESTING_BUILD
-static id<MTLDevice>       gl_testing_device  = nil;
-static id<MTLCommandQueue> gl_testing_queue   = nil;
-static id<NSObject>        gl_testing_bundle  = nil;
-static id<MTLTexture>      gl_testing_overlay = nil;
-
-extern "C" void GLTesting_SetDevice(void *device, void *queue)
-{
-	gl_testing_device = (__bridge id<MTLDevice>)device;
-	gl_testing_queue  = (__bridge id<MTLCommandQueue>)queue;
-}
-
-extern "C" void GLTesting_SetBundle(void *bundle)
-{
-	gl_testing_bundle = (__bridge id<NSObject>)bundle;
-}
-
-extern "C" void GLTesting_SetTestOverlayTexture(void *texture)
-{
-	gl_testing_overlay = (__bridge id<MTLTexture>)texture;
-}
-
-extern "C" void GLTesting_Reset(void)
-{
-	gl_testing_device  = nil;
-	gl_testing_queue   = nil;
-	gl_testing_bundle  = nil;
-	gl_testing_overlay = nil;
-	s_gl_overlay_pair[0] = nil;
-	s_gl_overlay_pair[1] = nil;
-	s_gl_overlay_tex   = nil;
-	s_gl_overlay_w     = 0;
-	s_gl_overlay_h     = 0;
-	s_gl_overlay_write_index = 0;
-	s_gl_overlay_committed_frame = false;
-}
-
-#endif /* TESTING_BUILD */
 
 /*
  *  gl_acquire_overlay_texture - vend (or cache-hit) the per-engine overlay.
@@ -168,11 +130,6 @@ static void gl_release_overlay_texture(void);
 
 static id<MTLTexture> gl_acquire_overlay_texture(uint32_t width, uint32_t height)
 {
-#ifdef TESTING_BUILD
-    if (gl_testing_overlay != nil) {
-        return gl_testing_overlay;
-    }
-#endif
     if ((s_gl_overlay_pair[0] != nil || s_gl_overlay_pair[1] != nil) &&
         (s_gl_overlay_w != width || s_gl_overlay_h != height)) {
         gl_release_overlay_texture();
@@ -213,9 +170,6 @@ static id<MTLTexture> gl_acquire_overlay_texture(uint32_t width, uint32_t height
 
 static void gl_advance_overlay_texture_after_submit(void)
 {
-#ifdef TESTING_BUILD
-    if (gl_testing_overlay != nil) return;
-#endif
     if (s_gl_overlay_pair[0] == nil || s_gl_overlay_pair[1] == nil) return;
     s_gl_overlay_write_index ^= 1u;
     s_gl_overlay_tex = s_gl_overlay_pair[s_gl_overlay_write_index];
@@ -2279,15 +2233,7 @@ void GLMetalInit(GLContext *ctx)
     ms->renderPassActive = false;
 
     // Get the shared Metal device directly from the compositor.
-#ifdef TESTING_BUILD
-    if (gl_testing_device != nil) {
-        ms->device = gl_testing_device;
-    } else {
-#endif
     ms->device = (__bridge id<MTLDevice>)SharedMetalDevice();
-#ifdef TESTING_BUILD
-    }
-#endif
     if (!ms->device) {
         GL_METAL_LOG("GLMetalInit: SharedMetalDevice failed");
         delete ms;
@@ -2295,33 +2241,14 @@ void GLMetalInit(GLContext *ctx)
     }
 
     // Create command queue (shared when using the shared device)
-#ifdef TESTING_BUILD
-    if (gl_testing_queue != nil) {
-        ms->commandQueue = gl_testing_queue;
-    } else {
-#endif
     if (ms->device == (__bridge id<MTLDevice>)SharedMetalDevice()) {
         ms->commandQueue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
     } else {
         ms->commandQueue = [ms->device newCommandQueue];
     }
-#ifdef TESTING_BUILD
-    }
-#endif
 
     // Load shader library
     NSError *err = nil;
-#ifdef TESTING_BUILD
-    if (gl_testing_bundle != nil) {
-        ms->shaderLibrary = [ms->device newDefaultLibraryWithBundle:(NSBundle *)gl_testing_bundle error:&err];
-        if (!ms->shaderLibrary) {
-            GL_METAL_LOG("GLMetalInit: newDefaultLibraryWithBundle failed: %s",
-                         err ? [[err localizedDescription] UTF8String] : "unknown");
-            delete ms;
-            return;
-        }
-    } else {
-#endif
     NSString *libPath = [[NSBundle mainBundle] pathForResource:@"gl_shaders" ofType:@"metallib"];
     if (libPath) {
         ms->shaderLibrary = [ms->device newLibraryWithFile:libPath error:&err];
@@ -2336,9 +2263,6 @@ void GLMetalInit(GLContext *ctx)
         delete ms;
         return;
     }
-#ifdef TESTING_BUILD
-    }
-#endif
 
     // Create vertex descriptor matching GLMetalVertex layout
     ms->vertexDescriptor = [MTLVertexDescriptor vertexDescriptor];

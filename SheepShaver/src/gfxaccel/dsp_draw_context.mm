@@ -61,9 +61,6 @@
 #include <stdatomic.h>
 #include <unistd.h>                /* usleep (busyProc polling) */
 
-#ifdef TESTING_BUILD
-#include <sys/mman.h>              /* mmap (dsp_testing_alloc_guest_scratch backing store) */
-#endif
 
 static bool DSpBuildSavedQuickDrawModeDesc(const DSpContextPrivate *ctx,
                                            DMCModeDesc *out_mode)
@@ -2456,41 +2453,6 @@ extern "C" int32_t DSpContext_ReserveHandler(uint32_t ctxRef,
 	return DSpContext_Reserve_OnHandle_Core(ctx, &attr);
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD helper: host-struct wrapper around
- *  DSpContext_Reserve_Core. Side-steps the EMULATED_PPC=0 Mac-address
- *  SEGV on arm64 iOS simulator when the fake RAM mmap lands above 4 GiB.
- *  Returns the same DSp 1.7 result codes as DSpContext_ReserveHandler.
- *  On success writes the allocated ctxRef to *outCtxRef.
- */
-extern "C" int32_t DSpTesting_ReserveByStruct(const DSpContextAttributes *attr,
-                                               uint32_t *outCtxRef)
-{
-	return DSpContext_Reserve_Core(attr, outCtxRef);
-}
-
-/*
- *  Debug session `dsp-sims-post-reserve-black-screen` fix (2026-04-19) —
- *  host wrapper around DSpContext_Reserve_OnHandle_Core. Unlike
- *  DSpTesting_ReserveByStruct (which creates a NEW context from scratch,
- *  the legacy semantic), this wrapper exercises the real DSp 1.7 path:
- *  caller pre-allocates a metadata-only ctxRef via
- *  DSpAllocFirstContextHandle (or obtains one from FindBestContext) and
- *  passes that existing handle + desired attributes. The wrapper calls
- *  the same core the production dispatcher invokes. Used by the new
- *  DSpReserveOnHandleRegressionTests to verify the Sims fix end-to-end
- *  without going through guest-RAM plumbing.
- */
-extern "C" int32_t DSpTesting_ReserveOnHandleByStruct(
-    uint32_t ctxRef,
-    const DSpContextAttributes *attr)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	return DSpContext_Reserve_OnHandle_Core(ctx, attr);
-}
-#endif
 
 /*
  *  Metadata-only context allocation.
@@ -2630,92 +2592,6 @@ extern "C" int32_t DSpContext_GetBackBufferHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD helper: host-ptr wrapper around
- *  DSpContext_GetBackBufferHandler. The production path writes the
- *  CGrafPtr to a Mac uint32 address via WriteMacInt32; on arm64 iOS
- *  simulator that writes to a truncated host pointer (SEGV). This
- *  wrapper takes a host uint32_t* and writes through it directly.
- */
-extern "C" int32_t DSpTesting_GetBackBufferByStruct(uint32_t ctxRef,
-                                                     uint32_t options,
-                                                     uint32_t *outBuf)
-{
-	(void)options;
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || outBuf == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	uint32_t cgrafptr = DSpGetBackBufferCGrafPtr(ctx);
-	if (cgrafptr == 0) {
-		return kDSpInternalErr;
-	}
-	/* Run the same underlay-restore branch the
-	 * production DSpContext_GetBackBufferHandler runs (PDF p.51), so the
-	 * golden underlay-restore test exercises it without a guest-RAM out-write
-	 * SEGV. No-op when no underlay is designated. */
-	DSpRestoreBackBufferFromUnderlay(ctx);
-	*outBuf = cgrafptr;
-	return kDSpNoErr;
-}
-
-/*
- *  TESTING_BUILD helper: return the back-buffer's host-visible
- *  contents pointer + byte length for a context. Lets tests write a packed
- *  pixel pattern directly into the MTLBuffer-backed texture view (MTLStorage
- *  ModeShared) without going through the guest-scratch staging
- *  indirection that DSpGetBackBufferCGrafPtr uses.
- *
- *  The back-buffer is MTLStorageModeShared so ctx->back_buffer.contents is
- *  a valid host VA; the MTLTexture view we hand to DSpEncodeBackBufferBlit
- *  at SwapBuffers time reads the same backing memory. Bypasses the Host2Mac
- *  Addr fallback path entirely — if the bump allocator doesn't map
- *  into the emulated RAM region, we don't care, because we're a host pointer.
- *
- *  Used by DSpIndexedDepthCompositeTests to install 1/2/4/8-bpp packed index
- *  bit patterns for golden-image validation. Returns kDSpNoErr +
- *  populates out params on success; kDSpInvalidContextErr + zeros on bad ctx.
- */
-extern "C" int32_t DSpTesting_GetBackBufferHostPointer(uint32_t ctxRef,
-                                                        void **outContents,
-                                                        uint32_t *outLength)
-{
-	if (outContents == nullptr || outLength == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	*outContents = NULL;
-	*outLength   = 0;
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || ctx->back_buffer == nil) {
-		return kDSpInvalidContextErr;
-	}
-	*outContents = ctx->back_buffer.contents;    /* NULL on StorageModePrivate */
-	*outLength   = (uint32_t)ctx->back_buffer.length;
-	return kDSpNoErr;
-}
-
-/*
- *  TESTING_BUILD helper: return the back-buffer MTLTexture
- *  view handle for a context. DSpIndexedDepthCompositeTests
- *  needs to blit a packed-index pattern into this texture via a Shared
- *  staging MTLBuffer when the underlying back_buffer is
- *  StorageModePrivate (iOS simulator heap constraint per
- *  gfxaccel_resources_heap.mm:230 — heaps force Private on simulator
- *  regardless of the caller's request).
- *
- *  Returns an UNRETAINED id<MTLTexture> bridge-cast to void*: the caller
- *  must NOT release the returned handle; its lifetime is tied to the
- *  context. Returns NULL on invalid ctxRef or if back_texture has not
- *  been allocated (Reserve not yet called).
- */
-extern "C" void *DSpTesting_GetBackTextureHandle(uint32_t ctxRef)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return NULL;
-	return (__bridge void *)ctx->back_texture;
-}
-#endif
 
 /* --- DSpContext_SwapBuffersHandler --- */
 
@@ -2765,13 +2641,6 @@ static void DSpSyncSwapFramePacing(uint32_t ctxRef, uint32_t maxFrameRate)
 	}
 }
 
-#ifdef TESTING_BUILD
-extern "C" uint32_t DSpTesting_MaxFrameRatePacingVBLs(uint32_t maxFrameRate,
-                                                       uint64_t cadenceUsec)
-{
-	return DSpMaxFrameRatePacingVBLs(maxFrameRate, cadenceUsec);
-}
-#endif
 
 /* Pre-swap busyProc gate. DrawSprocket 1.7 defines DSpCallbackProcPtr as
  * Boolean (*)(DSpContextReference inContext, void *inRefCon), shared by
@@ -3091,17 +2960,10 @@ static inline void DSpWriteCanonicalMainDevicePixMapMetadata(uint32_t pixMapPtr)
 	              DSpMainDevicePixMapPlaneBytes());
 }
 
-#ifdef TESTING_BUILD
-extern "C" uint32_t dsp_testing_alloc_guest_scratch(uint32_t size);  /* defined later in this file */
-#endif
 
 uint32_t DSpReserveGuestScratch(uint32_t size)
 {
-#ifdef TESTING_BUILD
-	return dsp_testing_alloc_guest_scratch(size);
-#else
 	return SheepMem::Reserve(size);
-#endif
 }
 
 static void DSpInitializeFrontBufferStaging(DSpContextPrivate *ctx,
@@ -3232,9 +3094,7 @@ static uint32_t DSpEnsureFrontBufferStaging(DSpContextPrivate *ctx,
 
 	ctx->front_staging_mac_addr = baseAddr_mac;
 	ctx->front_staging_size = buffer_size;
-#ifndef TESTING_BUILD
 	ctx->front_staging_owned_sysheap = true;
-#endif
 	bool seeded_from_back_staging = false;
 	if (DSpShouldSeedFrontBufferStagingFromBackStaging(
 	        ctx->attr.backBufferBestDepth,
@@ -3551,43 +3411,6 @@ extern "C" int32_t DSpBlit_FasterHandler(uint32_t inBlitInfo,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/* Host-helper twins for the no-ROM test spine. They take a guest-RAM
- * DSpBlitInfo Mac address already populated by the test (via the
- * dsp_testing_write_mac_int* shims into the scratch region) so the production
- * read-path + NQD dispatch are exercised without an EMULATED_PPC frame; the
- * completionProc call_macos1 path is NOT exercised from the host helper (no
- * guest TVECT), only the synchronous completionFlag write. The test gates the
- * GPU-effect assertions behind dsp_testing_scratch_in_low_4gib()
- * and asserts the NULL / depth-mismatch guards unconditionally. */
-extern "C" int32_t DSpTesting_BlitFastestByAddr(uint32_t inBlitInfo, uint32_t inAsyncFlag)
-{
-	return DSpBlit_FastestHandler(inBlitInfo, inAsyncFlag);
-}
-
-extern "C" int32_t DSpTesting_BlitFasterByAddr(uint32_t inBlitInfo, uint32_t inAsyncFlag)
-{
-	return DSpBlit_FasterHandler(inBlitInfo, inAsyncFlag);
-}
-
-/* Resolve-side host helper so the test can assert the CGrafPtr + Rect ->
- * clamped geometry contract (overscan mitigation) without dispatching the GPU.
- * Returns 1 on resolve, 0 on reject; fills the out cells when non-NULL. */
-extern "C" int DSpTesting_ResolveBlitSide(uint32_t cgrafptr_mac, uint32_t rect_mac,
-                                          uint32_t *out_base_origin, int32_t *out_row_bytes,
-                                          uint32_t *out_pixel_bytes,
-                                          int32_t *out_w, int32_t *out_h)
-{
-	DSpBlitSide side;
-	if (!DSpResolveBlitSide(cgrafptr_mac, rect_mac, &side)) return 0;
-	if (out_base_origin) *out_base_origin = side.base_origin_mac;
-	if (out_row_bytes)   *out_row_bytes   = side.row_bytes;
-	if (out_pixel_bytes) *out_pixel_bytes = side.pixel_bytes;
-	if (out_w)           *out_w           = side.rect_w;
-	if (out_h)           *out_h           = side.rect_h;
-	return 1;
-}
-#endif
 
 /* --- GetBackBuffer underlay-restore branch ---
  *
@@ -3950,9 +3773,7 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 				} else {
 					ctx->staging_mac_addr = newBaseAddr_mac;
 					ctx->staging_size = buffer_size;
-					#ifndef TESTING_BUILD
 					ctx->staging_owned_sysheap = true;
-					#endif
 					uint32_t redir_seed_n =
 					    DSpGuardStagingWrite(ctx->staging_mac_addr,
 					                         buffer_size,
@@ -4512,23 +4333,6 @@ extern "C" int32_t DSpContext_GetStateHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD helper: host-ptr wrapper for GetState.
- *  Side-steps the EMULATED_PPC=0 simulator SEGV when outStateAddr is
- *  an above-4GiB truncated Mac address.
- */
-extern "C" int32_t DSpTesting_GetStateByStruct(uint32_t ctxRef,
-                                                uint32_t *outState)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || outState == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	*outState = ctx->state;
-	return kDSpNoErr;
-}
-#endif
 
 /* --- DSpContext_IsBusyHandler (sub-op 730) ---
  *
@@ -4555,17 +4359,6 @@ extern "C" int32_t DSpContext_IsBusyHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_IsBusyByValue(uint32_t ctxRef, uint8_t *outBusy)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || outBusy == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	*outBusy = (ctx->back_buffer != nil) ? 0 : 1;
-	return kDSpNoErr;
-}
-#endif
 
 /* DSp exposes classic Apple Display Manager IDs (video.h viAppleID values)
  * from GetDisplayID. Incoming discovery IDs all map to the single backing
@@ -4596,19 +4389,6 @@ extern "C" int32_t DSpContext_GetDisplayIDHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_GetDisplayIDByValue(uint32_t ctxRef,
-                                                   uint32_t *outID)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || outID == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	*outID = DSpDisplayIDForMode(ctx->attr.displayWidth,
-	                             ctx->attr.displayHeight);
-	return kDSpNoErr;
-}
-#endif
 
 /* The base dirty-rect grid unit (DSp 1.7 PDF p.43: 32x32 px, the PPC
  * cache-line granularity). DSpContext_GetDirtyRectGridUnits reports it as
@@ -4637,20 +4417,6 @@ extern "C" int32_t DSpContext_GetDirtyRectGridUnitsHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_GetDirtyRectGridUnitsByValues(uint32_t ctxRef,
-                                                            uint32_t *outW,
-                                                            uint32_t *outH)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || outW == nullptr || outH == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	*outW = kDSpDirtyRectGridUnit;
-	*outH = kDSpDirtyRectGridUnit;
-	return kDSpNoErr;
-}
-#endif
 
 /* --- DSpContext_GetMaxFrameRateHandler (sub-op 734) ---
  *
@@ -4687,29 +4453,6 @@ extern "C" int32_t DSpContext_SetMaxFrameRateHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_GetMaxFrameRateByValue(uint32_t ctxRef,
-                                                     uint32_t *outMaxFPS)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || outMaxFPS == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	*outMaxFPS = ctx->max_frame_rate;
-	return kDSpNoErr;
-}
-
-extern "C" int32_t DSpTesting_SetMaxFrameRateByValue(uint32_t ctxRef,
-                                                     uint32_t inMaxFPS)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	ctx->max_frame_rate = inMaxFPS;
-	return kDSpNoErr;
-}
-#endif
 
 /* Compute the display refresh rate as a DSp/QuickDraw Fixed (16.16) value
  * from the VBL cadence. Hz = 1e6 / cadence_usec; Fixed = Hz << 16. Shared by
@@ -4742,18 +4485,6 @@ extern "C" int32_t DSpContext_GetMonitorFrequencyHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_GetMonitorFrequencyByValue(uint32_t ctxRef,
-                                                         uint32_t *outFixed)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || outFixed == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	*outFixed = DSpComputeMonitorFrequencyFixed();
-	return kDSpNoErr;
-}
-#endif
 
 /* Round a requested dirty-rect grid cell dimension UP to a multiple of the
  * 32x32 base grid unit (DSp 1.7 PDF p.41 "suggests" — the library quantizes
@@ -4808,33 +4539,6 @@ extern "C" int32_t DSpContext_GetDirtyRectGridSizeHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_SetDirtyRectGridSizeByValues(uint32_t ctxRef,
-                                                           uint32_t w,
-                                                           uint32_t h)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	ctx->dirty_grid_w = DSpRoundUpToGridUnit(w);
-	ctx->dirty_grid_h = DSpRoundUpToGridUnit(h);
-	return kDSpNoErr;
-}
-
-extern "C" int32_t DSpTesting_GetDirtyRectGridSizeByValues(uint32_t ctxRef,
-                                                           uint32_t *outW,
-                                                           uint32_t *outH)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || outW == nullptr || outH == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	*outW = ctx->dirty_grid_w ? ctx->dirty_grid_w : kDSpDirtyRectGridUnit;
-	*outH = ctx->dirty_grid_h ? ctx->dirty_grid_h : kDSpDirtyRectGridUnit;
-	return kDSpNoErr;
-}
-#endif
 
 #define DSP_FRONT_PIXMAP_SIZE DSpFrontBufferPixMapRecordSize()
 #define DSP_FRONT_PIXMAP_HANDLE_SIZE 4u
@@ -5032,22 +4736,6 @@ extern "C" int32_t DSpContext_GetFrontBufferHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_GetFrontBufferByValue(uint32_t ctxRef,
-                                                    uint32_t *outCGrafPtr)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || outCGrafPtr == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	uint32_t cgrafptr = DSpGetFrontBufferCGrafPtr(ctx);
-	if (cgrafptr == 0) {
-		return kDSpInternalErr;
-	}
-	*outCGrafPtr = cgrafptr;
-	return kDSpNoErr;
-}
-#endif
 
 /* --- DSpGetCurrentContextHandler (sub-op 745) ---
  *
@@ -5084,47 +4772,6 @@ extern "C" int32_t DSpGetCurrentContextHandler(uint32_t displayID,
 	return (active_handle != 0) ? kDSpNoErr : kDSpContextNotFoundErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_GetCurrentContextByValue(uint32_t displayID,
-                                                       uint32_t *outCtxRef)
-{
-	if (outCtxRef == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	if (!DSpAcceptsSingleDisplayID(displayID)) {
-		*outCtxRef = 0;
-		return kDSpContextNotFoundErr;
-	}
-	uint32_t active_handle = 0;
-	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
-		DSpContextPrivate *ctx = dsp_context_table[i];
-		if (ctx == nullptr) continue;
-		if (ctx->state != (uint32_t)kDSpContextState_Active) continue;
-		if (ctx->back_buffer == nil) continue;
-		active_handle = ctx->handle;
-		break;
-	}
-	*outCtxRef = active_handle;
-	return (active_handle != 0) ? kDSpNoErr : kDSpContextNotFoundErr;
-}
-
-/* Force a context's state field to Active WITHOUT the DMC owner transition +
- * MainDevice PixMap redirect that DSpContext_SetStateHandler performs. The
- * full SetState(Active) path reads LMADDR_MAIN_DEVICE from lowmem, which SEGVs
- * in the no-ROM simulator. GetCurrentContext only inspects
- * ctx->state + ctx->back_buffer, so this RAM-only poke lets the active-walk
- * contract test run on the simulator without the unrelated lowmem dependency.
- * The Active context kept by the real DMC path is exercised on device/Catalyst. */
-extern "C" int32_t DSpTesting_ForceContextStateActive(uint32_t ctxRef)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	ctx->state = (uint32_t)kDSpContextState_Active;
-	return kDSpNoErr;
-}
-#endif
 
 /* The Mac low-memory MouseLocation global (DSp 1.7 PDF p.54 — DSpGetMouse
  * reports the SAME global mouse position the Toolbox exposes). adb.cpp writes
@@ -5133,18 +4780,6 @@ extern "C" int32_t DSpTesting_ForceContextStateActive(uint32_t ctxRef)
 #define kDSpLM_MouseLocation_v 0x82cu   /* Point.v — vertical (top) coord */
 #define kDSpLM_MouseLocation_h 0x82eu   /* Point.h — horizontal (left) coord */
 
-#ifdef TESTING_BUILD
-/* Host-side mouse snapshot for the no-ROM contract test. Under EMULATED_PPC=0
- * the cpu_emulation.h accessors are raw host-pointer derefs (Mac2HostAddr(x)
- * == (uint8*)x), so a fixed-lowmem read of 0x82c SEGVs (it points into the
- * unmapped null page — the same class as the LMADDR_MAIN_DEVICE
- * SEGV). DSpReadGlobalMousePoint reads THIS host static under TESTING_BUILD so
- * the GetMouse read+marshal contract is exercised on the simulator without the
- * lowmem dependency; the real lowmem path runs on device/Catalyst
- * (EMULATED_PPC=1). DSpTesting_SetHostMouseLocation seeds it. */
-static int16_t s_dsp_testing_host_mouse_v = 0;
-static int16_t s_dsp_testing_host_mouse_h = 0;
-#endif
 
 /* Read the current global host mouse position into (*v, *h). Production reads
  * the Mac MouseLocation lowmem Point (kept live by adb.cpp's input stack); the
@@ -5153,15 +4788,10 @@ static int16_t s_dsp_testing_host_mouse_h = 0;
  * source — NOT a hardcoded (0,0) stub. */
 static void DSpReadGlobalMousePoint(int16_t *v, int16_t *h)
 {
-#ifdef TESTING_BUILD
-	*v = s_dsp_testing_host_mouse_v;
-	*h = s_dsp_testing_host_mouse_h;
-#else
 	/* MouseLocation is a Point {v, h}; vertical at 0x82c, horizontal at 0x82e
 	 * (the layout adb.cpp writes). */
 	*v = (int16_t)ReadMacInt16(kDSpLM_MouseLocation_v);
 	*h = (int16_t)ReadMacInt16(kDSpLM_MouseLocation_h);
-#endif
 }
 
 /* --- DSpGetMouseHandler (sub-op 720) ---
@@ -5184,26 +4814,6 @@ extern "C" int32_t DSpGetMouseHandler(uint32_t outGlobalPointAddr)
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_GetMouseByValues(int16_t *v, int16_t *h)
-{
-	if (v == nullptr || h == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	DSpReadGlobalMousePoint(v, h);
-	return kDSpNoErr;
-}
-
-/* Test-only seed for the host mouse source: sets the host-side snapshot
- * DSpReadGlobalMousePoint reads under TESTING_BUILD so the GetMouse contract
- * test proves the handler reports the live source (not a hardcoded value)
- * without the EMULATED_PPC=0 fixed-lowmem SEGV. */
-extern "C" void DSpTesting_SetHostMouseLocation(int16_t v, int16_t h)
-{
-	s_dsp_testing_host_mouse_v = v;
-	s_dsp_testing_host_mouse_h = h;
-}
-#endif
 
 /* --- DSpContext_GlobalToLocalHandler (sub-op 721) ---
  *
@@ -5234,46 +4844,6 @@ extern "C" int32_t DSpContext_GlobalToLocalHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/* Route the by-VALUE GlobalToLocal contract test THROUGH the
- * production DSpContext_GlobalToLocalHandler instead of re-implementing
- * identity here. Stage the input Point in guest-RAM scratch (v at +0, h at
- * +2 — the Mac Point ABI), call the real handler against that guest address,
- * then read the marshalled result back via ReadMacInt16. The test now FAILS
- * if the production handler swaps v/h, picks the wrong +0/+2 offset, or
- * corrupts the round-trip — the wrapper exercises the real Mac-memory I/O,
- * not a copy of it. Mirrors the DSpEventTests guest-scratch idiom + the
- * dsp_testing_scratch_in_low_4gib() gate the GetFrontBuffer/GetBackBuffer
- * helpers use. When the simulator mmap landed high (scratch unavailable),
- * fall back to the in-place identity so the contract test still runs — the
- * device / low-mmap path is where the production handler is exercised. */
-extern "C" int32_t DSpTesting_GlobalToLocalByValues(uint32_t ctxRef,
-                                                    int16_t *v, int16_t *h)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || v == nullptr || h == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	if (dsp_testing_scratch_in_low_4gib() == 0) {
-		/* Guest scratch is above 4 GiB — cannot drive Read/WriteMacInt16.
-		 * Preserve the identity contract so the test still runs; the real
-		 * handler path is covered on device / low-mmap simulators. */
-		return kDSpNoErr;
-	}
-	uint32_t pointAddr = dsp_testing_alloc_guest_scratch(4);   /* Point: v,h */
-	if (pointAddr == 0) {
-		return kDSpInternalErr;
-	}
-	WriteMacInt16(pointAddr + 0, (uint16_t)*v);   /* Point.v */
-	WriteMacInt16(pointAddr + 2, (uint16_t)*h);   /* Point.h */
-	int32_t rv = DSpContext_GlobalToLocalHandler(ctxRef, pointAddr);
-	if (rv == kDSpNoErr) {
-		*v = (int16_t)ReadMacInt16(pointAddr + 0);
-		*h = (int16_t)ReadMacInt16(pointAddr + 2);
-	}
-	return rv;
-}
-#endif
 
 /* --- DSpContext_LocalToGlobalHandler (sub-op 722) ---
  *
@@ -5299,37 +4869,6 @@ extern "C" int32_t DSpContext_LocalToGlobalHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/* Route the by-VALUE LocalToGlobal contract test THROUGH the
- * production DSpContext_LocalToGlobalHandler — same guest-scratch idiom +
- * dsp_testing_scratch_in_low_4gib() gate as DSpTesting_GlobalToLocalByValues
- * above. Exercises the real Point marshalling so the test falsifies a v/h
- * swap or +0/+2 offset regression in the production inverse handler. */
-extern "C" int32_t DSpTesting_LocalToGlobalByValues(uint32_t ctxRef,
-                                                    int16_t *v, int16_t *h)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr || v == nullptr || h == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	if (dsp_testing_scratch_in_low_4gib() == 0) {
-		/* Guest scratch above 4 GiB — identity fallback (see GlobalToLocal). */
-		return kDSpNoErr;
-	}
-	uint32_t pointAddr = dsp_testing_alloc_guest_scratch(4);   /* Point: v,h */
-	if (pointAddr == 0) {
-		return kDSpInternalErr;
-	}
-	WriteMacInt16(pointAddr + 0, (uint16_t)*v);   /* Point.v */
-	WriteMacInt16(pointAddr + 2, (uint16_t)*h);   /* Point.h */
-	int32_t rv = DSpContext_LocalToGlobalHandler(ctxRef, pointAddr);
-	if (rv == kDSpNoErr) {
-		*v = (int16_t)ReadMacInt16(pointAddr + 0);
-		*h = (int16_t)ReadMacInt16(pointAddr + 2);
-	}
-	return rv;
-}
-#endif
 
 /* Resolve the single on-screen Active context for a global (v, h) Point.
  * Walks dsp_context_table for the one Active context with a live back_buffer
@@ -5383,18 +4922,6 @@ extern "C" int32_t DSpFindContextFromPointHandler(int16_t v, int16_t h,
 	return (handle != 0) ? kDSpNoErr : kDSpContextNotFoundErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_FindContextFromPointByValues(int16_t v, int16_t h,
-                                                           uint32_t *outCtxRef)
-{
-	if (outCtxRef == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	const uint32_t handle = DSpResolveContextHandleAtPoint(v, h);
-	*outCtxRef = handle;
-	return (handle != 0) ? kDSpNoErr : kDSpContextNotFoundErr;
-}
-#endif
 
 /* ==========================================================================
  *  Discovery / multi-display family (sub-ops
@@ -5428,21 +4955,6 @@ extern "C" int32_t DSpSetDebugModeHandler(uint32_t inDebugMode)
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_SetDebugModeByValue(uint8_t on)
-{
-	return DSpSetDebugModeHandler(on);
-}
-
-extern "C" int32_t DSpTesting_GetDebugMode(uint8_t *out)
-{
-	if (out == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	*out = s_dsp_debug_mode ? 1 : 0;
-	return kDSpNoErr;
-}
-#endif
 
 /* --- DSpCanUserSelectContextHandler (sub-op 746) ---
  *
@@ -5489,21 +5001,6 @@ extern "C" int32_t DSpCanUserSelectContextHandler(uint32_t attrAddr,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_CanUserSelectContextByStruct(
-    const struct DSpContextAttributes *req, uint8_t *outCan)
-{
-	if (req == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	if (outCan == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	*outCan = DSpCanUserSelectContextFromCount(
-	    DSpUserSelectableModeCount(req)) ? 1 : 0;
-	return kDSpNoErr;
-}
-#endif
 
 /* --- DSpFindBestContextOnDisplayIDHandler (sub-op 744) ---
  *
@@ -5541,20 +5038,6 @@ extern "C" int32_t DSpFindBestContextOnDisplayIDHandler(uint32_t attrAddr,
 	return DSpFindBestContextHandler(attrAddr, outCtxRefAddr);
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_FindBestContextOnDisplayIDByStruct(
-    const struct DSpContextAttributes *req, uint32_t displayID,
-    uint32_t *outCtxRef)
-{
-	if (outCtxRef == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	(void)displayID;  /* lifted policy: any displayID maps to single screen */
-	/* Delegate to the existing FindBest matcher (no new algorithm). An
-	 * unmatchable attribute request becomes 0 + kDSpContextNotFoundErr there. */
-	return DSpTesting_FindBestContextByStruct(req, outCtxRef);
-}
-#endif
 
 /* --- DSpUserSelectContextHandler (sub-op 747) ---
  *
@@ -5584,17 +5067,6 @@ extern "C" int32_t DSpUserSelectContextHandler(uint32_t attrAddr,
 	return DSpFindBestContextHandler(attrAddr, outCtxRefAddr);
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_UserSelectContextByStruct(
-    const struct DSpContextAttributes *req, uint32_t *outCtxRef)
-{
-	if (outCtxRef == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	/* Auto-pick via the existing FindBest matcher (no dialog, no new algo). */
-	return DSpTesting_FindBestContextByStruct(req, outCtxRef);
-}
-#endif
 
 /* --- DSpSetBlankingColorHandler (sub-op 760) ---
  *
@@ -5624,18 +5096,6 @@ extern "C" int32_t DSpSetBlankingColorHandler(uint32_t inRGBColorAddr)
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-extern "C" int32_t DSpTesting_SetBlankingColorByValues(uint16_t r, uint16_t g,
-                                                       uint16_t b)
-{
-	/* Same 16->8 high-byte down-convert + no-transition DMC accessor call as
-	 * the handler, bypassing the guest-RAM RGBColor read. */
-	uint8_t rgba[4] = { (uint8_t)(r >> 8), (uint8_t)(g >> 8),
-	                    (uint8_t)(b >> 8), 0xFF };
-	dmc_set_blanking_color(rgba);
-	return kDSpNoErr;
-}
-#endif
 
 /* --- DSpContext_InvalBackBufferRectHandler ---
  *
@@ -5743,28 +5203,6 @@ extern "C" int32_t DSpContext_InvalBackBufferRectHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD helper: direct-int16 wrapper around
- *  DSpContext_InvalBackBufferRectHandler. The production path reads
- *  4 int16 fields from rectAddr via ReadMacInt16; on arm64 iOS simulator
- *  with above-4GiB-truncated addresses, ReadMacInt16 SEGVs. This
- *  wrapper takes the 4 int16 values directly.
- */
-extern "C" int32_t DSpTesting_InvalBackBufferRectByValue(uint32_t ctxRef,
-                                                          int16_t top,
-                                                          int16_t left,
-                                                          int16_t bottom,
-                                                          int16_t right)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	DSpInvalBackBufferRect_Accumulate(ctx, top, left, bottom, right);
-	return kDSpNoErr;
-}
-#endif
 
 /* ============================================================== */
 /*  DSpContext_GetAttributes (sub-opcode 202)                      */
@@ -5863,39 +5301,6 @@ extern "C" int32_t DSpContext_GetAttributesHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  Host-struct wrapper (see
- *  DSpTesting_ReserveByStruct / DSpTesting_FindBestContextByStruct).
- *  Side-steps the arm64 iOS simulator above-4GiB guest-RAM SEGV by
- *  copying into a host DSpContextAttributes instead of round-tripping
- *  through WriteMacInt*. Shares the canonical-out-struct invariants of
- *  the Mac-memory path (frequency=0, reserved/filler zeroed).
- */
-extern "C" int32_t DSpTesting_GetAttributesByStruct(uint32_t ctxRef,
-                                                     DSpContextAttributes *outAttr)
-{
-	if (outAttr == nullptr) return kDSpInvalidAttributesErr;
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-
-	/* Host-struct copy — sidesteps Mac-memory round-trip +
-	 * above-4GiB simulator guest-RAM SEGV avoidance. */
-	*outAttr = ctx->attr;
-	/* Enforce invariants the guest-RAM path enforces so
-	 * DSpTesting_GetAttributesByStruct and DSpContext_GetAttributesHandler
-	 * are observationally identical: frequency=0, reserved/filler zeroed. */
-	outAttr->frequency             = 0;
-	outAttr->reserved1             = 0;
-	outAttr->reserved2             = 0;
-	outAttr->gameMustConfirmSwitch = 0;  /* input-ignored per PDF p.67; out=false */
-	outAttr->reserved3[0]          = 0;
-	outAttr->reserved3[1]          = 0;
-	outAttr->reserved3[2]          = 0;
-	outAttr->reserved3[3]          = 0;
-	return kDSpNoErr;
-}
-#endif
 
 
 /*
@@ -6082,261 +5487,6 @@ extern "C" int32_t DSpContext_FadeGammaOutHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD helper — return the
- *  device-native VBL count for the FadeGammaIn/Out fixed 1-second fade.
- *  Tests use this to advance exactly the right number of VBLs so the
- *  fade reaches its terminal state, matching the production handlers'
- *  cadence-derived duration (60 on 60 Hz, 120 on ProMotion).
- */
-extern "C" uint32_t DSpTesting_FadeOneSecondVbls(void)
-{
-	uint64_t cadence_usec = vbl_source_get_cadence_usec();
-	uint32_t vbls_1sec = (cadence_usec > 0)
-	                     ? (uint32_t)((1000000ull + cadence_usec / 2) / cadence_usec)
-	                     : 60u;
-	if (vbls_1sec > DSP_MAX_FADE_VBLS) vbls_1sec = DSP_MAX_FADE_VBLS;
-	return vbls_1sec;
-}
-
-/*
- *  TESTING_BUILD wrappers — drive the
- *  corrected FadeGammaIn/Out (no duration; fixed 1-second cadence-derived)
- *  from Swift test code with a host-side zero-intensity tint. The IN end
- *  state is full intensity (identity); the OUT end state is the tint
- *  (NULL/black -> zeros). Both bypass ONLY the guest-RAM tint read —
- *  the cadence derivation + DSpInitFadeStateCore call run identically to
- *  production. (Yellow/named-color tests pass r/g/b directly.)
- */
-extern "C" int32_t DSpTesting_FadeGammaInByColor(uint32_t ctxRef,
-                                                  uint8_t r,
-                                                  uint8_t g,
-                                                  uint8_t b)
-{
-	/* IN end_lut is identity regardless of tint; the production handler
-	 * accepts colorAddr but uses identity end. Pass colorAddr=0 (legal
-	 * NULL -> black) — identical IN behavior. */
-	(void)r; (void)g; (void)b;
-	return DSpContext_FadeGammaInHandler(ctxRef, 0);
-}
-
-extern "C" int32_t DSpTesting_FadeGammaOutByColor(uint32_t ctxRef,
-                                                   uint8_t r,
-                                                   uint8_t g,
-                                                   uint8_t b)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-
-	uint32_t vbls_1sec = DSpTesting_FadeOneSecondVbls();
-
-	/* OUT end_lut = the zero-intensity tint (formula at percent=0). */
-	uint8_t end_lut[768];
-	DSpComputeFadeGammaTargetLUT(r, g, b, 0, end_lut);
-
-	DSpInitFadeStateCore(ctx, end_lut, (uint16_t)vbls_1sec);
-	return kDSpNoErr;
-}
-
-/*
- *  TESTING_BUILD: advance the gamma fade by exactly one VBL
- *  tick. Calls DSpVBLGammaFadeCallback directly with NULL/0 args (the
- *  callback ignores them). Used by DSpGammaTests to step through fade
- *  frames deterministically without waiting for vbl_source ticks.
- *
- *  This is the gamma equivalent of vbl_source_testing_simulate_vbl_tick
- *  scoped to the gamma callback only — the CLUT tests use the
- *  vbl_source helper to advance both the release callback + the
- *  clut-latch callback; gamma tests can use either path, but this
- *  helper isolates the gamma callback for tighter assertion windows.
- */
-extern "C" void DSpTesting_AdvanceFadeOneVBL(void)
-{
-	DSpVBLGammaFadeCallback(NULL, NULL, 0.0);
-}
-
-/*
- *  TESTING_BUILD wrapper — calls DSpVBLServiceCallback
- *  directly so tests can deterministically advance the VBL
- *  tick counter + drive the per-context walk without waiting for a
- *  real display-link fire.
- *
- *  Note that vbl_source_testing_simulate_vbl_tick (vbl_source.h:178)
- *  ALSO drains the secondary-callback chain (including
- *  DSpVBLServiceCallback) as part of its full fan-out simulation —
- *  that's the preferred test-path for integration tests that want to
- *  exercise the full VBL-to-callback plumbing. DSpTesting_SimulateVBLTick
- *  is a faster/narrower shim for unit tests that only need to exercise
- *  the walk body without the other three secondary callbacks
- *  (release + clut-latch + gamma-fade) firing in the same tick.
- *
- *  Args are passed as nullptr / 0.0 to match the production call
- *  signature (cb_ctx/drawable/ts are unused inside the callback).
- */
-extern "C" void DSpTesting_SimulateVBLTick(void)
-{
-	DSpVBLServiceCallback(nullptr, nullptr, 0.0);
-}
-
-/*
- *  TESTING_BUILD wrapper — host-value wrapper around
- *  DSpContext_BlankFillHandler. The production path reads 8 bytes of Rect
- *  + 6 bytes of RGBColor via ReadMacInt16; on arm64 iOS simulator with
- *  above-4GiB-truncated addresses, ReadMacInt16 SEGVs.
- *  This wrapper takes the 4 int16 rect coordinates + 3 uint8 color
- *  channels directly. Behavior is byte-identical to the Mac-address
- *  variant at the DSpBlankFillCore level — same clipping, same depth-
- *  dispatch, same DSpInvalBackBufferRect_Accumulate call.
- *
- *  Mirrors the DSpTesting_FadeGammaByValues +
- *  DSpTesting_InvalBackBufferRectByValue precedent.
- *
- *  Used by DSpVBLTests for golden-image BlankFill
- *  assertions at 1/2/4/8/16/32 bpp without guest-RAM plumbing.
- */
-extern "C" int32_t DSpTesting_BlankFillByValues(uint32_t ctxRef,
-                                                 int16_t top,
-                                                 int16_t left,
-                                                 int16_t bottom,
-                                                 int16_t right,
-                                                 uint8_t r,
-                                                 uint8_t g,
-                                                 uint8_t b)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	return DSpBlankFillCore(ctx, top, left, bottom, right, r, g, b);
-}
-
-/*
- *  TESTING_BUILD wrapper — host-value read of s_dsp_vbl_count
- *  for DSpVBLTests.swift tick-monotonicity + correlation assertions. Bypasses
- *  DSpContext_GetVBLCountHandler's WriteMacInt32 guest-RAM path (which SEGVs
- *  on simulator above-4GiB scratch addresses). Returns the
- *  atomic_load low-32 truncation that GetVBLCount would write to guest RAM.
- *
- *  Validates ctxRef for API symmetry (the counter itself is GLOBAL);
- *  outCount pointer must be non-null.
- *
- *  Returns kDSpNoErr + populates *outCount on success;
- *  kDSpInvalidContextErr on bad ctxRef; kDSpInvalidAttributesErr on
- *  NULL outCount.
- */
-extern "C" int32_t DSpTesting_ReadVBLCount(uint32_t ctxRef, uint32_t *outCount)
-{
-	if (outCount == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	*outCount = 0;
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	(void)ctx;  /* API symmetry — counter is global */
-	uint64_t current = atomic_load_explicit(&s_dsp_vbl_count,
-	                                         memory_order_relaxed);
-	*outCount = (uint32_t)(current & 0xFFFFFFFFu);
-	return kDSpNoErr;
-}
-
-/*
- *  TESTING_BUILD wrapper — host-value read of the per-context
- *  vbl_proc_ptr + vbl_proc_refcon fields. Lets DSpVBLTests.swift round-trip
- *  SetVBLProc without going through DSpContext_GetVBLProcHandler's
- *  WriteMacInt32 guest-RAM path. Byte-identical read of the exact fields
- *  GetVBLProc would write (round-trip helper).
- *
- *  Both out pointers must be non-null.
- */
-extern "C" int32_t DSpTesting_ReadVBLProcFields(uint32_t ctxRef,
-                                                 uint32_t *outProc,
-                                                 uint32_t *outRefCon)
-{
-	if (outProc == nullptr || outRefCon == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	*outProc   = 0;
-	*outRefCon = 0;
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		return kDSpInvalidContextErr;
-	}
-	*outProc   = ctx->vbl_proc_ptr;
-	*outRefCon = ctx->vbl_proc_refcon;
-	return kDSpNoErr;
-}
-
-/*
- *  TESTING_BUILD wrapper — calls the PRODUCTION
- *  DSpContext_BlankFillHandler with guest-RAM addresses unchanged.
- *  Unlike DSpTesting_BlankFillByValues (host-value wrapper that bypasses
- *  ReadMacInt16 entirely), this shim drives the production path so arg-
- *  validation tests can exercise rectAddr=0 and colorAddr=0 rejection
- *  branches (kDSpInvalidAttributesErr). Returns the handler's return code.
- */
-extern "C" int32_t DSpTesting_BlankFillHandlerWithAddresses(uint32_t ctxRef,
-                                                             uint32_t rectAddr,
-                                                             uint32_t colorAddr)
-{
-	return DSpContext_BlankFillHandler(ctxRef, rectAddr, colorAddr);
-}
-
-/*
- *  TESTING_BUILD wrapper — applies the production BlankFill
- *  depth-dispatch kernel to a CALLER-PROVIDED host buffer. Exists because
- *  the iOS simulator coerces the bump-allocator heap to
- *  MTLStorageModePrivate (gfxaccel_resources_heap.mm:190), so
- *  ctx->back_buffer.contents is NULL and the production DSpBlankFillCore
- *  cannot exercise its fill formulas on the simulator.
- *
- *  Byte-identical behavior to the production path: same clipping to
- *  [0, bb_w) x [0, bb_h), same degenerate-rect short-circuit, same
- *  depth-dispatch kernel (DSpBlankFillDepthDispatch). Does NOT invoke
- *  DSpInvalBackBufferRect_Accumulate — the test supplies its own host
- *  buffer so there is no back-buffer to mark dirty.
- *
- *  Arguments:
- *    host_buffer  caller-allocated buffer, at least pitch * bb_h bytes
- *    bb_w, bb_h   back-buffer logical dimensions used for clipping
- *    depth        1 / 2 / 4 / 8 / 16 / 32
- *    pitch        bytes per row (caller matches production formula
- *                 (row_bytes + 255) & ~255)
- *    top/left/bottom/right  caller-specified rect (may be outside bounds;
- *                            clipping is symmetric with DSpBlankFillCore)
- *    r8/g8/b8     8-bit color channels
- *
- *  Returns kDSpNoErr on success, kDSpInvalidAttributesErr on NULL buffer
- *  or unsupported depth. Matches the production return-code discipline.
- */
-extern "C" int32_t DSpTesting_BlankFillOnHostBuffer(uint8_t *host_buffer,
-                                                     uint16_t bb_w_u,
-                                                     uint16_t bb_h_u,
-                                                     uint32_t depth,
-                                                     uint32_t pitch,
-                                                     int16_t top, int16_t left,
-                                                     int16_t bottom, int16_t right,
-                                                     uint8_t r, uint8_t g, uint8_t b)
-{
-	if (host_buffer == nullptr) {
-		return kDSpInvalidAttributesErr;
-	}
-	const int16_t bb_w = (int16_t)bb_w_u;
-	const int16_t bb_h = (int16_t)bb_h_u;
-	int16_t c_top    = (top    < 0)   ? 0    : top;
-	int16_t c_left   = (left   < 0)   ? 0    : left;
-	int16_t c_bottom = (bottom > bb_h) ? bb_h : bottom;
-	int16_t c_right  = (right  > bb_w) ? bb_w : right;
-	if (c_top >= c_bottom || c_left >= c_right) {
-		return kDSpNoErr;  /* degenerate rect — no-op per DSp 1.7 p.79 */
-	}
-	return DSpBlankFillDepthDispatch(host_buffer, depth, pitch,
-	                                  c_top, c_left, c_bottom, c_right,
-	                                  r, g, b);
-}
-#endif
 
 /*
  *  DSpContext_FadeGamma (sub-opcode 404).
@@ -6458,669 +5608,7 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD wrapper — bypass the
- *  guest-RAM color read by taking the zero-intensity tint as host-side
- *  uint8 R/G/B and a SIGNED percent. Mirrors the corrected production
- *  DSpContext_FadeGammaHandler EXACTLY (immediate apply, no duration,
- *  signed percent, tint-honoring target LUT) so DSpGammaTests can drive
- *  the curve goldens without a guest scratch buffer.
- *
- *  Note: bypasses ONLY the color-read step. The target-LUT computation
- *  + immediate DMC push + persistence run identically to production.
- */
-extern "C" int32_t DSpTesting_FadeGammaByValues(uint32_t ctxRef,
-                                                  int32_t percent,
-                                                  uint8_t r,
-                                                  uint8_t g,
-                                                  uint8_t b)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
 
-	uint8_t target_lut[768];
-	DSpComputeFadeGammaTargetLUT(r, g, b, percent, target_lut);
-
-	int32_t rv = dmc_record_gamma_change_with_lut(target_lut);
-	if (rv != kDMCNoErr) return kDSpInternalErr;
-	memcpy(ctx->gamma_lut_persisted, target_lut, 768);
-	ctx->fade_state.active = 0;
-	return kDSpNoErr;
-}
-#endif
-
-#ifdef TESTING_BUILD
-/*
- *  TESTING_BUILD wrapper — host-struct pattern (see
- *  DSpTesting_SetCLUTEntriesByStruct and
- *  DSpTesting_InvalBackBufferRectByValue). Accepts a host-memory
- *  (last-first+1)*3 byte output buffer instead of a guest Mac address.
- *  Bypasses the WriteMacInt8 loop entirely.
- *
- *  This 3-byte/8-bit host-struct wrapper is UNCHANGED by the ColorSpec
- *  wire-path: DSpIndexedDepthCompositeTests (the known-flaky
- *  byte-exact composite baseline) reads it back as a 3-byte round-trip
- *  and must not be destabilized. The 8-byte ColorSpec wire-path is
- *  exercised by the SEPARATE DSpTesting_GetCLUTEntriesByColorSpec wrapper
- *  below. Reads from the VBL-latched snapshot.
- */
-extern "C" int32_t DSpTesting_GetCLUTEntriesByStruct(uint32_t ctxRef,
-                                                     uint32_t first,
-                                                     uint32_t last,
-                                                     uint8_t *entries_out_host)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (entries_out_host == nullptr) return kDSpInvalidAttributesErr;
-	if (first > 255 || last > 255) return kDSpInvalidAttributesErr;
-	if (first > last) return kDSpInvalidAttributesErr;
-	return DSpGetCLUTCore(ctx, first, last, entries_out_host);
-}
-
-/*
- *  TESTING_BUILD wrapper — 8-byte ColorSpec
- *  wire-path. Mirrors the production handler's 8->16 up-convert (high byte
- *  preserved): `entries_out_host` receives `inEntryCount` 8-byte ColorSpec
- *  structs (value@+0 = 0, 16-bit big-endian r@+2/g@+4/b@+6). Arg order
- *  matches production: (ctxRef, entries_out_host, inStartingEntry,
- *  inEntryCount) — pointer-before-index. Reads from the VBL-latched
- *  snapshot. Used by DSpPaletteTests + DSpCLUTAnimationTests.
- */
-extern "C" int32_t DSpTesting_GetCLUTEntriesByColorSpec(uint32_t ctxRef,
-                                                        uint8_t *entries_out_host,
-                                                        uint32_t inStartingEntry,
-                                                        uint32_t inEntryCount)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (entries_out_host == nullptr) return kDSpInvalidAttributesErr;
-	/* Overflow-safe headroom check (CWE-190) — mirror production
-	 * DSpContext_GetCLUTEntriesHandler: never sum guest-controlled
-	 * operands. The first clause bounds inStartingEntry <= 255, so
-	 * 256 - inStartingEntry is in [1..256] and cannot underflow. */
-	if (inStartingEntry > 255 || inEntryCount == 0 ||
-	    inEntryCount > 256 - inStartingEntry) {
-		return kDSpInvalidAttributesErr;
-	}
-
-	const uint32_t start = inStartingEntry;
-	const uint32_t count = inEntryCount;
-	const uint32_t last  = start + count - 1;
-
-	/* Core (UNCHANGED) yields the 3-byte/8-bit latched bytes; up-convert
-	 * 8->16 (high byte preserved) into the host 8-byte ColorSpec layout. */
-	uint8_t staged[256 * 3];
-	int32_t rv = DSpGetCLUTCore(ctx, start, last, staged);
-	if (rv != kDSpNoErr) return rv;
-
-	for (uint32_t i = 0; i < count; i++) {
-		uint8_t *e = entries_out_host + i * 8;  /* 8-byte ColorSpec stride */
-		uint8_t r = staged[i * 3 + 0];
-		uint8_t g = staged[i * 3 + 1];
-		uint8_t b = staged[i * 3 + 2];
-		/* value@+0 SInt16 big-endian = 0 */
-		e[0] = 0;       e[1] = 0;
-		e[2] = r;       e[3] = r;   /* r 16-bit big-endian, high byte preserved */
-		e[4] = g;       e[5] = g;
-		e[6] = b;       e[7] = b;
-	}
-	return kDSpNoErr;
-}
-#endif
 
 /* --- TESTING_BUILD helpers --- */
 
-#ifdef TESTING_BUILD
-
-extern "C" int dsp_testing_context_count(void)
-{
-	return dsp_context_count;
-}
-
-extern "C" void dsp_testing_reset_contexts(void)
-{
-	/* Drain the release FIFO synchronously (simulate several VBL ticks). */
-	DSpVBLReleaseCallback(NULL, NULL, 0.0);
-	/* Any still-alive contexts — release them synchronously. */
-	for (int i = 0; i < DSP_MAX_CONTEXTS; i++) {
-		if (dsp_context_table[i] != nullptr) {
-			DSpReleaseNow(dsp_context_table[i]);
-			dsp_context_table[i] = nullptr;
-		}
-	}
-	dsp_context_count = 0;
-	atomic_store_explicit(&dsp_release_head, 0,
-	                      memory_order_relaxed);
-	atomic_store_explicit(&dsp_release_tail, 0,
-	                      memory_order_relaxed);
-	/* Drop any leaked alt-buffer records so
-	 * each test case starts with an empty alt-buffer table (the records are
-	 * children of contexts, which we just released). */
-	DSpResetAltBufferTable();
-}
-
-/*
- *  Simulate an Active DSp context in a single call
- *  for coexistence tests. Reserves a context with the
- *  provided attributes + routes it through SetState(Active) so the DMC
- *  active-owner becomes kDMCOwnerDSp — which in turn activates the NQD
- *  conflict gate. Returns the new ctxRef (>= 1) on success, or a
- *  negative error code matching the DSp 1.7 range (-30440..-30450) on
- *  failure.
- *
- *  NOT usable from production code paths: TESTING_BUILD-gated and
- *  bypasses PPC dispatch (writes Mac-side memory via Reserve of a
- *  scratch SheepMem region). The caller is responsible for draining
- *  via dsp_testing_reset_contexts() between test cases.
- */
-extern "C" int32_t DSpTesting_SimulateActiveContext(uint32_t width,
-                                                    uint32_t height,
-                                                    uint32_t depth)
-{
-	/* Stage an attributes struct in guest RAM so DSpContext_ReserveHandler
-	 * can consume it via the PDF-p.65 on-wire layout — the same path as
-	 * production dispatch. 56 bytes covers through reserved3[0] (offset 52)
-	 * with slack; trailing reserved/filler fields stay at 0.
-	 *
-	 * Use dsp_testing_alloc_guest_scratch (not SheepMem::Reserve)
-	 * because PocketShaverTests does not link main_unix.cpp — SheepMem
-	 * globals are zeroed and Reserve would underflow. The scratch
-	 * allocator is backed by a low-4GiB mmap, so (uint32)(uintptr_t)host
-	 * round-trips cleanly under EMULATED_PPC=0 / Mac2HostAddr identity.
-	 *
-	 * Offsets updated to PDF-p.65 exact layout.
-	 * colorNeeds moved to offset 12; contextOptions to offset 20;
-	 * backBufferBestDepth to offset 24; depthMasks to 32/36; w/h pairs
-	 * to UInt16 slots at 40/42/44/46; pageCount UInt8 at offset 48. */
-	uint32_t attr_addr = dsp_testing_alloc_guest_scratch(72);  /* DSp 1.7 PDF p.65 struct = 72 bytes */
-	if (attr_addr == 0) {
-		return kDSpInternalErr;
-	}
-	/* depthMask: kDSpDepthMask_* bit-per-depth. Includes 1/2/4 bpp;
-	 * composite tests exercise those indexed depths via this helper. */
-	uint32_t depth_mask = 0;
-	if (depth == 1)  depth_mask = kDSpDepthMask_1;
-	if (depth == 2)  depth_mask = kDSpDepthMask_2;
-	if (depth == 4)  depth_mask = kDSpDepthMask_4;
-	if (depth == 8)  depth_mask = kDSpDepthMask_8;
-	if (depth == 16) depth_mask = kDSpDepthMask_16;
-	if (depth == 32) depth_mask = kDSpDepthMask_32;
-
-	/* DSp 1.7 PDF p.65 on-wire byte layout. Re-corrected 2026-04-21 via
-	 * debug session `dsp-sims-rejects-all-modes`. */
-	WriteMacInt32(attr_addr +  0, 0);              /* frequency (ignored) */
-	WriteMacInt32(attr_addr +  4, width);          /* displayWidth */
-	WriteMacInt32(attr_addr +  8, height);         /* displayHeight */
-	WriteMacInt32(attr_addr + 12, 0);              /* reserved1 */
-	WriteMacInt32(attr_addr + 16, 0);              /* reserved2 */
-	WriteMacInt32(attr_addr + 20, 0);              /* colorNeeds */
-	WriteMacInt32(attr_addr + 24, 0);              /* colorTable (CTabHandle) */
-	WriteMacInt32(attr_addr + 28, 0);              /* contextOptions */
-	WriteMacInt32(attr_addr + 32, depth_mask);     /* backBufferDepthMask */
-	WriteMacInt32(attr_addr + 36, depth_mask);     /* displayDepthMask */
-	WriteMacInt32(attr_addr + 40, depth);          /* backBufferBestDepth */
-	WriteMacInt32(attr_addr + 44, depth);          /* displayBestDepth */
-	WriteMacInt32(attr_addr + 48, 1);              /* pageCount */
-	WriteMacInt8 (attr_addr + 52, 0);              /* filler[0] */
-	WriteMacInt8 (attr_addr + 53, 0);              /* filler[1] */
-	WriteMacInt8 (attr_addr + 54, 0);              /* filler[2] */
-	WriteMacInt8 (attr_addr + 55, 0);              /* gameMustConfirmSwitch (Boolean) */
-
-	/*
-	 *  Debug session `dsp-sims-post-reserve-black-screen` fix (2026-04-19):
-	 *  DSpContext_ReserveHandler signature changed — it no longer allocates
-	 *  a new handle (per DSp 1.7 PDF p.25 it attaches to an existing
-	 *  ctxRef from FindBestContext). This helper's "one-call Reserve +
-	 *  SetState" contract pre-dates that correction; to keep its semantics
-	 *  stable we call Reserve_Core directly (which still creates a brand-
-	 *  new ctx with back-buffer in one step — the legacy semantic tests
-	 *  rely on). No change to caller behavior; only the internal call
-	 *  shape changes.
-	 */
-	DSpContextAttributes attr = {};
-	attr.frequency            = 0;
-	attr.displayWidth         = width;
-	attr.displayHeight        = height;
-	attr.colorNeeds           = 0;
-	attr.colorTable           = 0;
-	attr.contextOptions       = 0;
-	attr.backBufferDepthMask  = depth_mask;
-	attr.displayDepthMask     = depth_mask;
-	attr.backBufferBestDepth  = depth;
-	attr.displayBestDepth     = depth;
-	attr.pageCount            = 1;
-	attr.gameMustConfirmSwitch = 0;
-	attr.backBufferWidth      = width;
-	attr.backBufferHeight     = height;
-	(void)attr_addr;
-	uint32_t ctx_ref = 0;
-	int32_t rv = DSpContext_Reserve_Core(&attr, &ctx_ref);
-	if (rv != kDSpNoErr) return rv;
-	if (ctx_ref == 0) return kDSpInternalErr;
-
-	rv = DSpContext_SetStateHandler(ctx_ref,
-	                                (uint32_t)kDSpContextState_Active);
-	if (rv != kDSpNoErr) return rv;
-
-	return (int32_t)ctx_ref;
-}
-
-/* ------------------------------------------------------------------ *
- *  Guest-RAM scratch allocator for test-harness use.
- *
- *  The PocketShaverTests target does NOT link main_unix.cpp, so the
- *  SheepMem static globals are zero-initialized (PSRAVEStubs.mm). Any
- *  SheepMem::Reserve call from test code wraps negative and asserts.
- *
- *  We back the scratch with an mmap'd page-aligned region in the low
- *  4 GiB of host VA. Under EMULATED_PPC=0 ReadMacInt32 / WriteMacInt32
- *  dereference *(uint32*)addr directly, so the low-4GiB host pointer
- *  uint32-casts to itself and the round-trip is lossless. Matches
- *  PSFakeMacRAM_Alloc's mmap-with-hints approach.
- *
- *  Bump allocator: no per-alloc free; tests call
- *  dsp_testing_reset_guest_scratch() in tearDown to reset the cursor.
- *  Capacity 1 MiB covers every envisioned test workload
- *  (attr structs + out-params + Rect + state cells: < 100 bytes per
- *  test × ~50 tests × slack).
- * ------------------------------------------------------------------ */
-
-static const uint32_t kDSpTestScratchCapacity = 16 * 1024 * 1024;  /* 16 MiB */
-static uint8_t       *s_dsp_test_scratch_base = NULL;
-static uint32_t       s_dsp_test_scratch_pos  = 0;
-static uint32_t       s_dsp_test_scratch_size = 0;
-
-static void DSpTestingScratchEnsureBacking(void)
-{
-	if (s_dsp_test_scratch_base != NULL) return;
-
-	/* Try hinted low-4GiB mappings first so (uint32)(uintptr_t)host
-	 * round-trips. Matches PSFakeMacRAM's strategy. */
-	void *p = MAP_FAILED;
-	const uintptr_t hintAddrs[] = {
-		0x20000000UL,  /* 512 MiB */
-		0x40000000UL,  /* 1 GiB */
-		0x80000000UL,  /* 2 GiB */
-		0xC0000000UL,  /* 3 GiB */
-		0x08000000UL,  /* 128 MiB */
-	};
-	for (size_t i = 0; i < sizeof(hintAddrs) / sizeof(hintAddrs[0]); ++i) {
-		void *hint = (void *)hintAddrs[i];
-		void *q = mmap(hint, kDSpTestScratchCapacity,
-		               PROT_READ | PROT_WRITE,
-		               MAP_ANON | MAP_PRIVATE,
-		               -1, 0);
-		if (q == MAP_FAILED) continue;
-		if ((uintptr_t)q < 0x100000000UL &&
-		    (uintptr_t)q + kDSpTestScratchCapacity <= 0x100000000UL) {
-			p = q;
-			break;
-		}
-		munmap(q, kDSpTestScratchCapacity);
-	}
-	if (p == MAP_FAILED) {
-		/* Fallback — any page-aligned allocation. If the sim ignores
-		 * every hint the caller may still observe a faulty round-trip,
-		 * but at least the mmap itself succeeds so allocation doesn't
-		 * error out silently. */
-		p = mmap(NULL, kDSpTestScratchCapacity,
-		         PROT_READ | PROT_WRITE,
-		         MAP_ANON | MAP_PRIVATE,
-		         -1, 0);
-	}
-	if (p == MAP_FAILED || p == NULL) {
-		return;
-	}
-	s_dsp_test_scratch_base = (uint8_t *)p;
-	s_dsp_test_scratch_size = kDSpTestScratchCapacity;
-	s_dsp_test_scratch_pos  = 0;
-}
-
-extern "C" uint32_t dsp_testing_alloc_guest_scratch(uint32_t size)
-{
-	DSpTestingScratchEnsureBacking();
-	if (s_dsp_test_scratch_base == NULL) return 0;
-
-	/* 4-byte align size to preserve 32-bit access alignment on every
-	 * returned address — matches SheepMem::align. */
-	uint32_t aligned_size = (size + 3u) & ~3u;
-	if (aligned_size == 0 || aligned_size > s_dsp_test_scratch_size) return 0;
-	if (s_dsp_test_scratch_pos + aligned_size > s_dsp_test_scratch_size) {
-		return 0;
-	}
-	uint8_t *host  = s_dsp_test_scratch_base + s_dsp_test_scratch_pos;
-	/* Low-4GiB gate: if the underlying mmap landed above 4 GiB, the
-	 * (uint32)(uintptr_t)host cast truncates and ReadMacInt32/
-	 * WriteMacInt32 (static inlines from cpu_emulation.h under
-	 * EMULATED_PPC=0) would dereference the wrong address and SEGV.
-	 * Refuse the allocation in that case; callers interpret a 0 return
-	 * as "guest-scratch unavailable" and XCTSkip the behavior-exact
-	 * diff they needed. */
-	uintptr_t hptr = (uintptr_t)host;
-	if (hptr >= 0x100000000UL ||
-	    hptr + (uintptr_t)aligned_size > 0x100000000UL) {
-		return 0;
-	}
-	uint32_t addr  = (uint32_t)hptr;
-	/* Zero the newly vended region so readers see a stable 0 before any
-	 * WriteMacInt32 call (matches classic C calloc hygiene). */
-	std::memset(host, 0, aligned_size);
-	s_dsp_test_scratch_pos += aligned_size;
-	return addr;
-}
-
-/*
- *  Low-4GiB probe. Reports whether the scratch backing
- *  store landed in low 4 GiB of host VA (i.e., ReadMacInt32/WriteMacInt32
- *  can safely deref scratch addresses). Callers use this to XCTSkip
- *  behavior-exact diffs that rely on Mac-memory I/O when the simulator
- *  mmap landed high.
- */
-extern "C" int dsp_testing_scratch_in_low_4gib(void)
-{
-	DSpTestingScratchEnsureBacking();
-	if (s_dsp_test_scratch_base == NULL) return 0;
-	uintptr_t hptr = (uintptr_t)s_dsp_test_scratch_base;
-	return (hptr < 0x100000000UL &&
-	        hptr + s_dsp_test_scratch_size <= 0x100000000UL) ? 1 : 0;
-}
-
-extern "C" void dsp_testing_free_guest_scratch(uint32_t /*addr*/)
-{
-	/* No-op — bump allocator; reset via dsp_testing_reset_guest_scratch. */
-}
-
-extern "C" void dsp_testing_reset_guest_scratch(void)
-{
-	if (s_dsp_test_scratch_base == NULL) return;
-	/* Scrub + rewind so re-used cells start zero. */
-	std::memset(s_dsp_test_scratch_base, 0, s_dsp_test_scratch_size);
-	s_dsp_test_scratch_pos = 0;
-}
-
-/* ------------------------------------------------------------------ *
- *  Swift shim over static-inline Read/Write Mac{Int32,Int16}.
- *  Swift cannot call static inlines from cpu_emulation.h through the
- *  bridging header; these thin wrappers give Swift tests a stable
- *  C-linkage entry to populate DSpContextAttributes / out-param cells /
- *  Mac Rect structs inside the scratch region.
- * ------------------------------------------------------------------ */
-
-extern "C" void dsp_testing_write_mac_int32(uint32_t addr, uint32_t value)
-{
-	WriteMacInt32(addr, value);
-}
-
-extern "C" uint32_t dsp_testing_read_mac_int32(uint32_t addr)
-{
-	return ReadMacInt32(addr);
-}
-
-extern "C" void dsp_testing_write_mac_int16(uint32_t addr, uint32_t value)
-{
-	WriteMacInt16(addr, value);
-}
-
-extern "C" uint32_t dsp_testing_read_mac_int16(uint32_t addr)
-{
-	return ReadMacInt16(addr);
-}
-
-extern "C" void dsp_testing_write_mac_int8(uint32_t addr, uint32_t value)
-{
-	WriteMacInt8(addr, value);
-}
-
-/* Byte-accurate read of a 1-byte Pascal Boolean / SInt8 out-param. Tests
- * that read a value the handler wrote with WriteMacInt8 (e.g. DSpProcessEvent's
- * outEventWasProcessed) MUST use this, not (read_mac_int16 & 0xff): the latter
- * is correct only by little-endian accident and reads a live garbage byte at
- * +1. */
-extern "C" uint32_t dsp_testing_read_mac_int8(uint32_t addr)
-{
-	return ReadMacInt8(addr);
-}
-
-/* ------------------------------------------------------------------ *
- *  TESTING_BUILD helpers for event
- *  integration tests.
- *
- *  Three thin wrappers expose per-context SPSC state to Swift tests
- *  without exposing the full DSpContextPrivate struct. The event-inject
- *  path reuses the dsp_enqueue_into_ring helper (defined in
- *  dsp_host_bridge.mm, a different TU). dsp_enqueue_into_ring was changed
- *  from `static` → `extern "C"` so the symbol is
- *  linker-visible cross-TU; forward-declared here since it has no
- *  public-header prototype by design.
- * ------------------------------------------------------------------ */
-
-extern "C" void dsp_enqueue_into_ring(DSpContextPrivate *ctx,
-                                       uint16_t what, uint32_t message,
-                                       uint32_t when, int16_t where_v,
-                                       int16_t where_h, uint16_t modifiers);
-
-extern "C" int32_t DSpTesting_EnqueueEventToCtx(uint32_t ctxRef,
-                                                  uint16_t what, uint32_t message,
-                                                  uint32_t when,
-                                                  int16_t where_v, int16_t where_h,
-                                                  uint16_t modifiers)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	dsp_enqueue_into_ring(ctx, what, message, when, where_v, where_h, modifiers);
-	return kDSpNoErr;
-}
-
-extern "C" int32_t DSpTesting_ReadContextPausedByBackground(uint32_t ctxRef,
-                                                              uint8_t *outFlag)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (outFlag == nullptr) return kDSpInvalidAttributesErr;
-	*outFlag = ctx->paused_by_background;
-	return kDSpNoErr;
-}
-
-extern "C" int32_t DSpTesting_ReadContextEventsQueueDepth(uint32_t ctxRef,
-                                                            uint32_t *outDepth)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (outDepth == nullptr) return kDSpInvalidAttributesErr;
-	uint32_t head = atomic_load_explicit(&ctx->events_head, memory_order_relaxed);
-	uint32_t tail = atomic_load_explicit(&ctx->events_tail, memory_order_relaxed);
-	*outDepth = head - tail;
-	return kDSpNoErr;
-}
-
-/*
- *  TESTING_BUILD host helper
- *  that dequeues one event from a context's SPSC input-fanout ring WITHOUT
- *  the guest-RAM WriteMacInt* marshalling. This lifts the body of the
- *  RETIRED guest-facing dequeue export (the old non-canonical
- *  sub-op-600 ProcessEvent reader) so the ~18 DSpEventTests ring-observation
- *  methods survive its retirement: the ring + its live iOS input-fanout
- *  producer (DSpHostBridge_EnqueueEventToActiveContexts) are KEPT
- *  (provably alive). Background/foreground lifecycle no longer writes to
- *  this ring; it uses the atomic lifecycle flag-and-drain path.
- *
- *  The atomics here operate on the EXISTING sanctioned ring atomics
- *  (events_head / events_tail) behind #ifdef TESTING_BUILD — NO new
- *  production concurrency primitive is added. Same posture as
- *  DSpTesting_ReadContextEventsQueueDepth above. Net effect of this test-only reader is
- *  a REDUCTION of production atomic ops (the retired handler's 3 atomic ops
- *  are removed; the canonical DSpProcessEvent handler is synchronous).
- *
- *  SPSC-ring dequeue semantics mirror the retired handler exactly:
- *    - memory_order_relaxed on tail (reader owns tail)
- *    - memory_order_acquire on head (fence slot-data visibility from writer)
- *    - empty queue (head == tail) -> *outProcessed = 0, kDSpNoErr
- *    - on dequeue: copy slot fields, *outProcessed = 1, then advance tail
- *      via memory_order_release so the writer sees the slot free.
- *
- *  Out-params receive the 6 DSpEventRecord fields + the Pascal-Boolean
- *  "processed" flag (0/1). NULL out-params are NOT individually guarded
- *  (test-only helper; callers always pass valid pointers); ctxRef is
- *  validated.
- */
-extern "C" int32_t DSpTesting_DequeueContextEvent(uint32_t ctxRef,
-                                                   uint16_t *outWhat,
-                                                   uint32_t *outMessage,
-                                                   uint32_t *outWhen,
-                                                   int16_t *outWhereV,
-                                                   int16_t *outWhereH,
-                                                   uint16_t *outModifiers,
-                                                   uint8_t *outProcessed)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (outProcessed == nullptr) return kDSpInvalidAttributesErr;
-
-	uint32_t tail = atomic_load_explicit(&ctx->events_tail,
-	                                     memory_order_relaxed);
-	uint32_t head = atomic_load_explicit(&ctx->events_head,
-	                                     memory_order_acquire);
-
-	if (head == tail) {
-		/* Queue empty — processed = false; out-fields untouched. */
-		*outProcessed = 0;
-		return kDSpNoErr;
-	}
-
-	DSpEventRecord *slot = &ctx->events_queue[tail % 64u];
-	if (outWhat)      *outWhat      = slot->what;
-	if (outMessage)   *outMessage   = slot->message;
-	if (outWhen)      *outWhen      = slot->when;
-	if (outWhereV)    *outWhereV    = slot->where_v;
-	if (outWhereH)    *outWhereH    = slot->where_h;
-	if (outModifiers) *outModifiers = slot->modifiers;
-	*outProcessed = 1;
-
-	atomic_store_explicit(&ctx->events_tail, tail + 1u,
-	                      memory_order_release);
-	return kDSpNoErr;
-}
-
-extern "C" int32_t DSpTesting_WriteContextPausedByBackground(uint32_t ctxRef,
-                                                               uint8_t flag)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	ctx->paused_by_background = flag;
-	return kDSpNoErr;
-}
-
-/*
- *  Debug session `dsp-sims-enumeration-stall` fix (2026-04-19) — host read
- *  of ctx->enumeration_mode_index for the new DSpGetFirstContext /
- *  DSpGetNextContext iteration regression test. See header for contract.
- */
-extern "C" int32_t DSpTesting_ReadEnumerationModeIndex(uint32_t ctxRef,
-                                                        uint32_t *outIndex)
-{
-	if (outIndex == nullptr) return kDSpInvalidAttributesErr;
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	*outIndex = ctx->enumeration_mode_index;
-	return kDSpNoErr;
-}
-
-/*
- *  Host-side MainDevice PixMap.baseAddr probe used by
- *  lifecycle assertions (DSpContextTests). Walks the same
- *  LMADDR_MAIN_DEVICE → GDevice → PixMap chain as
- *  DSpRedirectMainDevicePixMap and returns the current PixMap.baseAddr.
- *  Returns 0 (graceful skip) when any intermediate handle is zero —
- *  same convention as the Redirect helper's pre-boot Landmine-8 guard.
- *  Mirrors the testing-helper shape from
- *  dsp_mode_enumerate.cpp:281-307.
- */
-extern "C" uint32_t DSpTesting_GetMainDevicePixMapBaseAddr(void)
-{
-	uint32_t mainDeviceH = ReadMacInt32(LMADDR_MAIN_DEVICE);
-	if (mainDeviceH == 0) return 0;
-	uint32_t gdevicePtr = ReadMacInt32(mainDeviceH);
-	if (gdevicePtr == 0) return 0;
-	uint32_t pixMapH = ReadMacInt32(gdevicePtr + GDEVICE_OFF_PMAP);
-	if (pixMapH == 0) return 0;
-	uint32_t pixMapPtr = ReadMacInt32(pixMapH);
-	if (pixMapPtr == 0) return 0;
-	return ReadMacInt32(pixMapPtr + DSP_PIXMAP_OFF_BASEADDR);
-}
-
-/*
- *  TESTING_BUILD helper: manually fires the VBL
- *  secondary-callback chain so tests can deterministically drive
- *  the publish shim (DSpVBLCompositorPublishCallback) without waiting for
- *  a real display-link tick. Reuses vbl_source's existing testing-only
- *  dispatch entry point, which increments s_tick_count, signals pacing,
- *  and drains all registered secondary callbacks (including the publish
- *  shim) in the same fan-out order as a real VBL fire.
- */
-extern "C" void DSpTesting_TickVBL(void)
-{
-	vbl_source_testing_simulate_vbl_tick();
-}
-
-/*
- *  Reserve a minimal DSp context for the
- *  lifecycle + golden-PNG tests. Mirrors the existing
- *  DSpTesting_SimulateActiveContext shape but stops at Reserve (does NOT
- *  call SetState(Active)); the caller drives SetState explicitly via
- *  DSpTesting_SetStateActiveDirect so lifecycle assertions can probe the
- *  state at each transition edge.
- *
- *  Returns the new ctxRef (>= 1) on success, or 0 on failure. Uses the
- *  testing-helper precedent: direct call into Reserve_Core, no
- *  EMULATED_PPC dispatch.
- */
-extern "C" uint32_t DSpTesting_BootstrapMinimalContext(uint32_t width,
-                                                        uint32_t height,
-                                                        uint32_t bpp)
-{
-	uint32_t depth_mask = 0;
-	if (bpp == 1)  depth_mask = kDSpDepthMask_1;
-	if (bpp == 2)  depth_mask = kDSpDepthMask_2;
-	if (bpp == 4)  depth_mask = kDSpDepthMask_4;
-	if (bpp == 8)  depth_mask = kDSpDepthMask_8;
-	if (bpp == 16) depth_mask = kDSpDepthMask_16;
-	if (bpp == 32) depth_mask = kDSpDepthMask_32;
-	if (depth_mask == 0) return 0;
-
-	DSpContextAttributes attr = {};
-	attr.frequency             = 0;
-	attr.displayWidth          = width;
-	attr.displayHeight         = height;
-	attr.colorNeeds            = 0;
-	attr.colorTable            = 0;
-	attr.contextOptions        = 0;
-	attr.backBufferDepthMask   = depth_mask;
-	attr.displayDepthMask      = depth_mask;
-	attr.backBufferBestDepth   = bpp;
-	attr.displayBestDepth      = bpp;
-	attr.pageCount             = 1;
-	attr.gameMustConfirmSwitch = 0;
-	attr.backBufferWidth       = width;
-	attr.backBufferHeight      = height;
-
-	uint32_t ctx_ref = 0;
-	int32_t rv = DSpContext_Reserve_Core(&attr, &ctx_ref);
-	if (rv != kDSpNoErr) return 0;
-	return ctx_ref;
-}
-
-/*
- *  Direct-call twin of
- *  DSpContext_SetStateHandler(ctx, Active) for the lifecycle tests.
- *  Bypasses EMULATED_PPC dispatch: calls SetStateHandler directly with
- *  the canonical kDSpContextState_Active value. Returns the DSp 1.7
- *  result code from SetStateHandler unchanged.
- */
-extern "C" int32_t DSpTesting_SetStateActiveDirect(uint32_t ctxRef)
-{
-	return DSpContext_SetStateHandler(ctxRef,
-	                                   (uint32_t)kDSpContextState_Active);
-}
-
-#endif /* TESTING_BUILD */

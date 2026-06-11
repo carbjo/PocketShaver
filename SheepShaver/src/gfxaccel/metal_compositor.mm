@@ -1523,46 +1523,6 @@ void MetalCompositorShutdown(void)
 // TESTING_BUILD palette introspection hooks
 // ---------------------------------------------------------------------------
 
-#ifdef TESTING_BUILD
-uint8_t MetalCompositorTesting_GetPaletteFrontIdx(void)
-{
-    return atomic_load_explicit(&s_palette_front_idx, memory_order_acquire);
-}
-
-void *MetalCompositorTesting_GetPaletteBuffer(int idx)
-{
-    if (idx < 0 || idx > 1) return NULL;
-    return (__bridge void *)s_palette_buffers[idx];
-}
-
-int MetalCompositorTesting_InitPaletteBuffers(void *device)
-{
-    if (device == NULL) return -1;
-    id<MTLDevice> dev = (__bridge id<MTLDevice>)device;
-    for (int i = 0; i < 2; i++) {
-        // heap-exempt: test-only helper for PaletteDoubleBufferTests; bypasses the heap sub-allocator intentionally because the test device is a fresh MTLDevice with no gfxaccel_resources_heap bound
-        s_palette_buffers[i] = [dev newBufferWithLength:256 * 4
-                                                options:MTLResourceStorageModeShared];
-        if (!s_palette_buffers[i]) return -1;
-        memset(s_palette_buffers[i].contents, 0, 256 * 4);
-    }
-    reset_palette_latch_state();
-    return 0;
-}
-
-void MetalCompositorTesting_ShutdownPaletteBuffers(void)
-{
-    s_palette_buffers[0] = nil;
-    s_palette_buffers[1] = nil;
-    reset_palette_latch_state();
-}
-
-// Gamma LUT buffer introspection hook.
-void *MetalCompositorTesting_GetGammaLUTBuffer(void)
-{
-    return (__bridge void *)gamma_lut_buffer;
-}
-#endif /* TESTING_BUILD */
 
 
 

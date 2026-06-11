@@ -164,34 +164,6 @@ int32_t vbl_source_register_secondary_callback(VBLSourceCallbackFn cb,
 void    vbl_source_unregister_secondary_callback(VBLSourceCallbackFn cb);
 
 /* --- TESTING_BUILD introspection --- */
-#ifdef TESTING_BUILD
-
-/*
- * Returns 1 if vbl_source_init() has completed and shutdown has not
- * reset, 0 otherwise.
- */
-uint32_t vbl_source_testing_is_initialized(void);
-
-/*
- * Alias for vbl_source_get_tick_count() -- provided for test symmetry
- * with other _testing_ APIs.
- */
-uint64_t vbl_source_testing_get_tick_count(void);
-
-/*
- * Full teardown + reset for test isolation.  Calls vbl_source_shutdown()
- * and zeros all file-scope statics.
- */
-void     vbl_source_testing_reset(void);
-
-/*
- * Fire the callback chain manually without a real display link:
- * increment tick count, update cadence (if applicable), record a pacing tick,
- * and call s_callback. For unit tests only.
- */
-void     vbl_source_testing_simulate_vbl_tick(void);
-
-#endif /* TESTING_BUILD */
 
 #ifdef __cplusplus
 }

@@ -348,36 +348,3 @@ void DSpThunksInit(void)
 	        (unsigned)dsp_scratch_addr);
 }
 
-#ifdef TESTING_BUILD
-/* Test hook: peek at dsp_method_tvects[op] for XCTest assertions.
- * Used by test_DSpThunksInit_allocates_subops_0_1_2 + install-patch
- * verification tests. Never called by production code. */
-extern "C" uint32_t dsp_testing_peek_tvect(int sub_opcode)
-{
-	if (sub_opcode < 0 || sub_opcode >= DSP_MAX_SUBOPCODE) return 0;
-	return dsp_method_tvects[sub_opcode];
-}
-
-/* Bug-fix test hook (sims-dsp-subop-mismatch): stage the value
- * that dsp_scratch_addr points at, so Swift tests can simulate the PPC
- * thunk's `stw r12, 0(r11)` step without running the emulator. The test
- * then calls DSpDispatch with garbage in r3 and confirms the dispatch
- * switch routes based on the scratch word (not r3). Never called by
- * production code. Returns 0 on success, -1 if SheepMem is not yet
- * reserved (test-process EMULATED_PPC=0 path — tests XCTSkip in that case). */
-extern "C" int dsp_testing_set_scratch(uint32_t value)
-{
-	if (dsp_scratch_addr == 0) return -1;
-	WriteMacInt32(dsp_scratch_addr, value);
-	return 0;
-}
-
-/* Bug-fix test hook (sims-dsp-subop-mismatch): read back what
- * dsp_scratch_addr points at. Returns 0 if scratch is unreserved. Mirrors
- * the peek half of the set/get pair so Swift tests can round-trip-verify. */
-extern "C" uint32_t dsp_testing_peek_scratch(void)
-{
-	if (dsp_scratch_addr == 0) return 0;
-	return (uint32_t)ReadMacInt32(dsp_scratch_addr);
-}
-#endif

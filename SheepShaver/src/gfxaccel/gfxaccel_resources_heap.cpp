@@ -50,10 +50,6 @@ extern "C" uint32_t gfxaccel_resources_heap_mm_heap_count(void);
 extern "C" uint64_t gfxaccel_resources_heap_mm_reset(uint32_t heap_id);
 extern "C" void gfxaccel_resources_heap_mm_note_allocation_released(uint32_t heap_id);
 extern "C" uint32_t gfxaccel_resources_heap_mm_live_allocation_count(uint32_t heap_id);
-#ifdef TESTING_BUILD
-extern "C" void gfxaccel_resources_heap_mm_set_ceiling(uint32_t heap_id,
-                                                        uint32_t bytes);
-#endif
 
 namespace {
 
@@ -351,51 +347,3 @@ extern "C" void gfxaccel_heap_lru_purge_volatile(void)
 // TESTING_BUILD introspection
 // ---------------------------------------------------------------------------
 
-#ifdef TESTING_BUILD
-
-extern "C" uint32_t gfxaccel_heap_testing_is_initialized(void)
-{
-	return s_heap_initialized ? 1u : 0u;
-}
-
-extern "C" uint32_t gfxaccel_heap_testing_heap_count(void)
-{
-	return gfxaccel_resources_heap_mm_heap_count();
-}
-
-extern "C" uint32_t gfxaccel_heap_testing_pso_cache_count(void)
-{
-	return (uint32_t)g_pso_cache.size();
-}
-
-extern "C" uint32_t gfxaccel_heap_testing_live_allocations(uint32_t heap_id)
-{
-	return gfxaccel_resources_heap_live_allocation_count(heap_id);
-}
-
-extern "C" void gfxaccel_heap_testing_reset(void)
-{
-	// Full teardown for test isolation.
-	gfxaccel_resources_heap_shutdown();
-
-	// Reset ceiling overrides to defaults.
-	for (int i = 0; i < kHeapCount; ++i) {
-		g_ceiling_override[i] = 0;
-	}
-}
-
-extern "C" void gfxaccel_heap_testing_set_ceiling(uint32_t heap_id, uint32_t bytes)
-{
-	if (heap_id >= kHeapCount) {
-		fprintf(stderr, "[gfxaccel-heap] testing_set_ceiling: heap_id=%u out of "
-		                "range\n", (unsigned)heap_id);
-		return;
-	}
-	g_ceiling_override[heap_id] = bytes;
-
-	// Forward the override to the .mm side so heap creation uses the
-	// new ceiling.
-	gfxaccel_resources_heap_mm_set_ceiling(heap_id, bytes);
-}
-
-#endif /* TESTING_BUILD */

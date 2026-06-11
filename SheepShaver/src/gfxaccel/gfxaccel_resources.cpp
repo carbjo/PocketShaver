@@ -262,14 +262,3 @@ extern "C" void gfxaccel_resources_unregister_engine(uint32_t engine_id)
 	// diagnostic at shutdown).
 }
 
-#ifdef TESTING_BUILD
-extern "C" uint32_t gfxaccel_resources_testing_is_initialized(void)
-{
-	return s_initialized ? 1u : 0u;
-}
-
-extern "C" uint32_t gfxaccel_resources_testing_engine_count(void)
-{
-	return (uint32_t)s_engine_handlers.size();
-}
-#endif

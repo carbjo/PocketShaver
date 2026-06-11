@@ -50,40 +50,16 @@ void *SharedMetalDevice(void)
 // Metal validation — command buffer error handler
 // ---------------------------------------------------------------------------
 
-#if defined(TESTING_BUILD) && defined(DEBUG)
-static bool s_last_validation_error_fired = false;
-
-extern "C" uint32_t MetalValidation_TestingDidFireError(void)
-{
-    return s_last_validation_error_fired ? 1 : 0;
-}
-
-extern "C" void MetalValidation_TestingReset(void)
-{
-    s_last_validation_error_fired = false;
-}
-#endif
 
 #ifdef DEBUG
 static void MetalValidation_CheckCommandBufferError(id<MTLCommandBuffer> cmdBuf)
 {
     if (cmdBuf.error != nil) {
-#ifdef TESTING_BUILD
-        // In the test harness, set the flag instead of asserting (which
-        // would crash the test runner).
-        s_last_validation_error_fired = true;
-        printf("[Metal Validation] Command buffer error (test mode): %s\n"
-               "  Status: %lu  Device: %s\n",
-               [[cmdBuf.error localizedDescription] UTF8String],
-               (unsigned long)cmdBuf.status,
-               [[cmdBuf.device name] UTF8String]);
-#else
         NSCAssert(NO, @"[Metal Validation] Command buffer error: %@\n"
                        "Status: %lu\nDevice: %@",
                   cmdBuf.error.localizedDescription,
                   (unsigned long)cmdBuf.status,
                   [cmdBuf.device name]);
-#endif
     }
 }
 
