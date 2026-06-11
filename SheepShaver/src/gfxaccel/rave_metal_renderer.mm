@@ -633,7 +633,10 @@ static void RaveSetDepthStencilStateForDraw(RaveDrawPrivate *priv,
 	RaveMetalState *ms = priv ? priv->metal : nullptr;
 	if (!ms || !ms->currentEncoder) return;
 	if (!RaveContextUsesMetalDepthAttachment(priv->flags)) {
-		[ms->currentEncoder setDepthStencilState:nil];
+		/* No depth attachment: leave the encoder on Metal's default
+		 * depth-stencil state (always pass, no write). Passing nil to
+		 * setDepthStencilState: is a Metal API validation error — it
+		 * aborted DII's z-less 800x600 menu context on its first draw. */
 		return;
 	}
 	int zfunc = (int)priv->state[0].i;

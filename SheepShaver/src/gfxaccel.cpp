@@ -348,6 +348,30 @@ void NQD_fillrect(uint32 p)
 	}
 }
 
+/*
+ *  Decline-to-software with GPU-batch flush.
+ *
+ *  Returning false hands the op to software QuickDraw immediately — but up
+ *  to NQD_BATCH_MAX GPU dispatches against Metal-mapped RAM may still be
+ *  queued. Software QD would then read/write a surface (e.g. the
+ *  desktop-picture cache GWorld) BEFORE the queued GPU work lands: the
+ *  visible result is stale/partial content (banding, stale strips), and
+ *  for writes the late-landing batch can stomp newer software output.
+ *  Flush first whenever the declined op touches the Metal RAM window on
+ *  either side. Accepted ops keep batching; NQDMetalFlush early-outs when
+ *  the batch is empty, so the cost on the hot decline edge is two range
+ *  checks. (The CPU-fallback helper NQD_bitblt already flushes; this
+ *  closes the same invariant for the decline edge.)
+ */
+static inline bool NQD_decline_with_flush(uint32 p)
+{
+	if (nqd_metal_available &&
+		(NQDMetalAddrInBuffer(ReadMacInt32(p + acclSrcBaseAddr)) ||
+		 NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))))
+		NQDMetalFlush();
+	return false;
+}
+
 bool NQD_fillrect_hook(uint32 p)
 {
 	D(bug("accl_fillrect_hook %08x\n", p));
@@ -390,7 +414,7 @@ bool NQD_fillrect_hook(uint32 p)
 			return true;
 		}
 	}
-	return false;
+	return NQD_decline_with_flush(p);
 }
 
 
@@ -532,7 +556,7 @@ bool NQD_bitblt_hook(uint32 p)
 		return true;
 	}
 
-	return false;
+	return NQD_decline_with_flush(p);
 }
 
 // Unknown hook
@@ -557,20 +581,20 @@ bool NQD_bltmask_hook(uint32 arg)
 	// Check src and dest are in Metal-mapped RAM
 	if (!NQDMetalAddrInBuffer(ReadMacInt32(arg + acclSrcBaseAddr)) ||
 		!NQDMetalAddrInBuffer(ReadMacInt32(arg + acclDestBaseAddr)))
-		return false;
+		return NQD_decline_with_flush(arg);
 
 	// Validate mask data: check that mask region address is non-zero
 	uint32 mask_rgn_addr = ReadMacInt32(arg + 0x128);
 	if (mask_rgn_addr == 0) {
 		D(bug("  bltmask_hook: null mask region at 0x128, declining\n"));
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 
 	// Try reading the region header to validate
 	uint16 rgnSize = ReadMacInt16(mask_rgn_addr);
 	if (rgnSize < 10) {
 		D(bug("  bltmask_hook: invalid rgnSize %u at 0x%08x, declining\n", rgnSize, mask_rgn_addr));
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 
 	// Validate region bbox: top < bottom and left < right
@@ -579,20 +603,20 @@ bool NQD_bltmask_hook(uint32 arg)
 	int16 bbox_bottom = (int16)ReadMacInt16(mask_rgn_addr + 6);
 	int16 bbox_right  = (int16)ReadMacInt16(mask_rgn_addr + 8);
 	if (bbox_top >= bbox_bottom || bbox_left >= bbox_right) {
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 
 	// Validate pixel size matching (src == dest)
 	if (ReadMacInt32(arg + acclSrcPixelSize) != ReadMacInt32(arg + acclDestPixelSize)) {
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 	if (!NQD_bitblt_rects_byte_aligned_for_depth(arg, ReadMacInt32(arg + acclSrcPixelSize))) {
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 
 	const uint32 mode = ReadMacInt32(arg + acclTransferMode);
 	if (!(mode <= 7 || (mode >= 32 && mode <= 39) || mode == 50)) {
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 
 	D(bug("  bltmask_hook: accepting mask=0x%08x rgnSize=%u mode=%d\n",
@@ -610,20 +634,20 @@ bool NQD_fillmask_hook(uint32 arg)
 
 	// Check dest is in Metal-mapped RAM
 	if (!NQDMetalAddrInBuffer(ReadMacInt32(arg + acclDestBaseAddr)))
-		return false;
+		return NQD_decline_with_flush(arg);
 
 	// Validate mask data: check that mask region address is non-zero
 	uint32 mask_rgn_addr = ReadMacInt32(arg + 0x128);
 	if (mask_rgn_addr == 0) {
 		D(bug("  fillmask_hook: null mask region at 0x128, declining\n"));
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 
 	// Try reading the region header to validate
 	uint16 rgnSize = ReadMacInt16(mask_rgn_addr);
 	if (rgnSize < 10) {
 		D(bug("  fillmask_hook: invalid rgnSize %u at 0x%08x, declining\n", rgnSize, mask_rgn_addr));
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 
 	// Validate region bbox: top < bottom and left < right
@@ -632,20 +656,20 @@ bool NQD_fillmask_hook(uint32 arg)
 	int16 bbox_bottom = (int16)ReadMacInt16(mask_rgn_addr + 6);
 	int16 bbox_right  = (int16)ReadMacInt16(mask_rgn_addr + 8);
 	if (bbox_top >= bbox_bottom || bbox_left >= bbox_right) {
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 
 	// Check 0x284 field (same as fillrect_hook)
 	if (ReadMacInt32(arg + 0x284) == 0) {
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 	if (!NQD_dest_rect_byte_aligned_for_depth(arg, ReadMacInt32(arg + acclDestPixelSize))) {
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 
 	const uint32 mode = ReadMacInt32(arg + acclTransferMode);
 	if (!((mode >= 8 && mode <= 15) || (mode >= 32 && mode <= 39) || mode == 50)) {
-		return false;
+		return NQD_decline_with_flush(arg);
 	}
 
 	D(bug("  fillmask_hook: accepting mask=0x%08x rgnSize=%u mode=%d\n",

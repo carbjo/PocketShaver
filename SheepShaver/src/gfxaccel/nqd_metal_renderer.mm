@@ -1723,9 +1723,16 @@ void NQDMetalBltMask(uint32 p)
     uint32_t mask_stride = pixel_mask_columns ? width_pixels : width_bytes;
     NSUInteger mask_size = (NSUInteger)(mask_stride * (uint32)height);
 
-    // Allocate mask bitmap on CPU, decode region
+    // Allocate mask bitmap on CPU, decode region.
+    // Region coordinates live in the destination pixmap's LOCAL space (the
+    // same space as acclDestRect); dest_X/dest_Y are bounds-relative MEMORY
+    // offsets (rect - boundsRect). Map the mask with the rect's own origin
+    // so a non-zero-origin destBounds (offscreen GWorld with a shifted
+    // portRect) doesn't displace the clip shape.
+    int16 dest_rect_left = (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
+    int16 dest_rect_top  = (int16)ReadMacInt16(p + NQD_acclDestRect + 0);
     std::vector<uint8_t> cpu_mask(mask_size, 0);
-    if (!nqd_decode_region(mask_rgn_addr, dest_X, dest_Y,
+    if (!nqd_decode_region(mask_rgn_addr, dest_rect_left, dest_rect_top,
                             (int)width_pixels, (int)height,
                             (int)mask_stride, src_pixel_size,
                             pixel_mask_columns, cpu_mask.data(),
@@ -1855,9 +1862,14 @@ void NQDMetalFillMask(uint32 p)
     uint32_t mask_stride = pixel_mask_columns ? width_pixels : width_bytes;
     NSUInteger mask_size = (NSUInteger)(mask_stride * (uint32)height);
 
-    // Allocate mask bitmap on CPU, decode region
+    // Allocate mask bitmap on CPU, decode region. Same local-vs-bounds
+    // origin rule as NQDMetalBltMask above: regions are in the
+    // destination's LOCAL (portRect) space; dest_X/dest_Y are memory
+    // offsets.
+    int16 dest_rect_left = (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
+    int16 dest_rect_top  = (int16)ReadMacInt16(p + NQD_acclDestRect + 0);
     std::vector<uint8_t> cpu_mask(mask_size, 0);
-    if (!nqd_decode_region(mask_rgn_addr, dest_X, dest_Y,
+    if (!nqd_decode_region(mask_rgn_addr, dest_rect_left, dest_rect_top,
                             (int)width_pixels, (int)height,
                             (int)mask_stride, pixel_size,
                             pixel_mask_columns, cpu_mask.data(),

@@ -33,4 +33,14 @@ extern void PatchNativeResourceManager(void);
 extern void maybe_queue_nift_lock(uint32 type, uint32 h);
 extern void DrainPendingResourceLocks(void);
 
+// Diagnostic: dump monitored 'nift' handle state from the illegal-instruction
+// handler.  Pure host-side reads, safe from any context.
+extern void RsrcLocksDumpOnCrash(void);
+
+// Fault-time repair: if pc lies in a monitored 'nift' container whose code has
+// been zeroed (guest disposed it behind CFM's back), restore the container
+// from the host snapshot and report the range to invalidate.  Returns nonzero
+// if repaired and the faulting instruction should be retried.
+extern int RsrcLocksTryRepair(uint32 pc, uint32 *out_start, uint32 *out_end);
+
 #endif

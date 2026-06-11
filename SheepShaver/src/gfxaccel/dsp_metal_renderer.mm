@@ -95,6 +95,20 @@ enum {
 	kDSpPixelStagingPoolCapacity = 16
 };
 
+/* Uniform allocation floor.  Vending every staging block at >= this size
+ * lets later, larger needs (Diablo II: 640x480 splash staging -> 800x600
+ * menu staging) REUSE quarantined blocks instead of making fresh multi-MB
+ * NewPtrSys allocations mid-game.  Mid-game system-heap allocations of
+ * that size are device-proven (2026-06-11) to detonate purge/compaction
+ * storms in the guest system zone: purgeable component code gets evicted
+ * (sound-component crash class) and live structures move while stale
+ * pointers still reference them (the Memory-Manager zone-walk wedge that
+ * froze DII's menu).  2 MiB covers every mode DII uses (800x600x4 with
+ * aligned rowBytes = 1,996,800 bytes). */
+enum : uint32_t {
+	kDSpPixelStagingAllocFloor = 0x200000
+};
+
 struct DSpPixelStagingPoolBlock {
 	uint32_t mac_addr;
 	uint32_t size;        /* logical size of the most recent exposure */
@@ -125,6 +139,35 @@ static DSpPixelStagingPoolBlock *DSpFindEmptyPixelStagingBlock(void)
 	}
 	return nullptr;
 }
+
+/* Keep one idle floor-sized block parked in the pool.  Fresh allocations
+ * come in pairs (back staging at Reserve, then front staging at the first
+ * GetFrontBuffer mid-game); allocating the spare TOGETHER with the first
+ * fresh block moves the second allocation's heap violence to mode-set
+ * time, where the guest expects turbulence, instead of mid-frame. */
+static void DSpPrewarmPixelStagingSpare(void)
+{
+	for (uint32_t i = 0; i < kDSpPixelStagingPoolCapacity; i++) {
+		DSpPixelStagingPoolBlock *block = &s_dsp_pixel_staging_pool[i];
+		if (block->mac_addr != 0 && !block->in_use &&
+		    block->alloc_size >= kDSpPixelStagingAllocFloor)
+			return;                    /* an idle spare already exists */
+	}
+	DSpPixelStagingPoolBlock *slot = DSpFindEmptyPixelStagingBlock();
+	if (slot == nullptr)
+		return;
+	uint32_t mac_addr = Mac_sysalloc(kDSpPixelStagingAllocFloor);
+	if (mac_addr == 0)
+		return;
+	slot->mac_addr = mac_addr;
+	slot->size = 0;
+	slot->alloc_size = kDSpPixelStagingAllocFloor;
+	slot->in_use = false;
+	slot->ever_exposed_to_guest = false;
+	slot->allocated_from_mac_system_heap = true;
+	DSP_LOG("DSpReserveGuestPixelStaging: prewarmed spare 0x%08x alloc=%u",
+	        mac_addr, (unsigned)kDSpPixelStagingAllocFloor);
+}
 #endif
 
 extern "C" uint32_t DSpReserveGuestPixelStaging(uint32_t size)
@@ -148,19 +191,28 @@ extern "C" uint32_t DSpReserveGuestPixelStaging(uint32_t size)
 		}
 	}
 
-	uint32_t mac_addr = Mac_sysalloc(size);
+	uint32_t alloc_request = size;
+	if (alloc_request < kDSpPixelStagingAllocFloor)
+		alloc_request = kDSpPixelStagingAllocFloor;
+	uint32_t mac_addr = Mac_sysalloc(alloc_request);
+	if (mac_addr == 0 && alloc_request != size) {
+		/* Degraded: the floored request did not fit; take the exact size. */
+		alloc_request = size;
+		mac_addr = Mac_sysalloc(size);
+	}
 	if (mac_addr == 0) return 0;
 
 	DSpPixelStagingPoolBlock *slot = DSpFindEmptyPixelStagingBlock();
 	if (slot != nullptr) {
 		slot->mac_addr = mac_addr;
 		slot->size = size;
-		slot->alloc_size = size;   /* ground truth; never grown afterwards */
+		slot->alloc_size = alloc_request; /* ground truth; never grown afterwards */
 		slot->in_use = true;
 		slot->ever_exposed_to_guest = false;
 		slot->allocated_from_mac_system_heap = true;
-		DSP_LOG("DSpReserveGuestPixelStaging: fresh Mac_sysalloc 0x%08x alloc=%u",
-		        mac_addr, size);
+		DSP_LOG("DSpReserveGuestPixelStaging: fresh Mac_sysalloc 0x%08x alloc=%u need=%u",
+		        mac_addr, alloc_request, size);
+		DSpPrewarmPixelStagingSpare();
 	} else {
 		DSP_LOG("DSpReserveGuestPixelStaging: pool full; 0x%08x "
 		        "size=%u will be quarantined untracked on release",

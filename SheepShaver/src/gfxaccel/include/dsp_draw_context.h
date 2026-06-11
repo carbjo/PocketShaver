@@ -47,7 +47,13 @@ extern "C" {
  *  can reference this same header bound without re-defining.
  */
 #ifndef DSP_MAX_CONTEXTS
-#define DSP_MAX_CONTEXTS 8
+/* 64 (was 8): DSpGetNextContext allocates a DISTINCT metadata context per
+ * enumeration step (PDF p.16 — apps may retain every enumerated ref and
+ * read attributes later; Myth II does), so a full mode walk consumes
+ * modes+1 slots. Stale enumeration contexts are recycled under table
+ * pressure by DSpAllocMetadataContextHandle. Per-slot cost is one
+ * pointer; the VBL walks over the table are nullptr-skip cheap. */
+#define DSP_MAX_CONTEXTS 64
 #endif
 extern struct DSpContextPrivate *DSpGetContext(uint32_t handle);
 

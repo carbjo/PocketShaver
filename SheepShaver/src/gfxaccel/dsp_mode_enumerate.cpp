@@ -420,42 +420,48 @@ static int32_t DSpGetNextContext_Core(uint32_t prevCtxRef, uint32_t *outHandle)
 	size_t next_idx = (size_t)prev_idx + 1;
 	if (next_idx >= s_dsp_modes.size()) {
 		*outHandle = 0;
-		int32_t release_rc = DSpReleaseMetadataContextHandle(prevCtxRef);
-		if (release_rc != kDSpNoErr) {
-			DSP_LOG("GetNextContext: terminal release of ctxRef=%u "
-			        "returned %d",
-			        prevCtxRef, (int)release_rc);
-		}
+		/* Do NOT release prevCtxRef here. PDF p.16: enumerated,
+		 * un-Reserved refs remain valid for DSpContext_GetAttributes /
+		 * GetDisplayID / Flatten — apps (Myth II) retain every ref from
+		 * the walk and read attributes only after it completes. The old
+		 * terminal release left those refs dangling: GetAttributes
+		 * returned kDSpInvalidContextErr before writing a byte, and the
+		 * app formatted its own uninitialized memory (the
+		 * "13107 x 13107, 13107 Hz" resolution list). Stale enumeration
+		 * contexts are reclaimed by DSpAllocMetadataContextHandle
+		 * recycling under table pressure instead. */
 		DSP_LOG("GetNextContext: prevCtxRef=%u at last mode (idx=%u of %zu) "
-		        "— released cursor; kDSpContextNotFoundErr",
+		        "— terminator, ref stays valid; kDSpContextNotFoundErr",
 		        prevCtxRef, (unsigned)prev_idx, s_dsp_modes.size());
 		return kDSpContextNotFoundErr;
 	}
 
-	/* Debug session `dsp-enum-context-table-exhaustion` fix (2026-04-21):
-	 * advance the cursor IN PLACE via DSpAdvanceEnumerationContext rather
-	 * than heap-allocating a fresh DSpContextPrivate per step. Pre-fix
-	 * behavior filled the 8-slot table at step 9 of a 36-mode walk — The
-	 * Sims never reached 16bpp modes and bailed. PDF p.17 cursor
-	 * semantics: reuse the handle, advance the context it refers-to.
-	 * Same handle is returned to the guest across the entire walk. */
+	/* Each step vends a DISTINCT metadata context (PDF p.16 retained-ref
+	 * semantics — see the terminal comment above). History: the
+	 * 2026-04-21 `dsp-enum-context-table-exhaustion` fix advanced the
+	 * cursor IN PLACE because a 36-mode walk overflowed the then-8-slot
+	 * table (The Sims bailed before its 16bpp modes) — but in-place
+	 * advance aliases every previously returned ref onto the final mode
+	 * (audit DSP-08), and the terminal release then dangled them all.
+	 * Exhaustion is now solved structurally instead: DSP_MAX_CONTEXTS=64
+	 * plus recycling of stale enumeration contexts in
+	 * DSpAllocMetadataContextHandle. */
 	const DSpContextAttributes *next_mode = &s_dsp_modes[next_idx];
-	int32_t advance_rc = DSpAdvanceEnumerationContext(prevCtxRef,
-	                                                    next_mode,
-	                                                    (uint32_t)next_idx);
-	if (advance_rc != kDSpNoErr) {
-		DSP_LOG("GetNextContext: DSpAdvanceEnumerationContext returned %d "
-		        "for prevCtxRef=%u idx=%zu — surfacing error",
-		        (int)advance_rc, prevCtxRef, next_idx);
-		return advance_rc;
+	uint32_t next_handle = DSpAllocMetadataContextHandle(next_mode,
+	                                                     (uint32_t)next_idx);
+	if (next_handle == 0) {
+		DSP_LOG("GetNextContext: metadata context alloc failed at idx=%zu "
+		        "(table full, nothing recyclable) — kDSpInternalErr",
+		        next_idx);
+		return kDSpInternalErr;
 	}
 
-	*outHandle = prevCtxRef;
-	DSP_LOG("GetNextContext: advanced handle=%u %ux%u@%ubpp "
-	        "(enum_idx=%zu of %zu; same handle, in-place)",
-	        prevCtxRef, next_mode->displayWidth, next_mode->displayHeight,
+	*outHandle = next_handle;
+	DSP_LOG("GetNextContext: handle=%u %ux%u@%ubpp "
+	        "(enum_idx=%zu of %zu; distinct handle, prev=%u untouched)",
+	        next_handle, next_mode->displayWidth, next_mode->displayHeight,
 	        next_mode->backBufferBestDepth,
-	        next_idx, s_dsp_modes.size());
+	        next_idx, s_dsp_modes.size(), prevCtxRef);
 	return kDSpNoErr;
 }
 

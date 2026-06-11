@@ -51,6 +51,7 @@ prefs_desc common_prefs_items[] = {
 	{"ramsize", TYPE_INT32, false,      "size of Mac RAM in bytes"},
 	{"frameskip", TYPE_INT32, false,    "number of frames to skip in refreshed video modes"},
 	{"gfxaccel", TYPE_BOOLEAN, false,   "turn on QuickDraw acceleration"},
+	{"altivec", TYPE_BOOLEAN, false,    "advertise AltiVec (G4 7400 PVR); false reports a G3 750"},
 	{"nocdrom", TYPE_BOOLEAN, false,    "don't install CD-ROM driver"},
 	{"nonet", TYPE_BOOLEAN, false,      "don't use Ethernet"},
 	{"nosound", TYPE_BOOLEAN, false,    "don't enable sound output"},
@@ -103,6 +104,7 @@ void AddPrefsDefaults(void)
 	PrefsAddInt32("frameskip", 8);
 #endif
 	PrefsAddBool("gfxaccel", true);
+	PrefsAddBool("altivec", true);
 	PrefsAddBool("nqdaccel", false);
 	PrefsAddBool("raveaccel", false);
 	PrefsAddBool("glaccel", false);

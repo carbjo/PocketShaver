@@ -166,6 +166,24 @@ static int32 AudioGetInfo(uint32 infoPtr, uint32 selector, uint32 sourceID)
 			WriteMacInt32(infoPtr + scd_reserved, 0);
 			break;
 
+		case siCompressionFactor: {
+			// Answer like a real sound output device: this output takes
+			// uncompressed PCM.  Delegating this to the Apple Mixer returns
+			// siUnknownInfoType forever, and some apps (Diablo II's splash)
+			// poll the selector in a loop until they get a valid answer --
+			// the eternal -231 left them hung.
+			uint32 bytes_per_sample = AudioStatus.sample_size >> 3;
+			WriteMacInt32(infoPtr + 0, 20);								// recordSize
+			WriteMacInt32(infoPtr + 4, AudioStatus.sample_size == 16 ? FOURCC('t','w','o','s') : FOURCC('r','a','w',' '));	// format
+			WriteMacInt16(infoPtr + 8, 0);								// compressionID = notCompressed
+			WriteMacInt16(infoPtr + 10, 1);								// samplesPerPacket
+			WriteMacInt16(infoPtr + 12, bytes_per_sample);				// bytesPerPacket
+			WriteMacInt16(infoPtr + 14, bytes_per_sample * AudioStatus.channels);	// bytesPerFrame
+			WriteMacInt16(infoPtr + 16, bytes_per_sample);				// bytesPerSample
+			WriteMacInt16(infoPtr + 18, 0);								// futureUse
+			break;
+		}
+
 		default:	// Delegate to Apple Mixer
 			if (AudioStatus.mixer == 0)
 				return badComponentSelector;

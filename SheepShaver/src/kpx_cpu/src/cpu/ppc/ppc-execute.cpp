@@ -64,8 +64,35 @@
 
 void powerpc_cpu::execute_illegal(uint32 opcode)
 {
+#ifdef SHEEPSHAVER
+	// The guest can dispose component code resources behind prepared CFM
+	// TVectors, leaving apps executing freed memory inside a container tracked
+	// by the rsrc_patches monitor.  The freed space may be zero-filled OR
+	// already re-populated by a new owner (any garbage opcode), so try the
+	// repair on EVERY illegal opcode -- TryRepair itself verifies the word at
+	// pc actually differs from the lock-time snapshot before restoring.
+	// Retry semantics: every invalid opcode decodes as CFLOW_TRAP (block-
+	// final), so returning without increment_pc() re-decodes from the
+	// repaired memory and retries this PC.
+	{
+		extern int RsrcLocksTryRepair(uint32 pc, uint32 *out_start, uint32 *out_end);
+		uint32 repair_start, repair_end;
+		if (RsrcLocksTryRepair(pc(), &repair_start, &repair_end)) {
+			invalidate_cache_range(repair_start, repair_end);
+			return;
+		}
+	}
+#endif
+
 	fprintf(stderr, "Illegal instruction at %08x, opcode = %08x\n", pc(), opcode);
-	
+
+#ifdef SHEEPSHAVER
+	// Dump the locked-'nift' monitor table on the first fault -- host-side
+	// reads only, context-safe.
+	extern void RsrcLocksDumpOnCrash(void);
+	RsrcLocksDumpOnCrash();
+#endif
+
 	// Backtrace: walk PPC stack frames to show call chain
 	fprintf(stderr, "  PPC Backtrace (stack frame walk):\n");
 	{

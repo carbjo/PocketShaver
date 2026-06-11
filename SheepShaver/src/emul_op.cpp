@@ -313,6 +313,10 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 			WriteMacInt16(ReadMacInt32(KernelDataAddr + 0x67c), 0);	// Clear interrupt
 			r->d[0] = 0;
 			if (HasMacStarted()) {
+				if (InterruptFlags & INTFLAG_RSRC) {
+					ClearInterruptFlag(INTFLAG_RSRC);
+					DrainPendingResourceLocks();	// DII fix: lock sound-component PEF handles ASAP after load (before CFM prepare can purge them)
+				}
 				if (InterruptFlags & INTFLAG_VIA) {
 					ClearInterruptFlag(INTFLAG_VIA);
 #if !PRECISE_TIMING

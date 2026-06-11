@@ -24,7 +24,7 @@
          </EnvironmentVariable>
          <EnvironmentVariable key="MTL_DEBUG_LAYER_ERROR_MODE" value="assert" isEnabled="YES">
          </EnvironmentVariable>
-      <EnvironmentVariable key="GFXACCEL_LOG" value="all" isEnabled="YES" /><EnvironmentVariable key="GFXACCEL_LOG_VERBOSE" value="0" isEnabled="YES" /></EnvironmentVariables>
+      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES">
    </ProfileAction>

@@ -2561,9 +2561,12 @@ extern "C" uint32_t DSpAllocMetadataContextHandle(
 	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
 		DSpContextPrivate *ctx = dsp_context_table[i];
 		if (!DSpIsInactiveMetadataOnlyContext(ctx)) continue;
-		if (ctx->enumeration_mode_index != DSP_ENUMERATION_INDEX_NONE) {
-			continue;
-		}
+		/* Enumeration contexts ARE recyclable: DSpGetNextContext vends a
+		 * distinct context per step and never frees them (PDF p.16
+		 * retained-ref semantics), so under table pressure the oldest
+		 * stale walk is reclaimed here. An app can only lose a ref it is
+		 * still holding if it accumulates more than DSP_MAX_CONTEXTS live
+		 * enumerated refs — far beyond any real walk. */
 
 		const uint32_t recycled_handle = i + 1u;
 		DSpFreeContextHandle(recycled_handle);
