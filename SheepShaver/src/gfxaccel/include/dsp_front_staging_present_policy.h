@@ -9,6 +9,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 struct DSpFrontStagingPresentState {
 	bool     valid;
@@ -23,13 +24,33 @@ struct DSpFrontStagingPresentState {
 static inline uint32_t DSpFrontStagingHashBytes(const uint8_t *bytes,
                                                 uint32_t size)
 {
-	uint32_t hash = 2166136261u;
-	if (bytes == 0) return hash;
-	for (uint32_t i = 0; i < size; i++) {
-		hash ^= (uint32_t)bytes[i];
-		hash *= 16777619u;
+	/* Internal dirty-check hash only: the result is compared solely against a
+	 * value produced by this same function (never persisted, never wire-visible,
+	 * gamma-independent), so the algorithm is free to change as long as it stays
+	 * full-coverage -- every byte must affect the result, or a partial guest
+	 * update in skipped bytes would be missed and leave stale pixels under a 3D
+	 * overlay. This word-wide 64-bit FNV-1a processes 8 bytes per iteration and
+	 * folds to 32 bits, ~8x fewer iterations than the byte-at-a-time form over
+	 * the ~1.9MB front-staging surface scanned every VBL on the emulator thread. */
+	if (bytes == 0 || size == 0) return 2166136261u;
+
+	const uint64_t kOffset = 1469598103934665603ull;
+	const uint64_t kPrime  = 1099511628211ull;
+	uint64_t hash = kOffset;
+
+	uint32_t i = 0;
+	const uint32_t wordEnd = size & ~(uint32_t)7u;
+	for (; i < wordEnd; i += 8) {
+		uint64_t w;
+		memcpy(&w, bytes + i, sizeof(w));   /* unaligned-safe; one 64-bit load on ARM64 */
+		hash ^= w;
+		hash *= kPrime;
 	}
-	return hash;
+	for (; i < size; i++) {
+		hash ^= (uint64_t)bytes[i];
+		hash *= kPrime;
+	}
+	return (uint32_t)(hash ^ (hash >> 32));
 }
 
 static inline void DSpFrontStagingRememberHashForGamma(

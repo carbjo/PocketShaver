@@ -652,6 +652,12 @@ struct GLMetalState {
 	// Sampler state
 	id<MTLSamplerState>         linearSampler;
     id<MTLSamplerState>         nearestSampler;
+
+    // Pooled scratch for GLMetalFlushImmediateMode's expanded/converted vertices.
+    // Retained across flushes (clear()+reserve idiom, mirrors GLContext::im_vertices)
+    // to kill per-flush heap churn. MUST be cleared at the top of every flush:
+    // ExpandPrimitives' push_back paths assume an empty output.
+    std::vector<GLMetalVertex>  imExpandedVerts;
 };
 
 static void GLMetalRingSignalSlots(dispatch_semaphore_t sem,
@@ -3096,7 +3102,12 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
 
 	// ---- Determine primitive type and expand if needed ----
     MTLPrimitiveType mtlPrim;
-    std::vector<GLMetalVertex> expandedVerts;
+    // Pooled scratch (retains capacity across flushes), eliminating the per-flush
+    // heap alloc/free. MUST clear() first: ExpandPrimitives' reserve()+push_back
+    // paths append and assume an empty output; ConvertVertices uses resize() which
+    // self-overwrites. clear() keeps capacity, so steady-state draws don't allocate.
+    std::vector<GLMetalVertex> &expandedVerts = ms->imExpandedVerts;
+    expandedVerts.clear();
     bool expanded = ExpandPrimitives(ctx->im_mode, ctx->im_vertices, expandedVerts, mtlPrim);
 
     const GLMetalVertex *vertData;
@@ -3165,21 +3176,33 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     const uint32_t viewportH =
         ctx->viewport[3] > 0 ? (uint32_t)ctx->viewport[3] : 0u;
 
-    float minX = vertData[0].position[0], maxX = vertData[0].position[0];
-    float minY = vertData[0].position[1], maxY = vertData[0].position[1];
-    float minZ = vertData[0].position[2], maxZ = vertData[0].position[2];
-    for (size_t i = 1; i < vertCount; i++) {
-        minX = std::min(minX, vertData[i].position[0]);
-        maxX = std::max(maxX, vertData[i].position[0]);
-        minY = std::min(minY, vertData[i].position[1]);
-        maxY = std::max(maxY, vertData[i].position[1]);
-        minZ = std::min(minZ, vertData[i].position[2]);
-        maxZ = std::max(maxZ, vertData[i].position[2]);
-    }
+    // The identity-pixel-projection remap only applies to textured, non-depth-
+    // tested, unlit draws with a valid viewport (the leading guards in
+    // GLMetalIdentityPixelProjectionApplies). Those are constant-time checks, so
+    // gate the O(vertCount) bounds scan behind them: real 3D geometry (depth-
+    // tested OR lit) skips the scan with a byte-identical screenSpaceRemap result.
+    const bool maybeScreenSpace =
+        hasPrimaryTexture && !ctx->depth_test && !ctx->lighting_enabled &&
+        viewportW != 0 && viewportH != 0;
 
-    const bool screenSpaceRemap = GLMetalIdentityPixelProjectionApplies(
-        mvp, hasPrimaryTexture, ctx->depth_test, ctx->lighting_enabled,
-        viewportW, viewportH, minX, maxX, minY, maxY, minZ, maxZ);
+    bool screenSpaceRemap = false;
+    float minX = 0.0f, maxX = 0.0f, minY = 0.0f, maxY = 0.0f;
+    if (maybeScreenSpace) {
+        minX = maxX = vertData[0].position[0];
+        minY = maxY = vertData[0].position[1];
+        float minZ = vertData[0].position[2], maxZ = vertData[0].position[2];
+        for (size_t i = 1; i < vertCount; i++) {
+            minX = std::min(minX, vertData[i].position[0]);
+            maxX = std::max(maxX, vertData[i].position[0]);
+            minY = std::min(minY, vertData[i].position[1]);
+            maxY = std::max(maxY, vertData[i].position[1]);
+            minZ = std::min(minZ, vertData[i].position[2]);
+            maxZ = std::max(maxZ, vertData[i].position[2]);
+        }
+        screenSpaceRemap = GLMetalIdentityPixelProjectionApplies(
+            mvp, hasPrimaryTexture, ctx->depth_test, ctx->lighting_enabled,
+            viewportW, viewportH, minX, maxX, minY, maxY, minZ, maxZ);
+    }
 
     if (screenSpaceRemap) {
         for (GLMetalVertex &v : expandedVerts) {
@@ -5458,12 +5481,13 @@ static void FetchArrayVertex(GLContext *ctx, int32_t i, GLVertex &v) {
 
 
 /*
- *  GLMetalDrawVertexArray -- shared draw path for vertex arrays
+ *  GLMetalDrawVertexArray (sequential) -- shared draw path for glDrawArrays.
  *
- *  Builds im_vertices from array data, then flushes through the same
- *  Metal draw path used by immediate mode (GLMetalFlushImmediateMode).
+ *  Draws `count` vertices with implicit indices first, first+1, ...  Avoids
+ *  materializing an index vector; byte-identical to building indices[j]=first+j
+ *  and indexing, since FetchArrayVertex uses the index purely as an offset.
  */
-static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode, const int32_t *indices, int32_t count)
+static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode, int32_t first, int32_t count)
 {
     if (count <= 0) return;
 
@@ -5480,7 +5504,53 @@ static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode, const int32_t 
 
     for (int32_t j = 0; j < count; j++) {
         GLVertex v;
-        FetchArrayVertex(ctx, indices[j], v);
+        FetchArrayVertex(ctx, first + j, v);
+        ctx->im_vertices.push_back(v);
+    }
+
+    ctx->in_begin = false;
+    GLMetalFlushImmediateMode(ctx);
+}
+
+
+/*
+ *  GLMetalDrawVertexArray (indexed-from-guest) -- shared draw path for
+ *  glDrawElements. Draws `count` vertices whose indices are read inline from
+ *  guest memory at indices_ptr per `type`, folding the ReadMacInt* decode into
+ *  the fetch loop (no index vector). Per-type dispatch and the default:j
+ *  fallback are identical to the previous NativeGLDrawElements index build.
+ */
+static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode, int32_t count,
+                                   uint32_t type, uint32_t indices_ptr)
+{
+    if (count <= 0) return;
+
+    GLMetalState *ms = (GLMetalState *)ctx->metal;
+    if (!ms || !ms->initialized) return;
+
+    ctx->in_begin = true;
+    ctx->im_mode = mode;
+    ctx->im_vertices.clear();
+    ctx->im_vertices.reserve(count);
+
+    for (int32_t j = 0; j < count; j++) {
+        int32_t idx;
+        switch (type) {
+        case GL_UNSIGNED_INT:
+            idx = (int32_t)ReadMacInt32(indices_ptr + j * 4);
+            break;
+        case GL_UNSIGNED_SHORT:
+            idx = (int32_t)ReadMacInt16(indices_ptr + j * 2);
+            break;
+        case GL_UNSIGNED_BYTE:
+            idx = (int32_t)ReadMacInt8(indices_ptr + j);
+            break;
+        default:
+            idx = j;
+            break;
+        }
+        GLVertex v;
+        FetchArrayVertex(ctx, idx, v);
         ctx->im_vertices.push_back(v);
     }
 
@@ -5497,11 +5567,8 @@ void NativeGLDrawArrays(GLContext *ctx, uint32_t mode, int32_t first, int32_t co
     GL_METAL_VLOG("glDrawArrays(0x%04x, %d, %d)", mode, first, count);
     if (count <= 0) return;
 
-    // Build sequential index array
-    std::vector<int32_t> indices(count);
-    for (int32_t i = 0; i < count; i++) indices[i] = first + i;
-
-    GLMetalDrawVertexArray(ctx, mode, indices.data(), count);
+    // No index vector: indices are implicitly first..first+count-1.
+    GLMetalDrawVertexArray(ctx, mode, first, count);
 }
 
 
@@ -5513,26 +5580,8 @@ void NativeGLDrawElements(GLContext *ctx, uint32_t mode, int32_t count, uint32_t
     GL_METAL_VLOG("glDrawElements(0x%04x, %d, 0x%04x, 0x%08x)", mode, count, type, indices_ptr);
     if (count <= 0) return;
 
-    // Read index array from PPC memory
-    std::vector<int32_t> indices(count);
-    for (int32_t i = 0; i < count; i++) {
-        switch (type) {
-        case GL_UNSIGNED_INT:
-            indices[i] = (int32_t)ReadMacInt32(indices_ptr + i * 4);
-            break;
-        case GL_UNSIGNED_SHORT:
-            indices[i] = (int32_t)ReadMacInt16(indices_ptr + i * 2);
-            break;
-        case GL_UNSIGNED_BYTE:
-            indices[i] = (int32_t)ReadMacInt8(indices_ptr + i);
-            break;
-        default:
-            indices[i] = i;
-            break;
-        }
-    }
-
-    GLMetalDrawVertexArray(ctx, mode, indices.data(), count);
+    // No index vector: indices are read inline from guest memory per `type`.
+    GLMetalDrawVertexArray(ctx, mode, count, type, indices_ptr);
 }
 
 
