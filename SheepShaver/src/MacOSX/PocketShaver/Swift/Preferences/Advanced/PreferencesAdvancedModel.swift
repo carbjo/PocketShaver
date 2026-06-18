@@ -187,6 +187,21 @@ class PreferencesAdvancedModel {
 		}
 	}
 
+	@MainActor
+	var altivecEnabled: Bool {
+		get {
+			miscSettings.altivecEnabled
+		}
+		set {
+			miscSettings.set(altivecEnabled: newValue)
+
+			// PVR is locked in once per process at get_system_info()/init_emul_ppc(),
+			// so a change only lands on a full app restart — same as the graphics
+			// acceleration engine toggles this setting interacts with.
+			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+		}
+	}
+
 	init(
 		mode: PreferencesLaunchMode,
 		changeSubject: PassthroughSubject<PreferencesChange, Never>

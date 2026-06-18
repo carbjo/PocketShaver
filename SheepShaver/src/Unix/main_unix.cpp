@@ -432,15 +432,16 @@ static void get_system_info(void)
 	TimebaseSpeed =  25000000;	// Default:  25MHz
 
 #if EMULATED_PPC
-	/* "altivec" pref (default true): advertise a 7400 G4 so AltiVec-aware
-	 * guest code (QuickTime's vectorized IDCT/colour-convert, game fast
-	 * paths) uses the kpx_cpu VMX implementation. Setting it false reports
-	 * a 740/750 G3 — the OS then publishes no vector gestalt and the same
-	 * software falls back to its scalar paths. Diagnostic lever for
-	 * suspected VMX-interpreter bugs (QuickTime image decode producing
+	/* AltiVec toggle (Preferences ▸ Advanced ▸ CPU emulation; default on):
+	 * advertise a 7400 G4 so AltiVec-aware guest code (QuickTime's vectorized
+	 * IDCT/colour-convert, game fast paths) uses the kpx_cpu VMX
+	 * implementation. Turning it off reports a 740/750 G3 — the OS then
+	 * publishes no vector gestalt and the same software falls back to its
+	 * scalar paths. Experimental lever for suspected VMX-interpreter bugs and
+	 * graphics-acceleration conflicts (QuickTime image decode producing
 	 * chroma-scrambled, block-striped output is the canonical symptom). */
-	PVR = PrefsFindBool("altivec") ? 0x000c0000   // 7400 (with AltiVec)
-	                               : 0x00084202;  // 740/750 G3 (no AltiVec)
+	PVR = objc_getAltivec() ? 0x000c0000   // 7400 (with AltiVec)
+	                        : 0x00084202;  // 740/750 G3 (no AltiVec)
 	int pref_cpu_clock = PrefsFindInt32("cpuclock");
 	if (pref_cpu_clock) CPUClockSpeed = 1000000 * pref_cpu_clock;
 #elif defined(__APPLE__) && defined(__MACH__)

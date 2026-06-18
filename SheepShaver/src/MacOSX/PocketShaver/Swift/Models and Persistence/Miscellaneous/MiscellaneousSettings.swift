@@ -89,6 +89,7 @@ class MiscellaneousSettings: Codable {
 	private(set) var gammaRampSetting: GammaRampSetting
 	private(set) var bootInRelativeMouseMode: Bool
 	private(set) var ignoreIllegalInstructions: Bool
+	private(set) var altivecEnabled: Bool
 	private(set) var ramInMb: Int
 
 
@@ -160,6 +161,7 @@ class MiscellaneousSettings: Codable {
 		gammaRampSetting = .osDefined
 		bootInRelativeMouseMode = false
 		ignoreIllegalInstructions = false
+		altivecEnabled = true
 		ramInMb = 512
 	}
 
@@ -336,6 +338,13 @@ class MiscellaneousSettings: Codable {
 	}
 
 	@MainActor
+	func set(altivecEnabled: Bool) {
+		self.altivecEnabled = altivecEnabled
+
+		saveAsCurrent()
+	}
+
+	@MainActor
 	func set(ramInMb: Int) {
 		self.ramInMb = ramInMb
 
@@ -398,6 +407,11 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func isIgnoreIllegalInstructionsEnabled() -> Bool {
 		MiscellaneousSettings.current.ignoreIllegalInstructions
+	}
+
+	@MainActor
+	static func isAltivecEnabled() -> Bool {
+		MiscellaneousSettings.current.altivecEnabled
 	}
 
 	@MainActor

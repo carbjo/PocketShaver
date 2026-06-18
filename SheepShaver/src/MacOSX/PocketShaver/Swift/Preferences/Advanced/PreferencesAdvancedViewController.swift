@@ -52,6 +52,8 @@ class PreferencesAdvancedViewController: UITableViewController {
 
 		// cpuEmulation
 		case ignoreIllegalInstructions
+		case altivec
+		case altivecInfo
 
 		//bootstrap
 		case bootstrap
@@ -257,6 +259,17 @@ class PreferencesAdvancedViewController: UITableViewController {
 				) { [weak self] isOn in
 					self?.model.ignoreIllegalInstructions = isOn
 				}
+			case .altivec:
+				return PreferencesEnabledSettingCell(
+					title: "AltiVec",
+					isOn: model.altivecEnabled
+				) { [weak self] isOn in
+					self?.model.altivecEnabled = isOn
+				}
+			case .altivecInfo:
+				return PreferencesInformationCell(
+					text: "Experimental. Advertises a G4 processor with AltiVec so vector-aware software can use faster code paths. Toggle this off (reverting to a G3) if you run into conflicts with graphics acceleration."
+				)
 			case .bootstrap:
 				return PreferencesAdvancedBootstrapCell(
 					romDescription: model.currentRomFileDescription!,
@@ -378,7 +391,11 @@ class PreferencesAdvancedViewController: UITableViewController {
 		}
 
 		snapshot.appendSections([.cpuEmulation])
-		snapshot.appendItems([.ignoreIllegalInstructions])
+		snapshot.appendItems([
+			.ignoreIllegalInstructions,
+			.altivec,
+			.altivecInfo
+		])
 
 		if model.hasRomFile {
 			snapshot.appendSections([.bootstrap])

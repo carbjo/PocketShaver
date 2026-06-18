@@ -79,6 +79,10 @@ bool objc_getIgnoreIllegalInstructions(void) {
 	return MiscellaneousSettingsObjC.isIgnoreIllegalInstructionsEnabled;
 }
 
+bool objc_getAltivec(void) {
+	return MiscellaneousSettingsObjC.isAltivecEnabled;
+}
+
 int objc_getRamInMb(void) {
 	return (int)MiscellaneousSettingsObjC.getRamInMb;
 }
