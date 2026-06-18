@@ -40,6 +40,8 @@
 	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>iOS Launch Screen</string>
+	<key>UILaunchToFullScreenByDefaultOnMac</key>
+	<true/>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>armv7</string>
@@ -59,5 +61,7 @@
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
+	<key>UISupportsTrueScreenSizeOnMac</key>
+	<true/>
 </dict>
 </plist>

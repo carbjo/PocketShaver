@@ -53,6 +53,7 @@
 #include "vbl_source.h"
 #include "prefs.h"
 #include "MiscellaneousSettingsObjCCppHeader.h"
+#include "PerformanceCounterObjCCppHeader.h"
 
 // ---------------------------------------------------------------------------
 // Logging macros
@@ -461,7 +462,8 @@ static id<MTLBuffer> alloc_gamma_buffer(id<MTLDevice> device,
     }
     if (buf) {
         if (display_default) {
-            GfxColorFillDefaultDisplayGammaLUT((uint8_t *)buf.contents);
+            GfxColorFillDefaultDisplayGammaLUT((uint8_t *)buf.contents,
+                                               !objc_getIsLinearGammaEnabled());
         } else {
             fill_identity_gamma_lut((uint8_t *)buf.contents);
         }
@@ -695,6 +697,7 @@ static void compositor_vbl_callback(void *ctx, void *drawable, double target_ts)
 		if (snap->gamma_gen != s_last_gamma_gen) {
 			GfxColorBuildDisplayGammaLUT(snap->gamma_lut,
 			                             snap->fade_active != 0,
+			                             !objc_getIsLinearGammaEnabled(),
 			                             (uint8_t *)gamma_lut_buffer.contents);
 			s_latched_fade_active = snap->fade_active ? 1u : 0u;
 			s_last_gamma_gen = snap->gamma_gen;
@@ -756,6 +759,14 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     compositor_view.opaque = YES;
     compositor_view.backgroundColor = [UIColor blackColor];
     compositor_view.userInteractionEnabled = NO;  // let touches pass to SDL
+    // Track the parent's size. On Mac (UISupportsTrueScreenSizeOnMac /
+    // UILaunchToFullScreenByDefaultOnMac) the window resizes to the true screen
+    // size AFTER this one-time init frame, so without this the CAMetalLayer
+    // would composite into the stale launch rect. No-op on iOS where the window
+    // never resizes. translatesAutoresizingMaskIntoConstraints stays YES (no
+    // constraints target this view), so the mask is honored.
+    compositor_view.autoresizingMask =
+        UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 
     compositor_layer = (CAMetalLayer *)compositor_view.layer;
     compositor_layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
@@ -1010,7 +1021,24 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     }
 
     compositor_initialized = true;
-    [uiWindow addSubview:compositor_view];
+    // Insert the compositor as the BOTTOM-most child of the SDL container view
+    // (rootViewController.view) rather than on top of the window. The gamepad /
+    // input overlay is embedded as a later sibling inside that same container,
+    // so index 0 keeps the opaque compositor beneath it (the overlay draws)
+    // regardless of creation order, and the compositor inherits the keyboard /
+    // drag screen-offset transform applied to the SDL container. Touch is
+    // unaffected (compositor_view.userInteractionEnabled is NO). See the
+    // matching re-home in MetalCompositorResize, which runs on mode switches.
+    {
+        UIView *sdlContainer = uiWindow.rootViewController.view;
+        if (sdlContainer) {
+            [sdlContainer insertSubview:compositor_view atIndex:0];
+        } else {
+            // No rootViewController yet — keep it at the window, but at the
+            // bottom so it still never covers the overlay.
+            [uiWindow insertSubview:compositor_view atIndex:0];
+        }
+    }
 
     // Subscribe to DMC FIRST:
     // compositor registered first → reverse-order enter makes compositor LAST
@@ -1110,7 +1138,8 @@ void MetalCompositorPaletteLatch(void)
 void MetalCompositorUpdateGammaLUT(const uint8_t *lut)
 {
     if (!gamma_lut_buffer || !lut) return;
-    GfxColorBuildDisplayGammaLUT(lut, false, (uint8_t *)gamma_lut_buffer.contents);
+    GfxColorBuildDisplayGammaLUT(lut, false, !objc_getIsLinearGammaEnabled(),
+                                 (uint8_t *)gamma_lut_buffer.contents);
     COMPOSITOR_LOG("MetalCompositorUpdateGammaLUT: updated 768 bytes");
 }
 
@@ -1205,7 +1234,9 @@ void MetalCompositorPresent(void)
         [compositor_texture replaceRegion:region
                               mipmapLevel:0
                                 withBytes:compositor_buffer.contents
-                              bytesPerRow:(NSUInteger)compositor_pitch];
+                              bytesPerRow:(NSUInteger)(compositor_depth <= VIDEO_DEPTH_8BIT
+                                                       ? compositor_row_bytes
+                                                       : compositor_pitch)];
     }
 
     id<CAMetalDrawable> drawable = [compositor_layer nextDrawable];
@@ -1300,6 +1331,13 @@ void MetalCompositorPresent(void)
     [cmdBuf presentDrawable:drawable];
     [cmdBuf commit];
 
+    // Count this present for the FPS overlay. This is the single authoritative
+    // per-frame site on the iOS Metal-compositor build (one present per VBL;
+    // SubmitFrame caches the overlay rather than presenting). Placed after
+    // commit so the nil-drawable / nil-cmdBuf / nil-encoder early returns above
+    // are correctly excluded as dropped frames.
+    objc_reportFrameRender();
+
     } // @autoreleasepool
 }
 
@@ -1326,6 +1364,21 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
                        "device/layer (device=%p layer=%p)",
                        compositor_device, compositor_layer);
         return -1;
+    }
+
+    // Re-home the compositor view if its parent went away. The add in
+    // MetalCompositorInit only runs on a cold init; the view otherwise persists
+    // across mode switches (this Resize path). If SDL ever swapped its
+    // rootViewController.view out from under us, the compositor would be
+    // orphaned (black screen) — so re-assert it as the bottom-most child of the
+    // current SDL container on every resize. Idempotent: a no-op when already
+    // correctly parented.
+    if (compositor_view) {
+        UIWindow *resizeWindow = GetSDLUIWindow();
+        UIView *sdlContainer = resizeWindow.rootViewController.view;
+        if (sdlContainer && compositor_view.superview != sdlContainer) {
+            [sdlContainer insertSubview:compositor_view atIndex:0];
+        }
     }
 
     // Capture old dimensions/depth for diagnostic log

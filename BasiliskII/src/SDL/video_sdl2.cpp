@@ -1052,7 +1052,13 @@ void update_sdl_video(SDL_Surface *s, int numrects, SDL_Rect *rects)
     for (int i = 0; i < numrects; ++i) {
         SDL_UnionRect(&sdl_update_video_rect, &rects[i], &sdl_update_video_rect);
     }
+#if !TARGET_OS_IPHONE
+	// On iOS the Metal compositor is the authoritative FPS reporter (it counts
+	// real presents in MetalCompositorPresent). This SDL dirty-rect path is
+	// already compiled out on iOS via video_refresh_window_static, but gate the
+	// report here too so the two reporters can never double-count.
 	objc_reportFrameRender();
+#endif
     SDL_UnlockMutex(sdl_update_video_mutex);
 }
 
@@ -2711,7 +2717,35 @@ static void handle_events(void)
 				if (mouse_grabbed) {
 					drv->mouse_moved(event.motion.xrel, event.motion.yrel);
 				} else {
+#if TARGET_OS_IPHONE
+					// Absolute mouse: map window-space coords to guest framebuffer
+					// space. SDL_RenderSetLogicalSize (which normally does this) is
+					// gated off on iOS because the Metal compositor replaces SDL's
+					// renderer, so without this the cursor can't reach the guest
+					// edges when the window is larger than the framebuffer and the
+					// image is letterboxed (e.g. Mac true-screen-size fullscreen).
+					// Mirrors kCAGravityResizeAspect / MagCursor; identity (no-op)
+					// when the window matches the framebuffer.
+					int ww = 0, wh = 0;
+					SDL_GetWindowSize(sdl_window, &ww, &wh);
+					float mag = std::min((float)ww / drv->VIDEO_MODE_X,
+					                     (float)wh / drv->VIDEO_MODE_Y);
+					if (mag > 0.f && ww > 0 && wh > 0) {
+						float ox = (ww - drv->VIDEO_MODE_X * mag) * 0.5f;
+						float oy = (wh - drv->VIDEO_MODE_Y * mag) * 0.5f;
+						int fx = (int)((event.motion.x - ox) / mag);
+						int fy = (int)((event.motion.y - oy) / mag);
+						if (fx < 0) fx = 0;
+						if (fy < 0) fy = 0;
+						if (fx >= (int)drv->VIDEO_MODE_X) fx = (int)drv->VIDEO_MODE_X - 1;
+						if (fy >= (int)drv->VIDEO_MODE_Y) fy = (int)drv->VIDEO_MODE_Y - 1;
+						drv->mouse_moved(fx, fy);
+					} else {
+						drv->mouse_moved(event.motion.x, event.motion.y);
+					}
+#else
 					drv->mouse_moved(event.motion.x, event.motion.y);
+#endif
 				}
 				break;
 

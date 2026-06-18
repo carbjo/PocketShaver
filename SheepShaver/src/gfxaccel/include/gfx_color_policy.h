@@ -54,9 +54,19 @@ static inline void GfxColorFillIdentityGammaLUT(uint8_t *lut)
 	}
 }
 
-static inline void GfxColorFillDefaultDisplayGammaLUT(uint8_t *lut)
+// apply_correction follows the user "Gamma ramp" pref: when true (OS defined)
+// the classic-Mac 1.8 -> sRGB 2.2 display correction is composed in as before;
+// when false (Linear) the LUT is left as a passthrough so the guest table is
+// presented raw, giving the darker / less color-distorted image the pref
+// promises and removing the display-side midtone lift.
+static inline void GfxColorFillDefaultDisplayGammaLUT(uint8_t *lut,
+                                                      bool apply_correction)
 {
 	if (lut == NULL) return;
+	if (!apply_correction) {
+		GfxColorFillIdentityGammaLUT(lut);
+		return;
+	}
 	for (int i = 0; i < 256; i++) {
 		const uint8_t corrected = GfxColorClassicMacToSRGBByte((uint8_t)i);
 		lut[i]       = corrected;
@@ -67,11 +77,14 @@ static inline void GfxColorFillDefaultDisplayGammaLUT(uint8_t *lut)
 
 static inline void GfxColorBuildDisplayGammaLUT(const uint8_t *mac_lut,
                                                 bool fade_active,
+                                                bool apply_correction,
                                                 uint8_t *display_lut)
 {
 	if (mac_lut == NULL || display_lut == NULL) return;
 
-	if (fade_active) {
+	// A fade ramp must stay linear, and Linear gamma mode also wants the guest
+	// table verbatim — both are a straight passthrough of mac_lut.
+	if (fade_active || !apply_correction) {
 		memcpy(display_lut, mac_lut, 768);
 		return;
 	}

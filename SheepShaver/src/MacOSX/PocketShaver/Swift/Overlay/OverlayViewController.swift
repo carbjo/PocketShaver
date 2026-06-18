@@ -791,9 +791,9 @@ extension OverlayViewController: PerformanceCounterDelegate {
 
 	func performanceCounter(_ counter: PerformanceCounter, didUpdateWithReport report: PerformanceCounterReport) {
 		if MiscellaneousSettings.current.fpsReporting && MiscellaneousSettings.current.networkTransferRateReportingEnabled {
-			performanceLabel.text = "\(report.framesRendered)\n\(report.bytesTransferredString)"
+			performanceLabel.text = "\(report.framesRendered) FPS\n\(report.bytesTransferredString)"
 		} else if MiscellaneousSettings.current.fpsReporting {
-			performanceLabel.text = "\(report.framesRendered)"
+			performanceLabel.text = "\(report.framesRendered) FPS"
 		} else if MiscellaneousSettings.current.networkTransferRateReportingEnabled {
 			performanceLabel.text = "\(report.bytesTransferredString)"
 		}

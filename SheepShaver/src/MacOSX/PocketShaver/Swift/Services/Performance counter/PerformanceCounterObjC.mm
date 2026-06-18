@@ -9,55 +9,43 @@
 #import "PerformanceCounterObjC.h"
 #import "PocketShaver-Swift-ObjCHeader.h"
 
-@interface PerformanceCounterObjC()
+#import <stdatomic.h>
 
-@property int framesRendered;
-@property int bytesTransferred;
-
-- (void)reportFrameRender;
-- (void)reportBytesTransferred:(int)numberOfBytes;
-
-@end
+// Frame/byte tallies are file-static atomics. The writers run OFF the main
+// thread — objc_reportFrameRender() from the Metal compositor present (VBL)
+// path, objc_reportBytesTransferred() from the ether/slirp packet-reception
+// threads — while the read-and-reset runs on the @MainActor 1-second timer.
+// Relaxed ordering suffices: each is a monotonic tally with no dependent memory.
+static _Atomic int s_framesRendered   = 0;
+static _Atomic int s_bytesTransferred = 0;
 
 static PerformanceCounterObjC *performanceCounter;
 
 void objc_reportFrameRender(void) {
-	if (performanceCounter) {
-		[performanceCounter reportFrameRender];
-	}
+	atomic_fetch_add_explicit(&s_framesRendered, 1, memory_order_relaxed);
 }
 
 void objc_reportBytesTransferred(int numberOfBytes) {
-	if (performanceCounter) {
-		[performanceCounter reportBytesTransferred:numberOfBytes];
-	}
+	atomic_fetch_add_explicit(&s_bytesTransferred, numberOfBytes, memory_order_relaxed);
 }
 
 PerformanceCounterObjC* objc_getPerformanceCounter(void) {
 	if (!performanceCounter) {
 		performanceCounter = [PerformanceCounterObjC new];
 	} else {
-		performanceCounter.framesRendered = 0;
-		performanceCounter.bytesTransferred = 0;
+		atomic_store_explicit(&s_framesRendered, 0, memory_order_relaxed);
+		atomic_store_explicit(&s_bytesTransferred, 0, memory_order_relaxed);
 	}
 	return performanceCounter;
 }
 
 @implementation PerformanceCounterObjC
 
-- (void)reportFrameRender {
-	_framesRendered++;
-}
-
-- (void)reportBytesTransferred:(int)numberOfBytes {
-	_bytesTransferred += numberOfBytes;
-}
-
 - (PerformanceCounterReport*)reportOneSecondAndFetchReport {
-	int framesRendered = _framesRendered;
-	int bytesTransferred = _bytesTransferred;
-	_framesRendered = 0;
-	_bytesTransferred = 0;
+	// Read-and-clear each tally atomically. The 1-second sampling window means
+	// the frame count returned here IS the frames-per-second value.
+	int framesRendered   = atomic_exchange_explicit(&s_framesRendered, 0, memory_order_relaxed);
+	int bytesTransferred = atomic_exchange_explicit(&s_bytesTransferred, 0, memory_order_relaxed);
 
 	PerformanceCounterReport *report = [[PerformanceCounterReport alloc] initWithFramesRendered:framesRendered bytesTransferred:bytesTransferred];
 

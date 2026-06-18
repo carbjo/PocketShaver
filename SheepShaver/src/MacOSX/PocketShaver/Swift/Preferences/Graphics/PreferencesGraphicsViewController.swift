@@ -198,7 +198,7 @@ class PreferencesGraphicsViewController: UITableViewController {
 				}
 			case .graphicsAccelerationInfo:
 				return PreferencesInformationCell(
-					text: "Experimental. Requires Metal GPU. Changes take effect on restart."
+					text: "Experimental. Each accelerator is independent — mix and match per app to find what runs best. DrawSprocket defaults on, the rest off. Requires Metal; takes effect on restart."
 				)
 			}
 		}
