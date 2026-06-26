@@ -732,6 +732,14 @@ extension OverlayViewController {
 		// but the system sends it on iPadOS 15+ as a private selector. We match both
 		// so this builds with earlier versions of Xcode and iOS SDK
 		if action == Selector(("_performClose:")) { return true }
+		// Intercept Cmd+Q (AppKit's terminate:) on macOS (Designed for iPad) so the
+		// emulator app does not quit. Like _performClose: above, this reaches
+		// OverlayViewController through view-controller containment. The actual 'q'
+		// keystroke still reaches the guest via SDL's input path (video_sdl2.cpp), so a
+		// classic Mac app's own Cmd+Q still works.
+		// On a physical iPad, Cmd-Q is system-reserved (handled above the responder
+		// chain) and never reaches here — this is a no-op there. See terminate(_:) below.
+		if action == #selector(OverlayViewController.terminate(_:)) { return true }
 		if #available(iOS 26.0, *) {
 			#if compiler(>=6.2)
 			if action == #selector(UIResponderStandardEditActions.performClose(_:)) { return true }
@@ -746,6 +754,12 @@ extension OverlayViewController {
 	@available(iOS 26.0, *)
 	public override func performClose(_ sender: Any?) {}
 	#endif
+
+	// No-op so the Cmd+Q action claimed in canPerformAction is swallowed instead of
+	// quitting the app. terminate: is AppKit's quit selector (not a formal UIResponder
+	// API on iOS), so this is a plain @objc method — no availability guard and no
+	// 'override' (there is no superclass terminate(_:) on UIKit to override).
+	@objc public func terminate(_ sender: Any?) {}
 
 	@objc
 	public static func injectOverlayViewController() {
