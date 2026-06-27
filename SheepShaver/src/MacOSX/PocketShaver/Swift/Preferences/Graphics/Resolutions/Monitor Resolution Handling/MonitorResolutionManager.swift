@@ -132,6 +132,26 @@ public class MonitorResolutionManager: NSObject {
 		}
 	}
 
+	/// The always-on boot resolution — the native-scale, pixel-aligned mode the UI marks
+	/// "cannot be deselected / needed for boot sequence" — for the launch orientation,
+	/// freshly detected from the current display each launch (never a persisted copy).
+	/// `availableResolutions` is rebuilt from the live screen in init(), so this always
+	/// reflects the current device; `isResolutionAlwaysEnabled` pins this same value.
+	private var freshBootResolutionOption: MonitorResolutionOption? {
+		let category: MonitorResolutionCategory = willLaunchInPortraitMode ? .pixelAlignedPortrait : .pixelAlignedLandscape
+		return availableResolutions[category]?.first
+	}
+
+	/// The resolution PocketShaver records into the "screen" pref to boot into. Sourced
+	/// from `freshBootResolutionOption` — the freshly-detected "cannot be deselected"
+	/// pixel-aligned mode — not the live UIScreen point size and not a stale persisted
+	/// value.
+	var bootScreenResolution: MonitorResolution {
+		freshBootResolutionOption?.resolution
+			?? enabledResolutions.first?.resolution
+			?? MonitorResolution(width: Int(UIScreen.main.bounds.width), height: Int(UIScreen.main.bounds.height))
+	}
+
 	private var hasRegisteredSafeAreaInsets = false
 	private var needCompletingPreselectingLandscapeModeResolutions = false
 
@@ -147,7 +167,7 @@ public class MonitorResolutionManager: NSObject {
 
 		if let persistedEnabledPortraitResolutionsData = Storage.shared.load(from: .portraitResolutions),
 		   let persistedEnabledPortraitResolutions = try? decoder.decode([MonitorResolutionOption].self, from: persistedEnabledPortraitResolutionsData) {
-			enabledPortraitResolutions = persistedEnabledPortraitResolutions
+			enabledPortraitResolutions = Self.withRefreshedBootResolution(persistedEnabledPortraitResolutions, category: .pixelAlignedPortrait, available: availableResolutions)
 		} else {
 			enabledPortraitResolutions = [
 				availableResolutions[.pixelAlignedPortrait]![0],
@@ -158,7 +178,7 @@ public class MonitorResolutionManager: NSObject {
 
 		if let persistedEnabledLandscapeResolutionsData = Storage.shared.load(from: .landscapeResolutions),
 		   let persistedEnabledLandscapeResolutions = try? decoder.decode([MonitorResolutionOption].self, from: persistedEnabledLandscapeResolutionsData) {
-			enabledLandscapeResolutions = persistedEnabledLandscapeResolutions
+			enabledLandscapeResolutions = Self.withRefreshedBootResolution(persistedEnabledLandscapeResolutions, category: .pixelAlignedLandscape, available: availableResolutions)
 		} else {
 			enabledLandscapeResolutions = [
 				availableResolutions[.pixelAlignedLandscape]![0],
@@ -262,6 +282,27 @@ public class MonitorResolutionManager: NSObject {
 		}
 
 		return outputResolutions
+	}
+
+	/// Replace the always-on boot resolution (the first pixel-aligned entry — the one the
+	/// UI marks "cannot be deselected") in a persisted enabled list with the freshly-detected
+	/// one for the current display. Persisted entries carry concrete pixel dimensions, so a
+	/// boot entry saved on a previous display would otherwise show stale values in the UI and
+	/// diverge from what the guest receives. Keeps `enabledResolutions` the single fresh source
+	/// of truth read by both the Preferences UI and the SDL mode list.
+	private static func withRefreshedBootResolution(
+		_ persisted: [MonitorResolutionOption],
+		category: MonitorResolutionCategory,
+		available: [MonitorResolutionCategory: [MonitorResolutionOption]]
+	) -> [MonitorResolutionOption] {
+		guard let freshBoot = available[category]?.first else { return persisted }
+		var list = persisted
+		if let index = list.firstIndex(where: { $0.category == category }) {
+			list[index] = freshBoot
+		} else {
+			list.insert(freshBoot, at: 0)
+		}
+		return list
 	}
 
 	private static func getAvailableResolutions(for category: MonitorResolutionCategory) -> [MonitorResolutionOption] {
