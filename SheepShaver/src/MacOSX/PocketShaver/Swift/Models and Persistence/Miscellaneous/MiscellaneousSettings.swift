@@ -158,7 +158,12 @@ class MiscellaneousSettings: Codable {
 		rightClickSetting = .control
 		keyboardAutoOffsetSetting = .middle
 		hoverJustAboveOffsetModifier = 1
-		gammaRampSetting = .osDefined
+		// Default to the raw guest gamma. The `.osDefined` correction lifts
+		// midtones (classic-Mac 1.8 -> sRGB 2.2) and reads as too bright /
+		// washed-out at launch on modern displays; users can still opt into it
+		// in Preferences. Existing installs are moved by
+		// migrateGammaRampDefaultIfNeeded().
+		gammaRampSetting = .linear
 		bootInRelativeMouseMode = false
 		ignoreIllegalInstructions = false
 		altivecEnabled = true
@@ -167,14 +172,35 @@ class MiscellaneousSettings: Codable {
 
 	@MainActor
 	static var current: MiscellaneousSettings = {
+		let settings: MiscellaneousSettings
 		if let data = Storage.shared.load(from: .miscellaneous),
-		   let settings = try? JSONDecoder().decode(MiscellaneousSettings.self, from: data) {
-			settings.updateCachedResponses()
-			return settings
+		   let decoded = try? JSONDecoder().decode(MiscellaneousSettings.self, from: data) {
+			settings = decoded
+		} else {
+			settings = MiscellaneousSettings()
 		}
 
-		return MiscellaneousSettings()
+		settings.migrateGammaRampDefaultIfNeeded()
+		settings.updateCachedResponses()
+		return settings
 	}()
+
+	/// One-time migration for the gamma-ramp default change (`.osDefined` ->
+	/// `.linear`). Installs that pre-date the change still hold the old default
+	/// in their persisted settings, so flipping `init()` alone would not reach
+	/// them. We move them once; the marker is set unconditionally so any later
+	/// explicit `.osDefined` choice in Preferences is preserved.
+	@MainActor
+	private func migrateGammaRampDefaultIfNeeded() {
+		let marker = "MiscellaneousSettings.gammaRampDefaultLinearMigration.v1"
+		let defaults = UserDefaults.standard
+		guard !defaults.bool(forKey: marker) else { return }
+		defaults.set(true, forKey: marker)
+
+		if gammaRampSetting == .osDefined {
+			set(gammaRampSetting: .linear) // persists via saveAsCurrent()
+		}
+	}
 
 	@MainActor
 	func saveAsCurrent() {
