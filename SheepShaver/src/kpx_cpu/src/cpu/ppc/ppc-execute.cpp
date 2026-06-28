@@ -1629,10 +1629,16 @@ void powerpc_cpu::execute_vector_merge(uint32 opcode)
 	typename VD::type & vD = VD::ref(this, opcode);
 	const int n_elements = 16 / VD::element_size;
 
+	// Compute into a temporary so that an in-place destination (vD aliasing
+	// vA or vB, which compiled/hand-written AltiVec code does routinely to
+	// save registers) reads original source bytes, not ones already
+	// overwritten.  Real hardware reads all sources before writing vD.
+	powerpc_vr tmp;
 	for (int i = 0; i < n_elements; i += 2) {
-		VD::set_element(vD, i    , VA::get_element(vA, (i / 2) + LO * (n_elements / 2)));
-		VD::set_element(vD, i + 1, VB::get_element(vB, (i / 2) + LO * (n_elements / 2)));
+		VD::set_element(tmp, i    , VA::get_element(vA, (i / 2) + LO * (n_elements / 2)));
+		VD::set_element(tmp, i + 1, VB::get_element(vB, (i / 2) + LO * (n_elements / 2)));
 	}
+	vD = tmp;
 
 	increment_pc(4);
 }
@@ -1657,6 +1663,9 @@ void powerpc_cpu::execute_vector_pack(uint32 opcode)
 	const int n_elements = 16 / VD::element_size;
 	const int n_pivot = n_elements / 2;
 
+	// Temp dest: pack narrows vA/vB into vD; an in-place vD (==vA or ==vB)
+	// would otherwise overwrite source bytes still needed by later elements.
+	powerpc_vr tmp;
 	for (int i = 0; i < n_elements; i++) {
 		typename VD::element_type d;
 		if (i < n_pivot)
@@ -1665,8 +1674,9 @@ void powerpc_cpu::execute_vector_pack(uint32 opcode)
 			d = VB::get_element(vB, i - n_pivot);
 		if (VD::saturate(d))
 			vscr().set_sat(1);
-		VD::set_element(vD, i, d);
+		VD::set_element(tmp, i, d);
 	}
+	vD = tmp;
 
 	increment_pc(4);
 }
@@ -1678,8 +1688,12 @@ void powerpc_cpu::execute_vector_unpack(uint32 opcode)
 	typename VD::type & vD = VD::ref(this, opcode);
 	const int n_elements = 16 / VD::element_size;
 
+	// Temp dest: unpack widens vA into vD; an in-place vD (==vA) would
+	// overwrite source elements still needed by later iterations.
+	powerpc_vr tmp;
 	for (int i = 0; i < n_elements; i++)
-		VD::set_element(vD, i, VA::get_element(vA, i + LO * n_elements));
+		VD::set_element(tmp, i, VA::get_element(vA, i + LO * n_elements));
+	vD = tmp;
 
 	increment_pc(4);
 }
@@ -1690,12 +1704,15 @@ void powerpc_cpu::execute_vector_pack_pixel(uint32 opcode)
 	powerpc_vr const & vB = vr(vB_field::extract(opcode));
 	powerpc_vr & vD = vr(vD_field::extract(opcode));
 
+	// Temp dest: guard against in-place vD (==vA or ==vB).
+	powerpc_vr tmp;
 	for (int i = 0; i < 4; i++) {
 		const uint32 a = vA.w[i];
-		vD.h[ev_mixed::half_element(i)] = ((a >> 9) & 0xfc00) | ((a >> 6) & 0x03e0) | ((a >> 3) & 0x001f);
+		tmp.h[ev_mixed::half_element(i)] = ((a >> 9) & 0xfc00) | ((a >> 6) & 0x03e0) | ((a >> 3) & 0x001f);
 		const uint32 b = vB.w[i];
-		vD.h[ev_mixed::half_element(i + 4)] = ((b >> 9) & 0xfc00) | ((b >> 6) & 0x03e0) | ((b >> 3) & 0x001f);
+		tmp.h[ev_mixed::half_element(i + 4)] = ((b >> 9) & 0xfc00) | ((b >> 6) & 0x03e0) | ((b >> 3) & 0x001f);
 	}
+	vD = tmp;
 
 	increment_pc(4);
 }
@@ -1706,14 +1723,17 @@ void powerpc_cpu::execute_vector_unpack_pixel(uint32 opcode)
 	powerpc_vr const & vB = vr(vB_field::extract(opcode));
 	powerpc_vr & vD = vr(vD_field::extract(opcode));
 
+	// Temp dest: guard against in-place vD (==vB).
+	powerpc_vr tmp;
 	for (int i = 0; i < 4; i++) {
 		const uint32 h = vB.h[ev_mixed::half_element(i + LO * 4)];
-		vD.w[i] = (((h & 0x8000) ? 0xff000000 : 0) |
+		tmp.w[i] = (((h & 0x8000) ? 0xff000000 : 0) |
 				   ((h & 0x7c00) << 6) |
 				   ((h & 0x03e0) << 3) |
 				   (h & 0x001f));
 	}
 
+	vD = tmp;
 	increment_pc(4);
 }
 
