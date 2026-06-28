@@ -15,6 +15,9 @@
 #include "cpu_emulation.h"
 #include "thunks.h"
 #include "gl_engine.h"
+#include "gl_defer.h"
+#include "gl_ppc_emit.h"   // ppc_lis/ppc_ori/ppc_stw/ppc_blr (Track-A PPC encoders)
+#include <cassert>
 
 // Storage for TVECT addresses and scratch words
 uint32_t gl_method_tvects[GL_MAX_SUBOPCODE];
@@ -176,6 +179,236 @@ static uint32 AllocateGLDispatchTableTVECT(int method_id, uint32 gl_opcode)
 	WriteMacInt32(code + 32, gl_opcode);
 	// blr
 	WriteMacInt32(code + 36, 0x4E800020);
+
+	return base;
+}
+
+/*
+ *  EmitDeferFallback - shared "trap normally" tail for Track-A deferrable stubs.
+ *
+ *  Background (Track A immediate-mode batching): a deferrable opcode's stub
+ *  (Task 8) buffers the call into the guest ring and returns WITHOUT trapping --
+ *  but only while deferral is enabled AND the ring has room. When deferral is
+ *  DISABLED or the ring is FULL, the stub instead takes the normal trap path for
+ *  that one call. Because the GLDispatch drain-first hook flushes the ring into
+ *  im_vertices before the trapped call runs, simply trapping the single call is
+ *  correct -- there is no overflow-drain/retry dance. Both the "disabled" and
+ *  "full" cases branch (unconditional `b`, +/-32 MiB range) to this ONE shared
+ *  routine.
+ *
+ *  The routine is exactly the TAIL of AllocateGLTVECT: it writes the sub-opcode
+ *  (already in r12, set by the stub) to the scratch word, then executes
+ *  NATIVE_OPENGL_DISPATCH and returns. It is reached by a direct `b` to its
+ *  first instruction, so -- unlike a TVECT, which is *called* through its
+ *  [code_ptr][toc] header -- it needs NO 8-byte header. ReserveProc returns a
+ *  raw executable region; we emit straight code there and publish the address of
+ *  the first instruction.
+ *
+ *  Emitted code (4 instructions):
+ *    lis  r11, scratch_hi16
+ *    ori  r11, r11, scratch_lo16
+ *    stw  r12, 0(r11)            -- store the sub-opcode the stub left in r12
+ *    <gl_opcode>                 -- NATIVE_OPENGL_DISPATCH
+ *    blr
+ *
+ *  gl_defer_common_tail is set to the address of the FIRST instruction (the
+ *  `lis`), i.e. the `b` target Task 8's stubs must branch to. (Its header
+ *  comment in gl_defer.h is updated to reflect that it now holds this fallback
+ *  routine's code address, not a TVECT addr.)
+ */
+static void EmitDeferFallback(uint32 gl_opcode)
+{
+	uint32 scratch_hi = (gl_scratch_addr >> 16) & 0xFFFF;
+	uint32 scratch_lo = gl_scratch_addr & 0xFFFF;
+
+	// 5 instructions, no TVECT header (this is a `b` target, not a callee).
+	uint32 code = SheepMem::ReserveProc(5 * 4);
+
+	const int r11 = 11;
+	const int r12 = 12;
+
+	WriteMacInt32(code +  0, ppc_lis(r11, scratch_hi));            // lis  r11, scratch_hi
+	WriteMacInt32(code +  4, ppc_ori(r11, r11, scratch_lo));       // ori  r11, r11, scratch_lo
+	WriteMacInt32(code +  8, ppc_stw(r12, 0, r11));                // stw  r12, 0(r11)
+	WriteMacInt32(code + 12, gl_opcode);                          // NATIVE_OPENGL_DISPATCH
+	WriteMacInt32(code + 16, ppc_blr());                          // blr
+
+	gl_defer_common_tail = code;  // code entry = the `b fallback` target for Task 8
+}
+
+/*
+ *  EmitDeferStub - emit a per-opcode immediate-mode capture stub (Task 8).
+ *
+ *  This replaces AllocateGLTVECT for every deferrable opcode. It is a proper
+ *  TVECT (8-byte [code_ptr][toc] header, because the game CALLS it as the GL
+ *  function) whose body BUFFERS the call's arguments into the guest-memory ring
+ *  and returns -- WITHOUT trapping -- when deferral is enabled and the ring has
+ *  room. When deferral is disabled (kill-switch / display-list gate clears the
+ *  enabled word) or the ring is full, it branches to the shared
+ *  gl_defer_common_tail fallback, which writes the sub-opcode (left in r12) to
+ *  the scratch word and takes the normal trap path for that single call.
+ *
+ *  Register discipline (see KEY ABI FACTS in the task brief):
+ *    - r3.. carry the integer/pointer args; f1.. carry the float args densely.
+ *    - r12 holds the sub-opcode the whole way through (needed both for the ring
+ *      header AND by the fallback tail).
+ *    - r0, r11 and r12 are the only scratch we touch: r11 is the address/base
+ *      reg, r0 the value temp for the header/ptr-copy. The commit block uses r12
+ *      as the value temp instead of r0 because PPC addi treats RA==0 as the
+ *      literal constant 0 (so `addi r0,r0,n` would NOT accumulate r0's contents);
+ *      r12's sub_opcode is dead on the success path so it is safe to reuse there.
+ *      None of r0/r11/r12 is an argument register for our opcodes (args are
+ *      r3..r10, f1..), so the ptr snapshot (which reads the arg ptr in r(3+scalar)
+ *      and writes through r11) never clobbers a live arg.
+ *
+ *  Wire layout emitted (must match GLDeferDecodeRecord byte-for-byte):
+ *    [u32 sub_opcode][u32 size_bytes][scalar x u32 from r3..][fpr_count x u32
+ *     from f1.. via stfs, dense][round_up_4(ptr_bytes) snapshot]
+ */
+static int gl_round_up_4(int n) { return (n + 3) & ~3; }
+static int gl_popcount16(uint32 v) { int n = 0; while (v) { n += (v & 1u); v >>= 1; } return n; }
+
+static uint32 EmitDeferStub(int sub_opcode, const GLDeferDesc &desc, uint32 gl_opcode)
+{
+	const int scalar  = desc.scalar_gpr_count;
+	const int fprc    = gl_popcount16(desc.fpr_mask);
+	const int ptrb    = desc.ptr_bytes;
+	const int ptr_pad = gl_round_up_4(ptrb);
+	const int need    = 8 + 4 * scalar + 4 * fprc + ptr_pad;   // size_bytes header value
+
+	// ptr copy breakdown: as many full words as fit, then one halfword, then one
+	// byte for whatever remains (ptr_bytes is never both an odd word remainder
+	// AND > 2 leftover for our opcodes, but the generic word/half/byte split
+	// covers any value).
+	const int ptr_words = ptrb / 4;
+	int rem = ptrb - ptr_words * 4;
+	const bool ptr_half = (rem >= 2);
+	if (ptr_half) rem -= 2;
+	const bool ptr_byte = (rem >= 1);
+
+	// Instruction count (must be exact so ReserveProc is sized correctly):
+	//   li r12              : 1
+	//   enabled: lis,ori,lwz,cmpwi,bne,b   : 6
+	//   space:   lis,ori,lwz,cmplwi,ble,b  : 6
+	//   wptr:    lis,ori,add               : 3
+	//   header:  stw r12; li r0; stw r0    : 3
+	//   scalars                            : scalar
+	//   fprs                               : fprc
+	//   ptr:     (lwz+stw) per word + (lhz+sth) + (lbz+stb)
+	//   commit:  head(lis,ori,lwz,addi,stw)+count(lis,ori,lwz,addi,stw) : 10
+	//   blr                                : 1
+	const int ninstr = 1 + 6 + 6 + 3 + 3
+	                 + scalar + fprc
+	                 + ptr_words * 2 + (ptr_half ? 2 : 0) + (ptr_byte ? 2 : 0)
+	                 + 10 + 1;
+
+	const uint32 enabled_hi = (gl_defer_enabled_addr >> 16) & 0xFFFF;
+	const uint32 enabled_lo =  gl_defer_enabled_addr        & 0xFFFF;
+	const uint32 head_hi    = (gl_defer_head_addr    >> 16) & 0xFFFF;
+	const uint32 head_lo    =  gl_defer_head_addr           & 0xFFFF;
+	const uint32 count_hi   = (gl_defer_count_addr   >> 16) & 0xFFFF;
+	const uint32 count_lo   =  gl_defer_count_addr          & 0xFFFF;
+	const uint32 ring_hi    = (gl_defer_ring_base    >> 16) & 0xFFFF;
+	const uint32 ring_lo    =  gl_defer_ring_base           & 0xFFFF;
+
+	uint32 base = SheepMem::ReserveProc(8 + 4 * ninstr);
+	uint32 code = base + 8;
+
+	// TVECT header (this stub is CALLED through its [code_ptr][toc] header).
+	WriteMacInt32(base + 0, code);
+	WriteMacInt32(base + 4, 0);
+
+	const int r0 = 0, r11 = 11, r12 = 12;
+
+	int idx = 0;
+	#define A() (code + 4 * idx)                       // absolute addr of slot idx
+	#define EMIT(word) do { WriteMacInt32(code + 4 * idx, (word)); ++idx; } while (0)
+
+	// sub-opcode -> r12 (ring header + fallback tail both need it)
+	EMIT(ppc_li(r12, sub_opcode));
+
+	// --- enabled check: if (*enabled == 0) goto fallback -----------------------
+	EMIT(ppc_lis(r11, enabled_hi));
+	EMIT(ppc_ori(r11, r11, enabled_lo));
+	EMIT(ppc_lwz(r0, 0, r11));
+	EMIT(ppc_cmpwi(r0, 0));
+	{ uint32 a = A(); EMIT(ppc_bne(a, a + 8)); }       // r0 != 0 -> skip the long branch
+	{ uint32 a = A(); EMIT(ppc_b(a, gl_defer_common_tail)); }  // disabled -> fallback
+
+	// --- space check: if (head >u RING_SIZE-need) goto fallback ----------------
+	EMIT(ppc_lis(r11, head_hi));
+	EMIT(ppc_ori(r11, r11, head_lo));
+	EMIT(ppc_lwz(r0, 0, r11));                          // r0 = head (byte offset)
+	EMIT(ppc_cmplwi(r0, (uint32)(GL_DEFER_RING_SIZE - need)));  // UNSIGNED compare
+	{ uint32 a = A(); EMIT(ppc_ble(a, a + 8)); }       // head <=u limit -> space ok
+	{ uint32 a = A(); EMIT(ppc_b(a, gl_defer_common_tail)); }  // full -> fallback
+
+	// --- write pointer = ring_base + head --------------------------------------
+	// r0 still holds head from the space check (untouched above).
+	EMIT(ppc_lis(r11, ring_hi));
+	EMIT(ppc_ori(r11, r11, ring_lo));
+	EMIT(ppc_add(r11, r11, r0));                        // r11 = ring_base + head
+
+	// --- record header ---------------------------------------------------------
+	EMIT(ppc_stw(r12, 0, r11));                         // [0] sub_opcode
+	EMIT(ppc_li(r0, need));
+	EMIT(ppc_stw(r0, 4, r11));                          // [4] size_bytes
+
+	// --- scalar GPRs: r(3+k) -> (8 + 4k)(r11) ----------------------------------
+	for (int k = 0; k < scalar; ++k)
+		EMIT(ppc_stw(3 + k, 8 + 4 * k, r11));
+
+	// --- FPRs (dense): f(1+n) -> (8 + 4*scalar + 4*n)(r11) ---------------------
+	const int fpr_base_off = 8 + 4 * scalar;
+	for (int n = 0; n < fprc; ++n)
+		EMIT(ppc_stfs(1 + n, fpr_base_off + 4 * n, r11));
+
+	// --- trailing pointer snapshot ---------------------------------------------
+	// src ptr arg = r(3+scalar); dst offset = 8 + 4*scalar + 4*fprc.
+	if (ptrb > 0) {
+		const int src     = 3 + scalar;
+		const int dst_off = 8 + 4 * scalar + 4 * fprc;
+		int off = 0;
+		for (int w = 0; w < ptr_words; ++w, off += 4) {
+			EMIT(ppc_lwz(r0, off, src));
+			EMIT(ppc_stw(r0, dst_off + off, r11));
+		}
+		if (ptr_half) {
+			EMIT(ppc_lhz(r0, off, src));
+			EMIT(ppc_sth(r0, dst_off + off, r11));
+			off += 2;
+		}
+		if (ptr_byte) {
+			EMIT(ppc_lbz(r0, off, src));
+			EMIT(ppc_stb(r0, dst_off + off, r11));
+			off += 1;
+		}
+	}
+
+	// --- commit: head += need; count += 1 --------------------------------------
+	// IMPORTANT: addi's RA==0 means "literal 0", NOT register r0 -- so the loaded
+	// value MUST be in a register != r0 for the add to actually accumulate. We use
+	// r11 as the address reg and r12 as the value temp (r12's sub_opcode is dead on
+	// the success path; the fallback path never reaches here).
+	EMIT(ppc_lis(r11, head_hi));
+	EMIT(ppc_ori(r11, r11, head_lo));
+	EMIT(ppc_lwz(r12, 0, r11));
+	EMIT(ppc_addi(r12, r12, need));    // r12 = head + need (RA=r12 != 0 -> real add)
+	EMIT(ppc_stw(r12, 0, r11));
+
+	EMIT(ppc_lis(r11, count_hi));
+	EMIT(ppc_ori(r11, r11, count_lo));
+	EMIT(ppc_lwz(r12, 0, r11));
+	EMIT(ppc_addi(r12, r12, 1));       // r12 = count + 1
+	EMIT(ppc_stw(r12, 0, r11));
+
+	EMIT(ppc_blr());
+
+	#undef A
+	#undef EMIT
+
+	// Sanity: the slots we wrote must exactly match the reserved size.
+	assert(idx == ninstr && "EmitDeferStub instruction count mismatch");
 
 	return base;
 }
@@ -444,8 +677,22 @@ bool GLThunksInit(void)
 	gl_dt_flag_addr = SheepMem::Reserve(4);
 	WriteMacInt32(gl_dt_flag_addr, 0);
 
+	// Track A immediate-mode batching: guest-memory command ring + control words.
+	gl_defer_ring_base    = SheepMem::Reserve(GL_DEFER_RING_SIZE);
+	gl_defer_ring_end     = gl_defer_ring_base + GL_DEFER_RING_SIZE;
+	gl_defer_head_addr    = SheepMem::Reserve(4); WriteMacInt32(gl_defer_head_addr, 0);
+	gl_defer_count_addr   = SheepMem::Reserve(4); WriteMacInt32(gl_defer_count_addr, 0);
+	gl_defer_enabled_addr = SheepMem::Reserve(4); WriteMacInt32(gl_defer_enabled_addr, 1); // default ON
+	GLDeferBuildDescriptors();
+
 	// Get the native opcode for GL dispatch
 	uint32 gl_opcode = NativeOpcode(NATIVE_OPENGL_DISPATCH);
+
+	// Track A: emit the shared deferral fallback routine BEFORE the TVECT loop,
+	// so gl_defer_common_tail is set before any deferrable stub `b`s to it. This is
+	// the live fallback target the deferrable stubs branch to when deferral is
+	// disabled or the ring is full (stub routing landed in Task 8).
+	EmitDeferFallback(gl_opcode);
 
 	// Clear the tvects arrays
 	memset(gl_method_tvects, 0, sizeof(gl_method_tvects));
@@ -456,7 +703,13 @@ bool GLThunksInit(void)
 
 	// Core GL (0-335): 336 TVECTs (stub-patching + dispatch-table variants)
 	for (int i = GL_CORE_FIRST; i <= GL_CORE_LAST; i++) {
-		gl_method_tvects[i] = AllocateGLTVECT(i, gl_opcode);
+		// Track A: deferrable immediate-mode setters get a capture stub that
+		// buffers into the ring; everything else keeps the plain trap TVECT.
+		// The dispatch-table variant is always the plain dt TVECT (dt path is
+		// out of scope for batching).
+		gl_method_tvects[i] = GLDeferIsDeferrable(i)
+			? EmitDeferStub(i, gl_defer_desc[i], gl_opcode)
+			: AllocateGLTVECT(i, gl_opcode);
 		gl_dt_method_tvects[i] = AllocateGLDispatchTableTVECT(i, gl_opcode);
 		tvect_count++;
 	}
@@ -479,7 +732,9 @@ bool GLThunksInit(void)
 	// reach the real handler instead of the diagnostic no-op. Placement into the
 	// table is driven by gl_dispatch_ext_slots[] in GLPopulateDispatchTable.
 	for (int i = GL_EXT_FIRST; i <= GL_EXT_LAST; i++) {
-		gl_method_tvects[i] = AllocateGLTVECT(i, gl_opcode);
+		gl_method_tvects[i] = GLDeferIsDeferrable(i)
+			? EmitDeferStub(i, gl_defer_desc[i], gl_opcode)
+			: AllocateGLTVECT(i, gl_opcode);
 		gl_dt_method_tvects[i] = AllocateGLDispatchTableTVECT(i, gl_opcode);
 		tvect_count++;
 	}
@@ -512,6 +767,8 @@ bool GLThunksInit(void)
 	GL_LOG("  AGL:        %d (sub %d-%d)", GL_AGL_LAST - GL_AGL_FIRST + 1, GL_AGL_FIRST, GL_AGL_LAST);
 	GL_LOG("  GLU:        %d (sub %d-%d)", GL_GLU_LAST - GL_GLU_FIRST + 1, GL_GLU_FIRST, GL_GLU_LAST);
 	GL_LOG("  GLUT:       %d (sub %d-%d)", GL_GLUT_LAST - GL_GLUT_FIRST + 1, GL_GLUT_FIRST, GL_GLUT_LAST);
+	GL_LOG("GLThunksInit: deferred-batching ring at 0x%08x size %d", gl_defer_ring_base, GL_DEFER_RING_SIZE);
+	GL_LOG("GLThunksInit: deferral fallback routine at 0x%08x", gl_defer_common_tail);
 
 	return true;
 }

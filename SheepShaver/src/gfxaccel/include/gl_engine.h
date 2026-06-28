@@ -702,6 +702,11 @@ enum {
     GL_SUB_GLUT_LEAVEGAMEMODE                       = 914,
     GL_SUB_GLUT_GAMEMODEGET                         = 915,
 
+    // =========================================================================
+    // Reserved sub-opcodes (916-919) -- internal host use only
+    // =========================================================================
+    GL_SUB_DRAIN                                    = 916,   // reserved: native deferred-ring drain trigger (Track A)
+
     GL_SUB_GLUT_COUNT                               = 116,
 };
 

@@ -21,6 +21,7 @@
 #include "cpu_emulation.h"
 #include "gl_engine.h"
 #include "accel_logging.h"
+#include "gl_defer.h"
 
 // Logging state -- gated by GL_LOGGING env var (via subsystem_on).
 #if ACCEL_LOGGING_ENABLED
@@ -1094,6 +1095,23 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		return 0;
 	}
 
+	// Track A immediate-mode batching: this sub-opcode IS the explicit drain trigger.
+	if (sub_opcode == GL_SUB_DRAIN) { GLDrainDeferred(); return 0; }
+	// Drain any buffered deferred immediate-mode records before executing an observable
+	// GL call, preserving program order. Guard on the ring being allocated (addr!=0) so
+	// this is a true no-op until GLThunksInit reserves the ring (Task 6), and skip while
+	// already draining (the replay re-enters GLDispatch).
+	if (!gl_defer_draining && gl_defer_count_addr && ReadMacInt32(gl_defer_count_addr)) {
+		GLDrainDeferred();
+	}
+
+	// Task 9 fallback counter: a deferrable opcode reaching GLDispatch while NOT
+	// draining means the PPC stub fell back (ring full or deferral disabled).
+	// Don't count calls re-entered by the drain replay (gl_defer_draining==true).
+	if (!gl_defer_draining && GLDeferIsDeferrable(sub_opcode)) {
+		g_defer_fallbacks++;
+	}
+
 	GL_VLOG("GLDispatch sub_opcode=%u r3=0x%x r4=0x%x r5=0x%x r6=0x%x r7=0x%x r8=0x%x r9=0x%x r10=0x%x ctx=%p",
 	        sub_opcode, r3, r4, r5, r6, r7, r8, r9, r10, gl_current_context);
 
@@ -1331,7 +1349,14 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_END:
 			NativeGLEnd(gl_current_context);
 			return 0;
-		case GL_SUB_END_LIST: NativeGLEndList(gl_current_context); return 0;
+		case GL_SUB_END_LIST:
+			NativeGLEndList(gl_current_context);
+			// Re-enable deferral now that list compilation is done -- UNLESS the
+			// failsafe has latched off (ring corruption). Respecting the latch here
+			// stops glEndList from un-degrading a tripped failsafe every batch.
+			// Guard on addr!=0: no write to guest address 0 before ring is allocated (Task 6).
+			if (gl_defer_enabled_addr && !gl_defer_failsafe_tripped) WriteMacInt32(gl_defer_enabled_addr, 1);
+			return 0;
 		case GL_SUB_EVAL_COORD1D:
 			NativeGLEvalCoord1d(gl_current_context, double_arg(float_bits, 0));
 			return 0;
@@ -1518,7 +1543,15 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLMultMatrixf(gl_current_context, r3);
 			return 0;
 		// --- Core GL: New, Normal ---
-		case GL_SUB_NEW_LIST: NativeGLNewList(gl_current_context, r3, r4); return 0;
+		case GL_SUB_NEW_LIST:
+			NativeGLNewList(gl_current_context, r3, r4);
+			// Disable deferral while compiling a display list so immediate-mode calls
+			// go through the recording path (existing in_display_list check above),
+			// not into the deferred ring. Any pending records were already drained by
+			// the drain-first hook earlier in this dispatch, preserving program order.
+			// Guard on addr!=0: no write to guest address 0 before ring is allocated (Task 6).
+			if (gl_defer_enabled_addr) WriteMacInt32(gl_defer_enabled_addr, 0);
+			return 0;
 		case GL_SUB_NORMAL3B:
 			NativeGLNormal3b(gl_current_context, (int8_t)r3, (int8_t)r4, (int8_t)r5);
 			return 0;
@@ -2286,7 +2319,19 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_AGL_GETVIRTUALSCREEN:     return NativeAGLGetVirtualScreen(r3);
 		case GL_SUB_AGL_GETVERSION:           return NativeAGLGetVersion(r3, r4);
 		case GL_SUB_AGL_CONFIGURE:            return NativeAGLConfigure(r3, r4);
-		case GL_SUB_AGL_SWAPBUFFERS:          return NativeAGLSwapBuffers(r3);
+		case GL_SUB_AGL_SWAPBUFFERS: {
+			// Task 9 periodic diagnostic report: log deferred-batching counters
+			// every 120 frames when logging is enabled. Silent in shipping builds.
+			static uint32_t s_swap_count = 0;
+			if (++s_swap_count >= 120) {
+				s_swap_count = 0;
+				GL_LOG("GLDefer stats (120-frame): drain_calls=%llu records_drained=%llu fallbacks=%llu",
+				       (unsigned long long)g_defer_drain_calls,
+				       (unsigned long long)g_defer_records_drained,
+				       (unsigned long long)g_defer_fallbacks);
+			}
+			return NativeAGLSwapBuffers(r3);
+		}
 		case GL_SUB_AGL_ENABLE:               return NativeAGLEnable(r3, r4);
 		case GL_SUB_AGL_DISABLE:              return NativeAGLDisable(r3, r4);
 		case GL_SUB_AGL_ISENABLED:            return NativeAGLIsEnabled(r3, r4);

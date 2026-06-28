@@ -393,12 +393,14 @@
 		GFXR10A1B2C3D4E5F60211 /* gfxaccel_resources.mm in Sources */ = {isa = PBXBuildFile; fileRef = GFXR10A1B2C3D4E5F60002 /* gfxaccel_resources.mm */; };
 		GL10A1B2C3D4E5F60101 /* gl_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */; };
 		GL10A1B2C3D4E5F60102 /* gl_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */; };
+		GL10A1B2C3D4E5F60107 /* gl_defer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60008 /* gl_defer.cpp */; };
 		GL10A1B2C3D4E5F60103 /* gl_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60003 /* gl_engine.cpp */; };
 		GL10A1B2C3D4E5F60104 /* gl_state.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60004 /* gl_state.cpp */; };
 		GL10A1B2C3D4E5F60105 /* gl_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */; };
 		GL10A1B2C3D4E5F60106 /* gl_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60006 /* gl_shaders.metal */; };
 		GL10A1B2C3D4E5F60201 /* gl_thunks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */; };
 		GL10A1B2C3D4E5F60202 /* gl_dispatch.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */; };
+		GL10A1B2C3D4E5F60207 /* gl_defer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60008 /* gl_defer.cpp */; };
 		GL10A1B2C3D4E5F60203 /* gl_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60003 /* gl_engine.cpp */; };
 		GL10A1B2C3D4E5F60204 /* gl_state.cpp in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60004 /* gl_state.cpp */; };
 		GL10A1B2C3D4E5F60205 /* gl_metal_renderer.mm in Sources */ = {isa = PBXBuildFile; fileRef = GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */; };
@@ -967,6 +969,7 @@
 		GFXR10A1B2C3D4E5F60003 /* gfxaccel_resources.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = gfxaccel_resources.h; sourceTree = "<group>"; };
 		GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_thunks.cpp; path = ../gfxaccel/gl_thunks.cpp; sourceTree = SOURCE_ROOT; };
 		GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_dispatch.cpp; path = ../gfxaccel/gl_dispatch.cpp; sourceTree = SOURCE_ROOT; };
+		GL10A1B2C3D4E5F60008 /* gl_defer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_defer.cpp; path = ../gfxaccel/gl_defer.cpp; sourceTree = SOURCE_ROOT; };
 		GL10A1B2C3D4E5F60003 /* gl_engine.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_engine.cpp; path = ../gfxaccel/gl_engine.cpp; sourceTree = SOURCE_ROOT; };
 		GL10A1B2C3D4E5F60004 /* gl_state.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gl_state.cpp; path = ../gfxaccel/gl_state.cpp; sourceTree = SOURCE_ROOT; };
 		GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = gl_metal_renderer.mm; path = ../gfxaccel/gl_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
@@ -1126,6 +1129,7 @@
 				A1B2C3D4E5F6A7B80003 /* rave_shaders.metal */,
 				GL10A1B2C3D4E5F60001 /* gl_thunks.cpp */,
 				GL10A1B2C3D4E5F60002 /* gl_dispatch.cpp */,
+				GL10A1B2C3D4E5F60008 /* gl_defer.cpp */,
 				GL10A1B2C3D4E5F60003 /* gl_engine.cpp */,
 				GL10A1B2C3D4E5F60004 /* gl_state.cpp */,
 				GL10A1B2C3D4E5F60005 /* gl_metal_renderer.mm */,
@@ -2533,6 +2537,7 @@
 				A1B2C3D4E5F6A7B80005 /* rave_shaders.metal in Sources */,
 				GL10A1B2C3D4E5F60101 /* gl_thunks.cpp in Sources */,
 				GL10A1B2C3D4E5F60102 /* gl_dispatch.cpp in Sources */,
+				GL10A1B2C3D4E5F60107 /* gl_defer.cpp in Sources */,
 				GL10A1B2C3D4E5F60103 /* gl_engine.cpp in Sources */,
 				GL10A1B2C3D4E5F60104 /* gl_state.cpp in Sources */,
 				GL10A1B2C3D4E5F60105 /* gl_metal_renderer.mm in Sources */,
@@ -2719,6 +2724,7 @@
 				A1B2C3D4E5F6A7B80007 /* rave_shaders.metal in Sources */,
 				GL10A1B2C3D4E5F60201 /* gl_thunks.cpp in Sources */,
 				GL10A1B2C3D4E5F60202 /* gl_dispatch.cpp in Sources */,
+				GL10A1B2C3D4E5F60207 /* gl_defer.cpp in Sources */,
 				GL10A1B2C3D4E5F60203 /* gl_engine.cpp in Sources */,
 				GL10A1B2C3D4E5F60204 /* gl_state.cpp in Sources */,
 				GL10A1B2C3D4E5F60205 /* gl_metal_renderer.mm in Sources */,
