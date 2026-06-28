@@ -779,10 +779,24 @@ extension OverlayViewController {
 		lockWindowSize()
 	}
 
-	/// Pin the window's size restrictions so iPadOS 26 drag-to-resize is disabled.
-	/// On iPhone `sizeRestrictions` is nil, so the optional chain is a no-op.
-	/// On macOS (Designed for iPad) windows are already fixed-size.
+	/// Request a fixed window size via the scene's `sizeRestrictions`.
+	///
+	/// This only yields a genuinely non-resizable window on Mac Catalyst, where
+	/// pinning `min == max` is honored — so the body is scoped to Catalyst. It is
+	/// forward-compatible: if a Catalyst target is ever added, the lock activates
+	/// there automatically.
+	///
+	/// It does NOT prevent resizing on iPad. `sizeRestrictions` is best-effort
+	/// there, and on iPadOS 26 the system owns window resizing and ignores it
+	/// (Apple deprecated `UIRequiresFullScreen`; there is no supported API to
+	/// suppress the corner/edge drag-to-resize gesture). On iPhone
+	/// `sizeRestrictions` is nil. This target ships iOS/iPadOS only (no Catalyst,
+	/// so on a Mac it runs "Designed for iPad" under the iOS runtime, where the
+	/// hint is likewise best-effort). On every current shipping configuration
+	/// this is therefore a deliberate no-op: accidental resizes on iPad cannot be
+	/// blocked from the app.
 	private static func lockWindowSize() {
+#if targetEnvironment(macCatalyst)
 		guard let window = UIApplication.shared.delegate?.window.flatMap({ $0 }) else {
 			return
 		}
@@ -795,6 +809,7 @@ extension OverlayViewController {
 		let restrictions = window.windowScene?.sizeRestrictions
 		restrictions?.minimumSize = windowSize
 		restrictions?.maximumSize = windowSize
+#endif
 	}
 
 	// No-op implementation so that key strokes on macOS does not result in "alert sound"
