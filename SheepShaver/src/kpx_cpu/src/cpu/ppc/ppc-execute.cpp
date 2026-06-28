@@ -77,7 +77,18 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 	{
 		extern int RsrcLocksTryRepair(uint32 pc, uint32 *out_start, uint32 *out_end);
 		uint32 repair_start, repair_end;
-		if (RsrcLocksTryRepair(pc(), &repair_start, &repair_end)) {
+		int repaired = RsrcLocksTryRepair(pc(), &repair_start, &repair_end);
+		if (repaired) {
+			if (repaired == 2) {
+				// Disposed-import graceful return: the stale cross-TOC call
+				// targeted a freed container whose code is gone.  Resume the
+				// caller as if the import returned noErr -- the bctr glue left
+				// LR = caller's return address (no link), and r3 carries the
+				// result.  This breaks the runaway CFM-REPAIR storm without
+				// restoring (and thus resurrecting) the freed code.
+				gpr(3) = 0;
+				pc() = lr();
+			}
 			invalidate_cache_range(repair_start, repair_end);
 			return;
 		}

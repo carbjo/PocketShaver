@@ -240,6 +240,7 @@ struct RaveMetalState {
 	uint32_t                    frameWorldTexDraws;       // textured world (texOp==None) draws this frame
 	uint32_t                    frameBlackWorldTexDraws;  // of those, count binding a mostly-black texture
 	uint32_t                    frameModulateDraws;       // draws using the multiply blend (DST_COLOR/ZERO)
+	uint32_t                    textureDrawCounts[RAVE_MAX_RESOURCES + 1]; // 1-based resource handle draw counts
 
 	// Buffer access staging (AccessDrawBuffer/AccessZBuffer)
 	id<MTLTexture>              stagingDrawBuffer;    // CPU-readable color staging (MTLStorageModeShared)
@@ -268,21 +269,6 @@ struct RaveMetalState {
 
 	// RTT texture handles (TextureNewFromDrawContext / BitmapNewFromDrawContext)
 	std::vector<RaveRTTResourceToken> rttTextureHandles;
-
-	// Reusable per-draw vertex scratch pools — eliminate per-draw heap churn
-	// (was `new RaveVertex[]` / `new float[]` on every immediate draw). Capacity
-	// persists across .resize(); the single-threaded RAVE dispatch invariant
-	// makes per-context reuse safe. Each is fully overwritten then copied out
-	// (setVertexBytes / ring memcpy) before the draw entry point returns, so it
-	// never escapes. Held as byte buffers because RaveVertex is defined later in
-	// this TU than this struct; cast .data() to RaveVertex* (same idiom as the
-	// vertexStagingBuffer cast). drawScratch vs fanScratch/uv2Scratch are DISTINCT
-	// pools because the fan-expand and indexed-TriMeshTexture paths hold two
-	// buffers live at once (read one while writing the other).
-	std::vector<uint8_t> drawScratch;   // primary vertex output: all non-fan paths,
-	                                     //   fan EXPANDED output, zsort flush flatten
-	std::vector<uint8_t> fanScratch;    // fan SOURCE verts (co-live with drawScratch)
-	std::vector<float>   uv2Scratch;    // indexed UV2 floats (co-live w/ drawScratch verts)
 };
 
 static bool RaveSetVertexData(RaveMetalState *ms, const void *data,
@@ -1517,6 +1503,17 @@ static uint32_t RaveVertexPrimitiveCount(uint32_t nVertices, uint32_t vertexMode
 	}
 }
 
+static void RaveTrackTextureDraw(RaveDrawPrivate *priv)
+{
+	if (!priv || !priv->metal) return;
+	uint32_t texAddr = priv->state[13].i;
+	uint32_t texHandle = RaveResourceFindByAddr(texAddr);
+	if (texHandle > 0 && texHandle <= RAVE_MAX_RESOURCES) {
+		priv->metal->textureDrawCounts[texHandle]++;
+	}
+}
+
+
 static void ConvertGouraudVertex(uint32 srcAddr, RaveVertex *dst, bool perspZ) {
 	dst->pos[0] = ReadMacFloat(srcAddr + 0);   // x (pixel)
 	dst->pos[1] = ReadMacFloat(srcAddr + 4);   // y (pixel)
@@ -1618,10 +1615,9 @@ static void FlushZSortBuffer(RaveDrawPrivate *priv)
 	// scan forward.  State keys: textured, textureMacAddr, blendMode,
 	// filterMode, textureOp.  Triangles with different keys break the batch.
 	//
-	// Reusable per-context scratch (was `new RaveVertex[]` per flush): sized for the
-	// entire zsort buffer. Most frames reuse a single batch (same texture/blend).
-	ms->drawScratch.resize((size_t)priv->zsortCount * 3 * sizeof(RaveVertex));
-	RaveVertex *batchVerts = (RaveVertex *)ms->drawScratch.data();
+	// Temporary vertex buffer: sized for the entire zsort buffer.
+	// Most frames reuse a single batch for all triangles (same texture/blend).
+	RaveVertex *batchVerts = new RaveVertex[priv->zsortCount * 3];
 	uint32_t batchCount = 0;
 	uint32_t drawCalls = 0;
 
@@ -1768,6 +1764,7 @@ static void FlushZSortBuffer(RaveDrawPrivate *priv)
 
 	// Flush final batch
 	flushBatch();
+	delete[] batchVerts;
 	ms->currentPipelineKey = kRavePipelineKeyInvalid;
 
 	RAVE_LOG("ZSort: flushed %d triangles in %d draw calls", priv->zsortCount, drawCalls);
@@ -1899,6 +1896,7 @@ int32 NativeDrawTriTexture(uint32 drawContextAddr, uint32 v0Addr, uint32 v1Addr,
 	ConvertTextureVertex(v0Addr, &verts[0], perspZ);
 	ConvertTextureVertex(v1Addr, &verts[1], perspZ);
 	ConvertTextureVertex(v2Addr, &verts[2], perspZ);
+	RaveTrackTextureDraw(priv);
 
 	// Z-sorted transparency: buffer instead of drawing immediately
 	if (priv->state[29].i == 1) {  // kQATag_ZSortedHint
@@ -1964,8 +1962,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	switch (vertexMode) {
 	case 0: // kQAVertexMode_Point
 	{
-		ms->drawScratch.resize((size_t)nVertices * sizeof(RaveVertex));
-		RaveVertex *verts = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *verts = new RaveVertex[nVertices];
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &verts[i], perspZ);
 		}
@@ -1976,12 +1973,14 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] verts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:nVertices];
+		delete[] verts;
 		break;
 	}
 
@@ -1990,8 +1989,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		uint32 nLines = nVertices / 2;
 		if (nLines == 0) break;
 		uint32 count = nLines * 2;
-		ms->drawScratch.resize((size_t)count * sizeof(RaveVertex));
-		RaveVertex *verts = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *verts = new RaveVertex[count];
 		for (uint32 i = 0; i < count; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &verts[i], perspZ);
 		}
@@ -2002,20 +2000,21 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] verts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeLine vertexStart:0 vertexCount:count];
+		delete[] verts;
 		break;
 	}
 
 	case 2: // kQAVertexMode_Polyline
 	{
 		if (nVertices < 2) break;
-		ms->drawScratch.resize((size_t)nVertices * sizeof(RaveVertex));
-		RaveVertex *verts = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *verts = new RaveVertex[nVertices];
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &verts[i], perspZ);
 		}
@@ -2026,12 +2025,14 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] verts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeLineStrip vertexStart:0 vertexCount:nVertices];
+		delete[] verts;
 		break;
 	}
 
@@ -2043,8 +2044,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		// kQATriFlags_Backfacing is a hint only (RAVE spec p.1566) -- do not cull.
 		// The QD3D IR handles backface culling before sending triangles to RAVE.
 		uint32 totalVerts = nTris * 3;
-		ms->drawScratch.resize((size_t)totalVerts * sizeof(RaveVertex));
-		RaveVertex *allVerts = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *allVerts = new RaveVertex[totalVerts];
 		for (uint32 i = 0; i < totalVerts; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &allVerts[i], perspZ);
 		}
@@ -2056,12 +2056,14 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] allVerts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:allVerts length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:totalVerts];
+		delete[] allVerts;
 		break;
 	}
 
@@ -2070,8 +2072,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		if (nVertices < 3) break;
 
 		// kQATriFlags_Backfacing is a hint only -- do not cull.
-		ms->drawScratch.resize((size_t)nVertices * sizeof(RaveVertex));
-		RaveVertex *allVerts = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *allVerts = new RaveVertex[nVertices];
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &allVerts[i], perspZ);
 		}
@@ -2083,12 +2084,14 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] allVerts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:allVerts length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:nVertices];
+		delete[] allVerts;
 		break;
 	}
 
@@ -2099,16 +2102,12 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 
 		// kQATriFlags_Backfacing is a hint only -- do not cull.
 		// Metal has no triangle fan primitive, so expand to triangle list.
-		// allVerts (fan source) and expanded (triangle-list output) are live at
-		// the same time, so they use DISTINCT pools (fanScratch vs drawScratch).
-		ms->fanScratch.resize((size_t)nVertices * sizeof(RaveVertex));
-		RaveVertex *allVerts = (RaveVertex *)ms->fanScratch.data();
+		RaveVertex *allVerts = new RaveVertex[nVertices];
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &allVerts[i], perspZ);
 		}
 
-		ms->drawScratch.resize((size_t)nTris * 3 * sizeof(RaveVertex));
-		RaveVertex *expanded = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *expanded = new RaveVertex[nTris * 3];
 		uint32 outIdx = 0;
 		for (uint32 t = 0; t < nTris; t++) {
 			expanded[outIdx++] = allVerts[0];
@@ -2122,12 +2121,16 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] expanded;
+				delete[] allVerts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:expanded length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:outIdx];
+		delete[] expanded;
+		delete[] allVerts;
 		break;
 	}
 
@@ -2223,6 +2226,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	RaveMetalState *ms = priv->metal;
 	ms->drawCallCount++;
 	ms->vTextureCount++;
+	RaveTrackTextureDraw(priv);
 
 	uint32 primitiveCount = RaveVertexPrimitiveCount(nVertices, vertexMode);
 	switch (vertexMode) {
@@ -2248,8 +2252,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	switch (vertexMode) {
 	case 0: // kQAVertexMode_Point
 	{
-		ms->drawScratch.resize((size_t)nVertices * sizeof(RaveVertex));
-		RaveVertex *verts = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *verts = new RaveVertex[nVertices];
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &verts[i], perspZ);
 		}
@@ -2260,12 +2263,14 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] verts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:nVertices];
+		delete[] verts;
 		break;
 	}
 
@@ -2274,8 +2279,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		uint32 nLines = nVertices / 2;
 		if (nLines == 0) break;
 		uint32 count = nLines * 2;
-		ms->drawScratch.resize((size_t)count * sizeof(RaveVertex));
-		RaveVertex *verts = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *verts = new RaveVertex[count];
 		for (uint32 i = 0; i < count; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &verts[i], perspZ);
 		}
@@ -2286,20 +2290,21 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] verts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeLine vertexStart:0 vertexCount:count];
+		delete[] verts;
 		break;
 	}
 
 	case 2: // kQAVertexMode_Polyline
 	{
 		if (nVertices < 2) break;
-		ms->drawScratch.resize((size_t)nVertices * sizeof(RaveVertex));
-		RaveVertex *verts = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *verts = new RaveVertex[nVertices];
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &verts[i], perspZ);
 		}
@@ -2310,12 +2315,14 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] verts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeLineStrip vertexStart:0 vertexCount:nVertices];
+		delete[] verts;
 		break;
 	}
 
@@ -2326,8 +2333,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 
 		// kQATriFlags_Backfacing is a hint only (RAVE spec p.1566) -- do not cull.
 		uint32 totalVerts = nTris * 3;
-		ms->drawScratch.resize((size_t)totalVerts * sizeof(RaveVertex));
-		RaveVertex *allVerts = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *allVerts = new RaveVertex[totalVerts];
 		for (uint32 i = 0; i < totalVerts; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &allVerts[i], perspZ);
 		}
@@ -2339,12 +2345,14 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] allVerts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:allVerts length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:totalVerts];
+		delete[] allVerts;
 		break;
 	}
 
@@ -2353,8 +2361,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		if (nVertices < 3) break;
 
 		// kQATriFlags_Backfacing is a hint only -- do not cull.
-		ms->drawScratch.resize((size_t)nVertices * sizeof(RaveVertex));
-		RaveVertex *allVerts = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *allVerts = new RaveVertex[nVertices];
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &allVerts[i], perspZ);
 		}
@@ -2366,12 +2373,14 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] allVerts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:allVerts length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:nVertices];
+		delete[] allVerts;
 		break;
 	}
 
@@ -2382,16 +2391,12 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 
 		// kQATriFlags_Backfacing is a hint only -- do not cull.
 		// Metal has no triangle fan primitive, so expand to triangle list.
-		// allVerts (fan source) and expanded (triangle-list output) are live at
-		// the same time, so they use DISTINCT pools (fanScratch vs drawScratch).
-		ms->fanScratch.resize((size_t)nVertices * sizeof(RaveVertex));
-		RaveVertex *allVerts = (RaveVertex *)ms->fanScratch.data();
+		RaveVertex *allVerts = new RaveVertex[nVertices];
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &allVerts[i], perspZ);
 		}
 
-		ms->drawScratch.resize((size_t)nTris * 3 * sizeof(RaveVertex));
-		RaveVertex *expanded = (RaveVertex *)ms->drawScratch.data();
+		RaveVertex *expanded = new RaveVertex[nTris * 3];
 		uint32 outIdx = 0;
 		for (uint32 t = 0; t < nTris; t++) {
 			expanded[outIdx++] = allVerts[0];
@@ -2405,12 +2410,16 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] expanded;
+				delete[] allVerts;
 				break;
 			}
 		} else {
 			[ms->currentEncoder setVertexBytes:expanded length:dataSize atIndex:0];
 		}
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:outIdx];
+		delete[] expanded;
+		delete[] allVerts;
 		break;
 	}
 
@@ -2708,8 +2717,7 @@ int32 NativeDrawTriMeshGouraud(uint32 drawContextAddr, uint32 numTriangles, uint
 	// Build triangle list from indexed triangles
 	// kQATriFlags_Backfacing (bit 0) is a hint only (RAVE spec p.1566) -- do not cull.
 	// The QD3D IR handles backface culling before sending triangles to RAVE.
-	ms->drawScratch.resize((size_t)numTriangles * 3 * sizeof(RaveVertex));
-	RaveVertex *verts = (RaveVertex *)ms->drawScratch.data();
+	RaveVertex *verts = new RaveVertex[numTriangles * 3];
 	uint32 outIdx = 0;
 	uint32 oobCount = 0;
 
@@ -2754,6 +2762,7 @@ int32 NativeDrawTriMeshGouraud(uint32 drawContextAddr, uint32 numTriangles, uint
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] verts;
 				return kQANoErr;
 			}
 		} else {
@@ -2765,6 +2774,7 @@ int32 NativeDrawTriMeshGouraud(uint32 drawContextAddr, uint32 numTriangles, uint
 		ms->meshGouraudCount++;
 	}
 
+	delete[] verts;
 	return kQANoErr;
 }
 
@@ -2793,8 +2803,7 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 	// Build triangle list from indexed triangles
 	// kQATriFlags_Backfacing (bit 0) is a hint only (RAVE spec p.1566) -- do not cull.
 	// The QD3D IR handles backface culling before sending triangles to RAVE.
-	ms->drawScratch.resize((size_t)numTriangles * 3 * sizeof(RaveVertex));
-	RaveVertex *verts = (RaveVertex *)ms->drawScratch.data();
+	RaveVertex *verts = new RaveVertex[numTriangles * 3];
 	uint32 outIdx = 0;
 	uint32 oobCount = 0;
 
@@ -2847,6 +2856,7 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 			if (ringBuf) {
 				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
 			} else {
+				delete[] verts;
 				return kQANoErr;
 			}
 		} else {
@@ -2856,10 +2866,7 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 		// Bind UV2 for multi-texture: build indexed UV2 from staging buffer
 		if (priv->multiTextureActive && priv->multiTexStagingCount > 0) {
 			float *uv2Staged = (float *)priv->multiTexStagingBuffer;
-			// Reusable per-context UV2 scratch (was `new float[]` per draw); a
-			// DISTINCT pool from drawScratch because verts is still live here.
-			ms->uv2Scratch.resize((size_t)outIdx * 4);
-			float *uv2Indexed = (float *)ms->uv2Scratch.data();
+			float *uv2Indexed = new float[outIdx * 4];
 			uint32 uv2Out = 0;
 			for (uint32 t = 0; t < numTriangles; t++) {
 				uint32 triAddr = trianglesAddr + t * 16;
@@ -2876,8 +2883,11 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 			}
 			size_t uv2Size = uv2Out * 16;
 			if (!RaveSetVertexData(ms, uv2Indexed, uv2Size, 3)) {
+				delete[] uv2Indexed;
+				delete[] verts;
 				return kQANoErr;
 			}
+			delete[] uv2Indexed;
 		}
 
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:outIdx];
@@ -2886,6 +2896,7 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 		ms->meshTextureCount++;
 	}
 
+	delete[] verts;
 	return kQANoErr;
 }
 
@@ -3386,6 +3397,7 @@ int32 NativeRenderStart(uint32 drawContextAddr, uint32 dirtyRectAddr, uint32 ini
 	ms->frameWorldTexDraws = 0;
 	ms->frameBlackWorldTexDraws = 0;
 	ms->frameModulateDraws = 0;
+	memset(ms->textureDrawCounts, 0, sizeof(ms->textureDrawCounts));
 
 	// Reset Z-sort buffer for this frame
 	priv->zsortCount = 0;

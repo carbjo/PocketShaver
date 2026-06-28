@@ -1541,8 +1541,8 @@ static void RaveReExpandWithCLUT(RaveResourceEntry *texEntry, RaveResourceEntry 
 int32_t NativeEngineTextureNew(uint32_t flags, uint32_t pixelType,
                                 uint32_t imagesAddr, uint32_t newTexturePtr)
 {
-	RAVE_LOG("TextureNew flags=0x%x pixelType=%d images=0x%x",
-	         flags, pixelType, imagesAddr);
+	fprintf(stderr, "RAVE: TextureNew flags=0x%x pixelType=%d images=0x%x\n",
+	        flags, pixelType, imagesAddr);
 	uint32_t handle = RaveResourceAlloc(kRaveResourceTexture);
 	if (handle == 0) {
 		WriteMacInt32(newTexturePtr, 0);

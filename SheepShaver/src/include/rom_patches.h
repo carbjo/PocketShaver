@@ -44,4 +44,14 @@ extern uint32 find_rom_powerpc_branch(uint32 start, uint32 end, uint32 target);
 extern uint32 rom_powerpc_branch_target(uint32 addr);
 extern uint32 find_rom_resource(uint32 s_type, int16 s_id = 4711, bool cont = false);
 
+// Shared ROM patch-space address for the DII _DisposHandle keep-alive head-patch
+// thunk.  Placed INSIDE CHECK_LOAD_PATCH_SPACE's already-reserved 0x40 region
+// (0x2fcf00..0x2fcf3f): the vCheckLoad thunk only uses its first 12 bytes, and that
+// whole region is already validated free by check_rom_patch_space(CHECK_LOAD, 0x40)
+// -- so no separate guard or free-space guess is needed.  The thunk receives the
+// stock _DisposHandle entry from the EMUL_OP in register A1 (a host-side C++ global,
+// RsrcLockDisposeOrig()); no guest-memory "original" pointer is stored because a
+// runtime WriteMacInt32 into the ROM patch region does not stick.
+const uint32 DISPOSE_NIFT_PATCH_SPACE = 0x2fcf10;	// 68k thunk (10 bytes), after vCheckLoad's 12
+
 #endif

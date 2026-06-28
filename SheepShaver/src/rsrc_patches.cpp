@@ -208,6 +208,38 @@ static void register_locked_nift(uint32 h, uint32 p, uint8 state)
 	}
 }
 
+// True iff guest handle h is a LIVE monitored 'nift' whose backing store must
+// never be freed (DII use-after-free root fix).  Called from the _DisposHandle
+// head-patch (OP_DISPOSE_NIFT_GUARD) with the handle in A0.  Match on the HANDLE
+// value .h -- that is what _DisposHandle receives, and .h is stable across the
+// MOVED case (monitor_locked_nifts updates .p, never .h).  Dead/superseded slots
+// (register_locked_nift marks them dead) are skipped, so a reloaded handle's old
+// slot never blocks a real free.  Matching by raw handle value is safe ONLY
+// because this patch keeps the block allocated: the Memory Manager can never
+// re-issue the same h to a different block while we protect it; and if any non-
+// _DisposHandle path ever freed it, the monitor sets dead (EMPTIED / HEADER
+// CLOBBERED) and stops protecting h, so a later legitimate reuse of h is not
+// wrongly skipped.  O(count<=64), single-digit in DII; the count==0 fast-out
+// makes it one compare for every non-DII app.  The table can only ever hold
+// genuine 'Joy!' PEF handles (maybe_queue_nift_lock), so a non-'nift' handle can
+// never match -- every ordinary free still chains to the stock _DisposHandle.
+bool RsrcLockIsLiveNift(uint32 h)
+{
+	if (h == 0 || locked_nift_count == 0)
+		return false;
+	for (int i = 0; i < locked_nift_count; i++)
+		if (locked_nifts[i].h == h && !locked_nifts[i].dead)
+			return true;
+	return false;
+}
+
+// Stock _DisposHandle trap entry, captured once at head-patch install.  Held in a
+// host global (NOT guest ROM -- a runtime WriteMacInt32 into the ROM patch region
+// does not stick); the dispose thunk's EMUL_OP returns it in A1 so the chain path
+// tail-jumps to the genuine _DisposHandle for every non-'nift' handle.
+static uint32 dispose_orig_addr = 0;
+uint32 RsrcLockDisposeOrig(void) { return dispose_orig_addr; }
+
 // Per-tick integrity check.  Guest traps allowed here (drain context only).
 static void monitor_locked_nifts(void)
 {
@@ -307,6 +339,28 @@ int RsrcLocksTryRepair(uint32 pc, uint32 *out_start, uint32 *out_end)
 		return 0;									// snapshot has no code there either
 	if (ReadMacInt32(pc) == snap_op)
 		return 0;									// code intact -- genuinely illegal instr, not our clobber
+	// Use-after-free with the container header gone: the live header at n.p is no
+	// longer 'Joy!' (DisposeHandle zero-filled it, or a new owner overwrote it).
+	// Do NOT restore the snapshot -- the in-place memcpy below copies the WHOLE
+	// container back INCLUDING the 'Joy!' header, which un-does the monitor's
+	// dead-marking (line 240) so the next clobber re-faults: that loop is the
+	// runaway [CFM-REPAIR] storm that wedges Diablo II.  Instead retire the entry
+	// permanently and tell execute_illegal to return gracefully from the disposed
+	// import (r3=noErr, pc=lr).  The cross-TOC glue reaches the freed code via
+	// `bctr` (no link), so LR still points at the real caller -- the stale call
+	// resumes there as if the import had returned.  A header-intact-but-code-
+	// differs case (a legitimate heap move / non-disposed container) does NOT
+	// match this and still uses the in-place restore below.
+	if (ReadMacInt32(n.p) != FOURCC('J','o','y','!')) {
+		if (!n.dead) {
+			printf("[CFM-RELEASE] disposed 'nift' h=%08x p=%08x: stale call at pc=%08x (+0x%x) -> graceful return\n",
+				n.h, n.p, pc, off);
+			n.dead = true;
+		}
+		*out_start = n.p;
+		*out_end = n.p + n.size;
+		return 2;								// graceful-return signal to execute_illegal
+	}
 	uint8 *guest = Mac2HostAddr(n.p);
 	uint32 live = 0;
 	for (uint32 b = 0; b < n.size; b++)
@@ -399,6 +453,27 @@ void DrainPendingResourceLocks(void)
 		register_locked_nift(h, p, state);
 	}
 	monitor_locked_nifts();
+
+	// One-time install of the _DisposHandle (0xA023) keep-alive head-patch, the
+	// first time a 'nift' is actually locked.  Proven-legal Execute68kTrap context
+	// (HasMacStarted, same as the HLock/HGetState above).  Capture the stock trap
+	// entry into the thunk's indirect-original long, then point the OS trap slot at
+	// our thunk.  Idempotent (static guard); never installed for apps that load no
+	// 'nift', so they stay byte-for-byte unaffected.
+	static bool dispose_patch_installed = false;
+	if (!dispose_patch_installed && locked_nift_count > 0) {
+		M68kRegisters r;
+		r.d[0] = 0xa023;								// _DisposHandle (OS trap, number 0x23)
+		Execute68kTrap(0xa346, &r);						// GetOSTrapAddress -> A0 = stock entry
+		dispose_orig_addr = r.a[0];						// host global; thunk gets it via A1
+		r.d[0] = 0xa023;
+		r.a[0] = ROMBase + DISPOSE_NIFT_PATCH_SPACE;	// our thunk entry
+		Execute68kTrap(0xa247, &r);						// SetOSTrapAddress(thunk)
+		dispose_patch_installed = true;
+		printf("[CFM-GUARD] _DisposHandle head-patch installed (orig=%08x thunk=%08x)\n",
+			dispose_orig_addr, ROMBase + DISPOSE_NIFT_PATCH_SPACE);
+	}
+
 	draining = false;
 }
 

@@ -1331,12 +1331,14 @@ void MetalCompositorPresent(void)
     [cmdBuf presentDrawable:drawable];
     [cmdBuf commit];
 
-    // Count this present for the FPS overlay. This is the single authoritative
-    // per-frame site on the iOS Metal-compositor build (one present per VBL;
-    // SubmitFrame caches the overlay rather than presenting). Placed after
-    // commit so the nil-drawable / nil-cmdBuf / nil-encoder early returns above
-    // are correctly excluded as dropped frames.
-    objc_reportFrameRender();
+    // NOTE: do NOT add per-present work here (e.g. an FPS objc_reportFrameRender
+    // tally). MetalCompositorPresent runs inline on the emulation thread inside
+    // the VBL handler immediately BEFORE rsrc_patches' monitor_locked_nifts drain
+    // (emul_op.cpp: ExecuteNative(NATIVE_VIDEO_VBL) then DrainPendingResourceLocks).
+    // Extra latency here re-phases the Sound Manager 'nift' dispose/reuse race and
+    // can tip Diablo II into the runaway CFM-REPAIR storm (guest faults into a
+    // still-zeroed disposed code fragment before the monitor quarantines it).
+    // Count presents off this path (e.g. the CADisplayLink vbl callback) instead.
 
     } // @autoreleasepool
 }

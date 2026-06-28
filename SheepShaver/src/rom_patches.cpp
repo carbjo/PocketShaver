@@ -2138,6 +2138,22 @@ static bool patch_68k(void)
 	*wp++ = htons(M68K_EMUL_OP_CHECKLOAD);
 	*wp = htons(M68K_RTS);
 
+	// DII fix: _DisposHandle (0xA023) keep-alive head-patch thunk.  On entry A0 =
+	// handle.  The EMUL_OP sets D1=1 (and D0=noErr) iff A0 is a LIVE monitored
+	// 'nift' fragment, so its disposal is SKIPPED (.skip rts) -- the container is
+	// never freed-and-reused and CFM's prepared cross-TOC TVectors stay valid (no
+	// use-after-free regardless of the true-screen resize).  For every other handle
+	// the EMUL_OP returns D1=0 and loads A1 with the stock _DisposHandle entry
+	// (captured at runtime via GetOSTrapAddress); we tail-jump there, byte-for-byte
+	// identical to stock.  Branch math: after `bne.s` only jmp(a1) (2 bytes) sits
+	// before the rts, so the displacement is +2 (0x6602).
+	wp = (uint16 *)(ROMBaseHost + DISPOSE_NIFT_PATCH_SPACE);
+	*wp++ = htons(M68K_EMUL_OP_DISPOSE_NIFT_GUARD);	// -> D1=verdict (1=skip); A1=stock entry on chain
+	*wp++ = htons(0x4a41);							// tst.w  d1
+	*wp++ = htons(0x6602);							// bne.s  .skip   (+2 -> the rts)
+	*wp++ = htons(0x4ed1);							// jmp    (a1)    [chain to stock _DisposHandle]
+	*wp = htons(M68K_RTS);							// .skip: rts     [keep alive; D0=noErr]
+
 	// Replace .Sony driver
 	sony_offset = find_rom_resource(FOURCC('D','R','V','R'), 4);
 	if (ROMType == ROMTYPE_ZANZIBAR || ROMType == ROMTYPE_NEWWORLD)

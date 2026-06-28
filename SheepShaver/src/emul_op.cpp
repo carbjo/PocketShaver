@@ -483,6 +483,24 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 			break;
 		}
 
+		case OP_DISPOSE_NIFT_GUARD:	// _DisposHandle head-patch: A0 = handle
+			// Keep a live monitored 'nift' sound-component fragment ALIVE.  If the
+			// handle being disposed is one we lock, report SKIP so the thunk RTSs
+			// without freeing (intentional bounded leak), leaving CFM's prepared
+			// cross-TOC TVectors valid -> no use-after-free regardless of timing.
+			// Otherwise report CHAIN and hand the thunk the stock _DisposHandle
+			// entry in A1 (captured at install via GetOSTrapAddress) so it tail-
+			// jumps there.  A0 (handle) is preserved for the chain; A1/D1 are
+			// scratch for _DisposHandle (it consumes only A0, returns D0=MemError).
+			if (RsrcLockIsLiveNift(r->a[0])) {
+				r->d[1] = 1;					// verdict: SKIP (keep the block alive)
+				r->d[0] = 0;					// MemError() = noErr for the skipped dispose
+			} else {
+				r->d[1] = 0;					// verdict: CHAIN
+				r->a[1] = RsrcLockDisposeOrig();	// stock _DisposHandle entry for `jmp (a1)`
+			}
+			break;
+
 		case OP_EXTFS_COMM:			// External file system routines
 			WriteMacInt16(r->a[7] + 14, ExtFSComm(ReadMacInt16(r->a[7] + 12), ReadMacInt32(r->a[7] + 8), ReadMacInt32(r->a[7] + 4)));
 			break;

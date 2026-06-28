@@ -43,4 +43,13 @@ extern void RsrcLocksDumpOnCrash(void);
 // if repaired and the faulting instruction should be retried.
 extern int RsrcLocksTryRepair(uint32 pc, uint32 *out_start, uint32 *out_end);
 
+// True iff guest handle h is a live monitored 'nift' whose backing store must
+// never be freed (DII use-after-free root fix).  Used by the _DisposHandle
+// head-patch (OP_DISPOSE_NIFT_GUARD) to skip the free for these handles only.
+extern bool RsrcLockIsLiveNift(uint32 h);
+
+// Stock _DisposHandle trap entry captured at head-patch install (host global); the
+// dispose thunk's EMUL_OP returns it in A1 for the chain-to-stock (non-'nift') path.
+extern uint32 RsrcLockDisposeOrig(void);
+
 #endif
