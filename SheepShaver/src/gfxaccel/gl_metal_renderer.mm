@@ -100,26 +100,6 @@ static void gl_clear_compositor_cached_overlay(const char *reason)
     MetalCompositorSubmitFrame_ClearCachedOverlay();
 }
 
-// ---------------------------------------------------------------------------
-// Test-only device/queue/bundle/overlay override.
-//
-// Mirrors the RAVE TESTING_BUILD pattern (rave_metal_renderer.mm lines 184-251).
-// When TESTING_BUILD is defined (ONLY on the PocketShaverTests target --
-// never on the production app target), tests may inject their own
-// per-test id<MTLDevice> + id<MTLCommandQueue> by calling
-// GLTesting_SetDevice() BEFORE GLMetalInit().
-// GLMetalInit() then uses the injected pair instead of SharedMetalDevice().
-// GLTesting_SetBundle() lets tests inject the NSBundle for shader library
-// loading (same as NQDTesting_SetBundle / RaveTesting_SetBundle).
-// GLTesting_SetTestOverlayTexture() lets tests inject a standalone
-// MTLTexture as the render target, bypassing gfxaccel_resources
-// (which requires compositor init that tests don't have).
-// GLTesting_Reset() clears all injected state between tests.
-//
-// Production builds (TESTING_BUILD undefined) do not see these symbols;
-// the preprocessor drops the entire block.
-// ---------------------------------------------------------------------------
-
 /*
  *  gl_acquire_overlay_texture - vend (or cache-hit) the per-engine overlay.
  *
@@ -1272,45 +1252,6 @@ static uint64_t GLCompositeLatestOffscreenToGuestSurfaceInternal(uint32_t dstBas
         GLMetalInvalidatePreviousGuestComposite();
     }
     return copied;
-}
-
-extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurface(uint32_t dstBaseaddr,
-                                                             uint32_t dstRowbytes,
-                                                             uint32_t dstWidth,
-                                                             uint32_t dstHeight,
-                                                             uint32_t dstDepthBits)
-{
-    return GLCompositeLatestOffscreenToGuestSurfaceInternal(dstBaseaddr,
-                                                           dstRowbytes,
-                                                           dstWidth,
-                                                           dstHeight,
-                                                           dstDepthBits,
-                                                           false,
-                                                           false,
-                                                           false,
-                                                           0,
-                                                           0,
-                                                           0,
-                                                           0);
-}
-
-extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtent(
-    uint32_t dstBaseaddr,
-    uint32_t dstRowbytes,
-    uint32_t dstDepthBits)
-{
-    return GLCompositeLatestOffscreenToGuestSurfaceInternal(dstBaseaddr,
-                                                           dstRowbytes,
-                                                           0,
-                                                           0,
-                                                           dstDepthBits,
-                                                           false,
-                                                           true,
-                                                           false,
-                                                           0,
-                                                           0,
-                                                           0,
-                                                           0);
 }
 
 extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentDirtyRect(

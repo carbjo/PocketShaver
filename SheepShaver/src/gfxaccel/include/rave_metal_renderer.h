@@ -23,8 +23,6 @@ struct RaveDrawPrivate;
 // Overlay lifecycle (per-engine ownership via gfxaccel_resources;
 // no longer shared with GL, no refcount, no deferred-destroy).
 extern void RaveCreateMetalOverlay(int32_t left, int32_t top, int32_t width, int32_t height);
-extern void RaveDestroyMetalOverlay(void);
-extern void RaveClearOverlayToTransparent(void);
 
 // Fan-out hooks: small C-linkage probes so rave_engine.cpp's
 // RaveOnAttach / RaveOnDetach handlers can interrogate / drive RAVE's

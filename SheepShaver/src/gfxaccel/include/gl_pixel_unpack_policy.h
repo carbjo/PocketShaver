@@ -602,18 +602,4 @@ static inline void GLPixelUnpackRGBA1010102ToBGRA(uint32_t packed,
 	                          4, reversed, format, out_bgra);
 }
 
-static inline void GLPixelUnpackRGBA8888ToBGRA(uint32_t packed,
-                                               bool reversed,
-                                               uint8_t out_bgra[4])
-{
-	GLPixelUnpackRGBA8888ToBGRA(packed, reversed, GLPixelFormatRGBA, out_bgra);
-}
-
-static inline void GLPixelUnpackBGRA8888ToBGRA(uint32_t packed,
-                                               bool reversed,
-                                               uint8_t out_bgra[4])
-{
-	GLPixelUnpackRGBA8888ToBGRA(packed, reversed, GLPixelFormatBGRA, out_bgra);
-}
-
 #endif /* GL_PIXEL_UNPACK_POLICY_H */

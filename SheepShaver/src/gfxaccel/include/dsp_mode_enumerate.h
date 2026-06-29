@@ -45,8 +45,6 @@ extern "C" {
  */
 extern void    DSpBuildModesFromVModes(void);
 extern void    DSpClearModes(void);
-extern size_t  DSpModeCount(void);
-extern const DSpContextAttributes *DSpModeAt(size_t i);
 
 /*
  *  DSpGetFirstContext dispatch handler (sub-opcode 200).

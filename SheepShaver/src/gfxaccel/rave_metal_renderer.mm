@@ -495,36 +495,6 @@ void RaveCreateMetalOverlay(int32_t left, int32_t top, int32_t width, int32_t he
 }
 
 
-void RaveDestroyMetalOverlay(void)
-{
-	RAVE_LOG("RaveDestroyMetalOverlay: releasing per-engine overlay");
-	rave_release_overlay_texture();
-	rave_clear_overlay_binding_state();
-	/* Return ownership to QuickDraw (2D framebuffer) so DMC reflects the
-	 * post-3D state. */
-	(void)dmc_set_active_owner(kDMCOwnerQuickDraw);
-}
-
-
-/*
- *  RaveClearOverlayToTransparent - release the per-engine overlay.
- *
- *  Called when the last RAVE context is deleted. With per-engine vending,
- *  there's no shared overlay to "clear to transparent" —
- *  releasing the texture removes RAVE's contribution from the next
- *  SubmitFrame entirely (no overlay layer is emitted when s_rave_overlay_tex
- *  is nil).
- */
-void RaveClearOverlayToTransparent(void)
-{
-	rave_release_overlay_texture();
-	rave_clear_overlay_binding_state();
-	/* Return ownership to QuickDraw on late overlay cleanup. */
-	(void)dmc_set_active_owner(kDMCOwnerQuickDraw);
-	RAVE_LOG("Overlay released (clear to transparent)");
-}
-
-
 /*
  *  Metal resource initialization
  */

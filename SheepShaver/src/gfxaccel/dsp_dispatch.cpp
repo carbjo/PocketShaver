@@ -60,11 +60,9 @@
 
 #include "sysdeps.h"
 #include "cpu_emulation.h"        /* ReadMacInt32 */
-#include "dsp_engine.h"
-#include "dsp_dispatch.h"
+#include "dsp_engine.h"           /* DSpDispatch + sub-opcode enum + DSP_LOG (pulls in accel_logging.h) */
 #include "dsp_draw_context.h"
 #include "dsp_mode_enumerate.h"   /* GetFirstContext handler */
-#include "accel_logging.h"         /* DSP_LOG macro for unresolved-symbol diagnostic */
 
 /*
  *  Caller LR + r11 stash.

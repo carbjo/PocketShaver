@@ -25,7 +25,6 @@
 #include "rave_device_summary.h"
 #include "rave_engine_enable_policy.h"
 #include "rave_engine_identity.h"
-#include "rave_texture_snapshot_policy.h"
 #include "rave_metal_renderer.h"
 #include "dsp_pixmap_offsets.h"
 #include "gfxaccel_resources.h"
@@ -708,45 +707,6 @@ static void ConvertRGB16(uint32 srcAddr, uint8_t *dst, uint32_t width, uint32_t 
 	}
 }
 
-// 8-bit index → CLUT lookup. CLUT stores native BGRA uint32 (see
-// RaveCreateColorTableData). memcpy preserves native byte order → BGRA8 output. Bounds-checked.
-static void ExpandCL8(uint32 srcAddr, uint8_t *dst, uint32_t width, uint32_t height,
-                      uint32_t rowBytes, const uint32_t *clut, uint32_t clutCount)
-{
-	for (uint32_t y = 0; y < height; y++) {
-		uint32 rowAddr = srcAddr + y * rowBytes;
-		for (uint32_t x = 0; x < width; x++) {
-			uint8_t idx = ReadMacInt8(rowAddr + x);
-			if (idx >= clutCount) idx = 0;
-			uint32_t bgra = clut[idx];
-			uint32_t dstIdx = (y * width + x) * 4;
-			memcpy(&dst[dstIdx], &bgra, 4);
-		}
-	}
-}
-
-// 4-bit index from nibbles (high=left, low=right). Same CLUT lookup as CL8.
-// Bounds-checked. Correct.
-static void ExpandCL4(uint32 srcAddr, uint8_t *dst, uint32_t width, uint32_t height,
-                      uint32_t rowBytes, const uint32_t *clut, uint32_t clutCount)
-{
-	for (uint32_t y = 0; y < height; y++) {
-		uint32 rowAddr = srcAddr + y * rowBytes;
-		for (uint32_t x = 0; x < width; x++) {
-			uint8_t byte = ReadMacInt8(rowAddr + x / 2);
-			uint8_t idx;
-			if (x & 1)
-				idx = byte & 0x0F;        // low nibble = right pixel
-			else
-				idx = (byte >> 4) & 0x0F; // high nibble = left pixel
-			if (idx >= clutCount) idx = 0;
-			uint32_t bgra = clut[idx];
-			uint32_t dstIdx = (y * width + x) * 4;
-			memcpy(&dst[dstIdx], &bgra, 4);
-		}
-	}
-}
-
 // R(7:5)=3 bits, G(4:2)=3 bits, B(1:0)=2 bits.
 // 3→8 expansion: (r3<<5)|(r3<<2)|(r3>>1). 2→8 expansion: (b2<<6)|(b2<<4)|(b2<<2)|b2. Alpha 0xFF. Correct.
 // ConvertRGB8_332: 8bpp, R=7:5, G=4:2, B=1:0
@@ -891,7 +851,7 @@ static void RaveUploadGeneratedMips(void *metalTexture, const uint8_t *level0,
 // = alpha, low byte (srcBuf[off+1]) = CLUT index. CLUT color extracted as B/G/R from native uint32,
 // alpha overridden from per-pixel value. Bounds-checked. Correct.
 // ExpandACL16_88: 16bpp, A=15:8, CL=7:0 -- alpha + color lookup
-// Like ExpandCL8 but with per-pixel alpha from high byte.
+// CLUT color lookup with per-pixel alpha from the high byte.
 // Source is a native heap buffer (original_pixels), not Mac memory.
 // Data was copied byte-by-byte from Mac memory (big-endian), so reconstruct
 // 16-bit values as (buf[off] << 8) | buf[off+1].
@@ -999,33 +959,6 @@ static void ConvertYUVU(uint32 srcAddr, uint8_t *dst,
 	}
 }
 
-/*
- *  RavePixelFormatName - return human-readable name for a kQAPixel_* constant
- *  Used by diagnostic logging to identify texture formats on-device.
- */
-static const char *RavePixelFormatName(uint32_t pixelType)
-{
-	switch (pixelType) {
-		case kQAPixel_Alpha1:       return "Alpha1";
-		case kQAPixel_RGB16:        return "RGB16";
-		case kQAPixel_ARGB16:       return "ARGB16";
-		case kQAPixel_RGB32:        return "RGB32";
-		case kQAPixel_ARGB32:       return "ARGB32";
-		case kQAPixel_CL4:          return "CL4";
-		case kQAPixel_CL8:          return "CL8";
-		case kQAPixel_RGB16_565:    return "RGB16_565";
-		case kQAPixel_RGB24:        return "RGB24";
-		case kQAPixel_RGB8_332:     return "RGB8_332";
-		case kQAPixel_ARGB16_4444:  return "ARGB16_4444";
-		case kQAPixel_ACL16_88:     return "ACL16_88";
-		case kQAPixel_I8:           return "I8";
-		case kQAPixel_AI16_88:      return "AI16_88";
-		case kQAPixel_YUVS:         return "YUVS";
-		case kQAPixel_YUVU:         return "YUVU";
-		default:                    return "UNKNOWN";
-	}
-}
-
 
 /*
  *  ConvertPixels - dispatch to the appropriate pixel conversion function
@@ -1088,24 +1021,6 @@ bool ConvertPixels(uint32_t pixelType, uint32 srcAddr, uint8_t *dst,
 	return converted;
 }
 
-
-/*
- *  Host-pointer variant of ConvertPixels.
- *
- *  Under EMULATED_PPC=0 (test build), Mac2HostAddr is the identity cast
- *  and ReadMacInt* reduces to host-endian byte loads at a host pointer.
- *  The existing ConvertPixels already works on host pointers in that
- *  case — we just need to cast the pointer to uint32.  This wrapper
- *  makes the intent explicit (no Mac-address arithmetic involved) and
- *  gives tests a clean entry point.
- */
-bool ConvertPixelsFromHost(uint32_t pixelType, const uint8_t *srcHost,
-                            uint8_t *dst, uint32_t width,
-                            uint32_t height, uint32_t rowBytes)
-{
-	return ConvertPixels(pixelType, (uint32)(uintptr_t)srcHost, dst,
-	                     width, height, rowBytes);
-}
 
 
 /*

@@ -12,12 +12,10 @@
  *  so stock PSO descriptors resolve without runtime shader compilation.
  *  On iOS 13.x, the module is a no-op (MTLBinaryArchive requires iOS 14+).
  *
- *  The TESTING_BUILD capture function generates the archive by exercising
- *  all stock PSO descriptors (Compositor + NQD; RAVE and GL deferred
+ *  Scope: stock PSO descriptors (Compositor + NQD; RAVE and GL deferred
  *  until shader permutations stabilize).
  *
- *  Threading: single-writer from PPC emul thread or test main thread.
- *  No concurrency primitives.
+ *  Threading: single-writer from PPC emul thread. No concurrency primitives.
  */
 
 #import <Metal/Metal.h>
@@ -190,8 +188,4 @@ extern "C" void pso_archive_set_on_descriptor(void *descriptor)
 		desc.binaryArchives = @[s_archive];
 	}
 }
-
-// ---------------------------------------------------------------------------
-// TESTING_BUILD introspection
-// ---------------------------------------------------------------------------
 

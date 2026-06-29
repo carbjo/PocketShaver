@@ -122,14 +122,6 @@ void *gfxaccel_resources_heap_alloc_buffer(uint32_t heap_id,
                                            uint32_t options);
 
 /*
- * Sub-allocate a texture from the named heap. Returns id<MTLTexture>
- * as void*. descriptor is id<MTLTextureDescriptor> passed as void*.
- * On failure (heap exhausted after eviction), returns NULL.
- */
-void *gfxaccel_resources_heap_alloc_texture(uint32_t heap_id,
-                                            void *descriptor);
-
-/*
  * Reset the bump allocator's offset counter for a single heap. Returns
  * the number of bytes reclaimed (equal to the previous next_offset).
  * Idempotent: a second call on a freshly-reset heap returns 0.
@@ -179,24 +171,6 @@ void gfxaccel_resources_heap_note_gpu_commit(uint32_t heap_id,
  * still applies. Same return semantics as gfxaccel_resources_heap_reset.
  */
 uint64_t gfxaccel_resources_heap_reset_gpu_idle(uint32_t heap_id);
-
-/* --- Engine attach/detach --- */
-
-/*
- * Notify the heap sub-allocator that an engine is attaching during a
- * DMC mode-enter transition. Lazy-creates the heap on first attach.
- * incoming may be NULL (for initial creation without a mode snapshot).
- */
-void gfxaccel_resources_heap_engine_attach(uint32_t engine_id,
-                                           const struct DMCModeSnapshot *incoming);
-
-/*
- * Notify the heap sub-allocator that an engine is detaching during a
- * DMC mode-exit transition. Does NOT release the heap (heap persists
- * for potential re-attach). outgoing may be NULL.
- */
-void gfxaccel_resources_heap_engine_detach(uint32_t engine_id,
-                                           const struct DMCModeSnapshot *outgoing);
 
 /* --- Memory-warning handler --- */
 
@@ -276,14 +250,6 @@ void gfxaccel_rave_ring_frame_end(void *command_buffer);
  * Returns 0 if the ring is not initialized.
  */
 int32_t gfxaccel_rave_ring_submission_near_exhaustion(void);
-
-/*
- * Returns the ring buffer as void* for direct setVertexBuffer calls.
- * Returns NULL if ring is not initialized.
- */
-void *gfxaccel_rave_ring_buffer_ptr(void);
-
-/* --- TESTING_BUILD introspection --- */
 
 #ifdef __cplusplus
 }

@@ -84,22 +84,17 @@ static struct NQDLogInit {
 //     no claim over them.
 //
 // So: the blanket drop gate is REMOVED at the five NQD entry points.
-// The s_nqd_fb_drop_count counter + TESTING_BUILD hooks are kept for
-// coexistence tests that still need the "gate did not fire" assertion
-// (DSpMultiEngineCoexistenceTests vendors NQD at kLayerSlotUnderlay
-// with drop_count==0 as an author-mistake detector). The owner-map
-// tagging in gfxaccel_resources (set_buffer_owner/get_buffer_owner)
-// is authoritative per-buffer and remains unchanged — it is the
-// correct place for ownership metadata if a future enforcement point
-// needs it (e.g., a hypothetical NQD op that somehow reached a DSp
-// back-buffer via an aliased pixmap would be caught by an address
-// comparison there; no such pathway exists today).
+// The owner-map tagging in gfxaccel_resources (set_buffer_owner) is
+// authoritative per-buffer and remains unchanged — it is the correct place
+// for ownership metadata if a future enforcement point needs it (e.g., a
+// hypothetical NQD op that somehow reached a DSp back-buffer via an aliased
+// pixmap would be caught by an address comparison there; no such pathway
+// exists today).
 //
 // Compositor-blindness preserved: the compositor
 // still never reads the owner map.
 // ---------------------------------------------------------------------------
 
-extern "C" int s_nqd_fb_drop_count;  /* owned by gfxaccel_resources.mm */
 extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentDirtyRect(
     uint32_t dstBaseaddr,
     uint32_t dstRowbytes,
@@ -549,8 +544,7 @@ static inline NQDRgbOpColor nqd_read_rgb_op_color()
 
     // Step 1: thePort — lowmem 0x0916, the classic Mac OS current-GrafPort
     // global. 0x0916 lives inside gZeroPage so the read itself is always safe
-    // under EMULATED_PPC=1; gate the VALUE before dereferencing it. (Under the
-    // EMULATED_PPC=0 test build this routes through the TESTING_BUILD seam.)
+    // under EMULATED_PPC=1; gate the VALUE before dereferencing it.
     uint32_t portPtr = nqd_read_lowmem_theport();
     if (portPtr == 0 || !NQD_INRANGE(portPtr)) {
         NQD_LOG("nqd_read_rgb_op_color: rgbOpColor unreachable (step 1: thePort"
@@ -815,7 +809,7 @@ void NQDMetalInit(void)
 {
     NQD_LOG("NQDMetalInit: starting");
 
-    // Production path (TESTING_BUILD undefined): always use shared singletons.
+    // Always use the shared device/queue singletons.
     nqd_device = (__bridge id<MTLDevice>)SharedMetalDevice();
     if (!nqd_device) {
         NQD_ERR("NQDMetalInit: SharedMetalDevice failed — no Metal GPU");

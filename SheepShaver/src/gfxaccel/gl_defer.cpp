@@ -45,12 +45,8 @@
 #include <cstring>   // memset
 #include <cassert>
 
-// Guest big-endian memory read. In the real emulator build this resolves to the
-// vm_read_memory_4 inline in cpu_emulation.h (which honors guest endianness). In
-// the standalone unit-test build, the test TU supplies a flat big-endian mock.
-#ifdef GL_DEFER_UNIT_TEST
-extern "C" uint32_t ReadMacInt32(uint32_t addr);
-#else
+// Guest big-endian memory read resolves to the vm_read_memory_4 inline in
+// cpu_emulation.h (which honors guest endianness).
 #include "sysdeps.h"
 #include "cpu_emulation.h"   // ReadMacInt32 / WriteMacInt32
 
@@ -62,7 +58,6 @@ extern int      gl_ppc_stack_arg_offset;    // gl_dispatch.cpp: dispatch-table s
 extern uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
                            uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
                            const uint32_t *float_bits, int num_float_args);
-#endif
 
 // Host authoritative descriptor table + host re-entrancy guard.
 GLDeferDesc gl_defer_desc[GL_MAX_SUBOPCODE];
@@ -88,7 +83,6 @@ uint64_t g_defer_fallbacks       = 0;  // deferrable opcodes that hit GLDispatch
 // GLDrainDeferred null-guards on gl_defer_count_addr == 0. Harmless in the
 // standalone unit-test build (nothing touches them there).
 uint32_t gl_defer_ring_base    = 0;
-uint32_t gl_defer_ring_end     = 0;
 uint32_t gl_defer_head_addr    = 0;
 uint32_t gl_defer_count_addr   = 0;
 uint32_t gl_defer_enabled_addr = 0;
@@ -448,12 +442,9 @@ uint32_t GLDeferDecodeRecord(uint32_t rec, GLDeferDecoded *out) {
     return size_bytes;
 }
 
-#ifndef GL_DEFER_UNIT_TEST
 // Replay every buffered record through the existing GLDispatch path, then clear
-// the ring. Needs the real emulator symbols (gl_scratch_addr / gl_ppc_sp /
-// GLDispatch), so it is compiled only in the in-app build; the standalone
-// descriptor/decode tests do not exercise it. Stays a no-op until the ring is
-// allocated and records are actually captured (gl_defer_count_addr == 0 here).
+// the ring. Stays a no-op until the ring is allocated and records are actually
+// captured (gl_defer_count_addr == 0 here).
 void GLDrainDeferred(void) {
     if (gl_defer_draining) return;          // re-entrancy guard
     if (!gl_defer_count_addr) return;       // ring not allocated yet -> safe no-op
@@ -533,4 +524,3 @@ void GLDrainDeferred(void) {
 
     gl_defer_draining = false;
 }
-#endif  // !GL_DEFER_UNIT_TEST

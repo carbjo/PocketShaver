@@ -21,9 +21,8 @@
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "macos_util.h"          // FindLibSymbol
-#include "dsp_engine.h"          // kDSp* enum + DSP_LOG
+#include "dsp_engine.h"          // kDSp* enum + DSP_LOG + ACCEL_LOGGING_ENABLED gate (via accel_logging.h)
 #include "dsp_fragment_name_policy.h"
-#include "accel_logging.h"       // ACCEL_LOGGING_ENABLED gate
 
 
 #include <cstring>
@@ -449,5 +448,3 @@ bool DSpInstallHooksSweepComplete(void)
 {
 	return dsp_hooks_installed || dsp_hooks_attempts >= DSP_HOOKS_MAX_ATTEMPTS;
 }
-
-// ----- TESTING_BUILD hook -----

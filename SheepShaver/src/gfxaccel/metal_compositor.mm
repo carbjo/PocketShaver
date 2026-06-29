@@ -156,11 +156,6 @@ static void reset_palette_latch_state(void)
     atomic_store_explicit(&s_palette_back_in_sync, 1, memory_order_relaxed);
 }
 
-// VBL-delivered drawable (iOS 17+ CAMetalDisplayLink path).
-// The display link callback stores the drawable here; present paths consume it
-// instead of calling [layer nextDrawable] (which throws when a display link is attached).
-static id<CAMetalDrawable>          s_vbl_drawable       = nil;
-
 // Display-ready gamma LUT buffer. 768 bytes planar: 256 R + 256 G + 256 B.
 // Allocated directly from the device. Updated from DMCModeSnapshot gamma_lut
 // on each DMC gamma generation bump after composing the shared display policy.
@@ -200,26 +195,14 @@ static int                          s_last_overlay_scale_fb_h = 0;
 
 static uint64_t                     frame_interval_usec = 0;   // microseconds per VBL frame
 
-/* TESTING_BUILD-only SubmitFrame counter (storage,
- * increment, and read/reset helpers) moved to metal_compositor_submitframe.mm
- * because the PocketShaverTests target
- * compiles metal_compositor_submitframe.mm but NOT metal_compositor.mm.
- * Keeping the symbols co-located in the test-built TU avoids the
- * undefined-symbol link failure that the counter-instrumented tests
- * would otherwise hit. The counter declaration that lived here
- * has been deleted; the active definition + helpers live in
- * metal_compositor_submitframe.mm under the same #ifdef TESTING_BUILD
- * gate. */
-
 // ---------------------------------------------------------------------------
 // SubmitFrame cross-module bindings
 //
 // The SubmitFrame implementation + blend-mode PSO cache + inflight
-// semaphore + TESTING_BUILD seams all live in metal_compositor_submitframe.mm
-// (no SDL2 dependency there - the test target can compile it in isolation).
-// This file binds the production presentation context (device + queue +
-// layer) into the submitframe module from MetalCompositorInit and clears
-// it from MetalCompositorShutdown.
+// semaphore all live in metal_compositor_submitframe.mm. This file binds the
+// production presentation context (device + queue + layer) into the
+// submitframe module from MetalCompositorInit and clears it from
+// MetalCompositorShutdown.
 // ---------------------------------------------------------------------------
 
 extern "C" int  MetalCompositorSubmitFrame_BindPresentationContext(
@@ -670,13 +653,7 @@ static int MetalCompositorBuildDepthResources(const char *op,
 static void compositor_vbl_callback(void *ctx, void *drawable, double target_ts)
 {
 	(void)ctx;
-
-	// Store the display-link-delivered drawable for the next present call.
-	// On iOS 17+ (CAMetalDisplayLink), calling [layer nextDrawable] throws;
-	// the drawable MUST come from the display link callback instead.
-	if (drawable) {
-		s_vbl_drawable = (__bridge id<CAMetalDrawable>)drawable;
-	}
+	(void)drawable;
 
 	// 1. Latch palette double-buffer
 	MetalCompositorPaletteLatch();
@@ -1177,13 +1154,6 @@ void *MetalCompositorGetGammaIdentityBuffer(void)
 // MetalCompositorPresent — render one frame (2D framebuffer only)
 // ---------------------------------------------------------------------------
 
-void *MetalCompositorConsumeVBLDrawable(void)
-{
-    id<CAMetalDrawable> d = s_vbl_drawable;
-    s_vbl_drawable = nil;
-    return (__bridge_retained void *)d;
-}
-
 void MetalCompositorPresent(void)
 {
     if (!compositor_layer || !compositor_pipeline) return;
@@ -1573,17 +1543,3 @@ void MetalCompositorShutdown(void)
 
     COMPOSITOR_LOG("MetalCompositorShutdown: done");
 }
-
-// ---------------------------------------------------------------------------
-// TESTING_BUILD palette introspection hooks
-// ---------------------------------------------------------------------------
-
-
-
-
-/* All TESTING_BUILD helpers (g_testing_submitframe_count + the read/reset
- * helpers + DSpTesting_CaptureCompositorOutput) moved into
- * metal_compositor_submitframe.mm because the PocketShaverTests target
- * does NOT compile metal_compositor.mm. See the explanatory block earlier
- * in this file (the "MOVED to metal_compositor_submitframe.mm" comment
- * that replaced the counter declaration). */

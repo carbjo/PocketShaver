@@ -39,16 +39,6 @@
 #define DEBUG 0
 #include "debug.h"
 
-// ---------------------------------------------------------------------------
-// TESTING_BUILD probe for gl_engine.cpp.
-//
-// gl_engine.cpp does NOT call SharedMetalDevice() or any singleton that
-// fails in test context for CPU-only paths.
-//
-// GLTesting_IsTestBuild() is a trivial probe so tests can assert the
-// TESTING_BUILD compilation path is active for this translation unit.
-// ---------------------------------------------------------------------------
-
 // ---- GL Constants ----
 // AGL error codes (from agl.h)
 #define AGL_NO_ERROR          0

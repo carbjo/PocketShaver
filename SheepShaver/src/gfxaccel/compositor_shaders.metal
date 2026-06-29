@@ -176,34 +176,11 @@ fragment float4 compositor_fragment_16bpp(CompositorVertexOut in [[stage_in]],
                   1.0);
 }
 
-/*
- *  Compositing fragment shader for alpha-blending 3D overlay over 2D desktop.
- *
- *  Samples the offscreen BGRA8Unorm overlay texture and returns the color
- *  with its original alpha. The render pipeline enables alpha blending
- *  (src=one, dst=oneMinusSourceAlpha) so:
- *    - Where RAVE/GL rendered content: alpha=1.0 → overlay is opaque
- *    - Where nothing rendered: RGBA=(0,0,0,0) → 2D desktop shows through
- *
- *  The 2D framebuffer is already in the drawable from the first draw call;
- *  this second draw call blends the 3D content on top.
- */
-fragment float4 compositor_fragment_composite(CompositorVertexOut in [[stage_in]],
-                                              texture2d<float> overlay_tex [[texture(0)]],
-                                              sampler samp [[sampler(0)]],
-                                              constant float *uv_scale [[buffer(0)]])
-{
-    // Scale UVs to sample only the viewport portion of the overlay texture.
-    float2 uv = in.texCoord * float2(uv_scale[0], uv_scale[1]);
-    return overlay_tex.sample(samp, uv);
-}
-
 /* ========================================================================
  *  SubmitFrame pipeline shaders
  *
  *  Vertex + fragment siblings used by MetalCompositorSubmitFrame to encode
- *  CompositeLayer entries into the drawable (or, in TESTING_BUILD, into
- *  an offscreen target via MetalCompositorTesting_SetNextRenderTarget).
+ *  CompositeLayer entries into the drawable.
  *
  *  Simplification: each layer emits a fullscreen triangle
  *  with the source texture sampled across its full bounds. Per-rect

@@ -32,12 +32,9 @@
  * CAMetalLayer drawable, encodes, and presents.
  *
  * Non-overlay slots are accepted by SubmitFrame for API compatibility but are
- * ignored in production. Underlay/framebuffer composition exists only in the
- * TESTING_BUILD offscreen render-target path, where slot ordering is strict
- * (Underlay -> Framebuffer -> Overlay) and same-slot entries composite in
- * submission order. The compositor is engine-blind by construction: it sees
- * only CompositeLayer PODs with opaque source texture handles, never engine
- * identifiers.
+ * ignored in production; underlay/framebuffer composition is not implemented.
+ * The compositor is engine-blind by construction: it sees only CompositeLayer
+ * PODs with opaque source texture handles, never engine identifiers.
  *
  * All types below are POD and safe to include from plain .cpp files.
  * The `source` field is declared as void* so engines can cast from
@@ -73,9 +70,8 @@ typedef enum {
  *
  * `source` is an id<MTLTexture> cast to void* so this header compiles in
  * plain .cpp files. Engines bridge-cast at their use site. The
- * source texture must be BGRA8Unorm for overlay-cache presentation and for the
- * TESTING_BUILD SubmitFrame encode path. Production SubmitFrame does not
- * encode framebuffer/underlay layers.
+ * source texture must be BGRA8Unorm for overlay-cache presentation.
+ * Production SubmitFrame does not encode framebuffer/underlay layers.
  *
  * Destination rectangle fields use floats so the compositor can express
  * fractional positioning when the drawable size doesn't match the
@@ -189,21 +185,6 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors);
 void MetalCompositorPresent(void);
 
 /*
- * Consume the VBL-delivered drawable.
- *
- * In production this ALWAYS returns NULL. The compositor
- * paces on `CADisplayLink` for all iOS versions (13.4+) and acquires drawables
- * via `[CAMetalLayer nextDrawable]` in the present path; the VBL callback never
- * delivers a drawable. This function is retained as a no-op for the deliberately
- * -unrevived `CAMetalDisplayLink` path (it forbids `nextDrawable` and would
- * require routing all rendering through the delegate callback — incompatible
- * with the emul-thread-presents / main-thread-callback model). It is NOT
- * deleted because it is part of the documented API shape. See
- * `vbl_source_uses_metal_display_link()` (== 0).
- */
-void *MetalCompositorConsumeVBLDrawable(void);
-
-/*
  * Tear down all Metal compositor resources.
  *
  * Removes the CompositorMetalView from the UIWindow and releases
@@ -267,17 +248,13 @@ int MetalCompositorIsInitialized(void);
  * snapshot, a submitted overlay texture must remain unmodified by the engine
  * until that engine's next SubmitFrame call.
  *
- * TESTING_BUILD only: when MetalCompositorTesting_SetNextRenderTarget arms an
- * offscreen texture, SubmitFrame encodes all layers into that target in strict
- * slot order and signals the inflight semaphore from a completion handler.
- *
  * Returns kGfxAccelNoErr or one of the kGfxAccelErr* codes defined in the
  * GfxAccelError enum above.
  */
 int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc);
 
 /*
- * MetalCompositorSync3DFramePacing.
+ * MetalCompositorSync3DFramePacingForEngine.
  *
  * Block the calling thread until that engine's next 3D frame deadline.
  * Deadlines are derived from the display-link cadence and fall back to one
@@ -286,12 +263,6 @@ int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc);
  * kGfxAccelErrVBLNotInitialized if VBLSource is not running.
  */
 int32_t MetalCompositorSync3DFramePacingForEngine(int32_t engine_id);
-
-/*
- * Legacy wrapper retained for staged migration. New RAVE/GL callers should
- * use MetalCompositorSync3DFramePacingForEngine() with GfxFramePacingEngine.
- */
-int32_t MetalCompositorSync3DFramePacing(void);
 
 /*
  * Retained VBL timestamp setter.
@@ -395,7 +366,7 @@ void MetalCompositorUpdateGammaLUT(const uint8_t *lut);
  * MetalCompositorGetGammaLUTBuffer.
  *
  * Return the compositor's gamma_lut_buffer as void* (id<MTLBuffer>), or NULL
- * if uninitialized. Production accessor (not TESTING_BUILD-gated) used by the
+ * if uninitialized. Production accessor used by the
  * DSp 16bpp unpack render pass (dsp_metal_renderer.mm) to bind the same
  * display-ready gamma LUT the compositor present path samples.
  * The unpack path is the rare non-visible twin (DSp force-resize to

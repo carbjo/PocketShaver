@@ -387,17 +387,6 @@ extern "C" void gfxaccel_resources_set_buffer_owner(void *buffer,
 	        (unsigned)GFXRES_OWNER_MAP_CAP, buffer, (unsigned)engine_id);
 }
 
-extern "C" uint32_t gfxaccel_resources_get_buffer_owner(void *buffer)
-{
-	if (buffer == NULL) return (uint32_t)kGfxEngineCount;
-	for (uint32_t i = 0; i < GFXRES_OWNER_MAP_CAP; ++i) {
-		if (s_owner_map[i].buffer == buffer) {
-			return s_owner_map[i].engine_id;
-		}
-	}
-	return (uint32_t)kGfxEngineCount;
-}
-
 extern "C" void gfxaccel_resources_clear_buffer_owner(void *buffer)
 {
 	if (buffer == NULL) return;
@@ -411,9 +400,8 @@ extern "C" void gfxaccel_resources_clear_buffer_owner(void *buffer)
 }
 
 
-// Owner-map clear helper invoked by the shutdown path.
-// File-local (static) — outside the TESTING_BUILD block so production
-// builds also reset the map on shutdown/restart cycles.
+// Owner-map clear helper invoked by the shutdown path. File-local (static)
+// so production builds reset the map on shutdown/restart cycles.
 static void gfxres_clear_owner_map_on_shutdown(void)
 {
 	for (uint32_t i = 0; i < GFXRES_OWNER_MAP_CAP; ++i) {
@@ -421,18 +409,6 @@ static void gfxres_clear_owner_map_on_shutdown(void)
 		s_owner_map[i].engine_id = 0;
 	}
 }
-
-// ---------------------------------------------------------------------------
-// NQD-framebuffer-dropped counter.
-//
-// Incremented every time the NQD dispatch side drops a blit because the
-// DMC owner is kDMCOwnerDSp (DSp-active mode wins framebuffer ownership).
-// Exported for test assertions via TESTING_BUILD hooks.
-// Single-reader + single-writer (emul thread) — no atomic needed.
-// ---------------------------------------------------------------------------
-
-int s_nqd_fb_drop_count = 0;
-
 
 // ---------------------------------------------------------------------------
 // Background/Foreground lifecycle

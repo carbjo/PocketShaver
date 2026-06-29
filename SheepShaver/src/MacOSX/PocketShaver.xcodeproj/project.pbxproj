@@ -987,7 +987,6 @@
 		PST1501DSPFR0200000001 /* dsp_dispatch.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_dispatch.cpp; path = ../gfxaccel/dsp_dispatch.cpp; sourceTree = SOURCE_ROOT; };
 		PST1501DSPFR0300000001 /* dsp_thunks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_thunks.cpp; path = ../gfxaccel/dsp_thunks.cpp; sourceTree = SOURCE_ROOT; };
 		PST1501DSPFR0400000001 /* dsp_engine.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_engine.h; sourceTree = "<group>"; };
-		PST1501DSPFR0500000001 /* dsp_dispatch.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_dispatch.h; sourceTree = "<group>"; };
 		PST1601DSPFR0600000001 /* dsp_draw_context.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_draw_context.mm; path = ../gfxaccel/dsp_draw_context.mm; sourceTree = SOURCE_ROOT; };
 		PST1601DSPFR0700000001 /* dsp_draw_context.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = dsp_draw_context.h; sourceTree = "<group>"; };
 		PST1602DSPFR0800000001 /* dsp_metal_renderer.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_metal_renderer.mm; path = ../gfxaccel/dsp_metal_renderer.mm; sourceTree = SOURCE_ROOT; };
@@ -1242,7 +1241,6 @@
 				GFXR10A1B2C3D4E5F60003 /* gfxaccel_resources.h */,
 				GFXH10A1B2C3D4E5F60003 /* gfxaccel_resources_heap.h */,
 				PST1501DSPFR0400000001 /* dsp_engine.h */,
-				PST1501DSPFR0500000001 /* dsp_dispatch.h */,
 				PST1601DSPFR0700000001 /* dsp_draw_context.h */,
 				PST1602DSPFR0900000001 /* dsp_metal_renderer.h */,
 				PST1701DSPFR1300000001 /* dsp_mode_enumerate.h */,

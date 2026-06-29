@@ -10,9 +10,8 @@
  *  (at your option) any later version.
  *
  *  Extracted verbatim from dsp_draw_context.mm (de-bloat, NO behaviour change):
- *  the self-consistent context (de)serialization cores + BE helpers, the
- *  Flatten/Restore/GetFlattenedSize production handlers + DSpTesting_* wrappers,
- *  and the Queue/Switch handlers/cores. All entry points are extern "C" and
+ *  the Flatten/Restore/GetFlattenedSize production handlers and the
+ *  Queue/Switch handlers/cores. All entry points are extern "C" and
  *  declared in dsp_draw_context.h; the internal statics have no out-of-module
  *  callers, so no extra header is needed.
  */
@@ -20,35 +19,16 @@
 
 #include "sysdeps.h"
 #include "cpu_emulation.h"
-#include "thunks.h"                /* SheepMem::Reserve (test hook) */
-#include "dsp_engine.h"
-#include "dsp_event_record.h"      /* DSpEventRecord struct */
+#include "thunks.h"                /* SheepMem::Reserve */
+#include "dsp_engine.h"            /* DSpContextAttributes + DSP_FLAT_* layout */
+#include "dsp_event_record.h"      /* DSpEventRecord struct (DSpContextPrivate member) */
 #include "dsp_draw_context.h"
-#include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler / DSpTesting_FindBestContextByStruct delegate target */
-#include "dsp_user_select_policy.h"
+#include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler delegate target */
 #include "dsp_context_private.h"   /* DSpContextPrivate full struct; shared with dsp_metal_renderer.mm */
-#include "dsp_cgraf_port_policy.h"
-#include "dsp_default_clut.h"
-#include "dsp_display_id_policy.h"
-#include "dsp_display_mode_policy.h"
-#include "dsp_front_buffer_policy.h"
-#include "dsp_front_staging_seed_policy.h"
-#include "dsp_get_attributes_policy.h"
+#include "dsp_display_mode_policy.h" /* DSpReserveActual/BackBufferDimension (Queue desired-attr apply) */
 #include "dsp_guest_address.h"
-#include "dsp_main_device_redirect_policy.h"
-#include "dsp_quickdraw_restore_policy.h"
-#include "dsp_vbl_publish_policy.h"
-#include "dsp_pixmap_offsets.h"    /* PixMap field offsets + LMADDR_MAIN_DEVICE / GDEVICE_OFF_PMAP */
-#include "dsp_metal_renderer.h"    /* DSpAllocateBackBuffer / DSpEncodeBackBufferBlit / DSpGetBackBufferCGrafPtr */
-#include "gfxaccel_resources.h"    /* per-buffer owner-tag API */
-#include "gfxaccel_resources_heap.h" /* kHeapEngineDSp + heap_alloc_buffer for AltBuffer backing */
-#include "dsp_alt_buffer.h"        /* AltBuffer subsystem: record table + handlers (extracted) */
-#include "nqd_accel.h"               /* NQDMetalBitblt1to1 / NQDMetalBitbltScaled / NQDMetalFlush for DSpBlit */
-#include "metal_compositor.h"      /* MetalCompositorSubmitFrame + MetalCompositorGetFramebufferTexture + CompositeLayer */
-#include "metal_device_shared.h"   /* SharedMetalCommandQueue (SwapBuffers blit path) */
-#include "display_mode_controller.h" /* dmc_current_snapshot (FrameDescriptor generation); DMCOwner enum + dmc_set_active_owner */
+#include "nqd_accel.h"             /* NQDMetalAddrInBuffer (Queue desired-attr mapped-RAM gate) */
 #include "dsp_engine_internal.h"   /* DSpMapStateToDMCOwnerTyped (internal-only, NOT in include/) */
-#include "vbl_source.h"
 
 /* ============================================================== */
 /*  Save/Restore/Flatten                                          */
@@ -66,109 +46,10 @@
 /*  outcome (NOT masked). Pure RAM serialization — ZERO new        */
 /*  concurrency primitive.                                         */
 /*                                                                  */
-/*  The serialize/deserialize cores below are agnostic to where    */
-/*  the bytes live: the guest-RAM handlers feed them WriteMacInt32  */
-/*  / ReadMacInt32; the TESTING_BUILD host helpers feed them        */
-/*  a plain uint8_t* big-endian byte buffer. Both produce + consume */
-/*  the identical DSP_FLAT_* on-wire layout (validated by the      */
-/*  DSpFlattenTests round-trip + golden fixture).                  */
+/*  The handlers serialize/deserialize the DSP_FLAT_* on-wire       */
+/*  layout directly through WriteMacInt32 / ReadMacInt32 (big-      */
+/*  endian on the Mac side) — no separate host-buffer core.        */
 /* ============================================================== */
-
-/* Big-endian store/load helpers for the host-buffer (TESTING_BUILD) path so
- * the flattened blob byte layout matches the guest WriteMacInt32 (which is
- * big-endian on the Mac side) bit-for-bit. */
-static inline void DSpFlatStoreBE32(uint8_t *p, uint32_t v)
-{
-	p[0] = (uint8_t)((v >> 24) & 0xFF);
-	p[1] = (uint8_t)((v >> 16) & 0xFF);
-	p[2] = (uint8_t)((v >>  8) & 0xFF);
-	p[3] = (uint8_t)(v & 0xFF);
-}
-
-static inline uint32_t DSpFlatLoadBE32(const uint8_t *p)
-{
-	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-	       ((uint32_t)p[2] <<  8) | ((uint32_t)p[3]);
-}
-
-/* Serialize the portable subset of `ctx` into the host blob `out` (>=
- * DSP_FLAT_SIZE bytes). Writes ONLY the magic+version header + the 12
- * Reserve-relevant DSpContextAttributes fields + the 3 bookkeeping fields.
- * Runtime-only fields (back_buffer/back_texture/cgrafptr_mac_addr/state/
- * staging_mac_addr/fade_state/events ring/alt-buffer handles) are NEVER touched
- * (info-disclosure mitigation). */
-static void DSpFlattenSerializeToHost(const DSpContextPrivate *ctx, uint8_t *out)
-{
-	const DSpContextAttributes *a = &ctx->attr;
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_magic,              DSP_FLAT_MAGIC);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_version,            DSP_FLAT_VERSION);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_size,               DSP_FLAT_SIZE);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_displayWidth,       a->displayWidth);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_displayHeight,      a->displayHeight);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_colorNeeds,         a->colorNeeds);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_colorTable,         a->colorTable);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_contextOptions,     a->contextOptions);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_backBufferDepthMask, a->backBufferDepthMask);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_displayDepthMask,   a->displayDepthMask);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_backBufferBestDepth, a->backBufferBestDepth);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_displayBestDepth,   a->displayBestDepth);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_pageCount,          a->pageCount);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_gameMustConfirmSwitch, a->gameMustConfirmSwitch);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_max_frame_rate,     ctx->max_frame_rate);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_dirty_grid_w,       ctx->dirty_grid_w);
-	DSpFlatStoreBE32(out + DSP_FLAT_OFF_dirty_grid_h,       ctx->dirty_grid_h);
-}
-
-/* Validate + deserialize the host blob `in` (>= DSP_FLAT_SIZE bytes) into a
- * host DSpContextAttributes + the 2 bookkeeping scalars. Returns kDSpNoErr on
- * a valid magic+version; kDSpContextNotFoundErr on a magic/version mismatch
- * (the documented Restore-failure path, NOT masked). The caller allocates the
- * fresh metadata context on success. NEVER trusts any field before the magic+
- * version check (deserialization-tampering mitigation). */
-static int32_t DSpFlattenDeserializeFromHost(const uint8_t *in,
-                                             DSpContextAttributes *out_attr,
-                                             uint32_t *out_max_frame_rate,
-                                             uint32_t *out_dirty_grid_w,
-                                             uint32_t *out_dirty_grid_h)
-{
-	uint32_t magic   = DSpFlatLoadBE32(in + DSP_FLAT_OFF_magic);
-	uint32_t version = DSpFlatLoadBE32(in + DSP_FLAT_OFF_version);
-	if (magic != DSP_FLAT_MAGIC || version != DSP_FLAT_VERSION) {
-		/* PDF p.22: Restore "has a high probability of failure" — a stale /
-		 * forged / wrong-version blob is reported as kDSpContextNotFoundErr,
-		 * the documented valid outcome. No field is trusted past this point. */
-		DSP_LOG("Restore: blob magic=0x%08x ver=%u mismatch "
-		        "(want 0x%08x v%u) -> kDSpContextNotFoundErr",
-		        magic, version, DSP_FLAT_MAGIC, DSP_FLAT_VERSION);
-		return kDSpContextNotFoundErr;
-	}
-
-	/* Zero the out-struct then populate ONLY the round-tripped subset; the
-	 * non-serialized attr fields (frequency/reserved/filler/host mirrors) stay
-	 * zero and are re-derived by the metadata-context allocator. */
-	DSpContextAttributes a = {};
-	a.displayWidth        = DSpFlatLoadBE32(in + DSP_FLAT_OFF_displayWidth);
-	a.displayHeight       = DSpFlatLoadBE32(in + DSP_FLAT_OFF_displayHeight);
-	a.colorNeeds          = DSpFlatLoadBE32(in + DSP_FLAT_OFF_colorNeeds);
-	a.colorTable          = DSpFlatLoadBE32(in + DSP_FLAT_OFF_colorTable);
-	a.contextOptions      = DSpFlatLoadBE32(in + DSP_FLAT_OFF_contextOptions);
-	a.backBufferDepthMask = DSpFlatLoadBE32(in + DSP_FLAT_OFF_backBufferDepthMask);
-	a.displayDepthMask    = DSpFlatLoadBE32(in + DSP_FLAT_OFF_displayDepthMask);
-	a.backBufferBestDepth = DSpFlatLoadBE32(in + DSP_FLAT_OFF_backBufferBestDepth);
-	a.displayBestDepth    = DSpFlatLoadBE32(in + DSP_FLAT_OFF_displayBestDepth);
-	a.pageCount           = DSpFlatLoadBE32(in + DSP_FLAT_OFF_pageCount);
-	a.gameMustConfirmSwitch = DSpFlatLoadBE32(in + DSP_FLAT_OFF_gameMustConfirmSwitch);
-	/* Host-only mirrors used by the dirty-rect clip code (Reserve_Core sets
-	 * these from displayWidth/Height; mirror them here for the metadata ctx). */
-	a.backBufferWidth     = a.displayWidth;
-	a.backBufferHeight    = a.displayHeight;
-
-	*out_attr            = a;
-	*out_max_frame_rate  = DSpFlatLoadBE32(in + DSP_FLAT_OFF_max_frame_rate);
-	*out_dirty_grid_w    = DSpFlatLoadBE32(in + DSP_FLAT_OFF_dirty_grid_w);
-	*out_dirty_grid_h    = DSpFlatLoadBE32(in + DSP_FLAT_OFF_dirty_grid_h);
-	return kDSpNoErr;
-}
 
 /* --- DSpContext_GetFlattenedSizeHandler (sub-op 740) ---
  *
@@ -383,10 +264,9 @@ static bool DSpApplyDesiredAttributesToChild(DSpContextPrivate *child,
 	return true;
 }
 
-/* Core deferred-switch staging shared by the production handler + the
- * TESTING_BUILD host helper. Resolves both ctxRefs, passes the same-display
- * check (trivially true on the single iOS fullscreen display), records
- * parent->queued_child = childRef.
+/* Core deferred-switch staging for the Queue handler. Resolves both ctxRefs,
+ * passes the same-display check (trivially true on the single iOS fullscreen
+ * display), records parent->queued_child = childRef.
  * inDesiredAttributes (a guest Mac address, 0 == none) is applied to the child
  * by the production handler BEFORE calling this core; the host helper passes 0.
  * Returns kDSpInvalidContextErr if either ctxRef is unresolved
@@ -443,9 +323,9 @@ extern "C" int32_t DSpContext_QueueHandler(uint32_t parentCtx, uint32_t childCtx
 	return DSpQueueCore(parentCtx, childCtx);
 }
 
-/* Core deferred-switch apply shared by the production handler + the
- * TESTING_BUILD host helper. Requires a prior Queue (old->queued_child ==
- * newRef, else kDSpInternalErr per PDF p.27 "returns an error" — no partial
+/* Core deferred-switch apply for the Switch handler. Requires a prior Queue
+ * (old->queued_child == newRef, else kDSpInternalErr per PDF p.27 "returns an
+ * error" — no partial
  * switch, reject-before-mutate). Routes the OLD context out through
  * SetState(Inactive), then kills its piggyback VBL proc (old->vbl_proc_ptr
  * = 0 — the VBL service walk at dsp_metal_renderer.mm early-outs on ==0),

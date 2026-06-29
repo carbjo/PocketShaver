@@ -78,15 +78,6 @@ extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentIfN
  * prevents dangling Mac address in lowmem). */
 extern "C" void DSpRestoreMainDevicePixMap(DSpContextPrivate *ctx);
 
-/*
- *  TESTING_BUILD helper: SheepMem::Reserve is non-functional
- *  in the PocketShaverTests target (PSRAVEStubs.mm zeros the globals; no
- *  main_unix.cpp link). Route the handful of production-code Reserve
- *  sites to the test-owned dsp_testing_alloc_guest_scratch backing
- *  store so behavior-exact tests can exercise the full CGrafPort-
- *  emission + staging-region path without corrupting memory.
- */
-
 /* DSp exposes these blocks as guest PixMap.baseAddr storage. Once exposed,
  * do not DisposePtr them: launch-time CFM/component allocations may reuse
  * the same system-heap range and execute stale frame bytes. */

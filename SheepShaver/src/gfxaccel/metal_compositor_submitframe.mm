@@ -15,13 +15,8 @@
  *  MetalCompositorPresent is the sole production drawable owner/presenter.
  *  Underlay/framebuffer layers are accepted but ignored in production.
  *
- *  The strict slot-order encoder (Underlay -> Framebuffer -> Overlay; same-
- *  slot entries in submission order) is retained only for TESTING_BUILD when
- *  an offscreen render target is armed via MetalCompositorTesting.
- *
- *  Split from metal_compositor.mm so the test target can compile this
- *  module without pulling in SDL2 (which isn't available in the test
- *  target's framework search path). metal_compositor.mm calls
+ *  Split from metal_compositor.mm to keep the SubmitFrame state machine
+ *  self-contained. metal_compositor.mm calls
  *  MetalCompositorSubmitFrame_BindPresentationContext from its Init
  *  to hand over the device + queue + CAMetalLayer; this module keeps
  *  its own static state and provides:
@@ -29,9 +24,6 @@
  *    - MetalCompositorSubmitFrame(const FrameDescriptor *)     (public)
  *    - MetalCompositorSubmitFrame_BindPresentationContext      (internal)
  *    - MetalCompositorSubmitFrame_UnbindPresentationContext    (internal)
- *    - MetalCompositorTesting_InitHeadless        (TESTING_BUILD only)
- *    - MetalCompositorTesting_ShutdownHeadless    (TESTING_BUILD only)
- *    - MetalCompositorTesting_SetNextRenderTarget (TESTING_BUILD only)
  *
  *  Overlay caching (rave-overlay-flicker-black, 2026-04-16):
  *  -------------------------------------------------------
@@ -64,12 +56,10 @@
  *  11-px menu strip) still covered the full 640x480 drawable.
  *
  *  Iteration #3 makes Present the sole drawable owner in production:
- *    - In TESTING_BUILD with SetNextRenderTarget, SubmitFrame still
- *      encodes to the test target (tests read back composited output).
- *    - In production (no test render target), SubmitFrame ONLY caches
- *      the overlay and returns -- no drawable acquisition, no render
- *      pass, no present.  MetalCompositorPresent is now the single
- *      owner of nextDrawable / presentDrawable, eliminating the race.
+ *    - SubmitFrame ONLY caches the overlay and returns -- no drawable
+ *      acquisition, no render pass, no present.  MetalCompositorPresent
+ *      is the single owner of nextDrawable / presentDrawable,
+ *      eliminating the race.
  *    - submitframe_encode_layer now sets a per-layer MTLViewport to
  *      (dst_origin, dst_size) so the fullscreen triangle is clipped
  *      to the layer's dst rect; 2D underlay shows through outside the
@@ -82,9 +72,7 @@
  *  texture until it submits a different overlay texture.
  *
  *  Concurrency: production SubmitFrame does no GPU work and does not consume
- *  s_inflight_semaphore. TESTING_BUILD's offscreen encode path uses the
- *  semaphore to serialize in-flight test command buffers and signals it from
- *  addCompletedHandler (GPU completion).
+ *  s_inflight_semaphore.
  */
 
 #import <Metal/Metal.h>
@@ -151,8 +139,7 @@ static id<MTLTexture>                 s_framebuffer_texture = nil;
  *
  * Iteration #3 (rave-overlay-flicker-black): in production SubmitFrame
  * no longer calls presentAtTime: (Present owns presentation), so this
- * field is effectively unused in production.  TESTING_BUILD paths with
- * SetNextRenderTarget don't present at all.  Retained for the
+ * field is effectively unused.  Retained for the
  * MetalCompositorSubmitFrame_SetTargetTimestamp API shape which external
  * callers (vbl_source) still invoke.
  */
@@ -514,7 +501,7 @@ void MetalCompositorSubmitFrame_SetTargetTimestamp(double ts)
 }
 
 /*
- * MetalCompositorSync3DFramePacing.
+ * MetalCompositorSync3DFramePacingForEngine.
  *
  * Thin wrapper that routes to VBLSource's per-engine deadline pacing.
  * RAVE/GL engines include only metal_compositor.h, not vbl_source.h.
@@ -523,12 +510,6 @@ extern "C"
 int32_t MetalCompositorSync3DFramePacingForEngine(int32_t engine_id)
 {
 	return vbl_source_sync_3d_pacing_for_engine(engine_id);
-}
-
-extern "C"
-int32_t MetalCompositorSync3DFramePacing(void)
-{
-	return MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineLegacy);
 }
 
 // ---------------------------------------------------------------------------
@@ -561,12 +542,10 @@ extern "C" void MetalCompositorSubmitFrame_EncodeCachedOverlay(
 /*
  * Resolve the Metal shader library that contains submitframe_vertex /
  * submitframe_fragment. In production the compositor lives in the main
- * bundle (default.metallib on disk next to the executable). In TESTING_BUILD
- * the shaders are linked into the XCTest bundle's default.metallib, so
- * newDefaultLibrary on the device returns the main bundle's library which
- * may not contain them. We handle both cases: try newDefaultLibrary first,
- * then fall back to every loaded bundle's default.metallib until we find
- * the submitframe_vertex function.
+ * bundle (default.metallib on disk next to the executable). To be robust
+ * to the shaders living in a non-default library, we try newDefaultLibrary
+ * first, then fall back to every loaded bundle's default.metallib until we
+ * find the submitframe_vertex function.
  */
 static id<MTLLibrary> submitframe_resolve_library(id<MTLDevice> dev)
 {
@@ -706,9 +685,7 @@ extern "C" void MetalCompositorSubmitFrame_UnbindPresentationContext(void)
 // no longer acquires a CAMetalLayer drawable or calls presentDrawable.
 // It caches the overlay layer and returns -- MetalCompositorPresent is
 // now the sole drawable owner, eliminating the race that hid the 2D
-// underlay in multi-engine apps.  In TESTING_BUILD with
-// SetNextRenderTarget the old encode-to-offscreen path runs so tests can
-// read back composited output (CompositorZOrderTests, etc.).
+// underlay in multi-engine apps.
 
 extern "C" int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc)
 {
@@ -769,13 +746,8 @@ extern "C" int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc
         }
     }
 
-    // 5. Decide whether we have anywhere to render to.  In production the
-    //    answer is "no" -- Present owns the drawable.  Only TESTING_BUILD
-    //    with an explicit SetNextRenderTarget has a place to encode to,
-    //    and those tests rely on the composited output for byte-level
-    //    readback.
-    /* Production: Present is the sole drawable owner.  Cache is populated,
-     * nothing more to do.  No semaphore consumed -- we do no GPU work. */
+    // 5. Production: Present is the sole drawable owner.  Cache is populated,
+    //    nothing more to do.  No semaphore consumed -- we do no GPU work.
     return kGfxAccelNoErr;
 
 }

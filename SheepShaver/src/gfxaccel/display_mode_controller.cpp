@@ -44,10 +44,8 @@
  *      subscriber callbacks re-entering the controller; the inner call
  *      returns kDMCErrReentrantRequest BEFORE touching the mutex
  *      (avoiding deadlock under non-recursive std::mutex semantics).
- *    - `s_emul_thread` captured at first dmc_create in production;
- *      subsequent write calls from any other thread trigger an
- *      assertion. Gated `#ifndef TESTING_BUILD` so tests can drive the
- *      controller from XCTest worker threads.
+ *    - `s_emul_thread` captured at first dmc_create; subsequent write
+ *      calls from any other thread trigger an assertion.
  *
  *  The controller does NOT touch emulated Mac memory - macos_util.h and
  *  thunks.h are intentionally omitted from the includes vs.
@@ -79,7 +77,7 @@
 // ---------------------------------------------------------------------------
 // Module-local state (writer-mutex serialized; atomic snapshot
 // publication; 2-generation retirement ring; re-entry guard; thread-identity
-// assertion gated under #ifndef TESTING_BUILD).
+// assertion).
 //
 // s_current is ATOMIC (lock-free read path for the VBL-tick thread). All
 // OTHER state (s_state, s_subscribers, s_next_generation, s_dmc_initialized,
@@ -110,17 +108,15 @@ static std::vector<DMCSubscriber>             s_subscribers;
 static const DMCModeSnapshot *                s_retired[2] = { NULL, NULL };
 
 // Re-entry guard (subscriber callback re-enters a dmc_*
-// write API). thread_local so a legitimate cross-thread writer (after
-// TESTING_BUILD is removed and all writers are on the emul thread, this
-// is just defense-in-depth) doesn't see the flag set by a different
-// thread's outer call.
+// write API). thread_local so a cross-thread writer doesn't see the flag
+// set by a different thread's outer call (defense-in-depth; all writers are
+// on the emul thread today).
 static thread_local bool                      s_in_dmc_call = false;
 
 
-// Thread-identity baseline (production assertion gate). In production this
-// is captured on the first dmc_create call; subsequent writes from any
-// other thread trigger assert(0). TESTING_BUILD gates this out because
-// XCTest runs writer work on arbitrary worker threads.
+// Thread-identity baseline (assertion gate). Captured on the first
+// dmc_create call; subsequent writes from any other thread trigger
+// assert(0).
 static pthread_t                              s_emul_thread = 0;
 
 // ---------------------------------------------------------------------------
@@ -151,9 +147,8 @@ struct DMCReentryScope {
 };
 
 // ---------------------------------------------------------------------------
-// Thread-identity assertion macro. Production-only: TESTING_BUILD bypasses
-// so concurrent-writer tests can exercise the controller from arbitrary
-// XCTest worker threads.
+// Thread-identity assertion macro. Asserts that dmc_* write APIs run on the
+// emul thread that first called dmc_create.
 // ---------------------------------------------------------------------------
 #define DMC_ASSERT_EMUL_THREAD() \
 	do { \
@@ -193,21 +188,15 @@ static int32_t dmc_validate_mode_desc(const DMCModeDesc *m) {
 	return kDMCNoErr;
 }
 
-// Internal allocation wrappers that route the 4 direct
-// calloc/malloc sites in this file through a test-injectable failure path.
-//
-// In production builds (TESTING_BUILD undefined) these are straight passthrough
-// to calloc/malloc. Under TESTING_BUILD the wrapper consumes the one-shot
-// s_force_next_alloc_failure flag: if set, it returns NULL and clears the flag
-// so subsequent allocations succeed. Tests drive dmc_testing_force_next_alloc_failure()
-// to validate the uniform kDMCErrOutOfMemory return contract without having to
-// exhaust real system memory. Callers MUST hold s_write_mutex when invoking
-// these (every call site is already inside the writer mutex by construction).
-static DMCModeSnapshot *dmc_testing_alloc_snapshot(void) {
+// Internal allocation wrappers that funnel the 4 direct calloc/malloc sites
+// in this file through a single pair of helpers. Callers MUST hold
+// s_write_mutex when invoking these (every call site is already inside the
+// writer mutex by construction).
+static DMCModeSnapshot *dmc_alloc_zeroed_snapshot(void) {
 	return (DMCModeSnapshot *)calloc(1, sizeof(DMCModeSnapshot));
 }
 
-static DMCModeSnapshot *dmc_testing_alloc_raw_snapshot(void) {
+static DMCModeSnapshot *dmc_alloc_raw_snapshot(void) {
 	return (DMCModeSnapshot *)malloc(sizeof(DMCModeSnapshot));
 }
 
@@ -224,15 +213,14 @@ static void dmc_init_identity_gamma(DMCModeSnapshot *snap) {
 //
 // NOTE: transitioning is ALWAYS 0 in published snapshots under the
 // immutability model. The transitioning=1 in-place sentinel has
-// been replaced by s_state == kDMCStateTransitioning; readers that care can
-// inspect the FSM state via dmc_testing_state() under TESTING_BUILD, or
-// simply tolerate seeing the old snapshot for a sub-microsecond transition
-// window during which s_current still points at `outgoing`.
+// been replaced by s_state == kDMCStateTransitioning; readers simply tolerate
+// seeing the old snapshot for a sub-microsecond transition window during
+// which s_current still points at `outgoing`.
 static DMCModeSnapshot *dmc_alloc_snapshot_from_desc(const DMCModeDesc *m,
                                                      uint32_t generation,
                                                      uint32_t active_owner,
                                                      const uint8_t blanking_rgba[4]) {
-	DMCModeSnapshot *s = dmc_testing_alloc_snapshot();
+	DMCModeSnapshot *s = dmc_alloc_zeroed_snapshot();
 	if (s == NULL) {
 		return NULL;
 	}
@@ -274,7 +262,7 @@ static DMCModeSnapshot *dmc_clone_snapshot_with_owner(const DMCModeSnapshot *src
                                                       uint32_t generation,
                                                       uint32_t active_owner,
                                                       const uint8_t blanking_rgba[4]) {
-	DMCModeSnapshot *s = dmc_testing_alloc_snapshot();
+	DMCModeSnapshot *s = dmc_alloc_zeroed_snapshot();
 	if (s == NULL) {
 		return NULL;
 	}
@@ -419,7 +407,7 @@ static void dmc_internal_compensate_rejected_transition(
 //   1. DMCReentryScope reentry;
 //      if (!reentry.installed) return kDMCErrReentrantRequest;
 //   2. std::lock_guard<std::mutex> guard(s_write_mutex);
-//   3. DMC_ASSERT_EMUL_THREAD();  (NOP under TESTING_BUILD)
+//   3. DMC_ASSERT_EMUL_THREAD();
 //   4. FSM / validation checks.
 //   5. Allocate incoming snapshot, fire exits, publish (atomic release),
 //      fire enters, retire outgoing (or compensate + rollback on enter veto).
@@ -641,9 +629,9 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 	// Enter Transitioning state. We no longer mutate outgoing in
 	// place (snapshots are immutable once published); the transition is
 	// observable via s_state. Readers that cared about the former
-	// snapshot.transitioning sentinel should read s_state (TESTING_BUILD)
-	// or simply accept a sub-microsecond window during which s_current
-	// still points at the stable `outgoing`.
+	// snapshot.transitioning sentinel should read s_state or simply accept
+	// a sub-microsecond window during which s_current still points at the
+	// stable `outgoing`.
 	s_state = kDMCStateTransitioning;
 
 	// Fire exit (FIFO) BEFORE publishing the new snapshot.
@@ -923,7 +911,7 @@ int32_t dmc_record_palette_change(void) {
 	if (old == NULL) {
 		return kDMCErrNotInitialized;
 	}
-	DMCModeSnapshot *fresh = dmc_testing_alloc_raw_snapshot();
+	DMCModeSnapshot *fresh = dmc_alloc_raw_snapshot();
 	if (fresh == NULL) {
 		return kDMCErrOutOfMemory;
 	}
@@ -959,7 +947,7 @@ int32_t dmc_record_gamma_change_with_lut_fade(const uint8_t *lut, int fade_activ
 	if (old == NULL) {
 		return kDMCErrNotInitialized;
 	}
-	DMCModeSnapshot *fresh = dmc_testing_alloc_raw_snapshot();
+	DMCModeSnapshot *fresh = dmc_alloc_raw_snapshot();
 	if (fresh == NULL) {
 		return kDMCErrOutOfMemory;
 	}
@@ -1030,7 +1018,7 @@ int32_t dmc_set_blanking_color(const uint8_t rgba[4]) {
 	if (old == NULL) {
 		return kDMCErrNotInitialized;
 	}
-	DMCModeSnapshot *fresh = dmc_testing_alloc_raw_snapshot();
+	DMCModeSnapshot *fresh = dmc_alloc_raw_snapshot();
 	if (fresh == NULL) {
 		return kDMCErrOutOfMemory;
 	}
@@ -1042,10 +1030,3 @@ int32_t dmc_set_blanking_color(const uint8_t rgba[4]) {
 	dmc_retire_snapshot(old, fresh->generation);
 	return kDMCNoErr;
 }
-
-// ---------------------------------------------------------------------------
-// Test-only helpers (TESTING_BUILD - compiled ONLY into PocketShaverTests)
-//
-// Production app target (PocketShaver) does NOT define TESTING_BUILD; these
-// symbols are therefore not present in the shipped .ipa.
-// ---------------------------------------------------------------------------

@@ -33,7 +33,6 @@
 #include "dsp_draw_context.h"
 #include "dsp_mode_enumerate.h"        /* mode cache lifecycle */
 #include "vbl_source.h"
-#include "gfxaccel_threading_policy.h"
 #include "gfxaccel_resources.h"
 #include "gfxaccel_resources_heap.h"
 #include "display_mode_controller.h"   /* DMCOwner enum + dmc_set_active_owner signature */
@@ -533,15 +532,3 @@ extern "C" uint32_t DSpMapStateToDMCOwner(uint32_t dsp_state)
 		default:                         return (uint32_t)kDMCOwnerQuiescent;
 	}
 }
-
-/* --- Testing hook ---
- *
- *  dsp_testing_reset zeros the lifecycle state for test isolation:
- *  it releases any registered gfxaccel_resources handlers and
- *  zeros every file-scope counter/flag so the next test starts
- *  from the exact same state as a freshly-booted process.
- *
- *  Gated by TESTING_BUILD (the PocketShaverTests target defines
- *  TESTING_BUILD=1 in its GCC_PREPROCESSOR_DEFINITIONS) — production
- *  PocketShaver and SheepShaver builds do NOT compile this hook.
- */

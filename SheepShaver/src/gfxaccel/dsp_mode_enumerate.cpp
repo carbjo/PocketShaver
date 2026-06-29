@@ -197,17 +197,6 @@ void DSpClearModes(void)
 	s_dsp_modes.clear();
 }
 
-size_t DSpModeCount(void)
-{
-	return s_dsp_modes.size();
-}
-
-const DSpContextAttributes *DSpModeAt(size_t i)
-{
-	if (i >= s_dsp_modes.size()) return nullptr;
-	return &s_dsp_modes[i];
-}
-
 size_t DSpUserSelectableModeCount(const DSpContextAttributes *req)
 {
 	if (req == nullptr) return 0;

@@ -42,17 +42,6 @@ static constexpr uint32_t kRaveATIDepthWriteEnableTag = 1022u;
 static constexpr uint32_t kRaveATIDepthWriteEnableIndex =
 	kRaveATIDepthWriteEnableTag - kRaveATIPrivateTagBase;
 
-static inline bool RaveATITagInStorageRange(uint32_t tag)
-{
-	return tag >= kRaveATIPrivateTagBase &&
-		(tag - kRaveATIPrivateTagBase) < RAVE_ATI_TAG_COUNT;
-}
-
-static inline uint32_t RaveATITagIndex(uint32_t tag)
-{
-	return tag - kRaveATIPrivateTagBase;
-}
-
 static inline uint32_t RaveATIDefaultIntTagValue(uint32_t tag)
 {
 	if (tag == kRaveATIUnrealTournamentProbeTag) return kRaveATIRage128RendererID;

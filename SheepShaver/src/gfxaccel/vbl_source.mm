@@ -267,7 +267,7 @@ int32_t vbl_source_init(void *cametal_layer,
 	{
 		// --- CADisplayLink path (all iOS versions) ---
 		if (cametal_layer == NULL) {
-			VBL_LOG("vbl_source_init: nil layer (TESTING_BUILD or headless)");
+			VBL_LOG("vbl_source_init: nil layer (headless)");
 			s_initialized = 1;
 			return 0;
 		}
@@ -503,8 +503,4 @@ void vbl_source_unregister_secondary_callback(VBLSourceCallbackFn cb)
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// TESTING_BUILD hooks
-// ---------------------------------------------------------------------------
 

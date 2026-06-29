@@ -163,8 +163,6 @@ int32_t vbl_source_register_secondary_callback(VBLSourceCallbackFn cb,
                                                 void *ctx);
 void    vbl_source_unregister_secondary_callback(VBLSourceCallbackFn cb);
 
-/* --- TESTING_BUILD introspection --- */
-
 #ifdef __cplusplus
 }
 #endif

@@ -642,16 +642,6 @@ extern void RaveRefreshTextureFromPixmap(RaveResourceEntry *entry);
 extern bool ConvertPixels(uint32_t pixelType, uint32 srcAddr, uint8_t *dst,
                           uint32_t width, uint32_t height, uint32_t rowBytes);
 
-// Test-harness convenience. ConvertPixels
-// variant that reads from a host-side pointer instead of a Mac address.
-// Used by RAVETextureLifecycleTests to exercise the realize/refresh
-// paths on PSFakeMacRAM-backed storage without standing up a full PPC
-// emulator. Production code continues to use ConvertPixels (the Mac
-// address variant).
-extern bool ConvertPixelsFromHost(uint32_t pixelType, const uint8_t *srcHost,
-                                   uint8_t *dst, uint32_t width,
-                                   uint32_t height, uint32_t rowBytes);
-
 /*
  *  Engine method dispatch functions (called from rave_dispatch.cpp)
  *  Implemented in rave_engine.cpp

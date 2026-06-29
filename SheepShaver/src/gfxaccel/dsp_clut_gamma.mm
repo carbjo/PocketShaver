@@ -9,9 +9,9 @@
  *  (at your option) any later version.
  *
  *  Extracted verbatim from dsp_draw_context.mm (de-bloat, NO behaviour change):
- *  the CLUT Set/Get cores + handlers, the gamma Set/Get cores + handlers, the
- *  guest LUT/parametric-colour read/write helpers, and their DSpTesting_*
- *  wrappers. The gamma FADE subsystem stays in dsp_draw_context.mm. Entry points
+ *  the CLUT Set/Get cores + handlers, the gamma Set/Get cores + handlers, and
+ *  the guest LUT/parametric-colour read/write helpers.
+ *  The gamma FADE subsystem stays in dsp_draw_context.mm. Entry points
  *  are extern "C" (declared in dsp_draw_context.h); the 2 cores the fade code
  *  reuses are declared in dsp_clut_gamma.h.
  */
@@ -19,35 +19,16 @@
 
 #include "sysdeps.h"
 #include "cpu_emulation.h"
-#include "thunks.h"                /* SheepMem::Reserve (test hook) */
+#include "thunks.h"                /* SheepMem::Reserve */
 #include "dsp_engine.h"
-#include "dsp_event_record.h"      /* DSpEventRecord struct */
+#include "dsp_event_record.h"      /* DSpEventRecord struct (DSpContextPrivate member) */
 #include "dsp_draw_context.h"
-#include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler / DSpTesting_FindBestContextByStruct delegate target */
-#include "dsp_user_select_policy.h"
+#include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler delegate target */
 #include "dsp_context_private.h"   /* DSpContextPrivate full struct; shared with dsp_metal_renderer.mm */
-#include "dsp_cgraf_port_policy.h"
-#include "dsp_default_clut.h"
-#include "dsp_display_id_policy.h"
-#include "dsp_display_mode_policy.h"
-#include "dsp_front_buffer_policy.h"
-#include "dsp_front_staging_seed_policy.h"
-#include "dsp_get_attributes_policy.h"
 #include "dsp_guest_address.h"
-#include "dsp_main_device_redirect_policy.h"
-#include "dsp_quickdraw_restore_policy.h"
-#include "dsp_vbl_publish_policy.h"
-#include "dsp_pixmap_offsets.h"    /* PixMap field offsets + LMADDR_MAIN_DEVICE / GDEVICE_OFF_PMAP */
-#include "dsp_metal_renderer.h"    /* DSpAllocateBackBuffer / DSpEncodeBackBufferBlit / DSpGetBackBufferCGrafPtr */
-#include "gfxaccel_resources.h"    /* per-buffer owner-tag API */
-#include "gfxaccel_resources_heap.h" /* kHeapEngineDSp + heap_alloc_buffer for AltBuffer backing */
-#include "dsp_alt_buffer.h"        /* AltBuffer subsystem: record table + handlers (extracted) */
-#include "nqd_accel.h"               /* NQDMetalBitblt1to1 / NQDMetalBitbltScaled / NQDMetalFlush for DSpBlit */
-#include "metal_compositor.h"      /* MetalCompositorSubmitFrame + MetalCompositorGetFramebufferTexture + CompositeLayer */
-#include "metal_device_shared.h"   /* SharedMetalCommandQueue (SwapBuffers blit path) */
-#include "display_mode_controller.h" /* dmc_current_snapshot (FrameDescriptor generation); DMCOwner enum + dmc_set_active_owner */
+#include "metal_compositor.h"      /* MetalCompositorUpdatePalette (Active CLUT push) */
+#include "display_mode_controller.h" /* dmc_current_snapshot + dmc_record_*_change + kDMCNoErr */
 #include "dsp_engine_internal.h"   /* DSpMapStateToDMCOwnerTyped (internal-only, NOT in include/) */
-#include "vbl_source.h"
 #include "dsp_clut_gamma.h"
 
 /* ============================================================== */
@@ -60,16 +41,15 @@
 /* ============================================================== */
 
 /*
- *  Core write path
- *  shared by the production handler and the TESTING_BUILD host-struct
- *  wrapper. `entries_host_range` points to (last - first + 1) * 3 bytes
+ *  Core write path shared by the SetCLUTEntries handler and the Reserve
+ *  colorTable application path (dsp_draw_context.mm).
+ *  `entries_host_range` points to (last - first + 1) * 3 bytes
  *  of R/G/B data — NOT a 768-byte buffer; the caller's responsibility is
  *  to lay out the partial range starting at offset 0. This core helper
  *  only handles the post-validation write + compositor push + DMC bump.
  *
  *  Validation here re-checks ctx != null + bounds/ordering as a defensive
- *  second-layer because the testing wrapper also calls this path — but
- *  the production handler has already checked the same invariants, so
+ *  second-layer; the callers have already checked the same invariants, so
  *  the re-check is cheap.
  */
 int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
@@ -212,8 +192,8 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 	 * the internal clut_bytes storage + DSpSetCLUTCore stay 8-bit and
 	 * the composited pixels (which sample the latched 8-bit values) are
 	 * byte-identical. The staging buffer keeps DSpSetCLUTCore pure-host
-	 * so the TESTING_BUILD wrapper shares the same validation + write
-	 * path. */
+	 * (no guest-RAM reads) so the Reserve colorTable path can reuse the
+	 * same validation + write core. */
 	uint8_t staged[256 * 3];  /* 768 bytes — compile-time sized for worst case */
 	for (uint32_t i = 0; i < count; i++) {
 		uint32_t e = entriesAddr + i * 8;  /* 8-byte ColorSpec stride */
@@ -238,12 +218,11 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 
 
 /*
- *  Core read path shared by the production
- *  handler and the TESTING_BUILD host-struct wrapper. Reads
+ *  Core read path shared by the GetCLUTEntries handler and the fade
+ *  handlers (dsp_draw_context.mm). Reads
  *  (last - first + 1) * 3 bytes from ctx->clut_bytes_latched into the
  *  caller's host buffer. Defensive validation re-checks ctx != null +
- *  bounds/ordering so the testing wrapper shares the same guarantees as
- *  the production handler.
+ *  bounds/ordering so every caller shares the same guarantees.
  *
  *  Reads from clut_bytes_latched (NOT clut_bytes) per the VBL-barrier
  *  contract: GetCLUTEntries returns the last-VBL-boundary CLUT state, not
@@ -462,14 +441,13 @@ void DSpReadParametricColorFromGuest(uint32_t colorAddr,
 }
 
 /*
- *  Core SetGamma path
- *  shared by the production handler and the TESTING_BUILD host-LUT wrapper.
+ *  Core SetGamma path shared by the SetGamma handler and the fade
+ *  handlers (dsp_draw_context.mm).
  *  `lut_host_768` points to a 768-byte planar R/G/B LUT in host memory.
  *
  *  Validation here re-checks ctx != null + lut_host_768 != null as a
- *  defensive second-layer because the testing wrapper also calls this
- *  path — the production handler has already checked the same invariants,
- *  so the re-check is cheap.
+ *  defensive second-layer; the callers have already checked the same
+ *  invariants, so the re-check is cheap.
  *
  *  Sequence (cancellation BEFORE DMC push):
  *    1. Cancel any active fade: set fade_state.active = 0.
@@ -602,8 +580,7 @@ static void DSpWriteGammaLUTToGuest(uint32_t tableOutAddr,
 }
 
 /*
- *  Core GetGamma path shared by the
- *  production handler and the TESTING_BUILD host-LUT wrapper. Reads
+ *  Core GetGamma path. Reads
  *  the current DMC snapshot's gamma_lut[768] into the caller's
  *  host buffer.
  *

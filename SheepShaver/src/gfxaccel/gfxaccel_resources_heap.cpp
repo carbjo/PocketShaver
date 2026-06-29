@@ -43,8 +43,6 @@ extern "C" void *gfxaccel_resources_heap_mm_get(uint32_t heap_id);
 extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
                                                           uint32_t length,
                                                           uint32_t options);
-extern "C" void *gfxaccel_resources_heap_mm_alloc_texture(uint32_t heap_id,
-                                                           void *descriptor);
 extern "C" void gfxaccel_resources_heap_mm_lru_purge(void);
 extern "C" uint32_t gfxaccel_resources_heap_mm_heap_count(void);
 extern "C" uint64_t gfxaccel_resources_heap_mm_reset(uint32_t heap_id);
@@ -109,12 +107,6 @@ struct PurgeableEntry {
 };
 
 static std::deque<PurgeableEntry> g_lru;
-
-// ---------------------------------------------------------------------------
-// Per-heap ceiling overrides for testing
-// ---------------------------------------------------------------------------
-
-static uint32_t g_ceiling_override[kHeapCount] = { 0, 0, 0, 0, 0 };
 
 // ---------------------------------------------------------------------------
 // DMC on_mode_exit bump-reset subscriber
@@ -249,17 +241,6 @@ extern "C" void *gfxaccel_resources_heap_alloc_buffer(uint32_t heap_id,
 	return gfxaccel_resources_heap_mm_alloc_buffer(heap_id, length, options);
 }
 
-extern "C" void *gfxaccel_resources_heap_alloc_texture(uint32_t heap_id,
-                                                        void *descriptor)
-{
-	if (heap_id >= kHeapCount) {
-		fprintf(stderr, "[gfxaccel-heap] alloc_texture: heap_id=%u out of range\n",
-		        (unsigned)heap_id);
-		return NULL;
-	}
-	return gfxaccel_resources_heap_mm_alloc_texture(heap_id, descriptor);
-}
-
 // Public wrapper for the per-heap bump-offset reset. Delegates to the
 // .mm side which owns the
 // offset counter. Bounds checking is done both here (defensive) and in
@@ -291,37 +272,6 @@ extern "C" uint32_t gfxaccel_resources_heap_live_allocation_count(uint32_t heap_
 }
 
 // ---------------------------------------------------------------------------
-// Public API - Engine attach/detach
-// ---------------------------------------------------------------------------
-
-extern "C" void gfxaccel_resources_heap_engine_attach(uint32_t engine_id,
-                                                       const struct DMCModeSnapshot *incoming)
-{
-	(void)incoming;
-	if (engine_id >= kGfxEngineCount) {
-		fprintf(stderr, "[gfxaccel-heap] engine_attach: engine_id=%u out of range\n",
-		        (unsigned)engine_id);
-		return;
-	}
-	// Lazy-create the heap on first attach. The heap_id for engines
-	// maps 1:1 with GfxEngineId.
-	(void)gfxaccel_resources_heap_get(engine_id);
-}
-
-extern "C" void gfxaccel_resources_heap_engine_detach(uint32_t engine_id,
-                                                       const struct DMCModeSnapshot *outgoing)
-{
-	(void)outgoing;
-	if (engine_id >= kGfxEngineCount) {
-		fprintf(stderr, "[gfxaccel-heap] engine_detach: engine_id=%u out of range\n",
-		        (unsigned)engine_id);
-		return;
-	}
-	// Detach does NOT release the heap (heap persists for re-attach).
-	// Ring buffer offset reset can be added here if detach semantics change.
-}
-
-// ---------------------------------------------------------------------------
 // Public API - Eviction pipeline
 // ---------------------------------------------------------------------------
 
@@ -342,8 +292,4 @@ extern "C" void gfxaccel_heap_lru_purge_volatile(void)
 	gfxaccel_resources_heap_mm_lru_purge();
 	g_lru.clear();
 }
-
-// ---------------------------------------------------------------------------
-// TESTING_BUILD introspection
-// ---------------------------------------------------------------------------
 

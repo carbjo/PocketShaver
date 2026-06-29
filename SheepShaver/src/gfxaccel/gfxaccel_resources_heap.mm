@@ -321,68 +321,6 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
 	return NULL;
 }
 
-extern "C" void *gfxaccel_resources_heap_mm_alloc_texture(uint32_t heap_id,
-                                                           void *descriptor)
-{
-	if (descriptor == NULL) {
-		fprintf(stderr, "[gfxaccel-heap] alloc_texture: NULL descriptor\n");
-		return NULL;
-	}
-
-	// Ensure heap exists (lazy create).
-	if (gfxaccel_resources_heap_mm_get(heap_id) == NULL) {
-		return NULL;
-	}
-
-	id<MTLHeap> heap = g_heaps[heap_id];
-	MTLTextureDescriptor *desc = (__bridge MTLTextureDescriptor *)descriptor;
-
-	// Bump allocator: query the device for the size+alignment of
-	// the texture when placed in a heap (Metal's heap size-and-align API
-	// lives on MTLDevice), align the bump offset up, call the :offset:
-	// variant required by Placement heaps, advance the bump offset.
-	id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
-	MTLSizeAndAlign sa = [device heapTextureSizeAndAlignWithDescriptor:desc];
-
-	id<MTLTexture> tex = nil;
-	for (int tier = 0; tier < 3; ++tier) {
-		restore_heap_if_purgeable(heap_id);
-		NSUInteger aligned = align_offset_up(g_next_offset[heap_id], sa.align);
-
-		// Over-commit pre-check: skip the Metal call to avoid the
-		// Placement validation assertion.
-		if (aligned + sa.size > g_heap_sizes[heap_id]) {
-			// Fall through to eviction below.
-		} else {
-			tex = [heap newTextureWithDescriptor:desc offset:aligned];
-			if (tex != nil) {
-				g_next_offset[heap_id] = aligned + sa.size;
-				g_live_allocations[heap_id]++;
-				return (__bridge_retained void *)tex;
-			}
-			// Metal refused at this offset; advance past it.
-			g_next_offset[heap_id] = aligned + sa.size;
-		}
-
-		// Eviction pipeline: tier 0 -> LRU purge, tier 1 -> PSO flush.
-		if (tier == 0) {
-			gfxaccel_heap_lru_purge_volatile();
-		} else if (tier == 1) {
-			gfxaccel_heap_pso_cache_clear();
-		}
-	}
-
-	// Tier 3 - Loud failure.
-	os_log_fault(gfxaccel_heap_log(),
-	             "Heap exhausted for heap_id=%u: alloc_texture failed "
-	             "after 3-tier eviction (next_offset=%lu, size=%lu, align=%lu)",
-	             (unsigned)heap_id,
-	             (unsigned long)g_next_offset[heap_id],
-	             (unsigned long)sa.size, (unsigned long)sa.align);
-
-	return NULL;
-}
-
 // Per-heap bump-offset reset. Zeros g_next_offset[heap_id] and returns
 // the number of bytes reclaimed (= the previous next_offset). Does NOT
 // release g_heaps[heap_id] — only the offset counter is reset.
@@ -536,10 +474,9 @@ extern "C" int32_t gfxaccel_heap_wait_for_eviction(uint64_t frame_interval_usec)
 // Public wrappers (route through heap_mm_ variants)
 // ---------------------------------------------------------------------------
 
-// gfxaccel_resources_heap_get, gfxaccel_resources_heap_alloc_buffer,
-// gfxaccel_resources_heap_alloc_texture, gfxaccel_resources_heap_engine_attach,
-// gfxaccel_resources_heap_engine_detach are implemented in the .cpp side
-// and call through to the _mm_ variants declared above.
+// gfxaccel_resources_heap_get and gfxaccel_resources_heap_alloc_buffer are
+// implemented in the .cpp side and call through to the _mm_ variants declared
+// above.
 
 // ---------------------------------------------------------------------------
 // RaveRingBuffer implementation
@@ -759,16 +696,4 @@ extern "C" int32_t gfxaccel_rave_ring_submission_near_exhaustion(void)
 	// restarts the pass at a draw-sequence boundary when this fires.
 	return (g_rave_ring_slots_in_submission >= RAVE_RING_BUFFER_COUNT - 1) ? 1 : 0;
 }
-
-extern "C" void *gfxaccel_rave_ring_buffer_ptr(void)
-{
-	if (g_rave_ring_buffer == nil) {
-		return NULL;
-	}
-	return (__bridge void *)g_rave_ring_buffer;
-}
-
-// ---------------------------------------------------------------------------
-// TESTING_BUILD helpers
-// ---------------------------------------------------------------------------
 

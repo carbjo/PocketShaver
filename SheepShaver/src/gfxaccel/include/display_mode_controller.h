@@ -352,23 +352,6 @@ int32_t dmc_record_gamma_change_with_lut_fade(const uint8_t *lut, int fade_activ
  */
 int32_t dmc_set_blanking_color(const uint8_t rgba[4]);
 
-/*
- * --- Test-only helpers (TESTING_BUILD only) ---
- *
- * Guarded by TESTING_BUILD compile flag set ONLY in PocketShaverTests
- * target (GCC_PREPROCESSOR_DEFINITIONS). Production .ipa MUST NOT define
- * TESTING_BUILD (CI gate per Threat T-02-05); verify via
- * `grep TESTING_BUILD project.pbxproj` showing the flag only under the
- * PocketShaverTests Debug/Release build configurations.
- *
- * dmc_testing_reset() forcibly tears down module state so each XCTest
- * method starts from Quiescent without relying on dmc_shutdown()'s
- * initialized-state guard.
- *
- * dmc_testing_state() exposes the internal FSM state (returns
- * DMCState value) for assertions.
- */
-
 #ifdef __cplusplus
 }
 #endif

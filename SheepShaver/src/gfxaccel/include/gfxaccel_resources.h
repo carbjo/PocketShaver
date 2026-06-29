@@ -287,13 +287,6 @@ void gfxaccel_resources_release_overlay_texture(uint32_t engine_id, void *textur
 void gfxaccel_resources_set_buffer_owner(void *buffer, uint32_t engine_id);
 
 /*
- * Query the owning engine id for a previously-tagged buffer.
- * Returns kGfxEngineCount (invalid sentinel) if buffer is NULL or was
- * never tagged. Callers treat that as "no owner recorded".
- */
-uint32_t gfxaccel_resources_get_buffer_owner(void *buffer);
-
-/*
  * Remove a buffer's owner tag. Silent no-op if buffer is NULL or absent
  * from the map. Called from engine release paths before the buffer is
  * dropped so the map does not hold a dangling pointer.
@@ -333,8 +326,6 @@ void gfxaccel_handle_foreground_enter(void);
 typedef void (*GfxAccelLifecycleHookFn)(void *ctx);
 void gfxaccel_set_dsp_background_hook(GfxAccelLifecycleHookFn fn, void *ctx);
 void gfxaccel_set_dsp_foreground_hook(GfxAccelLifecycleHookFn fn, void *ctx);
-
-/* --- TESTING_BUILD introspection --- */
 
 #ifdef __cplusplus
 }

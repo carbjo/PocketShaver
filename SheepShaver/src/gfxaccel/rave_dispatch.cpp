@@ -18,11 +18,7 @@
 
 // RAVE error codes (must match TQAError enum in RAVE.h)
 #define kQANoErr                    0
-#define kQAError                    1
-#define kQAOutOfMemory              2
 #define kQANotSupported             3
-#define kQAParamErr                 5
-#define kQAGestaltUnknown           6
 
 // Engine callback declarations (implemented in rave_engine.cpp)
 // Return TQAError (int32), take explicit PPC register values as args
@@ -165,14 +161,6 @@ uint32 RaveDispatch(uint32 r3, uint32 r4, uint32 r5,
 {
 	// Read sub-opcode from scratch word
 	uint32 method_id = ReadMacInt32(rave_scratch_addr);
-
-	// Trace all RAVE dispatch calls to stderr (os_log doesn't appear in console)
-	static int rave_dispatch_count = 0;
-	if (rave_dispatch_count < 200) {
-		fprintf(stderr, "RAVE: dispatch method=%d r3=0x%x r4=0x%x r5=0x%x r6=0x%x r7=0x%x\n",
-		        method_id, r3, r4, r5, r6, r7);
-		rave_dispatch_count++;
-	}
 
 	if (method_id < kRaveDrawMethodCount) {
 		// Draw method dispatch (0-34)

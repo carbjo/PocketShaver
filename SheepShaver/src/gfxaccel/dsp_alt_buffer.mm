@@ -10,8 +10,8 @@
  *
  *  Extracted verbatim from dsp_draw_context.mm (de-bloat, NO behaviour change):
  *  the alt-buffer record table + lifecycle helpers, the production handlers
- *  (New/Dispose/GetCGrafPtr/InvalRect + underlay Get/Set), the
- *  DSpTesting_AltBuffer_* harness wrappers, and DSpSyncAltBufferStagingToBacking.
+ *  (New/Dispose/GetCGrafPtr/InvalRect + underlay Get/Set), and
+ *  DSpSyncAltBufferStagingToBacking.
  *  Cross-TU surface (DSpGetAltBuffer / DSpSyncAltBufferStagingToBacking /
  *  DSpResetAltBufferTable) is declared in dsp_alt_buffer.h. The record struct +
  *  DSP_MAX_ALT_BUFFERS live in dsp_alt_buffer.h.
@@ -24,7 +24,7 @@
 #include "dsp_engine.h"
 #include "dsp_event_record.h"      /* DSpEventRecord struct */
 #include "dsp_draw_context.h"
-#include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler / DSpTesting_FindBestContextByStruct delegate target */
+#include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler delegate target */
 #include "dsp_user_select_policy.h"
 #include "dsp_context_private.h"   /* DSpContextPrivate full struct; shared with dsp_metal_renderer.mm */
 #include "dsp_cgraf_port_policy.h"

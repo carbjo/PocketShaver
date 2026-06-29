@@ -114,8 +114,6 @@ uint32_t pso_archive_is_available(void);
  */
 void pso_archive_set_on_descriptor(void *descriptor);
 
-/* --- TESTING_BUILD introspection --- */
-
 #ifdef __cplusplus
 }
 #endif

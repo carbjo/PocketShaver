@@ -17,7 +17,6 @@ struct GLDeferDesc {
 
 // Guest-memory addresses (SheepMem), set in GLDeferInit / GLThunksInit:
 extern uint32_t gl_defer_ring_base;    // first byte of ring
-extern uint32_t gl_defer_ring_end;     // base + GL_DEFER_RING_SIZE
 extern uint32_t gl_defer_head_addr;    // guest word: current write offset-from-base (bytes)
 extern uint32_t gl_defer_count_addr;   // guest word: number of records pending
 extern uint32_t gl_defer_enabled_addr; // guest word: 1=defer active, 0=fall back to trap (kill-switch + display-list gate)

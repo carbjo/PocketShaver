@@ -69,12 +69,6 @@ uint32_t gl_dt_flag_addr = 0;  // 1 = dispatch-table call, 0 = stub call
  *  Integer/pointer args go in GPR3-GPR10.
  *  The generic dispatch handler uses this table to extract FPR values.
  */
-static const GLFuncSignature gl_func_sigs_init[GL_MAX_SUBOPCODE] = {
-    // Most entries are zero-initialized (all-integer args).
-    // Non-trivial entries are set explicitly below in GLThunksInit
-    // via a mutable copy, but we define common ones statically here.
-};
-
 // Mutable copy that gets populated at init time
 GLFuncSignature gl_func_signatures[GL_MAX_SUBOPCODE];
 // gl_func_signatures is the extern array declared in gl_engine.h
@@ -679,7 +673,6 @@ bool GLThunksInit(void)
 
 	// Track A immediate-mode batching: guest-memory command ring + control words.
 	gl_defer_ring_base    = SheepMem::Reserve(GL_DEFER_RING_SIZE);
-	gl_defer_ring_end     = gl_defer_ring_base + GL_DEFER_RING_SIZE;
 	gl_defer_head_addr    = SheepMem::Reserve(4); WriteMacInt32(gl_defer_head_addr, 0);
 	gl_defer_count_addr   = SheepMem::Reserve(4); WriteMacInt32(gl_defer_count_addr, 0);
 	gl_defer_enabled_addr = SheepMem::Reserve(4); WriteMacInt32(gl_defer_enabled_addr, 1); // default ON

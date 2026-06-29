@@ -48,11 +48,6 @@ static inline unsigned GLMetalDrawableColorWriteMask(bool is_offscreen,
 	return GLMetalOverlayColorWriteMask(red, green, blue, alpha);
 }
 
-static inline float GLMetalClampClearAlpha(float alpha)
-{
-	return OverlayClearClampAlpha(alpha);
-}
-
 static inline float GLMetalOverlayClearAlpha(bool is_offscreen,
                                              float guest_clear_alpha)
 {
@@ -114,12 +109,6 @@ static inline bool GLMetalLatchedTexture2DSurvivesDisable(
 	return (uint32_t)(completed_draw_serial - last_enable_draw_serial) <= 1u;
 }
 
-static inline bool GLMetalDrawStateEnabledForDraw(bool current_enabled,
-                                                  bool prepared_for_draw)
-{
-	return current_enabled || prepared_for_draw;
-}
-
 static inline bool GLMetalTexCoordArrayAvailableForArrayDraw(
 	bool current_enabled, bool prepared_for_draw,
 	bool latched_texture_for_array_draw, bool retained_pointer)
@@ -159,19 +148,6 @@ static inline bool GLMetalFloatNearlyEqual(float a, float b, float epsilon)
 {
 	const float delta = a - b;
 	return delta <= epsilon && delta >= -epsilon;
-}
-
-static inline bool GLMetalMatrixIsIdentity(const float m[16])
-{
-	if (m == 0)
-		return false;
-	for (int i = 0; i < 16; i++) {
-		const float expected =
-			(i == 0 || i == 5 || i == 10 || i == 15) ? 1.0f : 0.0f;
-		if (!GLMetalFloatNearlyEqual(m[i], expected, 0.0001f))
-			return false;
-	}
-	return true;
 }
 
 static inline bool GLMetalProjectPointToNDC(const float m[16], float x, float y,

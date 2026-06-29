@@ -727,9 +727,6 @@ enum {
 #define GL_CTX_DISPATCH_SLOTS 512
 #define GL_DT_DIAG_BASE       4096   // sub_opcode >= this => unmapped slot (slot = sub_opcode - base)
 
-// Total TVECT count across all libraries
-#define GL_TOTAL_TVECTS (GL_SUB_CORE_COUNT + GL_SUB_EXT_COUNT + GL_SUB_AGL_COUNT + GL_SUB_GLU_COUNT + GL_SUB_GLUT_COUNT)
-
 // Sub-opcode range boundaries (for iteration in GLThunksInit)
 #define GL_CORE_FIRST    0
 #define GL_CORE_LAST     335
@@ -1513,15 +1510,6 @@ int  GLContextGetOffscreenDrawable(GLContext *ctx,
                                    uint32_t *outH,
                                    uint32_t *outRowbytes,
                                    uint32_t *outBaseaddr);
-uint64_t GLCompositeLatestOffscreenToGuestSurface(uint32_t dstBaseaddr,
-                                                  uint32_t dstRowbytes,
-                                                  uint32_t dstWidth,
-                                                  uint32_t dstHeight,
-                                                  uint32_t dstDepthBits);
-uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtent(
-	uint32_t dstBaseaddr,
-	uint32_t dstRowbytes,
-	uint32_t dstDepthBits);
 uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentDirtyRect(
 	uint32_t dstBaseaddr,
 	uint32_t dstRowbytes,

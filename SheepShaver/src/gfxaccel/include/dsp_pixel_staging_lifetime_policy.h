@@ -10,11 +10,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-static inline bool DSpPixelStagingQuarantinesReleasedBuffers(void)
-{
-	return true;
-}
-
 static inline bool DSpPixelStagingShouldReturnExposedAllocationToMacHeap(
 	bool allocated_from_mac_system_heap)
 {

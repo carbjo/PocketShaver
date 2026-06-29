@@ -13,11 +13,6 @@
 #include "dsp_cgraf_port_policy.h"
 #include "dsp_pixmap_offsets.h"
 
-static inline bool DSpBackBufferCGrafPtrUsesRealCGrafPort(void)
-{
-	return true;
-}
-
 static inline uint32_t DSpBackBufferPixMapRecordSize(void)
 {
 	return (uint32_t)DSP_MAINDEVICE_PIXMAP_SIZE;

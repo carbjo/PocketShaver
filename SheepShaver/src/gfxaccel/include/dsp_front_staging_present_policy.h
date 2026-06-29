@@ -72,17 +72,6 @@ static inline void DSpFrontStagingRememberSeedHash(
 	state->unchanged_skips = 0;
 }
 
-static inline void DSpFrontStagingRememberPresentedBytes(
-	DSpFrontStagingPresentState *state,
-	const uint8_t *bytes,
-	uint32_t size)
-{
-	DSpFrontStagingRememberHash(
-		state,
-		DSpFrontStagingHashBytes(bytes, size),
-		size);
-}
-
 static inline void DSpFrontStagingRememberSeedBytes(
 	DSpFrontStagingPresentState *state,
 	const uint8_t *bytes,
@@ -122,17 +111,6 @@ static inline bool DSpFrontStagingShouldEncodeHash(
 	uint32_t size)
 {
 	return DSpFrontStagingShouldEncodeHashForGamma(state, hash, size, 0, 0);
-}
-
-static inline bool DSpFrontStagingShouldEncodeChangedBytes(
-	DSpFrontStagingPresentState *state,
-	const uint8_t *bytes,
-	uint32_t size)
-{
-	return DSpFrontStagingShouldEncodeHash(
-		state,
-		DSpFrontStagingHashBytes(bytes, size),
-		size);
 }
 
 #endif /* DSP_FRONT_STAGING_PRESENT_POLICY_H */

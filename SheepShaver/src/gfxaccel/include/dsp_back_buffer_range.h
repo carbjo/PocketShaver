@@ -16,11 +16,4 @@ static inline uint32_t DSpBackBufferAlignedRowBytes(uint32_t width,
 	return (row_bytes + 255u) & ~255u;
 }
 
-static inline uint32_t DSpBackBufferByteSize(uint32_t width,
-                                             uint32_t height,
-                                             uint32_t depth_bits)
-{
-	return DSpBackBufferAlignedRowBytes(width, depth_bits) * height;
-}
-
 #endif /* DSP_BACK_BUFFER_RANGE_H */

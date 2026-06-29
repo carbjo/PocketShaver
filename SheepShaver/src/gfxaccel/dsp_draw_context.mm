@@ -28,7 +28,7 @@
 #include "dsp_engine.h"
 #include "dsp_event_record.h"      /* DSpEventRecord struct */
 #include "dsp_draw_context.h"
-#include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler / DSpTesting_FindBestContextByStruct delegate target */
+#include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler delegate target */
 #include "dsp_user_select_policy.h"
 #include "dsp_context_private.h"   /* DSpContextPrivate full struct; shared with dsp_metal_renderer.mm */
 #include "dsp_cgraf_port_policy.h"
@@ -1320,9 +1320,8 @@ static void DSpInvalBackBufferRect_Accumulate(DSpContextPrivate *ctx,
                                                int16_t bottom, int16_t right);
 
 /*
- *  Core BlankFill path shared by
- *  the production handler (DSpContext_BlankFillHandler below) and the
- *  TESTING_BUILD host-value wrapper (DSpTesting_BlankFillByValues).
+ *  Core BlankFill path for the production handler
+ *  (DSpContext_BlankFillHandler below).
  *
  *  Arguments (pre-validated by caller):
  *    ctx      — non-null DSpContextPrivate *
@@ -1366,12 +1365,9 @@ static void DSpInvalBackBufferRect_Accumulate(DSpContextPrivate *ctx,
  */
 /*
  *  Depth-dispatch fill kernel operating on a
- *  caller-provided host buffer. Shared by:
- *    - DSpBlankFillCore (production path — ctx->back_buffer.contents)
- *    - DSpTesting_BlankFillOnHostBuffer (TESTING_BUILD — simulator path
- *      where ctx->back_buffer is forced to StorageModePrivate by the
- *      gfxaccel_resources heap module; tests pass a host-memory buffer
- *      pre-sized to pitch * bb_h).
+ *  caller-provided host buffer. Called by DSpBlankFillCore (production path —
+ *  ctx->back_buffer.contents). Factored to a host-buffer signature so the fill
+ *  formulas stay independent of how the destination memory is obtained.
  *
  *  Byte-identical behavior to the in-place production fill — same
  *  clipping, same depth-switch, same pixel-pack formulas. Returns
@@ -1503,11 +1499,9 @@ static int32_t DSpBlankFillCore(DSpContextPrivate *ctx,
 
 	uint8_t *base = (uint8_t *)contents;
 
-	/* Step 3b: depth-dispatch fill via shared helper so the
-	 * TESTING_BUILD DSpTesting_BlankFillOnHostBuffer
-	 * shim can reuse the exact same formulas without requiring a real
-	 * Shared MTLBuffer — iOS simulator coerces heap allocs to
-	 * StorageModePrivate per gfxaccel_resources_heap.mm:190). */
+	/* Step 3b: depth-dispatch fill via the shared host-buffer helper
+	 * (DSpBlankFillDepthDispatch) so the fill formulas are isolated from the
+	 * MTLBuffer-contents acquisition above. */
 	const int32_t fill_rv = DSpBlankFillDepthDispatch(base, depth, pitch,
 	                                                   c_top, c_left,
 	                                                   c_bottom, c_right,
@@ -1679,9 +1673,7 @@ extern "C" int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef,
  * lifecycle no longer writes osEvt records into this ring; it flows through
  * GfxAccelBackgroundLifecycleObserver -> gfxaccel_resources atomic
  * flag-and-drain -> DSpHandleBackgroundFromEmulThread /
- * DSpHandleForegroundFromEmulThread. The ~18 DSpEventTests
- * ring-observation methods migrate to the
- * TESTING_BUILD DSpTesting_DequeueContextEvent host helper instead.
+ * DSpHandleForegroundFromEmulThread.
  *
  * Per DSp 1.7 PDF p.58:
  *   OSStatus DSpProcessEvent(EventRecord *inEvent, Boolean *outEventWasProcessed)
@@ -2108,125 +2100,6 @@ static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
 		        "table=0x%08x rv=%d; default indexed CLUT retained",
 		        colorTableHandle, colorTableAddr, rv);
 	}
-}
-
-/*
- *  Core Reserve body extracted to operate on an already-extracted
- *  DSpContextAttributes struct + uint32_t* out pointer (not a Mac
- *  address). Separates the Mac-memory I/O from the business logic so:
- *    (a) the production PPC path (DSpContext_ReserveHandler below) wraps
- *        this with ReadMacInt32/WriteMacInt32;
- *    (b) the TESTING_BUILD wrapper DSpTesting_ReserveByStruct wraps this
- *        with a C struct + out-param pointer, side-stepping the
- *        EMULATED_PPC=0 Mac-address truncation hazard on arm64 iOS
- *        simulator where RAM can mmap above 4 GiB and `*(uint32*)addr`
- *        would SEGV.
- *
- *  Both call sites MUST validate the same invariants — the split is a
- *  clean compile-time factoring, not a divergence in behavior.
- */
-static int32_t DSpContext_Reserve_Core(const DSpContextAttributes *attr,
-                                        uint32_t *outCtxRef)
-{
-	if (attr == nullptr || outCtxRef == nullptr) {
-		DSP_LOG("Reserve_Core: NULL attr or outCtxRef ptr");
-		return kDSpInvalidAttributesErr;
-	}
-
-	uint32_t displayWidth        = attr->displayWidth;
-	uint32_t displayHeight       = attr->displayHeight;
-	uint32_t backBufferBestDepth = attr->backBufferBestDepth;
-	uint32_t displayBestDepth    = attr->displayBestDepth;
-	uint32_t backBufferDepthMask = attr->backBufferDepthMask;
-	uint32_t displayDepthMask    = attr->displayDepthMask;
-	uint32_t pageCount           = attr->pageCount;
-	uint32_t colorNeeds          = attr->colorNeeds;
-	uint32_t contextOptions      = attr->contextOptions;
-
-	/* Validation rules. */
-	if (pageCount == 0 || displayWidth == 0 || displayHeight == 0) {
-		DSP_LOG("Reserve: invalid attrs (w=%u h=%u pc=%u)",
-		        displayWidth, displayHeight, pageCount);
-		return kDSpInvalidAttributesErr;
-	}
-	/* All six depths are supported (no 1/2/4 bpp restriction). Valid
-	 * depths are the six DSp 1.7 PDF p.66 indexed + direct modes:
-	 * 1/2/4/8 indexed (R8Uint with shader-unpack per compositor precedent),
-	 * 16 direct (R16Uint xRGB1555), 32 direct (BGRA8Unorm). */
-	if (backBufferBestDepth != 1 && backBufferBestDepth != 2 &&
-	    backBufferBestDepth != 4 && backBufferBestDepth != 8 &&
-	    backBufferBestDepth != 16 && backBufferBestDepth != 32) {
-		DSP_LOG("Reserve: unsupported back-buffer depth %u "
-		        "(valid: 1/2/4/8/16/32)",
-		        backBufferBestDepth);
-		return kDSpInvalidAttributesErr;
-	}
-	if (backBufferDepthMask == 0) {
-		DSP_LOG("Reserve: backBufferDepthMask=0 (must specify a mask)");
-		return kDSpInvalidAttributesErr;
-	}
-	/* Oversize guard (ASVS V5 + DMC validation). */
-	if (displayWidth > 4096 || displayHeight > 4096) {
-		DSP_LOG("Reserve: oversize resolution %ux%u clamped to paramErr",
-		        displayWidth, displayHeight);
-		return kDSpInvalidAttributesErr;
-	}
-
-	/* `new DSpContextPrivate()` value-initializes: POD fields zero'd,
-	 * id<MTL*> ARC fields set to nil. Do NOT std::memset over this —
-	 * that would bypass ARC on the ObjC pointer slots (UB). */
-	DSpContextPrivate *ctx = new DSpContextPrivate();
-	ctx->attr.displayWidth        = displayWidth;
-	ctx->attr.displayHeight       = displayHeight;
-	ctx->attr.backBufferWidth     = DSpReserveBackBufferDimension(0, displayWidth);
-	ctx->attr.backBufferHeight    = DSpReserveBackBufferDimension(0, displayHeight);
-	ctx->attr.backBufferBestDepth = backBufferBestDepth;
-	ctx->attr.displayBestDepth    = displayBestDepth;
-	ctx->attr.backBufferDepthMask = backBufferDepthMask;
-	ctx->attr.displayDepthMask    = displayDepthMask;
-	ctx->attr.pageCount           = pageCount;
-	ctx->attr.colorNeeds          = colorNeeds;
-	ctx->attr.colorTable          = attr->colorTable;
-	ctx->attr.contextOptions      = contextOptions;
-	ctx->state                    = kDSpContextState_Inactive;
-	/* Debug session `dsp-sims-enumeration-stall` fix (2026-04-19): Reserve
-	 * creates a full context that owns Metal resources; it is NOT part of
-	 * the GetFirstContext / GetNextContext enumeration chain. Calling
-	 * GetNextContext with a Reserved handle should terminate the iteration
-	 * (PDF p.17 "last context in the list"). Sentinel the field so the
-	 * handler's DSP_ENUMERATION_INDEX_NONE branch fires. */
-	ctx->enumeration_mode_index   = DSP_ENUMERATION_INDEX_NONE;
-	ctx->dirty_empty              = true;
-	ctx->dirty_cold_start         = true;   /* PDF p.38 — first swap = full */
-	ctx->explicit_swap_observed   = false;
-	/* Cheap-query bookkeeping — explicit zero-init (matches
-	 * the new DSpContextPrivate() POD value-init; 0 = no max-fps restriction +
-	 * grid defaults to the 32x32 base unit until a Set). */
-	ctx->max_frame_rate           = 0;
-	ctx->dirty_grid_w             = 0;
-	ctx->dirty_grid_h             = 0;
-	DSpInitDefaultCLUT(ctx->clut_bytes, ctx->clut_bytes_latched,
-	                   backBufferBestDepth);
-	DSpApplyReserveColorTable(ctx, ctx->attr.colorTable, backBufferBestDepth);
-
-	if (!DSpAllocateBackBuffer(ctx,
-	                            ctx->attr.backBufferWidth,
-	                            ctx->attr.backBufferHeight,
-	                            backBufferBestDepth)) {
-		delete ctx;
-		return kDSpInternalErr;
-	}
-	uint32_t handle = DSpAllocContextHandle(ctx);
-	if (handle == 0) {
-		DSpReleaseNow(ctx);
-		return kDSpInternalErr;
-	}
-	dsp_context_count++;
-	*outCtxRef = handle;
-	DSP_LOG("Reserve: handle=%u %ux%u@%ubpp pc=%u opts=0x%x",
-	        handle, displayWidth, displayHeight, backBufferBestDepth,
-	        pageCount, contextOptions);
-	return kDSpNoErr;
 }
 
 /*
@@ -4455,9 +4328,7 @@ extern "C" int32_t DSpContext_SetMaxFrameRateHandler(uint32_t ctxRef,
 
 
 /* Compute the display refresh rate as a DSp/QuickDraw Fixed (16.16) value
- * from the VBL cadence. Hz = 1e6 / cadence_usec; Fixed = Hz << 16. Shared by
- * the production handler + the TESTING_BUILD helper so both report the
- * identical device-native value. */
+ * from the VBL cadence. Hz = 1e6 / cadence_usec; Fixed = Hz << 16. */
 static uint32_t DSpComputeMonitorFrequencyFixed(void)
 {
 	uint64_t cadence = vbl_source_get_cadence_usec();   /* usec per VBL */
@@ -4781,11 +4652,9 @@ extern "C" int32_t DSpGetCurrentContextHandler(uint32_t displayID,
 #define kDSpLM_MouseLocation_h 0x82eu   /* Point.h — horizontal (left) coord */
 
 
-/* Read the current global host mouse position into (*v, *h). Production reads
- * the Mac MouseLocation lowmem Point (kept live by adb.cpp's input stack); the
- * TESTING_BUILD path reads the host-side snapshot to avoid the EMULATED_PPC=0
- * fixed-lowmem SEGV. Either way this is the REAL host mouse
- * source — NOT a hardcoded (0,0) stub. */
+/* Read the current global host mouse position into (*v, *h). Reads
+ * the Mac MouseLocation lowmem Point (kept live by adb.cpp's input stack).
+ * This is the REAL host mouse source — NOT a hardcoded (0,0) stub. */
 static void DSpReadGlobalMousePoint(int16_t *v, int16_t *h)
 {
 	/* MouseLocation is a Point {v, h}; vertical at 0x82c, horizontal at 0x82e
@@ -4875,8 +4744,7 @@ extern "C" int32_t DSpContext_LocalToGlobalHandler(uint32_t ctxRef,
  * (the SwapBuffers active-context gate) and, if the point is inside that
  * context's display bounds, returns its handle. Returns 0 for an off-screen
  * point (negative or beyond display bounds) OR when no Active context exists
- * — the error-code-IS-the-answer single-display posture. Shared by
- * the production handler + the TESTING_BUILD host helper. The (v, h) are
+ * — the error-code-IS-the-answer single-display posture. The (v, h) are
  * already-unpacked by-VALUE coords — never a dereferenced pointer.
  * ASVS V5: the display-bounds check runs BEFORE returning any handle. */
 static uint32_t DSpResolveContextHandleAtPoint(int16_t v, int16_t h)
@@ -4928,7 +4796,7 @@ extern "C" int32_t DSpFindContextFromPointHandler(int16_t v, int16_t h,
  *  744, 746, 747, 760, 761). Single-display-faithful: on the one
  *  iOS display CanUserSelectContext reports false, FindBestContextOnDisplayID
  *  and UserSelectContext delegate to the existing FindBest 3-tier matcher
- *  (DSpFindBestContextHandler / DSpTesting_FindBestContextByStruct — no new
+ *  (DSpFindBestContextHandler — no new
  *  algorithm), and the error code IS the correct single-display answer.
  *  SetDebugMode stores a global flag (store only). SetBlankingColor assigns
  *  the DMC blanking color via the no-transition dmc_set_blanking_color
@@ -5607,8 +5475,3 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 	        color_r, color_g, color_b);
 	return kDSpNoErr;
 }
-
-
-
-/* --- TESTING_BUILD helpers --- */
-

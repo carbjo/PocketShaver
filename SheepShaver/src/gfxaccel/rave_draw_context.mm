@@ -30,7 +30,6 @@ extern uint32 Mac_sysalloc(uint32 size);
 // RAVE error codes (must match TQAError enum in RAVE.h)
 #define kQANoErr                    0
 #define kQAError                    1
-#define kQAOutOfMemory              2
 #define kQANotSupported             3
 #define kQAParamErr                 5
 
@@ -48,7 +47,6 @@ extern uint32 Mac_sysalloc(uint32 size);
 #endif
 
 static RaveDrawPrivate *context_table[RAVE_MAX_CONTEXTS] = {};
-static uint32_t next_handle = 1;
 
 int rave_context_count = 0;
 uint32_t rave_current_draw_context_addr = 0;
