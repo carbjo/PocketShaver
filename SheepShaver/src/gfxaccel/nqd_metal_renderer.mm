@@ -1518,19 +1518,24 @@ void NQDMetalBltMask(uint32 p)
     // portRect) doesn't displace the clip shape.
     int16 dest_rect_left = (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
     int16 dest_rect_top  = (int16)ReadMacInt16(p + NQD_acclDestRect + 0);
-    std::vector<uint8_t> cpu_mask(mask_size, 0);
+    // Decode straight into the pooled shared-storage buffer — a CPU-side
+    // staging vector would zero, decode, then copy the full mask a second
+    // time (~786 KB twice for a full-screen 1024x768 masked redraw). A failed
+    // decode leaves dirty bytes that are never read: the dispatch below is
+    // skipped, and every later mask op fully rewrites and only reads its own
+    // [0, mask_size) window.
+    nqd_ensure_mask_buffer(mask_size);
+    if (!nqd_mask_buffer) return;
+    uint8_t *mask_bytes = (uint8_t *)[nqd_mask_buffer contents];
+    memset(mask_bytes, 0, mask_size);
     if (!nqd_decode_region(mask_rgn_addr, dest_rect_left, dest_rect_top,
                             (int)width_pixels, (int)height,
                             (int)mask_stride, src_pixel_size,
-                            pixel_mask_columns, cpu_mask.data(),
+                            pixel_mask_columns, mask_bytes,
                             mask_size)) {
         NQD_ERR("NQDMetalBltMask: region decode failed, skipping");
         return;
     }
-
-    // Copy mask into GPU buffer
-    nqd_ensure_mask_buffer(mask_size);
-    memcpy([nqd_mask_buffer contents], cpu_mask.data(), mask_size);
 
     NQDBitbltUniforms uniforms;
     uniforms.src_offset    = src_offset;
@@ -1649,25 +1654,26 @@ void NQDMetalFillMask(uint32 p)
     uint32_t mask_stride = pixel_mask_columns ? width_pixels : width_bytes;
     NSUInteger mask_size = (NSUInteger)(mask_stride * (uint32)height);
 
-    // Allocate mask bitmap on CPU, decode region. Same local-vs-bounds
-    // origin rule as NQDMetalBltMask above: regions are in the
-    // destination's LOCAL (portRect) space; dest_X/dest_Y are memory
-    // offsets.
+    // Decode the region mask straight into the pooled GPU buffer. Same
+    // local-vs-bounds origin rule as NQDMetalBltMask above (regions are in
+    // the destination's LOCAL portRect space; dest_X/dest_Y are memory
+    // offsets), and the same direct-decode rationale: no CPU staging vector,
+    // no second full-size copy; a failed decode's dirty bytes are never read
+    // because the dispatch is skipped.
     int16 dest_rect_left = (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
     int16 dest_rect_top  = (int16)ReadMacInt16(p + NQD_acclDestRect + 0);
-    std::vector<uint8_t> cpu_mask(mask_size, 0);
+    nqd_ensure_mask_buffer(mask_size);
+    if (!nqd_mask_buffer) return;
+    uint8_t *mask_bytes = (uint8_t *)[nqd_mask_buffer contents];
+    memset(mask_bytes, 0, mask_size);
     if (!nqd_decode_region(mask_rgn_addr, dest_rect_left, dest_rect_top,
                             (int)width_pixels, (int)height,
                             (int)mask_stride, pixel_size,
-                            pixel_mask_columns, cpu_mask.data(),
+                            pixel_mask_columns, mask_bytes,
                             mask_size)) {
         NQD_ERR("NQDMetalFillMask: region decode failed, skipping");
         return;
     }
-
-    // Copy mask into GPU buffer
-    nqd_ensure_mask_buffer(mask_size);
-    memcpy([nqd_mask_buffer contents], cpu_mask.data(), mask_size);
 
     NQDFillRectUniforms uniforms;
     uniforms.dst_offset    = dst_offset;

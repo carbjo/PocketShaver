@@ -385,6 +385,17 @@ int32 NativeDrawPrivateDelete(uint32 drawPrivateHandle)
 	delete[] ctx->multiTexStagingBuffer;
 	ctx->multiTexStagingBuffer = nullptr;
 
+	// Free per-draw scratch arenas
+	delete[] ctx->drawScratchA;
+	ctx->drawScratchA = nullptr;
+	ctx->drawScratchACap = 0;
+	delete[] ctx->drawScratchB;
+	ctx->drawScratchB = nullptr;
+	ctx->drawScratchBCap = 0;
+	delete[] ctx->drawScratchF;
+	ctx->drawScratchF = nullptr;
+	ctx->drawScratchFCap = 0;
+
 	// Free Z-sort transparency buffer
 	delete[] ctx->zsortBuffer;
 	ctx->zsortBuffer = nullptr;

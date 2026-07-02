@@ -321,6 +321,20 @@ struct RaveDrawPrivate {
 	uint32_t       multiTextureOp;         // compositing operation (0=Add, 1=Mod, 2=BlendA, 3=Fixed)
 	float          multiTextureFactor;     // blend factor for Fixed mode
 	uint8_t       *multiTexStagingBuffer;  // parallel UV2 staging buffer (matches vertexStagingBuffer)
+
+	// Grow-only per-draw scratch arenas (native heap, see RaveDrawScratchEnsure).
+	// Draw methods build converted vertex data here; the data is fully consumed
+	// (copied into setVertexBytes or the staging ring) before the method
+	// returns, so the arenas are reused draw-to-draw on the single emulation
+	// thread instead of paying a heap alloc/free pair per draw call. A holds
+	// the primary vertex array, B the fan-expansion/secondary array that must
+	// be live at the same time as A, F the indexed multi-texture UV2 floats.
+	uint8_t       *drawScratchA;
+	uint32_t       drawScratchACap;   // bytes
+	uint8_t       *drawScratchB;
+	uint32_t       drawScratchBCap;   // bytes
+	uint8_t       *drawScratchF;
+	uint32_t       drawScratchFCap;   // bytes
 	uint32_t       multiTexStagingCount;   // current vertex count in multi-tex staging
 
 	// ATI engine-specific tag storage (separate from main state array per user decision)

@@ -597,6 +597,12 @@ struct GLMetalState {
     // Depth stencil state cache
     std::unordered_map<uint64_t, id<MTLDepthStencilState>> depthStencilCache;
 
+    // Immediate-mode flush scratch: reused across glBegin/glEnd flushes so
+    // capacity persists (one flush per quad batch adds up to thousands of
+    // vector construct/destroy cycles per frame in immediate-mode titles).
+    // Contents are per-flush; cleared at the top of each flush.
+    std::vector<GLMetalVertex> imExpandScratch;
+
     // Triple-buffered vertex ring buffer
     id<MTLBuffer>               vertexBuffers[GL_RING_BUFFER_COUNT];
     int                         currentBufferIndex;
@@ -3037,7 +3043,8 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
 
 	// ---- Determine primitive type and expand if needed ----
     MTLPrimitiveType mtlPrim;
-    std::vector<GLMetalVertex> expandedVerts;
+    std::vector<GLMetalVertex> &expandedVerts = ms->imExpandScratch;
+    expandedVerts.clear();
     bool expanded = ExpandPrimitives(ctx->im_mode, ctx->im_vertices, expandedVerts, mtlPrim);
 
     const GLMetalVertex *vertData;
