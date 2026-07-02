@@ -51,7 +51,6 @@ prefs_desc common_prefs_items[] = {
 	{"ramsize", TYPE_INT32, false,      "size of Mac RAM in bytes"},
 	{"frameskip", TYPE_INT32, false,    "number of frames to skip in refreshed video modes"},
 	{"gfxaccel", TYPE_BOOLEAN, false,   "turn on QuickDraw acceleration"},
-	{"altivec", TYPE_BOOLEAN, false,    "advertise AltiVec (G4 7400 PVR); false reports a G3 750"},
 	{"nocdrom", TYPE_BOOLEAN, false,    "don't install CD-ROM driver"},
 	{"nonet", TYPE_BOOLEAN, false,      "don't use Ethernet"},
 	{"nosound", TYPE_BOOLEAN, false,    "don't enable sound output"},
@@ -99,12 +98,16 @@ void AddPrefsDefaults(void)
 #if TARGET_OS_IPHONE
 	PrefsReplaceInt32("ramsize", 256);
 	PrefsReplaceInt32("frameskip", 1);
+	// Report a 466 MHz CPU to the guest by default (PowerBook/iMac G3 class).
+	// New installs persist this value; installs that predate this default are
+	// moved up by the one-time adoption step at the end of LoadPrefs() (their
+	// saved prefs carry the prior "cpuclock 0").
+	PrefsAddInt32("cpuclock", 466);
 #else
 	PrefsAddInt32("ramsize", 16 * 1024 * 1024);
 	PrefsAddInt32("frameskip", 8);
 #endif
 	PrefsAddBool("gfxaccel", true);
-	PrefsAddBool("altivec", true);
 	PrefsAddBool("nqdaccel", false);
 	PrefsAddBool("raveaccel", false);
 	PrefsAddBool("glaccel", false);
