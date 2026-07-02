@@ -44,7 +44,6 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
                                                           uint32_t length,
                                                           uint32_t options);
 extern "C" void gfxaccel_resources_heap_mm_lru_purge(void);
-extern "C" uint32_t gfxaccel_resources_heap_mm_heap_count(void);
 extern "C" uint64_t gfxaccel_resources_heap_mm_reset(uint32_t heap_id);
 extern "C" void gfxaccel_resources_heap_mm_note_allocation_released(uint32_t heap_id);
 extern "C" uint32_t gfxaccel_resources_heap_mm_live_allocation_count(uint32_t heap_id);

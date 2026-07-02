@@ -21,7 +21,6 @@
 #include "cpu_emulation.h"
 #include "thunks.h"                /* SheepMem::Reserve */
 #include "dsp_engine.h"            /* DSpContextAttributes + DSP_FLAT_* layout */
-#include "dsp_event_record.h"      /* DSpEventRecord struct (DSpContextPrivate member) */
 #include "dsp_draw_context.h"
 #include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler delegate target */
 #include "dsp_context_private.h"   /* DSpContextPrivate full struct; shared with dsp_metal_renderer.mm */
@@ -199,8 +198,8 @@ extern "C" int32_t DSpContext_RestoreHandler(uint32_t inFlatContext,
  *  Queue (742) stages a child context against a parent; Switch (743) applies
  *  the staged switch. This is RAM-only single-writer bookkeeping on the emul
  *  thread (queued_child / state / vbl_proc_ptr fields) — NO cross-thread queue,
- *  NO concurrency primitive (the events_head/tail _Atomic SPSC ring is
- *  the retired sub-op-600 anti-pattern, deliberately NOT copied).
+ *  NO concurrency primitive (the retired sub-op-600 cross-thread SPSC ring
+ *  was the anti-pattern here, deliberately NOT copied).
  * ===================================================================== */
 
 /* Apply a guest DSpContextAttributes block (on-wire layout, PDF p.65 — same

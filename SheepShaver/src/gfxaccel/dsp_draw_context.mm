@@ -26,7 +26,7 @@
 #include "cpu_emulation.h"
 #include "thunks.h"                /* SheepMem::Reserve (test hook) */
 #include "dsp_engine.h"
-#include "dsp_event_record.h"      /* DSpEventRecord struct */
+#include "dsp_event_record.h"      /* kDSpEvent_OSEvt + osEvt suspend/resume decode constants */
 #include "dsp_draw_context.h"
 #include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler delegate target */
 #include "dsp_user_select_policy.h"
@@ -220,21 +220,18 @@ static DSpContextPrivate *dsp_context_table[DSP_MAX_CONTEXTS] = {};
 static int                dsp_context_count                   = 0;
 
 /* File-static atomic VBL tick counter.
- * DSpVBLServiceCallback increments on every VBL; GetVBLCount reads.
+ * DSpVBLServiceCallback increments on every VBL and reads it back for
+ * the vblCount argument (r5) it passes to user VBLProcs.
  *
  * Single-writer emul-thread: DSpVBLServiceCallback fires from the VBL
  * secondary-callback drain on the emul thread.
- *
- * Reader: GetVBLCount runs through NATIVE_DSP_DISPATCH on the same
- * main==emul thread today; any future thread-split reader would also be
- * covered by the atomic.
  *
  * C11 _Atomic primitive per the read-mostly precedent — exact
  * mirror of vbl_source.mm's s_tick_count pattern (documented inline
  * in that file as the sanctioned minimal
  * primitive). NO mutex, NO MTLFence, NO MTLSharedEvent, NO
- * @synchronized. 64-bit internal storage; 32-bit external truncation
- * in GetVBLCount per DSp 1.7 UInt32 contract at spec
+ * @synchronized. 64-bit internal storage; truncated to 32 bits at the
+ * VBLProc dispatch site per the DSp 1.7 UInt32 contract at spec
  * p.81. The 64-bit-internal/32-bit-external split prevents ABA
  * confusion across long sessions (session > 828 days at 60 Hz before
  * the 32-bit counter wraps; 64-bit effectively never wraps). */
@@ -258,52 +255,6 @@ extern "C" uint32_t DSpGetContextEnumerationIndex(uint32_t ctxRef)
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) return DSP_ENUMERATION_INDEX_NONE;
 	return ctx->enumeration_mode_index;
-}
-
-/*
- *  Debug session `dsp-enum-context-table-exhaustion` fix (2026-04-21) —
- *  advance the enumeration cursor IN PLACE for DSpGetNextContext. Mutates
- *  ctx->attr + ctx->enumeration_mode_index without allocating a new
- *  context-table slot. See dsp_draw_context.h for the contract.
- *
- *  Pre-fix: DSpGetNextContext_Core called DSpAllocFirstContextHandle
- *  per step, heap-allocating a fresh DSpContextPrivate and consuming one
- *  of DSP_MAX_CONTEXTS=8 slots per iteration. With a 36-mode cache
- *  (Catalyst capture) the table saturated at step 9 — The Sims never
- *  saw a 16bpp mode and bailed with "resolution change could not be
- *  made". PDF p.17 cursor semantics: reuse the handle, advance the
- *  context it refers-to.
- *
- *  Apps that want to "remember" a specific mode call DSpContext_Reserve
- *  with a copy of the attrs; Reserve allocates a separate full context.
- *  The cursor and a reservation are independent allocations.
- */
-extern "C" int32_t DSpAdvanceEnumerationContext(
-    uint32_t ctxRef,
-    const DSpContextAttributes *new_attr,
-    uint32_t new_idx)
-{
-	if (new_attr == nullptr) {
-		DSP_LOG("AdvanceEnumeration: NULL new_attr — kDSpInvalidAttributesErr");
-		return kDSpInvalidAttributesErr;
-	}
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		DSP_LOG("AdvanceEnumeration: invalid ctxRef=%u — kDSpInvalidContextErr",
-		        ctxRef);
-		return kDSpInvalidContextErr;
-	}
-	/* In-place cursor mutation. Back-buffer / back-texture fields are nil
-	 * on metadata-only contexts (DSpAllocFirstContextHandle does not
-	 * allocate Metal resources); no refcount churn on ARC ObjC slots.
-	 * The handle stays stable across the walk — guest PDF p.17 while
-	 * loop sees a consistent theContext reference. */
-	ctx->attr                    = *new_attr;
-	ctx->enumeration_mode_index  = new_idx;
-	DSP_LOG("AdvanceEnumeration: handle=%u %ux%u@%ubpp (enum_idx=%u, in-place)",
-	        ctxRef, new_attr->displayWidth, new_attr->displayHeight,
-	        new_attr->backBufferBestDepth, (unsigned)new_idx);
-	return kDSpNoErr;
 }
 
 static bool DSpIsInactiveMetadataOnlyContext(const DSpContextPrivate *ctx)
@@ -397,22 +348,6 @@ static void DSpReleaseNow(DSpContextPrivate *ctx)
 	DSpReleaseFrontBufferStaging(ctx);
 	delete ctx;
 	DSpResetHeapIfIdle("synchronous release");
-}
-
-extern "C" int32_t DSpReleaseMetadataContextHandle(uint32_t ctxRef)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (!DSpIsInactiveMetadataOnlyContext(ctx)) {
-		DSP_LOG("ReleaseMetadataContext: ctxRef=%u is not inactive metadata",
-		        ctxRef);
-		return kDSpInvalidContextErr;
-	}
-
-	DSpFreeContextHandle(ctxRef);
-	dsp_context_count--;
-	DSpReleaseNow(ctx);
-	DSP_LOG("ReleaseMetadataContext: handle=%u released", ctxRef);
-	return kDSpNoErr;
 }
 
 static void DSpQueueReleaseAtVBL(DSpContextPrivate *ctx)
@@ -1026,7 +961,7 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
  *
  *  Registers as the 5th VBL secondary callback (after the 4th-slot
  *  DSpVBLServiceCallback). The chain order
- *  means DSpVBLServiceCallback's GetVBLCount increment fires FIRST and
+ *  means DSpVBLServiceCallback's VBL-count increment fires FIRST and
  *  user VBLProc dispatch completes BEFORE we publish — satisfies
  *  the "after user-VBLProc dispatch" ordering automatically.
  *
@@ -1254,374 +1189,13 @@ extern "C" int32_t DSpContext_SetVBLProcHandler(uint32_t ctxRef,
 }
 
 /*
- *  DSpContext_GetVBLCount (sub-opcode 501).
- *
- *  Argument contract:
- *    ctxRef        = context handle from DSpContext_Reserve (validated
- *                     for API symmetry even though the counter is
- *                     GLOBAL; the DSp VBL count is
- *                     one-per-subsystem, not one-per-context)
- *    countOutAddr  = guest Mac address of a caller-allocated UInt32
- *
- *  Error map:
- *    kDSpInvalidContextErr    - ctxRef does not resolve to a context
- *    kDSpInvalidAttributesErr - countOutAddr == 0
- *    kDSpNoErr                - success; 4 bytes written to guest RAM
- *
- *  Returns low 32 bits of s_dsp_vbl_count (uint64 internal,
- *  uint32 external). DSp 1.7 spec p.81 documents the return as UInt32;
- *  the 64-bit internal storage prevents ABA confusion across multi-day
- *  sessions. Monotonically increases; equals vbl_source_get_tick_count()
- *  modulo the registration-time offset.
- *
- *  Threading: atomic_load_explicit with memory_order_relaxed matches
- *  the writer side (DSpVBLServiceCallback). Relaxed ordering suffices
- *  because the counter is observable-only-by-monotonic-progress; no
- *  happens-before coordination with any other state is required.
- */
-extern "C" int32_t DSpContext_GetVBLCountHandler(uint32_t ctxRef,
-                                                  uint32_t countOutAddr)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		DSP_LOG("GetVBLCount: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
-		return kDSpInvalidContextErr;
-	}
-	if (countOutAddr == 0) {
-		DSP_LOG("GetVBLCount: NULL countOutAddr (ctx=%u) -> kDSpInvalidAttributesErr",
-		        ctxRef);
-		return kDSpInvalidAttributesErr;
-	}
-	(void)ctx;  /* ctx validation for API symmetry; counter is global */
-
-	uint64_t current = atomic_load_explicit(&s_dsp_vbl_count,
-	                                         memory_order_relaxed);
-	uint32_t truncated = (uint32_t)(current & 0xFFFFFFFFu);
-	WriteMacInt32(countOutAddr, truncated);
-
-	DSP_VLOG("GetVBLCount: ctx=%u count=%u (internal=%llu) -> OK",
-	         ctxRef, (unsigned)truncated, (unsigned long long)current);
-	return kDSpNoErr;
-}
-
-/*
- *  Forward declaration of the helper
- *  DSpInvalBackBufferRect_Accumulate so DSpBlankFillCore (just below) can
- *  call into it before its static definition further down this file
- *  (dsp_draw_context.mm:1745). Same clipping + dirty-region-union
- *  semantics as the public DSpContext_InvalBackBufferRectHandler entry
- *  point — we call the private helper directly to avoid a redundant
- *  ReadMacInt16 round-trip since we already hold the int16 rect in host
- *  form.
- */
-static void DSpInvalBackBufferRect_Accumulate(DSpContextPrivate *ctx,
-                                               int16_t top, int16_t left,
-                                               int16_t bottom, int16_t right);
-
-/*
- *  Core BlankFill path for the production handler
- *  (DSpContext_BlankFillHandler below).
- *
- *  Arguments (pre-validated by caller):
- *    ctx      — non-null DSpContextPrivate *
- *    top/left/bottom/right — host int16 rect coordinates (unclipped)
- *    r8/g8/b8 — 8-bit-per-channel color (downconverted from 16-bit Mac
- *                RGBColor by caller via high-byte select). For indexed
- *                depths (1/2/4/8 bpp) r8 is the CLUT index; g8 + b8 are
- *                ignored on that path per DSp 1.7 spec p.79.
- *
- *  Sequence:
- *    1. Clip rect to [0, backBufferWidth) x [0, backBufferHeight).
- *    2. If clipped rect is degenerate (zero area), return noErr early.
- *    3. Depth-dispatch on ctx->attr.backBufferBestDepth:
- *       - 1/2/4 bpp: sub-byte indexed write; bit-pack r8 into packed bytes
- *       - 8 bpp:     byte-write r8 as CLUT index (memset fast path)
- *       - 16 bpp:    halfword-write RGB565(r8,g8,b8)
- *       - 32 bpp:    word-write BGRA(r8,g8,b8,0xFF)
- *       - default:   kDSpInvalidAttributesErr
- *    4. Notify dirty region via DSpInvalBackBufferRect_Accumulate.
- *       We already hold the host int16 rect so we
- *       call the private helper directly (skips the ReadMacInt16 round-
- *       trip the public handler does). The dirty-region union flows into
- *       SwapBuffers' next-VBL-blit pipeline — zero new
- *       sync primitive; the compositor picks up the union at its next
- *       VBL tick.
- *    5. Return kDSpNoErr.
- *
- *  Threading: runs on the emul thread via NATIVE_DSP_DISPATCH
- *  (single-writer invariant). The back-buffer is MTLStorageModeShared,
- *  so CPU writes via ctx->back_buffer.contents
- *  require NO GPU fence / MTLSharedEvent / MTLFence — the compositor
- *  reads the dirty region on the next VBL tick on the same main==emul
- *  thread, and only after SwapBuffers (not BlankFill) publishes the rect
- *  into the blit queue, so there's no read-during-write hazard.
- *
- *  Return codes:
- *    kDSpNoErr                - success (including degenerate-rect no-op)
- *    kDSpInvalidAttributesErr - depth not in {1,2,4,8,16,32}
- *    kDSpInternalErr          - ctx->back_buffer.contents == nil (should
- *                                be impossible post-Reserve; defensive)
- */
-/*
- *  Depth-dispatch fill kernel operating on a
- *  caller-provided host buffer. Called by DSpBlankFillCore (production path —
- *  ctx->back_buffer.contents). Factored to a host-buffer signature so the fill
- *  formulas stay independent of how the destination memory is obtained.
- *
- *  Byte-identical behavior to the in-place production fill — same
- *  clipping, same depth-switch, same pixel-pack formulas. Returns
- *  kDSpNoErr on success / kDSpInvalidAttributesErr on unsupported depth.
- */
-static int32_t DSpBlankFillDepthDispatch(uint8_t *base,
-                                          uint32_t depth,
-                                          uint32_t pitch,
-                                          int16_t c_top, int16_t c_left,
-                                          int16_t c_bottom, int16_t c_right,
-                                          uint8_t r8, uint8_t g8, uint8_t b8)
-{
-	switch (depth) {
-		case 1: {
-			const uint8_t idx = (uint8_t)(r8 & 0x01u);
-			for (int16_t y = c_top; y < c_bottom; y++) {
-				uint8_t *row = base + (uint32_t)y * pitch;
-				for (int16_t x = c_left; x < c_right; x++) {
-					const int bit_pos = 7 - (x & 7);
-					const uint8_t mask = (uint8_t)(1u << bit_pos);
-					row[x >> 3] = (uint8_t)((row[x >> 3] & ~mask) |
-					                        ((idx << bit_pos) & mask));
-				}
-			}
-			return kDSpNoErr;
-		}
-		case 2: {
-			const uint8_t idx = (uint8_t)(r8 & 0x03u);
-			for (int16_t y = c_top; y < c_bottom; y++) {
-				uint8_t *row = base + (uint32_t)y * pitch;
-				for (int16_t x = c_left; x < c_right; x++) {
-					const int shift = 6 - 2 * (x & 3);
-					const uint8_t mask = (uint8_t)(0x03u << shift);
-					row[x >> 2] = (uint8_t)((row[x >> 2] & ~mask) |
-					                        ((idx << shift) & mask));
-				}
-			}
-			return kDSpNoErr;
-		}
-		case 4: {
-			const uint8_t idx = (uint8_t)(r8 & 0x0Fu);
-			for (int16_t y = c_top; y < c_bottom; y++) {
-				uint8_t *row = base + (uint32_t)y * pitch;
-				for (int16_t x = c_left; x < c_right; x++) {
-					const int shift = 4 - 4 * (x & 1);
-					const uint8_t mask = (uint8_t)(0x0Fu << shift);
-					row[x >> 1] = (uint8_t)((row[x >> 1] & ~mask) |
-					                        ((idx << shift) & mask));
-				}
-			}
-			return kDSpNoErr;
-		}
-		case 8: {
-			const int fill_w = (int)(c_right - c_left);
-			for (int16_t y = c_top; y < c_bottom; y++) {
-				uint8_t *row = base + (uint32_t)y * pitch + (uint32_t)c_left;
-				memset(row, r8, (size_t)fill_w);
-			}
-			return kDSpNoErr;
-		}
-		case 16: {
-			const uint16_t pixel = (uint16_t)(((uint16_t)(r8 >> 3) << 11) |
-			                                   ((uint16_t)(g8 >> 2) <<  5) |
-			                                   ((uint16_t)(b8 >> 3)      ));
-			for (int16_t y = c_top; y < c_bottom; y++) {
-				uint16_t *row = (uint16_t *)(base + (uint32_t)y * pitch);
-				for (int16_t x = c_left; x < c_right; x++) {
-					row[x] = pixel;
-				}
-			}
-			return kDSpNoErr;
-		}
-		case 32: {
-			const uint32_t pixel = 0xFF000000u |
-			                       ((uint32_t)r8 << 16) |
-			                       ((uint32_t)g8 <<  8) |
-			                       ((uint32_t)b8      );
-			for (int16_t y = c_top; y < c_bottom; y++) {
-				uint32_t *row = (uint32_t *)(base + (uint32_t)y * pitch);
-				for (int16_t x = c_left; x < c_right; x++) {
-					row[x] = pixel;
-				}
-			}
-			return kDSpNoErr;
-		}
-		default:
-			return kDSpInvalidAttributesErr;
-	}
-}
-
-static int32_t DSpBlankFillCore(DSpContextPrivate *ctx,
-                                 int16_t top, int16_t left,
-                                 int16_t bottom, int16_t right,
-                                 uint8_t r8, uint8_t g8, uint8_t b8)
-{
-	/* Step 1: clip to back-buffer bounds (spec p.79
-	 * "fills the intersection"). */
-	const int16_t bb_w = (int16_t)ctx->attr.backBufferWidth;
-	const int16_t bb_h = (int16_t)ctx->attr.backBufferHeight;
-	int16_t c_top    = (top    < 0)   ? 0    : top;
-	int16_t c_left   = (left   < 0)   ? 0    : left;
-	int16_t c_bottom = (bottom > bb_h) ? bb_h : bottom;
-	int16_t c_right  = (right  > bb_w) ? bb_w : right;
-
-	/* Step 2: degenerate rect — no-op success per DSp 1.7 p.79. */
-	if (c_top >= c_bottom || c_left >= c_right) {
-		DSP_VLOG("BlankFillCore: degenerate rect (clipped=(%d,%d)-(%d,%d)) "
-		         "-> noErr no-op",
-		         c_top, c_left, c_bottom, c_right);
-		return kDSpNoErr;
-	}
-
-	/* Step 3: depth-dispatch on back-buffer format. */
-	const uint32_t depth = ctx->attr.backBufferBestDepth;
-	void *contents = (void *)[ctx->back_buffer contents];
-	if (contents == nullptr) {
-		DSP_LOG("BlankFillCore: ctx=%u back_buffer.contents == nil "
-		        "-> kDSpInternalErr",
-		        ctx->handle);
-		return kDSpInternalErr;
-	}
-
-	/* Row-bytes + pitch formula matches the pitch
-	 * computation at dsp_draw_context.mm:1253-1255. For 1/2/4 bpp the
-	 * row_bytes accounts for sub-byte packing; the final &~255u aligns
-	 * to the 256-byte iOS-Metal pitch. */
-	const uint32_t row_bytes = (uint32_t)(((uint32_t)bb_w * depth + 7) / 8);
-	const uint32_t pitch     = (row_bytes + 255u) & ~255u;
-
-	uint8_t *base = (uint8_t *)contents;
-
-	/* Step 3b: depth-dispatch fill via the shared host-buffer helper
-	 * (DSpBlankFillDepthDispatch) so the fill formulas are isolated from the
-	 * MTLBuffer-contents acquisition above. */
-	const int32_t fill_rv = DSpBlankFillDepthDispatch(base, depth, pitch,
-	                                                   c_top, c_left,
-	                                                   c_bottom, c_right,
-	                                                   r8, g8, b8);
-	if (fill_rv != kDSpNoErr) {
-		DSP_LOG("BlankFillCore: ctx=%u unsupported depth=%u "
-		        "-> kDSpInvalidAttributesErr",
-		        ctx->handle, (unsigned)depth);
-		return fill_rv;
-	}
-
-	/* Step 4: dirty-region notification. Call the
-	 * private helper directly — we already hold the host int16 rect
-	 * so we skip the ReadMacInt16 round-trip that the public
-	 * DSpContext_InvalBackBufferRectHandler performs. The union
-	 * with the existing dirty region flows into the next SwapBuffers
-	 * blit via the existing pipeline. */
-	DSpInvalBackBufferRect_Accumulate(ctx, c_top, c_left, c_bottom, c_right);
-
-	DSP_VLOG("BlankFillCore: ctx=%u rect=(%d,%d)-(%d,%d) depth=%u "
-	         "color=(r=%u,g=%u,b=%u) -> OK",
-	         ctx->handle, c_top, c_left, c_bottom, c_right,
-	         (unsigned)depth, r8, g8, b8);
-	return kDSpNoErr;
-}
-
-/*
- *  DSpContext_BlankFill (sub-opcode 502).
- *
- *  Argument contract:
- *    ctxRef     = context handle from DSpContext_Reserve
- *    rectAddr   = guest Mac address of a classic Mac Rect (8 bytes:
- *                  4x int16 top/left/bottom/right big-endian)
- *    colorAddr  = guest Mac address of a classic Mac RGBColor (6 bytes:
- *                  3x uint16 red/green/blue big-endian)
- *
- *  Error map:
- *    kDSpInvalidContextErr    - ctxRef does not resolve to a context
- *    kDSpInvalidAttributesErr - rectAddr == 0 OR colorAddr == 0 OR
- *                                ctx->attr.backBufferBestDepth not in
- *                                {1, 2, 4, 8, 16, 32}
- *    kDSpInternalErr          - ctx->back_buffer.contents == nil
- *                                (should be impossible post-Reserve)
- *    kDSpNoErr                - success; pixels written; dirty region
- *                                notified; next VBL will blit
- *
- *  DSp 1.7 semantics (spec p.79):
- *    - Rect clipped to back-buffer bounds ("fills the intersection")
- *    - Degenerate / fully-outside rect: no error, no-op
- *    - At indexed depths (1/2/4/8 bpp): color.red's high byte is the
- *      CLUT index; green/blue ignored
- *    - At direct depths (16/32 bpp): all three channels used with
- *      appropriate packing (RGB565 / BGRA)
- *
- *  Mac RGBColor 16-bit channel space: the Mac stores color channels as
- *  uint16 with 256x scaling (0x0000 = black, 0xFFFF = max). High-byte
- *  select `uint8 r8 = red >> 8` is the canonical 8-bit downconvert
- *  (matches the CLUT-entry downconvert).
- *
- *  VBL sync: this handler does NOT call the compositor directly. The
- *  post-fill DSpInvalBackBufferRect_Accumulate union flows into the
- *  next SwapBuffers (or the compositor's auto-present path) which does
- *  the VBL-synced blit via the existing pipeline. This
- *  preserves SC #5 compositor-blindness (no kGfxEngineDSp
- *  reference in compositor files). "Zero tearing across 10 seconds of
- *  continuous BlankFill" (ROADMAP success criterion #3) falls out of
- *  that existing pipeline.
- */
-extern "C" int32_t DSpContext_BlankFillHandler(uint32_t ctxRef,
-                                                uint32_t rectAddr,
-                                                uint32_t colorAddr)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		DSP_LOG("BlankFill: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
-		return kDSpInvalidContextErr;
-	}
-	if (rectAddr == 0) {
-		DSP_LOG("BlankFill: NULL rectAddr (ctx=%u) "
-		        "-> kDSpInvalidAttributesErr",
-		        ctxRef);
-		return kDSpInvalidAttributesErr;
-	}
-	if (colorAddr == 0) {
-		DSP_LOG("BlankFill: NULL colorAddr (ctx=%u) "
-		        "-> kDSpInvalidAttributesErr",
-		        ctxRef);
-		return kDSpInvalidAttributesErr;
-	}
-
-	/* Read 8 bytes of Mac Rect (4x int16 big-endian; ReadMacInt16
-	 * handles byte-swap). Offsets match dsp_draw_context.mm:1798-1803
-	 * (DSpContext_InvalBackBufferRectHandler) and Inside Macintosh
-	 * convention. */
-	const int16_t top    = (int16_t)ReadMacInt16(rectAddr + 0);
-	const int16_t left   = (int16_t)ReadMacInt16(rectAddr + 2);
-	const int16_t bottom = (int16_t)ReadMacInt16(rectAddr + 4);
-	const int16_t right  = (int16_t)ReadMacInt16(rectAddr + 6);
-
-	/* Read 6 bytes of Mac RGBColor (3x uint16 big-endian). Downconvert
-	 * via high-byte select. */
-	const uint16_t red16   = (uint16_t)ReadMacInt16(colorAddr + 0);
-	const uint16_t green16 = (uint16_t)ReadMacInt16(colorAddr + 2);
-	const uint16_t blue16  = (uint16_t)ReadMacInt16(colorAddr + 4);
-	const uint8_t r8 = (uint8_t)(red16   >> 8);
-	const uint8_t g8 = (uint8_t)(green16 >> 8);
-	const uint8_t b8 = (uint8_t)(blue16  >> 8);
-
-	return DSpBlankFillCore(ctx, top, left, bottom, right, r8, g8, b8);
-}
-
-/*
  *  DSpContext_GetVBLProc (sub-opcode 503).
  *
  *  DSp 1.7 spec p.81 does NOT document a GetVBLProc public entry point.
- *  This handler exists as an internal test-support affordance so tests
- *  can round-trip SetVBLProc + GetVBLProc without relying on the
- *  PPC-trampoline invocation path (which would need a real guest-side
- *  VBLProc allocation via SheepMem — impractical in Swift unit tests).
+ *  This handler exists as an internal affordance for round-tripping
+ *  SetVBLProc + GetVBLProc state without relying on the PPC-trampoline
+ *  invocation path; it is intentionally NOT installed in
+ *  dsp_install_symbols[] (not a real DSp 1.7 PEF export).
  *
  *  Argument contract:
  *    ctxRef         = context handle from DSpContext_Reserve
@@ -1667,10 +1241,9 @@ extern "C" int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef,
  * the RETIRED sub-op-600 dequeue handler (the old DSpContext_*
  * ProcessEvent export, which let the GUEST READ enqueued events OUT). That
  * handler — and its header decl — are RETIRED (retire, NOT
- * repurpose). The SPSC
- * input-fanout ring it observed is KEPT for iOS input fanout via
- * DSpHostBridge_EnqueueEventToActiveContexts. UIKit background/foreground
- * lifecycle no longer writes osEvt records into this ring; it flows through
+ * repurpose), and the SPSC input-fanout ring it observed has since been
+ * removed outright (it had become write-only). UIKit background/foreground
+ * lifecycle flows through
  * GfxAccelBackgroundLifecycleObserver -> gfxaccel_resources atomic
  * flag-and-drain -> DSpHandleBackgroundFromEmulThread /
  * DSpHandleForegroundFromEmulThread.

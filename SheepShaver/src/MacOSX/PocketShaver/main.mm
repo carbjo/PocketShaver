@@ -54,12 +54,6 @@ int main(int argc, char * argv[]) {
 	 * install-at-startup is comfortable timing). */
 	[DSpIdleTimerService.shared install];
 
-	/* Install DSp input-event integration. Background/foreground DSp
-	 * lifecycle is handled by GfxAccelBackgroundLifecycleObserver through
-	 * gfxaccel_resources' atomic flag-and-drain path; DSpEventService only
-	 * fans out kbd/gamepad/mouse events to active DSp contexts. */
-	[DSpEventService.shared install];
-
 	return main_ios(argc, argv);		// This is in SS/Source/Unix/main_Unix.cpp
 }
 

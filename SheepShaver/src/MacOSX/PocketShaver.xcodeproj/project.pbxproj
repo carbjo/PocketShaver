@@ -435,7 +435,6 @@
 		PST2001DSPBF0100000101 /* dsp_host_bridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST2001DSPFR0100000001 /* dsp_host_bridge.mm */; };
 		PST2001DSPBF0100000201 /* dsp_host_bridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = PST2001DSPFR0100000001 /* dsp_host_bridge.mm */; };
 		PST2004000000000000BF01 /* DSpIdleTimerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = PST2004000000000000FR01 /* DSpIdleTimerService.swift */; };
-		PST2102000000000000BF01 /* DSpEventService.swift in Sources */ = {isa = PBXBuildFile; fileRef = PST2102000000000000FR01 /* DSpEventService.swift */; };
 		PST2210BBF0100000101 /* dsp_install_hooks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST2210B00000000000FR01 /* dsp_install_hooks.cpp */; };
 		PST2210BBF0100000201 /* dsp_install_hooks.cpp in Sources */ = {isa = PBXBuildFile; fileRef = PST2210B00000000000FR01 /* dsp_install_hooks.cpp */; };
 		VBL0502000000000000BF01 /* vbl_source.mm in Sources */ = {isa = PBXBuildFile; fileRef = VBL0502000000000000FR01 /* vbl_source.mm */; };
@@ -1003,7 +1002,6 @@
 		PST2001DSPFR0100000001 /* dsp_host_bridge.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = dsp_host_bridge.mm; path = ../gfxaccel/dsp_host_bridge.mm; sourceTree = SOURCE_ROOT; };
 		PST2001DSPFR0200000001 /* dsp_host_bridge.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = dsp_host_bridge.h; path = ../gfxaccel/include/dsp_host_bridge.h; sourceTree = SOURCE_ROOT; };
 		PST2004000000000000FR01 /* DSpIdleTimerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DSpIdleTimerService.swift; sourceTree = "<group>"; };
-		PST2102000000000000FR01 /* DSpEventService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DSpEventService.swift; sourceTree = "<group>"; };
 		PST2210B00000000000FR01 /* dsp_install_hooks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = dsp_install_hooks.cpp; path = ../gfxaccel/dsp_install_hooks.cpp; sourceTree = SOURCE_ROOT; };
 		VBL0502000000000000FR01 /* vbl_source.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = vbl_source.mm; path = ../gfxaccel/vbl_source.mm; sourceTree = SOURCE_ROOT; };
 		VBL0502000000000000FR02 /* vbl_source.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = vbl_source.h; sourceTree = "<group>"; };
@@ -2246,7 +2244,6 @@
 				HST0603000000000000FR01 /* BackgroundLifecycleObserver.swift */,
 				GFXA10A1B2C3D4E5F60001 /* MemoryWarningObserver.swift */,
 				PST2004000000000000FR01 /* DSpIdleTimerService.swift */,
-				PST2102000000000000FR01 /* DSpEventService.swift */,
 			);
 			path = GfxAccel;
 			sourceTree = "<group>";
@@ -2708,7 +2705,6 @@
 				GFXA10A1B2C3D4E5F60101 /* MemoryWarningObserver.swift in Sources */,
 				HST0603000000000000BF01 /* BackgroundLifecycleObserver.swift in Sources */,
 				PST2004000000000000BF01 /* DSpIdleTimerService.swift in Sources */,
-				PST2102000000000000BF01 /* DSpEventService.swift in Sources */,
 				C7699F0E2EBF56E30083B3B3 /* PreferencesROMValidatorCpp.cpp in Sources */,
 				C7DCEF3D2E86F55600EAED05 /* MouseHapticFeedbackObjC.mm in Sources */,
 				C74035B32EDC33420045B9C6 /* PerformanceCounter.swift in Sources */,

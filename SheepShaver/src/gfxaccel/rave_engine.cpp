@@ -598,10 +598,8 @@ void NativeHookQ3PixmapSetImage(uint32_t pixmapAddr,
 		copyBytes = entry->cpu_pixel_data_size;
 	}
 
-	// Copy src -> cpu_pixel_data. Under EMULATED_PPC, srcHostAddr is a
-	// Mac address; Mac2HostAddr resolves it to a host pointer. Under
-	// TESTING_BUILD (EMULATED_PPC=0), Mac2HostAddr is the identity cast
-	// per PSFakeMacRAM's contract.
+	// Copy src -> cpu_pixel_data. srcHostAddr is a Mac address;
+	// Mac2HostAddr resolves it to a host pointer.
 	memcpy(entry->cpu_pixel_data, Mac2HostAddr(srcHostAddr), copyBytes);
 
 	entry->cpu_pixel_data_is_authoritative = true;

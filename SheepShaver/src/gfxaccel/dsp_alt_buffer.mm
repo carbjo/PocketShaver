@@ -22,7 +22,6 @@
 #include "cpu_emulation.h"
 #include "thunks.h"                /* SheepMem::Reserve (test hook) */
 #include "dsp_engine.h"
-#include "dsp_event_record.h"      /* DSpEventRecord struct */
 #include "dsp_draw_context.h"
 #include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler delegate target */
 #include "dsp_user_select_policy.h"

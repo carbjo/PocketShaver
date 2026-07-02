@@ -49,22 +49,20 @@ static const int DSP_HOOKS_MAX_ATTEMPTS = 3;
  *  Five non-canonical rows (DSpContext_SetGamma, DSpContext_GetGamma,
  *  DSpContext_GetVBLCount, DSpContext_BlankFill, DSpContext_ProcessEvent) are
  *  deliberately NOT in the table — they are proven ABSENT from the canonical
- *  binary by the offline PEF parse. The 53-row set is pinned to
- *  the dsp_export_set.json manifest (53 exports extracted offline from
- *  resources/DrawSprocketLib) by the drift gate
- *  test_dsp_install_symbols_matches_real_export_set.
+ *  binary by the offline PEF parse. The 53-row set matches the 53 exports
+ *  extracted offline from resources/DrawSprocketLib.
  *
  *  Sub-opcode 503 (DSpContext_GetVBLProc) remains OMITTED (internal
- *  test-support round-trip helper, NOT a real DSp 1.7 PEF export — dsp_engine.h
- *  documents the rationale; it is also absent from dsp_export_set.json).
+ *  round-trip affordance, NOT a real DSp 1.7 PEF export — dsp_engine.h
+ *  documents the rationale; it is also absent from the canonical export
+ *  set).
  *
  *  A resolved symbol with a deferred, not-yet-implemented dispatch arm is NOT a
  *  silent wrong-output stub: the export is correctly installed; its
- *  behavior arrives with its own test.
+ *  behavior arrives when the dispatch arm is implemented.
  *
- *  Pascal-encoded names: octal prefix is strlen(name) in octal.
- *  test_dsp_install_symbols_pascalLength_matches_strlen enforces the invariant
- *  against all 53 rows.
+ *  Pascal-encoded names: octal prefix is strlen(name) in octal, for
+ *  every row.
  */
 struct DSpInstallSymbol {
 	const char *pascal_sym;   // \NN<name> where NN is octal length
@@ -125,10 +123,8 @@ static const DSpInstallSymbol dsp_install_symbols[] = {
 	// The real DrawSprocketLib PEF exports. These symbols RESOLVE through the
 	// install table + route to a dispatch case; their per-export handler
 	// BODIES are implemented separately (cheap / heavy / fidelity families).
-	// Octal prefix == strlen(name) for every row, enforced by
-	// test_dsp_install_symbols_pascalLength_matches_strlen. The set is pinned to
-	// dsp_export_set.json by test_dsp_install_symbols_matches_real_export_set
-	// (the drift gate).
+	// Octal prefix == strlen(name) for every row. The set matches the
+	// export table extracted offline from resources/DrawSprocketLib.
 	// ----------------------------------------------------------------------
 
 	// Sub-opcodes 700-705: AltBuffers — underlay/overlay (PDF pp.48-53)
@@ -180,12 +176,12 @@ static const DSpInstallSymbol dsp_install_symbols[] = {
 	{ "\017DSpSetDebugMode",                 kDSpSetDebugMode,                 "DSpSetDebugMode" },
 };
 static const int num_dsp_symbols = sizeof(dsp_install_symbols) / sizeof(dsp_install_symbols[0]);
-// num_dsp_symbols MUST == 53 — enforced by test_dsp_install_symbols_count_53
+// num_dsp_symbols MUST == 53 — the canonical DrawSprocketLib PEF export count.
 
 /*
  *  dsp_install_patch_one — per-symbol 4-instruction PPC overwrite + FlushCodeCache.
- *  Extracted from the inner patch loop so TESTING_BUILD can exercise it against
- *  a synthetic TVECT (see dsp_testing_run_install_patch_on_synthetic_tvect below).
+ *  Extracted from the inner patch loop so the patch mechanics are
+ *  exercisable in isolation from the export-table walk.
  *
  *  Returns 1 on success, 0 if hook_tvect is zero OR orig_code deref is zero
  *  (either case logged via DSP_LOG; null-guarded).

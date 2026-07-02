@@ -86,10 +86,10 @@ enum {
 
 	/* VBL Service — SetVBLProc / GetVBLProc (500-599 reservation for VBL).
 	 *
-	 * GetVBLProc (sub-opcode 503) is a round-trip helper for tests — not
+	 * GetVBLProc (sub-opcode 503) is an internal round-trip helper — not
 	 * called from guest Mac apps directly. DSp 1.7 spec p.81 documents
 	 * SetVBLProc(ptr=0) as the uninstall path (no separate GetVBLProc in the
-	 * spec); 503 is our internal test-support affordance and is intentionally
+	 * spec); 503 is our internal affordance and is intentionally
 	 * NOT installed in dsp_install_symbols[].
 	 *
 	 * The non-canonical kDSpContext_GetVBLCount (501) and
@@ -327,20 +327,16 @@ enum {
  *  Total on-wire size: 72 bytes.
  *
  *  In-struct widening rule: every on-wire field is stored as `uint32_t`
- *  for API stability — callers (Swift `dspMakeAttrSwift`, C++ host-struct
- *  helpers like `DSpTesting_ReserveByStruct`) read via `attr.fieldName`
+ *  for API stability — host-struct consumers read via `attr.fieldName`
  *  without caring about on-wire width. Byte-level PDF correctness is
  *  preserved only when the struct is populated from / read back to Mac
  *  memory via the ReadMacInt{8,16,32} / WriteMacInt{8,16,32} helpers in
  *  `DSpContext_ReserveHandler` etc., which use the PDF-exact offsets above.
- *  Tests (DSpTesting_ReserveByStruct + Swift `dspMakeAttrSwift`) operate
- *  purely in host-struct land and are UNAFFECTED by offset changes — they
- *  only see field names.
  *
  *  Host-only fields (NOT on the wire; PDF has no backBufferWidth/Height):
  *    backBufferWidth / backBufferHeight — mirror displayWidth /
  *    displayHeight for the host-side dirty-rect clip code in
- *    dsp_draw_context.mm (DSpBlankFillCore, DSpInvalBackBufferRect).
+ *    dsp_draw_context.mm (DSpInvalBackBufferRect).
  *    Populated from displayWidth / displayHeight at Reserve_Core +
  *    mode-cache construction time. These fields live AFTER the PDF-
  *    reserved trailer so the on-wire prefix (bytes 0..71) stays PDF-
@@ -614,14 +610,6 @@ extern uint32_t DSpDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 extern int32_t DSpStartupHandler(void);
 extern int32_t DSpShutdownHandler(void);
 extern uint32_t DSpGetVersionHandler(uint32_t outVersionAddr);
-
-/*
- *  Testing hook — zeros the DSp lifecycle state (refcount, registered
- *  flag, gfxaccel_resources registration) so each test starts from a
- *  freshly-booted baseline. Gated by TESTING_BUILD (only compiled into
- *  the PocketShaverTests target). DSpStartupTests.swift calls this from
- *  setUp/tearDown for test isolation.
- */
 
 #ifdef __cplusplus
 }

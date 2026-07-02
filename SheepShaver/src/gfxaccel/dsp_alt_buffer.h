@@ -9,14 +9,14 @@
  *  (at your option) any later version.
  *
  *  Extracted from dsp_draw_context.mm (de-bloat, no behaviour change). The
- *  alt-buffer record table, lifecycle helpers, the production handlers
- *  (DSpAltBuffer_New/Dispose/GetCGrafPtr/InvalRect + underlay Get/Set), and
- *  the DSpTesting_AltBuffer_* harness wrappers all live in dsp_alt_buffer.mm.
+ *  alt-buffer record table, lifecycle helpers, and the production handlers
+ *  (DSpAltBuffer_New/Dispose/GetCGrafPtr/InvalRect + underlay Get/Set) all
+ *  live in dsp_alt_buffer.mm.
  *
  *  Only the cross-translation-unit surface used by the core present /
  *  underlay-restore path (DSpRestoreBackBufferFromUnderlay, still in
- *  dsp_draw_context.mm) and by the test-harness context reset is declared
- *  here. The record table itself stays file-private to dsp_alt_buffer.mm.
+ *  dsp_draw_context.mm) is declared here. The record table itself stays
+ *  file-private to dsp_alt_buffer.mm.
  */
 
 #ifndef DSP_ALT_BUFFER_H

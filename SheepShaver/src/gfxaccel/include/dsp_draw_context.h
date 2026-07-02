@@ -134,50 +134,6 @@ extern uint32_t DSpAllocMetadataContextHandle(
 extern uint32_t DSpGetContextEnumerationIndex(uint32_t ctxRef);
 
 /*
- *  Debug session `dsp-enum-context-table-exhaustion` fix (2026-04-21) —
- *  advance an existing enumeration-cursor context to the next mode IN
- *  PLACE, reusing the same handle / slot / heap allocation. Mutates
- *  ctx->attr = *new_attr and ctx->enumeration_mode_index = new_idx.
- *
- *  Why: DSp 1.7 PDF p.17 treats the iterator reference as a *cursor* —
- *  the handle is the same across the walk; the context it refers-to
- *  advances. Pre-fix DSpGetNextContext_Core called
- *  DSpAllocFirstContextHandle on every step, heap-allocating a fresh
- *  DSpContextPrivate slot per iteration. With DSP_MAX_CONTEXTS = 8 and
- *  a 36-mode cache (loggo.txt:483 Catalyst capture), the table saturated
- *  at step 9 — well before The Sims' required 16bpp modes were visible.
- *
- *  In-place mutation consumes exactly one context slot for the lifetime
- *  of a walk, regardless of mode-cache size. Apps that want to "remember"
- *  a specific mode during the walk still work: they call
- *  DSpContext_Reserve with a copy of the attrs, which allocates a
- *  separate full context (with MTLBuffer + back-texture).
- *
- *  Returns:
- *    - kDSpNoErr on success (attr + index updated).
- *    - kDSpInvalidContextErr if ctxRef does not resolve.
- *    - kDSpInvalidAttributesErr if new_attr is NULL.
- *
- *  Threading: emul-thread single-writer, same contract as
- *  DSpAllocFirstContextHandle. No mutex. No MTLFence. No _Atomic.
- */
-extern int32_t DSpAdvanceEnumerationContext(
-    uint32_t ctxRef,
-    const struct DSpContextAttributes *new_attr,
-    uint32_t new_idx);
-
-/*
- *  Release an inactive metadata-only DSp context handle.
- *
- *  Used by DSpGetNextContext when an enumeration cursor reaches the
- *  end-of-list terminator. The cursor has no Metal back-buffer and no
- *  game-owned resources; keeping it allocated after returning a NULL next
- *  context leaks one of the small DSp context-table slots during mode
- *  probing. Reserved/full contexts are rejected.
- */
-extern int32_t DSpReleaseMetadataContextHandle(uint32_t ctxRef);
-
-/*
  *  Public sub-opcode handlers.
  *
  *  Debug session `dsp-sims-post-reserve-black-screen` (2026-04-19) fix:
@@ -405,11 +361,9 @@ extern int32_t  DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
 extern int32_t  DSpGetActiveCLUTSnapshot(uint8_t out_clut_bytes[768]);
 
 /*
- *  Gamma + Fade handlers.
+ *  Gamma-fade handlers.
  *
  *  Argument layout per dsp_dispatch.cpp r4..r7 marshalling:
- *    SetGamma     (ctxRef, tableAddr)                    — sub-opcode 400
- *    GetGamma     (ctxRef, tableOutAddr)                 — sub-opcode 401
  *    FadeGammaIn  (ctxRef, durationVbls)                 — sub-opcode 402
  *    FadeGammaOut (ctxRef, durationVbls)                 — sub-opcode 403
  *    FadeGamma    (ctxRef, percent, durationVbls, colorAddr) — sub-opcode 404
@@ -423,10 +377,6 @@ extern int32_t  DSpGetActiveCLUTSnapshot(uint8_t out_clut_bytes[768]);
  *  context is active. Rejecting NULL ctxRef produced kDSpInvalidContextErr
  *  and poisoned The Sims's internal "DSp healthy" flag.
  */
-extern int32_t  DSpContext_SetGammaHandler(uint32_t ctxRef,
-                                           uint32_t tableAddr);
-extern int32_t  DSpContext_GetGammaHandler(uint32_t ctxRef,
-                                           uint32_t tableOutAddr);
 /*
  *  FadeGamma trio per the
  *  DSp 1.7 ABI (pp.32-35). The parametric FadeGamma takes a SIGNED
@@ -443,22 +393,15 @@ extern int32_t  DSpContext_FadeGammaHandler(uint32_t ctxRef,
                                             uint32_t colorAddr);
 
 /*
- *  VBL Service + Blanking + Screensaver handlers.
+ *  VBL Service handlers.
  *
  *  Argument layout per dsp_dispatch.cpp r4..r6 marshalling:
  *    SetVBLProc   (ctxRef, procPtr, refCon)               — sub-opcode 500
- *    GetVBLCount  (ctxRef, countOutAddr)                  — sub-opcode 501
- *    BlankFill    (ctxRef, rectAddr, colorAddr)           — sub-opcode 502
  *    GetVBLProc   (ctxRef, procOutAddr, refConOutAddr)    — sub-opcode 503
  */
 extern int32_t  DSpContext_SetVBLProcHandler(uint32_t ctxRef,
                                              uint32_t procPtr,
                                              uint32_t refCon);
-extern int32_t  DSpContext_GetVBLCountHandler(uint32_t ctxRef,
-                                              uint32_t countOutAddr);
-extern int32_t  DSpContext_BlankFillHandler(uint32_t ctxRef,
-                                            uint32_t rectAddr,
-                                            uint32_t colorAddr);
 extern int32_t  DSpContext_GetVBLProcHandler(uint32_t ctxRef,
                                              uint32_t procOutAddr,
                                              uint32_t refConOutAddr);
@@ -475,10 +418,9 @@ extern int32_t  DSpContext_GetVBLProcHandler(uint32_t ctxRef,
  *
  *  This is the OPPOSITE direction to the retired sub-op-600 dequeue
  *  handler (the old DSpContext_* ProcessEvent reader export), which was
- *  retired (retire, NOT repurpose). The SPSC input-fanout ring
- *  it observed is KEPT;
- *  the DSpEventTests ring-observation methods migrate to the TESTING_BUILD
- *  DSpTesting_DequeueContextEvent helper.
+ *  retired (retire, NOT repurpose). The SPSC input-fanout ring it
+ *  observed is KEPT write-only — it currently has no reader of any
+ *  kind — pending a decision on the iOS input-fanout design.
  */
 extern int32_t  DSpProcessEventHandler(uint32_t inEventAddr,
                                        uint32_t outProcessedAddr);
@@ -486,8 +428,7 @@ extern int32_t  DSpProcessEventHandler(uint32_t inEventAddr,
 /*
  *  VBL-bounded release — registered as a vbl_source secondary callback in
  *  DSpInit (dsp_engine.cpp). Drains the release FIFO; releases each
- *  entry's back-texture before its back-buffer. Safe to call at
- *  vbl_source_testing_simulate_vbl_tick() time during unit tests.
+ *  entry's back-texture before its back-buffer.
  */
 extern void     DSpVBLReleaseCallback(void *ctx, void *drawable, double ts);
 

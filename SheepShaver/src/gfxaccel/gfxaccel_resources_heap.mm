@@ -438,17 +438,6 @@ extern "C" void gfxaccel_resources_heap_mm_lru_purge(void)
 	}
 }
 
-extern "C" uint32_t gfxaccel_resources_heap_mm_heap_count(void)
-{
-	uint32_t count = 0;
-	for (int i = 0; i < kHeapCount; ++i) {
-		if (g_heaps[i] != nil) {
-			count++;
-		}
-	}
-	return count;
-}
-
 // ---------------------------------------------------------------------------
 // Memory-warning handler
 // ---------------------------------------------------------------------------

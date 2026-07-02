@@ -205,10 +205,10 @@ size_t DSpUserSelectableModeCount(const DSpContextAttributes *req)
 }
 
 /*
- *  Core DSpGetFirstContext logic — shared between the production
- *  Mac-memory path (DSpGetFirstContextHandler) and the TESTING_BUILD
- *  host-ptr path (DSpTesting_GetFirstContextByStruct). Factoring matches
- *  the Reserve_Core split pattern.
+ *  Core DSpGetFirstContext logic — factored out of the Mac-memory
+ *  handler (DSpGetFirstContextHandler) so the allocation/copy logic is
+ *  exercisable in isolation. Factoring matches the Reserve_Core split
+ *  pattern.
  *
  *  Semantics:
  *    - s_dsp_modes empty => return kDSpContextNotFoundErr.
@@ -307,8 +307,8 @@ extern "C" int32_t DSpGetFirstContextHandler(uint32_t displayID,
  * =========================================================================
  */
 /*
- *  Debug session `dsp-sims-enumeration-stall` fix (2026-04-19): shared core
- *  logic for DSpGetNextContextHandler + DSpTesting_GetNextContext. Walks
+ *  Debug session `dsp-sims-enumeration-stall` fix (2026-04-19): core
+ *  logic for DSpGetNextContextHandler. Walks
  *  s_dsp_modes forward from the prev context's enumeration_mode_index,
  *  mutating that metadata-only cursor in place.
  *

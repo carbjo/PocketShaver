@@ -42,7 +42,6 @@
 #include "dsp_front_staging_present_policy.h"
 
 #include "dsp_engine.h"       /* DSpContextAttributes + DSpContextState enum */
-#include "dsp_event_record.h" /* DSpEventRecord struct */
 
 /* DSP_ENUMERATION_INDEX_NONE is defined in the public dsp_draw_context.h
  * header so callers outside the gfxaccel tree (e.g., test wrappers) can
@@ -241,34 +240,7 @@ struct DSpContextPrivate {
 	uint32_t              vbl_proc_ptr;
 	uint32_t              vbl_proc_refcon;
 
-	/* Per-context event SPSC
-	 * ring buffer + bg-induced-pause flag.
-	 *
-	 * events_queue[64] is a fixed-size lock-free SPSC ring buffer:
-	 * writer = main thread (DSpHostBridge_EnqueueEvent in the
-	 * Swift observer fan-out path); reader = emul thread
-	 * (DSpContext_ProcessEventHandler in the sub-opcode dispatch
-	 * path). 64 events × 16 bytes = 1 KiB per context × 8 contexts max =
-	 * 8 KiB worst case for 4 KiB realistic (max 4 simultaneous Active
-	 * contexts). Negligible vs. existing back-buffer + back-
-	 * texture + gamma + CLUT + fade_state allocations.
-	 *
-	 * 64-event depth ≈ 1 second of input @ 60 Hz event delivery. DSp 1.7
-	 * spec doesn't pin a depth; 64 is a sensible default.
-	 * Overflow policy: drop OLDEST event with DSP_LOG warning (the
-	 * EnqueueEvent body implements this — caller is responsible for
-	 * pumping events fast enough per DSp 1.7 spec).
-	 *
-	 * events_head + events_tail are _Atomic uint32_t
-	 * (single-word read-mostly cross-thread atomics;
-	 * a sanctioned threading-allowlist exception; threading-grep gate
-	 * does NOT include _Atomic). Relaxed-acquire/release ordering per
-	 * SPSC contract (the readers use atomic_load_explicit /
-	 * atomic_store_explicit with memory_order_relaxed for the index reads;
-	 * the 16-byte EventRecord copy is a plain memcpy because the
-	 * head/tail atomic update fences the visibility of the slot data).
-	 *
-	 * paused_by_background: set to 1 by DSpHandleBackgroundFromEmulThread
+	/* paused_by_background: set to 1 by DSpHandleBackgroundFromEmulThread
 	 * when the atomic lifecycle drain auto-Pauses an Active context.
 	 * Cleared to 0 by DSpHandleForegroundFromEmulThread after
 	 * auto-Resuming. User-initiated DSpContext_SetState(Paused) does NOT
@@ -276,17 +248,7 @@ struct DSpContextPrivate {
 	 * stays Paused after foreground (it has paused_by_background == 0, so
 	 * the foreground drain skips it). Default-initialized to 0 by
 	 * `new DSpContextPrivate()` (POD default init preserves the existing
-	 * zero-init contract for non-ObjC fields).
-	 *
-	 * Field names (events_queue, events_head, events_tail,
-	 * paused_by_background) deliberately use long-suffix or distinctive
-	 * naming so the testNoDirectDMCWritesInDSpFiles regex
-	 * (bare-word DMC identifiers documented in that test) does not match
-	 * this storage. DMC write-site + palette/gamma-generation-counter
-	 * CI gates stay zero-match. */
-	DSpEventRecord        events_queue[64];     /* SPSC ring */
-	_Atomic uint32_t      events_head;          /* writer index */
-	_Atomic uint32_t      events_tail;          /* reader index */
+	 * zero-init contract for non-ObjC fields). */
 	uint8_t               paused_by_background; /* bg-induced pause flag */
 
 	/* Background/foreground persistence.
@@ -327,9 +289,9 @@ struct DSpContextPrivate {
 	 * field is scaffolded so the record-table + handler shape is symmetric.
 	 *
 	 * Threading: single-writer emul-thread — same contract as every other
-	 * DSpContextPrivate field. NO _Atomic, NO mutex (the events_head/
-	 * tail _Atomic SPSC ring is the retired sub-op-600 anti-
-	 * pattern, deliberately NOT copied here). Value-initialized to 0 by
+	 * DSpContextPrivate field. NO _Atomic, NO mutex (the retired
+	 * sub-op-600 cross-thread SPSC ring was the anti-pattern here,
+	 * deliberately NOT copied). Value-initialized to 0 by
 	 * `new DSpContextPrivate()` (POD default-init, like max_frame_rate); both
 	 * construction paths (Reserve_Core, AllocFirstContextHandle) get the zero
 	 * from value-init. */
@@ -350,9 +312,9 @@ struct DSpContextPrivate {
 	 * a concurrent data structure).
 	 *
 	 * Threading: single-writer emul-thread — same contract as every other
-	 * DSpContextPrivate field. NO _Atomic, NO mutex (the events_head/
-	 * tail _Atomic SPSC ring is the retired sub-op-600 anti-
-	 * pattern, deliberately NOT copied here — none of the heavy handlers need
+	 * DSpContextPrivate field. NO _Atomic, NO mutex (the retired
+	 * sub-op-600 cross-thread SPSC ring was the anti-pattern here,
+	 * deliberately NOT copied — none of the heavy handlers need
 	 * cross-thread state). Value-initialized to 0 by `new DSpContextPrivate()`
 	 * (POD default-init, like max_frame_rate / underlay_alt_buffer); both
 	 * construction paths (Reserve_Core, AllocFirstContextHandle) get the zero
@@ -377,10 +339,9 @@ static inline uint32_t DSpContextBackBufferHeight(const DSpContextPrivate *ctx)
 	       : ctx->attr.displayHeight;
 }
 
-/* Reserve guest-RAM scratch (SheepMem in production, test allocator under
- * TESTING_BUILD). Definition stays in dsp_draw_context.mm (where the test
- * allocator lives); declared here so dsp_alt_buffer.mm can reserve CGrafPort
- * scratch for alt-buffers. */
+/* Reserve guest-RAM scratch (SheepMem). Definition stays in
+ * dsp_draw_context.mm; declared here so dsp_alt_buffer.mm can reserve
+ * CGrafPort scratch for alt-buffers. */
 uint32_t DSpReserveGuestScratch(uint32_t size);
 
 extern "C" uint32_t DSpReserveGuestPixelStaging(uint32_t size);

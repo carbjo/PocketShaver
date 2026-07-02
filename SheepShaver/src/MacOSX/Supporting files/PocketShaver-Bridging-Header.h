@@ -28,17 +28,7 @@
 // DSp <-> iOS host bridge.
 // DSpIdleTimerService.swift calls DSpHostBridge_GetActiveFullscreen() on
 // willEnterForegroundNotification to decide whether to re-assert
-// UIApplication.shared.isIdleTimerDisabled. dsp_host_bridge.h also exposes
-// DSpHostBridge_EnqueueEvent / EnqueueEventToActiveContexts —
-// DSpEventService.swift consumes the input fan-out entries. Header is pure-C with
+// UIApplication.shared.isIdleTimerDisabled. Header is pure-C with
 // extern "C" guards; ../gfxaccel/include is already on HEADER_SEARCH_PATHS
 // for this target.
 #import "dsp_host_bridge.h"
-
-// DSp EventRecord layout + event-kind enum constants (kDSpEvent_MouseDown /
-// MouseUp / KeyDown / KeyUp) + context-loss reason codes. DSpEventService
-// .forwardInputEventToDSp uses the kDSpEvent_* constants to translate
-// DSpInputEvent.kind into the EventRecord.what field before calling
-// DSpHostBridge_EnqueueEventToActiveContexts. Header is pure-C with
-// extern "C" guards.
-#import "dsp_event_record.h"

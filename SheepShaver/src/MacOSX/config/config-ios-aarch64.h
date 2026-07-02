@@ -10,11 +10,8 @@
 
 /* Define if using a PowerPC CPU emulator.
  *
- * Under TESTING_BUILD=1 (PocketShaverTests target), the test
- * bundle compiles gfxaccel sources with EMULATED_PPC=0 so Mac2HostAddr
- * collapses to identity and the test bundle does not link libkpx_cpu_ios.a.
- * Respect any pre-existing command-line
- * definition instead of hard-overriding it here.
+ * #ifndef so any pre-existing command-line/target definition is
+ * respected instead of hard-overridden here.
  */
 #ifndef EMULATED_PPC
 #define EMULATED_PPC 1

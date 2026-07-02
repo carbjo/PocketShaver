@@ -342,14 +342,10 @@ static inline uint32_t nqd_read_lowmem_theport()
     return ReadMacInt32(0x0916);
 }
 
-// In-RAM walk reads for nqd_read_rgb_op_color() Steps 2-5. Under production
-// these are plain ReadMacInt*; under the EMULATED_PPC=0 test build with the
-// lowmem override active, the host pointer (RAMBaseHost) does NOT equal the
-// truncated 32-bit RAMBase when the fake-RAM mmap lands above 4 GiB, so a raw
-// ReadMacInt*(macAddr) would data-fault (the mmap-low-4GiB hint is best-effort,
-// not guaranteed). The seam reads via RAMBaseHost + (macAddr - RAMBase) — the
-// same host-pointer convention the rest of the NQD test harness uses
-// (PSFakeMacRAM / *_WithHost) — so the GrafVars walk is exercisable headlessly.
+// In-RAM walk reads for nqd_read_rgb_op_color() Steps 2-5. Plain
+// ReadMacInt* wrappers kept as the single indirection point for reading
+// guest memory during the GrafVars walk — an alternate guest-memory
+// access convention only needs to change these two helpers.
 static inline uint16_t nqd_walk_read16(uint32_t mac_addr)
 {
     return (uint16_t)ReadMacInt16(mac_addr);

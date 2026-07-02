@@ -1,5 +1,5 @@
 /*
- *  dsp_event_record.h - DSp EventRecord struct + event-kind constants
+ *  dsp_event_record.h - classic Mac EventRecord event-kind constants
  *                        + reason-code constants.
  *
  *  (C) 2026 Sierra Burkhart (sierra760)
@@ -9,15 +9,10 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Pure-C header. No Metal / Objective-C / Swift types — consumable from
- *  .cpp / .mm / Swift bridging header alike. Defines the on-the-wire
- *  EventRecord layout DSp apps see when they call DSpProcessEvent
- *  (sub-opcode 600); also defines the event-kind enum constants and the
- *  context-loss reason-code constant used by the bg/fg lifecycle path.
- *
- *  DSpEventRecord mirrors the classic Mac toolbox EventRecord exactly —
- *  16 bytes total. DSp apps written against the published ProcessEvent
- *  API expect this layout; we reproduce it byte-for-byte.
+ *  Pure-C header. No Metal / Objective-C / Swift types. Defines the
+ *  event-kind enum constants used by DSpProcessEventHandler (sub-opcode
+ *  750) to decode app-supplied guest EventRecords, and the context-loss
+ *  reason-code constant used by the bg/fg lifecycle path.
  *
  *  kDSpContextReason_Lost = 1 is the placeholder per DSp 1.7 PDF p.~92
  *  default; confirmable via DrawSprocketLib decompile. If the decompile
@@ -34,39 +29,10 @@ extern "C" {
 #endif
 
 /*
- *  DSp EventRecord — 16 bytes.
- *
- *  Mirrors classic Mac toolbox EventRecord:
- *    Offset 0  (2)  what       — event kind (kDSpEvent_*)
- *    Offset 2  (4)  message    — event-kind-specific payload
- *    Offset 6  (4)  when       — TickCount() at event firing
- *    Offset 10 (2)  where_v    — vertical pixel position (mouse events)
- *    Offset 12 (2)  where_h    — horizontal pixel position (mouse events)
- *    Offset 14 (2)  modifiers  — modifier mask (shift / cmd / opt / ctrl)
- *
- *  Field names use long-suffix `where_v` / `where_h` per the DMC-grep-safe
- *  convention. The struct is stored in DSpContextPrivate.events_queue[];
- *  written by DSpHostBridge_EnqueueEvent; read by
- *  DSpContext_ProcessEventHandler which copies the 16 bytes to guest Mac
- *  memory at eventOutAddr via WriteMacInt16 / WriteMacInt32 (preserving
- *  Mac big-endian layout).
- */
-struct DSpEventRecord {
-	uint16_t  what;
-	uint32_t  message;
-	uint32_t  when;
-	int16_t   where_v;
-	int16_t   where_h;
-	uint16_t  modifiers;
-};
-typedef struct DSpEventRecord DSpEventRecord;
-
-/*
  *  Event kinds — DSp 1.7 PDF + Inside Macintosh: Toolbox Essentials.
  *  The classic Mac EventRecord.what enumeration; DSp uses a subset
- *  (mouseDown/Up + keyDown/Up + autoKey + osEvt). updateEvt / diskEvt /
- *  activateEvt are listed for future-proofing the ABI; we generate only
- *  mouseDown/Up + keyDown/Up + osEvt.
+ *  (mouseDown/Up + keyDown/Up + autoKey + osEvt). Listed in full to
+ *  document the ABI; the sub-op-750 decode path examines osEvt.
  */
 enum {
 	kDSpEvent_NullEvent      = 0,
@@ -85,9 +51,6 @@ enum {
  *  osEvt subtype constants — encoded into the high byte of the
  *  EventRecord.message field per Inside Macintosh: Toolbox Essentials.
  *  Used when decoding guest-supplied suspend/resume osEvt records.
- *  MouseMovedMessage is
- *  emitted if mouse-move events are observed (currently observer-only —
- *  InputInteractionModel doesn't publish raw mouse moves).
  */
 enum {
 	kDSpOSEvt_SuspendResumeMessage = 0x01,  /* osEvt subtype 1 */

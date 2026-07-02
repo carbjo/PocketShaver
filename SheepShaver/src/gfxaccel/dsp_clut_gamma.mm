@@ -1,5 +1,5 @@
 /*
- *  dsp_clut_gamma.mm - DrawSprocket CLUT + gamma get/set handlers.
+ *  dsp_clut_gamma.mm - DrawSprocket CLUT get/set handlers.
  *
  *  (C) 2026 Sierra Burkhart (sierra760)
  *
@@ -8,12 +8,11 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Extracted verbatim from dsp_draw_context.mm (de-bloat, NO behaviour change):
- *  the CLUT Set/Get cores + handlers, the gamma Set/Get cores + handlers, and
- *  the guest LUT/parametric-colour read/write helpers.
+ *  Extracted from dsp_draw_context.mm (de-bloat): the CLUT Set/Get cores +
+ *  handlers and the guest parametric-colour read helper.
  *  The gamma FADE subsystem stays in dsp_draw_context.mm. Entry points
- *  are extern "C" (declared in dsp_draw_context.h); the 2 cores the fade code
- *  reuses are declared in dsp_clut_gamma.h.
+ *  are extern "C" (declared in dsp_draw_context.h); the cores/helpers the
+ *  dsp_draw_context.mm code reuses are declared in dsp_clut_gamma.h.
  */
 #import <Metal/Metal.h>
 
@@ -21,7 +20,6 @@
 #include "cpu_emulation.h"
 #include "thunks.h"                /* SheepMem::Reserve */
 #include "dsp_engine.h"
-#include "dsp_event_record.h"      /* DSpEventRecord struct (DSpContextPrivate member) */
 #include "dsp_draw_context.h"
 #include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler delegate target */
 #include "dsp_context_private.h"   /* DSpContextPrivate full struct; shared with dsp_metal_renderer.mm */
@@ -374,37 +372,12 @@ extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
 
 /* ================================================================== */
 /*                                                                    */
-/*  DSp Gamma + Fade handlers (sub-opcodes 400..404).                 */
-/*  SetGamma / GetGamma handlers; FadeGammaIn / FadeGammaOut          */
-/*  handlers plus the DSpVBLGammaFadeCallback inner body; and the     */
-/*  parametric FadeGamma handler.                                     */
+/*  Gamma-fade support helper.                                        */
+/*  The fade handlers (sub-opcodes 402..404) live in                  */
+/*  dsp_draw_context.mm; the guest parametric-colour read they        */
+/*  share is defined here.                                            */
 /*                                                                    */
 /* ================================================================== */
-
-/*
- *  Classic Mac GammaTable convention:
- *  read 768 bytes (256 R + 256 G + 256 B planar) from guest Mac RAM at
- *  tableAddr + 24, staging into the caller's host buffer. The 24-byte
- *  offset is the classic Mac GammaTable header size (gVersion + gType +
- *  gFormulaSize + gChanCnt + gDataCnt + gDataWidth = 12 bytes; followed
- *  by 12 bytes of gFormulaData per the Inside Macintosh: Imaging With
- *  QuickDraw ch.4 layout). The 768-byte LUT block starts at offset 24.
- *
- *  If a future researcher confirms a different DSp 1.7 header offset
- *  (e.g., DSp passes the gLUTData pointer directly rather than the
- *  GammaTable* pointer), this helper is the single replacement point —
- *  the rest of the handler is offset-agnostic.
- *
- *  Defensive: caller has already validated tableAddr != 0; this helper
- *  trusts that invariant.
- */
-static void DSpReadGammaLUTFromGuest(uint32_t tableAddr,
-                                      uint8_t *out_lut_768)
-{
-	for (uint32_t i = 0; i < 768; i++) {
-		out_lut_768[i] = (uint8_t)ReadMacInt8(tableAddr + 24 + i);
-	}
-}
 
 /*
  *  FadeGamma ABI fidelity:
@@ -440,231 +413,4 @@ void DSpReadParametricColorFromGuest(uint32_t colorAddr,
 	*out_b = (uint8_t)(ReadMacInt16(colorAddr + 4) >> 8);
 }
 
-/*
- *  Core SetGamma path shared by the SetGamma handler and the fade
- *  handlers (dsp_draw_context.mm).
- *  `lut_host_768` points to a 768-byte planar R/G/B LUT in host memory.
- *
- *  Validation here re-checks ctx != null + lut_host_768 != null as a
- *  defensive second-layer; the callers have already checked the same
- *  invariants, so the re-check is cheap.
- *
- *  Sequence (cancellation BEFORE DMC push):
- *    1. Cancel any active fade: set fade_state.active = 0.
- *    2. Push LUT to DMC: dmc_record_gamma_change_with_lut(lut).
- *       This atomically publishes a fresh DMC snapshot with bumped
- *       generation counter; the compositor's existing VBL gamma block at
- *       metal_compositor.mm:272-278 picks up the change at the next
- *       VBL via the s_last_gamma_gen pattern.
- *    3. Update per-context persistence: memcpy lut into
- *       ctx->gamma_lut_persisted for Pause→Resume replay.
- */
-static int32_t DSpSetGammaCore(DSpContextPrivate *ctx,
-                                const uint8_t *lut_host_768)
-{
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (lut_host_768 == nullptr) return kDSpInvalidAttributesErr;
-
-	/* Cancel any in-flight fade. SetGamma overrides per spec p.74. */
-	if (ctx->fade_state.active != 0) {
-		DSP_LOG("SetGamma: cancelling active fade (ctx=%u, elapsed=%u/%u)",
-		        ctx->handle,
-		        (unsigned)ctx->fade_state.elapsed_vbls,
-		        (unsigned)ctx->fade_state.duration_vbls);
-		ctx->fade_state.active = 0;
-	}
-
-	/* DMC owns the live gamma. Push LUT through the public API;
-	 * never bare-write the DMC-owned generation counter / LUT storage
-	 * (CI gate enforces). */
-	int32_t rv = dmc_record_gamma_change_with_lut(lut_host_768);
-	if (rv != kDMCNoErr) {
-		DSP_LOG("SetGamma: dmc_record_gamma_change_with_lut returned %d",
-		        rv);
-		return kDSpInternalErr;
-	}
-
-	/* Per-context persistence buffer for Pause→Resume replay. */
-	memcpy(ctx->gamma_lut_persisted, lut_host_768, 768);
-
-	return kDSpNoErr;
-}
-
-/*
- *  DSpContext_SetGamma (sub-opcode 400).
- *
- *  Argument contract:
- *    ctxRef    = context handle from DSpContext_Reserve
- *    tableAddr = guest Mac address of a GammaTable struct (24-byte
- *                header + 12 bytes formula data + 768 bytes LUT data
- *                in planar R/G/B layout). Header bytes are owned by
- *                the caller; this handler reads only the LUT block
- *                at tableAddr + 24.
- *
- *  Error map:
- *    kDSpInvalidContextErr    - ctxRef does not resolve to a context
- *    kDSpInvalidAttributesErr - tableAddr == 0
- *    kDSpInternalErr          - dmc_record_gamma_change_with_lut failed
- *                                (e.g., DMC in Quiescent state, OOM)
- *    kDSpNoErr                - success; LUT pushed to DMC; persistence
- *                                buffer updated; any active fade cancelled
- *
- *  DMC contract:
- *    dmc_record_gamma_change_with_lut() atomically publishes a fresh
- *    DMC snapshot with bumped generation counter + the new 768-byte LUT.
- *    The compositor's existing VBL gamma block at metal_compositor.mm:272-278
- *    picks up the change at the next VBL via the s_last_gamma_gen
- *    pattern. Adds ZERO compositor edits.
- *
- *  Active-fade cancellation:
- *    If ctx->fade_state.active != 0, the new SetGamma overrides the
- *    in-flight fade per DSp 1.7 spec p.74. Cancellation is a single
- *    uint8_t write to fade_state.active = 0; the new SetGamma's DMC
- *    push is the authoritative final state.
- *
- *  Persistence:
- *    After the DMC push succeeds, the staged LUT is memcpy'd into
- *    ctx->gamma_lut_persisted so the Pause→Resume path (which may
- *    add the SetState replay arm if device UAT shows DSp games depend
- *    on per-context gamma persistence) re-pushes the persisted LUT.
- */
-extern "C" int32_t DSpContext_SetGammaHandler(uint32_t ctxRef,
-                                               uint32_t tableAddr)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		DSP_LOG("SetGamma: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
-		return kDSpInvalidContextErr;
-	}
-	if (tableAddr == 0) {
-		DSP_LOG("SetGamma: NULL tableAddr (ctxRef=%u) -> kDSpInvalidAttributesErr",
-		        ctxRef);
-		return kDSpInvalidAttributesErr;
-	}
-
-	/* Stage LUT from guest Mac RAM into a host-local 768-byte buffer.
-	 * The guest may free the GammaTable immediately after SetGamma
-	 * returns, so we must copy out before any DMC call. */
-	uint8_t staged[768];
-	DSpReadGammaLUTFromGuest(tableAddr, staged);
-
-	/* Defer to core helper for the cancellation + DMC push + persistence
-	 * write. ctx + staged are already validated, so DSpSetGammaCore's
-	 * defensive re-checks are no-ops on this path. */
-	int32_t rv = DSpSetGammaCore(ctx, staged);
-	if (rv == kDSpNoErr) {
-		DSP_LOG("SetGamma: ctx=%u tableAddr=0x%08x state=%u -> OK",
-		        ctxRef, tableAddr, ctx->state);
-	}
-	return rv;
-}
-
-
-/*
- *  Classic Mac GammaTable convention:
- *  write 768 bytes (256 R + 256 G + 256 B planar) into guest Mac RAM
- *  at tableOutAddr + 24. Symmetric with DSpReadGammaLUTFromGuest's
- *  24-byte header skip — the GammaTable header bytes (gVersion, gType,
- *  etc.) are owned by the caller and unchanged by this handler.
- *
- *  Defensive: caller has already validated tableOutAddr != 0; this
- *  helper trusts that invariant.
- */
-static void DSpWriteGammaLUTToGuest(uint32_t tableOutAddr,
-                                      const uint8_t *lut_768)
-{
-	for (uint32_t i = 0; i < 768; i++) {
-		WriteMacInt8(tableOutAddr + 24 + i, lut_768[i]);
-	}
-}
-
-/*
- *  Core GetGamma path. Reads
- *  the current DMC snapshot's gamma_lut[768] into the caller's
- *  host buffer.
- *
- *  Rationale: GetGamma reads directly from the DMC snapshot
- *  (NOT from a per-context VBL-latched buffer like GetCLUT)
- *  because (1) the DMC snapshot is already VBL-latched by the
- *  compositor's s_last_gamma_gen pattern, (2) there's only one
- *  global gamma LUT (no per-context state to latch), (3) the
- *  compositor never writes back to the DMC snapshot.
- *
- *  Snapshot-NULL edge case: dmc_current_snapshot returns NULL in
- *  Quiescent state (DMC pre-create or post-shutdown). This is an
- *  extreme edge case in production but covered defensively here.
- */
-static int32_t DSpGetGammaCore(DSpContextPrivate *ctx,
-                                uint8_t *lut_out_host_768)
-{
-	if (ctx == nullptr) return kDSpInvalidContextErr;
-	if (lut_out_host_768 == nullptr) return kDSpInvalidAttributesErr;
-
-	const struct DMCModeSnapshot *snap = dmc_current_snapshot();
-	if (snap == nullptr) {
-		DSP_LOG("GetGamma: dmc_current_snapshot returned NULL "
-		        "(DMC Quiescent) -> kDSpNotInitializedErr");
-		return kDSpNotInitializedErr;
-	}
-	memcpy(lut_out_host_768, snap->gamma_lut, 768);
-	return kDSpNoErr;
-}
-
-/*
- *  DSpContext_GetGamma (sub-opcode 401).
- *
- *  Argument contract:
- *    ctxRef        = context handle from DSpContext_Reserve
- *    tableOutAddr  = guest Mac address of a caller-allocated GammaTable
- *                    struct. The caller owns the 24-byte header bytes
- *                    (set to default values per classic Mac convention
- *                    or copied from a prior GetGamma); this handler
- *                    writes only the LUT block at tableOutAddr + 24.
- *
- *  Error map:
- *    kDSpInvalidContextErr    - ctxRef does not resolve to a context
- *    kDSpInvalidAttributesErr - tableOutAddr == 0
- *    kDSpNotInitializedErr    - dmc_current_snapshot returned NULL
- *    kDSpNoErr                - success; 768 bytes written to guest RAM
- *
- *  DMC contract:
- *    dmc_current_snapshot() returns a pointer to the published DMC
- *    snapshot. Reads from snap->gamma_lut[768] are atomic-snapshot-
- *    consistent. The snapshot may be replaced
- *    mid-flight by a concurrent DMC writer (e.g., another SetGamma
- *    or the gamma-fade VBL callback), but the snapshot
- *    pointer is reference-counted so reads against the captured
- *    pointer remain valid until the function returns.
- */
-extern "C" int32_t DSpContext_GetGammaHandler(uint32_t ctxRef,
-                                               uint32_t tableOutAddr)
-{
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (ctx == nullptr) {
-		DSP_LOG("GetGamma: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
-		return kDSpInvalidContextErr;
-	}
-	if (tableOutAddr == 0) {
-		DSP_LOG("GetGamma: NULL tableOutAddr (ctxRef=%u) -> kDSpInvalidAttributesErr",
-		        ctxRef);
-		return kDSpInvalidAttributesErr;
-	}
-
-	/* Stage LUT from DMC snapshot into a host-local 768-byte buffer. */
-	uint8_t staged[768];
-	int32_t rv = DSpGetGammaCore(ctx, staged);
-	if (rv != kDSpNoErr) {
-		return rv;  /* DSpGetGammaCore already logged the failure reason */
-	}
-
-	/* Egress to guest RAM. Header bytes at tableOutAddr + 0..23 are
-	 * unchanged (caller owns header semantics). */
-	DSpWriteGammaLUTToGuest(tableOutAddr, staged);
-
-	DSP_LOG("GetGamma: ctx=%u tableOutAddr=0x%08x -> OK",
-	        ctxRef, tableOutAddr);
-	return kDSpNoErr;
-}
 

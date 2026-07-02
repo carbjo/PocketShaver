@@ -1,5 +1,5 @@
 /*
- *  dsp_clut_gamma.h - DrawSprocket CLUT + gamma get/set (sub-ops 300/301, 4xx).
+ *  dsp_clut_gamma.h - DrawSprocket CLUT get/set (sub-ops 300/301).
  *
  *  (C) 2026 Sierra Burkhart (sierra760)
  *
@@ -8,11 +8,11 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  CLUT + gamma get/set handlers (+ cores + DSpTesting_* wrappers) were
+ *  CLUT get/set handlers (+ cores) were
  *  extracted from dsp_draw_context.mm into dsp_clut_gamma.mm (de-bloat).
  *  The gamma FADE subsystem stays in dsp_draw_context.mm (it is coupled to the
  *  VBL machinery + context-table walk). The fade handlers and Reserve
- *  colorTable path reuse the extracted cores declared here.
+ *  colorTable path reuse the extracted cores/helpers declared here.
  */
 
 #ifndef DSP_CLUT_GAMMA_H
@@ -30,7 +30,8 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
                        const uint8_t *entries_host_range);
 
 /* Read (last-first+1)*3 RGB bytes of the context's latched CLUT into
- * entries_out_host_range. Shared with the fade handlers (dsp_draw_context.mm). */
+ * entries_out_host_range. Used by the GetCLUTEntries handler
+ * (dsp_clut_gamma.mm). */
 int32_t DSpGetCLUTCore(DSpContextPrivate *ctx,
                        uint32_t first, uint32_t last,
                        uint8_t *entries_out_host_range);
