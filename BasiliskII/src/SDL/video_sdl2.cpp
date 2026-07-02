@@ -1053,10 +1053,12 @@ void update_sdl_video(SDL_Surface *s, int numrects, SDL_Rect *rects)
         SDL_UnionRect(&sdl_update_video_rect, &rects[i], &sdl_update_video_rect);
     }
 #if !TARGET_OS_IPHONE
-	// On iOS the Metal compositor is the authoritative FPS reporter (it counts
-	// real presents in MetalCompositorPresent). This SDL dirty-rect path is
-	// already compiled out on iOS via video_refresh_window_static, but gate the
-	// report here too so the two reporters can never double-count.
+	// On iOS the VBL source is the authoritative FPS reporter (it counts
+	// completed VBL callback chains in vbl_source.mm; present-site counting is
+	// frozen for the nift bisection — see the NOTE in MetalCompositorPresent).
+	// This SDL dirty-rect path is already compiled out on iOS via
+	// video_refresh_window_static, but gate the report here too so the two
+	// reporters can never double-count.
 	objc_reportFrameRender();
 #endif
     SDL_UnlockMutex(sdl_update_video_mutex);

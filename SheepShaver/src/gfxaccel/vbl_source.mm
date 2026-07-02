@@ -34,6 +34,8 @@
 #include "vbl_source.h"
 #include "gfxaccel_threading_policy.h"
 
+#import "PerformanceCounterObjCCppHeader.h"
+
 #include <stdatomic.h>
 #include <cstdio>
 #include <mach/kern_return.h>
@@ -99,6 +101,16 @@ static inline void FireVBLCallbackChain(void *drawable, double ts)
 	}
 	DrainSecondaryCallbacks(drawable, ts);
 	s_callback_depth--;
+
+	// FPS tally for the Preferences overlay. Counted here — after the chain
+	// completes — rather than at the MetalCompositorPresent site, because that
+	// site sits inside the present -> nift-drain window whose timing is frozen
+	// for the Diablo II bisection (see the NOTE in MetalCompositorPresent).
+	// One completed chain corresponds to one serviced VBL and hence one
+	// compositor present in steady state; when emulation stalls, this thread
+	// stops pumping and the count (correctly) falls to zero. Exact
+	// present-site accounting can return once the nift bisection concludes.
+	objc_reportFrameRender();
 }
 
 extern "C" int vbl_source_in_callback_chain(void)
