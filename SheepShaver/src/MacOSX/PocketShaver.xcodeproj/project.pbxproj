@@ -2935,7 +2935,6 @@
 				MACOSX_DEPLOYMENT_TARGET = 10.7;
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				PRODUCT_NAME = kpx_cpu;
-				VALID_ARCHS = "x86_64 arm64";
 			};
 			name = Debug;
 		};
@@ -2975,7 +2974,6 @@
 				MACOSX_DEPLOYMENT_TARGET = 10.7;
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				PRODUCT_NAME = kpx_cpu;
-				VALID_ARCHS = "x86_64 arm64";
 			};
 			name = Release;
 		};
@@ -3069,7 +3067,6 @@
 				PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = net.cebix.sheepshaver;
 				PRODUCT_NAME = SheepShaver;
-				VALID_ARCHS = "x86_64 arm64";
 				WARNING_LDFLAGS = "";
 			};
 			name = Debug;
@@ -3140,7 +3137,6 @@
 				PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = net.cebix.sheepshaver;
 				PRODUCT_NAME = SheepShaver;
-				VALID_ARCHS = "x86_64 arm64";
 			};
 			name = Release;
 		};
@@ -3187,7 +3183,6 @@
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
-				VALID_ARCHS = "x86_64 arm64";
 			};
 			name = Debug;
 		};
@@ -3234,7 +3229,6 @@
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
-				VALID_ARCHS = "x86_64 arm64";
 			};
 			name = Release;
 		};
@@ -3353,7 +3347,6 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
-				VALID_ARCHS = "x86_64 arm64";
 				WARNING_LDFLAGS = "";
 			};
 			name = Debug;
@@ -3397,7 +3390,7 @@
 				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = NO;
 				DEVELOPMENT_TEAM = 7K4RY698N6;
-				ENABLE_TESTABILITY = YES;
+				ENABLE_TESTABILITY = NO;
 				EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES = "*.nib *.lproj *.gch *.xcode* *.xcassets (*) .DS_Store CVS .svn .git .hg *.pbproj *.pbxproj *.framework";
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -3471,7 +3464,6 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
-				VALID_ARCHS = "x86_64 arm64";
 			};
 			name = Release;
 		};
