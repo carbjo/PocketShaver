@@ -7,6 +7,7 @@
 
 import Combine
 import NotificationCenter
+import UserNotifications
 
 enum PreferencesError: Error {
 	case romFileMissing

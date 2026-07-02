@@ -3183,6 +3183,8 @@
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				SUPPORTS_MACCATALYST = YES;
+				"ARCHS[sdk=macosx*]" = arm64;
 			};
 			name = Debug;
 		};
@@ -3229,6 +3231,8 @@
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				SUPPORTS_MACCATALYST = YES;
+				"ARCHS[sdk=macosx*]" = arm64;
 			};
 			name = Release;
 		};
@@ -3341,6 +3345,8 @@
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = NO;
+				SUPPORTS_MACCATALYST = YES;
+				"ARCHS[sdk=macosx*]" = arm64;
 				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/PocketShaver-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = minimal;
@@ -3459,6 +3465,8 @@
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = NO;
+				SUPPORTS_MACCATALYST = YES;
+				"ARCHS[sdk=macosx*]" = arm64;
 				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/PocketShaver-Bridging-Header.h";
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 5.0;

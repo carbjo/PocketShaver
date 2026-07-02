@@ -209,8 +209,16 @@ enum {
  *  against DSp 1.7's documented header, so the range MUST be -30440..-30450
  *  for behavior-exact diff against fixtures.
  */
+/*
+ *  On macOS / Mac Catalyst builds, CarbonCore/MacErrors.h (reached by any
+ *  Foundation import) already defines the -30440..-30450 DSp enumerators
+ *  with these exact values, and C forbids redefining an enumerator. TUs
+ *  that pull in Foundation/Metal do so before this header (system-first
+ *  include order), so gate on MacErrors.h's include guard. kDSpNoErr and
+ *  the kDSpErrGeneric alias are not in MacErrors.h and are always ours.
+ */
+#ifndef __MACERRORS__
 enum {
-	kDSpNoErr                     = 0,
 	kDSpNotInitializedErr         = -30440,
 	kDSpSystemSWTooOldErr         = -30441,
 	kDSpInvalidContextErr         = -30442,
@@ -221,7 +229,12 @@ enum {
 	kDSpFrameRateNotReadyErr      = -30447,
 	kDSpConfirmSwitchWarning      = -30448,
 	kDSpInternalErr               = -30449,
-	kDSpStereoContextErr          = -30450,
+	kDSpStereoContextErr          = -30450
+};
+#endif
+
+enum {
+	kDSpNoErr                     = 0,
 
 	/*
 	 *  Back-compat alias so existing call sites compile; the dispatch-default
