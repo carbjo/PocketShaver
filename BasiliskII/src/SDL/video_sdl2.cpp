@@ -1633,12 +1633,22 @@ bool VideoInit(bool classic)
 	}
 	if (default_width <= 0)
 		default_width = sdl_display_width();
-	else if (default_width > sdl_display_width())
-		default_width = sdl_display_width();
 	if (default_height <= 0)
 		default_height = sdl_display_height();
-	else if (default_height > sdl_display_height())
+#if !TARGET_OS_IPHONE
+	// Desktop only: clamp an over-large requested mode down to the display.
+	// NOT on iOS / Mac Catalyst — there the screen-pref mode comes from the
+	// validated device resolution list (objc_getAllMonitorResolutions) and is
+	// already registered in VModes[]. SDL_GetDesktopDisplayMode reports the
+	// panel in PORTRAIT there (e.g. 1329x2056 for a 2056x1329 landscape mode),
+	// so this clamp would shrink the width, break the exact VMode match, and
+	// fall back to the 1-bit VideoModes[0] -> black boot + Display Manager
+	// wild bctr.
+	if (default_width > sdl_display_width())
+		default_width = sdl_display_width();
+	if (default_height > sdl_display_height())
 		default_height = sdl_display_height();
+#endif
 
 	// Mac screen depth follows X depth
 	screen_depth = 32;

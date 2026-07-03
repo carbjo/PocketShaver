@@ -3357,6 +3357,7 @@
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				"TARGETED_DEVICE_FAMILY[sdk=macosx*]" = "2,6";
 				VALIDATE_PRODUCT = YES;
 				WARNING_LDFLAGS = "";
 			};
@@ -3477,6 +3478,7 @@
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				"TARGETED_DEVICE_FAMILY[sdk=macosx*]" = "2,6";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;

@@ -8,13 +8,22 @@
 import UIKit
 
 class PreferencesAdvancedRamStepperCell: UITableViewCell {
-	private lazy var stepper: UIStepper = {
-		let stepper = UIStepper.withoutConstraints()
-		stepper.isContinuous = false
-		stepper.minimumValue = 0
-		stepper.maximumValue = Double(PreferencesGeneralRamSetting.allCases.count - 1)
-		stepper.addTarget(self, action: #selector(stepperValueChanged), for: .valueChanged)
-		return stepper
+	// UIStepper is unsupported in the Mac Catalyst Mac idiom — it throws when it
+	// enters the window hierarchy, and (unlike UIButton/UISlider) has no
+	// preferredBehavioralStyle escape hatch. A −/+ button pair gives the same
+	// discrete stepper UX and renders on every idiom (iPhone, iPad, and Mac).
+	private let maxValue = PreferencesGeneralRamSetting.allCases.count - 1
+	private var currentValue: Int
+
+	private lazy var decrementButton = Self.makeStepButton(title: "\u{2212}") // MINUS SIGN
+	private lazy var incrementButton = Self.makeStepButton(title: "+")
+
+	private lazy var stepperStack: UIStackView = {
+		let stack = UIStackView(arrangedSubviews: [decrementButton, incrementButton])
+		stack.translatesAutoresizingMaskIntoConstraints = false
+		stack.axis = .horizontal
+		stack.spacing = 8
+		return stack
 	}()
 
 	private lazy var stepperLabel: UILabel = {
@@ -28,6 +37,7 @@ class PreferencesAdvancedRamStepperCell: UITableViewCell {
 		didChangeStepperValue: @escaping ((PreferencesGeneralRamSetting) -> Void)
 	) {
 		self.didChangeStepperValue = didChangeStepperValue
+		self.currentValue = initialRamSettting.rawValue
 
 		super.init(style: .default, reuseIdentifier: nil)
 
@@ -35,27 +45,43 @@ class PreferencesAdvancedRamStepperCell: UITableViewCell {
 
 		hideSeparator()
 
-		contentView.addSubview(stepper)
+		decrementButton.addTarget(self, action: #selector(decrementValue), for: .touchUpInside)
+		incrementButton.addTarget(self, action: #selector(incrementValue), for: .touchUpInside)
+
+		contentView.addSubview(stepperStack)
 		contentView.addSubview(stepperLabel)
 
 		NSLayoutConstraint.activate([
-			stepper.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-			stepper.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			stepperStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			stepperStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
 
-			stepperLabel.centerYAnchor.constraint(equalTo: stepper.centerYAnchor),
-			stepperLabel.leadingAnchor.constraint(equalTo: stepper.trailingAnchor, constant: 16),
+			stepperLabel.centerYAnchor.constraint(equalTo: stepperStack.centerYAnchor),
+			stepperLabel.leadingAnchor.constraint(equalTo: stepperStack.trailingAnchor, constant: 16),
 			stepperLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
 		])
 
-		stepper.value = Double(initialRamSettting.rawValue)
 		stepperLabel.text = initialRamSettting.label
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	@objc private func stepperValueChanged() {
-		let stepperValue = Int(stepper.value)
-		let ramSetting = PreferencesGeneralRamSetting(rawValue: stepperValue) ?? .n256
+	private static func makeStepButton(title: String) -> UIButton {
+		let button = UIButton(type: .system)
+		button.translatesAutoresizingMaskIntoConstraints = false
+		button.setTitle(title, for: .normal)
+		button.titleLabel?.font = .systemFont(ofSize: 24, weight: .medium)
+		button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+		return button
+	}
+
+	@objc private func decrementValue() { updateValue(currentValue - 1) }
+	@objc private func incrementValue() { updateValue(currentValue + 1) }
+
+	private func updateValue(_ newValue: Int) {
+		let clamped = min(max(0, newValue), maxValue)
+		guard clamped != currentValue else { return }
+		currentValue = clamped
+		let ramSetting = PreferencesGeneralRamSetting(rawValue: currentValue) ?? .n256
 		stepperLabel.text = ramSetting.label
 		didChangeStepperValue(ramSetting)
 	}

@@ -77,6 +77,35 @@ extension UIScreen {
 		let portraitModeSize = self.portraitModeSize
 		return .init(width: portraitModeSize.height, height: portraitModeSize.width)
 	}
+
+	/// Height in points of the Mac camera-housing (notch) / menu-bar strip on Mac
+	/// Catalyst — where UIKit does NOT surface it as a safe-area inset — sourced from
+	/// AppKit's NSScreen via `catalyst_screen_top_inset()`. Zero off Catalyst and on
+	/// notchless / external displays.
+	static var macCatalystNotchInset: CGFloat {
+		#if targetEnvironment(macCatalyst)
+		return CGFloat(catalyst_screen_top_inset())
+		#else
+		return 0
+		#endif
+	}
+
+	/// Landscape / portrait screen size with the Mac Catalyst camera-housing strip
+	/// removed from the physical-vertical dimension, so pixel-aligned resolutions
+	/// occupy the usable area below the notch — parity with Designed-for-iPad, whose
+	/// `bounds` already exclude it. Identical to the plain sizes off Catalyst and on
+	/// notchless / external displays (`macCatalystNotchInset` is 0 there).
+	static var pixelAlignedLandscapeSize: CGSize {
+		var size = landscapeModeSize
+		size.height -= macCatalystNotchInset
+		return size
+	}
+
+	static var pixelAlignedPortraitSize: CGSize {
+		var size = portraitModeSize
+		size.width -= macCatalystNotchInset
+		return size
+	}
 }
 
 enum DeviceType {

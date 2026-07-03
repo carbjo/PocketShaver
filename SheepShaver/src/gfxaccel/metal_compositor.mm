@@ -685,6 +685,39 @@ static void compositor_vbl_callback(void *ctx, void *drawable, double target_ts)
 }
 
 // ---------------------------------------------------------------------------
+// MetalCompositorPinViewToSafeArea (Mac Catalyst) — size the compositor view to
+// its superview's safe area via Auto Layout. On Catalyst the view runs with
+// translatesAutoresizingMaskIntoConstraints = NO, so it has NO size unless
+// pinned. A mode switch that re-homes the view into a fresh SDL
+// rootViewController.view drops the previous pin (it referenced the old
+// superview), collapsing the view to 0x0 — a black desktop. Re-pin on every
+// re-home. Storing the constraints lets us deactivate the stale set first, so
+// re-pinning against an unchanged superview cannot stack duplicates.
+// ---------------------------------------------------------------------------
+#if TARGET_OS_MACCATALYST
+static NSArray<NSLayoutConstraint *> *s_compositor_pin_constraints = nil;
+
+static void MetalCompositorPinViewToSafeArea(void)
+{
+    if (!compositor_view || !compositor_view.superview) return;
+    if (s_compositor_pin_constraints) {
+        [NSLayoutConstraint deactivateConstraints:s_compositor_pin_constraints];
+        s_compositor_pin_constraints = nil;
+    }
+    compositor_view.translatesAutoresizingMaskIntoConstraints = NO;
+    UILayoutGuide *safeGuide = compositor_view.superview.safeAreaLayoutGuide;
+    NSArray<NSLayoutConstraint *> *pins = @[
+        [compositor_view.topAnchor      constraintEqualToAnchor:safeGuide.topAnchor],
+        [compositor_view.leadingAnchor  constraintEqualToAnchor:safeGuide.leadingAnchor],
+        [compositor_view.trailingAnchor constraintEqualToAnchor:safeGuide.trailingAnchor],
+        [compositor_view.bottomAnchor   constraintEqualToAnchor:safeGuide.bottomAnchor],
+    ];
+    [NSLayoutConstraint activateConstraints:pins];
+    s_compositor_pin_constraints = pins;
+}
+#endif
+
+// ---------------------------------------------------------------------------
 // MetalCompositorInit
 // ---------------------------------------------------------------------------
 
@@ -1031,6 +1064,14 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
             // bottom so it still never covers the overlay.
             [uiWindow insertSubview:compositor_view atIndex:0];
         }
+#if TARGET_OS_MACCATALYST
+        // Now that the compositor is in a view hierarchy (a common ancestor
+        // exists), pin it to its superview's safe area so the guest desktop
+        // renders below the Mac menu bar / camera housing. MUST run post-insert:
+        // cross-view constraints require a shared hierarchy. The matching re-pin
+        // in MetalCompositorResize keeps this alive across mode-switch re-homes.
+        MetalCompositorPinViewToSafeArea();
+#endif
     }
 
     // Subscribe to DMC FIRST:
@@ -1367,6 +1408,15 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
         if (sdlContainer && compositor_view.superview != sdlContainer) {
             [sdlContainer insertSubview:compositor_view atIndex:0];
         }
+#if TARGET_OS_MACCATALYST
+        // Re-homing drops the Init-time safe-area pin (it referenced the previous
+        // superview) while translatesAutoresizingMaskIntoConstraints is NO, so the
+        // view would otherwise collapse to 0x0 — a black desktop after a mode
+        // switch. Re-pin to the current superview's safe area. Idempotent: the
+        // helper deactivates any prior pin first, so an unchanged superview is a
+        // no-op in effect.
+        MetalCompositorPinViewToSafeArea();
+#endif
     }
 
     // Capture old dimensions/depth for diagnostic log
