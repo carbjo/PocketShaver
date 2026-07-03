@@ -202,6 +202,20 @@ class PreferencesAdvancedModel {
 		}
 	}
 
+	@MainActor
+	var jitCompilerEnabled: Bool {
+		get {
+			miscSettings.jitCompilerEnabled
+		}
+		set {
+			miscSettings.set(jitCompilerEnabled: newValue)
+
+			// The 'jit' pref is read once when the emulated CPU is created,
+			// so a change only lands on a full app restart.
+			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+		}
+	}
+
 	init(
 		mode: PreferencesLaunchMode,
 		changeSubject: PassthroughSubject<PreferencesChange, Never>

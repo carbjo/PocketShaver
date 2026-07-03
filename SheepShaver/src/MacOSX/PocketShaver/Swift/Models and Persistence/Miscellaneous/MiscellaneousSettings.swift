@@ -91,6 +91,14 @@ class MiscellaneousSettings: Codable {
 	private(set) var ignoreIllegalInstructions: Bool
 	private(set) var altivecEnabled: Bool
 	private(set) var ramInMb: Int
+	// Optional so persisted settings that pre-date the key still decode: the
+	// synthesized decoder uses decodeIfPresent for optionals, while a missing
+	// required key would throw and silently reset every saved setting
+	private(set) var jitEnabled: Bool?
+
+	var jitCompilerEnabled: Bool {
+		jitEnabled ?? false
+	}
 
 
 	var secondFingerClick: Bool {
@@ -168,6 +176,7 @@ class MiscellaneousSettings: Codable {
 		ignoreIllegalInstructions = false
 		altivecEnabled = true
 		ramInMb = 512
+		jitEnabled = false
 	}
 
 	@MainActor
@@ -366,6 +375,13 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(altivecEnabled: Bool) {
 		self.altivecEnabled = altivecEnabled
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(jitCompilerEnabled: Bool) {
+		self.jitEnabled = jitCompilerEnabled
 
 		saveAsCurrent()
 	}

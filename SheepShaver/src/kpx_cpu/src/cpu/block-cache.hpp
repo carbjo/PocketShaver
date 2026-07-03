@@ -122,35 +122,20 @@ void block_cache< block_info, block_allocator >::clear_range(uintptr start, uint
 	if (!active)
 		return;
 
-	entry *p, *q;
-	if (cacheline(start) < cacheline(end - 1)) {
-		// Optimize for short ranges flush
-		const int end_cl = cacheline(end - 1);
-		for (int cl = cacheline(start); cl <= end_cl; cl++) {
-			p = cache_tags[cl];
-			while (p) {
-				q = p;
-				p = p->next_same_cl;
-				if (q->intersect(start, end)) {
-					q->invalidate();
-					remove_from_cl_list(q);
-					remove_from_list(q);
-					delete_blockinfo(q);
-				}
-			}
-		}
-	}
-	else {
-		p = active;
-		while (p) {
-			q = p;
-			p = p->next;
-			if (q->intersect(start, end)) {
-				q->invalidate();
-				remove_from_cl_list(q);
-				remove_from_list(q);
-				delete_blockinfo(q);
-			}
+	// Walk the full active list. Blocks are registered in cache_tags[]
+	// under their entry pc only, so a bucket scan over the words in
+	// [start, end) cannot see a block that spans into the range from a
+	// lower entry pc -- it would miss e.g. an icbi flush of a cache line
+	// strictly interior to an already-decoded block.
+	entry *p = active, *q;
+	while (p) {
+		q = p;
+		p = p->next;
+		if (q->intersect(start, end)) {
+			q->invalidate();
+			remove_from_cl_list(q);
+			remove_from_list(q);
+			delete_blockinfo(q);
 		}
 	}
 }

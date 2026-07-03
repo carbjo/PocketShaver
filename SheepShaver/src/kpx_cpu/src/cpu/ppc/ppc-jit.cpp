@@ -39,10 +39,12 @@ powerpc_jit::powerpc_jit(dyngen_cpu_base cpu)
 {
 }
 
+#if defined(__i386__) || defined(__x86_64__)
 // An operand that refers to an address relative to the emulated machine
 static x86_memory_operand vm_memory_operand(int32 d, int b, int i = X86_NOREG, int s = 1) {
 	return x86_memory_operand(d + VMBaseDiff, b, i, s);
 }
+#endif
 
 bool powerpc_jit::initialize(void)
 {
@@ -954,3 +956,7 @@ bool powerpc_jit::gen_ssse3_vperm(int mnemo, int vD, int vA, int vB, int vC)
 #endif
 
 #endif //ENABLE_DYNGEN
+
+// arm64 JIT helper functions (self-guarded on ENABLE_DYNGEN && __aarch64__).
+// Compiled here to avoid a separate Xcode source-list entry.
+#include "cpu/jit/arm64/arm64-helpers.cpp"

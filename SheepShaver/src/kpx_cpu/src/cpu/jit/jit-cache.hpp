@@ -37,6 +37,14 @@ class basic_jit_cache
 	uint8 *code_p;
 	uint8 *code_end;
 
+protected:
+	// Displacement from execute-view to write-view addresses (W^X
+	// shadow); 0 on hosts whose cache is directly writable. code_p and
+	// every address handed out stay in the execute view.
+	intptr wx_write_delta;
+	uint8 *wx_scratch;
+private:
+
 	// Data pool (32-bit addressable)
 	struct data_chunk_t {
 		uint32 size;
@@ -106,14 +114,14 @@ template< class T >
 inline void
 basic_jit_cache::emit_generic(T v)
 {
-	*((T *)code_ptr()) = v;
+	*((T *)(code_ptr() + wx_write_delta)) = v;
 	inc_code_ptr(sizeof(T));
 }
 
 inline void
 basic_jit_cache::copy_block(const uint8 *block, uint32 size)
 {
-	memcpy(code_ptr(), block, size);
+	memcpy(code_ptr() + wx_write_delta, block, size);
 }
 
 inline void

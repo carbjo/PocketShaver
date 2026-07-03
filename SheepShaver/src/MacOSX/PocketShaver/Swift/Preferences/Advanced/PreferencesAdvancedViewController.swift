@@ -54,6 +54,8 @@ class PreferencesAdvancedViewController: UITableViewController {
 		case ignoreIllegalInstructions
 		case altivec
 		case altivecInfo
+		case jitCompiler
+		case jitCompilerInfo
 
 		//bootstrap
 		case bootstrap
@@ -270,6 +272,17 @@ class PreferencesAdvancedViewController: UITableViewController {
 				return PreferencesInformationCell(
 					text: "Experimental. Advertises a G4 processor with AltiVec so vector-aware software can use faster code paths. Toggle this off (reverting to a G3) if you run into conflicts with graphics acceleration."
 				)
+			case .jitCompiler:
+				return PreferencesEnabledSettingCell(
+					title: "JIT compiler",
+					isOn: model.jitCompilerEnabled
+				) { [weak self] isOn in
+					self?.model.jitCompilerEnabled = isOn
+				}
+			case .jitCompilerInfo:
+				return PreferencesInformationCell(
+					text: "Experimental. Translates PowerPC code into native Apple Silicon code as it runs, for a large CPU speedup. Takes effect after the app is fully restarted."
+				)
 			case .bootstrap:
 				return PreferencesAdvancedBootstrapCell(
 					romDescription: model.currentRomFileDescription!,
@@ -396,6 +409,14 @@ class PreferencesAdvancedViewController: UITableViewController {
 			.altivec,
 			.altivecInfo
 		])
+		// The JIT requires Mac Catalyst: iOS forbids executable code pages,
+		// so the emulator core is built without the compiler there
+		#if targetEnvironment(macCatalyst)
+		snapshot.appendItems([
+			.jitCompiler,
+			.jitCompilerInfo
+		])
+		#endif
 
 		if model.hasRomFile {
 			snapshot.appendSections([.bootstrap])

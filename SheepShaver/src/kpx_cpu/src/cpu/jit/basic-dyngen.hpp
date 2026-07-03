@@ -23,6 +23,10 @@
 
 #include "cpu/jit/jit-config.hpp"
 #include "cpu/jit/jit-codegen.hpp"
+#if defined(__aarch64__)
+#include "cpu/jit/jit-wx.hpp"
+#include "cpu/jit/arm64/arm64-emit.hpp"
+#endif
 
 // Set jump target address
 static inline void dg_set_jmp_target_noflush(uint8 *jmp_addr, uint8 *addr)
@@ -38,6 +42,12 @@ static inline void dg_set_jmp_target_noflush(uint8 *jmp_addr, uint8 *addr)
 	// patch the branch destination
 	*(uint32 *)jmp_addr = addr - (jmp_addr + 4);
 #endif
+#if defined(__aarch64__)
+	// The RW shadow is the authoritative view until publication, so both
+	// the read of the current instruction and the patched store go there
+	uint32 *w = (uint32 *)jit_wx_writable(jmp_addr);
+	*w = a64_retarget_branch(*w, jmp_addr, addr);
+#endif
 }
 
 static inline void dg_set_jmp_target(uint8 *jmp_addr, uint8 *addr)
@@ -50,6 +60,11 @@ static inline void dg_set_jmp_target(uint8 *jmp_addr, uint8 *addr)
     asm volatile ("icbi 0,%0" : : "r"(ptr) : "memory");
     asm volatile ("sync" : : : "memory");
     asm volatile ("isync" : : : "memory");
+#endif
+#if defined(__aarch64__)
+	// This variant retargets live, already-published code (block chain
+	// patching): push the updated word through the write callback
+	jit_wx_publish(jmp_addr, jit_wx_writable(jmp_addr), 4);
 #endif
 }
 
@@ -252,6 +267,12 @@ basic_dyngen::direct_jump_possible(uintptr target) const
 #if defined(__x86_64__)
 	const intptr offset = (intptr)target - (intptr)code_ptr() - sizeof(void *);
 	return offset <= 0xffffffff;
+#endif
+#if defined(__aarch64__)
+	// B imm26 spans +/-128MB; the translation cache is one contiguous
+	// region well under that, so intra-cache jumps are always direct
+	const intptr offset = (intptr)target - (intptr)code_ptr();
+	return offset >= -(intptr)0x8000000 && offset < (intptr)0x8000000;
 #endif
 	return false;
 }

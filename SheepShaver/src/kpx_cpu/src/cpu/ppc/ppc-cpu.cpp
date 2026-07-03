@@ -316,10 +316,66 @@ void powerpc_cpu::initialize()
 #if PPC_ENABLE_JIT
 void powerpc_cpu::enable_jit(uint32 cache_size)
 {
-	use_jit = true;
 	if (cache_size)
 		codegen.set_cache_size(cache_size);
-	codegen.initialize();
+	// A failed initialize (e.g. MAP_JIT refused without the allow-jit
+	// entitlement) must leave the interpreter tiers in charge
+	use_jit = codegen.initialize();
+}
+
+void *powerpc_cpu::jit_jump_next(powerpc_block_info *bi)
+{
+	const uint32 npc = pc();
+	if (bi->pc != npc && (bi = my_block_cache.fast_find(npc)) == NULL)
+		return NULL;
+	return bi->entry_point;
+}
+
+extern "C" void *kpx_jit_jump_next(void *cpu, void *bi)
+{
+	return ((powerpc_cpu *)cpu)->jit_jump_next((powerpc_block_info *)bi);
+}
+
+extern "C" unsigned long kpx_jit_pc_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_pc_offset();
+}
+
+extern "C" unsigned long kpx_jit_spcflags_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_spcflags_offset();
+}
+extern "C" unsigned long kpx_jit_gpr_offset(void *cpu, int i)
+{
+	return ((powerpc_cpu *)cpu)->jit_gpr_offset(i);
+}
+extern "C" unsigned long kpx_jit_cr_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_cr_offset();
+}
+extern "C" unsigned long kpx_jit_xer_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_xer_offset();
+}
+extern "C" unsigned long kpx_jit_lr_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_lr_offset();
+}
+extern "C" unsigned long kpx_jit_ctr_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_ctr_offset();
+}
+extern "C" unsigned long kpx_jit_vrsave_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_vrsave_offset();
+}
+extern "C" unsigned long kpx_jit_fpr_offset(void *cpu, int i)
+{
+	return ((powerpc_cpu *)cpu)->jit_fpr_offset(i);
+}
+extern "C" unsigned long kpx_jit_fpscr_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_fpscr_offset();
 }
 #endif
 
@@ -561,6 +617,13 @@ void * powerpc_cpu::call_compile_chain_block(powerpc_cpu * the_cpu, block_info *
 
 void * PF_CONVENTION powerpc_cpu::compile_chain_block(block_info *sbi)
 {
+#ifdef KPX_JIT_INSTRUMENT
+	// Differential-harness hook: proves direct block chaining resolved links
+	// at run time (never defined in shipping builds)
+	extern unsigned long kpx_jit_chain_count;
+	kpx_jit_chain_count++;
+#endif
+
 	// Block index is stuffed into the source basic block pointer,
 	// which is aligned at least on 4-byte boundaries
 	const int n = ((uintptr)sbi) & 3;
@@ -586,7 +649,14 @@ void powerpc_cpu::execute(uint32 entry)
 #endif
 	execute_depth++;
 #if PPC_DECODE_CACHE || PPC_ENABLE_JIT
+#if PPC_ENABLE_JIT && PPC_REENTRANT_JIT
+	// Reentrant JIT: nested execute() may use the block engines only when
+	// the JIT is actually active; with jit off, nested calls must keep the
+	// pure-interpreter tier exactly as in JIT-less builds
+	if (execute_depth == 1 || use_jit) {
+#else
 	if (execute_depth == 1 || (PPC_ENABLE_JIT && PPC_REENTRANT_JIT)) {
+#endif
 #if PPC_ENABLE_JIT
 		if (use_jit) {
 			block_info *bi = my_block_cache.find(pc());
@@ -677,8 +747,8 @@ void powerpc_cpu::execute(uint32 entry)
 				}
 			} while ((ii->cflow & CFLOW_END_BLOCK) == 0);
 			bi->end_pc = dpc;
-			bi->min_pc = dpc;
-			bi->max_pc = entry;
+			bi->min_pc = entry;
+			bi->max_pc = dpc;
 			bi->size = di - bi->di;
 			my_block_cache.add_to_cl_list(bi);
 			my_block_cache.add_to_active_list(bi);

@@ -114,6 +114,7 @@
 #include "sigsegv.h"
 #include "sigregs.h"
 #include "rpc.h"
+#include "cpu/jit/jit-wx.hpp"
 
 #define DEBUG 0
 #include "debug.h"
@@ -333,40 +334,24 @@ uintptr SignalStackBase(void)
 
 /*
  *  Atomic operations
+ *
+ *  InterruptFlags is set from interrupt-source threads (tick, video, audio)
+ *  and cleared from the CPU thread, so these must be real atomic RMWs.
  */
-
-#if HAVE_SPINLOCKS
-static spinlock_t atomic_ops_lock = SPIN_LOCK_UNLOCKED;
-#else
-#define spin_lock(LOCK)
-#define spin_unlock(LOCK)
-#endif
 
 int atomic_add(int *var, int v)
 {
-	spin_lock(&atomic_ops_lock);
-	int ret = *var;
-	*var += v;
-	spin_unlock(&atomic_ops_lock);
-	return ret;
+	return __atomic_fetch_add(var, v, __ATOMIC_SEQ_CST);
 }
 
 int atomic_and(int *var, int v)
 {
-	spin_lock(&atomic_ops_lock);
-	int ret = *var;
-	*var &= v;
-	spin_unlock(&atomic_ops_lock);
-	return ret;
+	return __atomic_fetch_and(var, v, __ATOMIC_SEQ_CST);
 }
 
 int atomic_or(int *var, int v)
 {
-	spin_lock(&atomic_ops_lock);
-	int ret = *var;
-	*var |= v;
-	spin_unlock(&atomic_ops_lock);
-	return ret;
+	return __atomic_fetch_or(var, v, __ATOMIC_SEQ_CST);
 }
 #endif
 
@@ -851,7 +836,15 @@ int main(int argc, char *argv[])
 	// Print some info
 	printf(GetString(STR_ABOUT_TEXT1), VERSION_MAJOR, VERSION_MINOR);
 	printf(" %s\n", GetString(STR_ABOUT_TEXT2));
-	
+
+#ifdef __APPLE__
+	// Probe the W^X code-memory path (MAP_JIT + write callback); passes
+	// on macOS / Mac Catalyst with the allow-jit entitlement or a
+	// non-hardened signature, and is expected to fail on iOS devices
+	printf("JIT W^X self-test: %s\n", jit_wx_selftest() ? "pass" : "unavailable");
+	fflush(stdout);
+#endif
+
 #if !EMULATED_PPC
 #ifdef SYSTEM_CLOBBERS_R2
 	// Get TOC pointer

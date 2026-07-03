@@ -17,8 +17,16 @@
 #define EMULATED_PPC 1
 #endif
 
-/* Define to enable dyngen engine */
+/* Define to enable dyngen engine.
+ * Mac Catalyst processes may create MAP_JIT mappings (allow-jit
+ * entitlement), so the arm64 backend is compiled in there; iOS proper
+ * cannot JIT and keeps the engine compiled out. TargetConditionals.h is
+ * in scope: config.h includes it before selecting this header. */
+#if defined(TARGET_OS_MACCATALYST) && TARGET_OS_MACCATALYST
+#define ENABLE_DYNGEN 1
+#else
 #define ENABLE_DYNGEN 0
+#endif
 
 /* Define is using ESD. */
 /* #undef ENABLE_ESD */

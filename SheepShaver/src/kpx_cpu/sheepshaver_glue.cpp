@@ -290,6 +290,13 @@ void sheepshaver_cpu::execute_sheep(uint32 opcode)
 #if PPC_ENABLE_JIT
 int sheepshaver_cpu::compile1(codegen_context_t & cg_context)
 {
+#if defined(__aarch64__)
+	// Threaded-code bring-up: SHEEP goes through the generic interpreter
+	// invoke like everything else. The specialized emission below leans on
+	// GPR/PC micro-ops (and, with PPC_REENTRANT_JIT, the EmulOp
+	// trampolines) that the arm64 backend does not implement yet.
+	return COMPILE_FAILURE;
+#endif
 	const instr_info_t *ii = cg_context.instr_info;
 	if (ii->mnemo != PPC_I(SHEEP))
 		return COMPILE_FAILURE;

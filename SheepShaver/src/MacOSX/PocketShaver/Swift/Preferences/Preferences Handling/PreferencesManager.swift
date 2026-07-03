@@ -32,6 +32,10 @@ class PreferencesManager {
 		objc_replaceString("sdlrender", "metal")
 		objc_replaceString("extfs", FileManager.documentUrl.path)
 
+		// PowerPC-to-native JIT (Mac Catalyst only; the core ignores the pref
+		// on hosts built without the compiler)
+		objc_replaceBool("jit", MiscellaneousSettings.current.jitCompilerEnabled)
+
 		objc_savePrefs()
 	}
 

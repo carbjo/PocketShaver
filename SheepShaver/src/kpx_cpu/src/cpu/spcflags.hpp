@@ -21,6 +21,8 @@
 #ifndef SPCFLAGS_H
 #define SPCFLAGS_H
 
+#include <atomic>
+
 /**
  *		Basic special flags
  **/
@@ -33,10 +35,13 @@ enum {
 	SPCFLAG_JIT_EXEC_RETURN			= 1 << 4,	// Return from compiled code
 };
 
+// Flags are set from other threads (e.g. the 60 Hz tick thread triggering
+// an interrupt) while the CPU thread tests and clears them, so updates must
+// be atomic read-modify-writes. Reads stay relaxed: the emulation loop polls
+// once per block and only needs to eventually observe a set flag.
 class basic_spcflags
 {
-	uint32 mask;
-	spinlock_t lock;
+	std::atomic<uint32> mask;
 
 public:
 
@@ -44,25 +49,25 @@ public:
 		{ init(); }
 
 	void init()
-		{ mask = 0; lock = SPIN_LOCK_UNLOCKED; }
+		{ mask.store(0, std::memory_order_relaxed); }
 
 	bool empty() const
-		{ return (mask == 0); }
+		{ return (mask.load(std::memory_order_relaxed) == 0); }
 
 	bool test(uint32 v) const
-		{ return (mask & v); }
+		{ return (mask.load(std::memory_order_relaxed) & v); }
 
 	void init(uint32 v)
-		{ spin_lock(&lock); mask = v; spin_unlock(&lock); }
+		{ mask.store(v, std::memory_order_relaxed); }
 
 	uint32 get() const
-		{ return mask; }
+		{ return mask.load(std::memory_order_relaxed); }
 
 	void set(uint32 v)
-		{ spin_lock(&lock); mask |= v; spin_unlock(&lock); }
+		{ mask.fetch_or(v, std::memory_order_acq_rel); }
 
 	void clear(uint32 v)
-		{ spin_lock(&lock); mask &= ~v; spin_unlock(&lock); }
+		{ mask.fetch_and(~v, std::memory_order_acq_rel); }
 };
 
 #endif /* SPCFLAGS_H */

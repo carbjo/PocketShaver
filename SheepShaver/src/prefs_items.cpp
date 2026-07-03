@@ -120,10 +120,12 @@ void AddPrefsDefaults(void)
 	PrefsAddBool("ignoresegv", true);
 	PrefsAddBool("ignoreillegal", false);
 
-#if USE_JIT
+#if USE_JIT && !defined(__aarch64__)
 	// JIT compiler specific options
 	PrefsAddBool("jit", true);
 #else
+	// No JIT on this host yet, or (arm64) the backend is opt-in while it
+	// matures — enabling PPC_ENABLE_JIT must not self-activate it
 	PrefsAddBool("jit", false);
 #endif
 	PrefsAddBool("jit68k", false);
