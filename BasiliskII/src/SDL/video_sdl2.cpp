@@ -2649,8 +2649,34 @@ static void handle_mouse_event(SDL_Event &event)
 			// when the window matches the framebuffer.
 			int ww = 0, wh = 0;
 			SDL_GetWindowSize(sdl_window, &ww, &wh);
-			float mag = std::min((float)ww / drv->VIDEO_MODE_X,
-			                     (float)wh / drv->VIDEO_MODE_Y);
+			// Catalyst's SDL intermittently reports the window transposed to
+			// portrait during/after the programmatic fullscreen transition —
+			// e.g. 1329x2056 for a 2056x1291 landscape guest. The presented
+			// image is only ever scaled/letterboxed, never rotated, so a window
+			// whose orientation disagrees with the framebuffer is bogus; using
+			// it makes the letterbox math below compute a large vertical offset
+			// that pins the cursor to a top dead-band and leaves the bottom of
+			// the screen unreachable. Trust only a same-orientation reading and
+			// otherwise reuse the last good size (or, before any is known, fall
+			// through to the identity map).
+			static int cached_ww = 0, cached_wh = 0;
+			if (ww > 0 && wh > 0 &&
+			    (ww >= wh) == ((int)drv->VIDEO_MODE_X >= (int)drv->VIDEO_MODE_Y)) {
+				cached_ww = ww; cached_wh = wh;
+			} else {
+				// [MOUSEMAP-DIAG] temporary — REMOVE after confirming the fix.
+				static int last_bad_w = -1, last_bad_h = -1;
+				if (ww != last_bad_w || wh != last_bad_h) {
+					last_bad_w = ww; last_bad_h = wh;
+					fprintf(stderr, "[MOUSEMAP-DIAG] rejected bogus window %dx%d (fb %dx%d), using %dx%d\n",
+						ww, wh, (int)drv->VIDEO_MODE_X, (int)drv->VIDEO_MODE_Y, cached_ww, cached_wh);
+				}
+				ww = cached_ww; wh = cached_wh;
+			}
+			float mag = (ww > 0 && wh > 0)
+			              ? std::min((float)ww / drv->VIDEO_MODE_X,
+			                         (float)wh / drv->VIDEO_MODE_Y)
+			              : 0.f;
 			if (mag > 0.f && ww > 0 && wh > 0) {
 				float ox = (ww - drv->VIDEO_MODE_X * mag) * 0.5f;
 				float oy = (wh - drv->VIDEO_MODE_Y * mag) * 0.5f;
