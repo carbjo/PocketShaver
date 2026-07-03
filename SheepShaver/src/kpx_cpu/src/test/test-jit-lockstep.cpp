@@ -103,6 +103,10 @@ struct test_cpu : public powerpc_cpu {
 	void   set_fpr(int i, uint64 v) { fpr_dw(i) = v; }
 	uint32 get_fpscr() const { return fpscr(); }
 	void   set_fpscr(uint32 v) { fpscr() = v; }
+	// Consume the transient redecode flag so a range-invalidated block is
+	// subsequently reached through a normal cache hit (models the real gap
+	// between an invalidation and a much-later execution of a stale block)
+	void   clear_jit_return() { spcflags().clear(SPCFLAG_JIT_EXEC_RETURN); }
 };
 
 // ---- guest memory --------------------------------------------------------
@@ -336,6 +340,37 @@ static uint32 stfdx(int s,int a,int b){return X(31,s,a,b,727,0);}
 
 static uint32 g_rng = 0x12345678;
 static uint32 rnd() { g_rng = g_rng*1103515245u + 12345u; return g_rng; }
+
+// Self-modifying-code interior-invalidation regression. A decode-cache block
+// predecoded BELOW the execute() entry PC must still be range-invalidated
+// when its own bytes are rewritten. If min_pc is set to the execute() entry
+// rather than the block's own start, a below-entry block gets min_pc > max_pc
+// (inverted), and clear_range's intersect misses it -- the stale predecoded
+// block stays live (the Open Transport CFM-binding boot crash). Runs a low
+// subroutine reached from a higher entry, rewrites the subroutine's code,
+// range-invalidates just that line, and returns r3 from a second run: a
+// correct engine re-decodes and yields 2; a stale block yields the old 1.
+static uint32 smc_below_entry_scenario(test_cpu &c)
+{
+	const uint32 Lo = guest_code;			// low subroutine
+	const uint32 Hi = guest_code + 0x400;	// entry, above Lo
+
+	vm_write_memory_4(Hi + 0, b_((int)Lo - (int)Hi, 1));	// bl Lo (LK)
+	vm_write_memory_4(Hi + 4, POWERPC_EMUL_OP);			// return-op
+	vm_write_memory_4(Lo + 0, addi(3, 0, 1));			// li r3,1
+	vm_write_memory_4(Lo + 4, POWERPC_BLR);				// blr
+
+	c.invalidate_cache();
+	c.set_gpr(3, 0);
+	c.execute(Hi);						// predecodes the below-entry block at Lo
+
+	vm_write_memory_4(Lo + 0, addi(3, 0, 2));			// self-modify: li r3,2
+	c.invalidate_cache_range(Lo, Lo + 4);
+	c.clear_jit_return();
+	c.set_gpr(3, 0);
+	c.execute(Hi);						// stale block -> 1 ; re-decoded -> 2
+	return c.get_gpr(3);
+}
 
 // ---- vm accessor contract (host-side unit test, no CPU involved) -----------
 // The lockstep suites compare interpreter vs JIT, but both share vm.hpp, so a
@@ -1058,6 +1093,21 @@ int main(int argc, char **argv)
 		total++;
 		char nm[32]; snprintf(nm, sizeof nm, "fpmem#%d", t);
 		if (diff(nm, ai, aj) + diff_data(nm)) failed++;
+	}
+
+	// --- suite 10: self-modifying-code interior invalidation (below-entry) ---
+	// Not a differential-vs-JIT check: both engines must independently reach 2.
+	// A stale below-entry predecoded block yields 1 (interpreter path); the JIT
+	// path uses the block's own entry as min_pc and re-decodes correctly.
+	{
+		uint32 ri = smc_below_entry_scenario(interp);
+		uint32 rj = smc_below_entry_scenario(jit);
+		total++;
+		if (ri != 2 || rj != 2) {
+			printf("  [smc-below-entry] interp r3=%u  jit r3=%u  (both must be 2; "
+				   "1 = stale predecoded block survived range invalidation)\n", ri, rj);
+			failed++;
+		}
 	}
 
 	printf("\n%d/%d programs matched, %d diverged\n", total - failed, total, failed);

@@ -747,7 +747,13 @@ void powerpc_cpu::execute(uint32 entry)
 				}
 			} while ((ii->cflow & CFLOW_END_BLOCK) == 0);
 			bi->end_pc = dpc;
-			bi->min_pc = entry;
+			// min_pc is this block's OWN start (bi->pc), not the execute()
+			// entry argument: a block predecoded below the entry PC would
+			// otherwise get min_pc > max_pc, inverting its range so that
+			// clear_range's intersect misses it and leaves a stale block
+			// live on self-modifying code (matches the JIT translate path,
+			// which uses the block's entry_point as min_pc).
+			bi->min_pc = bi->pc;
 			bi->max_pc = dpc;
 			bi->size = di - bi->di;
 			my_block_cache.add_to_cl_list(bi);
