@@ -206,6 +206,7 @@
 		C7CF60672F9C952F00D39886 /* PreferencesGamepadThumbnailsCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7CF60662F9C952C00D39886 /* PreferencesGamepadThumbnailsCells.swift */; };
 		C7CF60692F9CA34400D39886 /* GradientView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7CF60682F9CA34100D39886 /* GradientView.swift */; };
 		C7CF606C2FA0778600D39886 /* GamepadThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7CF606B2FA0777800D39886 /* GamepadThumbnailCache.swift */; };
+		C4A043F21D1EAD0AE1C1948A /* GamepadThumbnailCacheKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BF14D18649E473C145B7A7 /* GamepadThumbnailCacheKey.swift */; };
 		C7DCEF3D2E86F55600EAED05 /* MouseHapticFeedbackObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF3C2E86F54800EAED05 /* MouseHapticFeedbackObjC.mm */; };
 		C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */; };
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
@@ -847,6 +848,7 @@
 		C7CF60662F9C952C00D39886 /* PreferencesGamepadThumbnailsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGamepadThumbnailsCells.swift; sourceTree = "<group>"; };
 		C7CF60682F9CA34100D39886 /* GradientView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GradientView.swift; sourceTree = "<group>"; };
 		C7CF606B2FA0777800D39886 /* GamepadThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadThumbnailCache.swift; sourceTree = "<group>"; };
+		B3BF14D18649E473C145B7A7 /* GamepadThumbnailCacheKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadThumbnailCacheKey.swift; sourceTree = "<group>"; };
 		C7DCEF3C2E86F54800EAED05 /* MouseHapticFeedbackObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MouseHapticFeedbackObjC.mm; sourceTree = "<group>"; };
 		C7DCEF3E2E86F55C00EAED05 /* MouseHapticFeedbackObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MouseHapticFeedbackObjC.h; sourceTree = "<group>"; };
 		C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MiscellaneousSettingsObjC.mm; sourceTree = "<group>"; };
@@ -2001,6 +2003,7 @@
 			isa = PBXGroup;
 			children = (
 				C7CF606B2FA0777800D39886 /* GamepadThumbnailCache.swift */,
+				B3BF14D18649E473C145B7A7 /* GamepadThumbnailCacheKey.swift */,
 			);
 			path = "Gamepad Thumbnail Cache";
 			sourceTree = "<group>";
@@ -2771,6 +2774,7 @@
 				E204B95F28BC3EBE0081FDCA /* main_unix.cpp in Sources */,
 				E204B9F228BC7D020081FDCA /* utils_ios.mm in Sources */,
 				C7CF606C2FA0778600D39886 /* GamepadThumbnailCache.swift in Sources */,
+				C4A043F21D1EAD0AE1C1948A /* GamepadThumbnailCacheKey.swift in Sources */,
 				C707D03F2F24DBCD007BFE66 /* InformationConsumption.swift in Sources */,
 				C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */,
 				C73C7A042F0030D300FC0467 /* DeviceScreenSize.swift in Sources */,
