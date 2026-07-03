@@ -2,7 +2,7 @@
 
 A fork of [SheepShaver](https://github.com/kanjitalk755/macemu) that brings Mac OS 9 emulation to iOS and iPad with Metal GPU acceleration, native Swift UI, LAN networking, and full touchscreen gamepad support.
 
-PocketShaver extends the SheepShaver PowerPC emulation core with four Metal-accelerated graphics engines, a customizable on-screen gamepad, Bonjour peer-to-peer networking, and a modern preferences system that adapts to the running platform. The upstream BasiliskII (68k) and desktop SheepShaver targets are preserved alongside the iOS-specific additions.
+PocketShaver extends the SheepShaver PowerPC emulation core with four Metal-accelerated graphics engines, a customizable on-screen gamepad, Bonjour peer-to-peer networking, a modern preferences system that adapts to the running platform, and (on Mac Catalyst) a PowerPC-to-arm64 JIT compiler. The upstream BasiliskII (68k) and desktop SheepShaver targets are preserved alongside the iOS-specific additions.
 
 ## Features
 
@@ -16,6 +16,18 @@ PocketShaver implements four graphics acceleration engines, all targeting Metal:
 - **DrawSprocket (DSp)** -- full-screen display services for games built on Apple's DrawSprocket API: display-mode selection, page-flipped back buffers, palette and gamma fades, and VBL-synced presentation, routed through the Metal compositor.
 
 A unified **Metal compositor** handles 2D/3D compositing, supporting all Mac OS video depths (1/2/4/8/16/32-bit), palette updates for indexed color modes, and VBL-synced frame pacing.
+
+### JIT Compiler (Mac Catalyst)
+
+A from-scratch PowerPC-to-arm64 dynamic recompiler, built as a native Apple Silicon backend for the existing Kheperix JIT framework:
+
+- Threaded-code code generation with direct block chaining between compiled blocks
+- Native arm64 translation of the integer ALU/logical/shift/rotate/multiply/divide/compare/condition-register ops, branches, integer and floating-point loads/stores, and FP arithmetic, with an inline fastmem path for guest memory access
+- W^X code generation (`pthread_jit_write_with_callback_np`) for Apple Silicon's hardened runtime
+- A default-deny mnemonic whitelist: only instructions with a validated, lockstep-tested native implementation compile natively -- everything else (AltiVec/vector ops included) falls back to the existing generic interpreter, so correctness never trades against coverage
+- Toggle under **Advanced** preferences ("JIT compiler", restart required); off by default
+
+JIT is only available on the Mac Catalyst build. Apple's JIT entitlements aren't available to iOS apps (including "Designed for iPad" on macOS), so those targets remain interpreter-only.
 
 ### On-Screen Gamepad
 
@@ -58,7 +70,7 @@ A tabbed preferences interface with five sections:
 | **Graphics** | Monitor resolutions, rendering filter (nearest/bilinear), frame rate (60/75/120 Hz), gamma ramp, NQD/RAVE/GL acceleration toggles |
 | **Gamepad** | Configuration list, layout editor, reordering, example templates |
 | **Network** | Slirp vs. Bonjour selection, host/client role, peer browsing, device naming |
-| **Advanced** | RAM setting, performance metrics (FPS counter), UI options (landscape lock, always-on display), relative mouse settings, bootstrap/ROM info |
+| **Advanced** | RAM setting, performance metrics (FPS counter), UI options (landscape lock, always-on display), relative mouse settings, bootstrap/ROM info, JIT compiler toggle (Mac Catalyst) |
 
 The UI adapts to the platform -- on "Designed for iPad" on macOS, the Gamepad tab is hidden and touch-specific hints are suppressed.
 
@@ -81,6 +93,7 @@ The UI adapts to the platform -- on "Designed for iPad" on macOS, the Gamepad ta
 |---|---|
 | iOS (iPhone/iPad) | Primary target -- full touch, gamepad, and GPU acceleration |
 | "Designed for iPad" on macOS | Supported -- gamepad hidden, keyboard/mouse passthrough |
+| Mac Catalyst | Supported -- native Mac build with the PowerPC-to-arm64 JIT compiler |
 
 ## Building
 
