@@ -93,14 +93,42 @@ void set_current_directory()
 //	[pool release];
 }
 
+#if TARGET_OS_MACCATALYST
+const char* pocketshaver_home_directory()
+{
+	static char buf[1024];
+	NSString *home = [NSHomeDirectory() stringByAppendingPathComponent:@"PocketShaver Home"];
+	[[NSFileManager defaultManager] createDirectoryAtPath:home
+							  withIntermediateDirectories:YES
+											   attributes:nil
+													error:nil];
+	strlcpy(buf, [home fileSystemRepresentation], sizeof(buf));
+	return buf;
+}
+#endif
+
 const char* document_directory()
 {
+#if TARGET_OS_MACCATALYST
+	// On Catalyst, "Documents" (ROM, prefs, disk images, extfs root) lives
+	// under the PocketShaver home rather than the user's real ~/Documents.
+	static char buf[1024];
+	NSString *docs = [[NSString stringWithUTF8String:pocketshaver_home_directory()]
+					  stringByAppendingPathComponent:@"Documents"];
+	[[NSFileManager defaultManager] createDirectoryAtPath:docs
+							  withIntermediateDirectories:YES
+											   attributes:nil
+													error:nil];
+	strlcpy(buf, [docs fileSystemRepresentation], sizeof(buf));
+	return buf;
+#else
 	NSArray* aDirs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
 	//	NSLog (@"%s Found dirs: %@", __PRETTY_FUNCTION__, aDirs);
 	if ([aDirs count]) {
 		return [[aDirs firstObject] UTF8String];
 	}
 	return "";
+#endif
 }
 
 const char* home_directory()

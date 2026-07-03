@@ -41,6 +41,11 @@ void set_menu_bar_visible_osx(bool visible);
 void set_current_directory();
 const char* home_directory();
 const char* document_directory();
+// Mac Catalyst runs unsandboxed, so it has no per-app container like the
+// Designed-for-iPad build. Instead everything the app owns lives under a
+// single, stable home: ~/PocketShaver Home. Returns that path (creating it if
+// needed). Only defined on Catalyst.
+const char* pocketshaver_home_directory();
 
 bool MetalIsAvailable();
 

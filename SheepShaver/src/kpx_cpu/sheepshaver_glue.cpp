@@ -23,6 +23,15 @@
 #include "main.h"
 #include "prefs.h"
 #include "xlowmem.h"
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#if TARGET_OS_MACCATALYST
+// Defined in PreferencesViewControllerObjC.mm — drains AppKit's NSEvent queue so
+// UIKit input stays live while the emulator owns the main thread on Catalyst.
+extern "C" void catalyst_pump_appkit_events(void);
+#endif
 #include "emul_op.h"
 #include "rom_patches.h"
 #include "macos_util.h"
@@ -1060,6 +1069,12 @@ void HandleInterrupt(powerpc_registers *r)
 #ifdef USE_SDL_VIDEO
 	// We must fill in the events queue in the same thread that did call SDL_SetVideoMode()
 	SDL_PumpEvents();
+#endif
+#if TARGET_OS_MACCATALYST
+	// Keep UIKit responsive while the emulator owns the main thread on Catalyst.
+	// Runs on the emul/main thread (~60Hz for interpreter and JIT), reentrancy-
+	// guarded by processing_interrupt in check_spcflags().
+	catalyst_pump_appkit_events();
 #endif
 
 	// Do nothing if interrupts are disabled

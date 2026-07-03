@@ -91,6 +91,14 @@ extension UIDevice {
 	}
 
 	static var deviceType: DeviceType {
+		#if targetEnvironment(macCatalyst)
+		// Mac Catalyst IS a Mac app, but ProcessInfo.isiOSAppOnMac is false here
+		// (that flag is only true for "Designed for iPad" apps). Detect Catalyst
+		// explicitly so all the app's existing `.mac` behaviour applies —
+		// notably suppressing the on-screen gamepad and its (main-thread,
+		// full-window) thumbnail rendering.
+		return .mac
+		#else
 		if ProcessInfo.processInfo.isiOSAppOnMac {
 			return .mac
 		} else if current.userInterfaceIdiom == .pad {
@@ -98,6 +106,7 @@ extension UIDevice {
 		} else {
 			return .iPhone
 		}
+		#endif
 	}
 
 	static var isSimulator: Bool {
@@ -174,13 +183,32 @@ extension UIButton {
 }
 
 extension FileManager {
+	// Mac Catalyst runs unsandboxed and has no per-app container, so pin all
+	// app data under a single stable home (~/PocketShaver Home) that mirrors
+	// the Designed-for-iPad container's Data/ layout. Kept in sync with the
+	// C++/ObjC path resolution in utils_ios.mm / xpram_unix.cpp.
+	// NSHomeDirectory() (not FileManager.homeDirectoryForCurrentUser, which is
+	// unavailable on Mac Catalyst) — matches utils_ios.mm's C++ resolution so
+	// Swift and the emulator core agree on the same home.
+	static var pocketShaverHome: URL {
+		URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent("PocketShaver Home")
+	}
+
 	@objc
 	static var documentUrl: URL {
-		Self.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+		#if targetEnvironment(macCatalyst)
+		return pocketShaverHome.appendingPathComponent("Documents")
+		#else
+		return Self.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+		#endif
 	}
 
 	static var appSupportUrl: URL {
-		Self.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+		#if targetEnvironment(macCatalyst)
+		return pocketShaverHome.appendingPathComponent("Library/Application Support")
+		#else
+		return Self.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+		#endif
 	}
 }
 

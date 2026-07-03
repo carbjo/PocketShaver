@@ -53,9 +53,9 @@ public class OverlayViewController: UIViewController {
 	}()
 
 	/// Whether the on-screen gamepad should be suppressed entirely.
-	/// True when running as "Designed for iPad" on macOS — the user has a
+	/// True on any Mac (Designed-for-iPad or Mac Catalyst) — the user has a
 	/// physical keyboard and mouse, so touch gamepad controls are useless.
-	private static let hideGamepad: Bool = UIDevice.isiOSAppOnMac
+	private static let hideGamepad: Bool = UIDevice.deviceType == .mac
 
 	private lazy var gamepadLayerView: GamepadLayerView = {
 		let view = GamepadLayerView(
@@ -779,37 +779,16 @@ extension OverlayViewController {
 		lockWindowSize()
 	}
 
-	/// Request a fixed window size via the scene's `sizeRestrictions`.
+	/// Intentionally does NOT restrict the window size.
 	///
-	/// This only yields a genuinely non-resizable window on Mac Catalyst, where
-	/// pinning `min == max` is honored — so the body is scoped to Catalyst. It is
-	/// forward-compatible: if a Catalyst target is ever added, the lock activates
-	/// there automatically.
-	///
-	/// It does NOT prevent resizing on iPad. `sizeRestrictions` is best-effort
-	/// there, and on iPadOS 26 the system owns window resizing and ignores it
-	/// (Apple deprecated `UIRequiresFullScreen`; there is no supported API to
-	/// suppress the corner/edge drag-to-resize gesture). On iPhone
-	/// `sizeRestrictions` is nil. This target ships iOS/iPadOS only (no Catalyst,
-	/// so on a Mac it runs "Designed for iPad" under the iOS runtime, where the
-	/// hint is likewise best-effort). On every current shipping configuration
-	/// this is therefore a deliberate no-op: accidental resizes on iPad cannot be
-	/// blocked from the app.
+	/// This used to pin the Mac Catalyst window to `min == max == launch bounds`,
+	/// which froze the window at its small initial size and defeated fullscreen
+	/// (including the `UILaunchToFullScreenByDefaultOnMac` Info.plist key). On Mac
+	/// we want a resizable window that launches fullscreen, so sizing is left to
+	/// the OS. On iPad/iPhone `sizeRestrictions` is best-effort or nil and cannot
+	/// block system resizing anyway, so there is nothing to do on any platform.
 	private static func lockWindowSize() {
-#if targetEnvironment(macCatalyst)
-		guard let window = UIApplication.shared.delegate?.window.flatMap({ $0 }) else {
-			return
-		}
-
-		let windowSize = window.bounds.size
-		guard windowSize.width > 0, windowSize.height > 0 else {
-			return
-		}
-
-		let restrictions = window.windowScene?.sizeRestrictions
-		restrictions?.minimumSize = windowSize
-		restrictions?.maximumSize = windowSize
-#endif
+		// No size restriction — see doc comment above.
 	}
 
 	// No-op implementation so that key strokes on macOS does not result in "alert sound"

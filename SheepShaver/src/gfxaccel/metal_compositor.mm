@@ -746,6 +746,22 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 
     compositor_layer = (CAMetalLayer *)compositor_view.layer;
+#if TARGET_OS_MACCATALYST
+    // On iOS UIKit gives the view/layer the screen's backing scale (2 on Retina)
+    // automatically; on Mac Catalyst they come up at 1.0 even on a 2x screen, so
+    // the CAMetalLayer composites the guest at 1x and the window server then
+    // upscales to physical pixels with linear filtering → blur. Detect the live
+    // backing scale (read fresh from the window's screen — never hardcoded) and
+    // apply it, so the layer renders at native pixels and its own magnification
+    // filter (nearest, per scale_nearest) does the crisp HiDPI upscale instead.
+    {
+        CGFloat backingScale = uiWindow.screen.scale;
+        if (backingScale > 0.0) {
+            compositor_view.contentScaleFactor = backingScale;
+            compositor_layer.contentsScale = backingScale;
+        }
+    }
+#endif
     compositor_layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     compositor_layer.device = compositor_device;
     compositor_layer.maximumDrawableCount = 3;         // triple buffering

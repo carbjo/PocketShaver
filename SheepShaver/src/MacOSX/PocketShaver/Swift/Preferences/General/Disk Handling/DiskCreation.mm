@@ -6,10 +6,14 @@
 //
 
 #import "DiskCreation.h"
+#include "utils_ios.h"
 
 BOOL objc_createDiskWithName(NSString *inName, NSInteger sizeInMb)
 {
-	NSString* aDocsDirectory = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+	// Create new disk images in the same Documents the emulator/prefs use
+	// (the container's Documents on iOS, ~/PocketShaver Home/Documents on
+	// Mac Catalyst) rather than the user's real ~/Documents.
+	NSString* aDocsDirectory = [NSString stringWithUTF8String:document_directory()];
 	NSString* aFilePath = [aDocsDirectory stringByAppendingPathComponent:inName];
 
 	// Use the file manager to create the file, then use truncate to set the length.
