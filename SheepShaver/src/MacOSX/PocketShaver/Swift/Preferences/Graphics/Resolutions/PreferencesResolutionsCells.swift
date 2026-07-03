@@ -81,6 +81,8 @@ class PreferencesResolutionsMonitorResolutionCell: UITableViewCell {
 
 	private lazy var enabledSwitch: UISwitch = {
 		let uiSwitch = UISwitch.withoutConstraints()
+		// Sliding switch on Mac Catalyst too, not the Mac-idiom checkbox.
+		uiSwitch.preferredStyle = .sliding
 		uiSwitch.addTarget(self, action: #selector(enabledValueChanged), for: .touchUpInside)
 		return uiSwitch
 	}()

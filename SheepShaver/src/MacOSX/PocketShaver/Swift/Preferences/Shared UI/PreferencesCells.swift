@@ -17,6 +17,9 @@ class PreferencesEnabledSettingCell: UITableViewCell {
 
 	private lazy var enabledSwitch: UISwitch = {
 		let uiSwitch = UISwitch.withoutConstraints()
+		// Mac Catalyst's Mac idiom renders UISwitch as an AppKit checkbox by
+		// default; keep the sliding switch everywhere (no-op on iPhone/iPad).
+		uiSwitch.preferredStyle = .sliding
 		uiSwitch.addTarget(self, action: #selector(enabledValueChanged), for: .touchUpInside)
 		return uiSwitch
 	}()

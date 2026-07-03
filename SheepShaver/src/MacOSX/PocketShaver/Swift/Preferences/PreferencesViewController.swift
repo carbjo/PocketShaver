@@ -53,6 +53,20 @@ public class PreferencesViewController: UIViewController {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .defaultConfig
 		button.configuration?.baseBackgroundColor = .gray
+		if UIDevice.deviceType == .mac {
+			// The Mac idiom swaps UIButton to an AppKit-style bezel that
+			// ignores the filled configuration (fill, corner radius, frame
+			// height), leaving a washed-out sliver. Keep the iPad rendering.
+			button.preferredBehavioralStyle = .pad
+			// The prefs window fills the whole Mac screen, so the default
+			// title size gets lost in the full-width bar — scale the type up
+			// with the taller Mac height set in viewDidLoad.
+			button.configuration?.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+				var attributes = attributes
+				attributes.font = .boldSystemFont(ofSize: 20)
+				return attributes
+			}
+		}
 		button.addTarget(self, action: #selector(bottomButtonTapped), for: .touchUpInside)
 		return button
 	}()
@@ -150,7 +164,7 @@ public class PreferencesViewController: UIViewController {
 			bottomButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
 			bottomButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
 			bottomButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
-			bottomButton.heightAnchor.constraint(equalToConstant: 44)
+			bottomButton.heightAnchor.constraint(equalToConstant: UIDevice.deviceType == .mac ? 60 : 44)
 		])
 
 		embedViewController(generalVC)

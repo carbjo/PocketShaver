@@ -8,7 +8,7 @@
 import UIKit
 import Combine
 
-class PreferencesAdvancedViewController: UITableViewController {
+class PreferencesAdvancedViewController: PreferencesTableViewController {
 	enum Section {
 		case ramSetting
 		case performanceMetrics

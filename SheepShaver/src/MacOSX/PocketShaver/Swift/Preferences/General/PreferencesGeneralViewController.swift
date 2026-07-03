@@ -8,7 +8,7 @@
 import UIKit
 import Combine
 
-class PreferencesGeneralViewController: UITableViewController {
+class PreferencesGeneralViewController: PreferencesTableViewController {
 	enum Section {
 		case setupInstructions
 		case bootstrap
@@ -414,7 +414,8 @@ class PreferencesGeneralViewController: UITableViewController {
 			case .welcome:
 				return nil
 			case .disks:
-				return UIDevice.deviceType == .iPad ? "Disks" : nil
+				// iPhone stays unlabeled for space; iPad and Mac get the heading.
+				return UIDevice.deviceType == .iPhone ? nil : "Disks"
 			case .gamepadOverlays:
 				return "Gamepad overlays"
 			case .iPadMouse:

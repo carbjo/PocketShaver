@@ -176,7 +176,11 @@ class MiscellaneousSettings: Codable {
 		ignoreIllegalInstructions = false
 		altivecEnabled = true
 		ramInMb = 512
+		#if targetEnvironment(macCatalyst)
+		jitEnabled = true // JIT ships on by default on Mac Catalyst
+		#else
 		jitEnabled = false
+		#endif
 	}
 
 	@MainActor
@@ -187,6 +191,15 @@ class MiscellaneousSettings: Codable {
 			settings = decoded
 		} else {
 			settings = MiscellaneousSettings()
+		}
+
+		// Macs have no touch input, so mouse passthrough must always be on
+		// there — but it is persisted state and its toggle is iPad-only UI, so
+		// a stale `false` (e.g. settings written by a pre-Mac build) would
+		// silently leave ADB in touch semantics (delayed clicks, post-click
+		// move suppression) with no way to recover from Preferences.
+		if UIDevice.deviceType == .mac {
+			settings.iPadMousePassthrough = true
 		}
 
 		settings.migrateGammaRampDefaultIfNeeded()

@@ -52,6 +52,7 @@ extern void ADBInterrupt(void);
 extern void ADBConfigure(int new_screen_middle_x, int new_double_click_mouse_move_tolerance);
 extern void ADBSetRelMouseMode(bool relative);
 extern void ADBSetTouchInput(bool is_on);
+extern bool ADBGetTouchInput(void);
 extern bool ADBHoversOnMouseDown();
 extern bool ADBHoverGestureStartWasLeftSide();
 extern void ADBEnableHoverModeWith(int offset_x_inp, int offset_y_inp);

@@ -474,6 +474,10 @@ void ADBSetTouchInput(bool is_on) {
 	touch_input = is_on;
 }
 
+bool ADBGetTouchInput(void) {
+	return touch_input;
+}
+
 void ADBEnableHoverModeWith(int offset_x_inp, int offset_y_inp) {
 	hover_mode = true;
 	offset_x = offset_x_inp;

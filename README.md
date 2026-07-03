@@ -25,7 +25,7 @@ A from-scratch PowerPC-to-arm64 dynamic recompiler, built as a native Apple Sili
 - Native arm64 translation of the integer ALU/logical/shift/rotate/multiply/divide/compare/condition-register ops, branches, integer and floating-point loads/stores, and FP arithmetic, with an inline fastmem path for guest memory access
 - W^X code generation (`pthread_jit_write_with_callback_np`) for Apple Silicon's hardened runtime
 - A default-deny mnemonic whitelist: only instructions with a validated, lockstep-tested native implementation compile natively -- everything else (AltiVec/vector ops included) falls back to the existing generic interpreter, so correctness never trades against coverage
-- Toggle under **Advanced** preferences ("JIT compiler", restart required); off by default
+- Toggle under **Advanced** preferences ("JIT compiler", restart required); on by default
 
 JIT is only available on the Mac Catalyst build. Apple's JIT entitlements aren't available to iOS apps (including "Designed for iPad" on macOS), so those targets remain interpreter-only.
 

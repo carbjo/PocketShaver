@@ -6,7 +6,7 @@
 import UIKit
 import Combine
 
-class PreferencesGraphicsViewController: UITableViewController {
+class PreferencesGraphicsViewController: PreferencesTableViewController {
 	enum Section {
 		case frameRateSetting
 		case monitorResolutions
@@ -198,7 +198,7 @@ class PreferencesGraphicsViewController: UITableViewController {
 				}
 			case .graphicsAccelerationInfo:
 				return PreferencesInformationCell(
-					text: "Experimental. Each accelerator is independent — mix and match per app to find what runs best. DrawSprocket defaults on, the rest off. Requires Metal; takes effect on restart."
+					text: "Experimental. Each accelerator is independent — mix and match per app to find what runs best. All four default on. Requires Metal; takes effect on restart."
 				)
 			}
 		}

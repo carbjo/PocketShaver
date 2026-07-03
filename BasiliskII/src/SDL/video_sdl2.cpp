@@ -2596,6 +2596,98 @@ static void force_complete_window_refresh()
  *  SDL event handling
  */
 
+// Feed one SDL mouse event to the guest ADB state. Called from the redraw
+// thread's queue drain (handle_events) and, on iOS/Catalyst when input is a
+// real pointer, straight from the event watch as the event is generated.
+static void handle_mouse_event(SDL_Event &event)
+{
+	switch (event.type) {
+
+	// Mouse button
+	case SDL_MOUSEBUTTONDOWN: {
+		if (input_disabled) {
+			break;
+		}
+
+		unsigned int button = event.button.button;
+		if (button == SDL_BUTTON_LEFT)
+			ADBMouseDown(0);
+		else if (button == SDL_BUTTON_RIGHT)
+			ADBMouseDown(1);
+		else if (button == SDL_BUTTON_MIDDLE)
+			ADBMouseDown(2);
+		break;
+	}
+	case SDL_MOUSEBUTTONUP: {
+		unsigned int button = event.button.button;
+		if (button == SDL_BUTTON_LEFT)
+			ADBMouseUp(0);
+		else if (button == SDL_BUTTON_RIGHT)
+			ADBMouseUp(1);
+		else if (button == SDL_BUTTON_MIDDLE)
+			ADBMouseUp(2);
+		break;
+	}
+
+	// Mouse moved
+	case SDL_MOUSEMOTION:
+		if (input_disabled) {
+			break;
+		}
+
+		if (mouse_grabbed) {
+			drv->mouse_moved(event.motion.xrel, event.motion.yrel);
+		} else {
+#if TARGET_OS_IPHONE
+			// Absolute mouse: map window-space coords to guest framebuffer
+			// space. SDL_RenderSetLogicalSize (which normally does this) is
+			// gated off on iOS because the Metal compositor replaces SDL's
+			// renderer, so without this the cursor can't reach the guest
+			// edges when the window is larger than the framebuffer and the
+			// image is letterboxed (e.g. Mac true-screen-size fullscreen).
+			// Mirrors kCAGravityResizeAspect / MagCursor; identity (no-op)
+			// when the window matches the framebuffer.
+			int ww = 0, wh = 0;
+			SDL_GetWindowSize(sdl_window, &ww, &wh);
+			float mag = std::min((float)ww / drv->VIDEO_MODE_X,
+			                     (float)wh / drv->VIDEO_MODE_Y);
+			if (mag > 0.f && ww > 0 && wh > 0) {
+				float ox = (ww - drv->VIDEO_MODE_X * mag) * 0.5f;
+				float oy = (wh - drv->VIDEO_MODE_Y * mag) * 0.5f;
+				int fx = (int)((event.motion.x - ox) / mag);
+				int fy = (int)((event.motion.y - oy) / mag);
+				if (fx < 0) fx = 0;
+				if (fy < 0) fy = 0;
+				if (fx >= (int)drv->VIDEO_MODE_X) fx = (int)drv->VIDEO_MODE_X - 1;
+				if (fy >= (int)drv->VIDEO_MODE_Y) fy = (int)drv->VIDEO_MODE_Y - 1;
+				drv->mouse_moved(fx, fy);
+			} else {
+				drv->mouse_moved(event.motion.x, event.motion.y);
+			}
+#else
+			drv->mouse_moved(event.motion.x, event.motion.y);
+#endif
+		}
+		break;
+
+	case SDL_MOUSEWHEEL:
+		if (!event.wheel.y) break;
+		if (!mouse_wheel_mode) {
+			int key = (event.wheel.y < 0) ^ mouse_wheel_reverse ? 0x79 : 0x74;	// Page up/down
+			ADBKeyDown(key);
+			ADBKeyUp(key);
+		}
+		else {
+			int key = (event.wheel.y < 0) ^ mouse_wheel_reverse ? 0x3d : 0x3e;	// Cursor up/down
+			for (int i = 0; i < mouse_wheel_lines; i++) {
+				ADBKeyDown(key);
+				ADBKeyUp(key);
+			}
+		}
+		break;
+	}
+}
+
 // possible return codes for SDL-registered event watches
 enum {
 	EVENT_DROP_FROM_QUEUE = 0,
@@ -2611,6 +2703,26 @@ enum {
 static int SDLCALL on_sdl_event_generated(void *userdata, SDL_Event * event)
 {
 	switch (event->type) {
+#if TARGET_OS_IPHONE
+		case SDL_MOUSEBUTTONDOWN:
+		case SDL_MOUSEBUTTONUP:
+		case SDL_MOUSEMOTION:
+		case SDL_MOUSEWHEEL:
+			// With a real pointer (mouse passthrough / Catalyst), feed ADB the
+			// moment the main-thread pump generates the event instead of
+			// parking it in the queue for the redraw thread's next tick: that
+			// tick costs up to a full refresh period of latency and the two
+			// beating refresh-rate cadences read as cursor jitter. It also
+			// keeps the UIKit-backed window queries on the main thread. The
+			// touch path stays queued — its ADBMouseDown/Up deliberately
+			// sleep, which must not stall the emulator thread running this
+			// pump.
+			if (drv && !ADBGetTouchInput()) {
+				handle_mouse_event(*event);
+				return EVENT_DROP_FROM_QUEUE;
+			}
+			break;
+#endif
 		case SDL_KEYUP: {
 			SDL_Keysym const & ks = event->key.keysym;
 			switch (ks.sym) {
@@ -2694,88 +2806,13 @@ static void handle_events(void)
 			
 			switch (event.type) {
 
-			// Mouse button
-			case SDL_MOUSEBUTTONDOWN: {
-				if (input_disabled) {
-					break;
-				}
-
-				unsigned int button = event.button.button;
-				if (button == SDL_BUTTON_LEFT)
-					ADBMouseDown(0);
-				else if (button == SDL_BUTTON_RIGHT)
-					ADBMouseDown(1);
-				else if (button == SDL_BUTTON_MIDDLE)
-					ADBMouseDown(2);
-				break;
-			}
-			case SDL_MOUSEBUTTONUP: {
-				unsigned int button = event.button.button;
-				if (button == SDL_BUTTON_LEFT)
-					ADBMouseUp(0);
-				else if (button == SDL_BUTTON_RIGHT)
-					ADBMouseUp(1);
-				else if (button == SDL_BUTTON_MIDDLE)
-					ADBMouseUp(2);
-				break;
-			}
-
-			// Mouse moved
+			// Mouse
+			case SDL_MOUSEBUTTONDOWN:
+			case SDL_MOUSEBUTTONUP:
 			case SDL_MOUSEMOTION:
-				if (input_disabled) {
-					break;
-				}
-
-				if (mouse_grabbed) {
-					drv->mouse_moved(event.motion.xrel, event.motion.yrel);
-				} else {
-#if TARGET_OS_IPHONE
-					// Absolute mouse: map window-space coords to guest framebuffer
-					// space. SDL_RenderSetLogicalSize (which normally does this) is
-					// gated off on iOS because the Metal compositor replaces SDL's
-					// renderer, so without this the cursor can't reach the guest
-					// edges when the window is larger than the framebuffer and the
-					// image is letterboxed (e.g. Mac true-screen-size fullscreen).
-					// Mirrors kCAGravityResizeAspect / MagCursor; identity (no-op)
-					// when the window matches the framebuffer.
-					int ww = 0, wh = 0;
-					SDL_GetWindowSize(sdl_window, &ww, &wh);
-					float mag = std::min((float)ww / drv->VIDEO_MODE_X,
-					                     (float)wh / drv->VIDEO_MODE_Y);
-					if (mag > 0.f && ww > 0 && wh > 0) {
-						float ox = (ww - drv->VIDEO_MODE_X * mag) * 0.5f;
-						float oy = (wh - drv->VIDEO_MODE_Y * mag) * 0.5f;
-						int fx = (int)((event.motion.x - ox) / mag);
-						int fy = (int)((event.motion.y - oy) / mag);
-						if (fx < 0) fx = 0;
-						if (fy < 0) fy = 0;
-						if (fx >= (int)drv->VIDEO_MODE_X) fx = (int)drv->VIDEO_MODE_X - 1;
-						if (fy >= (int)drv->VIDEO_MODE_Y) fy = (int)drv->VIDEO_MODE_Y - 1;
-						drv->mouse_moved(fx, fy);
-					} else {
-						drv->mouse_moved(event.motion.x, event.motion.y);
-					}
-#else
-					drv->mouse_moved(event.motion.x, event.motion.y);
-#endif
-				}
-				break;
-
 			case SDL_MOUSEWHEEL:
-				if (!event.wheel.y) break;
-				if (!mouse_wheel_mode) {
-					int key = (event.wheel.y < 0) ^ mouse_wheel_reverse ? 0x79 : 0x74;	// Page up/down
-					ADBKeyDown(key);
-					ADBKeyUp(key);
-				}
-				else {
-					int key = (event.wheel.y < 0) ^ mouse_wheel_reverse ? 0x3d : 0x3e;	// Cursor up/down
-					for (int i = 0; i < mouse_wheel_lines; i++) {
-						ADBKeyDown(key);
-						ADBKeyUp(key);
-					}
-				}
-			break;
+				handle_mouse_event(event);
+				break;
 
 			// Keyboard
 			case SDL_KEYDOWN: {

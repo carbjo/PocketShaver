@@ -7,6 +7,56 @@
 
 import UIKit
 
+/// Shared base for the preferences table screens. The stock plain-style
+/// section headers are small and pale, which on the full-screen Mac window
+/// makes each tab read as one undifferentiated list — replace them with big
+/// bold full-contrast headings there. iPhone/iPad keep the stock look.
+///
+/// The header view is built from scratch rather than restyled: UIKit renders
+/// the stock header title through a content configuration it re-applies after
+/// `willDisplay`, so font/color set on its `textLabel` does not survive.
+class PreferencesTableViewController: UITableViewController {
+	private func macSectionTitle(_ tableView: UITableView, _ section: Int) -> String? {
+		guard UIDevice.deviceType == .mac,
+			  let title = tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: section),
+			  !title.isEmpty else {
+			return nil
+		}
+		return title
+	}
+
+	override func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+		guard let title = macSectionTitle(tableView, section) else {
+			return nil // stock header (and collapsed untitled sections)
+		}
+
+		let header = UIView()
+		header.backgroundColor = Colors.primaryBackground
+
+		let label = UILabel.withoutConstraints()
+		label.text = title
+		label.font = .boldSystemFont(ofSize: 20)
+		label.textColor = Colors.primaryText
+		header.addSubview(label)
+
+		NSLayoutConstraint.activate([
+			label.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
+			label.trailingAnchor.constraint(lessThanOrEqualTo: header.trailingAnchor, constant: -16),
+			label.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -8)
+		])
+
+		return header
+	}
+
+	override func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+		guard macSectionTitle(tableView, section) != nil else {
+			return UITableView.automaticDimension
+		}
+
+		return 52
+	}
+}
+
 class TableViewDiffableDataSource<T: Hashable, S: Hashable> : UITableViewDiffableDataSource<T, S> {
 	var sectionTitleProvider: ((T) -> String?)?
 	var canEditProvider: ((S) -> Bool)?

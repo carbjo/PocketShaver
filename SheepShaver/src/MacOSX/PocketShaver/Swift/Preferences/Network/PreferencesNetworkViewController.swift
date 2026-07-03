@@ -8,7 +8,7 @@
 import UIKit
 import Combine
 
-class PreferencesNetworkViewController: UITableViewController {
+class PreferencesNetworkViewController: PreferencesTableViewController {
 
 	enum Section {
 		case main
