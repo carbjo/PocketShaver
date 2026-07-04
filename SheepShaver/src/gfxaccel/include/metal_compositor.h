@@ -384,6 +384,26 @@ void *MetalCompositorGetGammaLUTBuffer(void);
  */
 void *MetalCompositorGetGammaIdentityBuffer(void);
 
+/*
+ * Present-rect cache for the absolute-cursor letterbox map.
+ *
+ * The cursor map in video_sdl2.cpp must map the finger/pointer into the same
+ * rectangle the compositor draws into — compositor_view's bounds, which on Mac
+ * Catalyst are pinned to the superview's safe area (NOT the full window) and
+ * shift when the menu bar shows/hides on a refocus. Reading uiWindow.bounds or
+ * SDL_GetWindowSize instead makes the cursor and image disagree after a
+ * refocus, so the cursor can't reach the full emulated desktop.
+ *
+ * MetalCompositorRefreshPresentRect reads the view rect (in window coordinates,
+ * the space SDL mouse events use — origin folds in the safe-area inset) and
+ * caches it; it is a no-op unless called on the main thread (pumped from
+ * on_sdl_event_generated). MetalCompositorGetPresentRect returns the last cached
+ * rect from any thread (size 0 before the first refresh — caller should fall
+ * back to an identity map).
+ */
+void MetalCompositorRefreshPresentRect(void);
+void MetalCompositorGetPresentRect(int *out_x, int *out_y, int *out_w, int *out_h);
+
 
 #ifdef __cplusplus
 }

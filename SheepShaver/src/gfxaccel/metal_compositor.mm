@@ -138,6 +138,66 @@ static id<MTLSamplerState>          compositor_sampler  = nil;
 // Lifecycle flag for Metal compositor state.
 static bool                         compositor_initialized = false;
 
+// ---------------------------------------------------------------------------
+// Present-rect cache — authoritative source for the absolute-cursor letterbox
+// map in video_sdl2.cpp's handle_mouse_event.
+//
+// The cursor map must map the finger/pointer into the SAME rectangle the
+// compositor draws the guest image into. That rectangle is compositor_view's
+// bounds — and on Mac Catalyst the view is pinned to its superview's
+// safeAreaLayoutGuide (MetalCompositorPinViewToSafeArea), NOT the full window,
+// so it is inset by the safe area and that inset CHANGES when the menu bar
+// shows/hides on an unfocus/refocus. Reading uiWindow.bounds (or, worse,
+// SDL_GetWindowSize — transposed/stale off the main thread on Catalyst) makes
+// the cursor map and the drawn image disagree after a refocus, so the cursor
+// can no longer reach the full emulated desktop.
+//
+// We publish the view rect in WINDOW coordinates (the space SDL mouse events
+// use): origin = safe-area inset, size = drawn area. video_sdl2 applies the
+// aspect letterbox within it using the guest dims. Read on the main thread
+// (Refresh, pumped from on_sdl_event_generated), published into two atomics the
+// redraw thread reads (Get); x:y and w:h packed so neither pair tears.
+// ---------------------------------------------------------------------------
+
+static _Atomic uint64_t s_present_rect_origin = 0;   // (x << 32) | y, window points
+static _Atomic uint64_t s_present_rect_size   = 0;   // (w << 32) | h, window points
+
+extern "C" void MetalCompositorRefreshPresentRect(void)
+{
+    // UIKit reads (-bounds, -convertRect:) are main-thread only. Off-thread
+    // callers are no-ops rather than reintroducing an unsafe read; the last
+    // main-thread value stays cached.
+    if (![NSThread isMainThread]) return;
+    CompositorMetalView *view = compositor_view;
+    if (!view || !view.superview) return;
+    CGRect vb = view.bounds;
+    if (vb.size.width <= 0.0 || vb.size.height <= 0.0) return;
+    // Express the drawn area in the window's base coordinate system so any
+    // safe-area inset (Catalyst) is folded into the origin.
+    CGRect inWindow = [view convertRect:vb toView:nil];
+    int x = (int)(inWindow.origin.x + 0.5);
+    int y = (int)(inWindow.origin.y + 0.5);
+    int w = (int)(inWindow.size.width  + 0.5);
+    int h = (int)(inWindow.size.height + 0.5);
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    atomic_store_explicit(&s_present_rect_origin,
+        ((uint64_t)(uint32_t)x << 32) | (uint32_t)y, memory_order_relaxed);
+    atomic_store_explicit(&s_present_rect_size,
+        ((uint64_t)(uint32_t)w << 32) | (uint32_t)h, memory_order_relaxed);
+}
+
+extern "C" void MetalCompositorGetPresentRect(int *out_x, int *out_y,
+                                              int *out_w, int *out_h)
+{
+    uint64_t o = atomic_load_explicit(&s_present_rect_origin, memory_order_relaxed);
+    uint64_t s = atomic_load_explicit(&s_present_rect_size,   memory_order_relaxed);
+    if (out_x) *out_x = (int)(uint32_t)(o >> 32);
+    if (out_y) *out_y = (int)(uint32_t)(o & 0xffffffffu);
+    if (out_w) *out_w = (int)(uint32_t)(s >> 32);
+    if (out_h) *out_h = (int)(uint32_t)(s & 0xffffffffu);
+}
+
 // Double-buffered palette. Two 256x4-byte MTLBuffers allocated directly from
 // the device. Writers on the current main==emul thread apply complete/partial
 // updates to the back buffer. The VBL callback, also on main==emul today,

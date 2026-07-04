@@ -45,7 +45,36 @@ class GestureInputView: UIView {
 
 		isMultipleTouchEnabled = true
 		backgroundColor = .darkGray.withAlphaComponent(0)
+
 	}
+
+#if targetEnvironment(macCatalyst)
+	// Mac Catalyst mouse-position bypass. SDL's Catalyst window transposes to
+	// portrait on unfocus/refocus and clamps mouse-x, so the guest cursor is
+	// driven from the real UIKit pointer location instead. Buttons continue to
+	// flow through SDL. Hover covers button-up moves; touchesMoved (below) covers
+	// button-down drags.
+	private weak var catalystHover: UIHoverGestureRecognizer?
+
+	override func didMoveToWindow() {
+		super.didMoveToWindow()
+		// Attach the hover recognizer to the WINDOW, not this view: the compositor
+		// keeps the window at the true full size, but SDL's transposed view
+		// geometry could shrink this view's width and clip the pointer at the same
+		// wrong edge we're trying to escape.
+		if let window, catalystHover == nil {
+			let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleCatalystPointerHover(_:)))
+			window.addGestureRecognizer(hover)
+			catalystHover = hover
+		}
+	}
+
+	@objc private func handleCatalystPointerHover(_ recognizer: UIHoverGestureRecognizer) {
+		guard state != .editingGamepad, let window else { return }
+		let p = recognizer.location(in: window)
+		objc_ADBMouseMovedFromWindowPoint(p.x, p.y)
+	}
+#endif
 	
 	required init?(coder: NSCoder) { fatalError() }
 
@@ -74,6 +103,17 @@ class GestureInputView: UIView {
 
 	override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
 		super.touchesMoved(touches, with: event)
+
+#if targetEnvironment(macCatalyst)
+		// A Catalyst mouse drag (button held) arrives as a single touch; feed its
+		// position through the same bypass as hover (UIHoverGestureRecognizer only
+		// fires with no button pressed).
+		if state != .editingGamepad, touchDictionary.count == 1,
+		   let touch = touches.first, let window {
+			let p = touch.location(in: window)
+			objc_ADBMouseMovedFromWindowPoint(p.x, p.y)
+		}
+#endif
 
 		if let secondFingerTouch,
 		   let prevSecondFingerPos = touchDictionary[secondFingerTouch] {

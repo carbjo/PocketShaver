@@ -799,7 +799,7 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 #if defined(__MACOSX__) && SDL_VERSION_ATLEAST(2,0,14)
 	if (MetalIsAvailable()) window_flags |= SDL_WINDOW_METAL;
 #endif
-	
+
 	if (!sdl_window) {
 		float m = get_mag_rate();
 		sdl_window = SDL_CreateWindow(
@@ -815,8 +815,18 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 		}
 		set_window_name();
 	}
+	// Confining the host pointer to the window (SDL_SetWindowGrab) is for desktop
+	// fullscreen. On iOS/Mac Catalyst it is actively harmful: SDL re-applies the
+	// confinement on every focus-gain using its Catalyst window rect, which is
+	// intermittently transposed/stale, so after an unfocus/refocus the host
+	// cursor gets clipped to a narrow sub-rect and can't reach the right of the
+	// emulated desktop (the guest cursor then can't cover the full window). The
+	// absolute-cursor map already positions the guest; relative mouse mode uses
+	// SDL_SetRelativeMouseMode separately. So skip the grab on iOS/Catalyst.
+#if !TARGET_OS_IPHONE
 	if (flags & SDL_WINDOW_FULLSCREEN) SDL_SetWindowGrab(sdl_window, SDL_TRUE);
-	
+#endif
+
 	// Some SDL events (regarding some native-window events), need processing
 	// as they are generated.  SDL2 has a facility, SDL_AddEventWatch(), which
 	// allows events to be processed as they are generated.
@@ -1936,7 +1946,11 @@ static void do_toggle_fullscreen(void)
 		} else {
 			display_type = DISPLAY_SCREEN;
 			SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+#if !TARGET_OS_IPHONE
+			// See the init-path note: pointer confinement is harmful on
+			// iOS/Catalyst (transposed window rect clips the cursor on refocus).
 			SDL_SetWindowGrab(sdl_window, SDL_TRUE);
+#endif
 		}
 	}
 
@@ -2638,48 +2652,45 @@ static void handle_mouse_event(SDL_Event &event)
 		if (mouse_grabbed) {
 			drv->mouse_moved(event.motion.xrel, event.motion.yrel);
 		} else {
-#if TARGET_OS_IPHONE
+#if TARGET_OS_MACCATALYST
+			// Mac Catalyst: the absolute cursor position is fed by the native
+			// UIKit hover/drag bypass (VideoMapWindowPointToGuestAndMove) because
+			// SDL's Catalyst window transposes to portrait on unfocus/refocus and
+			// clamps event.motion.x to the wrong width. Ignore SDL's absolute
+			// motion here; mouse buttons/wheel still flow through SDL.
+			(void)event;
+#elif TARGET_OS_IPHONE
 			// Absolute mouse: map window-space coords to guest framebuffer
 			// space. SDL_RenderSetLogicalSize (which normally does this) is
 			// gated off on iOS because the Metal compositor replaces SDL's
 			// renderer, so without this the cursor can't reach the guest
 			// edges when the window is larger than the framebuffer and the
 			// image is letterboxed (e.g. Mac true-screen-size fullscreen).
-			// Mirrors kCAGravityResizeAspect / MagCursor; identity (no-op)
-			// when the window matches the framebuffer.
-			int ww = 0, wh = 0;
-			SDL_GetWindowSize(sdl_window, &ww, &wh);
-			// Catalyst's SDL intermittently reports the window transposed to
-			// portrait during/after the programmatic fullscreen transition —
-			// e.g. 1329x2056 for a 2056x1291 landscape guest. The presented
-			// image is only ever scaled/letterboxed, never rotated, so a window
-			// whose orientation disagrees with the framebuffer is bogus; using
-			// it makes the letterbox math below compute a large vertical offset
-			// that pins the cursor to a top dead-band and leaves the bottom of
-			// the screen unreachable. Trust only a same-orientation reading and
-			// otherwise reuse the last good size (or, before any is known, fall
-			// through to the identity map).
-			static int cached_ww = 0, cached_wh = 0;
-			if (ww > 0 && wh > 0 &&
-			    (ww >= wh) == ((int)drv->VIDEO_MODE_X >= (int)drv->VIDEO_MODE_Y)) {
-				cached_ww = ww; cached_wh = wh;
-			} else {
-				// [MOUSEMAP-DIAG] temporary — REMOVE after confirming the fix.
-				static int last_bad_w = -1, last_bad_h = -1;
-				if (ww != last_bad_w || wh != last_bad_h) {
-					last_bad_w = ww; last_bad_h = wh;
-					fprintf(stderr, "[MOUSEMAP-DIAG] rejected bogus window %dx%d (fb %dx%d), using %dx%d\n",
-						ww, wh, (int)drv->VIDEO_MODE_X, (int)drv->VIDEO_MODE_Y, cached_ww, cached_wh);
-				}
-				ww = cached_ww; wh = cached_wh;
-			}
-			float mag = (ww > 0 && wh > 0)
-			              ? std::min((float)ww / drv->VIDEO_MODE_X,
-			                         (float)wh / drv->VIDEO_MODE_Y)
+			// Mirrors kCAGravityResizeAspect; identity (no-op) when the window
+			// matches the framebuffer.
+			//
+			// The rectangle MUST come from the same source the compositor draws
+			// into — compositor_view's rect, in window coordinates. We do NOT use
+			// SDL_GetWindowSize (transposed/stale off the main thread on Catalyst)
+			// nor the plain window bounds: on Mac Catalyst the compositor view is
+			// pinned to the safe area, so it is inset from the window, and that
+			// inset shifts when the menu bar shows/hides on a refocus. Using the
+			// full window there lets the cursor and the image disagree after a
+			// refocus (cursor can't reach the whole desktop).
+			// MetalCompositorGetPresentRect returns {origin, size} cached on the
+			// main thread by MetalCompositorRefreshPresentRect (pumped from
+			// on_sdl_event_generated): origin folds in the safe-area inset, size
+			// is the drawn area. Aspect-letterbox the guest inside it. Falls
+			// through to the identity map before any rect is cached (size 0).
+			int rx = 0, ry = 0, rw = 0, rh = 0;
+			MetalCompositorGetPresentRect(&rx, &ry, &rw, &rh);
+			float mag = (rw > 0 && rh > 0)
+			              ? std::min((float)rw / drv->VIDEO_MODE_X,
+			                         (float)rh / drv->VIDEO_MODE_Y)
 			              : 0.f;
-			if (mag > 0.f && ww > 0 && wh > 0) {
-				float ox = (ww - drv->VIDEO_MODE_X * mag) * 0.5f;
-				float oy = (wh - drv->VIDEO_MODE_Y * mag) * 0.5f;
+			if (mag > 0.f) {
+				float ox = rx + (rw - drv->VIDEO_MODE_X * mag) * 0.5f;
+				float oy = ry + (rh - drv->VIDEO_MODE_Y * mag) * 0.5f;
 				int fx = (int)((event.motion.x - ox) / mag);
 				int fy = (int)((event.motion.y - oy) / mag);
 				if (fx < 0) fx = 0;
@@ -2714,6 +2725,43 @@ static void handle_mouse_event(SDL_Event &event)
 	}
 }
 
+// Native pointer bypass (Mac Catalyst). SDL's Catalyst window transposes to
+// portrait on unfocus/refocus and clamps event.motion.x to the wrong width, so
+// the mouse position cannot come from SDL there. The UIKit hover/drag
+// recognizers call this (via objc_ADBMouseMovedFromWindowPoint) with the
+// pointer location in UIWindow-base coordinates — the same space
+// MetalCompositorGetPresentRect reports — and we letterbox it into the guest
+// framebuffer exactly like handle_mouse_event, then feed ADB directly. Buttons
+// still flow through SDL.
+extern "C" void VideoMapWindowPointToGuestAndMove(double winX, double winY)
+{
+#if TARGET_OS_MACCATALYST
+	if (!drv) return;
+	// Called on the main thread from the UIKit hover/drag recognizers. Refresh
+	// the present-rect cache here too: in the right region of the desktop SDL
+	// generates no motion events (its transposed view ends early), so
+	// on_sdl_event_generated wouldn't otherwise keep the rect current there.
+	MetalCompositorRefreshPresentRect();
+	int rx = 0, ry = 0, rw = 0, rh = 0;
+	MetalCompositorGetPresentRect(&rx, &ry, &rw, &rh);
+	if (rw <= 0 || rh <= 0) return;
+	float mag = std::min((float)rw / drv->VIDEO_MODE_X,
+	                     (float)rh / drv->VIDEO_MODE_Y);
+	if (mag <= 0.f) return;
+	float ox = rx + (rw - drv->VIDEO_MODE_X * mag) * 0.5f;
+	float oy = ry + (rh - drv->VIDEO_MODE_Y * mag) * 0.5f;
+	int fx = (int)(((float)winX - ox) / mag);
+	int fy = (int)(((float)winY - oy) / mag);
+	if (fx < 0) fx = 0;
+	if (fy < 0) fy = 0;
+	if (fx >= (int)drv->VIDEO_MODE_X) fx = (int)drv->VIDEO_MODE_X - 1;
+	if (fy >= (int)drv->VIDEO_MODE_Y) fy = (int)drv->VIDEO_MODE_Y - 1;
+	ADBMouseMoved(fx, fy);
+#else
+	(void)winX; (void)winY;
+#endif
+}
+
 // possible return codes for SDL-registered event watches
 enum {
 	EVENT_DROP_FROM_QUEUE = 0,
@@ -2734,6 +2782,15 @@ static int SDLCALL on_sdl_event_generated(void *userdata, SDL_Event * event)
 		case SDL_MOUSEBUTTONUP:
 		case SDL_MOUSEMOTION:
 		case SDL_MOUSEWHEEL:
+			// Refresh the present-rect cache from the compositor view's rect
+			// (window coordinates, safe-area inset folded in) while we are on
+			// the main thread. handle_mouse_event's absolute-cursor letterbox
+			// map reads that cache (never SDL_GetWindowSize, which is
+			// transposed/stale off the main thread on Catalyst) so the cursor
+			// lands where the compositor actually draws the guest image, even
+			// after the menu bar shifts the safe area on a refocus. Cheap; safe
+			// for both the fast-path and the queued/touch path below.
+			MetalCompositorRefreshPresentRect();
 			// With a real pointer (mouse passthrough / Catalyst), feed ADB the
 			// moment the main-thread pump generates the event instead of
 			// parking it in the queue for the redraw thread's next tick: that
