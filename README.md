@@ -87,6 +87,14 @@ The UI adapts to the platform -- on "Designed for iPad" on macOS, the Gamepad ta
 - Network transfer rate display
 - Rendered in the in-game overlay without interrupting emulation
 
+## Benchmarks
+
+<p align="center">
+  <img src="docs/images/macbench5.jpg" alt="MacBench 5.0 results for PocketShaver on Mac Catalyst, compared against a Power Macintosh G3/300" width="480">
+</p>
+
+<p align="center"><em>MacBench 5.0 scores (higher is better), normalized to a Power Macintosh G3/300 at 100&#37;. On Mac Catalyst, the PowerPC-to-arm64 JIT lifts Processor and Floating-Point past 6&times; the G3/300, while the four Metal graphics engines drive the Graphics, Publishing, Disk, and CD-ROM results.</em></p>
+
 ## Platform Support
 
 | Platform | Status |
