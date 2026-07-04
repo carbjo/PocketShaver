@@ -654,18 +654,24 @@ static inline uint32_t nqd_packed_width_bytes(int width, uint32_t pixel_size_bit
 // For packed depths (1/2/4), returns the byte containing pixel X.
 // ---------------------------------------------------------------------------
 
-static inline uint32_t nqd_packed_byte_offset(int x, uint32_t pixel_size_bits)
+// Returns a SIGNED byte offset: X coordinates can be negative (srcRect.left <
+// srcBoundsRect.left), and a uint32_t return turned e.g. x=-3 @32bpp into
+// 0xFFFFFFF4, producing a wild pointer in the negative-row_bytes blit path
+// (MacBench 5.0 Photoshop: same-surface backward scroll with negative src_X ->
+// SIGSEGV). The one caller that casts to uint64_t (nqd_resolve_rect_extent)
+// already bails on x < 0 before calling, so a signed return is safe there.
+static inline int32_t nqd_packed_byte_offset(int x, uint32_t pixel_size_bits)
 {
     switch (pixel_size_bits) {
-        case 1:  return (uint32_t)(x / 8);
-        case 2:  return (uint32_t)(x / 4);
-        case 4:  return (uint32_t)(x / 2);
-        case 8:  return (uint32_t)x;
+        case 1:  return (int32_t)(x / 8);
+        case 2:  return (int32_t)(x / 4);
+        case 4:  return (int32_t)(x / 2);
+        case 8:  return (int32_t)x;
         case 15:
-        case 16: return (uint32_t)(x * 2);
+        case 16: return (int32_t)(x * 2);
         case 24:
-        case 32: return (uint32_t)(x * 4);
-        default: return (uint32_t)x;
+        case 32: return (int32_t)(x * 4);
+        default: return (int32_t)x;
     }
 }
 
