@@ -16,7 +16,7 @@ class PreferencesEnabledSettingCell: UITableViewCell {
 	}()
 
 	private lazy var enabledSwitch: UISwitch = {
-		let uiSwitch = UISwitch.withoutConstraints()
+		let uiSwitch = UISwitch.withAccentOnTint()
 		// Mac Catalyst's Mac idiom renders UISwitch as an AppKit checkbox by
 		// default; keep the sliding switch everywhere (no-op on iPhone/iPad).
 		uiSwitch.preferredStyle = .sliding
@@ -348,6 +348,7 @@ class PreferencesRadioButtonChoiceCell: UITableViewCell {
 
 	func configure(isSelected: Bool) {
 		checkboxImageView.image = UIImage(resource: isSelected ? .checkmarkCircleFill : .circle)
+		checkboxImageView.tintColor = isSelected ? Colors.primaryButton : Colors.secondaryText
 	}
 }
 

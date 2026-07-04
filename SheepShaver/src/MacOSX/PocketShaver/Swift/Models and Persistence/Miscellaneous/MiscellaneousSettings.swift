@@ -53,8 +53,8 @@ enum KeyboardAutoOffsetSetting: String, Codable, CaseIterable {
 }
 
 enum GammaRampSetting: String, Codable, CaseIterable {
-	case osDefined
 	case linear
+	case osDefined
 }
 
 class MiscellaneousSettings: Codable {
@@ -154,11 +154,7 @@ class MiscellaneousSettings: Codable {
 		audioEnabled = true
 		fpsReporting = false
 		networkTransferRateReportingEnabled = false
-		if UIScreen.supportsHighRefreshRate {
-			frameRateSetting = .f120hz
-		} else {
-			frameRateSetting = .f60hz
-		}
+		frameRateSetting = .f60hz
 		alwaysLandscapeMode = Self.shouldDisplayAlwaysLandscapeModeOption
 		twoFingerSteeringSetting = .off
 		relativeMouseModeSetting = .manual

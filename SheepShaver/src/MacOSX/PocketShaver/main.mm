@@ -8,6 +8,7 @@
 
 /* Include the SDL main definition header */
 #include "my_sdl.h"
+#include "utils_ios.h"
 
 /* Expose Swift host-bridge observers (GfxAccelBackgroundLifecycleObserver,
  * DSpIdleTimerService) to this Obj-C++ translation unit via
@@ -31,6 +32,13 @@ int main(int argc, char * argv[]) {
 		if (freopen(stdio_path, "a", stdout)) setvbuf(stdout, NULL, _IOLBF, 0);
 		fprintf(stderr, "--- PS_STDIO_FILE capture started ---\n");
 	}
+	/* Relocate app data from the legacy visible-home location
+	 * (~/PocketShaver Home) into the app container's Data directory exactly
+	 * once, before the emulator core (main_ios) or any Swift file access reads
+	 * or creates anything. Idempotent; Catalyst-only. */
+#if TARGET_OS_MACCATALYST
+	pocketshaver_migrate_home_if_needed();
+#endif
 	/* Install background/foreground observer
 	 * so gfxaccel_handle_background_enter / _foreground_enter run on the
 	 * OS lifecycle transitions. Install here — SDL's UIKit delegate is

@@ -30,6 +30,33 @@ extension NSObject {
 	}
 }
 
+extension UISegmentedControl {
+	// Named distinctly from `withoutConstraints()` (declared on UIView) since
+	// Swift can't override a static method declared in another extension.
+	static func withVisibleSelection() -> Self {
+		let segmentedControl = withoutConstraints()
+
+		#if targetEnvironment(macCatalyst)
+		// Mac Catalyst's Mac idiom fills the selected segment with a flat
+		// system gray that barely stands out from the unselected segments;
+		// use the app's accent color so the selection is actually visible.
+		segmentedControl.selectedSegmentTintColor = Colors.primaryButton
+		#endif
+
+		return segmentedControl
+	}
+}
+
+extension UISwitch {
+	static func withAccentOnTint() -> Self {
+		let uiSwitch = withoutConstraints()
+		// Use the app's orange accent for the on-state, matching the segmented
+		// controls and radio selections instead of the system green/blue.
+		uiSwitch.onTintColor = Colors.primaryButton
+		return uiSwitch
+	}
+}
+
 extension UIScreen {
 	static var isPortraitMode: Bool {
 		main.bounds.height > main.bounds.width
@@ -212,15 +239,22 @@ extension UIButton {
 }
 
 extension FileManager {
-	// Mac Catalyst runs unsandboxed and has no per-app container, so pin all
-	// app data under a single stable home (~/PocketShaver Home) that mirrors
-	// the Designed-for-iPad container's Data/ layout. Kept in sync with the
-	// C++/ObjC path resolution in utils_ios.mm / xpram_unix.cpp.
+	// On the (unsandboxed) Mac Catalyst build we deliberately store all app data
+	// under the app's container Data directory
+	// (~/Library/Containers/<bundle-id>/Data) rather than the user's visible
+	// home, to keep it out of casual sight and reduce accidental corruption.
+	// Kept byte-identical to utils_ios.mm's pocketshaver_home_directory() so
+	// Swift and the emulator core agree on the same container path.
 	// NSHomeDirectory() (not FileManager.homeDirectoryForCurrentUser, which is
-	// unavailable on Mac Catalyst) — matches utils_ios.mm's C++ resolution so
-	// Swift and the emulator core agree on the same home.
+	// unavailable on Mac Catalyst) returns the real user home here because the
+	// build is unsandboxed.
 	static var pocketShaverHome: URL {
-		URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent("PocketShaver Home")
+		let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+		let bundleID = Bundle.main.bundleIdentifier ?? "com.carbjo.pocketshaver"
+		return home
+			.appendingPathComponent("Library/Containers", isDirectory: true)
+			.appendingPathComponent(bundleID, isDirectory: true)
+			.appendingPathComponent("Data", isDirectory: true)
 	}
 
 	@objc

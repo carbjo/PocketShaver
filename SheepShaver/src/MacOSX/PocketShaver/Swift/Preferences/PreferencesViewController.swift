@@ -36,7 +36,7 @@ public class PreferencesViewController: UIViewController {
 	}
 
 	private lazy var tabSegmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withoutConstraints()
+		let segmentedControl = UISegmentedControl.withVisibleSelection()
 		for (index, tab) in Tab.allCases.enumerated() {
 			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
 		}
@@ -52,7 +52,7 @@ public class PreferencesViewController: UIViewController {
 	private lazy var bottomButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .defaultConfig
-		button.configuration?.baseBackgroundColor = .gray
+		button.configuration?.baseBackgroundColor = Colors.primaryButton
 		if UIDevice.deviceType == .mac {
 			// The Mac idiom swaps UIButton to an AppKit-style bezel that
 			// ignores the filled configuration (fill, corner radius, frame

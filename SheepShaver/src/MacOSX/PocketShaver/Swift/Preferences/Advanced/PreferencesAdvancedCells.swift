@@ -121,7 +121,7 @@ class PreferencesAdvancedMiscellaneousCell: UITableViewCell {
 
 class PreferencesAdvancedRelativeMouseModeSettingCell: UITableViewCell {
 	private lazy var segmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withoutConstraints()
+		let segmentedControl = UISegmentedControl.withVisibleSelection()
 		for (index, tab) in RelativeMouseModeSetting.allCases.enumerated() {
 			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
 		}

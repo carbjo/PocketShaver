@@ -7,7 +7,7 @@ import UIKit
 
 class PreferencesGraphicsFrameRateSettingCell: UITableViewCell {
 	private lazy var segmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withoutConstraints()
+		let segmentedControl = UISegmentedControl.withVisibleSelection()
 		for (index, tab) in FrameRateSetting.allCases.enumerated() {
 			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
 		}
@@ -168,7 +168,7 @@ class PreferencesGraphicsEnabledMonitorResolutionsCell: UITableViewCell {
 
 class PreferencesGraphicsRenderingFilterCell: UITableViewCell {
 	private lazy var segmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withoutConstraints()
+		let segmentedControl = UISegmentedControl.withVisibleSelection()
 		for (index, tab) in RenderingFilterMode.allCases.enumerated() {
 			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
 		}
@@ -215,7 +215,7 @@ class PreferencesGraphicsRenderingFilterCell: UITableViewCell {
 
 class PreferencesGraphicsGammaRampSettingCell: UITableViewCell {
 	private lazy var segmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withoutConstraints()
+		let segmentedControl = UISegmentedControl.withVisibleSelection()
 		for (index, tab) in GammaRampSetting.allCases.enumerated() {
 			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
 		}
