@@ -89,6 +89,7 @@
 		A7B1921418C35D4700791D8D /* DiskType.m in Sources */ = {isa = PBXBuildFile; fileRef = A7B1921318C35D4700791D8D /* DiskType.m */; };
 		B5C83D7A2E9F560C4A1B8D03 /* rave_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 7D4F1A3E82C60D9B1E5F3C02 /* rave_engine.cpp */; };
 		C2A19E0F3B7D480A91F4DC04 /* rave_draw_context.mm in Sources */ = {isa = PBXBuildFile; fileRef = 8F6B3A2E17C9520D4E83AB05 /* rave_draw_context.mm */; };
+		C4A043F21D1EAD0AE1C1948A /* GamepadThumbnailCacheKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BF14D18649E473C145B7A7 /* GamepadThumbnailCacheKey.swift */; };
 		C701C1AB2F29127800CC26E5 /* GamepadButtonSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = C701C1AA2F29127200CC26E5 /* GamepadButtonSize.swift */; };
 		C707D03F2F24DBCD007BFE66 /* InformationConsumption.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D03E2F24DBC9007BFE66 /* InformationConsumption.swift */; };
 		C707D0422F26176F007BFE66 /* AttributedString.swift in Sources */ = {isa = PBXBuildFile; fileRef = C707D0412F26176A007BFE66 /* AttributedString.swift */; };
@@ -206,7 +207,6 @@
 		C7CF60672F9C952F00D39886 /* PreferencesGamepadThumbnailsCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7CF60662F9C952C00D39886 /* PreferencesGamepadThumbnailsCells.swift */; };
 		C7CF60692F9CA34400D39886 /* GradientView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7CF60682F9CA34100D39886 /* GradientView.swift */; };
 		C7CF606C2FA0778600D39886 /* GamepadThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7CF606B2FA0777800D39886 /* GamepadThumbnailCache.swift */; };
-		C4A043F21D1EAD0AE1C1948A /* GamepadThumbnailCacheKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BF14D18649E473C145B7A7 /* GamepadThumbnailCacheKey.swift */; };
 		C7DCEF3D2E86F55600EAED05 /* MouseHapticFeedbackObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF3C2E86F54800EAED05 /* MouseHapticFeedbackObjC.mm */; };
 		C7DCEF472E8704AE00EAED05 /* MiscellaneousSettingsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */; };
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
@@ -687,6 +687,7 @@
 		A1B2C3D4E5F6A7B80003 /* rave_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = rave_shaders.metal; path = ../gfxaccel/rave_shaders.metal; sourceTree = SOURCE_ROOT; };
 		A7B1921218C35D4700791D8D /* DiskType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = DiskType.h; sourceTree = "<group>"; };
 		A7B1921318C35D4700791D8D /* DiskType.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = DiskType.m; sourceTree = "<group>"; };
+		B3BF14D18649E473C145B7A7 /* GamepadThumbnailCacheKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadThumbnailCacheKey.swift; sourceTree = "<group>"; };
 		C701C1AA2F29127200CC26E5 /* GamepadButtonSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadButtonSize.swift; sourceTree = "<group>"; };
 		C707D03E2F24DBC9007BFE66 /* InformationConsumption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InformationConsumption.swift; sourceTree = "<group>"; };
 		C707D0412F26176A007BFE66 /* AttributedString.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttributedString.swift; sourceTree = "<group>"; };
@@ -848,7 +849,6 @@
 		C7CF60662F9C952C00D39886 /* PreferencesGamepadThumbnailsCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGamepadThumbnailsCells.swift; sourceTree = "<group>"; };
 		C7CF60682F9CA34100D39886 /* GradientView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GradientView.swift; sourceTree = "<group>"; };
 		C7CF606B2FA0777800D39886 /* GamepadThumbnailCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadThumbnailCache.swift; sourceTree = "<group>"; };
-		B3BF14D18649E473C145B7A7 /* GamepadThumbnailCacheKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadThumbnailCacheKey.swift; sourceTree = "<group>"; };
 		C7DCEF3C2E86F54800EAED05 /* MouseHapticFeedbackObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MouseHapticFeedbackObjC.mm; sourceTree = "<group>"; };
 		C7DCEF3E2E86F55C00EAED05 /* MouseHapticFeedbackObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MouseHapticFeedbackObjC.h; sourceTree = "<group>"; };
 		C7DCEF462E8704A600EAED05 /* MiscellaneousSettingsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MiscellaneousSettingsObjC.mm; sourceTree = "<group>"; };
@@ -3149,6 +3149,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				"ARCHS[sdk=macosx*]" = arm64;
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULE_DEBUGGING = YES;
 				COPY_PHASE_STRIP = NO;
@@ -3188,7 +3189,6 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
 				SUPPORTS_MACCATALYST = YES;
-				"ARCHS[sdk=macosx*]" = arm64;
 			};
 			name = Debug;
 		};
@@ -3197,6 +3197,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				"ARCHS[sdk=macosx*]" = arm64;
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULE_DEBUGGING = YES;
 				COPY_PHASE_STRIP = NO;
@@ -3236,7 +3237,6 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
 				SUPPORTS_MACCATALYST = YES;
-				"ARCHS[sdk=macosx*]" = arm64;
 			};
 			name = Release;
 		};
@@ -3245,6 +3245,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = "$(ARCHS_STANDARD)";
+				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = SheepShaverAppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -3351,7 +3352,6 @@
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = NO;
 				SUPPORTS_MACCATALYST = YES;
-				"ARCHS[sdk=macosx*]" = arm64;
 				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/PocketShaver-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = minimal;
@@ -3368,6 +3368,7 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = "$(ARCHS_STANDARD)";
+				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = SheepShaverAppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -3473,7 +3474,6 @@
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = NO;
 				SUPPORTS_MACCATALYST = YES;
-				"ARCHS[sdk=macosx*]" = arm64;
 				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/PocketShaver-Bridging-Header.h";
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 5.0;

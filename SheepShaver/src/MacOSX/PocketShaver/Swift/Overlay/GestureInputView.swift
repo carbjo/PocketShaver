@@ -99,7 +99,40 @@ class GestureInputView: UIView {
 			draggingMode = .twoFingers
 			didBeginTwoFingerGesture?()
 		 }
+
+#if !targetEnvironment(macCatalyst)
+		// iOS: snap the guest cursor to the steering finger the instant it lands
+		// (draggingMode is set above so the three-finger guard applies here too).
+		// Inert outside hover mode — VideoMapWindowPointToGuestAndMove no-ops.
+		forwardSteeringTouchPosition(from: touches)
+#endif
 	}
+
+#if !targetEnvironment(macCatalyst)
+	// Forwards the steering finger's absolute window position to the guest cursor
+	// so it tracks that finger. The steering finger is the tracked finger that is
+	// not the second (click) finger, chosen with a STABLE ordering (min hashValue)
+	// so the pick never alternates between fingers within a gesture — otherwise a
+	// simultaneous two-finger landing (which never populates secondFingerTouch)
+	// would flip between fingers and reintroduce the bounce. Only the steering
+	// finger drives the cursor, so a resting/clicking second finger never moves
+	// it; three-finger gestures (gamepad switching) don't move it at all. The C++
+	// side ignores SDL's own synthesized touch motion while hover mode owns the
+	// cursor, so this is the single cursor driver during two-finger steering.
+	private func forwardSteeringTouchPosition(from touches: Set<UITouch>) {
+		guard state != .editingGamepad, draggingMode != .threeFingers, let window else {
+			return
+		}
+		let steeringTouch = touchDictionary.keys
+			.filter { $0 != secondFingerTouch }
+			.min { $0.hashValue < $1.hashValue }
+		guard let steeringTouch, touches.contains(steeringTouch) else {
+			return
+		}
+		let p = steeringTouch.location(in: window)
+		objc_ADBMouseMovedFromWindowPoint(p.x, p.y)
+	}
+#endif
 
 	override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
 		super.touchesMoved(touches, with: event)
@@ -113,6 +146,11 @@ class GestureInputView: UIView {
 			let p = touch.location(in: window)
 			objc_ADBMouseMovedFromWindowPoint(p.x, p.y)
 		}
+#endif
+
+#if !targetEnvironment(macCatalyst)
+		// iOS: drive the guest cursor from the steering finger only (see above).
+		forwardSteeringTouchPosition(from: touches)
 #endif
 
 		if let secondFingerTouch,

@@ -25,6 +25,13 @@ class PreferencesTableViewController: UITableViewController {
 		return title
 	}
 
+	private func sectionHasTitle(_ tableView: UITableView, _ section: Int) -> Bool {
+		guard let title = tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: section) else {
+			return false
+		}
+		return !title.isEmpty
+	}
+
 	override func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
 		guard let title = macSectionTitle(tableView, section) else {
 			return nil // stock header (and collapsed untitled sections)
@@ -49,11 +56,14 @@ class PreferencesTableViewController: UITableViewController {
 	}
 
 	override func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-		guard macSectionTitle(tableView, section) != nil else {
-			return UITableView.automaticDimension
+		// Collapse untitled sections. automaticDimension let the grouped style
+		// reserve its default header padding, so a nil title still showed an
+		// empty header; leastNonzeroMagnitude reads as zero without that default.
+		guard sectionHasTitle(tableView, section) else {
+			return .leastNonzeroMagnitude
 		}
 
-		return 52
+		return UIDevice.deviceType == .mac ? 52 : UITableView.automaticDimension
 	}
 }
 

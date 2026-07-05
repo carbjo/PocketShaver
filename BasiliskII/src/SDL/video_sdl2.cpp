@@ -2613,6 +2613,34 @@ static void force_complete_window_refresh()
 // Feed one SDL mouse event to the guest ADB state. Called from the redraw
 // thread's queue drain (handle_events) and, on iOS/Catalyst when input is a
 // real pointer, straight from the event watch as the event is generated.
+#if TARGET_OS_IPHONE && !TARGET_OS_MACCATALYST
+// Shared iOS letterbox map: a point in SDL window space — which on iOS is
+// identical to UIKit UIWindow-base points (no backing-scale factor, no safe-area
+// inset, and SDL_RenderSetLogicalSize is compiled out on iOS) — mapped into the
+// guest framebuffer, aspect-fit and clamped. Used by BOTH the SDL-motion path
+// (handle_mouse_event) and the app-forward path (VideoMapWindowPointToGuestAndMove)
+// so a forwarded UITouch.location(in: window) and an SDL event.motion resolve
+// through byte-identical math and land on the same guest pixel.
+static void ios_map_window_point_to_guest(float px, float py, int &fx, int &fy)
+{
+	int rw = 0, rh = 0;
+	SDL_GetWindowSize(sdl_window, &rw, &rh);
+	float mag = (rw > 0 && rh > 0)
+	              ? std::min((float)rw / drv->VIDEO_MODE_X,
+	                         (float)rh / drv->VIDEO_MODE_Y)
+	              : 0.f;
+	if (mag <= 0.f) { fx = (int)px; fy = (int)py; return; }
+	float ox = (rw - drv->VIDEO_MODE_X * mag) * 0.5f;
+	float oy = (rh - drv->VIDEO_MODE_Y * mag) * 0.5f;
+	fx = (int)((px - ox) / mag);
+	fy = (int)((py - oy) / mag);
+	if (fx < 0) fx = 0;
+	if (fy < 0) fy = 0;
+	if (fx >= (int)drv->VIDEO_MODE_X) fx = (int)drv->VIDEO_MODE_X - 1;
+	if (fy >= (int)drv->VIDEO_MODE_Y) fy = (int)drv->VIDEO_MODE_Y - 1;
+}
+#endif
+
 static void handle_mouse_event(SDL_Event &event)
 {
 	switch (event.type) {
@@ -2660,46 +2688,21 @@ static void handle_mouse_event(SDL_Event &event)
 			// motion here; mouse buttons/wheel still flow through SDL.
 			(void)event;
 #elif TARGET_OS_IPHONE
-			// Absolute mouse: map window-space coords to guest framebuffer
-			// space. SDL_RenderSetLogicalSize (which normally does this) is
-			// gated off on iOS because the Metal compositor replaces SDL's
-			// renderer, so without this the cursor can't reach the guest
-			// edges when the window is larger than the framebuffer and the
-			// image is letterboxed (e.g. Mac true-screen-size fullscreen).
-			// Mirrors kCAGravityResizeAspect; identity (no-op) when the window
-			// matches the framebuffer.
-			//
-			// The rectangle MUST come from the same source the compositor draws
-			// into — compositor_view's rect, in window coordinates. We do NOT use
-			// SDL_GetWindowSize (transposed/stale off the main thread on Catalyst)
-			// nor the plain window bounds: on Mac Catalyst the compositor view is
-			// pinned to the safe area, so it is inset from the window, and that
-			// inset shifts when the menu bar shows/hides on a refocus. Using the
-			// full window there lets the cursor and the image disagree after a
-			// refocus (cursor can't reach the whole desktop).
-			// MetalCompositorGetPresentRect returns {origin, size} cached on the
-			// main thread by MetalCompositorRefreshPresentRect (pumped from
-			// on_sdl_event_generated): origin folds in the safe-area inset, size
-			// is the drawn area. Aspect-letterbox the guest inside it. Falls
-			// through to the identity map before any rect is cached (size 0).
-			int rx = 0, ry = 0, rw = 0, rh = 0;
-			MetalCompositorGetPresentRect(&rx, &ry, &rw, &rh);
-			float mag = (rw > 0 && rh > 0)
-			              ? std::min((float)rw / drv->VIDEO_MODE_X,
-			                         (float)rh / drv->VIDEO_MODE_Y)
-			              : 0.f;
-			if (mag > 0.f) {
-				float ox = rx + (rw - drv->VIDEO_MODE_X * mag) * 0.5f;
-				float oy = ry + (rh - drv->VIDEO_MODE_Y * mag) * 0.5f;
-				int fx = (int)((event.motion.x - ox) / mag);
-				int fy = (int)((event.motion.y - oy) / mag);
-				if (fx < 0) fx = 0;
-				if (fy < 0) fy = 0;
-				if (fx >= (int)drv->VIDEO_MODE_X) fx = (int)drv->VIDEO_MODE_X - 1;
-				if (fy >= (int)drv->VIDEO_MODE_Y) fy = (int)drv->VIDEO_MODE_Y - 1;
-				drv->mouse_moved(fx, fy);
+			// Absolute touch cursor. In hover / two-finger-steering mode the app
+			// (GestureInputView) forwards ONLY the steering finger's position via
+			// VideoMapWindowPointToGuestAndMove, and SDL synthesizes an absolute
+			// cursor from EVERY active finger — so ignore SDL's own synthesized
+			// motion whenever hover mode owns the cursor, else it bounces onto the
+			// second (click) finger (the "hop around the middle"). Buttons still
+			// flow through SDL. Outside hover mode SDL drives the cursor, mapped
+			// with the same iOS letterbox (its rect is SDL's OWN window; rx/ry are
+			// 0, no inset on iOS).
+			if (ADBIsHoverModeActive()) {
+				(void)event;
 			} else {
-				drv->mouse_moved(event.motion.x, event.motion.y);
+				int fx = 0, fy = 0;
+				ios_map_window_point_to_guest((float)event.motion.x, (float)event.motion.y, fx, fy);
+				drv->mouse_moved(fx, fy);
 			}
 #else
 			drv->mouse_moved(event.motion.x, event.motion.y);
@@ -2756,6 +2759,17 @@ extern "C" void VideoMapWindowPointToGuestAndMove(double winX, double winY)
 	if (fy < 0) fy = 0;
 	if (fx >= (int)drv->VIDEO_MODE_X) fx = (int)drv->VIDEO_MODE_X - 1;
 	if (fy >= (int)drv->VIDEO_MODE_Y) fy = (int)drv->VIDEO_MODE_Y - 1;
+	ADBMouseMoved(fx, fy);
+#elif TARGET_OS_IPHONE
+	// iOS (iPad): GestureInputView forwards the steering finger unconditionally,
+	// but drive the guest cursor only while hover / two-finger steering owns it —
+	// otherwise SDL's own motion is authoritative and this is a no-op. Map through
+	// the SAME iOS letterbox as SDL motion (NOT the Catalyst present-rect path) so
+	// the forwarded point and any SDL motion resolve identically.
+	if (!drv) return;
+	if (!ADBIsHoverModeActive()) return;
+	int fx = 0, fy = 0;
+	ios_map_window_point_to_guest((float)winX, (float)winY, fx, fy);
 	ADBMouseMoved(fx, fy);
 #else
 	(void)winX; (void)winY;

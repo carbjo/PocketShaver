@@ -613,7 +613,7 @@ class PreferencesGeneralDiskCell: UITableViewCell {
 	private var titleLabel: LinkLabel?
 
 	private lazy var enabledSwitch: UISwitch = {
-		let uiSwitch = UISwitch.withAccentOnTint()
+		let uiSwitch = UISwitch.withoutConstraints()
 		// Sliding switch on Mac Catalyst too, not the Mac-idiom checkbox.
 		uiSwitch.preferredStyle = .sliding
 		uiSwitch.addTarget(self, action: #selector(enabledValueChanged), for: .valueChanged)
@@ -912,7 +912,7 @@ class PreferencesGeneralIPadMouseCell: UITableViewCell {
 	}
 
 	private lazy var segmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withVisibleSelection()
+		let segmentedControl = UISegmentedControl.withoutConstraints()
 		for (index, tab) in Selection.allCases.enumerated() {
 			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
 		}
@@ -957,7 +957,7 @@ class PreferencesGeneralIPadMouseCell: UITableViewCell {
 
 class PreferencesGeneralRightClickCell: UITableViewCell {
 	private lazy var segmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withVisibleSelection()
+		let segmentedControl = UISegmentedControl.withoutConstraints()
 		for (index, tab) in RightClickSetting.allCases.enumerated() {
 			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
 		}
@@ -1004,7 +1004,7 @@ class PreferencesGeneralRightClickCell: UITableViewCell {
 
 class PreferencesGeneralKeyboardAutoOffsetCell: UITableViewCell {
 	private lazy var segmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withVisibleSelection()
+		let segmentedControl = UISegmentedControl.withoutConstraints()
 		for (index, tab) in KeyboardAutoOffsetSetting.allCases.enumerated() {
 			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
 		}

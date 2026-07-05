@@ -54,6 +54,7 @@ extern void ADBSetRelMouseMode(bool relative);
 extern void ADBSetTouchInput(bool is_on);
 extern bool ADBGetTouchInput(void);
 extern bool ADBHoversOnMouseDown();
+extern bool ADBIsHoverModeActive(void);
 extern bool ADBHoverGestureStartWasLeftSide();
 extern void ADBEnableHoverModeWith(int offset_x_inp, int offset_y_inp);
 extern void ADBDisableHoverMode();

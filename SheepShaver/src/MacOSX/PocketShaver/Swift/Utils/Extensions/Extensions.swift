@@ -30,33 +30,6 @@ extension NSObject {
 	}
 }
 
-extension UISegmentedControl {
-	// Named distinctly from `withoutConstraints()` (declared on UIView) since
-	// Swift can't override a static method declared in another extension.
-	static func withVisibleSelection() -> Self {
-		let segmentedControl = withoutConstraints()
-
-		#if targetEnvironment(macCatalyst)
-		// Mac Catalyst's Mac idiom fills the selected segment with a flat
-		// system gray that barely stands out from the unselected segments;
-		// use the app's accent color so the selection is actually visible.
-		segmentedControl.selectedSegmentTintColor = Colors.primaryButton
-		#endif
-
-		return segmentedControl
-	}
-}
-
-extension UISwitch {
-	static func withAccentOnTint() -> Self {
-		let uiSwitch = withoutConstraints()
-		// Use the app's orange accent for the on-state, matching the segmented
-		// controls and radio selections instead of the system green/blue.
-		uiSwitch.onTintColor = Colors.primaryButton
-		return uiSwitch
-	}
-}
-
 extension UIScreen {
 	static var isPortraitMode: Bool {
 		main.bounds.height > main.bounds.width

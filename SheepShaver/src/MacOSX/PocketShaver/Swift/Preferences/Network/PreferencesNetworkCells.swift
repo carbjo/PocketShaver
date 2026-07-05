@@ -105,13 +105,12 @@ class PreferencesNetworkServiceTypeCell: UITableViewCell {
 
 	func configure(isSelected: Bool) {
 		checkboxImageView.image = UIImage(resource: isSelected ? .checkmarkCircleFill : .circle)
-		checkboxImageView.tintColor = isSelected ? Colors.primaryButton : Colors.secondaryText
 	}
 }
 
 class PreferencesNetworkBonjourRolePickerCell: UITableViewCell {
 	private lazy var segmentedControl: UISegmentedControl = {
-		let segmentedControl = UISegmentedControl.withVisibleSelection()
+		let segmentedControl = UISegmentedControl.withoutConstraints()
 		for (index, tab) in BonjourManager.Role.allCases.enumerated() {
 			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
 		}

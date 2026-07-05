@@ -195,10 +195,10 @@ class PreferencesAdvancedModel {
 		set {
 			miscSettings.set(altivecEnabled: newValue)
 
-			// PVR is locked in once per process at get_system_info()/init_emul_ppc(),
-			// so a change only lands on a full app restart — same as the graphics
-			// acceleration engine toggles this setting interacts with.
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			// Read once at emulator init (PVR setup in init_emul_ppc), so a
+			// startup-menu change applies on the next boot; only a change made
+			// mid-emulation needs a restart.
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
@@ -210,9 +210,10 @@ class PreferencesAdvancedModel {
 		set {
 			miscSettings.set(jitCompilerEnabled: newValue)
 
-			// The 'jit' pref is read once when the emulated CPU is created,
-			// so a change only lands on a full app restart.
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			// Read once when the emulated CPU is created, so a startup-menu
+			// change applies on the next boot; only a change made mid-emulation
+			// needs a restart.
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 

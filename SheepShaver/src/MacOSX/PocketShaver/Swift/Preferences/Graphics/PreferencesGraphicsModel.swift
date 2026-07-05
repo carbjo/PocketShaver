@@ -87,7 +87,7 @@ class PreferencesGraphicsModel {
 		}
 		set {
 			objc_replaceBool("nqdaccel", newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
@@ -97,7 +97,7 @@ class PreferencesGraphicsModel {
 		}
 		set {
 			objc_replaceBool("raveaccel", newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
@@ -107,7 +107,7 @@ class PreferencesGraphicsModel {
 		}
 		set {
 			objc_replaceBool("glaccel", newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
@@ -117,7 +117,7 @@ class PreferencesGraphicsModel {
 		}
 		set {
 			objc_replaceBool("dspaccel", newValue)
-			changeSubject.send(.changeRequiringRestartBeforeBootMade)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
 	}
 
