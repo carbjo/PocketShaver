@@ -81,6 +81,12 @@ prefs_desc common_prefs_items[] = {
 	{"sound_buffer", TYPE_INT32, false,	"sound buffer length"},
 	{"name_encoding", TYPE_INT32, false,	"file name encoding"},
 	{"init_grab", TYPE_BOOLEAN, false,	"initially grabbing mouse"},
+#if TARGET_OS_IPHONE
+	// Mac Catalyst Windowed/Full Screen choice. Needs a descriptor here so SavePrefs()
+	// (which serializes the descriptor tables, not the runtime list) persists it to disk;
+	// without it the pref lives only in memory and reverts to its default every launch.
+	{"catalystfullscreen", TYPE_BOOLEAN, false,	"Mac Catalyst: launch emulation full screen"},
+#endif
 	{NULL, TYPE_END, false, NULL} // End of list
 };
 
@@ -103,6 +109,11 @@ void AddPrefsDefaults(void)
 	// moved up by the one-time adoption step at the end of LoadPrefs() (their
 	// saved prefs carry the prior "cpuclock 0").
 	PrefsAddInt32("cpuclock", 466);
+	// Mac Catalyst: remembers the user's Windowed/Full Screen choice for the emulation
+	// window and is honored on launch. Defaults to full screen to preserve the prior
+	// always-fullscreen behavior. A brand-new key, so existing installs pick up this
+	// default automatically (no migration needed). Only read on Catalyst.
+	PrefsAddBool("catalystfullscreen", true);
 #else
 	PrefsAddInt32("ramsize", 16 * 1024 * 1024);
 	PrefsAddInt32("frameskip", 8);

@@ -139,24 +139,24 @@ static id<MTLSamplerState>          compositor_sampler  = nil;
 static bool                         compositor_initialized = false;
 
 // ---------------------------------------------------------------------------
-// Present-rect cache — authoritative source for the absolute-cursor letterbox
-// map in video_sdl2.cpp's handle_mouse_event.
+// Present-rect cache — authoritative source for the absolute-cursor map in
+// video_sdl2.cpp's handle_mouse_event / VideoMapWindowPointToGuestAndMove.
 //
 // The cursor map must map the finger/pointer into the SAME rectangle the
-// compositor draws the guest image into. That rectangle is compositor_view's
-// bounds — and on Mac Catalyst the view is pinned to its superview's
-// safeAreaLayoutGuide (MetalCompositorPinViewToSafeArea), NOT the full window,
-// so it is inset by the safe area and that inset CHANGES when the menu bar
-// shows/hides on an unfocus/refocus. Reading uiWindow.bounds (or, worse,
-// SDL_GetWindowSize — transposed/stale off the main thread on Catalyst) makes
-// the cursor map and the drawn image disagree after a refocus, so the cursor
-// can no longer reach the full emulated desktop.
+// compositor draws the guest image into: compositor_view's bounds. On Mac
+// Catalyst the view is pinned to its superview's FULL bounds
+// (MetalCompositorPinViewToWindow), so this rect is the whole window and does
+// not shift when the menu bar shows/hides on an unfocus/refocus. Reading
+// uiWindow.bounds (or, worse, SDL_GetWindowSize — transposed/stale off the main
+// thread on Catalyst) is avoided so the cursor map and the drawn image never
+// disagree.
 //
 // We publish the view rect in WINDOW coordinates (the space SDL mouse events
-// use): origin = safe-area inset, size = drawn area. video_sdl2 applies the
-// aspect letterbox within it using the guest dims. Read on the main thread
-// (Refresh, pumped from on_sdl_event_generated), published into two atomics the
-// redraw thread reads (Get); x:y and w:h packed so neither pair tears.
+// use). video_sdl2 applies the aspect-FILL map within it using the guest dims
+// (matching the layer's kCAGravityResizeAspectFill), clamping at the cropped
+// edges. Read on the main thread (Refresh, pumped from on_sdl_event_generated),
+// published into two atomics the redraw thread reads (Get); x:y and w:h packed
+// so neither pair tears.
 // ---------------------------------------------------------------------------
 
 static _Atomic uint64_t s_present_rect_origin = 0;   // (x << 32) | y, window points
@@ -745,19 +745,25 @@ static void compositor_vbl_callback(void *ctx, void *drawable, double target_ts)
 }
 
 // ---------------------------------------------------------------------------
-// MetalCompositorPinViewToSafeArea (Mac Catalyst) — size the compositor view to
-// its superview's safe area via Auto Layout. On Catalyst the view runs with
-// translatesAutoresizingMaskIntoConstraints = NO, so it has NO size unless
-// pinned. A mode switch that re-homes the view into a fresh SDL
-// rootViewController.view drops the previous pin (it referenced the old
-// superview), collapsing the view to 0x0 — a black desktop. Re-pin on every
-// re-home. Storing the constraints lets us deactivate the stale set first, so
-// re-pinning against an unchanged superview cannot stack duplicates.
+// MetalCompositorPinViewToWindow (Mac Catalyst) — size the compositor view to its
+// superview's FULL bounds via Auto Layout (deliberately NOT the safe area): the guest image
+// fills the whole window edge-to-edge, overscanning the Mac menu-bar / camera-housing strip
+// and the rounded screen corners, so there is no black border. Combined with the layer's
+// aspect-fill gravity, the overscan is cropped at those edges. On Catalyst the view runs with
+// translatesAutoresizingMaskIntoConstraints = NO, so it has NO size unless pinned. A mode
+// switch that re-homes the view into a fresh SDL rootViewController.view drops the previous
+// pin (it referenced the old superview), collapsing the view to 0x0 — a black desktop. Re-pin
+// on every re-home. Storing the constraints lets us deactivate the stale set first, so
+// re-pinning against an unchanged superview cannot stack duplicates. (iOS/iPad use the
+// autoresizing mask and are unaffected.)
 // ---------------------------------------------------------------------------
 #if TARGET_OS_MACCATALYST
 static NSArray<NSLayoutConstraint *> *s_compositor_pin_constraints = nil;
 
-static void MetalCompositorPinViewToSafeArea(void)
+// Defined in PreferencesViewControllerObjC.mm — true iff the app's NSWindow is full screen.
+extern "C" bool catalyst_is_window_fullscreen(void);
+
+static void MetalCompositorPinViewToWindow(void)
 {
     if (!compositor_view || !compositor_view.superview) return;
     if (s_compositor_pin_constraints) {
@@ -765,15 +771,65 @@ static void MetalCompositorPinViewToSafeArea(void)
         s_compositor_pin_constraints = nil;
     }
     compositor_view.translatesAutoresizingMaskIntoConstraints = NO;
-    UILayoutGuide *safeGuide = compositor_view.superview.safeAreaLayoutGuide;
+    UIView *superview = compositor_view.superview;
+    // Full screen fills the whole window edge-to-edge (top = window top, overscanning the
+    // notch). Windowed keeps the title bar: pin the TOP to the safe-area guide, whose top
+    // inset is the title-bar height in a windowed Mac window (sides/bottom have no inset in
+    // either mode, so they pin to the window edges). Re-pinned on full-screen changes via
+    // MetalCompositorReapplyWindowPinning.
+    BOOL fullscreen = catalyst_is_window_fullscreen();
+    NSLayoutYAxisAnchor *topAnchor = fullscreen ? superview.topAnchor
+                                                 : superview.safeAreaLayoutGuide.topAnchor;
     NSArray<NSLayoutConstraint *> *pins = @[
-        [compositor_view.topAnchor      constraintEqualToAnchor:safeGuide.topAnchor],
-        [compositor_view.leadingAnchor  constraintEqualToAnchor:safeGuide.leadingAnchor],
-        [compositor_view.trailingAnchor constraintEqualToAnchor:safeGuide.trailingAnchor],
-        [compositor_view.bottomAnchor   constraintEqualToAnchor:safeGuide.bottomAnchor],
+        [compositor_view.topAnchor      constraintEqualToAnchor:topAnchor],
+        [compositor_view.leadingAnchor  constraintEqualToAnchor:superview.leadingAnchor],
+        [compositor_view.trailingAnchor constraintEqualToAnchor:superview.trailingAnchor],
+        [compositor_view.bottomAnchor   constraintEqualToAnchor:superview.bottomAnchor],
     ];
     [NSLayoutConstraint activateConstraints:pins];
     s_compositor_pin_constraints = pins;
+}
+
+// Letterbox bars: black in full screen (standard), a window-style grey when windowed (adapts
+// to light/dark) so a resized window looks native. The guest always aspect-fits, so bars show
+// whenever the drawable aspect doesn't match the guest.
+static void MetalCompositorApplyLetterboxColor(void)
+{
+    if (!compositor_view) return;
+    if (catalyst_is_window_fullscreen()) {
+        compositor_view.backgroundColor = [UIColor blackColor];
+    } else {
+        compositor_view.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
+            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+                ? [UIColor colorWithWhite:0.16 alpha:1.0]
+                : [UIColor colorWithWhite:0.93 alpha:1.0];
+        }];
+    }
+}
+
+// The windowed compositor view is pinned below the title bar, so its drawable top inset (the
+// safe-area top of its superview) is what the window auto-resize must add back to keep the
+// guest edge-to-edge. Reported in points; 0 if unavailable / not yet laid out.
+extern "C" double MetalCompositorWindowedContentInsetTop(void)
+{
+    if (!compositor_view || !compositor_view.superview) return 0.0;
+    return (double)compositor_view.superview.safeAreaInsets.top;
+}
+
+// Re-apply window-dependent layout after a windowed<->full-screen change: the pin (title bar
+// appears/disappears, notch inset changes) AND the letterbox colour. Main-thread only (UIKit
+// layout); hops there if called off-main.
+extern "C" void MetalCompositorReapplyWindowPinning(void)
+{
+    if ([NSThread isMainThread]) {
+        MetalCompositorPinViewToWindow();
+        MetalCompositorApplyLetterboxColor();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            MetalCompositorPinViewToWindow();
+            MetalCompositorApplyLetterboxColor();
+        });
+    }
 }
 #endif
 
@@ -827,7 +883,11 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     // --- CompositorMetalView covering full window ---
     compositor_view = [[CompositorMetalView alloc] initWithFrame:uiWindow.bounds];
     compositor_view.opaque = YES;
+#if TARGET_OS_MACCATALYST
+    MetalCompositorApplyLetterboxColor();   // black in full screen, window-grey when windowed
+#else
     compositor_view.backgroundColor = [UIColor blackColor];
+#endif
     compositor_view.userInteractionEnabled = NO;  // let touches pass to SDL
     // Track the parent's size. On Mac (UISupportsTrueScreenSizeOnMac /
     // UILaunchToFullScreenByDefaultOnMac) the window resizes to the true screen
@@ -862,7 +922,9 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     MetalCompositorDrawableSize target_size =
         MetalCompositorCurrentDrawableSize(width, height);
     compositor_layer.drawableSize = CGSizeMake(target_size.width, target_size.height);
-    compositor_layer.contentsGravity = kCAGravityResizeAspect;  // preserve aspect ratio (letterbox)
+    // Always aspect-fit (letterbox) so the whole guest shows and is never cropped offscreen —
+    // full screen and windowed alike. The letterbox colour differs by mode (see above).
+    compositor_layer.contentsGravity = kCAGravityResizeAspect;
 
     // --- CAMetalLayer scaling filter from user preference ---
     bool useNearest = PrefsFindBool("scale_nearest");
@@ -1126,11 +1188,12 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         }
 #if TARGET_OS_MACCATALYST
         // Now that the compositor is in a view hierarchy (a common ancestor
-        // exists), pin it to its superview's safe area so the guest desktop
-        // renders below the Mac menu bar / camera housing. MUST run post-insert:
+        // exists), pin it to its superview's FULL bounds so the guest desktop fills the
+        // whole window edge-to-edge (overscanning the Mac menu bar / camera housing and the
+        // rounded corners; the aspect-fill gravity crops the overscan). MUST run post-insert:
         // cross-view constraints require a shared hierarchy. The matching re-pin
         // in MetalCompositorResize keeps this alive across mode-switch re-homes.
-        MetalCompositorPinViewToSafeArea();
+        MetalCompositorPinViewToWindow();
 #endif
     }
 
@@ -1469,13 +1532,13 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
             [sdlContainer insertSubview:compositor_view atIndex:0];
         }
 #if TARGET_OS_MACCATALYST
-        // Re-homing drops the Init-time safe-area pin (it referenced the previous
+        // Re-homing drops the Init-time full-window pin (it referenced the previous
         // superview) while translatesAutoresizingMaskIntoConstraints is NO, so the
         // view would otherwise collapse to 0x0 — a black desktop after a mode
-        // switch. Re-pin to the current superview's safe area. Idempotent: the
+        // switch. Re-pin to the current superview's full bounds. Idempotent: the
         // helper deactivates any prior pin first, so an unchanged superview is a
         // no-op in effect.
-        MetalCompositorPinViewToSafeArea();
+        MetalCompositorPinViewToWindow();
 #endif
     }
 
@@ -1533,7 +1596,8 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
 
     // --- Update layer state only after the resource swap is safe.
     compositor_layer.drawableSize = CGSizeMake(target_size.width, target_size.height);
-    compositor_layer.contentsGravity = kCAGravityResizeAspect;  // preserve aspect ratio (letterbox)
+    // Always aspect-fit (letterbox); full screen and windowed alike (see MetalCompositorInit).
+    compositor_layer.contentsGravity = kCAGravityResizeAspect;
     compositor_layer.minificationFilter = useNearest ? kCAFilterNearest : kCAFilterLinear;
     compositor_layer.magnificationFilter = useNearest ? kCAFilterNearest : kCAFilterLinear;
 

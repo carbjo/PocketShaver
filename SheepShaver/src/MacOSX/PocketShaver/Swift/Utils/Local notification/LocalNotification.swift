@@ -19,6 +19,7 @@ enum LocalNotification: String {
 	case gotIpAddress
 	case displayPreferencesRequested
 	case enteredKeyboardModeWhileUsingHardwareKeyboard
+	case catalystFullscreenStateChanged
 
 	static func send(_ notification: LocalNotification, object: Any? = nil) {
 		NotificationCenter.default.post(
@@ -60,5 +61,9 @@ class LocalNotificationObjCProxy: NSObject {
 
 	static func sendDisplayPreferencesRequested() {
 		LocalNotification.send(.displayPreferencesRequested)
+	}
+
+	static func sendCatalystFullscreenStateChanged() {
+		LocalNotification.send(.catalystFullscreenStateChanged)
 	}
 }

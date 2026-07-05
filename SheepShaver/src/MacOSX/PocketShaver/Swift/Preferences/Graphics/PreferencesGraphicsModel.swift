@@ -11,6 +11,11 @@ enum RenderingFilterMode: String, Codable, CaseIterable {
 	case nearestNeighbor
 }
 
+enum CatalystDisplayMode: String, Codable, CaseIterable {
+	case windowed
+	case fullScreen
+}
+
 class PreferencesGraphicsModel {
 
 	struct FrameRateState: Hashable {
@@ -131,6 +136,26 @@ class PreferencesGraphicsModel {
 		set {
 			let useNearest = newValue == .nearestNeighbor
 			objc_replaceBool("scale_nearest", useNearest)
+		}
+	}
+
+	// MARK: - Display Mode (Mac Catalyst)
+
+	// Backed by the `catalystfullscreen` bool pref (single source of truth). Persisted
+	// immediately so launch honors it, and applied to the live window during emulation.
+	var displayMode: CatalystDisplayMode {
+		get {
+			objc_findBool("catalystfullscreen") ? .fullScreen : .windowed
+		}
+		set {
+			let wantFullscreen = newValue == .fullScreen
+			objc_replaceBool("catalystfullscreen", wantFullscreen)
+			objc_savePrefs()
+			#if targetEnvironment(macCatalyst)
+			if mode == .duringEmulation {
+				objc_set_catalyst_fullscreen(wantFullscreen)
+			}
+			#endif
 		}
 	}
 

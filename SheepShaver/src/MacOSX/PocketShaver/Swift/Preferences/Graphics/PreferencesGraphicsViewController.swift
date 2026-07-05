@@ -8,6 +8,7 @@ import Combine
 
 class PreferencesGraphicsViewController: PreferencesTableViewController {
 	enum Section {
+		case display
 		case frameRateSetting
 		case monitorResolutions
 		case rendering
@@ -16,6 +17,10 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 	}
 
 	enum Row: Hashable {
+		// display (Mac Catalyst)
+		case displayMode
+		case displayModeInfo
+
 		// frameRateSetting
 		case frameRateSettingToggle
 		case frameRateSettingInfo(PreferencesGraphicsModel.FrameRateState)
@@ -73,7 +78,19 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 
 		setupDataSource()
 		listenToChanges()
+
+		#if targetEnvironment(macCatalyst)
+		LocalNotification.observe(.catalystFullscreenStateChanged, self, #selector(handleCatalystFullscreenStateChanged))
+		#endif
 	}
+
+	#if targetEnvironment(macCatalyst)
+	@objc private func handleCatalystFullscreenStateChanged() {
+		// The window's fullscreen state changed by some external means (green button, View
+		// menu, ⌃⌘F, gesture); re-read the pref into the segmented control.
+		reloadSection(.display)
+	}
+	#endif
 
 	private func listenToChanges() {
 		changeSubject.sink { [weak self] change in
@@ -143,6 +160,18 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 				return PreferencesInformationCell(
 					text: text
 				)
+			case .displayMode:
+				return PreferencesGraphicsDisplayModeCell(
+					initialDisplayMode: model.displayMode
+				) { [weak self] newMode in
+					guard let self else { return }
+					model.displayMode = newMode
+					feedbackGenerator.impactOccurred()
+				}
+			case .displayModeInfo:
+				return PreferencesInformationCell(
+					text: "Choose whether emulation runs in a window or full screen. You can also use the window's full-screen button or the View menu — this setting stays in sync."
+				)
 			case .renderingFilterMode:
 				return PreferencesGraphicsRenderingFilterCell(
 					initialFilterMode: model.renderingFilterMode
@@ -205,6 +234,8 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 
 		dataSource.sectionTitleProvider = { section in
 			switch section {
+			case .display:
+				return "Display"
 			case .frameRateSetting:
 				return "Frame rate setting"
 			case .monitorResolutions:
@@ -226,6 +257,14 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 
 	private func reloadData() {
 		var snapshot = NSDiffableDataSourceSnapshot<Section, Row>()
+
+		#if targetEnvironment(macCatalyst)
+		snapshot.appendSections([.display])
+		snapshot.appendItems([
+			.displayMode,
+			.displayModeInfo
+		])
+		#endif
 
 		if UIScreen.supportsHighRefreshRate {
 			snapshot.appendSections([.frameRateSetting])

@@ -1217,6 +1217,10 @@ void driver_base::init()
 				                "(fallback)\n", (int)gfxres_err);
 			}
 		}
+		// Match the host window to the guest resolution (windowed Mac Catalyst only; a no-op
+		// in full screen or off Catalyst). Runs on the initial mode set and every guest
+		// resolution change, since both re-enter driver_base::init via video_open.
+		objc_resize_catalyst_window_for_guest(fb_width, fb_height);
 	}
 #endif
 
@@ -2748,6 +2752,8 @@ extern "C" void VideoMapWindowPointToGuestAndMove(double winX, double winY)
 	int rx = 0, ry = 0, rw = 0, rh = 0;
 	MetalCompositorGetPresentRect(&rx, &ry, &rw, &rh);
 	if (rw <= 0 || rh <= 0) return;
+	// Aspect-FIT (letterbox) to match the compositor (kCAGravityResizeAspect) in both windowed
+	// and full screen: the offset centres the guest and the clamp handles the letterbox bars.
 	float mag = std::min((float)rw / drv->VIDEO_MODE_X,
 	                     (float)rh / drv->VIDEO_MODE_Y);
 	if (mag <= 0.f) return;
