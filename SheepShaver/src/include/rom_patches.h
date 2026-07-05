@@ -54,4 +54,12 @@ extern uint32 find_rom_resource(uint32 s_type, int16 s_id = 4711, bool cont = fa
 // runtime WriteMacInt32 into the ROM patch region does not stick.
 const uint32 DISPOSE_NIFT_PATCH_SPACE = 0x2fcf10;	// 68k thunk (10 bytes), after vCheckLoad's 12
 
+// Virtual-memory-present Gestalt spoof.  _Gestalt ($A1AD) head-patch thunk, placed
+// in the same already-validated CHECK_LOAD 0x40 region (0x2fcf00..0x2fcf3f), after
+// the DisposeNIFT thunk (ends 0x2fcf19).  6 bytes: EMUL_OP + jmp (a1) + rts.  The
+// handler points A1 at either the stock _Gestalt entry (chain) or the trailing rts
+// at +4 (spoof, GestaltRtsStub()); the chain path clobbers ONLY A1 so the real
+// _Gestalt is entered uncorrupted.
+const uint32 GESTALT_VM_PATCH_SPACE = 0x2fcf20;		// 68k thunk (6 bytes; rts at +4)
+
 #endif

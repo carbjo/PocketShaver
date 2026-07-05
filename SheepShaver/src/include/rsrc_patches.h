@@ -52,4 +52,21 @@ extern bool RsrcLockIsLiveNift(uint32 h);
 // dispose thunk's EMUL_OP returns it in A1 for the chain-to-stock (non-'nift') path.
 extern uint32 RsrcLockDisposeOrig(void);
 
+// Virtual-memory-present Gestalt spoof.  Stock _Gestalt ($A1AD) trap entry captured
+// at head-patch install (host global); the thunk's EMUL_OP returns it in A1 to
+// tail-jump to the genuine _Gestalt on the chain path.
+extern uint32 GestaltHookOrig(void);
+
+// Virtual-memory-present Gestalt spoof.  Address of the bare `rts` at the tail of
+// the gestalt thunk; the OP_GESTALT_VM head-patch points A1 here on the spoof path
+// so it returns the synthesized "VM present" A0/D0 without running the real _Gestalt.
+extern uint32 GestaltRtsStub(void);
+
+// Virtual-memory-present Gestalt spoof, process-scoped.  Returns true iff the
+// current application (CurApName, low-mem 0x910) is one of the target apps that
+// require VM, so the OP_GESTALT_VM head-patch reports gestaltVMAttr = "VM present"
+// only for them and gives the truth (VM off) to everything else (spoofing it
+// globally crashes boot).
+extern bool GestaltFakeVMForCurrentApp(void);
+
 #endif

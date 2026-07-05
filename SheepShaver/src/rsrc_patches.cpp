@@ -240,6 +240,51 @@ bool RsrcLockIsLiveNift(uint32 h)
 static uint32 dispose_orig_addr = 0;
 uint32 RsrcLockDisposeOrig(void) { return dispose_orig_addr; }
 
+// Virtual-memory-present Gestalt spoof (see GestaltFakeVMForCurrentApp).  Stock
+// _Gestalt ($A1AD) trap entry captured once at head-patch install, held host-side
+// (a runtime WriteMacInt32 into the ROM patch region does not stick).  The thunk's
+// EMUL_OP hands it back in A1 so the chain path tail-jumps to the genuine _Gestalt.
+static uint32 gestalt_hook_orig = 0;
+uint32 GestaltHookOrig(void) { return gestalt_hook_orig; }
+
+// Address of the bare `rts` at the tail of the gestalt thunk (GESTALT_VM_PATCH_SPACE
+// + 4).  The handler points A1 here on the spoof path so `jmp (a1)` returns the
+// synthesized A0/D0 without ever running the real _Gestalt.
+uint32 GestaltRtsStub(void) { return ROMBase + GESTALT_VM_PATCH_SPACE + 4; }
+
+// Report Virtual Memory as present, but only for a selected set of applications.
+// Some apps check Gestalt('vm  ') (gestaltVMAttr) and refuse to run -- with a
+// warning -- when virtual memory is off, but SheepShaver has no MMU so VM is
+// permanently off.  Reporting it present system-wide crashes the OS during boot (a
+// boot-time component acts on the claim with no MMU behind it), so scope it to the
+// target apps by the current-application name (CurApName, low-mem 0x910, a Str31).
+// A target may launch in stages under different names, so match each of its forms.
+// Everything else -- the system, the Finder, other apps -- keeps seeing the real
+// (off) state.
+bool GestaltFakeVMForCurrentApp(void)
+{
+	// Guest addresses < 0x3000 live in the emulator's gZeroPage buffer and
+	// ReadMacInt8 routes through the same redirect, so this reads exactly what the
+	// guest wrote to CurApName.
+	char low[32];
+	uint8 len = ReadMacInt8(0x910);					// CurApName length byte
+	if (len > 31)
+		len = 31;
+	for (int i = 0; i < len; i++) {
+		unsigned char c = (unsigned char)ReadMacInt8(0x910 + 1 + i);
+		low[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;	// ASCII lowercase
+	}
+	low[len] = 0;
+
+	// CurApName is uninitialized before any app launches (early boot); a real name
+	// starts with a printable character.
+	if (len < 1 || (unsigned char)low[0] < 0x20 || (unsigned char)low[0] > 0x7e)
+		return false;
+
+	return strstr(low, "simcity") != NULL || strstr(low, "sim city") != NULL
+	    || strstr(low, "sc3")     != NULL;
+}
+
 // Per-tick integrity check.  Guest traps allowed here (drain context only).
 static void monitor_locked_nifts(void)
 {
@@ -472,6 +517,24 @@ void DrainPendingResourceLocks(void)
 		dispose_patch_installed = true;
 		printf("[CFM-GUARD] _DisposHandle head-patch installed (orig=%08x thunk=%08x)\n",
 			dispose_orig_addr, ROMBase + DISPOSE_NIFT_PATCH_SPACE);
+	}
+
+	// One-time install of the _Gestalt ($A1AD) VM-present head-patch.  UN-gated
+	// (unlike the dispose patch, which waits for a 'nift' lock) so it is in place
+	// for every app once MacOS is up -- target apps launch from the Finder, well
+	// after boot, and this drain runs on every VBL once HasMacStarted().  _Gestalt
+	// is OS-dispatched (trap word $A1AD has bit 11 clear and is <= $A800), so use
+	// Get/SetOSTrapAddress, exactly like the _DisposHandle patch above.
+	static bool gestalt_hook_installed = false;
+	if (!gestalt_hook_installed) {
+		M68kRegisters r;
+		r.d[0] = 0xa1ad;								// _Gestalt (OS trap, number 0xAD)
+		Execute68kTrap(0xa346, &r);						// GetOSTrapAddress -> A0 = stock entry
+		gestalt_hook_orig = r.a[0];
+		r.d[0] = 0xa1ad;
+		r.a[0] = ROMBase + GESTALT_VM_PATCH_SPACE;		// our thunk entry
+		Execute68kTrap(0xa247, &r);						// SetOSTrapAddress(thunk)
+		gestalt_hook_installed = true;
 	}
 
 	draining = false;

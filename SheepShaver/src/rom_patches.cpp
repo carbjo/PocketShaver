@@ -2154,6 +2154,21 @@ static bool patch_68k(void)
 	*wp++ = htons(0x4ed1);							// jmp    (a1)    [chain to stock _DisposHandle]
 	*wp = htons(M68K_RTS);							// .skip: rts     [keep alive; D0=noErr]
 
+	// Virtual-memory-present Gestalt spoof: _Gestalt (0xA1AD, OS-dispatched) head-
+	// patch thunk.  On entry D0 = Gestalt selector.  The EMUL_OP handler sets A1 to
+	// EITHER the stock _Gestalt entry (chain: the system + most apps get the truth)
+	// OR the bare rts below (spoof: selected apps only, with the synthesized "VM
+	// present" response already in A0/D0).  We then `jmp (a1)`.  CRITICAL: the chain path must
+	// clobber ONLY A1 -- writing D1 (or D0/A0) before entering the real _Gestalt
+	// corrupts it and crashes the guest OS at boot (_DisposHandle tolerates a D1
+	// clobber, _Gestalt does not).  So the spoof/chain verdict lives in WHERE A1
+	// points, not a guest register.  6 bytes, inside the already-validated CHECK_LOAD
+	// 0x40 region, after DisposeNIFT.
+	wp = (uint16 *)(ROMBaseHost + GESTALT_VM_PATCH_SPACE);
+	*wp++ = htons(M68K_EMUL_OP_GESTALT_VM);			// -> A1 = stock _Gestalt (chain) or the rts below (spoof)
+	*wp++ = htons(0x4ed1);							// jmp    (a1)
+	*wp = htons(M68K_RTS);							// rts   [spoof: A1 points here -> return A0/D0]
+
 	// Replace .Sony driver
 	sony_offset = find_rom_resource(FOURCC('D','R','V','R'), 4);
 	if (ROMType == ROMTYPE_ZANZIBAR || ROMType == ROMTYPE_NEWWORLD)

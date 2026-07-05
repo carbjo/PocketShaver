@@ -501,6 +501,24 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 			}
 			break;
 
+		case OP_GESTALT_VM:		// _Gestalt head-patch: report VM present to selected apps
+			// Some apps check Gestalt('vm  ') (gestaltVMAttr) and refuse to run when
+			// virtual memory is off, but SheepShaver has no MMU so VM is always off.
+			// For those apps (matched by current-app name) return a synthesized "VM
+			// present" response; everything else chains to the stock _Gestalt.  The
+			// verdict is WHICH address A1 gets, not a guest register: spoof -> A1
+			// = the thunk's trailing rts (with A0/D0 set here); chain -> A1 = stock
+			// _Gestalt.  The chain path MUST clobber only A1 -- writing D1/D0/A0
+			// before entering the real _Gestalt corrupts it and crashes the guest OS.
+			if (r->d[0] == 0x766d2020 && GestaltFakeVMForCurrentApp()) {	// 'vm  '
+				r->a[0] = 0x00000001;			// gestaltVMPresent
+				r->d[0] = 0;					// noErr
+				r->a[1] = GestaltRtsStub();		// jmp (a1) -> the thunk's rts
+			} else {
+				r->a[1] = GestaltHookOrig();	// chain to stock _Gestalt (only A1 touched)
+			}
+			break;
+
 		case OP_EXTFS_COMM:			// External file system routines
 			WriteMacInt16(r->a[7] + 14, ExtFSComm(ReadMacInt16(r->a[7] + 12), ReadMacInt32(r->a[7] + 8), ReadMacInt32(r->a[7] + 4)));
 			break;
