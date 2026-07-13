@@ -2621,11 +2621,15 @@ static void force_complete_window_refresh()
 // Shared iOS letterbox map: a point in SDL window space — which on iOS is
 // identical to UIKit UIWindow-base points (no backing-scale factor, no safe-area
 // inset, and SDL_RenderSetLogicalSize is compiled out on iOS) — mapped into the
-// guest framebuffer, aspect-fit and clamped. Used by BOTH the SDL-motion path
-// (handle_mouse_event) and the app-forward path (VideoMapWindowPointToGuestAndMove)
-// so a forwarded UITouch.location(in: window) and an SDL event.motion resolve
-// through byte-identical math and land on the same guest pixel.
-static void ios_map_window_point_to_guest(float px, float py, int &fx, int &fy)
+// guest framebuffer, aspect-fit and (optionally) clamped. Used by BOTH the
+// SDL-motion path (handle_mouse_event) and the app-forward path
+// (VideoMapWindowPointToGuestAndMove) so a forwarded UITouch.location(in: window)
+// and an SDL event.motion resolve through byte-identical math and land on the
+// same guest pixel. The hover-steering forward passes clamp=false: the hover
+// offset is applied after this map (in ADBMouseMoved, which pins the final
+// cursor position), so clamping the finger here would freeze horizontal
+// steering whenever the finger travels the letterbox bars.
+static void ios_map_window_point_to_guest(float px, float py, int &fx, int &fy, bool clamp = true)
 {
 	int rw = 0, rh = 0;
 	SDL_GetWindowSize(sdl_window, &rw, &rh);
@@ -2638,10 +2642,12 @@ static void ios_map_window_point_to_guest(float px, float py, int &fx, int &fy)
 	float oy = (rh - drv->VIDEO_MODE_Y * mag) * 0.5f;
 	fx = (int)((px - ox) / mag);
 	fy = (int)((py - oy) / mag);
-	if (fx < 0) fx = 0;
-	if (fy < 0) fy = 0;
-	if (fx >= (int)drv->VIDEO_MODE_X) fx = (int)drv->VIDEO_MODE_X - 1;
-	if (fy >= (int)drv->VIDEO_MODE_Y) fy = (int)drv->VIDEO_MODE_Y - 1;
+	if (clamp) {
+		if (fx < 0) fx = 0;
+		if (fy < 0) fy = 0;
+		if (fx >= (int)drv->VIDEO_MODE_X) fx = (int)drv->VIDEO_MODE_X - 1;
+		if (fy >= (int)drv->VIDEO_MODE_Y) fy = (int)drv->VIDEO_MODE_Y - 1;
+	}
 }
 #endif
 
@@ -2776,11 +2782,14 @@ extern "C" void VideoMapWindowPointToGuestAndMove(double winX, double winY)
 	// but drive the guest cursor only while hover / two-finger steering owns it —
 	// otherwise SDL's own motion is authoritative and this is a no-op. Map through
 	// the SAME iOS letterbox as SDL motion (NOT the Catalyst present-rect path) so
-	// the forwarded point and any SDL motion resolve identically.
+	// the forwarded point and any SDL motion resolve identically. Unclamped: the
+	// hover offset lands on top of this point inside ADBMouseMoved (which clamps
+	// the final cursor), so the finger must keep steering past the guest edges —
+	// clamping here froze horizontal motion in the letterbox bars.
 	if (!drv) return;
 	if (!ADBIsHoverModeActive()) return;
 	int fx = 0, fy = 0;
-	ios_map_window_point_to_guest((float)winX, (float)winY, fx, fy);
+	ios_map_window_point_to_guest((float)winX, (float)winY, fx, fy, false);
 	ADBMouseMoved(fx, fy);
 #else
 	(void)winX; (void)winY;

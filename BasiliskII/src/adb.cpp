@@ -60,6 +60,7 @@ static bool old_mouse_button[3] = {false, false, false};
 static bool relative_mouse = false;
 static bool touch_input = false;
 static int screen_middle_x = 0;
+static int screen_width = 0, screen_height = 0;
 static bool hover_mode = false;
 static int offset_x = 0;
 static int offset_y = 0;
@@ -330,6 +331,17 @@ void ADBMouseMoved(int x, int y)
 		}
 
 		mouse_x = x + getXOffset(x); mouse_y = y + getYOffset();
+
+		// The incoming point is unclamped (the hover steering forwarder keeps
+		// feeding positions while the finger travels the letterbox bars) and
+		// the hover offset can push past the guest edges either way — pin the
+		// final cursor position to the screen, not the finger position.
+		if (screen_width > 0 && screen_height > 0) {
+			if (mouse_x < 0) mouse_x = 0;
+			else if (mouse_x >= screen_width) mouse_x = screen_width - 1;
+			if (mouse_y < 0) mouse_y = 0;
+			else if (mouse_y >= screen_height) mouse_y = screen_height - 1;
+		}
 	}
 	B2_unlock_mutex(mouse_lock);
 	SetInterruptFlag(INTFLAG_ADB);
@@ -450,8 +462,10 @@ void ADBMouseUp(int button)
 	mouse_down = false;
 }
 
-void ADBConfigure(int new_screen_middle_x, int new_double_click_mouse_move_tolerance) {
-	screen_middle_x = new_screen_middle_x;
+void ADBConfigure(int new_screen_width, int new_screen_height, int new_double_click_mouse_move_tolerance) {
+	screen_width = new_screen_width;
+	screen_height = new_screen_height;
+	screen_middle_x = new_screen_width / 2;
 	double_click_mouse_move_tolerance = new_double_click_mouse_move_tolerance;
 }
 
