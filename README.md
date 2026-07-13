@@ -111,74 +111,7 @@ PocketShaver is built as an Xcode project:
 SheepShaver/src/MacOSX/PocketShaver.xcodeproj
 ```
 
-### BasiliskII
-
-The repository also contains BasiliskII, a 68k Mac emulator. See the platform-specific build instructions below.
-
-#### macOS
-
-Requires SDL 2.0.14+ from https://www.libsdl.org, plus GMP and MPFR:
-
-```sh
-# GMP (https://gmplib.org)
-tar xf gmp-6.2.1.tar.xz && cd gmp-6.2.1
-./configure --disable-shared && make && make check && sudo make install
-
-# MPFR (https://www.mpfr.org)
-tar xf mpfr-4.2.0.tar.xz && cd mpfr-4.2.0
-./configure --disable-shared && make && make check && sudo make install
-```
-
-On Intel Mac, cross-build for arm64:
-```sh
-CFLAGS="-arch arm64" CXXFLAGS="$CFLAGS" ./configure -host=aarch64-apple-darwin --disable-shared
-```
-
-```sh
-cd BasiliskII/src/MacOSX
-xcodebuild build -project BasiliskII.xcodeproj -configuration Release
-```
-
-#### Linux
-
-```sh
-cd BasiliskII/src/Unix
-./autogen.sh && make
-```
-
-ARM64: install GMP and MPFR first.
-
-#### MinGW32/MSYS2
-
-```sh
-pacman -S base-devel mingw-w64-i686-toolchain autoconf automake mingw-w64-i686-SDL2
-cd BasiliskII/src/Windows
-../Unix/autogen.sh && make
-```
-
-### SheepShaver (Desktop)
-
-#### macOS
-
-```sh
-cd SheepShaver/src/MacOSX
-xcodebuild build -project SheepShaver_Xcode8.xcodeproj -configuration Release
-```
-
-#### Linux
-
-```sh
-cd SheepShaver/src/Unix
-./autogen.sh && make
-```
-
-#### MinGW32/MSYS2
-
-```sh
-cd SheepShaver && make links
-cd src/Windows
-../Unix/autogen.sh && make
-```
+Targets are included within the Xcode project for Mac Catalyst and iOS.
 
 ## Upstream
 
