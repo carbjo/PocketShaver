@@ -512,6 +512,13 @@ bool ADBIsHoverModeActive(void) {
 	return touch_input && hover_mode && !relative_mouse;
 }
 
+// True while the guest reads the mouse as relative deltas. Absolute-position
+// forwarders (the Catalyst hover/drag window-point bypass) must no-op in this
+// state: ADBMouseMoved() would add their absolute coordinates as deltas.
+bool ADBIsRelativeMouseMode(void) {
+	return relative_mouse;
+}
+
 bool ADBHoverGestureStartWasLeftSide() {
 	return hover_gesture_start_was_left_side;
 }

@@ -390,6 +390,25 @@ static inline NQDMainDevicePixMapSnapshot nqd_read_main_device_pixmap_snapshot()
     return snap;
 }
 
+/* Main-device destination for the GL flush-time composite. The GL renderer
+ * stamps a freshly read-back offscreen frame into the visible surface at
+ * glFlush time (guest-ordered, like real hardware rasterizing into the
+ * framebuffer) and needs the current MainDevice PixMap to know where. */
+extern "C" bool NQDReadMainDevicePixMapForGLBridge(uint32_t *baseAddr,
+                                                   uint32_t *rowBytes,
+                                                   uint32_t *pixelSize)
+{
+    NQDMainDevicePixMapSnapshot snap = nqd_read_main_device_pixmap_snapshot();
+    if (!snap.valid || baseAddr == NULL || rowBytes == NULL ||
+        pixelSize == NULL) {
+        return false;
+    }
+    *baseAddr = snap.baseAddr;
+    *rowBytes = snap.rowBytes;
+    *pixelSize = snap.pixelSize;
+    return true;
+}
+
 static inline bool nqd_should_drop_stale_main_device_params(NQDMainDevicePixMapSnapshot snap,
                                                              uint32_t dest_base,
                                                              int32_t dest_row_bytes,

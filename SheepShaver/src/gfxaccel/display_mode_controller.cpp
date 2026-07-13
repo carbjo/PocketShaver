@@ -205,6 +205,7 @@ static DMCModeSnapshot *dmc_alloc_raw_snapshot(void) {
 // this snapshot into its GPU-visible LUT.
 static void dmc_init_identity_gamma(DMCModeSnapshot *snap) {
 	GfxColorFillIdentityGammaLUT(snap->gamma_lut);
+	GfxColorFillIdentityGammaLUT(snap->driver_gamma_lut);
 }
 
 // Heap-allocate a fresh snapshot populated from a DMCModeDesc. Fields the
@@ -659,6 +660,7 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 	// initialized identity gamma; overwrite with outgoing LUT if available.
 	if (outgoing != NULL) {
 		memcpy(incoming->gamma_lut, outgoing->gamma_lut, 768);
+		memcpy(incoming->driver_gamma_lut, outgoing->driver_gamma_lut, 768);
 	}
 	s_next_generation++;
 
@@ -976,6 +978,50 @@ int32_t dmc_record_gamma_change_with_lut_fade(const uint8_t *lut, int fade_activ
 // 2-arg dmc_record_gamma_change_with_lut_fade overload instead.
 int32_t dmc_record_gamma_change_with_lut(const uint8_t *lut) {
 	return dmc_record_gamma_change_with_lut_fade(lut, 0);
+}
+
+// Record a DRIVER (guest SetGamma) table: always store it in
+// driver_gamma_lut — the "original intensity" the DSp fades blend toward —
+// and apply it to the displayed gamma_lut only when no fade is in progress.
+// During a fade the displayed LUT is left alone (an immediate apply would
+// visibly pop the faded screen); the fade's end-state push delivers the
+// table instead. Same clone-mutate-publish discipline as the other
+// dmc_record_* writers (existing s_write_mutex; no new primitives).
+int32_t dmc_record_driver_gamma_change(const uint8_t *lut) {
+	if (lut == NULL) {
+		return kDMCErrInvalidModeDesc;
+	}
+	DMCReentryScope reentry;
+	if (!reentry.installed) {
+		return kDMCErrReentrantRequest;
+	}
+	std::lock_guard<std::mutex> guard(s_write_mutex);
+	DMC_ASSERT_EMUL_THREAD();
+
+	if (!s_dmc_initialized) {
+		return kDMCErrNotInitialized;
+	}
+	const DMCModeSnapshot *old = s_current.load(std::memory_order_relaxed);
+	if (old == NULL) {
+		return kDMCErrNotInitialized;
+	}
+	DMCModeSnapshot *fresh = dmc_alloc_raw_snapshot();
+	if (fresh == NULL) {
+		return kDMCErrOutOfMemory;
+	}
+	memcpy(fresh, old, sizeof(DMCModeSnapshot));
+	fresh->generation = s_next_generation++;
+	memcpy(fresh->driver_gamma_lut, lut, 768);
+
+	const bool apply_now = (old->fade_active == 0);
+	if (apply_now) {
+		fresh->gamma_gen = old->gamma_gen + 1;
+		memcpy(fresh->gamma_lut, lut, 768);
+	}
+
+	s_current.store(fresh, std::memory_order_release);
+	dmc_retire_snapshot(old, fresh->generation);
+	return apply_now ? kDMCNoErr : kDMCDriverGammaDeferred;
 }
 
 // Legacy API: bump gamma_gen without changing LUT data. Delegates to

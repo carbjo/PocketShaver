@@ -790,8 +790,14 @@ typedef struct GLMetalGuestCompositeBackup {
     uint32_t rect_y;
     uint32_t rect_w;
     uint32_t rect_h;
+    /* pixels: the world content BENEATH the stamp (never includes guest
+     * content drawn over it — denied pixels propagate the world value from
+     * the prior backup so occluders can't leak into the background).
+     * composed_pixels: destination content after the stamp.
+     * stamped: 1 byte per rect pixel — 1 where the stamp actually wrote. */
     std::vector<uint8_t> pixels;
     std::vector<uint8_t> composed_pixels;
+    std::vector<uint8_t> stamped;
 } GLMetalGuestCompositeBackup;
 
 static GLMetalGuestCompositeBackup s_gl_previous_guest_composite = {};
@@ -828,20 +834,22 @@ static void GLMetalInvalidatePreviousGuestComposite()
     s_gl_previous_guest_composite.valid = false;
     s_gl_previous_guest_composite.pixels.clear();
     s_gl_previous_guest_composite.composed_pixels.clear();
+    s_gl_previous_guest_composite.stamped.clear();
 }
 
-static void GLMetalRestorePreviousGuestCompositeIfNeeded(
+/* Erase the tracked stamp (pixel-tested) and drop its tracking. The
+ * tracking invariant: at most one live stamp exists in the destination and
+ * the backup always describes it. A stamp must never lose its tracking
+ * without being erased first — an untracked stamp is a permanent remnant
+ * (The Sims: one leaked model fragment per animation tick reads as a trail
+ * of ghost copies behind every walking Sim). */
+static void GLMetalRestorePreviousGuestCompositeNow(
     uint8_t *dst,
     uint32_t dstBaseaddr,
     uint32_t dstRowbytes,
     uint32_t dstDepthBits,
     uint32_t dstWidth,
-    uint32_t dstHeight,
-    bool useDirtyRect,
-    int32_t dirtyX,
-    int32_t dirtyY,
-    int32_t dirtyWidth,
-    int32_t dirtyHeight)
+    uint32_t dstHeight)
 {
     GLMetalGuestCompositeBackup &backup = s_gl_previous_guest_composite;
     if (!backup.valid) return;
@@ -858,49 +866,53 @@ static void GLMetalRestorePreviousGuestCompositeIfNeeded(
         return;
     }
 
-    const bool dirtyIntersectsPrevious =
-        useDirtyRect &&
-        GLDirtyRectIntersectsOffscreenComposite(dirtyX,
-                                                dirtyY,
-                                                dirtyWidth,
-                                                dirtyHeight,
-                                                backup.rect_x,
-                                                backup.rect_y,
-                                                backup.rect_w,
-                                                backup.rect_h);
-    if (!GLShouldRestorePreviousOffscreenComposite(backup.valid,
-                                                   sameSurface,
-                                                   useDirtyRect,
-                                                   dirtyIntersectsPrevious)) {
-        return;
-    }
-
-    const GLOffscreenCompositeRect restoreRect =
-        GLOffscreenCompositeRectForDirty(useDirtyRect,
-                                         backup.rect_x,
-                                         backup.rect_y,
-                                         backup.rect_x + backup.rect_w - 1u,
-                                         backup.rect_y + backup.rect_h - 1u,
-                                         dirtyX,
-                                         dirtyY,
-                                         dirtyWidth,
-                                         dirtyHeight);
-    if (!restoreRect.valid) return;
+    const GLOffscreenCompositeRect restoreRect = {
+        true, backup.rect_x, backup.rect_y, backup.rect_w, backup.rect_h};
 
     const size_t bytesPerPixel = 2u;
-    const uint32_t backupOffsetX = restoreRect.x - backup.rect_x;
-    const uint32_t backupOffsetY = restoreRect.y - backup.rect_y;
+    /* Pixel-tested restore: only put the captured background back where WE
+     * wrote (stamped mask) and the destination still holds OUR stamped
+     * output. Pixels the guest repainted since the stamp (world tile
+     * redraws, occluding sprites) must survive — a blind memcpy resurrects
+     * the stale pre-stamp background over them (visible as old world
+     * fragments around a moving model). Without composed_pixels there is
+     * nothing to test against, so fall back to the full restore. */
+    const size_t rectPixels = (size_t)backup.rect_w * backup.rect_h;
+    const bool haveComposedOutput =
+        backup.composed_pixels.size() == rectPixels * bytesPerPixel;
+    const bool haveStampedMask = backup.stamped.size() == rectPixels;
     uint64_t restoredPixels = 0;
     for (uint32_t row = 0; row < restoreRect.height; row++) {
         uint8_t *dstRow =
             dst + (uint64_t)(restoreRect.y + row) * dstRowbytes +
             (uint64_t)restoreRect.x * bytesPerPixel;
-        const uint8_t *srcRow =
-            backup.pixels.data() +
-            ((uint64_t)backupOffsetY + row) * backup.rect_w * bytesPerPixel +
-            (uint64_t)backupOffsetX * bytesPerPixel;
-        memcpy(dstRow, srcRow, (size_t)restoreRect.width * bytesPerPixel);
-        restoredPixels += restoreRect.width;
+        const uint64_t backupRowOffset =
+            (uint64_t)row * backup.rect_w * bytesPerPixel;
+        const uint8_t *srcRow = backup.pixels.data() + backupRowOffset;
+        if (!haveComposedOutput) {
+            memcpy(dstRow, srcRow, (size_t)restoreRect.width * bytesPerPixel);
+            restoredPixels += restoreRect.width;
+            continue;
+        }
+        const uint8_t *composedRow =
+            backup.composed_pixels.data() + backupRowOffset;
+        const uint8_t *stampedRow =
+            haveStampedMask
+                ? backup.stamped.data() + (uint64_t)row * backup.rect_w
+                : NULL;
+        for (uint32_t col = 0; col < restoreRect.width; col++) {
+            if (stampedRow != NULL && stampedRow[col] == 0) continue;
+            uint8_t *dstPx = dstRow + (size_t)col * bytesPerPixel;
+            const uint8_t *composedPx =
+                composedRow + (size_t)col * bytesPerPixel;
+            if (dstPx[0] == composedPx[0] && dstPx[1] == composedPx[1]) {
+                const uint8_t *srcPx =
+                    srcRow + (size_t)col * bytesPerPixel;
+                dstPx[0] = srcPx[0];
+                dstPx[1] = srcPx[1];
+                restoredPixels++;
+            }
+        }
     }
     if (restoredPixels != 0) {
         GL_METAL_VLOG("GLCompositeLatestOffscreenToGuestSurface: restored previous rect=(%u,%u %ux%u) pixels=%llu in 0x%08x",
@@ -928,52 +940,6 @@ static bool GLMetalPreviousGuestCompositeMatches(
                                             dstDepthBits,
                                             dstWidth,
                                             dstHeight);
-}
-
-static bool GLMetalGuestCompositeRegionMatchesPixels(
-    const uint8_t *dst,
-    uint32_t dstRowbytes,
-    const GLMetalGuestCompositeBackup &backup,
-    const std::vector<uint8_t> &pixels)
-{
-    if (dst == NULL ||
-        !backup.valid ||
-        pixels.empty() ||
-        backup.rect_w == 0 ||
-        backup.rect_h == 0) {
-        return false;
-    }
-
-    const size_t bytesPerPixel = 2u;
-    const size_t rowBytes = (size_t)backup.rect_w * bytesPerPixel;
-    if (pixels.size() != rowBytes * backup.rect_h) return false;
-
-    for (uint32_t row = 0; row < backup.rect_h; row++) {
-        const uint8_t *dstRow =
-            dst + (uint64_t)(backup.rect_y + row) * dstRowbytes +
-            (uint64_t)backup.rect_x * bytesPerPixel;
-        const uint8_t *storedRow =
-            pixels.data() + (uint64_t)row * rowBytes;
-        if (memcmp(dstRow, storedRow, rowBytes) != 0) {
-            return false;
-        }
-    }
-    return true;
-}
-
-static bool GLMetalGuestCompositeRegionMatchesStored(
-    const uint8_t *dst,
-    uint32_t dstRowbytes,
-    const GLMetalGuestCompositeBackup &backup)
-{
-    return GLMetalGuestCompositeRegionMatchesPixels(dst,
-                                                    dstRowbytes,
-                                                    backup,
-                                                    backup.composed_pixels) ||
-           GLMetalGuestCompositeRegionMatchesPixels(dst,
-                                                    dstRowbytes,
-                                                    backup,
-                                                    backup.pixels);
 }
 
 static bool GLMetalCaptureGuestCompositeBackground(
@@ -1004,6 +970,7 @@ static bool GLMetalCaptureGuestCompositeBackground(
     GLMetalGuestCompositeBackup &backup = s_gl_previous_guest_composite;
     backup.pixels.resize((size_t)rectW * rectH * bytesPerPixel);
     backup.composed_pixels.clear();
+    backup.stamped.assign((size_t)rectW * rectH, 0);
     for (uint32_t row = 0; row < rectH; row++) {
         const uint8_t *srcRow =
             dst + (uint64_t)(rectY + row) * dstRowbytes +
@@ -1057,18 +1024,147 @@ static void GLMetalCaptureGuestCompositeOutput(
     }
 }
 
+/* Stamp the latest readback's opaque pixels into dst, recording the
+ * stamped mask in the freshly captured backup and cleansing its background
+ * of guest content drawn ABOVE the model.
+ *
+ * gateWrites=false (fresh stamp at readback time, guest-ordered): every
+ * opaque pixel is written — real hardware rasterizes the GL frame over
+ * whatever is in the framebuffer, and the game redraws its occluding
+ * sprites afterwards.
+ *
+ * gateWrites=true (asynchronous gap-filling re-stamp): a pixel is written
+ * ONLY where the destination still shows the world background the previous
+ * stamp sat on (reference). Anywhere the guest has since drawn something
+ * else — occluding sprites, changed world — keeps its content; that is
+ * what lets 2D elements sit IN FRONT of the 3D model.
+ *
+ * In both modes, wherever the destination differs from the reference world
+ * value, the new backup's background is set to the reference value instead
+ * of the observed content, so occluders never masquerade as "background"
+ * and the denial stays stable across re-stamps. */
+static uint64_t GLMetalStampLatestReadbackRect(
+    const uint8_t *src,
+    uint32_t srcWidth,
+    uint32_t srcHeight,
+    uint32_t srcRowbytes,
+    uint8_t *dst,
+    uint32_t dstWidth,
+    uint32_t dstHeight,
+    uint32_t dstRowbytes,
+    uint32_t rectX,
+    uint32_t rectY,
+    uint32_t rectW,
+    uint32_t rectH,
+    bool gateWrites,
+    const GLMetalGuestCompositeBackup *reference)
+{
+    if (src == NULL || dst == NULL) return 0;
+    if (srcWidth == 0 || srcHeight == 0 || dstWidth == 0 || dstHeight == 0) {
+        return 0;
+    }
+    if (srcRowbytes < srcWidth * 2u || dstRowbytes < dstWidth * 2u) return 0;
+    if (rectX >= srcWidth || rectY >= srcHeight ||
+        rectX >= dstWidth || rectY >= dstHeight) {
+        return 0;
+    }
+
+    uint32_t copyW = rectW;
+    uint32_t copyH = rectH;
+    if (copyW > srcWidth - rectX) copyW = srcWidth - rectX;
+    if (copyW > dstWidth - rectX) copyW = dstWidth - rectX;
+    if (copyH > srcHeight - rectY) copyH = srcHeight - rectY;
+    if (copyH > dstHeight - rectY) copyH = dstHeight - rectY;
+    if (copyW == 0 || copyH == 0) return 0;
+
+    const size_t bytesPerPixel = 2u;
+    GLMetalGuestCompositeBackup &backup = s_gl_previous_guest_composite;
+    const bool trackBackup =
+        backup.valid &&
+        backup.rect_x == rectX && backup.rect_y == rectY &&
+        backup.rect_w == rectW && backup.rect_h == rectH &&
+        backup.pixels.size() == (size_t)rectW * rectH * bytesPerPixel &&
+        backup.stamped.size() == (size_t)rectW * rectH;
+    const bool haveReference =
+        reference != NULL &&
+        reference->valid &&
+        reference->rect_w != 0 && reference->rect_h != 0 &&
+        reference->pixels.size() ==
+            (size_t)reference->rect_w * reference->rect_h * bytesPerPixel;
+    if (gateWrites && !haveReference) {
+        /* Nothing safe to compare against — refuse rather than trample. */
+        return 0;
+    }
+
+    uint64_t copied = 0;
+    for (uint32_t y = 0; y < copyH; y++) {
+        const uint8_t *srcRow =
+            src + (uint64_t)(rectY + y) * srcRowbytes +
+            (uint64_t)rectX * bytesPerPixel;
+        uint8_t *dstRow =
+            dst + (uint64_t)(rectY + y) * dstRowbytes +
+            (uint64_t)rectX * bytesPerPixel;
+        for (uint32_t x = 0; x < copyW; x++) {
+            const uint16_t srcPixel =
+                GLOffscreenLoadRGB555Bytes(srcRow + (uint64_t)x * 2u);
+            if (!GLOffscreenARGB1555PixelHasAlpha(srcPixel)) continue;
+
+            uint8_t *dstPx = dstRow + (uint64_t)x * 2u;
+            const uint8_t *refBg = NULL;
+            if (haveReference) {
+                const uint32_t ax = rectX + x;
+                const uint32_t ay = rectY + y;
+                if (ax >= reference->rect_x && ay >= reference->rect_y &&
+                    ax < reference->rect_x + reference->rect_w &&
+                    ay < reference->rect_y + reference->rect_h) {
+                    refBg = reference->pixels.data() +
+                        ((uint64_t)(ay - reference->rect_y) *
+                             reference->rect_w +
+                         (ax - reference->rect_x)) * bytesPerPixel;
+                }
+            }
+            const bool dstIsWorld =
+                refBg != NULL &&
+                dstPx[0] == refBg[0] && dstPx[1] == refBg[1];
+
+            if (trackBackup && refBg != NULL && !dstIsWorld) {
+                /* Guest content above the world here — keep the WORLD
+                 * value as this pixel's background so it never gets
+                 * "restored" onto, or compared as, guest content. */
+                uint8_t *bgPx = backup.pixels.data() +
+                    ((uint64_t)y * rectW + x) * bytesPerPixel;
+                bgPx[0] = refBg[0];
+                bgPx[1] = refBg[1];
+            }
+
+            if (gateWrites && !dstIsWorld) continue;
+
+            uint8_t outBytes[2];
+            GLOffscreenStoreRGB555Bytes(
+                GLOffscreenRGB555WithoutAlpha(srcPixel), outBytes);
+            dstPx[0] = outBytes[0];
+            dstPx[1] = outBytes[1];
+            if (trackBackup) {
+                backup.stamped[(size_t)y * rectW + x] = 1;
+            }
+            copied++;
+        }
+    }
+    return copied;
+}
+
 static uint64_t GLCompositeLatestOffscreenToGuestSurfaceInternal(uint32_t dstBaseaddr,
                                                                  uint32_t dstRowbytes,
                                                                  uint32_t dstWidth,
                                                                  uint32_t dstHeight,
                                                                  uint32_t dstDepthBits,
-                                                                 bool respectAutomaticSuppression,
                                                                  bool useLatestExtent,
                                                                  bool useDirtyRect,
                                                                  int32_t dirtyX,
                                                                  int32_t dirtyY,
                                                                  int32_t dirtyWidth,
-                                                                 int32_t dirtyHeight)
+                                                                 int32_t dirtyHeight,
+                                                                 bool freshStampAtReadback)
 {
     GLMetalLatestOffscreenReadback &latest =
         s_gl_latest_offscreen_readback;
@@ -1106,17 +1202,6 @@ static uint64_t GLCompositeLatestOffscreenToGuestSurfaceInternal(uint32_t dstBas
                                              dstDepthBits,
                                              compositeWidth,
                                              compositeHeight);
-    const bool dirtyIntersectsPreviousComposite =
-        useDirtyRect &&
-        previousCompositeMatches &&
-        GLDirtyRectIntersectsOffscreenComposite(dirtyX,
-                                                dirtyY,
-                                                dirtyWidth,
-                                                dirtyHeight,
-                                                s_gl_previous_guest_composite.rect_x,
-                                                s_gl_previous_guest_composite.rect_y,
-                                                s_gl_previous_guest_composite.rect_w,
-                                                s_gl_previous_guest_composite.rect_h);
     const bool dirtyIntersectsCurrentComposite =
         stats.alpha_bounds_valid &&
         GLShouldCompositeCurrentOffscreenDirtyRect(
@@ -1145,78 +1230,80 @@ static uint64_t GLCompositeLatestOffscreenToGuestSurfaceInternal(uint32_t dstBas
                                                       compositeWidth,
                                                       compositeHeight)
             : GLOffscreenCompositeRect{false, 0, 0, 0, 0};
-    const GLOffscreenCompositeRect fullCompositeRect =
-        GLOffscreenCompositeRectForDirty(false,
-                                         stats.alpha_min_x,
-                                         stats.alpha_min_y,
-                                         stats.alpha_max_x,
-                                         stats.alpha_max_y,
-                                         0,
-                                         0,
-                                         0,
-                                         0);
     if (!dirtyIntersectsCurrentComposite && !previousCompositeMatches) {
         return 0;
     }
 
-    const bool destinationMatchesPreviousCompositeRegion =
-        !previousCompositeMatches ||
-        GLMetalGuestCompositeRegionMatchesStored(dst,
-                                                 dstRowbytes,
-                                                 s_gl_previous_guest_composite);
-    if (GLShouldSkipAutomaticOffscreenCompositeForChangedDestination(
-            respectAutomaticSuppression,
-            useDirtyRect,
-            s_gl_previous_guest_composite.valid,
-            previousCompositeMatches,
-            destinationMatchesPreviousCompositeRegion)) {
-        GL_METAL_VLOG("GLCompositeLatestOffscreenToGuestSurface: skipped automatic composite because destination changed under previous rect=(%u,%u %ux%u)",
-                     s_gl_previous_guest_composite.rect_x,
-                     s_gl_previous_guest_composite.rect_y,
-                     s_gl_previous_guest_composite.rect_w,
-                     s_gl_previous_guest_composite.rect_h);
-        return 0;
-    }
-
-    GLMetalRestorePreviousGuestCompositeIfNeeded(dst,
-                                                 dstBaseaddr,
-                                                 dstRowbytes,
-                                                 dstDepthBits,
-                                                 compositeWidth,
-                                                 compositeHeight,
-                                                 useDirtyRect,
-                                                 dirtyX,
-                                                 dirtyY,
-                                                 dirtyWidth,
-                                                 dirtyHeight);
     if (!compositeRect.valid) {
-        if (dirtyIntersectsPreviousComposite) {
+        /* Nothing stampable. NEVER erase here — on real hardware nothing
+         * removes the GL frame's pixels from the framebuffer except the
+         * guest drawing over them, and an erase with no follow-up stamp
+         * blanks the model until the next readback (visible flicker at
+         * every present in between). Stale tracking is harmless: the
+         * pixel-tested force-restore before the next stamp cleans up any
+         * survivors. Only when the incoming blit provably rewrote the
+         * whole stamp region is the (now dead) tracking dropped. */
+        GLMetalGuestCompositeBackup &backup = s_gl_previous_guest_composite;
+        if (backup.valid && useDirtyRect &&
+            GLMetalGuestCompositeSameSurface(backup,
+                                             dstBaseaddr,
+                                             dstRowbytes,
+                                             dstDepthBits,
+                                             compositeWidth,
+                                             compositeHeight) &&
+            GLDirtyRectFullyCoversOffscreenComposite(dirtyX,
+                                                     dirtyY,
+                                                     dirtyWidth,
+                                                     dirtyHeight,
+                                                     backup.rect_x,
+                                                     backup.rect_y,
+                                                     backup.rect_w,
+                                                     backup.rect_h)) {
             GLMetalInvalidatePreviousGuestComposite();
         }
         return 0;
     }
 
+    /* Snapshot the tracked stamp as the gating/cleansing reference BEFORE
+     * the restore below drops it. Its `pixels` hold the propagated world
+     * background the previous stamp sat on. */
+    GLMetalGuestCompositeBackup reference;
+    reference.valid = false;
+    if (GLMetalGuestCompositeSameSurface(s_gl_previous_guest_composite,
+                                         dstBaseaddr,
+                                         dstRowbytes,
+                                         dstDepthBits,
+                                         compositeWidth,
+                                         compositeHeight)) {
+        reference = s_gl_previous_guest_composite;
+    }
+    /* Asynchronous callers (blit bridge, present publish) re-stamp with
+     * per-pixel gating so guest content drawn over the model since the
+     * last guest-ordered stamp stays on top. Only the flush-time stamp —
+     * which runs in guest order right after the readback — writes
+     * unconditionally, like real hardware rasterizing the GL frame. */
+    const bool gateWrites = !freshStampAtReadback;
+
+    /* About to stamp: the old stamp must be erased and untracked first,
+     * regardless of what the dirty region touched — the capture below
+     * replaces the tracking, and any stamp that loses tracking without
+     * being restored becomes a permanent ghost. */
+    GLMetalRestorePreviousGuestCompositeNow(dst,
+                                            dstBaseaddr,
+                                            dstRowbytes,
+                                            dstDepthBits,
+                                            compositeWidth,
+                                            compositeHeight);
+
     const uint32_t rectX = compositeRect.x;
     const uint32_t rectY = compositeRect.y;
     const uint32_t rectW = compositeRect.width;
     const uint32_t rectH = compositeRect.height;
-    const bool compositeCoversFull =
-        fullCompositeRect.valid &&
-        rectX == fullCompositeRect.x &&
-        rectY == fullCompositeRect.y &&
-        rectW == fullCompositeRect.width &&
-        rectH == fullCompositeRect.height;
-    const bool dirtyFullyCoversCurrent =
-        !useDirtyRect ||
-        GLDirtyRectFullyCoversOffscreenComposite(dirtyX,
-                                                 dirtyY,
-                                                 dirtyWidth,
-                                                 dirtyHeight,
-                                                 rectX,
-                                                 rectY,
-                                                 rectW,
-                                                 rectH);
-    if (!useDirtyRect || (compositeCoversFull && dirtyFullyCoversCurrent)) {
+    /* Capture unconditionally: every stamp must be tracked by the backup
+     * (background + output) or it can never be erased later. Untracked
+     * stamps are how the walking-Sim ghost trails formed — a dirty-path
+     * stamp replaced the backup without covering the old stamp region. */
+    const bool captured =
         GLMetalCaptureGuestCompositeBackground(dst,
                                                dstBaseaddr,
                                                dstRowbytes,
@@ -1227,9 +1314,8 @@ static uint64_t GLCompositeLatestOffscreenToGuestSurfaceInternal(uint32_t dstBas
                                                rectY,
                                                rectW,
                                                rectH);
-    }
     const uint64_t copied =
-        GLOffscreenCompositeARGB1555OverRGB555Rect(
+        GLMetalStampLatestReadbackRect(
             src,
             latest.width,
             latest.height,
@@ -1241,20 +1327,28 @@ static uint64_t GLCompositeLatestOffscreenToGuestSurfaceInternal(uint32_t dstBas
             rectX,
             rectY,
             rectW,
-            rectH);
-    if (copied != 0) {
+            rectH,
+            gateWrites,
+            reference.valid ? &reference : NULL);
+    if (captured) {
+        /* Keep composed_pixels coherent with the destination even when the
+         * gate denied every pixel — a stale composed snapshot would make
+         * the next restore misfire. */
         GLMetalCaptureGuestCompositeOutput(dst,
                                            dstRowbytes,
                                            rectX,
                                            rectY,
                                            rectW,
                                            rectH);
+    }
+    if (copied != 0) {
         s_gl_latest_offscreen_readback.composite_count++;
-        GL_METAL_VLOG("GLCompositeLatestOffscreenToGuestSurface: composited %llu pixels from 0x%08x to 0x%08x rect=(%u,%u %ux%u)",
+        GL_METAL_VLOG("GLCompositeLatestOffscreenToGuestSurface: composited %llu pixels from 0x%08x to 0x%08x rect=(%u,%u %ux%u)%s",
                      (unsigned long long)copied,
                      latest.baseaddr,
-                     dstBaseaddr, rectX, rectY, rectW, rectH);
-    } else {
+                     dstBaseaddr, rectX, rectY, rectW, rectH,
+                     gateWrites ? " (gated)" : " (fresh)");
+    } else if (!captured) {
         GLMetalInvalidatePreviousGuestComposite();
     }
     return copied;
@@ -1274,13 +1368,13 @@ extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentDir
                                                            0,
                                                            0,
                                                            dstDepthBits,
-                                                           false,
                                                            true,
                                                            true,
                                                            dirtyX,
                                                            dirtyY,
                                                            dirtyWidth,
-                                                           dirtyHeight);
+                                                           dirtyHeight,
+                                                           false);
 }
 
 extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentIfNotSuppressed(
@@ -1294,12 +1388,45 @@ extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentIfN
                                                            0,
                                                            dstDepthBits,
                                                            true,
-                                                           true,
                                                            false,
                                                            0,
                                                            0,
                                                            0,
-                                                           0);
+                                                           0,
+                                                           false);
+}
+
+/* Guest-ordered fresh stamp, called on the emulation thread right after a
+ * successful offscreen readback (glFlush / glFinish / end-frame). This is
+ * the moment real hardware would have rasterized the GL frame into the
+ * framebuffer: the game's world repaint has already landed and its
+ * occluding sprites have NOT been drawn yet, so an ungated stamp here is
+ * exactly correct — and it is the only ungated stamp; every asynchronous
+ * re-stamp after it is per-pixel gated. */
+extern "C" bool NQDReadMainDevicePixMapForGLBridge(uint32_t *baseAddr,
+                                                   uint32_t *rowBytes,
+                                                   uint32_t *pixelSize);
+
+static void GLCompositeLatestOffscreenFreshAtReadback(void)
+{
+    uint32_t baseAddr = 0;
+    uint32_t rowBytes = 0;
+    uint32_t pixelSize = 0;
+    if (!NQDReadMainDevicePixMapForGLBridge(&baseAddr, &rowBytes, &pixelSize)) {
+        return;
+    }
+    GLCompositeLatestOffscreenToGuestSurfaceInternal(baseAddr,
+                                                     rowBytes,
+                                                     0,
+                                                     0,
+                                                     pixelSize,
+                                                     true,
+                                                     false,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     0,
+                                                     true);
 }
 
 static void GLMetalStoreBGRA8PixelsToGuestOffscreen(const uint8_t *bgra,
@@ -3721,6 +3848,9 @@ void GLMetalEndFrame(GLContext *ctx)
     s_gl_overlay_committed_frame = true;
     const bool didReadback =
         GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
+    if (didReadback) {
+        GLCompositeLatestOffscreenFreshAtReadback();
+    }
     if (GLShouldInvalidateOffscreenReadbackAfterGLFlush(true, didReadback)) {
         GLMetalInvalidateLatestOffscreenReadback("end frame without offscreen readback");
     }
@@ -3751,6 +3881,9 @@ void NativeGLFinish(GLContext *ctx)
         s_gl_overlay_committed_frame = true;
         const bool didReadback =
             GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
+        if (didReadback) {
+            GLCompositeLatestOffscreenFreshAtReadback();
+        }
         if (GLShouldInvalidateOffscreenReadbackAfterGLFlush(true, didReadback)) {
             GLMetalInvalidateLatestOffscreenReadback("finish without offscreen readback");
         }
@@ -3785,6 +3918,9 @@ void NativeGLFlush(GLContext *ctx)
         s_gl_overlay_committed_frame = true;
         const bool didReadback =
             GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
+        if (didReadback) {
+            GLCompositeLatestOffscreenFreshAtReadback();
+        }
         if (GLShouldInvalidateOffscreenReadbackAfterGLFlush(true, didReadback)) {
             GLMetalInvalidateLatestOffscreenReadback("flush without offscreen readback");
         }

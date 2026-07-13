@@ -111,9 +111,26 @@ static inline bool DSpShouldRefreshFrontBufferStagingFromBackStaging(
 	uint32_t back_staging_size,
 	uint32_t front_staging_size,
 	uint32_t back_staging_row_bytes,
-	uint32_t front_staging_row_bytes)
+	uint32_t front_staging_row_bytes,
+	uint32_t swap_generation,
+	uint32_t front_staging_refresh_swap_generation,
+	bool front_staging_geometry_changed)
 {
+	/* Only refresh when a SwapBuffers actually delivered a new visible
+	 * frame since the last copy, or the staging is being re-vended with a
+	 * new geometry (mode switch reusing the old allocation — its pixels
+	 * have the wrong pitch and must be replaced). The front staging is
+	 * the guest's live screen surface — front-buffer-direct clients
+	 * (never swap) draw 2D straight into it, and an unconditional
+	 * refresh replays the stale back-staging snapshot over their work on
+	 * every GetFrontBuffer reassert (The Sims: UI panels flicker to
+	 * black). Swap-driven and mixed clients still get one refresh per
+	 * swap, which matches real hardware: the swap replaces the visible
+	 * frame, front-buffer draws made after it persist until the next
+	 * swap. */
 	return front_staging_mac_addr != 0 &&
+	       (swap_generation != front_staging_refresh_swap_generation ||
+	        front_staging_geometry_changed) &&
 	       DSpShouldSeedFrontBufferStagingFromBackStaging(
 	           back_buffer_depth,
 	           front_depth,

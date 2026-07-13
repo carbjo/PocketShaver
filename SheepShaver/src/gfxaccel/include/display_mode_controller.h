@@ -56,7 +56,11 @@ enum DMCError {
 	kDMCErrReentrantRequest            = -3013,  /* reserved (re-entry guard) */
 	kDMCErrSubscriberNotFound          = -3014,  /* dmc_unsubscribe: name does not match any registered subscriber */
 	kDMCErrSubscriberAlreadyRegistered = -3015, /* dmc_subscribe: duplicate name */
-	kDMCErrOutOfMemory                 = -3016  /* allocation failure (distinct from param-invalid codes) */
+	kDMCErrOutOfMemory                 = -3016, /* allocation failure (distinct from param-invalid codes) */
+	kDMCDriverGammaDeferred            = 1      /* success-with-info: driver gamma table stored, but NOT applied
+	                                             * to the displayed LUT because a DSp fade is in progress; the
+	                                             * fade end-state delivers it. Caller must NOT push the table to
+	                                             * the compositor. */
 };
 
 /*
@@ -126,6 +130,11 @@ struct DMCModeSnapshot {
 	uint32_t       gamma_gen;               /* bumped on every gamma change */
 	uint8_t        gamma_lut[768];          /* Mac-side planar LUT: 256 R + 256 G + 256 B */
 	uint32_t       fade_active;             /* 1 while a DSp gamma fade is in progress; gates the compositor's static 1.8->2.2 display-LUT composition so the LUT marches linearly (DSp-1.7). Published atomically WITH gamma_lut. */
+	uint8_t        driver_gamma_lut[768];   /* last guest SetGamma table (identity until the driver publishes one).
+	                                         * The "original intensity" DSp fades restore to: games install
+	                                         * functional ramps (e.g. overbright doubling) that a fade-in must
+	                                         * land on, not the identity ramp. Outside fades, gamma_lut ==
+	                                         * driver_gamma_lut. */
 	uint32_t       vbl_usec;
 	uint32_t       active_owner;            /* DMCOwner value */
 	uint8_t        blanking_rgba[4];        /* RGBA; only meaningful in Blanking state */
@@ -334,6 +343,25 @@ int32_t dmc_record_gamma_change_with_lut(const uint8_t *lut);
  *         kDMCErrOutOfMemory if snapshot allocation fails.
  */
 int32_t dmc_record_gamma_change_with_lut_fade(const uint8_t *lut, int fade_active);
+
+/*
+ * Record a DRIVER (guest SetGamma) table. Always stores the 768-byte planar
+ * table into driver_gamma_lut — the "original intensity" reference the DSp
+ * fade paths blend toward — then applies it to the displayed gamma_lut only
+ * when no fade is in progress. When fade_active is set on the current
+ * snapshot the displayed LUT is left alone (the screen is faded/fading; an
+ * immediate apply would visibly pop) and the pending fade's end-state
+ * delivers the table instead.
+ *
+ * Returns kDMCNoErr if the table was applied to the displayed LUT
+ *         (caller should push it to the compositor as usual);
+ *         kDMCDriverGammaDeferred if stored but NOT applied (fade in
+ *         progress — caller must NOT push to the compositor);
+ *         kDMCErrNotInitialized if called before dmc_create();
+ *         kDMCErrInvalidModeDesc if lut is NULL;
+ *         kDMCErrOutOfMemory if snapshot allocation fails.
+ */
+int32_t dmc_record_driver_gamma_change(const uint8_t *lut);
 
 /*
  * Assign the snapshot's blanking color WITHOUT

@@ -2744,6 +2744,11 @@ extern "C" void VideoMapWindowPointToGuestAndMove(double winX, double winY)
 {
 #if TARGET_OS_MACCATALYST
 	if (!drv) return;
+	// Relative mode: the guest consumes deltas (SDL's relative motion is the
+	// authoritative source), so this absolute-position bypass must no-op —
+	// ADBMouseMoved() would add the mapped window point as a delta, slamming
+	// the view (e.g. Quake 3 pitches straight down on every fire-drag).
+	if (ADBIsRelativeMouseMode()) return;
 	// Called on the main thread from the UIKit hover/drag recognizers. Refresh
 	// the present-rect cache here too: in the right region of the desktop SDL
 	// generates no motion events (its transposed view ends early), so

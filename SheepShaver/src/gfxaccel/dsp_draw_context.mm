@@ -159,6 +159,8 @@ static void DSpReleaseFrontBufferStaging(DSpContextPrivate *ctx)
 	ctx->front_staging_mac_addr = 0;
 	ctx->front_staging_size = 0;
 	ctx->front_staging_owned_sysheap = false;
+	ctx->front_staging_row_bytes = 0;
+	ctx->front_staging_height = 0;
 	ctx->front_staging_present_state = {};
 }
 
@@ -575,15 +577,18 @@ static void DSpInterpolateGammaLUT(const uint8_t *start_lut,
  *
  *  DSp 1.7 semantics (the wrong-output defect this REPLACES):
  *    - inPercentOfOriginalIntensity = 100  -> display at FULL intensity:
- *        output[c][i] = i  (the identity LUT — what was stored is shown).
+ *        output[c][i] = full_lut[c][i]  (the driver's installed gamma
+ *        table — "original intensity" is what the guest's SetGamma put
+ *        in effect, NOT the identity ramp; identity is only the
+ *        pre-SetGamma boot state).
  *    - inPercentOfOriginalIntensity = 0    -> display at ZERO intensity:
  *        output[c][i] = zeroColor[c]  (the inZeroIntensityColor tint;
  *        black when NULL was passed -> color_(r,g,b) == 0).
  *    - 0 < percent < 100                   -> linear blend between the
- *        zero-intensity tint (at 0%) and full identity (at 100%):
- *        output[c][i] = zeroColor[c] * (100 - p)/100 + i * p/100.
+ *        zero-intensity tint (at 0%) and original intensity (at 100%):
+ *        output[c][i] = zeroColor[c] * (100 - p)/100 + full[c][i] * p/100.
  *    - percent > 100  -> "begin to converge on white" (PDF p.32):
- *        extrapolate from identity toward 255.
+ *        extrapolate from original intensity toward 255.
  *    - percent < 0    -> "begin to converge on black" (PDF p.32):
  *        extrapolate from the zero-intensity tint toward 0.
  *
@@ -593,7 +598,8 @@ static void DSpInterpolateGammaLUT(const uint8_t *start_lut,
  *  formula HONORS inZeroIntensityColor as the zero-intensity floor.
  *
  *  Boundary equivalences (asserted by the corrected DSpGammaTests):
- *    - percent=100  -> identity         == FadeGammaIn end-state
+ *    - percent=100  -> driver gamma table == FadeGammaIn end-state
+ *      (identity when the guest never called SetGamma)
  *    - percent=0, tint=black(0,0,0) -> zeros == FadeGammaOut end-state
  *    - percent=0, tint=red(255,0,0)  -> R channel = 255, G/B = 0
  *
@@ -610,13 +616,17 @@ static void DSpComputeFadeGammaTargetLUT(uint8_t color_r,
                                           uint8_t color_g,
                                           uint8_t color_b,
                                           int32_t percent,
+                                          const uint8_t *full_lut,
                                           uint8_t *out_lut)
 {
 	const uint8_t channels[3] = { color_r, color_g, color_b };
 	for (uint32_t c = 0; c < 3; c++) {
 		const int32_t tint = (int32_t)channels[c];
 		for (uint32_t i = 0; i < 256; i++) {
-			const int32_t ii = (int32_t)i;
+			/* "Original intensity" is the driver's installed gamma table,
+			 * NOT the identity ramp: games install functional ramps (e.g.
+			 * overbright doubling) and a 100% restore must land on them. */
+			const int32_t full = (int32_t)full_lut[c * 256 + i];
 			int32_t v;
 			if (percent <= 0) {
 				/* <=0%: converge from the zero-intensity tint toward
@@ -626,19 +636,40 @@ static void DSpComputeFadeGammaTargetLUT(uint8_t color_r,
 				if (t > 100) t = 100;
 				v = (tint * (100 - t)) / 100;
 			} else if (percent >= 100) {
-				/* >=100%: converge from identity toward white. At 100%
-				 * -> identity (ii); at 200% -> 255. Above 200% stays
-				 * at 255. */
+				/* >=100%: converge from original intensity toward white.
+				 * At 100% -> the driver table; at 200% -> 255. Above 200%
+				 * stays at 255. */
 				int32_t t = percent - 100;       /* 0..(+inf) */
 				if (t > 100) t = 100;
-				v = ii + ((255 - ii) * t) / 100;
+				v = full + ((255 - full) * t) / 100;
 			} else {
-				/* 0..100%: linear blend tint (0%) -> identity (100%). */
-				v = (tint * (100 - percent) + ii * percent) / 100;
+				/* 0..100%: linear blend tint (0%) -> original intensity
+				 * (100%). */
+				v = (tint * (100 - percent) + full * percent) / 100;
 			}
 			if (v < 0)   v = 0;
 			if (v > 255) v = 255;
 			out_lut[c * 256 + i] = (uint8_t)v;
+		}
+	}
+}
+
+/*
+ *  Copy the driver's current gamma table (the guest's last SetGamma) out of
+ *  the DMC snapshot — the "original intensity" reference for every fade
+ *  formula above. Falls back to the identity ramp when the DMC is Quiescent
+ *  (no snapshot yet), which matches the pre-SetGamma boot state.
+ */
+static void DSpCopyDriverGammaLUT(uint8_t out_lut[768])
+{
+	const struct DMCModeSnapshot *snap = dmc_current_snapshot();
+	if (snap != nullptr) {
+		memcpy(out_lut, snap->driver_gamma_lut, 768);
+		return;
+	}
+	for (uint32_t c = 0; c < 3; c++) {
+		for (uint32_t i = 0; i < 256; i++) {
+			out_lut[c * 256 + i] = (uint8_t)i;
 		}
 	}
 }
@@ -1810,6 +1841,8 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	ctx->dirty_empty            = true;
 	ctx->dirty_cold_start       = true;   /* PDF p.38 — first swap = full */
 	ctx->explicit_swap_observed = false;
+	ctx->swap_generation = 0;
+	ctx->front_staging_refresh_swap_generation = 0;
 	DSpInitDefaultCLUT(ctx->clut_bytes, ctx->clut_bytes_latched,
 	                   backBufferBestDepth);
 	DSpApplyReserveColorTable(ctx, ctx->attr.colorTable,
@@ -2175,6 +2208,7 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 	}
 
 	ctx->explicit_swap_observed = true;
+	ctx->swap_generation++;
 
 	/* State captured at entry — revalidation rejects on CHANGE during the
 	 * busyProc / frame-pacing re-entry windows, not on non-Active per se. */
@@ -2486,6 +2520,9 @@ static uint32_t DSpEnsureFrontBufferStaging(DSpContextPrivate *ctx,
 			(uint32_t)RAMBase,
 			(uint32_t)RAMSize);
 		if (reusable != 0) {
+			const bool geometry_changed =
+			    ctx->front_staging_row_bytes != row_bytes ||
+			    ctx->front_staging_height != height;
 			if (DSpShouldRefreshFrontBufferStagingFromBackStaging(
 			        ctx->attr.backBufferBestDepth,
 			        front_depth,
@@ -2494,21 +2531,30 @@ static uint32_t DSpEnsureFrontBufferStaging(DSpContextPrivate *ctx,
 			        ctx->staging_size,
 			        buffer_size,
 			        back_staging_row_bytes,
-			        row_bytes)) {
+			        row_bytes,
+			        ctx->swap_generation,
+			        ctx->front_staging_refresh_swap_generation,
+			        geometry_changed)) {
 				uint8_t *dst = Mac2HostAddr(reusable);
 				uint8_t *src = Mac2HostAddr(ctx->staging_mac_addr);
 				if (dst != NULL && src != NULL) {
 					memcpy(dst, src, buffer_size);
+					ctx->front_staging_refresh_swap_generation =
+					    ctx->swap_generation;
 					DSpFrontStagingRememberSeedBytes(
 						&ctx->front_staging_present_state,
 						dst,
 						buffer_size);
 					DSP_LOG("%s: front staging refreshed from back staging "
-					        "(src=0x%08x dst=0x%08x size=%u rowBytes=%u bpp=%u)",
+					        "(src=0x%08x dst=0x%08x size=%u rowBytes=%u bpp=%u "
+					        "swapGen=%u)",
 					        caller, ctx->staging_mac_addr, reusable,
-					        buffer_size, row_bytes, front_depth);
+					        buffer_size, row_bytes, front_depth,
+					        ctx->swap_generation);
 				}
 			}
+			ctx->front_staging_row_bytes = row_bytes;
+			ctx->front_staging_height = height;
 			return reusable;
 		}
 		DSP_LOG("%s: discarding unusable front staging "
@@ -2541,6 +2587,8 @@ static uint32_t DSpEnsureFrontBufferStaging(DSpContextPrivate *ctx,
 	ctx->front_staging_mac_addr = baseAddr_mac;
 	ctx->front_staging_size = buffer_size;
 	ctx->front_staging_owned_sysheap = true;
+	ctx->front_staging_row_bytes = row_bytes;
+	ctx->front_staging_height = height;
 	bool seeded_from_back_staging = false;
 	if (DSpShouldSeedFrontBufferStagingFromBackStaging(
 	        ctx->attr.backBufferBestDepth,
@@ -2554,6 +2602,8 @@ static uint32_t DSpEnsureFrontBufferStaging(DSpContextPrivate *ctx,
 		uint8_t *src = Mac2HostAddr(ctx->staging_mac_addr);
 		if (dst != NULL && src != NULL) {
 			memcpy(dst, src, buffer_size);
+			ctx->front_staging_refresh_swap_generation =
+			    ctx->swap_generation;
 			DSpFrontStagingRememberSeedBytes(
 				&ctx->front_staging_present_state,
 				dst,
@@ -4823,11 +4873,12 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
 	 *  from the live device-native cadence: 60 VBLs on a 60 Hz panel,
 	 *  120 on a 120 Hz ProMotion panel — never a hardcoded 60.
 	 *  inZeroIntensityColor is accepted (NULL -> black, legal); for the
-	 *  IN direction the end state is full intensity (identity), so the
-	 *  tint defines only the conceptual 0% start, which the VBL driver
-	 *  already snapshots from the current displayed gamma.
+	 *  IN direction the end state is full intensity (the driver's
+	 *  installed gamma table), so the tint defines only the conceptual
+	 *  0% start, which the VBL driver already snapshots from the
+	 *  current displayed gamma.
 	 */
-	(void)colorAddr;  /* tint accepted; end_lut for IN is identity (100%) */
+	(void)colorAddr;  /* tint accepted; end_lut for IN is the driver table (100%) */
 
 	uint64_t cadence_usec = vbl_source_get_cadence_usec();
 	uint32_t vbls_1sec = (cadence_usec > 0)
@@ -4835,19 +4886,17 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
 	                     : 60u;
 	if (vbls_1sec > DSP_MAX_FADE_VBLS) vbls_1sec = DSP_MAX_FADE_VBLS;
 
-	/* Build identity end_lut: lut[c*256 + i] = i for c in {R,G,B}, i in [0..255]. */
-	uint8_t identity_lut[768];
-	for (uint32_t c = 0; c < 3; c++) {
-		for (uint32_t i = 0; i < 256; i++) {
-			identity_lut[c * 256 + i] = (uint8_t)i;
-		}
-	}
+	/* End state = the driver's current gamma table ("original intensity"),
+	 * so a fade-in lands on any game-installed ramp (e.g. overbright)
+	 * instead of erasing it with identity. */
+	uint8_t full_lut[768];
+	DSpCopyDriverGammaLUT(full_lut);
 
 	/* Initialize the fade machinery (active-fade-replacement snapshot
 	 * + end_lut copy + duration/elapsed/active reset). The VBL driver
 	 * (DSpVBLGammaFadeCallback) is UNCHANGED — only the duration source
 	 * changed from a guest arg to the derived 1-second count. */
-	DSpInitFadeStateCore(ctx, identity_lut, (uint16_t)vbls_1sec);
+	DSpInitFadeStateCore(ctx, full_lut, (uint16_t)vbls_1sec);
 	DSP_LOG("FadeGammaIn: ctx=%u 1-second fade -> %u VBLs (cadence %llu usec) started",
 	        ctxRef, vbls_1sec, (unsigned long long)cadence_usec);
 	return kDSpNoErr;
@@ -4914,8 +4963,10 @@ extern "C" int32_t DSpContext_FadeGammaOutHandler(uint32_t ctxRef,
 	 * signed-percent formula at percent=0 yields target[c][i] = tint[c]
 	 * for every index i (a flat per-channel tint LUT); NULL color -> all
 	 * zeros (fade to black). */
+	uint8_t full_lut[768];
+	DSpCopyDriverGammaLUT(full_lut);
 	uint8_t end_lut[768];
-	DSpComputeFadeGammaTargetLUT(color_r, color_g, color_b, 0, end_lut);
+	DSpComputeFadeGammaTargetLUT(color_r, color_g, color_b, 0, full_lut, end_lut);
 
 	/* Initialize the fade machinery (VBL driver UNCHANGED — only the
 	 * duration source changed from a guest arg to the derived 1-second
@@ -4992,13 +5043,20 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 		if (colorAddr != 0) {
 			DSpReadParametricColorFromGuest(colorAddr, &color_r, &color_g, &color_b);
 		}
+		uint8_t full_lut[768];
+		DSpCopyDriverGammaLUT(full_lut);
 		uint8_t target_lut[768];
 		DSpComputeFadeGammaTargetLUT(color_r, color_g, color_b,
-		                              inPercent, target_lut);
-		int32_t rv = dmc_record_gamma_change_with_lut(target_lut);
+		                              inPercent, full_lut, target_lut);
+		/* fade_active rides the publish: any percent other than exactly
+		 * 100 leaves the display mid-fade (LUT must march linearly, and
+		 * driver SetGamma arriving now must defer, not pop). 100 restores
+		 * the driver table and ends the fade. */
+		int32_t rv = dmc_record_gamma_change_with_lut_fade(
+		    target_lut, (inPercent != 100) ? 1 : 0);
 		if (rv != kDMCNoErr) {
 			DSP_LOG("FadeGamma: ctxRef=0 ambient inPercent=%d "
-			        "dmc_record_gamma_change_with_lut returned %d", inPercent, rv);
+			        "dmc_record_gamma_change_with_lut_fade returned %d", inPercent, rv);
 			return kDSpInternalErr;
 		}
 		DSP_LOG("FadeGamma: ctxRef=0 ambient inPercent=%d tint=(%u,%u,%u) "
@@ -5024,16 +5082,23 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 	/* Build the target LUT per the DSp 1.7 signed-percent tint-honoring
 	 * formula. inPercent is passed through verbatim — the formula owns
 	 * the >100 (white) / <0 (black) convergence + the [0,255] clamp. */
+	uint8_t full_lut[768];
+	DSpCopyDriverGammaLUT(full_lut);
 	uint8_t target_lut[768];
 	DSpComputeFadeGammaTargetLUT(color_r, color_g, color_b,
-	                              inPercent, target_lut);
+	                              inPercent, full_lut, target_lut);
 
 	/* Parametric FadeGamma applies the target immediately, in a
 	 * single push — the app loops it over time. There is no internal
-	 * fade timer for the parametric variant. */
-	int32_t rv = dmc_record_gamma_change_with_lut(target_lut);
+	 * fade timer for the parametric variant. fade_active rides the
+	 * publish: any percent other than exactly 100 leaves the display
+	 * mid-fade (LUT must march linearly, and driver SetGamma arriving
+	 * now must defer, not pop); 100 restores the driver table and ends
+	 * the fade. */
+	int32_t rv = dmc_record_gamma_change_with_lut_fade(
+	    target_lut, (inPercent != 100) ? 1 : 0);
 	if (rv != kDMCNoErr) {
-		DSP_LOG("FadeGamma: dmc_record_gamma_change_with_lut returned %d "
+		DSP_LOG("FadeGamma: dmc_record_gamma_change_with_lut_fade returned %d "
 		        "for ctx=%u",
 		        rv, ctxRef);
 		return kDSpInternalErr;

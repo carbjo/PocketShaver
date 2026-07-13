@@ -118,6 +118,22 @@ struct DSpContextPrivate {
 	 * presents. */
 	bool                  explicit_swap_observed;
 
+	/* Swap generation: bumped on every DSpContext_SwapBuffers. The
+	 * front-staging refresh (back staging -> front staging) is gated on
+	 * this so it only runs when a swap actually delivered a new visible
+	 * frame. Front-buffer-direct clients (no swaps) draw straight into
+	 * the front staging; an ungated refresh replays the stale back
+	 * snapshot over their live screen on every GetFrontBuffer (The Sims:
+	 * 2D UI wiped to black hundreds of times per run). */
+	uint32_t              swap_generation;
+	uint32_t              front_staging_refresh_swap_generation;
+	/* Geometry the front staging was last vended with. A mismatch on the
+	 * next ensure means the allocation is being reused across a mode
+	 * switch and its pixels have the wrong pitch — refresh regardless of
+	 * swap generation. */
+	uint32_t              front_staging_row_bytes;
+	uint32_t              front_staging_height;
+
 	/* Staging-region fallback. When Host2MacAddr cannot map the
 	 * MTLBuffer contents pointer back to a usable guest-RAM address (e.g.,
 	 * the bump allocator lives outside the vm_alloc region on arm64 iOS),

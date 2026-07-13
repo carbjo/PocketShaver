@@ -291,7 +291,10 @@ static void publish_gamma_lut_to_display_controller(VidLocals *csSave)
 		}
 	}
 
-	int32_t err = dmc_record_gamma_change_with_lut(lut);
+	int32_t err = dmc_record_driver_gamma_change(lut);
+	/* kDMCDriverGammaDeferred: a DSp fade is in progress — the fade's
+	 * end-state push delivers this table, so do NOT pop it onto the
+	 * faded screen here. */
 	if (err == kDMCNoErr || err == kDMCErrNotInitialized) {
 		MetalCompositorUpdateGammaLUT(lut);
 	}
@@ -300,7 +303,11 @@ static void publish_gamma_lut_to_display_controller(VidLocals *csSave)
 
 static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 {
-	if (gamma == 0 || objc_getIsLinearGammaEnabled()) { // Build linear ramp, 256 entries
+	/* The Linear gamma pref must not bypass user-supplied tables here: games
+	 * install functional ramps (e.g. overbright brightness doubling) that the
+	 * compositor presents verbatim in Linear mode. The pref only controls the
+	 * classic-Mac -> sRGB display correction (see gfx_color_policy.h). */
+	if (gamma == 0) { // Build linear ramp, 256 entries
 
 		// Allocate new table, if necessary
 		if (!allocate_gamma_table(csSave, SIZEOF_GammaTbl + 256))

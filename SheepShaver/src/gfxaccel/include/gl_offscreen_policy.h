@@ -581,32 +581,6 @@ static inline GLOffscreenCompositeRect GLOffscreenCurrentCompositeRectForDirty(
 	                                       0);
 }
 
-static inline bool GLShouldRestorePreviousOffscreenComposite(
-	bool previous_composite_valid,
-	bool same_destination_surface,
-	bool using_dirty_rect,
-	bool dirty_rect_intersects_previous)
-{
-	(void)dirty_rect_intersects_previous;
-	return previous_composite_valid &&
-	       same_destination_surface &&
-	       !using_dirty_rect;
-}
-
-static inline bool GLShouldSkipAutomaticOffscreenCompositeForChangedDestination(
-	bool respecting_automatic_suppression,
-	bool using_dirty_rect,
-	bool previous_composite_valid,
-	bool same_destination_surface,
-	bool destination_matches_previous_composite_region)
-{
-	return respecting_automatic_suppression &&
-	       !using_dirty_rect &&
-	       previous_composite_valid &&
-	       same_destination_surface &&
-	       !destination_matches_previous_composite_region;
-}
-
 static inline bool GLShouldInvalidateOffscreenReadbackAfterGLFlush(
 	bool committed_command_buffer,
 	bool readback_succeeded)
@@ -722,66 +696,6 @@ static inline GLOffscreenBGRAStats GLOffscreenAnalyzeBGRA8Pixels(
 		}
 	}
 	return stats;
-}
-
-static inline uint64_t GLOffscreenCompositeARGB1555OverRGB555Rect(
-	const uint8_t *src,
-	uint32_t src_width,
-	uint32_t src_height,
-	uint32_t src_rowbytes,
-	uint8_t *dst,
-	uint32_t dst_width,
-	uint32_t dst_height,
-	uint32_t dst_rowbytes,
-	uint32_t rect_x,
-	uint32_t rect_y,
-	uint32_t rect_width,
-	uint32_t rect_height)
-{
-	if (src == 0 || dst == 0) return 0;
-	if (src_width == 0 || src_height == 0 ||
-	    dst_width == 0 || dst_height == 0) {
-		return 0;
-	}
-	if (src_rowbytes < src_width * 2u ||
-	    dst_rowbytes < dst_width * 2u) {
-		return 0;
-	}
-	if (rect_x >= src_width || rect_y >= src_height ||
-	    rect_x >= dst_width || rect_y >= dst_height) {
-		return 0;
-	}
-
-	uint32_t copy_width = rect_width;
-	uint32_t copy_height = rect_height;
-	if (copy_width > src_width - rect_x) copy_width = src_width - rect_x;
-	if (copy_width > dst_width - rect_x) copy_width = dst_width - rect_x;
-	if (copy_height > src_height - rect_y) copy_height = src_height - rect_y;
-	if (copy_height > dst_height - rect_y) copy_height = dst_height - rect_y;
-	if (copy_width == 0 || copy_height == 0) return 0;
-
-	uint64_t copied = 0;
-	for (uint32_t y = 0; y < copy_height; y++) {
-		const uint8_t *src_row =
-			src + (uint64_t)(rect_y + y) * src_rowbytes +
-			(uint64_t)rect_x * 2u;
-		uint8_t *dst_row =
-			dst + (uint64_t)(rect_y + y) * dst_rowbytes +
-			(uint64_t)rect_x * 2u;
-		for (uint32_t x = 0; x < copy_width; x++) {
-			const uint16_t src_pixel =
-				GLOffscreenLoadRGB555Bytes(src_row + (uint64_t)x * 2u);
-			if (!GLOffscreenARGB1555PixelHasAlpha(src_pixel)) continue;
-
-			uint8_t out_bytes[2];
-			GLOffscreenStoreRGB555Bytes(
-				GLOffscreenRGB555WithoutAlpha(src_pixel), out_bytes);
-			dst_row[(uint64_t)x * 2u + 0] = out_bytes[0];
-			dst_row[(uint64_t)x * 2u + 1] = out_bytes[1];
-			copied++;
-		}
-	}
-	return copied;
 }
 
 #endif /* GL_OFFSCREEN_POLICY_H */
