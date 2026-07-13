@@ -10,10 +10,10 @@ PocketShaver extends the SheepShaver PowerPC emulation core with four Metal-acce
 
 PocketShaver implements four graphics acceleration engines, all targeting Metal:
 
-- **NQD (Native QuickDraw)** -- 2D acceleration via Metal compute shaders. Wraps emulated Mac RAM as a shared `MTLBuffer` for zero-copy GPU access. Covers all 16 QuickDraw transfer modes, pattern fills, and mask-gated blitting for text/icon rendering. Includes a CPU fast-path for small operations where Metal dispatch overhead would dominate.
-- **RAVE (Rendering Acceleration Virtual Engine)** -- QuickDraw 3D acceleration implementing the full RAVE 1.6 API (53 PPC-callable methods). Supports Gouraud shading, texture mapping, fog, alpha testing, multi-texturing, mipmaps, 16 blend modes, and z-sorted transparency. Renders to a `CAMetalLayer` overlay composited on top of the 2D framebuffer.
+- **QuickDraw 2D (NQD)** -- 2D acceleration via Metal compute shaders. Wraps emulated Mac RAM as a shared `MTLBuffer` for zero-copy GPU access. Covers all 16 QuickDraw transfer modes, pattern fills, and mask-gated blitting for text/icon rendering. Includes a CPU fast-path for small operations where Metal dispatch overhead would dominate.
+- **QuickDraw 3D RAVE (Rendering Acceleration Virtual Engine)** -- QuickDraw 3D acceleration implementing the full RAVE 1.6 API (53 PPC-callable methods). Supports Gouraud shading, texture mapping, fog, alpha testing, multi-texturing, mipmaps, 16 blend modes, and z-sorted transparency. Renders to a `CAMetalLayer` overlay composited on top of the 2D framebuffer.
 - **OpenGL 1.2** -- Fixed-function pipeline with 643 PPC-callable entry points covering core GL, ARB extensions (multitexture, S3TC/DXT compression), AGL, GLU, and GLUT. Includes full matrix stacks, 8-light Phong lighting, fog, texture environments, and pipeline state caching.
-- **DrawSprocket (DSp)** -- full-screen display services for games built on Apple's DrawSprocket API: display-mode selection, page-flipped back buffers, palette and gamma fades, and VBL-synced presentation, routed through the Metal compositor.
+- **DrawSprocket** -- full-screen display services for games built on Apple's DrawSprocket API: display-mode selection, page-flipped back buffers, palette and gamma fades, and VBL-synced presentation, routed through the Metal compositor.
 
 A unified **Metal compositor** handles 2D/3D compositing, supporting all Mac OS video depths (1/2/4/8/16/32-bit), palette updates for indexed color modes, and VBL-synced frame pacing.
 
