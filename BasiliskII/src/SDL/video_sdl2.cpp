@@ -2928,6 +2928,17 @@ static void handle_events(void)
 			case SDL_MOUSEBUTTONUP:
 			case SDL_MOUSEMOTION:
 			case SDL_MOUSEWHEEL:
+#if TARGET_OS_IPHONE
+				// With a real pointer, live mouse events are fed to ADB as they
+				// are generated and dropped from the queue (see
+				// on_sdl_event_generated) — any mouse event still queued here
+				// predates the video driver (launch-time window activation) and
+				// would replay as a click at the guest cursor's initial top-left
+				// position, popping the Apple menu open at boot. Only the touch
+				// path legitimately queues.
+				if (!ADBGetTouchInput())
+					break;
+#endif
 				handle_mouse_event(event);
 				break;
 
