@@ -3864,9 +3864,11 @@ extern "C" int32_t DSpContext_IsBusyHandler(uint32_t ctxRef,
  *
  *  DSp 1.7 PDF p.14-15: DSpContext_GetDisplayID(inContext, DisplayIDType
  *  *outDisplayID). Writes the display id the context lives on. iOS has a
- *  single display; return the classic Apple Display Manager ID for the
- *  context resolution so clients that cross-check video metadata see a real
- *  mode ID. 4-byte DisplayIDType (UInt32) out-write. */
+ *  single display; report the guest Display Manager's id for that screen
+ *  (kDSpGuestDMMainDisplayID) so apps can round-trip the id through
+ *  DMGetGDeviceByDisplayID — the per-mode APPLE_* ids are NOT DM display
+ *  ids and fail that lookup (see dsp_display_id_policy.h). 4-byte
+ *  DisplayIDType (UInt32) out-write. */
 extern "C" int32_t DSpContext_GetDisplayIDHandler(uint32_t ctxRef,
                                                    uint32_t outIDAddr)
 {
@@ -3876,8 +3878,7 @@ extern "C" int32_t DSpContext_GetDisplayIDHandler(uint32_t ctxRef,
 		        ctxRef, outIDAddr);
 		return kDSpInvalidContextErr;
 	}
-	uint32_t display_id = DSpDisplayIDForMode(ctx->attr.displayWidth,
-	                                          ctx->attr.displayHeight);
+	const uint32_t display_id = kDSpGuestDMMainDisplayID;
 	WriteMacInt32(outIDAddr, display_id);
 	DSP_LOG("GetDisplayID: ctx=%u %ux%u -> displayID=0x%08x",
 	        ctxRef, ctx->attr.displayWidth, ctx->attr.displayHeight,
