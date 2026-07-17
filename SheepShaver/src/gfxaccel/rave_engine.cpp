@@ -1972,6 +1972,12 @@ int32 NativeEngineGestalt(uint32 selector, uint32 responsePtr)
 			         rave_current_draw_context_addr);
 			break;
 		}
+		if (selector == 1001) {  // kQATIGestalt_VRAMBytes (on-board VRAM)
+			WriteMacInt32(responsePtr, kRaveAdvertisedVRAMBytes);
+			RAVE_LOG("EngineGestalt: kQATIGestalt_VRAMBytes -> %u",
+			         kRaveAdvertisedVRAMBytes);
+			break;
+		}
 		RAVE_LOG("EngineGestalt: unknown selector %d -> kQANotSupported", selector);
 		return kQANotSupported;
 	}

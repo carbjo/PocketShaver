@@ -1739,7 +1739,14 @@ bool VideoInit(bool classic)
 #if TARGET_OS_IPHONE
 		std::vector<MonitorResolution> ios_resolutions = objc_getAllMonitorResolutions();
 		for(const MonitorResolution& resolution : ios_resolutions) {
-			for (int d = VIDEO_DEPTH_1BIT; d <= default_depth; d++)
+			/* Advertise only the classic PCI-driver depth set (256 colors /
+			 * Thousands / Millions), matching real late-90s hardware. The
+			 * previous 1..32bpp range put SIX depth records in every Display
+			 * Manager mode-list entry, and Mac OS DisplayLib mis-builds
+			 * entries past the fourth depth record — apps that hunt for the
+			 * 16bpp record (Myth II's monitor dialog) then read garbage
+			 * width/height/caps. Real drivers never exceeded 3-4 records. */
+			for (int d = VIDEO_DEPTH_8BIT; d <= default_depth; d++)
 				add_mode(display_type, resolution.width, resolution.height, resolution.index, TrivialBytesPerRow(resolution.width, (video_depth)d), d);
 		}
 #else
@@ -2205,15 +2212,25 @@ void SDL_monitor_desc::set_gamma(uint8 *gamma, int num_in)
 #ifdef SHEEPSHAVER
 int16 video_mode_change(VidLocals *csSave, uint32 ParamPtr)
 {
+	/* csMode arrives in the RELATIVE kDepthModeN namespace (0x80 = lowest
+	 * supported depth); translate to the absolute APPLE_*_BIT constants
+	 * VModes stores. Untranslatable values fall through unchanged so
+	 * internal callers that already pass absolute modes keep working. */
+	uint16 req_mode = ReadMacInt16(ParamPtr + csMode);
+	{
+		uint32 abs = video_abs_depth_from_rel(req_mode);
+		if (abs != 0) req_mode = (uint16)abs;
+	}
+
 	/* return if no mode change */
 	if ((csSave->saveData == ReadMacInt32(ParamPtr + csData)) &&
-	    (csSave->saveMode == ReadMacInt16(ParamPtr + csMode))) return noErr;
+	    (csSave->saveMode == req_mode)) return noErr;
 
 	/* first find video mode in table */
 	for (int i=0; VModes[i].viType != DIS_INVALID; i++) {
-		if ((ReadMacInt16(ParamPtr + csMode) == VModes[i].viAppleMode) &&
+		if ((req_mode == VModes[i].viAppleMode) &&
 		    (ReadMacInt32(ParamPtr + csData) == VModes[i].viAppleID)) {
-			csSave->saveMode = ReadMacInt16(ParamPtr + csMode);
+			csSave->saveMode = req_mode;
 			csSave->saveData = ReadMacInt32(ParamPtr + csData);
 			csSave->savePage = ReadMacInt16(ParamPtr + csPage);
 
