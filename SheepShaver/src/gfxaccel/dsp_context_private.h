@@ -180,6 +180,14 @@ struct DSpContextPrivate {
 	uint32_t  saved_pixmap_planeBytes;
 	uint8_t   saved_pixmap_valid;       /* 0 = no redirect installed; 1 = redirect installed */
 	uint8_t   saved_pixmap_reserved[3]; /* alignment padding (preserves uint16 alignment of any trailing fields) */
+	/* Original MainDevice GDevice.gdRect, cached alongside the PixMap
+	 * originals when the redirect installs (apps read gdRect for the
+	 * display's global bounds — the DMGetGDeviceByDisplayID centering
+	 * idiom), restored by DSpRestoreMainDevicePixMap. */
+	uint32_t  saved_gdevice_ptr;        /* GDevice struct pointer the gdRect save came from */
+	int16_t   saved_gdrect[4];          /* original gdRect: top, left, bottom, right */
+	uint8_t   saved_gdrect_valid;       /* 0 = not cached; 1 = cached (restore pending) */
+	uint8_t   saved_gdrect_reserved[3]; /* alignment padding */
 
 	/* Per-context CLUT storage.
 	 * clut_bytes is the writer-visible state — DSpContext_SetCLUTEntries

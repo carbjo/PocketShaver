@@ -93,6 +93,7 @@ static void DSpClearAltBufferRecord(DSpAltBufferRecord *rec)
 	rec->baseaddr_owned_staging = false;
 	rec->width             = 0;
 	rec->height            = 0;
+	rec->depth             = 0;
 	rec->options           = 0;
 	rec->underlay_capable  = false;
 	rec->dirty_left        = 0;
@@ -144,29 +145,53 @@ static void DSpFreeAltBuffer(uint32_t handle)
  *  DSp heap (kHeapEngineDSp) — NOT the one-per-engine overlay slot, so   *
  *  N alt-buffers coexist. A designated underlay feeds the                *
  *  DSpRestoreBackBufferFromUnderlay CPU dirty-band restore path when     *
- *  host-visible 32-bpp backing is available. ZERO new concurrency        *
+ *  host-visible depth-matched backing is available. ZERO new concurrency *
  *  primitives:                                                          *
  *  every record field is single-writer emul-thread RAM + the            *
  *  existing single MTLCommandQueue.                                      *
  *                                                                       *
- *  Alt-buffers use a fixed BGRA8Unorm 32-bpp backing; the CGrafPort      *
- *  GetCGrafPtr emits describes the same BGRA8Unorm surface               *
- *  (4 bytes/pixel).                                                      *
+ *  Alt-buffers inherit the OWNING CONTEXT's back-buffer depth (real DSp  *
+ *  semantics: an alt buffer is an alternate surface of the context, so   *
+ *  NULL inAttributes means "same attributes" INCLUDING depth). The       *
+ *  CGrafPort GetCGrafPtr emits describes that same depth, which keeps    *
+ *  DSpBlit_* src/dst depths equal (Diablo II software mode draws its     *
+ *  8-bpp frame into an alt buffer and Blit_Fastest's it to the front     *
+ *  buffer — a fixed 32-bpp alt backing made every such blit fail with    *
+ *  a depth mismatch and the game presented nothing).                     *
  * --------------------------------------------------------------------- */
 
-/* Alt-buffer CGrafPort byte size. Alt buffers keep the compact PixMap-shaped
- * shim; back/front buffers vend real CGrafPorts with portPixMap handles. */
-#define DSP_ALT_CGP_SIZE 24u
+/* Bytes per pixel / Metal format for an alt-buffer depth. Same depth->format
+ * mapping as the back buffer (dsp_metal_renderer.mm DSpPixelFormatForDepthBits):
+ * 8 -> R8Uint (indexed, CLUT unpack), 16 -> R16Uint (xRGB1555), 32 ->
+ * BGRA8Unorm. Anything else is normalized to 32 at New time. */
+static inline uint32_t DSpAltBytesPerPixel(uint32_t depth)
+{
+	switch (depth) {
+		case 8:  return 1u;
+		case 16: return 2u;
+		default: return 4u;
+	}
+}
 
-/* Allocate the heap-routed BGRA8Unorm backing (MTLBuffer + texture view)
+static inline MTLPixelFormat DSpAltPixelFormatForDepth(uint32_t depth)
+{
+	switch (depth) {
+		case 8:  return MTLPixelFormatR8Uint;
+		case 16: return MTLPixelFormatR16Uint;
+		default: return MTLPixelFormatBGRA8Unorm;
+	}
+}
+
+/* Allocate the heap-routed depth-matched backing (MTLBuffer + texture view)
  * for an alt-buffer record. Mirrors DSpAllocateBackBuffer's heap-alloc +
- * texture-view idiom; 32-bpp BGRA8Unorm (4 bytes/pixel) so the compositor
- * CompositeLayer.source contract holds. Returns true on success; on
- * failure leaves rec->backing/texture nil. */
+ * texture-view idiom at rec->depth (set by New from the owning context;
+ * persists across the background/foreground release-restore cycle). Returns
+ * true on success; on failure leaves rec->backing/texture nil. */
 static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
                                      uint32_t w, uint32_t h)
 {
 	if (rec == nullptr || w == 0 || h == 0) return false;
+	const uint32_t bpp_bytes = DSpAltBytesPerPixel(rec->depth);
 
 	/* Bound the dimensions and compute the backing size in 64-bit so the
 	 * uint32 row-bytes / buffer-size products cannot overflow (which would
@@ -178,7 +203,7 @@ static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 		        w, h, (uint32_t)DSP_ALT_MAX_DIM);
 		return false;
 	}
-	uint64_t row_bytes64 = (uint64_t)w * 4u;       /* BGRA8Unorm: 4 bytes/pixel */
+	uint64_t row_bytes64 = (uint64_t)w * (uint64_t)bpp_bytes;
 	uint64_t aligned64   = (row_bytes64 + 255u) & ~(uint64_t)255u;
 	uint64_t size64      = aligned64 * (uint64_t)h;
 	if (aligned64 > 0xFFFFFFFFu || size64 > DSP_ALT_MAX_BACKING_BYTES) {
@@ -203,7 +228,7 @@ static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 
 	MTLTextureDescriptor *desc = [MTLTextureDescriptor new];
 	desc.textureType = MTLTextureType2D;
-	desc.pixelFormat = MTLPixelFormatBGRA8Unorm;
+	desc.pixelFormat = DSpAltPixelFormatForDepth(rec->depth);
 	desc.width       = (NSUInteger)w;
 	desc.height      = (NSUInteger)h;
 	desc.storageMode = MTLStorageModeShared;
@@ -304,6 +329,15 @@ extern "C" int32_t DSpAltBuffer_NewHandler(uint32_t ctxRef,
 	rec->options          = options;
 	rec->underlay_capable = underlay_capable;
 
+	/* An alt buffer is an alternate surface OF THE CONTEXT, so it inherits
+	 * the context's back-buffer depth (DSp 1.7 PDF p.48 "same attributes").
+	 * The drawable CGrafPort and Metal backing both use this depth, keeping
+	 * DSpBlit_* alt<->back/front transfers depth-matched. Depths outside
+	 * 8/16/32 (never produced by Reserve) normalize to 32. */
+	uint32_t depth = ctx->attr.backBufferBestDepth;
+	if (depth != 8 && depth != 16 && depth != 32) depth = 32;
+	rec->depth = depth;
+
 	if (!DSpAllocAltBufferBacking(rec, w, h)) {
 		DSpFreeAltBuffer(handle);
 		DSP_LOG("AltBuffer_New: backing alloc failed -> kDSpInternalErr");
@@ -311,8 +345,8 @@ extern "C" int32_t DSpAltBuffer_NewHandler(uint32_t ctxRef,
 	}
 
 	WriteMacInt32(outAltBufferAddr, handle);
-	DSP_LOG("AltBuffer_New: ctx=%u %ux%u handle=%u underlay_capable=%d",
-	        ctxRef, w, h, handle, underlay_capable);
+	DSP_LOG("AltBuffer_New: ctx=%u %ux%u@%ubpp handle=%u underlay_capable=%d",
+	        ctxRef, w, h, depth, handle, underlay_capable);
 	return kDSpNoErr;
 }
 
@@ -356,10 +390,13 @@ extern "C" int32_t DSpAltBuffer_DisposeHandler(uint32_t altBuffer)
  *  other kind => kDSpInvalidAttributesErr. SheepMem reserve + cache the Mac
  *  address on the record + W1 staging fallback when Host2MacAddr cannot map
  *  the MTLBuffer contents pointer (arm64 iOS bump-allocator outside vm_alloc).
- *  The alt-buffer CGrafPtr uses the compact PixMap-shaped shim
- *  (DSP_PIXMAP_OFF_* offsets); BGRA8Unorm 32-bpp direct (pixelType=0x10
- *  RGBDirect, pixelSize 32, cmpCount 3, cmpSize 8). NULL outCGrafPtr =>
- *  kDSpInvalidAttributesErr. */
+ *  The CGrafPort is a REAL port at the record's depth, built by the shared
+ *  DSpEmitSurfaceCGrafPort emitter (classic PixMap + handle + portVersion
+ *  0xC000 + vis/clip regions) — apps draw into the alt buffer by
+ *  dereferencing this as a genuine port (portPixMap -> GetPixBaseAddr /
+ *  CopyBits), so the former compact PixMap-shaped shim sent Diablo II's
+ *  software-renderer writes through misread garbage pointers (noise on
+ *  screen). NULL outCGrafPtr => kDSpInvalidAttributesErr. */
 extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
                                                    uint32_t bufferKind,
                                                    uint32_t outCGrafPtrAddr)
@@ -386,22 +423,15 @@ extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
 		return kDSpNoErr;
 	}
 
-	uint32_t cgp_addr = DSpReserveGuestScratch(DSP_ALT_CGP_SIZE);
-	if (cgp_addr == 0) {
-		DSP_LOG("AltBuffer_GetCGrafPtr: guest-scratch reserve failed (size=%u)",
-		        (uint32_t)DSP_ALT_CGP_SIZE);
-		return kDSpInternalErr;
-	}
-
 	uint32_t w         = rec->width;
 	uint32_t h         = rec->height;
-	uint32_t row_bytes = w * 4u;                   /* BGRA8Unorm */
+	uint32_t row_bytes = w * DSpAltBytesPerPixel(rec->depth);
 	uint32_t alignedRB = (row_bytes + 255u) & ~255u;
 
 	/* rec->width was bounded to DSP_ALT_MAX_DIM at allocation time,
-	 * so alignedRB is guaranteed <= 0x3FFF and the 16-bit WriteMacInt16 of the
-	 * rowBytes field below is always exact (no truncation). Assert the invariant
-	 * so a future cap change that breaks it is caught immediately. */
+	 * so alignedRB is guaranteed <= 0x3FFF and the emitter's 16-bit PixMap
+	 * rowBytes-field write is always exact (no truncation). Assert the
+	 * invariant so a future cap change that breaks it is caught immediately. */
 	assert(alignedRB <= 0x3FFFu);
 
 	uint32_t buffer_size = alignedRB * h;
@@ -442,23 +472,26 @@ extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
 	rec->baseaddr_size          = buffer_size;
 	rec->baseaddr_owned_staging = baseaddr_owned_staging;
 
-	/* Write the CGrafPort shim (same offsets as the back-buffer path,
-	 * dsp_pixmap_offsets.h). BGRA8Unorm => RGBDirect 32-bpp. */
-	WriteMacInt32(cgp_addr + DSP_PIXMAP_OFF_BASEADDR,      baseAddr_mac);
-	WriteMacInt16(cgp_addr + DSP_PIXMAP_OFF_ROWBYTES,      (uint16_t)alignedRB);
-	WriteMacInt16(cgp_addr + DSP_PIXMAP_OFF_BOUNDS_TOP,    0);
-	WriteMacInt16(cgp_addr + DSP_PIXMAP_OFF_BOUNDS_LEFT,   0);
-	WriteMacInt16(cgp_addr + DSP_PIXMAP_OFF_BOUNDS_BOT,    (uint16_t)h);
-	WriteMacInt16(cgp_addr + DSP_PIXMAP_OFF_BOUNDS_RIGHT,  (uint16_t)w);
-	WriteMacInt16(cgp_addr + DSP_PIXMAP_OFF_PIXELTYPE,     0x10);  /* RGBDirect */
-	WriteMacInt16(cgp_addr + DSP_PIXMAP_OFF_PIXELSIZE,     32);
-	WriteMacInt16(cgp_addr + DSP_PIXMAP_OFF_CMPCOUNT,      3);
-	WriteMacInt16(cgp_addr + DSP_PIXMAP_OFF_CMPSIZE,       8);
+	/* Emit a REAL CGrafPort at the record's depth (shared emitter — same
+	 * construction as the front buffer). The guest dereferences this as a
+	 * genuine port (portPixMap -> pixel writes / CopyBits). */
+	uint32_t cgp_addr = DSpEmitSurfaceCGrafPort(baseAddr_mac,
+	                                            w, h,
+	                                            rec->depth,
+	                                            alignedRB,
+	                                            0 /* zero-init PixMap */,
+	                                            nullptr, nullptr);
+	if (cgp_addr == 0) {
+		DSP_LOG("AltBuffer_GetCGrafPtr: CGrafPort emission failed "
+		        "(handle=%u %ux%u@%u)", altBuffer, w, h, rec->depth);
+		return kDSpInternalErr;
+	}
 
 	rec->cgrafptr_mac_addr = cgp_addr;
 	WriteMacInt32(outCGrafPtrAddr, cgp_addr);
 	DSP_LOG("AltBuffer_GetCGrafPtr: handle=%u cgrafptr=0x%08x baseAddr=0x%08x "
-	        "rb=%u", altBuffer, cgp_addr, baseAddr_mac, alignedRB);
+	        "rb=%u bpp=%u (real port)", altBuffer, cgp_addr, baseAddr_mac,
+	        alignedRB, rec->depth);
 	return kDSpNoErr;
 }
 
@@ -606,7 +639,7 @@ extern "C" int32_t DSpContext_GetUnderlayAltBufferHandler(uint32_t ctxRef,
  * GetCGrafPtr CGrafPort) into its Metal backing, so the CPU
  * underlay-restore copy reads the guest's pixels. NQD/QuickDraw draws land in
  * the guest-RAM staging; the Metal backing is a separate allocation that would
- * otherwise stay empty. Both sides are BGRA8Unorm 32-bpp at the same
+ * otherwise stay empty. Both sides are the record's depth at the same
  * 256-aligned row stride, so a flat copy of the backing extent is exact. No-op
  * on StorageModePrivate (simulator — contents NULL) or when the alt-buffer has
  * no owned guest staging. */
@@ -618,7 +651,8 @@ void DSpSyncAltBufferStagingToBacking(DSpAltBufferRecord *rec)
 	if (dst == NULL) return;
 	uint8_t *src = Mac2HostAddr(rec->baseaddr_mac);
 	if (src == NULL) return;
-	uint32_t alignedRB  = ((rec->width * 4u) + 255u) & ~255u;
+	uint32_t alignedRB  = ((rec->width * DSpAltBytesPerPixel(rec->depth))
+	                       + 255u) & ~255u;
 	uint32_t copy_bytes = alignedRB * rec->height;
 	if (rec->baseaddr_size != 0 && copy_bytes > rec->baseaddr_size)
 		copy_bytes = rec->baseaddr_size;       /* never read past the staging block */

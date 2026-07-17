@@ -34,14 +34,15 @@
 
 struct DSpAltBufferRecord {
 	bool                  in_use;
-	id<MTLBuffer>         backing;             /* DSp-heap MTLBuffer (BGRA8Unorm-viewable) */
-	id<MTLTexture>        texture;             /* BGRA8Unorm view for compositor routing */
+	id<MTLBuffer>         backing;             /* DSp-heap MTLBuffer at the record's depth */
+	id<MTLTexture>        texture;             /* depth-matched view (R8Uint/R16Uint/BGRA8Unorm) */
 	uint32_t              cgrafptr_mac_addr;   /* cached guest CGrafPort (0 until first GetCGrafPtr) */
 	uint32_t              baseaddr_mac;        /* guest-RAM staging baseAddr backing the CGrafPort */
 	uint32_t              baseaddr_size;       /* byte size of the pixel-staging block (for teardown release) */
 	bool                  baseaddr_owned_staging; /* true => baseaddr_mac is a DSpReserveGuestPixelStaging block to quarantine on teardown */
 	uint32_t              width;
 	uint32_t              height;
+	uint32_t              depth;               /* bits/pixel (8/16/32) — the OWNING context's back-buffer depth at New time; drawable surface + backing both use it */
 	uint32_t              options;             /* DSpAltBufferOption bits */
 	bool                  underlay_capable;    /* NULL inAttributes => true (PDF p.49) */
 	/* Dirty-rect union — same fields/semantics as DSpContextPrivate's

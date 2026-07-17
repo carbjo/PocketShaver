@@ -2954,47 +2954,48 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
 	if ((uint32_t)ry1 > u->height) ry1 = (int32_t)u->height;
 	if (rx1 <= rx0 || ry1 <= ry0) return;
 
-	/* (1) CPU restore copy (underlay BGRA8Unorm -> back buffer) — only when
-	 * both backings are host-visible (Shared). The back buffer's pixel
-	 * format matches its depth; for the golden underlay-restore path the
-	 * context + underlay are both 32-bpp BGRA8Unorm so the copy is a direct
-	 * row-wise memcpy of the dirty band. Skipped on StorageModePrivate
-	 * (simulator) where contents is NULL.
+	/* (1) CPU restore copy (underlay -> back buffer) — only when both
+	 * backings are host-visible (Shared). Alt buffers inherit the owning
+	 * context's depth at New time (DSpAllocAltBufferBacking), so when the
+	 * depths still agree the copy is a direct row-wise memcpy of the dirty
+	 * band at that depth. Skipped on StorageModePrivate (simulator) where
+	 * contents is NULL.
 	 *
-	 * Known M1 approximation: the dirty-band CPU restore only runs for
-	 * a 32-bpp back buffer because the underlay is always allocated BGRA8Unorm
-	 * (DSpAllocAltBufferBacking). An 8/16-bpp context would need a per-pixel
-	 * format conversion that is NOT implemented, so the PDF-p.51 "clean a back
-	 * buffer" restore no-ops at those depths; production SubmitFrame ignores
-	 * underlay-slot layers, so there is no compositor fallback. The else-branch
-	 * below logs the skipped restore rather than silently no-op'ing. */
+	 * The depths can only disagree if the context was re-Reserved at a new
+	 * depth after the underlay was created; a cross-depth restore would need
+	 * a per-pixel format conversion that is NOT implemented, so the PDF-p.51
+	 * "clean a back buffer" restore no-ops there (production SubmitFrame
+	 * ignores underlay-slot layers, so there is no compositor fallback). The
+	 * else-branch logs the skipped restore rather than silently no-op'ing. */
 	void *u_contents  = u->backing.contents;
 	void *bb_contents = ctx->back_buffer.contents;
+	uint32_t bb_depth = ctx->attr.backBufferBestDepth;
 	if (u_contents != NULL && bb_contents != NULL &&
-	    ctx->attr.backBufferBestDepth == 32) {
-		uint32_t u_rb  = ((u->width * 4u) + 255u) & ~255u;
+	    u->depth == bb_depth &&
+	    (bb_depth == 8 || bb_depth == 16 || bb_depth == 32)) {
+		uint32_t px_bytes = bb_depth / 8u;
+		uint32_t u_rb  = ((u->width * px_bytes) + 255u) & ~255u;
 		uint32_t bb_rb = DSpAlignedRowBytes(DSpContextBackBufferWidth(ctx),
-		                                    32);
+		                                    bb_depth);
 		uint8_t *u_base  = (uint8_t *)u_contents;
 		uint8_t *bb_base = (uint8_t *)bb_contents;
-		uint32_t band_bytes = (uint32_t)(rx1 - rx0) * 4u;
+		uint32_t band_bytes = (uint32_t)(rx1 - rx0) * px_bytes;
 		for (int32_t y = ry0; y < ry1; y++) {
-			uint8_t *src = u_base  + (uint32_t)y * u_rb  + (uint32_t)rx0 * 4u;
-			uint8_t *dst = bb_base + (uint32_t)y * bb_rb + (uint32_t)rx0 * 4u;
+			uint8_t *src = u_base  + (uint32_t)y * u_rb  + (uint32_t)rx0 * px_bytes;
+			uint8_t *dst = bb_base + (uint32_t)y * bb_rb + (uint32_t)rx0 * px_bytes;
 			memcpy(dst, src, band_bytes);
 		}
 		DSP_LOG("UnderlayRestore: ctx=%u underlay=%u copied dirty band "
-		        "(%d,%d)-(%d,%d)", ctx->handle, ctx->underlay_alt_buffer,
-		        rx0, ry0, rx1, ry1);
-	} else if (u_contents != NULL && bb_contents != NULL &&
-	           ctx->attr.backBufferBestDepth != 32) {
-		/* Depth precludes the BGRA8Unorm->back-buffer restore copy.
+		        "(%d,%d)-(%d,%d) @%ubpp", ctx->handle, ctx->underlay_alt_buffer,
+		        rx0, ry0, rx1, ry1, bb_depth);
+	} else if (u_contents != NULL && bb_contents != NULL) {
+		/* Depth mismatch precludes the restore copy.
 		 * Make the skipped restore observable instead of silently no-op'ing. */
-		DSP_LOG("UnderlayRestore: ctx=%u underlay=%u back-buffer depth=%u (not "
-		        "32-bpp) — CPU dirty-band restore SKIPPED (known M1 approximation, "
-		        "depth-conversion deferred; no compositor underlay fallback)",
-		        ctx->handle, ctx->underlay_alt_buffer,
-		        ctx->attr.backBufferBestDepth);
+		DSP_LOG("UnderlayRestore: ctx=%u underlay=%u depth mismatch "
+		        "(underlay=%u back-buffer=%u) — CPU dirty-band restore SKIPPED "
+		        "(cross-depth conversion deferred; no compositor underlay "
+		        "fallback)",
+		        ctx->handle, ctx->underlay_alt_buffer, u->depth, bb_depth);
 	}
 }
 
@@ -3174,6 +3175,20 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 		ctx->saved_pixmap_vRes      = ReadMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_VRES);
 		ctx->saved_pixmap_planeBytes = ReadMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PLANEBYTES);
 		ctx->saved_pixmap_valid    = 1;
+		/* Cache the GDevice.gdRect alongside the PixMap originals — apps
+		 * read gdRect for the display's global bounds (the
+		 * DMGetGDeviceByDisplayID centering idiom), so the redirect below
+		 * rewrites it to the context resolution and the restore puts this
+		 * back. */
+		if (DSP_REDIR_INRANGE(gdevicePtr + GDEVICE_OFF_GDRECT) &&
+		    DSP_REDIR_INRANGE(gdevicePtr + GDEVICE_OFF_GDRECT + 7)) {
+			ctx->saved_gdevice_ptr = gdevicePtr;
+			ctx->saved_gdrect[0] = (int16_t)ReadMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 0);
+			ctx->saved_gdrect[1] = (int16_t)ReadMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 2);
+			ctx->saved_gdrect[2] = (int16_t)ReadMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 4);
+			ctx->saved_gdrect[3] = (int16_t)ReadMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 6);
+			ctx->saved_gdrect_valid = 1;
+		}
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S5 cached originals "
 		         "(baseAddr=0x%08x rowBytes=%u pixelSize=%u packType=%u "
 		         "packSize=%u hRes=0x%08x vRes=0x%08x planeBytes=%u)",
@@ -3343,6 +3358,21 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE,    pixelSize);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_CMPCOUNT,     cmpCount);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_CMPSIZE,      cmpSize);
+	/* Keep GDevice.gdRect consistent with the redirected PixMap bounds:
+	 * apps center content inside gdRect (DMGetGDeviceByDisplayID idiom), so
+	 * a stale full-screen gdRect around a smaller DSp mode offsets every
+	 * blit by the letterbox margin (Diablo II 800x600-in-1024x768 at
+	 * (112,84)). Idempotent on reassert; restore writes the cached rect
+	 * back. */
+	if (DSP_REDIR_INRANGE(gdevicePtr + GDEVICE_OFF_GDRECT) &&
+	    DSP_REDIR_INRANGE(gdevicePtr + GDEVICE_OFF_GDRECT + 7)) {
+		WriteMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 0, 0);
+		WriteMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 2, 0);
+		WriteMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 4,
+		              (uint16_t)pixmap_height);
+		WriteMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 6,
+		              (uint16_t)pixmap_width);
+	}
 	DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-DONE pixMapPtr=0x%08x "
 	         "newBaseAddr=0x%08x rowBytes=%u rowBytesField=0x%04x %ux%u@%ubpp "
 	         "(backBuffer@%u display@%u) — redirect installed",
@@ -3508,6 +3538,25 @@ extern "C" void DSpRestoreMainDevicePixMap(DSpContextPrivate *ctx)
 		        ctx->saved_pixmap_rowBytes,
 		        ctx->saved_pixmap_pixelSize);
 	}
+	/* Symmetric GDevice.gdRect restore (cached at redirect-install time). */
+	if (ctx->saved_gdrect_valid != 0 &&
+	    DSpLowMemOrGuestRAMContainsAtOffset(ctx->saved_gdevice_ptr,
+	                                        GDEVICE_OFF_GDRECT, 8)) {
+		WriteMacInt16(ctx->saved_gdevice_ptr + GDEVICE_OFF_GDRECT + 0,
+		              (uint16_t)ctx->saved_gdrect[0]);
+		WriteMacInt16(ctx->saved_gdevice_ptr + GDEVICE_OFF_GDRECT + 2,
+		              (uint16_t)ctx->saved_gdrect[1]);
+		WriteMacInt16(ctx->saved_gdevice_ptr + GDEVICE_OFF_GDRECT + 4,
+		              (uint16_t)ctx->saved_gdrect[2]);
+		WriteMacInt16(ctx->saved_gdevice_ptr + GDEVICE_OFF_GDRECT + 6,
+		              (uint16_t)ctx->saved_gdrect[3]);
+		DSP_LOG("DSpRestoreMainDevicePixMap: restored gdRect (%d,%d)-(%d,%d) "
+		        "gdevicePtr=0x%08x",
+		        ctx->saved_gdrect[0], ctx->saved_gdrect[1],
+		        ctx->saved_gdrect[2], ctx->saved_gdrect[3],
+		        ctx->saved_gdevice_ptr);
+	}
+	ctx->saved_gdrect_valid = 0;
 	ctx->saved_pixmap_valid = 0;
 }
 
@@ -4056,50 +4105,29 @@ static uint32_t DSpCreateFrontRectRegion(uint32_t w, uint32_t h)
 	return handle_addr;
 }
 
-static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
+/* Emit a REAL guest CGrafPort (classic 50-byte PixMap + PixMapHandle +
+ * CGrafPort with portVersion 0xC000 + rect vis/clip regions) describing a
+ * DSp-vended drawable surface. This is the ONE construction path for every
+ * surface DSp hands the guest as a "CGrafPtr" (front buffer AND alt buffers):
+ * guest code legitimately dereferences these as ports (portPixMap ->
+ * GetPixBaseAddr / CopyBits / portRect), so a PixMap-shaped shim is NOT
+ * enough — Diablo II software mode drew its frames through the alt-buffer
+ * port and a shim sent every write into misread garbage pointers.
+ * seed_pixmap_mac (optional, 0 = zero-init) seeds the PixMap record before
+ * the canonical fields are written — the front buffer passes the saved
+ * MainDevice PixMap so unspecified fields inherit real-screen metadata.
+ * Returns the CGrafPort Mac address (0 on scratch exhaustion); out_pixmap_mac
+ * / out_pixmap_handle_mac (optional) receive the PixMap record + handle. */
+extern "C" uint32_t DSpEmitSurfaceCGrafPort(uint32_t baseAddr_mac,
+                                            uint32_t w,
+                                            uint32_t h,
+                                            uint32_t depth,
+                                            uint32_t row_bytes,
+                                            uint32_t seed_pixmap_mac,
+                                            uint32_t *out_pixmap_mac,
+                                            uint32_t *out_pixmap_handle_mac)
 {
-	if (ctx == nullptr || ctx->back_buffer == nil) return 0;
-
-	if (DSpShouldReuseBackBufferCGrafPtrForFrontBuffer(
-	        ctx->attr.backBufferBestDepth,
-	        ctx->attr.displayBestDepth)) {
-		uint32_t back_cgraf = DSpGetBackBufferCGrafPtr(ctx);
-		DSP_VLOG("DSpGetFrontBufferCGrafPtr: REUSING back-buffer CGrafPtr as "
-		         "FRONT (front==back alias) ctx=%u cgrafptr=0x%08x staging=0x%08x "
-		         "back@%u display@%u — front and back buffers are identical; "
-		         "if the guest expects a distinct front buffer this is the "
-		         "regression suspect",
-		         ctx->handle, back_cgraf, ctx->staging_mac_addr,
-		         ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
-		return back_cgraf;
-	}
-
-	if (ctx->front_cgrafptr_mac_addr != 0) {
-		return ctx->front_cgrafptr_mac_addr;
-	}
-
-	const uint32_t front_depth =
-	    DSpFrontBufferDepth(ctx->attr.backBufferBestDepth,
-	                        ctx->attr.displayBestDepth);
-	const uint32_t w = ctx->attr.displayWidth;
-	const uint32_t h = ctx->attr.displayHeight;
-	const uint32_t row_bytes =
-	    DSpFrontBufferRowBytes(w,
-	                           ctx->attr.backBufferBestDepth,
-	                           ctx->attr.displayBestDepth);
-	const uint32_t buffer_size = row_bytes * h;
-
-	uint32_t baseAddr_mac = DSpEnsureFrontBufferStaging(ctx,
-	                                                    row_bytes,
-	                                                    h,
-	                                                    front_depth,
-	                                                    "DSpGetFrontBufferCGrafPtr");
-	if (baseAddr_mac == 0) {
-		DSP_LOG("DSpGetFrontBufferCGrafPtr: staging allocation unusable "
-		        "(size=%u, frontDepth=%u)",
-		        buffer_size, front_depth);
-		return 0;
-	}
+	if (baseAddr_mac == 0 || w == 0 || h == 0 || row_bytes == 0) return 0;
 
 	uint32_t pixmap_addr = DSpReserveGuestScratch(DSP_FRONT_PIXMAP_SIZE);
 	uint32_t pixmap_handle_addr =
@@ -4110,7 +4138,7 @@ static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
 	if (pixmap_addr == 0 || pixmap_handle_addr == 0 ||
 	    cgrafptr_addr == 0 || vis_rgn_handle == 0 ||
 	    clip_rgn_handle == 0) {
-		DSP_LOG("DSpGetFrontBufferCGrafPtr: guest-scratch reserve failed "
+		DSP_LOG("DSpEmitSurfaceCGrafPort: guest-scratch reserve failed "
 		        "(pixmap=0x%08x handle=0x%08x cgraf=0x%08x "
 		        "vis=0x%08x clip=0x%08x)",
 		        pixmap_addr, pixmap_handle_addr, cgrafptr_addr,
@@ -4119,20 +4147,15 @@ static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
 	}
 
 	uint16_t pixelType, pixelSize, cmpCount, cmpSize;
-	DSpPixMapFormatForDepth(front_depth,
+	DSpPixMapFormatForDepth(depth,
 	                         &pixelType, &pixelSize, &cmpCount, &cmpSize);
 
 	const uint16_t row_bytes_field =
 	    DSpFrontBufferPixMapRowBytesField(row_bytes);
 
-	if (ctx->saved_pixmap_valid != 0 &&
-	    ctx->saved_pixmap_addr != 0 &&
-	    DSpGuestRAMContains(ctx->saved_pixmap_addr,
-	                        DSP_FRONT_PIXMAP_SIZE,
-	                        (uint32_t)RAMBase,
-	                        (uint32_t)RAMSize)) {
+	if (seed_pixmap_mac != 0) {
 		Host2Mac_memcpy(pixmap_addr,
-		                Mac2HostAddr(ctx->saved_pixmap_addr),
+		                Mac2HostAddr(seed_pixmap_mac),
 		                DSP_FRONT_PIXMAP_SIZE);
 	} else {
 		Mac_memset(pixmap_addr, 0, DSP_FRONT_PIXMAP_SIZE);
@@ -4181,16 +4204,97 @@ static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
 	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_FG_COLOR, 0xffffffffu);
 	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_BK_COLOR, 0x00000000u);
 
+	if (out_pixmap_mac != nullptr) *out_pixmap_mac = pixmap_addr;
+	if (out_pixmap_handle_mac != nullptr)
+		*out_pixmap_handle_mac = pixmap_handle_addr;
+	return cgrafptr_addr;
+}
+
+static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
+{
+	if (ctx == nullptr || ctx->back_buffer == nil) return 0;
+
+	if (DSpShouldReuseBackBufferCGrafPtrForFrontBuffer(
+	        ctx->attr.backBufferBestDepth,
+	        ctx->attr.displayBestDepth)) {
+		uint32_t back_cgraf = DSpGetBackBufferCGrafPtr(ctx);
+		DSP_VLOG("DSpGetFrontBufferCGrafPtr: REUSING back-buffer CGrafPtr as "
+		         "FRONT (front==back alias) ctx=%u cgrafptr=0x%08x staging=0x%08x "
+		         "back@%u display@%u — front and back buffers are identical; "
+		         "if the guest expects a distinct front buffer this is the "
+		         "regression suspect",
+		         ctx->handle, back_cgraf, ctx->staging_mac_addr,
+		         ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+		return back_cgraf;
+	}
+
+	if (ctx->front_cgrafptr_mac_addr != 0) {
+		return ctx->front_cgrafptr_mac_addr;
+	}
+
+	const uint32_t front_depth =
+	    DSpFrontBufferDepth(ctx->attr.backBufferBestDepth,
+	                        ctx->attr.displayBestDepth);
+	const uint32_t w = ctx->attr.displayWidth;
+	const uint32_t h = ctx->attr.displayHeight;
+	const uint32_t row_bytes =
+	    DSpFrontBufferRowBytes(w,
+	                           ctx->attr.backBufferBestDepth,
+	                           ctx->attr.displayBestDepth);
+	const uint32_t buffer_size = row_bytes * h;
+
+	uint32_t baseAddr_mac = DSpEnsureFrontBufferStaging(ctx,
+	                                                    row_bytes,
+	                                                    h,
+	                                                    front_depth,
+	                                                    "DSpGetFrontBufferCGrafPtr");
+	if (baseAddr_mac == 0) {
+		DSP_LOG("DSpGetFrontBufferCGrafPtr: staging allocation unusable "
+		        "(size=%u, frontDepth=%u)",
+		        buffer_size, front_depth);
+		return 0;
+	}
+
+	/* Seed the PixMap from the saved MainDevice PixMap when it is valid and
+	 * fully inside guest RAM, so unspecified fields inherit the real screen's
+	 * metadata (same policy as before the shared-emitter extraction). */
+	uint32_t seed_pixmap_mac = 0;
+	if (ctx->saved_pixmap_valid != 0 &&
+	    ctx->saved_pixmap_addr != 0 &&
+	    DSpGuestRAMContains(ctx->saved_pixmap_addr,
+	                        DSP_FRONT_PIXMAP_SIZE,
+	                        (uint32_t)RAMBase,
+	                        (uint32_t)RAMSize)) {
+		seed_pixmap_mac = ctx->saved_pixmap_addr;
+	}
+
+	uint32_t pixmap_addr = 0;
+	uint32_t pixmap_handle_addr = 0;
+	uint32_t cgrafptr_addr = DSpEmitSurfaceCGrafPort(baseAddr_mac,
+	                                                 w, h,
+	                                                 front_depth,
+	                                                 row_bytes,
+	                                                 seed_pixmap_mac,
+	                                                 &pixmap_addr,
+	                                                 &pixmap_handle_addr);
+	if (cgrafptr_addr == 0) {
+		DSP_LOG("DSpGetFrontBufferCGrafPtr: CGrafPort emission failed "
+		        "(ctx=%u %ux%u@%u)", ctx->handle, w, h, front_depth);
+		return 0;
+	}
+
 	ctx->front_cgrafptr_mac_addr = cgrafptr_addr;
 	ctx->front_pixmap_mac_addr = pixmap_addr;
 	ctx->front_pixmap_handle_mac_addr = pixmap_handle_addr;
 	DSP_LOG("DSpGetFrontBufferCGrafPtr: ctx=%u cgrafptr=0x%08x pixmapH=0x%08x "
-	        "pixmap=0x%08x visRgn=0x%08x clipRgn=0x%08x baseAddr=0x%08x "
-	        "rbRaw=0x%04x rb=%u pixelSize=%u cmpCount=%u cmpSize=%u "
+	        "pixmap=0x%08x baseAddr=0x%08x "
+	        "rbRaw=0x%04x rb=%u pixelSize=%u "
 	        "hRes=0x%08x vRes=0x%08x pmTable=0x%08x (backBuffer@%u)",
 	        ctx->handle, cgrafptr_addr, pixmap_handle_addr, pixmap_addr,
-	        vis_rgn_handle, clip_rgn_handle, baseAddr_mac, row_bytes_field,
-	        row_bytes, pixelSize, cmpCount, cmpSize,
+	        baseAddr_mac,
+	        ReadMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES),
+	        row_bytes,
+	        ReadMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE),
 	        ReadMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_HRES),
 	        ReadMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_VRES),
 	        ReadMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_PMTABLE),

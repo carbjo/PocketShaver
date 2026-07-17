@@ -230,6 +230,23 @@ extern int32_t  DSpUserSelectContextHandler(uint32_t attrAddr,
                                             uint32_t outCtxRefAddr);
 extern int32_t  DSpSetBlankingColorHandler(uint32_t inRGBColorAddr);
 
+/* Emit a REAL guest CGrafPort (classic PixMap + handle + portVersion-0xC000
+ * port + rect vis/clip regions) describing a DSp-vended drawable surface.
+ * The one construction path for every guest-facing DSp "CGrafPtr" (front
+ * buffer + alt buffers) — guest code dereferences these as ports, so a
+ * PixMap-shaped shim is not enough. seed_pixmap_mac (0 = zero-init) seeds
+ * the PixMap record before canonical fields are written. Returns the
+ * CGrafPort Mac address (0 on scratch exhaustion); optional out params
+ * receive the PixMap record + handle addresses. */
+extern uint32_t DSpEmitSurfaceCGrafPort(uint32_t baseAddr_mac,
+                                        uint32_t w,
+                                        uint32_t h,
+                                        uint32_t depth,
+                                        uint32_t row_bytes,
+                                        uint32_t seed_pixmap_mac,
+                                        uint32_t *out_pixmap_mac,
+                                        uint32_t *out_pixmap_handle_mac);
+
 /*
  *  AltBuffer handlers (sub-ops 700-705).
  *  Real Metal-backed implementations reusing the engine-blind

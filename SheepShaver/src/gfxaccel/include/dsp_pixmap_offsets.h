@@ -75,4 +75,13 @@
 #define LMADDR_MAIN_DEVICE  0x8A4   /* GDeviceHandle */
 #define GDEVICE_OFF_PMAP    0x16    /* GDevice.gdPMap (PixMapHandle) */
 
+/* GDevice.gdRect (Rect: top,left,bottom,right — 4 x int16 = 8 bytes) at
+ * 0x22: gdPMap(0x16,4) + gdRefCon(0x1A,4) + gdNextGD(0x1E,4) -> 0x22.
+ * Apps read this for the DISPLAY's global bounds (the canonical
+ * DMGetGDeviceByDisplayID -> gdRect centering idiom), so a DSp mode switch
+ * must rewrite it alongside the PixMap bounds — Diablo II centered its
+ * 800x600 software frame inside a stale 1024x768 gdRect, blitting at
+ * (112,84) and cropping the overhang. */
+#define GDEVICE_OFF_GDRECT  0x22    /* GDevice.gdRect (Rect, 8 bytes) */
+
 #endif /* include guard */
