@@ -67,6 +67,12 @@ private:
 	bool gen_vector_generic_load_word(int mnemo, int vD, int rA, int rB);
 	bool gen_vector_generic_store_word(int mnemo, int vS, int rA, int rB);
 
+#if defined(__aarch64__)
+	// NEON splat handlers (translate-time guest->host lane conversion)
+	bool gen_neon_vsplat(int mnemo, int vD, int uimm, int vB);
+	bool gen_neon_vsplatis(int mnemo, int vD, int simm, int unused);
+#endif
+
 #if defined(__i386__) || defined(__x86_64__)
 	bool gen_x86_lvx(int mnemo, int vD, int rA, int rB);
 	bool gen_x86_lvewx(int mnemo, int vD, int rA, int rB);

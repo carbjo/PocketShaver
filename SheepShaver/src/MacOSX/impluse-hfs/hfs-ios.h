@@ -7,6 +7,16 @@
 
 #import <Foundation/Foundation.h>
 
+/*
+ *  This header replicates the HFS/Finder/TextCommon definitions that the
+ *  iOS SDK lacks. On macOS and Mac Catalyst the Foundation import above
+ *  already provides all of them via CoreServices/CarbonCore (HFSVolumes.h
+ *  includes usr/include/hfs/hfs_format.h; CarbonCore.h includes Finder.h,
+ *  TextCommon.h, UnicodeConverter.h, MacErrors.h), and redefining them is
+ *  a compile error — so the replicas are iOS-only.
+ */
+#if TARGET_OS_IPHONE && !TARGET_OS_MACCATALYST
+
 typedef unsigned int                    UInt32;
 typedef unsigned short                  u_int16_t;
 typedef short                   int16_t;
@@ -590,3 +600,5 @@ enum {
   kExtendedFlagObjectIsBusy     = 0x0080, /* Set if the object is marked as busy/incomplete */
   kExtendedFlagHasRoutingInfo   = 0x0004 /* Set if the file contains routing info resource */
 };
+
+#endif /* TARGET_OS_IPHONE && !TARGET_OS_MACCATALYST */

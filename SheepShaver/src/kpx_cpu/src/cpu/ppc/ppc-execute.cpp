@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
+#include <string.h>
 #ifdef __MINGW64__
 #include <fenv.h>
 #endif
@@ -32,6 +33,7 @@
 #include "cpu/ppc/ppc-operands.hpp"
 #include "cpu/ppc/ppc-operations.hpp"
 #include "cpu/ppc/ppc-execute.hpp"
+#include "cpu/ppc/ppc-stfiwx.hpp"
 
 #ifndef SHEEPSHAVER
 #include "basic-kernel.hpp"
@@ -40,6 +42,7 @@
 #ifdef SHEEPSHAVER
 #include "main.h"
 #include "prefs.h"
+#include "cpu_emulation.h"
 #endif
 
 #ifdef TARGET_OS_IPHONE
@@ -61,7 +64,122 @@
 
 void powerpc_cpu::execute_illegal(uint32 opcode)
 {
+#ifdef SHEEPSHAVER
+	// The guest can dispose component code resources behind prepared CFM
+	// TVectors, leaving apps executing freed memory inside a container tracked
+	// by the rsrc_patches monitor.  The freed space may be zero-filled OR
+	// already re-populated by a new owner (any garbage opcode), so try the
+	// repair on EVERY illegal opcode -- TryRepair itself verifies the word at
+	// pc actually differs from the lock-time snapshot before restoring.
+	// Retry semantics: every invalid opcode decodes as CFLOW_TRAP (block-
+	// final), so returning without increment_pc() re-decodes from the
+	// repaired memory and retries this PC.
+	{
+		extern int RsrcLocksTryRepair(uint32 pc, uint32 *out_start, uint32 *out_end);
+		uint32 repair_start, repair_end;
+		int repaired = RsrcLocksTryRepair(pc(), &repair_start, &repair_end);
+		if (repaired) {
+			if (repaired == 2) {
+				// Disposed-import graceful return: the stale cross-TOC call
+				// targeted a freed container whose code is gone.  Resume the
+				// caller as if the import returned noErr -- the bctr glue left
+				// LR = caller's return address (no link), and r3 carries the
+				// result.  This breaks the runaway CFM-REPAIR storm without
+				// restoring (and thus resurrecting) the freed code.
+				gpr(3) = 0;
+				pc() = lr();
+			}
+			invalidate_cache_range(repair_start, repair_end);
+			return;
+		}
+	}
+#endif
+
 	fprintf(stderr, "Illegal instruction at %08x, opcode = %08x\n", pc(), opcode);
+
+#ifdef SHEEPSHAVER
+	// Dump the locked-'nift' monitor table on the first fault -- host-side
+	// reads only, context-safe.
+	extern void RsrcLocksDumpOnCrash(void);
+	RsrcLocksDumpOnCrash();
+#endif
+
+	// Backtrace: walk PPC stack frames to show call chain
+	fprintf(stderr, "  PPC Backtrace (stack frame walk):\n");
+	{
+		uint32 sp = gpr(1);
+		uint32 ret_lr = lr();
+		fprintf(stderr, "    frame 0: PC=0x%08x LR=0x%08x SP=0x%08x\n", pc(), ret_lr, sp);
+		for (int frame = 1; frame < 12 && sp != 0 && sp < 0x50000000; frame++) {
+			uint32 prev_sp = vm_read_memory_4(sp);  // backchain pointer
+			if (prev_sp == 0 || prev_sp <= sp || prev_sp >= 0x50000000) break;
+			uint32 saved_lr = vm_read_memory_4(prev_sp + 8);  // saved LR in caller's frame
+			uint32 call_instr = 0;
+			if (saved_lr >= 4 && saved_lr < 0x50000000)
+				call_instr = vm_read_memory_4(saved_lr - 4);
+			fprintf(stderr, "    frame %d: saved_LR=0x%08x SP=0x%08x call_instr=0x%08x\n",
+					frame, saved_lr, prev_sp, call_instr);
+			sp = prev_sp;
+		}
+	}
+
+	// Dump PPC register state for crash analysis
+	fprintf(stderr, "  LR=0x%08x CTR=0x%08x CR=0x%08x XER=0x%08x\n",
+			lr(), ctr(), cr().get(), xer().get());
+	fprintf(stderr, "  R0=0x%08x R1(SP)=0x%08x R2(TOC)=0x%08x R3=0x%08x\n",
+			gpr(0), gpr(1), gpr(2), gpr(3));
+	fprintf(stderr, "  R4=0x%08x R5=0x%08x R6=0x%08x R7=0x%08x\n",
+			gpr(4), gpr(5), gpr(6), gpr(7));
+	fprintf(stderr, "  R8=0x%08x R9=0x%08x R10=0x%08x R11=0x%08x\n",
+			gpr(8), gpr(9), gpr(10), gpr(11));
+	fprintf(stderr, "  R12=0x%08x R13=0x%08x\n", gpr(12), gpr(13));
+	// Dump instructions around the crash address
+	fprintf(stderr, "  Instructions around PC:\n");
+	for (int di = -4; di <= 4; di++) {
+		uint32 addr = pc() + di * 4;
+		uint32 instr = vm_read_memory_4(addr);
+		fprintf(stderr, "    [0x%08x] %08x%s\n", addr, instr, di == 0 ? " <-- CRASH" : "");
+	}
+	// Dump a few words at LR to help understand call chain
+	fprintf(stderr, "  Instructions at LR 0x%08x:\n", lr());
+	for (int di = -2; di <= 2; di++) {
+		uint32 addr = lr() + di * 4;
+		uint32 instr = vm_read_memory_4(addr);
+		fprintf(stderr, "    [0x%08x] %08x\n", addr, instr);
+	}
+
+	// Cross-TOC import calls reach here through a TVector held in r12
+	// (glue: lwz r12,off(r2); lwz r0,0(r12); mtctr r0; lwz r2,4(r12); bctr).
+	// Dump its neighborhood, and scan back from pc for the page-aligned PEF
+	// container header ('Joy!') so the dead fragment can be identified.
+	{
+		uint32 tv = gpr(12);
+		if (tv >= 0x1000 && tv < 0x50000000) {
+			fprintf(stderr, "  TVector neighborhood (r12=0x%08x):\n", tv);
+			for (int di = -2; di <= 5; di++) {
+				uint32 addr = tv + di * 4;
+				fprintf(stderr, "    [0x%08x] %08x%s\n", addr, vm_read_memory_4(addr),
+						di == 0 ? " <-- code ptr" : (di == 1 ? " <-- TOC" : ""));
+			}
+		}
+		if (pc() >= 0x1000 && pc() < 0x50000000) {
+			uint32 base = pc() & ~0xfffu;
+			bool found = false;
+			for (int pages = 0; pages < 8192 && base >= 0x1000; pages++, base -= 0x1000) {
+				if (vm_read_memory_4(base) == 0x4a6f7921) {	// 'Joy!'
+					fprintf(stderr, "  PEF container candidate at 0x%08x (pc offset +0x%x):\n",
+							base, pc() - base);
+					for (int di = 0; di < 8; di++)
+						fprintf(stderr, "    [0x%08x] %08x\n", base + di * 4,
+								vm_read_memory_4(base + di * 4));
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+				fprintf(stderr, "  no 'Joy!' PEF header within 32 MiB below pc\n");
+		}
+	}
 
 #ifdef TARGET_OS_IPHONE
 	if (objc_getIgnoreIllegalInstructions()) {
@@ -588,8 +706,10 @@ void powerpc_cpu::execute_loadstore(uint32 opcode)
 
 	if (LD)
 		operand_RD::set(this, opcode, OP::apply(memory_helper<SZ, RX>::load(ea)));
-	else
-		memory_helper<SZ, RX>::store(ea, operand_RS::get(this, opcode));
+	else {
+		const uint32 store_value = operand_RS::get(this, opcode);
+		memory_helper<SZ, RX>::store(ea, store_value);
+	}
 
 	if (UP)
 		RA::set(this, opcode, ea);
@@ -619,8 +739,10 @@ void powerpc_cpu::execute_loadstore_multiple(uint32 opcode)
 	while (r <= 31) {
 		if (LD)
 			gpr(r) = vm_read_memory_4(ea);
-		else
-			vm_write_memory_4(ea, gpr(r));
+		else {
+			const uint32 store_value = gpr(r);
+			vm_write_memory_4(ea, store_value);
+		}
 		r++;
 		ea += 4;
 	}
@@ -657,13 +779,26 @@ void powerpc_cpu::execute_fp_loadstore(uint32 opcode)
 		v = operand_fp_dw_RS::get(this, opcode);
 		if (DB)
 			vm_write_memory_8(ea, v);
-		else
-			vm_write_memory_4(ea, fp_store_single_convert(v));
+		else {
+			const uint32 store_value = fp_store_single_convert(v);
+			vm_write_memory_4(ea, store_value);
+		}
 	}
 
 	if (UP)
 		RA::set(this, opcode, ea);
 
+	increment_pc(4);
+}
+
+void powerpc_cpu::execute_stfiwx(uint32 opcode)
+{
+	const uint32 a = operand_RA_or_0::get(this, opcode);
+	const uint32 b = operand_RB::get(this, opcode);
+	const uint32 ea = PPCStfiwxEffectiveAddress(a, b);
+	const uint32 store_value = PPCStfiwxStoreWord(operand_fp_dw_RS::get(this, opcode));
+
+	vm_write_memory_4(ea, store_value);
 	increment_pc(4);
 }
 
@@ -739,7 +874,8 @@ void powerpc_cpu::execute_store_string(uint32 opcode)
 	int rs = rS_field::extract(opcode);
 	int sh = 24;
 	for (int i = 0; i < nb; i++) {
-		vm_write_memory_1(ea + i, gpr(rs) >> sh);
+		const uint32 store_value = (gpr(rs) >> sh) & 0xff;
+		vm_write_memory_1(ea + i, store_value);
 		sh -= 8;
 		if (sh < 0) {
 			sh = 24;
@@ -776,16 +912,17 @@ void powerpc_cpu::execute_stwcx(uint32 opcode)
 	const uint32 ea = RA::get(this, opcode) + operand_RB::get(this, opcode);
 	cr().clear(0);
 	if (regs().reserve_valid) {
-		if (regs().reserve_addr == ea /* physical_addr(EA) */
+			if (regs().reserve_addr == ea /* physical_addr(EA) */
 #if KPX_MAX_CPUS != 1
-			/* HACK: if another processor wrote to the reserved block,
-			   nothing happens, i.e. we should operate as if reserve == 0 */
-			&& regs().reserve_data == vm_read_memory_4(ea)
+				/* HACK: if another processor wrote to the reserved block,
+				   nothing happens, i.e. we should operate as if reserve == 0 */
+				&& regs().reserve_data == vm_read_memory_4(ea)
 #endif
-			) {
-			vm_write_memory_4(ea, operand_RS::get(this, opcode));
-			cr().set(0, standalone_CR_EQ_field::mask());
-		}
+				) {
+				const uint32 store_value = operand_RS::get(this, opcode);
+				vm_write_memory_4(ea, store_value);
+				cr().set(0, standalone_CR_EQ_field::mask());
+			}
 		regs().reserve_valid = 0;
 	}
 	cr().set_so(0, xer().get_so());
@@ -1503,10 +1640,16 @@ void powerpc_cpu::execute_vector_merge(uint32 opcode)
 	typename VD::type & vD = VD::ref(this, opcode);
 	const int n_elements = 16 / VD::element_size;
 
+	// Compute into a temporary so that an in-place destination (vD aliasing
+	// vA or vB, which compiled/hand-written AltiVec code does routinely to
+	// save registers) reads original source bytes, not ones already
+	// overwritten.  Real hardware reads all sources before writing vD.
+	powerpc_vr tmp;
 	for (int i = 0; i < n_elements; i += 2) {
-		VD::set_element(vD, i    , VA::get_element(vA, (i / 2) + LO * (n_elements / 2)));
-		VD::set_element(vD, i + 1, VB::get_element(vB, (i / 2) + LO * (n_elements / 2)));
+		VD::set_element(tmp, i    , VA::get_element(vA, (i / 2) + LO * (n_elements / 2)));
+		VD::set_element(tmp, i + 1, VB::get_element(vB, (i / 2) + LO * (n_elements / 2)));
 	}
+	vD = tmp;
 
 	increment_pc(4);
 }
@@ -1531,6 +1674,9 @@ void powerpc_cpu::execute_vector_pack(uint32 opcode)
 	const int n_elements = 16 / VD::element_size;
 	const int n_pivot = n_elements / 2;
 
+	// Temp dest: pack narrows vA/vB into vD; an in-place vD (==vA or ==vB)
+	// would otherwise overwrite source bytes still needed by later elements.
+	powerpc_vr tmp;
 	for (int i = 0; i < n_elements; i++) {
 		typename VD::element_type d;
 		if (i < n_pivot)
@@ -1539,8 +1685,9 @@ void powerpc_cpu::execute_vector_pack(uint32 opcode)
 			d = VB::get_element(vB, i - n_pivot);
 		if (VD::saturate(d))
 			vscr().set_sat(1);
-		VD::set_element(vD, i, d);
+		VD::set_element(tmp, i, d);
 	}
+	vD = tmp;
 
 	increment_pc(4);
 }
@@ -1552,8 +1699,12 @@ void powerpc_cpu::execute_vector_unpack(uint32 opcode)
 	typename VD::type & vD = VD::ref(this, opcode);
 	const int n_elements = 16 / VD::element_size;
 
+	// Temp dest: unpack widens vA into vD; an in-place vD (==vA) would
+	// overwrite source elements still needed by later iterations.
+	powerpc_vr tmp;
 	for (int i = 0; i < n_elements; i++)
-		VD::set_element(vD, i, VA::get_element(vA, i + LO * n_elements));
+		VD::set_element(tmp, i, VA::get_element(vA, i + LO * n_elements));
+	vD = tmp;
 
 	increment_pc(4);
 }
@@ -1564,12 +1715,15 @@ void powerpc_cpu::execute_vector_pack_pixel(uint32 opcode)
 	powerpc_vr const & vB = vr(vB_field::extract(opcode));
 	powerpc_vr & vD = vr(vD_field::extract(opcode));
 
+	// Temp dest: guard against in-place vD (==vA or ==vB).
+	powerpc_vr tmp;
 	for (int i = 0; i < 4; i++) {
 		const uint32 a = vA.w[i];
-		vD.h[ev_mixed::half_element(i)] = ((a >> 9) & 0xfc00) | ((a >> 6) & 0x03e0) | ((a >> 3) & 0x001f);
+		tmp.h[ev_mixed::half_element(i)] = ((a >> 9) & 0xfc00) | ((a >> 6) & 0x03e0) | ((a >> 3) & 0x001f);
 		const uint32 b = vB.w[i];
-		vD.h[ev_mixed::half_element(i + 4)] = ((b >> 9) & 0xfc00) | ((b >> 6) & 0x03e0) | ((b >> 3) & 0x001f);
+		tmp.h[ev_mixed::half_element(i + 4)] = ((b >> 9) & 0xfc00) | ((b >> 6) & 0x03e0) | ((b >> 3) & 0x001f);
 	}
+	vD = tmp;
 
 	increment_pc(4);
 }
@@ -1580,14 +1734,17 @@ void powerpc_cpu::execute_vector_unpack_pixel(uint32 opcode)
 	powerpc_vr const & vB = vr(vB_field::extract(opcode));
 	powerpc_vr & vD = vr(vD_field::extract(opcode));
 
+	// Temp dest: guard against in-place vD (==vB).
+	powerpc_vr tmp;
 	for (int i = 0; i < 4; i++) {
 		const uint32 h = vB.h[ev_mixed::half_element(i + LO * 4)];
-		vD.w[i] = (((h & 0x8000) ? 0xff000000 : 0) |
+		tmp.w[i] = (((h & 0x8000) ? 0xff000000 : 0) |
 				   ((h & 0x7c00) << 6) |
 				   ((h & 0x03e0) << 3) |
 				   (h & 0x001f));
 	}
 
+	vD = tmp;
 	increment_pc(4);
 }
 

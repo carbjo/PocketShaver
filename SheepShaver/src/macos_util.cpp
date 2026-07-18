@@ -29,6 +29,9 @@
 #include "macos_util.h"
 #include "thunks.h"
 #include "prefs.h"
+#if TARGET_OS_IPHONE
+#include "gfxaccel/include/gl_synthetic_symbol_policy.h"
+#endif
 #include <algorithm>
 
 #define DEBUG 0
@@ -74,6 +77,32 @@ static inline void DisposePtr(uint32 arg1)
 {
 	CallMacOS1(d_ptr, d_tvect, arg1);
 }
+
+#if TARGET_OS_IPHONE
+static uint32 FindSyntheticLibSymbol(const char *lib_str, const char *sym_str)
+{
+	uint16_t sub_opcode = 0;
+	if (!GLSyntheticFindLibSymbolSubOpcode(lib_str, sym_str, &sub_opcode))
+		return 0;
+	if (sub_opcode >= GL_MAX_SUBOPCODE)
+		return 0;
+
+	const uint32 tvect = gl_method_tvects[sub_opcode];
+	if (tvect == 0)
+		return 0;
+
+	D(bug("FindLibSymbol: synthetic symbol '%s' in '%s' -> 0x%08lx\n",
+	      sym_str + 1, lib_str + 1, (unsigned long)tvect));
+	return tvect;
+}
+#else
+static uint32 FindSyntheticLibSymbol(const char *lib_str, const char *sym_str)
+{
+	(void)lib_str;
+	(void)sym_str;
+	return 0;
+}
+#endif
 
 
 /*
@@ -238,9 +267,11 @@ uint32 FindLibSymbol(const char *lib_str, const char *sym_str)
 	SheepString lib(lib_str);
 	SheepString sym(sym_str);
 
+	D(bug("FindLibSymbol: looking for '%s' in '%s'...\n", sym.value()+1, lib.value()+1));
 	D(bug("FindLibSymbol %s in %s...\n", sym.value()+1, lib.value()+1));
 
 	if (ReadMacInt32(XLM_RUN_MODE) == MODE_EMUL_OP) {
+		D(bug("FindLibSymbol: using EMUL_OP (Execute68k) path\n"));
 		M68kRegisters r;
 	
 		// Find shared library
@@ -263,6 +294,18 @@ uint32 FindLibSymbol(const char *lib_str, const char *sym_str)
 		r.a[2] = main_addr.addr();
 		r.a[3] = err.addr();
 		Execute68k(proc1, &r);
+		D(bug("FindLibSymbol: GetSharedLibrary returned %d (connID=%ld, main=0x%lx)\n",
+			   (int16)r.d[0], (long)conn_id.value(), (unsigned long)main_addr.value()));
+		// Log error message if GetSharedLibrary failed
+		if (r.d[0]) {
+			uint8 errLen = ReadMacInt8(err.addr());
+			if (errLen > 0 && errLen < 256) {
+				char errMsg[256];
+				Mac2Host_memcpy((uint8 *)errMsg, err.addr() + 1, errLen);
+				errMsg[errLen] = '\0';
+				D(bug("FindLibSymbol: CFM error message: '%s'\n", errMsg));
+			}
+		}
 		D(bug(" GetSharedLibrary: ret %d, connection ID %ld, main %p\n", (int16)r.d[0], conn_id.value(), main_addr.value()));
 		if (r.d[0])
 			return 0;
@@ -285,29 +328,36 @@ uint32 FindLibSymbol(const char *lib_str, const char *sym_str)
 		r.a[1] = sym_addr.addr();
 		r.a[2] = sym_class.addr();
 		Execute68k(proc2, &r);
+		D(bug("FindLibSymbol: FindSymbol returned %d (addr=0x%lx, class=%ld)\n",
+			   (int16)r.d[0], (unsigned long)sym_addr.value(), (long)sym_class.value()));
 		D(bug(" FindSymbol1: ret %d, sym_addr %p, sym_class %ld\n", (int16)r.d[0], sym_addr.value(), sym_class.value()));
 //!! CloseConnection()?
 		if (r.d[0])
-			return 0;
+			return FindSyntheticLibSymbol(lib_str, sym_str);
 		else
 			return sym_addr.value();
 
 	} else {
 
+		D(bug("FindLibSymbol: using direct call path\n"));
 		if (GetSharedLibrary == NULL || FindSymbol == NULL) {
 			printf("FATAL: FindLibSymbol() called too early\n");
 			return 0;
 		}
 		int16 res;
 		res = GetSharedLibrary(lib.addr(), FOURCC('p','w','p','c'), 1, conn_id.addr(), main_addr.addr(), err.addr());
+		D(bug("FindLibSymbol: GetSharedLibrary returned %d (connID=%ld, main=0x%lx)\n",
+			   res, (long)conn_id.value(), (unsigned long)main_addr.value()));
 		D(bug(" GetSharedLibrary: ret %d, connection ID %ld, main %p\n", res, conn_id.value(), main_addr.value()));
 		if (res)
 			return 0;
 		res = FindSymbol(conn_id.value(), sym.addr(), sym_addr.addr(), sym_class.addr());
+		D(bug("FindLibSymbol: FindSymbol returned %d (addr=0x%lx, class=%ld)\n",
+			   res, (unsigned long)sym_addr.value(), (long)sym_class.value()));
 		D(bug(" FindSymbol: ret %d, sym_addr %p, sym_class %ld\n", res, sym_addr.value(), sym_class.value()));
 //!!??		CloseConnection(&conn_id);
 		if (res)
-			return 0;
+			return FindSyntheticLibSymbol(lib_str, sym_str);
 		else
 			return sym_addr.value();
 	}

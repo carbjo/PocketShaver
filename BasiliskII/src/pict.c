@@ -187,7 +187,7 @@ ssize_t ConvertRGBAToPICT(uint8_t *buf, unsigned long bufSize, uint8_t *rgbaPixe
 	if (buf == NULL || bufSize == 0) {
 		// Give an upper bound for the buffer size.
 
-		return initialSize + height * cmpBufSize + 2;
+		return initialSize + height * cmpBufSize + 3;	// worst case includes an alignment pad byte
 	}
 
 	if (bufSize < initialSize) {
@@ -250,6 +250,14 @@ ssize_t ConvertRGBAToPICT(uint8_t *buf, unsigned long bufSize, uint8_t *rgbaPixe
 		memcpy(buf + cursor, cmpBuf, cmpLength); cursor += cmpLength;
 	}
 
+	// Opcodes must begin on word boundaries; pad odd-length pixel data or strict
+	// parsers (e.g. Photoshop's clipboard importer) misread the end opcode.
+	if (cursor & 1) {
+		if (cursor + 1 > bufSize)
+			return -1;
+		buf[cursor++] = 0x00;
+	}
+
 	// Fun fact: forgetting to put 0x00ff at the end of a PICT picture causes the entire
 	// Classic Mac OS to crash when it tries to read it! Don't ask me how I learned this.
 	if (cursor + 2 > bufSize)
@@ -257,12 +265,9 @@ ssize_t ConvertRGBAToPICT(uint8_t *buf, unsigned long bufSize, uint8_t *rgbaPixe
 
 	buf[cursor++] = 0x00; buf[cursor++] = 0xff;
 
-	if(cursor > UINT16_MAX) {
-		buf[0] = buf[1] = 0xff;
-	} else {
-		buf[0] = cursor >> 8;
-		buf[1] = cursor & 0xff;
-	}
+	// picSize is only 16 bits; pictures larger than that store the low-order word
+	buf[0] = (cursor >> 8) & 0xff;
+	buf[1] = cursor & 0xff;
 
 	return cursor;
 }

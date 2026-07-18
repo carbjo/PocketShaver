@@ -52,6 +52,11 @@ public class OverlayViewController: UIViewController {
 		)
 	}()
 
+	/// Whether the on-screen gamepad should be suppressed entirely.
+	/// True on any Mac (Designed-for-iPad or Mac Catalyst) — the user has a
+	/// physical keyboard and mouse, so touch gamepad controls are useless.
+	private static let hideGamepad: Bool = UIDevice.deviceType == .mac
+
 	private lazy var gamepadLayerView: GamepadLayerView = {
 		let view = GamepadLayerView(
 			inputInteractionModel: inputInteractionModel,
@@ -67,15 +72,20 @@ public class OverlayViewController: UIViewController {
 		)
 		view.isUserInteractionEnabled = (state == .showingGamepad || state == .editingGamepad)
 		view.alpha = 0
+		view.isHidden = Self.hideGamepad
 		return view
 	}()
 
 	private lazy var previousGamepadLayerView: GamepadLayerView = {
-		GamepadLayerView()
+		let view = GamepadLayerView()
+		view.isHidden = Self.hideGamepad
+		return view
 	}()
 
 	private lazy var nextGamepadLayerView: GamepadLayerView = {
-		GamepadLayerView()
+		let view = GamepadLayerView()
+		view.isHidden = Self.hideGamepad
+		return view
 	}()
 
 	private lazy var hiddenInputField: HiddenInputField = { [weak self] in
@@ -91,7 +101,7 @@ public class OverlayViewController: UIViewController {
 				informationView.showInformation(
 					for: .normal,
 					gamepadSettingsName: gamepadSettingsName,
-					showHints: MiscellaneousSettings.current.showHints
+					showHints: Self.hideGamepad ? false : MiscellaneousSettings.current.showHints
 				)
 			},
 			hiddenInputFieldDelegate: hiddenInputFieldDelegate
@@ -173,19 +183,21 @@ public class OverlayViewController: UIViewController {
 	public override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
 
-		if state != .showingGamepad {
-			gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+		if !Self.hideGamepad {
+			if state != .showingGamepad {
+				gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+			}
 		}
 
 		if state == .normal {
 			informationView.showInformation(
 				for: .normal,
 				gamepadSettingsName: gamepadSettingsName,
-				showHints: MiscellaneousSettings.current.showHints,
+				showHints: Self.hideGamepad ? false : MiscellaneousSettings.current.showHints,
 				atBottom: true
 			)
 		}
-		if gamepadLayerView.alpha == 0 {
+		if !Self.hideGamepad, gamepadLayerView.alpha == 0 {
 			UIView.animate(withDuration: 0.2, delay: 0.5) {
 				self.gamepadLayerView.alpha = 1
 			}
@@ -293,6 +305,7 @@ public class OverlayViewController: UIViewController {
 	}
 
 	private func loadGamepadSettings() {
+		guard !Self.hideGamepad else { return }
 		gamepadLayerView.load(config: gamepadConfig)
 		previousGamepadLayerView.load(config: GamepadManager.shared.previousConfig)
 		nextGamepadLayerView.load(config: GamepadManager.shared.nextConfig)
@@ -302,6 +315,12 @@ public class OverlayViewController: UIViewController {
 		to state: OverlayState,
 		allowHiddenInputFieldResponserResignation: Bool = true
 	) {
+		// On Mac ("Designed for iPad"), only allow normal and keyboard states —
+		// the on-screen gamepad is hidden because the user has real input devices.
+		if Self.hideGamepad && (state == .showingGamepad || state == .editingGamepad) {
+			return
+		}
+
 		self.state = state
 		switch state {
 		case .normal:
@@ -375,7 +394,7 @@ public class OverlayViewController: UIViewController {
 			informationView.showInformation(
 				for: result.state,
 				gamepadSettingsName: gamepadSettingsName,
-				showHints: MiscellaneousSettings.current.showHints
+				showHints: Self.hideGamepad ? false : MiscellaneousSettings.current.showHints
 			)
 
 			if result.state == .showingKeyboard {
@@ -713,6 +732,14 @@ extension OverlayViewController {
 		// but the system sends it on iPadOS 15+ as a private selector. We match both
 		// so this builds with earlier versions of Xcode and iOS SDK
 		if action == Selector(("_performClose:")) { return true }
+		// Intercept Cmd+Q (AppKit's terminate:) on macOS (Designed for iPad) so the
+		// emulator app does not quit. Like _performClose: above, this reaches
+		// OverlayViewController through view-controller containment. The actual 'q'
+		// keystroke still reaches the guest via SDL's input path (video_sdl2.cpp), so a
+		// classic Mac app's own Cmd+Q still works.
+		// On a physical iPad, Cmd-Q is system-reserved (handled above the responder
+		// chain) and never reaches here — this is a no-op there. See terminate(_:) below.
+		if action == #selector(OverlayViewController.terminate(_:)) { return true }
 		if #available(iOS 26.0, *) {
 			#if compiler(>=6.2)
 			if action == #selector(UIResponderStandardEditActions.performClose(_:)) { return true }
@@ -727,6 +754,12 @@ extension OverlayViewController {
 	@available(iOS 26.0, *)
 	public override func performClose(_ sender: Any?) {}
 	#endif
+
+	// No-op so the Cmd+Q action claimed in canPerformAction is swallowed instead of
+	// quitting the app. terminate: is AppKit's quit selector (not a formal UIResponder
+	// API on iOS), so this is a plain @objc method — no availability guard and no
+	// 'override' (there is no superclass terminate(_:) on UIKit to override).
+	@objc public func terminate(_ sender: Any?) {}
 
 	@objc
 	public static func injectOverlayViewController() {
@@ -743,6 +776,19 @@ extension OverlayViewController {
 
 
 		sdlVC.embed(vc)
+		lockWindowSize()
+	}
+
+	/// Intentionally does NOT restrict the window size.
+	///
+	/// This used to pin the Mac Catalyst window to `min == max == launch bounds`,
+	/// which froze the window at its small initial size and defeated fullscreen
+	/// (including the `UILaunchToFullScreenByDefaultOnMac` Info.plist key). On Mac
+	/// we want a resizable window that launches fullscreen, so sizing is left to
+	/// the OS. On iPad/iPhone `sizeRestrictions` is best-effort or nil and cannot
+	/// block system resizing anyway, so there is nothing to do on any platform.
+	private static func lockWindowSize() {
+		// No size restriction — see doc comment above.
 	}
 
 	// No-op implementation so that key strokes on macOS does not result in "alert sound"
@@ -753,9 +799,9 @@ extension OverlayViewController: PerformanceCounterDelegate {
 
 	func performanceCounter(_ counter: PerformanceCounter, didUpdateWithReport report: PerformanceCounterReport) {
 		if MiscellaneousSettings.current.fpsReporting && MiscellaneousSettings.current.networkTransferRateReportingEnabled {
-			performanceLabel.text = "\(report.framesRendered)\n\(report.bytesTransferredString)"
+			performanceLabel.text = "\(report.framesRendered) FPS\n\(report.bytesTransferredString)"
 		} else if MiscellaneousSettings.current.fpsReporting {
-			performanceLabel.text = "\(report.framesRendered)"
+			performanceLabel.text = "\(report.framesRendered) FPS"
 		} else if MiscellaneousSettings.current.networkTransferRateReportingEnabled {
 			performanceLabel.text = "\(report.bytesTransferredString)"
 		}

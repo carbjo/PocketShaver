@@ -2138,6 +2138,37 @@ static bool patch_68k(void)
 	*wp++ = htons(M68K_EMUL_OP_CHECKLOAD);
 	*wp = htons(M68K_RTS);
 
+	// DII fix: _DisposHandle (0xA023) keep-alive head-patch thunk.  On entry A0 =
+	// handle.  The EMUL_OP sets D1=1 (and D0=noErr) iff A0 is a LIVE monitored
+	// 'nift' fragment, so its disposal is SKIPPED (.skip rts) -- the container is
+	// never freed-and-reused and CFM's prepared cross-TOC TVectors stay valid (no
+	// use-after-free regardless of the true-screen resize).  For every other handle
+	// the EMUL_OP returns D1=0 and loads A1 with the stock _DisposHandle entry
+	// (captured at runtime via GetOSTrapAddress); we tail-jump there, byte-for-byte
+	// identical to stock.  Branch math: after `bne.s` only jmp(a1) (2 bytes) sits
+	// before the rts, so the displacement is +2 (0x6602).
+	wp = (uint16 *)(ROMBaseHost + DISPOSE_NIFT_PATCH_SPACE);
+	*wp++ = htons(M68K_EMUL_OP_DISPOSE_NIFT_GUARD);	// -> D1=verdict (1=skip); A1=stock entry on chain
+	*wp++ = htons(0x4a41);							// tst.w  d1
+	*wp++ = htons(0x6602);							// bne.s  .skip   (+2 -> the rts)
+	*wp++ = htons(0x4ed1);							// jmp    (a1)    [chain to stock _DisposHandle]
+	*wp = htons(M68K_RTS);							// .skip: rts     [keep alive; D0=noErr]
+
+	// Virtual-memory-present Gestalt spoof: _Gestalt (0xA1AD, OS-dispatched) head-
+	// patch thunk.  On entry D0 = Gestalt selector.  The EMUL_OP handler sets A1 to
+	// EITHER the stock _Gestalt entry (chain: the system + most apps get the truth)
+	// OR the bare rts below (spoof: selected apps only, with the synthesized "VM
+	// present" response already in A0/D0).  We then `jmp (a1)`.  CRITICAL: the chain path must
+	// clobber ONLY A1 -- writing D1 (or D0/A0) before entering the real _Gestalt
+	// corrupts it and crashes the guest OS at boot (_DisposHandle tolerates a D1
+	// clobber, _Gestalt does not).  So the spoof/chain verdict lives in WHERE A1
+	// points, not a guest register.  6 bytes, inside the already-validated CHECK_LOAD
+	// 0x40 region, after DisposeNIFT.
+	wp = (uint16 *)(ROMBaseHost + GESTALT_VM_PATCH_SPACE);
+	*wp++ = htons(M68K_EMUL_OP_GESTALT_VM);			// -> A1 = stock _Gestalt (chain) or the rts below (spoof)
+	*wp++ = htons(0x4ed1);							// jmp    (a1)
+	*wp = htons(M68K_RTS);							// rts   [spoof: A1 points here -> return A0/D0]
+
 	// Replace .Sony driver
 	sony_offset = find_rom_resource(FOURCC('D','R','V','R'), 4);
 	if (ROMType == ROMTYPE_ZANZIBAR || ROMType == ROMTYPE_NEWWORLD)

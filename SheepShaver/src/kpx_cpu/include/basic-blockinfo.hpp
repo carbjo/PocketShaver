@@ -112,7 +112,10 @@ basic_block_info::maybe_create_jmpdep(block_info *tbi)
 inline bool
 basic_block_info::intersect(uintptr start, uintptr end)
 {
-	return (pc >= start && pc < end) || (end_pc >= start && end_pc < end);
+	// The block covers [pc, end_pc + 4) -- end_pc is the address of the
+	// last instruction. Test true range overlap: an invalidation range
+	// strictly interior to the block must still hit.
+	return pc < end && end_pc + 4 > start;
 }
 
 #endif /* BASIC_BLOCKINFO_H */

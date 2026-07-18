@@ -6,12 +6,14 @@
 import Foundation
 import Combine
 
-/// Rendering filter mode: controls how the emulated display is scaled.
-/// Nearest-neighbor produces a sharp, retro pixelated look;
-/// bilinear produces a smooth, interpolated image.
 enum RenderingFilterMode: String, Codable, CaseIterable {
 	case bilinear
 	case nearestNeighbor
+}
+
+enum CatalystDisplayMode: String, Codable, CaseIterable {
+	case windowed
+	case fullScreen
 }
 
 class PreferencesGraphicsModel {
@@ -30,7 +32,7 @@ class PreferencesGraphicsModel {
 
 	let mode: PreferencesLaunchMode
 
-	// MARK: - Monitor Resolutions (moved from General)
+	// MARK: - Monitor Resolutions
 
 	@MainActor
 	var monitorResolutionsState: MonitorResolutionsState {
@@ -40,7 +42,7 @@ class PreferencesGraphicsModel {
 		)
 	}
 
-	// MARK: - Frame Rate Setting (moved from Advanced)
+	// MARK: - Frame Rate Setting
 
 	@MainActor
 	private let originalFrameRateSetting = MiscellaneousSettings.current.frameRateSetting
@@ -70,7 +72,7 @@ class PreferencesGraphicsModel {
 		)
 	}
 
-	// MARK: - Gamma Ramp Setting (moved from Advanced)
+	// MARK: - Gamma Ramp Setting
 
 	@MainActor
 	var gammaRampSetting: GammaRampSetting {
@@ -82,49 +84,49 @@ class PreferencesGraphicsModel {
 		}
 	}
 
-	// MARK: - Graphics Acceleration (moved from Advanced)
+	// MARK: - Graphics Acceleration
 
-//	var nqdAccelEnabled: Bool {
-//		get {
-//			objc_findBool("nqdaccel")
-//		}
-//		set {
-//			objc_replaceBool("nqdaccel", newValue)
-//			changeSubject.send(.changeRequiringRestartBeforeBootMade)
-//		}
-//	}
-//
-//	var raveAccelEnabled: Bool {
-//		get {
-//			objc_findBool("raveaccel")
-//		}
-//		set {
-//			objc_replaceBool("raveaccel", newValue)
-//			changeSubject.send(.changeRequiringRestartBeforeBootMade)
-//		}
-//	}
-//
-//	var glAccelEnabled: Bool {
-//		get {
-//			objc_findBool("glaccel")
-//		}
-//		set {
-//			objc_replaceBool("glaccel", newValue)
-//			changeSubject.send(.changeRequiringRestartBeforeBootMade)
-//		}
-//	}
-//
-//	var dspAccelEnabled: Bool {
-//		get {
-//			objc_findBool("dspaccel")
-//		}
-//		set {
-//			objc_replaceBool("dspaccel", newValue)
-//			changeSubject.send(.changeRequiringRestartBeforeBootMade)
-//		}
-//	}
+	var nqdAccelEnabled: Bool {
+		get {
+			objc_findBool("nqdaccel")
+		}
+		set {
+			objc_replaceBool("nqdaccel", newValue)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
+		}
+	}
 
-	// MARK: - Rendering Filter Mode (new)
+	var raveAccelEnabled: Bool {
+		get {
+			objc_findBool("raveaccel")
+		}
+		set {
+			objc_replaceBool("raveaccel", newValue)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
+		}
+	}
+
+	var glAccelEnabled: Bool {
+		get {
+			objc_findBool("glaccel")
+		}
+		set {
+			objc_replaceBool("glaccel", newValue)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
+		}
+	}
+
+	var dspAccelEnabled: Bool {
+		get {
+			objc_findBool("dspaccel")
+		}
+		set {
+			objc_replaceBool("dspaccel", newValue)
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
+		}
+	}
+
+	// MARK: - Rendering Filter Mode
 
 	var renderingFilterMode: RenderingFilterMode {
 		get {
@@ -137,7 +139,27 @@ class PreferencesGraphicsModel {
 		}
 	}
 
-	// MARK: - Init
+	// MARK: - Display Mode (Mac Catalyst)
+
+	// Backed by the `catalystfullscreen` bool pref (single source of truth). Persisted
+	// immediately so launch honors it, and applied to the live window during emulation.
+	var displayMode: CatalystDisplayMode {
+		get {
+			objc_findBool("catalystfullscreen") ? .fullScreen : .windowed
+		}
+		set {
+			let wantFullscreen = newValue == .fullScreen
+			objc_replaceBool("catalystfullscreen", wantFullscreen)
+			objc_savePrefs()
+			#if targetEnvironment(macCatalyst)
+			if mode == .duringEmulation {
+				objc_set_catalyst_fullscreen(wantFullscreen)
+			}
+			#endif
+		}
+	}
+
+	// MARK: - Initialization
 
 	init(
 		mode: PreferencesLaunchMode,

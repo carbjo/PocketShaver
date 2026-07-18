@@ -187,6 +187,36 @@ class PreferencesAdvancedModel {
 		}
 	}
 
+	@MainActor
+	var altivecEnabled: Bool {
+		get {
+			miscSettings.altivecEnabled
+		}
+		set {
+			miscSettings.set(altivecEnabled: newValue)
+
+			// Read once at emulator init (PVR setup in init_emul_ppc), so a
+			// startup-menu change applies on the next boot; only a change made
+			// mid-emulation needs a restart.
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
+		}
+	}
+
+	@MainActor
+	var jitCompilerEnabled: Bool {
+		get {
+			miscSettings.jitCompilerEnabled
+		}
+		set {
+			miscSettings.set(jitCompilerEnabled: newValue)
+
+			// Read once when the emulated CPU is created, so a startup-menu
+			// change applies on the next boot; only a change made mid-emulation
+			// needs a restart.
+			changeSubject.send(.changeRequiringRestartAfterBootMade)
+		}
+	}
+
 	init(
 		mode: PreferencesLaunchMode,
 		changeSubject: PassthroughSubject<PreferencesChange, Never>

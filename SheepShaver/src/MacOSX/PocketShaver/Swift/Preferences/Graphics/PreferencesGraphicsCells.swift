@@ -213,6 +213,53 @@ class PreferencesGraphicsRenderingFilterCell: UITableViewCell {
 	}
 }
 
+class PreferencesGraphicsDisplayModeCell: UITableViewCell {
+	private lazy var segmentedControl: UISegmentedControl = {
+		let segmentedControl = UISegmentedControl.withoutConstraints()
+		for (index, tab) in CatalystDisplayMode.allCases.enumerated() {
+			segmentedControl.insertSegment(withTitle: tab.label, at: index, animated: false)
+		}
+		segmentedControl.addTarget(self, action: #selector(tabSegmentedControlChanged), for: .valueChanged)
+		return segmentedControl
+	}()
+
+	private let didChangeSelection: ((CatalystDisplayMode) -> Void)
+
+	init(
+		initialDisplayMode: CatalystDisplayMode,
+		didChangeSelection: @escaping ((CatalystDisplayMode) -> Void)
+	) {
+		self.didChangeSelection = didChangeSelection
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
+
+		hideSeparator()
+
+		contentView.addSubview(segmentedControl)
+
+		NSLayoutConstraint.activate([
+			segmentedControl.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			segmentedControl.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			segmentedControl.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
+			segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+			segmentedControl.widthAnchor.constraint(lessThanOrEqualToConstant: 350)
+		])
+
+		segmentedControl.selectedSegmentIndex = CatalystDisplayMode.allCases.enumerated().first(where: { initialDisplayMode == $1 })!.0
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	@objc private func tabSegmentedControlChanged() {
+		let index = segmentedControl.selectedSegmentIndex
+		let setting = CatalystDisplayMode.allCases.enumerated().first(where: { index == $0.0 })!.1
+
+		didChangeSelection(setting)
+	}
+}
+
 class PreferencesGraphicsGammaRampSettingCell: UITableViewCell {
 	private lazy var segmentedControl: UISegmentedControl = {
 		let segmentedControl = UISegmentedControl.withoutConstraints()
@@ -275,6 +322,15 @@ private extension RenderingFilterMode {
 		switch self {
 		case .nearestNeighbor: return "Nearest neighbor"
 		case .bilinear: return "Bilinear"
+		}
+	}
+}
+
+private extension CatalystDisplayMode {
+	var label: String {
+		switch self {
+		case .windowed: return "Windowed"
+		case .fullScreen: return "Full screen"
 		}
 	}
 }

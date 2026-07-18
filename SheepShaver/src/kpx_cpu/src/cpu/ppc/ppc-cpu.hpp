@@ -335,6 +335,45 @@ protected:
 	bool use_jit;
 public:
 	void enable_jit(uint32 cache_size = 0);
+
+	// In-JIT block dispatch helper (called from generated code on hosts
+	// whose backend does not hand-emit the cache lookup). Uses the
+	// concrete block type since the block_info typedef appears below.
+	void *jit_jump_next(powerpc_block_info *bi);
+
+	// Where generated code jumps to leave execute() (x86 dyngen dispatch)
+	uint8 *jit_exec_return_addr();
+
+	// Byte offsets of guest state within the CPU object, for emitters that
+	// address it relative to the pinned CPU register. regs() is aligned at
+	// a fixed displacement, so these are constant for a given codegen.
+	unsigned long jit_pc_offset() const
+		{ return (uintptr)&regs().pc - (uintptr)this; }
+	unsigned long jit_spcflags_offset() const
+		{ return (uintptr)&regs().spcflags - (uintptr)this; }
+	unsigned long jit_gpr_offset(int i) const
+		{ return (uintptr)&regs().gpr[i] - (uintptr)this; }
+	unsigned long jit_cr_offset() const
+		{ return (uintptr)&regs().cr - (uintptr)this; }
+	unsigned long jit_xer_offset() const	// base of the 4 XER bytes (so,ov,ca,byte_count)
+		{ return (uintptr)&regs().xer - (uintptr)this; }
+	unsigned long jit_lr_offset() const
+		{ return (uintptr)&regs().lr - (uintptr)this; }
+	unsigned long jit_ctr_offset() const
+		{ return (uintptr)&regs().ctr - (uintptr)this; }
+	unsigned long jit_vrsave_offset() const	// plain uint32 SPR (not vector state)
+		{ return (uintptr)&regs().vrsave - (uintptr)this; }
+	unsigned long jit_fpr_offset(int i) const
+		{ return (uintptr)&regs().fpr[i] - (uintptr)this; }
+	unsigned long jit_fpscr_offset() const
+		{ return (uintptr)&regs().fpscr - (uintptr)this; }
+	unsigned long jit_vr_offset(int i) const	// 16-byte AltiVec register
+		{ return (uintptr)&regs().vr[i] - (uintptr)this; }
+
+	// Public XER access for the JIT arithmetic helpers (arm64-helpers.cpp)
+	powerpc_xer_register & jit_xer() { return regs().xer; }
+	// Full register file for the JIT memory/reservation helpers
+	powerpc_registers & jit_regs() { return regs(); }
 #endif
 
 private:
@@ -354,6 +393,13 @@ private:
 	// Block lookup table
 	typedef powerpc_block_info block_info;
 	block_cache< block_info, lazy_allocator > my_block_cache;
+
+#if PPC_ENABLE_JIT && DYNGEN_DIRECT_BLOCK_CHAINING
+	// Bumped whenever the whole block cache is flushed; lets
+	// compile_chain_block detect that the source block it was about to
+	// patch died during a cache-full compile_block
+	uint32 cache_generation;
+#endif
 
 #if PPC_DECODE_CACHE
 	// Decode Cache
@@ -448,6 +494,7 @@ private:
 	void execute_fp_compare(uint32 opcode);
  	template< class RA, class RB, bool LD, bool DB, bool UP >
 	void execute_fp_loadstore(uint32 opcode);
+	void execute_stfiwx(uint32 opcode);
 	template< class RN, class Rc >
 	void execute_fp_int_convert(uint32 opcode);
 	template< class Rc >

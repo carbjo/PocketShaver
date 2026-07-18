@@ -65,6 +65,7 @@ enum {
 	INTFLAG_VIA = 1,	// 60.15Hz VBL
 	INTFLAG_SERIAL = 2,	// Serial driver
 	INTFLAG_ETHER = 4,	// Ethernet driver
+	INTFLAG_RSRC = 8,	// Pending resource-handle locks (sound-component PEF fix)
 	INTFLAG_AUDIO = 16,	// Audio block read
 	INTFLAG_TIMER = 32,	// Time Manager
 	INTFLAG_ADB = 64	// ADB

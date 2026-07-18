@@ -60,6 +60,7 @@ static bool old_mouse_button[3] = {false, false, false};
 static bool relative_mouse = false;
 static bool touch_input = false;
 static int screen_middle_x = 0;
+static int screen_width = 0, screen_height = 0;
 static bool hover_mode = false;
 static int offset_x = 0;
 static int offset_y = 0;
@@ -330,6 +331,17 @@ void ADBMouseMoved(int x, int y)
 		}
 
 		mouse_x = x + getXOffset(x); mouse_y = y + getYOffset();
+
+		// The incoming point is unclamped (the hover steering forwarder keeps
+		// feeding positions while the finger travels the letterbox bars) and
+		// the hover offset can push past the guest edges either way — pin the
+		// final cursor position to the screen, not the finger position.
+		if (screen_width > 0 && screen_height > 0) {
+			if (mouse_x < 0) mouse_x = 0;
+			else if (mouse_x >= screen_width) mouse_x = screen_width - 1;
+			if (mouse_y < 0) mouse_y = 0;
+			else if (mouse_y >= screen_height) mouse_y = screen_height - 1;
+		}
 	}
 	B2_unlock_mutex(mouse_lock);
 	SetInterruptFlag(INTFLAG_ADB);
@@ -450,8 +462,10 @@ void ADBMouseUp(int button)
 	mouse_down = false;
 }
 
-void ADBConfigure(int new_screen_middle_x, int new_double_click_mouse_move_tolerance) {
-	screen_middle_x = new_screen_middle_x;
+void ADBConfigure(int new_screen_width, int new_screen_height, int new_double_click_mouse_move_tolerance) {
+	screen_width = new_screen_width;
+	screen_height = new_screen_height;
+	screen_middle_x = new_screen_width / 2;
 	double_click_mouse_move_tolerance = new_double_click_mouse_move_tolerance;
 }
 
@@ -472,6 +486,10 @@ void ADBSetRelMouseMode(bool relative)
 
 void ADBSetTouchInput(bool is_on) {
 	touch_input = is_on;
+}
+
+bool ADBGetTouchInput(void) {
+	return touch_input;
 }
 
 void ADBEnableHoverModeWith(int offset_x_inp, int offset_y_inp) {
@@ -495,6 +513,24 @@ bool ADBHoversOnMouseDown() {
 		return false;
 	}
 	return (relative_mouse || hover_mode);
+}
+
+// True when the absolute-mode hover cursor (two-finger steering) owns the guest
+// pointer on iOS. In this state the app forwards ONLY the steering finger's
+// position (VideoMapWindowPointToGuestAndMove) and video_sdl2 ignores SDL's own
+// synthesized touch motion — which otherwise bounces the cursor onto every
+// active finger, the "hop around the middle". hover_mode is only ever set in
+// absolute mode (relative mode disables it), so this is the two-finger-steering
+// state specifically.
+bool ADBIsHoverModeActive(void) {
+	return touch_input && hover_mode && !relative_mouse;
+}
+
+// True while the guest reads the mouse as relative deltas. Absolute-position
+// forwarders (the Catalyst hover/drag window-point bypass) must no-op in this
+// state: ADBMouseMoved() would add their absolute coordinates as deltas.
+bool ADBIsRelativeMouseMode(void) {
+	return relative_mouse;
 }
 
 bool ADBHoverGestureStartWasLeftSide() {

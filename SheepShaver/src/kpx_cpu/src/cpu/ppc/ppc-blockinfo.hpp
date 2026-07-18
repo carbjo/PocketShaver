@@ -78,7 +78,10 @@ powerpc_block_info::init(uintptr start_pc)
 inline bool
 powerpc_block_info::intersect(uintptr start, uintptr end)
 {
-	return (min_pc >= start && min_pc < end) || (max_pc >= start && max_pc < end);
+	// The block covers [min_pc, max_pc + 4) -- max_pc is the address of the
+	// last instruction. Test true range overlap: an invalidation range
+	// strictly interior to the block must still hit.
+	return min_pc < end && max_pc + 4 > start;
 }
 
 #endif /* PPC_BLOCKINFO_H */

@@ -38,6 +38,13 @@
 
 #include "MiscellaneousSettingsObjCCppHeader.h"
 
+#if TARGET_OS_IPHONE
+#include "display_mode_controller.h"
+#include "dsp_video_status_policy.h"
+#include "metal_compositor.h"
+#include "gfx_color_policy.h"
+#endif
+
 #define DEBUG 0
 #include "debug.h"
 
@@ -71,6 +78,37 @@ VidLocals *private_data = NULL;	// Pointer to driver local variables (there is o
 
 static long save_conf_id = APPLE_W_640x480;
 static long save_conf_mode = APPLE_8_BIT;
+
+static void video_log_palette_summary(const char *op, uint32 start, uint32 count)
+{
+	static int s_palette_log_count = 0;
+	if (s_palette_log_count >= 32) return;
+	s_palette_log_count++;
+
+	const rgb_color first = mac_pal[0];
+	int non_black = 0;
+	int different_from_first = 0;
+	int non_gray = 0;
+	for (int i = 0; i < 256; i++) {
+		const rgb_color c = mac_pal[i];
+		if (c.red != 0 || c.green != 0 || c.blue != 0)
+			non_black++;
+		if (c.red != first.red || c.green != first.green || c.blue != first.blue)
+			different_from_first++;
+		if (c.red != c.green || c.green != c.blue)
+			non_gray++;
+	}
+
+	const int depth =
+		(cur_mode >= 0 && cur_mode < 64) ? VModes[cur_mode].viAppleMode : -1;
+	fprintf(stderr,
+	        "VIDEO: palette %s start=%u count=%u curMode=%d depth=%d "
+	        "nonBlack=%d diff0=%d nonGray=%d idx0=(%u,%u,%u)\n",
+	        op, start, count, cur_mode, depth, non_black,
+	        different_from_first, non_gray,
+	        first.red, first.green, first.blue);
+	fflush(stderr);
+}
 
 
 // Function pointers of imported functions
@@ -218,9 +256,60 @@ static bool allocate_gamma_table(VidLocals *csSave, uint32 size)
 	 return a > b? a : b;
  }
 
+#if TARGET_OS_IPHONE
+static void publish_gamma_lut_to_display_controller(VidLocals *csSave)
+{
+	uint8 lut[768];
+	for (int i=0; i<256; i++) {
+		lut[i] = lut[256 + i] = lut[512 + i] = (uint8)i;
+	}
+
+	if (csSave != NULL && csSave->gammaTable != 0) {
+		uint32 gamma_table = csSave->gammaTable;
+		int chan_cnt = ReadMacInt16(gamma_table + gChanCnt);
+		int data_width = ReadMacInt16(gamma_table + gDataWidth);
+		int data_cnt = ReadMacInt16(gamma_table + gDataCnt);
+		if ((chan_cnt == 1 || chan_cnt == 3) &&
+		    data_width >= 1 && data_width <= 8 &&
+		    data_cnt == (1 << data_width)) {
+			uint32 p = gamma_table + gFormulaData + ReadMacInt16(gamma_table + gFormulaSize);
+			uint8 *red_gamma = Mac2HostAddr(p);
+			uint8 *green_gamma = red_gamma;
+			uint8 *blue_gamma = red_gamma;
+			if (chan_cnt == 3 && red_gamma != NULL) {
+				green_gamma = red_gamma + data_cnt;
+				blue_gamma = green_gamma + data_cnt;
+			}
+			if (red_gamma != NULL && green_gamma != NULL && blue_gamma != NULL) {
+				const int shift = 8 - data_width;
+				for (int i=0; i<256; i++) {
+					int idx = i >> shift;
+					lut[i] = red_gamma[idx];
+					lut[256 + i] = green_gamma[idx];
+					lut[512 + i] = blue_gamma[idx];
+				}
+			}
+		}
+	}
+
+	int32_t err = dmc_record_driver_gamma_change(lut);
+	/* kDMCDriverGammaDeferred: a DSp fade is in progress — the fade's
+	 * end-state push delivers this table, so do NOT pop it onto the
+	 * faded screen here. */
+	if (err == kDMCNoErr || err == kDMCErrNotInitialized) {
+		MetalCompositorUpdateGammaLUT(lut);
+	}
+}
+#endif
+
 static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 {
-	if (gamma == 0 || objc_getIsLinearGammaEnabled()) { // Build linear ramp, 256 entries
+	/* The Linear gamma pref must not bypass user-supplied tables here: games
+	 * install functional ramps (e.g. overbright brightness doubling) that the
+	 * compositor composes through the display policy. The pref only controls
+	 * that display-side composition — verbatim in OS-defined mode, inverse of
+	 * the Mac Standard curve in Linear mode (see gfx_color_policy.h). */
+	if (gamma == 0) { // nil table: install the driver's DEFAULT gamma
 
 		// Allocate new table, if necessary
 		if (!allocate_gamma_table(csSave, SIZEOF_GammaTbl + 256))
@@ -234,14 +323,30 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 		WriteMacInt16(csSave->gammaTable + gDataCnt, 256);		// gDataCnt == 2^^gDataWidth
 		WriteMacInt16(csSave->gammaTable + gDataWidth, 8);		// 8 bits of significant data per entry
 
-		// Build the linear ramp
 		uint32 p = csSave->gammaTable + gFormulaData;
-		
+
 		for (int i=0; i<256; i++) {
-			WriteMacInt8(p + i, i);
-			mac_gamma[i].red = mac_gamma[i].green = mac_gamma[i].blue = i;
+#if TARGET_OS_IPHONE
+			/* Real video card ROMs install their 'gama' resource ("Mac
+			 * Standard Gamma") as the power-on default; the Display Manager
+			 * trusts that at boot and only pushes the display profile's
+			 * table during a resolution/depth switch. A linear default here
+			 * therefore leaves the screen uncorrected from boot until the
+			 * first mode switch — which never comes when the guest boots at
+			 * the panel-native resolution in full screen. Default to the
+			 * same classic-Mac standard curve the profile table carries so
+			 * boot matches the post-switch presentation. */
+			const uint8 v = GfxColorClassicMacToSRGBByte((uint8)i);
+#else
+			const uint8 v = (uint8)i; // linear ramp (legacy host gamma path)
+#endif
+			WriteMacInt8(p + i, v);
+			mac_gamma[i].red = mac_gamma[i].green = mac_gamma[i].blue = v;
 		}
 		video_set_gamma(256);
+#if TARGET_OS_IPHONE
+		publish_gamma_lut_to_display_controller(csSave);
+#endif
 	} else { // User-supplied gamma table
 
 		// Validate header
@@ -299,6 +404,9 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 			}
 		}
 		video_set_gamma(data_cnt);
+#if TARGET_OS_IPHONE
+		publish_gamma_lut_to_display_controller(csSave);
+#endif
 	}
 	return noErr;
 }
@@ -343,6 +451,14 @@ static int16 VideoControl(uint32 pb, VidLocals *csSave)
 #ifdef __BEOS__
 				// Windows are gamma-corrected by BeOS
 				const bool can_do_gamma = (display_type == DIS_SCREEN);
+#elif TARGET_OS_IPHONE
+				/* The compositor gamma LUT is the single owner of driver
+				 * gamma on iOS: publish_gamma_lut_to_display_controller
+				 * delivers the guest table to the GPU present path, and
+				 * compositor_fragment_indexed applies it after the palette
+				 * lookup. Baking it into mac_pal here as well would apply
+				 * the table twice on indexed paths (see gfx_color_policy.h). */
+				const bool can_do_gamma = false;
 #else
 				const bool can_do_gamma = true;
 #endif
@@ -402,6 +518,7 @@ static int16 VideoControl(uint32 pb, VidLocals *csSave)
 					s_pal += 8;
 				}
 			}
+			video_log_palette_summary("SetEntries", start, count);
 			video_set_palette();
 			return noErr;
 		}
@@ -452,6 +569,7 @@ static int16 VideoControl(uint32 pb, VidLocals *csSave)
 
 		case cscDirectSetEntries:					// DirectSetEntries
 			D(bug("DirectSetEntries\n"));
+			video_log_palette_summary("DirectSetEntries-unimplemented", 0, 0);
 			return controlErr;
 
 		case cscSetDefaultMode:						// SetDefaultMode
@@ -631,17 +749,56 @@ static bool has_mode(uint32 id)
 	return false;
 }
 
-// Find maximum depth for given AppleID
-static uint32 max_depth(uint32 id)
+/*
+ *  DepthMode translation at the driver ABI. The Display Manager numbers a
+ *  display's depth modes RELATIVE to what the driver supports: kDepthMode1
+ *  (0x80, firstVidMode) is always the LOWEST supported depth. VModes stores
+ *  absolute APPLE_*_BIT constants; while the driver advertised every depth
+ *  1..32bpp the two numberings coincided, but with a trimmed depth set the
+ *  relative names must be translated. Absolute values are still accepted on
+ *  input for back-compat with guest state saved by older builds.
+ */
+static int video_depth_list(uint32 depths[6])
 {
-	uint32 max = APPLE_1_BIT;
-	VideoInfo *p = VModes;
-	while (p->viType != DIS_INVALID) {
-		if (p->viAppleID == id && p->viAppleMode > max)
-			max = p->viAppleMode;
-		p++;
+	int n = 0;
+	for (VideoInfo *p = VModes; p->viType != DIS_INVALID; p++) {
+		int i = 0;
+		while (i < n && depths[i] != p->viAppleMode) i++;
+		if (i == n && n < 6) depths[n++] = p->viAppleMode;
 	}
-	return max;
+	// insertion sort ascending (APPLE_*_BIT constants order by depth)
+	for (int i = 1; i < n; i++)
+		for (int j = i; j > 0 && depths[j-1] > depths[j]; j--) {
+			uint32 t = depths[j];
+			depths[j] = depths[j-1];
+			depths[j-1] = t;
+		}
+	return n;
+}
+
+uint32 video_abs_depth_from_rel(uint16 rel)
+{
+	uint32 depths[6];
+	int n = video_depth_list(depths);
+	int idx = (int)rel - (int)firstVidMode;
+	if (idx >= 0 && idx < n) return depths[idx];
+	return 0;
+}
+
+uint16 video_rel_depth_from_abs(uint32 abs)
+{
+	uint32 depths[6];
+	int n = video_depth_list(depths);
+	for (int i = 0; i < n; i++)
+		if (depths[i] == abs) return (uint16)(firstVidMode + i);
+	return (uint16)abs;	// unknown: report unchanged
+}
+
+static uint16 video_rel_max_depth_mode(void)
+{
+	uint32 depths[6];
+	int n = video_depth_list(depths);
+	return (uint16)(firstVidMode + (n > 0 ? n - 1 : 0));
 }
 
 // Get X/Y size of specified resolution
@@ -659,6 +816,22 @@ static void get_size_of_resolution(int id, uint32 &x, uint32 &y)
 	x = y = 0;
 }
 
+#if TARGET_OS_IPHONE
+static bool get_dsp_video_status_override(uint16 &mode, uint32 &data)
+{
+	const DMCModeSnapshot *snap = dmc_current_snapshot();
+	return DSpVideoStatusForSnapshot(snap, VModes, &mode, &data);
+}
+
+static void log_dsp_video_status_override(const char *selector, uint16 mode, uint32 data)
+{
+	const int depth = (mode >= APPLE_1_BIT && mode <= APPLE_32_BIT) ?
+	    (1 << (mode - APPLE_1_BIT)) : 0;
+	printf("VideoStatus %s: DSp override mode=0x%04x depth=%d id=0x%08x\n",
+	       selector, mode, depth, data);
+}
+#endif
+
 static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 {
 	int16 code = ReadMacInt16(pb + csCode);
@@ -666,15 +839,22 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 	uint32 param = ReadMacInt32(pb + csParam);
 	switch (code) {
 
-		case cscGetMode:							// GetMode
+		case cscGetMode: {							// GetMode
 			D(bug("GetMode\n"));
+			uint16 mode = csSave->saveMode;
+			uint32 data = csSave->saveData;
+#if TARGET_OS_IPHONE
+			if (get_dsp_video_status_override(mode, data))
+				log_dsp_video_status_override("GetMode", mode, data);
+#endif
 			WriteMacInt32(param + csBaseAddr, csSave->saveBaseAddr);
-			WriteMacInt16(param + csMode, csSave->saveMode);
+			WriteMacInt16(param + csMode, video_rel_depth_from_abs(mode));
 			WriteMacInt16(param + csPage, csSave->savePage);
 			D(bug("return: mode:%04x page:%04x ", ReadMacInt16(param + csMode),
 				ReadMacInt16(param + csPage)));
 			D(bug("base adress %08lx\n", ReadMacInt32(param + csBaseAddr)));
 			return noErr;
+		}
 
 		case cscGetEntries: {						// GetEntries
 			D(bug("GetEntries\n"));	
@@ -746,10 +926,16 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			D(bug("GetDefaultMode\n"));
 			return statusErr;
 
-		case cscGetCurMode:							// GetCurMode
+		case cscGetCurMode: {						// GetCurMode
 			D(bug("GetCurMode\n"));
-			WriteMacInt16(param + csMode, csSave->saveMode);
-			WriteMacInt32(param + csData, csSave->saveData);
+			uint16 mode = csSave->saveMode;
+			uint32 data = csSave->saveData;
+#if TARGET_OS_IPHONE
+			if (get_dsp_video_status_override(mode, data))
+				log_dsp_video_status_override("GetCurMode", mode, data);
+#endif
+			WriteMacInt16(param + csMode, video_rel_depth_from_abs(mode));
+			WriteMacInt32(param + csData, data);
 			WriteMacInt16(param + csPage, csSave->savePage);
 			WriteMacInt32(param + csBaseAddr, csSave->saveBaseAddr);
 			
@@ -757,6 +943,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 				ReadMacInt32(param + csData), ReadMacInt16(param + csPage)));
 			D(bug("base adress %08lx\n", ReadMacInt32(param + csBaseAddr)));
 			return noErr;
+		}
 
 		case cscGetConnection:						// GetConnection
 			D(bug("GetConnection\n"));
@@ -782,6 +969,17 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			unsigned int work_id = ReadMacInt32(param + csPreviousDisplayModeID);
 			switch (work_id) {
 				case kDisplayModeIDCurrent:
+#if TARGET_OS_IPHONE
+				{
+					uint16 mode = csSave->saveMode;
+					uint32 data = csSave->saveData;
+					if (get_dsp_video_status_override(mode, data)) {
+						log_dsp_video_status_override("GetNextResolution", mode, data);
+						work_id = data;
+						break;
+					}
+				}
+#endif
 					work_id = csSave->saveData;
 					break;
 				case kDisplayModeIDFindFirstResolution:
@@ -797,13 +995,23 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 						work_id++;
 						if (work_id > APPLE_ID_MAX) {
 							WriteMacInt32(param + csRIDisplayModeID, kDisplayModeIDNoMoreResolutions);
+							WriteMacInt16(param + csResolutionFlags, 0);
+							WriteMacInt32(param + csResolutionFlags + 2, 0);	// csReserved
 							return noErr;
 						}
 					}
 					break;
 			}
 			WriteMacInt32(param + csRIDisplayModeID, work_id);
-			WriteMacInt16(param + csMaxDepthMode, max_depth(work_id));
+			/* csMaxDepthMode is a RELATIVE depth mode (kDepthModeN). */
+			WriteMacInt16(param + csMaxDepthMode, video_rel_max_depth_mode());
+			/* Zero csResolutionFlags + csReserved: the guest Display Manager
+			 * copies the whole VDResolutionInfoRec into its mode-list
+			 * entries, and stale guest RAM here (e.g. a stray
+			 * kResolutionHasMultipleDepthSizes bit) changes the entry layout
+			 * apps parse. */
+			WriteMacInt16(param + csResolutionFlags, 0);
+			WriteMacInt32(param + csResolutionFlags + 2, 0);	// csReserved
 #ifdef TARGET_OS_IPHONE
 			uint32 x, y;
 			get_size_of_resolution(work_id, x, y);
@@ -871,15 +1079,44 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			return noErr;
 		}
 
-		case cscGetVideoParameters:					// GetVideoParameters
+		case cscGetVideoParameters: {				// GetVideoParameters
 			D(bug("GetVideoParameters ID:%08lx Depth:%04x\n",
 				ReadMacInt32(param + csDisplayModeID),
 				ReadMacInt16(param + csDepthMode)));
 
-			// find right video mode						
+			uint32 requested_id = ReadMacInt32(param + csDisplayModeID);
+			uint16 requested_mode = ReadMacInt16(param + csDepthMode);
+			bool mode_is_absolute = false;
+#if TARGET_OS_IPHONE
+			if (requested_id == kDisplayModeIDCurrent) {
+				uint16 mode = csSave->saveMode;
+				uint32 data = csSave->saveData;
+				if (get_dsp_video_status_override(mode, data)) {
+					log_dsp_video_status_override("GetVideoParameters", mode, data);
+					requested_id = data;
+					requested_mode = mode;
+					mode_is_absolute = true;
+				}
+			}
+#endif
+
+			if (!mode_is_absolute) {
+				/* csDepthMode is a RELATIVE kDepthModeN selector; translate
+				 * STRICTLY (no absolute fallback) so the Display Manager's
+				 * probe loop terminates after exactly the supported depth
+				 * count — dual-accepting absolute values here made every
+				 * depth answer twice (once relative, once absolute) and
+				 * doubled each resolution's depth records. */
+				uint32 abs = video_abs_depth_from_rel(requested_mode);
+				if (abs == 0)
+					return paramErr;
+				requested_mode = (uint16)abs;
+			}
+
+			// find right video mode
 			for (int i=0; VModes[i].viType!=DIS_INVALID; i++) {
-				if ((ReadMacInt16(param + csDepthMode) == VModes[i].viAppleMode) &&
-					(ReadMacInt32(param + csDisplayModeID) == VModes[i].viAppleID)) {
+				if ((requested_mode == VModes[i].viAppleMode) &&
+					(requested_id == VModes[i].viAppleID)) {
 					uint32 vpb = ReadMacInt32(param + csVPBlockPtr);
 					WriteMacInt32(vpb + vpBaseOffset, 0);
 					WriteMacInt16(vpb + vpRowBytes, VModes[i].viRowBytes);
@@ -938,55 +1175,50 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 							break;
 					}
 					WriteMacInt32(param + csPageCount, 1);
+					/* Zero csReserved (packed 68k layout: csDeviceType@14 is
+					 * 4 bytes, csReserved@18) — same stale-guest-RAM hazard
+					 * as csResolutionFlags in cscGetNextResolution. */
+					WriteMacInt32(param + csDeviceType + 4, 0);	// csReserved
 					return noErr;
 				}
 			}
 			return paramErr;
+		}
 
 		case cscGetModeTiming:
 			D(bug("GetModeTiming mode %08lx\n", ReadMacInt32(param + csTimingMode)));
+			WriteMacInt32(param + csTimingReserved, 0);
 			WriteMacInt32(param + csTimingFormat, kDeclROMtables);
 			WriteMacInt32(param + csTimingFlags, (1<<kModeValid)|(1<<kModeSafe)|(1<<kShowModeNow));		// Mode valid, safe, default and shown in Monitors panel
 			for (int i=0; VModes[i].viType!=DIS_INVALID; i++) {
 				if (ReadMacInt32(param + csTimingMode) == VModes[i].viAppleID) {
 					uint32 timing = timingUnknown;
-					uint32 flags = (1<<kModeValid) | (1<<kShowModeNow);
-					switch (VModes[i].viAppleID) {
-						case APPLE_640x480:
-							timing = timingVESA_640x480_75hz;
-							flags |= (1<<kModeSafe);
-							break;
-						case APPLE_W_640x480:
-							timing = timingVESA_640x480_60hz;
-							flags |= (1<<kModeSafe);
-							break;
-						case APPLE_800x600:
-							timing = timingVESA_800x600_75hz;
-							flags |= (1<<kModeSafe);
-							break;
-						case APPLE_W_800x600:
-							timing = timingVESA_800x600_60hz;
-							flags |= (1<<kModeSafe);
-							break;
-						case APPLE_1024x768:
-							timing = timingVESA_1024x768_75hz;
-							break;
-						case APPLE_1152x768:
-							timing = timingApple_1152x870_75hz; // FIXME
-							break;
-						case APPLE_1152x900:
-							timing = timingApple_1152x870_75hz;
-							break;
-						case APPLE_1280x1024:
-							timing = timingVESA_1280x960_75hz;
-							break;
-						case APPLE_1600x1200:
-							timing = timingVESA_1600x1200_75hz;
-							break;
-						default:
-							timing = timingUnknown;
-							break;
-					}
+					uint32 flags = (1<<kModeValid) | (1<<kShowModeNow) | (1<<kModeSafe);
+					/* Key the timing constant off the mode's actual pixel
+					 * size. viAppleID values are assigned sequentially from
+					 * the enabled-resolution prefs, NOT the classic fixed
+					 * APPLE_* id-to-resolution table, so switching on the id
+					 * (as this code originally did) reported a shuffled
+					 * timing constant for every mode — e.g. the native-panel
+					 * mode carried timingVESA_640x480_75hz. The Display
+					 * Manager cross-references these constants when it
+					 * builds mode-list entries for apps. */
+					const uint32 tw = VModes[i].viXsize;
+					const uint32 th = VModes[i].viYsize;
+					if (tw == 640 && th == 480)
+						timing = timingVESA_640x480_60hz;
+					else if (tw == 800 && th == 600)
+						timing = timingVESA_800x600_60hz;
+					else if (tw == 1024 && th == 768)
+						timing = timingVESA_1024x768_75hz;
+					else if (tw == 1152 && (th == 768 || th == 870 || th == 900))
+						timing = timingApple_1152x870_75hz;
+					else if (tw == 1280 && (th == 960 || th == 1024))
+						timing = timingVESA_1280x960_75hz;
+					else if (tw == 1600 && th == 1200)
+						timing = timingVESA_1600x1200_75hz;
+					else
+						timing = timingUnknown;
 					WriteMacInt32(param + csTimingData, timing);
 					WriteMacInt32(param + csTimingFlags, flags);
 					return noErr;

@@ -25,6 +25,18 @@ using std::string;
 
 #include "xpram.h"
 
+#ifdef __APPLE__
+#include "TargetConditionals.h"
+#if TARGET_OS_MACCATALYST
+// Defined in utils_ios.mm. On Mac Catalyst the NVRAM lives under the app's
+// container Data directory (~/Library/Containers/<bundle-id>/Data) rather than
+// $HOME (which is the real user home there, since the build is unsandboxed).
+// Forward-declared to avoid coupling this shared BasiliskII source to the
+// PocketShaver-only utils_ios.h.
+extern const char* pocketshaver_home_directory();
+#endif
+#endif
+
 
 #ifdef __linux__
 
@@ -106,7 +118,11 @@ void LoadXPRAM(const char *vmdir)
 	} else {
 		// Construct XPRAM path
 		xpram_path[0] = 0;
+#if TARGET_OS_MACCATALYST
+		const char *home = pocketshaver_home_directory();
+#else
 		char *home = getenv("HOME");
+#endif
 		if (home != NULL && strlen(home) < 1000) {
 			strncpy(xpram_path, home, 1000);
 			strcat(xpram_path, "/");
@@ -145,7 +161,11 @@ void ZapPRAM(void)
 {
 	// Construct PRAM path
 	xpram_path[0] = 0;
+#if TARGET_OS_MACCATALYST
+	const char *home = pocketshaver_home_directory();
+#else
 	char *home = getenv("HOME");
+#endif
 	if (home != NULL && strlen(home) < 1000) {
 		strncpy(xpram_path, home, 1000);
 		strcat(xpram_path, "/");

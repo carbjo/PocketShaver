@@ -136,7 +136,22 @@ public:
 	DEFINE_ALIAS(spcflags_clear,1);
 
 	// Control Flow
+#if defined(__APPLE__) && defined(__x86_64__)
+	// The precompiled op_jump_next_A0 bakes struct offsets from the
+	// upstream-era powerpc_cpu layout (block-cache hash position and
+	// block_info field offsets) that this fork's layout changes have
+	// invalidated. Route the lookup through the C++ helper instead: A0
+	// carries the candidate block_info in; the helper returns the next
+	// entry point (or the exec-return glue on a miss) and we jump
+	// through it.
+	void gen_jump_next_A0();
+#else
 	DEFINE_ALIAS(jump_next_A0,0);
+#endif
+#if defined(__aarch64__)
+	// Trap-chaining resume guard (arm64-only op, no x86 counterpart)
+	DEFINE_ALIAS(sheep_guard_im,1);
+#endif
 
 	// Compare & Record instructions
 	DEFINE_ALIAS(record_cr0_T0,0);

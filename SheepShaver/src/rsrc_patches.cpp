@@ -110,6 +110,436 @@ static uint32 find_rsrc_data(const uint8 *rsrc, uint32 max, const uint8 *search,
 // 680x0 code pattern matching helper
 #define PM(N, V) (p[N] == htons(V))
 
+/*
+ *  DII splash-hang fix: keep Sound Manager component PEF code resources resident.
+ *
+ *  A Sound Manager component's 'nift' PEF code section is present and intact when
+ *  the resource loads, but the unlocked/purgeable resource handle is purged or
+ *  heap-moved after CFM bakes its absolute code pointer.  The prepared dispatch
+ *  TVector then dangles into freed+zeroed memory, so the app (e.g. the Diablo II
+ *  splash) branches into a zeroed block and the PPC thread dies.
+ *
+ *  Fix: lock the handle (HNoPurge + HLock) so it can be neither purged nor moved.
+ *  Boot-safe split: handles are RECORDED at load time (pure host-side writes, no
+ *  guest code -> safe even from the native get_resource thunk), then LOCKED by
+ *  DrainPendingResourceLocks(), which runs only from the level-1 interrupt
+ *  (emul_op.cpp OP_IRQ, gated by HasMacStarted()) -- a legal Execute68kTrap
+ *  context.  Locking directly from the native thunk corrupts boot.
+ *
+ *  The drain must NOT wait for the next 60Hz VBL tick: the purge that dangles
+ *  the prepared TVector can happen inside the very Component-open sequence
+ *  that loaded the resource, so queueing a handle raises a dedicated interrupt
+ *  flag (INTFLAG_RSRC) and the lock lands at the next interrupt check.
+ *
+ *  One lock is still not enough (device-verified 2026-06-10):
+ *   - The Component/Sound Manager SAVES handle state around component opens
+ *     and RESTORES it afterwards, erasing the lock -> monitor_locked_nifts()
+ *     re-asserts HNoPurge+HLock every tick.
+ *   - DisposeHandle ignores HLock entirely; the freed space is re-allocated
+ *     zero-filled while prepared CFM TVectors still point in -> a host-side
+ *     snapshot of each container is taken at lock time, and the emulator's
+ *     illegal-instruction handler restores it and retries when the guest is
+ *     about to execute zeroes inside a monitored container (see
+ *     RsrcLocksTryRepair and ppc-execute.cpp).
+ */
+#define MAX_PENDING_RESOURCE_LOCKS 64
+static uint32 pending_resource_locks[MAX_PENDING_RESOURCE_LOCKS];
+static int pending_resource_lock_count = 0;
+
+#define MAX_LOCKED_NIFTS 64
+struct LockedNiftInfo {
+	uint32 h, p, size;
+	uint32 sample_off[4];	// container-relative sample offsets
+	uint32 sample_val[4];
+	uint8 state;			// HGetState byte at lock time
+	bool dead;				// reported a fatal transition; stop monitoring
+	uint8 *snapshot;		// host-side copy of the whole container, for fault-time repair
+	uint32 repairs;			// fault-time restores performed; capped
+};
+static LockedNiftInfo locked_nifts[MAX_LOCKED_NIFTS];
+static int locked_nift_count = 0;
+
+// Guest-address sanity guard for monitor reads (master pointers can go stale)
+static bool nift_range_ok(uint32 addr, uint32 len)
+{
+	return addr >= RAMBase && addr - RAMBase < RAMSize && RAMSize - (addr - RAMBase) >= len;
+}
+
+// At lock: remember the block and snapshot its content for monitoring/repair.
+static void register_locked_nift(uint32 h, uint32 p, uint8 state)
+{
+	int slot = -1;
+	for (int i = 0; i < locked_nift_count; i++) {
+		if (locked_nifts[i].h == h && !locked_nifts[i].dead) {
+			if (locked_nifts[i].p == p)
+				return;								// same block, already monitored
+			D(bug("[CFM-MON] h=%08x superseded by re-load (p %08x -> %08x)\n", h, locked_nifts[i].p, p));
+			locked_nifts[i].dead = true;
+		}
+		if (locked_nifts[i].dead && slot < 0)
+			slot = i;								// reuse dead slots, never exhaust
+	}
+	if (!nift_range_ok(p, 40))
+		return;
+	if (slot < 0) {
+		if (locked_nift_count >= MAX_LOCKED_NIFTS)
+			return;
+		slot = locked_nift_count++;
+	}
+	LockedNiftInfo &n = locked_nifts[slot];
+	if (n.snapshot)
+		free(n.snapshot);
+	n.h = h;
+	n.p = p;
+	n.size = ReadMacInt32(p - 2 * 4) & 0xffffff;
+	n.state = state;
+	n.dead = false;
+	n.repairs = 0;
+	n.snapshot = (uint8 *)malloc(n.size);
+	if (n.snapshot)
+		memcpy(n.snapshot, Mac2HostAddr(p), n.size);
+	for (int s = 0; s < 4; s++) {
+		uint32 ofs = (n.size / 4) * s;
+		if (ofs + 4 > n.size)
+			ofs = n.size > 4 ? n.size - 4 : 0;
+		ofs &= ~3;
+		n.sample_off[s] = ofs;
+		n.sample_val[s] = nift_range_ok(p + ofs, 4) ? ReadMacInt32(p + ofs) : 0;
+	}
+}
+
+// True iff guest handle h is a LIVE monitored 'nift' whose backing store must
+// never be freed (DII use-after-free root fix).  Called from the _DisposHandle
+// head-patch (OP_DISPOSE_NIFT_GUARD) with the handle in A0.  Match on the HANDLE
+// value .h -- that is what _DisposHandle receives, and .h is stable across the
+// MOVED case (monitor_locked_nifts updates .p, never .h).  Dead/superseded slots
+// (register_locked_nift marks them dead) are skipped, so a reloaded handle's old
+// slot never blocks a real free.  Matching by raw handle value is safe ONLY
+// because this patch keeps the block allocated: the Memory Manager can never
+// re-issue the same h to a different block while we protect it; and if any non-
+// _DisposHandle path ever freed it, the monitor sets dead (EMPTIED / HEADER
+// CLOBBERED) and stops protecting h, so a later legitimate reuse of h is not
+// wrongly skipped.  O(count<=64), single-digit in DII; the count==0 fast-out
+// makes it one compare for every non-DII app.  The table can only ever hold
+// genuine 'Joy!' PEF handles (maybe_queue_nift_lock), so a non-'nift' handle can
+// never match -- every ordinary free still chains to the stock _DisposHandle.
+bool RsrcLockIsLiveNift(uint32 h)
+{
+	if (h == 0 || locked_nift_count == 0)
+		return false;
+	for (int i = 0; i < locked_nift_count; i++)
+		if (locked_nifts[i].h == h && !locked_nifts[i].dead)
+			return true;
+	return false;
+}
+
+// Stock _DisposHandle trap entry, captured once at head-patch install.  Held in a
+// host global (NOT guest ROM -- a runtime WriteMacInt32 into the ROM patch region
+// does not stick); the dispose thunk's EMUL_OP returns it in A1 so the chain path
+// tail-jumps to the genuine _DisposHandle for every non-'nift' handle.
+static uint32 dispose_orig_addr = 0;
+uint32 RsrcLockDisposeOrig(void) { return dispose_orig_addr; }
+
+// Virtual-memory-present Gestalt spoof (see GestaltFakeVMForCurrentApp).  Stock
+// _Gestalt ($A1AD) trap entry captured once at head-patch install, held host-side
+// (a runtime WriteMacInt32 into the ROM patch region does not stick).  The thunk's
+// EMUL_OP hands it back in A1 so the chain path tail-jumps to the genuine _Gestalt.
+static uint32 gestalt_hook_orig = 0;
+uint32 GestaltHookOrig(void) { return gestalt_hook_orig; }
+
+// Address of the bare `rts` at the tail of the gestalt thunk (GESTALT_VM_PATCH_SPACE
+// + 4).  The handler points A1 here on the spoof path so `jmp (a1)` returns the
+// synthesized A0/D0 without ever running the real _Gestalt.
+uint32 GestaltRtsStub(void) { return ROMBase + GESTALT_VM_PATCH_SPACE + 4; }
+
+// Report Virtual Memory as present, but only for a selected set of applications.
+// Some apps check Gestalt('vm  ') (gestaltVMAttr) and refuse to run -- with a
+// warning -- when virtual memory is off, but SheepShaver has no MMU so VM is
+// permanently off.  Reporting it present system-wide crashes the OS during boot (a
+// boot-time component acts on the claim with no MMU behind it), so scope it to the
+// target apps by the current-application name (CurApName, low-mem 0x910, a Str31).
+// A target may launch in stages under different names, so match each of its forms.
+// Everything else -- the system, the Finder, other apps -- keeps seeing the real
+// (off) state.
+bool GestaltFakeVMForCurrentApp(void)
+{
+	// Guest addresses < 0x3000 live in the emulator's gZeroPage buffer and
+	// ReadMacInt8 routes through the same redirect, so this reads exactly what the
+	// guest wrote to CurApName.
+	char low[32];
+	uint8 len = ReadMacInt8(0x910);					// CurApName length byte
+	if (len > 31)
+		len = 31;
+	for (int i = 0; i < len; i++) {
+		unsigned char c = (unsigned char)ReadMacInt8(0x910 + 1 + i);
+		low[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;	// ASCII lowercase
+	}
+	low[len] = 0;
+
+	// CurApName is uninitialized before any app launches (early boot); a real name
+	// starts with a printable character.
+	if (len < 1 || (unsigned char)low[0] < 0x20 || (unsigned char)low[0] > 0x7e)
+		return false;
+
+	return strstr(low, "simcity") != NULL || strstr(low, "sim city") != NULL
+	    || strstr(low, "sc3")     != NULL;
+}
+
+// Per-tick integrity check.  Guest traps allowed here (drain context only).
+static void monitor_locked_nifts(void)
+{
+	for (int i = 0; i < locked_nift_count; i++) {
+		LockedNiftInfo &n = locked_nifts[i];
+		if (n.dead)
+			continue;
+		if (!nift_range_ok(n.h, 4)) {
+			n.dead = true;
+			continue;
+		}
+		uint32 mp = ReadMacInt32(n.h);
+		if (mp == 0) {
+			D(bug("[CFM-MON] h=%08x EMPTIED (master ptr = 0, was p=%08x)\n", n.h, n.p));
+			n.dead = true;
+			continue;
+		}
+		if (!nift_range_ok(mp, 40)) {
+			printf("[CFM-MON] h=%08x MASTER PTR WILD %08x (was p=%08x)\n", n.h, mp, n.p);
+			n.dead = true;
+			continue;
+		}
+		if (mp != n.p) {
+			D(bug("[CFM-MON] h=%08x MOVED %08x -> %08x\n", n.h, n.p, mp));
+			n.p = mp;
+			for (int s = 0; s < 4; s++)
+				n.sample_val[s] = nift_range_ok(mp + n.sample_off[s], 4) ? ReadMacInt32(mp + n.sample_off[s]) : 0;
+			continue;
+		}
+		if (ReadMacInt32(mp) != FOURCC('J','o','y','!')) {
+			printf("[CFM-MON] h=%08x HEADER CLOBBERED @%08x (now %08x)\n", n.h, mp, ReadMacInt32(mp));
+			n.dead = true;
+			continue;
+		}
+		bool changed = false;
+		for (int s = 0; s < 4; s++) {
+			if (!nift_range_ok(mp + n.sample_off[s], 4))
+				continue;
+			uint32 cur = ReadMacInt32(mp + n.sample_off[s]);
+			if (cur != n.sample_val[s]) {
+				printf("[CFM-MON] h=%08x CONTENT CHANGED @+0x%x: %08x -> %08x\n", n.h, n.sample_off[s], n.sample_val[s], cur);
+				changed = true;
+			}
+		}
+		if (changed) {
+			n.dead = true;
+			continue;
+		}
+		// State check via HGetState; re-assert the lock if the guest undid it.
+		M68kRegisters r;
+		r.a[0] = n.h;
+		Execute68kTrap(0xa069, &r);					// HGetState(h)
+		uint8 st = r.d[0] & 0xff;
+		if ((st & 0x80) == 0 || (st & 0x40) != 0) {	// unlocked or purgeable again
+			D(bug("[CFM-MON] h=%08x STATE REGRESSED 0x%02x -> 0x%02x; re-locking\n", n.h, n.state, st));
+			r.a[0] = n.h;
+			Execute68kTrap(0xa04a, &r);				// HNoPurge(h)
+			r.a[0] = n.h;
+			Execute68kTrap(0xa029, &r);				// HLock(h)
+		}
+		n.state = st;
+	}
+}
+
+// Fault-time repair.  DisposeHandle ignores HLock; the freed space gets
+// re-allocated while prepared CFM TVectors still point in.  The new owner's
+// memory may still be zero-filled OR already re-populated with data (device-
+// proven 2026-06-11: a bulk fill of incrementing words landed over the 'mixr'
+// container and the stale call faulted on opcode e2c42184, which the old
+// zero-only gate ignored).  So the trigger is: the word at the faulting PC
+// DIFFERS from the lock-time snapshot.  When it does, restore the container
+// from the host snapshot and let the emulator retry the same PC.  Restoring
+// can overwrite a new owner's allocation -- accepted: the alternative is a
+// dead PPC thread.  Capped per container to avoid fighting an active writer
+// forever.  Pure host-side reads/writes, safe from the illegal-instruction
+// handler.
+int RsrcLocksTryRepair(uint32 pc, uint32 *out_start, uint32 *out_end)
+{
+	int best = -1;
+	for (int i = 0; i < locked_nift_count; i++) {
+		LockedNiftInfo &n = locked_nifts[i];
+		if (n.snapshot == NULL || n.size == 0 || pc < n.p || pc - n.p >= n.size)
+			continue;
+		// prefer the most recent registration; live entries over dead ones
+		if (best < 0 || locked_nifts[best].dead || !n.dead)
+			best = i;
+	}
+	if (best < 0)
+		return 0;
+	LockedNiftInfo &n = locked_nifts[best];
+	uint32 off = pc - n.p;
+	if (n.repairs >= 32 || off + 4 > n.size || !nift_range_ok(n.p, n.size))
+		return 0;
+	uint32 snap_op = ((uint32)n.snapshot[off] << 24) | ((uint32)n.snapshot[off + 1] << 16)
+		| ((uint32)n.snapshot[off + 2] << 8) | (uint32)n.snapshot[off + 3];
+	if (snap_op == 0)
+		return 0;									// snapshot has no code there either
+	if (ReadMacInt32(pc) == snap_op)
+		return 0;									// code intact -- genuinely illegal instr, not our clobber
+	// Use-after-free with the container header gone: the live header at n.p is no
+	// longer 'Joy!' (DisposeHandle zero-filled it, or a new owner overwrote it).
+	// Do NOT restore the snapshot -- the in-place memcpy below copies the WHOLE
+	// container back INCLUDING the 'Joy!' header, which un-does the monitor's
+	// dead-marking (line 240) so the next clobber re-faults: that loop is the
+	// runaway [CFM-REPAIR] storm that wedges Diablo II.  Instead retire the entry
+	// permanently and tell execute_illegal to return gracefully from the disposed
+	// import (r3=noErr, pc=lr).  The cross-TOC glue reaches the freed code via
+	// `bctr` (no link), so LR still points at the real caller -- the stale call
+	// resumes there as if the import had returned.  A header-intact-but-code-
+	// differs case (a legitimate heap move / non-disposed container) does NOT
+	// match this and still uses the in-place restore below.
+	if (ReadMacInt32(n.p) != FOURCC('J','o','y','!')) {
+		if (!n.dead) {
+			printf("[CFM-RELEASE] disposed 'nift' h=%08x p=%08x: stale call at pc=%08x (+0x%x) -> graceful return\n",
+				n.h, n.p, pc, off);
+			n.dead = true;
+		}
+		*out_start = n.p;
+		*out_end = n.p + n.size;
+		return 2;								// graceful-return signal to execute_illegal
+	}
+	uint8 *guest = Mac2HostAddr(n.p);
+	uint32 live = 0;
+	for (uint32 b = 0; b < n.size; b++)
+		if (guest[b] != 0 && guest[b] != n.snapshot[b])
+			live++;
+	memcpy(guest, n.snapshot, n.size);
+	n.repairs++;
+	printf("[CFM-REPAIR] restored 'nift' h=%08x p=%08x size=%u at pc=%08x (+0x%x), %u live bytes differed (repair #%u)\n",
+		n.h, n.p, n.size, pc, off, live, n.repairs);
+	*out_start = n.p;
+	*out_end = n.p + n.size;
+	return 1;
+}
+
+// Crash-context dump: pure host reads, NO guest traps.  Called from the
+// illegal-instruction handler (first fault only).
+void RsrcLocksDumpOnCrash(void)
+{
+	static bool dumped = false;
+	if (dumped)
+		return;
+	dumped = true;
+	printf("[CFM-DUMP] %d monitored 'nift' handles at first illegal instruction:\n", locked_nift_count);
+	for (int i = 0; i < locked_nift_count; i++) {
+		LockedNiftInfo &n = locked_nifts[i];
+		uint32 mp = nift_range_ok(n.h, 4) ? ReadMacInt32(n.h) : 0xdeadbeef;
+		bool mp_ok = nift_range_ok(mp, 40);
+		printf("[CFM-DUMP]  h=%08x p_locked=%08x size=%u mp_now=%08x magic_now=%08x state=0x%02x dead=%d",
+			n.h, n.p, n.size, mp, mp_ok ? ReadMacInt32(mp) : 0, n.state, (int)n.dead);
+		for (int s = 0; s < 4; s++)
+			printf(" [+0x%x %08x->%08x]", n.sample_off[s], n.sample_val[s],
+				mp_ok && nift_range_ok(mp + n.sample_off[s], 4) ? ReadMacInt32(mp + n.sample_off[s]) : 0);
+		printf("\n");
+	}
+}
+
+// Record a 'nift' PEF resource handle to lock later.  Guest-state READ-ONLY
+// (ReadMacInt + a host array write) -> safe to call from ANY context.
+void maybe_queue_nift_lock(uint32 type, uint32 h)
+{
+	if (type != FOURCC('n','i','f','t') || h == 0)
+		return;
+	uint32 p = ReadMacInt32(h);
+	if (p == 0)
+		return;
+	if (ReadMacInt32(p) != FOURCC('J','o','y','!'))		// not a PEF container
+		return;
+	bool already_queued = false;
+	for (int i = 0; i < pending_resource_lock_count; i++)
+		if (pending_resource_locks[i] == h) {
+			already_queued = true;
+			break;
+		}
+	if (!already_queued && pending_resource_lock_count < MAX_PENDING_RESOURCE_LOCKS) {
+		pending_resource_locks[pending_resource_lock_count++] = h;
+		D(bug("[CFM-LOCK] queued 'nift' PEF handle %08x (p=%08x)\n", h, p));
+	}
+
+	// Lock ASAP (next interrupt check), not at the next 60Hz VBL tick -- see
+	// the design comment above.  Safe from any context: atomic flag set plus
+	// a CPU special-flag, no guest code executed here.
+	if (pending_resource_lock_count > 0) {
+		SetInterruptFlag(INTFLAG_RSRC);
+		TriggerInterrupt();
+	}
+}
+
+// Lock every queued handle (HNoPurge + HLock).  Runs guest traps, so it MUST be
+// called only from a legal context (the level-1 interrupt) -- never the thunk.
+void DrainPendingResourceLocks(void)
+{
+	static bool draining = false;
+	if (draining)
+		return;
+	draining = true;
+	while (pending_resource_lock_count > 0) {
+		uint32 h = pending_resource_locks[--pending_resource_lock_count];
+		if (h == 0 || ReadMacInt32(h) == 0)
+			continue;									// empty / already-purged handle
+		M68kRegisters r;
+		r.a[0] = h;
+		Execute68kTrap(0xa04a, &r);					// HNoPurge(h)
+		r.a[0] = h;
+		Execute68kTrap(0xa029, &r);					// HLock(h)
+		r.a[0] = h;
+		Execute68kTrap(0xa069, &r);					// HGetState(h)
+		uint8 state = r.d[0] & 0xff;
+		uint32 p = ReadMacInt32(h);					// re-read: did it move before the lock landed?
+		D(bug("[CFM-LOCK] HNoPurge+HLock 'nift' PEF handle %08x p=%08x state=0x%02x\n", h, p, state));
+		register_locked_nift(h, p, state);
+	}
+	monitor_locked_nifts();
+
+	// One-time install of the _DisposHandle (0xA023) keep-alive head-patch, the
+	// first time a 'nift' is actually locked.  Proven-legal Execute68kTrap context
+	// (HasMacStarted, same as the HLock/HGetState above).  Capture the stock trap
+	// entry into the thunk's indirect-original long, then point the OS trap slot at
+	// our thunk.  Idempotent (static guard); never installed for apps that load no
+	// 'nift', so they stay byte-for-byte unaffected.
+	static bool dispose_patch_installed = false;
+	if (!dispose_patch_installed && locked_nift_count > 0) {
+		M68kRegisters r;
+		r.d[0] = 0xa023;								// _DisposHandle (OS trap, number 0x23)
+		Execute68kTrap(0xa346, &r);						// GetOSTrapAddress -> A0 = stock entry
+		dispose_orig_addr = r.a[0];						// host global; thunk gets it via A1
+		r.d[0] = 0xa023;
+		r.a[0] = ROMBase + DISPOSE_NIFT_PATCH_SPACE;	// our thunk entry
+		Execute68kTrap(0xa247, &r);						// SetOSTrapAddress(thunk)
+		dispose_patch_installed = true;
+		printf("[CFM-GUARD] _DisposHandle head-patch installed (orig=%08x thunk=%08x)\n",
+			dispose_orig_addr, ROMBase + DISPOSE_NIFT_PATCH_SPACE);
+	}
+
+	// One-time install of the _Gestalt ($A1AD) VM-present head-patch.  UN-gated
+	// (unlike the dispose patch, which waits for a 'nift' lock) so it is in place
+	// for every app once MacOS is up -- target apps launch from the Finder, well
+	// after boot, and this drain runs on every VBL once HasMacStarted().  _Gestalt
+	// is OS-dispatched (trap word $A1AD has bit 11 clear and is <= $A800), so use
+	// Get/SetOSTrapAddress, exactly like the _DisposHandle patch above.
+	static bool gestalt_hook_installed = false;
+	if (!gestalt_hook_installed) {
+		M68kRegisters r;
+		r.d[0] = 0xa1ad;								// _Gestalt (OS trap, number 0xAD)
+		Execute68kTrap(0xa346, &r);						// GetOSTrapAddress -> A0 = stock entry
+		gestalt_hook_orig = r.a[0];
+		r.d[0] = 0xa1ad;
+		r.a[0] = ROMBase + GESTALT_VM_PATCH_SPACE;		// our thunk entry
+		Execute68kTrap(0xa247, &r);						// SetOSTrapAddress(thunk)
+		gestalt_hook_installed = true;
+	}
+
+	draining = false;
+}
+
 void CheckLoad(uint32 type, int16 id, uint16 *p, uint32 size)
 {
 	uint16 *p16;
@@ -660,6 +1090,7 @@ void check_load_invoc(uint32 type, int16 id, uint32 h)
 		return;
 	uint32 size = ReadMacInt32(p - 2 * 4) & 0xffffff;
 
+	maybe_queue_nift_lock(type, h);		// DII fix: schedule sound-component PEF lock (no trap here)
 	CheckLoad(type, id, (uint16 *)Mac2HostAddr(p), size);
 }
 
@@ -677,6 +1108,7 @@ void named_check_load_invoc(uint32 type, uint32 name, uint32 h)
 		return;
 	uint32 size = ReadMacInt32(p - 2 * 4) & 0xffffff;
 
+	maybe_queue_nift_lock(type, h);		// DII fix: schedule sound-component PEF lock (no trap here)
 	CheckLoad(type, (char *)Mac2HostAddr(name), Mac2HostAddr(p), size);
 }
 

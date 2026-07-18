@@ -44,6 +44,14 @@ void objc_ADBMouseMoved(NSInteger x, NSInteger y) {
 	ADBMouseMoved((int)x, (int)y);
 }
 
+// Implemented in BasiliskII/src/SDL/video_sdl2.cpp — maps a UIWindow-base point
+// through the compositor present rect to guest coords and calls ADBMouseMoved.
+extern "C" void VideoMapWindowPointToGuestAndMove(double winX, double winY);
+
+void objc_ADBMouseMovedFromWindowPoint(CGFloat winX, CGFloat winY) {
+	VideoMapWindowPointToGuestAndMove((double)winX, (double)winY);
+}
+
 void objc_ADBEnableHoverModeWith(CGFloat offset_x, CGFloat offset_y) {
 	ADBEnableHoverModeWith((int)offset_x, (int) offset_y);
 }

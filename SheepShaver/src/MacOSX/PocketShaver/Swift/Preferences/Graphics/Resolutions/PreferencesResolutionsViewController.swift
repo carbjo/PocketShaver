@@ -8,7 +8,7 @@
 import UIKit
 import Combine
 
-class PreferencesResolutionsViewController: UITableViewController {
+class PreferencesResolutionsViewController: PreferencesTableViewController {
 	@MainActor
 	enum SectionType: Int, CaseIterable {
 		case information

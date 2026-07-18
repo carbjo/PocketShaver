@@ -45,7 +45,36 @@ class GestureInputView: UIView {
 
 		isMultipleTouchEnabled = true
 		backgroundColor = .darkGray.withAlphaComponent(0)
+
 	}
+
+#if targetEnvironment(macCatalyst)
+	// Mac Catalyst mouse-position bypass. SDL's Catalyst window transposes to
+	// portrait on unfocus/refocus and clamps mouse-x, so the guest cursor is
+	// driven from the real UIKit pointer location instead. Buttons continue to
+	// flow through SDL. Hover covers button-up moves; touchesMoved (below) covers
+	// button-down drags.
+	private weak var catalystHover: UIHoverGestureRecognizer?
+
+	override func didMoveToWindow() {
+		super.didMoveToWindow()
+		// Attach the hover recognizer to the WINDOW, not this view: the compositor
+		// keeps the window at the true full size, but SDL's transposed view
+		// geometry could shrink this view's width and clip the pointer at the same
+		// wrong edge we're trying to escape.
+		if let window, catalystHover == nil {
+			let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleCatalystPointerHover(_:)))
+			window.addGestureRecognizer(hover)
+			catalystHover = hover
+		}
+	}
+
+	@objc private func handleCatalystPointerHover(_ recognizer: UIHoverGestureRecognizer) {
+		guard state != .editingGamepad, let window else { return }
+		let p = recognizer.location(in: window)
+		objc_ADBMouseMovedFromWindowPoint(p.x, p.y)
+	}
+#endif
 	
 	required init?(coder: NSCoder) { fatalError() }
 
@@ -70,10 +99,59 @@ class GestureInputView: UIView {
 			draggingMode = .twoFingers
 			didBeginTwoFingerGesture?()
 		 }
+
+#if !targetEnvironment(macCatalyst)
+		// iOS: snap the guest cursor to the steering finger the instant it lands
+		// (draggingMode is set above so the three-finger guard applies here too).
+		// Inert outside hover mode — VideoMapWindowPointToGuestAndMove no-ops.
+		forwardSteeringTouchPosition(from: touches)
+#endif
 	}
+
+#if !targetEnvironment(macCatalyst)
+	// Forwards the steering finger's absolute window position to the guest cursor
+	// so it tracks that finger. The steering finger is the tracked finger that is
+	// not the second (click) finger, chosen with a STABLE ordering (min hashValue)
+	// so the pick never alternates between fingers within a gesture — otherwise a
+	// simultaneous two-finger landing (which never populates secondFingerTouch)
+	// would flip between fingers and reintroduce the bounce. Only the steering
+	// finger drives the cursor, so a resting/clicking second finger never moves
+	// it; three-finger gestures (gamepad switching) don't move it at all. The C++
+	// side ignores SDL's own synthesized touch motion while hover mode owns the
+	// cursor, so this is the single cursor driver during two-finger steering.
+	private func forwardSteeringTouchPosition(from touches: Set<UITouch>) {
+		guard state != .editingGamepad, draggingMode != .threeFingers, let window else {
+			return
+		}
+		let steeringTouch = touchDictionary.keys
+			.filter { $0 != secondFingerTouch }
+			.min { $0.hashValue < $1.hashValue }
+		guard let steeringTouch, touches.contains(steeringTouch) else {
+			return
+		}
+		let p = steeringTouch.location(in: window)
+		objc_ADBMouseMovedFromWindowPoint(p.x, p.y)
+	}
+#endif
 
 	override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
 		super.touchesMoved(touches, with: event)
+
+#if targetEnvironment(macCatalyst)
+		// A Catalyst mouse drag (button held) arrives as a single touch; feed its
+		// position through the same bypass as hover (UIHoverGestureRecognizer only
+		// fires with no button pressed).
+		if state != .editingGamepad, touchDictionary.count == 1,
+		   let touch = touches.first, let window {
+			let p = touch.location(in: window)
+			objc_ADBMouseMovedFromWindowPoint(p.x, p.y)
+		}
+#endif
+
+#if !targetEnvironment(macCatalyst)
+		// iOS: drive the guest cursor from the steering finger only (see above).
+		forwardSteeringTouchPosition(from: touches)
+#endif
 
 		if let secondFingerTouch,
 		   let prevSecondFingerPos = touchDictionary[secondFingerTouch] {

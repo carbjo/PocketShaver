@@ -8,6 +8,14 @@
 
 /* Include the SDL main definition header */
 #include "my_sdl.h"
+#include "utils_ios.h"
+
+/* Expose Swift host-bridge observers (GfxAccelBackgroundLifecycleObserver,
+ * DSpIdleTimerService) to this Obj-C++ translation unit via
+ * the auto-generated Swift umbrella header. The observers' @objc
+ * singleton classes become callable through the standard ObjC message
+ * syntax after this import. */
+#import "PocketShaver-Swift-ObjCHeader.h"
 
 
 extern "C" int main_ios(int argc, char* argv[]);
@@ -15,8 +23,45 @@ extern "C" int main_ios(int argc, char* argv[]);
 
 // Because main is #defined as SDL_main, this function is actually SDL_main. This gets called from -[SDLUIKitDelegate postFinishLaunch].
 int main(int argc, char * argv[]) {
-	
-	
+	/* Diagnostic stdio capture: when PS_STDIO_FILE is set (Xcode scheme env
+	 * or launchctl setenv), mirror stdout+stderr to that file so emulator
+	 * printf/fprintf diagnostics survive launches without an attached
+	 * console (LaunchServices `open`, tap-to-launch, resume relaunches). */
+	if (const char *stdio_path = getenv("PS_STDIO_FILE")) {
+		if (freopen(stdio_path, "a", stderr)) setvbuf(stderr, NULL, _IONBF, 0);
+		if (freopen(stdio_path, "a", stdout)) setvbuf(stdout, NULL, _IOLBF, 0);
+		fprintf(stderr, "--- PS_STDIO_FILE capture started ---\n");
+	}
+	/* Relocate app data from the legacy visible-home location
+	 * (~/PocketShaver Home) into the app container's Data directory exactly
+	 * once, before the emulator core (main_ios) or any Swift file access reads
+	 * or creates anything. Idempotent; Catalyst-only. */
+#if TARGET_OS_MACCATALYST
+	pocketshaver_migrate_home_if_needed();
+#endif
+	/* Install background/foreground observer
+	 * so gfxaccel_handle_background_enter / _foreground_enter run on the
+	 * OS lifecycle transitions. Install here — SDL's UIKit delegate is
+	 * about to enter its run loop and UIApplication notifications start
+	 * firing from that point forward; installing before SDL_UIKitRunApp
+	 * ensures the first didEnterBackground is never missed. */
+	[GfxAccelBackgroundLifecycleObserver.shared install];
+
+	/* Install memory-pressure observer. The notification arrives on the
+	 * main thread; the C shim only marks an atomic pending-eviction flag.
+	 * The next compositor SubmitFrame drains that request on the engine
+	 * call path, keeping heap mutation off UIKit's notification callback. */
+	[GfxAccelMemoryWarningObserver.shared install];
+
+	/* Install DSp idle-timer
+	 * observer. Observes UIApplication.didEnterBackground /
+	 * willEnterForeground + the custom DSpHostBridge.activeFullscreenChanged
+	 * notification; toggles UIApplication.shared.isIdleTimerDisabled on main
+	 * thread. Must install BEFORE the first DSpContext_SetStateHandler
+	 * Active transition fires (usually well after app launch, so
+	 * install-at-startup is comfortable timing). */
+	[DSpIdleTimerService.shared install];
+
 	return main_ios(argc, argv);		// This is in SS/Source/Unix/main_Unix.cpp
 }
 
@@ -34,4 +79,3 @@ main(int argc, char *argv[])
 	return SDL_UIKitRunApp(argc, argv, SDL_main);
 }
 #endif /* !SDL_MAIN_HANDLED */
-

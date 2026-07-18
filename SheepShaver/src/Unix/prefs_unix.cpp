@@ -110,6 +110,18 @@ void LoadPrefs(const char *vmdir)
 		// No prefs file, save defaults
 		SavePrefs();
 	}
+
+#if TARGET_OS_IPHONE
+	// One-time adoption of the 466 MHz default CPU clock (see AddPrefsDefaults)
+	// for installs that predate it. Such installs hold an explicit "cpuclock 0"
+	// in their saved prefs — the prior default — which LoadPrefsFromStream()
+	// restores above and which get_system_info() then treats as "unset",
+	// falling back to 100 MHz. Bump that legacy 0 to the new default; a non-zero
+	// value is a deliberate override and is left untouched. New installs already
+	// carry 466 (written by SavePrefs() above), so this is a no-op for them.
+	if (PrefsFindInt32("cpuclock") == 0)
+		PrefsReplaceInt32("cpuclock", 466);
+#endif
 }
 
 

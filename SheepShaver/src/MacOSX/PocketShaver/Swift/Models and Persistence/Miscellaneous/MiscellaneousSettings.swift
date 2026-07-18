@@ -53,8 +53,8 @@ enum KeyboardAutoOffsetSetting: String, Codable, CaseIterable {
 }
 
 enum GammaRampSetting: String, Codable, CaseIterable {
-	case osDefined
 	case linear
+	case osDefined
 }
 
 class MiscellaneousSettings: Codable {
@@ -89,7 +89,16 @@ class MiscellaneousSettings: Codable {
 	private(set) var gammaRampSetting: GammaRampSetting
 	private(set) var bootInRelativeMouseMode: Bool
 	private(set) var ignoreIllegalInstructions: Bool
+	private(set) var altivecEnabled: Bool
 	private(set) var ramInMb: Int
+	// Optional so persisted settings that pre-date the key still decode: the
+	// synthesized decoder uses decodeIfPresent for optionals, while a missing
+	// required key would throw and silently reset every saved setting
+	private(set) var jitEnabled: Bool?
+
+	var jitCompilerEnabled: Bool {
+		jitEnabled ?? false
+	}
 
 
 	var secondFingerClick: Bool {
@@ -145,11 +154,7 @@ class MiscellaneousSettings: Codable {
 		audioEnabled = true
 		fpsReporting = false
 		networkTransferRateReportingEnabled = false
-		if UIScreen.supportsHighRefreshRate {
-			frameRateSetting = .f120hz
-		} else {
-			frameRateSetting = .f60hz
-		}
+		frameRateSetting = .f60hz
 		alwaysLandscapeMode = Self.shouldDisplayAlwaysLandscapeModeOption
 		twoFingerSteeringSetting = .off
 		relativeMouseModeSetting = .manual
@@ -157,22 +162,63 @@ class MiscellaneousSettings: Codable {
 		rightClickSetting = .control
 		keyboardAutoOffsetSetting = .middle
 		hoverJustAboveOffsetModifier = 1
-		gammaRampSetting = .osDefined
-		bootInRelativeMouseMode = UIDevice.deviceType == .mac
+		// Default to the raw guest gamma. The `.osDefined` correction lifts
+		// midtones (classic-Mac 1.8 -> sRGB 2.2) and reads as too bright /
+		// washed-out at launch on modern displays; users can still opt into it
+		// in Preferences. Existing installs are moved by
+		// migrateGammaRampDefaultIfNeeded().
+		gammaRampSetting = .linear
+		bootInRelativeMouseMode = false
 		ignoreIllegalInstructions = false
+		altivecEnabled = true
 		ramInMb = 512
+		#if targetEnvironment(macCatalyst)
+		jitEnabled = true // JIT ships on by default on Mac Catalyst
+		#else
+		jitEnabled = false
+		#endif
 	}
 
 	@MainActor
 	static var current: MiscellaneousSettings = {
+		let settings: MiscellaneousSettings
 		if let data = Storage.shared.load(from: .miscellaneous),
-		   let settings = try? JSONDecoder().decode(MiscellaneousSettings.self, from: data) {
-			settings.updateCachedResponses()
-			return settings
+		   let decoded = try? JSONDecoder().decode(MiscellaneousSettings.self, from: data) {
+			settings = decoded
+		} else {
+			settings = MiscellaneousSettings()
 		}
 
-		return MiscellaneousSettings()
+		// Macs have no touch input, so mouse passthrough must always be on
+		// there — but it is persisted state and its toggle is iPad-only UI, so
+		// a stale `false` (e.g. settings written by a pre-Mac build) would
+		// silently leave ADB in touch semantics (delayed clicks, post-click
+		// move suppression) with no way to recover from Preferences.
+		if UIDevice.deviceType == .mac {
+			settings.iPadMousePassthrough = true
+		}
+
+		settings.migrateGammaRampDefaultIfNeeded()
+		settings.updateCachedResponses()
+		return settings
 	}()
+
+	/// One-time migration for the gamma-ramp default change (`.osDefined` ->
+	/// `.linear`). Installs that pre-date the change still hold the old default
+	/// in their persisted settings, so flipping `init()` alone would not reach
+	/// them. We move them once; the marker is set unconditionally so any later
+	/// explicit `.osDefined` choice in Preferences is preserved.
+	@MainActor
+	private func migrateGammaRampDefaultIfNeeded() {
+		let marker = "MiscellaneousSettings.gammaRampDefaultLinearMigration.v1"
+		let defaults = UserDefaults.standard
+		guard !defaults.bool(forKey: marker) else { return }
+		defaults.set(true, forKey: marker)
+
+		if gammaRampSetting == .osDefined {
+			set(gammaRampSetting: .linear) // persists via saveAsCurrent()
+		}
+	}
 
 	@MainActor
 	func saveAsCurrent() {
@@ -336,6 +382,20 @@ class MiscellaneousSettings: Codable {
 	}
 
 	@MainActor
+	func set(altivecEnabled: Bool) {
+		self.altivecEnabled = altivecEnabled
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(jitCompilerEnabled: Bool) {
+		self.jitEnabled = jitCompilerEnabled
+
+		saveAsCurrent()
+	}
+
+	@MainActor
 	func set(ramInMb: Int) {
 		self.ramInMb = ramInMb
 
@@ -398,6 +458,11 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func isIgnoreIllegalInstructionsEnabled() -> Bool {
 		MiscellaneousSettings.current.ignoreIllegalInstructions
+	}
+
+	@MainActor
+	static func isAltivecEnabled() -> Bool {
+		MiscellaneousSettings.current.altivecEnabled
 	}
 
 	@MainActor

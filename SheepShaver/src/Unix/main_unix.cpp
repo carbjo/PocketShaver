@@ -114,6 +114,7 @@
 #include "sigsegv.h"
 #include "sigregs.h"
 #include "rpc.h"
+#include "cpu/jit/jit-wx.hpp"
 
 #define DEBUG 0
 #include "debug.h"
@@ -216,7 +217,11 @@ uint8 *ROMBaseHost;		// Base address of Mac ROM (host address space)
 uint32 ROMEnd;
 
 #if defined(__APPLE__) && (defined(__x86_64__) || defined(__aarch64__)) || defined(MEM_BULK)
-uint8 gZeroPage[0x3000], gKernelData[0x2000];
+// gKernelData is a 16 KB window: KernelData struct in the upper 8 KB
+// (0x68ffe000 / 0x5fffe000), nanokernel stack slack in the lower 8 KB
+// (0x68ffc000 / 0x5fffc000). See vm_do_get_real_address in
+// kpx_cpu/src/cpu/vm.hpp.
+uint8 gZeroPage[0x3000], gKernelData[0x4000];
 #endif
 
 // Global variables
@@ -329,40 +334,24 @@ uintptr SignalStackBase(void)
 
 /*
  *  Atomic operations
+ *
+ *  InterruptFlags is set from interrupt-source threads (tick, video, audio)
+ *  and cleared from the CPU thread, so these must be real atomic RMWs.
  */
-
-#if HAVE_SPINLOCKS
-static spinlock_t atomic_ops_lock = SPIN_LOCK_UNLOCKED;
-#else
-#define spin_lock(LOCK)
-#define spin_unlock(LOCK)
-#endif
 
 int atomic_add(int *var, int v)
 {
-	spin_lock(&atomic_ops_lock);
-	int ret = *var;
-	*var += v;
-	spin_unlock(&atomic_ops_lock);
-	return ret;
+	return __atomic_fetch_add(var, v, __ATOMIC_SEQ_CST);
 }
 
 int atomic_and(int *var, int v)
 {
-	spin_lock(&atomic_ops_lock);
-	int ret = *var;
-	*var &= v;
-	spin_unlock(&atomic_ops_lock);
-	return ret;
+	return __atomic_fetch_and(var, v, __ATOMIC_SEQ_CST);
 }
 
 int atomic_or(int *var, int v)
 {
-	spin_lock(&atomic_ops_lock);
-	int ret = *var;
-	*var |= v;
-	spin_unlock(&atomic_ops_lock);
-	return ret;
+	return __atomic_fetch_or(var, v, __ATOMIC_SEQ_CST);
 }
 #endif
 
@@ -428,7 +417,16 @@ static void get_system_info(void)
 	TimebaseSpeed =  25000000;	// Default:  25MHz
 
 #if EMULATED_PPC
-	PVR = 0x000c0000;			// Default: 7400 (with AltiVec)
+	/* AltiVec toggle (Preferences ▸ Advanced ▸ CPU emulation; default on):
+	 * advertise a 7400 G4 so AltiVec-aware guest code (QuickTime's vectorized
+	 * IDCT/colour-convert, game fast paths) uses the kpx_cpu VMX
+	 * implementation. Turning it off reports a 740/750 G3 — the OS then
+	 * publishes no vector gestalt and the same software falls back to its
+	 * scalar paths. Experimental lever for suspected VMX-interpreter bugs and
+	 * graphics-acceleration conflicts (QuickTime image decode producing
+	 * chroma-scrambled, block-striped output is the canonical symptom). */
+	PVR = objc_getAltivec() ? 0x000c0000   // 7400 (with AltiVec)
+	                        : 0x00084202;  // 740/750 G3 (no AltiVec)
 	int pref_cpu_clock = PrefsFindInt32("cpuclock");
 	if (pref_cpu_clock) CPUClockSpeed = 1000000 * pref_cpu_clock;
 #elif defined(__APPLE__) && defined(__MACH__)
@@ -838,7 +836,15 @@ int main(int argc, char *argv[])
 	// Print some info
 	printf(GetString(STR_ABOUT_TEXT1), VERSION_MAJOR, VERSION_MINOR);
 	printf(" %s\n", GetString(STR_ABOUT_TEXT2));
-	
+
+#ifdef __APPLE__
+	// Probe the W^X code-memory path (MAP_JIT + write callback); passes
+	// on macOS / Mac Catalyst with the allow-jit entitlement or a
+	// non-hardened signature, and is expected to fail on iOS devices
+	printf("JIT W^X self-test: %s\n", jit_wx_selftest() ? "pass" : "unavailable");
+	fflush(stdout);
+#endif
+
 #if !EMULATED_PPC
 #ifdef SYSTEM_CLOBBERS_R2
 	// Get TOC pointer

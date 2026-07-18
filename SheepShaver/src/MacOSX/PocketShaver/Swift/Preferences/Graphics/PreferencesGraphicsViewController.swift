@@ -6,8 +6,9 @@
 import UIKit
 import Combine
 
-class PreferencesGraphicsViewController: UITableViewController {
+class PreferencesGraphicsViewController: PreferencesTableViewController {
 	enum Section {
+		case display
 		case frameRateSetting
 		case monitorResolutions
 		case rendering
@@ -16,6 +17,10 @@ class PreferencesGraphicsViewController: UITableViewController {
 	}
 
 	enum Row: Hashable {
+		// display (Mac Catalyst)
+		case displayMode
+		case displayModeInfo
+
 		// frameRateSetting
 		case frameRateSettingToggle
 		case frameRateSettingInfo(PreferencesGraphicsModel.FrameRateState)
@@ -33,11 +38,11 @@ class PreferencesGraphicsViewController: UITableViewController {
 		case gammaRampSettingInfo
 
 		// graphicsAcceleration
-//		case graphicsAccelerationNqdToggle
-//		case graphicsAccelerationRaveToggle
-//		case graphicsAccelerationGlToggle
-//		case graphicsAccelerationDspToggle
-//		case graphicsAccelerationInfo
+		case graphicsAccelerationNqdToggle
+		case graphicsAccelerationRaveToggle
+		case graphicsAccelerationGlToggle
+		case graphicsAccelerationDspToggle
+		case graphicsAccelerationInfo
 	}
 
 	private let model: PreferencesGraphicsModel
@@ -73,7 +78,19 @@ class PreferencesGraphicsViewController: UITableViewController {
 
 		setupDataSource()
 		listenToChanges()
+
+		#if targetEnvironment(macCatalyst)
+		LocalNotification.observe(.catalystFullscreenStateChanged, self, #selector(handleCatalystFullscreenStateChanged))
+		#endif
 	}
+
+	#if targetEnvironment(macCatalyst)
+	@objc private func handleCatalystFullscreenStateChanged() {
+		// The window's fullscreen state changed by some external means (green button, View
+		// menu, ⌃⌘F, gesture); re-read the pref into the segmented control.
+		reloadSection(.display)
+	}
+	#endif
 
 	private func listenToChanges() {
 		changeSubject.sink { [weak self] change in
@@ -136,12 +153,24 @@ class PreferencesGraphicsViewController: UITableViewController {
 			case .monitorResolutionsInformation(let willBootFromCD):
 				var text = "Resolutions made available to Mac OS. "
 				if willBootFromCD {
-					text += "List is restricted since emulaton will boot from an install CD."
+					text += "List is restricted since emulation will boot from an install CD."
 				} else {
 					text += "Can be edited."
 				}
 				return PreferencesInformationCell(
 					text: text
+				)
+			case .displayMode:
+				return PreferencesGraphicsDisplayModeCell(
+					initialDisplayMode: model.displayMode
+				) { [weak self] newMode in
+					guard let self else { return }
+					model.displayMode = newMode
+					feedbackGenerator.impactOccurred()
+				}
+			case .displayModeInfo:
+				return PreferencesInformationCell(
+					text: "Choose whether emulation runs in a window or full screen. You can also use the window's full-screen button or the View menu — this setting stays in sync."
 				)
 			case .renderingFilterMode:
 				return PreferencesGraphicsRenderingFilterCell(
@@ -165,46 +194,48 @@ class PreferencesGraphicsViewController: UITableViewController {
 				}
 			case .gammaRampSettingInfo:
 				return PreferencesInformationCell(
-					text: "Linear gamma ramp generally produces a darker, but less color distorted image. A higher set screen brightness can compansate the darkness and, in some instances, produce a higher color dynamic. Takes effect on next resolution change or restart."
+					text: "Linear gamma ramp generally produces a darker, but less color distorted image. Higher screen brightness can compensate for the darkness and, in some instances, produce a higher color dynamic. Takes effect on next resolution change or restart."
 				)
 
-//			case .graphicsAccelerationNqdToggle:
-//				return PreferencesEnabledSettingCell(
-//					title: "NQD Acceleration",
-//					isOn: model.nqdAccelEnabled
-//				) { [weak self] isOn in
-//					self?.model.nqdAccelEnabled = isOn
-//				}
-//			case .graphicsAccelerationRaveToggle:
-//				return PreferencesEnabledSettingCell(
-//					title: "RAVE Acceleration",
-//					isOn: model.raveAccelEnabled
-//				) { [weak self] isOn in
-//					self?.model.raveAccelEnabled = isOn
-//				}
-//			case .graphicsAccelerationGlToggle:
-//				return PreferencesEnabledSettingCell(
-//					title: "OpenGL Acceleration",
-//					isOn: model.glAccelEnabled
-//				) { [weak self] isOn in
-//					self?.model.glAccelEnabled = isOn
-//				}
-//			case .graphicsAccelerationDspToggle:
-//				return PreferencesEnabledSettingCell(
-//					title: "DrawSprocket Acceleration",
-//					isOn: model.dspAccelEnabled
-//				) { [weak self] isOn in
-//					self?.model.dspAccelEnabled = isOn
-//				}
-//			case .graphicsAccelerationInfo:
-//				return PreferencesInformationCell(
-//					text: "Experimental — Requires Metal GPU. Changes take effect on restart."
-//				)
+			case .graphicsAccelerationNqdToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Quick Draw 2D Acceleration",
+					isOn: model.nqdAccelEnabled
+				) { [weak self] isOn in
+					self?.model.nqdAccelEnabled = isOn
+				}
+			case .graphicsAccelerationRaveToggle:
+				return PreferencesEnabledSettingCell(
+					title: "QuickDraw 3D + RAVE Acceleration",
+					isOn: model.raveAccelEnabled
+				) { [weak self] isOn in
+					self?.model.raveAccelEnabled = isOn
+				}
+			case .graphicsAccelerationGlToggle:
+				return PreferencesEnabledSettingCell(
+					title: "OpenGL Acceleration",
+					isOn: model.glAccelEnabled
+				) { [weak self] isOn in
+					self?.model.glAccelEnabled = isOn
+				}
+			case .graphicsAccelerationDspToggle:
+				return PreferencesEnabledSettingCell(
+					title: "DrawSprocket Acceleration",
+					isOn: model.dspAccelEnabled
+				) { [weak self] isOn in
+					self?.model.dspAccelEnabled = isOn
+				}
+			case .graphicsAccelerationInfo:
+				return PreferencesInformationCell(
+					text: "Experimental. Each accelerator is independent — mix and match per app to find what runs best. All four default on. Requires Metal; takes effect on restart."
+				)
 			}
 		}
 
 		dataSource.sectionTitleProvider = { section in
 			switch section {
+			case .display:
+				return "Display"
 			case .frameRateSetting:
 				return "Frame rate setting"
 			case .monitorResolutions:
@@ -214,7 +245,7 @@ class PreferencesGraphicsViewController: UITableViewController {
 			case .gammaRampSetting:
 				return "Gamma ramp"
 			case .graphicsAcceleration:
-				return "Graphics Acceleration"
+				return "Graphics acceleration"
 			}
 		}
 
@@ -226,6 +257,14 @@ class PreferencesGraphicsViewController: UITableViewController {
 
 	private func reloadData() {
 		var snapshot = NSDiffableDataSourceSnapshot<Section, Row>()
+
+		#if targetEnvironment(macCatalyst)
+		snapshot.appendSections([.display])
+		snapshot.appendItems([
+			.displayMode,
+			.displayModeInfo
+		])
+		#endif
 
 		if UIScreen.supportsHighRefreshRate {
 			snapshot.appendSections([.frameRateSetting])
@@ -254,14 +293,14 @@ class PreferencesGraphicsViewController: UITableViewController {
 			.gammaRampSettingInfo
 		])
 
-//		snapshot.appendSections([.graphicsAcceleration])
-//		snapshot.appendItems([
-//			.graphicsAccelerationNqdToggle,
-//			.graphicsAccelerationRaveToggle,
-//			.graphicsAccelerationGlToggle,
-//			.graphicsAccelerationDspToggle,
-//			.graphicsAccelerationInfo
-//		])
+		snapshot.appendSections([.graphicsAcceleration])
+		snapshot.appendItems([
+			.graphicsAccelerationNqdToggle,
+			.graphicsAccelerationRaveToggle,
+			.graphicsAccelerationGlToggle,
+			.graphicsAccelerationDspToggle,
+			.graphicsAccelerationInfo
+		])
 
 		dataSource.apply(snapshot)
 	}

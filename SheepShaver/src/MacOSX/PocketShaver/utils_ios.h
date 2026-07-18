@@ -41,6 +41,18 @@ void set_menu_bar_visible_osx(bool visible);
 void set_current_directory();
 const char* home_directory();
 const char* document_directory();
+// On the (unsandboxed) Mac Catalyst build we deliberately store all app-owned
+// data under the app's container Data directory
+// (~/Library/Containers/<bundle-id>/Data) rather than the user's visible home,
+// to keep it out of casual sight and reduce accidental corruption. Returns that
+// path, creating it if needed. Only defined on Catalyst.
+const char* pocketshaver_home_directory();
+
+// Moves a pre-existing ~/PocketShaver Home (from builds that stored data in the
+// visible home) into the container Data directory exactly once. Idempotent and
+// safe to call from multiple entry points; call as early as possible at launch,
+// before any file access. Only defined on Catalyst.
+void pocketshaver_migrate_home_if_needed();
 
 bool MetalIsAvailable();
 

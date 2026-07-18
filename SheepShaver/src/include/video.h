@@ -148,6 +148,12 @@ extern bool video_can_change_cursor(void);
 extern int16 video_mode_change(VidLocals *csSave, uint32 ParamPtr);
 extern void video_set_dirty_area(int x, int y, int w, int h);
 
+// DepthMode translation at the driver ABI (kDepthMode1 = 0x80 = lowest
+// supported depth). Absolute APPLE_*_BIT values are accepted on input for
+// back-compat; see video.cpp.
+extern uint32 video_abs_depth_from_rel(uint16 rel);
+extern uint16 video_rel_depth_from_abs(uint32 abs);
+
 extern int16 VSLDoInterruptService(uint32 arg1);
 extern void NQDMisc(uint32 arg1, uintptr arg2);
 
@@ -156,9 +162,13 @@ extern bool NQD_sync_hook(uint32);
 extern bool NQD_bitblt_hook(uint32);
 extern bool NQD_fillrect_hook(uint32);
 extern bool NQD_unknown_hook(uint32);
+extern bool NQD_bltmask_hook(uint32);
+extern bool NQD_fillmask_hook(uint32);
 extern void NQD_bitblt(uint32);
 extern void NQD_invrect(uint32);
 extern void NQD_fillrect(uint32);
+extern void NQD_bltmask(uint32);
+extern void NQD_fillmask(uint32);
 
 extern bool keyfile_valid;
 

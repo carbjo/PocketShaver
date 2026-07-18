@@ -46,9 +46,8 @@ void objc_reportVideoSize(unsigned short width, unsigned short height, unsigned 
 	}
 
 	int tolerance = round(10 * multiplier);
-	int screenMiddleX = width / 2;
 
-	ADBConfigure(screenMiddleX, tolerance);
+	ADBConfigure(width, height, tolerance);
 	[InputInteractionModelObjC configureWithOffsetX:offsetModeX offsetY:offsetModeY];
 
 	BOOL isClassicResolution = (width == 640 && height == 480) ||

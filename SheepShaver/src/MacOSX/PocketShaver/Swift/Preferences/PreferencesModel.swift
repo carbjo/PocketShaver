@@ -7,6 +7,8 @@
 
 import Combine
 import NotificationCenter
+import UIKit
+import UserNotifications
 
 enum PreferencesError: Error {
 	case romFileMissing
@@ -41,7 +43,11 @@ class PreferencesModel {
 			NetworkSettings.initIfNeeded()
 			objc_update_sdl_ipad_mouse_setting(MiscellaneousSettings.current.iPadMousePassthrough)
 			UNUserNotificationCenter.current().removeAllDeliveredNotifications()
-			GamepadThumbnailCache.shared.preloadImages()
+			// The on-screen gamepad (and its expensive, full-window, main-thread
+			// thumbnail rendering) is not shown on Mac, so skip the preload there.
+			if UIDevice.deviceType != .mac {
+				GamepadThumbnailCache.shared.preloadImages()
+			}
 		}
 	}
 

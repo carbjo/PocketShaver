@@ -44,6 +44,8 @@ using std::vector;
 #include "sys.h"
 #include "prefs.h"
 #include "sony.h"
+#include "rave_engine.h"
+#include "dsp_engine.h"	/* DSpInstallHooksSweepComplete() retry-driver gate */
 
 #define DEBUG 0
 #include "debug.h"
@@ -396,8 +398,32 @@ int16 SonyControl(uint32 pb, uint32 dce)
 		case 65:	// Periodic action (accRun, "insert" disks on startup)
 			mount_mountable_volumes();
 			PatchAfterStartup();		// Install patches after system startup
-			WriteMacInt16(dce + dCtlFlags, ReadMacInt16(dce + dCtlFlags) & ~0x2000);	// Disable periodic action
-			acc_run_called = true;
+			/* The existing
+			 * RaveIsRegistered() gate disabled the periodic action as soon as
+			 * RAVE registered, pinning DSpInstallHooks to a SINGLE attempt.
+			 * Extend the gate to ALSO require the
+			 * DSp install sweep to reach a terminal state — that lets
+			 * DSpInstallHooks branch (b) PARTIAL-SUCCESS retry on the next
+			 * accRun tick, which is the only way to disambiguate H1
+			 * (variant doesn't export the 5 symbols) from H4 (late CFM
+			 * binding resolves later). Gate is best-effort: if dspaccel is
+			 * disabled, DSpInstallHooksSweepComplete() returns true on its
+			 * first invocation (sweep never started, attempts==0 BUT installed
+			 * is false — see note below) ... actually we must explicitly
+			 * gate on PrefsFindBool("dspaccel") so the OFF case doesn't pin
+			 * accRun forever.
+			 */
+			if (RaveIsRegistered() &&
+			    (!PrefsFindBool("dspaccel") || DSpInstallHooksSweepComplete())) {
+				// All patches installed, RAVE registered, AND DSp install
+				// sweep terminal -- disable periodic action.
+				WriteMacInt16(dce + dCtlFlags, ReadMacInt16(dce + dCtlFlags) & ~0x2000);
+				acc_run_called = true;
+			}
+			// If RAVE not yet registered (library not loaded) OR DSp sweep
+			// still in progress, keep periodic action active so
+			// PatchAfterStartup (and hence RaveRegisterEngine / DSpInstallHooks)
+			// retries on subsequent ticks.
 			return noErr;
 	}
 

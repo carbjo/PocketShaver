@@ -313,12 +313,18 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 			WriteMacInt16(ReadMacInt32(KernelDataAddr + 0x67c), 0);	// Clear interrupt
 			r->d[0] = 0;
 			if (HasMacStarted()) {
+				if (InterruptFlags & INTFLAG_RSRC) {
+					ClearInterruptFlag(INTFLAG_RSRC);
+					DrainPendingResourceLocks();	// DII fix: lock sound-component PEF handles ASAP after load (before CFM prepare can purge them)
+				}
 				if (InterruptFlags & INTFLAG_VIA) {
 					ClearInterruptFlag(INTFLAG_VIA);
 #if !PRECISE_TIMING
 					TimerInterrupt();
 #endif
 					ExecuteNative(NATIVE_VIDEO_VBL);
+
+					DrainPendingResourceLocks();	// DII fix: lock queued sound-component PEF handles (safe VBL context)
 
 					static int tick_counter = 0;
 					if (++tick_counter >= 60) {
@@ -472,9 +478,46 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 				break;
 			uint16 *p = (uint16 *)Mac2HostAddr(adr);
 			uint32 size = ReadMacInt32(adr - 8) & 0xffffff;
+			maybe_queue_nift_lock(type, r->a[0]);	// DII fix: schedule sound-component PEF lock
 			CheckLoad(type, id, p, size);
 			break;
 		}
+
+		case OP_DISPOSE_NIFT_GUARD:	// _DisposHandle head-patch: A0 = handle
+			// Keep a live monitored 'nift' sound-component fragment ALIVE.  If the
+			// handle being disposed is one we lock, report SKIP so the thunk RTSs
+			// without freeing (intentional bounded leak), leaving CFM's prepared
+			// cross-TOC TVectors valid -> no use-after-free regardless of timing.
+			// Otherwise report CHAIN and hand the thunk the stock _DisposHandle
+			// entry in A1 (captured at install via GetOSTrapAddress) so it tail-
+			// jumps there.  A0 (handle) is preserved for the chain; A1/D1 are
+			// scratch for _DisposHandle (it consumes only A0, returns D0=MemError).
+			if (RsrcLockIsLiveNift(r->a[0])) {
+				r->d[1] = 1;					// verdict: SKIP (keep the block alive)
+				r->d[0] = 0;					// MemError() = noErr for the skipped dispose
+			} else {
+				r->d[1] = 0;					// verdict: CHAIN
+				r->a[1] = RsrcLockDisposeOrig();	// stock _DisposHandle entry for `jmp (a1)`
+			}
+			break;
+
+		case OP_GESTALT_VM:		// _Gestalt head-patch: report VM present to selected apps
+			// Some apps check Gestalt('vm  ') (gestaltVMAttr) and refuse to run when
+			// virtual memory is off, but SheepShaver has no MMU so VM is always off.
+			// For those apps (matched by current-app name) return a synthesized "VM
+			// present" response; everything else chains to the stock _Gestalt.  The
+			// verdict is WHICH address A1 gets, not a guest register: spoof -> A1
+			// = the thunk's trailing rts (with A0/D0 set here); chain -> A1 = stock
+			// _Gestalt.  The chain path MUST clobber only A1 -- writing D1/D0/A0
+			// before entering the real _Gestalt corrupts it and crashes the guest OS.
+			if (r->d[0] == 0x766d2020 && GestaltFakeVMForCurrentApp()) {	// 'vm  '
+				r->a[0] = 0x00000001;			// gestaltVMPresent
+				r->d[0] = 0;					// noErr
+				r->a[1] = GestaltRtsStub();		// jmp (a1) -> the thunk's rts
+			} else {
+				r->a[1] = GestaltHookOrig();	// chain to stock _Gestalt (only A1 touched)
+			}
+			break;
 
 		case OP_EXTFS_COMM:			// External file system routines
 			WriteMacInt16(r->a[7] + 14, ExtFSComm(ReadMacInt16(r->a[7] + 12), ReadMacInt32(r->a[7] + 8), ReadMacInt32(r->a[7] + 4)));

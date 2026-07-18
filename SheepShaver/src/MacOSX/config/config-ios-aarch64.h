@@ -8,11 +8,25 @@
 /* Define if building universal (internal helper macro) */
 /* #undef AC_APPLE_UNIVERSAL_BUILD */
 
-/* Define if using a PowerPC CPU emulator. */
+/* Define if using a PowerPC CPU emulator.
+ *
+ * #ifndef so any pre-existing command-line/target definition is
+ * respected instead of hard-overridden here.
+ */
+#ifndef EMULATED_PPC
 #define EMULATED_PPC 1
+#endif
 
-/* Define to enable dyngen engine */
+/* Define to enable dyngen engine.
+ * Mac Catalyst processes may create MAP_JIT mappings (allow-jit
+ * entitlement), so the arm64 backend is compiled in there; iOS proper
+ * cannot JIT and keeps the engine compiled out. TargetConditionals.h is
+ * in scope: config.h includes it before selecting this header. */
+#if defined(TARGET_OS_MACCATALYST) && TARGET_OS_MACCATALYST
+#define ENABLE_DYNGEN 1
+#else
 #define ENABLE_DYNGEN 0
+#endif
 
 /* Define is using ESD. */
 /* #undef ENABLE_ESD */
@@ -409,6 +423,12 @@
    failures.  vm_init() reserves one contiguous region and sets VMBaseDiff
    at runtime, so every Mac address maps reliably into host memory.  */
 #define MEM_BULK 1
+
+/* Use 64-bit Mach exception codes so that SIGSEGV fault addresses are not
+   truncated to 32 bits.  Required for MEM_BULK where VMBaseDiff is a
+   runtime value and the bottom 32 bits of a host address are not the
+   Mac address.  */
+#define HAVE_MACH64_VM 1
 
 /* Define to the address where bug reports for this package should be sent. */
 #define PACKAGE_BUGREPORT "Christian.Bauer@uni-mainz.de"

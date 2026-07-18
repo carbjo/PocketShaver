@@ -44,6 +44,11 @@
 // Define to enable const branches optimization
 #define FOLLOW_CONST_JUMPS 1
 
+// Cap on const-jump splices per block: an unconditional branch cycle in
+// guest code (e.g. "b .") would otherwise keep compile_block translating
+// forever, since followed jumps emit no code and revisit the same PCs
+#define CONST_JUMP_FOLLOW_LIMIT 128
+
 #if PPC_ENABLE_JIT
 // FIXME: define ROM areas
 static inline bool is_read_only_memory(uintptr addr)
@@ -57,14 +62,36 @@ static inline bool is_read_only_memory(uintptr addr)
 #endif
 
 #if DYNGEN_DIRECT_BLOCK_CHAINING
-// Returns TRUE if we can directly generate a jump to the target block
-// XXX mixing front-end and back-end conditions is not a very good idea...
+// Returns TRUE if we can directly generate a jump to the target block.
+// Cross-page targets are allowed: every resolved link is registered on
+// the target's incoming dependency list (compile_chain_block), and
+// powerpc_block_info::invalidate() unchains incoming sources wherever
+// they live, so chain teardown no longer relies on the source sharing
+// the target's page.
 static inline bool direct_chaining_possible(uint32 bpc, uint32 tpc)
 {
 #ifndef DYNGEN_FAST_DISPATCH
 	return false;
 #endif
-	return ((bpc ^ tpc) >> 12) == 0 || is_read_only_memory(tpc);
+	return true;
+}
+#endif
+
+#if defined(SHEEPSHAVER) && defined(__aarch64__) && PPC_ENABLE_JIT
+// Trap chaining: SHEEP handlers that deterministically resume at the next
+// instruction need not end the block. Low 6 bits select the handler
+// (sheepshaver_glue.cpp execute_sheep): 0 = EMUL_RETURN (quits), 1 =
+// EXEC_RETURN (no pc advance), 2 = EXEC_NATIVE (pc += 4 unless the FN bit,
+// bit 19, redirects to LR), >= 3 = EMUL_OP (pc += 4). A resume guard after
+// the invoke re-checks pc and spcflags, so this predicate only needs the
+// handler's INTENDED continuation, not a guarantee.
+#define TRAP_CHAIN_LIMIT 32
+static inline bool sheep_op_resumes_inline(uint32 opcode)
+{
+	const uint32 op = opcode & 0x3f;
+	if (op >= 3)
+		return true;
+	return op == 2 && !(opcode & (1u << (31 - 19)));
 }
 #endif
 
@@ -144,6 +171,83 @@ powerpc_cpu::call_execute_illegal(powerpc_cpu * cpu, uint32 param1) {
 	cpu->execute_illegal(param1);
 }
 
+#if PPC_JIT_MNEMO_WHITELIST
+// Default-deny native translation: only mnemonics with a validated arm64
+// op implementation take their specialized case; everything else (memory,
+// branches, FP, vector, SHEEP) falls through to the generic interpreter
+// invoke. Grow this set as native ops are added and lockstep-validated.
+static inline bool ppc_jit_native_mnemo(int mnemo)
+{
+	switch (mnemo) {
+	case PPC_I(ADD): case PPC_I(ADDC): case PPC_I(ADDE): case PPC_I(ADDI):
+	case PPC_I(ADDIC): case PPC_I(ADDIC_): case PPC_I(ADDIS): case PPC_I(ADDME):
+	case PPC_I(ADDZE): case PPC_I(AND): case PPC_I(ANDC): case PPC_I(ANDI):
+	case PPC_I(ANDIS): case PPC_I(CMP): case PPC_I(CMPI): case PPC_I(CMPL):
+	case PPC_I(CMPLI): case PPC_I(CNTLZW): case PPC_I(CRAND): case PPC_I(CRANDC):
+	case PPC_I(CREQV): case PPC_I(CRNAND): case PPC_I(CRNOR): case PPC_I(CROR):
+	case PPC_I(CRORC): case PPC_I(CRXOR): case PPC_I(DIVW): case PPC_I(DIVWU):
+	case PPC_I(EQV): case PPC_I(EXTSB): case PPC_I(EXTSH): case PPC_I(MCRF):
+	case PPC_I(MFCR): case PPC_I(MFSPR): case PPC_I(MTCRF): case PPC_I(MTSPR):
+	case PPC_I(MULHW): case PPC_I(MULHWU): case PPC_I(MULLI): case PPC_I(MULLW):
+	case PPC_I(NAND): case PPC_I(NEG): case PPC_I(NOR): case PPC_I(OR):
+	case PPC_I(ORC): case PPC_I(ORI): case PPC_I(ORIS): case PPC_I(RLWIMI):
+	case PPC_I(RLWINM): case PPC_I(RLWNM): case PPC_I(SLW): case PPC_I(SRAW):
+	case PPC_I(SRAWI): case PPC_I(SRW): case PPC_I(SUBF): case PPC_I(SUBFC):
+	case PPC_I(SUBFE): case PPC_I(SUBFIC): case PPC_I(SUBFME): case PPC_I(SUBFZE):
+	case PPC_I(XOR): case PPC_I(XORI): case PPC_I(XORIS):
+	// branches (P3.5)
+	case PPC_I(B): case PPC_I(BC): case PPC_I(BCCTR): case PPC_I(BCLR):
+	// integer loads/stores (P3.5; EA + access via the kpx_vm_* helpers)
+	case PPC_I(LBZ): case PPC_I(LBZU): case PPC_I(LBZUX): case PPC_I(LBZX):
+	case PPC_I(LHA): case PPC_I(LHAU): case PPC_I(LHAUX): case PPC_I(LHAX):
+	case PPC_I(LHZ): case PPC_I(LHZU): case PPC_I(LHZUX): case PPC_I(LHZX):
+	case PPC_I(LWZ): case PPC_I(LWZU): case PPC_I(LWZUX): case PPC_I(LWZX):
+	case PPC_I(STB): case PPC_I(STBU): case PPC_I(STBUX): case PPC_I(STBX):
+	case PPC_I(STH): case PPC_I(STHU): case PPC_I(STHUX): case PPC_I(STHX):
+	case PPC_I(STW): case PPC_I(STWU): case PPC_I(STWUX): case PPC_I(STWX):
+	case PPC_I(LMW): case PPC_I(STMW): case PPC_I(LWARX): case PPC_I(STWCX):
+	case PPC_I(DCBZ):
+	// cache/synchronization ops the translator emits as no-ops (and isync,
+	// which uses the already-native generic invoke)
+	case PPC_I(DCBA): case PPC_I(DCBF): case PPC_I(DCBI): case PPC_I(DCBST):
+	case PPC_I(DCBT): case PPC_I(DCBTST): case PPC_I(ECIWX): case PPC_I(ECOWX):
+	case PPC_I(EIEIO): case PPC_I(SYNC): case PPC_I(ISYNC):
+	// FP loads/stores and arithmetic (P4; fcmp/fctiw/frsp/fsel and the
+	// FPSCR moves stay generic, matching the old x86 JIT's coverage)
+	case PPC_I(LFD): case PPC_I(LFDU): case PPC_I(LFDUX): case PPC_I(LFDX):
+	case PPC_I(LFS): case PPC_I(LFSU): case PPC_I(LFSUX): case PPC_I(LFSX):
+	case PPC_I(STFD): case PPC_I(STFDU): case PPC_I(STFDUX): case PPC_I(STFDX):
+	case PPC_I(STFS): case PPC_I(STFSU): case PPC_I(STFSUX): case PPC_I(STFSX):
+	case PPC_I(FABS): case PPC_I(FMR): case PPC_I(FNABS): case PPC_I(FNEG):
+	case PPC_I(FADD): case PPC_I(FADDS): case PPC_I(FSUB): case PPC_I(FSUBS):
+	case PPC_I(FMUL): case PPC_I(FMULS): case PPC_I(FDIV): case PPC_I(FDIVS):
+	case PPC_I(FMADD): case PPC_I(FMADDS): case PPC_I(FMSUB): case PPC_I(FMSUBS):
+	case PPC_I(FNMADD): case PPC_I(FNMADDS): case PPC_I(FNMSUB): case PPC_I(FNMSUBS):
+	// AltiVec via NEON (P5): element-wise arith/logic/minmax/compare,
+	// splats, vsel/vperm, and the 128-bit + word-element loads/stores.
+	// Everything else (saturating arith, packs/merges, shifts, VSCR moves,
+	// vsldoi, estimates) stays generic -> interpreter.
+	case PPC_I(LVX): case PPC_I(LVXL): case PPC_I(LVEWX):
+	case PPC_I(STVX): case PPC_I(STVXL): case PPC_I(STVEWX):
+	case PPC_I(VADDFP): case PPC_I(VSUBFP): case PPC_I(VMADDFP): case PPC_I(VNMSUBFP):
+	case PPC_I(VAND): case PPC_I(VANDC): case PPC_I(VNOR): case PPC_I(VOR): case PPC_I(VXOR):
+	case PPC_I(VADDUBM): case PPC_I(VADDUHM): case PPC_I(VADDUWM):
+	case PPC_I(VSUBUBM): case PPC_I(VSUBUHM): case PPC_I(VSUBUWM):
+	case PPC_I(VAVGUB): case PPC_I(VAVGUH):
+	case PPC_I(VMAXSH): case PPC_I(VMAXUB): case PPC_I(VMINSH): case PPC_I(VMINUB):
+	case PPC_I(VCMPEQFP): case PPC_I(VCMPEQUB): case PPC_I(VCMPEQUH): case PPC_I(VCMPEQUW):
+	case PPC_I(VCMPGEFP): case PPC_I(VCMPGTFP):
+	case PPC_I(VCMPGTSB): case PPC_I(VCMPGTSH): case PPC_I(VCMPGTSW):
+	case PPC_I(VSEL): case PPC_I(VPERM):
+	case PPC_I(VSPLTB): case PPC_I(VSPLTH): case PPC_I(VSPLTW):
+	case PPC_I(VSPLTISB): case PPC_I(VSPLTISH): case PPC_I(VSPLTISW):
+		return true;
+	default:
+		return false;
+	}
+}
+#endif
+
 powerpc_cpu::block_info *
 powerpc_cpu::compile_block(uint32 entry_point)
 {
@@ -156,6 +260,13 @@ powerpc_cpu::compile_block(uint32 entry_point)
 #if PPC_PROFILE_COMPILE_TIME
 	compile_count++;
 	clock_t start_time = clock();
+#endif
+
+#ifdef KPX_JIT_INSTRUMENT
+	// Differential-harness hook: proves the JIT compile path actually ran
+	// (never defined in shipping builds)
+	extern unsigned long kpx_jit_compile_count;
+	kpx_jit_compile_count++;
 #endif
 
 	powerpc_jit & dg = codegen;
@@ -175,6 +286,10 @@ powerpc_cpu::compile_block(uint32 entry_point)
 	min_pc = max_pc = entry_point;
 	uint32 sync_pc = dpc;
 	uint32 sync_pc_offset = 0;
+	int const_jump_follows = 0;
+#if defined(SHEEPSHAVER) && defined(__aarch64__)
+	int trap_chain_count = 0;
+#endif
 	bool done_compile = false;
 	while (!done_compile) {
 		uint32 opcode = vm_read_memory_4(dpc += 4);
@@ -205,7 +320,17 @@ powerpc_cpu::compile_block(uint32 entry_point)
 		};
 		operands_t op;
 
+#if PPC_JIT_GENERIC_ONLY
+		// Match no specialized case so control reaches default:, which is
+		// the generic interpreter-invoke path (do_generic)
+		switch (PPC_I(MAX)) {
+#elif PPC_JIT_MNEMO_WHITELIST
+		// Only whitelisted mnemonics translate natively; the rest fall to
+		// default: (generic invoke)
+		switch (ppc_jit_native_mnemo(ii->mnemo) ? ii->mnemo : PPC_I(MAX)) {
+#else
 		switch (ii->mnemo) {
+#endif
 		case PPC_I(LBZ):		// Load Byte and Zero
 			op.mem.size = 1;
 			op.mem.sign = 0;
@@ -514,7 +639,8 @@ powerpc_cpu::compile_block(uint32 entry_point)
 		{
 			const int bo = BO_field::extract(opcode);
 #if FOLLOW_CONST_JUMPS
-			if (!BO_CONDITIONAL_BRANCH(bo) && !BO_DECREMENT_CTR(bo)) {
+			if (!BO_CONDITIONAL_BRANCH(bo) && !BO_DECREMENT_CTR(bo)
+				&& const_jump_follows++ < CONST_JUMP_FOLLOW_LIMIT) {
 				if (LK_field::test(opcode)) {
 					const uint32 npc = dpc + 4;
 					dg.gen_store_im_LR(npc);
@@ -584,7 +710,7 @@ powerpc_cpu::compile_block(uint32 entry_point)
 			if (LK_field::test(opcode))
 				dg.gen_store_im_LR(npc);
 #if FOLLOW_CONST_JUMPS
-			else {
+			else if (const_jump_follows++ < CONST_JUMP_FOLLOW_LIMIT) {
 				op.jmp.target = tpc;
 				goto do_const_jump;
 			}
@@ -1552,6 +1678,32 @@ powerpc_cpu::compile_block(uint32 entry_point)
 				break;
 			}
 			done_compile = cg_context.done_compile;
+#if defined(SHEEPSHAVER) && defined(__aarch64__)
+			// Trap chaining: continue translating through a SHEEP op whose
+			// handler resumes at dpc + 4. The guard falls through into the
+			// rest of the block iff the handler left pc at dpc + 4 and no
+			// spcflags are pending (EXEC_RETURN, interrupts, and cache
+			// invalidation from FlushCodeCache all surface as spcflags);
+			// otherwise it runs the exit stanza below, identical to a
+			// normal block epilogue.
+			if (done_compile
+				&& ii->mnemo == PPC_I(MAX)	// == PPC_I(SHEEP), glue-local alias
+				&& compile_status == COMPILE_CODE_OK
+				&& sheep_op_resumes_inline(opcode)
+				&& trap_chain_count++ < TRAP_CHAIN_LIMIT) {
+#ifdef KPX_JIT_INSTRUMENT
+				extern unsigned long kpx_jit_trap_chain_count;
+				kpx_jit_trap_chain_count++;
+#endif
+				dg.gen_sheep_guard_im(dpc + 4);
+				dg.gen_mov_ad_A0_im((uintptr)bi);
+				dg.gen_jump_next_A0();
+				dg.gen_exec_return();
+				dg_set_jmp_target_noflush(dg.jmp_addr[0], dg.code_ptr());
+				dg.jmp_addr[0] = NULL;
+				done_compile = false;
+			}
+#endif
 		}
 		}
 		if (dg.full_translation_cache()) {

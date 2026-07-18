@@ -315,4 +315,18 @@ void powerpc_dyngen::gen_store_vect_VS_T0(int vS)
 	gen_op_store_vect_VD_T0();
 }
 
+#if defined(__APPLE__) && defined(__x86_64__)
+// See the declaration: the precompiled op_jump_next_A0 is layout-stale, so
+// the fast block-to-block dispatch goes through the C++ lookup helper. The
+// helper never returns NULL — a lookup miss yields the exec-return glue —
+// so the indirect jump through A0 is unconditional.
+extern "C" void *kpx_jit_jump_next_or_exit(void *cpu, void *bi);
+
+void powerpc_dyngen::gen_jump_next_A0()
+{
+	gen_invoke_CPU_A0_ret_A0((void *(*)(dyngen_cpu_base))kpx_jit_jump_next_or_exit);
+	gen_jmp_A0();
+}
+#endif
+
 #endif //ENABLE_DYNGEN

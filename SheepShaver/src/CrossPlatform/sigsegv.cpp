@@ -681,6 +681,18 @@ extern kern_return_t mach_exception_raise_state_identity(mach_port_t, mach_port_
 	thread_state_t, mach_msg_type_number_t, thread_state_t, mach_msg_type_number_t *);
 }
 
+// With HAVE_MACH64_VM, we need the MIG-generated mach_exc_server() stub and
+// the mach_exception_raise*() user stubs.  These are normally generated from
+// /usr/include/mach/mach_exc.defs and are NOT part of libSystem on iOS.
+// Include the pre-generated C sources directly (they are pure C, but we are
+// already inside a .cpp translation unit, so wrap in extern "C").
+#ifdef HAVE_MACH64_VM
+extern "C" {
+#include "mach_excServer.c"
+#include "mach_excUser.c"
+}
+#endif
+
 // Could make this dynamic by looking for a result of MIG_ARRAY_TOO_LARGE
 #define HANDLER_COUNT 64
 
@@ -2695,7 +2707,7 @@ sigsegv_address_t sigsegv_get_fault_address(sigsegv_info_t *SIP)
 			if (use_fast_path < 0)
 				use_fast_path = addr == SIP->addr;
 		}
-#if TARGET_OS_IPHONE
+#if TARGET_OS_IPHONE && !defined(HAVE_MACH64_VM)
 		addr = VMBaseDiff + addr;
 #endif
 		SIP->addr = addr;
@@ -2729,12 +2741,15 @@ sigsegv_address_t sigsegv_get_fault_instruction_address(sigsegv_info_t *SIP)
 #define EXTERN extern
 #endif
 
-EXTERN uint8_t gZeroPage[0x3000], gKernelData[0x2000];
+EXTERN uint8_t gZeroPage[0x3000], gKernelData[0x4000];
 EXTERN uint32_t RAMBase, ROMBase, ROMEnd;
 
+// 16 KB kernel-data window (struct in the upper 8 KB, nanokernel stack
+// slack in the lower 8 KB) — keep in sync with vm_do_get_real_address in
+// kpx_cpu/src/cpu/vm.hpp.
 template<typename T> T safeLoad(uint32_t a) {
 	if (a < 0x3000) return *(T *)&gZeroPage[a];
-	else if ((a & ~0x1fff) == 0x68ffe000 || (a & ~0x1fff) == 0x5fffe000) return *(T *)&gKernelData[a & 0x1fff];
+	else if ((a & ~0x3fff) == 0x68ffc000 || (a & ~0x3fff) == 0x5fffc000) return *(T *)&gKernelData[a & 0x3fff];
 	else if (a >= RAMBase && a < ROMEnd) {
 #if TARGET_OS_IPHONE
 		return *(T *)(VMBaseDiff + a);
@@ -2747,7 +2762,7 @@ template<typename T> T safeLoad(uint32_t a) {
 }
 template<typename T> void safeStore(uint32_t a, T d) {
 	if (a < 0x3000) *(T *)&gZeroPage[a] = d;
-	else if ((a & ~0x1fff) == 0x68ffe000 || (a & ~0x1fff) == 0x5fffe000) *(T *)&gKernelData[a & 0x1fff] = d;
+	else if ((a & ~0x3fff) == 0x68ffc000 || (a & ~0x3fff) == 0x5fffc000) *(T *)&gKernelData[a & 0x3fff] = d;
 	else if (a >= RAMBase && a < ROMBase) *(T *)(uint64_t)a = d;
 }
 

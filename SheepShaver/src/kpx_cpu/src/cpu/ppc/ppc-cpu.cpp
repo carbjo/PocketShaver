@@ -20,12 +20,17 @@
 
 #include "sysdeps.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <assert.h>
 #include "vm_alloc.h"
 #include "cpu/vm.hpp"
 #include "cpu/ppc/ppc-cpu.hpp"
 #ifndef SHEEPSHAVER
 #include "basic-kernel.hpp"
+#endif
+
+#ifdef SHEEPSHAVER
+#include "cpu_emulation.h"  // RAMBase / RAMSize / ROMBase / ROM_SIZE for in_guest_range
 #endif
 
 #if PPC_ENABLE_JIT
@@ -66,8 +71,8 @@ static int ppc_refcount = 0;
 
 #ifdef DO_CONVENTION_CALL_STATICS
 template<> bool nv_mem_fun1_t<void, powerpc_cpu, uint32>::do_convention_call_init_done = false;
-template<> int nv_mem_fun1_t<void, powerpc_cpu, uint32>::do_convention_call_code_len = 0;
 template<> int nv_mem_fun1_t<void, powerpc_cpu, uint32>::do_convention_call_pf_offset = 0;
+template<> int nv_mem_fun1_t<void, powerpc_cpu, uint32>::do_convention_call_code_len = 0;
 #endif
 
 void powerpc_cpu::set_register(int id, any_register const & value)
@@ -278,6 +283,10 @@ void powerpc_cpu::initialize()
 	// Init cache range invalidate recorder
 	cache_range.start = cache_range.end = 0;
 
+#if PPC_ENABLE_JIT && DYNGEN_DIRECT_BLOCK_CHAINING
+	cache_generation = 0;
+#endif
+
 	// Init syscalls handler
 	execute_do_syscall = NULL;
 
@@ -311,10 +320,85 @@ void powerpc_cpu::initialize()
 #if PPC_ENABLE_JIT
 void powerpc_cpu::enable_jit(uint32 cache_size)
 {
-	use_jit = true;
 	if (cache_size)
 		codegen.set_cache_size(cache_size);
-	codegen.initialize();
+	// A failed initialize (e.g. MAP_JIT refused without the allow-jit
+	// entitlement) must leave the interpreter tiers in charge
+	use_jit = codegen.initialize();
+}
+
+uint8 *powerpc_cpu::jit_exec_return_addr()
+{
+	return codegen.exec_return_addr();
+}
+
+void *powerpc_cpu::jit_jump_next(powerpc_block_info *bi)
+{
+	const uint32 npc = pc();
+	if (bi->pc != npc && (bi = my_block_cache.fast_find(npc)) == NULL)
+		return NULL;
+	return bi->entry_point;
+}
+
+extern "C" void *kpx_jit_jump_next(void *cpu, void *bi)
+{
+	return ((powerpc_cpu *)cpu)->jit_jump_next((powerpc_block_info *)bi);
+}
+
+// Variant for the x86 dyngen dispatch: never returns NULL, so generated
+// code can jump through the result unconditionally — a lookup miss leaves
+// execute() via the exec-return glue instead.
+extern "C" void *kpx_jit_jump_next_or_exit(void *cpu, void *bi)
+{
+	powerpc_cpu *the_cpu = (powerpc_cpu *)cpu;
+	void *entry = the_cpu->jit_jump_next((powerpc_block_info *)bi);
+	return entry ? entry : (void *)the_cpu->jit_exec_return_addr();
+}
+
+extern "C" unsigned long kpx_jit_pc_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_pc_offset();
+}
+
+extern "C" unsigned long kpx_jit_spcflags_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_spcflags_offset();
+}
+extern "C" unsigned long kpx_jit_gpr_offset(void *cpu, int i)
+{
+	return ((powerpc_cpu *)cpu)->jit_gpr_offset(i);
+}
+extern "C" unsigned long kpx_jit_cr_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_cr_offset();
+}
+extern "C" unsigned long kpx_jit_xer_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_xer_offset();
+}
+extern "C" unsigned long kpx_jit_lr_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_lr_offset();
+}
+extern "C" unsigned long kpx_jit_ctr_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_ctr_offset();
+}
+extern "C" unsigned long kpx_jit_vrsave_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_vrsave_offset();
+}
+extern "C" unsigned long kpx_jit_fpr_offset(void *cpu, int i)
+{
+	return ((powerpc_cpu *)cpu)->jit_fpr_offset(i);
+}
+extern "C" unsigned long kpx_jit_fpscr_offset(void *cpu)
+{
+	return ((powerpc_cpu *)cpu)->jit_fpscr_offset();
+}
+extern "C" unsigned long kpx_jit_vr_offset(void *cpu, int i)
+{
+	return ((powerpc_cpu *)cpu)->jit_vr_offset(i);
 }
 #endif
 
@@ -556,18 +640,39 @@ void * powerpc_cpu::call_compile_chain_block(powerpc_cpu * the_cpu, block_info *
 
 void * PF_CONVENTION powerpc_cpu::compile_chain_block(block_info *sbi)
 {
+#ifdef KPX_JIT_INSTRUMENT
+	// Differential-harness hook: proves direct block chaining resolved links
+	// at run time (never defined in shipping builds)
+	extern unsigned long kpx_jit_chain_count;
+	kpx_jit_chain_count++;
+#endif
+
 	// Block index is stuffed into the source basic block pointer,
 	// which is aligned at least on 4-byte boundaries
 	const int n = ((uintptr)sbi) & 3;
 	sbi = (block_info *)(((uintptr)sbi) & ~3L);
 
 	const uint32 tpc = sbi->li[n].jmp_pc;
+	const uint32 generation = cache_generation;
 	block_info *tbi = my_block_cache.find(tpc);
 	if (tbi == NULL)
 		tbi = compile_block(tpc);
 	assert(tbi && tbi->pc == tpc);
 
+	// If compile_block flushed the whole cache on the way, sbi (and its
+	// chain slot) no longer exist -- entering tbi unpatched is fine, the
+	// driver unwinds at its prologue via SPCFLAG_JIT_EXEC_RETURN
+	if (cache_generation != generation)
+		return tbi->entry_point;
+
 	dg_set_jmp_target(sbi->li[n].jmp_addr, tbi->entry_point);
+
+	// Register the resolved link with the target so its invalidation can
+	// unchain us (cross-page sources are not covered by page-granular
+	// range invalidation) -- dep[] slots mirror li[] slots by index
+	sbi->remove_dep(&sbi->dep[n]);
+	sbi->create_jmpdep(tbi, n);
+
 	return tbi->entry_point;
 }
 #endif
@@ -581,7 +686,14 @@ void powerpc_cpu::execute(uint32 entry)
 #endif
 	execute_depth++;
 #if PPC_DECODE_CACHE || PPC_ENABLE_JIT
+#if PPC_ENABLE_JIT && PPC_REENTRANT_JIT
+	// Reentrant JIT: nested execute() may use the block engines only when
+	// the JIT is actually active; with jit off, nested calls must keep the
+	// pure-interpreter tier exactly as in JIT-less builds
+	if (execute_depth == 1 || use_jit) {
+#else
 	if (execute_depth == 1 || (PPC_ENABLE_JIT && PPC_REENTRANT_JIT)) {
+#endif
 #if PPC_ENABLE_JIT
 		if (use_jit) {
 			block_info *bi = my_block_cache.find(pc());
@@ -672,8 +784,14 @@ void powerpc_cpu::execute(uint32 entry)
 				}
 			} while ((ii->cflow & CFLOW_END_BLOCK) == 0);
 			bi->end_pc = dpc;
-			bi->min_pc = dpc;
-			bi->max_pc = entry;
+			// min_pc is this block's OWN start (bi->pc), not the execute()
+			// entry argument: a block predecoded below the entry PC would
+			// otherwise get min_pc > max_pc, inverting its range so that
+			// clear_range's intersect misses it and leaves a stale block
+			// live on self-modifying code (matches the JIT translate path,
+			// which uses the block's entry_point as min_pc).
+			bi->min_pc = bi->pc;
+			bi->max_pc = dpc;
 			bi->size = di - bi->di;
 			my_block_cache.add_to_cl_list(bi);
 			my_block_cache.add_to_active_list(bi);
@@ -794,6 +912,11 @@ void powerpc_cpu::invalidate_cache()
 	my_block_cache.initialize();
 	spcflags().set(SPCFLAG_JIT_EXEC_RETURN);
 #endif
+#if PPC_ENABLE_JIT && DYNGEN_DIRECT_BLOCK_CHAINING
+	// Every block (and every chain link between blocks) is gone;
+	// in-flight chain resolution must not patch recycled memory
+	cache_generation++;
+#endif
 #if PPC_ENABLE_JIT
 	codegen.invalidate_cache();
 #endif
@@ -810,14 +933,27 @@ void powerpc_block_info::invalidate()
 		return;
 #endif
 #if DYNGEN_DIRECT_BLOCK_CHAINING
+	// Unchain every block that resolved a direct jump to our entry point:
+	// point each source's patched branch back at its resolver trampoline.
+	// Sources live anywhere in the cache (cross-page chaining), so the
+	// incoming dependency list is the only way to find them. Source code
+	// stays mapped until a full cache flush, which never runs invalidate().
+	while (dependency *d = deplist) {
+		powerpc_block_info *sbi = (powerpc_block_info *)d->source;
+		const int n = (int)(d - sbi->dep);
+		link_info * const sli = &sbi->li[n];
+		dg_set_jmp_target(sli->jmp_addr, sli->jmp_resolve_addr);
+		remove_dep(d);
+	}
+	// Reset our own outgoing chains to their resolvers (this block may
+	// still be executing -- invalidation can trigger from inside it) and
+	// unlink them from the targets' incoming lists
 	for (int i = 0; i < MAX_TARGETS; i++) {
 		link_info * const tli = &li[i];
-		uint32 tpc = tli->jmp_pc;
-		// For any jump within page boundaries, reset the jump address
-		// to the target block resolver (trampoline)
-		if (tpc != INVALID_PC && ((tpc ^ pc) >> 12) == 0)
+		if (tli->jmp_pc != INVALID_PC)
 			dg_set_jmp_target(tli->jmp_addr, tli->jmp_resolve_addr);
 	}
+	remove_deps();
 #endif
 }
 

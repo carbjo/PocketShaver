@@ -132,6 +132,28 @@ public class MonitorResolutionManager: NSObject {
 		}
 	}
 
+	/// The always-on boot resolution — the native-scale, pixel-aligned mode the UI marks
+	/// "cannot be deselected / needed for boot sequence" — for the launch orientation,
+	/// freshly detected from the current display each launch (never a persisted copy).
+	/// `availableResolutions` is rebuilt from the live screen in init(), so this always
+	/// reflects the current device; `isResolutionAlwaysEnabled` pins this same value.
+	private var freshBootResolutionOption: MonitorResolutionOption? {
+		let category: MonitorResolutionCategory = willLaunchInPortraitMode ? .pixelAlignedPortrait : .pixelAlignedLandscape
+		return availableResolutions[category]?.first
+	}
+
+	/// The resolution PocketShaver records into the "screen" pref to boot into. Sourced
+	/// from `freshBootResolutionOption` — the freshly-detected "cannot be deselected"
+	/// pixel-aligned mode — not the live UIScreen point size and not a stale persisted
+	/// value. On Mac Catalyst the pixel-aligned modes are already computed from the
+	/// camera-housing-excluded screen size (see `UIScreen.pixelAligned*Size`), so this
+	/// boots the usable-below-the-notch resolution without any extra trim here.
+	var bootScreenResolution: MonitorResolution {
+		return freshBootResolutionOption?.resolution
+			?? enabledResolutions.first?.resolution
+			?? MonitorResolution(width: Int(UIScreen.main.bounds.width), height: Int(UIScreen.main.bounds.height))
+	}
+
 	private var hasRegisteredSafeAreaInsets = false
 	private var needCompletingPreselectingLandscapeModeResolutions = false
 
@@ -147,7 +169,7 @@ public class MonitorResolutionManager: NSObject {
 
 		if let persistedEnabledPortraitResolutionsData = Storage.shared.load(from: .portraitResolutions),
 		   let persistedEnabledPortraitResolutions = try? decoder.decode([MonitorResolutionOption].self, from: persistedEnabledPortraitResolutionsData) {
-			enabledPortraitResolutions = persistedEnabledPortraitResolutions
+			enabledPortraitResolutions = Self.withRefreshedBootResolution(persistedEnabledPortraitResolutions, category: .pixelAlignedPortrait, available: availableResolutions)
 		} else {
 			enabledPortraitResolutions = [
 				availableResolutions[.pixelAlignedPortrait]![0],
@@ -158,7 +180,7 @@ public class MonitorResolutionManager: NSObject {
 
 		if let persistedEnabledLandscapeResolutionsData = Storage.shared.load(from: .landscapeResolutions),
 		   let persistedEnabledLandscapeResolutions = try? decoder.decode([MonitorResolutionOption].self, from: persistedEnabledLandscapeResolutionsData) {
-			enabledLandscapeResolutions = persistedEnabledLandscapeResolutions
+			enabledLandscapeResolutions = Self.withRefreshedBootResolution(persistedEnabledLandscapeResolutions, category: .pixelAlignedLandscape, available: availableResolutions)
 		} else {
 			enabledLandscapeResolutions = [
 				availableResolutions[.pixelAlignedLandscape]![0],
@@ -251,6 +273,15 @@ public class MonitorResolutionManager: NSObject {
 		var resolutions = enabledResolutions.map({ $0.resolution })
 		resolutions = Array(resolutions.prefix(10))
 
+		// The first enabled resolution is the pixel-aligned "cannot be deselected"
+		// boot entry. Force it to exactly match `bootScreenResolution` (which the
+		// screen pref is written from), so the guest always boots a mode that is
+		// present in VModes[]. This also carries the Catalyst safe-area (menu bar /
+		// notch) trim into the registered mode list, keeping pref == VMode entry.
+		if !resolutions.isEmpty {
+			resolutions[0] = bootScreenResolution
+		}
+
 		var outputResolutions = [SDLVideoMonitorResolutionElement]()
 		var index: Int = 0x81 // Lowest monitor index video driver expects
 
@@ -264,12 +295,47 @@ public class MonitorResolutionManager: NSObject {
 		return outputResolutions
 	}
 
+	/// Refresh a persisted enabled list against the freshly-detected pixel-aligned modes for
+	/// the current display, and guarantee the always-on boot resolution (the first pixel-aligned
+	/// entry — the one the UI marks "cannot be deselected") is present. Persisted entries carry
+	/// concrete pixel dimensions, so any pixel-aligned entry saved on a previous display or a
+	/// pre-notch build would otherwise show stale values in the UI and diverge from what the
+	/// guest receives (e.g. a Mac Catalyst 1x mode saved as 4112x2658 before the camera-housing
+	/// strip was excluded, now 4112x2582). Every persisted entry of `category` is re-matched to
+	/// the current option by the notch-invariant axis — width in landscape, height in portrait,
+	/// since the camera housing only trims the other axis — keeping `enabledResolutions` the
+	/// single fresh source of truth read by both the Preferences UI and the SDL mode list.
+	private static func withRefreshedBootResolution(
+		_ persisted: [MonitorResolutionOption],
+		category: MonitorResolutionCategory,
+		available: [MonitorResolutionCategory: [MonitorResolutionOption]]
+	) -> [MonitorResolutionOption] {
+		guard let freshList = available[category], let freshBoot = freshList.first else { return persisted }
+		let isLandscape = category == .pixelAlignedLandscape
+		var list = persisted.map { option -> MonitorResolutionOption in
+			guard option.category == category else { return option }
+			let match = freshList.first {
+				isLandscape ? $0.resolution.width == option.resolution.width
+							: $0.resolution.height == option.resolution.height
+			}
+			return match ?? option
+		}
+		if !list.contains(where: { $0 == freshBoot }) {
+			if let index = list.firstIndex(where: { $0.category == category }) {
+				list[index] = freshBoot
+			} else {
+				list.insert(freshBoot, at: 0)
+			}
+		}
+		return list
+	}
+
 	private static func getAvailableResolutions(for category: MonitorResolutionCategory) -> [MonitorResolutionOption] {
 		switch category {
 		case .pixelAlignedPortrait:
-			return Self.getPixelAlignedResolutions(size: UIScreen.portraitModeSize)
+			return Self.getPixelAlignedResolutions(size: UIScreen.pixelAlignedPortraitSize)
 		case .pixelAlignedLandscape:
-			return Self.getPixelAlignedResolutions(size: UIScreen.landscapeModeSize)
+			return Self.getPixelAlignedResolutions(size: UIScreen.pixelAlignedLandscapeSize)
 		case .standardResolution:
 			return [
 				.init(

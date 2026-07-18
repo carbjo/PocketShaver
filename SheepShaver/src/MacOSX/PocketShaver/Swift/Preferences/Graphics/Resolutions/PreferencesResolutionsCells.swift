@@ -81,7 +81,12 @@ class PreferencesResolutionsMonitorResolutionCell: UITableViewCell {
 
 	private lazy var enabledSwitch: UISwitch = {
 		let uiSwitch = UISwitch.withoutConstraints()
-		uiSwitch.addTarget(self, action: #selector(enabledValueChanged), for: .touchUpInside)
+		// Sliding switch on Mac Catalyst too, not the Mac-idiom checkbox.
+		uiSwitch.preferredStyle = .sliding
+		// .valueChanged (not .touchUpInside): dragging the thumb on a pointer
+		// releases outside the switch bounds, which never fires .touchUpInside,
+		// so the toggle would silently fail to persist and snap back.
+		uiSwitch.addTarget(self, action: #selector(enabledValueChanged), for: .valueChanged)
 		return uiSwitch
 	}()
 
