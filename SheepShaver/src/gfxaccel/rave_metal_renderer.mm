@@ -4195,15 +4195,20 @@ int32_t NativeClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint3
 	if (!priv || !priv->metal) return kQAError;
 	RaveMetalState *ms = priv->metal;
 	if (!ms->renderPassActive || !ms->currentEncoder) return kQAError;
-	int32_t left   = (int32_t)ReadMacInt32(rectAddr + 0);
-	int32_t right  = (int32_t)ReadMacInt32(rectAddr + 4);
-	int32_t top    = (int32_t)ReadMacInt32(rectAddr + 8);
-	int32_t bottom = (int32_t)ReadMacInt32(rectAddr + 12);
-	if (left < 0) left = 0;
-	if (top < 0) top = 0;
-	if (right > priv->width) right = priv->width;
-	if (bottom > priv->height) bottom = priv->height;
-	if (right <= left || bottom <= top) return kQANoErr;
+	// NULL rect = whole buffer (same convention as QARenderStart's NULL dirtyRect;
+	// UT's RaveDrv passes rect=NULL through the ATI ExtFuncs clear entries).
+	int32_t left = 0, right = priv->width, top = 0, bottom = priv->height;
+	if (rectAddr != 0) {
+		left   = (int32_t)ReadMacInt32(rectAddr + 0);
+		right  = (int32_t)ReadMacInt32(rectAddr + 4);
+		top    = (int32_t)ReadMacInt32(rectAddr + 8);
+		bottom = (int32_t)ReadMacInt32(rectAddr + 12);
+		if (left < 0) left = 0;
+		if (top < 0) top = 0;
+		if (right > priv->width) right = priv->width;
+		if (bottom > priv->height) bottom = priv->height;
+		if (right <= left || bottom <= top) return kQANoErr;
+	}
 	// Read BG color: from initialContext if non-NULL per RAVE.h, else from current context
 	float r, g, b, a;
 	if (initialContextAddr != 0) {
@@ -4298,21 +4303,23 @@ int32_t NativeClearZBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint32_t
 		return kQANoErr;
 	}
 
-	// Disabled depth writes skip depth clear per kQAZBufferMask_Disable and ATI tag 1022.
-	// Test: RAVERenderingStateTests.testZBufferMask_skipClear
-	if (!RaveEffectiveDepthWriteEnabled(priv->state[28].i, priv->ati_state[kRaveATIDepthWriteEnableIndex].i)) {
-		RAVE_LOG("ClearZBuffer: skipped (depth writes disabled)");
-		return kQANoErr;
+	// The clear is NOT gated on kQAZBufferMask_Disable / ATI tag 1022: an explicit
+	// buffer clear is not a draw. UT's RaveDrv calls the ATI ClearZBuffer between
+	// sky zone and world (URenderDevice::ClearZ) without restoring the depth-write
+	// tag first, so real ATI engines cleared regardless of the draw-state mask.
+	// NULL rect = whole buffer (UT's ClearZ passes rect=NULL).
+	int32_t left = 0, right = priv->width, top = 0, bottom = priv->height;
+	if (rectAddr != 0) {
+		left   = (int32_t)ReadMacInt32(rectAddr + 0);
+		right  = (int32_t)ReadMacInt32(rectAddr + 4);
+		top    = (int32_t)ReadMacInt32(rectAddr + 8);
+		bottom = (int32_t)ReadMacInt32(rectAddr + 12);
+		if (left < 0) left = 0;
+		if (top < 0) top = 0;
+		if (right > priv->width) right = priv->width;
+		if (bottom > priv->height) bottom = priv->height;
+		if (right <= left || bottom <= top) return kQANoErr;
 	}
-	int32_t left   = (int32_t)ReadMacInt32(rectAddr + 0);
-	int32_t right  = (int32_t)ReadMacInt32(rectAddr + 4);
-	int32_t top    = (int32_t)ReadMacInt32(rectAddr + 8);
-	int32_t bottom = (int32_t)ReadMacInt32(rectAddr + 12);
-	if (left < 0) left = 0;
-	if (top < 0) top = 0;
-	if (right > priv->width) right = priv->width;
-	if (bottom > priv->height) bottom = priv->height;
-	if (right <= left || bottom <= top) return kQANoErr;
 	// Determine clear depth: from initialContext if non-NULL per RAVE.h, else default 1.0
 	float clearDepth;
 	if (initialContextAddr != 0) {
