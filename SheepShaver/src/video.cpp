@@ -42,6 +42,7 @@
 #include "display_mode_controller.h"
 #include "dsp_video_status_policy.h"
 #include "metal_compositor.h"
+#include "gfx_color_policy.h"
 #endif
 
 #define DEBUG 0
@@ -305,9 +306,10 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 {
 	/* The Linear gamma pref must not bypass user-supplied tables here: games
 	 * install functional ramps (e.g. overbright brightness doubling) that the
-	 * compositor presents verbatim in Linear mode. The pref only controls the
-	 * classic-Mac -> sRGB display correction (see gfx_color_policy.h). */
-	if (gamma == 0) { // Build linear ramp, 256 entries
+	 * compositor composes through the display policy. The pref only controls
+	 * that display-side composition — verbatim in OS-defined mode, inverse of
+	 * the Mac Standard curve in Linear mode (see gfx_color_policy.h). */
+	if (gamma == 0) { // nil table: install the driver's DEFAULT gamma
 
 		// Allocate new table, if necessary
 		if (!allocate_gamma_table(csSave, SIZEOF_GammaTbl + 256))
@@ -321,12 +323,25 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 		WriteMacInt16(csSave->gammaTable + gDataCnt, 256);		// gDataCnt == 2^^gDataWidth
 		WriteMacInt16(csSave->gammaTable + gDataWidth, 8);		// 8 bits of significant data per entry
 
-		// Build the linear ramp
 		uint32 p = csSave->gammaTable + gFormulaData;
-		
+
 		for (int i=0; i<256; i++) {
-			WriteMacInt8(p + i, i);
-			mac_gamma[i].red = mac_gamma[i].green = mac_gamma[i].blue = i;
+#if TARGET_OS_IPHONE
+			/* Real video card ROMs install their 'gama' resource ("Mac
+			 * Standard Gamma") as the power-on default; the Display Manager
+			 * trusts that at boot and only pushes the display profile's
+			 * table during a resolution/depth switch. A linear default here
+			 * therefore leaves the screen uncorrected from boot until the
+			 * first mode switch — which never comes when the guest boots at
+			 * the panel-native resolution in full screen. Default to the
+			 * same classic-Mac standard curve the profile table carries so
+			 * boot matches the post-switch presentation. */
+			const uint8 v = GfxColorClassicMacToSRGBByte((uint8)i);
+#else
+			const uint8 v = (uint8)i; // linear ramp (legacy host gamma path)
+#endif
+			WriteMacInt8(p + i, v);
+			mac_gamma[i].red = mac_gamma[i].green = mac_gamma[i].blue = v;
 		}
 		video_set_gamma(256);
 #if TARGET_OS_IPHONE

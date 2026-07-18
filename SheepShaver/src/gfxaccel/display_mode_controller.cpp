@@ -200,12 +200,20 @@ static DMCModeSnapshot *dmc_alloc_raw_snapshot(void) {
 	return (DMCModeSnapshot *)malloc(sizeof(DMCModeSnapshot));
 }
 
-// Initialize gamma_lut[768] to the Mac-side identity ramp (input == output).
-// The compositor composes the display-space 1.8->2.2 policy when it uploads
-// this snapshot into its GPU-visible LUT.
+// Initialize gamma_lut[768] to the Mac Standard curve — the same default the
+// video driver installs at VideoOpen (set_gamma nil-table path) and the
+// profile table Mac OS pushes on Display Manager mode switches. Seeding the
+// pre-driver boot frames with the identical curve keeps the display policy's
+// composition (verbatim in OS-defined mode, inverse-cancelled to identity in
+// Linear mode) constant from the first frame onward.
 static void dmc_init_identity_gamma(DMCModeSnapshot *snap) {
-	GfxColorFillIdentityGammaLUT(snap->gamma_lut);
-	GfxColorFillIdentityGammaLUT(snap->driver_gamma_lut);
+	for (int c = 0; c < 3; c++) {
+		for (int i = 0; i < 256; i++) {
+			const uint8_t v = GfxColorClassicMacToSRGBByte((uint8_t)i);
+			snap->gamma_lut[c * 256 + i]        = v;
+			snap->driver_gamma_lut[c * 256 + i] = v;
+		}
+	}
 }
 
 // Heap-allocate a fresh snapshot populated from a DMCModeDesc. Fields the

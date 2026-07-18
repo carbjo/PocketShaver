@@ -231,6 +231,12 @@ static id<MTLBuffer>                gamma_identity_buffer = nil;
 // the gamma LUT composition, so diagnostics and DSp staging hash policy see
 // the same fade state used to build gamma_lut_buffer.
 static uint32_t                     s_latched_fade_active = 0;
+// Last DMC gamma generation composed into gamma_lut_buffer. UINT32_MAX is a
+// "never composed" sentinel: Init/Resize replace the buffer with a static
+// display-default seed, so the latch must be invalidated there or a snapshot
+// whose gamma_gen still equals the latched value (e.g. a guest ramp carried
+// across a mode switch) would never be re-composed into the fresh buffer.
+static uint32_t                     s_last_gamma_gen = UINT32_MAX;
 
 // Depth-aware state (added in S02)
 static int                          compositor_depth    = 0;
@@ -730,7 +736,6 @@ static void compositor_vbl_callback(void *ctx, void *drawable, double target_ts)
 	//    gamma_lut_buffer. One snapshot, one (LUT, flag) pair.
 	const DMCModeSnapshot *snap = dmc_current_snapshot();
 	if (snap != NULL && gamma_lut_buffer != nil) {
-		static uint32_t s_last_gamma_gen = 0;
 		if (snap->gamma_gen != s_last_gamma_gen) {
 			GfxColorBuildDisplayGammaLUT(snap->gamma_lut,
 			                             snap->fade_active != 0,
@@ -1063,6 +1068,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         return -1;
     }
     s_latched_fade_active = 0;  // no fade in progress at init
+    s_last_gamma_gen = UINT32_MAX;  // fresh buffer: compose from snapshot on first VBL
     COMPOSITOR_LOG("MetalCompositorInit: gamma_lut_buffer + gamma_identity_buffer "
                    "created (768 bytes each)");
 
@@ -1590,6 +1596,11 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
     reset_palette_latch_state();
     gamma_lut_buffer      = new_resources.gamma_lut;
     gamma_identity_buffer = new_resources.gamma_identity;
+    // The fresh gamma_lut buffer holds only the static display-default seed;
+    // invalidate the VBL latch so the snapshot's current ramp (carried across
+    // the mode switch by DMC) is re-composed on the next tick instead of being
+    // dropped until the guest's next SetGamma.
+    s_last_gamma_gen = UINT32_MAX;
     compositor_library = new_resources.library;
     compositor_pipeline = new_resources.pipeline;
     compositor_sampler = new_resources.sampler;
@@ -1716,6 +1727,7 @@ void MetalCompositorShutdown(void)
     gamma_lut_buffer      = nil;
     gamma_identity_buffer = nil;
     s_latched_fade_active = 0;  // clear latched fade on teardown
+    s_last_gamma_gen = UINT32_MAX;  // buffer gone; next Init composes from snapshot
     compositor_queue    = nil;
     compositor_device   = nil;
     compositor_library  = nil;
