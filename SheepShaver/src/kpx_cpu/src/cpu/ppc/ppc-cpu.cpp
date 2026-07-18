@@ -283,6 +283,10 @@ void powerpc_cpu::initialize()
 	// Init cache range invalidate recorder
 	cache_range.start = cache_range.end = 0;
 
+#if PPC_ENABLE_JIT && DYNGEN_DIRECT_BLOCK_CHAINING
+	cache_generation = 0;
+#endif
+
 	// Init syscalls handler
 	execute_do_syscall = NULL;
 
@@ -630,12 +634,26 @@ void * PF_CONVENTION powerpc_cpu::compile_chain_block(block_info *sbi)
 	sbi = (block_info *)(((uintptr)sbi) & ~3L);
 
 	const uint32 tpc = sbi->li[n].jmp_pc;
+	const uint32 generation = cache_generation;
 	block_info *tbi = my_block_cache.find(tpc);
 	if (tbi == NULL)
 		tbi = compile_block(tpc);
 	assert(tbi && tbi->pc == tpc);
 
+	// If compile_block flushed the whole cache on the way, sbi (and its
+	// chain slot) no longer exist -- entering tbi unpatched is fine, the
+	// driver unwinds at its prologue via SPCFLAG_JIT_EXEC_RETURN
+	if (cache_generation != generation)
+		return tbi->entry_point;
+
 	dg_set_jmp_target(sbi->li[n].jmp_addr, tbi->entry_point);
+
+	// Register the resolved link with the target so its invalidation can
+	// unchain us (cross-page sources are not covered by page-granular
+	// range invalidation) -- dep[] slots mirror li[] slots by index
+	sbi->remove_dep(&sbi->dep[n]);
+	sbi->create_jmpdep(tbi, n);
+
 	return tbi->entry_point;
 }
 #endif
@@ -875,6 +893,11 @@ void powerpc_cpu::invalidate_cache()
 	my_block_cache.initialize();
 	spcflags().set(SPCFLAG_JIT_EXEC_RETURN);
 #endif
+#if PPC_ENABLE_JIT && DYNGEN_DIRECT_BLOCK_CHAINING
+	// Every block (and every chain link between blocks) is gone;
+	// in-flight chain resolution must not patch recycled memory
+	cache_generation++;
+#endif
 #if PPC_ENABLE_JIT
 	codegen.invalidate_cache();
 #endif
@@ -891,14 +914,27 @@ void powerpc_block_info::invalidate()
 		return;
 #endif
 #if DYNGEN_DIRECT_BLOCK_CHAINING
+	// Unchain every block that resolved a direct jump to our entry point:
+	// point each source's patched branch back at its resolver trampoline.
+	// Sources live anywhere in the cache (cross-page chaining), so the
+	// incoming dependency list is the only way to find them. Source code
+	// stays mapped until a full cache flush, which never runs invalidate().
+	while (dependency *d = deplist) {
+		powerpc_block_info *sbi = (powerpc_block_info *)d->source;
+		const int n = (int)(d - sbi->dep);
+		link_info * const sli = &sbi->li[n];
+		dg_set_jmp_target(sli->jmp_addr, sli->jmp_resolve_addr);
+		remove_dep(d);
+	}
+	// Reset our own outgoing chains to their resolvers (this block may
+	// still be executing -- invalidation can trigger from inside it) and
+	// unlink them from the targets' incoming lists
 	for (int i = 0; i < MAX_TARGETS; i++) {
 		link_info * const tli = &li[i];
-		uint32 tpc = tli->jmp_pc;
-		// For any jump within page boundaries, reset the jump address
-		// to the target block resolver (trampoline)
-		if (tpc != INVALID_PC && ((tpc ^ pc) >> 12) == 0)
+		if (tli->jmp_pc != INVALID_PC)
 			dg_set_jmp_target(tli->jmp_addr, tli->jmp_resolve_addr);
 	}
+	remove_deps();
 #endif
 }
 

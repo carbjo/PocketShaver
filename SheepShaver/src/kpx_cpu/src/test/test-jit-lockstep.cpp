@@ -372,6 +372,96 @@ static uint32 smc_below_entry_scenario(test_cpu &c)
 	return c.get_gpr(3);
 }
 
+// Cross-page direct block chaining: a block ending in `bl` chains to a target
+// TWO pages away. After the target's page is range-invalidated (the source's
+// page is NOT in the invalidation window), the source's patched branch must
+// have been reset to its resolver via the target's incoming dependency list.
+// A stale chain keeps jumping to the old target code and returns the old
+// value. Expected composite: 112 (run1=1, run2=1 via hot chain, run3=2).
+static uint32 crosspage_chain_scenario(test_cpu &c)
+{
+	const uint32 Lo = guest_code;			// target, low page
+	const uint32 Hi = guest_code + 0x2000;	// source, two pages up
+
+	vm_write_memory_4(Hi + 0, b_((int)Lo - (int)Hi, 1));	// bl Lo (chains)
+	vm_write_memory_4(Hi + 4, POWERPC_EMUL_OP);			// return-op
+	vm_write_memory_4(Lo + 0, addi(3, 0, 1));			// li r3,1
+	vm_write_memory_4(Lo + 4, POWERPC_BLR);				// blr -> Hi+4
+
+	c.invalidate_cache();
+	c.clear_jit_return();
+	c.set_gpr(3, 0);
+	c.execute(Hi);						// resolver runs, chain patched
+	uint32 r1 = c.get_gpr(3);
+
+	c.set_gpr(3, 0);
+	c.execute(Hi);						// hot chain
+	uint32 r2 = c.get_gpr(3);
+
+	vm_write_memory_4(Lo + 0, addi(3, 0, 2));			// retarget: li r3,2
+	c.invalidate_cache_range(Lo, Lo + 4);	// page-rounded: kills Lo only
+	c.clear_jit_return();
+	c.set_gpr(3, 0);
+	c.execute(Hi);						// stale chain -> 1 ; unchained -> 2
+	uint32 r3 = c.get_gpr(3);
+
+	return r1 * 100 + r2 * 10 + r3;
+}
+
+// Conditional cross-page chaining, both slots, then SOURCE-page invalidation:
+// the dying source must unlink its outgoing links from the surviving target's
+// incoming list (remove_deps), so the target's later invalidation walks a
+// clean list instead of patching through a freed block_info. Expected
+// composite: 9-7-11-7 packed as 0x97b7.
+static uint32 crosspage_cond_chain_scenario(test_cpu &c)
+{
+	const uint32 Lo = guest_code;			// taken target, low page
+	const uint32 Hi = guest_code + 0x2000;	// conditional source, two pages up
+
+	vm_write_memory_4(Hi + 0, cmpwi(0, 3, 0));
+	vm_write_memory_4(Hi + 4, bc(12, 2, (int)Lo - (int)(Hi + 4), 0));	// beq Lo
+	vm_write_memory_4(Hi + 8, addi(4, 0, 7));			// fallthrough: li r4,7
+	vm_write_memory_4(Hi + 12, POWERPC_BLR);
+	vm_write_memory_4(Hi + 16, POWERPC_EMUL_OP);		// LR target: return-op
+	vm_write_memory_4(Lo + 0, addi(4, 0, 9));			// taken: li r4,9
+	vm_write_memory_4(Lo + 4, POWERPC_BLR);
+
+	c.invalidate_cache();
+	c.clear_jit_return();
+	c.set_lr(Hi + 16);
+	c.set_gpr(3, 0); c.set_gpr(4, 0);
+	c.execute(Hi);						// taken slot resolves
+	uint32 r1 = c.get_gpr(4);
+
+	c.set_lr(Hi + 16);
+	c.set_gpr(3, 1); c.set_gpr(4, 0);
+	c.execute(Hi);						// fallthrough slot resolves
+	uint32 r2 = c.get_gpr(4);
+
+	// Kill the SOURCE page: Hi's blocks die and must unlink from Lo's
+	// incoming list. Lo's block survives.
+	c.invalidate_cache_range(Hi, Hi + 4);
+	c.clear_jit_return();
+
+	// Now retarget and kill Lo: its invalidate() walks the incoming list,
+	// which must no longer reference the freed source block
+	vm_write_memory_4(Lo + 0, addi(4, 0, 11));			// li r4,11
+	c.invalidate_cache_range(Lo, Lo + 4);
+	c.clear_jit_return();
+
+	c.set_lr(Hi + 16);
+	c.set_gpr(3, 0); c.set_gpr(4, 0);
+	c.execute(Hi);						// recompiled everywhere
+	uint32 r3 = c.get_gpr(4);
+
+	c.set_lr(Hi + 16);
+	c.set_gpr(3, 1); c.set_gpr(4, 0);
+	c.execute(Hi);
+	uint32 r4 = c.get_gpr(4);
+
+	return (r1 << 12) | (r2 << 8) | (r3 << 4) | r4;
+}
+
 // ---- vm accessor contract (host-side unit test, no CPU involved) -----------
 // The lockstep suites compare interpreter vs JIT, but both share vm.hpp, so a
 // semantic bug in vm_do_get_real_address itself would cancel out. This pins
@@ -1106,6 +1196,31 @@ int main(int argc, char **argv)
 		if (ri != 2 || rj != 2) {
 			printf("  [smc-below-entry] interp r3=%u  jit r3=%u  (both must be 2; "
 				   "1 = stale predecoded block survived range invalidation)\n", ri, rj);
+			failed++;
+		}
+	}
+
+	// --- suite 11: cross-page direct chaining + unchain-on-invalidate ---
+	// Both engines must independently reach the expected composites; the JIT
+	// side additionally proves the incoming-dependency unchain protocol (a
+	// stale cross-page chain returns the pre-invalidation value).
+	{
+		uint32 ri = crosspage_chain_scenario(interp);
+		uint32 rj = crosspage_chain_scenario(jit);
+		total++;
+		if (ri != 112 || rj != 112) {
+			printf("  [xpage-chain] interp=%u jit=%u (both must be 112; "
+				   "xx1 = stale cross-page chain survived target invalidation)\n", ri, rj);
+			failed++;
+		}
+	}
+	{
+		uint32 ri = crosspage_cond_chain_scenario(interp);
+		uint32 rj = crosspage_cond_chain_scenario(jit);
+		total++;
+		if (ri != 0x97b7 || rj != 0x97b7) {
+			printf("  [xpage-cond-chain] interp=%04x jit=%04x (both must be 97b7)\n",
+				   ri, rj);
 			failed++;
 		}
 	}

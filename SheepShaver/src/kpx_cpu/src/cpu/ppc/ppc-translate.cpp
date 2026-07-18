@@ -62,14 +62,18 @@ static inline bool is_read_only_memory(uintptr addr)
 #endif
 
 #if DYNGEN_DIRECT_BLOCK_CHAINING
-// Returns TRUE if we can directly generate a jump to the target block
-// XXX mixing front-end and back-end conditions is not a very good idea...
+// Returns TRUE if we can directly generate a jump to the target block.
+// Cross-page targets are allowed: every resolved link is registered on
+// the target's incoming dependency list (compile_chain_block), and
+// powerpc_block_info::invalidate() unchains incoming sources wherever
+// they live, so chain teardown no longer relies on the source sharing
+// the target's page.
 static inline bool direct_chaining_possible(uint32 bpc, uint32 tpc)
 {
 #ifndef DYNGEN_FAST_DISPATCH
 	return false;
 #endif
-	return ((bpc ^ tpc) >> 12) == 0 || is_read_only_memory(tpc);
+	return true;
 }
 #endif
 

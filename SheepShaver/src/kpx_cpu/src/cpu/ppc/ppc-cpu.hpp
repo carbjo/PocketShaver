@@ -389,6 +389,13 @@ private:
 	typedef powerpc_block_info block_info;
 	block_cache< block_info, lazy_allocator > my_block_cache;
 
+#if PPC_ENABLE_JIT && DYNGEN_DIRECT_BLOCK_CHAINING
+	// Bumped whenever the whole block cache is flushed; lets
+	// compile_chain_block detect that the source block it was about to
+	// patch died during a cache-full compile_block
+	uint32 cache_generation;
+#endif
+
 #if PPC_DECODE_CACHE
 	// Decode Cache
 	static const uint32 DECODE_CACHE_MAX_ENTRIES = 32768;
