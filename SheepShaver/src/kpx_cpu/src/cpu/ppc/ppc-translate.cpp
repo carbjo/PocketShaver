@@ -77,6 +77,24 @@ static inline bool direct_chaining_possible(uint32 bpc, uint32 tpc)
 }
 #endif
 
+#if defined(SHEEPSHAVER) && defined(__aarch64__) && PPC_ENABLE_JIT
+// Trap chaining: SHEEP handlers that deterministically resume at the next
+// instruction need not end the block. Low 6 bits select the handler
+// (sheepshaver_glue.cpp execute_sheep): 0 = EMUL_RETURN (quits), 1 =
+// EXEC_RETURN (no pc advance), 2 = EXEC_NATIVE (pc += 4 unless the FN bit,
+// bit 19, redirects to LR), >= 3 = EMUL_OP (pc += 4). A resume guard after
+// the invoke re-checks pc and spcflags, so this predicate only needs the
+// handler's INTENDED continuation, not a guarantee.
+#define TRAP_CHAIN_LIMIT 32
+static inline bool sheep_op_resumes_inline(uint32 opcode)
+{
+	const uint32 op = opcode & 0x3f;
+	if (op >= 3)
+		return true;
+	return op == 2 && !(opcode & (1u << (31 - 19)));
+}
+#endif
+
 /**
  *		Basic block disassemblers
  **/
@@ -251,6 +269,9 @@ powerpc_cpu::compile_block(uint32 entry_point)
 	uint32 sync_pc = dpc;
 	uint32 sync_pc_offset = 0;
 	int const_jump_follows = 0;
+#if defined(SHEEPSHAVER) && defined(__aarch64__)
+	int trap_chain_count = 0;
+#endif
 	bool done_compile = false;
 	while (!done_compile) {
 		uint32 opcode = vm_read_memory_4(dpc += 4);
@@ -1639,6 +1660,32 @@ powerpc_cpu::compile_block(uint32 entry_point)
 				break;
 			}
 			done_compile = cg_context.done_compile;
+#if defined(SHEEPSHAVER) && defined(__aarch64__)
+			// Trap chaining: continue translating through a SHEEP op whose
+			// handler resumes at dpc + 4. The guard falls through into the
+			// rest of the block iff the handler left pc at dpc + 4 and no
+			// spcflags are pending (EXEC_RETURN, interrupts, and cache
+			// invalidation from FlushCodeCache all surface as spcflags);
+			// otherwise it runs the exit stanza below, identical to a
+			// normal block epilogue.
+			if (done_compile
+				&& ii->mnemo == PPC_I(MAX)	// == PPC_I(SHEEP), glue-local alias
+				&& compile_status == COMPILE_CODE_OK
+				&& sheep_op_resumes_inline(opcode)
+				&& trap_chain_count++ < TRAP_CHAIN_LIMIT) {
+#ifdef KPX_JIT_INSTRUMENT
+				extern unsigned long kpx_jit_trap_chain_count;
+				kpx_jit_trap_chain_count++;
+#endif
+				dg.gen_sheep_guard_im(dpc + 4);
+				dg.gen_mov_ad_A0_im((uintptr)bi);
+				dg.gen_jump_next_A0();
+				dg.gen_exec_return();
+				dg_set_jmp_target_noflush(dg.jmp_addr[0], dg.code_ptr());
+				dg.jmp_addr[0] = NULL;
+				done_compile = false;
+			}
+#endif
 		}
 		}
 		if (dg.full_translation_cache()) {

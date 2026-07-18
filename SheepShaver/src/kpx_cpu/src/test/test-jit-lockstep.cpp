@@ -56,6 +56,7 @@ void RsrcLocksDumpOnCrash(void) {}
 unsigned long kpx_jit_compile_count = 0;
 // Bumped by compile_chain_block; proves direct block chaining resolved links
 unsigned long kpx_jit_chain_count = 0;
+unsigned long kpx_jit_trap_chain_count = 0;
 // Bumped by the kpx_fp_* arithmetic helpers; proves native FP executed
 unsigned long kpx_jit_fp_helper_count = 0;
 // Bumped at translate time per inline-fastmem access emitted; proves the
@@ -77,7 +78,38 @@ struct test_cpu : public powerpc_cpu {
 	// Under SHEEPSHAVER powerpc_cpu has a no-arg constructor
 	test_cpu() : powerpc_cpu() { init_return_op(); }
 
-	void execute_return(uint32) { spcflags().set(SPCFLAG_CPU_EXEC_RETURN); }
+	// Mini execute_sheep: low 6 bits select behavior, mirroring the app's
+	// SHEEP dispatch closely enough to exercise trap chaining. 0 = return
+	// (non-continuable), 3 = data-dependent redirect (resumes at +4 OR
+	// jumps to LR -- the trap-chain resume guard must catch the redirect),
+	// 4 = self-modifying op (rewrites the guest word at r8 to r9's value
+	// and range-invalidates it -- the guard must see the spcflag and bail
+	// before running a stale inline continuation), >= 5 = plain continuable
+	// pseudo-EmulOp (r7 += low6; resume at +4).
+	void execute_return(uint32 opcode) {
+		switch (opcode & 0x3f) {
+		case 0:
+			spcflags().set(SPCFLAG_CPU_EXEC_RETURN);
+			break;
+		case 3:
+			if (gpr(6) & 1)
+				pc() = lr();
+			else
+				pc() += 4;
+			break;
+		case 4: {
+			const uint32 site = gpr(8);
+			vm_write_memory_4(site, gpr(9));
+			invalidate_cache_range(site, site + 4);
+			pc() += 4;
+			break;
+		}
+		default:
+			gpr(7) += opcode & 0x3f;
+			pc() += 4;
+			break;
+		}
+	}
 
 	void init_return_op() {
 		static const instr_info_t ii = {
@@ -460,6 +492,28 @@ static uint32 crosspage_cond_chain_scenario(test_cpu &c)
 	uint32 r4 = c.get_gpr(4);
 
 	return (r1 << 12) | (r2 << 8) | (r3 << 4) | r4;
+}
+
+// Trap chaining vs self-modifying code: a continuable pseudo-EmulOp (low6=4)
+// rewrites the NEXT instruction of its own block and range-invalidates it.
+// The resume guard must see SPCFLAG_JIT_EXEC_RETURN and bail out to the
+// driver, which recompiles and runs the NEW instruction (r3 = 42). A JIT
+// that continues inline past the trap runs the stale translation (r3 = 7).
+static uint32 trap_smc_scenario(test_cpu &c)
+{
+	const uint32 A = guest_code;
+	vm_write_memory_4(A + 0, POWERPC_EMUL_OP | 4);		// SMC pseudo-op
+	vm_write_memory_4(A + 4, addi(3, 0, 7));			// original: li r3,7
+	vm_write_memory_4(A + 8, POWERPC_BLR);
+
+	c.invalidate_cache();
+	c.clear_jit_return();
+	c.set_gpr(3, 0);
+	c.set_gpr(8, A + 4);				// rewrite site
+	c.set_gpr(9, addi(3, 0, 42));		// replacement: li r3,42
+	c.set_lr(guest_trampoline + 4);		// final BLR -> return-op
+	c.execute(A);
+	return c.get_gpr(3);
 }
 
 // ---- vm accessor contract (host-side unit test, no CPU involved) -----------
@@ -1225,11 +1279,78 @@ int main(int argc, char **argv)
 		}
 	}
 
+	// --- suite 12: trap chaining through continuable pseudo-EmulOps ---
+	// a) random ALU + pseudo-EmulOp interleavings: with trap chaining the
+	// whole program is one JIT block crossing several handler invokes
+	for (int t = 0; t < 300; t++) {
+		uint32 ops[24]; int n = 0;
+		int len = 3 + (rnd() % 8);
+		for (int k = 0; k < len; k++) {
+			switch (rnd() % 4) {
+			case 0: ops[n++] = addi(4, 4, 1 + (rnd() % 7)); break;
+			case 1: ops[n++] = xor_(5, 5, 4, 0); break;
+			case 2: ops[n++] = add_(9, 9, 7, 1); break;
+			default: ops[n++] = POWERPC_EMUL_OP | (5 + (rnd() % 59)); break;
+			}
+		}
+		ops[n++] = POWERPC_BLR;
+
+		regfile in;
+		for (int i = 0; i < 32; i++) in.gpr[i] = rnd();
+		in.lr = 0; in.ctr = 0; in.cr = rnd(); in.xer = rnd() & 0xe000007f;
+
+		load_snippet(ops, n);
+		regfile ai, aj;
+		seed(interp, in); run(interp); snapshot(interp, ai);
+		seed(jit, in);    run(jit);    snapshot(jit, aj);
+		total++;
+		char nm[32]; snprintf(nm, sizeof nm, "trap#%d", t);
+		if (diff(nm, ai, aj)) failed++;
+	}
+
+	// b) data-dependent redirect (low6=3): resumes at +4 when r6 is even,
+	// jumps to LR (ending the program) when odd -- the resume guard's pc
+	// check must catch the redirect on a block compiled for fall-through
+	for (int t = 0; t < 40; t++) {
+		uint32 ops[8]; int n = 0;
+		ops[n++] = POWERPC_EMUL_OP | 3;
+		ops[n++] = addi(4, 4, 7);
+		ops[n++] = xor_(5, 5, 4, 0);
+		ops[n++] = POWERPC_BLR;
+
+		regfile in;
+		for (int i = 0; i < 32; i++) in.gpr[i] = rnd();
+		in.gpr[6] = (in.gpr[6] & ~1u) | (t & 1);	// alternate parity
+		in.lr = 0; in.ctr = 0; in.cr = rnd(); in.xer = rnd() & 0xe000007f;
+
+		load_snippet(ops, n);
+		regfile ai, aj;
+		seed(interp, in); run(interp); snapshot(interp, ai);
+		seed(jit, in);    run(jit);    snapshot(jit, aj);
+		total++;
+		char nm[32]; snprintf(nm, sizeof nm, "trapredir#%d", t);
+		if (diff(nm, ai, aj)) failed++;
+	}
+
+	// c) trap-chained self-modifying code: both engines must yield 42
+	{
+		uint32 ri = trap_smc_scenario(interp);
+		uint32 rj = trap_smc_scenario(jit);
+		total++;
+		if (ri != 42 || rj != 42) {
+			printf("  [trap-smc] interp r3=%u jit r3=%u (both must be 42; "
+				   "7 = stale inline continuation past an invalidating trap)\n", ri, rj);
+			failed++;
+		}
+	}
+
 	printf("\n%d/%d programs matched, %d diverged\n", total - failed, total, failed);
 	printf("JIT blocks compiled: %lu (0 would mean the JIT never ran)\n",
 		   kpx_jit_compile_count);
 	printf("Direct chain links resolved: %lu (0 would mean chaining never engaged)\n",
 		   kpx_jit_chain_count);
+	printf("Trap-chained SHEEP continuations: %lu (0 would mean trap chaining never engaged)\n",
+		   kpx_jit_trap_chain_count);
 #ifdef KPX_JIT_INSTRUMENT
 	printf("Native FP helper calls: %lu (0 would mean FP stayed generic)\n",
 		   kpx_jit_fp_helper_count);
@@ -1243,6 +1364,10 @@ int main(int argc, char **argv)
 	}
 	if (kpx_jit_chain_count == 0) {
 		printf("FAIL: direct block chaining was never exercised\n");
+		return 2;
+	}
+	if (kpx_jit_trap_chain_count == 0) {
+		printf("FAIL: trap chaining was never exercised\n");
 		return 2;
 	}
 	if (kpx_jit_fp_helper_count == 0) {

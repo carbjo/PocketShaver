@@ -7452,5 +7452,18 @@ DEFINE_GEN(gen_op_inc_PC,void,(long param1))
 }
 #endif
 
+DEFINE_GEN(gen_op_sheep_guard_im,void,(long param1))
+#ifdef DYNGEN_IMPL
+{
+	a64_emit_mov_imm32(*this, A64_X16, (uint32)param1);
+	emit_32(a64_ldr_w(A64_X17, A64_CPU, (uint32)kpx_jit_pc_offset(cpu())));
+	emit_32(a64_eor_reg(A64_X16, A64_X16, A64_X17));
+	emit_32(a64_ldr_w(A64_X17, A64_CPU, (uint32)kpx_jit_spcflags_offset(cpu())));
+	emit_32(a64_orr_reg(A64_X16, A64_X16, A64_X17));
+	jmp_addr[0] = code_ptr();
+	emit_32(a64_cbz_w(A64_X16, 0));
+}
+#endif
+
 #undef DEFINE_CST
 #undef DEFINE_GEN

@@ -137,6 +137,10 @@ public:
 
 	// Control Flow
 	DEFINE_ALIAS(jump_next_A0,0);
+#if defined(__aarch64__)
+	// Trap-chaining resume guard (arm64-only op, no x86 counterpart)
+	DEFINE_ALIAS(sheep_guard_im,1);
+#endif
 
 	// Compare & Record instructions
 	DEFINE_ALIAS(record_cr0_T0,0);

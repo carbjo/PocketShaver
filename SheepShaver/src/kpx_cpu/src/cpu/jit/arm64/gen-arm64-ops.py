@@ -615,6 +615,25 @@ def body_for(name):
 
 # ------------------------------------------------------------------ emit headers
 
+# arm64-only ops with no x86 counterpart (callers are __aarch64__-gated).
+# gen_op_sheep_guard_im: trap-chaining resume guard emitted after a generic
+# execute_sheep invoke whose handler deterministically resumes at the next
+# instruction. Continue inline iff regs().pc == param1 (the expected resume
+# pc) AND spcflags are clear; otherwise fall through into the exit stanza
+# the translator emits right after this op. Deposits the patchable CBZ in
+# jmp_addr[0]; the translator retargets it past the exit stanza (same
+# protocol as gen_op_spcflags_check) and must re-NULL the slot.
+EXTRA_PPC_OPS = [
+    ("gen_op_sheep_guard_im", "long param1",
+     "\ta64_emit_mov_imm32(*this, A64_X16, (uint32)param1);\n"
+     "\temit_32(a64_ldr_w(A64_X17, A64_CPU, (uint32)kpx_jit_pc_offset(cpu())));\n"
+     "\temit_32(a64_eor_reg(A64_X16, A64_X16, A64_X17));\n"
+     "\temit_32(a64_ldr_w(A64_X17, A64_CPU, (uint32)kpx_jit_spcflags_offset(cpu())));\n"
+     "\temit_32(a64_orr_reg(A64_X16, A64_X16, A64_X17));\n"
+     "\tjmp_addr[0] = code_ptr();\n"
+     "\temit_32(a64_cbz_w(A64_X16, 0));\n"),
+]
+
 def convert(src_path, dst_path, dst_name, is_basic):
     ops = []
     with open(src_path) as f:
@@ -632,6 +651,12 @@ def convert(src_path, dst_path, dst_name, is_basic):
         else:
             out.append('\tkpx_jit_unimplemented_op("%s");\n' % nm)
         out.append("}\n#endif\n")
+    if not is_basic:
+        for nm, args, body in EXTRA_PPC_OPS:
+            out.append("\nDEFINE_GEN(%s,void,(%s))\n#ifdef DYNGEN_IMPL\n{\n" % (nm, args))
+            out.append(body)
+            out.append("}\n#endif\n")
+            real += 1
     out.append(FOOTER)
     open(dst_path, "w").write("".join(out))
     print("%s: %d ops (%d real, %d stub)" % (dst_name, len(ops), real, len(ops) - real))
