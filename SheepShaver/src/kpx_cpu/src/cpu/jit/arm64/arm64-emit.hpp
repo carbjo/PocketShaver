@@ -91,6 +91,11 @@ double kpx_fp_fnmadd(powerpc_cpu*,double,double,double);  double kpx_fp_fnmadds(
 double kpx_fp_fnmsub(powerpc_cpu*,double,double,double);  double kpx_fp_fnmsubs(powerpc_cpu*,double,double,double);
 unsigned long kpx_jit_fpr_offset(void *cpu, int i);
 unsigned long kpx_jit_fpscr_offset(void *cpu);
+unsigned long kpx_jit_vr_offset(void *cpu, int i);
+void kpx_op_load_vect(void *cpu, void *vr, uint32 ea);
+void kpx_op_store_vect(void *cpu, void *vr, uint32 ea);
+void kpx_op_load_word_vect(void *cpu, void *vr, uint32 ea);
+void kpx_op_store_word_vect(void *cpu, void *vr, uint32 ea);
 }
 
 enum {
@@ -101,6 +106,7 @@ enum {
 	A64_T1	= 21,			// AREG2, aliases A1
 	A64_T2	= 22,			// AREG3, aliases A2
 	A64_VMBASE = 23,		// VMBaseDiff, pinned by op_execute for inline fastmem
+	A64_VD	= 24,			// AltiVec VD pointer (reg_VD/A3 analog), saved by op_execute
 	A64_FP	= 29, A64_LR = 30, A64_SP = 31, A64_ZR = 31
 };
 
@@ -210,6 +216,65 @@ static inline uint32 a64_fmov_s_w(int sd,int wn){ return 0x1e270000|(wn<<5)|sd; 
 static inline uint32 a64_fcvt_d_s(int dd,int sn){ return 0x1e22c000|(sn<<5)|dd; }   // FCVT Dd, Sn
 static inline uint32 a64_fabs_d(int rd,int rn){ return 0x1e60c000|(rn<<5)|rd; }
 static inline uint32 a64_fneg_d(int rd,int rn){ return 0x1e614000|(rn<<5)|rd; }
+
+// ---- NEON (AltiVec value plan: q0-q3 intra-op scratch; pointers to the
+// guest VRs live in x20/x21/x22 (V0/V1/V2, aliasing T0-T2) and x24 (VD)) --
+// 128-bit load/store, unsigned scaled imm (byte_off multiple of 16)
+static inline uint32 a64_ldr_q(int rt,int rn,uint32 off)
+	{ assert((off & 15) == 0 && (off >> 4) < 4096); return 0x3dc00000|((off>>4)<<10)|(rn<<5)|rt; }
+static inline uint32 a64_str_q(int rt,int rn,uint32 off)
+	{ assert((off & 15) == 0 && (off >> 4) < 4096); return 0x3d800000|((off>>4)<<10)|(rn<<5)|rt; }
+// three-same integer (size: 0=16b, 1=8h, 2=4s)
+static inline uint32 a64_neon_add(int sz,int d,int n,int m){ return 0x4e208400|(sz<<22)|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_sub(int sz,int d,int n,int m){ return 0x6e208400|(sz<<22)|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_cmeq(int sz,int d,int n,int m){ return 0x6e208c00|(sz<<22)|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_cmgt(int sz,int d,int n,int m){ return 0x4e203400|(sz<<22)|(m<<16)|(n<<5)|d; }  // signed >
+static inline uint32 a64_neon_cmhi(int sz,int d,int n,int m){ return 0x6e203400|(sz<<22)|(m<<16)|(n<<5)|d; }  // unsigned >
+static inline uint32 a64_neon_smax(int sz,int d,int n,int m){ return 0x4e206400|(sz<<22)|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_smin(int sz,int d,int n,int m){ return 0x4e206c00|(sz<<22)|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_umax(int sz,int d,int n,int m){ return 0x6e206400|(sz<<22)|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_umin(int sz,int d,int n,int m){ return 0x6e206c00|(sz<<22)|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_urhadd(int sz,int d,int n,int m){ return 0x6e201400|(sz<<22)|(m<<16)|(n<<5)|d; } // (a+b+1)>>1
+// three-same logical (.16b)
+static inline uint32 a64_neon_and(int d,int n,int m){ return 0x4e201c00|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_bic(int d,int n,int m){ return 0x4e601c00|(m<<16)|(n<<5)|d; }  // Vn & ~Vm
+static inline uint32 a64_neon_orr(int d,int n,int m){ return 0x4ea01c00|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_orn(int d,int n,int m){ return 0x4ee01c00|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_eor(int d,int n,int m){ return 0x6e201c00|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_bsl(int d,int n,int m){ return 0x6e601c00|(m<<16)|(n<<5)|d; }  // d = (d&n)|(~d&m)
+static inline uint32 a64_neon_not(int d,int n){ return 0x6e205800|(n<<5)|d; }
+// three-same float (.4s)
+static inline uint32 a64_neon_fadd(int d,int n,int m){ return 0x4e20d400|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_fsub(int d,int n,int m){ return 0x4ea0d400|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_fmul(int d,int n,int m){ return 0x6e20dc00|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_fmla(int d,int n,int m){ return 0x4e20cc00|(m<<16)|(n<<5)|d; }  // d += n*m (fused)
+static inline uint32 a64_neon_fmls(int d,int n,int m){ return 0x4ea0cc00|(m<<16)|(n<<5)|d; }  // d -= n*m (fused)
+static inline uint32 a64_neon_fcmeq(int d,int n,int m){ return 0x4e20e400|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_fcmge(int d,int n,int m){ return 0x6e20e400|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_fcmgt(int d,int n,int m){ return 0x6ea0e400|(m<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_fneg(int d,int n){ return 0x6ea0f800|(n<<5)|d; }               // .4s
+// across-lanes / element moves
+static inline uint32 a64_neon_umaxv_b(int d,int n){ return 0x6e30a800|(n<<5)|d; }            // Bd = max of .16b
+static inline uint32 a64_neon_uminv_b(int d,int n){ return 0x6e31a800|(n<<5)|d; }            // Bd = min of .16b
+static inline uint32 a64_neon_umov_b0(int wd,int vn){ return 0x0e013c00|(vn<<5)|wd; }        // Wd = Vn.b[0]
+// dup: element form (host lane index) and general-register form
+static inline uint32 a64_neon_dup_elem_b(int d,int n,int idx){ return 0x4e000400|((((idx)<<1)|1)<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_dup_elem_h(int d,int n,int idx){ return 0x4e000400|((((idx)<<2)|2)<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_dup_elem_s(int d,int n,int idx){ return 0x4e000400|((((idx)<<3)|4)<<16)|(n<<5)|d; }
+static inline uint32 a64_neon_dup_gen_b(int d,int wn){ return 0x4e010c00|(wn<<5)|d; }
+static inline uint32 a64_neon_dup_gen_h(int d,int wn){ return 0x4e020c00|(wn<<5)|d; }
+static inline uint32 a64_neon_dup_gen_s(int d,int wn){ return 0x4e040c00|(wn<<5)|d; }
+// movi Vd.16b, #imm8
+static inline uint32 a64_neon_movi_b(int d,uint32 imm8)
+	{ assert(imm8 <= 0xff); return 0x4f00e400|(((imm8>>5)&7)<<16)|((imm8&0x1f)<<5)|d; }
+// tbl with a two-register table {Vn, Vn+1}
+static inline uint32 a64_neon_tbl2(int d,int n,int m){ return 0x4e002000|(m<<16)|(1<<13)|(n<<5)|d; }
+// rev32 .16b: byte-reverse within each 32-bit element (guest<->host vector layout)
+static inline uint32 a64_neon_rev32_b(int d,int n){ return 0x6e200800|(n<<5)|d; }
+// X-form add (pointer arithmetic for VR addresses)
+static inline uint32 a64_add_imm_x(int d,int n,uint32 imm)
+	{ assert(imm < 4096); return 0x91000000|(imm<<10)|(n<<5)|d; }
+static inline uint32 a64_add_reg_x(int d,int n,int m){ return 0x8b000000|(m<<16)|(n<<5)|d; }
 
 // extends / clz / rev
 static inline uint32 a64_sxtb(int d,int n){ return 0x13001c00|(n<<5)|d; }   // SBFM d,n,#0,#7

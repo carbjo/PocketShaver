@@ -93,6 +93,52 @@ bool powerpc_jit::initialize(void)
 		for (int i = 0; i < sizeof(gen_vector) / sizeof(gen_vector[0]); i++)
 			jit_info[gen_vector[i].mnemo] = &gen_vector[i];
 
+#if defined(__aarch64__)
+		// NEON handlers: dyngen-op route through the generic handlers
+		// (V0/V1/V2 pointers in x20-x22, VD in x24); op bodies live in
+		// ppc-dyngen-ops-arm64.hpp. The mmx_* op names are historical --
+		// on arm64 they are plain NEON bodies with the same semantics.
+		static const jit_info_t neon_vector[] = {
+#define DEFINE_OP(MNEMO, GEN_OP, DYNGEN_OP) \
+			{ PPC_I(MNEMO), (gen_handler_t)&powerpc_jit::gen_vector_generic_##GEN_OP, &powerpc_dyngen::gen_op_##DYNGEN_OP }
+			DEFINE_OP(VADDUBM,	2, mmx_vaddubm),
+			DEFINE_OP(VADDUHM,	2, mmx_vadduhm),
+			DEFINE_OP(VADDUWM,	2, mmx_vadduwm),
+			DEFINE_OP(VSUBUBM,	2, mmx_vsububm),
+			DEFINE_OP(VSUBUHM,	2, mmx_vsubuhm),
+			DEFINE_OP(VSUBUWM,	2, mmx_vsubuwm),
+			DEFINE_OP(VMAXSH,	2, mmx_vmaxsh),
+			DEFINE_OP(VMAXUB,	2, mmx_vmaxub),
+			DEFINE_OP(VMINSH,	2, mmx_vminsh),
+			DEFINE_OP(VMINUB,	2, mmx_vminub),
+			DEFINE_OP(VAVGUB,	2, neon_vavgub),
+			DEFINE_OP(VAVGUH,	2, neon_vavguh),
+			DEFINE_OP(VCMPEQUB,	c, mmx_vcmpequb),
+			DEFINE_OP(VCMPEQUH,	c, mmx_vcmpequh),
+			DEFINE_OP(VCMPEQUW,	c, mmx_vcmpequw),
+			DEFINE_OP(VCMPGTSB,	c, mmx_vcmpgtsb),
+			DEFINE_OP(VCMPGTSH,	c, mmx_vcmpgtsh),
+			DEFINE_OP(VCMPGTSW,	c, mmx_vcmpgtsw),
+			DEFINE_OP(VCMPEQFP,	c, neon_vcmpeqfp),
+			DEFINE_OP(VCMPGEFP,	c, neon_vcmpgefp),
+			DEFINE_OP(VCMPGTFP,	c, neon_vcmpgtfp),
+			DEFINE_OP(VSEL,		3, neon_vsel),
+			DEFINE_OP(VPERM,	3, neon_vperm),
+#undef DEFINE_OP
+#define DEFINE_OP(MNEMO, GEN_OP) \
+			{ PPC_I(MNEMO), (gen_handler_t)&powerpc_jit::gen_neon_##GEN_OP, }
+			DEFINE_OP(VSPLTB,	vsplat),
+			DEFINE_OP(VSPLTH,	vsplat),
+			DEFINE_OP(VSPLTW,	vsplat),
+			DEFINE_OP(VSPLTISB,	vsplatis),
+			DEFINE_OP(VSPLTISH,	vsplatis),
+			DEFINE_OP(VSPLTISW,	vsplatis),
+#undef DEFINE_OP
+		};
+		for (int i = 0; i < sizeof(neon_vector) / sizeof(neon_vector[0]); i++)
+			jit_info[neon_vector[i].mnemo] = &neon_vector[i];
+#endif
+
 #if defined(__i386__) || defined(__x86_64__)
 		// x86 optimized handlers
 		static const jit_info_t x86_vector[] = {
@@ -246,29 +292,46 @@ bool powerpc_jit::initialize(void)
 	return true;
 }
 
+// Differential-harness hook: proves vector ops actually took the native
+// path at translate time (never defined in shipping builds)
+#ifdef KPX_JIT_INSTRUMENT
+extern unsigned long kpx_jit_vector_native_count;
+#define KPX_COUNT_VECTOR_NATIVE(ok) do { if (ok) kpx_jit_vector_native_count++; } while (0)
+#else
+#define KPX_COUNT_VECTOR_NATIVE(ok) do { } while (0)
+#endif
+
 // Dispatch mid-level code generators
 bool powerpc_jit::gen_vector_1(int mnemo, int vD)
 {
     if (jit_info[mnemo]->handler == (gen_handler_t)&powerpc_jit::gen_not_available) return false;
-	return (this->*((bool (powerpc_jit::*)(int, int))jit_info[mnemo]->handler))(mnemo, vD);
+	bool ok = (this->*((bool (powerpc_jit::*)(int, int))jit_info[mnemo]->handler))(mnemo, vD);
+	KPX_COUNT_VECTOR_NATIVE(ok);
+	return ok;
 }
 
 bool powerpc_jit::gen_vector_2(int mnemo, int vD, int vA, int vB)
 {
     if (jit_info[mnemo]->handler == (gen_handler_t)&powerpc_jit::gen_not_available) return false;
-	return (this->*((bool (powerpc_jit::*)(int, int, int, int))jit_info[mnemo]->handler))(mnemo, vD, vA, vB);
+	bool ok = (this->*((bool (powerpc_jit::*)(int, int, int, int))jit_info[mnemo]->handler))(mnemo, vD, vA, vB);
+	KPX_COUNT_VECTOR_NATIVE(ok);
+	return ok;
 }
 
 bool powerpc_jit::gen_vector_3(int mnemo, int vD, int vA, int vB, int vC)
 {
     if (jit_info[mnemo]->handler == (gen_handler_t)&powerpc_jit::gen_not_available) return false;
-	return (this->*((bool (powerpc_jit::*)(int, int, int, int, int))jit_info[mnemo]->handler))(mnemo, vD, vA, vB, vC);
+	bool ok = (this->*((bool (powerpc_jit::*)(int, int, int, int, int))jit_info[mnemo]->handler))(mnemo, vD, vA, vB, vC);
+	KPX_COUNT_VECTOR_NATIVE(ok);
+	return ok;
 }
 
 bool powerpc_jit::gen_vector_compare(int mnemo, int vD, int vA, int vB, bool Rc)
 {
     if (jit_info[mnemo]->handler == (gen_handler_t)&powerpc_jit::gen_not_available) return false;
-	return (this->*((bool (powerpc_jit::*)(int, int, int, int, bool))jit_info[mnemo]->handler))(mnemo, vD, vA, vB, Rc);
+	bool ok = (this->*((bool (powerpc_jit::*)(int, int, int, int, bool))jit_info[mnemo]->handler))(mnemo, vD, vA, vB, Rc);
+	KPX_COUNT_VECTOR_NATIVE(ok);
+	return ok;
 }
 
 
@@ -358,6 +421,37 @@ bool powerpc_jit::gen_vector_generic_store_word(int mnemo, int vS, int rA, int r
 	gen_store_word_VS_T0(vS);
 	return true;
 }
+
+#if defined(__aarch64__)
+// NEON splats. The guest element number converts to a host lane with the
+// byte-in-word involution: powerpc_vr.w[i] is guest word element i as a
+// host-endian value, so guest byte k lives at host byte k^3 and guest
+// halfword k at host half k^1 (words map identically).
+bool powerpc_jit::gen_neon_vsplat(int mnemo, int vD, int uimm, int vB)
+{
+	gen_load_ad_VD_VR(vD);
+	gen_load_ad_V0_VR(vB);
+	switch (mnemo) {
+	case PPC_I(VSPLTB): gen_op_neon_vsplat_b_im((uimm & 15) ^ 3); break;
+	case PPC_I(VSPLTH): gen_op_neon_vsplat_h_im((uimm & 7) ^ 1); break;
+	case PPC_I(VSPLTW): gen_op_neon_vsplat_w_im(uimm & 3); break;
+	default: return false;
+	}
+	return true;
+}
+
+bool powerpc_jit::gen_neon_vsplatis(int mnemo, int vD, int simm, int unused)
+{
+	gen_load_ad_VD_VR(vD);
+	switch (mnemo) {
+	case PPC_I(VSPLTISB): gen_op_neon_vsplatis_b_im(simm); break;
+	case PPC_I(VSPLTISH): gen_op_neon_vsplatis_h_im(simm); break;
+	case PPC_I(VSPLTISW): gen_op_neon_vsplatis_w_im(simm); break;
+	default: return false;
+	}
+	return true;
+}
+#endif
 
 #if PPC_PROFILE_REGS_USE
 // XXX update reginfo[] counts for xPPC_GPR() accesses

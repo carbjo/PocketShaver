@@ -70,7 +70,9 @@ for name in [n for n in list(REAL) if n.startswith("gen_op_invoke")]:
 # after vm_init) and saves d8-d11 — the FP value plan hands those to
 # generated code as scratch, but their low halves are AAPCS64 callee-saved
 # toward op_execute's own caller (host frames keeping live doubles in d8-d11
-# across execute() would be silently corrupted otherwise).
+# across execute() would be silently corrupted otherwise). x24 (A64_VD, the
+# AltiVec VD pointer clobbered by vector blocks) is callee-saved too and
+# rides in the second half of the VMBASE stp pair.
 # 13 prologue instructions -> op_exec_return_offset = 0x34.
 REAL["gen_op_execute"] = (
     "\tconst uintptr vmbase = kpx_vm_base();\n"
@@ -81,7 +83,7 @@ REAL["gen_op_execute"] = (
     "\temit_32(a64_mov_from_sp(A64_FP));\n"
     "\temit_32(a64_stp_x(A64_CPU, A64_T0, A64_SP, 0x10));\n"
     "\temit_32(a64_stp_x(A64_T1, A64_T2, A64_SP, 0x20));\n"
-    "\temit_32(a64_str_x(A64_VMBASE, A64_SP, 0x30));\n"
+    "\temit_32(a64_stp_x(A64_VMBASE, A64_VD, A64_SP, 0x30));\n"
     "\temit_32(a64_stp_d(8, 9, A64_SP, 0x40));\n"
     "\temit_32(a64_stp_d(10, 11, A64_SP, 0x50));\n"
     "\temit_32(a64_mov_x(A64_CPU, 1));\n"
@@ -89,7 +91,7 @@ REAL["gen_op_execute"] = (
     "\temit_32(a64_br(0));\n"
     "\temit_32(a64_ldp_d(10, 11, A64_SP, 0x50));\n"
     "\temit_32(a64_ldp_d(8, 9, A64_SP, 0x40));\n"
-    "\temit_32(a64_ldr_x(A64_VMBASE, A64_SP, 0x30));\n"
+    "\temit_32(a64_ldp_x(A64_VMBASE, A64_VD, A64_SP, 0x30));\n"
     "\temit_32(a64_ldp_x(A64_T1, A64_T2, A64_SP, 0x20));\n"
     "\temit_32(a64_ldp_x(A64_CPU, A64_T0, A64_SP, 0x10));\n"
     "\temit_32(a64_ldp_x_post(A64_FP, A64_LR, A64_SP, 0x60));\n"
@@ -604,10 +606,114 @@ def fp(name):
         return _helper_body(pre, "kpx_fp_store_single")
     return None
 
+# ------------------------------------------------------------------ NEON AltiVec
+# Vector layout contract: powerpc_vr.w[i] holds guest word element i as a
+# HOST-endian value (the interpreter's LVX fills w[0..3] via
+# vm_read_memory_4), so `ldr q` maps guest word element i to .4s lane i and
+# byte/half lanes are positionally consistent between any two vr's --
+# element-wise NEON ops match the interpreter's element-wise loops with no
+# shuffling. Order-SENSITIVE ops (splat lanes, vperm indices) convert guest
+# element numbers to host byte positions with the involution x^3 (bytes) /
+# x^1 (halves); those conversions happen in the mid-level handlers
+# (ppc-jit.cpp) or inline in the op bodies below.
+# Pointer plan: V0/V1/V2 = x20/x21/x22 (A0-A2, like x86), VD = x24.
+
+def _vec_ptrs(n_srcs):
+    lines = ["emit_32(a64_ldr_q(0, A64_T0, 0));"]
+    if n_srcs >= 2: lines.append("emit_32(a64_ldr_q(1, A64_T1, 0));")
+    if n_srcs >= 3: lines.append("emit_32(a64_ldr_q(2, A64_T2, 0));")
+    return lines
+
+def _vec_body(n_srcs, insns, result="0"):
+    return emit(*(_vec_ptrs(n_srcs) + insns +
+                  ["emit_32(a64_str_q(%s, A64_VD, 0));" % result]))
+
+# 2-source ops: q0 = vA (V0), q1 = vB (V1)
+VEC2 = {
+    "vand":     ["emit_32(a64_neon_and(0, 0, 1));"],
+    "vandc":    ["emit_32(a64_neon_bic(0, 0, 1));"],
+    "vor":      ["emit_32(a64_neon_orr(0, 0, 1));"],
+    "vxor":     ["emit_32(a64_neon_eor(0, 0, 1));"],
+    "vnor":     ["emit_32(a64_neon_orr(0, 0, 1));", "emit_32(a64_neon_not(0, 0));"],
+    "vaddfp":   ["emit_32(a64_neon_fadd(0, 0, 1));"],
+    "vsubfp":   ["emit_32(a64_neon_fsub(0, 0, 1));"],
+    "vaddubm":  ["emit_32(a64_neon_add(0, 0, 0, 1));"],
+    "vadduhm":  ["emit_32(a64_neon_add(1, 0, 0, 1));"],
+    "vadduwm":  ["emit_32(a64_neon_add(2, 0, 0, 1));"],
+    "vsububm":  ["emit_32(a64_neon_sub(0, 0, 0, 1));"],
+    "vsubuhm":  ["emit_32(a64_neon_sub(1, 0, 0, 1));"],
+    "vsubuwm":  ["emit_32(a64_neon_sub(2, 0, 0, 1));"],
+    "vcmpequb": ["emit_32(a64_neon_cmeq(0, 0, 0, 1));"],
+    "vcmpequh": ["emit_32(a64_neon_cmeq(1, 0, 0, 1));"],
+    "vcmpequw": ["emit_32(a64_neon_cmeq(2, 0, 0, 1));"],
+    "vcmpgtsb": ["emit_32(a64_neon_cmgt(0, 0, 0, 1));"],
+    "vcmpgtsh": ["emit_32(a64_neon_cmgt(1, 0, 0, 1));"],
+    "vcmpgtsw": ["emit_32(a64_neon_cmgt(2, 0, 0, 1));"],
+    "vmaxsh":   ["emit_32(a64_neon_smax(1, 0, 0, 1));"],
+    "vmaxub":   ["emit_32(a64_neon_umax(0, 0, 0, 1));"],
+    "vminsh":   ["emit_32(a64_neon_smin(1, 0, 0, 1));"],
+    "vminub":   ["emit_32(a64_neon_umin(0, 0, 0, 1));"],
+}
+
+def _vec_helper(fn):
+    return emit("emit_32(a64_mov_x(0, A64_CPU));",
+                "emit_32(a64_mov_x(1, A64_VD));",
+                "emit_32(a64_mov_w(2, A64_T0));",
+                "a64_emit_call(*this, (uintptr)&%s);" % fn)
+
+def vec(name):
+    m = re.match(r"gen_op_load_ad_V([D012])_VR(\d+)$", name)
+    if m:
+        reg = {"D": "A64_VD", "0": "A64_T0", "1": "A64_T1", "2": "A64_T2"}[m.group(1)]
+        n = int(m.group(2))
+        return ("\t{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), %d);\n"
+                "\t  if (off < 4096) emit_32(a64_add_imm_x(%s, A64_CPU, off));\n"
+                "\t  else { a64_emit_mov_imm32(*this, A64_X16, off);\n"
+                "\t         emit_32(a64_add_reg_x(%s, A64_CPU, A64_X16)); } }\n"
+                % (n, reg, reg))
+    m = re.match(r"gen_op_(?:mmx_)?([a-z0-9]+)_VD_V0_V1$", name) or \
+        re.match(r"gen_op_mmx_([a-z0-9]+)$", name)
+    if m and m.group(1) in VEC2:
+        return _vec_body(2, VEC2[m.group(1)])
+    if name == "gen_op_vmaddfp_VD_V0_V1_V2":
+        # d = a*c + b, FUSED: AltiVec vmaddfp rounds once, and clang
+        # contracts the interpreter's ((x * z) + y) into fmadd as well
+        # (lockstep suite 13 is the arbiter)
+        return _vec_body(3, ["emit_32(a64_neon_fmla(1, 0, 2));"], result="1")
+    if name == "gen_op_vnmsubfp_VD_V0_V1_V2":
+        # d = -((a*c) - b) = b - a*c exactly = fused FMLS
+        return _vec_body(3, ["emit_32(a64_neon_fmls(1, 0, 2));"], result="1")
+    if name == "gen_op_record_cr6_VD":
+        # cr6 = 8 if vD is all-ones, 2 if all-zero, else 0 (cr field 6 =
+        # host bits 7..4 of the CR word)
+        return emit(
+            "emit_32(a64_ldr_q(0, A64_VD, 0));",
+            "emit_32(a64_neon_uminv_b(1, 0));",
+            "emit_32(a64_neon_umaxv_b(2, 0));",
+            "emit_32(a64_neon_umov_b0(A64_X16, 1));",
+            "emit_32(a64_neon_umov_b0(A64_X17, 2));",
+            "emit_32(a64_cmp_imm(A64_X16, 0xff));",
+            "emit_32(a64_cset(A64_X16, A64_EQ));",
+            "emit_32(a64_lsl_imm(A64_X16, A64_X16, 7));",
+            "emit_32(a64_cmp_imm(A64_X17, 0));",
+            "emit_32(a64_cset(A64_X17, A64_EQ));",
+            "emit_32(a64_lsl_imm(A64_X17, A64_X17, 5));",
+            "emit_32(a64_orr_reg(A64_X16, A64_X16, A64_X17));",
+            "emit_32(a64_ldr_w(A64_X17, A64_CPU, (uint32)kpx_jit_cr_offset(cpu())));",
+            "emit_32(a64_movz_w(A64_X9, 0xf0, 0));",
+            "emit_32(a64_bic_reg(A64_X17, A64_X17, A64_X9));",
+            "emit_32(a64_orr_reg(A64_X17, A64_X17, A64_X16));",
+            "emit_32(a64_str_w(A64_X17, A64_CPU, (uint32)kpx_jit_cr_offset(cpu())));")
+    if name == "gen_op_load_vect_VD_T0":  return _vec_helper("kpx_op_load_vect")
+    if name == "gen_op_store_vect_VD_T0": return _vec_helper("kpx_op_store_vect")
+    if name == "gen_op_load_word_VD_T0":  return _vec_helper("kpx_op_load_word_vect")
+    if name == "gen_op_store_word_VD_T0": return _vec_helper("kpx_op_store_word_vect")
+    return None
+
 def body_for(name):
     if name in REAL:
         return REAL[name]
-    for fn in (moves, alu, shifts, xer_ops, compares, cr_ops, ppc_plain, mem, branches, fp):
+    for fn in (moves, alu, shifts, xer_ops, compares, cr_ops, ppc_plain, mem, branches, fp, vec):
         b = fn(name)
         if b is not None:
             return b
@@ -632,6 +738,60 @@ EXTRA_PPC_OPS = [
      "\temit_32(a64_orr_reg(A64_X16, A64_X16, A64_X17));\n"
      "\tjmp_addr[0] = code_ptr();\n"
      "\temit_32(a64_cbz_w(A64_X16, 0));\n"),
+]
+
+# NEON vector ops with no x86-surface counterpart (dispatched from the
+# arm64 jit_info table in ppc-jit.cpp). Same pointer plan as vec() above.
+def _extra_vec2(insns):
+    return _vec_body(2, insns)
+def _extra_vec3(insns, result="0"):
+    return _vec_body(3, insns, result)
+
+EXTRA_PPC_OPS += [
+    ("gen_op_neon_vavgub", "void", _extra_vec2(["emit_32(a64_neon_urhadd(0, 0, 0, 1));"])),
+    ("gen_op_neon_vavguh", "void", _extra_vec2(["emit_32(a64_neon_urhadd(1, 0, 0, 1));"])),
+    ("gen_op_neon_vcmpeqfp", "void", _extra_vec2(["emit_32(a64_neon_fcmeq(0, 0, 1));"])),
+    ("gen_op_neon_vcmpgefp", "void", _extra_vec2(["emit_32(a64_neon_fcmge(0, 0, 1));"])),
+    ("gen_op_neon_vcmpgtfp", "void", _extra_vec2(["emit_32(a64_neon_fcmgt(0, 0, 1));"])),
+    # vsel: d = (b & c) | (a & ~c); BSL with mask in the destination slot
+    ("gen_op_neon_vsel", "void",
+     _extra_vec3(["emit_32(a64_neon_bsl(2, 1, 0));"], result="2")),
+    # vperm: guest selector byte k picks concat(vA,vB) guest byte k. In host
+    # positions: mask to 5 bits, then apply the guest->host byte involution
+    # (^3, which preserves the vA/vB select bit 4), and TBL over {q0, q1}
+    ("gen_op_neon_vperm", "void",
+     _extra_vec3(["emit_32(a64_neon_movi_b(3, 0x1f));",
+                  "emit_32(a64_neon_and(2, 2, 3));",
+                  "emit_32(a64_neon_movi_b(3, 3));",
+                  "emit_32(a64_neon_eor(2, 2, 3));",
+                  "emit_32(a64_neon_tbl2(0, 0, 2));"])),
+    # splats: param1 is the HOST lane index (converted in the handler);
+    # source vector pointer arrives in V0 (x20)
+    ("gen_op_neon_vsplat_b_im", "long param1",
+     "\temit_32(a64_ldr_q(0, A64_T0, 0));\n"
+     "\temit_32(a64_neon_dup_elem_b(0, 0, (int)param1));\n"
+     "\temit_32(a64_str_q(0, A64_VD, 0));\n"),
+    ("gen_op_neon_vsplat_h_im", "long param1",
+     "\temit_32(a64_ldr_q(0, A64_T0, 0));\n"
+     "\temit_32(a64_neon_dup_elem_h(0, 0, (int)param1));\n"
+     "\temit_32(a64_str_q(0, A64_VD, 0));\n"),
+    ("gen_op_neon_vsplat_w_im", "long param1",
+     "\temit_32(a64_ldr_q(0, A64_T0, 0));\n"
+     "\temit_32(a64_neon_dup_elem_s(0, 0, (int)param1));\n"
+     "\temit_32(a64_str_q(0, A64_VD, 0));\n"),
+    # splat-immediate: param1 is the sign-extended SIMM
+    ("gen_op_neon_vsplatis_b_im", "long param1",
+     "\ta64_emit_mov_imm32(*this, A64_X16, (uint32)param1);\n"
+     "\temit_32(a64_neon_dup_gen_b(0, A64_X16));\n"
+     "\temit_32(a64_str_q(0, A64_VD, 0));\n"),
+    ("gen_op_neon_vsplatis_h_im", "long param1",
+     "\ta64_emit_mov_imm32(*this, A64_X16, (uint32)param1);\n"
+     "\temit_32(a64_neon_dup_gen_h(0, A64_X16));\n"
+     "\temit_32(a64_str_q(0, A64_VD, 0));\n"),
+    ("gen_op_neon_vsplatis_w_im", "long param1",
+     "\ta64_emit_mov_imm32(*this, A64_X16, (uint32)param1);\n"
+     "\temit_32(a64_neon_dup_gen_s(0, A64_X16));\n"
+     "\temit_32(a64_str_q(0, A64_VD, 0));\n"),
 ]
 
 def convert(src_path, dst_path, dst_name, is_basic):

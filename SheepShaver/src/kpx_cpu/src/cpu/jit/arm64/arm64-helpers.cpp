@@ -224,6 +224,39 @@ void kpx_op_dcbz(uint32 ea)
 		p[i] = 0;
 }
 
+// AltiVec 128-bit and element loads/stores. Transcribed from the dyngen op
+// bodies (ppc-dyngen-ops.cpp op_load_vect_VD_T0 & friends): w[i] holds
+// guest word element i as a host-endian value; the vm accessors provide
+// byteswap and the kernel-window redirect.
+void kpx_op_load_vect(void *cpu, void *vrp, uint32 ea)
+{
+	powerpc_vr &v = *(powerpc_vr *)vrp;
+	ea &= ~15;
+	v.w[0] = vm_read_memory_4(ea +  0);
+	v.w[1] = vm_read_memory_4(ea +  4);
+	v.w[2] = vm_read_memory_4(ea +  8);
+	v.w[3] = vm_read_memory_4(ea + 12);
+}
+void kpx_op_store_vect(void *cpu, void *vrp, uint32 ea)
+{
+	powerpc_vr &v = *(powerpc_vr *)vrp;
+	ea &= ~15;
+	vm_write_memory_4(ea +  0, v.w[0]);
+	vm_write_memory_4(ea +  4, v.w[1]);
+	vm_write_memory_4(ea +  8, v.w[2]);
+	vm_write_memory_4(ea + 12, v.w[3]);
+}
+void kpx_op_load_word_vect(void *cpu, void *vrp, uint32 ea)
+{
+	powerpc_vr &v = *(powerpc_vr *)vrp;
+	v.w[(ea >> 2) & 3] = vm_read_memory_4(ea & ~3);
+}
+void kpx_op_store_word_vect(void *cpu, void *vrp, uint32 ea)
+{
+	powerpc_vr &v = *(powerpc_vr *)vrp;
+	vm_write_memory_4(ea & ~3, v.w[(ea >> 2) & 3]);
+}
+
 } // extern "C"
 
 // ---- floating point --------------------------------------------------------

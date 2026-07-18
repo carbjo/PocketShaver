@@ -57,6 +57,7 @@ unsigned long kpx_jit_compile_count = 0;
 // Bumped by compile_chain_block; proves direct block chaining resolved links
 unsigned long kpx_jit_chain_count = 0;
 unsigned long kpx_jit_trap_chain_count = 0;
+unsigned long kpx_jit_vector_native_count = 0;
 // Bumped by the kpx_fp_* arithmetic helpers; proves native FP executed
 unsigned long kpx_jit_fp_helper_count = 0;
 // Bumped at translate time per inline-fastmem access emitted; proves the
@@ -135,6 +136,8 @@ struct test_cpu : public powerpc_cpu {
 	void   set_fpr(int i, uint64 v) { fpr_dw(i) = v; }
 	uint32 get_fpscr() const { return fpscr(); }
 	void   set_fpscr(uint32 v) { fpscr() = v; }
+	uint32 get_vr_w(int i, int j) const { return vr(i).w[j]; }
+	void   set_vr_w(int i, int j, uint32 v) { vr(i).w[j] = v; }
 	// Consume the transient redecode flag so a range-invalidated block is
 	// subsequently reached through a normal cache hit (models the real gap
 	// between an invalidation and a much-later execution of a stale block)
@@ -206,6 +209,7 @@ static void run(test_cpu &cpu)
 struct regfile {
 	uint32 gpr[32], lr, ctr, cr, xer, fpscr;
 	uint64 fpr[32];
+	uint32 vr[32][4];
 	regfile() { memset(this, 0, sizeof *this); }
 };
 
@@ -213,6 +217,8 @@ static void snapshot(test_cpu &c, regfile &r)
 {
 	for (int i = 0; i < 32; i++) r.gpr[i] = c.get_gpr(i);
 	for (int i = 0; i < 32; i++) r.fpr[i] = c.get_fpr(i);
+	for (int i = 0; i < 32; i++)
+		for (int j = 0; j < 4; j++) r.vr[i][j] = c.get_vr_w(i, j);
 	r.lr = c.get_lr(); r.ctr = c.get_ctr();
 	r.cr = c.get_cr(); r.xer = c.get_xer(); r.fpscr = c.get_fpscr();
 }
@@ -221,6 +227,8 @@ static void seed(test_cpu &c, const regfile &r)
 {
 	for (int i = 0; i < 32; i++) c.set_gpr(i, r.gpr[i]);
 	for (int i = 0; i < 32; i++) c.set_fpr(i, r.fpr[i]);
+	for (int i = 0; i < 32; i++)
+		for (int j = 0; j < 4; j++) c.set_vr_w(i, j, r.vr[i][j]);
 	c.set_lr(r.lr); c.set_ctr(r.ctr); c.set_cr(r.cr); c.set_xer(r.xer);
 	c.set_fpscr(r.fpscr);
 }
@@ -237,6 +245,12 @@ static int diff(const char *name, const regfile &a, const regfile &b)
 			printf("  [%s] f%-2d interp=%016llx jit=%016llx\n", name, i,
 				   (unsigned long long)a.fpr[i], (unsigned long long)b.fpr[i]); n++;
 		}
+	for (int i = 0; i < 32; i++)
+		for (int j = 0; j < 4; j++)
+			if (a.vr[i][j] != b.vr[i][j]) {
+				printf("  [%s] v%-2d.w%d interp=%08x jit=%08x\n", name, i, j,
+					   a.vr[i][j], b.vr[i][j]); n++;
+			}
 	if (a.lr  != b.lr)  { printf("  [%s] LR  interp=%08x jit=%08x\n", name, a.lr,  b.lr);  n++; }
 	if (a.ctr != b.ctr) { printf("  [%s] CTR interp=%08x jit=%08x\n", name, a.ctr, b.ctr); n++; }
 	if (a.cr  != b.cr)  { printf("  [%s] CR  interp=%08x jit=%08x\n", name, a.cr,  b.cr);  n++; }
@@ -369,6 +383,16 @@ static uint32 lfsx(int d,int a,int b){return X(31,d,a,b,535,0);}
 static uint32 lfdx(int d,int a,int b){return X(31,d,a,b,599,0);}
 static uint32 stfsx(int s,int a,int b){return X(31,s,a,b,663,0);}
 static uint32 stfdx(int s,int a,int b){return X(31,s,a,b,727,0);}
+// AltiVec: VX (11-bit xo), VXR (Rc + 10-bit xo), VA (6-bit xo) forms
+static uint32 vx(int xo,int d,int a,int b){return (4<<26)|(d<<21)|(a<<16)|(b<<11)|xo;}
+static uint32 vxr(int xo,int d,int a,int b,int rc){return (4<<26)|(d<<21)|(a<<16)|(b<<11)|(rc<<10)|xo;}
+static uint32 va(int xo,int d,int a,int b,int c){return (4<<26)|(d<<21)|(a<<16)|(b<<11)|(c<<6)|xo;}
+static uint32 lvx_(int d,int a,int b){return X(31,d,a,b,103,0);}
+static uint32 lvxl_(int d,int a,int b){return X(31,d,a,b,359,0);}
+static uint32 stvx_(int s,int a,int b){return X(31,s,a,b,231,0);}
+static uint32 stvxl_(int s,int a,int b){return X(31,s,a,b,487,0);}
+static uint32 lvewx_(int d,int a,int b){return X(31,d,a,b,71,0);}
+static uint32 stvewx_(int s,int a,int b){return X(31,s,a,b,199,0);}
 
 static uint32 g_rng = 0x12345678;
 static uint32 rnd() { g_rng = g_rng*1103515245u + 12345u; return g_rng; }
@@ -1279,6 +1303,151 @@ int main(int argc, char **argv)
 		}
 	}
 
+	// --- suite 13: NEON AltiVec — element-wise arith/logic/minmax/compare,
+	// splats, vsel/vperm; VRs seeded with random bits (float ops get
+	// float-biased patterns via rnd_fp splits) and fully compared ---
+	for (int t = 0; t < 800; t++) {
+		uint32 ops[32]; int n = 0;
+		int len = 3 + (rnd() % 10);
+		for (int k = 0; k < len && n < 28; k++) {
+			int d = rnd() % 8, a = rnd() % 8, b = rnd() % 8, c = rnd() % 8;
+			int rc = rnd() & 1;
+			switch (rnd() % 30) {
+			case 0: ops[n++] = vx(0,d,a,b); break;			// vaddubm
+			case 1: ops[n++] = vx(64,d,a,b); break;			// vadduhm
+			case 2: ops[n++] = vx(128,d,a,b); break;		// vadduwm
+			case 3: ops[n++] = vx(1024,d,a,b); break;		// vsububm
+			case 4: ops[n++] = vx(1088,d,a,b); break;		// vsubuhm
+			case 5: ops[n++] = vx(1152,d,a,b); break;		// vsubuwm
+			case 6: ops[n++] = vx(1028,d,a,b); break;		// vand
+			case 7: ops[n++] = vx(1092,d,a,b); break;		// vandc
+			case 8: ops[n++] = vx(1156,d,a,b); break;		// vor
+			case 9: ops[n++] = vx(1220,d,a,b); break;		// vxor
+			case 10: ops[n++] = vx(1284,d,a,b); break;		// vnor
+			case 11: ops[n++] = vx(2,d,a,b); break;			// vmaxub
+			case 12: ops[n++] = vx(322,d,a,b); break;		// vmaxsh
+			case 13: ops[n++] = vx(514,d,a,b); break;		// vminub
+			case 14: ops[n++] = vx(834,d,a,b); break;		// vminsh
+			case 15: ops[n++] = vx(1026,d,a,b); break;		// vavgub
+			case 16: ops[n++] = vx(1090,d,a,b); break;		// vavguh
+			case 17: ops[n++] = vxr(6,d,a,b,rc); break;		// vcmpequb[.]
+			case 18: ops[n++] = vxr(70,d,a,b,rc); break;	// vcmpequh[.]
+			case 19: ops[n++] = vxr(134,d,a,b,rc); break;	// vcmpequw[.]
+			case 20: ops[n++] = vxr(774,d,a,b,rc); break;	// vcmpgtsb[.]
+			case 21: ops[n++] = vxr(838,d,a,b,rc); break;	// vcmpgtsh[.]
+			case 22: ops[n++] = vxr(902,d,a,b,rc); break;	// vcmpgtsw[.]
+			case 23: ops[n++] = va(42,d,a,b,c); break;		// vsel
+			case 24: ops[n++] = va(43,d,a,b,c); break;		// vperm
+			case 25: ops[n++] = vx(524,d,rnd()%16,b); break;	// vspltb
+			case 26: ops[n++] = vx(588,d,rnd()%8,b); break;		// vsplth
+			case 27: ops[n++] = vx(652,d,rnd()%4,b); break;		// vspltw
+			case 28: ops[n++] = vx(780,d,rnd()%32,0); break;	// vspltisb
+			case 29: ops[n++] = vx(908,d,rnd()%32,0); break;	// vspltisw
+			}
+		}
+		ops[n++] = POWERPC_BLR;
+
+		regfile in;
+		for (int i = 0; i < 32; i++) in.gpr[i] = rnd();
+		for (int i = 0; i < 32; i++)
+			for (int j = 0; j < 4; j++) in.vr[i][j] = rnd();
+		in.lr = 0; in.ctr = 0; in.cr = rnd(); in.xer = rnd() & 0xe000007f;
+
+		load_snippet(ops, n);
+		regfile ai, aj;
+		seed(interp, in); run(interp); snapshot(interp, ai);
+		seed(jit, in);    run(jit);    snapshot(jit, aj);
+		total++;
+		char nm[32]; snprintf(nm, sizeof nm, "vec#%d", t);
+		if (diff(nm, ai, aj)) failed++;
+	}
+
+	// --- suite 13b: vector float (vaddfp/vsubfp/vmaddfp/vnmsubfp + float
+	// compares) over float-biased lane patterns: normals, zeros, infs,
+	// NaNs, subnormals ---
+	for (int t = 0; t < 400; t++) {
+		uint32 ops[24]; int n = 0;
+		int len = 2 + (rnd() % 8);
+		for (int k = 0; k < len && n < 20; k++) {
+			int d = rnd() % 8, a = rnd() % 8, b = rnd() % 8, c = rnd() % 8;
+			int rc = rnd() & 1;
+			switch (rnd() % 7) {
+			case 0: ops[n++] = vx(10,d,a,b); break;			// vaddfp
+			case 1: ops[n++] = vx(74,d,a,b); break;			// vsubfp
+			case 2: ops[n++] = va(46,d,a,b,c); break;		// vmaddfp
+			case 3: ops[n++] = va(47,d,a,b,c); break;		// vnmsubfp
+			case 4: ops[n++] = vxr(198,d,a,b,rc); break;	// vcmpeqfp[.]
+			case 5: ops[n++] = vxr(454,d,a,b,rc); break;	// vcmpgefp[.]
+			case 6: ops[n++] = vxr(710,d,a,b,rc); break;	// vcmpgtfp[.]
+			}
+		}
+		ops[n++] = POWERPC_BLR;
+
+		regfile in;
+		for (int i = 0; i < 32; i++) in.gpr[i] = rnd();
+		for (int i = 0; i < 32; i++) {
+			// halves of rnd_fp() doubles give biased single patterns;
+			// mix in pure float specials occasionally
+			uint64 x = rnd_fp(), y = rnd_fp();
+			in.vr[i][0] = (uint32)x; in.vr[i][1] = (uint32)(x >> 32);
+			in.vr[i][2] = (uint32)y; in.vr[i][3] = (uint32)(y >> 32);
+			if ((rnd() & 7) == 0) {
+				static const uint32 fs[] = { 0x00000000, 0x80000000, 0x7f800000,
+					0xff800000, 0x7fc00001, 0x00400000, 0x3f800000, 0xbf800000 };
+				in.vr[i][rnd() & 3] = fs[rnd() & 7];
+			}
+		}
+		in.lr = 0; in.ctr = 0; in.cr = rnd(); in.xer = rnd() & 0xe000007f;
+
+		load_snippet(ops, n);
+		regfile ai, aj;
+		seed(interp, in); run(interp); snapshot(interp, ai);
+		seed(jit, in);    run(jit);    snapshot(jit, aj);
+		total++;
+		char nm[32]; snprintf(nm, sizeof nm, "vecfp#%d", t);
+		if (diff(nm, ai, aj)) failed++;
+	}
+
+	// --- suite 14: LVX/STVX/LVEWX/STVEWX round-trips over the data area,
+	// byte-compared afterwards ---
+	for (int t = 0; t < 300; t++) {
+		uint32 ops[24]; int n = 0;
+		int len = 3 + (rnd() % 8);
+		for (int k = 0; k < len && n < 20; k++) {
+			int d = rnd() % 8;
+			int b = 11 + (rnd() % 2);
+			switch (rnd() % 6) {
+			case 0: ops[n++] = lvx_(d,0,10); break;
+			case 1: ops[n++] = stvx_(d,0,10); break;
+			case 2: ops[n++] = lvxl_(d,10,b); break;
+			case 3: ops[n++] = stvxl_(d,10,b); break;
+			case 4: ops[n++] = lvewx_(d,10,b); break;
+			case 5: ops[n++] = stvewx_(d,10,b); break;
+			}
+		}
+		ops[n++] = POWERPC_BLR;
+
+		regfile in;
+		for (int i = 0; i < 32; i++) in.gpr[i] = rnd();
+		for (int i = 0; i < 32; i++)
+			for (int j = 0; j < 4; j++) in.vr[i][j] = rnd();
+		in.gpr[10] = guest_data + DATA_SIZE/2;
+		in.gpr[11] = rnd() % 0x100;		// arbitrary (incl. unaligned) offsets
+		in.gpr[12] = rnd() % 0x100;
+		in.lr = 0; in.ctr = 0; in.cr = rnd(); in.xer = rnd() & 0xe000007f;
+
+		load_snippet(ops, n);
+		uint32 fill = rnd();
+		regfile ai, aj;
+		fill_data(fill);
+		seed(interp, in); run(interp); snapshot(interp, ai); snap_data();
+		fill_data(fill);
+		seed(jit, in);    run(jit);    snapshot(jit, aj);
+		total++;
+		char nm[32]; snprintf(nm, sizeof nm, "vecmem#%d", t);
+		if (diff(nm, ai, aj) + diff_data(nm)) failed++;
+	}
+
 	// --- suite 12: trap chaining through continuable pseudo-EmulOps ---
 	// a) random ALU + pseudo-EmulOp interleavings: with trap chaining the
 	// whole program is one JIT block crossing several handler invokes
@@ -1351,6 +1520,8 @@ int main(int argc, char **argv)
 		   kpx_jit_chain_count);
 	printf("Trap-chained SHEEP continuations: %lu (0 would mean trap chaining never engaged)\n",
 		   kpx_jit_trap_chain_count);
+	printf("Native vector emissions: %lu (0 would mean AltiVec stayed generic)\n",
+		   kpx_jit_vector_native_count);
 #ifdef KPX_JIT_INSTRUMENT
 	printf("Native FP helper calls: %lu (0 would mean FP stayed generic)\n",
 		   kpx_jit_fp_helper_count);
@@ -1368,6 +1539,10 @@ int main(int argc, char **argv)
 	}
 	if (kpx_jit_trap_chain_count == 0) {
 		printf("FAIL: trap chaining was never exercised\n");
+		return 2;
+	}
+	if (kpx_jit_vector_native_count == 0) {
+		printf("FAIL: native AltiVec path was never exercised\n");
 		return 2;
 	}
 	if (kpx_jit_fp_helper_count == 0) {

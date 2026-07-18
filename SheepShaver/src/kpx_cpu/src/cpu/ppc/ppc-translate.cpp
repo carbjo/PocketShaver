@@ -223,6 +223,24 @@ static inline bool ppc_jit_native_mnemo(int mnemo)
 	case PPC_I(FMUL): case PPC_I(FMULS): case PPC_I(FDIV): case PPC_I(FDIVS):
 	case PPC_I(FMADD): case PPC_I(FMADDS): case PPC_I(FMSUB): case PPC_I(FMSUBS):
 	case PPC_I(FNMADD): case PPC_I(FNMADDS): case PPC_I(FNMSUB): case PPC_I(FNMSUBS):
+	// AltiVec via NEON (P5): element-wise arith/logic/minmax/compare,
+	// splats, vsel/vperm, and the 128-bit + word-element loads/stores.
+	// Everything else (saturating arith, packs/merges, shifts, VSCR moves,
+	// vsldoi, estimates) stays generic -> interpreter.
+	case PPC_I(LVX): case PPC_I(LVXL): case PPC_I(LVEWX):
+	case PPC_I(STVX): case PPC_I(STVXL): case PPC_I(STVEWX):
+	case PPC_I(VADDFP): case PPC_I(VSUBFP): case PPC_I(VMADDFP): case PPC_I(VNMSUBFP):
+	case PPC_I(VAND): case PPC_I(VANDC): case PPC_I(VNOR): case PPC_I(VOR): case PPC_I(VXOR):
+	case PPC_I(VADDUBM): case PPC_I(VADDUHM): case PPC_I(VADDUWM):
+	case PPC_I(VSUBUBM): case PPC_I(VSUBUHM): case PPC_I(VSUBUWM):
+	case PPC_I(VAVGUB): case PPC_I(VAVGUH):
+	case PPC_I(VMAXSH): case PPC_I(VMAXUB): case PPC_I(VMINSH): case PPC_I(VMINUB):
+	case PPC_I(VCMPEQFP): case PPC_I(VCMPEQUB): case PPC_I(VCMPEQUH): case PPC_I(VCMPEQUW):
+	case PPC_I(VCMPGEFP): case PPC_I(VCMPGTFP):
+	case PPC_I(VCMPGTSB): case PPC_I(VCMPGTSH): case PPC_I(VCMPGTSW):
+	case PPC_I(VSEL): case PPC_I(VPERM):
+	case PPC_I(VSPLTB): case PPC_I(VSPLTH): case PPC_I(VSPLTW):
+	case PPC_I(VSPLTISB): case PPC_I(VSPLTISH): case PPC_I(VSPLTISW):
 		return true;
 	default:
 		return false;

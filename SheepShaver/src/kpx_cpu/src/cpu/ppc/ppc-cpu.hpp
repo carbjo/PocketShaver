@@ -364,6 +364,8 @@ public:
 		{ return (uintptr)&regs().fpr[i] - (uintptr)this; }
 	unsigned long jit_fpscr_offset() const
 		{ return (uintptr)&regs().fpscr - (uintptr)this; }
+	unsigned long jit_vr_offset(int i) const	// 16-byte AltiVec register
+		{ return (uintptr)&regs().vr[i] - (uintptr)this; }
 
 	// Public XER access for the JIT arithmetic helpers (arm64-helpers.cpp)
 	powerpc_xer_register & jit_xer() { return regs().xer; }

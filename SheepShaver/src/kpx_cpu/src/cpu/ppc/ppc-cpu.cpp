@@ -381,6 +381,10 @@ extern "C" unsigned long kpx_jit_fpscr_offset(void *cpu)
 {
 	return ((powerpc_cpu *)cpu)->jit_fpscr_offset();
 }
+extern "C" unsigned long kpx_jit_vr_offset(void *cpu, int i)
+{
+	return ((powerpc_cpu *)cpu)->jit_vr_offset(i);
+}
 #endif
 
 // Memory allocator returning powerpc_cpu objects aligned on 16-byte boundaries

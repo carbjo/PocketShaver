@@ -28,7 +28,10 @@ DEFINE_GEN(gen_op_dcbz_T0,void,(void))
 DEFINE_GEN(gen_op_mmx_vor,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vor");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_orr(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
@@ -65,14 +68,20 @@ DEFINE_GEN(gen_op_addze_T0,void,(void))
 DEFINE_GEN(gen_op_mmx_vand,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vand");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_and(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vxor,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vxor");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_eor(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
@@ -176,7 +185,10 @@ DEFINE_GEN(gen_op_mfvscr_VD,void,(void))
 DEFINE_GEN(gen_op_mmx_vandc,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vandc");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_bic(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
@@ -405,28 +417,40 @@ DEFINE_GEN(gen_op_load_T0_PC,void,(void))
 DEFINE_GEN(gen_op_mmx_vmaxsh,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vmaxsh");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_smax(1, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vmaxub,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vmaxub");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_umax(0, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vminsh,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vminsh");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_smin(1, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vminub,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vminub");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_umin(0, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
@@ -739,42 +763,60 @@ DEFINE_GEN(gen_op_lwarx_T0_T1,void,(void))
 DEFINE_GEN(gen_op_mmx_vaddubm,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vaddubm");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_add(0, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vadduhm,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vadduhm");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_add(1, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vadduwm,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vadduwm");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_add(2, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vsububm,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vsububm");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_sub(0, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vsubuhm,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vsubuhm");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_sub(1, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vsubuwm,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vsubuwm");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_sub(2, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
@@ -1566,42 +1608,60 @@ DEFINE_GEN(gen_op_load_T2_GPR9,void,(void))
 DEFINE_GEN(gen_op_mmx_vcmpequb,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vcmpequb");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_cmeq(0, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vcmpequh,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vcmpequh");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_cmeq(1, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vcmpequw,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vcmpequw");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_cmeq(2, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vcmpgtsb,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vcmpgtsb");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_cmgt(0, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vcmpgtsh,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vcmpgtsh");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_cmgt(1, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_mmx_vcmpgtsw,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_mmx_vcmpgtsw");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_cmgt(2, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
@@ -1813,7 +1873,10 @@ DEFINE_GEN(gen_op_subfeo_T0_T1,void,(void))
 DEFINE_GEN(gen_op_vor_VD_V0_V1,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_vor_VD_V0_V1");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_orr(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
@@ -3277,7 +3340,23 @@ DEFINE_GEN(gen_op_record_cr0_T0,void,(void))
 DEFINE_GEN(gen_op_record_cr6_VD,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_record_cr6_VD");
+	emit_32(a64_ldr_q(0, A64_VD, 0));
+	emit_32(a64_neon_uminv_b(1, 0));
+	emit_32(a64_neon_umaxv_b(2, 0));
+	emit_32(a64_neon_umov_b0(A64_X16, 1));
+	emit_32(a64_neon_umov_b0(A64_X17, 2));
+	emit_32(a64_cmp_imm(A64_X16, 0xff));
+	emit_32(a64_cset(A64_X16, A64_EQ));
+	emit_32(a64_lsl_imm(A64_X16, A64_X16, 7));
+	emit_32(a64_cmp_imm(A64_X17, 0));
+	emit_32(a64_cset(A64_X17, A64_EQ));
+	emit_32(a64_lsl_imm(A64_X17, A64_X17, 5));
+	emit_32(a64_orr_reg(A64_X16, A64_X16, A64_X17));
+	emit_32(a64_ldr_w(A64_X17, A64_CPU, (uint32)kpx_jit_cr_offset(cpu())));
+	emit_32(a64_movz_w(A64_X9, 0xf0, 0));
+	emit_32(a64_bic_reg(A64_X17, A64_X17, A64_X9));
+	emit_32(a64_orr_reg(A64_X17, A64_X17, A64_X16));
+	emit_32(a64_str_w(A64_X17, A64_CPU, (uint32)kpx_jit_cr_offset(cpu())));
 }
 #endif
 
@@ -4081,21 +4160,31 @@ DEFINE_GEN(gen_op_store_T2_GPR9,void,(void))
 DEFINE_GEN(gen_op_vand_VD_V0_V1,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_vand_VD_V0_V1");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_and(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_vnor_VD_V0_V1,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_vnor_VD_V0_V1");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_orr(0, 0, 1));
+	emit_32(a64_neon_not(0, 0));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_vxor_VD_V0_V1,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_vxor_VD_V0_V1");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_eor(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
@@ -4193,280 +4282,400 @@ DEFINE_GEN(gen_op_load_T0_VRSAVE,void,(void))
 DEFINE_GEN(gen_op_load_ad_V0_VR0,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR0");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 0);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR1,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR1");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 1);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR2,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR2");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 2);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR3,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR3");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 3);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR4,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR4");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 4);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR5,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR5");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 5);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR6,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR6");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 6);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR7,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR7");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 7);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR8,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR8");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 8);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR9,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR9");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 9);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR0,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR0");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 0);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR1,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR1");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 1);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR2,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR2");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 2);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR3,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR3");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 3);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR4,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR4");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 4);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR5,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR5");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 5);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR6,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR6");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 6);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR7,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR7");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 7);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR8,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR8");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 8);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR9,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR9");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 9);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR0,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR0");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 0);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR1,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR1");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 1);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR2,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR2");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 2);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR3,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR3");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 3);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR4,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR4");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 4);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR5,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR5");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 5);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR6,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR6");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 6);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR7,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR7");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 7);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR8,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR8");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 8);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR9,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR9");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 9);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR0,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR0");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 0);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR1,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR1");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 1);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR2,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR2");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 2);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR3,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR3");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 3);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR4,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR4");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 4);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR5,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR5");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 5);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR6,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR6");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 6);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR7,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR7");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 7);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR8,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR8");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 8);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR9,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR9");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 9);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
@@ -6227,637 +6436,910 @@ DEFINE_GEN(gen_op_store_T2_GPR31,void,(void))
 DEFINE_GEN(gen_op_vandc_VD_V0_V1,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_vandc_VD_V0_V1");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_bic(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR10,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR10");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 10);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR11,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR11");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 11);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR12,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR12");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 12);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR13,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR13");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 13);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR14,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR14");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 14);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR15,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR15");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 15);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR16,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR16");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 16);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR17,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR17");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 17);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR18,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR18");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 18);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR19,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR19");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 19);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR20,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR20");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 20);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR21,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR21");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 21);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR22,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR22");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 22);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR23,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR23");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 23);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR24,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR24");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 24);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR25,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR25");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 25);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR26,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR26");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 26);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR27,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR27");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 27);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR28,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR28");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 28);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR29,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR29");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 29);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR30,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR30");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 30);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V0_VR31,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V0_VR31");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 31);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T0, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T0, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR10,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR10");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 10);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR11,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR11");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 11);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR12,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR12");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 12);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR13,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR13");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 13);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR14,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR14");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 14);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR15,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR15");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 15);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR16,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR16");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 16);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR17,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR17");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 17);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR18,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR18");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 18);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR19,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR19");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 19);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR20,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR20");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 20);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR21,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR21");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 21);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR22,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR22");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 22);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR23,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR23");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 23);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR24,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR24");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 24);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR25,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR25");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 25);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR26,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR26");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 26);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR27,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR27");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 27);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR28,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR28");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 28);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR29,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR29");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 29);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR30,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR30");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 30);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V1_VR31,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V1_VR31");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 31);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T1, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T1, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR10,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR10");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 10);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR11,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR11");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 11);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR12,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR12");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 12);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR13,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR13");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 13);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR14,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR14");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 14);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR15,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR15");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 15);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR16,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR16");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 16);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR17,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR17");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 17);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR18,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR18");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 18);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR19,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR19");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 19);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR20,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR20");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 20);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR21,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR21");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 21);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR22,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR22");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 22);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR23,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR23");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 23);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR24,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR24");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 24);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR25,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR25");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 25);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR26,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR26");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 26);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR27,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR27");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 27);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR28,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR28");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 28);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR29,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR29");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 29);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR30,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR30");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 30);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_V2_VR31,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_V2_VR31");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 31);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_T2, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_T2, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR10,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR10");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 10);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR11,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR11");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 11);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR12,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR12");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 12);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR13,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR13");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 13);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR14,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR14");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 14);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR15,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR15");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 15);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR16,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR16");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 16);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR17,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR17");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 17);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR18,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR18");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 18);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR19,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR19");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 19);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR20,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR20");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 20);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR21,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR21");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 21);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR22,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR22");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 22);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR23,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR23");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 23);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR24,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR24");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 24);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR25,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR25");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 25);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR26,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR26");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 26);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR27,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR27");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 27);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR28,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR28");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 28);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR29,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR29");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 29);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR30,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR30");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 30);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_ad_VD_VR31,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_ad_VD_VR31");
+	{ const uint32 off = (uint32)kpx_jit_vr_offset(cpu(), 31);
+	  if (off < 4096) emit_32(a64_add_imm_x(A64_VD, A64_CPU, off));
+	  else { a64_emit_mov_imm32(*this, A64_X16, off);
+	         emit_32(a64_add_reg_x(A64_VD, A64_CPU, A64_X16)); } }
 }
 #endif
 
 DEFINE_GEN(gen_op_load_vect_VD_T0,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_vect_VD_T0");
+	emit_32(a64_mov_x(0, A64_CPU));
+	emit_32(a64_mov_x(1, A64_VD));
+	emit_32(a64_mov_w(2, A64_T0));
+	a64_emit_call(*this, (uintptr)&kpx_op_load_vect);
 }
 #endif
 
 DEFINE_GEN(gen_op_load_word_VD_T0,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_load_word_VD_T0");
+	emit_32(a64_mov_x(0, A64_CPU));
+	emit_32(a64_mov_x(1, A64_VD));
+	emit_32(a64_mov_w(2, A64_T0));
+	a64_emit_call(*this, (uintptr)&kpx_op_load_word_vect);
 }
 #endif
 
@@ -6871,28 +7353,40 @@ DEFINE_GEN(gen_op_store_T0_VRSAVE,void,(void))
 DEFINE_GEN(gen_op_vaddfp_VD_V0_V1,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_vaddfp_VD_V0_V1");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_fadd(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_vsubfp_VD_V0_V1,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_vsubfp_VD_V0_V1");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_fsub(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 
 DEFINE_GEN(gen_op_store_vect_VD_T0,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_store_vect_VD_T0");
+	emit_32(a64_mov_x(0, A64_CPU));
+	emit_32(a64_mov_x(1, A64_VD));
+	emit_32(a64_mov_w(2, A64_T0));
+	a64_emit_call(*this, (uintptr)&kpx_op_store_vect);
 }
 #endif
 
 DEFINE_GEN(gen_op_store_word_VD_T0,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_store_word_VD_T0");
+	emit_32(a64_mov_x(0, A64_CPU));
+	emit_32(a64_mov_x(1, A64_VD));
+	emit_32(a64_mov_w(2, A64_T0));
+	a64_emit_call(*this, (uintptr)&kpx_op_store_word_vect);
 }
 #endif
 
@@ -7164,7 +7658,11 @@ DEFINE_GEN(gen_op_prep_branch_bo_1x1x,void,(void))
 DEFINE_GEN(gen_op_vmaddfp_VD_V0_V1_V2,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_vmaddfp_VD_V0_V1_V2");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_ldr_q(2, A64_T2, 0));
+	emit_32(a64_neon_fmla(1, 0, 2));
+	emit_32(a64_str_q(1, A64_VD, 0));
 }
 #endif
 
@@ -7330,7 +7828,11 @@ DEFINE_GEN(gen_op_store_single_F0_T1_0,void,(void))
 DEFINE_GEN(gen_op_vnmsubfp_VD_V0_V1_V2,void,(void))
 #ifdef DYNGEN_IMPL
 {
-	kpx_jit_unimplemented_op("gen_op_vnmsubfp_VD_V0_V1_V2");
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_ldr_q(2, A64_T2, 0));
+	emit_32(a64_neon_fmls(1, 0, 2));
+	emit_32(a64_str_q(1, A64_VD, 0));
 }
 #endif
 
@@ -7462,6 +7964,136 @@ DEFINE_GEN(gen_op_sheep_guard_im,void,(long param1))
 	emit_32(a64_orr_reg(A64_X16, A64_X16, A64_X17));
 	jmp_addr[0] = code_ptr();
 	emit_32(a64_cbz_w(A64_X16, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vavgub,void,(void))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_urhadd(0, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vavguh,void,(void))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_urhadd(1, 0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vcmpeqfp,void,(void))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_fcmeq(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vcmpgefp,void,(void))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_fcmge(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vcmpgtfp,void,(void))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_neon_fcmgt(0, 0, 1));
+	emit_32(a64_str_q(0, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vsel,void,(void))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_ldr_q(2, A64_T2, 0));
+	emit_32(a64_neon_bsl(2, 1, 0));
+	emit_32(a64_str_q(2, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vperm,void,(void))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_ldr_q(1, A64_T1, 0));
+	emit_32(a64_ldr_q(2, A64_T2, 0));
+	emit_32(a64_neon_movi_b(3, 0x1f));
+	emit_32(a64_neon_and(2, 2, 3));
+	emit_32(a64_neon_movi_b(3, 3));
+	emit_32(a64_neon_eor(2, 2, 3));
+	emit_32(a64_neon_tbl2(0, 0, 2));
+	emit_32(a64_str_q(0, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vsplat_b_im,void,(long param1))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_neon_dup_elem_b(0, 0, (int)param1));
+	emit_32(a64_str_q(0, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vsplat_h_im,void,(long param1))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_neon_dup_elem_h(0, 0, (int)param1));
+	emit_32(a64_str_q(0, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vsplat_w_im,void,(long param1))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_ldr_q(0, A64_T0, 0));
+	emit_32(a64_neon_dup_elem_s(0, 0, (int)param1));
+	emit_32(a64_str_q(0, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vsplatis_b_im,void,(long param1))
+#ifdef DYNGEN_IMPL
+{
+	a64_emit_mov_imm32(*this, A64_X16, (uint32)param1);
+	emit_32(a64_neon_dup_gen_b(0, A64_X16));
+	emit_32(a64_str_q(0, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vsplatis_h_im,void,(long param1))
+#ifdef DYNGEN_IMPL
+{
+	a64_emit_mov_imm32(*this, A64_X16, (uint32)param1);
+	emit_32(a64_neon_dup_gen_h(0, A64_X16));
+	emit_32(a64_str_q(0, A64_VD, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_neon_vsplatis_w_im,void,(long param1))
+#ifdef DYNGEN_IMPL
+{
+	a64_emit_mov_imm32(*this, A64_X16, (uint32)param1);
+	emit_32(a64_neon_dup_gen_s(0, A64_X16));
+	emit_32(a64_str_q(0, A64_VD, 0));
 }
 #endif
 

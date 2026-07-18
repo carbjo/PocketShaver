@@ -1505,7 +1505,7 @@ DEFINE_GEN(gen_op_execute,void,(void))
 	emit_32(a64_mov_from_sp(A64_FP));
 	emit_32(a64_stp_x(A64_CPU, A64_T0, A64_SP, 0x10));
 	emit_32(a64_stp_x(A64_T1, A64_T2, A64_SP, 0x20));
-	emit_32(a64_str_x(A64_VMBASE, A64_SP, 0x30));
+	emit_32(a64_stp_x(A64_VMBASE, A64_VD, A64_SP, 0x30));
 	emit_32(a64_stp_d(8, 9, A64_SP, 0x40));
 	emit_32(a64_stp_d(10, 11, A64_SP, 0x50));
 	emit_32(a64_mov_x(A64_CPU, 1));
@@ -1513,7 +1513,7 @@ DEFINE_GEN(gen_op_execute,void,(void))
 	emit_32(a64_br(0));
 	emit_32(a64_ldp_d(10, 11, A64_SP, 0x50));
 	emit_32(a64_ldp_d(8, 9, A64_SP, 0x40));
-	emit_32(a64_ldr_x(A64_VMBASE, A64_SP, 0x30));
+	emit_32(a64_ldp_x(A64_VMBASE, A64_VD, A64_SP, 0x30));
 	emit_32(a64_ldp_x(A64_T1, A64_T2, A64_SP, 0x20));
 	emit_32(a64_ldp_x(A64_CPU, A64_T0, A64_SP, 0x10));
 	emit_32(a64_ldp_x_post(A64_FP, A64_LR, A64_SP, 0x60));
