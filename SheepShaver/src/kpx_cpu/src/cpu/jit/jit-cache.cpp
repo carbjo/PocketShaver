@@ -158,6 +158,28 @@ bool jit_wx_selftest(void)
 
 #else
 
+#if defined(__APPLE__)
+#include <sys/mman.h>
+
+// MEM_BULK's vm_acquire() carves from the guest bulk arena (and needs
+// vm_init() to have run) — host-side code memory must come straight from
+// mmap. MAP_JIT + simultaneous RWX is permitted by the allow-jit
+// entitlement on Intel, Rosetta included; no write-protect toggling
+// exists or is needed on x86_64.
+void *jit_wx_map(uint32 size)
+{
+	void *p = mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC,
+				   MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
+	return (p == MAP_FAILED) ? NULL : p;
+}
+
+void jit_wx_unmap(void *base, uint32 size)
+{
+	if (base)
+		munmap(base, size);
+}
+#else
+
 void *jit_wx_map(uint32 size)
 {
 	void *p = vm_acquire(size, VM_MAP_PRIVATE);
@@ -175,6 +197,7 @@ void jit_wx_unmap(void *base, uint32 size)
 	if (base)
 		vm_release(base, size);
 }
+#endif
 
 bool jit_wx_publish(void *dst, const void *src, uint32 len)
 {
@@ -280,6 +303,14 @@ basic_jit_cache::init_translation_cache(uint32 size)
 	}
 	wx_write_delta = wx_scratch - tcode_start;
 	jit_wx_register_shadow(tcode_start, wx_scratch, cache_size);
+#elif defined(__APPLE__)
+	// Intel: RWX MAP_JIT memory is directly writable (no W^X toggling on
+	// x86_64), so the emitters write straight into the cache — no shadow.
+	// Must not come from vm_acquire: under MEM_BULK that carves guest
+	// address space out of the bulk arena.
+	tcode_start = (uint8 *)jit_wx_map(cache_size);
+	if (tcode_start == NULL)
+		return false;
 #else
 	tcode_start = (uint8 *)vm_acquire(cache_size, VM_MAP_PRIVATE | VM_MAP_32BIT);
 	if (tcode_start == VM_MAP_FAILED) {
@@ -315,6 +346,8 @@ basic_jit_cache::kill_translation_cache()
 			wx_scratch = NULL;
 			wx_write_delta = 0;
 		}
+#elif defined(__APPLE__)
+		jit_wx_unmap(tcode_start, cache_size);
 #else
 		vm_release(tcode_start, cache_size);
 #endif
@@ -358,10 +391,30 @@ basic_jit_cache::copy_data(const uint8 *block, uint32 size)
 		// Data pool stays plain RW memory; arm64 code materializes its
 		// 64-bit address, so 32-bit addressability is not required
 		ptr = (uint8 *)vm_acquire(to_alloc, VM_MAP_PRIVATE);
+		if (ptr == VM_MAP_FAILED)
+			ptr = NULL;
+#elif defined(__APPLE__)
+		// Intel: must not come from vm_acquire (MEM_BULK guest arena).
+		// Generated code reaches the pool through rel32 RIP-relative
+		// references, so hint the mapping next to the translation cache
+		// and verify it landed within +/-2GB.
+		ptr = (uint8 *)mmap(tcode_start, to_alloc, PROT_READ | PROT_WRITE,
+							MAP_PRIVATE | MAP_ANON, -1, 0);
+		if (ptr == MAP_FAILED)
+			ptr = NULL;
+		else {
+			intptr_t delta = (intptr_t)(ptr - tcode_start);
+			if (delta > INT32_MAX || delta < INT32_MIN) {
+				munmap(ptr, to_alloc);
+				ptr = NULL;
+			}
+		}
 #else
 		ptr = (uint8 *)vm_acquire(to_alloc, VM_MAP_PRIVATE | VM_MAP_32BIT);
+		if (ptr == VM_MAP_FAILED)
+			ptr = NULL;
 #endif
-		if (ptr == VM_MAP_FAILED) {
+		if (ptr == NULL) {
 			fprintf(stderr, "FATAL: Could not allocate data pool!\n");
 			abort();
 		}

@@ -327,6 +327,11 @@ void powerpc_cpu::enable_jit(uint32 cache_size)
 	use_jit = codegen.initialize();
 }
 
+uint8 *powerpc_cpu::jit_exec_return_addr()
+{
+	return codegen.exec_return_addr();
+}
+
 void *powerpc_cpu::jit_jump_next(powerpc_block_info *bi)
 {
 	const uint32 npc = pc();
@@ -338,6 +343,16 @@ void *powerpc_cpu::jit_jump_next(powerpc_block_info *bi)
 extern "C" void *kpx_jit_jump_next(void *cpu, void *bi)
 {
 	return ((powerpc_cpu *)cpu)->jit_jump_next((powerpc_block_info *)bi);
+}
+
+// Variant for the x86 dyngen dispatch: never returns NULL, so generated
+// code can jump through the result unconditionally — a lookup miss leaves
+// execute() via the exec-return glue instead.
+extern "C" void *kpx_jit_jump_next_or_exit(void *cpu, void *bi)
+{
+	powerpc_cpu *the_cpu = (powerpc_cpu *)cpu;
+	void *entry = the_cpu->jit_jump_next((powerpc_block_info *)bi);
+	return entry ? entry : (void *)the_cpu->jit_exec_return_addr();
 }
 
 extern "C" unsigned long kpx_jit_pc_offset(void *cpu)

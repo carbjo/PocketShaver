@@ -180,8 +180,15 @@ static void catalyst_resize_window_for_guest(int guest_w, int guest_h) {
 			SEL frameSel = sel_registerName("frame");
 			SEL crffSel = sel_registerName("contentRectForFrameRect:");
 			if ([window respondsToSelector:frameSel] && [window respondsToSelector:crffSel]) {
+#if defined(__x86_64__)
+				// 32-byte CGRect returns via hidden sret pointer on x86-64
+				CGRect frame, content;
+				((void (*)(CGRect *, id, SEL))objc_msgSend_stret)(&frame, window, frameSel);
+				((void (*)(CGRect *, id, SEL, CGRect))objc_msgSend_stret)(&content, window, crffSel, frame);
+#else
 				CGRect frame = ((CGRect (*)(id, SEL))objc_msgSend)(window, frameSel);
 				CGRect content = ((CGRect (*)(id, SEL, CGRect))objc_msgSend)(window, crffSel, frame);
+#endif
 				CGFloat measured = frame.size.height - content.size.height;
 				if (measured > 0.0) titleBar = measured;
 			}
@@ -193,7 +200,8 @@ static void catalyst_resize_window_for_guest(int guest_w, int guest_h) {
 
 		// Fit into the usable screen area (excludes menu bar + Dock), leaving room for the
 		// title bar. NSScreen.visibleFrame is an HFA of 4 CGFloats, returned in registers on
-		// arm64, so the plain objc_msgSend cast is correct (see catalyst_screen_top_inset).
+		// arm64 (plain objc_msgSend) but via hidden sret pointer on x86-64
+		// (objc_msgSend_stret required — see catalyst_screen_top_inset).
 		id screen = ((id (*)(id, SEL))objc_msgSend)(window, sel_registerName("screen"));
 		if (!screen) {
 			Class NSScreenClass = NSClassFromString(@"NSScreen");
@@ -203,7 +211,12 @@ static void catalyst_resize_window_for_guest(int guest_w, int guest_h) {
 		if (screen) {
 			SEL vfSel = sel_registerName("visibleFrame");
 			if ([screen respondsToSelector:vfSel]) {
+#if defined(__x86_64__)
+				CGRect vf;
+				((void (*)(CGRect *, id, SEL))objc_msgSend_stret)(&vf, screen, vfSel);
+#else
 				CGRect vf = ((CGRect (*)(id, SEL))objc_msgSend)(screen, vfSel);
+#endif
 				CGFloat maxW = vf.size.width;
 				CGFloat maxH = vf.size.height - titleBar;   // drawable room; title bar reserved
 				if (maxH < 1.0) maxH = vf.size.height;

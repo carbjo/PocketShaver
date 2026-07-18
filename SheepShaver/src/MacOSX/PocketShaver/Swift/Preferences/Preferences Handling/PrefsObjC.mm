@@ -112,10 +112,17 @@ double catalyst_screen_top_inset(void) {
 	if (![screen respondsToSelector:saiSel]) return 0; // pre-macOS 12 / pre-notch
 	// NSEdgeInsets == { CGFloat top, left, bottom, right }. On arm64 (AAPCS64) this
 	// small homogeneous-float aggregate is returned in registers, so the plain
-	// objc_msgSend cast is correct here — do NOT use objc_msgSend_stret.
+	// objc_msgSend cast is correct there (arm64 has no objc_msgSend_stret at all).
+	// On x86-64 a 32-byte aggregate returns through a hidden sret pointer, so the
+	// stret entry point is REQUIRED — the plain cast crashes.
 	struct CatalystNSEdgeInsets { CGFloat top; CGFloat left; CGFloat bottom; CGFloat right; };
+#if defined(__x86_64__)
+	CatalystNSEdgeInsets insets;
+	((void (*)(CatalystNSEdgeInsets *, id, SEL))objc_msgSend_stret)(&insets, screen, saiSel);
+#else
 	CatalystNSEdgeInsets insets =
 		((CatalystNSEdgeInsets (*)(id, SEL))objc_msgSend)(screen, saiSel);
+#endif
 	return (double)insets.top; // 0 on notchless built-ins and external displays
 #else
 	return 0;

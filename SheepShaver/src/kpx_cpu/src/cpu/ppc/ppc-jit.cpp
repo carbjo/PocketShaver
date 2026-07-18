@@ -152,8 +152,17 @@ bool powerpc_jit::initialize(void)
 			DEFINE_OP(STVXL,	stvx)
 #undef DEFINE_OP
 		};
-		for (int i = 0; i < sizeof(x86_vector) / sizeof(x86_vector[0]); i++)
+		for (int i = 0; i < sizeof(x86_vector) / sizeof(x86_vector[0]); i++) {
+#if defined(__APPLE__)
+			// lvx/stvx fold VMBaseDiff into an int32 displacement, which
+			// cannot hold MEM_BULK's 64-bit base; leave them to the
+			// generic (stub-translated) vector load/store ops.
+			if (x86_vector[i].mnemo == PPC_I(LVX) || x86_vector[i].mnemo == PPC_I(LVXL)
+					|| x86_vector[i].mnemo == PPC_I(STVX) || x86_vector[i].mnemo == PPC_I(STVXL))
+				continue;
+#endif
 			jit_info[x86_vector[i].mnemo] = &x86_vector[i];
+		}
 
 		// MMX optimized handlers
 		static const jit_info_t mmx_vector[] = {
@@ -224,9 +233,30 @@ bool powerpc_jit::initialize(void)
 #undef DEFINE_OP
 		};
 
+#if defined(__APPLE__)
+		// Packed-float fast paths whose SSE semantics differ from the
+		// interpreter's C arithmetic — NaN sign/payload, ±0 ordering in
+		// max/min, non-fused multiply-add rounding, unordered compares,
+		// and hardware estimate precision. Keep these on the generic ops
+		// so the JIT stays bit-identical with the interpreter (the
+		// lockstep harness holds this line).
+#define KPX_SSE_FLOAT_INEXACT(m) \
+		((m) == PPC_I(VADDFP) || (m) == PPC_I(VSUBFP)      \
+		 || (m) == PPC_I(VMAXFP) || (m) == PPC_I(VMINFP)   \
+		 || (m) == PPC_I(VMADDFP) || (m) == PPC_I(VNMSUBFP) \
+		 || (m) == PPC_I(VCMPEQFP) || (m) == PPC_I(VCMPGEFP) \
+		 || (m) == PPC_I(VCMPGTFP) \
+		 || (m) == PPC_I(VREFP) || (m) == PPC_I(VRSQRTEFP))
+#else
+#define KPX_SSE_FLOAT_INEXACT(m) 0
+#endif
+
 		if (cpuinfo_check_sse()) {
-			for (int i = 0; i < sizeof(sse_vector) / sizeof(sse_vector[0]); i++)
+			for (int i = 0; i < sizeof(sse_vector) / sizeof(sse_vector[0]); i++) {
+				if (KPX_SSE_FLOAT_INEXACT(sse_vector[i].mnemo))
+					continue;
 				jit_info[sse_vector[i].mnemo] = &sse_vector[i];
+			}
 		}
 
 		// SSE2 optimized handlers
@@ -266,9 +296,33 @@ bool powerpc_jit::initialize(void)
 		};
 
 		if (cpuinfo_check_sse2()) {
-			for (int i = 0; i < sizeof(sse2_vector) / sizeof(sse2_vector[0]); i++)
+			for (int i = 0; i < sizeof(sse2_vector) / sizeof(sse2_vector[0]); i++) {
+				if (KPX_SSE_FLOAT_INEXACT(sse2_vector[i].mnemo))
+					continue;
 				jit_info[sse2_vector[i].mnemo] = &sse2_vector[i];
+			}
 		}
+
+#if defined(__APPLE__) && defined(__x86_64__)
+		// Vector-float ops go to the interpreter wholesale. The frozen
+		// generic dyngen ops were compiled from the upstream-era C and
+		// cannot track this fork's evolved float semantics (fused
+		// vmaddfp/vnmsubfp, NaN sign/payload propagation, estimate
+		// precision), and the SSE fast paths differ further (±0 in
+		// max/min, unordered compares). The lockstep harness holds the
+		// JIT bit-identical to the interpreter; only the float family
+		// pays the interpreter-invoke cost.
+		static const int vecfp_to_interp[] = {
+			PPC_I(VADDFP), PPC_I(VSUBFP), PPC_I(VMAXFP), PPC_I(VMINFP),
+			PPC_I(VMADDFP), PPC_I(VNMSUBFP), PPC_I(VREFP), PPC_I(VRSQRTEFP),
+			PPC_I(VCMPEQFP), PPC_I(VCMPGEFP), PPC_I(VCMPGTFP), PPC_I(VCMPBFP),
+			PPC_I(VCTSXS), PPC_I(VCTUXS), PPC_I(VCFSX), PPC_I(VCFUX),
+			PPC_I(VRFIN), PPC_I(VRFIZ), PPC_I(VRFIP), PPC_I(VRFIM),
+			PPC_I(VLOGEFP), PPC_I(VEXPTEFP),
+		};
+		for (int i = 0; i < (int)(sizeof(vecfp_to_interp) / sizeof(vecfp_to_interp[0])); i++)
+			jit_info[vecfp_to_interp[i]] = &jit_not_available;
+#endif
 
 		// SSSE3 optimized handlers
 		static const jit_info_t ssse3_vector[] = {
@@ -282,10 +336,16 @@ bool powerpc_jit::initialize(void)
 #undef DEFINE_OP
 		};
 
+		// The SSSE3 fast paths reference their literal pools through
+		// absolute disp32 operands, which requires the JIT data pool below
+		// 4GB. Darwin has no MAP_32BIT, so under MEM_BULK that cannot be
+		// guaranteed — leave lvx/stvx/vperm to the generic vector ops.
+#if !defined(__APPLE__)
 		if (cpuinfo_check_ssse3()) {
 			for (int i = 0; i < sizeof(ssse3_vector) / sizeof(ssse3_vector[0]); i++)
 				jit_info[ssse3_vector[i].mnemo] = &ssse3_vector[i];
 		}
+#endif
 #endif
 	}
 

@@ -341,6 +341,9 @@ public:
 	// concrete block type since the block_info typedef appears below.
 	void *jit_jump_next(powerpc_block_info *bi);
 
+	// Where generated code jumps to leave execute() (x86 dyngen dispatch)
+	uint8 *jit_exec_return_addr();
+
 	// Byte offsets of guest state within the CPU object, for emitters that
 	// address it relative to the pinned CPU register. regs() is aligned at
 	// a fixed displacement, so these are constant for a given codegen.

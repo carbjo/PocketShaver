@@ -12,6 +12,11 @@
 #     dropping KPX_JIT_INSTRUMENT removes counter increments from timed code
 #     paths — the shipping app never defines it. Correctness runs keep the
 #     faster -O1 compile and the fail-if-zero counters.)
+#   KPX_LOCKSTEP_ARCH=x86_64 ./build-jit-lockstep.sh
+#     (Intel Catalyst slice: exercises the classic dyngen backend via
+#     config-ios-x86_64.h; run the binary under Rosetta on arm64 hosts.
+#     The arm64-only teeth — trap chaining, native vector/FP, inline
+#     fastmem — legitimately read 0 there.)
 set -e
 HERE=${0:A:h}                       # .../kpx_cpu/src/test
 K=${HERE:h}                         # .../kpx_cpu/src
@@ -49,7 +54,8 @@ INCS=(-I"$OUT/stubs" -I"$SRC/MacOSX/config" -I"$SRC/Unix" -I"$K" -I"$SRC/kpx_cpu
 DEFS=(-DHAVE_CONFIG_H -DEMU_KHEPERIX)
 [[ -z ${KPX_LOCKSTEP_NO_INSTRUMENT:-} ]] && DEFS+=(-DKPX_JIT_INSTRUMENT)
 OPT=${KPX_LOCKSTEP_OPT:--O1}
-FLAGS=(-target arm64-apple-ios15.2-macabi -isysroot "$SDK" ${=OPT} -g -std=gnu++14
+ARCH=${KPX_LOCKSTEP_ARCH:-arm64}
+FLAGS=(-target $ARCH-apple-ios15.2-macabi -isysroot "$SDK" ${=OPT} -g -std=gnu++14
        -Wno-deprecated-declarations -Wno-shorten-64-to-32 -fno-strict-aliasing)
 
 SRCS=(

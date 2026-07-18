@@ -119,6 +119,9 @@ public:
 	// Execute compiled function at ENTRY_POINT
 	void execute(uint8 *entry_point);
 
+	// Address generated code jumps to in order to leave execute()
+	uint8 *exec_return_addr() const;
+
 	// Return from compiled code
 	void gen_exec_return();
 
@@ -299,6 +302,12 @@ inline void
 basic_dyngen::gen_exec_return()
 {
 	gen_jmp(execute_func + op_exec_return_offset);
+}
+
+inline uint8 *
+basic_dyngen::exec_return_addr() const
+{
+	return execute_func + op_exec_return_offset;
 }
 
 inline bool

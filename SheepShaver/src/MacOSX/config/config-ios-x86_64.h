@@ -17,8 +17,17 @@
 #define EMULATED_PPC 1
 #endif
 
-/* Define to enable dyngen engine */
+/* Define to enable dyngen engine.
+ * Mac Catalyst processes may create MAP_JIT mappings (allow-jit
+ * entitlement), so the classic x86_64 dyngen backend is compiled in
+ * there; the Intel simulator keeps the engine compiled out.
+ * TargetConditionals.h is in scope: config.h includes it before
+ * selecting this header. */
+#if defined(TARGET_OS_MACCATALYST) && TARGET_OS_MACCATALYST
+#define ENABLE_DYNGEN 1
+#else
 #define ENABLE_DYNGEN 0
+#endif
 
 /* Define is using ESD. */
 /* #undef ENABLE_ESD */
@@ -488,6 +497,7 @@
 
 /* Define to enble SDL support. */
 #define USE_SDL 1
+#define USE_SDL2 1
 
 /* Define to enable SDL audio support */
 #define USE_SDL_AUDIO 1
