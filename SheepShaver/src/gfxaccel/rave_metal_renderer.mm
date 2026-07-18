@@ -25,6 +25,7 @@
 
 #include "sysdeps.h"
 #include "cpu_emulation.h"
+#include "video.h"
 #include "rave_engine.h"
 #include "rave_metal_renderer.h"
 #include "metal_device_shared.h"
@@ -156,6 +157,7 @@ static void RaveFillFogUniforms(RaveDrawPrivate *priv, FragmentUniforms *fragUni
 
 // RAVE.h constants used by draw-buffer CPU access.
 #define kQADeviceMemory       0
+#define kQAPixel_RGB16        1
 #define kQAPixel_RGB32        3
 
 static int32_t RestartRenderPassWithLoad(RaveDrawPrivate *priv);
@@ -260,6 +262,15 @@ struct RaveMetalState {
 	bool                        zBufferAccessed;      // currently in AccessZBuffer state
 	uint32_t                    noticeDeviceMac;      // TQADevice for buffer notice callbacks
 	uint32_t                    noticeDirtyRectMac;   // TQARect for buffer notice callbacks
+
+	// ATI GetDrawBuffer CPU-composite mode (Myth II)
+	uint32_t                    frameGeneration;        // incremented at each RenderEnd
+	uint32_t                    cpuCompositeCopiedGen;  // frameGeneration at last overlay->back-buffer copy
+	uint32_t                    cpuCompositeFrames;     // RenderEnds left to suppress overlay submits for
+	uint32_t                    atiBackBufferMac;       // guest 16bpp back buffer vended to the title
+	uint8_t                    *atiBackBufferHost;      // host view of atiBackBufferMac
+	uint32_t                    atiBackBufferSize;      // allocation size (screen rowBytes * height)
+	bool                        atiBackBufferDirty;     // guest content awaiting present to framebuffer
 
 	// Depth-only clear pipeline (ClearZBuffer)
 	id<MTLDepthStencilState>    depthAlwaysWriteState; // depth=always, write=yes
@@ -935,6 +946,13 @@ void RaveInitMetalResources(RaveDrawPrivate *priv)
 	ms->zBufferAccessed = false;
 	ms->noticeDeviceMac = 0;
 	ms->noticeDirtyRectMac = 0;
+	ms->frameGeneration = 0;
+	ms->cpuCompositeCopiedGen = UINT32_MAX;
+	ms->cpuCompositeFrames = 0;
+	ms->atiBackBufferMac = 0;
+	ms->atiBackBufferHost = nullptr;
+	ms->atiBackBufferSize = 0;
+	ms->atiBackBufferDirty = false;
 
 	// Depth-always-write state for ClearZBuffer
 	if (hasDepthAttachment) {
@@ -3490,6 +3508,24 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 		         dont_swap ? "committed (DontSwap)" : "frame committed to offscreen");
 	}
 
+	ms->frameGeneration++;
+
+	// CPU-composite mode (ATI GetDrawBuffer): the guest reads the frame out
+	// of the framebuffer and draws its 2D interface there, so the framebuffer
+	// is the presentation surface. Caching the overlay here would make the
+	// compositor alternate between the bare 3D overlay and the framebuffer
+	// with the interface on it (visible as heavy flicker whenever the guest
+	// has UI up, e.g. the Myth II in-game menu). Suppress the submit; the
+	// frame reaches the screen via the framebuffer copy in
+	// NativeATIGetDrawBuffer. The counter re-arms on every GetDrawBuffer
+	// call and decays here, so a title that stops using the extension gets
+	// normal overlay presentation back after one frame.
+	if (ms->cpuCompositeFrames > 0) {
+		ms->cpuCompositeFrames--;
+		MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineRAVE);
+		return kQANoErr;
+	}
+
 	// Emit a CompositeLayer for the just-rendered overlay via
 	// MetalCompositorSubmitFrame. The
 	// compositor sees this as a single kLayerSlotOverlay layer with
@@ -4640,4 +4676,144 @@ int32_t NativeATIClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr)
 int32_t NativeATIClearZBuffer(uint32_t drawContextAddr, uint32_t rectAddr)
 {
 	return NativeClearZBuffer(drawContextAddr, rectAddr, 0);
+}
+
+
+/*
+ *  ATI RaveExtFuncs slot 4: GetDrawBuffer(drawContext, TQADevice *outDevice)
+ *
+ *  Identified from Myth II (render_rave.c): called immediately after sync(),
+ *  the returned TQADevice's rowBytes (+4) and baseAddr (+20) describe a
+ *  16bpp buffer holding the rendered frame. Myth both CPU-draws its 2D
+ *  interface into that buffer (no end/unlock call follows) and copies the
+ *  rendered scene back out of it, so the buffer must (a) contain the 3D
+ *  frame and (b) be what the display shows afterwards.
+ *
+ *  On real hardware this is simply the VRAM draw buffer. Here we transfer
+ *  the Metal overlay's rendered frame into the guest screen framebuffer
+ *  (xRGB1555 big-endian) and clear the compositor's cached overlay, so the
+ *  framebuffer — scene plus whatever the guest draws into it next — is what
+ *  the compositor presents until the next RenderEnd resubmits a 3D frame.
+ */
+int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAddr)
+{
+	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
+	if (!priv || !priv->metal || deviceStructAddr == 0) return kQAError;
+	RaveMetalState *ms = priv->metal;
+
+	const VideoInfo &mode = VModes[cur_mode];
+	const bool screen16 = (mode.viAppleMode == APPLE_16_BIT) && screen_base != 0;
+
+	if (!screen16) {
+		// Screen is not in a 16bpp mode (callers of this ATI extension do
+		// 16-bit pixel math on the buffer). Return the RGB32 CPU draw buffer
+		// so the pointer is at least valid guest memory.
+		if (!ms->overlayTexture || !EnsureDrawBufferCPU(priv)) return kQAError;
+		NSUInteger w = ms->overlayTexture.width;
+		NSUInteger h = ms->overlayTexture.height;
+		WriteMacInt32(deviceStructAddr + 0,  kQADeviceMemory);
+		WriteMacInt32(deviceStructAddr + 4,  (uint32_t)(w * 4));
+		WriteMacInt32(deviceStructAddr + 8,  kQAPixel_RGB32);
+		WriteMacInt32(deviceStructAddr + 12, (uint32_t)w);
+		WriteMacInt32(deviceStructAddr + 16, (uint32_t)h);
+		WriteMacInt32(deviceStructAddr + 20, ms->drawBufferCPUMac);
+		RAVE_LOG("ATIGetDrawBuffer: ctx=0x%08x non-16bpp screen, returned RGB32 CPU buffer",
+		         drawContextAddr);
+		return kQANoErr;
+	}
+
+	// Re-arm CPU-composite mode: RenderEnd suppresses overlay submits while
+	// this is nonzero so the compositor presents only the framebuffer. 2
+	// covers the RenderEnd that follows before the next GetDrawBuffer
+	// re-arms.
+	ms->cpuCompositeFrames = 2;
+
+	// Vend a private guest back buffer, laid out identically to the screen
+	// framebuffer. The guest composes scene + interface here; the visible
+	// framebuffer only ever receives completed frames (the present below),
+	// so no intermediate erase/redraw state can reach the display — that
+	// was the residual in-game-menu flicker.
+	const uint32_t backSize = mode.viRowBytes * mode.viYsize;
+	if (ms->atiBackBufferMac == 0 || ms->atiBackBufferSize != backSize) {
+		uint32_t macAddr = Mac_sysalloc(backSize);
+		if (macAddr == 0) return kQAError;
+		ms->atiBackBufferMac = macAddr;
+		ms->atiBackBufferHost = Mac2HostAddr(macAddr);
+		ms->atiBackBufferSize = backSize;
+		ms->atiBackBufferDirty = false;
+	}
+
+	// Present: everything the guest drew since the previous lock is now a
+	// completed frame — copy it to the visible framebuffer in one pass.
+	if (ms->atiBackBufferDirty) {
+		memcpy(Mac2HostAddr(screen_base), ms->atiBackBufferHost, backSize);
+	}
+
+	// Transfer a newly rendered 3D frame into the back buffer, converting
+	// BGRA8 -> xRGB1555 big-endian. Skipped when no frame has been rendered
+	// since the last copy (e.g. the paused in-game menu relocking every
+	// tick) so guest-drawn interface pixels persist in the back buffer.
+	const bool newContent = (ms->frameGeneration != ms->cpuCompositeCopiedGen) ||
+	                        ms->renderPassActive;
+	if (newContent && ms->overlayTexture && EnsureDrawBufferCPU(priv)) {
+		const bool wasActive = ms->renderPassActive;
+		if (wasActive) EndAndCommitCurrentRenderPass(ms);
+		if (ms->lastCommittedBuffer) [ms->lastCommittedBuffer waitUntilCompleted];
+
+		NSUInteger w = ms->overlayTexture.width;
+		NSUInteger h = ms->overlayTexture.height;
+		uint32_t srcRowBytes = (uint32_t)(w * 4);
+
+		id<MTLCommandBuffer> blitCmdBuf = [ms->commandQueue commandBuffer];
+		id<MTLBlitCommandEncoder> blit = [blitCmdBuf blitCommandEncoder];
+		[blit copyFromTexture:ms->overlayTexture sourceSlice:0 sourceLevel:0
+		         sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(w,h,1)
+		            toTexture:ms->stagingDrawBuffer destinationSlice:0
+		     destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+		[blit endEncoding];
+		[blitCmdBuf commit];
+		[blitCmdBuf waitUntilCompleted];
+
+		std::vector<uint8_t> bgra((size_t)srcRowBytes * h);
+		[ms->stagingDrawBuffer getBytes:bgra.data() bytesPerRow:srcRowBytes
+		                     fromRegion:MTLRegionMake2D(0,0,w,h) mipmapLevel:0];
+
+		int32_t dstX = priv->left > 0 ? priv->left : 0;
+		int32_t dstY = priv->top  > 0 ? priv->top  : 0;
+		int64_t copyW = (int64_t)w;
+		int64_t copyH = (int64_t)h;
+		if (dstX + copyW > mode.viXsize) copyW = (int64_t)mode.viXsize - dstX;
+		if (dstY + copyH > mode.viYsize) copyH = (int64_t)mode.viYsize - dstY;
+		for (int64_t y = 0; y < copyH; y++) {
+			const uint8_t *s = bgra.data() + (size_t)y * srcRowBytes;
+			uint8_t *d = ms->atiBackBufferHost + (size_t)(dstY + y) * mode.viRowBytes + (size_t)dstX * 2;
+			for (int64_t x = 0; x < copyW; x++) {
+				uint16_t v = (uint16_t)(((s[2] >> 3) << 10) | ((s[1] >> 3) << 5) | (s[0] >> 3));
+				d[0] = (uint8_t)(v >> 8);
+				d[1] = (uint8_t)(v & 0xFF);
+				s += 4;
+				d += 2;
+			}
+		}
+
+		if (wasActive) RestartRenderPassWithLoad(priv);
+		ms->cpuCompositeCopiedGen = ms->frameGeneration;
+	}
+
+	// The framebuffer now owns presentation; stop compositing the (stale)
+	// overlay on top of it. Submits stay suppressed while cpuCompositeFrames
+	// is armed, so the compositor presents the framebuffer alone.
+	MetalCompositorSubmitFrame_ClearCachedOverlay();
+
+	ms->atiBackBufferDirty = true;
+
+	WriteMacInt32(deviceStructAddr + 0,  kQADeviceMemory);
+	WriteMacInt32(deviceStructAddr + 4,  mode.viRowBytes);
+	WriteMacInt32(deviceStructAddr + 8,  kQAPixel_RGB16);
+	WriteMacInt32(deviceStructAddr + 12, mode.viXsize);
+	WriteMacInt32(deviceStructAddr + 16, mode.viYsize);
+	WriteMacInt32(deviceStructAddr + 20, ms->atiBackBufferMac);
+	RAVE_LOG("ATIGetDrawBuffer: ctx=0x%08x -> back buffer 0x%08x %ux%u rowBytes=%u",
+	         drawContextAddr, ms->atiBackBufferMac, mode.viXsize, mode.viYsize, mode.viRowBytes);
+	return kQANoErr;
 }

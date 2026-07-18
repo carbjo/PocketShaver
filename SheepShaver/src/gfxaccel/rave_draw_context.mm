@@ -534,6 +534,8 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 	return kQANoErr;
 }
 
+// Writes the 5 identified slots only — safe for caller-provided structs,
+// whose true size is unknown beyond the 5 entries proven by Myth II.
 static void WriteATIRaveExtFuncsTable(uint32 ptr)
 {
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotClearDrawBuffer * 4,
@@ -544,6 +546,8 @@ static void WriteATIRaveExtFuncsTable(uint32 ptr)
 	              rave_method_tvects[kRaveATITextureUpdate]);
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotBindCodeBook * 4,
 	              rave_method_tvects[kRaveATIBindCodeBook]);
+	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotGetDrawBuffer * 4,
+	              rave_method_tvects[kRaveATIGetDrawBuffer]);
 }
 
 static uint32 EnsureATIRaveExtFuncsTable(RaveDrawPrivate *ctx)
@@ -559,6 +563,13 @@ static uint32 EnsureATIRaveExtFuncsTable(RaveDrawPrivate *ctx)
 	}
 
 	WriteATIRaveExtFuncsTable(ptr);
+	// Our own allocation is over-sized: fill the unidentified tail slots with
+	// a callable stub so an out-of-range index can never jump through heap
+	// garbage (the Myth II RAVE-entry crash).
+	for (uint32 slot = kRaveATIRaveExtFuncsKnownSlotCount;
+	     slot < kRaveATIRaveExtFuncsEntryCount; slot++) {
+		WriteMacInt32(ptr + slot * 4, rave_method_tvects[kRaveATIStub]);
+	}
 	return ptr;
 }
 
@@ -585,7 +596,8 @@ int32 NativeSetPtr(uint32 drawContextAddr, uint32 tag, uint32 ptr)
 			}
 			WriteATIRaveExtFuncsTable(ptr);
 			ctx->ati_state[kRaveATIRaveExtFuncsIndex].i = ptr;
-			RAVE_LOG("SetPtr: kATIRaveExtFuncs -> delivered 4 TVECT addresses to 0x%08x", ptr);
+			RAVE_LOG("SetPtr: kATIRaveExtFuncs -> delivered %u TVECT addresses to 0x%08x",
+			         kRaveATIRaveExtFuncsKnownSlotCount, ptr);
 			return kQANoErr;
 		}
 		if (ati_idx < RAVE_ATI_TAG_COUNT) {

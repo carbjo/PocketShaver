@@ -427,7 +427,7 @@ uint32 RaveDispatch(uint32 r3, uint32 r4, uint32 r5,
 	}
 	else if (method_id >= kRaveATIClearDrawBuffer &&
 			 method_id < kRaveATIClearDrawBuffer + kRaveATIMethodCount) {
-		// ATI RaveExtFuncs dispatch (300-303)
+		// ATI RaveExtFuncs dispatch (300-305)
 		switch (method_id) {
 		case kRaveATIClearDrawBuffer:   // 300
 			return (uint32)NativeATIClearDrawBuffer(r3, r4);
@@ -437,6 +437,11 @@ uint32 RaveDispatch(uint32 r3, uint32 r4, uint32 r5,
 			return (uint32)NativeATITextureUpdate(r3, r4, r5, r6);
 		case kRaveATIBindCodeBook:      // 303
 			return (uint32)NativeATIBindCodeBook(r3, r4);
+		case kRaveATIGetDrawBuffer:     // 304
+			return (uint32)NativeATIGetDrawBuffer(r3, r4);
+		case kRaveATIStub:              // 305
+			RAVE_LOG("RAVE: call through unidentified ATI RaveExtFuncs slot");
+			return (uint32)(int32)kQANotSupported;
 		default:
 			return kQANoErr;
 		}
@@ -451,5 +456,6 @@ uint32 RaveDispatch(uint32 r3, uint32 r4, uint32 r5,
 // ATI extension function declarations (implemented in rave_metal_renderer.mm and rave_engine.cpp)
 extern int32_t NativeATIClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr);
 extern int32_t NativeATIClearZBuffer(uint32_t drawContextAddr, uint32_t rectAddr);
+extern int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAddr);
 extern int32_t NativeATITextureUpdate(uint32_t flags, uint32_t pixelType, uint32_t imagesAddr, uint32_t textureAddr);
 extern int32_t NativeATIBindCodeBook(uint32_t textureAddr, uint32_t codebookPtr);

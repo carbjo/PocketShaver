@@ -32,11 +32,22 @@ static constexpr uint32_t kRaveATIUnrealTournamentProbeIndex =
 static constexpr uint32_t kRaveATIRaveExtFuncsTag = 1021u;
 static constexpr uint32_t kRaveATIRaveExtFuncsIndex =
 	kRaveATIRaveExtFuncsTag - kRaveATIPrivateTagBase;
-static constexpr uint32_t kRaveATIRaveExtFuncsEntryCount = 4u;
+/*
+ * The real ATI table has at least 5 entries: Myth II (render_rave.c) calls
+ * slot 4 as GetDrawBuffer(ctx, TQADevice*) right after sync() and reads
+ * rowBytes (+4) and baseAddr (+0x14) from the returned TQADevice, so any
+ * caller-provided struct is at least 5 pointers long. We over-allocate our
+ * own table to 8 entries (slots 5-7 filled with a safe stub) in case other
+ * titles index further, but only ever write 5 slots into a caller-provided
+ * struct because 5 is the largest size proven by a real client.
+ */
+static constexpr uint32_t kRaveATIRaveExtFuncsEntryCount = 8u;
+static constexpr uint32_t kRaveATIRaveExtFuncsKnownSlotCount = 5u;
 static constexpr uint32_t kRaveATIRaveExtFuncsSlotClearDrawBuffer = 0u;
 static constexpr uint32_t kRaveATIRaveExtFuncsSlotClearZBuffer = 1u;
 static constexpr uint32_t kRaveATIRaveExtFuncsSlotTextureUpdate = 2u;
 static constexpr uint32_t kRaveATIRaveExtFuncsSlotBindCodeBook = 3u;
+static constexpr uint32_t kRaveATIRaveExtFuncsSlotGetDrawBuffer = 4u;
 
 static constexpr uint32_t kRaveATIDepthWriteEnableTag = 1022u;
 static constexpr uint32_t kRaveATIDepthWriteEnableIndex =

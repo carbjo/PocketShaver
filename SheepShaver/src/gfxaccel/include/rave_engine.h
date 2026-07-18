@@ -215,23 +215,25 @@ enum {
 	kRaveHookCount            = 23
 };
 
-// ATI RaveExtFuncs sub-opcodes (300-303)
+// ATI RaveExtFuncs sub-opcodes (300-305)
 // These are PPC-callable TVECTs delivered via kATIRaveExtFuncs.
 enum {
 	kRaveATIClearDrawBuffer  = 300,
 	kRaveATIClearZBuffer     = 301,
 	kRaveATITextureUpdate    = 302,
 	kRaveATIBindCodeBook     = 303,
+	kRaveATIGetDrawBuffer    = 304,  // slot 4: GetDrawBuffer(ctx, TQADevice*) — Myth II
+	kRaveATIStub             = 305,  // filler for unidentified table slots; returns kQANotSupported
 
-	kRaveATIMethodCount      = 4
+	kRaveATIMethodCount      = 6
 };
 
 // Total TVECT count
 #define RAVE_TOTAL_METHODS (kRaveDrawMethodCount + kRaveEngineMethodCount + kRaveHookCount + kRaveATIMethodCount)
 
 // Maximum sub-opcode value (for array sizing)
-// Must cover ATI extension sub-opcodes at 300-303
-#define RAVE_MAX_SUBOPCODE 304
+// Must cover ATI extension sub-opcodes at 300-305
+#define RAVE_MAX_SUBOPCODE 306
 
 /*
  *  Draw context private data
@@ -705,5 +707,6 @@ extern int32_t NativeATIClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectA
 extern int32_t NativeATIClearZBuffer(uint32_t drawContextAddr, uint32_t rectAddr);
 extern int32_t NativeATITextureUpdate(uint32_t flags, uint32_t pixelType, uint32_t imagesAddr, uint32_t textureAddr);
 extern int32_t NativeATIBindCodeBook(uint32_t textureAddr, uint32_t codebookPtr);
+extern int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAddr);
 
 #endif /* RAVE_ENGINE_H */
