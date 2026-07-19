@@ -138,12 +138,12 @@ class GamepadConfig: Codable {
 			)
 			if let secondIndex = sideButtonMappings.firstIndex(where: { $0.position == secondIndexPosition }),
 			   sideButtonMappings.firstIndex(where: { $0.position == firstIndexPosition }) == nil {
-				let assigment = sideButtonMappings[secondIndex].assignment
+				let assignment = sideButtonMappings[secondIndex].assignment
 				removeAssignment(at: secondIndexPosition)
 
 				let newMapping = GamepadSideButtonMapping(
 					position: firstIndexPosition,
-					assignment: assigment
+					assignment: assignment
 				)
 				self.sideButtonMappings!.append(newMapping)
 

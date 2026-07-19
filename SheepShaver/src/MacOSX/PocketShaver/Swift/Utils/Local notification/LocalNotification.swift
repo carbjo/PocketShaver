@@ -20,6 +20,9 @@ enum LocalNotification: String {
 	case displayPreferencesRequested
 	case enteredKeyboardModeWhileUsingHardwareKeyboard
 	case catalystFullscreenStateChanged
+	case clipboardSharingSettingChanged
+	case clipboardSharingGuestToHost
+	case clipboardSharingHostToGuest
 
 	static func send(_ notification: LocalNotification, object: Any? = nil) {
 		NotificationCenter.default.post(
@@ -66,4 +69,20 @@ class LocalNotificationObjCProxy: NSObject {
 	static func sendCatalystFullscreenStateChanged() {
 		LocalNotification.send(.catalystFullscreenStateChanged)
 	}
+
+	static func sendClipboardSharingGuestToHost(content: ClipboardSharingContent) {
+		LocalNotification.send(.clipboardSharingGuestToHost, object: content)
+	}
+
+	static func sendClipboardSharingHostToGuest(content: ClipboardSharingContent) {
+		LocalNotification.send(.clipboardSharingHostToGuest, object: content)
+	}
+}
+
+@objc
+enum ClipboardSharingContent: Int {
+	case text
+	case image
+	case alreadyCopied
+	case empty
 }

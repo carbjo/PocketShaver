@@ -198,6 +198,14 @@ class InputInteractionModel {
 			if !isDown {
 				toggleRelativeMouseMode()
 			}
+		case .copyClipboardHostToGuest:
+			if !isDown {
+				objc_copyHostClipboardToGuestScrap()
+			}
+		case .copyClipboardGuestToHost:
+			if !isDown {
+				objc_copyGuestScrapToHostClipboard()
+			}
 		}
 	}
 

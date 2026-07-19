@@ -212,6 +212,7 @@
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
 		C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */; };
 		C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */; };
+		C7E39D6C300CFC0000830438 /* ClipboardSharing.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E39D6B300CFBFA00830438 /* ClipboardSharing.mm */; };
 		C7E7B4A62EB7BFF6005844C2 /* PreferencesLicensesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E7B4A52EB7BFEA005844C2 /* PreferencesLicensesViewController.swift */; };
 		C7F42CCC2E5A0C8200FA7169 /* FatalErrorAlertViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCB2E5A0C6D00FA7169 /* FatalErrorAlertViewController.swift */; };
 		C7F42CCE2E5A0F6F00FA7169 /* FatalErrorAlertViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7F42CCD2E5A0F6B00FA7169 /* FatalErrorAlertViewControllerObjC.mm */; };
@@ -857,6 +858,8 @@
 		C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OverlayViewControllerObjC.h; sourceTree = "<group>"; };
 		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
 		C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDLKey.swift; sourceTree = "<group>"; };
+		C7E39D6B300CFBFA00830438 /* ClipboardSharing.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ClipboardSharing.mm; sourceTree = "<group>"; };
+		C7E39D6D300CFC6200830438 /* ClipboardSharing.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ClipboardSharing.h; sourceTree = "<group>"; };
 		C7E7B4A52EB7BFEA005844C2 /* PreferencesLicensesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesLicensesViewController.swift; sourceTree = "<group>"; };
 		C7F42CCB2E5A0C6D00FA7169 /* FatalErrorAlertViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FatalErrorAlertViewController.swift; sourceTree = "<group>"; };
 		C7F42CCD2E5A0F6B00FA7169 /* FatalErrorAlertViewControllerObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = FatalErrorAlertViewControllerObjC.mm; sourceTree = "<group>"; };
@@ -1838,6 +1841,7 @@
 				C77F12212F39D4FD0033BE25 /* Gamepad */,
 				C77F12242F39D5750033BE25 /* Bonjour */,
 				C74035A92EDAEC1C0045B9C6 /* Performance counter */,
+				C7E39D6A300CFBCD00830438 /* Clipboard Sharing */,
 				GFXA10A1B2C3D4E5F60010 /* GfxAccel */,
 			);
 			path = Services;
@@ -2112,6 +2116,16 @@
 			path = Swift;
 			sourceTree = "<group>";
 		};
+		C7E39D6A300CFBCD00830438 /* Clipboard Sharing */ = {
+			isa = PBXGroup;
+			children = (
+				E204B9E728BC7CE80081FDCA /* clip_ios.mm */,
+				C7E39D6B300CFBFA00830438 /* ClipboardSharing.mm */,
+				C7E39D6D300CFC6200830438 /* ClipboardSharing.h */,
+			);
+			path = "Clipboard Sharing";
+			sourceTree = "<group>";
+		};
 		C7E7B4A42EB7BFCF005844C2 /* Licenses */ = {
 			isa = PBXGroup;
 			children = (
@@ -2217,7 +2231,6 @@
 			isa = PBXGroup;
 			children = (
 				C7E2AFBE2E19629100CF50D4 /* Swift */,
-				E204B9E728BC7CE80081FDCA /* clip_ios.mm */,
 				C74B222D2ED78079003D0F71 /* sheepicon.png */,
 				E204B9C128BC7BF10081FDCA /* Info.plist */,
 				E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */,
@@ -2729,6 +2742,7 @@
 				NQD10A1B2C3D4E5F60201 /* nqd_metal_renderer.mm in Sources */,
 				NQD10A1B2C3D4E5F60202 /* nqd_shaders.metal in Sources */,
 				MTLD00000000000000000002 /* metal_device_shared.mm in Sources */,
+				C7E39D6C300CFC0000830438 /* ClipboardSharing.mm in Sources */,
 				COMP10A1B2C3D4E5F60201 /* metal_compositor.mm in Sources */,
 				COMP10A1B2C3D4E5F60202 /* compositor_shaders.metal in Sources */,
 				COMP10A1B2C3D4E5F60402 /* metal_compositor_submitframe.mm in Sources */,

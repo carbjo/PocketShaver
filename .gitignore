@@ -33,9 +33,6 @@ project.xcworkspace/
 *.xccheckout
 *.xcscmblueprint
 
-# Project resources
-resources/
-
 #
 # JetBrains IDE settings
 #

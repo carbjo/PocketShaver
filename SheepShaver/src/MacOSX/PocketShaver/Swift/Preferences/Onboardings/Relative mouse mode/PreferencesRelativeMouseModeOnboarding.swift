@@ -40,9 +40,9 @@ class PreferencesRelativeMouseModeOnboardingCell: UITableViewCell {
 		let toggleOnText: String
 		switch UIDevice.deviceType {
 		case .iPhone:
-			toggleOnText = "By the <img/> button, located on top of the software keyboard. The software keyboard is accessed by swiping up with three fingers.\nThis button can also be added to a gamepad and toggled from there."
+			toggleOnText = "By a <img/> button (relative mouse mode toggle button), located in a gamepad overlay. Gamepad overlays can be accessed by swiping down with three fingers during emulation. The provided Example FPS overlay has this button, but you can edit or create new gamepad overlays to adapt to your needs."
 		case .iPad:
-			toggleOnText = "By the <img/> button, located on top of the software keyboard. The software keyboard is accessed by swiping up with three fingers.\nThis button can also be added to a gamepad and toggled from there.\nAlternatively, you can toggle it by pressing option + F5, if using a hardware keyboard."
+			toggleOnText = "By a <img/> button (relative mouse mode toggle button), located in a gamepad overlay. Gamepad overlays can be accessed by swiping down with three fingers during emulation. The provided Example FPS overlay has this button, but you can edit or create new gamepad overlays to adapt to your needs.\nAlternatively, you can toggle it by pressing option + F5, if using a hardware keyboard."
 		case .mac:
 			toggleOnText = "By pressing option + F5 (during emulation)."
 		}
@@ -51,7 +51,7 @@ class PreferencesRelativeMouseModeOnboardingCell: UITableViewCell {
 
 <mark>How do I steer with relative mouse mode on?</mark>
 
-When using bluetooth mouse on iPad, just use the mouse normally.
+When using bluetooth mouse on iPad or Mac, just use the mouse normally.
 When using touch input on iPhone or iPad, the mouse can be steered by either simply dragging with one finger or by mouse joystick in Gamepad mode.
 """
 

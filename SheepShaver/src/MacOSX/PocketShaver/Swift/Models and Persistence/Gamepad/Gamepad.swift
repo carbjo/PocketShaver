@@ -118,7 +118,8 @@ extension GamepadConfig {
 				.init(position: .init(side: .left, row: 3, index: 0), assignment: .key(.escape)),
 				.init(position: .init(side: .right, row: 1, index: 1), assignment: .joystick(.mouse)),
 				.init(position: .init(side: .right, row: 2, index: 0), assignment: .key(.space)),
-				.init(position: .init(side: .right, row: 3, index: 0), assignment: .key(.enter))
+				.init(position: .init(side: .right, row: 3, index: 0), assignment: .key(.enter)),
+				.init(position: .init(side: .left, row: 0, index: 3), assignment: .specialButton(.relativeMouseModeEnabled))
 			],
 			visibilitySetting: .both
 		)

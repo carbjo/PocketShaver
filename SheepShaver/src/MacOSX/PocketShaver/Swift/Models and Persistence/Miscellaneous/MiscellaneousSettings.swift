@@ -57,6 +57,11 @@ enum GammaRampSetting: String, Codable, CaseIterable {
 	case osDefined
 }
 
+enum ClipboardSharingSetting: String, Codable, CaseIterable {
+	case manual
+	case automatic
+}
+
 class MiscellaneousSettings: Codable {
 	private(set) var showHints: Bool
 	private(set) var iPadMousePassthrough: Bool
@@ -91,15 +96,13 @@ class MiscellaneousSettings: Codable {
 	private(set) var ignoreIllegalInstructions: Bool
 	private(set) var altivecEnabled: Bool
 	private(set) var ramInMb: Int
-	// Optional so persisted settings that pre-date the key still decode: the
-	// synthesized decoder uses decodeIfPresent for optionals, while a missing
-	// required key would throw and silently reset every saved setting
-	private(set) var jitEnabled: Bool?
-
-	var jitCompilerEnabled: Bool {
-		jitEnabled ?? false
+	private(set) var jitCompilerEnabled: Bool
+	private(set) var clipboardSharing: ClipboardSharingSetting {
+		didSet {
+			LocalNotification.send(.clipboardSharingSettingChanged)
+		}
 	}
-
+	private(set) var reportClipboardSharingActivity: Bool
 
 	var secondFingerClick: Bool {
 		twoFingerSteeringSetting != .off
@@ -154,7 +157,7 @@ class MiscellaneousSettings: Codable {
 		audioEnabled = true
 		fpsReporting = false
 		networkTransferRateReportingEnabled = false
-		frameRateSetting = .f60hz
+		frameRateSetting = .f120hz
 		alwaysLandscapeMode = Self.shouldDisplayAlwaysLandscapeModeOption
 		twoFingerSteeringSetting = .off
 		relativeMouseModeSetting = .manual
@@ -173,9 +176,13 @@ class MiscellaneousSettings: Codable {
 		altivecEnabled = true
 		ramInMb = 512
 		#if targetEnvironment(macCatalyst)
-		jitEnabled = true // JIT ships on by default on Mac Catalyst
+		jitCompilerEnabled = true
+		clipboardSharing = .automatic
+		reportClipboardSharingActivity = false
 		#else
-		jitEnabled = false
+		jitCompilerEnabled = false
+		clipboardSharing = .manual
+		reportClipboardSharingActivity = true
 		#endif
 	}
 
@@ -390,7 +397,7 @@ class MiscellaneousSettings: Codable {
 
 	@MainActor
 	func set(jitCompilerEnabled: Bool) {
-		self.jitEnabled = jitCompilerEnabled
+		self.jitCompilerEnabled = jitCompilerEnabled
 
 		saveAsCurrent()
 	}
@@ -398,6 +405,20 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(ramInMb: Int) {
 		self.ramInMb = ramInMb
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(clipboardSharing: ClipboardSharingSetting) {
+		self.clipboardSharing = clipboardSharing
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(reportClipboardSharingActivity: Bool) {
+		self.reportClipboardSharingActivity = reportClipboardSharingActivity
 
 		saveAsCurrent()
 	}
@@ -468,5 +489,10 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func getRamInMb() -> Int {
 		MiscellaneousSettings.current.ramInMb
+	}
+
+	@MainActor
+	static func isClipboardSharingAutomatic() -> Bool {
+		MiscellaneousSettings.current.clipboardSharing == .automatic
 	}
 }

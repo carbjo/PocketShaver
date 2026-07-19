@@ -11,10 +11,11 @@ import Combine
 class PreferencesAdvancedViewController: PreferencesTableViewController {
 	enum Section {
 		case ramSetting
-		case performanceMetrics
-		case uiOptions
+		case clipboardSharing
 		case relateiveMouseMode
 		case relateiveMouseModeClickGesture
+		case performanceMetrics
+		case uiOptions
 		case hapticFeedback
 		case cpuEmulation
 		case bootstrap
@@ -25,14 +26,10 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		//ramSetting
 		case ramSetting
 
-		//performanceMetrics
-		case performanceMetricsFpsCounterToggle
-		case performanceMetricsNetworkTransferRateToggle
-
-		//uiOptions
-		case uiOptionsHoverJustAbove
-		case uiOptionsAlwaysBootInLandscapeMode
-		case uiOptionsReportIpAddressAssignment
+		//clipboardSharing
+		case clipboardSharingOption(ClipboardSharingSetting)
+		case clipboardSharingMacToggle
+		case clipboardSharingInfo
 
 		//relateiveMouseMode
 		case relateiveMouseModeSetting
@@ -41,8 +38,18 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		case relateiveMouseModeBootInfo
 
 		// relateiveMouseModeClickGesture
-		case relativeMouseModeClickGestureSetting(RelativeMouseModeClickGestureSetting)
+		case relativeMouseModeClickGestureOption(RelativeMouseModeClickGestureSetting)
 		case relativeMouseModeClickGestureSettingInfo
+
+		//performanceMetrics
+		case performanceMetricsFpsCounterToggle
+		case performanceMetricsNetworkTransferRateToggle
+
+		//uiOptions
+		case uiOptionsHoverJustAbove
+		case uiOptionsAlwaysBootInLandscapeMode
+		case uiOptionsReportIpAddressAssignment
+		case uiOptionsReportClipboardSharingActivity
 
 		// hapticFeedback
 		case hapticFeedbackSwipeGesturesToggle
@@ -119,13 +126,111 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 			guard let self else { return UITableViewCell() }
 			switch itemIdentifier {
 			case .ramSetting:
-				return PreferencesAdvancedRamStepperCell(
-					initialRamSettting: model.ramSetting
-				) { [weak self] newValue in
-					guard let self else { return }
-					model.ramSetting = newValue
-					feedbackGenerator.impactOccurred()
+				if UIDevice.deviceType == .mac {
+					return PreferencesAdvancedMacRamStepperCell(
+						initialRamSettting: model.ramSetting
+					) { [weak self] newValue in
+						guard let self else { return }
+						model.ramSetting = newValue
+						feedbackGenerator.impactOccurred()
+					}
+				} else {
+					return PreferencesAdvancedRamStepperCell(
+						initialRamSettting: model.ramSetting
+					) { [weak self] newValue in
+						guard let self else { return }
+						model.ramSetting = newValue
+						feedbackGenerator.impactOccurred()
+					}
 				}
+			case .clipboardSharingOption(let setting):
+				return PreferencesRadioButtonChoiceCell(
+					title: setting.label,
+					isSelected: setting == model.clipboardSharingSetting
+				)
+			case .clipboardSharingMacToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Enable clipboard sharing",
+					isOn: model.clipboardSharingSetting == .automatic
+				) { [weak self] isOn in
+					guard let self else { return }
+					model.clipboardSharingSetting = isOn ? .automatic : .manual
+					dataSource.reloadItems([.clipboardSharingInfo])
+				}
+			case .clipboardSharingInfo:
+				return PreferencesInformationCell(
+					text: model.clipboardSharingSetting.infoString,
+					tagConfig: .init(
+						images: [
+							Assets.arrowRightPageOnClipboard.asSymbolImage(),
+							Assets.arrowLeftPageOnClipboard.asSymbolImage(),
+						]
+					)
+				)
+			case .relateiveMouseModeSetting:
+				return PreferencesAdvancedRelativeMouseModeSettingCell(
+					initialRelativeMouseModeSetting: model.relativeMouseModeSetting
+				) { [weak self] newFrameRateSetting in
+					guard let self else { return }
+					model.relativeMouseModeSetting = newFrameRateSetting
+					feedbackGenerator.impactOccurred()
+					reloadData()
+				}
+			case .relateiveMouseModeInfo(let relativeMouseModeSetting):
+				let duringEmulation = (model.mode == .startup) ? " during emulation" : ""
+				var toggleExplanation = ""
+				if relativeMouseModeSetting != .alwaysOn {
+					switch UIDevice.deviceType {
+					case .iPhone:
+						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping a <img/> button in a gamepad overlay."
+					case .iPad:
+						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping a <img/> button in a gamepad overlay. Alternatively by pressing option + F5, if using a hardware keyboard."
+					case .mac:
+						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by pressing option + F5."
+					}
+				}
+				return PreferencesInformationCell(
+					text: "Some games and apps require relative mouse mode to function.\(toggleExplanation) <link>Read more</link>.",
+					tagConfig: .init(
+						images: [ImageResource.arrowUpAndDownAndArrowLeftAndRight.asSymbolImage()]
+					)
+				) { [weak self] in
+					guard let self else { return }
+					let vc = PreferencesRelativeMouseModeOnboardingViewController()
+					let navVC = UINavigationController()
+					navVC.viewControllers = [vc]
+
+					present(navVC, animated: true)
+				}
+			case .relateiveMouseModeBoot:
+				return PreferencesEnabledSettingCell(
+					title: "Boot with relative mouse mode on",
+					isOn: model.bootInRelativeMouseMode
+				) { [weak self] isOn in
+					self?.model.bootInRelativeMouseMode = isOn
+				}
+			case .relateiveMouseModeBootInfo:
+				return PreferencesInformationCell(
+					text: "Only has effect when input is set to Mouse."
+				)
+			case .relativeMouseModeClickGestureOption(let setting):
+				return PreferencesRadioButtonChoiceCell(
+					title: setting.label,
+					isSelected: setting == model.relativeMouseModeClickGestureSetting
+				)
+			case .relativeMouseModeClickGestureSettingInfo:
+				let text: String
+				switch model.relativeMouseModeClickGestureSetting {
+				case .off:
+					text = "Click can only be performed with Gamepad button."
+				case .tap:
+					text = "A quick tap induces mouse click."
+				case .secondFingerClick:
+					text = "A second finger control mouse down / up action while the first finger controls the position, as with two finger steering."
+				}
+				return PreferencesInformationCell(
+					text: text
+				)
 			case .performanceMetricsFpsCounterToggle:
 				return PreferencesEnabledSettingCell(
 					title: "Show FPS counter",
@@ -163,70 +268,13 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 				) { [weak self] isOn in
 					self?.model.reportIpAddressAssignment = isOn
 				}
-			case .relateiveMouseModeSetting:
-				return PreferencesAdvancedRelativeMouseModeSettingCell(
-					initialRelativeMouseModeSetting: model.relativeMouseModeSetting
-				) { [weak self] newFrameRateSetting in
-					guard let self else { return }
-					model.relativeMouseModeSetting = newFrameRateSetting
-					feedbackGenerator.impactOccurred()
-					reloadData()
-				}
-			case .relateiveMouseModeInfo(let relativeMouseModeSetting):
-				let duringEmulation = (model.mode == .startup) ? " during emulation" : ""
-				var toggleExplanation = ""
-				if relativeMouseModeSetting != .alwaysOn {
-					switch UIDevice.deviceType {
-					case .iPhone:
-						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping the <img/> button above the keyboard or as a gamepad button."
-					case .iPad:
-						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by tapping the <img/> button above the software keyboard or as a gamepad button. Alternatively by pressing option + F5, if using a hardware keyboard."
-					case .mac:
-						toggleExplanation = " Relative mouse mode can be toggled on and off\(duringEmulation) by pressing option + F5."
-					}
-				}
-				return PreferencesInformationCell(
-					text: "Some games and apps require relative mouse mode to function.\(toggleExplanation) <link>Read more</link>.",
-					tagConfig: .init(
-						images: [ImageResource.arrowUpAndDownAndArrowLeftAndRight.asSymbolImage()]
-					)
-				) { [weak self] in
-					guard let self else { return }
-					let vc = PreferencesRelativeMouseModeOnboardingViewController()
-					let navVC = UINavigationController()
-					navVC.viewControllers = [vc]
-
-					present(navVC, animated: true)
-				}
-			case .relateiveMouseModeBoot:
+			case .uiOptionsReportClipboardSharingActivity:
 				return PreferencesEnabledSettingCell(
-					title: "Boot with relative mouse mode on",
-					isOn: model.bootInRelativeMouseMode
+					title: "Notify of clipboard sharing events",
+					isOn: model.reportClipboardSharingActivity
 				) { [weak self] isOn in
-					self?.model.bootInRelativeMouseMode = isOn
+					self?.model.reportClipboardSharingActivity = isOn
 				}
-			case .relateiveMouseModeBootInfo:
-				return PreferencesInformationCell(
-					text: "Only has effect when input is set to Mouse."
-				)
-			case .relativeMouseModeClickGestureSetting(let setting):
-				return PreferencesRadioButtonChoiceCell(
-					title: setting.label,
-					isSelected: setting == model.relativeMouseModeClickGestureSetting
-				)
-			case .relativeMouseModeClickGestureSettingInfo:
-				let text: String
-				switch model.relativeMouseModeClickGestureSetting {
-				case .off:
-					text = "Click can only be performed with Gamepad button."
-				case .tap:
-					text = "A quick tap induces mouse click."
-				case .secondFingerClick:
-					text = "A second finger control mouse down / up action while the first finger controls the position, as with two finger steering."
-				}
-				return PreferencesInformationCell(
-					text: text
-				)
 			case .hapticFeedbackSwipeGesturesToggle:
 				return PreferencesEnabledSettingCell(
 					title: "Two / three finger swipe gestures",
@@ -311,14 +359,16 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 			switch section {
 			case .ramSetting:
 				return "RAM setting"
-			case .performanceMetrics:
-				return "Performance metrics"
-			case .uiOptions:
-				return "UI options"
+			case .clipboardSharing:
+				return "Clipboard sharing"
 			case .relateiveMouseMode:
 				return "Relative mouse mode"
 			case .relateiveMouseModeClickGesture:
 				return "Relative mouse mode click gesture"
+			case .performanceMetrics:
+				return "Performance metrics"
+			case .uiOptions:
+				return "UI options"
 			case .hapticFeedback:
 				return "Haptic feedback"
 			case .cpuEmulation:
@@ -342,20 +392,18 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		snapshot.appendSections([.ramSetting])
 		snapshot.appendItems([.ramSetting])
 
-		snapshot.appendSections([.performanceMetrics])
-		snapshot.appendItems([
-			.performanceMetricsFpsCounterToggle,
-			.performanceMetricsNetworkTransferRateToggle
-		])
 
-		snapshot.appendSections([.uiOptions])
-		if UIDevice.deviceType != .mac {
-			snapshot.appendItems([.uiOptionsHoverJustAbove])
-			if model.shouldDisplayAlwaysLandscapeModeOption {
-				snapshot.appendItems([.uiOptionsAlwaysBootInLandscapeMode])
-			}
+		snapshot.appendSections([.clipboardSharing])
+		switch UIDevice.deviceType {
+		case .mac:
+			snapshot.appendItems([.clipboardSharingMacToggle])
+		default:
+			snapshot.appendItems([
+				.clipboardSharingOption(ClipboardSharingSetting.manual),
+				.clipboardSharingOption(ClipboardSharingSetting.automatic)
+			])
 		}
-		snapshot.appendItems([.uiOptionsReportIpAddressAssignment])
+		snapshot.appendItems([.clipboardSharingInfo])
 
 		snapshot.appendSections([.relateiveMouseMode])
 		snapshot.appendItems([
@@ -381,11 +429,27 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 
 		if !model.isIPadMouseEnabled {
 			snapshot.appendSections([.relateiveMouseModeClickGesture])
-			snapshot.appendItems(RelativeMouseModeClickGestureSetting.allCases.map({.relativeMouseModeClickGestureSetting($0)}))
+			snapshot.appendItems(RelativeMouseModeClickGestureSetting.allCases.map({.relativeMouseModeClickGestureOption($0)}))
 			snapshot.appendItems([
 				.relativeMouseModeClickGestureSettingInfo
 			])
 		}
+
+		snapshot.appendSections([.performanceMetrics])
+		snapshot.appendItems([
+			.performanceMetricsFpsCounterToggle,
+			.performanceMetricsNetworkTransferRateToggle
+		])
+
+		snapshot.appendSections([.uiOptions])
+		if UIDevice.deviceType != .mac {
+			snapshot.appendItems([.uiOptionsHoverJustAbove])
+			if model.shouldDisplayAlwaysLandscapeModeOption {
+				snapshot.appendItems([.uiOptionsAlwaysBootInLandscapeMode])
+			}
+		}
+		snapshot.appendItems([.uiOptionsReportIpAddressAssignment])
+		snapshot.appendItems([.uiOptionsReportClipboardSharingActivity])
 
 		if model.supportsHaptics {
 			snapshot.appendSections([.hapticFeedback])
@@ -402,14 +466,12 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 			.altivec,
 			.altivecInfo
 		])
-		// The JIT requires Mac Catalyst: iOS forbids executable code pages,
-		// so the emulator core is built without the compiler there
-		#if targetEnvironment(macCatalyst)
-		snapshot.appendItems([
-			.jitCompiler,
-			.jitCompilerInfo
-		])
-		#endif
+		if UIDevice.deviceType == .mac {
+			snapshot.appendItems([
+				.jitCompiler,
+				.jitCompilerInfo
+			])
+		}
 
 		if model.hasRomFile {
 			snapshot.appendSections([.bootstrap])
@@ -490,9 +552,22 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		tableView.endUpdates()
 	}
 
-	private func updateRelativeMouseModeClickGestureSettingCells() {
+	private func updateClipboardSharingOptionsCells() {
+		for setting in ClipboardSharingSetting.allCases {
+			guard let indexPath = dataSource.indexPath(for: .clipboardSharingOption(setting)),
+				  let cell = tableView.cellForRow(at: indexPath) as? PreferencesRadioButtonChoiceCell else {
+				continue
+			}
+
+			cell.configure(isSelected: setting == model.clipboardSharingSetting)
+		}
+
+		dataSource.reloadItems([.clipboardSharingInfo])
+	}
+
+	private func updateRelativeMouseModeClickGestureOptionsCells() {
 		for setting in RelativeMouseModeClickGestureSetting.allCases {
-			guard let indexPath = dataSource.indexPath(for: .relativeMouseModeClickGestureSetting(setting)),
+			guard let indexPath = dataSource.indexPath(for: .relativeMouseModeClickGestureOption(setting)),
 				  let cell = tableView.cellForRow(at: indexPath) as? PreferencesRadioButtonChoiceCell else {
 				continue
 			}
@@ -510,16 +585,14 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		let sectionType = dataSource.sectionIdentifier(for: indexPath.section)
 		let itemIdentifier = dataSource.itemIdentifier(for: indexPath)
 
-		if sectionType == .resources {
+		switch (sectionType, itemIdentifier) {
+		case (.resources, _),
+			(.relateiveMouseModeClickGesture, .relativeMouseModeClickGestureOption),
+			(.clipboardSharing, .clipboardSharingOption):
 			return true
+		default:
+			return false
 		}
-
-		if sectionType == .relateiveMouseModeClickGesture,
-		   case .relativeMouseModeClickGestureSetting = itemIdentifier {
-			return true
-		}
-
-		return false
 	}
 
 	override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -529,6 +602,22 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		let itemIdentifier = dataSource.itemIdentifier(for: indexPath)
 
 		switch sectionType {
+		case .clipboardSharing:
+			switch itemIdentifier {
+			case .clipboardSharingOption(let setting):
+				model.clipboardSharingSetting = setting
+				updateClipboardSharingOptionsCells()
+			default:
+				fatalError()
+			}
+		case .relateiveMouseModeClickGesture:
+			switch itemIdentifier {
+			case .relativeMouseModeClickGestureOption(let setting):
+				model.relativeMouseModeClickGestureSetting = setting
+				updateRelativeMouseModeClickGestureOptionsCells()
+			default:
+				fatalError()
+			}
 		case .resources:
 			switch itemIdentifier {
 			case .resourcesSetupInstuctions:
@@ -561,14 +650,6 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 				navVC.viewControllers = [vc]
 
 				present(navVC, animated: true)
-			default:
-				fatalError()
-			}
-		case .relateiveMouseModeClickGesture:
-			switch itemIdentifier {
-			case .relativeMouseModeClickGestureSetting(let setting):
-				model.relativeMouseModeClickGestureSetting = setting
-				updateRelativeMouseModeClickGestureSettingCells()
 			default:
 				fatalError()
 			}
@@ -609,6 +690,29 @@ private extension RelativeMouseModeClickGestureSetting {
 		case .off: "Off"
 		case .tap: "Tap"
 		case .secondFingerClick: "Second finger click (recommended)"
+		}
+	}
+}
+
+private extension ClipboardSharingSetting {
+	var label: String {
+		switch self {
+		case .manual: "Manual"
+		case .automatic: "Automatic sharing"
+		}
+	}
+
+	var infoString: String {
+		let osLabel = UIDevice.deviceType.osLabel
+		switch self {
+		case .manual:
+			if UIDevice.deviceType == .mac {
+				return "Clipboard content will not be shared."
+			} else {
+				return "Clipboard content is copied between Classic Mac OS and \(osLabel) by pressing <img/> and <img/> buttons, located above software keyboard. Also available as gamepad overlay buttons."
+			}
+		case .automatic:
+			return "Clipboard content is automatically copied between Classic Mac OS and \(osLabel) after each copy action, in either OS."
 		}
 	}
 }
