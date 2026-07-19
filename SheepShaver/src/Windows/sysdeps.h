@@ -424,6 +424,5 @@ extern uint32 call_macos7(uint32 tvect, uint32 arg1, uint32 arg2, uint32 arg3, u
 #ifdef __WIN32__
 typedef int64 loff_t;
 #endif
-#define ATTRIBUTE_PACKED __attribute__((__packed__))
 
 #endif

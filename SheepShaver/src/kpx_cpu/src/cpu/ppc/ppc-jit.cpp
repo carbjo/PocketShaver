@@ -235,7 +235,7 @@ bool powerpc_jit::initialize(void)
 
 #if defined(__APPLE__)
 		// Packed-float fast paths whose SSE semantics differ from the
-		// interpreter's C arithmetic â€” NaN sign/payload, Â±0 ordering in
+		// interpreter's C arithmetic — NaN sign/payload, ±0 ordering in
 		// max/min, non-fused multiply-add rounding, unordered compares,
 		// and hardware estimate precision. Keep these on the generic ops
 		// so the JIT stays bit-identical with the interpreter (the
@@ -308,7 +308,7 @@ bool powerpc_jit::initialize(void)
 		// generic dyngen ops were compiled from the upstream-era C and
 		// cannot track this fork's evolved float semantics (fused
 		// vmaddfp/vnmsubfp, NaN sign/payload propagation, estimate
-		// precision), and the SSE fast paths differ further (Â±0 in
+		// precision), and the SSE fast paths differ further (±0 in
 		// max/min, unordered compares). The lockstep harness holds the
 		// JIT bit-identical to the interpreter; only the float family
 		// pays the interpreter-invoke cost.
@@ -339,7 +339,7 @@ bool powerpc_jit::initialize(void)
 		// The SSSE3 fast paths reference their literal pools through
 		// absolute disp32 operands, which requires the JIT data pool below
 		// 4GB. Darwin has no MAP_32BIT, so under MEM_BULK that cannot be
-		// guaranteed â€” leave lvx/stvx/vperm to the generic vector ops.
+		// guaranteed — leave lvx/stvx/vperm to the generic vector ops.
 #if !defined(__APPLE__)
 		if (cpuinfo_check_ssse3()) {
 			for (int i = 0; i < sizeof(ssse3_vector) / sizeof(ssse3_vector[0]); i++)

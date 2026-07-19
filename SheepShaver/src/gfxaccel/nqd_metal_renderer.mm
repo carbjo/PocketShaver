@@ -19,7 +19,7 @@
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "nqd_accel.h"
-#include "accel_logging.h"
+#include "gfx_log.h"
 #include "dsp_pixmap_offsets.h"
 #include "gl_offscreen_policy.h"
 #include "nqd_main_device_policy.h"
@@ -32,7 +32,7 @@
 
 #import <os/log.h>
 #if ACCEL_LOGGING_ENABLED
-bool nqd_logging_enabled = accel_log_detail::subsystem_on("nqd");
+bool nqd_logging_enabled = accel_log_subsystem_on("nqd");
 os_log_t nqd_log = OS_LOG_DEFAULT;
 static struct NQDLogInit {
     NQDLogInit() { nqd_log = os_log_create("com.pocketshaver.nqd", "metal"); }

@@ -48,8 +48,6 @@ extern "C" uint64_t gfxaccel_resources_heap_mm_reset(uint32_t heap_id);
 extern "C" void gfxaccel_resources_heap_mm_note_allocation_released(uint32_t heap_id);
 extern "C" uint32_t gfxaccel_resources_heap_mm_live_allocation_count(uint32_t heap_id);
 
-namespace {
-
 // ---------------------------------------------------------------------------
 // File-scope state
 // ---------------------------------------------------------------------------
@@ -155,7 +153,6 @@ static DMCSubscriber s_heap_reset_subscriber = {
 	/* .ctx           = */ NULL
 };
 
-} // namespace (anonymous)
 
 // ---------------------------------------------------------------------------
 // Public API - Lifecycle
@@ -198,7 +195,7 @@ extern "C" void gfxaccel_resources_heap_shutdown(void)
 	// Unregister the DMC bump-reset subscriber BEFORE
 	// tearing down Metal-side state. Tolerate kDMCErrSubscriberNotFound so
 	// repeated shutdowns (or shutdown-before-init via testing_reset) don't
-	// emit noise. Using the static .name pointer directly — matches the
+	// emit noise. Using the static .name pointer directly - matches the
 	// gfxaccel_resources unsubscribe precedent.
 	(void)dmc_unsubscribe(s_heap_reset_subscriber.name);
 

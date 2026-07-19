@@ -30,7 +30,7 @@
  *    - There is a pointer to Thread Local Storage (TLS) under Linux with
  *      recent enough glibc. This is r2 in 32-bit mode and r13 in
  *      64-bit mode (PowerOpen/AIX ABI)
- *    - r13 is used as a small data pointer under Linux (but appearently
+ *    - r13 is used as a small data pointer under Linux (but apparently
  *      it is not used this way? To be sure, we specify -msdata=none
  *      in the Makefile)
  *    - There are no TVECTs under Linux; function pointers point
@@ -114,7 +114,6 @@
 #include "sigsegv.h"
 #include "sigregs.h"
 #include "rpc.h"
-#include "cpu/jit/jit-wx.hpp"
 
 #define DEBUG 0
 #include "debug.h"
@@ -161,15 +160,6 @@
 #include "mon.h"
 #endif
 
-#if TARGET_OS_IPHONE
-#import "OverlayViewControllerObjC.h"
-#import "FatalErrorAlertViewControllerObjCCppHeader.h"
-#import "PreferencesViewControllerObjCCppHeader.h"
-#import "RomPathObjC.h"
-#import "MiscellaneousSettingsObjCCppHeader.h"
-#endif
-
-#define SHOW_IOS_PREFS_ON_LAUNCH 1
 
 // Enable emulation of unaligned lmw/stmw?
 #define EMULATE_UNALIGNED_LOADSTORE_MULTIPLE 1
@@ -183,12 +173,14 @@
 // Interrupts in native mode?
 #define INTERRUPTS_IN_NATIVE_MODE 1
 
+
 // Constants
 const char ROM_FILE_NAME[] = "ROM";
-const char ROM_FILE_NAME2[] = ".rom";
+const char ROM_FILE_NAME2[] = "Mac OS ROM";
 
 #if !REAL_ADDRESSING
-const uintptr RAM_BASE = 0x00000000;		// Base address of RAM
+// FIXME: needs to be >= 0x04000000
+const uintptr RAM_BASE = 0x10000000;		// Base address of RAM
 #endif
 const uintptr ROM_BASE = 0x50000000;		// Base address of ROM
 #if REAL_ADDRESSING
@@ -215,13 +207,11 @@ int64 TimebaseSpeed;	// Timebase clock speed (Hz)
 uint8 *RAMBaseHost;		// Base address of Mac RAM (host address space)
 uint8 *ROMBaseHost;		// Base address of Mac ROM (host address space)
 uint32 ROMEnd;
+// vde switch variable
+char* vde_sock;
 
-#if defined(__APPLE__) && (defined(__x86_64__) || defined(__aarch64__)) || defined(MEM_BULK)
-// gKernelData is a 16 KB window: KernelData struct in the upper 8 KB
-// (0x68ffe000 / 0x5fffe000), nanokernel stack slack in the lower 8 KB
-// (0x68ffc000 / 0x5fffc000). See vm_do_get_real_address in
-// kpx_cpu/src/cpu/vm.hpp.
-uint8 gZeroPage[0x3000], gKernelData[0x4000];
+#if defined(__APPLE__) && defined(__x86_64__) || defined(MEM_BULK)
+uint8 gZeroPage[0x3000], gKernelData[0x2000];
 #endif
 
 // Global variables
@@ -250,8 +240,6 @@ static pthread_t nvram_thread;				// NVRAM watchdog
 static bool tick_thread_active = false;		// Flag: MacOS thread installed
 static volatile bool tick_thread_cancel;	// Flag: Cancel 60Hz thread
 static pthread_t tick_thread;				// 60Hz thread
-static int tick_cycle;
-static uint64 tick_duration;
 static pthread_t emul_thread;				// MacOS thread
 static int use_gui = -1;   					// Override prefs and show gui
 
@@ -281,7 +269,7 @@ uintptr SheepMem::data;						// Top of SheepShaver data (stack like storage)
 
 
 // Prototypes
-#if (!defined(__APPLE__) || !defined(__x86_64__)) && !defined(TARGET_OS_IPHONE)
+#if !defined(__APPLE__) || !defined(__x86_64__)
 static bool kernel_data_init(void);
 static bool shm_map_address(int kernel_area, uint32 addr);
 #endif
@@ -334,24 +322,40 @@ uintptr SignalStackBase(void)
 
 /*
  *  Atomic operations
- *
- *  InterruptFlags is set from interrupt-source threads (tick, video, audio)
- *  and cleared from the CPU thread, so these must be real atomic RMWs.
  */
+
+#if HAVE_SPINLOCKS
+static spinlock_t atomic_ops_lock = SPIN_LOCK_UNLOCKED;
+#else
+#define spin_lock(LOCK)
+#define spin_unlock(LOCK)
+#endif
 
 int atomic_add(int *var, int v)
 {
-	return __atomic_fetch_add(var, v, __ATOMIC_SEQ_CST);
+	spin_lock(&atomic_ops_lock);
+	int ret = *var;
+	*var += v;
+	spin_unlock(&atomic_ops_lock);
+	return ret;
 }
 
 int atomic_and(int *var, int v)
 {
-	return __atomic_fetch_and(var, v, __ATOMIC_SEQ_CST);
+	spin_lock(&atomic_ops_lock);
+	int ret = *var;
+	*var &= v;
+	spin_unlock(&atomic_ops_lock);
+	return ret;
 }
 
 int atomic_or(int *var, int v)
 {
-	return __atomic_fetch_or(var, v, __ATOMIC_SEQ_CST);
+	spin_lock(&atomic_ops_lock);
+	int ret = *var;
+	*var |= v;
+	spin_unlock(&atomic_ops_lock);
+	return ret;
 }
 #endif
 
@@ -417,16 +421,7 @@ static void get_system_info(void)
 	TimebaseSpeed =  25000000;	// Default:  25MHz
 
 #if EMULATED_PPC
-	/* AltiVec toggle (Preferences ▸ Advanced ▸ CPU emulation; default on):
-	 * advertise a 7400 G4 so AltiVec-aware guest code (QuickTime's vectorized
-	 * IDCT/colour-convert, game fast paths) uses the kpx_cpu VMX
-	 * implementation. Turning it off reports a 740/750 G3 — the OS then
-	 * publishes no vector gestalt and the same software falls back to its
-	 * scalar paths. Experimental lever for suspected VMX-interpreter bugs and
-	 * graphics-acceleration conflicts (QuickTime image decode producing
-	 * chroma-scrambled, block-striped output is the canonical symptom). */
-	PVR = objc_getAltivec() ? 0x000c0000   // 7400 (with AltiVec)
-	                        : 0x00084202;  // 740/750 G3 (no AltiVec)
+	PVR = 0x000c0000;			// Default: 7400 (with AltiVec)
 	int pref_cpu_clock = PrefsFindInt32("cpuclock");
 	if (pref_cpu_clock) CPUClockSpeed = 1000000 * pref_cpu_clock;
 #elif defined(__APPLE__) && defined(__MACH__)
@@ -616,16 +611,6 @@ static bool load_mac_rom(void)
 	uint32 rom_size, actual;
 	uint8 *rom_tmp;
 	const char *rom_path = PrefsFindString("rom");
-	
-	if (rom_path) {
-		printf ("%s rom_path: %s\n", __PRETTY_FUNCTION__, rom_path);
-	}
-	printf ("%s ROM_FILE_NAME: %s\n", __PRETTY_FUNCTION__, ROM_FILE_NAME);
-	printf ("%s ROM_FILE_NAME2: %s\n", __PRETTY_FUNCTION__, ROM_FILE_NAME2);
-	
-#if TARGET_OS_IPHONE
-	rom_path = objc_romPath();
-#endif
 	int rom_fd = open(rom_path && *rom_path ? rom_path : ROM_FILE_NAME, O_RDONLY);
 	if (rom_fd < 0) {
 		rom_fd = open(ROM_FILE_NAME2, O_RDONLY);
@@ -634,7 +619,6 @@ static bool load_mac_rom(void)
 			return false;
 		}
 	}
-	
 	printf("%s", GetString(STR_READING_ROM_FILE));
 	rom_size = lseek(rom_fd, 0, SEEK_END);
 	lseek(rom_fd, 0, SEEK_SET);
@@ -655,16 +639,6 @@ static bool load_mac_rom(void)
 	delete[] rom_tmp;
 	return true;
 }
-
-#if TARGET_OS_IPHONE
-static bool check_prefs(void)
-{
-#if SHOW_IOS_PREFS_ON_LAUNCH
-	objc_displayPreferencesStartup();
-#endif
-	return true;
-}
-#endif
 
 static bool install_signal_handlers(void)
 {
@@ -738,10 +712,10 @@ static bool init_sdl()
 	assert(sdl_flags != 0);
 
 #ifdef USE_SDL_VIDEO
-#if REAL_ADDRESSING && defined(GDK_WINDOWING_WAYLAND)
-	// Needed to fix a crash when using Wayland
-	// Forces use of XWayland instead
-	setenv("SDL_VIDEODRIVER", "x11", true);
+#if REAL_ADDRESSING && defined(__linux__)
+	// Wayland's mmap usage conflicts with fixed low-address mappings; force XWayland.
+	if (getenv("WAYLAND_DISPLAY") && !getenv("SDL_VIDEODRIVER"))
+		setenv("SDL_VIDEODRIVER", "x11", 0);
 #endif
 
 	// Don't let SDL block the screensaver
@@ -814,12 +788,7 @@ static void gui_activate (GtkApplication *app)
 #endif
 #endif
 
-extern "C" {
-#if TARGET_OS_IPHONE
-int main_ios(int argc, char* argv[])
-#else
-int main(int argc, char *argv[])
-#endif
+int main(int argc, char **argv)
 {
 #ifdef ENABLE_GTK3
 	GtkApplication *app = NULL;
@@ -828,22 +797,14 @@ int main(int argc, char *argv[])
 	char str[256];
 	bool memory_mapped_from_zero, ram_rom_areas_contiguous;
 	const char *vmdir = NULL;
-	
+
 	// Initialize variables
 	RAMBase = 0;
 	tzset();
-	
+
 	// Print some info
 	printf(GetString(STR_ABOUT_TEXT1), VERSION_MAJOR, VERSION_MINOR);
 	printf(" %s\n", GetString(STR_ABOUT_TEXT2));
-
-#ifdef __APPLE__
-	// Probe the W^X code-memory path (MAP_JIT + write callback); passes
-	// on macOS / Mac Catalyst with the allow-jit entitlement or a
-	// non-hardened signature, and is expected to fail on iOS devices
-	printf("JIT W^X self-test: %s\n", jit_wx_selftest() ? "pass" : "unavailable");
-	fflush(stdout);
-#endif
 
 #if !EMULATED_PPC
 #ifdef SYSTEM_CLOBBERS_R2
@@ -855,7 +816,7 @@ int main(int argc, char *argv[])
 	R13 = get_r13();
 #endif
 #endif
-	
+
 #if SDL_PLATFORM_MACOS
 	set_current_directory();
 #endif
@@ -932,7 +893,7 @@ int main(int argc, char *argv[])
 			break;
 		}
 	}
-	
+
 	// Remove processed arguments
 	for (int i=1; i<argc; i++) {
 		int k;
@@ -946,7 +907,7 @@ int main(int argc, char *argv[])
 			argc -= k;
 		}
 	}
-	
+
 	// Connect to the external GUI
 	if (gui_connection_path) {
 		if ((gui_connection = rpc_init_client(gui_connection_path)) == NULL) {
@@ -954,14 +915,15 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 	}
-	
+
 	// Read preferences
 	PrefsInit(vmdir, argc, argv);
 	// Only use nogui preference if not passed as command line argument
 	if (use_gui == -1)
 		use_gui = !PrefsFindBool("nogui");
-	
-#if SDL_PLATFORM_MACOS && SDL_VERSION_ATLEAST(2,0,0)
+
+#if SDL_PLATFORM_MACOS
+#if SDL_VERSION_ATLEAST(2,0,0)
 	// On Mac OS X hosts, SDL2 will create its own menu bar.  This is mostly OK,
 	// except that it will also install keyboard shortcuts, such as Command + Q,
 	// which can interfere with keyboard shortcuts in the guest OS.
@@ -969,6 +931,7 @@ int main(int argc, char *argv[])
 	// HACK: disable these shortcuts, while leaving all other pieces of SDL2's
 	// menu bar in-place.
 	disable_SDL2_macosx_menu_bar_keyboard_shortcuts();
+#endif
 #endif
 	
 	// Any command line arguments left?
@@ -978,7 +941,7 @@ int main(int argc, char *argv[])
 			usage(argv[0]);
 		}
 	}
-	
+
 #ifndef USE_SDL_VIDEO
 	// Open display
 	x_display = XOpenDisplay(x_display_name);
@@ -988,36 +951,31 @@ int main(int argc, char *argv[])
 		ErrorAlert(str);
 		goto quit;
 	}
-	
+
 #if defined(ENABLE_XF86_DGA) && !defined(ENABLE_MON)
 	// Fork out, so we can return from fullscreen mode when things get ugly
 	XF86DGAForkApp(DefaultScreen(x_display));
 #endif
 #endif
-	
+
 #ifdef ENABLE_MON
 	// Initialize mon
 	mon_init();
 #endif
-	
-	// Install signal handlers
+
+  // Install signal handlers
 	if (!install_signal_handlers())
 		goto quit;
-	
+
 	// Initialize VM system
-	if (vm_init() < 0) {
-		sprintf(str, "Could not initialize virtual memory system.\n");
-		ErrorAlert(str);
-		objc_displayRamAllocFailedAlert();
-		goto quit;
-	}
-	
+	vm_init();
+
 	// Get system info
 	get_system_info();
-	
+
 	// Init system routines
 	SysInit();
-	
+
 #ifdef ENABLE_GTK3
 	if (!gui_connection) {
 		// Init GTK
@@ -1030,18 +988,18 @@ int main(int argc, char *argv[])
 	}
 #elif defined(ENABLE_GTK)
 	if (!gui_connection) {
-		// Init GTK
+	// Init GTK
 		gtk_set_locale();
 		gtk_init(&argc, &argv);
 		gui_startup();
 	}
 #endif
-	
+
 #if !EMULATED_PPC
 	// Check some things
 	paranoia_check();
 #endif
-	
+
 	// Open /dev/zero
 	zero_fd = open("/dev/zero", O_RDWR);
 	if (zero_fd < 0) {
@@ -1049,8 +1007,8 @@ int main(int argc, char *argv[])
 		ErrorAlert(str);
 		goto quit;
 	}
-	
-#if !(defined(__APPLE__) && defined(__x86_64__) || defined(MEM_BULK)) && !defined(TARGET_OS_IPHONE)
+
+#if !(defined(__APPLE__) && defined(__x86_64__) || defined(MEM_BULK))
 	// Create areas for Kernel Data
 	if (!kernel_data_init())
 		goto quit;
@@ -1086,18 +1044,10 @@ int main(int argc, char *argv[])
 #endif
 	
 	// Create area for Mac RAM
-#ifdef TARGET_OS_IPHONE
-	if (!check_prefs())
-		goto quit;
-	
-	RAMSize = objc_getRamInMb() * 1024 * 1024;
-#else
 	RAMSize = PrefsFindInt32("ramsize");
 	if (RAMSize <= 1000) {
 		RAMSize *= 1024 * 1024;
 	}
-#endif
-
 	if (RAMSize < 16 * 1024 * 1024) {
 		WarningAlert(GetString(STR_SMALL_RAM_WARN));
 		RAMSize = 16 * 1024 * 1024;
@@ -1135,13 +1085,12 @@ int main(int argc, char *argv[])
 		ROMBase = (RAMBase + RAMSize + ROM_ALIGNMENT -1) & -ROM_ALIGNMENT;
 		ROMBaseHost = RAMBaseHost + ROMBase - RAMBase;
 		ROMEnd = RAMBase + RAMSize + ROM_AREA_SIZE + ROM_ALIGNMENT;
-		
+
 		ram_rom_areas_contiguous = true;
 #else
 		if (vm_mac_acquire_fixed(RAM_BASE, RAMSize) < 0) {
 			sprintf(str, GetString(STR_RAM_MMAP_ERR), strerror(errno));
 			ErrorAlert(str);
-			objc_displayRamAllocFailedAlert();
 			goto quit;
 		}
 		RAMBase = RAM_BASE;
@@ -1157,7 +1106,7 @@ int main(int argc, char *argv[])
 #endif
 	ram_area_mapped = true;
 	D(bug("RAM area at %p (%08x)\n", RAMBaseHost, RAMBase));
-	
+
 	if (RAMBase > KernelDataAddr) {
 		ErrorAlert(GetString(STR_RAM_AREA_TOO_HIGH_ERR));
 		goto quit;
@@ -1183,12 +1132,12 @@ int main(int argc, char *argv[])
 #endif
 	rom_area_mapped = true;
 	D(bug("ROM area at %p (%08x)\n", ROMBaseHost, ROMBase));
-	
+
 	if (RAMBase > ROMBase) {
 		ErrorAlert(GetString(STR_RAM_HIGHER_THAN_ROM_ERR));
 		goto quit;
 	}
-	
+
 	// Create area for SheepShaver data
 	if (!SheepMem::Init()) {
 		sprintf(str, GetString(STR_SHEEP_MEM_MMAP_ERR), strerror(errno));
@@ -1199,36 +1148,29 @@ int main(int argc, char *argv[])
 	// Load Mac ROM
 	if (!load_mac_rom())
 		goto quit;
-	
+
 	// Initialize everything
 	if (!InitAll(vmdir))
 		goto quit;
 	D(bug("Initialization complete\n"));
-	
-#if TARGET_OS_IPHONE
-	objc_initOverlayViewController();
-#endif
-	
+
 	// Clear caches (as we loaded and patched code) and write protect ROM
 #if !EMULATED_PPC
 	flush_icache_range(ROMBase, ROMBase + ROM_AREA_SIZE);
 #endif
 	vm_protect(ROMBaseHost, ROM_AREA_SIZE, VM_PAGE_READ | VM_PAGE_EXECUTE);
 
-	tick_cycle = objc_getFrameRateSetting();
-	tick_duration = 1000000 / tick_cycle;
-
 	// Start 60Hz thread
 	tick_thread_cancel = false;
 	tick_thread_active = (pthread_create(&tick_thread, NULL, tick_func, NULL) == 0);
 	D(bug("Tick thread installed (%ld)\n", tick_thread));
-	
+
 	// Start NVRAM watchdog thread
 	memcpy(last_xpram, XPRAM, XPRAM_SIZE);
 	nvram_thread_cancel = false;
 	nvram_thread_active = (pthread_create(&nvram_thread, NULL, nvram_func, NULL) == 0);
 	D(bug("NVRAM thread installed (%ld)\n", nvram_thread));
-	
+
 #if !EMULATED_PPC
 	// Install SIGILL handler
 	sigemptyset(&sigill_action.sa_mask);	// Block interrupts during ILL handling
@@ -1244,7 +1186,7 @@ int main(int argc, char *argv[])
 		goto quit;
 	}
 #endif
-	
+
 #if !EMULATED_PPC
 	// Install interrupt signal handler
 	sigemptyset(&sigusr2_action.sa_mask);
@@ -1259,18 +1201,17 @@ int main(int argc, char *argv[])
 		goto quit;
 	}
 #endif
-	
+
 	// Get my thread ID and execute MacOS thread function
 	emul_thread = pthread_self();
 	D(bug("MacOS thread is %ld\n", emul_thread));
 	emul_func(NULL);
-	
+
 quit:
 	Quit();
 	return 0;
 }
 
-}	// extern "C"
 
 /*
  *  Cleanup and quit
@@ -1372,7 +1313,7 @@ static void Quit(void)
 	exit(0);
 }
 
-#if (!defined(__APPLE__) || !defined(__x86_64__)) && !defined(TARGET_OS_IPHONE)
+#if !defined(__APPLE__) || !defined(__x86_64__)
 /*
  *  Initialize Kernel Data segments
  */
@@ -1579,11 +1520,11 @@ static void *tick_func(void *arg)
 	while (!tick_thread_cancel) {
 
 		// Wait
-		next += tick_duration;
+		next += 16625;
 		int64 delay = next - GetTicks_usec();
 		if (delay > 0)
 			Delay_usec(delay);
-		else if (delay < -tick_duration)
+		else if (delay < -16625)
 			next = GetTicks_usec();
 		if (tick_inhibit) continue;
 		ticks++;
@@ -1594,10 +1535,9 @@ static void *tick_func(void *arg)
 
 			// Yes, dump registers
 			sigregs *r = &sigsegv_regs;
-			char str[256];
 			if (crash_reason == NULL)
 				crash_reason = "SIGSEGV";
-			sprintf(str, "%s\n"
+			printf("%s\n"
 				"   pc %08lx     lr %08lx    ctr %08lx    msr %08lx\n"
 				"  xer %08lx     cr %08lx  \n"
 				"   r0 %08lx     r1 %08lx     r2 %08lx     r3 %08lx\n"
@@ -1619,7 +1559,6 @@ static void *tick_func(void *arg)
 				r->gpr[20], r->gpr[21], r->gpr[22], r->gpr[23],
 				r->gpr[24], r->gpr[25], r->gpr[26], r->gpr[27],
 				r->gpr[28], r->gpr[29], r->gpr[30], r->gpr[31]);
-			printf(str);
 			VideoQuitFullScreen();
 
 #ifdef ENABLE_MON
@@ -1633,7 +1572,7 @@ static void *tick_func(void *arg)
 #endif
 
 		// Pseudo Mac 1Hz interrupt, update local time
-		if (++tick_counter > tick_cycle) {
+		if (++tick_counter > 60) {
 			tick_counter = 0;
 			WriteMacInt32(0x20c, TimerDateTime());
 		}
@@ -1645,10 +1584,8 @@ static void *tick_func(void *arg)
 		}
 	}
 
-#if DEBUG
-	uint64 end = GetTicks_usec();
+	D(uint64 end = GetTicks_usec());
 	D(bug("%lld ticks in %lld usec = %f ticks/sec\n", ticks, end - start, ticks * 1000000.0 / (end - start)));
-#endif
 	return NULL;
 }
 
@@ -1830,6 +1767,7 @@ void EnableInterrupt(void)
  */
 
 #if !EMULATED_PPC
+__attribute__((no_stack_protector))
 void sigusr2_handler(int sig, siginfo_t *sip, void *scp)
 {
 	machine_regs *r = MACHINE_REGISTERS(scp);
@@ -1859,8 +1797,8 @@ void sigusr2_handler(int sig, siginfo_t *sip, void *scp)
 	switch (ReadMacInt32(XLM_RUN_MODE)) {
 		case MODE_68K:
 			// 68k emulator active, trigger 68k interrupt level 1
-			WriteMacInt16(ReadMacInt32(0x67c), 1);
-			r->cr() |= ReadMacInt32(0x674);
+			WriteMacInt16(ReadMacInt32(KERNEL_DATA_BASE + 0x67c), 1);
+			r->cr() |= ReadMacInt32(KERNEL_DATA_BASE + 0x674);
 			break;
 
 #if INTERRUPTS_IN_NATIVE_MODE
@@ -1872,8 +1810,10 @@ void sigusr2_handler(int sig, siginfo_t *sip, void *scp)
 				sigaltstack(&extra_stack, NULL);
 				
 				// Prepare for 68k interrupt level 1
-				WriteMacInt16(ReadMacInt32(0x67c), 1);
-				WriteMacInt32(ReadMacInt32(0x658) + 0xdc, ReadMacInt32(ReadMacInt32(0x658) + 0xdc) | ReadMacInt32(0x674));
+				WriteMacInt16(ReadMacInt32(KERNEL_DATA_BASE + 0x67c), 1);
+				WriteMacInt32(ReadMacInt32(KERNEL_DATA_BASE + 0x658) + 0xdc,
+								ReadMacInt32(ReadMacInt32(KERNEL_DATA_BASE + 0x658) + 0xdc)
+								| ReadMacInt32(KERNEL_DATA_BASE + 0x674));
 
 				// Execute nanokernel interrupt routine (this will activate the 68k emulator)
 				DisableInterrupt();
@@ -1935,6 +1875,7 @@ void sigusr2_handler(int sig, siginfo_t *sip, void *scp)
  */
 
 #if !EMULATED_PPC
+__attribute__((no_stack_protector))
 static void sigsegv_handler(int sig, siginfo_t *sip, void *scp)
 {
 	machine_regs *r = MACHINE_REGISTERS(scp);
@@ -2157,7 +2098,7 @@ static void sigsegv_handler(int sig, siginfo_t *sip, void *scp)
 	// For all other errors, jump into debugger (sort of...)
 	crash_reason = (sig == SIGBUS) ? "SIGBUS" : "SIGSEGV";
 	if (!ready_for_signals) {
-		printf("%s\n");
+		printf("%s\n", crash_reason);
 		printf(" sigcontext %p, machine_regs %p\n", scp, r);
 		printf(
 			"   pc %08lx     lr %08lx    ctr %08lx    msr %08lx\n"
@@ -2170,7 +2111,6 @@ static void sigsegv_handler(int sig, siginfo_t *sip, void *scp)
 			"  r20 %08lx    r21 %08lx    r22 %08lx    r23 %08lx\n"
 			"  r24 %08lx    r25 %08lx    r26 %08lx    r27 %08lx\n"
 			"  r28 %08lx    r29 %08lx    r30 %08lx    r31 %08lx\n",
-			crash_reason,
 			r->pc(), r->lr(), r->ctr(), r->msr(),
 			r->xer(), r->cr(),
 			r->gpr(0), r->gpr(1), r->gpr(2), r->gpr(3),
@@ -2197,7 +2137,7 @@ rti:;
 /*
  *  SIGILL handler
  */
-
+__attribute__((no_stack_protector))
 static void sigill_handler(int sig, siginfo_t *sip, void *scp)
 {
 	machine_regs *r = MACHINE_REGISTERS(scp);
@@ -2332,7 +2272,7 @@ power_inst:		sprintf(str, GetString(STR_POWER_INSTRUCTION_ERR), r->pc(), r->gpr(
 	// For all other errors, jump into debugger (sort of...)
 	crash_reason = "SIGILL";
 	if (!ready_for_signals) {
-		printf("%s\n");
+		printf("%s\n", crash_reason);
 		printf(" sigcontext %p, machine_regs %p\n", scp, r);
 		printf(
 			"   pc %08lx     lr %08lx    ctr %08lx    msr %08lx\n"
@@ -2345,7 +2285,6 @@ power_inst:		sprintf(str, GetString(STR_POWER_INSTRUCTION_ERR), r->pc(), r->gpr(
 			"  r20 %08lx    r21 %08lx    r22 %08lx    r23 %08lx\n"
 			"  r24 %08lx    r25 %08lx    r26 %08lx    r27 %08lx\n"
 			"  r28 %08lx    r29 %08lx    r30 %08lx    r31 %08lx\n",
-			crash_reason,
 			r->pc(), r->lr(), r->ctr(), r->msr(),
 			r->xer(), r->cr(),
 			r->gpr(0), r->gpr(1), r->gpr(2), r->gpr(3),

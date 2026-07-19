@@ -1139,7 +1139,7 @@ struct GLContext {
     // ---- Enable/disable caps ----
     bool     depth_test;
     bool     blend;
-    bool     color_sum;                // GL_COLOR_SUM (EXT_secondary_color) — add secondary color after texturing
+    bool     color_sum;                // GL_COLOR_SUM (EXT_secondary_color) - add secondary color after texturing
     bool     cull_face_enabled;
     uint32_t cull_face_mode;           // GL_FRONT, GL_BACK, GL_FRONT_AND_BACK
     uint32_t front_face;               // GL_CCW or GL_CW
@@ -1412,6 +1412,10 @@ extern uint32_t GLDispatchARC(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6
 // Install library hooks to intercept GL/AGL/GLU/GLUT function lookups
 extern void GLInstallHooks();
 
+// Clear the GL install latches for a guest soft reboot so GLInstallHooks
+// re-patches the freshly reloaded GL/AGL/GLU libraries (see GfxAccelResetForReboot).
+extern void GLResetForReboot(void);
+
 // TVECT array indexed by sub-opcode (for stub-patching path)
 extern uint32_t gl_method_tvects[];
 
@@ -1429,7 +1433,7 @@ extern uint32_t gl_scratch_addr;
 extern uint32_t gl_dt_flag_addr;
 
 // Logging control (os_log-backed; gated by gl_logging_enabled + ACCEL_LOG_VERBOSE)
-#include "accel_logging.h"
+#include "gfx_log.h"
 #if ACCEL_LOGGING_ENABLED
 #ifdef __APPLE__
 #include <os/log.h>
@@ -1443,10 +1447,10 @@ extern bool gl_logging_enabled;
 #define GL_METAL_LOG(fmt, ...)  do { if (gl_logging_enabled) os_log(gl_metal_log, fmt, ##__VA_ARGS__); } while (0)
 #define GL_METAL_VLOG(fmt, ...) do { if (gl_logging_enabled && ACCEL_LOG_VERBOSE) os_log(gl_metal_log, fmt, ##__VA_ARGS__); } while (0)
 #else
-#define GL_LOG(fmt, ...)        do { if (gl_logging_enabled) printf("GL: " fmt "\n", ##__VA_ARGS__); } while (0)
-#define GL_VLOG(fmt, ...)       do { if (gl_logging_enabled && ACCEL_LOG_VERBOSE) printf("GL: " fmt "\n", ##__VA_ARGS__); } while (0)
-#define GL_METAL_LOG(fmt, ...)  do { if (gl_logging_enabled) printf("GL_METAL: " fmt "\n", ##__VA_ARGS__); } while (0)
-#define GL_METAL_VLOG(fmt, ...) do { if (gl_logging_enabled && ACCEL_LOG_VERBOSE) printf("GL_METAL: " fmt "\n", ##__VA_ARGS__); } while (0)
+#define GL_LOG(...)        do { if (gl_logging_enabled) GFX_DEBUG_EMIT("GL: ", __VA_ARGS__); } while (0)
+#define GL_VLOG(...)       do { if (gl_logging_enabled && ACCEL_LOG_VERBOSE) GFX_DEBUG_EMIT("GL: ", __VA_ARGS__); } while (0)
+#define GL_METAL_LOG(...)  do { if (gl_logging_enabled) GFX_DEBUG_EMIT("GL_METAL: ", __VA_ARGS__); } while (0)
+#define GL_METAL_VLOG(...) do { if (gl_logging_enabled && ACCEL_LOG_VERBOSE) GFX_DEBUG_EMIT("GL_METAL: ", __VA_ARGS__); } while (0)
 #endif
 #else /* !ACCEL_LOGGING_ENABLED */
 static constexpr bool gl_logging_enabled = false;
@@ -1459,15 +1463,19 @@ static constexpr bool gl_logging_enabled = false;
 // Function signature table for FPR extraction
 extern GLFuncSignature gl_func_signatures[];
 
-// Metal renderer functions (implemented in gl_metal_renderer.mm)
+// GPU backend renderer functions (Metal: gl_metal_renderer.mm; OpenGL: gl/gl_ffp_renderer.cpp)
 extern void GLMetalInit(GLContext *ctx);
 extern void GLMetalBeginFrame(GLContext *ctx);
 extern void GLMetalClear(GLContext *ctx, uint32_t mask);
 extern void GLMetalEndFrame(GLContext *ctx);
 extern void GLMetalFlushImmediateMode(GLContext *ctx);
 extern void GLMetalRelease(GLContext *ctx);
+/* Primary upload shape used by gl_state.cpp / gl_engine.cpp (BGRA8 host bytes). */
 extern void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
-                                 int width, int height, int format, int type, const void *pixels);
+                                 int width, int height, const uint8_t *data, int dataLen);
+extern void GLMetalUploadSubTexture(GLContext *ctx, GLTextureObject *texObj, int level,
+                                    int xoff, int yoff, int w, int h,
+                                    const uint8_t *data, int bytesPerRow);
 extern void GLMetalUpload3DTexture(GLContext *ctx, GLTextureObject *texObj, int level,
                                    int width, int height, int depth,
                                    const uint8_t *data, int dataLen);

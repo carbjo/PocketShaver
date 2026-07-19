@@ -35,10 +35,8 @@ extern int ROMType;
 extern bool DecodeROM(uint8 *data, uint32 size);
 extern bool PatchROM(void);
 extern void InstallDrivers(void);
-
 extern void AddSifter(uint32 type, int16 id);
 extern bool FindSifter(uint32 type, int16 id);
-
 extern uint32 find_rom_data(uint32 start, uint32 end, const uint8 *data, uint32 data_len);
 extern uint32 find_rom_powerpc_branch(uint32 start, uint32 end, uint32 target);
 extern uint32 rom_powerpc_branch_target(uint32 addr);

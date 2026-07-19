@@ -28,7 +28,7 @@
 #include <TargetConditionals.h>
 #endif
 #if TARGET_OS_MACCATALYST
-// Defined in PreferencesViewControllerObjC.mm — drains AppKit's NSEvent queue so
+// Defined in PreferencesViewControllerObjC.mm - drains AppKit's NSEvent queue so
 // UIKit input stays live while the emulator owns the main thread on Catalyst.
 extern "C" void catalyst_pump_appkit_events(void);
 #endif
@@ -48,9 +48,12 @@ extern "C" void catalyst_pump_appkit_events(void);
 #include "serial.h"
 #include "ether.h"
 #include "timer.h"
+#if defined(ENABLE_GFXACCEL)
 #include "rave_engine.h"
 #include "gl_engine.h"
 #include "dsp_engine.h"
+#include "cinepak_hooks.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -107,7 +110,7 @@ extern uintptr SignalStackBase();
 extern "C" void check_load_invoc(uint32 type, int16 id, uint32 h);
 extern "C" void named_check_load_invoc(uint32 type, uint32 name, uint32 h);
 
-// PowerPC EmulOp to exit from emulation looop
+// PowerPC EmulOp to exit from emulation loop
 const uint32 POWERPC_EXEC_RETURN = POWERPC_EMUL_OP | 1;
 
 // Enable Execute68k() safety checks?
@@ -191,6 +194,7 @@ public:
 
 	// Diagnostic accessors (crash-context dump, vm watch logging)
 	uint32 cur_pc()			{ return pc(); }
+	uint32 cur_lr()			{ return lr(); }
 	uint32 cur_gpr(int i)	{ return gpr(i); }
 
 	// Make sure the SIGSEGV handler can access CPU registers
@@ -623,7 +627,7 @@ void sheepshaver_cpu::execute_68k(uint32 entry, M68kRegisters *r)
 	// Push return address (points to EXEC_RETURN opcode) on stack
 	gpr(1) -= 4;
 	WriteMacInt32(gpr(1), XLM_EXEC_RETURN_OPCODE);
-	
+
 	// Rentering 68k emulator
 	WriteMacInt32(XLM_RUN_MODE, MODE_68K);
 
@@ -823,6 +827,9 @@ static bool guest_addr_ok(uint32 a, uint32 len)
 	const uint32 kend = (uint32)(KERNEL_DATA_BASE + KERNEL_AREA_SIZE);
 	if (a >= kbase && a < kend && kend - a >= len)
 		return true;
+	// Native-op TVECTs / thunks live in SheepMem (guest 0x51xxxxxx on Windows).
+	if (SheepMem::Contains(a) && SheepMem::Size() - (a - SheepMem::Base()) >= len)
+		return true;
 	return false;
 }
 
@@ -889,41 +896,48 @@ sigsegv_return_t sigsegv_handler(sigsegv_info_t *sip)
 	// Get program counter of target CPU
 	sheepshaver_cpu * const cpu = ppc_cpu;
 	const uint32 pc = cpu->pc();
-	
-	// Fault in Mac ROM or RAM?
-	bool mac_fault = (pc >= ROMBase && pc < (ROMBase + ROM_AREA_SIZE)) || (pc >= RAMBase && pc < (RAMBase + RAMSize)) || (pc >= DR_CACHE_BASE && pc < (DR_CACHE_BASE + DR_CACHE_SIZE));
+
+	// Fault while guest PC is in Mac ROM/RAM/DR cache, OR in SheepMem.
+	// SheepMem holds native-op TVECTs (EMUL_OP trampolines). When a native
+	// handler (e.g. VideoDoDriverIO) faults via WriteMacInt32, guest PC is
+	// still the TVECT opcode address - without SheepMem here, ignoresegv
+	// never applies and boot dies on the first unmapped guest store.
+	bool mac_fault = (pc >= ROMBase && pc < (ROMBase + ROM_AREA_SIZE))
+		|| (pc >= RAMBase && pc < (RAMBase + RAMSize))
+		|| (pc >= DR_CACHE_BASE && pc < (DR_CACHE_BASE + DR_CACHE_SIZE))
+		|| SheepMem::Contains(pc);
 	if (mac_fault) {
 
 		// "VM settings" during MacOS 8 installation
 		if (pc == ROMBase + 0x488160 && cpu->gpr(20) == 0xf8000000)
 			return SIGSEGV_RETURN_SKIP_INSTRUCTION;
-	
+
 		// MacOS 8.5 installation
 		else if (pc == ROMBase + 0x488140 && cpu->gpr(16) == 0xf8000000)
 			return SIGSEGV_RETURN_SKIP_INSTRUCTION;
-	
+
 		// MacOS 8 serial drivers on startup
 		else if (pc == ROMBase + 0x48e080 && (cpu->gpr(8) == 0xf3012002 || cpu->gpr(8) == 0xf3012000))
 			return SIGSEGV_RETURN_SKIP_INSTRUCTION;
-	
+
 		// MacOS 8.1 serial drivers on startup
 		else if (pc == ROMBase + 0x48c5e0 && (cpu->gpr(20) == 0xf3012002 || cpu->gpr(20) == 0xf3012000))
 			return SIGSEGV_RETURN_SKIP_INSTRUCTION;
 		else if (pc == ROMBase + 0x4a10a0 && (cpu->gpr(20) == 0xf3012002 || cpu->gpr(20) == 0xf3012000))
 			return SIGSEGV_RETURN_SKIP_INSTRUCTION;
-	
+
 		// MacOS 8.6 serial drivers on startup (with DR Cache and OldWorld ROM)
 		else if ((pc - DR_CACHE_BASE) < DR_CACHE_SIZE && (cpu->gpr(16) == 0xf3012002 || cpu->gpr(16) == 0xf3012000))
 			return SIGSEGV_RETURN_SKIP_INSTRUCTION;
 		else if ((pc - DR_CACHE_BASE) < DR_CACHE_SIZE && (cpu->gpr(20) == 0xf3012002 || cpu->gpr(20) == 0xf3012000))
 			return SIGSEGV_RETURN_SKIP_INSTRUCTION;
 
-		// Ignore writes to the zero page
-		else if ((uint32)(addr - SheepMem::ZeroPage()) < (uint32)SheepMem::PageSize())
+		// Ignore writes to the zero page (compare host addresses under NATMEM)
+		else if ((uint32)(addr - (uintptr)Mac2HostAddr(SheepMem::ZeroPage())) < (uint32)SheepMem::PageSize())
 			return SIGSEGV_RETURN_SKIP_INSTRUCTION;
 
 		// Ignore all other faults, if requested
-		if (PrefsFindBool("ignoresegv"))
+		if (PrefsFindBool("ignoresegv")) 
 			return SIGSEGV_RETURN_SKIP_INSTRUCTION;
 	}
 #else
@@ -1026,7 +1040,7 @@ void init_emul_op_trampolines(basic_dyngen & dg)
 	// NativeOp
 	native_op_trampoline = dg.gen_start();
 	func = &sheepshaver_cpu::call_execute_native_op;
-	dg.gen_invoke_CPU_T0(func);	
+	dg.gen_invoke_CPU_T0(func);
 	dg.gen_exec_return();
 	dg.gen_end();
 
@@ -1093,7 +1107,7 @@ void HandleInterrupt(powerpc_registers *r)
 		WriteMacInt16(ReadMacInt32(KERNEL_DATA_BASE + 0x67c), 1);
 		r->cr.set(r->cr.get() | ReadMacInt32(KERNEL_DATA_BASE + 0x674));
 		break;
-    
+
 #if INTERRUPTS_IN_NATIVE_MODE
 	case MODE_NATIVE:
 		// 68k emulator inactive, in nanokernel?
@@ -1104,7 +1118,7 @@ void HandleInterrupt(powerpc_registers *r)
 			WriteMacInt32(ReadMacInt32(KERNEL_DATA_BASE + 0x658) + 0xdc,
 						  ReadMacInt32(ReadMacInt32(KERNEL_DATA_BASE + 0x658) + 0xdc)
 						  | ReadMacInt32(KERNEL_DATA_BASE + 0x674));
-      
+
 			// Execute nanokernel interrupt routine (this will activate the 68k emulator)
 			DisableInterrupt();
 			if (ROMType == ROMTYPE_NEWWORLD)
@@ -1114,7 +1128,7 @@ void HandleInterrupt(powerpc_registers *r)
 		}
 		break;
 #endif
-    
+
 #if INTERRUPTS_IN_EMUL_OP_MODE
 	case MODE_EMUL_OP:
 		// 68k emulator active, within EMUL_OP routine, execute 68k interrupt routine directly when interrupt level is 0
@@ -1293,6 +1307,10 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		named_check_load_invoc(gpr(3), gpr(4), gpr(5));
 		break;
 	case NATIVE_RAVE_DISPATCH: {
+#if !defined(ENABLE_GFXACCEL)
+		gpr(3) = (uint32)-1;
+		break;
+#else
 		// Save critical PPC registers that re-entrant PPC code could corrupt.
 		// Metal/SDL initialization during DrawContextNew can trigger event
 		// processing or CFM callbacks that re-enter the PPC emulator.
@@ -1342,22 +1360,22 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 
 		// Check all registers for corruption
 		if (lr() != saved_lr) {
-			printf("RAVE: LR CORRUPTED during native op! was 0x%08x, now 0x%08x — restoring\n",
+			printf("RAVE: LR CORRUPTED during native op! was 0x%08x, now 0x%08x - restoring\n",
 				   saved_lr, lr());
 			lr() = saved_lr;
 		}
 		if (ctr() != saved_ctr) {
-			printf("RAVE: CTR CORRUPTED during native op! was 0x%08x, now 0x%08x — restoring\n",
+			printf("RAVE: CTR CORRUPTED during native op! was 0x%08x, now 0x%08x - restoring\n",
 				   saved_ctr, ctr());
 			ctr() = saved_ctr;
 		}
 		if (gpr(1) != saved_sp) {
-			printf("RAVE: SP CORRUPTED during native op! was 0x%08x, now 0x%08x — restoring\n",
+			printf("RAVE: SP CORRUPTED during native op! was 0x%08x, now 0x%08x - restoring\n",
 				   saved_sp, gpr(1));
 			gpr(1) = saved_sp;
 		}
 		if (gpr(2) != saved_r2) {
-			printf("RAVE: R2(TOC) CORRUPTED during native op! was 0x%08x, now 0x%08x — restoring\n",
+			printf("RAVE: R2(TOC) CORRUPTED during native op! was 0x%08x, now 0x%08x - restoring\n",
 				   saved_r2, gpr(2));
 			gpr(2) = saved_r2;
 		}
@@ -1368,8 +1386,13 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 				   (int32)rave_ret, lr()));
 		}
 		break;
+#endif
 	}
 	case NATIVE_OPENGL_DISPATCH: {
+#if !defined(ENABLE_GFXACCEL)
+		gpr(3) = (uint32)-1;
+		break;
+#else
 		// Save critical PPC registers (same pattern as RAVE -- Metal/SDL init
 		// can trigger re-entrant PPC execution that corrupts these).
 		uint32 saved_lr = lr();
@@ -1445,8 +1468,13 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		if (gpr(2) != saved_r2) gpr(2) = saved_r2;
 
 		break;
+#endif
 	}
 	case NATIVE_DSP_DISPATCH: {
+#if !defined(ENABLE_GFXACCEL)
+		gpr(3) = (uint32)-1;
+		break;
+#else
 		// No Metal resources, so no @autoreleasepool wrapper is needed
 		// here; the context-lifecycle path wraps in @autoreleasepool once
 		// GPU calls (GetBackBuffer vending a MTLTexture) land. Register-
@@ -1477,13 +1505,64 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		if (gpr(1) != saved_sp) { gpr(1) = saved_sp; }
 		if (gpr(2) != saved_r2) { gpr(2) = saved_r2; }
 		break;
+#endif
 	}
+  #if defined(ENABLE_NATIVE_CINEPAK_PATCH) \
+			&& ENABLE_NATIVE_CINEPAK_PATCH
+	case NATIVE_OPENDEFAULTCOMPONENT_CINEPAK_HOOK:
+	case NATIVE_FINDNEXTCOMPONENT_CINEPAK_HOOK: {
+	#if !defined(ENABLE_GFXACCEL)
+			gpr(3) = 0;
+			break;
+	#else
+			/* FN=1 first-instruction hooks: execute_sheep does pc() = lr() right
+			 * after this returns, and the handlers run call_macos (nested guest
+			 * execution) which clobbers LR/CTR - save/restore is mandatory or the
+			 * return lands in the nested callee instead of the real caller. */
+			uint32 saved_lr = lr();
+			uint32 saved_ctr = ctr();
+			uint32 saved_sp = gpr(1);
+			uint32 saved_r2 = gpr(2);
+
+			if (selector == NATIVE_OPENDEFAULTCOMPONENT_CINEPAK_HOOK)
+				gpr(3) = CinepakOpenDefaultComponentHook(gpr(3), gpr(4));
+			else
+				gpr(3) = CinepakFindNextComponentHook(gpr(3), gpr(4));
+
+			if (lr() != saved_lr) { lr() = saved_lr; }
+			if (ctr() != saved_ctr) { ctr() = saved_ctr; }
+			if (gpr(1) != saved_sp) { gpr(1) = saved_sp; }
+			if (gpr(2) != saved_r2) { gpr(2) = saved_r2; }
+			break;
+	#endif
+	}
+	case NATIVE_CINEPAK_DISPATCH: {
+	#if !defined(ENABLE_GFXACCEL)
+			gpr(3) = (uint32)-50; /* paramErr */
+			break;
+	#else
+			/* Component entry (via routine descriptor): pure host work, but keep
+			 * the same register-preservation pattern for safety. */
+			uint32 saved_lr = lr();
+			uint32 saved_ctr = ctr();
+			uint32 saved_sp = gpr(1);
+			uint32 saved_r2 = gpr(2);
+
+			gpr(3) = CinepakDispatch(gpr(3));
+
+			if (lr() != saved_lr) { lr() = saved_lr; }
+			if (ctr() != saved_ctr) { ctr() = saved_ctr; }
+			if (gpr(1) != saved_sp) { gpr(1) = saved_sp; }
+			if (gpr(2) != saved_r2) { gpr(2) = saved_r2; }
+			break;
+	#endif
+	}
+#endif /* ENABLE_NATIVE_CINEPAK_PATCH */
 	default:
 		printf("FATAL: NATIVE_OP called with bogus selector %d\n", selector);
 		QuitEmulator();
 		break;
 	}
-
 #if EMUL_TIME_STATS
 	native_exec_time += (clock() - native_exec_start);
 #endif

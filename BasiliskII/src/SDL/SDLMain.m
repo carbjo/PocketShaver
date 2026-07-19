@@ -5,7 +5,7 @@
     Feel free to customize this file to suit your needs
 */
 
-#include <SDL2/SDL.h>
+#include "SDL.h"
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 #define SDL_MAIN_NEEDED
 #include <SDL_main.h>
@@ -23,14 +23,12 @@
 #include <sys/param.h> /* for MAXPATHLEN */
 #include <unistd.h>
 
-#if TARGET_OS_OSX
-/* For some reaon, Apple removed setAppleMenu from the headers in 10.4,
+/* For some reason, Apple removed setAppleMenu from the headers in 10.4,
  but the method still is there and works. To avoid warnings, we declare
  it ourselves here. */
 @interface NSApplication(SDL_Missing_Methods)
 - (void)setAppleMenu:(NSMenu *)menu;
 @end
-#endif
 
 /* Use this flag to determine whether we use SDLMain.nib or not */
 #define		SDL_USE_NIB_FILE	0
@@ -79,7 +77,6 @@ static NSString *getApplicationName(void)
 @end
 #endif
 
-#if TARGET_OS_OSX
 @interface NSApplication (SDLApplication)
 @end
 
@@ -93,7 +90,6 @@ static NSString *getApplicationName(void)
     SDL_PushEvent(&event);
 }
 @end
-#endif
 
 /* The main class of the application, the application's delegate */
 @implementation SDLMain
@@ -217,10 +213,8 @@ static void CustomApplicationMain (int argc, char **argv)
     NSAutoreleasePool	*pool = [[NSAutoreleasePool alloc] init];
     SDLMain				*sdlMain;
 
-#if TARGET_OS_OSX
     /* Ensure the application object is initialised */
     [NSApplication sharedApplication];
-#endif
     
 #ifdef SDL_USE_CPS
     {
@@ -252,7 +246,6 @@ static void CustomApplicationMain (int argc, char **argv)
 #endif
 
 
-#if TARGET_OS_OSX
 /*
  * Catch document open requests...this lets us notice files when the app
  *  was launched by double-clicking a document, or when a document was
@@ -300,7 +293,6 @@ static void CustomApplicationMain (int argc, char **argv)
     gArgv[gArgc] = NULL;
     return TRUE;
 }
-#endif
 
 
 /* Called when the internal event loop has just started running */

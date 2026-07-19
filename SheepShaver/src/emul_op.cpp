@@ -292,6 +292,9 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 			EtherResetCachedAllocation();
 			ether_reset();
 			AudioReset();
+#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+			GfxAccelResetForReboot();
+#endif
 #ifdef USE_SDL_AUDIO
 			PlayStartupSound();
 #endif
@@ -540,7 +543,6 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 				idle_wait();
 			r->d[0] = (uint32)-2;
 			break;
-
 		default:
 			printf("FATAL: EMUL_OP called with bogus selector %08x\n", selector);
 			QuitEmulator();

@@ -49,7 +49,6 @@ extern "C" void gfxaccel_handle_foreground_enter(void);
 extern "C" void gfxaccel_set_dsp_background_hook(GfxAccelLifecycleHookFn fn, void *ctx);
 extern "C" void gfxaccel_set_dsp_foreground_hook(GfxAccelLifecycleHookFn fn, void *ctx);
 
-namespace {
 
 // Internal registry entry. NOT exposed in the public header -
 // callers interact via register_engine / unregister_engine only.
@@ -127,7 +126,6 @@ static int32_t GfxRes_OnModeEnter(const struct DMCModeSnapshot *incoming, void *
 	return kDMCNoErr;
 }
 
-} // namespace (anonymous)
 
 // ---------------------------------------------------------------------------
 // Public API

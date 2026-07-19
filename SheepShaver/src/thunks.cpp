@@ -22,9 +22,11 @@
 #include "thunks.h"
 #include "emul_op.h"
 #include "cpu_emulation.h"
+#if defined(ENABLE_GFXACCEL)
 #include "rave_engine.h"
 #include "gl_engine.h"
 #include "dsp_engine.h"
+#endif
 #include "xlowmem.h"
 
 // Native function declarations
@@ -114,6 +116,22 @@ uint32 NativeOpcode(int selector)
 	case NATIVE_DSP_DISPATCH:
 		opcode = POWERPC_NATIVE_OP(0, selector);
 		break;
+#if defined(ENABLE_NATIVE_CINEPAK_PATCH) \
+		&& ENABLE_NATIVE_CINEPAK_PATCH
+	case NATIVE_CINEPAK_DISPATCH:
+		// FN=0: executed from the generic [opcode; blr] thunk, so fall
+		// through to the blr like the other dispatch selectors.
+		opcode = POWERPC_NATIVE_OP(0, selector);
+		break;
+	case NATIVE_OPENDEFAULTCOMPONENT_CINEPAK_HOOK:
+	case NATIVE_FINDNEXTCOMPONENT_CINEPAK_HOOK:
+		// FN=1: these patch the FIRST INSTRUCTION of an InterfaceLib export
+		// (like NATIVE_MICROSECONDS); the handler is the whole function and
+		// execute_sheep returns via pc = lr. FN=0 here would fall through
+		// into the original function body after the hook ran.
+		opcode = POWERPC_NATIVE_OP(1, selector);
+		break;
+#endif /* ENABLE_NATIVE_CINEPAK_PATCH */
 	default:
 		abort();
 	}
@@ -286,6 +304,7 @@ bool ThunksInit(void)
 		native_op[i].tvect = base;
 		native_op[i].func  = base + 8;
 	}
+#if defined(ENABLE_GFXACCEL)
 	// Initialize RAVE method TVECTs (must be after SheepMem is available)
 	RaveThunksInit();
 
@@ -295,6 +314,7 @@ bool ThunksInit(void)
 	// Initialize DSp thunks. Allocates real TVECTs for the
 	// public DSp entry points via SheepMem::Reserve, matching RAVE.
 	DSpThunksInit();
+#endif
 
 #if POWERPC_GET_RESOURCE_THUNKS
 	generate_powerpc_thunks();

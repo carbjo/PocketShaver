@@ -36,13 +36,18 @@
 #include "version.h"
 #include "thunks.h"
 
-#include "MiscellaneousSettingsObjCCppHeader.h"
+#if defined(__APPLE__)
+#include "TargetConditionals.h"
+#endif
 
 #if TARGET_OS_IPHONE
+#include "MiscellaneousSettingsObjCCppHeader.h"
+#include "gfx_color_policy.h"
+#endif
+#if defined(ENABLE_GFXACCEL)
 #include "display_mode_controller.h"
 #include "dsp_video_status_policy.h"
 #include "metal_compositor.h"
-#include "gfx_color_policy.h"
 #endif
 
 #define DEBUG 0
@@ -256,7 +261,7 @@ static bool allocate_gamma_table(VidLocals *csSave, uint32 size)
 	 return a > b? a : b;
  }
 
-#if TARGET_OS_IPHONE
+#if defined(ENABLE_GFXACCEL)
 static void publish_gamma_lut_to_display_controller(VidLocals *csSave)
 {
 	uint8 lut[768];
@@ -293,7 +298,7 @@ static void publish_gamma_lut_to_display_controller(VidLocals *csSave)
 	}
 
 	int32_t err = dmc_record_driver_gamma_change(lut);
-	/* kDMCDriverGammaDeferred: a DSp fade is in progress â€” the fade's
+	/* kDMCDriverGammaDeferred: a DSp fade is in progress - the fade's
 	 * end-state push delivers this table, so do NOT pop it onto the
 	 * faded screen here. */
 	if (err == kDMCNoErr || err == kDMCErrNotInitialized) {
@@ -306,10 +311,9 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 {
 	/* The Linear gamma pref must not bypass user-supplied tables here: games
 	 * install functional ramps (e.g. overbright brightness doubling) that the
-	 * compositor composes through the display policy. The pref only controls
-	 * that display-side composition â€” verbatim in OS-defined mode, inverse of
-	 * the Mac Standard curve in Linear mode (see gfx_color_policy.h). */
-	if (gamma == 0) { // nil table: install the driver's DEFAULT gamma
+	 * compositor presents verbatim in Linear mode. The pref only controls the
+	 * classic-Mac -> sRGB display correction (see gfx_color_policy.h). */
+	if (gamma == 0) { // Build linear ramp, 256 entries
 
 		// Allocate new table, if necessary
 		if (!allocate_gamma_table(csSave, SIZEOF_GammaTbl + 256))
@@ -323,8 +327,9 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 		WriteMacInt16(csSave->gammaTable + gDataCnt, 256);		// gDataCnt == 2^^gDataWidth
 		WriteMacInt16(csSave->gammaTable + gDataWidth, 8);		// 8 bits of significant data per entry
 
+		// Build the linear ramp
 		uint32 p = csSave->gammaTable + gFormulaData;
-
+		
 		for (int i=0; i<256; i++) {
 #if TARGET_OS_IPHONE
 			/* Real video card ROMs install their 'gama' resource ("Mac
@@ -332,7 +337,7 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 			 * trusts that at boot and only pushes the display profile's
 			 * table during a resolution/depth switch. A linear default here
 			 * therefore leaves the screen uncorrected from boot until the
-			 * first mode switch â€” which never comes when the guest boots at
+			 * first mode switch — which never comes when the guest boots at
 			 * the panel-native resolution in full screen. Default to the
 			 * same classic-Mac standard curve the profile table carries so
 			 * boot matches the post-switch presentation. */
@@ -344,7 +349,7 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 			mac_gamma[i].red = mac_gamma[i].green = mac_gamma[i].blue = v;
 		}
 		video_set_gamma(256);
-#if TARGET_OS_IPHONE
+#if defined(ENABLE_GFXACCEL)
 		publish_gamma_lut_to_display_controller(csSave);
 #endif
 	} else { // User-supplied gamma table
@@ -404,7 +409,7 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 			}
 		}
 		video_set_gamma(data_cnt);
-#if TARGET_OS_IPHONE
+#if defined(ENABLE_GFXACCEL)
 		publish_gamma_lut_to_display_controller(csSave);
 #endif
 	}
@@ -451,9 +456,9 @@ static int16 VideoControl(uint32 pb, VidLocals *csSave)
 #ifdef __BEOS__
 				// Windows are gamma-corrected by BeOS
 				const bool can_do_gamma = (display_type == DIS_SCREEN);
-#elif TARGET_OS_IPHONE
+#elif defined(ENABLE_GFXACCEL)
 				/* The compositor gamma LUT is the single owner of driver
-				 * gamma on iOS: publish_gamma_lut_to_display_controller
+				 * gamma when gfxaccel is enabled: publish_gamma_lut_to_display_controller
 				 * delivers the guest table to the GPU present path, and
 				 * compositor_fragment_indexed applies it after the palette
 				 * lookup. Baking it into mac_pal here as well would apply
@@ -816,7 +821,7 @@ static void get_size_of_resolution(int id, uint32 &x, uint32 &y)
 	x = y = 0;
 }
 
-#if TARGET_OS_IPHONE
+#if defined(ENABLE_GFXACCEL)
 static bool get_dsp_video_status_override(uint16 &mode, uint32 &data)
 {
 	const DMCModeSnapshot *snap = dmc_current_snapshot();
@@ -843,7 +848,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			D(bug("GetMode\n"));
 			uint16 mode = csSave->saveMode;
 			uint32 data = csSave->saveData;
-#if TARGET_OS_IPHONE
+#if defined(ENABLE_GFXACCEL)
 			if (get_dsp_video_status_override(mode, data))
 				log_dsp_video_status_override("GetMode", mode, data);
 #endif
@@ -930,7 +935,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			D(bug("GetCurMode\n"));
 			uint16 mode = csSave->saveMode;
 			uint32 data = csSave->saveData;
-#if TARGET_OS_IPHONE
+#if defined(ENABLE_GFXACCEL)
 			if (get_dsp_video_status_override(mode, data))
 				log_dsp_video_status_override("GetCurMode", mode, data);
 #endif
@@ -969,7 +974,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			unsigned int work_id = ReadMacInt32(param + csPreviousDisplayModeID);
 			switch (work_id) {
 				case kDisplayModeIDCurrent:
-#if TARGET_OS_IPHONE
+#if defined(ENABLE_GFXACCEL)
 				{
 					uint16 mode = csSave->saveMode;
 					uint32 data = csSave->saveData;
@@ -1087,7 +1092,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			uint32 requested_id = ReadMacInt32(param + csDisplayModeID);
 			uint16 requested_mode = ReadMacInt16(param + csDepthMode);
 			bool mode_is_absolute = false;
-#if TARGET_OS_IPHONE
+#if defined(ENABLE_GFXACCEL)
 			if (requested_id == kDisplayModeIDCurrent) {
 				uint16 mode = csSave->saveMode;
 				uint32 data = csSave->saveData;
@@ -1104,7 +1109,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 				/* csDepthMode is a RELATIVE kDepthModeN selector; translate
 				 * STRICTLY (no absolute fallback) so the Display Manager's
 				 * probe loop terminates after exactly the supported depth
-				 * count â€” dual-accepting absolute values here made every
+				 * count — dual-accepting absolute values here made every
 				 * depth answer twice (once relative, once absolute) and
 				 * doubled each resolution's depth records. */
 				uint32 abs = video_abs_depth_from_rel(requested_mode);
@@ -1113,7 +1118,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 				requested_mode = (uint16)abs;
 			}
 
-			// find right video mode
+			// find right video mode						
 			for (int i=0; VModes[i].viType!=DIS_INVALID; i++) {
 				if ((requested_mode == VModes[i].viAppleMode) &&
 					(requested_id == VModes[i].viAppleID)) {
@@ -1176,7 +1181,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 					}
 					WriteMacInt32(param + csPageCount, 1);
 					/* Zero csReserved (packed 68k layout: csDeviceType@14 is
-					 * 4 bytes, csReserved@18) â€” same stale-guest-RAM hazard
+					 * 4 bytes, csReserved@18) — same stale-guest-RAM hazard
 					 * as csResolutionFlags in cscGetNextResolution. */
 					WriteMacInt32(param + csDeviceType + 4, 0);	// csReserved
 					return noErr;
@@ -1199,7 +1204,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 					 * the enabled-resolution prefs, NOT the classic fixed
 					 * APPLE_* id-to-resolution table, so switching on the id
 					 * (as this code originally did) reported a shuffled
-					 * timing constant for every mode â€” e.g. the native-panel
+					 * timing constant for every mode — e.g. the native-panel
 					 * mode carried timingVESA_640x480_75hz. The Display
 					 * Manager cross-references these constants when it
 					 * builds mode-list entries for apps. */

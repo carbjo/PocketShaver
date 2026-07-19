@@ -76,6 +76,7 @@
 		08CD42DC14B7B85B009CA2A2 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 08CD42DB14B7B85B009CA2A2 /* Cocoa.framework */; };
 		08CD42E814B7B8AA009CA2A2 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 08CD42E714B7B8AA009CA2A2 /* Carbon.framework */; };
 		3D2C25B5221092BA00B635DE /* SheepVM.icns in Resources */ = {isa = PBXBuildFile; fileRef = 3D2C25B4221092BA00B635DE /* SheepVM.icns */; };
+		520A161330056291005DCC43 /* SheepShaver.icon in Resources */ = {isa = PBXBuildFile; fileRef = 520A161230056291005DCC43 /* SheepShaver.icon */; };
 		5D2143D524B2DD90008BB372 /* bincue.h in Headers */ = {isa = PBXBuildFile; fileRef = 5D2143D424B2DD90008BB372 /* bincue.h */; };
 		5D35961124B8F5FB0081EC8A /* bincue.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D35961024B8F5FA0081EC8A /* bincue.cpp */; };
 		5D55CB40225584D000FF8E81 /* cdrom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D55CB3F225584D000FF8E81 /* cdrom.cpp */; };
@@ -323,6 +324,7 @@
 		08CD42DB14B7B85B009CA2A2 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = /System/Library/Frameworks/Cocoa.framework; sourceTree = "<absolute>"; };
 		08CD42E714B7B8AA009CA2A2 /* Carbon.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Carbon.framework; path = /System/Library/Frameworks/Carbon.framework; sourceTree = "<absolute>"; };
 		3D2C25B4221092BA00B635DE /* SheepVM.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = SheepVM.icns; sourceTree = "<group>"; };
+		520A161230056291005DCC43 /* SheepShaver.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = SheepShaver.icon; sourceTree = "<group>"; };
 		5D2143D424B2DD90008BB372 /* bincue.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = bincue.h; sourceTree = "<group>"; };
 		5D35961024B8F5FA0081EC8A /* bincue.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = bincue.cpp; path = ../../../BasiliskII/src/bincue.cpp; sourceTree = "<group>"; };
 		5D3967BF2328D315003925D6 /* adb.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = adb.cpp; path = ../../../BasiliskII/src/adb.cpp; sourceTree = "<group>"; };
@@ -447,6 +449,7 @@
 		0856CCAC14A99DE0000B1711 = {
 			isa = PBXGroup;
 			children = (
+				520A161230056291005DCC43 /* SheepShaver.icon */,
 				E4150D1120D557820077C51A /* SDL2.framework */,
 				0856CCC814A99E30000B1711 /* Sources */,
 				08CD42DF14B7B865009CA2A2 /* Frameworks */,
@@ -1008,6 +1011,7 @@
 			files = (
 				E420260B24125442000508DF /* etherhelpertool in Resources */,
 				E44C460820D262B0000583AE /* VERSION_ in Resources */,
+				520A161330056291005DCC43 /* SheepShaver.icon in Resources */,
 				0856D05914A99EF1000B1711 /* SheepShaver.icns in Resources */,
 				E44C460F20D262B0000583AE /* COPYRIGHT in Resources */,
 				3D2C25B5221092BA00B635DE /* SheepVM.icns in Resources */,
@@ -1282,6 +1286,8 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = SheepShaver;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = SheepShaver.entitlements;
 				COPY_PHASE_STRIP = NO;
@@ -1323,7 +1329,10 @@
 				INFOPLIST_PREFIX_HEADER = "";
 				INFOPLIST_PREPROCESS = NO;
 				INSTALL_PATH = "$(HOME)/Applications";
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				OTHER_CFLAGS = "";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
@@ -1347,6 +1356,8 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = SheepShaver;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_CXX_LIBRARY = "libc++";
 				CODE_SIGN_ENTITLEMENTS = SheepShaver.entitlements;
 				COPY_PHASE_STRIP = NO;
@@ -1390,7 +1401,10 @@
 				INFOPLIST_PREFIX_HEADER = "";
 				INFOPLIST_PREPROCESS = NO;
 				INSTALL_PATH = "$(HOME)/Applications";
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				OTHER_CFLAGS = "";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";

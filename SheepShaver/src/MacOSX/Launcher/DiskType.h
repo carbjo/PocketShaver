@@ -14,7 +14,6 @@
 #import <Cocoa/Cocoa.h>
 #endif
 
-
 @interface DiskType : NSObject {
 	NSString* _path;
 	BOOL _isCDROM;

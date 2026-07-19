@@ -54,7 +54,7 @@ struct udphdr {
 } PACKED__;
 
 #ifdef PRAGMA_PACK_SUPPORTED
-#pragma pack(0)
+#pragma pack()
 #endif
 
 /*

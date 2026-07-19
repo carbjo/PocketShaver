@@ -203,7 +203,7 @@ enum {
 	kRaveHookAccessBitmap     = 218,  // QAAccessBitmap hook
 	kRaveHookAccessBitmapEnd  = 219,  // QAAccessBitmapEnd hook
 	// Q3Pixmap_Set_Image intercept. Dispatch
-	// sub-opcode only — the activation path (FindLibSymbol hook on the
+	// sub-opcode only - the activation path (FindLibSymbol hook on the
 	// QuickDraw 3D library fragment) is deferred to a follow-up change.
 	// When activated, the PPC thunk dispatches here with
 	// r3 = pixmapAddr, r4 = srcHostAddr, r5 = byteCount. Tests invoke
@@ -222,7 +222,7 @@ enum {
 	kRaveATIClearZBuffer     = 301,
 	kRaveATITextureUpdate    = 302,
 	kRaveATIBindCodeBook     = 303,
-	kRaveATIGetDrawBuffer    = 304,  // slot 4: GetDrawBuffer(ctx, TQADevice*) — Myth II
+	kRaveATIGetDrawBuffer    = 304,  // slot 4: GetDrawBuffer(ctx, TQADevice*) - Myth II
 	kRaveATIStub             = 305,  // filler for unidentified table slots; returns kQANotSupported
 
 	kRaveATIMethodCount      = 6
@@ -303,6 +303,8 @@ struct RaveDrawPrivate {
 	int32_t        width, height;
 	int32_t        left, top;
 	uint32_t       drawContextAddr; // Mac address of TQADrawContext
+	uint32_t       deviceAddr;      // Mac address of the context's TQADevice
+	uint32_t       noticePixelType; // CPU image-buffer format, resolved at creation
 	struct RaveMetalState *metal;   // Metal resources, opaque to .cpp
 
 	// Vertex staging buffer for geometry submission
@@ -371,8 +373,20 @@ extern uint32_t RaveDispatchARC(uint32_t r3, uint32_t r4, uint32_t r5,
 // Engine registration entry point
 extern void RaveRegisterEngine(void);
 
+// Full unwind of RaveRegisterEngine for a guest soft reboot: uninstalls the
+// enumeration hooks and clears the registration guards so the accRun retry
+// path re-registers our engine into the freshly reset RAVE manager. Called
+// from OP_RESET (see GfxAccelResetForReboot).
+extern void RaveResetForReboot(void);
+
 // Returns true if RAVE engine has been successfully registered
 extern bool RaveIsRegistered(void);
+
+// Generate and upload a complete BGRA mip chain from level 0. Shared by the
+// resource manager and backend live-refresh paths.
+extern void RaveUploadGeneratedMips(void *metalTexture, const uint8_t *level0,
+                                    uint32_t width, uint32_t height,
+                                    uint32_t mipLevels);
 
 // Install hooks on RAVE enumeration APIs (called from RaveRegisterEngine)
 // Patches TVECTs for QADeviceGetFirstEngine, QADeviceGetNextEngine,
@@ -423,7 +437,7 @@ struct RaveHookPatchInfo {
 #define RAVE_NUM_HOOKED_APIS 22
 extern RaveHookPatchInfo rave_hook_patches[RAVE_NUM_HOOKED_APIS];
 
-// Hook indices into rave_hook_patches[] — matches apis[] order in RaveInstallHooks
+// Hook indices into rave_hook_patches[] - matches apis[] order in RaveInstallHooks
 enum {
 	kRaveHookIdx_GetFirstEngine   = 0,
 	kRaveHookIdx_GetNextEngine    = 1,
@@ -467,6 +481,10 @@ extern int32_t NativeDrawPrivateNew(uint32_t drawContextAddr, uint32_t deviceAdd
                                     uint32_t rectAddr, uint32_t clipAddr, uint32_t flags);
 extern int32_t NativeDrawPrivateDelete(uint32_t drawPrivateHandle);
 
+// Return kQAPixel_RGB16 or kQAPixel_RGB32 for a context device. This follows
+// a live GDevice/PixMap so display-depth changes are reflected in CPU notices.
+extern uint32_t RaveDeviceDrawBufferPixelType(uint32_t deviceAddr);
+
 extern int32_t NativeSetFloat(uint32_t drawContextAddr, uint32_t tag, uint32_t valueBits);
 extern int32_t NativeSetInt(uint32_t drawContextAddr, uint32_t tag, uint32_t value);
 extern int32_t NativeSetPtr(uint32_t drawContextAddr, uint32_t tag, uint32_t ptr);
@@ -488,7 +506,7 @@ extern uint32_t rave_current_draw_context_addr;
  *  Logging
  */
 
-#include "accel_logging.h"
+#include "gfx_log.h"
 
 #if ACCEL_LOGGING_ENABLED
 
@@ -509,13 +527,13 @@ extern bool rave_logging_enabled;
 		os_log(rave_log, fmt, ##__VA_ARGS__); \
 } while (0)
 #else
-#define RAVE_LOG(fmt, ...) do { \
+#define RAVE_LOG(...) do { \
 	if (rave_logging_enabled) \
-		printf("RAVE: " fmt "\n", ##__VA_ARGS__); \
+		GFX_DEBUG_EMIT("RAVE: ", __VA_ARGS__); \
 } while (0)
-#define RAVE_VLOG(fmt, ...) do { \
+#define RAVE_VLOG(...) do { \
 	if (rave_logging_enabled && ACCEL_LOG_VERBOSE) \
-		printf("RAVE: " fmt "\n", ##__VA_ARGS__); \
+		GFX_DEBUG_EMIT("RAVE: ", __VA_ARGS__); \
 } while (0)
 #endif
 
@@ -569,7 +587,7 @@ struct RaveResourceEntry {
 	// Q3Pixmap_Set_Image intercept. When set to true by
 	// NativeHookQ3PixmapSetImage, the draw-time read paths
 	// (RaveRealizeDeferredTexture, RaveRefreshTextureFromPixmap) must
-	// prefer cpu_pixel_data over pixmap_mac_addr — cpu_pixel_data holds
+	// prefer cpu_pixel_data over pixmap_mac_addr - cpu_pixel_data holds
 	// the synchronously-copied "authoritative" pixels and the
 	// pixmap_mac_addr Mac heap region may have been freed by the game
 	// (classic-Mac lifecycle pattern). Stays false for textures where
@@ -594,7 +612,7 @@ static inline bool RaveTextureNeedsLivePixmapRefresh(const RaveResourceEntry *en
 
 // UT's surface cache + firing effects keep a working set well over the old 512
 // (turny.txt logged "resource table full (512 slots)" + "QATextureNew FAILED" during
-// chaotic gameplay → new surface textures failed to allocate → those surfaces rendered
+// chaotic gameplay -> new surface textures failed to allocate -> those surfaces rendered
 // untextured/black = the "solid surfaces dropping out after shooting" bug). The table is
 // a static array of pointer-based entries (~200 B each), so 4096 is ~800 KB; actual GPU
 // memory stays bounded by what the guest actually creates.
@@ -615,7 +633,7 @@ extern void RaveForgetRTTResourceHandle(uint32_t handle, uint32_t generation);
 
 // Lookup a RAVE texture entry whose
 // pixmap_mac_addr matches `pixmapAddr`. Returns nullptr if no match
-// (most common case — not every Q3Pixmap is tracked by a RAVE texture).
+// (most common case - not every Q3Pixmap is tracked by a RAVE texture).
 // O(n) over rave_resource_table[0..RAVE_MAX_RESOURCES-1]; n is bounded
 // small (512) so this is cheap enough to run from the Q3Pixmap_Set_Image
 // intercept callback. Thread-safety: callers must hold the same
@@ -641,7 +659,7 @@ extern RaveResourceEntry *RaveFindTextureByPixmapAddr(uint32_t pixmapAddr);
 //                 entry's cpu_pixel_data_size).
 //
 // If no RAVE texture is tracking `pixmapAddr`, returns silently (the
-// write is unrelated to any RAVE-managed texture — common case). If a
+// write is unrelated to any RAVE-managed texture - common case). If a
 // match is found and the entry has a valid cpu_pixel_data allocation,
 // copies min(byteCount, cpu_pixel_data_size) bytes and sets
 // cpu_pixel_data_is_authoritative = true. Tests call this directly from

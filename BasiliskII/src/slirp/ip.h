@@ -98,7 +98,7 @@ struct ip {
 } PACKED__;
 
 #ifdef PRAGMA_PACK_SUPPORTED
-#pragma pack(0)
+#pragma pack()
 #endif
 
 #define	IP_MAXPACKET	65535		/* maximum packet size */
@@ -168,7 +168,7 @@ struct	ip_timestamp {
 } PACKED__;
 
 #ifdef PRAGMA_PACK_SUPPORTED
-#pragma pack(0)
+#pragma pack()
 #endif
 
 /* flag bits for ipt_flg */
@@ -223,10 +223,10 @@ struct ipovly {
 	u_int16_t	ih_len;			/* protocol length */
 	struct	in_addr ih_src;		/* source internet address */
 	struct	in_addr ih_dst;		/* destination internet address */
-}  __attribute__((packed));
+} PACKED__;
 
 #ifdef PRAGMA_PACK_SUPPORTED
-#pragma pack(0)
+#pragma pack()
 #endif
 
 /*
@@ -261,7 +261,7 @@ struct	ipasfrag {
 #define ipf_tos      ipf_ip.ip_tos
 #define ipf_len      ipf_ip.ip_len
 #define ipf_next     ipf_link.next
-#define ipf_prev     ipf_link.prev 
+#define ipf_prev     ipf_link.prev
 
 /*
  * Structure stored in mbuf in inpcb.ip_options

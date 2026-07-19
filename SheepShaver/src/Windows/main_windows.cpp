@@ -402,7 +402,7 @@ int main(int argc, char **argv)
 	rom_tmp = new uint8[ROM_SIZE];
 	ReadFile(rom_fh, (void *)rom_tmp, ROM_SIZE, &actual, NULL);
 	CloseHandle(rom_fh);
-	
+
 	// Decode Mac ROM
 	if (!DecodeROM(rom_tmp, actual)) {
 		if (rom_size != 4*1024*1024) {
@@ -414,7 +414,7 @@ int main(int argc, char **argv)
 		}
 	}
 	delete[] rom_tmp;
-	
+
 	// Initialize native timers
 	timer_init();
 
@@ -423,8 +423,14 @@ int main(int argc, char **argv)
 		goto quit;
 	D(bug("Initialization complete\n"));
 
-	// Write protect ROM
-	vm_protect(ROMBaseHost, ROM_AREA_SIZE, VM_PAGE_READ);
+	// Write protect ROM if not in MSVC's debugger
+#if defined(_WIN64) /* IsDebuggerPresent is always in Win64; Win32 dynload*/
+	if (IsDebuggerPresent())
+		vm_protect(ROMBaseHost, ROM_AREA_SIZE, VM_PAGE_READ | VM_PAGE_WRITE);
+	else
+#endif
+		vm_protect(ROMBaseHost, ROM_AREA_SIZE, VM_PAGE_READ);
+
 
 	// Start 60Hz thread
 	tick_thread_cancel = false;
@@ -670,7 +676,7 @@ static DWORD nvram_func(void *arg)
  */
 
 bool tick_inhibit;
-static DWORD tick_func(void *arg)
+static DWORD WINAPI tick_func(void *arg)
 {
 	int tick_counter = 0;
 	uint64 start = GetTicks_usec();

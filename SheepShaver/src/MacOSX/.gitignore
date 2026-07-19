@@ -4,6 +4,4 @@ SheepShaver.xcodeproj/*.mode1v3
 SheepShaver.xcodeproj/*.pbxuser
 
 # autoconf build generated Info.plist file
-# Specify *this directory* for ignoring the build-generated Info.plist.
-# This was clobbering all Info.plists downstairs, which are needed for iOS.
-./Info.plist
+Info.plist

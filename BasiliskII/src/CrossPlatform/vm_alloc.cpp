@@ -90,7 +90,7 @@ typedef unsigned long vm_uintptr_t;
 #endif
 #ifdef HAVE_MMAP_VM
 #if (defined(__linux__) && defined(__i386__)) || defined(__sun__) || defined(__FreeBSD__) || defined(__NetBSD__) || HAVE_LINKER_SCRIPT
-/* Force a reasonnable address below 0x80000000 on x86 so that we
+/* Force a reasonable address below 0x80000000 on x86 so that we
    don't get addresses above when the program is run on AMD64.
    NOTE: this is empirically determined on Linux/x86.  */
 #define MAP_BASE	0x10000000
@@ -280,7 +280,7 @@ static void *vm_acquire_internal(size_t size, int options)
 	// vm_allocate() returns a zero-filled memory region
 #ifdef MEM_BULK
 	// In MEM_BULK mode, vm_init_reserved() carves out the reserved buffer
-	// from the bulk block later â€” don't add RESERVED_SIZE here.
+	// from the bulk block later — don't add RESERVED_SIZE here.
 	kern_return_t ret_code = vm_allocate(mach_task_self(), (vm_address_t *)&addr, size, TRUE);
 #else
 	kern_return_t ret_code = vm_allocate(mach_task_self(), (vm_address_t *)&addr, reserved_buf ? size : size + RESERVED_SIZE, TRUE);
@@ -316,8 +316,48 @@ static void *vm_acquire_internal(size_t size, int options)
 	if (options & VM_MAP_WRITE_WATCH)
 	  alloc_type |= MEM_WRITE_WATCH;
 
-	if ((addr = VirtualAlloc(NULL, size, alloc_type, PAGE_EXECUTE_READWRITE)) == NULL)
-		return VM_MAP_FAILED;
+	addr = NULL;
+	/*
+	 * On Win64, VirtualAlloc(NULL) routinely returns addresses above 4GB.
+	 * SheepShaver DIRECT_ADDRESSING + NATMEM_OFFSET uses Host2MacAddr()
+	 * which truncates to 32 bits, so a high framebuffer pointer produces
+	 * a bogus Mac address and later guest stores SEGV. When VM_MAP_32BIT
+	 * is requested, search for a free region in the low 32-bit VA range.
+	 */
+	if ((options & VM_MAP_32BIT) && sizeof(void *) == 8) {
+		/*
+		 * SheepShaver DIRECT_ADDRESSING uses Host2MacAddr(p) = p - NATMEM_OFFSET
+		 * (0x11000000). Allocations BELOW that base underflow the Mac address
+		 * (e.g. host 0x10000000 -> mac 0xff000000) and Mac2Host no longer
+		 * round-trips - GrayPage then SEGVs on every store (hang with
+		 * ignoresegv). Keep host pointers in [0x12000000, 0x70000000].
+		 */
+		const vm_uintptr_t kMinHost = 0x12000000;
+		const vm_uintptr_t kMaxHost = 0x70000000;
+		for (vm_uintptr_t try_addr = kMinHost; try_addr <= kMaxHost; try_addr += 0x100000) {
+			LPVOID p = VirtualAlloc((LPVOID)try_addr, size, alloc_type, PAGE_EXECUTE_READWRITE);
+			if (p != NULL) {
+				vm_uintptr_t base = (vm_uintptr_t)p;
+				if (base >= kMinHost && base <= (vm_uintptr_t)0xffffffff - (vm_uintptr_t)size) {
+					addr = p;
+					break;
+				}
+				VirtualFree(p, 0, MEM_RELEASE);
+			}
+		}
+	}
+	if (addr == NULL) {
+		if ((addr = VirtualAlloc(NULL, size, alloc_type, PAGE_EXECUTE_READWRITE)) == NULL)
+			return VM_MAP_FAILED;
+	}
+	if ((options & VM_MAP_32BIT) && sizeof(void *) == 8) {
+		vm_uintptr_t base = (vm_uintptr_t)addr;
+		/* Reject high (>4GB) and below-NATMEM pointers. */
+		if (base > (vm_uintptr_t)0xffffffff || base < (vm_uintptr_t)0x12000000) {
+			VirtualFree(addr, 0, MEM_RELEASE);
+			return VM_MAP_FAILED;
+		}
+	}
 #else
 	if ((addr = calloc(size, 1)) == 0)
 		return VM_MAP_FAILED;
@@ -326,7 +366,7 @@ static void *vm_acquire_internal(size_t size, int options)
 	return addr;
 #endif
 
-	// Explicitely protect the newly mapped region here because on some systems,
+	// Explicitly protect the newly mapped region here because on some systems,
 	// say MacOS X, mmap() doesn't honour the requested protection flags.
 	if (vm_protect(addr, size, VM_PAGE_DEFAULT) != 0)
 		return VM_MAP_FAILED;
@@ -336,21 +376,19 @@ static void *vm_acquire_internal(size_t size, int options)
 }
 
 /* Allocate zero-filled memory at exactly ADDR (which must be page-aligned).
-   Retuns 0 if successful, -1 on errors.  */
+   Returns 0 if successful, -1 on errors.  */
 
 static int vm_acquire_fixed_internal(void * addr, size_t size, int options)
 {
 	errno = 0;
-
+	
 	// Fixed mappings are required to be private
-    if (options & VM_MAP_SHARED) {
-        return -1;
-    }
+	if (options & VM_MAP_SHARED)
+		return -1;
 
 #ifndef HAVE_VM_WRITE_WATCH
-    if (options & VM_MAP_WRITE_WATCH) {
-        return -1;
-    }
+	if (options & VM_MAP_WRITE_WATCH)
+		return -1;
 #endif
 
 #if defined(HAVE_MACH_VM)
@@ -364,14 +402,12 @@ static int vm_acquire_fixed_internal(void * addr, size_t size, int options)
 	int fd = zero_fd;
 	int the_map_flags = translate_map_flags(options) | map_flags | MAP_FIXED;
 
-    if (mmap((caddr_t)addr, size, VM_PAGE_DEFAULT, the_map_flags, fd, 0) == (void *)MAP_FAILED) {
-        return -1;
-    }
+	if (mmap((caddr_t)addr, size, VM_PAGE_DEFAULT, the_map_flags, fd, 0) == (void *)MAP_FAILED)
+		return -1;
 #elif defined(HAVE_WIN32_VM)
 	// Windows cannot allocate Low Memory
-    if (addr == NULL) {
-        return -1;
-    }
+	if (addr == NULL)
+		return -1;
 
 	int alloc_type = MEM_RESERVE | MEM_COMMIT;
 	if (options & VM_MAP_WRITE_WATCH)
@@ -381,19 +417,17 @@ static int vm_acquire_fixed_internal(void * addr, size_t size, int options)
 	LPVOID req_addr = align_addr_segment(addr);
 	DWORD  req_size = align_size_segment(addr, size);
 	LPVOID ret_addr = VirtualAlloc(req_addr, req_size, alloc_type, PAGE_EXECUTE_READWRITE);
-    if (ret_addr != req_addr) {
-        return -1;
-    }
+	if (ret_addr != req_addr)
+		return -1;
 #else
 	// Unsupported
 	return -1;
 #endif
 
-	// Explicitely protect the newly mapped region here because on some systems,
+	// Explicitly protect the newly mapped region here because on some systems,
 	// say MacOS X, mmap() doesn't honour the requested protection flags.
-    if (vm_protect(addr, size, VM_PAGE_DEFAULT) != 0) {
-        return -1;
-    }
+	if (vm_protect(addr, size, VM_PAGE_DEFAULT) != 0)
+		return -1;
 
 	return 0;
 }

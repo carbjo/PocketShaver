@@ -75,6 +75,9 @@
 #define CODE_INVALID -1
 #define CODE_HOTKEY  -2
 
+void make_window_transparent(SDL_Window *window);
+void set_mouse_ignore(SDL_Window *window, int flag);
+
 // Supported video modes
 using std::vector;
 static vector<VIDEO_MODE> VideoModes;
@@ -731,8 +734,9 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 		int old_window_width, old_window_height, old_window_flags;
 		SDL_GetWindowSize(sdl_window, &old_window_width, &old_window_height);
 		old_window_flags = SDL_GetWindowFlags(sdl_window);
-		if (old_window_width != window_width ||
-			old_window_height != window_height ||
+		float m = get_mag_rate();
+		if (old_window_width != m * window_width ||
+			old_window_height != m * window_height ||
 			(old_window_flags & window_flags_to_monitor) != (window_flags & window_flags_to_monitor))
 		{
 			delete_sdl_video_window();
@@ -1635,6 +1639,9 @@ void VideoExit(void)
 	for (i = VideoMonitors.begin(); i != end; ++i)
 		dynamic_cast<SDL_monitor_desc *>(*i)->video_close();
 
+	// Destroy SDL video window
+	delete_sdl_video_window();
+
 	// Destroy locks
 	if (frame_buffer_lock)
 		SDL_DestroyMutex(frame_buffer_lock);
@@ -2359,9 +2366,7 @@ static void handle_events(void)
 				if (code >= 0) {
 					if (!emul_suspended) {
 						code = modify_opt_cmd(code);
-						if (code == 0x39)
-							(SDL_GetModState() & SDL_KMOD_CAPS ? ADBKeyDown : ADBKeyUp)(code);
-						else
+						if (code != 0x39)
 							ADBKeyDown(code);
 						if (code == 0x36)
 							ctrl_down = true;
@@ -2385,7 +2390,9 @@ static void handle_events(void)
 					code = event2keycode(event.key, false);
 				if (code >= 0) {
 					code = modify_opt_cmd(code);
-					if (code != 0x39)
+					if (code == 0x39)
+						(SDL_GetModState() & SDL_KMOD_CAPS ? ADBKeyDown : ADBKeyUp)(code);
+					else
 						ADBKeyUp(code);
 					if (code == 0x36)
 						ctrl_down = false;

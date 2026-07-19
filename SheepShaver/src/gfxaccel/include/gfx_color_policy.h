@@ -24,7 +24,7 @@
  * Single-owner rule: on iOS the compositor LUT is the ONLY place driver
  * gamma is applied. The legacy CPU bake in video.cpp cscSetEntries
  * (palette entries pre-multiplied through the guest gamma table) is
- * disabled under TARGET_OS_IPHONE — with the LUT also carrying the guest
+ * disabled under TARGET_OS_IPHONE - with the LUT also carrying the guest
  * table, the bake would apply gamma twice on every indexed path. Any new
  * consumer of csSave->gammaTable must route through
  * publish_gamma_lut_to_display_controller instead of baking.
@@ -46,14 +46,13 @@ static inline uint8_t GfxColorClassicMacToSRGBByte(uint8_t value)
 
 /* Exact inverse of GfxColorClassicMacToSRGBByte (up to +/-1 LSB rounding).
  * Composing a guest table with this curve cancels the Mac Standard profile
- * gamma back to identity — the anchor for the Linear display policy. */
+ * gamma back to identity � the anchor for the Linear display policy. */
 static inline uint8_t GfxColorSRGBToClassicMacByte(uint8_t value)
 {
 	if (value == 0 || value == 255) return value;
 	const float unit = (float)value / 255.0f;
 	return GfxColorByteFromUnitFloat(powf(unit, 2.2f / 1.8f));
 }
-
 static inline void GfxColorFillIdentityGammaLUT(uint8_t *lut)
 {
 	if (lut == NULL) return;
@@ -64,15 +63,11 @@ static inline void GfxColorFillIdentityGammaLUT(uint8_t *lut)
 	}
 }
 
-// apply_correction follows the user "Gamma ramp" pref. The guest-side driver
-// default (and the profile table Mac OS pushes on Display Manager mode
-// switches) is the Mac Standard curve — a classic-Mac 1.8 -> sRGB 2.2 lift —
-// so the guest table itself already carries the bright presentation:
-//   true (OS defined): present the guest table VERBATIM (the standard lift
-//     IS the correction; composing another lift on top would double-correct).
-//   false (Linear): compose the INVERSE standard curve so the profile lift
-//     cancels back to identity — the darker raw-framebuffer image the pref
-//     promises, held permanently: boot, post-switch, fullscreen-native alike.
+// apply_correction follows the user "Gamma ramp" pref: when true (OS defined)
+// the classic-Mac 1.8 -> sRGB 2.2 display correction is composed in as before;
+// when false (Linear) the LUT is left as a passthrough so the guest table is
+// presented raw, giving the darker / less color-distorted image the pref
+// promises and removing the display-side midtone lift.
 static inline void GfxColorFillDefaultDisplayGammaLUT(uint8_t *lut,
                                                       bool apply_correction)
 {
@@ -96,15 +91,13 @@ static inline void GfxColorBuildDisplayGammaLUT(const uint8_t *mac_lut,
 {
 	if (mac_lut == NULL || display_lut == NULL) return;
 
-	// A fade ramp must march linearly, and OS-defined mode presents the guest
-	// table verbatim (see above) — both are a straight passthrough of mac_lut.
+	// A fade ramp must stay linear, and Linear gamma mode also wants the guest
+	// table verbatim - both are a straight passthrough of mac_lut.
 	if (fade_active || apply_correction) {
 		memcpy(display_lut, mac_lut, 768);
 		return;
 	}
 
-	// Linear: cancel the Mac Standard profile lift out of the guest table so
-	// the presentation stays anchored at the darker raw image.
 	for (int i = 0; i < 768; i++) {
 		display_lut[i] = GfxColorSRGBToClassicMacByte(mac_lut[i]);
 	}

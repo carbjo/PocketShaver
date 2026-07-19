@@ -25,6 +25,7 @@
 #include <process.h>
 #include <windowsx.h>
 #include <winioctl.h>
+#include <ws2tcpip.h>
 #include <ctype.h>
 
 #include "cpu_emulation.h"
@@ -109,7 +110,7 @@ const bool ether_driver_opened = true;  // Flag: Driver is open on MacOS side
                                         // calls.
                                         // B2 doesn't provide this
                                         // but also calls don't need it
-                           
+
 #endif
 
 // These are protected by queue_csection

@@ -202,7 +202,7 @@ void cpu_do_check_ticks(void)
 	if (delay < 0)
 		delay = PrefsFindInt32("delay");
 	if (delay)
-		usleep(delay);
+		Delay_usec(delay);
 }
 
 
@@ -502,7 +502,7 @@ void QuitEmulator(void)
 
 
 /*
- *  Code was patched, flush caches if neccessary (i.e. when using a real 680x0
+ *  Code was patched, flush caches if necessary (i.e. when using a real 680x0
  *  or a dynamically recompiling emulator)
  */
 

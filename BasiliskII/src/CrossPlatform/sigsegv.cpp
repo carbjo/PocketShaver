@@ -125,7 +125,7 @@ static void powerpc_decode_instruction(instruction_t *instruction, unsigned int 
 	unsigned int rb = (opcode >> 11) & 0x1f;
 	unsigned int rd = (opcode >> 21) & 0x1f;
 	signed int imm = (signed short)(opcode & 0xffff);
-	
+
 	// Analyze opcode
 	transfer_type_t transfer_type = SIGSEGV_TRANSFER_UNKNOWN;
 	transfer_size_t transfer_size = SIZE_UNKNOWN;
@@ -163,7 +163,7 @@ static void powerpc_decode_instruction(instruction_t *instruction, unsigned int 
 			transfer_type = SIGSEGV_TRANSFER_STORE; transfer_size = SIZE_WORD; addr_mode = MODE_UX; break;
 		}
 		break;
-	
+
 	case 32:	// lwz
 		transfer_type = SIGSEGV_TRANSFER_LOAD; transfer_size = SIZE_LONG; addr_mode = MODE_NORM; break;
 	case 33:	// lwzu
@@ -205,7 +205,7 @@ static void powerpc_decode_instruction(instruction_t *instruction, unsigned int 
 		imm &= ~3;
 		break;
 	}
-	
+
 	// Calculate effective address
 	unsigned int addr = 0;
 	switch (addr_mode) {
@@ -226,7 +226,7 @@ static void powerpc_decode_instruction(instruction_t *instruction, unsigned int 
 	default:
 		break;
 	}
-        
+
 	// Commit decoded instruction
 	instruction->addr = addr;
 	instruction->addr_mode = addr_mode;
@@ -1023,7 +1023,7 @@ static inline int ix86_step_over_modrm(unsigned char * p)
 	case 3: // register
 		return 0;
 	}
-	
+
 	// SIB Byte
 	if (rm == 4) {
 		if (mod == 0 && (p[1] & 7) == 5)
@@ -1041,11 +1041,13 @@ static bool ix86_skip_instruction(SIGSEGV_REGISTER_TYPE * regs)
 
 	if (eip == 0)
 		return false;
-#ifdef _WIN32
-	if (IsBadCodePtr((FARPROC)eip))
-		return false;
-#endif
-	
+	/* IsBadCodePtr is unreliable and causes
+		infinite debugger loops on modern Win64 */
+	#if defined(_WIN32) && !defined(_WIN64)
+		if (IsBadCodePtr((FARPROC)eip))
+			return false;
+	#endif
+
 	enum instruction_type_t {
 		i_MOV,
 		i_ADD
@@ -1054,7 +1056,7 @@ static bool ix86_skip_instruction(SIGSEGV_REGISTER_TYPE * regs)
 	transfer_type_t transfer_type = SIGSEGV_TRANSFER_UNKNOWN;
 	transfer_size_t transfer_size = SIZE_LONG;
 	instruction_type_t instruction_type = i_MOV;
-	
+
 	int reg = -1;
 	int len = 0;
 
@@ -1221,8 +1223,8 @@ static bool ix86_skip_instruction(SIGSEGV_REGISTER_TYPE * regs)
 			X86_REG_R12, X86_REG_R13, X86_REG_R14, X86_REG_R15,
 #endif
 		};
-		
-		if (reg < 0 || reg >= (sizeof(x86_reg_map)/sizeof(x86_reg_map[0]) - 1))
+
+		if (reg < 0 || reg >= (int)(sizeof(x86_reg_map)/sizeof(x86_reg_map[0])))
 			return false;
 
 		// Set 0 to the relevant register part
@@ -1254,7 +1256,7 @@ static bool ix86_skip_instruction(SIGSEGV_REGISTER_TYPE * regs)
 		   transfer_size == SIZE_LONG ? "long" :
 		   transfer_size == SIZE_QUAD ? "quad" : "unknown",
 		   transfer_type == SIGSEGV_TRANSFER_LOAD ? "read" : "write");
-	
+
 	if (reg != -1) {
 		static const char * x86_byte_reg_str_map[] = {
 			"al",   "cl",   "dl",   "bl",
@@ -1297,7 +1299,7 @@ static bool ix86_skip_instruction(SIGSEGV_REGISTER_TYPE * regs)
 	}
 	printf(", %d bytes instruction\n", len);
 #endif
-	
+
 	regs[X86_REG_EIP] += len;
 	return true;
 }
@@ -2092,7 +2094,7 @@ static bool powerpc_skip_instruction(unsigned long * nip_p, unsigned long * regs
 {
 	instruction_t instr;
 	powerpc_decode_instruction(&instr, *nip_p, regs);
-	
+
 	if (instr.transfer_type == SIGSEGV_TRANSFER_UNKNOWN) {
 		// Unknown machine code, let it crash. Then patch the decoder
 		return false;
@@ -2104,18 +2106,18 @@ static bool powerpc_skip_instruction(unsigned long * nip_p, unsigned long * regs
 		   instr.transfer_size == SIZE_WORD ? "word" :
 		   instr.transfer_size == SIZE_LONG ? "long" : "quad",
 		   instr.transfer_type == SIGSEGV_TRANSFER_LOAD ? "read" : "write");
-	
+
 	if (instr.addr_mode == MODE_U || instr.addr_mode == MODE_UX)
 		printf(" r%d (ra = %08x)\n", instr.ra, instr.addr);
 	if (instr.transfer_type == SIGSEGV_TRANSFER_LOAD)
 		printf(" r%d (rd = 0)\n", instr.rd);
 #endif
-	
+
 	if (instr.addr_mode == MODE_U || instr.addr_mode == MODE_UX)
 		regs[instr.ra] = instr.addr;
 	if (instr.transfer_type == SIGSEGV_TRANSFER_LOAD)
 		regs[instr.rd] = 0;
-	
+
 	*nip_p += 4;
 	return true;
 }
@@ -2464,7 +2466,7 @@ static bool arm_skip_instruction(unsigned long * regs)
 	  transfer_size = SIZE_LONG;
 	break;
   default:
-	// FIXME: support load/store mutliple?
+	// FIXME: support load/store multiple?
 	return false;
   }
 
@@ -2736,10 +2738,10 @@ static bool handle_badaccess(SIGSEGV_FAULT_HANDLER_ARGLIST_1)
 /*
  * There are two mechanisms for handling a bad memory access,
  * Mach exceptions and UNIX signals. The implementation specific
- * code appears below. Its reponsibility is to call handle_badaccess
+ * code appears below. Its responsibility is to call handle_badaccess
  * which is the routine that handles the fault in an implementation
  * agnostic manner. The implementation specific code below is then
- * reponsible for checking whether handle_badaccess was able
+ * responsible for checking whether handle_badaccess was able
  * to handle the memory access error and perform any implementation
  * specific tasks necessary afterwards.
  */
@@ -2749,7 +2751,7 @@ static bool handle_badaccess(SIGSEGV_FAULT_HANDLER_ARGLIST_1)
  * We need to forward all exceptions that we do not handle.
  * This is important, there are many exceptions that may be
  * handled by other exception handlers. For example debuggers
- * use exceptions and the exception hander is in another
+ * use exceptions and the exception handler is in another
  * process in such a case. (Timothy J. Wood states in his
  * message to the list that he based this code on that from
  * gdb for Darwin.)
@@ -2778,7 +2780,7 @@ forward_exception(mach_port_t thread_port,
 	}
 
 	if (portIndex >= oldExceptionPorts->maskCount) {
-		fprintf(stderr, "No handler for exception_type = %d. Not fowarding\n", exception_type);
+		fprintf(stderr, "No handler for exception_type = %d. Not forwarding\n", exception_type);
 		return KERN_FAILURE;
 	}
 
@@ -3043,7 +3045,7 @@ static bool sigsegv_do_install_handler(sigsegv_fault_handler_t handler)
 	// We could have used EXCEPTION_STATE_IDENTITY instead of
 	// EXCEPTION_DEFAULT to get the thread state in the initial
 	// message, but it turns out that in the common case this is not
-	// neccessary. If we need it we can later ask for it from the
+	// necessary. If we need it we can later ask for it from the
 	// suspended thread.
 	//
 	// Even with THREAD_STATE_NONE, Darwin provides the program
@@ -3081,17 +3083,118 @@ static bool sigsegv_do_install_handler(sigsegv_fault_handler_t handler)
 #endif
 
 #ifdef HAVE_WIN32_EXCEPTIONS
+/*
+ * Shared ACCESS_VIOLATION recovery used by both the top-level filter and the
+ * vectored exception handler. Returns true if the fault was handled (instruction
+ * skipped / recovered) and execution should continue at the (possibly updated)
+ * context.
+ *
+ * IMPORTANT: SetUnhandledExceptionFilter is NOT invoked while a debugger is
+ * attached (MSDN). Under VS/cdb that meant ignoresegv never ran: the same
+ * guest unmapped load (e.g. vm_do_read_memory_4) re-faulted forever as
+ * first-chance/second-chance "exception thrown" loops. A Vectored Exception
+ * Handler still runs after first-chance continue and fixes that.
+ */
+#ifdef MEM_BULK_LAZY
+/*
+ * PocketShaver MEM_BULK parity, done lazily. On iOS the entire guest address
+ * space is one committed block, so a stray guest store lands in real memory
+ * and reads back later; here the equivalent range is backed on first touch.
+ * A fault whose address maps into the guest span and hits FREE host pages
+ * gets a fresh zero-filled 64KB granule committed in place and the faulting
+ * instruction re-runs (the access succeeds). Committed-but-protected pages
+ * (ROM, the zero page) and addresses outside the guest span fall through to
+ * the normal skip-instruction handler, so ignoresegv semantics are unchanged
+ * there. Like MEM_BULK, this does not distinguish guest from host code - a
+ * wild host pointer into the guest range is absorbed the same way.
+ */
+#ifndef NATMEM_OFFSET
+#error "MEM_BULK_LAZY requires NATMEM_OFFSET"
+#endif
+static bool win32_lazy_back_guest_page(uintptr_t fault_va)
+{
+	// Guest span [0, 0x70000000): covers RAM, the framebuffer aperture,
+	// ROM (0x40800000), SheepMem (0x51000000), kernel data and the DR cache
+	// (end 0x69080000), with headroom. Superset of PocketShaver's 1.5GB bulk.
+	static const uintptr_t kGuestSpanBytes = 0x70000000u;
+	const uintptr_t guest_addr = fault_va - (uintptr_t)NATMEM_OFFSET;
+	if (guest_addr >= kGuestSpanBytes)
+		return false;
+
+	MEMORY_BASIC_INFORMATION mbi;
+	if (VirtualQuery((LPCVOID)fault_va, &mbi, sizeof(mbi)) != sizeof(mbi))
+		return false;
+
+	void *backed = NULL;
+	if (mbi.State == MEM_FREE) {
+		SYSTEM_INFO si;
+		GetSystemInfo(&si);
+		const uintptr_t granule = si.dwAllocationGranularity;
+		const uintptr_t base = fault_va & ~(granule - 1);
+		backed = VirtualAlloc((LPVOID)base, granule,
+		                      MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	}
+	else if (mbi.State == MEM_RESERVE) {
+		// Reserved-but-uncommitted hole (e.g. someone else's reservation in
+		// our range): commit just the faulting page.
+		const uintptr_t page = fault_va & ~(uintptr_t)0xFFF;
+		backed = VirtualAlloc((LPVOID)page, 0x1000, MEM_COMMIT, PAGE_READWRITE);
+	}
+	// mbi.State == MEM_COMMIT: protection fault - not ours to fix.
+	if (backed == NULL)
+		return false;
+
+	static long backed_count = 0;
+	const long n = ++backed_count;
+	if (n <= 16 || (n & 1023) == 0) {
+		fprintf(stderr, "[vm] lazy-backed guest memory at 0x%08lx "
+		        "(host %p, %ld granule(s) so far)\n",
+		        (unsigned long)guest_addr, (void *)fault_va, n);
+		fflush(stderr);
+	}
+	return true;
+}
+#endif /* MEM_BULK_LAZY */
+
+static bool win32_try_handle_access_violation(EXCEPTION_POINTERS *ExceptionInfo)
+{
+	if (sigsegv_fault_handler == NULL)
+		return false;
+	if (ExceptionInfo == NULL || ExceptionInfo->ExceptionRecord == NULL)
+		return false;
+	if (ExceptionInfo->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION)
+		return false;
+	if (ExceptionInfo->ExceptionRecord->NumberParameters < 2)
+		return false;
+#ifdef MEM_BULK_LAZY
+	// ExceptionInformation[0]: 0 = read, 1 = write, 8 = DEP. Back data
+	// accesses only; instruction fetches from unmapped space stay fatal.
+	if (ExceptionInfo->ExceptionRecord->ExceptionInformation[0] != 8
+	    && win32_lazy_back_guest_page(
+	           (uintptr_t)ExceptionInfo->ExceptionRecord->ExceptionInformation[1]))
+		return true;
+#endif
+	return handle_badaccess(ExceptionInfo);
+}
+
 static LONG WINAPI main_exception_filter(EXCEPTION_POINTERS *ExceptionInfo)
 {
-	if (sigsegv_fault_handler != NULL
-		&& ExceptionInfo->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION
-		&& ExceptionInfo->ExceptionRecord->NumberParameters >= 2
-		&& handle_badaccess(ExceptionInfo))
+	if (win32_try_handle_access_violation(ExceptionInfo))
 		return EXCEPTION_CONTINUE_EXECUTION;
 
 	return EXCEPTION_CONTINUE_SEARCH;
 }
 
+#if defined(_WIN64)
+/* First-chance path that works with a debugger attached. */
+static LONG WINAPI main_vectored_exception_handler(EXCEPTION_POINTERS *ExceptionInfo)
+{
+	if (win32_try_handle_access_violation(ExceptionInfo))
+		return EXCEPTION_CONTINUE_EXECUTION;
+
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif /* #if defined(_WIN64) */
 #if defined __CYGWIN__ && defined __i386__
 /* In Cygwin programs, SetUnhandledExceptionFilter has no effect because Cygwin
    installs a global exception handler.  We have to dig deep in order to install
@@ -3149,11 +3252,37 @@ do_install_main_exception_filter ()
 }
 
 #else
-
+#if defined(_WIN64) /* vectored EH is Win2k+ */
+static PVOID win32_veh_handle = NULL;
+#endif
 static void
 do_install_main_exception_filter ()
 {
+  /* Keep the top-level filter for non-debug runs (and as a backstop). */
   SetUnhandledExceptionFilter ((LPTOP_LEVEL_EXCEPTION_FILTER) &main_exception_filter);
+  #if defined(_WIN64)
+  /*
+   * Vectored handler: required so ignoresegv/instruction-skip works under
+   * Visual Studio / cdb. Call with FirstHandler=TRUE so we run early among
+   * VEHs. Still only claims ACCESS_VIOLATIONs we can recover.
+   */
+  if (win32_veh_handle == NULL) {
+    win32_veh_handle = AddVectoredExceptionHandler(
+        1 /* FirstHandler */,
+        main_vectored_exception_handler);
+    if (win32_veh_handle == NULL) {
+      fprintf(stderr,
+              "[sigsegv] AddVectoredExceptionHandler failed (err=%lu); "
+              "ignoresegv will not work under a debugger\n",
+              (unsigned long)GetLastError());
+      fflush(stderr);
+    } else {
+      fprintf(stderr,
+              "[sigsegv] VEH installed (ignoresegv works with debugger attached)\n");
+      fflush(stderr);
+    }
+  }
+  #endif /* #if defined(_WIN64) */
 }
 #endif
 
@@ -3207,6 +3336,12 @@ void sigsegv_deinstall_handler(void)
 #endif
 #ifdef HAVE_WIN32_EXCEPTIONS
 	sigsegv_fault_handler = NULL;
+#if !(defined __CYGWIN__ && defined __i386__) && defined(_WIN64)
+	if (win32_veh_handle != NULL) {
+		RemoveVectoredExceptionHandler(win32_veh_handle);
+		win32_veh_handle = NULL;
+	}
+#endif
 #endif
 }
 
@@ -3372,11 +3507,11 @@ int main(void)
 	page_size = vm_get_page_size();
 	if ((page = (char *)vm_acquire(page_size)) == VM_MAP_FAILED)
 		return 2;
-	
+
 	memset((void *)page, 0, page_size);
 	if (vm_protect((char *)page, page_size, VM_PAGE_READ) < 0)
 		return 3;
-	
+
 	if (!sigsegv_install_handler(sigsegv_test_handler))
 		return 4;
 
@@ -3410,16 +3545,16 @@ int main(void)
 #ifdef HAVE_SIGSEGV_SKIP_INSTRUCTION
 	if (!sigsegv_install_handler(sigsegv_insn_handler))
 		return 6;
-	
+
 	if (vm_protect((char *)page, page_size, VM_PAGE_READ | VM_PAGE_WRITE) < 0)
 		return 7;
-	
+
 	for (int i = 0; i < page_size; i++)
 		page[i] = (i + 1) % page_size;
-	
+
 	if (vm_protect((char *)page, page_size, VM_PAGE_NOACCESS) < 0)
 		return 8;
-	
+
 #define TEST_SKIP_INSTRUCTION(TYPE) do {				\
 		const unsigned long TAG = 0x12345678 |			\
 		(sizeof(long) == 8 ? 0x9abcdef0UL << 31 : 0);	\
@@ -3428,7 +3563,7 @@ int main(void)
 		if (effect != TAG)								\
 			return 9;									\
 	} while (0)
-	
+
 #ifdef __GNUC__
 	b_region = &&L_b_region2;
 	e_region = &&L_e_region2;

@@ -145,7 +145,7 @@ struct ByteArray : public vector<uint8> {
 	uint8 *data() { return &(*this)[0]; }
 };
 
-// Clipboard data for requestors
+// Clipboard data for requesters
 struct ClipboardData {
 	Time time;
 	Atom type;
@@ -552,7 +552,7 @@ static bool handle_selection_TIMESTAMP(XSelectionRequestEvent *req)
 	// 32-bit integer values are always passed as a long whatever is its size
 	long timestamp = clip_data.time;
 
-	// Change requestor property
+	// Change requester property
 	XChangeProperty(x_display, req->requestor, req->property,
 					XA_INTEGER, 32,
 					PropModeReplace, (uint8 *)&timestamp, 1);
@@ -568,11 +568,11 @@ static bool handle_selection_TARGETS(XSelectionRequestEvent *req)
 	targets.push_back(xa_multiple);
 	targets.push_back(xa_timestamp);
 
-	// Extra targets matchin current clipboard data
+	// Extra targets matching current clipboard data
 	if (clip_data.type != None)
 		targets.push_back(clip_data.type);
 
-	// Change requestor property
+	// Change requester property
 	XChangeProperty(x_display, req->requestor, req->property,
 					xa_targets, 32,
 					PropModeReplace, (uint8 *)&targets[0], targets.size());
@@ -660,7 +660,7 @@ static bool handle_selection(XSelectionRequestEvent *req, bool is_multiple)
 		handled = handle_selection_MULTIPLE(req);
 	}
 
-	// Notify requestor only when we are done with his request
+	// Notify requester only when we are done with his request
 	if (handled && !is_multiple) {
 		XEvent out_event;
 		out_event.xselection.type      = SelectionNotify;

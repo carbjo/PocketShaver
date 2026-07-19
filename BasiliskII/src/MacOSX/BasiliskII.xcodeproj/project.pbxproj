@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		520A1619300564A5005DCC43 /* BasiliskII.icon in Resources */ = {isa = PBXBuildFile; fileRef = 520A1618300564A5005DCC43 /* BasiliskII.icon */; };
 		5D5C3B0A24B2DF3500CDAB41 /* bincue.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D5C3B0924B2DF3400CDAB41 /* bincue.cpp */; };
 		752F26F91F240E51001032B4 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 752F26F81F240E51001032B4 /* Foundation.framework */; };
 		752F26FB1F240E69001032B4 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 752F26FA1F240E69001032B4 /* IOKit.framework */; };
@@ -133,6 +134,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		520A1618300564A5005DCC43 /* BasiliskII.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = BasiliskII.icon; sourceTree = "<group>"; };
 		5D5C3B0924B2DF3400CDAB41 /* bincue.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = bincue.cpp; path = ../bincue.cpp; sourceTree = "<group>"; };
 		5D5C3B0B24B2DF4200CDAB41 /* bincue.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bincue.h; sourceTree = "<group>"; };
 		5DDE95122255D075004D0E79 /* AudioBackEnd.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AudioBackEnd.h; sourceTree = "<group>"; };
@@ -411,6 +413,7 @@
 		7539DFA91F23B17E006B2DF2 = {
 			isa = PBXGroup;
 			children = (
+				520A1618300564A5005DCC43 /* BasiliskII.icon */,
 				E45769A82643A65B0063BAF1 /* uae_cpu.xcodeproj */,
 				E45769B52643A6740063BAF1 /* uae_cpu_2021.xcodeproj */,
 				E4150D1320D559800077C51A /* SDL2.framework */,
@@ -756,6 +759,7 @@
 			files = (
 				7539E1341F23B25A006B2DF2 /* BasiliskII.icns in Resources */,
 				E4555EED2354434B00139FCE /* Credits.html in Resources */,
+				520A1619300564A5005DCC43 /* BasiliskII.icon in Resources */,
 				E416BEED2410AE0900751E6D /* etherhelpertool in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -998,7 +1002,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = BasiliskII;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "compiler-default";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = NO;
@@ -1081,7 +1086,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = BasiliskII;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "compiler-default";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = NO;

@@ -88,8 +88,6 @@ uint32_t gl_defer_count_addr   = 0;
 uint32_t gl_defer_enabled_addr = 0;
 uint32_t gl_defer_common_tail  = 0;
 
-namespace {
-
 // One authored row: opcode + its descriptor fields. deferrable is forced to 1
 // when scattered, so it is not repeated here.
 struct GLDeferRow {
@@ -346,7 +344,6 @@ int record_size(const GLDeferDesc &d) {
          + round_up_4((int)d.ptr_bytes);
 }
 
-}  // namespace
 
 void GLDeferBuildDescriptors(void) {
     std::memset(gl_defer_desc, 0, sizeof(gl_defer_desc));

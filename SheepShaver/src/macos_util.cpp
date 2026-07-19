@@ -29,14 +29,13 @@
 #include "macos_util.h"
 #include "thunks.h"
 #include "prefs.h"
-#if TARGET_OS_IPHONE
-#include "gfxaccel/include/gl_synthetic_symbol_policy.h"
+#if defined(ENABLE_GFXACCEL)
+#include "cinepak_hooks.h"
 #endif
 #include <algorithm>
 
 #define DEBUG 0
 #include "debug.h"
-
 
 // Function pointers
 typedef long (*cu_ptr)(void *, uint32);
@@ -103,7 +102,6 @@ static uint32 FindSyntheticLibSymbol(const char *lib_str, const char *sym_str)
 	return 0;
 }
 #endif
-
 
 /*
  *  Reset MacOS utilities
@@ -413,6 +411,16 @@ void InitCallUniversalProc()
 		printf("FATAL: Can't find DisposePtr()\n");
 		QuitEmulator();
 	}
+
+#if defined(ENABLE_GFXACCEL) && defined(ENABLE_NATIVE_CINEPAK_PATCH) \
+		&& ENABLE_NATIVE_CINEPAK_PATCH
+	/* Hook Component Manager searches (OpenDefaultComponent AND
+	   FindNextComponent). On the first request for an image decompressor
+	   ('imdc'), we register our native Cinepak component just-in-time -
+	   newest registration is found first - then both hooks restore
+	   themselves. */
+	CinepakInstallHooks();
+#endif
 }
 
 

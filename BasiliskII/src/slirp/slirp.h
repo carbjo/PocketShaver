@@ -36,12 +36,14 @@ typedef unsigned long ioctlsockopt_t;
 # include <iphlpapi.h>
 
 # define USE_FIONBIO 1
-# define EWOULDBLOCK WSAEWOULDBLOCK
-# define EINPROGRESS WSAEINPROGRESS
-# define ENOTCONN WSAENOTCONN
-# define EHOSTUNREACH WSAEHOSTUNREACH
-# define ENETUNREACH WSAENETUNREACH
-# define ECONNREFUSED WSAECONNREFUSED
+#ifndef EWOULDBLOCK
+    # define EWOULDBLOCK WSAEWOULDBLOCK
+    # define EINPROGRESS WSAEINPROGRESS
+    # define ENOTCONN WSAENOTCONN
+    # define EHOSTUNREACH WSAEHOSTUNREACH
+    # define ENETUNREACH WSAENETUNREACH
+    # define ECONNREFUSED WSAECONNREFUSED
+#endif
 
 /* Basilisk II Router defines those */
 # define udp_read_completion slirp_udp_read_completion
@@ -231,7 +233,7 @@ int inet_aton _P((const char *cp, struct in_addr *ia));
 
 #if defined __GNUC__
 #define PACKED__ __attribute__ ((packed))
-#elif defined _MSC_VER 
+#elif defined _MSC_VER
 #define PRAGMA_PACK_SUPPORTED 1
 #define PACK_RESET
 #define PACKED__

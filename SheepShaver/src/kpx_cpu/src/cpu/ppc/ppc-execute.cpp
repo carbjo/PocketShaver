@@ -23,8 +23,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
-#include <string.h>
-#ifdef __MINGW64__
+#if defined(__MINGW64__) || defined(_MSC_VER) || defined(__GLIBC__) || defined(__APPLE__)
 #include <fenv.h>
 #endif
 #include "cpu/vm.hpp"
@@ -243,7 +242,7 @@ struct op_carry {
 template<>
 struct op_carry<op_add> {
 	static inline bool apply(uint32 a, uint32 b, uint32 c) {
-		// TODO: use 32-bit arithmetics
+		// TODO: use 32-bit arithmetic
 		uint64 carry = (uint64)a + (uint64)b + (uint64)c;
 		return (carry >> 32) != 0;
 	}
@@ -266,14 +265,14 @@ struct op_overflow<op_neg> {
 template<>
 struct op_overflow<op_add> {
 	static inline bool apply(uint32 a, uint32 b, uint32 c) {
-		// TODO: use 32-bit arithmetics
+		// TODO: use 32-bit arithmetic
 		int64 overflow = (int64)(int32)a + (int64)(int32)b + (int64)(int32)c;
 		return (((uint64)overflow) >> 63) ^ (((uint32)overflow) >> 31);
 	}
 };
 
 /**
- *	Perform an addition/substraction
+ *	Perform an addition/subtraction
  *
  *		RA		Input operand register, possibly 0
  *		RB		Input operand either register or immediate
@@ -605,7 +604,7 @@ void powerpc_cpu::record_fpscr(int exceptions)
 }
 
 /**
- *	Floating-point arithmetics
+ *	Floating-point arithmetic
  *
  *		FP		Floating Point type
  *		OP		Operation to perform
@@ -656,7 +655,7 @@ void powerpc_cpu::execute_fp_arith(uint32 opcode)
 		if (!FPSCR_VE_field::test(fpscr()))
 			fp_classify(d);
 	}
-	
+
 	// Set CR1 (FX, FEX, VX, VOX) if instruction has Rc set
 	if (Rc::test(opcode))
 		record_cr1();
@@ -706,10 +705,8 @@ void powerpc_cpu::execute_loadstore(uint32 opcode)
 
 	if (LD)
 		operand_RD::set(this, opcode, OP::apply(memory_helper<SZ, RX>::load(ea)));
-	else {
-		const uint32 store_value = operand_RS::get(this, opcode);
-		memory_helper<SZ, RX>::store(ea, store_value);
-	}
+	else
+		memory_helper<SZ, RX>::store(ea, operand_RS::get(this, opcode));
 
 	if (UP)
 		RA::set(this, opcode, ea);
@@ -739,10 +736,8 @@ void powerpc_cpu::execute_loadstore_multiple(uint32 opcode)
 	while (r <= 31) {
 		if (LD)
 			gpr(r) = vm_read_memory_4(ea);
-		else {
-			const uint32 store_value = gpr(r);
-			vm_write_memory_4(ea, store_value);
-		}
+		else
+			vm_write_memory_4(ea, gpr(r));
 		r++;
 		ea += 4;
 	}
@@ -779,10 +774,8 @@ void powerpc_cpu::execute_fp_loadstore(uint32 opcode)
 		v = operand_fp_dw_RS::get(this, opcode);
 		if (DB)
 			vm_write_memory_8(ea, v);
-		else {
-			const uint32 store_value = fp_store_single_convert(v);
-			vm_write_memory_4(ea, store_value);
-		}
+		else
+			vm_write_memory_4(ea, fp_store_single_convert(v));
 	}
 
 	if (UP)
@@ -791,6 +784,10 @@ void powerpc_cpu::execute_fp_loadstore(uint32 opcode)
 	increment_pc(4);
 }
 
+// Store Floating-Point as Integer Word Indexed (stfiwx): store the low 32 bits
+// of FPR(RS) to EA = (RA|0) + RB, with no conversion.  Not a template like the
+// other FP load/stores because it stores the raw low word, not a converted
+// single/double.
 void powerpc_cpu::execute_stfiwx(uint32 opcode)
 {
 	const uint32 a = operand_RA_or_0::get(this, opcode);
@@ -874,8 +871,7 @@ void powerpc_cpu::execute_store_string(uint32 opcode)
 	int rs = rS_field::extract(opcode);
 	int sh = 24;
 	for (int i = 0; i < nb; i++) {
-		const uint32 store_value = (gpr(rs) >> sh) & 0xff;
-		vm_write_memory_1(ea + i, store_value);
+		vm_write_memory_1(ea + i, gpr(rs) >> sh);
 		sh -= 8;
 		if (sh < 0) {
 			sh = 24;
@@ -912,17 +908,16 @@ void powerpc_cpu::execute_stwcx(uint32 opcode)
 	const uint32 ea = RA::get(this, opcode) + operand_RB::get(this, opcode);
 	cr().clear(0);
 	if (regs().reserve_valid) {
-			if (regs().reserve_addr == ea /* physical_addr(EA) */
+		if (regs().reserve_addr == ea /* physical_addr(EA) */
 #if KPX_MAX_CPUS != 1
-				/* HACK: if another processor wrote to the reserved block,
-				   nothing happens, i.e. we should operate as if reserve == 0 */
-				&& regs().reserve_data == vm_read_memory_4(ea)
+			/* HACK: if another processor wrote to the reserved block,
+			   nothing happens, i.e. we should operate as if reserve == 0 */
+			&& regs().reserve_data == vm_read_memory_4(ea)
 #endif
-				) {
-				const uint32 store_value = operand_RS::get(this, opcode);
-				vm_write_memory_4(ea, store_value);
-				cr().set(0, standalone_CR_EQ_field::mask());
-			}
+			) {
+			vm_write_memory_4(ea, operand_RS::get(this, opcode));
+			cr().set(0, standalone_CR_EQ_field::mask());
+		}
 		regs().reserve_valid = 0;
 	}
 	cr().set_so(0, xer().get_so());
@@ -1871,7 +1866,7 @@ void powerpc_cpu::execute_vector_sum(uint32 opcode)
 	typename VB::type const & vB = VB::const_ref(this, opcode);
 	typename VD::type & vD = VD::ref(this, opcode);
 	typename VD::element_type d;
-	
+
 	switch (SZ) {
 	case 1: // vsum
 		d = VB::get_element(vB, 3);

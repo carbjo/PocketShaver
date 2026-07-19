@@ -42,17 +42,8 @@
 #include <sys/cdio.h>
 #endif
 
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
-
 #if defined __APPLE__ && defined __MACH__
-//#include <sys/disk.h>
-
-#define DKIOCGETBLOCKSIZE                _IOR('d', 24, u_int32_t)
-#define DKIOCGETBLOCKCOUNT               _IOR('d', 25, u_int64_t)
-#define DKIOCEJECT                       _IO('d', 21)
-
+#include <sys/disk.h>
 #if (defined AQUA || defined HAVE_FRAMEWORK_COREFOUNDATION)
 #ifndef __MACOSX__
 #define __MACOSX__ MAC_OS_X_VERSION_MIN_REQUIRED
@@ -71,9 +62,7 @@
 #include "bincue.h"
 #endif
 
-#if TARGET_OS_IPHONE
-const char* document_directory();
-#endif
+
 
 #define DEBUG 0
 #include "debug.h"
@@ -307,7 +296,7 @@ void SysAddFloppyPrefs(void)
 	DarwinAddFloppyPrefs();
   #else
 	// Until I can convince the other guys that my Darwin code is useful,
-	// we just add something safe (a non-existant device):
+	// we just add something safe (a non-existent device):
 	PrefsAddString("floppy", "/dev/null");
   #endif
 #else
@@ -422,7 +411,7 @@ void SysAddSerialPrefs(void)
 	DarwinAddSerialPrefs();
   #else
 	// Until I can convince the other guys that my Darwin code is useful,
-	// we just add something safe (non-existant devices):
+	// we just add something safe (non-existent devices):
 	PrefsAddString("seriala", "/dev/null");
 	PrefsAddString("serialb", "/dev/null");
   #endif
@@ -553,22 +542,6 @@ static mac_file_handle *open_filehandle(const char *name)
 
 void *Sys_open(const char *name, bool read_only, bool is_cdrom)
 {
-#if TARGET_OS_IPHONE
-	char nameInCurrentDir [1024] = "";
-	bool is_absolute = strncmp(name, "/", 1) == 0;
-	if (!is_absolute) {
-		// Prepend Document directory.
-		const char* aCurrDir = document_directory();
-		strncpy(nameInCurrentDir, aCurrDir, strlen(aCurrDir));
-		int aSlashLoc = strlen(aCurrDir);
-		nameInCurrentDir[aSlashLoc] = '/';
-		strncpy(nameInCurrentDir + aSlashLoc + 1, name, strlen(name));
-		name = nameInCurrentDir;
-		
-//		printf ("Current dir: %s\n", aCurrDir);
-//		printf ("Name in current dir: %s\n", name);
-	}
-#endif
 	bool is_file = strncmp(name, "/dev/", 5) != 0;
 #if defined(__FreeBSD__)
 	                // SCSI                             IDE
@@ -604,8 +577,6 @@ void *Sys_open(const char *name, bool read_only, bool is_cdrom)
 	if (!read_only && access(name, W_OK))
 		read_only = true;
 
-#if !defined(TARGET_OS_IPHONE)
-
 	// Print warning message and eventually unmount drive when this is an HFS volume mounted under Linux (double mounting will corrupt the volume)
 	char mount_name[256];
 	if (!is_file && !read_only && is_drive_mounted(name, mount_name)) {
@@ -619,7 +590,6 @@ void *Sys_open(const char *name, bool read_only, bool is_cdrom)
 			return NULL;
 		}
 	}
-#endif
 
 	// Open file/device
 
@@ -659,11 +629,11 @@ void *Sys_open(const char *name, bool read_only, bool is_cdrom)
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__MACOSX__)
 	open_flags |= (is_cdrom ? O_NONBLOCK : 0);
 #endif
-#if defined(__MACOSX__) || (TARGET_OS_IPHONE)
+#if defined(__MACOSX__)
 	open_flags |= (is_file ? O_EXLOCK | O_NONBLOCK : 0);
 #endif
 	int fd = open(name, open_flags);
-#if defined(__MACOSX__) || (TARGET_OS_IPHONE)
+#if defined(__MACOSX__)
 	if (fd < 0 && (open_flags & O_EXLOCK)) {
 		if (errno == EOPNOTSUPP) {
 			// File system does not support locking. Try again without.
@@ -914,7 +884,6 @@ void SysEject(void *arg)
 			close(fh->ioctl_fd);
 			fh->ioctl_fd = -1;
 
-#if !defined(TARGET_OS_IPHONE)
 			// Try to use "diskutil eject" but it can take up to 5
 			// seconds to complete
 			if (fh->ioctl_name) {
@@ -923,7 +892,6 @@ void SysEject(void *arg)
 				sprintf(cmd, eject_cmd, fh->ioctl_name);
 				system(cmd);
 			}
-#endif
 		}
 		fh->is_media_present = false;
 	}
@@ -1023,7 +991,7 @@ bool SysIsDiskInserted(void *arg)
 #ifdef CDROM_MEDIA_CHANGED
 		if (fh->cdrom_cap & CDC_MEDIA_CHANGED) {
 			// If we don't do this, all attempts to read from a disc fail
-			// once the tray has been opened (altough the TOC reads fine).
+			// once the tray has been opened (although the TOC reads fine).
 			// Can somebody explain this to me?
 			if (ioctl(fh->fd, CDROM_MEDIA_CHANGED) == 1) {
 				close(fh->fd);

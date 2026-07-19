@@ -63,16 +63,25 @@
 // Concurrency primitives
 #include <mutex>
 #include <atomic>
-#include <pthread.h>
 #include <cassert>
+#if defined(_WIN32)
+#include <windows.h>
+typedef uintptr_t dmc_thread_id_t;
+static inline dmc_thread_id_t dmc_thread_self(void) { return (dmc_thread_id_t)GetCurrentThreadId(); }
+#else
+#include <pthread.h>
+typedef pthread_t dmc_thread_id_t;
+static inline dmc_thread_id_t dmc_thread_self(void) { return pthread_self(); }
+#endif
 
 #define DEBUG 0
 #include "debug.h"
 
 // Internal logging macros - promote to DMC_ERR for the rollback path
 // so subscriber-rejected transitions are visible even in release builds.
+#include "gfx_log.h"
 #define DMC_LOG(fmt, ...) D(bug("[DMC] " fmt "\n", ##__VA_ARGS__))
-#define DMC_ERR(fmt, ...) do { printf("[DMC ERROR] " fmt "\n", ##__VA_ARGS__); } while (0)
+#define DMC_ERR(...) GFX_DEBUG_EMIT("[DMC ERROR] ", __VA_ARGS__)
 
 // ---------------------------------------------------------------------------
 // Module-local state (writer-mutex serialized; atomic snapshot
@@ -117,7 +126,7 @@ static thread_local bool                      s_in_dmc_call = false;
 // Thread-identity baseline (assertion gate). Captured on the first
 // dmc_create call; subsequent writes from any other thread trigger
 // assert(0).
-static pthread_t                              s_emul_thread = 0;
+static dmc_thread_id_t                        s_emul_thread = 0;
 
 // ---------------------------------------------------------------------------
 // Re-entry guard RAII helper.
@@ -152,9 +161,9 @@ struct DMCReentryScope {
 // ---------------------------------------------------------------------------
 #define DMC_ASSERT_EMUL_THREAD() \
 	do { \
-		if (s_emul_thread != 0 && pthread_self() != s_emul_thread) { \
+		if (s_emul_thread != 0 && dmc_thread_self() != s_emul_thread) { \
 			DMC_ERR("dmc_* called from non-emul thread (got %p, expected %p)", \
-			        (void *)pthread_self(), (void *)s_emul_thread); \
+			        (void *)(uintptr_t)dmc_thread_self(), (void *)(uintptr_t)s_emul_thread); \
 			assert(0 && "DMC write from wrong thread"); \
 		} \
 	} while (0)
@@ -200,20 +209,12 @@ static DMCModeSnapshot *dmc_alloc_raw_snapshot(void) {
 	return (DMCModeSnapshot *)malloc(sizeof(DMCModeSnapshot));
 }
 
-// Initialize gamma_lut[768] to the Mac Standard curve — the same default the
-// video driver installs at VideoOpen (set_gamma nil-table path) and the
-// profile table Mac OS pushes on Display Manager mode switches. Seeding the
-// pre-driver boot frames with the identical curve keeps the display policy's
-// composition (verbatim in OS-defined mode, inverse-cancelled to identity in
-// Linear mode) constant from the first frame onward.
+// Initialize gamma_lut[768] to the Mac-side identity ramp (input == output).
+// The compositor composes the display-space 1.8->2.2 policy when it uploads
+// this snapshot into its GPU-visible LUT.
 static void dmc_init_identity_gamma(DMCModeSnapshot *snap) {
-	for (int c = 0; c < 3; c++) {
-		for (int i = 0; i < 256; i++) {
-			const uint8_t v = GfxColorClassicMacToSRGBByte((uint8_t)i);
-			snap->gamma_lut[c * 256 + i]        = v;
-			snap->driver_gamma_lut[c * 256 + i] = v;
-		}
-	}
+	GfxColorFillIdentityGammaLUT(snap->gamma_lut);
+	GfxColorFillIdentityGammaLUT(snap->driver_gamma_lut);
 }
 
 // Heap-allocate a fresh snapshot populated from a DMCModeDesc. Fields the
@@ -360,7 +361,7 @@ static int32_t dmc_internal_fire_enter_events(const DMCModeSnapshot *incoming) {
 	// indices (filtered counter skipped NULL on_mode_enter). After: every
 	// dispatch_index reflects the subscriber's position in the registration
 	// table regardless of callback presence. Exit's `(uint32_t)i` stays
-	// untouched — both paths now converge on raw subscriber index.
+	// untouched - both paths now converge on raw subscriber index.
 	for (size_t i = s_subscribers.size(); i > 0; --i) {
 		size_t idx = i - 1;  // walk in reverse without size_t underflow
 		if (s_subscribers[idx].on_mode_enter != NULL) {
@@ -443,7 +444,7 @@ int32_t dmc_create(const struct DMCModeDesc *initial_mode) {
 	}
 
 	if (s_emul_thread == 0) {
-		s_emul_thread = pthread_self();
+		s_emul_thread = dmc_thread_self();
 	}
 
 	const uint8_t default_blanking[4] = { 0x00, 0x00, 0x00, 0xFF };
@@ -625,7 +626,7 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 	// Carry palette_gen / gamma_gen / fade_active / blanking_rgba across the switch.
 	uint32_t carry_palette_gen = (outgoing != NULL) ? outgoing->palette_gen : 0;
 	uint32_t carry_gamma_gen   = (outgoing != NULL) ? outgoing->gamma_gen   : 0;
-	// A mid-fade mode switch must NOT drop the fade flag — a
+	// A mid-fade mode switch must NOT drop the fade flag - a
 	// DSp game can FadeGammaOut across a resolution change.
 	uint32_t carry_fade_active = (outgoing != NULL) ? outgoing->fade_active : 0;
 	const uint8_t carry_blanking[4] = {
@@ -691,7 +692,7 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 		// the NEXT successful publish would have used; concurrent readers
 		// holding `incoming` finish their frame before this slot is
 		// overwritten (at gen + 3 publish). The rejected generation stays
-		// consumed — we do NOT decrement s_next_generation because
+		// consumed - we do NOT decrement s_next_generation because
 		// the ring-slot calculation relies on the bumped counter.
 		dmc_retire_snapshot(incoming, incoming->generation + 1);
 		return kDMCErrSubscriberRejected;
@@ -736,7 +737,7 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 	// owner + the current FSM state already match. Once engines
 	// start vending overlays per frame (which drives a dmc_set_active_owner call
 	// per frame), this prevents 60 Hz calloc + subscriber-dispatch churn. Both
-	// owner AND state must match — a state transition (e.g. back from Blanking)
+	// owner AND state must match - a state transition (e.g. back from Blanking)
 	// still requires a real transition.
 	if (outgoing != NULL &&
 	    outgoing->active_owner == owner &&
@@ -937,7 +938,7 @@ int32_t dmc_record_palette_change(void) {
 // Companion to
 // dmc_record_gamma_change_with_lut that ALSO publishes a fade_active flag in
 // the SAME snapshot bump. Clone-mutate-publish under the EXISTING s_write_mutex
-// (no NEW MTLFence / MTLSharedEvent / std::mutex / @synchronized / _Atomic — the
+// (no NEW MTLFence / MTLSharedEvent / std::mutex / @synchronized / _Atomic - the
 // flag rides the existing atomic-release publish). Publishing fade_active
 // and the interpolated LUT together avoids a frame where the LUT is mid-fade
 // but the flag is stale, which would warp one fade frame: a separate
@@ -989,7 +990,7 @@ int32_t dmc_record_gamma_change_with_lut(const uint8_t *lut) {
 }
 
 // Record a DRIVER (guest SetGamma) table: always store it in
-// driver_gamma_lut — the "original intensity" the DSp fades blend toward —
+// driver_gamma_lut - the "original intensity" the DSp fades blend toward -
 // and apply it to the displayed gamma_lut only when no fade is in progress.
 // During a fade the displayed LUT is left alone (an immediate apply would
 // visibly pop the faded screen); the fade's end-state push delivers the
@@ -1040,19 +1041,19 @@ int32_t dmc_record_gamma_change(void) {
 
 // Assign the snapshot's blanking color WITHOUT
 // entering the Blanking FSM state. DSpSetBlankingColor (sub-op 760) only sets
-// the color the library will use the next time the screen IS blanked — it does
+// the color the library will use the next time the screen IS blanked - it does
 // NOT blank now (DSp 1.7 PDF p.30). This is the no-state-transition twin of
 // dmc_record_gamma_change_with_lut: clone the current snapshot, mutate the one
 // field (blanking_rgba), bump generation, publish, retire old. It deliberately
 // does NOT call any blanking-enter path (dmc_request_blanking transitions the
-// FSM to Blanking — wrong for SetBlankingColor).
+// FSM to Blanking - wrong for SetBlankingColor).
 //
 // Reuses the EXISTING DMC single-writer primitive (s_write_mutex +
 // DMCReentryScope + DMC_ASSERT_EMUL_THREAD); adds ZERO new MTLFence /
 // MTLSharedEvent / std::mutex / @synchronized / _Atomic. The DMC is the
 // documented single-writer exception, so this is compliant.
 //
-// No subscriber events are fired — this is a pure snapshot field update, not an
+// No subscriber events are fired - this is a pure snapshot field update, not an
 // FSM transition (same posture as dmc_record_palette_change / gamma_change).
 int32_t dmc_set_blanking_color(const uint8_t rgba[4]) {
 	DMCReentryScope reentry;
