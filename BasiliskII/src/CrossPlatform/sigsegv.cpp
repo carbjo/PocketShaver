@@ -3095,7 +3095,7 @@ static bool sigsegv_do_install_handler(sigsegv_fault_handler_t handler)
  * first-chance/second-chance "exception thrown" loops. A Vectored Exception
  * Handler still runs after first-chance continue and fixes that.
  */
-#ifdef MEM_BULK_LAZY
+#if defined(MEM_BULK_LAZY) && defined(__WIN32__)
 /*
  * PocketShaver MEM_BULK parity, done lazily. On iOS the entire guest address
  * space is one committed block, so a stray guest store lands in real memory
@@ -3166,7 +3166,7 @@ static bool win32_try_handle_access_violation(EXCEPTION_POINTERS *ExceptionInfo)
 		return false;
 	if (ExceptionInfo->ExceptionRecord->NumberParameters < 2)
 		return false;
-#ifdef MEM_BULK_LAZY
+#if defined(MEM_BULK_LAZY) && defined(__WIN32__)
 	// ExceptionInformation[0]: 0 = read, 1 = write, 8 = DEP. Back data
 	// accesses only; instruction fetches from unmapped space stay fatal.
 	if (ExceptionInfo->ExceptionRecord->ExceptionInformation[0] != 8
