@@ -1233,12 +1233,19 @@ void DSpVBLGammaFadeCallback(void *, void *, double)
 }
 void DSpVBLServiceCallback(void *, void *, double)
 {
-	/* Publish latched palette for Active contexts + sync alt-buffer staging. */
+	/* Sync alt-buffer staging for the Active context.
+	 *
+	 * Deliberately NO per-VBL MetalCompositorUpdatePalette here. The Metal
+	 * backend pushes the DSp CLUT only on explicit events (SetCLUTEntries
+	 * while Active, Reserve colorTable application, activation). A per-VBL
+	 * push of clut_bytes_latched stomps palettes the game installs through
+	 * the Palette Manager / video-driver SetEntries path with the context's
+	 * default GRAYSCALE ramp 60x per second - seen as Diablo II's 256-color
+	 * 800x600 mode rendering black-and-white with unreadable text. */
 	for (auto &kv : s_ctx) {
 		DSpContextPrivate *ctx = kv.second;
 		if (!ctx || ctx->state != (uint32_t)kDSpContextState_Active)
 			continue;
-		MetalCompositorUpdatePalette(ctx->clut_bytes_latched, 256);
 		if (ctx->underlay_alt_buffer) {
 			DSpAltBufferGL *rec = alt_get(ctx->underlay_alt_buffer);
 			if (rec && rec->baseaddr_mac && rec->backing) {

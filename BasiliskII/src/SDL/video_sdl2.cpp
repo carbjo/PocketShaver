@@ -1865,8 +1865,20 @@ bool VideoInit(bool classic)
 			for (int i = 0; video_modes[i].w != 0; i++) {
 				const int w = video_modes[i].w;
 				const int h = video_modes[i].h;
+#if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
+				/* Advertise the standard resolution table up to the desktop
+				 * size instead of capping at the initial window size - games
+				 * switch modes through the Display Manager and the window is
+				 * recreated at the new size (Diablo II requires 800x600 in
+				 * the mode list). Skip table entries duplicating the default
+				 * mode's dimensions (slot 0 already covers them). */
+				if (i > 0 && ((w == default_width && h == default_height) ||
+				              w > sdl_display_width() || h > sdl_display_height()))
+					continue;
+#else
 				if (i > 0 && (w >= default_width || h >= default_height))
 					continue;
+#endif
 #if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
 				/* Advertise only the classic PCI-driver depth set (256 colors /
 				 * Thousands / Millions), matching real late-90s hardware. The
