@@ -456,10 +456,25 @@ void NQD_bitblt(uint32 p)
 		const int dst_row_bytes = (int32)ReadMacInt32(p + acclDestRowBytes);
 		uint8 *src = Mac2HostAddr(ReadMacInt32(p + acclSrcBaseAddr) + (src_Y * src_row_bytes) + (src_X * bpp));
 		uint8 *dst = Mac2HostAddr(ReadMacInt32(p + acclDestBaseAddr) + (dest_Y * dst_row_bytes) + (dest_X * bpp));
-		for (int i = 0; i < height; i++) {
-			memmove(dst, src, width);
-			src += src_row_bytes;
-			dst += dst_row_bytes;
+		/* Same-surface overlap: if the destination block starts inside the
+		 * source block, top-down row order overwrites source rows before
+		 * they are read (streaks trailing a downward Finder icon drag).
+		 * Copy bottom-up in that case; memmove covers intra-row overlap. */
+		if (dst > src && dst < src + (size_t)height * src_row_bytes) {
+			src += (size_t)(height - 1) * src_row_bytes;
+			dst += (size_t)(height - 1) * dst_row_bytes;
+			for (int i = 0; i < height; i++) {
+				memmove(dst, src, width);
+				src -= src_row_bytes;
+				dst -= dst_row_bytes;
+			}
+		}
+		else {
+			for (int i = 0; i < height; i++) {
+				memmove(dst, src, width);
+				src += src_row_bytes;
+				dst += dst_row_bytes;
+			}
 		}
 	}
 	else {
@@ -467,10 +482,24 @@ void NQD_bitblt(uint32 p)
 		const int dst_row_bytes = -(int32)ReadMacInt32(p + acclDestRowBytes);
 		uint8 *src = Mac2HostAddr(ReadMacInt32(p + acclSrcBaseAddr) + ((src_Y + height - 1) * src_row_bytes) + (src_X * bpp));
 		uint8 *dst = Mac2HostAddr(ReadMacInt32(p + acclDestBaseAddr) + ((dest_Y + height - 1) * dst_row_bytes) + (dest_X * bpp));
-		for (int i = height - 1; i >= 0; i--) {
-			memmove(dst, src, width);
-			src -= src_row_bytes;
-			dst -= dst_row_bytes;
+		/* Mirror of the overlap guard above for bottom-up row storage: this
+		 * loop walks memory downward, so it corrupts when the destination
+		 * block starts BELOW the source block. Walk upward in that case. */
+		if (dst < src && src < dst + (size_t)height * dst_row_bytes) {
+			src -= (size_t)(height - 1) * src_row_bytes;
+			dst -= (size_t)(height - 1) * dst_row_bytes;
+			for (int i = 0; i < height; i++) {
+				memmove(dst, src, width);
+				src += src_row_bytes;
+				dst += dst_row_bytes;
+			}
+		}
+		else {
+			for (int i = height - 1; i >= 0; i--) {
+				memmove(dst, src, width);
+				src -= src_row_bytes;
+				dst -= dst_row_bytes;
+			}
 		}
 	}
 }

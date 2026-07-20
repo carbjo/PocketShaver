@@ -95,8 +95,10 @@ uint32_t DSpDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	 * guest args (r3..r6) in the canonical slots apps actually use. r7/r8
 	 * dropped from the log line - they're unused by every current handler
 	 * case post-shift. */
-	DSP_LOG("DSpDispatch: subop %u (r3=0x%08x r4=0x%08x r5=0x%08x r6=0x%08x)",
-	        (unsigned)subop, r3, r4, r5, r6);
+	/* ProcessEvent is polled continuously; trace it only in verbose captures. */
+	if (subop != (uint32_t)kDSpProcessEvent || ACCEL_LOG_VERBOSE)
+		DSP_LOG("DSpDispatch: subop %u (r3=0x%08x r4=0x%08x r5=0x%08x r6=0x%08x)",
+		        (unsigned)subop, r3, r4, r5, r6);
 
 	/* dsp_caller_lr / dsp_caller_r11 remain populated by sheepshaver_glue.cpp
 	 * and available for any future caller-mapping diagnostic. */

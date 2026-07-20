@@ -16,8 +16,10 @@
 #include "dsp_back_buffer_range.h"
 #include "dsp_back_buffer_cgraf_policy.h"
 #include "dsp_cgraf_port_policy.h"
+#include "dsp_front_buffer_policy.h"
 #include "dsp_pixmap_offsets.h"
 #include "gfx_log.h"
+#include "thunks.h"
 
 #include <SDL_opengl.h>
 #include <algorithm>
@@ -26,6 +28,7 @@
 #include <cstring>
 #include <cstdio>
 #include <limits>
+#include <map>
 #include <vector>
 
 #ifndef GL_RGBA8
@@ -36,6 +39,18 @@
 #endif
 
 extern "C" void gfxaccel_resources_heap_mm_free_buffer(uint32_t heap_id, void *ptr);
+extern "C" bool GLCompositorCopyCurrentPaletteRGB(uint8_t out_rgb[768]);
+
+struct DSpGLFrontTexture {
+	GLuint texture;
+	uint32_t width;
+	uint32_t height;
+};
+
+/* Front and back are distinct guest surfaces, but each only needs a host GL
+ * texture while it is being presented.  Keep the GL-only texture bookkeeping
+ * out of the shared Metal/OpenGL DSpContextPrivate ABI. */
+static std::map<uint32_t, DSpGLFrontTexture> s_front_textures;
 
 static bool dsp_valid_depth(uint32_t depth)
 {
@@ -108,8 +123,12 @@ static void dsp_pixmap_format(uint32_t depth, uint16_t *pixel_type,
 
 static uint32_t dsp_create_rect_region(uint32_t w, uint32_t h)
 {
-	const uint32_t region = Mac_sysalloc(DSP_RECT_REGION_SIZE);
-	const uint32_t handle = Mac_sysalloc(4);
+	/* Region handles embedded in a guest-visible CGrafPort must outlive any
+	 * Toolbox drawing that retains the port.  Mac_sysalloc storage is movable
+	 * and can be reclaimed/poisoned by the guest Memory Manager; SheepMem is
+	 * the permanent descriptor arena used by the Metal backend. */
+	const uint32_t region = SheepMem::Reserve(DSP_RECT_REGION_SIZE);
+	const uint32_t handle = SheepMem::Reserve(4);
 	if (!region || !handle) return 0;
 	Mac_memset(region, 0, DSP_RECT_REGION_SIZE);
 	WriteMacInt16(region + DSP_REGION_OFF_SIZE, DSP_RECT_REGION_SIZE);
@@ -119,6 +138,46 @@ static uint32_t dsp_create_rect_region(uint32_t w, uint32_t h)
 	WriteMacInt16(region + DSP_REGION_OFF_BBOX + 6, (uint16_t)w);
 	WriteMacInt32(handle, region);
 	return handle;
+}
+
+static void dsp_front_staging_geometry(const DSpContextPrivate *ctx,
+	                                    uint32_t visible_w,
+	                                    uint32_t visible_h,
+	                                    uint32_t depth,
+	                                    uint32_t *out_row,
+	                                    uint32_t *out_height,
+	                                    uint32_t *out_visible_x = nullptr,
+	                                    uint32_t *out_visible_y = nullptr)
+{
+	uint32_t storage_w = visible_w;
+	uint32_t storage_h = visible_h;
+	if (ctx && ctx->saved_pixmap_valid) {
+		const int32_t saved_w =
+			(int32_t)ctx->saved_pixmap_bounds[3] -
+			(int32_t)ctx->saved_pixmap_bounds[1];
+		const int32_t saved_h =
+			(int32_t)ctx->saved_pixmap_bounds[2] -
+			(int32_t)ctx->saved_pixmap_bounds[0];
+		/* Diablo builds its cutscene destination while MainDevice still has
+		 * the desktop geometry, then obtains DSp's smaller front buffer. Keep
+		 * the old stride and vertical extent as invisible padding so those
+		 * cached writes neither wrap rows nor overrun the allocation. */
+		if (saved_w > 0 && (uint32_t)saved_w > storage_w)
+			storage_w = (uint32_t)saved_w;
+		if (saved_h > 0 && (uint32_t)saved_h > storage_h)
+			storage_h = (uint32_t)saved_h;
+	}
+	if (out_row)
+		*out_row = DSpDisplayModePitch(storage_w, depth);
+	if (out_height)
+		*out_height = storage_h;
+	/* A client which cached the old display rectangle draws the new surface
+	 * centred in this padded storage. Present that visible rectangle, not the
+	 * stale desktop pixels at the allocation's top-left. */
+	if (out_visible_x)
+		*out_visible_x = (storage_w - visible_w) / 2u;
+	if (out_visible_y)
+		*out_visible_y = (storage_h - visible_h) / 2u;
 }
 
 bool DSpAllocateBackBuffer(DSpContextPrivate *ctx, uint32_t w, uint32_t h, uint32_t bpp)
@@ -164,6 +223,14 @@ bool DSpAllocateBackBuffer(DSpContextPrivate *ctx, uint32_t w, uint32_t h, uint3
 void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
 {
 	if (!ctx) return;
+	auto front_it = s_front_textures.find(ctx->handle);
+	if (front_it != s_front_textures.end()) {
+		if (front_it->second.texture && GfxGLDeviceMakeCurrent()) {
+			GLuint texture = front_it->second.texture;
+			glDeleteTextures(1, &texture);
+		}
+		s_front_textures.erase(front_it);
+	}
 	if (ctx->back_texture && GfxGLDeviceMakeCurrent()) {
 		GLuint tex = (GLuint)(uintptr_t)ctx->back_texture;
 		glDeleteTextures(1, &tex);
@@ -184,6 +251,7 @@ void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
 	ctx->front_staging_owned_sysheap = false;
 	ctx->front_staging_row_bytes = 0;
 	ctx->front_staging_height = 0;
+	ctx->front_staging_present_state = {};
 }
 
 void DSpReleaseBackBufferStaging(DSpContextPrivate *ctx)
@@ -196,17 +264,20 @@ void DSpReleaseBackBufferStaging(DSpContextPrivate *ctx)
 	ctx->staging_owned_sysheap = false;
 }
 
-/* Expand back buffer into tightly packed RGBA for GL texture upload. */
-static void expand_back_to_rgba(const DSpContextPrivate *ctx, std::vector<uint8_t> &out)
+/* Expand a guest-format DSp surface into tightly packed RGBA for GL upload. */
+static void expand_surface_to_rgba(const DSpContextPrivate *ctx,
+	                                const uint8_t *src,
+	                                uint32_t w, uint32_t h,
+	                                uint32_t bpp, uint32_t row,
+	                                std::vector<uint8_t> &out,
+	                                uint32_t src_x = 0,
+	                                uint32_t src_y = 0)
 {
-	const uint32_t w = DSpContextBackBufferWidth(ctx);
-	const uint32_t h = DSpContextBackBufferHeight(ctx);
-	const uint32_t bpp = ctx->attr.backBufferBestDepth;
-	uint32_t row = 0;
-	uint32_t buffer_size = 0;
-	const uint8_t *src = (const uint8_t *)ctx->back_buffer;
 	out.resize((size_t)w * h * 4);
-	if (!src || !dsp_back_buffer_layout(w, h, bpp, &row, &buffer_size)) {
+	const uint32_t minimum_row =
+		(uint32_t)(((uint64_t)(src_x + w) * bpp + 7u) / 8u);
+	if (!ctx || !src || !w || !h || !dsp_valid_depth(bpp) ||
+	    !row || row < minimum_row) {
 		std::memset(out.data(), 0, out.size());
 		return;
 	}
@@ -217,7 +288,14 @@ static void expand_back_to_rgba(const DSpContextPrivate *ctx, std::vector<uint8_
 	const uint32_t *rgb555_lut = bpp == 16 ? rgb555_gamma_lut(gamma) : nullptr;
 	std::array<uint32_t, 256> palette_rgba = {};
 	if (bpp <= 8) {
+		uint8_t display_palette[768];
 		const uint8_t *pal = ctx->clut_bytes_latched;
+		/* Palette Manager/video-driver SetEntries updates the compositor
+		 * directly, not necessarily the DSp context CLUT.  Use the actual
+		 * display palette so a valid 256-color mode is not rendered through
+		 * the context's old grayscale default. */
+		if (GLCompositorCopyCurrentPaletteRGB(display_palette))
+			pal = display_palette;
 		for (uint32_t i = 0; i < palette_rgba.size(); i++) {
 			palette_rgba[i] = pack_rgba(
 				apply_gamma(pal[i * 3u + 0u], 0),
@@ -226,38 +304,50 @@ static void expand_back_to_rgba(const DSpContextPrivate *ctx, std::vector<uint8_
 		}
 	}
 	for (uint32_t y = 0; y < h; y++) {
-		const uint8_t *srow = src + (size_t)y * row;
+		const uint8_t *srow = src + (size_t)(src_y + y) * row;
 		uint32_t *drow = reinterpret_cast<uint32_t *>(
 			out.data() + (size_t)y * w * 4u);
 		for (uint32_t x = 0; x < w; x++) {
+			const uint32_t sx = src_x + x;
 			if (bpp == 32) {
 				/* Guest BE ARGB */
 				drow[x] = pack_rgba(
-					apply_gamma(srow[x * 4u + 1u], 0),
-					apply_gamma(srow[x * 4u + 2u], 1),
-					apply_gamma(srow[x * 4u + 3u], 2));
+					apply_gamma(srow[sx * 4u + 1u], 0),
+					apply_gamma(srow[sx * 4u + 2u], 1),
+					apply_gamma(srow[sx * 4u + 3u], 2));
 			} else if (bpp == 16) {
 				const uint16_t be = (uint16_t)(
-					((uint16_t)srow[x * 2u] << 8) | srow[x * 2u + 1u]);
+					((uint16_t)srow[sx * 2u] << 8) | srow[sx * 2u + 1u]);
 				drow[x] = rgb555_lut[be & 0x7fffu];
 			} else {
 				uint8_t i = 0;
 				if (bpp == 8) {
-					i = srow[x];
+					i = srow[sx];
 				} else if (bpp == 4) {
-					const uint8_t packed = srow[x >> 1];
-					i = (x & 1u) ? (packed & 0x0fu) : (packed >> 4);
+					const uint8_t packed = srow[sx >> 1];
+					i = (sx & 1u) ? (packed & 0x0fu) : (packed >> 4);
 				} else if (bpp == 2) {
-					const uint8_t packed = srow[x >> 2];
-					i = (packed >> ((3u - (x & 3u)) * 2u)) & 0x03u;
+					const uint8_t packed = srow[sx >> 2];
+					i = (packed >> ((3u - (sx & 3u)) * 2u)) & 0x03u;
 				} else {
-					const uint8_t packed = srow[x >> 3];
-					i = (packed >> (7u - (x & 7u))) & 0x01u;
+					const uint8_t packed = srow[sx >> 3];
+					i = (packed >> (7u - (sx & 7u))) & 0x01u;
 				}
 				drow[x] = palette_rgba[i];
 			}
 		}
 	}
+}
+
+static void expand_back_to_rgba(const DSpContextPrivate *ctx,
+	                            std::vector<uint8_t> &out)
+{
+	const uint32_t w = DSpContextBackBufferWidth(ctx);
+	const uint32_t h = DSpContextBackBufferHeight(ctx);
+	const uint32_t bpp = ctx->attr.backBufferBestDepth;
+	const uint32_t row = DSpBackBufferAlignedRowBytes(w, bpp);
+	expand_surface_to_rgba(ctx, (const uint8_t *)ctx->back_buffer,
+	                       w, h, bpp, row, out);
 }
 
 void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx, void * /*encoder*/, void * /*framebuffer_texture*/)
@@ -291,45 +381,14 @@ void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx, void * /*encoder*/, void * 
 		layer.slot = kLayerSlotFramebuffer;
 		layer.blend = kBlendOpaque;
 		layer.alpha = 1.f;
-		const bool submitted =
-			ctx->state == (uint32_t)kDSpContextState_Active;
-#if QD3D_GRAPHICS_LOGGING_ENABLED
-		int32_t submit_result = kGfxAccelNoErr;
-#endif
-		if (submitted) {
+		if (ctx->state == (uint32_t)kDSpContextState_Active) {
 			FrameDescriptor desc = {};
 			desc.layers = &layer;
 			desc.layer_count = 1;
 			const DMCModeSnapshot *snap = dmc_current_snapshot();
 			desc.generation = snap ? snap->generation : 0;
-		#if QD3D_GRAPHICS_LOGGING_ENABLED
-			submit_result = MetalCompositorSubmitFrame(&desc);
-		#else
-			MetalCompositorSubmitFrame(&desc);
-		#endif
+			(void)MetalCompositorSubmitFrame(&desc);
 		}
-#if QD3D_GRAPHICS_LOGGING_ENABLED
-		static uint64_t present_count = 0;
-		present_count++;
-		if (present_count <= 8 || (present_count & (present_count - 1)) == 0 ||
-		    (present_count % 120) == 0 || submit_result != 0) {
-			uint64_t r_sum = 0, g_sum = 0, b_sum = 0, nonblack = 0;
-			for (size_t i = 0; i + 3 < rgba.size(); i += 4) {
-				r_sum += rgba[i + 0]; g_sum += rgba[i + 1]; b_sum += rgba[i + 2];
-				if (rgba[i + 0] || rgba[i + 1] || rgba[i + 2]) nonblack++;
-			}
-			QD3D_RENDER_LOG("DSpPresent frame=%llu ctx=%u state=%u submitted=%d display=%ux%u@%u back=%ux%u@%u row=%u bytes=%u nonblack=%llu sums=%llu/%llu/%llu slot=framebuffer submit=%d texture=%u",
-			                (unsigned long long)present_count, ctx->handle,
-			                ctx->state, submitted ? 1 : 0,
-			                ctx->attr.displayWidth, ctx->attr.displayHeight,
-			                ctx->attr.displayBestDepth, w, h,
-			                ctx->attr.backBufferBestDepth,
-			                DSpBackBufferAlignedRowBytes(w, ctx->attr.backBufferBestDepth),
-			                ctx->staging_size, (unsigned long long)nonblack,
-			                (unsigned long long)r_sum, (unsigned long long)g_sum,
-			                (unsigned long long)b_sum, submit_result, (unsigned)tex);
-		}
-#endif
 	}
 
 	/* Also mirror into Mac main framebuffer when base matches screen */
@@ -350,9 +409,237 @@ void DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx, void *command_buffer,
 
 bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, void *)
 {
-	if (!ctx) return false;
-	DSpEncodeBackBufferBlit(ctx, nullptr, nullptr);
+	if (!ctx || !ctx->front_staging_mac_addr || !ctx->front_staging_size)
+		return false;
+
+	const uint32_t w = ctx->attr.displayWidth;
+	const uint32_t h = ctx->attr.displayHeight;
+	const uint32_t depth = DSpFrontBufferDepth(
+	    ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+	const uint32_t row = ctx->front_staging_row_bytes
+	    ? ctx->front_staging_row_bytes
+	    : DSpFrontBufferRowBytes(w, ctx->attr.backBufferBestDepth,
+	                             ctx->attr.displayBestDepth);
+	const uint32_t storage_h = ctx->front_staging_height
+	    ? ctx->front_staging_height : h;
+	const uint64_t required64 = (uint64_t)row * storage_h;
+	if (!w || !h || !dsp_valid_depth(depth) || !row ||
+	    required64 > ctx->front_staging_size || required64 > UINT32_MAX) {
+		QD3D_RENDER_LOG("DSpFrontPresent(GL): invalid surface ctx=%u %ux%u@%u row=%u have=%u",
+		                ctx->handle, w, h, depth, row,
+		                ctx->front_staging_size);
+		return false;
+	}
+
+	uint8_t *front = Mac2HostAddr(ctx->front_staging_mac_addr);
+	if (!front) return false;
+	const uint32_t required = (uint32_t)required64;
+	const uint32_t hash = DSpFrontStagingHashBytes(front, required);
+	const DMCModeSnapshot *snap = dmc_current_snapshot();
+	/* GL expands indexed/direct pixels and applies display gamma on the CPU
+	 * before uploading the framebuffer-layer texture.  A palette or gamma
+	 * change therefore invalidates the upload even when pixel indices/values
+	 * did not change. */
+	const uint32_t color_generation = snap
+	    ? (snap->gamma_gen ^ (snap->palette_gen * 0x9e3779b9u)) : 0;
+	const uint32_t fade_active = snap ? snap->fade_active : 0;
+	DSpFrontStagingPresentState &present =
+	    ctx->front_staging_present_state;
+	if (present.valid && present.encoded && present.last_hash == hash &&
+	    present.last_size == required &&
+	    present.last_gamma_gen == color_generation &&
+	    present.last_fade_active == fade_active) {
+		present.unchanged_skips++;
+		return true;
+	}
+
+	if (!GfxGLDeviceMakeCurrent()) return false;
+	DSpGLFrontTexture &front_gl = s_front_textures[ctx->handle];
+	if (front_gl.texture && (front_gl.width != w || front_gl.height != h)) {
+		glDeleteTextures(1, &front_gl.texture);
+		front_gl = {};
+	}
+	if (!front_gl.texture) {
+		glGenTextures(1, &front_gl.texture);
+		if (!front_gl.texture) {
+			s_front_textures.erase(ctx->handle);
+			return false;
+		}
+		front_gl.width = w;
+		front_gl.height = h;
+		glBindTexture(GL_TEXTURE_2D, front_gl.texture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h,
+		             0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+	}
+
+	static std::vector<uint8_t> rgba;
+	uint32_t visible_x = 0, visible_y = 0, geometry_row = 0,
+	         geometry_height = 0;
+	dsp_front_staging_geometry(ctx, w, h, depth, &geometry_row,
+	                           &geometry_height, &visible_x, &visible_y);
+	if (geometry_row != row || geometry_height > storage_h ||
+	    visible_y + h > geometry_height) return false;
+	expand_surface_to_rgba(ctx, front, w, h, depth, row, rgba,
+	                       visible_x, visible_y);
+	glBindTexture(GL_TEXTURE_2D, front_gl.texture);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)w, (GLsizei)h,
+	                GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+
+	CompositeLayer layer = {};
+	layer.source = (void *)(uintptr_t)front_gl.texture;
+	layer.src_size_w = w;
+	layer.src_size_h = h;
+	layer.dst_origin_x = 0;
+	layer.dst_origin_y = 0;
+	layer.dst_size_w = (float)w;
+	layer.dst_size_h = (float)h;
+	layer.slot = kLayerSlotFramebuffer;
+	layer.blend = kBlendOpaque;
+	layer.alpha = 1.f;
+	FrameDescriptor desc = {};
+	desc.layers = &layer;
+	desc.layer_count = 1;
+	desc.generation = snap ? snap->generation : 0;
+	const int32_t result = ctx->state == (uint32_t)kDSpContextState_Active
+	    ? MetalCompositorSubmitFrame(&desc) : kGfxAccelNoErr;
+	if (result != kGfxAccelNoErr) {
+		QD3D_RENDER_LOG("DSpFrontPresent(GL): submit failed ctx=%u result=%d",
+		                ctx->handle, result);
+		return false;
+	}
+
+	DSpFrontStagingRememberHashForGamma(
+	    &present, hash, required, color_generation, fade_active);
 	return true;
+}
+
+extern "C" uint32_t DSpGetFrontBufferCGrafPtrGL(DSpContextPrivate *ctx)
+{
+	if (!ctx || !ctx->back_buffer) return 0;
+
+	const uint32_t depth = DSpFrontBufferDepth(
+	    ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+	const uint32_t w = ctx->attr.displayWidth;
+	const uint32_t h = ctx->attr.displayHeight;
+	uint32_t row = 0;
+	uint32_t storage_h = 0;
+	dsp_front_staging_geometry(ctx, w, h, depth, &row, &storage_h);
+	const uint64_t size64 = (uint64_t)row * storage_h;
+	if (!w || !h || !dsp_valid_depth(depth) || !row || size64 > UINT32_MAX)
+		return 0;
+	const uint32_t size = (uint32_t)size64;
+
+	if (!ctx->front_staging_mac_addr || ctx->front_staging_size < size ||
+	    ctx->front_staging_row_bytes != row ||
+	    ctx->front_staging_height != storage_h) {
+		const uint32_t pixels = Mac_sysalloc(size);
+		uint8_t *dst = pixels ? Mac2HostAddr(pixels) : nullptr;
+		if (!pixels || !dst) return 0;
+		ctx->front_staging_mac_addr = pixels;
+		ctx->front_staging_size = size;
+		ctx->front_staging_owned_sysheap = true;
+		ctx->front_staging_row_bytes = row;
+		ctx->front_staging_height = storage_h;
+
+		const uint32_t back_row = DSpBackBufferAlignedRowBytes(
+		    DSpContextBackBufferWidth(ctx), ctx->attr.backBufferBestDepth);
+		if (DSpShouldSeedFrontBufferStagingFromBackStaging(
+		        ctx->attr.backBufferBestDepth, depth,
+		        ctx->staging_mac_addr, ctx->staging_size, back_row,
+		        size, row)) {
+			uint8_t *src = Mac2HostAddr(ctx->staging_mac_addr);
+			if (src) std::memcpy(dst, src, size);
+			else std::memset(dst, 0, size);
+			ctx->front_staging_refresh_swap_generation =
+			    ctx->swap_generation;
+		} else {
+			std::memset(dst, 0, size);
+		}
+		DSpFrontStagingRememberSeedBytes(
+		    &ctx->front_staging_present_state, dst, size);
+	}
+
+	/* A movie may close/reset QuickDraw state and then ask DSp for the front
+	 * buffer again.  Do not return the old CGrafPort: Toolbox teardown can
+	 * leave its internal handles containing the guest heap poison EFADBEEF.
+	 * Re-emit the small descriptor graph in permanent SheepMem while reusing
+	 * the actual pixel surface above. */
+	const uint32_t pixmap = SheepMem::Reserve(DSpFrontBufferPixMapRecordSize());
+	const uint32_t pixmap_handle = SheepMem::Reserve(DSpBackBufferPixMapHandleSize());
+	const uint32_t port = SheepMem::Reserve(DSpBackBufferCGrafPortSize());
+	const uint32_t vis_region = dsp_create_rect_region(w, h);
+	const uint32_t clip_region = dsp_create_rect_region(w, h);
+	if (!pixmap || !pixmap_handle || !port || !vis_region || !clip_region)
+		return 0;
+
+	uint16_t pixel_type = 0, pixel_size = 0, component_count = 0,
+	         component_size = 0;
+	dsp_pixmap_format(depth, &pixel_type, &pixel_size, &component_count,
+	                  &component_size);
+	/* Preserve the real screen PixMap's otherwise-unspecified metadata, as the
+	 * Metal emitter does, then replace every surface-dependent field. */
+	if (ctx->saved_pixmap_valid && ctx->saved_pixmap_addr)
+		Host2Mac_memcpy(pixmap, Mac2HostAddr(ctx->saved_pixmap_addr),
+		                DSpFrontBufferPixMapRecordSize());
+	else
+		Mac_memset(pixmap, 0, DSpFrontBufferPixMapRecordSize());
+	WriteMacInt32(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR,
+	              ctx->front_staging_mac_addr);
+	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES,
+	              DSpFrontBufferPixMapRowBytesField(row));
+	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_TOP, 0);
+	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_LEFT, 0);
+	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_BOT, (uint16_t)h);
+	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_RIGHT, (uint16_t)w);
+	WriteMacInt32(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_HRES, 0x00480000u);
+	WriteMacInt32(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_VRES, 0x00480000u);
+	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_PIXELTYPE, pixel_type);
+	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE, pixel_size);
+	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_CMPCOUNT, component_count);
+	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_CMPSIZE, component_size);
+	WriteMacInt32(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_PLANEBYTES, 0);
+	/* An indexed front CGrafPort needs the screen's ColorTable handle for
+	 * QuickDraw color matching.  Activation cached the original MainDevice
+	 * PixMap before redirecting it, so preserve that table on the vended port. */
+	if (depth <= 8 && ctx->saved_pixmap_valid && ctx->saved_pixmap_addr) {
+		WriteMacInt32(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_PMTABLE,
+		              ReadMacInt32(ctx->saved_pixmap_addr +
+		                           DSP_MAINDEVICE_PIXMAP_OFF_PMTABLE));
+	}
+	WriteMacInt32(pixmap_handle, pixmap);
+
+	Mac_memset(port, 0, DSpBackBufferCGrafPortSize());
+	WriteMacInt32(port + DSP_CGRAFPORT_OFF_PORT_PIXMAP, pixmap_handle);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_PORT_VERSION, 0xC000);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_PORT_RECT + 0, 0);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_PORT_RECT + 2, 0);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_PORT_RECT + 4, (uint16_t)h);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_PORT_RECT + 6, (uint16_t)w);
+	WriteMacInt32(port + DSP_CGRAFPORT_OFF_VIS_RGN, vis_region);
+	WriteMacInt32(port + DSP_CGRAFPORT_OFF_CLIP_RGN, clip_region);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 0, 0xffff);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 2, 0xffff);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 4, 0xffff);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 0, 0);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 2, 0);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 4, 0);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_PN_SIZE + 0, 1);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_PN_SIZE + 2, 1);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_PN_MODE, 8);
+	WriteMacInt16(port + DSP_CGRAFPORT_OFF_TX_SIZE, 12);
+	WriteMacInt32(port + DSP_CGRAFPORT_OFF_FG_COLOR, 0xffffffffu);
+	WriteMacInt32(port + DSP_CGRAFPORT_OFF_BK_COLOR, 0x00000000u);
+
+	ctx->front_cgrafptr_mac_addr = port;
+	ctx->front_pixmap_mac_addr = pixmap;
+	ctx->front_pixmap_handle_mac_addr = pixmap_handle;
+	QD3D_RESOURCE_LOG("DSpGetFrontBuffer(GL): ctx=%u port=0x%08x pixmap=0x%08x base=0x%08x front=%ux%u@%u row=%u storageH=%u size=%u",
+	                  ctx->handle, port, pixmap,
+	                  ctx->front_staging_mac_addr, w, h, depth, row,
+	                  storage_h, size);
+	return port;
 }
 
 uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
@@ -376,9 +663,9 @@ uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 		std::memcpy(Mac2HostAddr(pixels), ctx->back_buffer, buffer_size);
 	}
 
-	const uint32_t pixmap = Mac_sysalloc(DSpBackBufferPixMapRecordSize());
-	const uint32_t pixmap_handle = Mac_sysalloc(DSpBackBufferPixMapHandleSize());
-	const uint32_t port = Mac_sysalloc(DSpBackBufferCGrafPortSize());
+	const uint32_t pixmap = SheepMem::Reserve(DSpBackBufferPixMapRecordSize());
+	const uint32_t pixmap_handle = SheepMem::Reserve(DSpBackBufferPixMapHandleSize());
+	const uint32_t port = SheepMem::Reserve(DSpBackBufferCGrafPortSize());
 	const uint32_t vis_region = dsp_create_rect_region(w, h);
 	const uint32_t clip_region = dsp_create_rect_region(w, h);
 	if (!pixmap || !pixmap_handle || !port || !vis_region || !clip_region)

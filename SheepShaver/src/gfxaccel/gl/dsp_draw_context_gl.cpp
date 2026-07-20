@@ -22,10 +22,13 @@
 #include "dsp_main_device_redirect_policy.h"
 #include "dsp_display_mode_policy.h"
 #include "dsp_back_buffer_range.h"
+#include "dsp_front_buffer_policy.h"
+#include "dsp_quickdraw_restore_policy.h"
 #include "dsp_default_clut.h"
 #include "dsp_user_select_policy.h"
 #include "dsp_get_attributes_policy.h"
 #include "dsp_mode_enumerate.h"
+#include "dsp_event_record.h"
 #include "dsp_host_bridge.h"
 #include "dsp_engine_internal.h"
 #include "macos_util.h"
@@ -48,9 +51,46 @@ static void restore_underlay_if_any(DSpContextPrivate *ctx);
 extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx);
 extern "C" void DSpRestoreMainDevicePixMap(DSpContextPrivate *ctx);
 extern "C" void DSpHostBridge_SetActiveFullscreen(bool active);
+extern "C" uint32_t DSpGetFrontBufferCGrafPtrGL(DSpContextPrivate *ctx);
 
 static std::map<uint32_t, DSpContextPrivate *> s_ctx;
 static uint32_t s_next_handle = 1;
+
+static bool dsp_context_uses_indexed_display(const DSpContextPrivate *ctx)
+{
+	if (!ctx) return false;
+	const uint32_t display_depth = DSpDisplayModeDepth(
+	    ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+	return display_depth == 1 || display_depth == 2 ||
+	       display_depth == 4 || display_depth == 8;
+}
+
+static bool dsp_build_saved_quickdraw_mode(const DSpContextPrivate *ctx,
+	                                       DMCModeDesc *out)
+{
+	if (!ctx || !out ||
+	    !DSpSavedQuickDrawModeIsUsable(
+	        ctx->saved_pixmap_valid, ctx->saved_pixmap_baseAddr,
+	        ctx->saved_pixmap_rowBytes, ctx->saved_pixmap_bounds[0],
+	        ctx->saved_pixmap_bounds[1], ctx->saved_pixmap_bounds[2],
+	        ctx->saved_pixmap_bounds[3], ctx->saved_pixmap_pixelSize,
+	        (uint32_t)RAMBase, (uint32_t)RAMSize))
+		return false;
+
+	uint8_t *host = Mac2HostAddr(ctx->saved_pixmap_baseAddr);
+	if (!host) return false;
+	std::memset(out, 0, sizeof(*out));
+	out->width = (uint32_t)(ctx->saved_pixmap_bounds[3] -
+	                        ctx->saved_pixmap_bounds[1]);
+	out->height = (uint32_t)(ctx->saved_pixmap_bounds[2] -
+	                         ctx->saved_pixmap_bounds[0]);
+	out->depth = ctx->saved_pixmap_pixelSize;
+	out->row_bytes = DSpPixMapRowBytesPayload(ctx->saved_pixmap_rowBytes);
+	out->pitch = out->row_bytes;
+	out->screen_base_mac = ctx->saved_pixmap_baseAddr;
+	out->screen_base_host = host;
+	return true;
+}
 
 DSpContextPrivate *DSpGetContext(uint32_t handle)
 {
@@ -66,6 +106,9 @@ uint32_t DSpAllocFirstContextHandle(const DSpContextAttributes *attr,
 	ctx->handle = s_next_handle++;
 	ctx->enumeration_mode_index = enumeration_mode_index;
 	if (attr) ctx->attr = *attr;
+	/* kDSpContextState_Active is zero, so a zero-filled metadata context
+	 * otherwise appears active before it has been reserved or activated. */
+	ctx->state = (uint32_t)kDSpContextState_Inactive;
 	DSpInitDefaultCLUT(ctx->clut_bytes, ctx->clut_bytes_latched,
 	                   ctx->attr.backBufferBestDepth);
 	/* DMC gamma is planar: 256 R, then 256 G, then 256 B. */
@@ -129,8 +172,6 @@ static void dsp_apply_reserve_color_table(DSpContextPrivate *ctx,
 
 int32_t DSpContext_ReserveHandler(uint32_t ctxRef, uint32_t desiredAttrAddr)
 {
-	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
-	if (!ctx) return kDSpInvalidContextErr;
 	if (!desiredAttrAddr ||
 	    !NQDMetalAddrInBuffer(desiredAttrAddr) ||
 	    !NQDMetalAddrInBuffer(desiredAttrAddr + 51u)) {
@@ -138,66 +179,92 @@ int32_t DSpContext_ReserveHandler(uint32_t ctxRef, uint32_t desiredAttrAddr)
 		               ctxRef, desiredAttrAddr);
 		return kDSpInvalidAttributesErr;
 	}
+	DSpContextAttributes req = {};
+	req.frequency            = ReadMacInt32(desiredAttrAddr +  0);
+	req.displayWidth         = ReadMacInt32(desiredAttrAddr +  4);
+	req.displayHeight        = ReadMacInt32(desiredAttrAddr +  8);
+	req.reserved1            = ReadMacInt32(desiredAttrAddr + 12);
+	req.reserved2            = ReadMacInt32(desiredAttrAddr + 16);
+	req.colorNeeds           = ReadMacInt32(desiredAttrAddr + 20);
+	req.colorTable           = ReadMacInt32(desiredAttrAddr + 24);
+	req.contextOptions       = ReadMacInt32(desiredAttrAddr + 28);
+	req.backBufferDepthMask  = ReadMacInt32(desiredAttrAddr + 32);
+	req.displayDepthMask     = ReadMacInt32(desiredAttrAddr + 36);
+	req.backBufferBestDepth  = ReadMacInt32(desiredAttrAddr + 40);
+	req.displayBestDepth     = ReadMacInt32(desiredAttrAddr + 44);
+	req.pageCount            = ReadMacInt32(desiredAttrAddr + 48);
+
+	/* Diablo II's monitor rescan probes DSpContext_Reserve with
+	 * kDSpEveryContext (NULL) and a zero-initialized attribute block. There is
+	 * no context reference for Reserve to attach resources to, nor any output
+	 * parameter through which a newly allocated handle could be returned.
+	 * Allocating here therefore creates an unreachable context on every scan.
+	 * Treat this exact non-reserving probe as a request to refresh the public
+	 * mode cache and report success. Keep the specified-context contract for
+	 * every request that actually describes a reservation. */
+	if (ctxRef == 0) {
+		const bool empty_rescan_probe =
+			req.displayWidth == 0 && req.displayHeight == 0 &&
+			req.colorNeeds == 0 && req.colorTable == 0 &&
+			req.contextOptions == 0 &&
+			req.backBufferDepthMask == 0 && req.displayDepthMask == 0 &&
+			req.backBufferBestDepth == 0 && req.displayBestDepth == 0 &&
+			req.pageCount == 0;
+		if (empty_rescan_probe) {
+			DSpBuildModesFromVModes();
+			return kDSpNoErr;
+		}
+		return kDSpInvalidContextErr;
+	}
+
+	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
+	if (!ctx) return kDSpInvalidContextErr;
+
 	if (ctx->back_buffer) return kDSpContextAlreadyReservedErr;
 
-	DSpContextAttributes desired = {};
-	desired.frequency = ReadMacInt32(desiredAttrAddr + 0);
-	desired.displayWidth = ReadMacInt32(desiredAttrAddr + 4);
-	desired.displayHeight = ReadMacInt32(desiredAttrAddr + 8);
-	desired.reserved1 = ReadMacInt32(desiredAttrAddr + 12);
-	desired.reserved2 = ReadMacInt32(desiredAttrAddr + 16);
-	desired.colorNeeds = ReadMacInt32(desiredAttrAddr + 20);
-	desired.colorTable = ReadMacInt32(desiredAttrAddr + 24);
-	desired.contextOptions = ReadMacInt32(desiredAttrAddr + 28);
-	desired.backBufferDepthMask = ReadMacInt32(desiredAttrAddr + 32);
-	desired.displayDepthMask = ReadMacInt32(desiredAttrAddr + 36);
-	desired.backBufferBestDepth = ReadMacInt32(desiredAttrAddr + 40);
-	desired.displayBestDepth = ReadMacInt32(desiredAttrAddr + 44);
-	desired.pageCount = ReadMacInt32(desiredAttrAddr + 48);
-
-	const uint32_t back_depth = desired.backBufferBestDepth;
-	if (!desired.displayWidth || !desired.displayHeight || !desired.pageCount ||
-	    desired.displayWidth > 4096 || desired.displayHeight > 4096 ||
+	const uint32_t back_depth = req.backBufferBestDepth;
+	if (!req.displayWidth || !req.displayHeight || !req.pageCount ||
+	    req.displayWidth > 4096 || req.displayHeight > 4096 ||
 	    (back_depth != 1 && back_depth != 2 && back_depth != 4 &&
 	     back_depth != 8 && back_depth != 16 && back_depth != 32) ||
-	    !desired.backBufferDepthMask) {
+	    !req.backBufferDepthMask) {
 		QD3D_STATE_LOG("DSpReserve(GL): rejected ctx=%u requested=%ux%u backDepth=%u displayDepth=%u backMask=0x%x displayMask=0x%x pages=%u colorNeeds=%u",
-		               ctxRef, desired.displayWidth, desired.displayHeight,
-		               back_depth, desired.displayBestDepth,
-		               desired.backBufferDepthMask, desired.displayDepthMask,
-		               desired.pageCount, desired.colorNeeds);
+		               ctxRef, req.displayWidth, req.displayHeight,
+		               back_depth, req.displayBestDepth,
+		               req.backBufferDepthMask, req.displayDepthMask,
+		               req.pageCount, req.colorNeeds);
 		return kDSpInvalidAttributesErr;
 	}
 
 	const uint32_t actual_display_width = DSpReserveActualDisplayDimension(
-	    ctx->attr.displayWidth, desired.displayWidth);
+	    ctx->attr.displayWidth, req.displayWidth);
 	const uint32_t actual_display_height = DSpReserveActualDisplayDimension(
-	    ctx->attr.displayHeight, desired.displayHeight);
+	    ctx->attr.displayHeight, req.displayHeight);
 	const uint32_t actual_display_depth = DSpReserveActualDisplayDepth(
-	    ctx->attr.displayBestDepth, desired.displayBestDepth, back_depth);
+	    ctx->attr.displayBestDepth, req.displayBestDepth, back_depth);
 	const uint32_t actual_display_mask = ctx->attr.displayDepthMask
-	    ? ctx->attr.displayDepthMask : desired.displayDepthMask;
+	    ? ctx->attr.displayDepthMask : req.displayDepthMask;
 
 	ctx->attr.displayWidth = actual_display_width;
 	ctx->attr.displayHeight = actual_display_height;
 	ctx->attr.backBufferWidth = DSpReserveBackBufferDimension(
-	    actual_display_width, desired.displayWidth);
+	    actual_display_width, req.displayWidth);
 	ctx->attr.backBufferHeight = DSpReserveBackBufferDimension(
-	    actual_display_height, desired.displayHeight);
+	    actual_display_height, req.displayHeight);
 	ctx->attr.backBufferBestDepth = back_depth;
 	ctx->attr.displayBestDepth = actual_display_depth;
-	ctx->attr.backBufferDepthMask = desired.backBufferDepthMask;
+	ctx->attr.backBufferDepthMask = req.backBufferDepthMask;
 	ctx->attr.displayDepthMask = actual_display_mask;
-	ctx->attr.pageCount = desired.pageCount;
-	ctx->attr.colorNeeds = desired.colorNeeds;
-	ctx->attr.colorTable = desired.colorTable;
-	ctx->attr.contextOptions = desired.contextOptions;
+	ctx->attr.pageCount = req.pageCount;
+	ctx->attr.colorNeeds = req.colorNeeds;
+	ctx->attr.colorTable = req.colorTable;
+	ctx->attr.contextOptions = req.contextOptions;
 	ctx->enumeration_mode_index = DSP_ENUMERATION_INDEX_NONE;
 	ctx->explicit_swap_observed = false;
 	ctx->swap_generation = 0;
 	ctx->front_staging_refresh_swap_generation = 0;
 	DSpInitDefaultCLUT(ctx->clut_bytes, ctx->clut_bytes_latched, back_depth);
-	dsp_apply_reserve_color_table(ctx, desired.colorTable, back_depth);
+	dsp_apply_reserve_color_table(ctx, req.colorTable, back_depth);
 
 	if (!DSpAllocateBackBuffer(ctx, ctx->attr.backBufferWidth,
 	                           ctx->attr.backBufferHeight, back_depth))
@@ -216,9 +283,13 @@ int32_t DSpContext_ReleaseHandler(uint32_t ctxRef)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (!ctx) return kDSpContextNotFoundErr;
-	if (ctx->state == (uint32_t)kDSpContextState_Active)
-		MetalCompositorSubmitFrame_ClearCachedFramebuffer();
-	DSpRestoreMainDevicePixMap(ctx);
+	if (ctx->state == (uint32_t)kDSpContextState_Active) {
+		const int32_t rc = DSpContext_SetStateHandler(
+		    ctxRef, (uint32_t)kDSpContextState_Inactive);
+		if (rc != kDSpNoErr) return rc;
+	} else {
+		DSpRestoreMainDevicePixMap(ctx);
+	}
 	DSpReleaseBackBufferNow(ctx);
 	s_ctx.erase(ctxRef);
 	delete ctx;
@@ -247,6 +318,32 @@ int32_t DSpContext_GetBackBufferHandler(uint32_t ctxRef, uint32_t /*options*/,
 	return kDSpNoErr;
 }
 
+static void dsp_refresh_front_staging_after_swap(DSpContextPrivate *ctx)
+{
+	if (!ctx || !ctx->front_staging_mac_addr || !ctx->staging_mac_addr)
+		return;
+	const uint32_t front_depth = DSpFrontBufferDepth(
+	    ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+	const uint32_t back_row = DSpBackBufferAlignedRowBytes(
+	    DSpContextBackBufferWidth(ctx), ctx->attr.backBufferBestDepth);
+	const uint32_t front_row = ctx->front_staging_row_bytes;
+	if (!DSpShouldRefreshFrontBufferStagingFromBackStaging(
+	        ctx->attr.backBufferBestDepth, front_depth,
+	        ctx->staging_mac_addr, ctx->front_staging_mac_addr,
+	        ctx->staging_size, ctx->front_staging_size,
+	        back_row, front_row, ctx->swap_generation,
+	        ctx->front_staging_refresh_swap_generation, false))
+		return;
+
+	uint8_t *src = Mac2HostAddr(ctx->staging_mac_addr);
+	uint8_t *dst = Mac2HostAddr(ctx->front_staging_mac_addr);
+	if (!src || !dst) return;
+	std::memcpy(dst, src, ctx->front_staging_size);
+	ctx->front_staging_refresh_swap_generation = ctx->swap_generation;
+	DSpFrontStagingRememberSeedBytes(
+	    &ctx->front_staging_present_state, dst, ctx->front_staging_size);
+}
+
 int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef, uint32_t /*doneProc*/, uint32_t /*refCon*/)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
@@ -270,6 +367,10 @@ int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef, uint32_t /*doneProc*/, ui
 		}
 	}
 	ctx->swap_generation++;
+	/* A swap replaces the visible page.  Keep a separately vended front
+	 * surface in sync once per swap; otherwise its stale initial pixels would
+	 * be republished by the VBL path over the newly swapped frame. */
+	dsp_refresh_front_staging_after_swap(ctx);
 	ctx->explicit_swap_observed = true;
 	ctx->dirty_cold_start = false;
 	ctx->dirty_empty = true;
@@ -284,8 +385,17 @@ int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (!ctx) return kDSpContextNotFoundErr;
+	if (state != (uint32_t)kDSpContextState_Active &&
+	    state != (uint32_t)kDSpContextState_Paused &&
+	    state != (uint32_t)kDSpContextState_Inactive)
+		return kDSpInvalidAttributesErr;
 	uint32_t prev = ctx->state;
 	if (prev == state) return kDSpNoErr;
+	DMCModeDesc saved_quickdraw_mode = {};
+	const bool restore_quickdraw_mode =
+	    prev == (uint32_t)kDSpContextState_Active &&
+	    state != (uint32_t)kDSpContextState_Active &&
+	    dsp_build_saved_quickdraw_mode(ctx, &saved_quickdraw_mode);
 
 	/* Mode switch on activation when dimensions differ (Metal parity) */
 	if (state == (uint32_t)kDSpContextState_Active &&
@@ -303,21 +413,36 @@ int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 			new_mode.width = ctx->attr.displayWidth;
 			new_mode.height = ctx->attr.displayHeight;
 			new_mode.depth = display_depth ? display_depth : 32;
-			new_mode.row_bytes = DSpDisplayModePitch(ctx->attr.displayWidth, new_mode.depth);
-			new_mode.pitch = new_mode.row_bytes;
-			(void)dmc_request_mode_switch(&new_mode);
+			new_mode.row_bytes = DSpDisplayModeRowBytes(
+			    ctx->attr.displayWidth, new_mode.depth);
+			new_mode.pitch = DSpDisplayModePitch(
+			    ctx->attr.displayWidth, new_mode.depth);
+			if (dmc_request_mode_switch(&new_mode) != 0)
+				return kDSpInternalErr;
 		}
 	}
 
 	DMCOwner new_owner = DSpMapStateToDMCOwnerTyped(state);
-	(void)dmc_set_active_owner((uint32_t)new_owner);
+	if (dmc_set_active_owner((uint32_t)new_owner) != 0)
+		return kDSpInvalidAttributesErr;
 	ctx->state = state;
 
 	if (state == (uint32_t)kDSpContextState_Active) {
+		/* The compositor framebuffer cache may have been cleared while this
+		 * context was inactive; force the first VBL to republish even when the
+		 * guest pixels themselves did not change. */
+		ctx->front_staging_present_state.encoded = false;
 		std::memcpy(ctx->clut_bytes_latched, ctx->clut_bytes, 768);
-		MetalCompositorUpdatePalette(ctx->clut_bytes, 256);
+		/* A direct-color DSp probe can become Active before MainDevice has a
+		 * DSp surface to redirect to.  The classic framebuffer is still indexed
+		 * in that interval.  Direct-color contexts have an intentionally empty
+		 * CLUT, so publishing it here turns every classic palette entry black.
+		 * CLUT ownership only applies to indexed display modes. */
+		if (dsp_context_uses_indexed_display(ctx)) {
+			MetalCompositorUpdatePalette(ctx->clut_bytes, 256);
+			dmc_record_palette_change();
+		}
 		dmc_record_gamma_change_with_lut(ctx->gamma_lut_persisted);
-		dmc_record_palette_change();
 		DSpRedirectMainDevicePixMap(ctx);
 		/* Fullscreen Active -> host idle-timer suppression flag */
 		bool any_fs = false;
@@ -330,6 +455,27 @@ int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 		ctx->fade_state.active = 0;
 		MetalCompositorSubmitFrame_ClearCachedFramebuffer();
 		DSpRestoreMainDevicePixMap(ctx);
+		if (restore_quickdraw_mode) {
+			const DMCModeSnapshot *snap = dmc_current_snapshot();
+			const bool differs = !snap ||
+			    DSpQuickDrawModeRestoreDiffers(
+			        saved_quickdraw_mode.width,
+			        saved_quickdraw_mode.height,
+			        saved_quickdraw_mode.depth,
+			        snap->width, snap->height, snap->depth) ||
+			    snap->screen_base_host != saved_quickdraw_mode.screen_base_host;
+			if (differs) {
+				const int32_t rc =
+				    dmc_request_mode_switch(&saved_quickdraw_mode);
+				if (rc != kDMCNoErr) {
+					DSP_LOG("DSpSetState(GL): QuickDraw restore failed rc=%d %ux%u@%u base=0x%08x",
+					        rc, saved_quickdraw_mode.width,
+					        saved_quickdraw_mode.height,
+					        saved_quickdraw_mode.depth,
+					        saved_quickdraw_mode.screen_base_mac);
+				}
+			}
+		}
 		bool any_fs = false;
 		for (auto &kv : s_ctx) {
 			if (kv.second && kv.second->state == (uint32_t)kDSpContextState_Active)
@@ -409,7 +555,9 @@ int32_t DSpContext_SetMaxFrameRateHandler(uint32_t ctxRef, uint32_t rate) {
 int32_t DSpContext_GetMonitorFrequencyHandler(uint32_t ctxRef, uint32_t o) {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (!ctx) return kDSpContextNotFoundErr;
-	if (o) WriteMacInt32(o, ctx->attr.frequency ? ctx->attr.frequency : 60);
+	/* DrawSprocket exposes refresh as a QuickDraw 16.16 Fixed value. */
+	if (o) WriteMacInt32(o, ctx->attr.frequency
+		? ctx->attr.frequency : (60u << 16));
 	return kDSpNoErr;
 }
 int32_t DSpContext_SetDirtyRectGridSizeHandler(uint32_t ctxRef, uint32_t gw, uint32_t gh) {
@@ -423,7 +571,18 @@ int32_t DSpContext_GetDirtyRectGridSizeHandler(uint32_t ctxRef, uint32_t a, uint
 	return DSpContext_GetDirtyRectGridUnitsHandler(ctxRef, a, b);
 }
 int32_t DSpContext_GetFrontBufferHandler(uint32_t ctxRef, uint32_t outPtr) {
-	return DSpContext_GetBackBufferHandler(ctxRef, 0, outPtr);
+	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
+	if (!ctx || !ctx->back_buffer || !outPtr)
+		return kDSpInvalidContextErr;
+	const uint32_t cgp = DSpGetFrontBufferCGrafPtrGL(ctx);
+	if (!cgp) return kDSpInternalErr;
+	/* GetFrontBuffer is commonly the first operation after activation.  The
+	 * activation-time redirect could not target a front surface before it was
+	 * allocated, so reassert it now. */
+	if (ctx->state == (uint32_t)kDSpContextState_Active)
+		DSpRedirectMainDevicePixMap(ctx);
+	WriteMacInt32(outPtr, cgp);
+	return kDSpNoErr;
 }
 int32_t DSpGetCurrentContextHandler(uint32_t /*displayID*/, uint32_t outCtx) {
 	/* First Active context, else first reserved */
@@ -505,7 +664,8 @@ int32_t DSpCanUserSelectContextHandler(uint32_t attrAddr, uint32_t outCanSelect)
 	WriteMacInt32(outCanSelect, DSpCanUserSelectContextFromCount(n) ? 1 : 0);
 	return kDSpNoErr;
 }
-int32_t DSpFindBestContextOnDisplayIDHandler(uint32_t attrAddr, uint32_t /*displayID*/, uint32_t outCtx)
+int32_t DSpFindBestContextOnDisplayIDHandler(uint32_t attrAddr, uint32_t outCtx,
+                                             uint32_t /*displayID*/)
 {
 	/* Single display - same as FindBestContext */
 	return DSpFindBestContextHandler(attrAddr, outCtx);
@@ -896,10 +1056,49 @@ int32_t DSpContext_RestoreHandler(uint32_t flatAddr, uint32_t outCtx)
 	if (outCtx) WriteMacInt32(outCtx, h);
 	return kDSpNoErr;
 }
-int32_t DSpContext_QueueHandler(uint32_t parentRef, uint32_t childRef, uint32_t /*flags*/)
+static bool dsp_apply_queued_attributes(DSpContextPrivate *child,
+                                       uint32_t desiredAttrAddr)
+{
+	if (!child || !desiredAttrAddr || desiredAttrAddr > UINT32_MAX - 55u ||
+	    !NQDMetalAddrInBuffer(desiredAttrAddr) ||
+	    !NQDMetalAddrInBuffer(desiredAttrAddr + 55u))
+		return false;
+
+	const uint32_t desired_width = ReadMacInt32(desiredAttrAddr + 4u);
+	const uint32_t desired_height = ReadMacInt32(desiredAttrAddr + 8u);
+	const uint32_t desired_back_depth = ReadMacInt32(desiredAttrAddr + 40u);
+	const uint32_t desired_display_depth = ReadMacInt32(desiredAttrAddr + 44u);
+
+	child->attr.displayWidth = DSpReserveActualDisplayDimension(
+	    child->attr.displayWidth, desired_width);
+	child->attr.displayHeight = DSpReserveActualDisplayDimension(
+	    child->attr.displayHeight, desired_height);
+	child->attr.colorNeeds = ReadMacInt32(desiredAttrAddr + 20u);
+	child->attr.colorTable = ReadMacInt32(desiredAttrAddr + 24u);
+	child->attr.contextOptions = ReadMacInt32(desiredAttrAddr + 28u);
+	child->attr.backBufferDepthMask = ReadMacInt32(desiredAttrAddr + 32u);
+	child->attr.displayDepthMask = ReadMacInt32(desiredAttrAddr + 36u);
+	child->attr.backBufferBestDepth = desired_back_depth;
+	child->attr.displayBestDepth = DSpReserveActualDisplayDepth(
+	    child->attr.displayBestDepth, desired_display_depth,
+	    desired_back_depth);
+	child->attr.pageCount = ReadMacInt32(desiredAttrAddr + 48u);
+	child->attr.gameMustConfirmSwitch = ReadMacInt8(desiredAttrAddr + 55u);
+	child->attr.backBufferWidth = DSpReserveBackBufferDimension(
+	    child->attr.displayWidth, desired_width);
+	child->attr.backBufferHeight = DSpReserveBackBufferDimension(
+	    child->attr.displayHeight, desired_height);
+	return true;
+}
+
+int32_t DSpContext_QueueHandler(uint32_t parentRef, uint32_t childRef,
+                                uint32_t desiredAttrAddr)
 {
 	DSpContextPrivate *parent = DSpGetContext(parentRef);
-	if (!parent || !DSpGetContext(childRef)) return kDSpContextNotFoundErr;
+	DSpContextPrivate *child = DSpGetContext(childRef);
+	if (!parent || !child) return kDSpContextNotFoundErr;
+	if (desiredAttrAddr && !dsp_apply_queued_attributes(child, desiredAttrAddr))
+		return kDSpInvalidAttributesErr;
 	parent->queued_child = childRef;
 	return kDSpNoErr;
 }
@@ -909,8 +1108,28 @@ int32_t DSpContext_SwitchHandler(uint32_t oldRef, uint32_t newRef)
 	DSpContextPrivate *newc = DSpGetContext(newRef);
 	if (!oldc || !newc) return kDSpContextNotFoundErr;
 	if (oldc->queued_child != newRef) return kDSpInternalErr;
-	oldc->state = (uint32_t)kDSpContextState_Inactive;
-	newc->state = (uint32_t)kDSpContextState_Active;
+
+	/* Queue/Switch is a real display handoff, not bookkeeping.  Route both
+	 * sides through SetState so DMC ownership, mode selection, compositor
+	 * cache lifetime, PixMap redirection and palette/gamma policy stay in
+	 * sync.  Restore the old context if activating the child fails. */
+	int32_t rc = DSpContext_SetStateHandler(
+	    oldRef, (uint32_t)kDSpContextState_Inactive);
+	if (rc != kDSpNoErr) return rc;
+
+	const uint32_t saved_vbl_proc = oldc->vbl_proc_ptr;
+	const uint32_t saved_vbl_refcon = oldc->vbl_proc_refcon;
+	oldc->vbl_proc_ptr = 0;
+	oldc->vbl_proc_refcon = 0;
+	rc = DSpContext_SetStateHandler(
+	    newRef, (uint32_t)kDSpContextState_Active);
+	if (rc != kDSpNoErr) {
+		oldc->vbl_proc_ptr = saved_vbl_proc;
+		oldc->vbl_proc_refcon = saved_vbl_refcon;
+		(void)DSpContext_SetStateHandler(
+		    oldRef, (uint32_t)kDSpContextState_Active);
+		return rc;
+	}
 	oldc->queued_child = 0;
 	return kDSpNoErr;
 }
@@ -939,7 +1158,10 @@ int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef, uint32_t entriesAddr,
 	/* When Active, push latched + compositor palette (Metal Active-path parity) */
 	if (ctx->state == (uint32_t)kDSpContextState_Active) {
 		std::memcpy(ctx->clut_bytes_latched, ctx->clut_bytes, 768);
-		MetalCompositorUpdatePalette(ctx->clut_bytes, 256);
+		if (dsp_context_uses_indexed_display(ctx)) {
+			MetalCompositorUpdatePalette(ctx->clut_bytes, 256);
+			dmc_record_palette_change();
+		}
 	}
 	return kDSpNoErr;
 }
@@ -1191,8 +1413,52 @@ int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef, uint32_t outProc, uint32_t
 	if (outRef) WriteMacInt32(outRef, ctx->vbl_proc_refcon);
 	return kDSpNoErr;
 }
-int32_t DSpProcessEventHandler(uint32_t, uint32_t o) {
-	if (o) WriteMacInt32(o, 0); return kDSpNoErr;
+int32_t DSpProcessEventHandler(uint32_t inEventAddr,
+	                           uint32_t outProcessedAddr)
+{
+	/* EventRecord is 16 bytes; outEventWasProcessed is a one-byte Pascal
+	 * Boolean.  The old GL stub used WriteMacInt32 for the latter, corrupting
+	 * three adjacent guest bytes each time Diablo pumped an event. */
+	if (!inEventAddr || inEventAddr > UINT32_MAX - 15u ||
+	    !outProcessedAddr ||
+	    !NQDMetalAddrInBuffer(inEventAddr) ||
+	    !NQDMetalAddrInBuffer(inEventAddr + 15u) ||
+	    !NQDMetalAddrInBuffer(outProcessedAddr))
+		return kDSpInvalidAttributesErr;
+
+	const uint16_t what = (uint16_t)ReadMacInt16(inEventAddr);
+	const uint32_t message = ReadMacInt32(inEventAddr + 2u);
+	bool consumed = false;
+	if (what == (uint16_t)kDSpEvent_OSEvt &&
+	    (uint8_t)(message >> 24) ==
+	        (uint8_t)kDSpOSEvt_SuspendResumeMessage) {
+		const bool resume =
+		    (message & (uint32_t)kDSpOSEvtMsg_ResumeFlag) != 0;
+		for (auto &entry : s_ctx) {
+			DSpContextPrivate *ctx = entry.second;
+			if (!ctx) continue;
+			if (resume) {
+				if (ctx->state != (uint32_t)kDSpContextState_Paused ||
+				    !ctx->paused_by_background)
+					continue;
+				if (DSpContext_SetStateHandler(
+				        ctx->handle,
+				        (uint32_t)kDSpContextState_Active) == kDSpNoErr)
+					ctx->paused_by_background = 0;
+			} else {
+				if (ctx->state != (uint32_t)kDSpContextState_Active)
+					continue;
+				if (DSpContext_SetStateHandler(
+				        ctx->handle,
+				        (uint32_t)kDSpContextState_Paused) == kDSpNoErr)
+					ctx->paused_by_background = 1;
+			}
+		}
+		consumed = true;
+	}
+
+	WriteMacInt8(outProcessedAddr, consumed ? 1 : 0);
+	return kDSpNoErr;
 }
 void DSpVBLReleaseCallback(void*,void*,double) {}
 void DSpVBLClutLatchCallback(void *, void *, double)
@@ -1233,7 +1499,10 @@ void DSpVBLGammaFadeCallback(void *, void *, double)
 }
 void DSpVBLServiceCallback(void *, void *, double)
 {
-	/* Sync alt-buffer staging for the Active context.
+	/* Publish guest-writable DSp surfaces and sync alt-buffer staging for the
+	 * Active context.  GetFrontBuffer clients write directly to guest memory;
+	 * unlike SwapBuffers, those writes have no explicit present call, so VBL is
+	 * the point at which they become the compositor framebuffer layer.
 	 *
 	 * Deliberately NO per-VBL MetalCompositorUpdatePalette here. The Metal
 	 * backend pushes the DSp CLUT only on explicit events (SetCLUTEntries
@@ -1246,6 +1515,37 @@ void DSpVBLServiceCallback(void *, void *, double)
 		DSpContextPrivate *ctx = kv.second;
 		if (!ctx || ctx->state != (uint32_t)kDSpContextState_Active)
 			continue;
+
+		const bool has_front = DSpShouldPresentFrontBufferStagingForState(
+		    ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth,
+		    ctx->front_staging_mac_addr, ctx->front_staging_size,
+		    ctx->state, (uint32_t)kDSpContextState_Active);
+		if (has_front) {
+			/* QuickDraw acceleration may still have writes queued against the
+			 * redirected surface.  Drain them before hashing/uploading it. */
+			NQDMetalFlush();
+			(void)DSpEncodeFrontBufferStagingToFramebuffer(
+			    ctx, nullptr, MetalCompositorGetFramebufferTexture());
+		} else if (!ctx->explicit_swap_observed &&
+		           ctx->staging_mac_addr && ctx->staging_size &&
+		           ctx->back_buffer) {
+			/* Compatibility path for classic DSp clients that draw into the
+			 * vended back CGrafPort but never call SwapBuffers. */
+			NQDMetalFlush();
+			const uint32_t w = DSpContextBackBufferWidth(ctx);
+			const uint32_t h = DSpContextBackBufferHeight(ctx);
+			const uint32_t row = DSpBackBufferAlignedRowBytes(
+			    w, ctx->attr.backBufferBestDepth);
+			const uint64_t expected64 = (uint64_t)row * h;
+			const uint32_t copy_size = expected64 <= UINT32_MAX
+			    ? std::min((uint32_t)expected64, ctx->staging_size) : 0;
+			uint8_t *src = Mac2HostAddr(ctx->staging_mac_addr);
+			if (src && copy_size) {
+				std::memcpy(ctx->back_buffer, src, copy_size);
+				DSpEncodePresentToFramebuffer(
+				    ctx, nullptr, MetalCompositorGetFramebufferTexture());
+			}
+		}
 		if (ctx->underlay_alt_buffer) {
 			DSpAltBufferGL *rec = alt_get(ctx->underlay_alt_buffer);
 			if (rec && rec->baseaddr_mac && rec->backing) {
@@ -1326,8 +1626,10 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	    : (ctx->attr.displayHeight ? ctx->attr.displayHeight : 480);
 	const uint32_t rb = using_back_staging
 	    ? DSpBackBufferAlignedRowBytes(w, ctx->attr.backBufferBestDepth)
-	    : DSpMainDevicePixMapRowBytes(w, ctx->attr.backBufferBestDepth,
-	                                 display_depth);
+	    : (ctx->front_staging_row_bytes
+	       ? ctx->front_staging_row_bytes
+	       : DSpMainDevicePixMapRowBytes(w, ctx->attr.backBufferBestDepth,
+	                                    display_depth));
 
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR, base);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES,

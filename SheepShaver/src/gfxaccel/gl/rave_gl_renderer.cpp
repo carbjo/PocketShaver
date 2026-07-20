@@ -2,8 +2,7 @@
  *  rave_gl_renderer.cpp - RAVE 3D via OpenGL FBO overlay
  *
  *  Implements rave_metal_renderer.h using desktop OpenGL instead of Metal.
- *  Draws into a double-buffered overlay texture and submits it to the
- *  compositor each RenderEnd (same mailbox model as the Metal path).
+ *  Draws into a double-buffered overlay texture and presents it at RenderEnd.
  */
 
 #include "sysdeps.h"
@@ -16,6 +15,7 @@
 #include "rave_ati_tag_policy.h"
 #include "rave_mipmap_bias_policy.h"
 #include "rave_overlay_clear_policy.h"
+#include "rave_compositor_rect.h"
 #include "metal_compositor.h"
 #include "gfxaccel_resources.h"
 #include "display_mode_controller.h"
@@ -110,6 +110,9 @@ struct RaveMetalState {
 	uint32_t draw_state_multitexture_handle = 0;
 	uint32_t draw_state_multitexture_op = 0;
 	float draw_state_multitexture_factor = 0.f;
+	uint32_t draw_state_texture = 0;
+	bool draw_state_primary_texture_live = false;
+	bool draw_state_secondary_texture_live = false;
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 	/* Per-frame diagnostics. Kept here so the trace can distinguish a frame
 	 * that drew black from a frame whose draw calls were never accepted. */
@@ -148,6 +151,18 @@ static void invalidate_draw_state(RaveMetalState *ms)
 	s_draw_state_owner = nullptr;
 }
 
+static void flush_draw_batch(void);
+
+/* Resource uploads bind texture objects outside the draw-state path. Mark that
+ * disturbance here so an otherwise valid cache hit can perform no GL calls. */
+static void invalidate_external_gl_state(void)
+{
+	flush_draw_batch();
+	if (s_draw_state_owner)
+		s_draw_state_owner->draw_state_valid = false;
+	s_draw_state_owner = nullptr;
+}
+
 /* Overlay fleet */
 static GLuint s_overlay_pair[2] = {0, 0};
 static GLuint s_overlay_tex = 0;
@@ -155,23 +170,41 @@ static uint32_t s_ow = 0, s_oh = 0, s_write = 0;
 static int32_t s_dst_l = 0, s_dst_t = 0, s_dst_w = 0, s_dst_h = 0;
 static GLuint s_last_submitted_tex = 0;
 
-#if QD3D_GRAPHICS_LOGGING_ENABLED
+static void set_compositor_destination_rect(int32_t left, int32_t top,
+	                                         int32_t width, int32_t height)
+{
+	const DMCModeSnapshot *snap = dmc_current_snapshot();
+	const RaveCompositorRect dst = RaveCompositorRectFromDrawRect(
+		left, top, width, height,
+		snap ? snap->width : 0, snap ? snap->height : 0);
+	s_dst_l = dst.left;
+	s_dst_t = dst.top;
+	s_dst_w = dst.width;
+	s_dst_h = dst.height;
+}
+
 static bool trace_sample(uint64_t count, uint64_t first = 8, uint64_t every = 120)
 {
 	return count <= first || (count != 0 && (count & (count - 1)) == 0) ||
 	       (every != 0 && (count % every) == 0);
 }
 
-static bool trace_frame(const RaveDrawPrivate *priv)
+#if QD3D_GRAPHICS_LOGGING_ENABLED
+static bool trace_frame_summary(const RaveDrawPrivate *priv)
 {
 	return priv && trace_sample(priv->frameCount);
+}
+
+static bool trace_frame_detail(const RaveDrawPrivate *priv)
+{
+	return ACCEL_LOG_VERBOSE && trace_frame_summary(priv);
 }
 
 static void trace_overlay_readback(const RaveDrawPrivate *priv,
 	                               const RaveMetalState *ms,
 	                               const char *stage)
 {
-	if (!priv || !ms || !trace_frame(priv) || !ms->w || !ms->h) return;
+	if (!priv || !ms || !trace_frame_detail(priv) || !ms->w || !ms->h) return;
 	const uint64_t byte_count = (uint64_t)ms->w * ms->h * 4u;
 	if (byte_count > 64u * 1024u * 1024u) return;
 	std::vector<uint8_t> pixels((size_t)byte_count);
@@ -262,9 +295,9 @@ static GLuint acquire_overlay(uint32_t w, uint32_t h)
 
 void RaveCreateMetalOverlay(int32_t left, int32_t top, int32_t width, int32_t height)
 {
-	QD3D_INIT_LOG("RaveCreateMetalOverlay(GL): destination=(%d,%d) size=%dx%d",
-	              left, top, width, height);
-	s_dst_l = left; s_dst_t = top; s_dst_w = width; s_dst_h = height;
+	set_compositor_destination_rect(left, top, width, height);
+	QD3D_INIT_LOG("RaveCreateMetalOverlay(GL): requested=(%d,%d) size=%dx%d destination=(%d,%d) size=%dx%d",
+	              left, top, width, height, s_dst_l, s_dst_t, s_dst_w, s_dst_h);
 	if (width > 0 && height > 0)
 		acquire_overlay((uint32_t)width, (uint32_t)height);
 	if (s_overlay_tex)
@@ -286,6 +319,7 @@ extern "C" int rave_get_overlay_dims(uint32_t *outW, uint32_t *outH)
 }
 extern "C" void rave_release_overlay_for_detach(void)
 {
+	flush_draw_batch();
 	release_overlay();
 }
 
@@ -318,6 +352,7 @@ void RaveInitMetalResources(RaveDrawPrivate *priv)
 void RaveReleaseMetalResources(RaveDrawPrivate *priv)
 {
 	if (!priv || !priv->metal) return;
+	flush_draw_batch();
 	RaveMetalState *ms = priv->metal;
 	if (s_active_render_pass == ms)
 		s_active_render_pass = nullptr;
@@ -835,12 +870,11 @@ static void configure_bound_texture(RaveDrawPrivate *priv,
 	} else {
 		minf = standardFilter >= 1 ? GL_LINEAR : GL_NEAREST;
 	}
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minf);
-
 	const bool shrink = (priv->state[12].i & 8) != 0;
 	const uint32_t wrapU = priv->state[101].i;
 	const uint32_t wrapV = priv->state[102].i;
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minf);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
 		(shrink || wrapU == 1) ? GL_CLAMP_TO_EDGE : GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,
@@ -858,6 +892,7 @@ static GLuint bind_current_texture(RaveDrawPrivate *priv)
 {
 	assert(priv != nullptr);
 	assert(priv->metal != nullptr);
+	priv->metal->draw_state_primary_texture_live = false;
 	uint32_t tex_mac = priv->state[13].i; /* kQATag_Texture */
 	if (!tex_mac) {
 #if QD3D_GRAPHICS_LOGGING_ENABLED
@@ -899,7 +934,7 @@ static GLuint bind_current_texture(RaveDrawPrivate *priv)
 	GLuint tex = (GLuint)(uintptr_t)entry->metal_texture;
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 	priv->metal->texture_binds++;
-	if (priv->metal->texture_binds <= 8 && trace_frame(priv)) {
+	if (priv->metal->texture_binds <= 8 && trace_frame_detail(priv)) {
 			QD3D_RENDER_LOG("frame=%u textureBind=%llu guest=0x%08x handle=%u gl=%u size=%ux%u mips=%u pixelType=%u filter=%u op=0x%x rgbNonzero=%u alphaZero=%u",
 			                priv->frameCount,
 			                (unsigned long long)priv->metal->texture_binds,
@@ -912,29 +947,21 @@ static GLuint bind_current_texture(RaveDrawPrivate *priv)
 	glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, tex);
 	configure_bound_texture(priv, entry);
+	priv->metal->draw_state_primary_texture_live =
+		RaveTextureNeedsLivePixmapRefresh(entry);
 
-	/* Opaque-alpha guard (mirrors the Metal RAVE_TEXTURE_OP_FORCE_OPAQUE_ALPHA
-	 * path). When a texture is diagnosed as fully opaque (no zero-alpha texels),
-	 * force its bound alpha to 1.0 so translucent sprite edges cannot bleed
-	 * through where the source art assumed an opaque alpha channel. */
 	if (RaveTextureDiagUsesOpaqueAlphaGuard(entry->diag_alpha_zero)) {
 		glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 		glColor4f(1.f, 1.f, 1.f, 1.f);
 	}
-
-	/* Texture env from TextureOp (state[12]) */
 	int top = (int)priv->state[12].i;
-	if (top & 16) { /* GL-style Blend with TextureEnvColor */
-		GLfloat env[4] = {
-			priv->state[151].f, priv->state[152].f,
-			priv->state[153].f, priv->state[150].f
-		};
+	if (top & 16) {
+		GLfloat env[4] = { priv->state[151].f, priv->state[152].f,
+			priv->state[153].f, priv->state[150].f };
 		glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, env);
 		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_BLEND);
-	} else if (top & 4) /* Decal */
+	} else if (top & 4)
 		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
-	else if (top & 1) /* Modulate */
-		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 	else
 		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
@@ -945,6 +972,8 @@ static GLuint bind_texture_unit(RaveDrawPrivate *priv, uint32_t tex_mac, int uni
 {
 	assert(priv != nullptr);
 	assert(priv->metal != nullptr);
+	if (unit != 0)
+		priv->metal->draw_state_secondary_texture_live = false;
 	auto &ext = gfx_gl_ext();
 	if (ext.multitex && ext.ActiveTexture)
 		ext.ActiveTexture(GL_TEXTURE0 + unit);
@@ -982,11 +1011,12 @@ static GLuint bind_texture_unit(RaveDrawPrivate *priv, uint32_t tex_mac, int uni
 	glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, tex);
 	configure_bound_texture(priv, entry);
-	/* Second-texture LOD bias (kQATag_MultiTextureMipmapBias=42) for the
-	 * multi-texture unit, matching Metal's multi_texture_mipmap_bias. */
-	if (unit != 0)
+	if (unit != 0) {
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS,
 		                RaveMetalSamplerMipBias(priv->state[42].f));
+		priv->metal->draw_state_secondary_texture_live =
+			RaveTextureNeedsLivePixmapRefresh(entry);
+	}
 	return tex;
 }
 
@@ -1008,7 +1038,7 @@ static bool accept_draw(RaveDrawPrivate *priv, const char *kind, uint32_t vertic
 {
 	if (!priv || !priv->metal) return false;
 	RaveMetalState *ms = priv->metal;
-	if (!ms->pass_active) {
+	if (!ms->pass_active || s_active_render_pass != ms) {
 		ms->dropped_draws++;
 		if (trace_sample(ms->dropped_draws, 8, 256)) {
 			QD3D_RENDER_LOG("DROP %s: frame=%u vertices=%u render pass inactive totalDropped=%llu",
@@ -1022,7 +1052,8 @@ static bool accept_draw(RaveDrawPrivate *priv, const char *kind, uint32_t vertic
 #else
 static bool accept_draw_without_logging(RaveDrawPrivate *priv)
 {
-	return priv && priv->metal && priv->metal->pass_active;
+	return priv && priv->metal && priv->metal->pass_active &&
+	       s_active_render_pass == priv->metal;
 }
 #define accept_draw(priv, kind, vertices) accept_draw_without_logging(priv)
 #endif
@@ -1038,7 +1069,7 @@ static void record_draw(RaveDrawPrivate *priv, const char *kind, uint32_t vertic
 	if (textured) ms->textured_draws++;
 	/* Traced frames log every draw (bounded): HUD/overlay draws land at the
 	 * end of a frame and would never appear under a small cap. */
-	if (trace_frame(priv) && ms->logged_draws < 2048) {
+	if (trace_frame_detail(priv) && ms->logged_draws < 2048) {
 		ms->logged_draws++;
 		if (first) {
 			QD3D_RENDER_LOG("frame=%u draw=%llu kind=%s mode=%d vertices=%u textured=%d first[x/y/z/w]=%.3f/%.3f/%.5f/%.5f rgba=%.3f/%.3f/%.3f/%.3f uvOverW=%.5f/%.5f kd=%.3f/%.3f/%.3f texture=0x%08x op=0x%x",
@@ -1174,18 +1205,17 @@ static void apply_draw_state(RaveDrawPrivate *priv, bool textured)
 	const bool multi = textured && priv->multiTextureActive &&
 	                   priv->multiTextureHandle != 0 &&
 	                   gfx_gl_ext().multitex;
-	if (s_draw_state_owner == ms && ms->draw_state_valid &&
-	    priv->dirty_flags == 0 &&
-	    ms->draw_state_textured == textured &&
-	    ms->draw_state_multitexture == multi &&
-	    ms->draw_state_multitexture_handle == priv->multiTextureHandle &&
-	    ms->draw_state_multitexture_op == priv->multiTextureOp &&
-	    ms->draw_state_multitexture_factor == priv->multiTextureFactor) {
-		/* Resource uploads may have disturbed texture unit 0, so rebind the
-		 * selected texture while leaving the much larger fixed-function state
-		 * block cached. */
-		if (textured)
-			bind_current_texture(priv);
+	const bool residentState = s_draw_state_owner == ms &&
+	                           ms->draw_state_valid &&
+	                           ms->draw_state_textured == textured &&
+	                           ms->draw_state_multitexture == multi &&
+	                           ms->draw_state_multitexture_handle == priv->multiTextureHandle &&
+	                           ms->draw_state_multitexture_op == priv->multiTextureOp &&
+	                           ms->draw_state_multitexture_factor == priv->multiTextureFactor &&
+	                           (!textured || ms->draw_state_texture == priv->state[13].i);
+	if (residentState && priv->dirty_flags == 0 &&
+	    !ms->draw_state_primary_texture_live &&
+	    !ms->draw_state_secondary_texture_live) {
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 		ms->state_cache_hits++;
 #endif
@@ -1274,6 +1304,7 @@ static void apply_draw_state(RaveDrawPrivate *priv, bool textured)
 	ms->draw_state_multitexture_handle = priv->multiTextureHandle;
 	ms->draw_state_multitexture_op = priv->multiTextureOp;
 	ms->draw_state_multitexture_factor = priv->multiTextureFactor;
+	ms->draw_state_texture = textured ? priv->state[13].i : 0;
 	s_draw_state_owner = ms;
 }
 
@@ -1348,6 +1379,54 @@ static void emit_v(const HostV &v, bool textured, int texture_op)
 	glVertex3f(v.x, v.y, RaveClampMetalDepth(v.z));
 }
 
+/* Diablo submits most of a frame as hundreds of tiny fans and strips. The
+ * compatibility driver is far slower when each becomes its own glBegin/glEnd
+ * pair, so convert consecutive calls with unchanged RAVE state to one triangle
+ * batch. State setters only touch priv->state/dirty_flags; any operation that
+ * changes live GL state flushes this batch first. */
+static std::vector<HostV> s_draw_batch;
+static RaveDrawPrivate *s_draw_batch_owner = nullptr;
+static bool s_draw_batch_textured = false;
+static int s_draw_batch_texture_op = 0;
+static uint32_t s_draw_batch_texture = 0;
+
+static void flush_draw_batch(void)
+{
+	if (s_draw_batch.empty()) return;
+	glBegin(GL_TRIANGLES);
+	for (const HostV &v : s_draw_batch)
+		emit_v(v, s_draw_batch_textured, s_draw_batch_texture_op);
+	glEnd();
+	s_draw_batch.clear();
+	s_draw_batch_owner = nullptr;
+}
+
+static void queue_draw_triangle(RaveDrawPrivate *priv, bool textured,
+	                            int texture_op, const HostV &a,
+	                            const HostV &b, const HostV &c)
+{
+	const bool compatible = s_draw_batch_owner == priv &&
+		priv->dirty_flags == 0 && s_draw_state_owner == priv->metal &&
+		priv->metal->draw_state_valid &&
+		!priv->metal->draw_state_primary_texture_live &&
+		!priv->metal->draw_state_secondary_texture_live &&
+		s_draw_batch_textured == textured &&
+		s_draw_batch_texture_op == texture_op &&
+		(!textured || s_draw_batch_texture == priv->state[13].i);
+	if (!compatible) {
+		flush_draw_batch();
+		apply_draw_state(priv, textured);
+		if (s_draw_batch.capacity() == 0) s_draw_batch.reserve(8192);
+		s_draw_batch_owner = priv;
+		s_draw_batch_textured = textured;
+		s_draw_batch_texture_op = texture_op;
+		s_draw_batch_texture = textured ? priv->state[13].i : 0;
+	}
+	s_draw_batch.push_back(a);
+	s_draw_batch.push_back(b);
+	s_draw_batch.push_back(c);
+}
+
 /* ---- Z-sorted transparency (kQATag_ZSortedHint = state[29]) ---- */
 
 static inline bool zsort_enabled(const RaveDrawPrivate *priv)
@@ -1404,6 +1483,7 @@ static void buffer_zsort_tri(RaveDrawPrivate *priv, const HostV &a, const HostV 
 
 static void flush_zsort_buffer(RaveDrawPrivate *priv)
 {
+	flush_draw_batch();
 	if (!priv || !priv->zsortBuffer || priv->zsortCount == 0) return;
 	if (!GfxGLDeviceMakeCurrent()) return;
 
@@ -1505,6 +1585,10 @@ int32_t NativeRenderStart(uint32_t drawContextAddr, uint32_t dirtyRectAddr, uint
 		QD3D_RENDER_LOG("RenderStart rejected: context=0x%08x has zero size", drawContextAddr);
 		return 1;
 	}
+	/* Re-evaluate after a DrawSprocket mode transition; context creation can
+	 * precede the logical display snapshot becoming current. */
+	set_compositor_destination_rect(priv->left, priv->top,
+	                                priv->width, priv->height);
 
 	/* Capture the source before bind_overlay_fbo advances this context to the
 	 * current write texture. This implements kQAOptional_BufferComposite for
@@ -1569,7 +1653,7 @@ int32_t NativeRenderStart(uint32_t drawContextAddr, uint32_t dirtyRectAddr, uint
 	 * been cleared/loaded and before the first 3D draw. */
 	fire_notice_method(priv, 3);
 #if QD3D_GRAPHICS_LOGGING_ENABLED
-	if (trace_frame(priv)) {
+	if (trace_frame_summary(priv)) {
 		int32_t dl = 0, dr = 0, dt = 0, db = 0;
 		if (dirtyRectAddr) {
 			dl = (int32_t)ReadMacInt32(dirtyRectAddr + 0);
@@ -1601,8 +1685,11 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 	if (!ms->pass_active) {
 		if (s_active_render_pass == ms)
 			s_active_render_pass = nullptr;
-		QD3D_RENDER_LOG("RenderEnd ignored: frame=%u ctx=0x%08x has no active pass",
-		                priv->frameCount, drawContextAddr);
+		static uint64_t ignored_end_count = 0;
+		if (ACCEL_LOG_VERBOSE || trace_sample(++ignored_end_count, 8, 120))
+			QD3D_RENDER_LOG("RenderEnd ignored: count=%llu frame=%u ctx=0x%08x has no active pass",
+			                (unsigned long long)ignored_end_count,
+			                priv->frameCount, drawContextAddr);
 		return kQANoErr;
 	}
 	const bool wasActive = true;
@@ -1643,7 +1730,7 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 		ms->cpu_composite_frames--;
 		assert(s_active_render_pass == ms);
 		s_active_render_pass = nullptr;
-		MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineRAVE);
+		MetalCompositorPresent();
 		return kQANoErr;
 	}
 
@@ -1651,10 +1738,16 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 	layer.source = (void *)(uintptr_t)s_overlay_tex;
 	layer.src_size_w = s_ow;
 	layer.src_size_h = s_oh;
-	layer.dst_origin_x = (float)(priv->left ? priv->left : s_dst_l);
-	layer.dst_origin_y = (float)(priv->top ? priv->top : s_dst_t);
-	layer.dst_size_w = (float)(priv->width > 0 ? priv->width : (int)s_ow);
-	layer.dst_size_h = (float)(priv->height > 0 ? priv->height : (int)s_oh);
+	/* RaveCreateMetalOverlay owns destination normalization. In particular,
+	 * games commonly describe a 640x480 context by its centred rectangle in
+	 * the 800x600 desktop (80,60)-(720,540). Once DrawSprocket has switched the
+	 * logical display to 640x480 that rectangle is the whole surface, not an
+	 * inset. Re-reading priv->left/top here undid the normalization and shifted
+	 * every submitted frame right and down. */
+	layer.dst_origin_x = (float)s_dst_l;
+	layer.dst_origin_y = (float)s_dst_t;
+	layer.dst_size_w = (float)(s_dst_w > 0 ? s_dst_w : (int32_t)s_ow);
+	layer.dst_size_h = (float)(s_dst_h > 0 ? s_dst_h : (int32_t)s_oh);
 	layer.slot = kLayerSlotOverlay;
 	layer.blend = kBlendPremultiplied;
 	layer.alpha = 1.f;
@@ -1675,7 +1768,7 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 	}
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 	GLenum glError = glGetError();
-	if (trace_frame(priv) || ownerResult != 0 || submitResult != 0 || glError != GL_NO_ERROR ||
+	if (trace_frame_summary(priv) || ownerResult != 0 || submitResult != 0 || glError != GL_NO_ERROR ||
 	    ms->missing_textures != 0 || ms->dropped_draws != 0) {
 		QD3D_RENDER_LOG("RenderEnd frame=%u ctx=0x%08x active=%d modified=0x%08x draws=%llu textured=%llu vertices=%llu textureBinds=%llu stateApplies=%llu stateCacheHits=%llu missingTextures=%llu dropped=%llu zsortPending=%u owner=%d/%u submit=%d overlay=%u next=%u generation=%llu glError=0x%x",
 		                priv->frameCount, drawContextAddr, wasActive ? 1 : 0,
@@ -1702,12 +1795,16 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 	}
 	assert(s_active_render_pass == ms);
 	s_active_render_pass = nullptr;
-	MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineRAVE);
+	/* The SDL compositor has no asynchronous display-link thread. Present the
+	 * completed frame here; sleeping this emulation thread first prevents its
+	 * VideoVBL presenter from running and lets later mailbox writes skip it. */
+	MetalCompositorPresent();
 	return kQANoErr;
 }
 
 int32_t NativeRenderAbort(uint32_t drawContextAddr)
 {
+	flush_draw_batch();
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return 1;
 	RaveMetalState *ms = priv->metal;
@@ -1727,8 +1824,8 @@ int32_t NativeRenderAbort(uint32_t drawContextAddr)
 	                (unsigned long long)ms->vertices);
 	return kQANoErr;
 }
-int32_t NativeFlush(uint32_t) { if (GfxGLDeviceMakeCurrent()) glFlush(); return kQANoErr; }
-int32_t NativeSync(uint32_t) { if (GfxGLDeviceMakeCurrent()) glFinish(); return kQANoErr; }
+int32_t NativeFlush(uint32_t) { flush_draw_batch(); if (GfxGLDeviceMakeCurrent()) glFlush(); return kQANoErr; }
+int32_t NativeSync(uint32_t) { flush_draw_batch(); if (GfxGLDeviceMakeCurrent()) glFinish(); return kQANoErr; }
 
 /*
  *  NativeATIGetDrawBuffer - ATI RaveExtFuncs slot 4 (sub-opcode 304)
@@ -1749,6 +1846,7 @@ int32_t NativeSync(uint32_t) { if (GfxGLDeviceMakeCurrent()) glFinish(); return 
  */
 int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAddr)
 {
+	flush_draw_batch();
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || deviceStructAddr == 0) return kQAError;
 	RaveMetalState *ms = priv->metal;
@@ -1912,17 +2010,13 @@ int32_t NativeDrawTriGouraud(uint32_t drawContextAddr, uint32_t v0, uint32_t v1,
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!accept_draw(priv, "TriGouraud", 3)) return kQANoErr;
-	if (!GfxGLDeviceMakeCurrent()) return 1;
 	HostV a = read_gouraud_v(v0), b = read_gouraud_v(v1), c = read_gouraud_v(v2);
 	record_draw(priv, "TriGouraud", 3, false, &a);
 	if (zsort_enabled(priv)) {
 		buffer_zsort_tri(priv, a, b, c, false);
 		return kQANoErr;
 	}
-	apply_draw_state(priv, false);
-	glBegin(GL_TRIANGLES);
-	emit_v(a, false, 0); emit_v(b, false, 0); emit_v(c, false, 0);
-	glEnd();
+	queue_draw_triangle(priv, false, 0, a, b, c);
 	return kQANoErr;
 }
 
@@ -1930,7 +2024,6 @@ int32_t NativeDrawTriTexture(uint32_t drawContextAddr, uint32_t v0, uint32_t v1,
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!accept_draw(priv, "TriTexture", 3)) return kQANoErr;
-	if (!GfxGLDeviceMakeCurrent()) return 1;
 	int top = (int)priv->state[12].i;
 	HostV a = read_texture_v(v0), b = read_texture_v(v1), c = read_texture_v(v2);
 	record_draw(priv, "TriTexture", 3, true, &a);
@@ -1945,10 +2038,7 @@ int32_t NativeDrawTriTexture(uint32_t drawContextAddr, uint32_t v0, uint32_t v1,
 		buffer_zsort_tri(priv, a, b, c, true);
 		return kQANoErr;
 	}
-	apply_draw_state(priv, true);
-	glBegin(GL_TRIANGLES);
-	emit_v(a, true, top); emit_v(b, true, top); emit_v(c, true, top);
-	glEnd();
+	queue_draw_triangle(priv, true, top, a, b, c);
 	return kQANoErr;
 }
 
@@ -1975,7 +2065,6 @@ int32_t NativeDrawVGouraud(uint32_t drawContextAddr, uint32_t nVertices, uint32_
 		return kQANoErr;
 	if (!accept_draw(priv, "VGouraud", nVertices))
 		return kQANoErr;
-	if (!GfxGLDeviceMakeCurrent()) return 1;
 	const uint32 stride = 32;
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 	HostV traceFirst = read_gouraud_v(verticesAddr);
@@ -1987,22 +2076,15 @@ int32_t NativeDrawVGouraud(uint32_t drawContextAddr, uint32_t nVertices, uint32_
 
 	if (fan && nVertices >= 3) {
 		HostV v0 = read_gouraud_v(verticesAddr);
-		if (!zsort) {
-			apply_draw_state(priv, false);
-			glBegin(GL_TRIANGLES);
-		}
 		for (uint32 i = 1; i + 1 < nVertices; i++) {
 			HostV a = v0;
 			HostV b = read_gouraud_v(verticesAddr + i * stride);
 			HostV c = read_gouraud_v(verticesAddr + (i + 1) * stride);
 			if (zsort)
 				buffer_zsort_tri(priv, a, b, c, false);
-			else {
-				emit_v(a, false, 0); emit_v(b, false, 0); emit_v(c, false, 0);
-			}
+			else
+				queue_draw_triangle(priv, false, 0, a, b, c);
 		}
-		if (!zsort)
-			glEnd();
 		return kQANoErr;
 	}
 	if (zsort && vertexMode == 3) {
@@ -2028,6 +2110,28 @@ int32_t NativeDrawVGouraud(uint32_t drawContextAddr, uint32_t nVertices, uint32_
 		}
 		return kQANoErr;
 	}
+	if (vertexMode == 3) {
+		for (uint32 i = 0; i + 2 < nVertices; i += 3)
+			queue_draw_triangle(priv, false, 0,
+				read_gouraud_v(verticesAddr + i * stride),
+				read_gouraud_v(verticesAddr + (i + 1) * stride),
+				read_gouraud_v(verticesAddr + (i + 2) * stride));
+		return kQANoErr;
+	}
+	if (vertexMode == 4 && nVertices >= 3) {
+		HostV a = read_gouraud_v(verticesAddr);
+		HostV b = read_gouraud_v(verticesAddr + stride);
+		for (uint32 i = 2; i < nVertices; i++) {
+			HostV c = read_gouraud_v(verticesAddr + i * stride);
+			if ((i & 1) == 0)
+				queue_draw_triangle(priv, false, 0, a, b, c);
+			else
+				queue_draw_triangle(priv, false, 0, b, a, c);
+			a = b; b = c;
+		}
+		return kQANoErr;
+	}
+	flush_draw_batch();
 	apply_draw_state(priv, false);
 	glBegin(mode);
 	for (uint32 i = 0; i < nVertices; i++)
@@ -2044,7 +2148,6 @@ int32_t NativeDrawVTexture(uint32_t drawContextAddr, uint32_t nVertices, uint32_
 		return kQANoErr;
 	if (!accept_draw(priv, "VTexture", nVertices))
 		return kQANoErr;
-	if (!GfxGLDeviceMakeCurrent()) return 1;
 	const uint32 stride = 64;
 	int top = (int)priv->state[12].i;
 #if QD3D_GRAPHICS_LOGGING_ENABLED
@@ -2068,20 +2171,13 @@ int32_t NativeDrawVTexture(uint32_t drawContextAddr, uint32_t nVertices, uint32_
 
 	if (fan && nVertices >= 3) {
 		HostV v0 = read_tex_mt(0);
-		if (!zsort) {
-			apply_draw_state(priv, true);
-			glBegin(GL_TRIANGLES);
-		}
 		for (uint32 i = 1; i + 1 < nVertices; i++) {
 			HostV a = v0, b = read_tex_mt(i), c = read_tex_mt(i + 1);
 			if (zsort)
 				buffer_zsort_tri(priv, a, b, c, true);
-			else {
-				emit_v(a, true, top); emit_v(b, true, top); emit_v(c, true, top);
-			}
+			else
+				queue_draw_triangle(priv, true, top, a, b, c);
 		}
-		if (!zsort)
-			glEnd();
 		return kQANoErr;
 	}
 	if (zsort && vertexMode == 3) {
@@ -2102,6 +2198,25 @@ int32_t NativeDrawVTexture(uint32_t drawContextAddr, uint32_t nVertices, uint32_
 		}
 		return kQANoErr;
 	}
+	if (vertexMode == 3) {
+		for (uint32 i = 0; i + 2 < nVertices; i += 3)
+			queue_draw_triangle(priv, true, top,
+				read_tex_mt(i), read_tex_mt(i + 1), read_tex_mt(i + 2));
+		return kQANoErr;
+	}
+	if (vertexMode == 4 && nVertices >= 3) {
+		HostV a = read_tex_mt(0), b = read_tex_mt(1);
+		for (uint32 i = 2; i < nVertices; i++) {
+			HostV c = read_tex_mt(i);
+			if ((i & 1) == 0)
+				queue_draw_triangle(priv, true, top, a, b, c);
+			else
+				queue_draw_triangle(priv, true, top, b, a, c);
+			a = b; b = c;
+		}
+		return kQANoErr;
+	}
+	flush_draw_batch();
 	apply_draw_state(priv, true);
 	glBegin(mode);
 	for (uint32 i = 0; i < nVertices; i++)
@@ -2161,6 +2276,7 @@ int32_t NativeSubmitMultiTextureParams(uint32_t drawContextAddr, uint32_t nVerti
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv) return kQANoErr;
+	flush_draw_batch();
 	if (!nVertices || !multiTexParamsAddr) {
 		priv->multiTextureActive = false;
 		priv->multiTexStagingCount = 0;
@@ -2206,7 +2322,7 @@ int32_t NativeDrawPoint(uint32_t drawContextAddr, uint32_t v0)
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!accept_draw(priv, "Point", 1)) return kQANoErr;
-	if (!GfxGLDeviceMakeCurrent()) return 1;
+	flush_draw_batch();
 	apply_draw_state(priv, false);
 	HostV a = read_gouraud_v(v0);
 	record_draw(priv, "Point", 1, false, &a);
@@ -2221,7 +2337,7 @@ int32_t NativeDrawLine(uint32_t drawContextAddr, uint32_t v0, uint32_t v1)
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!accept_draw(priv, "Line", 2)) return kQANoErr;
-	if (!GfxGLDeviceMakeCurrent()) return 1;
+	flush_draw_batch();
 	apply_draw_state(priv, false);
 	HostV a = read_gouraud_v(v0), b = read_gouraud_v(v1);
 	record_draw(priv, "Line", 2, false, &a);
@@ -2236,7 +2352,7 @@ int32_t NativeDrawBitmap(uint32_t drawContextAddr, uint32_t vertexAddr, uint32_t
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!accept_draw(priv, "Bitmap", 4)) return kQANoErr;
-	if (!GfxGLDeviceMakeCurrent()) return 1;
+	flush_draw_batch();
 
 	/* Bitmap: screen-aligned textured quad from TQAVBitmap + texture resource */
 	uint32 handle = RaveResourceFindByAddr(bitmapMacAddr);
@@ -2258,7 +2374,7 @@ int32_t NativeDrawBitmap(uint32_t drawContextAddr, uint32_t vertexAddr, uint32_t
 #endif
 	record_draw(priv, "Bitmap", 4, true, &traceFirst);
 #if QD3D_GRAPHICS_LOGGING_ENABLED
-	if (trace_frame(priv))
+	if (trace_frame_detail(priv))
 		QD3D_RENDER_LOG("Bitmap frame=%u mac=0x%08x handle=%u size=%ux%u pixelType=%u pos=%.1f/%.1f z=%.4f alpha=%.3f",
 		                priv->frameCount, bitmapMacAddr, handle,
 		                entry->width, entry->height, entry->pixel_type,
@@ -2308,7 +2424,7 @@ int32_t NativeDrawTriMeshGouraud(uint32_t drawContextAddr, uint32_t numTriangles
 	if (!accept_draw(priv, "TriMeshGouraud", numTriangles * 3))
 		return kQANoErr;
 	if (!priv->vertexStagingBuffer || !priv->vertexStagingCount) return kQANoErr;
-	if (!GfxGLDeviceMakeCurrent()) return 1;
+	flush_draw_batch();
 	const HostV *verts = (const HostV *)priv->vertexStagingBuffer;
 	record_draw(priv, "TriMeshGouraud", numTriangles * 3, false, &verts[0]);
 	const bool zsort = zsort_enabled(priv);
@@ -2346,7 +2462,7 @@ int32_t NativeDrawTriMeshTexture(uint32_t drawContextAddr, uint32_t numTriangles
 	if (!accept_draw(priv, "TriMeshTexture", numTriangles * 3))
 		return kQANoErr;
 	if (!priv->vertexStagingBuffer || !priv->vertexStagingCount) return kQANoErr;
-	if (!GfxGLDeviceMakeCurrent()) return 1;
+	flush_draw_batch();
 	int top = (int)priv->state[12].i;
 	/* Copy staged verts so we can attach multi-tex UVs without mutating staging */
 	std::vector<HostV> local(priv->vertexStagingCount);
@@ -2413,6 +2529,7 @@ int32_t NativeGetNoticeMethod(uint32_t drawContextAddr, uint32_t method, uint32_
 
 int32_t NativeAccessDrawBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 {
+	flush_draw_batch();
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !bufferStructAddr) return kQAError;
 	RaveMetalState *ms = priv->metal;
@@ -2429,6 +2546,7 @@ int32_t NativeAccessDrawBuffer(uint32_t drawContextAddr, uint32_t bufferStructAd
 
 int32_t NativeAccessDrawBufferEnd(uint32_t drawContextAddr, uint32_t dirtyRectAddr)
 {
+	flush_draw_batch();
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return kQAError;
 	RaveMetalState *ms = priv->metal;
@@ -2441,6 +2559,7 @@ int32_t NativeAccessDrawBufferEnd(uint32_t drawContextAddr, uint32_t dirtyRectAd
 
 int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 {
+	flush_draw_batch();
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !bufferStructAddr) return kQAError;
 	RaveMetalState *ms = priv->metal;
@@ -2475,6 +2594,7 @@ int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 
 int32_t NativeAccessZBufferEnd(uint32_t drawContextAddr, uint32_t /*dirtyRectAddr*/)
 {
+	flush_draw_batch();
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return kQAError;
 	RaveMetalState *ms = priv->metal;
@@ -2529,6 +2649,7 @@ int32_t NativeAccessZBufferEnd(uint32_t drawContextAddr, uint32_t /*dirtyRectAdd
 
 int32_t NativeClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint32_t initialContextAddr)
 {
+	flush_draw_batch();
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->pass_active) return kQANoErr;
 	if (!GfxGLDeviceMakeCurrent()) return 1;
@@ -2643,6 +2764,7 @@ int32_t NativeTextureNewFromDrawContext(uint32_t drawContextAddr, uint32_t /*fla
 	RaveResourceEntry *entry = RaveResourceGet(handle);
 	if (!entry) return kQAError;
 	if (!GfxGLDeviceMakeCurrent()) { RaveResourceFree(handle); return kQAError; }
+	invalidate_external_gl_state();
 	GLuint tex = 0;
 	glGenTextures(1, &tex);
 	glBindTexture(GL_TEXTURE_2D, tex);
@@ -2674,7 +2796,9 @@ int32_t NativeBitmapNewFromDrawContext(uint32_t drawContextAddr, uint32_t flags,
 void *RaveCreateMetalTexture(uint32_t width, uint32_t height, uint32_t /*mipLevels*/,
                              const uint8_t *pixels, uint32_t /*rowBytes*/)
 {
+	flush_draw_batch();
 	if (!GfxGLDeviceMakeCurrent()) return nullptr;
+	invalidate_external_gl_state();
 	GLuint tex = 0;
 	glGenTextures(1, &tex);
 	glBindTexture(GL_TEXTURE_2D, tex);
@@ -2692,6 +2816,7 @@ void RaveUploadMipLevel(void *metalTexture, uint32_t level, uint32_t width, uint
                         const uint8_t *data, uint32_t /*rowBytes*/)
 {
 	if (!metalTexture || !data || !GfxGLDeviceMakeCurrent()) return;
+	invalidate_external_gl_state();
 	GLuint tex = (GLuint)(uintptr_t)metalTexture;
 	glBindTexture(GL_TEXTURE_2D, tex);
 	glTexImage2D(GL_TEXTURE_2D, (GLint)level, GL_RGBA8, (GLsizei)width, (GLsizei)height, 0,
@@ -2701,6 +2826,7 @@ void RaveUploadMipLevel(void *metalTexture, uint32_t level, uint32_t width, uint
 void RaveGenerateMipmaps(void *metalTexture)
 {
 	if (!metalTexture || !GfxGLDeviceMakeCurrent()) return;
+	invalidate_external_gl_state();
 	glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)metalTexture);
 	auto &ext = gfx_gl_ext();
 	if (ext.GenerateMipmap)
@@ -2710,13 +2836,14 @@ void RaveGenerateMipmaps(void *metalTexture)
 void RaveReleaseTexture(void *metalTexture)
 {
 	if (!metalTexture || !GfxGLDeviceMakeCurrent()) return;
+	invalidate_external_gl_state();
 	GLuint tex = (GLuint)(uintptr_t)metalTexture;
 	glDeleteTextures(1, &tex);
 }
 
 void RaveForgetRTTResourceHandle(uint32_t /*handle*/, uint32_t /*generation*/)
 {
-	/* OpenGL path does not track RTT tokens yet. */
+	/* OpenGL path does not retain resource handles. */
 }
 
 void RaveTextureUploadBatchBegin(void) {}

@@ -83,6 +83,8 @@ static bool s_gamma_is_identity = true;
 static CompositeLayer s_overlay_cache;
 static bool s_overlay_valid = false;
 static GLuint s_overlay_tex_cache = 0; /* GL name retained as GLuint in void* */
+static uint64_t s_overlay_submit_serial = 0;
+static uint64_t s_overlay_present_serial = 0;
 /*
  * Some RAVE applications keep their draw context allocated when returning to
  * a QuickDraw menu.  Remember the guest framebuffer as it stood when the last
@@ -624,10 +626,51 @@ static int32_t Compositor_OnModeExit(const struct DMCModeSnapshot *outgoing, voi
 	return 0;
 }
 
+static int compositor_depth_mode_for_bits(uint32_t bits)
+{
+	switch (bits) {
+	case 1:  return VIDEO_DEPTH_1BIT;
+	case 2:  return VIDEO_DEPTH_2BIT;
+	case 4:  return VIDEO_DEPTH_4BIT;
+	case 8:  return VIDEO_DEPTH_8BIT;
+	case 16: return VIDEO_DEPTH_16BIT;
+	case 32: return VIDEO_DEPTH_32BIT;
+	default: return VIDEO_DEPTH_32BIT;
+	}
+}
+
 static int32_t Compositor_OnModeEnter(const struct DMCModeSnapshot *incoming, void *ctx)
 {
 	(void)ctx;
-	(void)incoming;
+	if (!incoming || !s_init) return 0;
+
+	/* DSp submits already-expanded RGBA framebuffer layers.  Resize the
+	 * compositor to the DSp display geometry and use an internal 32-bit target;
+	 * retaining the boot-time QuickDraw 800x600 indexed surface made Diablo's
+	 * 640x480 page appear as a black inset with a white border. */
+	if (incoming->active_owner == (uint32_t)kDMCOwnerDSp) {
+		const int width = (int)incoming->width;
+		const int height = (int)incoming->height;
+		const int row = width * 4;
+		const uint64_t size = (uint64_t)(uint32_t)row * incoming->height;
+		return MetalCompositorResize(width, height, VIDEO_DEPTH_32BIT,
+		                             row, row, nullptr,
+		                             size <= UINT32_MAX ? (uint32_t)size : UINT32_MAX);
+	}
+
+	/* A QuickDraw restore snapshot carries the real guest framebuffer.  Rehome
+	 * the compositor from its DSp-owned internal target when such a snapshot
+	 * is published. */
+	if (incoming->active_owner == (uint32_t)kDMCOwnerQuickDraw &&
+	    incoming->screen_base_host != nullptr) {
+		const uint64_t size = (uint64_t)incoming->pitch * incoming->height;
+		return MetalCompositorResize(
+		    (int)incoming->width, (int)incoming->height,
+		    compositor_depth_mode_for_bits(incoming->depth),
+		    (int)incoming->row_bytes, (int)incoming->pitch,
+		    incoming->screen_base_host,
+		    size <= UINT32_MAX ? (uint32_t)size : UINT32_MAX);
+	}
 	return 0;
 }
 
@@ -697,6 +740,17 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
 	s_classic_fb_texture_valid = false;
 }
 
+extern "C" bool GLCompositorCopyCurrentPaletteRGB(uint8_t out_rgb[768])
+{
+	if (!s_init || !out_rgb) return false;
+	for (int i = 0; i < 256; i++) {
+		out_rgb[i * 3 + 0] = s_palette[i * 4 + 0];
+		out_rgb[i * 3 + 1] = s_palette[i * 4 + 1];
+		out_rgb[i * 3 + 2] = s_palette[i * 4 + 2];
+	}
+	return true;
+}
+
 void MetalCompositorPresent(void)
 {
 	if (!s_init) return;
@@ -731,9 +785,8 @@ void MetalCompositorPresent(void)
 	}
 	ScopedCompositorPresent present_scope;
 
-	/* Present runs on the emulation thread via VideoVBL. Follow the emulated
-	 * display cadence; unchanged framebuffer uploads are cached below, so
-	 * accelerated content no longer needs the old hard-coded 30 Hz ceiling. */
+	/* VideoVBL and completed RAVE frames present on the emulation thread.
+	 * Unchanged framebuffer uploads are cached below. */
 	static uint64_t s_last_present_usec = 0;
 	const uint64_t now_usec = compositor_now_usec();
 	const uint64_t cadence_usec = GfxFramePacingClampCadenceUsec(
@@ -744,7 +797,8 @@ void MetalCompositorPresent(void)
 	 * on screen for the full cadence window (Descent II intro hitch). */
 	const bool do_draw = !s_classic_fb_texture_valid ||
 	                     s_last_present_usec == 0 ||
-	                     now_usec - s_last_present_usec >= cadence_usec;
+	                     now_usec - s_last_present_usec >= cadence_usec ||
+	                     s_overlay_present_serial != s_overlay_submit_serial;
 
 	/* Drive VBL secondary callbacks (DSp drains etc.) every call. */
 	vbl_source_sdl_tick(0.0);
@@ -837,6 +891,7 @@ void MetalCompositorPresent(void)
 #endif
 
 	GfxGLDeviceSwap();
+	s_overlay_present_serial = s_overlay_submit_serial;
 
 #if defined(DESCENT_HITCH_DEBUG) && 0
 	/* Present heartbeat (throttled). Confirms the emul-thread present path is
@@ -898,18 +953,23 @@ void MetalCompositorPresent(void)
 
 void MetalCompositorShutdown(void)
 {
-	if (!s_init) return;
-	if (GfxGLDeviceMakeCurrent()) {
-		MetalCompositorSubmitFrame_ClearCachedOverlay();
-		MetalCompositorSubmitFrame_ClearCachedFramebuffer();
-		destroy_textures();
-		destroy_programs();
+	if (s_init) {
+		if (GfxGLDeviceMakeCurrent()) {
+			MetalCompositorSubmitFrame_ClearCachedOverlay();
+			MetalCompositorSubmitFrame_ClearCachedFramebuffer();
+			destroy_textures();
+			destroy_programs();
+		}
+		vbl_source_shutdown();
+		dmc_unsubscribe("compositor");
+		s_init = false;
+		s_buffer = nullptr;
+		COMPOSITOR_LOG("Shutdown tick=%u", ReadMacInt32(0x016a));
 	}
-	vbl_source_shutdown();
-	dmc_unsubscribe("compositor");
-	s_init = false;
-	s_buffer = nullptr;
-	COMPOSITOR_LOG("Shutdown tick=%u", ReadMacInt32(0x016a));
+
+	/* The shared SDL_GLContext is tied to the current SDL window.  It must be
+	 * deleted while that window is still alive, including partial-init paths. */
+	GfxGLDeviceShutdown();
 }
 
 int MetalCompositorResize(int width, int height, int depth, int row_bytes,
@@ -996,6 +1056,7 @@ int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc)
 		}
 	}
 	if (submitted_overlay) {
+		s_overlay_submit_serial++;
 		remember_overlay_framebuffer_baseline();
 		s_last_overlay_submit_usec = compositor_now_usec();
 	}

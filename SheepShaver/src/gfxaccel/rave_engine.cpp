@@ -361,12 +361,12 @@ static const uint32 kAllFastFeatures =
 // Resource handle table -- 64 slots, 1-based handles (same pattern as draw context table)
 RaveResourceEntry rave_resource_table[RAVE_MAX_RESOURCES] = {};
 
-// Highest-ever-allocated slot+1. RaveResourceFindByAddr is on the per-draw texture-bind
-// hot path; bounding its scan to the high-water mark keeps lookups ~O(working set)
-// instead of O(RAVE_MAX_RESOURCES) now that the table is 4096. Monotonic (never lowered
-// on free) so it can never under-scan a live entry.
-static uint32_t g_rave_resource_high_water = 0;
 static uint32_t g_rave_resource_next_generation = 1;
+
+/* Resource objects are opaque to the guest. Store their table handle in the
+ * object word so lookup is a validated direct array access, not a scan of up
+ * to 4096 entries on every texture bind/delete. */
+static const uint32_t kRaveResourceToken = 0x52000000u;
 
 // Per-hook patch info for unpatch-call-repatch chaining
 RaveHookPatchInfo rave_hook_patches[RAVE_NUM_HOOKED_APIS] = {};
@@ -455,17 +455,9 @@ uint32_t RaveResourceAlloc(RaveResourceType type) {
 			// Allocate a 4-byte Mac-visible address for the PPC side
 			uint32_t mac_addr = SheepMem::Reserve(4);
 			rave_resource_table[i].mac_addr = mac_addr;
-			// Write a magic value so delete hooks can identify our resources
-			uint32_t magic = 0;
-			switch (type) {
-				case kRaveResourceTexture:    magic = 0x54455854; break; // 'TEXT'
-				case kRaveResourceBitmap:     magic = 0x424D5050; break; // 'BMPP'
-				case kRaveResourceColorTable: magic = 0x434F4C52; break; // 'COLR'
-				default: break;
-			}
-			WriteMacInt32(mac_addr, magic);
-			if ((uint32_t)(i + 1) > g_rave_resource_high_water)
-				g_rave_resource_high_water = (uint32_t)(i + 1);
+			const uint32_t handle = (uint32_t)(i + 1);
+			WriteMacInt32(mac_addr, kRaveResourceToken |
+			              ((uint32_t)type << 16) | handle);
 			return (uint32_t)(i + 1);  // 1-based handle
 		}
 	}
@@ -529,15 +521,16 @@ static bool RaveForgetRTTAndFreeResource(uint32_t handle)
 }
 
 uint32_t RaveResourceFindByAddr(uint32_t mac_addr) {
-	if (mac_addr == 0) return 0;
-	// Only scan up to the high-water mark - all live entries are below it.
-	for (uint32_t i = 0; i < g_rave_resource_high_water; i++) {
-		if (rave_resource_table[i].type != kRaveResourceFree &&
-			rave_resource_table[i].mac_addr == mac_addr) {
-			return i + 1;
-		}
-	}
-	return 0;
+	if (!SheepMem::Contains(mac_addr) || (mac_addr & 3u) != 0) return 0;
+	const uint32_t token = ReadMacInt32(mac_addr);
+	const uint32_t handle = token & 0xffffu;
+	const uint32_t type = (token >> 16) & 0xffu;
+	if ((token & 0xff000000u) != kRaveResourceToken || handle == 0 ||
+	    handle > RAVE_MAX_RESOURCES || type == kRaveResourceFree)
+		return 0;
+	const RaveResourceEntry &entry = rave_resource_table[handle - 1];
+	return entry.mac_addr == mac_addr && (uint32_t)entry.type == type
+		? handle : 0;
 }
 
 /*
@@ -1129,8 +1122,8 @@ static void RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
 
 		// Metal texture deferred until BindColorTable
 		entry->metal_texture = nullptr;
-		RAVE_LOG("TextureNew indexed (pixelType=%d) %dx%d mips=%d rowBytes=%d pixmap=0x%08x",
-		       pixelType, w, h, mipLevels, rowBytes, pixmap);
+		RAVE_VLOG("TextureNew indexed (pixelType=%d) %dx%d mips=%d rowBytes=%d pixmap=0x%08x",
+		          pixelType, w, h, mipLevels, rowBytes, pixmap);
 	} else {
 		// Direct format. Snapshot immediately when level 0 already contains
 		// converted data; otherwise keep the existing deferred path for clients
@@ -1164,11 +1157,11 @@ static void RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
 				RaveUploadGeneratedMips(entry->metal_texture, expanded, w, h, mipLevels);
 			}
 			entry->pixels_copied = (entry->metal_texture != nullptr);
-			RAVE_LOG("TextureNew direct snapshot (pixelType=%d) %dx%d mips=%d pixmap=0x%08x -> metal=%p nz=%u a=%u rgb=%u white=%u first[nz/a/rgb]=%u/%u/%u alphaMaskWhite=%d",
-			         pixelType, w, h, mipLevels, pixmap, entry->metal_texture,
-			         sourceStats.nonzero, sourceStats.alpha, sourceStats.rgb, sourceStats.white,
-			         sourceStats.first_nonzero, sourceStats.first_alpha, sourceStats.first_rgb,
-			         whitenedAlphaMask);
+			RAVE_VLOG("TextureNew direct snapshot (pixelType=%d) %dx%d mips=%d pixmap=0x%08x -> metal=%p nz=%u a=%u rgb=%u white=%u first[nz/a/rgb]=%u/%u/%u alphaMaskWhite=%d",
+			          pixelType, w, h, mipLevels, pixmap, entry->metal_texture,
+			          sourceStats.nonzero, sourceStats.alpha, sourceStats.rgb, sourceStats.white,
+			          sourceStats.first_nonzero, sourceStats.first_alpha, sourceStats.first_rgb,
+			          whitenedAlphaMask);
 		} else {
 			// For deferred mipmapped textures, cache the TQAImage array (it
 			// may be on the caller's stack and won't survive past this call).
@@ -1180,8 +1173,8 @@ static void RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
 					entry->original_pixels[b] = ReadMacInt8(imagesAddr + b);
 				}
 			}
-			RAVE_LOG("TextureNew unconverted (pixelType=%d) %dx%d mips=%d pixmap=0x%08x converted=%d",
-			         pixelType, w, h, mipLevels, pixmap, converted ? 1 : 0);
+			RAVE_VLOG("TextureNew unconverted (pixelType=%d) %dx%d mips=%d pixmap=0x%08x converted=%d",
+			          pixelType, w, h, mipLevels, pixmap, converted ? 1 : 0);
 		}
 		delete[] expanded;
 	}
@@ -1195,8 +1188,8 @@ static void RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
 		entry->cpu_pixel_data = Mac2HostAddr(cpuMacAddr);
 		entry->cpu_pixel_data_size = cpuBufSize;
 		Host2Mac_memcpy(cpuMacAddr, Mac2HostAddr(pixmap), cpuBufSize);
-		RAVE_LOG("TextureNew cpu_pixel_data at Mac 0x%08x (%d bytes)",
-		       cpuMacAddr, cpuBufSize);
+		RAVE_VLOG("TextureNew cpu_pixel_data at Mac 0x%08x (%d bytes)",
+		          cpuMacAddr, cpuBufSize);
 	} else {
 		RAVE_LOG("TextureNew WARN: Mac_sysalloc(%d) failed for cpu_pixel_data", cpuBufSize);
 	}
@@ -1938,67 +1931,71 @@ int32 NativeEngineGestalt(uint32 selector, uint32 responsePtr)
 {
 	QD3D_INIT_LOG("EngineGestalt callback: selector=%u response=0x%08x",
 	              selector, responsePtr);
+#define RAVE_GESTALT_LOG(...) RAVE_VLOG(__VA_ARGS__)
 	switch (selector) {
 	case kQAGestalt_OptionalFeatures:
 		WriteMacInt32(responsePtr, kAllOptionalFeatures);
 		QD3D_INIT_LOG("EngineGestalt callback: OptionalFeatures -> 0x%08x",
 		              kAllOptionalFeatures);
-		RAVE_LOG("EngineGestalt: %s -> 0x%08x", gestalt_selector_names[selector], kAllOptionalFeatures);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> 0x%08x", gestalt_selector_names[selector], kAllOptionalFeatures);
 		break;
 
 	case kQAGestalt_FastFeatures:
 		// Use kAllFastFeatures (kQAFast_* namespace per spec). Test: RAVEABITests.testKQAFast_bitPositions_matchSpec
 		// Metal accelerates everything, so bit values match OptionalFeatures
 		WriteMacInt32(responsePtr, kAllFastFeatures);
-		RAVE_LOG("EngineGestalt: %s -> 0x%08x", gestalt_selector_names[selector], kAllFastFeatures);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> 0x%08x", gestalt_selector_names[selector], kAllFastFeatures);
 		break;
 
 	case kQAGestalt_VendorID:
 		WriteMacInt32(responsePtr, kRaveAdvertisedVendorID);
-		RAVE_LOG("EngineGestalt: %s -> %u (kQAVendor_ATI)", gestalt_selector_names[selector],
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> %u (kQAVendor_ATI)", gestalt_selector_names[selector],
 		         kRaveAdvertisedVendorID);
 		break;
 
 	case kQAGestalt_EngineID:
 		WriteMacInt32(responsePtr, kRaveAdvertisedEngineID);
-		RAVE_LOG("EngineGestalt: %s -> 0x%08x (ATI Rage 128)", gestalt_selector_names[selector],
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> 0x%08x (ATI Rage 128)", gestalt_selector_names[selector],
 		         kRaveAdvertisedEngineID);
 		break;
 
 	case kQAGestalt_Revision:
 		WriteMacInt32(responsePtr, kRaveAdvertisedRevision);
-		RAVE_LOG("EngineGestalt: %s -> 0x%08x (1.0)", gestalt_selector_names[selector],
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> 0x%08x (1.0)", gestalt_selector_names[selector],
 		         kRaveAdvertisedRevision);
 		break;
 
 	case kQAGestalt_ASCIINameLength:
 		WriteMacInt32(responsePtr, kEngineASCIINameLength);
-		RAVE_LOG("EngineGestalt: %s -> %d", gestalt_selector_names[selector], kEngineASCIINameLength);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> %d", gestalt_selector_names[selector], kEngineASCIINameLength);
 		break;
 
 	case kQAGestalt_ASCIIName:
 		// Copy name string into Mac address space (SDK specifies strcpy semantics, must NUL-terminate)
 		Host2Mac_memcpy(responsePtr, (uint8 *)kEngineASCIIName, kEngineASCIINameLength);
 		WriteMacInt8(responsePtr + kEngineASCIINameLength, 0);
-		RAVE_LOG("EngineGestalt: %s -> \"%s\"", gestalt_selector_names[selector], kEngineASCIIName);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> \"%s\"", gestalt_selector_names[selector], kEngineASCIIName);
 		break;
 
 	case kQAGestalt_TextureMemory:
 	case kQAGestalt_FastTextureMemory:
 		WriteMacInt32(responsePtr, kRaveAdvertisedTextureMemoryBytes);
-		RAVE_LOG("EngineGestalt: %s -> 64MB", gestalt_selector_names[selector]);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> 64MB", gestalt_selector_names[selector]);
 		break;
 
 	case kQAGestalt_DrawContextPixelTypesAllowed:
-		// Must include RGB32 - Mac OS "Millions of colors" is 24-bit stored as xRGB8888
+		/* Diablo II uses this mask to build its RAVE depth list.  The renderer
+		 * already supports indexed textures/color tables and converts an 8-bit
+		 * destination through its CPU draw-buffer path, so omitting CL8 falsely
+		 * hides the otherwise valid 256-color DSp modes. */
 		WriteMacInt32(responsePtr, (1 << kQAPixel_ARGB32) | (1 << kQAPixel_RGB32) |
-					  (1 << kQAPixel_RGB16));
-		RAVE_LOG("EngineGestalt: %s -> ARGB32|RGB32|RGB16", gestalt_selector_names[selector]);
+					  (1 << kQAPixel_RGB16) | (1 << kQAPixel_CL8));
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> ARGB32|RGB32|RGB16|CL8", gestalt_selector_names[selector]);
 		break;
 
 	case kQAGestalt_DrawContextPixelTypesPreferred:
 		WriteMacInt32(responsePtr, (1 << kQAPixel_RGB32));
-		RAVE_LOG("EngineGestalt: %s -> RGB32", gestalt_selector_names[selector]);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> RGB32", gestalt_selector_names[selector]);
 		break;
 
 	case kQAGestalt_TexturePixelTypesAllowed:
@@ -2008,12 +2005,12 @@ int32 NativeEngineGestalt(uint32 selector, uint32 responsePtr)
 					  (1 << kQAPixel_CL8) | (1 << kQAPixel_CL4) |
 					  (1 << kQAPixel_RGB8_332) | (1 << kQAPixel_ARGB16_4444) |
 					  (1 << kQAPixel_ACL16_88) | (1 << kQAPixel_I8) | (1 << kQAPixel_AI16_88));
-		RAVE_LOG("EngineGestalt: %s -> ARGB32|RGB32|ARGB16|RGB16|CL8|CL4|RGB8_332|ARGB16_4444|ACL16_88|I8|AI16_88", gestalt_selector_names[selector]);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> ARGB32|RGB32|ARGB16|RGB16|CL8|CL4|RGB8_332|ARGB16_4444|ACL16_88|I8|AI16_88", gestalt_selector_names[selector]);
 		break;
 
 	case kQAGestalt_TexturePixelTypesPreferred:
 		WriteMacInt32(responsePtr, (1 << kQAPixel_ARGB32));
-		RAVE_LOG("EngineGestalt: %s -> ARGB32", gestalt_selector_names[selector]);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> ARGB32", gestalt_selector_names[selector]);
 		break;
 
 	case kQAGestalt_BitmapPixelTypesAllowed:
@@ -2022,28 +2019,28 @@ int32 NativeEngineGestalt(uint32 selector, uint32 responsePtr)
 					  (1 << kQAPixel_CL8) | (1 << kQAPixel_CL4) |
 					  (1 << kQAPixel_RGB8_332) | (1 << kQAPixel_ARGB16_4444) |
 					  (1 << kQAPixel_ACL16_88) | (1 << kQAPixel_I8) | (1 << kQAPixel_AI16_88));
-		RAVE_LOG("EngineGestalt: %s -> ARGB32|RGB32|ARGB16|RGB16|CL8|CL4|...", gestalt_selector_names[selector]);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> ARGB32|RGB32|ARGB16|RGB16|CL8|CL4|...", gestalt_selector_names[selector]);
 		break;
 
 	case kQAGestalt_BitmapPixelTypesPreferred:
 		WriteMacInt32(responsePtr, (1 << kQAPixel_ARGB32));
-		RAVE_LOG("EngineGestalt: %s -> ARGB32", gestalt_selector_names[selector]);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> ARGB32", gestalt_selector_names[selector]);
 		break;
 
 	case kQAGestalt_OptionalFeatures2:
 		WriteMacInt32(responsePtr, kAllOptionalFeatures2);
-		RAVE_LOG("EngineGestalt: %s -> 0x%08x", gestalt_selector_names[selector], kAllOptionalFeatures2);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> 0x%08x", gestalt_selector_names[selector], kAllOptionalFeatures2);
 		break;
 
 	case kQAGestalt_MultiTextureMax:
 		WriteMacInt32(responsePtr, 2);
-		RAVE_LOG("EngineGestalt: %s -> 2", gestalt_selector_names[selector]);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> 2", gestalt_selector_names[selector]);
 		break;
 
 	case kQAGestalt_NumSelectors:
 		// kQAGestalt_NumSelectors = 17 per RAVE.h -- this IS the count of valid selectors (0-16)
 		WriteMacInt32(responsePtr, 17);
-		RAVE_LOG("EngineGestalt: %s -> 17", gestalt_selector_names[selector]);
+		RAVE_GESTALT_LOG("EngineGestalt: %s -> 17", gestalt_selector_names[selector]);
 		break;
 
 	default:
@@ -2052,20 +2049,21 @@ int32 NativeEngineGestalt(uint32 selector, uint32 responsePtr)
 		// ATI gestalt selectors (1000+)
 		if (selector == 1000) {  // kQATIGestalt_CurrentContext
 			WriteMacInt32(responsePtr, rave_current_draw_context_addr);
-			RAVE_LOG("EngineGestalt: kQATIGestalt_CurrentContext -> 0x%08x",
+			RAVE_GESTALT_LOG("EngineGestalt: kQATIGestalt_CurrentContext -> 0x%08x",
 			         rave_current_draw_context_addr);
 			break;
 		}
 		if (selector == 1001) {  // kQATIGestalt_VRAMBytes (on-board VRAM)
 			WriteMacInt32(responsePtr, kRaveAdvertisedVRAMBytes);
-			RAVE_LOG("EngineGestalt: kQATIGestalt_VRAMBytes -> %u",
+			RAVE_GESTALT_LOG("EngineGestalt: kQATIGestalt_VRAMBytes -> %u",
 			         kRaveAdvertisedVRAMBytes);
 			break;
 		}
-		RAVE_LOG("EngineGestalt: unknown selector %d -> kQANotSupported", selector);
+		RAVE_VLOG("EngineGestalt: unknown selector %d -> kQANotSupported", selector);
 		return kQANotSupported;
 	}
 
+#undef RAVE_GESTALT_LOG
 	return kQANoErr;
 }
 
@@ -2164,7 +2162,7 @@ uint32 NativeHookEngineGestalt(uint32 engine, uint32 selector, uint32 responsePt
 	QD3D_INIT_LOG("QAEngineGestalt: engine=0x%08x selector=%u response=0x%08x sentinel=%d",
 	              engine, selector, responsePtr, engine == rave_sentinel_engine);
 	if (engine == rave_sentinel_engine) {
-		RAVE_LOG("HOOK: QAEngineGestalt(sentinel, sel=%d) -> native", selector);
+		RAVE_VLOG("HOOK: QAEngineGestalt(sentinel, sel=%d) -> native", selector);
 		const uint32 result = (uint32)NativeEngineGestalt(selector, responsePtr);
 		QD3D_INIT_LOG("QAEngineGestalt: selector=%u native result=%d",
 		              selector, (int32)result);
@@ -2365,8 +2363,9 @@ uint32 NativeHookTextureNew(uint32 engine, uint32 flags, uint32 pixelType,
 		}
 		RaveResourceEntry *entry = RaveResourceGet(handle);
 		RaveCreateTextureFromImages(flags, pixelType, images, entry);
-		RAVE_LOG("HOOK: QATextureNew(sentinel) flags=0x%x pixelType=%d %dx%d -> handle %d addr=0x%08x metal=%p",
-		       flags, pixelType, entry->width, entry->height, handle, entry->mac_addr, entry->metal_texture);
+		RAVE_VLOG("HOOK: QATextureNew(sentinel) flags=0x%x pixelType=%d %dx%d -> handle %d addr=0x%08x metal=%p",
+		          flags, pixelType, entry->width, entry->height, handle,
+		          entry->mac_addr, entry->metal_texture);
 		WriteMacInt32(newTexturePtr, entry->mac_addr);
 		return kQANoErr;
 	} else {
@@ -2503,15 +2502,15 @@ uint32 NativeHookDrawContextDelete(uint32 drawContextPtr) {
 uint32 NativeHookTextureDelete(uint32 enginePtr, uint32 texturePtr) {
 	uint32_t resHandle = RaveResourceFindByAddr(texturePtr);
 	if (resHandle != 0) {
-		RAVE_LOG("HOOK: QATextureDelete(engine=0x%08x, tex=0x%08x) -> resource handle %d freed",
-		       enginePtr, texturePtr, resHandle);
+		RAVE_VLOG("HOOK: QATextureDelete(engine=0x%08x, tex=0x%08x) -> resource handle %d freed",
+		        enginePtr, texturePtr, resHandle);
 		RaveForgetRTTAndFreeResource(resHandle);
 		return kQANoErr;
 	}
 	// Not ours, chain to original
 	if (rave_orig_texture_delete == 0) return kQANoErr;
-	RAVE_LOG("HOOK: QATextureDelete(engine=0x%08x, tex=0x%08x) -> chaining to original",
-	       enginePtr, texturePtr);
+	RAVE_VLOG("HOOK: QATextureDelete(engine=0x%08x, tex=0x%08x) -> chaining to original",
+	          enginePtr, texturePtr);
 	const uint32 args[] = { enginePtr, texturePtr };
 	return RaveChainToOriginal(kRaveHookIdx_TextureDelete, 2, args);
 }
@@ -2526,14 +2525,14 @@ uint32 NativeHookTextureDelete(uint32 enginePtr, uint32 texturePtr) {
 uint32 NativeHookBitmapDelete(uint32 enginePtr, uint32 bitmapPtr) {
 	uint32_t resHandle = RaveResourceFindByAddr(bitmapPtr);
 	if (resHandle != 0) {
-		RAVE_LOG("HOOK: QABitmapDelete(engine=0x%08x, bmp=0x%08x) -> resource handle %d freed",
-		       enginePtr, bitmapPtr, resHandle);
+		RAVE_VLOG("HOOK: QABitmapDelete(engine=0x%08x, bmp=0x%08x) -> resource handle %d freed",
+		          enginePtr, bitmapPtr, resHandle);
 		RaveForgetRTTAndFreeResource(resHandle);
 		return kQANoErr;
 	}
 	if (rave_orig_bitmap_delete == 0) return kQANoErr;
-	RAVE_LOG("HOOK: QABitmapDelete(engine=0x%08x, bmp=0x%08x) -> chaining to original",
-	       enginePtr, bitmapPtr);
+	RAVE_VLOG("HOOK: QABitmapDelete(engine=0x%08x, bmp=0x%08x) -> chaining to original",
+	          enginePtr, bitmapPtr);
 	const uint32 args[] = { enginePtr, bitmapPtr };
 	return RaveChainToOriginal(kRaveHookIdx_BitmapDelete, 2, args);
 }
@@ -2548,14 +2547,14 @@ uint32 NativeHookBitmapDelete(uint32 enginePtr, uint32 bitmapPtr) {
 uint32 NativeHookColorTableDelete(uint32 enginePtr, uint32 colorTablePtr) {
 	uint32_t resHandle = RaveResourceFindByAddr(colorTablePtr);
 	if (resHandle != 0) {
-		RAVE_LOG("HOOK: QAColorTableDelete(engine=0x%08x, ct=0x%08x) -> resource handle %d freed",
-		       enginePtr, colorTablePtr, resHandle);
+		RAVE_VLOG("HOOK: QAColorTableDelete(engine=0x%08x, ct=0x%08x) -> resource handle %d freed",
+		          enginePtr, colorTablePtr, resHandle);
 		RaveResourceFree(resHandle);
 		return kQANoErr;
 	}
 	if (rave_orig_color_table_delete == 0) return kQANoErr;
-	RAVE_LOG("HOOK: QAColorTableDelete(engine=0x%08x, ct=0x%08x) -> chaining to original",
-	       enginePtr, colorTablePtr);
+	RAVE_VLOG("HOOK: QAColorTableDelete(engine=0x%08x, ct=0x%08x) -> chaining to original",
+	          enginePtr, colorTablePtr);
 	const uint32 args[] = { enginePtr, colorTablePtr };
 	return RaveChainToOriginal(kRaveHookIdx_ColorTableDelete, 2, args);
 }
@@ -2569,7 +2568,7 @@ uint32 NativeHookColorTableDelete(uint32 enginePtr, uint32 colorTablePtr) {
 uint32 NativeHookTextureBindColorTable(uint32 engine, uint32 texture, uint32 colorTable)
 {
 	if (engine == rave_sentinel_engine) {
-		RAVE_LOG("HOOK: QATextureBindColorTable(sentinel, tex=0x%08x, ct=0x%08x)", texture, colorTable);
+		RAVE_VLOG("HOOK: QATextureBindColorTable(sentinel, tex=0x%08x, ct=0x%08x)", texture, colorTable);
 		return (uint32)NativeEngineTextureBindColorTable(texture, colorTable);
 	} else {
 		if (rave_orig_texture_bind_color_table == 0) return (uint32)(int32)kQANotSupported;
@@ -2587,7 +2586,7 @@ uint32 NativeHookTextureBindColorTable(uint32 engine, uint32 texture, uint32 col
 uint32 NativeHookBitmapBindColorTable(uint32 engine, uint32 bitmap, uint32 colorTable)
 {
 	if (engine == rave_sentinel_engine) {
-		RAVE_LOG("HOOK: QABitmapBindColorTable(sentinel, bmp=0x%08x, ct=0x%08x)", bitmap, colorTable);
+		RAVE_VLOG("HOOK: QABitmapBindColorTable(sentinel, bmp=0x%08x, ct=0x%08x)", bitmap, colorTable);
 		return (uint32)NativeEngineBitmapBindColorTable(bitmap, colorTable);
 	} else {
 		if (rave_orig_bitmap_bind_color_table == 0) return (uint32)(int32)kQANotSupported;
@@ -2609,7 +2608,7 @@ uint32 NativeHookBitmapBindColorTable(uint32 engine, uint32 bitmap, uint32 color
 uint32 NativeHookTextureDetach(uint32 engine, uint32 texture)
 {
 	if (engine == rave_sentinel_engine) {
-		RAVE_LOG("HOOK: QATextureDetach(sentinel, tex=0x%08x)", texture);
+		RAVE_VLOG("HOOK: QATextureDetach(sentinel, tex=0x%08x)", texture);
 		return (uint32)NativeEngineTextureDetach(texture);
 	} else {
 		if (rave_orig_texture_detach == 0) return (uint32)(int32)kQANotSupported;
@@ -2629,7 +2628,7 @@ uint32 NativeHookTextureDetach(uint32 engine, uint32 texture)
 uint32 NativeHookBitmapDetach(uint32 engine, uint32 bitmap)
 {
 	if (engine == rave_sentinel_engine) {
-		RAVE_LOG("HOOK: QABitmapDetach(sentinel, bmp=0x%08x)", bitmap);
+		RAVE_VLOG("HOOK: QABitmapDetach(sentinel, bmp=0x%08x)", bitmap);
 		return (uint32)NativeEngineBitmapDetach(bitmap);
 	} else {
 		if (rave_orig_bitmap_detach == 0) return (uint32)(int32)kQANotSupported;
@@ -2648,8 +2647,8 @@ uint32 NativeHookAccessTexture(uint32 engine, uint32 texture, uint32 mipmapLevel
                                 uint32 flags, uint32 buffer)
 {
 	if (engine == rave_sentinel_engine) {
-		RAVE_LOG("HOOK: QAAccessTexture(sentinel, tex=0x%08x, mip=%d, flags=0x%x)",
-		       texture, mipmapLevel, flags);
+		RAVE_VLOG("HOOK: QAAccessTexture(sentinel, tex=0x%08x, mip=%d, flags=0x%x)",
+		          texture, mipmapLevel, flags);
 		return (uint32)NativeEngineAccessTexture(texture, mipmapLevel, flags, buffer);
 	} else {
 		if (rave_orig_access_texture == 0) return (uint32)(int32)kQANotSupported;
@@ -2667,7 +2666,7 @@ uint32 NativeHookAccessTexture(uint32 engine, uint32 texture, uint32 mipmapLevel
 uint32 NativeHookAccessTextureEnd(uint32 engine, uint32 texture, uint32 dirtyRect)
 {
 	if (engine == rave_sentinel_engine) {
-		RAVE_LOG("HOOK: QAAccessTextureEnd(sentinel, tex=0x%08x)", texture);
+		RAVE_VLOG("HOOK: QAAccessTextureEnd(sentinel, tex=0x%08x)", texture);
 		return (uint32)NativeEngineAccessTextureEnd(texture, dirtyRect);
 	} else {
 		if (rave_orig_access_texture_end == 0) return (uint32)(int32)kQANotSupported;

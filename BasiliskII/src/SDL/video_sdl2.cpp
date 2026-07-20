@@ -897,7 +897,35 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 			old_window_height != m * window_height ||
 			(old_window_flags & window_flags_to_monitor) != (window_flags & window_flags_to_monitor))
 		{
+			#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+			/* An SDL_GLContext belongs to the window used to create it.  Keep the
+			 * OpenGL window alive across guest mode changes; destroying it here
+			 * left the shared context attached to the old HWND, and the next
+			 * MakeCurrent on the replacement window failed with
+			 * "The pixel format is invalid". */
+			const bool old_fullscreen =
+				(old_window_flags & window_flags_to_monitor) != 0;
+			const bool new_fullscreen =
+				(window_flags & window_flags_to_monitor) != 0;
+			if (old_fullscreen != new_fullscreen) {
+				const Uint32 fullscreen_flags = new_fullscreen
+					? SDL_WINDOW_FULLSCREEN_DESKTOP : 0;
+				if (SDL_SetWindowFullscreen(sdl_window, fullscreen_flags) != 0) {
+					fprintf(stderr, "SDL_SetWindowFullscreen failed: %s\n",
+					        SDL_GetError());
+					shutdown_sdl_video();
+					return NULL;
+				}
+			}
+			if (!new_fullscreen &&
+			    (old_window_width != m * window_width ||
+			     old_window_height != m * window_height)) {
+				SDL_SetWindowSize(sdl_window, m * window_width,
+				                  m * window_height);
+			}
+			#else
 			delete_sdl_video_window();
+			#endif
 		}
 	}
 
@@ -1879,20 +1907,8 @@ bool VideoInit(bool classic)
 				if (i > 0 && (w >= default_width || h >= default_height))
 					continue;
 #endif
-#if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
-				/* Advertise only the classic PCI-driver depth set (256 colors /
-				 * Thousands / Millions), matching real late-90s hardware. The
-				 * previous 1..32bpp range put SIX depth records in every Display
-				 * Manager mode-list entry, and Mac OS DisplayLib mis-builds
-				 * entries past the fourth depth record - apps that hunt for the
-				 * 16bpp record (Myth II's monitor dialog) then read garbage
-				 * width/height/caps. Real drivers never exceeded 3-4 records. */
-				for (int d = VIDEO_DEPTH_8BIT; d <= default_depth; d++)
-					add_mode(display_type, w, h, video_modes[i].resolution_id, TrivialBytesPerRow(w, (video_depth)d), d);
-#else
 				for (int d = VIDEO_DEPTH_1BIT; d <= default_depth; d++)
 					add_mode(display_type, w, h, video_modes[i].resolution_id, TrivialBytesPerRow(w, (video_depth)d), d);
-#endif
 			}
 		}
 	} else if (display_type == DISPLAY_SCREEN) {
@@ -1915,15 +1931,8 @@ bool VideoInit(bool classic)
 			const int h = video_modes[i].h;
 			if (i > 0 && (w >= default_width || h >= default_height))
 				continue;
-#if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
-			/* Same DisplayLib four-depth-record limit as the windowed path
-			 * above: only advertise 8/16/32bpp. */
-			for (int d = VIDEO_DEPTH_8BIT; d <= default_depth; d++)
-				add_mode(display_type, w, h, video_modes[i].resolution_id, TrivialBytesPerRow(w, (video_depth)d), d);
-#else
 			for (int d = VIDEO_DEPTH_1BIT; d <= default_depth; d++)
 				add_mode(display_type, w, h, video_modes[i].resolution_id, TrivialBytesPerRow(w, (video_depth)d), d);
-#endif
 		}
 #endif
 	}
@@ -2060,8 +2069,8 @@ void VideoExit(void)
 	for (i = VideoMonitors.begin(); i != end; ++i)
 		dynamic_cast<SDL_monitor_desc *>(*i)->video_close();
 
-	// Destroy SDL video window
-	delete_sdl_video_window();
+	// Tear down the compositor/context before destroying its SDL window.
+	shutdown_sdl_video();
 
 	// Destroy locks
 	if (frame_buffer_lock)

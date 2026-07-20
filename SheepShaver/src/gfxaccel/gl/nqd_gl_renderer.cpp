@@ -34,13 +34,36 @@ bool nqd_logging_enabled = accel_log_subsystem_on("nqd");
 extern uint32 RAMBase;
 extern uint32 RAMSize;
 
+/* gl_compositor.cpp - current guest-visible screen surface (base/size track
+ * the live mode across switches). */
+extern int MetalCompositorGetGuestSurface(uint32_t *out_mac_base, uint32_t *out_byte_size);
+
 static uint32 nqd_ram_size = 0;
 
 static inline bool nqd_range_in_buffer(uint64 mac_addr, uint64 length)
 {
+	if (length == 0)
+		return false;
 	const uint64 begin = (uint64)RAMBase;
 	const uint64 end = begin + (uint64)nqd_ram_size;
-	return length != 0 && mac_addr >= begin && mac_addr < end && length <= end - mac_addr;
+	if (mac_addr >= begin && mac_addr < end && length <= end - mac_addr)
+		return true;
+	/* The visible screen lives OUTSIDE guest RAM, in the framebuffer
+	 * aperture just past the RAM top. The NQD hooks commit screen-destined
+	 * ops (fills, drag-copy blits), so rejecting the screen here left them
+	 * committed-then-dropped - stale destination pixels, seen as streaks
+	 * when dragging Finder icons. Accept the compositor's current guest
+	 * surface: the CPU loops write straight into the_buffer, which the
+	 * compositor re-uploads. This matches the Metal backend, where
+	 * screen-visible NQD ops are CPU-handled against the same memory. */
+	uint32_t scr_base = 0, scr_size = 0;
+	if (MetalCompositorGetGuestSurface(&scr_base, &scr_size) == 0 && scr_base != 0) {
+		const uint64 sbegin = (uint64)scr_base;
+		const uint64 send = sbegin + (uint64)scr_size;
+		if (mac_addr >= sbegin && mac_addr < send && length <= send - mac_addr)
+			return true;
+	}
+	return false;
 }
 
 static inline bool nqd_addr_in_buffer(uint32 mac_addr)
@@ -403,6 +426,28 @@ static void cpu_arith_fill(uint8 *dst, int32 dst_rb, int w, int h, int bpp,
 	}
 }
 
+/* Native QuickDraw negates both rowBytes values when it wants an overlapping
+ * blit traversed bottom-to-top.  The sign describes traversal, not a different
+ * pixmap layout: baseAddr and the rect coordinates still address the ordinary
+ * top row.  This CPU backend snapshots overlapping sources before writing, so
+ * it can normalize either traversal direction to a positive physical stride.
+ *
+ * Do the normalization in the common decoder.  Previously it rejected every
+ * negative-stride packet after the hook had already installed our draw proc;
+ * QuickDraw therefore never got a software fallback.  Upward file-list
+ * scrolling then drew only its newly exposed first row, and direction-dependent
+ * Finder drag/mask copies left their old pixels behind. */
+static bool nqd_normalize_row_bytes(int32 row_bytes, int32 &normalized)
+{
+	if (row_bytes == 0)
+		return false;
+	const int64 magnitude = row_bytes < 0 ? -(int64)row_bytes : (int64)row_bytes;
+	if (magnitude > (int64)std::numeric_limits<int32>::max())
+		return false;
+	normalized = (int32)magnitude;
+	return true;
+}
+
 static bool decode_rect(uint32 p, bool has_src,
                         int &sx, int &sy, int &dx, int &dy, int &w, int &h,
                         uint32 &src_base, int32 &src_rb,
@@ -424,7 +469,11 @@ static bool decode_rect(uint32 p, bool has_src,
 	}
 
 	dst_base = ReadMacInt32(p + NQD_acclDestBaseAddr);
-	dst_rb = (int32)ReadMacInt32(p + NQD_acclDestRowBytes);
+	const int32 raw_dst_rb = (int32)ReadMacInt32(p + NQD_acclDestRowBytes);
+	if (!nqd_normalize_row_bytes(raw_dst_rb, dst_rb)) {
+		NQD_LOG("decode_rect DROP (dest-rowbytes) p=%08x raw=%d", p, (int)raw_dst_rb);
+		return false;
+	}
 	dst_ps = ReadMacInt32(p + NQD_acclDestPixelSize);
 	mode = ReadMacInt32(p + NQD_acclTransferMode);
 
@@ -441,7 +490,11 @@ static bool decode_rect(uint32 p, bool has_src,
 		sx = (int16)ReadMacInt16(p + NQD_acclSrcRect + 2) - src_bounds_left;
 		sy = (int16)ReadMacInt16(p + NQD_acclSrcRect + 0) - src_bounds_top;
 		src_base = ReadMacInt32(p + NQD_acclSrcBaseAddr);
-		src_rb = (int32)ReadMacInt32(p + NQD_acclSrcRowBytes);
+		const int32 raw_src_rb = (int32)ReadMacInt32(p + NQD_acclSrcRowBytes);
+		if (!nqd_normalize_row_bytes(raw_src_rb, src_rb)) {
+			NQD_LOG("decode_rect DROP (src-rowbytes) p=%08x raw=%d", p, (int)raw_src_rb);
+			return false;
+		}
 		src_ps = ReadMacInt32(p + NQD_acclSrcPixelSize);
 
 		if (sx < 0) { const int trim = -sx; sx = 0; dx += trim; w -= trim; }
@@ -469,9 +522,8 @@ static bool decode_rect(uint32 p, bool has_src,
 	}
 	w = std::min(w, dst_bounds_width - dx);
 	h = std::min(h, dst_bounds_height - dy);
-	if (w <= 0 || h <= 0 || dst_rb <= 0 || (has_src && src_rb <= 0)) {
-		NQD_LOG("decode_rect DROP (rowbytes/size) p=%08x w=%d h=%d drb=%d srb=%d",
-			p, w, h, (int)dst_rb, (int)src_rb);
+	if (w <= 0 || h <= 0) {
+		NQD_LOG("decode_rect DROP (size) p=%08x w=%d h=%d", p, w, h);
 		return false;
 	}
 	int ignored_x, ignored_width;
@@ -713,48 +765,249 @@ void NQDMetalInvertRect(uint32 p)
 	cpu_invert_rect(dst, drb, width_bytes, h);
 }
 
+/* ---- QuickDraw Region -> byte mask (port of the Metal backend's
+ * nqd_decode_region). The NQD_acclMaskAddr field is a QuickDraw REGION in
+ * the destination pixmap's LOCAL coordinate space (same space as
+ * acclDestRect) - NOT a packed 1-bit bitmap. The previous 1-bit-bitmap
+ * interpretation read region scanline opcodes as mask bits: pseudo-random
+ * copied/skipped pixels, i.e. the Finder drag streaks. Output is one byte
+ * per cell (1 = inside region), stride = width_pixels for >=8bpp, or
+ * width_bytes (coarse byte columns) for packed depths. ---- */
+
+static inline void nqd_set_mask_pixel(uint8 *out_mask, int mask_row,
+                                      int pixel_col, int width_pixels,
+                                      int dest_height, int mask_stride,
+                                      uint32 bits_per_pixel,
+                                      bool pixel_mask_columns)
+{
+	if (mask_row < 0 || mask_row >= dest_height) return;
+	if (pixel_col < 0 || pixel_col >= width_pixels) return;
+	int mask_col = pixel_mask_columns
+		? pixel_col
+		: (int)(((uint64)pixel_col * bits_per_pixel) / 8);
+	if (mask_col < 0 || mask_col >= mask_stride) return;
+	out_mask[(size_t)mask_row * mask_stride + mask_col] = 1;
+}
+
+static bool nqd_decode_region(uint32 rgn_addr, int rect_left, int rect_top,
+                              int width_pixels, int dest_height,
+                              int mask_stride, uint32 bits_per_pixel,
+                              bool pixel_mask_columns,
+                              uint8 *out_mask, size_t mask_size)
+{
+	if (rgn_addr == 0) {
+		NQD_ERR("nqd_decode_region: null region address");
+		return false;
+	}
+
+	uint16 rgnSize = (uint16)ReadMacInt16(rgn_addr);
+	if (rgnSize < 10) {
+		NQD_ERR("nqd_decode_region: invalid rgnSize %u (< 10)", rgnSize);
+		return false;
+	}
+
+	int16 bbox_top    = (int16)ReadMacInt16(rgn_addr + 2);
+	int16 bbox_left   = (int16)ReadMacInt16(rgn_addr + 4);
+	int16 bbox_bottom = (int16)ReadMacInt16(rgn_addr + 6);
+	int16 bbox_right  = (int16)ReadMacInt16(rgn_addr + 8);
+	if (bbox_top >= bbox_bottom || bbox_left >= bbox_right) {
+		NQD_ERR("nqd_decode_region: invalid bbox (%d,%d)-(%d,%d)",
+		        bbox_top, bbox_left, bbox_bottom, bbox_right);
+		return false;
+	}
+
+	const int rgn_width = bbox_right - bbox_left;
+	const size_t needed = (size_t)mask_stride * (size_t)dest_height;
+	if (needed > mask_size) {
+		NQD_ERR("nqd_decode_region: mask_size %zu < needed %zu", mask_size, needed);
+		return false;
+	}
+	std::memset(out_mask, 0, needed);
+
+	/* Rectangular region: fill the intersection of bbox and dest rect. */
+	if (rgnSize == 10) {
+		int top = std::max((int)bbox_top, rect_top);
+		int bottom = std::min((int)bbox_bottom, rect_top + dest_height);
+		int left = std::max((int)bbox_left, rect_left);
+		int right = std::min((int)bbox_right, rect_left + width_pixels);
+		for (int row = top; row < bottom; row++)
+			for (int x = left; x < right; x++)
+				nqd_set_mask_pixel(out_mask, row - rect_top, x - rect_left,
+				                   width_pixels, dest_height, mask_stride,
+				                   bits_per_pixel, pixel_mask_columns);
+		return true;
+	}
+
+	/* Complex region: vertical scanline inversion-point encoding. Each
+	 * h-point toggles the inside/outside running state for that column
+	 * onward; state persists across scanlines until re-toggled. */
+	if (rgn_width <= 0 || rgn_width > 16384) {
+		NQD_ERR("nqd_decode_region: unreasonable rgn_width %d", rgn_width);
+		return false;
+	}
+	std::vector<uint8> col_state((size_t)rgn_width, 0);
+
+	uint32 offset = rgn_addr + 10;
+	const uint32 rgn_end = rgn_addr + rgnSize;
+	int prev_v = bbox_top;
+
+	while (offset + 2 <= rgn_end) {
+		int16 v_coord = (int16)ReadMacInt16(offset);
+		offset += 2;
+		if (v_coord == 0x7FFF) break;
+
+		for (int row = prev_v; row < v_coord; row++)
+			for (int c = 0; c < rgn_width; c++)
+				if (col_state[c])
+					nqd_set_mask_pixel(out_mask, row - rect_top,
+					                   (bbox_left + c) - rect_left,
+					                   width_pixels, dest_height, mask_stride,
+					                   bits_per_pixel, pixel_mask_columns);
+
+		while (offset + 2 <= rgn_end) {
+			int16 h_point = (int16)ReadMacInt16(offset);
+			offset += 2;
+			if (h_point == 0x7FFF) break;
+			int h_col = h_point - bbox_left;
+			if (h_col >= 0 && h_col < rgn_width)
+				for (int c = h_col; c < rgn_width; c++)
+					col_state[c] = !col_state[c];
+		}
+
+		prev_v = v_coord;
+	}
+
+	for (int row = prev_v; row < bbox_bottom; row++)
+		for (int c = 0; c < rgn_width; c++)
+			if (col_state[c])
+				nqd_set_mask_pixel(out_mask, row - rect_top,
+				                   (bbox_left + c) - rect_left,
+				                   width_pixels, dest_height, mask_stride,
+				                   bits_per_pixel, pixel_mask_columns);
+	return true;
+}
+
+/* Region origin for mask mapping: the region lives in the destination's
+ * LOCAL space (acclDestRect coordinates); dx/dy from decode_rect are
+ * bounds-relative MEMORY offsets, possibly clip-trimmed. Add the trim back
+ * onto the rect's own origin so the clip shape is not displaced. */
+static void nqd_region_origin_for_dest(uint32 p, int dx, int dy,
+                                       int &rgn_left, int &rgn_top)
+{
+	const int dest_rect_left   = (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
+	const int dest_rect_top    = (int16)ReadMacInt16(p + NQD_acclDestRect + 0);
+	const int dest_bounds_left = (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
+	const int dest_bounds_top  = (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
+	rgn_left = dest_rect_left + (dx - (dest_rect_left - dest_bounds_left));
+	rgn_top  = dest_rect_top  + (dy - (dest_rect_top  - dest_bounds_top));
+}
+
 void NQDMetalBltMask(uint32 p)
 {
 	if (!nqd_metal_available) return;
 	int sx, sy, dx, dy, w, h;
 	uint32 sb, db, sps, dps, mode;
 	int32 srb, drb;
-	if (!decode_rect(p, true, sx, sy, dx, dy, w, h, sb, srb, db, drb, sps, dps, mode))
+	if (!decode_rect(p, true, sx, sy, dx, dy, w, h, sb, srb, db, drb, sps, dps, mode)) {
+		NQD_LOG("NQDMetalBltMask DROP (decode_rect) p=%08x -> stale pixels possible", p);
 		return;
+	}
 	uint32 mask_addr = ReadMacInt32(p + NQD_acclMaskAddr);
 	if (!mask_addr) {
 		NQDMetalBitblt(p);
 		return;
 	}
-	int bpp = bpp_bytes(dps);
-	if (dps < 8) { NQDMetalBitblt(p); return; }
-	/* 1-bit mask: one bit per destination pixel, row-padded to bytes */
-	int mask_rb = (w + 7) / 8;
+
+	const bool pixel_cols = dps >= 8;
+	const int bpp = pixel_cols ? bpp_bytes(dps) : 1;
 	int src_x_bytes, src_width_bytes, dst_x_bytes, dst_width_bytes;
 	if (!nqd_rect_layout(sps, sx, w, src_x_bytes, src_width_bytes) ||
 	    !nqd_rect_layout(dps, dx, w, dst_x_bytes, dst_width_bytes) ||
 	    !nqd_surface_range(sb, srb, src_x_bytes, src_width_bytes, sy, h) ||
-	    !nqd_surface_range(db, drb, dst_x_bytes, dst_width_bytes, dy, h) ||
-	    !nqd_range_in_buffer(mask_addr, (uint64)mask_rb * (uint64)h)) {
-		NQD_LOG("NQDMetalBltMask DROP (range/layout/mask) p=%08x sb=%08x db=%08x mask=%08x "
+	    !nqd_surface_range(db, drb, dst_x_bytes, dst_width_bytes, dy, h)) {
+		NQD_LOG("NQDMetalBltMask DROP (range/layout) p=%08x sb=%08x db=%08x mask=%08x "
 			"dx=%d dy=%d w=%d h=%d -> stale pixels possible", p, sb, db, mask_addr, dx, dy, w, h);
 		return;
 	}
+
+	const int mask_stride = pixel_cols ? w : dst_width_bytes;
+	std::vector<uint8> mask((size_t)mask_stride * (size_t)h);
+	int rgn_left, rgn_top;
+	nqd_region_origin_for_dest(p, dx, dy, rgn_left, rgn_top);
+	if (!nqd_decode_region(mask_addr, rgn_left, rgn_top, w, h, mask_stride,
+	                       dps, pixel_cols, mask.data(), mask.size())) {
+		NQD_LOG("NQDMetalBltMask DROP (region decode) p=%08x mask=%08x -> stale pixels possible",
+			p, mask_addr);
+		return;
+	}
+
 	uint8 *src = host_ptr(sb) + (size_t)sy * srb + src_x_bytes;
 	uint8 *dst = host_ptr(db) + (size_t)dy * drb + dst_x_bytes;
-	uint8 *mask = host_ptr(mask_addr);
+
+	/* Same-surface overlap: snapshot the source rows so later reads cannot
+	 * see already-written destination pixels (same rule as NQDMetalBitblt). */
+	std::vector<uint8> overlap_scratch;
+	{
+		const uintptr src_begin = (uintptr)src;
+		const uintptr src_end = src_begin + (size_t)(h - 1) * srb + src_width_bytes;
+		const uintptr dst_begin = (uintptr)dst;
+		const uintptr dst_end = dst_begin + (size_t)(h - 1) * drb + dst_width_bytes;
+		if (src_begin < dst_end && dst_begin < src_end) {
+			overlap_scratch.resize((size_t)src_width_bytes * (size_t)h);
+			for (int y = 0; y < h; y++)
+				std::memcpy(overlap_scratch.data() + (size_t)y * src_width_bytes,
+				            src + (size_t)y * srb, (size_t)src_width_bytes);
+			src = overlap_scratch.data();
+			srb = src_width_bytes;
+		}
+	}
+
+	/* Arithmetic 32-39 / hilite 50 through the mask (standard depths). */
+	if (((mode >= 32 && mode <= 39) || mode == 50) && pixel_cols) {
+		const uint32 back = ReadMacInt32(p + NQD_acclBackPen);
+		const uint32 hilite = (mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
+		NQDOpColor op = (mode == 32) ? nqd_read_op_color() : NQDOpColor{0, 0, 0};
+		for (int y = 0; y < h; y++) {
+			const uint8 *m = mask.data() + (size_t)y * mask_stride;
+			uint8 *s = src + (size_t)y * srb;
+			uint8 *d = dst + (size_t)y * drb;
+			for (int x = 0; x < w; x++) {
+				if (!m[x]) continue;
+				uint32 sp = nqd_read_pix(s + x * bpp, bpp);
+				if (mode == 36 && sp == back) continue;
+				uint32 dp = nqd_read_pix(d + x * bpp, bpp);
+				nqd_write_pix(d + x * bpp, bpp,
+				              nqd_arith_pixel(mode, sp, dp, bpp, back, hilite, op));
+			}
+		}
+		return;
+	}
+
+	/* Boolean modes 0-7 (8-15 share the low 3 bits). Per pixel at >=8bpp,
+	 * per packed byte (coarse byte-column mask, Metal parity) below 8bpp. */
+	const uint32 bool_mode = (mode >= 8 && mode <= 15) ? mode - 8 : (mode & 7);
+	const int unit = pixel_cols ? bpp : 1;
+	const int units = pixel_cols ? w : dst_width_bytes;
 	for (int y = 0; y < h; y++) {
+		const uint8 *m = mask.data() + (size_t)y * mask_stride;
 		uint8 *s = src + (size_t)y * srb;
 		uint8 *d = dst + (size_t)y * drb;
-		uint8 *m = mask + (size_t)y * mask_rb;
-		for (int x = 0; x < w; x++) {
-			if (!(m[x >> 3] & (0x80 >> (x & 7))))
-				continue;
-			if (bpp == 1) d[x] = s[x];
-			else if (bpp == 2) { d[x * 2] = s[x * 2]; d[x * 2 + 1] = s[x * 2 + 1]; }
-			else {
-				d[x * 4 + 0] = s[x * 4 + 0]; d[x * 4 + 1] = s[x * 4 + 1];
-				d[x * 4 + 2] = s[x * 4 + 2]; d[x * 4 + 3] = s[x * 4 + 3];
+		for (int x = 0; x < units; x++) {
+			if (!m[x]) continue;
+			uint8 *dp = d + x * unit;
+			const uint8 *sp = s + x * unit;
+			for (int b = 0; b < unit; b++) {
+				switch (bool_mode) {
+				case 0: dp[b] = sp[b]; break;                    /* srcCopy */
+				case 1: dp[b] = (uint8)(dp[b] | sp[b]); break;   /* srcOr */
+				case 2: dp[b] = (uint8)(dp[b] ^ sp[b]); break;   /* srcXor */
+				case 3: dp[b] = (uint8)(dp[b] & ~sp[b]); break;  /* srcBic */
+				case 4: dp[b] = (uint8)~sp[b]; break;            /* notSrcCopy */
+				case 5: dp[b] = (uint8)(dp[b] | ~sp[b]); break;  /* notSrcOr */
+				case 6: dp[b] = (uint8)(dp[b] ^ ~sp[b]); break;  /* notSrcXor */
+				case 7: dp[b] = (uint8)(dp[b] & sp[b]); break;   /* notSrcBic */
+				default: dp[b] = sp[b]; break;
+				}
 			}
 		}
 	}
@@ -766,34 +1019,78 @@ void NQDMetalFillMask(uint32 p)
 	int sx, sy, dx, dy, w, h;
 	uint32 sb, db, sps, dps, mode;
 	int32 srb, drb;
-	if (!decode_rect(p, false, sx, sy, dx, dy, w, h, sb, srb, db, drb, sps, dps, mode))
+	if (!decode_rect(p, false, sx, sy, dx, dy, w, h, sb, srb, db, drb, sps, dps, mode)) {
+		NQD_LOG("NQDMetalFillMask DROP (decode_rect) p=%08x -> stale pixels possible", p);
 		return;
+	}
 	uint32 mask_addr = ReadMacInt32(p + NQD_acclMaskAddr);
 	if (!mask_addr) {
 		NQDMetalFillRect(p);
 		return;
 	}
-	int bpp = bpp_bytes(dps);
-	if (dps < 8) { NQDMetalFillRect(p); return; }
-	uint32 pen = ReadMacInt32(p + NQD_acclForePen);
-	int mask_rb = (w + 7) / 8;
+
+	const bool pixel_cols = dps >= 8;
+	const int bpp = pixel_cols ? bpp_bytes(dps) : 1;
 	int dst_x_bytes, dst_width_bytes;
 	if (!nqd_rect_layout(dps, dx, w, dst_x_bytes, dst_width_bytes) ||
-	    !nqd_surface_range(db, drb, dst_x_bytes, dst_width_bytes, dy, h) ||
-	    !nqd_range_in_buffer(mask_addr, (uint64)mask_rb * (uint64)h)) {
-		NQD_LOG("NQDMetalFillMask DROP (range/layout/mask) p=%08x db=%08x mask=%08x "
+	    !nqd_surface_range(db, drb, dst_x_bytes, dst_width_bytes, dy, h)) {
+		NQD_LOG("NQDMetalFillMask DROP (range/layout) p=%08x db=%08x mask=%08x "
 			"dx=%d dy=%d w=%d h=%d -> stale pixels possible", p, db, mask_addr, dx, dy, w, h);
 		return;
 	}
+
+	const int mask_stride = pixel_cols ? w : dst_width_bytes;
+	std::vector<uint8> mask((size_t)mask_stride * (size_t)h);
+	int rgn_left, rgn_top;
+	nqd_region_origin_for_dest(p, dx, dy, rgn_left, rgn_top);
+	if (!nqd_decode_region(mask_addr, rgn_left, rgn_top, w, h, mask_stride,
+	                       dps, pixel_cols, mask.data(), mask.size())) {
+		NQD_LOG("NQDMetalFillMask DROP (region decode) p=%08x mask=%08x -> stale pixels possible",
+			p, mask_addr);
+		return;
+	}
+
+	/* Pen selection matches NQDMetalFillRect: patCopy (8) -> ForePen,
+	 * everything else -> BackPen. */
+	const uint32 pen_mode = ReadMacInt32(p + NQD_acclPenMode);
+	const uint32 fore_pen = ReadMacInt32(p + NQD_acclForePen);
+	const uint32 back_pen = ReadMacInt32(p + NQD_acclBackPen);
+	const uint32 pen = (pen_mode == 8) ? fore_pen : back_pen;
 	uint8 *dst = host_ptr(db) + (size_t)dy * drb + dst_x_bytes;
-	uint8 *mask = host_ptr(mask_addr);
+
+	/* Arithmetic 32-39 / hilite 50 through the mask (standard depths). */
+	if (((mode >= 32 && mode <= 39) || mode == 50) && pixel_cols) {
+		const uint32 hilite = (mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
+		NQDOpColor op = (mode == 32) ? nqd_read_op_color() : NQDOpColor{0, 0, 0};
+		for (int y = 0; y < h; y++) {
+			const uint8 *m = mask.data() + (size_t)y * mask_stride;
+			uint8 *d = dst + (size_t)y * drb;
+			for (int x = 0; x < w; x++) {
+				if (!m[x]) continue;
+				if (mode == 36 && pen == back_pen) continue;
+				uint32 dp = nqd_read_pix(d + x * bpp, bpp);
+				nqd_write_pix(d + x * bpp, bpp,
+				              nqd_arith_pixel(mode, pen, dp, bpp, back_pen, hilite, op));
+			}
+		}
+		return;
+	}
+
+	/* Pattern modes 8-15: solid pen through the mask. Per pixel at >=8bpp,
+	 * per packed byte (low pen byte, Metal parity) below 8bpp. */
 	for (int y = 0; y < h; y++) {
+		const uint8 *m = mask.data() + (size_t)y * mask_stride;
 		uint8 *d = dst + (size_t)y * drb;
-		uint8 *m = mask + (size_t)y * mask_rb;
-		for (int x = 0; x < w; x++) {
-			if (!(m[x >> 3] & (0x80 >> (x & 7))))
-				continue;
-			nqd_write_pix(d + x * bpp, bpp, pen);
+		if (pixel_cols) {
+			for (int x = 0; x < w; x++) {
+				if (!m[x]) continue;
+				nqd_write_pix(d + x * bpp, bpp, pen);
+			}
+		} else {
+			for (int x = 0; x < dst_width_bytes; x++) {
+				if (!m[x]) continue;
+				d[x] = (uint8)(pen & 0xff);
+			}
 		}
 	}
 }
