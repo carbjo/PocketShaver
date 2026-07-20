@@ -165,11 +165,6 @@ class MiscellaneousSettings: Codable {
 		rightClickSetting = .control
 		keyboardAutoOffsetSetting = .middle
 		hoverJustAboveOffsetModifier = 1
-		// Default to the raw guest gamma. The `.osDefined` correction lifts
-		// midtones (classic-Mac 1.8 -> sRGB 2.2) and reads as too bright /
-		// washed-out at launch on modern displays; users can still opt into it
-		// in Preferences. Existing installs are moved by
-		// migrateGammaRampDefaultIfNeeded().
 		gammaRampSetting = .linear
 		bootInRelativeMouseMode = false
 		ignoreIllegalInstructions = false
@@ -210,6 +205,8 @@ class MiscellaneousSettings: Codable {
 		return settings
 	}()
 
+	/// The `.osDefined` correction lifts midtones (classic-Mac 1.8 -> sRGB 2.2)
+	/// and reads as too bright / washed-out at launch on modern displays
 	/// One-time migration for the gamma-ramp default change (`.osDefined` ->
 	/// `.linear`). Installs that pre-date the change still hold the old default
 	/// in their persisted settings, so flipping `init()` alone would not reach
@@ -223,7 +220,7 @@ class MiscellaneousSettings: Codable {
 		defaults.set(true, forKey: marker)
 
 		if gammaRampSetting == .osDefined {
-			set(gammaRampSetting: .linear) // persists via saveAsCurrent()
+			set(gammaRampSetting: .linear)
 		}
 	}
 
