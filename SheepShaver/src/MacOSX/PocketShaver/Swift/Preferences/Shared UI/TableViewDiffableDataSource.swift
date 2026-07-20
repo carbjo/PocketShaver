@@ -7,24 +7,17 @@
 
 import UIKit
 
+
+#if targetEnvironment(macCatalyst)
 /// Shared base for the preferences table screens. The stock plain-style
 /// section headers are small and pale, which on the full-screen Mac window
 /// makes each tab read as one undifferentiated list — replace them with big
-/// bold full-contrast headings there. iPhone/iPad keep the stock look.
+/// bold full-contrast headings there.
 ///
 /// The header view is built from scratch rather than restyled: UIKit renders
 /// the stock header title through a content configuration it re-applies after
 /// `willDisplay`, so font/color set on its `textLabel` does not survive.
 class PreferencesTableViewController: UITableViewController {
-	private func macSectionTitle(_ tableView: UITableView, _ section: Int) -> String? {
-		guard UIDevice.deviceType == .mac,
-			  let title = tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: section),
-			  !title.isEmpty else {
-			return nil
-		}
-		return title
-	}
-
 	private func sectionHasTitle(_ tableView: UITableView, _ section: Int) -> Bool {
 		guard let title = tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: section) else {
 			return false
@@ -33,8 +26,9 @@ class PreferencesTableViewController: UITableViewController {
 	}
 
 	override func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-		guard let title = macSectionTitle(tableView, section) else {
-			return nil // stock header (and collapsed untitled sections)
+		guard let title = tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: section),
+			  !title.isEmpty else {
+			return nil
 		}
 
 		let header = UIView()
@@ -63,9 +57,14 @@ class PreferencesTableViewController: UITableViewController {
 			return .leastNonzeroMagnitude
 		}
 
-		return UIDevice.deviceType == .mac ? 52 : UITableView.automaticDimension
+		return 52
 	}
 }
+#else // targetEnvironment(macCatalyst)
+
+typealias PreferencesTableViewController = UITableViewController
+
+#endif
 
 class TableViewDiffableDataSource<T: Hashable, S: Hashable> : UITableViewDiffableDataSource<T, S> {
 	var sectionTitleProvider: ((T) -> String?)?
