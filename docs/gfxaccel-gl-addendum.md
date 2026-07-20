@@ -24,4 +24,6 @@
 
 - Currently unplayable due to slow/lagged framerate and frame skips once a character is chosen and is loads the main playable game
 
-- There is brief blue screens with artifacts after each opening movie
+- There are brief blue screens with artifacts after each opening movie
+
+- Non-RAVE backends not tested
