@@ -14,7 +14,7 @@ All graphics-acceleration subsystems (GL, RAVE, DSp, NQD, compositor) log throug
 2. **Runtime gates** (only when the flag is `1`), read once at startup from the
    environment:
    - `GFXACCEL_LOG` = `all` or a comma list of `gl,rave,dsp,nqd,comp`
-     (unset ⇒ all subsystems on).
+     (unset - all subsystems on).
    - `GFXACCEL_LOG_VERBOSE` = `1` to also emit the per-draw / per-frame "firehose"
      tier (`*_VLOG`). Off by default, so an enabled subsystem shows milestones,
      state changes, and errors but not per-primitive spam.
@@ -23,12 +23,12 @@ All graphics-acceleration subsystems (GL, RAVE, DSp, NQD, compositor) log throug
 
 | Command | Effect | Rebuild? |
 |---|---|---|
-| `gfxlog.sh status` | show compile-flag + scheme env state | — |
-| `gfxlog.sh off` | compile flag → 0 (stripped, ship) | yes |
-| `gfxlog.sh on [gl rave dsp nqd comp] [-v]` | flag → 1; set subsystems (default `all`) + verbose | yes |
+| `gfxlog.sh status` | show compile-flag + scheme env state | - |
+| `gfxlog.sh off` | compile flag -> 0 (stripped, ship) | yes |
+| `gfxlog.sh on [gl rave dsp nqd comp] [-v]` | flag -> 1; set subsystems (default `all`) + verbose | yes |
 | `gfxlog.sh set <subs>` / `only <s>` | change subsystems only | no (relaunch) |
 | `gfxlog.sh verbose on\|off` | toggle verbose tier only | no (relaunch) |
-| `gfxlog.sh tail` | stream the unified log for `com.pocketshaver.*` | — |
+| `gfxlog.sh tail` | stream the unified log for `com.pocketshaver.*` | - |
 
 The script edits the `ACCEL_LOGGING_ENABLED` line in `accel_logging.h` and the
 `<EnvironmentVariables>` of `PocketShaver.xcscheme`. Subsystem/verbose changes while
@@ -51,9 +51,9 @@ behavior); the Simulator shows everything.
 
 ## Adding logs in gfxaccel code
 
-- Milestone / one-time / state-change / error → `RAVE_LOG(...)`, `DSP_LOG(...)`,
+- Milestone / one-time / state-change / error -> `RAVE_LOG(...)`, `DSP_LOG(...)`,
   `GL_LOG(...)`, `GL_METAL_LOG(...)`, `NQD_LOG(...)`, `COMPOSITOR_LOG(...)`.
 - Anything that can fire more than once per frame (per-draw, per-blit, per-mip,
-  per-present) → the `*_VLOG(...)` variant so it only appears with verbose on.
-- Genuine always-on errors → `NQD_ERR(...)` / `COMPOSITOR_ERR(...)`.
+  per-present) -> the `*_VLOG(...)` variant so it only appears with verbose on.
+- Genuine always-on errors -> `NQD_ERR(...)` / `COMPOSITOR_ERR(...)`.
 - Use plain `os_log` format specifiers; no trailing `\n`.

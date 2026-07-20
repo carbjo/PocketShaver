@@ -444,7 +444,7 @@ static void expand_framebuffer_rgba(std::vector<uint8_t> &out)
 		 * fragment shader (u_gamma), matching Metal, which uploads the
 		 * framebuffer raw and lets the shader apply the display LUT. Pre-
 		 * applying s_gamma_lut here double-corrects (washed-out / too bright,
-		 * white-on-light invisible) — do NOT apply it on upload. */
+		 * white-on-light invisible) - do NOT apply it on upload. */
 		for (int y = 0; y < s_height; y++) {
 			const uint8_t *row = src + (size_t)y * (size_t)rb;
 			uint8_t *dst = out.data() + (size_t)y * (size_t)s_width * 4;

@@ -1,8 +1,8 @@
 /*
  *  test-jit-lockstep.cpp - interpreter vs JIT differential harness
  *
- *  Runs two powerpc_cpu instances in one process — one interpreter, one
- *  JIT — over synthetic guest programs and compares the full register
+ *  Runs two powerpc_cpu instances in one process - one interpreter, one
+ *  JIT - over synthetic guest programs and compares the full register
  *  file after each. The interpreter is the trusted oracle, so no
  *  pre-recorded reference file is needed. Deterministic: no ROM, no
  *  interrupts, no wall clock.
@@ -257,7 +257,7 @@ static int diff(const char *name, const regfile &a, const regfile &b)
 	if (a.xer != b.xer) { printf("  [%s] XER interp=%08x jit=%08x\n", name, a.xer, b.xer); n++; }
 #if defined(__x86_64__)
 	// The classic x86 dyngen scalar-FP ops have never modeled FPRF (FPSCR
-	// bits 12..16) — a known upstream gap; FP register values themselves
+	// bits 12..16) - a known upstream gap; FP register values themselves
 	// are held bit-exact above. Compare everything but that field.
 	const uint32 fpscr_mask = ~0x0001f000u;
 #else
@@ -554,7 +554,7 @@ static uint32 trap_smc_scenario(test_cpu &c)
 // The lockstep suites compare interpreter vs JIT, but both share vm.hpp, so a
 // semantic bug in vm_do_get_real_address itself would cancel out. This pins
 // the translation contract directly: exact window membership and the flat
-// VMBaseDiff mapping everywhere else (pointer math only — out-of-range
+// VMBaseDiff mapping everywhere else (pointer math only - out-of-range
 // pointers are compared, never dereferenced).
 static int unit_accessor()
 {
@@ -939,7 +939,7 @@ int main(int argc, char **argv)
 		if (diff(nm, ai, aj)) failed++;
 	}
 
-	// --- suite 3b: VRSAVE (SPR 256) — a plain uint32 SPR reached through the
+	// --- suite 3b: VRSAVE (SPR 256) - a plain uint32 SPR reached through the
 	// whitelisted mfspr/mtspr path. Regression guard: the arm64 backend once
 	// stubbed load/store_T0_VRSAVE (grouped with the deferred AltiVec ops) and
 	// aborted here. Seeding vrsave and reading it back cross-checks the field
@@ -962,7 +962,7 @@ int main(int argc, char **argv)
 		if (diff(nm, ai, aj)) failed++;
 	}
 
-	// --- suite 4: branches — counted loops, conditional skips, chaining ---
+	// --- suite 4: branches - counted loops, conditional skips, chaining ---
 	for (int t = 0; t < 1000; t++) {
 		uint32 ops[24]; int n = 0;
 		int shape = rnd() % 5;
@@ -1313,7 +1313,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	// --- suite 13: NEON AltiVec — element-wise arith/logic/minmax/compare,
+	// --- suite 13: NEON AltiVec - element-wise arith/logic/minmax/compare,
 	// splats, vsel/vperm; VRs seeded with random bits (float ops get
 	// float-biased patterns via rnd_fp splits) and fully compared ---
 	for (int t = 0; t < 800; t++) {
@@ -1570,7 +1570,7 @@ int main(int argc, char **argv)
 	}
 	// Only suite 6's kernel-window traffic may legitimately go cold (the
 	// guest arena is bump-allocated from guest 0, far below the coarse
-	// bound). Equality — not just nonzero — also catches the inverse
+	// bound). Equality - not just nonzero - also catches the inverse
 	// regression, where a broken filter sends ALL traffic to the (correct
 	// but slow) helpers and every program still byte-matches.
 	const unsigned long expected_cold = 300 * 8;	// kwin programs x accesses

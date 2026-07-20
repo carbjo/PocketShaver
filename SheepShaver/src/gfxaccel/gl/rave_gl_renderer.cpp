@@ -389,6 +389,8 @@ static bool bind_overlay_fbo(RaveMetalState *ms, uint32_t w, uint32_t h)
 		QD3D_RENDER_LOG("bind_overlay_fbo: overlay allocation failed for %ux%u", w, h);
 		return false;
 	}
+	const bool depth_storage_changed = ms->depth_rb == 0 ||
+	                                   ms->w != w || ms->h != h;
 	ms->color_tex = tex;
 	ms->w = w; ms->h = h;
 
@@ -398,17 +400,21 @@ static bool bind_overlay_fbo(RaveMetalState *ms, uint32_t w, uint32_t h)
 	}
 	ext.BindFramebuffer(GL_FRAMEBUFFER, ms->fbo);
 	ext.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
-	ext.BindRenderbuffer(GL_RENDERBUFFER, ms->depth_rb);
-	ext.RenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, (GLsizei)w, (GLsizei)h);
-	ext.FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, ms->depth_rb);
-	GLenum st = ext.CheckFramebufferStatus(GL_FRAMEBUFFER);
-	if (st != GL_FRAMEBUFFER_COMPLETE) {
-		QD3D_RENDER_LOG("bind_overlay_fbo: incomplete status=0x%x fbo=%u color=%u depth=%u size=%ux%u",
-		                (unsigned)st, (unsigned)ms->fbo, (unsigned)tex,
-		                (unsigned)ms->depth_rb, w, h);
-		RAVE_LOG("FBO incomplete 0x%x", (unsigned)st);
-		ext.BindFramebuffer(GL_FRAMEBUFFER, 0);
-		return false;
+	if (depth_storage_changed) {
+		ext.BindRenderbuffer(GL_RENDERBUFFER, ms->depth_rb);
+		ext.RenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24,
+		                        (GLsizei)w, (GLsizei)h);
+		ext.FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+		                            GL_RENDERBUFFER, ms->depth_rb);
+		GLenum st = ext.CheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (st != GL_FRAMEBUFFER_COMPLETE) {
+			QD3D_RENDER_LOG("bind_overlay_fbo: incomplete status=0x%x fbo=%u color=%u depth=%u size=%ux%u",
+			                (unsigned)st, (unsigned)ms->fbo, (unsigned)tex,
+			                (unsigned)ms->depth_rb, w, h);
+			RAVE_LOG("FBO incomplete 0x%x", (unsigned)st);
+			ext.BindFramebuffer(GL_FRAMEBUFFER, 0);
+			return false;
+		}
 	}
 	glViewport(0, 0, (GLsizei)w, (GLsizei)h);
 	glMatrixMode(GL_PROJECTION);
@@ -1730,7 +1736,7 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 		ms->cpu_composite_frames--;
 		assert(s_active_render_pass == ms);
 		s_active_render_pass = nullptr;
-		MetalCompositorPresent();
+		MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineRAVE);
 		return kQANoErr;
 	}
 
@@ -1795,10 +1801,7 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 	}
 	assert(s_active_render_pass == ms);
 	s_active_render_pass = nullptr;
-	/* The SDL compositor has no asynchronous display-link thread. Present the
-	 * completed frame here; sleeping this emulation thread first prevents its
-	 * VideoVBL presenter from running and lets later mailbox writes skip it. */
-	MetalCompositorPresent();
+	MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineRAVE);
 	return kQANoErr;
 }
 

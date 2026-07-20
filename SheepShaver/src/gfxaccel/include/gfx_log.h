@@ -64,7 +64,7 @@ inline bool accel_log_verbose_env() {
 inline bool accel_log_verbose() {
     static bool v = accel_log_verbose_env(); return v; }
 
-#define ACCEL_LOG_VERBOSE (accel_log_verbose())
+#define ACCEL_LOG_VERBOSE true//(accel_log_verbose())
 
 #else  /* !ACCEL_LOGGING_ENABLED */
 #define ACCEL_LOG_VERBOSE false

@@ -336,8 +336,8 @@ double kpx_fp_fsubs(powerpc_cpu *c, double a, double b) { return kpx_fp_ret_f(c,
 double kpx_fp_fmuls(powerpc_cpu *c, double a, double b) { return kpx_fp_ret_f(c, (float)(a * b)); }
 double kpx_fp_fdivs(powerpc_cpu *c, double a, double b) { return kpx_fp_ret_f(c, (float)(a / b)); }
 
-// Fused family: operands arrive as (frA, frC, frB) — multiplier second,
-// addend third — matching the translator's F0/F1/F2 load order. FNMADDS
+// Fused family: operands arrive as (frA, frC, frB) - multiplier second,
+// addend third - matching the translator's F0/F1/F2 load order. FNMADDS
 // and FNMSUBS are double-typed in the decode table (negation applied
 // after single rounding), unlike FMADDS/FMSUBS which are float-typed.
 double kpx_fp_fmadd  (powerpc_cpu *c, double a, double b, double x) { return kpx_fp_ret_d(c, mathlib_fmadd(a, b, x)); }

@@ -683,7 +683,7 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 	return kQANoErr;
 }
 
-// Writes the 5 identified slots only — safe for caller-provided structs,
+// Writes the 5 identified slots only - safe for caller-provided structs,
 // whose true size is unknown beyond the 5 entries proven by Myth II.
 static void WriteATIRaveExtFuncsTable(uint32 ptr)
 {

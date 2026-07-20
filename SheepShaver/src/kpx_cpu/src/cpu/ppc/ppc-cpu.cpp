@@ -346,7 +346,7 @@ extern "C" void *kpx_jit_jump_next(void *cpu, void *bi)
 }
 
 // Variant for the x86 dyngen dispatch: never returns NULL, so generated
-// code can jump through the result unconditionally — a lookup miss leaves
+// code can jump through the result unconditionally - a lookup miss leaves
 // execute() via the exec-return glue instead.
 extern "C" void *kpx_jit_jump_next_or_exit(void *cpu, void *bi)
 {

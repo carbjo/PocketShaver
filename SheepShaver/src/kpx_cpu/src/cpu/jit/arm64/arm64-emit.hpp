@@ -153,7 +153,7 @@ static inline uint32 a64_ldr_x(int rt,int rn,uint32 off)
 static inline uint32 a64_str_x(int rt,int rn,uint32 off)
 	{ assert((off & 7) == 0 && (off >> 3) < 4096); return 0xf9000000|((off>>3)<<10)|(rn<<5)|rt; }
 
-// register-offset memory, [Xn, Wm, UXTW] (no scaling: byte index) — the
+// register-offset memory, [Xn, Wm, UXTW] (no scaling: byte index) - the
 // inline-fastmem access shape: base = pinned VMBASE, index = 32-bit guest EA
 static inline uint32 a64_ldrb_uxtw(int rt,int rn,int rm){ return 0x38604800|(rm<<16)|(rn<<5)|rt; }
 static inline uint32 a64_ldrh_uxtw(int rt,int rn,int rm){ return 0x78604800|(rm<<16)|(rn<<5)|rt; }
@@ -164,7 +164,7 @@ static inline uint32 a64_strh_uxtw(int rt,int rn,int rm){ return 0x78204800|(rm<
 static inline uint32 a64_str_w_uxtw(int rt,int rn,int rm){ return 0xb8204800|(rm<<16)|(rn<<5)|rt; }
 static inline uint32 a64_str_x_uxtw(int rt,int rn,int rm){ return 0xf8204800|(rm<<16)|(rn<<5)|rt; }
 
-// data processing (W-form, 32-bit) — Rd=0..30, ZR=31
+// data processing (W-form, 32-bit) - Rd=0..30, ZR=31
 static inline uint32 a64_add_reg(int d,int n,int m){ return 0x0b000000|(m<<16)|(n<<5)|d; }
 static inline uint32 a64_sub_reg(int d,int n,int m){ return 0x4b000000|(m<<16)|(n<<5)|d; }
 static inline uint32 a64_and_reg(int d,int n,int m){ return 0x0a000000|(m<<16)|(n<<5)|d; }

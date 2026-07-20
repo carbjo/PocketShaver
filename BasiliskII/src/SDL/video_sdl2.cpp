@@ -1074,7 +1074,7 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
     }
     if (!host_surface) {
 #if TARGET_OS_IPHONE
-    	// On iOS, the Metal compositor handles presentation � no SDL texture
+    	// On iOS, the Metal compositor handles presentation - no SDL texture
     	// exists. Set host_surface = guest_surface to keep downstream code
     	// (objc_reportFrameRender, NQD format queries) working.
     	host_surface = guest_surface;
@@ -1210,7 +1210,7 @@ void update_sdl_video(SDL_Surface *s, int numrects, SDL_Rect *rects)
 #if TARGET_OS_IPHONE
 	// On iOS the VBL source is the authoritative FPS reporter (it counts
 	// completed VBL callback chains in vbl_source.mm; present-site counting is
-	// frozen for the nift bisection � see the NOTE in MetalCompositorPresent).
+	// frozen for the nift bisection - see the NOTE in MetalCompositorPresent).
 	// This SDL dirty-rect path is already compiled out on iOS via
 	// video_refresh_window_static, but gate the report here too so the two
 	// reporters can never double-count.
@@ -1309,7 +1309,7 @@ void driver_base::init()
 		// Allocate memory for frame buffer
 		the_buffer_size = (aligned_height + 2) * pitch;
 #if TARGET_OS_IPHONE
-		// On iOS the Metal compositor reads the_buffer directly � the shadow
+		// On iOS the Metal compositor reads the_buffer directly 0 the shadow
 		// copy used by update_display_static_bbox is never consulted.
 		the_buffer_copy = NULL;
 #else
@@ -1374,7 +1374,7 @@ void driver_base::init()
 			// no engines are registered yet.
 			int32_t gfxres_err = gfxaccel_resources_init();
 			if (gfxres_err != 0) {
-				fprintf(stderr, "[gfxaccel_resources] init FAILED (err=%d) � "
+				fprintf(stderr, "[gfxaccel_resources] init FAILED (err=%d) - "
 				                "proceeding with compositor-only framebuffer "
 				                "(fallback)\n", (int)gfxres_err);
 			}
@@ -1703,7 +1703,7 @@ bool SDL_monitor_desc::video_open(void)
 
 #if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 // ---------------------------------------------------------------------------
-// DMCModeDescFromVModesIndex � build a DMCModeDesc from a VModes[] index
+// DMCModeDescFromVModesIndex - build a DMCModeDesc from a VModes[] index
 //
 // Used by the display-mode-controller seam to route dmc_create()
 // at VideoInit end and dmc_request_mode_switch() at the mode-switch point.
@@ -1813,7 +1813,7 @@ bool VideoInit(bool classic)
 		default_height = sdl_display_height();
 #if !TARGET_OS_IPHONE
 	// Desktop only: clamp an over-large requested mode down to the display.
-	// NOT on iOS / Mac Catalyst � there the screen-pref mode comes from the
+	// NOT on iOS / Mac Catalyst - there the screen-pref mode comes from the
 	// validated device resolution list (objc_getAllMonitorResolutions) and is
 	// already registered in VModes[]. SDL_GetDesktopDisplayMode reports the
 	// panel in PORTRAIT there (e.g. 1329x2056 for a 2056x1329 landscape mode),
@@ -1919,7 +1919,7 @@ bool VideoInit(bool classic)
 			 * Thousands / Millions), matching real late-90s hardware. The
 			 * previous 1..32bpp range put SIX depth records in every Display
 			 * Manager mode-list entry, and Mac OS DisplayLib mis-builds
-			 * entries past the fourth depth record � apps that hunt for the
+			 * entries past the fourth depth record - apps that hunt for the
 			 * 16bpp record (Myth II's monitor dialog) then read garbage
 			 * width/height/caps. Real drivers never exceeded 3-4 records. */
 			for (int d = VIDEO_DEPTH_8BIT; d <= default_depth; d++)
@@ -2814,9 +2814,9 @@ static void force_complete_window_refresh()
 // thread's queue drain (handle_events) and, on iOS/Catalyst when input is a
 // real pointer, straight from the event watch as the event is generated.
 #if TARGET_OS_IPHONE && !TARGET_OS_MACCATALYST
-// Shared iOS letterbox map: a point in SDL window space � which on iOS is
+// Shared iOS letterbox map: a point in SDL window space - which on iOS is
 // identical to UIKit UIWindow-base points (no backing-scale factor, no safe-area
-// inset, and SDL_RenderSetLogicalSize is compiled out on iOS) � mapped into the
+// inset, and SDL_RenderSetLogicalSize is compiled out on iOS) - mapped into the
 // guest framebuffer, aspect-fit and (optionally) clamped. Used by BOTH the
 // SDL-motion path (handle_mouse_event) and the app-forward path
 // (VideoMapWindowPointToGuestAndMove) so a forwarded UITouch.location(in: window)
@@ -2897,7 +2897,7 @@ static void handle_mouse_event(SDL_Event &event)
 			// Absolute touch cursor. In hover / two-finger-steering mode the app
 			// (GestureInputView) forwards ONLY the steering finger's position via
 			// VideoMapWindowPointToGuestAndMove, and SDL synthesizes an absolute
-			// cursor from EVERY active finger � so ignore SDL's own synthesized
+			// cursor from EVERY active finger - so ignore SDL's own synthesized
 			// motion whenever hover mode owns the cursor, else it bounces onto the
 			// second (click) finger (the "hop around the middle"). Buttons still
 			// flow through SDL. Outside hover mode SDL drives the cursor, mapped
@@ -2938,8 +2938,8 @@ static void handle_mouse_event(SDL_Event &event)
 // portrait on unfocus/refocus and clamps event.motion.x to the wrong width, so
 // the mouse position cannot come from SDL there. The UIKit hover/drag
 // recognizers call this (via objc_ADBMouseMovedFromWindowPoint) with the
-// pointer location in UIWindow-base coordinates � the same space
-// MetalCompositorGetPresentRect reports � and we letterbox it into the guest
+// pointer location in UIWindow-base coordinates - the same space
+// MetalCompositorGetPresentRect reports - and we letterbox it into the guest
 // framebuffer exactly like handle_mouse_event, then feed ADB directly. Buttons
 // still flow through SDL.
 extern "C" void VideoMapWindowPointToGuestAndMove(double winX, double winY)
@@ -2947,7 +2947,7 @@ extern "C" void VideoMapWindowPointToGuestAndMove(double winX, double winY)
 #if TARGET_OS_MACCATALYST
 	if (!drv) return;
 	// Relative mode: the guest consumes deltas (SDL's relative motion is the
-	// authoritative source), so this absolute-position bypass must no-op �
+	// authoritative source), so this absolute-position bypass must no-op -
 	// ADBMouseMoved() would add the mapped window point as a delta, slamming
 	// the view (e.g. Quake 3 pitches straight down on every fire-drag).
 	if (ADBIsRelativeMouseMode()) return;
@@ -2975,12 +2975,12 @@ extern "C" void VideoMapWindowPointToGuestAndMove(double winX, double winY)
 	ADBMouseMoved(fx, fy);
 #elif TARGET_OS_IPHONE
 	// iOS (iPad): GestureInputView forwards the steering finger unconditionally,
-	// but drive the guest cursor only while hover / two-finger steering owns it �
+	// but drive the guest cursor only while hover / two-finger steering owns it -
 	// otherwise SDL's own motion is authoritative and this is a no-op. Map through
 	// the SAME iOS letterbox as SDL motion (NOT the Catalyst present-rect path) so
 	// the forwarded point and any SDL motion resolve identically. Unclamped: the
 	// hover offset lands on top of this point inside ADBMouseMoved (which clamps
-	// the final cursor), so the finger must keep steering past the guest edges �
+	// the final cursor), so the finger must keep steering past the guest edges -
 	// clamping here froze horizontal motion in the letterbox bars.
 	if (!drv) return;
 	if (!ADBIsHoverModeActive()) return;
@@ -3026,7 +3026,7 @@ static int SDLCALL on_sdl_event_generated(void *userdata, SDL_Event * event)
 			// tick costs up to a full refresh period of latency and the two
 			// beating refresh-rate cadences read as cursor jitter. It also
 			// keeps the UIKit-backed window queries on the main thread. The
-			// touch path stays queued � its ADBMouseDown/Up deliberately
+			// touch path stays queued - its ADBMouseDown/Up deliberately
 			// sleep, which must not stall the emulator thread running this
 			// pump.
 			if (drv && !ADBGetTouchInput()) {
@@ -3126,7 +3126,7 @@ static void handle_events(void)
 #if TARGET_OS_IPHONE
 				// With a real pointer, live mouse events are fed to ADB as they
 				// are generated and dropped from the queue (see
-				// on_sdl_event_generated) � any mouse event still queued here
+				// on_sdl_event_generated) - any mouse event still queued here
 				// predates the video driver (launch-time window activation) and
 				// would replay as a click at the guest cursor's initial top-left
 				// position, popping the Apple menu open at boot. Only the touch
@@ -3544,7 +3544,7 @@ static void video_refresh_window_static(void)
 
 #if TARGET_OS_IPHONE
 	// On iOS the Metal compositor reads the shared buffer directly every
-	// VBL � the memcmp-based dirty detection (update_display_static_bbox)
+	// VBL - the memcmp-based dirty detection (update_display_static_bbox)
 	// exists only for the SDL rendering path which is not used on iOS.
 	// Skipping it avoids burning CPU and thrashing the data cache.
 #else
