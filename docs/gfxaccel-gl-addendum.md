@@ -6,7 +6,7 @@
 
 - The intro movie has some opening stutter after the first frame. This is due to a QuickTime emulation bug.
 
--- Clarification: All mac versions of Descent and all other mac versions of Descent II use a custom mve file format for the movie, which is why they play ok. The 6500 version of Descent II still logs it from a MVL (HOG variant) file with an "intro.mve" filename, but the file is a cinepak encoded quicktime movie instead of the custom variant used by other versions of descent and is played directly with the QuickTime API with MoviesTask() waiting and such.
+-- Clarification: All mac versions of Descent and all other mac versions of Descent II use a custom mve file format for the movie, which is why they play ok. The 6500 version of Descent II still loads it from a MVL (HOG variant) file with an "intro.mve" filename, but the file is a cinepak encoded quicktime movie instead of the custom variant used by other versions of descent and is played directly with the QuickTime API with MoviesTask() waiting and such.
 
 - There might be some minor occassional stuttering in game that is barely noticable
 
