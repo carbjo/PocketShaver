@@ -14,6 +14,7 @@
 #include "gfxaccel_resources.h"
 #include "vbl_source.h"
 #include "gl_device.h"
+#include "gfx_color_policy.h"
 #include "gfx_log.h"
 /* Windows GL 1.1 has no GLSL compile entry points; present path uses FFP. */
 
@@ -32,6 +33,20 @@
 extern SDL_Window *sdl_window;
 extern "C" void vbl_source_sdl_tick(double target_ts);
 extern "C" int RaveGLRenderPassActive(void);
+
+/* Metal (iOS) reads the "Linear" gamma pref through the ObjC bridge. The
+ * desktop/SDL build has no such pref plumbing, so default to the OS-defined
+ * (apply_correction = true) policy to stay in lock-step with Metal's default
+ * presentation. When the bridge is compiled in, honor it so the two backends
+ * apply an identical transform to the guest LUT. */
+#if defined(__APPLE__) && defined(TARGET_OS_IPHONE)
+extern bool objc_getIsLinearGammaEnabled(void);
+static inline bool gl_compositor_is_linear_gamma(void) {
+	return objc_getIsLinearGammaEnabled();
+}
+#else
+static inline bool gl_compositor_is_linear_gamma(void) { return false; }
+#endif
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -141,7 +156,7 @@ static bool classic_framebuffer_needs_upload(void)
 #if DESCENT_HITCH_DEBUG
 		static int s_nu_force_log = 0;
 		if (s_nu_force_log++ < 40)
-			gfx_debug::emit("[compositor] ",
+			gfx_log_emit("[compositor] ",
 				"needsUpload FORCE valid=%d bytes=%zu baseSize=%zu",
 				s_classic_fb_texture_valid ? 1 : 0,
 				bytes, s_classic_fb_upload_baseline.size());
@@ -153,7 +168,7 @@ static bool classic_framebuffer_needs_upload(void)
 #if DESCENT_HITCH_DEBUG
 	static int s_nu_diff_log = 0;
 	if (s_nu_diff_log++ < 40)
-		gfx_debug::emit("[compositor] ",
+		gfx_log_emit("[compositor] ",
 			"needsUpload memcmp diff=%d bytes=%zu", diff ? 1 : 0, bytes);
 #endif
 	return diff;
@@ -423,27 +438,19 @@ static void expand_framebuffer_rgba(std::vector<uint8_t> &out)
 	const int bpp = s_bits_per_pixel;
 
 	if (bpp == 32) {
-		/* Identity-gamma fast path: guest BE ARGB -> RGBA8 without LUT. */
+		/* Upload raw guest BE ARGB -> RGBA8. Gamma is applied ONCE in the
+		 * fragment shader (u_gamma), matching Metal, which uploads the
+		 * framebuffer raw and lets the shader apply the display LUT. Pre-
+		 * applying s_gamma_lut here double-corrects (washed-out / too bright,
+		 * white-on-light invisible) — do NOT apply it on upload. */
 		for (int y = 0; y < s_height; y++) {
 			const uint8_t *row = src + (size_t)y * (size_t)rb;
 			uint8_t *dst = out.data() + (size_t)y * (size_t)s_width * 4;
-			if (s_gamma_is_identity) {
-				for (int x = 0; x < s_width; x++) {
-					dst[x * 4 + 0] = row[x * 4 + 1]; /* R */
-					dst[x * 4 + 1] = row[x * 4 + 2]; /* G */
-					dst[x * 4 + 2] = row[x * 4 + 3]; /* B */
-					dst[x * 4 + 3] = 255;
-				}
-			} else {
-				for (int x = 0; x < s_width; x++) {
-					uint8_t R = row[x * 4 + 1];
-					uint8_t G = row[x * 4 + 2];
-					uint8_t B = row[x * 4 + 3];
-					dst[x * 4 + 0] = s_gamma_lut[R];
-					dst[x * 4 + 1] = s_gamma_lut[256 + G];
-					dst[x * 4 + 2] = s_gamma_lut[512 + B];
-					dst[x * 4 + 3] = 255;
-				}
+			for (int x = 0; x < s_width; x++) {
+				dst[x * 4 + 0] = row[x * 4 + 1]; /* R */
+				dst[x * 4 + 1] = row[x * 4 + 2]; /* G */
+				dst[x * 4 + 2] = row[x * 4 + 3]; /* B */
+				dst[x * 4 + 3] = 255;
 			}
 		}
 		return;
@@ -458,9 +465,10 @@ static void expand_framebuffer_rgba(std::vector<uint8_t> &out)
 				uint8_t R = (uint8_t)(((be >> 10) & 0x1f) * 255 / 31);
 				uint8_t G = (uint8_t)(((be >> 5) & 0x1f) * 255 / 31);
 				uint8_t B = (uint8_t)((be & 0x1f) * 255 / 31);
-				dst[x * 4 + 0] = s_gamma_lut[R];
-				dst[x * 4 + 1] = s_gamma_lut[256 + G];
-				dst[x * 4 + 2] = s_gamma_lut[512 + B];
+				/* Raw unpack; gamma applied once in the fragment shader. */
+				dst[x * 4 + 0] = R;
+				dst[x * 4 + 1] = G;
+				dst[x * 4 + 2] = B;
 				dst[x * 4 + 3] = 255;
 			}
 		}
@@ -489,9 +497,10 @@ static void expand_framebuffer_rgba(std::vector<uint8_t> &out)
 			uint8_t R = s_palette[index * 4 + 0];
 			uint8_t G = s_palette[index * 4 + 1];
 			uint8_t B = s_palette[index * 4 + 2];
-			dst[x * 4 + 0] = s_gamma_lut[R];
-			dst[x * 4 + 1] = s_gamma_lut[256 + G];
-			dst[x * 4 + 2] = s_gamma_lut[512 + B];
+			/* Raw palette lookup; gamma applied once in the fragment shader. */
+			dst[x * 4 + 0] = R;
+			dst[x * 4 + 1] = G;
+			dst[x * 4 + 2] = B;
 			dst[x * 4 + 3] = 255;
 		}
 	}
@@ -829,7 +838,7 @@ void MetalCompositorPresent(void)
 
 	GfxGLDeviceSwap();
 
-#if DESCENT_HITCH_DEBUG
+#if defined(DESCENT_HITCH_DEBUG) && 0
 	/* Present heartbeat (throttled). Confirms the emul-thread present path is
 	 * actually swapping frames during a suspected freeze. The two hashes both
 	 * sample s_buffer: fbHash over the full frame, sBufRegion over just the
@@ -868,7 +877,7 @@ void MetalCompositorPresent(void)
 				for (size_t i = 0; i < (size_t)312 * mrb; i += 257)
 					macRegion = (macRegion ^ mrbp[i]) * 16777619u;
 			}
-			gfx_debug::emit("[compositor] ",
+			gfx_log_emit("[compositor] ",
 				"presentHB frames=%llu dtUsec=%llu tick=%u classicOccluded=%d classicUploaded=%d sBuf=%p macBuf=%p vbBytes=%zu fbHash=%08x sBufRegion=%08x macRegion=%08x",
 				(unsigned long long)s_hb_frames,
 				(unsigned long long)(hb_now - s_hb_last_usec),
@@ -932,6 +941,19 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
 int MetalCompositorIsInitialized(void)
 {
 	return s_init ? 1 : 0;
+}
+
+/* Guest address and size of the current visible screen surface. Consumed by
+ * the NQD CPU blit path (nqd_gl_renderer.cpp) to validate screen-destined
+ * surface ranges; the screen lives outside guest RAM. Emul-thread only, like
+ * the NQD hooks and mode switches that update s_buffer. */
+int MetalCompositorGetGuestSurface(uint32_t *out_mac_base, uint32_t *out_byte_size)
+{
+	if (!s_init || s_buffer == nullptr || s_buffer_size == 0)
+		return -1;
+	*out_mac_base = Host2MacAddr((uint8 *)s_buffer);
+	*out_byte_size = s_buffer_size;
+	return 0;
 }
 
 void MetalCompositorReleaseGLContext(void)
@@ -1054,7 +1076,15 @@ void MetalCompositorPaletteLatch(void)
 void MetalCompositorUpdateGammaLUT(const uint8_t *lut)
 {
 	if (!lut) return;
-	std::memcpy(s_gamma_lut, lut, 768);
+	/* Mirror metal_compositor.mm: the caller passes the raw guest LUT; the
+	 * display policy (OS-defined => verbatim, Linear => inverse Mac Standard
+	 * curve) is composed here so the GL and Metal backends present the
+	 * identical ramp. A raw memcpy here (the old GL behaviour) diverged from
+	 * Metal whenever the policy was non-identity, which is what produced the
+	 * over-bright / washed-out / white-invisible presentation in D2. */
+	GfxColorBuildDisplayGammaLUT(lut, false,
+	                             !gl_compositor_is_linear_gamma(),
+	                             s_gamma_lut);
 	s_gamma_is_identity = true;
 	for (int i = 0; i < 256; i++) {
 		if (s_gamma_lut[i] != (uint8_t)i ||
