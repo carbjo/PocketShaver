@@ -31,6 +31,7 @@
 #include <cmath>
 
 extern SDL_Window *sdl_window;
+extern SDL_Window *gl_device_sdl_window;
 extern "C" void vbl_source_sdl_tick(double target_ts);
 extern "C" int RaveGLRenderPassActive(void);
 
@@ -684,10 +685,6 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 		COMPOSITOR_ERR("GfxGLDeviceInit failed");
 		return -1;
 	}
-	if (!GfxGLDeviceMakeCurrent()) {
-		COMPOSITOR_ERR("MakeCurrent failed");
-		return -1;
-	}
 
 	s_width = width;
 	s_height = height;
@@ -974,12 +971,15 @@ void MetalCompositorShutdown(void)
 
 int MetalCompositorResize(int width, int height, int depth, int row_bytes,
                           int pitch, void *buffer, uint32_t buffer_size)
-{
-	if (!s_init)
-		return MetalCompositorInit(width, height, depth, row_bytes, pitch, buffer, buffer_size);
-
+{ /* gl_device_sdl_window change == w/h/flags changed; recreate everything */
+	if (!s_init || gl_device_sdl_window != sdl_window)
+		return MetalCompositorInit(width, height, depth,
+			row_bytes, pitch, buffer, buffer_size);
 	if (!GfxGLDeviceMakeCurrent())
+	{
+		COMPOSITOR_LOG("couldn't GfxGLDeviceMakeCurrent()!");
 		return -1;
+	}
 
 	MetalCompositorSubmitFrame_ClearCachedOverlay();
 	MetalCompositorSubmitFrame_ClearCachedFramebuffer();
@@ -1014,11 +1014,6 @@ int MetalCompositorGetGuestSurface(uint32_t *out_mac_base, uint32_t *out_byte_si
 	*out_mac_base = Host2MacAddr((uint8 *)s_buffer);
 	*out_byte_size = s_buffer_size;
 	return 0;
-}
-
-void MetalCompositorReleaseGLContext(void)
-{
-	GfxGLDeviceReleaseCurrent();
 }
 
 int MetalCompositorCurrentMode(int *out_width, int *out_height, int *out_depth)

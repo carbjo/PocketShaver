@@ -330,7 +330,7 @@ void RaveInitMetalResources(RaveDrawPrivate *priv)
 		QD3D_INIT_LOG("RaveInitMetalResources(GL): rejected null context");
 		return;
 	}
-	if (!GfxGLDeviceInit() || !GfxGLDeviceMakeCurrent()) {
+	if (!GfxGLDeviceInit()) {
 		QD3D_INIT_LOG("RaveInitMetalResources(GL): GL device/current failed; returning without native state");
 		RAVE_LOG("RaveInitMetalResources: GL device failed");
 		return;

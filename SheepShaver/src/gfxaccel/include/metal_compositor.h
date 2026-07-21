@@ -238,13 +238,6 @@ int MetalCompositorIsInitialized(void);
  * lightweight MetalCompositorResize) from a resolution switch (full reopen).
  */
 int MetalCompositorCurrentMode(int *out_width, int *out_height, int *out_depth);
-
-/* Unbind the compositor's GL context from the calling thread so another thread
- * can make it current (used for an in-place mode switch: the redraw thread
- * releases it, the emul thread reformats, then the redraw thread re-binds on its
- * next present via GfxGLDeviceMakeCurrent). No-op on non-GL backends. */
-void MetalCompositorReleaseGLContext(void);
-
 /*
  * MetalCompositorSubmitFrame.
  *

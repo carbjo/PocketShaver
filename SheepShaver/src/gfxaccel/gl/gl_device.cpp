@@ -14,6 +14,7 @@
 #include <cstring>
 
 extern SDL_Window *sdl_window;
+SDL_Window *gl_device_sdl_window = nullptr;
 
 static SDL_GLContext s_gl_ctx = nullptr;
 static bool s_ready = false;
@@ -26,11 +27,6 @@ bool GfxGLDeviceInit(void)
 {
 	QD3D_INIT_LOG("GfxGLDeviceInit: ready=%d context=%p window=%p",
 	              s_ready, s_gl_ctx, (void *)sdl_window);
-	if (s_ready && s_gl_ctx)
-	{
-		QD3D_INIT_LOG("GfxGLDeviceInit: reusing existing context");
-		return true;
-	}
 
 	if (!sdl_window) {
 		QD3D_INIT_LOG("GfxGLDeviceInit: FAILED because SDL window is null");
@@ -83,6 +79,7 @@ bool GfxGLDeviceInit(void)
 	        renderer ? renderer : "?",
 	        version ? version : "?");
 
+	gl_device_sdl_window = sdl_window;
 	s_ready = true;
 	QD3D_INIT_LOG("GfxGLDeviceInit: SUCCESS context=%p vendor='%s' renderer='%s' version='%s'",
 	              s_gl_ctx, vendor ? vendor : "?", renderer ? renderer : "?",
@@ -94,14 +91,19 @@ bool GfxGLDeviceMakeCurrent(void)
 {
 	assert(s_ready);
 	assert(s_gl_ctx != nullptr);
-	assert(sdl_window != nullptr);
+	assert(gl_device_sdl_window != nullptr);
 	/* RAVE calls this at public API boundaries and resource uploads, often
 	 * hundreds of times per frame. SDL_GL_MakeCurrent enters the driver even
 	 * when nothing changed; avoid that round trip on the single render thread. */
 	if (SDL_GL_GetCurrentContext() == s_gl_ctx &&
-	    SDL_GL_GetCurrentWindow() == sdl_window)
+	    SDL_GL_GetCurrentWindow() == gl_device_sdl_window)
 		return true;
-	return SDL_GL_MakeCurrent(sdl_window, s_gl_ctx) == 0;
+	if(SDL_GL_MakeCurrent(gl_device_sdl_window, s_gl_ctx) != 0)
+	{
+		QD3D_INIT_LOG("SDL_GL_MakeCurrent failed: %s", SDL_GetError());
+		return false;
+	}
+	return true;
 }
 
 void GfxGLDeviceReleaseCurrent(void)
@@ -110,15 +112,15 @@ void GfxGLDeviceReleaseCurrent(void)
 	 * it current. Used around an in-place mode switch: the redraw thread (which
 	 * normally owns the context) releases it at its park point so the emul
 	 * thread can reformat compositor resources, then re-binds on resume. */
-	if (s_gl_ctx && sdl_window)
-		SDL_GL_MakeCurrent(sdl_window, nullptr);
+	if (s_gl_ctx && gl_device_sdl_window)
+		SDL_GL_MakeCurrent(gl_device_sdl_window, nullptr);
 }
 
 void GfxGLDeviceShutdown(void)
 {
 	if (s_gl_ctx) {
-		if (sdl_window)
-			SDL_GL_MakeCurrent(sdl_window, nullptr);
+		if (gl_device_sdl_window)
+			SDL_GL_MakeCurrent(gl_device_sdl_window, nullptr);
 		SDL_GL_DeleteContext(s_gl_ctx);
 		s_gl_ctx = nullptr;
 	}
@@ -134,18 +136,18 @@ void GfxGLDeviceSwap(void)
 {
 	assert(s_ready);
 	assert(s_gl_ctx != nullptr);
-	assert(sdl_window != nullptr);
-	SDL_GL_SwapWindow(sdl_window);
+	assert(gl_device_sdl_window != nullptr);
+	SDL_GL_SwapWindow(gl_device_sdl_window);
 }
 
 void GfxGLDeviceGetDrawableSize(int *out_w, int *out_h)
 {
 	assert(s_ready);
 	assert(s_gl_ctx != nullptr);
-	assert(sdl_window != nullptr);
+	assert(gl_device_sdl_window != nullptr);
 	assert(out_w != nullptr);
 	assert(out_h != nullptr);
-	SDL_GL_GetDrawableSize(sdl_window, out_w, out_h);
+	SDL_GL_GetDrawableSize(gl_device_sdl_window, out_w, out_h);
 }
 
 void *SharedMetalDevice(void)
