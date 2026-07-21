@@ -14,8 +14,6 @@
  *  are extern "C" (declared in dsp_draw_context.h); the cores/helpers the
  *  dsp_draw_context.mm code reuses are declared in dsp_clut_gamma.h.
  */
-#import <Metal/Metal.h>
-
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "thunks.h"                /* SheepMem::Reserve */

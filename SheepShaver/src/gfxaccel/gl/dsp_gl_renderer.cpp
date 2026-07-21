@@ -18,6 +18,8 @@
 #include "dsp_cgraf_port_policy.h"
 #include "dsp_front_buffer_policy.h"
 #include "dsp_pixmap_offsets.h"
+#include "dsp_draw_context.h"
+#include "dsp_alt_buffer.h"
 #include "gfx_log.h"
 #include "thunks.h"
 
@@ -55,7 +57,7 @@ static std::map<uint32_t, DSpGLFrontTexture> s_front_textures;
 static bool dsp_valid_depth(uint32_t depth)
 {
 	return depth == 1 || depth == 2 || depth == 4 || depth == 8 ||
-	       depth == 16 || depth == 32;
+		   depth == 16 || depth == 32;
 }
 
 static uint32_t pack_rgba(uint8_t r, uint8_t g, uint8_t b)
@@ -63,7 +65,7 @@ static uint32_t pack_rgba(uint8_t r, uint8_t g, uint8_t b)
 	/* The desktop OpenGL backends are little-endian; this integer layout is
 	 * byte-for-byte RGBA when uploaded with GL_UNSIGNED_BYTE. */
 	return (uint32_t)r | ((uint32_t)g << 8) |
-	       ((uint32_t)b << 16) | 0xff000000u;
+		   ((uint32_t)b << 16) | 0xff000000u;
 }
 
 static const uint32_t *rgb555_gamma_lut(const uint8_t *gamma)
@@ -89,8 +91,8 @@ static const uint32_t *rgb555_gamma_lut(const uint8_t *gamma)
 			const uint8_t g = (uint8_t)(((value >> 5) & 31u) * 255u / 31u);
 			const uint8_t b = (uint8_t)((value & 31u) * 255u / 31u);
 			lut[value] = pack_rgba(gamma_snapshot[r],
-			                       gamma_snapshot[256u + g],
-			                       gamma_snapshot[512u + b]);
+								   gamma_snapshot[256u + g],
+								   gamma_snapshot[512u + b]);
 		}
 		valid = true;
 	}
@@ -98,8 +100,8 @@ static const uint32_t *rgb555_gamma_lut(const uint8_t *gamma)
 }
 
 static bool dsp_back_buffer_layout(uint32_t w, uint32_t h, uint32_t depth,
-	                               uint32_t *out_row_bytes,
-	                               uint32_t *out_size)
+								   uint32_t *out_row_bytes,
+								   uint32_t *out_size)
 {
 	if (!w || !h || !dsp_valid_depth(depth)) return false;
 	const uint32_t row_bytes = DSpBackBufferAlignedRowBytes(w, depth);
@@ -111,14 +113,14 @@ static bool dsp_back_buffer_layout(uint32_t w, uint32_t h, uint32_t depth,
 }
 
 static void dsp_pixmap_format(uint32_t depth, uint16_t *pixel_type,
-	                          uint16_t *pixel_size, uint16_t *component_count,
-	                          uint16_t *component_size)
+							  uint16_t *pixel_size, uint16_t *component_count,
+							  uint16_t *component_size)
 {
 	*pixel_type = depth <= 8 ? 0 : 0x10;
 	*pixel_size = (uint16_t)depth;
 	*component_count = depth <= 8 ? 1 : 3;
 	*component_size = depth <= 8 ? (uint16_t)depth :
-	                  depth == 16 ? 5 : 8;
+					  depth == 16 ? 5 : 8;
 }
 
 static uint32_t dsp_create_rect_region(uint32_t w, uint32_t h)
@@ -141,13 +143,13 @@ static uint32_t dsp_create_rect_region(uint32_t w, uint32_t h)
 }
 
 static void dsp_front_staging_geometry(const DSpContextPrivate *ctx,
-	                                    uint32_t visible_w,
-	                                    uint32_t visible_h,
-	                                    uint32_t depth,
-	                                    uint32_t *out_row,
-	                                    uint32_t *out_height,
-	                                    uint32_t *out_visible_x = nullptr,
-	                                    uint32_t *out_visible_y = nullptr)
+										uint32_t visible_w,
+										uint32_t visible_h,
+										uint32_t depth,
+										uint32_t *out_row,
+										uint32_t *out_height,
+										uint32_t *out_visible_x = nullptr,
+										uint32_t *out_visible_y = nullptr)
 {
 	uint32_t storage_w = visible_w;
 	uint32_t storage_h = visible_h;
@@ -180,13 +182,14 @@ static void dsp_front_staging_geometry(const DSpContextPrivate *ctx,
 		*out_visible_y = (storage_h - visible_h) / 2u;
 }
 
-bool DSpAllocateBackBuffer(DSpContextPrivate *ctx, uint32_t w, uint32_t h, uint32_t bpp)
+bool DSpDoAllocateBackBuffer(uint32_t w, uint32_t h, uint32_t bpp,
+	void** pbuf, void** ptex)
 {
 	uint32_t row = 0;
 	uint32_t size = 0;
-	if (!ctx || !dsp_back_buffer_layout(w, h, bpp, &row, &size)) {
+	if (!dsp_back_buffer_layout(w, h, bpp, &row, &size)) {
 		QD3D_RESOURCE_LOG("DSpAllocateBackBuffer(GL): invalid layout %ux%u@%u",
-		                  w, h, bpp);
+						  w, h, bpp);
 		return false;
 	}
 	void *buf = gfxaccel_resources_heap_alloc_buffer(kHeapEngineDSp, size, 0);
@@ -200,23 +203,32 @@ bool DSpAllocateBackBuffer(DSpContextPrivate *ctx, uint32_t w, uint32_t h, uint3
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h, 0,
-		             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+					 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 	}
 	if (!tex) {
 		gfxaccel_resources_heap_mm_free_buffer(kHeapEngineDSp, buf);
-		QD3D_RESOURCE_LOG("DSpAllocateBackBuffer(GL): texture allocation failed for %ux%u@%u",
-		                  w, h, bpp);
+		QD3D_RESOURCE_LOG("DSpAllocateBackBuffer(GL): texture allocation "
+				"failed for %ux%u@%u",
+			w, h, bpp);
 		return false;
 	}
 
-	ctx->back_buffer = buf;
-	ctx->back_texture = (void *)(uintptr_t)tex;
+	*pbuf = buf;
+	*ptex = (void *)(uintptr_t)tex;
+	gfxaccel_resources_set_buffer_owner(buf, kGfxEngineDSp);
+	QD3D_RESOURCE_LOG("DSpAllocateBackBuffer(GL): "
+			"back=%ux%u@%u row=%u size=%u texture=%u",
+		w, h, bpp, row, size, (unsigned)tex);
+	return true;
+}
+bool DSpAllocateBackBuffer(struct DSpContextPrivate *ctx,
+                                   uint32_t w, uint32_t h, uint32_t bpp)
+{
+	if(!DSpDoAllocateBackBuffer(w, h, bpp,
+			&ctx->back_buffer, &ctx->back_texture))
+		return false;
 	ctx->dirty_empty = true;
 	ctx->dirty_cold_start = true;
-	gfxaccel_resources_set_buffer_owner(buf, kGfxEngineDSp);
-	QD3D_RESOURCE_LOG("DSpAllocateBackBuffer(GL): ctx=%u back=%ux%u@%u row=%u size=%u texture=%u colorNeeds=%u",
-	                  ctx->handle, w, h, bpp, row, size, (unsigned)tex,
-	                  ctx->attr.colorNeeds);
 	return true;
 }
 
@@ -254,30 +266,20 @@ void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
 	ctx->front_staging_present_state = {};
 }
 
-void DSpReleaseBackBufferStaging(DSpContextPrivate *ctx)
-{
-	if (!ctx) return;
-	/* Exposed Mac_sysalloc storage cannot be safely recycled while guest code
-	 * may retain the PixMap. Detach it, matching the Metal quarantine policy. */
-	ctx->staging_mac_addr = 0;
-	ctx->staging_size = 0;
-	ctx->staging_owned_sysheap = false;
-}
-
 /* Expand a guest-format DSp surface into tightly packed RGBA for GL upload. */
 static void expand_surface_to_rgba(const DSpContextPrivate *ctx,
-	                                const uint8_t *src,
-	                                uint32_t w, uint32_t h,
-	                                uint32_t bpp, uint32_t row,
-	                                std::vector<uint8_t> &out,
-	                                uint32_t src_x = 0,
-	                                uint32_t src_y = 0)
+									const uint8_t *src,
+									uint32_t w, uint32_t h,
+									uint32_t bpp, uint32_t row,
+									std::vector<uint8_t> &out,
+									uint32_t src_x = 0,
+									uint32_t src_y = 0)
 {
 	out.resize((size_t)w * h * 4);
 	const uint32_t minimum_row =
 		(uint32_t)(((uint64_t)(src_x + w) * bpp + 7u) / 8u);
 	if (!ctx || !src || !w || !h || !dsp_valid_depth(bpp) ||
-	    !row || row < minimum_row) {
+		!row || row < minimum_row) {
 		std::memset(out.data(), 0, out.size());
 		return;
 	}
@@ -340,14 +342,14 @@ static void expand_surface_to_rgba(const DSpContextPrivate *ctx,
 }
 
 static void expand_back_to_rgba(const DSpContextPrivate *ctx,
-	                            std::vector<uint8_t> &out)
+								std::vector<uint8_t> &out)
 {
 	const uint32_t w = DSpContextBackBufferWidth(ctx);
 	const uint32_t h = DSpContextBackBufferHeight(ctx);
 	const uint32_t bpp = ctx->attr.backBufferBestDepth;
 	const uint32_t row = DSpBackBufferAlignedRowBytes(w, bpp);
 	expand_surface_to_rgba(ctx, (const uint8_t *)ctx->back_buffer,
-	                       w, h, bpp, row, out);
+						   w, h, bpp, row, out);
 }
 
 void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx, void * /*encoder*/, void * /*framebuffer_texture*/)
@@ -366,7 +368,7 @@ void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx, void * /*encoder*/, void * 
 		GLuint tex = (GLuint)(uintptr_t)ctx->back_texture;
 		glBindTexture(GL_TEXTURE_2D, tex);
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)w, (GLsizei)h,
-		                GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+						GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
 
 		/* DSp is the 2D framebuffer beneath RAVE. Publishing it as an overlay
 		 * races and replaces the one-slot RAVE mailbox, hiding all 3D. */
@@ -415,19 +417,19 @@ bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, vo
 	const uint32_t w = ctx->attr.displayWidth;
 	const uint32_t h = ctx->attr.displayHeight;
 	const uint32_t depth = DSpFrontBufferDepth(
-	    ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+		ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
 	const uint32_t row = ctx->front_staging_row_bytes
-	    ? ctx->front_staging_row_bytes
-	    : DSpFrontBufferRowBytes(w, ctx->attr.backBufferBestDepth,
-	                             ctx->attr.displayBestDepth);
+		? ctx->front_staging_row_bytes
+		: DSpFrontBufferRowBytes(w, ctx->attr.backBufferBestDepth,
+								 ctx->attr.displayBestDepth);
 	const uint32_t storage_h = ctx->front_staging_height
-	    ? ctx->front_staging_height : h;
+		? ctx->front_staging_height : h;
 	const uint64_t required64 = (uint64_t)row * storage_h;
 	if (!w || !h || !dsp_valid_depth(depth) || !row ||
-	    required64 > ctx->front_staging_size || required64 > UINT32_MAX) {
+		required64 > ctx->front_staging_size || required64 > UINT32_MAX) {
 		QD3D_RENDER_LOG("DSpFrontPresent(GL): invalid surface ctx=%u %ux%u@%u row=%u have=%u",
-		                ctx->handle, w, h, depth, row,
-		                ctx->front_staging_size);
+						ctx->handle, w, h, depth, row,
+						ctx->front_staging_size);
 		return false;
 	}
 
@@ -441,14 +443,14 @@ bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, vo
 	 * change therefore invalidates the upload even when pixel indices/values
 	 * did not change. */
 	const uint32_t color_generation = snap
-	    ? (snap->gamma_gen ^ (snap->palette_gen * 0x9e3779b9u)) : 0;
+		? (snap->gamma_gen ^ (snap->palette_gen * 0x9e3779b9u)) : 0;
 	const uint32_t fade_active = snap ? snap->fade_active : 0;
 	DSpFrontStagingPresentState &present =
-	    ctx->front_staging_present_state;
+		ctx->front_staging_present_state;
 	if (present.valid && present.encoded && present.last_hash == hash &&
-	    present.last_size == required &&
-	    present.last_gamma_gen == color_generation &&
-	    present.last_fade_active == fade_active) {
+		present.last_size == required &&
+		present.last_gamma_gen == color_generation &&
+		present.last_fade_active == fade_active) {
 		present.unchanged_skips++;
 		return true;
 	}
@@ -471,21 +473,21 @@ bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, vo
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h,
-		             0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+					 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 	}
 
 	static std::vector<uint8_t> rgba;
 	uint32_t visible_x = 0, visible_y = 0, geometry_row = 0,
-	         geometry_height = 0;
+			 geometry_height = 0;
 	dsp_front_staging_geometry(ctx, w, h, depth, &geometry_row,
-	                           &geometry_height, &visible_x, &visible_y);
+							   &geometry_height, &visible_x, &visible_y);
 	if (geometry_row != row || geometry_height > storage_h ||
-	    visible_y + h > geometry_height) return false;
+		visible_y + h > geometry_height) return false;
 	expand_surface_to_rgba(ctx, front, w, h, depth, row, rgba,
-	                       visible_x, visible_y);
+						   visible_x, visible_y);
 	glBindTexture(GL_TEXTURE_2D, front_gl.texture);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)w, (GLsizei)h,
-	                GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+					GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
 
 	CompositeLayer layer = {};
 	layer.source = (void *)(uintptr_t)front_gl.texture;
@@ -503,15 +505,15 @@ bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, vo
 	desc.layer_count = 1;
 	desc.generation = snap ? snap->generation : 0;
 	const int32_t result = ctx->state == (uint32_t)kDSpContextState_Active
-	    ? MetalCompositorSubmitFrame(&desc) : kGfxAccelNoErr;
+		? MetalCompositorSubmitFrame(&desc) : kGfxAccelNoErr;
 	if (result != kGfxAccelNoErr) {
 		QD3D_RENDER_LOG("DSpFrontPresent(GL): submit failed ctx=%u result=%d",
-		                ctx->handle, result);
+						ctx->handle, result);
 		return false;
 	}
 
 	DSpFrontStagingRememberHashForGamma(
-	    &present, hash, required, color_generation, fade_active);
+		&present, hash, required, color_generation, fade_active);
 	return true;
 }
 
@@ -520,7 +522,7 @@ extern "C" uint32_t DSpGetFrontBufferCGrafPtrGL(DSpContextPrivate *ctx)
 	if (!ctx || !ctx->back_buffer) return 0;
 
 	const uint32_t depth = DSpFrontBufferDepth(
-	    ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+		ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
 	const uint32_t w = ctx->attr.displayWidth;
 	const uint32_t h = ctx->attr.displayHeight;
 	uint32_t row = 0;
@@ -532,8 +534,8 @@ extern "C" uint32_t DSpGetFrontBufferCGrafPtrGL(DSpContextPrivate *ctx)
 	const uint32_t size = (uint32_t)size64;
 
 	if (!ctx->front_staging_mac_addr || ctx->front_staging_size < size ||
-	    ctx->front_staging_row_bytes != row ||
-	    ctx->front_staging_height != storage_h) {
+		ctx->front_staging_row_bytes != row ||
+		ctx->front_staging_height != storage_h) {
 		const uint32_t pixels = Mac_sysalloc(size);
 		uint8_t *dst = pixels ? Mac2HostAddr(pixels) : nullptr;
 		if (!pixels || !dst) return 0;
@@ -544,21 +546,21 @@ extern "C" uint32_t DSpGetFrontBufferCGrafPtrGL(DSpContextPrivate *ctx)
 		ctx->front_staging_height = storage_h;
 
 		const uint32_t back_row = DSpBackBufferAlignedRowBytes(
-		    DSpContextBackBufferWidth(ctx), ctx->attr.backBufferBestDepth);
+			DSpContextBackBufferWidth(ctx), ctx->attr.backBufferBestDepth);
 		if (DSpShouldSeedFrontBufferStagingFromBackStaging(
-		        ctx->attr.backBufferBestDepth, depth,
-		        ctx->staging_mac_addr, ctx->staging_size, back_row,
-		        size, row)) {
+				ctx->attr.backBufferBestDepth, depth,
+				ctx->staging_mac_addr, ctx->staging_size, back_row,
+				size, row)) {
 			uint8_t *src = Mac2HostAddr(ctx->staging_mac_addr);
 			if (src) std::memcpy(dst, src, size);
 			else std::memset(dst, 0, size);
 			ctx->front_staging_refresh_swap_generation =
-			    ctx->swap_generation;
+				ctx->swap_generation;
 		} else {
 			std::memset(dst, 0, size);
 		}
 		DSpFrontStagingRememberSeedBytes(
-		    &ctx->front_staging_present_state, dst, size);
+			&ctx->front_staging_present_state, dst, size);
 	}
 
 	/* A movie may close/reset QuickDraw state and then ask DSp for the front
@@ -575,20 +577,20 @@ extern "C" uint32_t DSpGetFrontBufferCGrafPtrGL(DSpContextPrivate *ctx)
 		return 0;
 
 	uint16_t pixel_type = 0, pixel_size = 0, component_count = 0,
-	         component_size = 0;
+			 component_size = 0;
 	dsp_pixmap_format(depth, &pixel_type, &pixel_size, &component_count,
-	                  &component_size);
+					  &component_size);
 	/* Preserve the real screen PixMap's otherwise-unspecified metadata, as the
 	 * Metal emitter does, then replace every surface-dependent field. */
 	if (ctx->saved_pixmap_valid && ctx->saved_pixmap_addr)
 		Host2Mac_memcpy(pixmap, Mac2HostAddr(ctx->saved_pixmap_addr),
-		                DSpFrontBufferPixMapRecordSize());
+						DSpFrontBufferPixMapRecordSize());
 	else
 		Mac_memset(pixmap, 0, DSpFrontBufferPixMapRecordSize());
 	WriteMacInt32(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR,
-	              ctx->front_staging_mac_addr);
+				  ctx->front_staging_mac_addr);
 	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES,
-	              DSpFrontBufferPixMapRowBytesField(row));
+				  DSpFrontBufferPixMapRowBytesField(row));
 	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_TOP, 0);
 	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_LEFT, 0);
 	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_BOT, (uint16_t)h);
@@ -605,8 +607,8 @@ extern "C" uint32_t DSpGetFrontBufferCGrafPtrGL(DSpContextPrivate *ctx)
 	 * PixMap before redirecting it, so preserve that table on the vended port. */
 	if (depth <= 8 && ctx->saved_pixmap_valid && ctx->saved_pixmap_addr) {
 		WriteMacInt32(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_PMTABLE,
-		              ReadMacInt32(ctx->saved_pixmap_addr +
-		                           DSP_MAINDEVICE_PIXMAP_OFF_PMTABLE));
+					  ReadMacInt32(ctx->saved_pixmap_addr +
+								   DSP_MAINDEVICE_PIXMAP_OFF_PMTABLE));
 	}
 	WriteMacInt32(pixmap_handle, pixmap);
 
@@ -636,9 +638,9 @@ extern "C" uint32_t DSpGetFrontBufferCGrafPtrGL(DSpContextPrivate *ctx)
 	ctx->front_pixmap_mac_addr = pixmap;
 	ctx->front_pixmap_handle_mac_addr = pixmap_handle;
 	QD3D_RESOURCE_LOG("DSpGetFrontBuffer(GL): ctx=%u port=0x%08x pixmap=0x%08x base=0x%08x front=%ux%u@%u row=%u storageH=%u size=%u",
-	                  ctx->handle, port, pixmap,
-	                  ctx->front_staging_mac_addr, w, h, depth, row,
-	                  storage_h, size);
+					  ctx->handle, port, pixmap,
+					  ctx->front_staging_mac_addr, w, h, depth, row,
+					  storage_h, size);
 	return port;
 }
 
@@ -672,13 +674,13 @@ uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 		return 0;
 
 	uint16_t pixel_type = 0, pixel_size = 0, component_count = 0,
-	         component_size = 0;
+			 component_size = 0;
 	dsp_pixmap_format(bpp, &pixel_type, &pixel_size, &component_count,
-	                  &component_size);
+					  &component_size);
 	Mac_memset(pixmap, 0, DSpBackBufferPixMapRecordSize());
 	WriteMacInt32(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR, ctx->staging_mac_addr);
 	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES,
-	              DSpBackBufferPixMapRowBytesField(row_bytes));
+				  DSpBackBufferPixMapRowBytesField(row_bytes));
 	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_TOP, 0);
 	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_LEFT, 0);
 	WriteMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_BOT, (uint16_t)h);
@@ -716,12 +718,121 @@ uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 
 	ctx->cgrafptr_mac_addr = port;
 	QD3D_RESOURCE_LOG("DSpGetBackBuffer(GL): ctx=%u port=0x%08x pixmap=0x%08x base=0x%08x back=%ux%u@%u row=%u size=%u",
-	                  ctx->handle, port, pixmap, ctx->staging_mac_addr, w, h,
-	                  bpp, row_bytes, buffer_size);
+					  ctx->handle, port, pixmap, ctx->staging_mac_addr, w, h,
+					  bpp, row_bytes, buffer_size);
 	return port;
 }
 
-uint32_t DSpGuardStagingWrite(uint32_t /*mac_addr*/, uint32_t size, const char * /*site*/)
+static void dsp_refresh_front_staging_after_swap(DSpContextPrivate *ctx)
 {
-	return size;
+	if (!ctx || !ctx->front_staging_mac_addr || !ctx->staging_mac_addr)
+		return;
+	const uint32_t front_depth = DSpFrontBufferDepth(
+		ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+	const uint32_t back_row = DSpBackBufferAlignedRowBytes(
+		DSpContextBackBufferWidth(ctx), ctx->attr.backBufferBestDepth);
+	const uint32_t front_row = ctx->front_staging_row_bytes;
+	if (!DSpShouldRefreshFrontBufferStagingFromBackStaging(
+			ctx->attr.backBufferBestDepth, front_depth,
+			ctx->staging_mac_addr, ctx->front_staging_mac_addr,
+			ctx->staging_size, ctx->front_staging_size,
+			back_row, front_row, ctx->swap_generation,
+			ctx->front_staging_refresh_swap_generation, false))
+		return;
+
+	uint8_t *src = Mac2HostAddr(ctx->staging_mac_addr);
+	uint8_t *dst = Mac2HostAddr(ctx->front_staging_mac_addr);
+	if (!src || !dst) return;
+	std::memcpy(dst, src, ctx->front_staging_size);
+	ctx->front_staging_refresh_swap_generation = ctx->swap_generation;
+	DSpFrontStagingRememberSeedBytes(
+		&ctx->front_staging_present_state, dst, ctx->front_staging_size);
+}
+int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef, uint32_t /*doneProc*/, uint32_t /*refCon*/)
+{
+	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
+	if (!ctx || !ctx->back_buffer) return kDSpInternalErr;
+	/* Copy guest staging -> host back buffer */
+	if (ctx->staging_mac_addr && ctx->staging_size) {
+		const uint32_t w = DSpContextBackBufferWidth(ctx);
+		const uint32_t h = DSpContextBackBufferHeight(ctx);
+		const uint32_t row = DSpBackBufferAlignedRowBytes(
+			w, ctx->attr.backBufferBestDepth);
+		const uint64_t expected64 = (uint64_t)row * h;
+		const uint32_t expected = expected64 <= UINT32_MAX
+			? (uint32_t)expected64 : 0;
+		uint8 *src = Mac2HostAddr(ctx->staging_mac_addr);
+		const uint32_t copy_size = expected
+			? std::min(expected, ctx->staging_size) : 0;
+		if (src && copy_size) std::memcpy(ctx->back_buffer, src, copy_size);
+		if (copy_size != expected) {
+			QD3D_RENDER_LOG("DSpSwap(GL): bounded staging copy ctx=%u have=%u expected=%u copied=%u",
+							ctxRef, ctx->staging_size, expected, copy_size);
+		}
+	}
+	ctx->swap_generation++;
+	/* A swap replaces the visible page.  Keep a separately vended front
+	 * surface in sync once per swap; otherwise its stale initial pixels would
+	 * be republished by the VBL path over the newly swapped frame. */
+	dsp_refresh_front_staging_after_swap(ctx);
+	ctx->explicit_swap_observed = true;
+	ctx->dirty_cold_start = false;
+	ctx->dirty_empty = true;
+
+	/* Present into compositor framebuffer texture path (host expand on next Present) */
+	void *fb = MetalCompositorGetFramebufferTexture();
+	DSpEncodePresentToFramebuffer(ctx, nullptr, fb);
+	return kDSpNoErr;
+}
+/* RsrcLocksDumpOnCrash now has a real implementation in rsrc_patches.cpp
+ * (DII 'nift' CFM monitor); the placeholder stub was removed to avoid LNK2005. */
+extern "C" void DSpVBLCompositorPublishCallback(void *, void *, double) {}
+void* DSpGetBackingContents(void* backing)
+{
+	return backing;
+}
+
+/* Host bridge - desktop: track Active fullscreen without iOS idle-timer */
+static bool s_dsp_active_fullscreen = false;
+extern "C" void DSpHostBridge_SetActiveFullscreen(bool active)
+{
+	s_dsp_active_fullscreen = active;
+}
+extern "C" bool DSpHostBridge_GetActiveFullscreen(void)
+{
+	return s_dsp_active_fullscreen;
+}
+extern "C" void DSpHostBridgeInit(void)
+{
+	s_dsp_active_fullscreen = false;
+}
+extern "C" void DSpHostBridgeShutdown(void)
+{
+	s_dsp_active_fullscreen = false;
+}
+
+/*
+ * Allocate the texture backing.
+ * Instead of a Metal Buffer + View, we create a standard OpenGL Texture.
+ * 'rec->texture' is now assumed to be a GLuint.
+ */
+bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
+	uint32_t w, uint32_t h) {
+	bool res;
+	if (rec == nullptr || w == 0 || h == 0) return false;
+	if (w > DSP_ALT_MAX_DIM || h > DSP_ALT_MAX_DIM) {
+		fprintf(stderr, "DSpAllocAltBufferBacking: "
+			"dims %ux%u exceed DSP_ALT_MAX_DIM\n", w, h);
+		return false;
+	}
+
+	res = DSpDoAllocateBackBuffer(w, h, rec->depth,
+		&rec->backing, &rec->texture);
+	if (res == false) {
+		DSP_LOG("DSpAllocAltBufferBacking: DSpAllocateBackBuffer failed "
+		        "(%ux%u@%u)", w, h, rec->depth);
+		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
+		return false;
+	}
+	return true;
 }

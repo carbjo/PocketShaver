@@ -334,8 +334,12 @@ if(ENABLE_GFXACCEL)
 	# Portable engine / policy / dispatch sources
 	list(APPEND SS_GFXACCEL
 	"${GA}/display_mode_controller.cpp"
+	"${GA}/dsp_alt_buffer.cpp"
+	"${GA}/dsp_clut_gamma.cpp"
 	"${GA}/dsp_dispatch.cpp"
+	"${GA}/dsp_draw_context.cpp"
 	"${GA}/dsp_engine.cpp"
+	"${GA}/dsp_flatten_restore.cpp"
 	"${GA}/dsp_install_hooks.cpp"
 	"${GA}/dsp_mode_enumerate.cpp"
 	"${GA}/dsp_thunks.cpp"
@@ -382,10 +386,6 @@ if(ENABLE_GFXACCEL)
 		"${GA}/rave_metal_renderer.mm"
 		"${GA}/gl_metal_renderer.mm"
 		"${GA}/dsp_metal_renderer.mm"
-		"${GA}/dsp_draw_context.mm"
-		"${GA}/dsp_alt_buffer.mm"
-		"${GA}/dsp_flatten_restore.mm"
-		"${GA}/dsp_clut_gamma.mm"
 		"${GA}/dsp_host_bridge.mm"
 		"${GA}/gfxaccel_resources.mm"
 		"${GA}/gfxaccel_resources_heap.mm"
@@ -412,7 +412,6 @@ if(ENABLE_GFXACCEL)
 		"${GA}/gl/rave_gl_renderer.cpp"
 		"${GA}/gl/gl_ffp_renderer.cpp"
 		"${GA}/gl/dsp_gl_renderer.cpp"
-		"${GA}/gl/dsp_draw_context_gl.cpp"
 		"${GA}/gl/gfxaccel_link_stubs.cpp"
 	)
 	if(WIN32)

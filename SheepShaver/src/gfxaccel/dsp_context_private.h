@@ -374,5 +374,6 @@ extern "C" void DSpQuarantineGuestPixelStaging(uint32_t mac_addr,
                                                bool allocated_from_mac_system_heap);
 extern "C" void DSpDiscardUnusedGuestPixelStaging(uint32_t mac_addr,
                                                   bool allocated_from_mac_system_heap);
+void* DSpGetBackingContents(void* backing);
 
 #endif /* DSP_CONTEXT_PRIVATE_H */

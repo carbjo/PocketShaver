@@ -1,6 +1,6 @@
 # Overview
 
-4 games are tested with the gfxaccel GL backend: Descent II 6500, Mechwarrior II 6500, Myth II, and Diablo II (RAVE mode). These are known issues in those games:
+4 games are tested with the gfxaccel GL backend: Descent II 6500, Mechwarrior II 6500, Myth II, and Diablo II. These are known issues in those games:
 
 ## Descent II 6500
 
@@ -22,8 +22,12 @@
 
 ## Diablo II
 
-- Currently unplayable due to slow/lagged framerate and frame skips once a character is chosen and is loads the main playable game
+- RAVE: Currently unplayable due to slow/lagged framerate and frame skips once a character is chosen and is loads the main playable game
+
+- OpenGL: Black Screen on main title
+
+- Software: Crash on game launch
+
+- Black screen on "Rescan Monitors" in configuration
 
 - There are brief blue screens with artifacts after each opening movie
-
-- Non-RAVE backends not tested

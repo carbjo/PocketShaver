@@ -63,6 +63,7 @@
 #include "metal_compositor.h"
 #include "metal_device_shared.h"     /* SharedMetalDevice() for unpack-PSO lazy init */
 #include "display_mode_controller.h" /* dmc_current_snapshot() for fade_active in the unpack twin */
+#include "dsp_alt_buffer.h"
 
 extern uint32 Mac_sysalloc(uint32 size);
 extern void Mac_sysfree(uint32 addr);
@@ -77,246 +78,6 @@ extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentIfN
  * to the cached original BEFORE the MTLBuffer goes away (Landmine-7:
  * prevents dangling Mac address in lowmem). */
 extern "C" void DSpRestoreMainDevicePixMap(DSpContextPrivate *ctx);
-
-/* DSp exposes these blocks as guest PixMap.baseAddr storage. Once exposed,
- * do not DisposePtr them: launch-time CFM/component allocations may reuse
- * the same system-heap range and execute stale frame bytes. */
-enum {
-	kDSpPixelStagingPoolCapacity = 16
-};
-
-/* Uniform allocation floor.  Vending every staging block at >= this size
- * lets later, larger needs (Diablo II: 640x480 splash staging -> 800x600
- * menu staging) REUSE quarantined blocks instead of making fresh multi-MB
- * NewPtrSys allocations mid-game.  Mid-game system-heap allocations of
- * that size are device-proven (2026-06-11) to detonate purge/compaction
- * storms in the guest system zone: purgeable component code gets evicted
- * (sound-component crash class) and live structures move while stale
- * pointers still reference them (the Memory-Manager zone-walk wedge that
- * froze DII's menu).  2 MiB covers every mode DII uses (800x600x4 with
- * aligned rowBytes = 1,996,800 bytes). */
-enum : uint32_t {
-	kDSpPixelStagingAllocFloor = 0x200000
-};
-
-struct DSpPixelStagingPoolBlock {
-	uint32_t mac_addr;
-	uint32_t size;        /* logical size of the most recent exposure */
-	uint32_t alloc_size;  /* TRUE Mac_sysalloc size; NEVER grown — the
-	                       * ground truth a write must never exceed. */
-	bool     in_use;
-	bool     ever_exposed_to_guest;
-	bool     allocated_from_mac_system_heap;
-};
-
-static DSpPixelStagingPoolBlock
-	s_dsp_pixel_staging_pool[kDSpPixelStagingPoolCapacity];
-
-static DSpPixelStagingPoolBlock *DSpFindPixelStagingBlock(uint32_t mac_addr)
-{
-	for (uint32_t i = 0; i < kDSpPixelStagingPoolCapacity; i++) {
-		DSpPixelStagingPoolBlock *block = &s_dsp_pixel_staging_pool[i];
-		if (block->mac_addr == mac_addr) return block;
-	}
-	return nullptr;
-}
-
-static DSpPixelStagingPoolBlock *DSpFindEmptyPixelStagingBlock(void)
-{
-	for (uint32_t i = 0; i < kDSpPixelStagingPoolCapacity; i++) {
-		DSpPixelStagingPoolBlock *block = &s_dsp_pixel_staging_pool[i];
-		if (block->mac_addr == 0) return block;
-	}
-	return nullptr;
-}
-
-/* Keep one idle floor-sized block parked in the pool.  Fresh allocations
- * come in pairs (back staging at Reserve, then front staging at the first
- * GetFrontBuffer mid-game); allocating the spare TOGETHER with the first
- * fresh block moves the second allocation's heap violence to mode-set
- * time, where the guest expects turbulence, instead of mid-frame. */
-static void DSpPrewarmPixelStagingSpare(void)
-{
-	for (uint32_t i = 0; i < kDSpPixelStagingPoolCapacity; i++) {
-		DSpPixelStagingPoolBlock *block = &s_dsp_pixel_staging_pool[i];
-		if (block->mac_addr != 0 && !block->in_use &&
-		    block->alloc_size >= kDSpPixelStagingAllocFloor)
-			return;                    /* an idle spare already exists */
-	}
-	DSpPixelStagingPoolBlock *slot = DSpFindEmptyPixelStagingBlock();
-	if (slot == nullptr)
-		return;
-	uint32_t mac_addr = Mac_sysalloc(kDSpPixelStagingAllocFloor);
-	if (mac_addr == 0)
-		return;
-	slot->mac_addr = mac_addr;
-	slot->size = 0;
-	slot->alloc_size = kDSpPixelStagingAllocFloor;
-	slot->in_use = false;
-	slot->ever_exposed_to_guest = false;
-	slot->allocated_from_mac_system_heap = true;
-	DSP_LOG("DSpReserveGuestPixelStaging: prewarmed spare 0x%08x alloc=%u",
-	        mac_addr, (unsigned)kDSpPixelStagingAllocFloor);
-}
-
-extern "C" uint32_t DSpReserveGuestPixelStaging(uint32_t size)
-{
-	if (size == 0) return 0;
-
-	for (uint32_t i = 0; i < kDSpPixelStagingPoolCapacity; i++) {
-		DSpPixelStagingPoolBlock *block = &s_dsp_pixel_staging_pool[i];
-		if (block->mac_addr != 0 &&
-		    !block->in_use &&
-		    DSpPixelStagingCanReuseQuarantinedAllocation(block->alloc_size, size)) {
-			block->in_use = true;
-			block->size = size;
-			DSP_LOG("DSpReserveGuestPixelStaging: reused quarantined "
-			        "staging 0x%08x alloc=%u need=%u",
-			        block->mac_addr, block->alloc_size, size);
-			return block->mac_addr;
-		}
-	}
-
-	uint32_t alloc_request = size;
-	if (alloc_request < kDSpPixelStagingAllocFloor)
-		alloc_request = kDSpPixelStagingAllocFloor;
-	uint32_t mac_addr = Mac_sysalloc(alloc_request);
-	if (mac_addr == 0 && alloc_request != size) {
-		/* Degraded: the floored request did not fit; take the exact size. */
-		alloc_request = size;
-		mac_addr = Mac_sysalloc(size);
-	}
-	if (mac_addr == 0) return 0;
-
-	DSpPixelStagingPoolBlock *slot = DSpFindEmptyPixelStagingBlock();
-	if (slot != nullptr) {
-		slot->mac_addr = mac_addr;
-		slot->size = size;
-		slot->alloc_size = alloc_request; /* ground truth; never grown afterwards */
-		slot->in_use = true;
-		slot->ever_exposed_to_guest = false;
-		slot->allocated_from_mac_system_heap = true;
-		DSP_LOG("DSpReserveGuestPixelStaging: fresh Mac_sysalloc 0x%08x alloc=%u need=%u",
-		        mac_addr, alloc_request, size);
-		DSpPrewarmPixelStagingSpare();
-	} else {
-		DSP_LOG("DSpReserveGuestPixelStaging: pool full; 0x%08x "
-		        "size=%u will be quarantined untracked on release",
-		        mac_addr, size);
-	}
-	return mac_addr;
-}
-
-extern "C" uint32_t DSpGuardStagingWrite(uint32_t mac_addr, uint32_t size,
-                                         const char *site)
-{
-	if (mac_addr == 0 || size == 0) return size;
-
-	DSpPixelStagingPoolBlock *block = DSpFindPixelStagingBlock(mac_addr);
-	if (block == nullptr) {
-		/* Write targets an address that is not a tracked staging block.
-		 * We cannot bound it — flag it so the field log shows an untracked
-		 * staging write (itself suspicious). */
-		DSP_LOG("DSpGuardStagingWrite: UNTRACKED staging target site=%s "
-		        "addr=0x%08x size=%u (no pool entry — cannot bound)",
-		        site ? site : "?", mac_addr, size);
-		return size;
-	}
-
-	if (size > block->alloc_size) {
-		DSP_LOG("DSpGuardStagingWrite: *** STAGING OVERRUN PREVENTED *** "
-		        "site=%s addr=0x%08x requested=%u alloc=%u overrun=%u "
-		        "-> CLAMPED to alloc",
-		        site ? site : "?", mac_addr, size, block->alloc_size,
-		        size - block->alloc_size);
-		return block->alloc_size;
-	}
-	return size;
-}
-
-extern "C" void DSpQuarantineGuestPixelStaging(
-	uint32_t mac_addr,
-	uint32_t size,
-	bool allocated_from_mac_system_heap)
-{
-	if (mac_addr == 0) return;
-
-	DSpPixelStagingPoolBlock *block = DSpFindPixelStagingBlock(mac_addr);
-	if (block != nullptr) {
-		if (size > block->size) block->size = size;
-		block->in_use = false;
-		block->ever_exposed_to_guest = true;
-		block->allocated_from_mac_system_heap =
-			allocated_from_mac_system_heap;
-		DSP_LOG("DSpQuarantineGuestPixelStaging: retained exposed "
-		        "staging 0x%08x size=%u",
-		        mac_addr, block->size);
-		return;
-	}
-
-	DSpPixelStagingPoolBlock *slot = DSpFindEmptyPixelStagingBlock();
-	if (slot != nullptr) {
-		slot->mac_addr = mac_addr;
-		slot->size = size;
-		slot->alloc_size = size;   /* best-known true size for untracked block */
-		slot->in_use = false;
-		slot->ever_exposed_to_guest = true;
-		slot->allocated_from_mac_system_heap =
-			allocated_from_mac_system_heap;
-		DSP_LOG("DSpQuarantineGuestPixelStaging: retained untracked "
-		        "exposed staging 0x%08x size=%u",
-		        mac_addr, size);
-		return;
-	}
-
-	if (DSpPixelStagingShouldReturnExposedAllocationToMacHeap(
-	        allocated_from_mac_system_heap)) {
-		Mac_sysfree(mac_addr);
-		return;
-	}
-
-	DSP_LOG("DSpQuarantineGuestPixelStaging: pool full; leaving exposed "
-	        "staging 0x%08x size=%u allocated",
-	        mac_addr, size);
-}
-
-extern "C" void DSpDiscardUnusedGuestPixelStaging(
-	uint32_t mac_addr,
-	bool allocated_from_mac_system_heap)
-{
-	if (mac_addr == 0) return;
-
-	DSpPixelStagingPoolBlock *block = DSpFindPixelStagingBlock(mac_addr);
-	if (block != nullptr) {
-		if (block->ever_exposed_to_guest) {
-			block->in_use = false;
-			DSP_LOG("DSpDiscardUnusedGuestPixelStaging: retained "
-			        "previously exposed staging 0x%08x size=%u",
-			        mac_addr, block->size);
-			return;
-		}
-		if (block->allocated_from_mac_system_heap) {
-			Mac_sysfree(mac_addr);
-		}
-		*block = {};
-		return;
-	}
-
-	if (allocated_from_mac_system_heap) {
-		Mac_sysfree(mac_addr);
-	}
-}
-
-extern "C" void DSpReleaseBackBufferStaging(DSpContextPrivate *ctx)
-{
-	if (ctx == nullptr || ctx->staging_mac_addr == 0) return;
-	DSpQuarantineGuestPixelStaging(ctx->staging_mac_addr,
-	                               ctx->staging_size,
-	                               ctx->staging_owned_sysheap);
-	ctx->staging_mac_addr = 0;
-	ctx->staging_size = 0;
-	ctx->staging_owned_sysheap = false;
-}
 
 /*
  *  Pixel-format mapping.
@@ -1571,4 +1332,465 @@ extern "C" bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx,
 		         baseAddr_mac, row_bytes, w, h, front_depth, current_hash);
 	}
 	return ok;
+}
+
+struct DSpReleaseEntry {
+	id<MTLBuffer>       back_buffer;
+	id<MTLTexture>      back_texture;
+	DSpContextPrivate  *ctx_to_free;
+};
+
+/*
+ *  DSpVBLCompositorPublishCallback: VBL-driven auto-publish shim that
+ *  surfaces the DSp back/front staging surfaces to the compositor when
+ *  DSp owns the display, or when DSp front staging is presentable under a
+ *  non-DSp owner. Closes the third blocker — classic-pattern DSp apps
+ *  (Reserve + main-port QD draws, no SwapBuffers) get pixels on screen —
+ *  while keeping mixed SwapBuffers + front-buffer drawing visible after
+ *  the first explicit swap.
+ *
+ *  Registers as the 5th VBL secondary callback (after the 4th-slot
+ *  DSpVBLServiceCallback). The chain order
+ *  means DSpVBLServiceCallback's VBL-count increment fires FIRST and
+ *  user VBLProc dispatch completes BEFORE we publish — satisfies
+ *  the "after user-VBLProc dispatch" ordering automatically.
+ *
+ *  Body shape mirrors DSpContext_SwapBuffersHandler (lines 2078-2192):
+ *    Gate 1 — stable DMC snapshot (DSp-owned display, or presentable front
+ *             staging under a non-DSp owner).
+ *    Gate 2 — find the first Active DSp context with a live back_buffer.
+ *    Step 1 — staging drain (guest-RAM staging → back_buffer.contents) per
+ *             Landmine-1; mirrors SwapBuffers lines 2123-2136.
+ *    Step 2 — encode the back_texture → framebuffer_texture blit via the
+ *             existing DSpEncodeBackBufferBlit helper.
+ *    Step 3 — submit an engine-blind CompositeLayer (kLayerSlotFramebuffer
+ *             / kBlendOpaque) pointing at the framebuffer texture.
+ *
+ *  Invariant: this shim is a CALLER of MetalCompositorSubmitFrame,
+ *  not a modifier of its body. CompositorEngineBlindnessTests stays green.
+ *
+ *  Invariant: zero new threading primitives. Runs on main RunLoop
+ *  thread (vbl_source.mm:23) — same threading shape as DSpVBLServiceCallback.
+ */
+extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
+                                                 void *drawable,
+                                                 double ts)
+{
+	(void)cb_ctx; (void)drawable; (void)ts;
+
+	/* Gate 1: a stable display snapshot is required. DSp usually owns
+	 * the display while the callback publishes, but mixed DSp+RAVE apps
+	 * such as Nanosaur keep drawing QuickDraw front-buffer UI after RAVE
+	 * becomes the DMC owner. In that case a presentable front-staging
+	 * surface keeps the DSp publish path alive underneath the 3D overlay. */
+	const DMCModeSnapshot *snap = dmc_current_snapshot();
+	if (snap == nullptr || snap->transitioning != 0) {
+		return;
+	}
+
+	/* Gate 2: walk dsp_context_table[] for the first Active context with
+	 * a live back_buffer. Mirrors DSpVBLServiceCallback's walk pattern at
+	 * lines 710-723 (single-Active-context invariant — first match wins). */
+	DSpContextPrivate *active = nullptr;
+	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
+		DSpContextPrivate *ctx = dsp_context_table[i];
+		if (ctx == nullptr) continue;
+		if (ctx->state != (uint32_t)kDSpContextState_Active) continue;
+		if (ctx->back_buffer == NULL) continue;
+		active = ctx;
+		break;
+	}
+	if (active == nullptr) return;
+
+	bool present_front_staging =
+	    DSpShouldPresentFrontBufferStagingForState(
+	        active->attr.backBufferBestDepth,
+	        active->attr.displayBestDepth,
+	        active->front_staging_mac_addr,
+	        active->front_staging_size,
+	        active->state,
+	        (uint32_t)kDSpContextState_Active);
+	if (!DSpShouldPublishActiveContextOnVBL(snap->active_owner,
+	                                        (uint32_t)kDMCOwnerDSp,
+	                                        active != nullptr,
+	                                        present_front_staging,
+	                                        active->explicit_swap_observed)) {
+		return;
+	}
+
+	const bool has_back_buffer_staging = (active->staging_mac_addr != 0);
+	if (DSpShouldFlushNQDBeforeStagingDrain(has_back_buffer_staging,
+	                                       present_front_staging)) {
+		NQDMetalFlush();
+	}
+
+	/* Staging-drain (Landmine-1 — mirrors SwapBuffers lines 2123-2136).
+	 * When DSpRedirectMainDevicePixMap fell back to the
+	 * guest-RAM staging path because Host2MacAddr could not map
+	 * back_buffer.contents, the emulated app has been writing through
+	 * staging_mac_addr. Drain into back_buffer.contents BEFORE the GPU
+	 * blit so the texture view sees the latest pixels. */
+	if (has_back_buffer_staging) {
+		const uint32_t w         = active->attr.displayWidth;
+		const uint32_t h         = active->attr.displayHeight;
+		const uint32_t bpp       = active->attr.backBufferBestDepth;
+		const uint32_t row_bytes = (w * bpp + 7) / 8;
+		const uint32_t alignedRB = (row_bytes + 255) & ~255u;
+		const uint32_t buffer_size = alignedRB * h;
+
+		uint8_t *staging_host  = Mac2HostAddr(active->staging_mac_addr);
+		void    *back_contents = [active->back_buffer contents];
+		if (staging_host != NULL && back_contents != NULL) {
+			memcpy(back_contents, staging_host, buffer_size);
+		}
+	}
+
+	/* Encode the back_texture -> framebuffer_texture present. Routes
+	 * through DSpEncodePresentToFramebuffer (dsp_metal_renderer.mm),
+	 * which picks blit-vs-render-pass per pixel format:
+	 *   - matched-format (e.g. 32 bpp BGRA8Unorm <-> BGRA8Unorm): blit.
+	 *   - mismatched-format (e.g. 16 bpp R16Uint xRGB1555 -> BGRA8Unorm
+	 *     compositor framebuffer): DSp-owned render pass with inline-
+	 *     compiled fragment shader. The compositor framebuffer MUST be
+	 *     BGRA8Unorm per metal_compositor.h:69 — DSp converts on the
+	 *     engine side, the compositor stays engine-blind.
+	 * Metal validation rejected the previous raw-blit path when Sims
+	 * switched to 16 bpp. */
+	void *fb_tex_raw = MetalCompositorGetFramebufferTexture();
+	if (fb_tex_raw == NULL) {
+		/* Compositor not yet initialized — graceful no-op (same shape as
+		 * SwapBuffers lines 2096-2100 but silent here because this fires
+		 * every VBL). */
+		return;
+	}
+
+	id<MTLCommandQueue> queue =
+	    (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
+	if (queue == NULL) {
+		return;
+	}
+
+	@autoreleasepool {
+		id<MTLCommandBuffer> cb = [queue commandBuffer];
+		if (cb == NULL) {
+			return;
+		}
+		/* Route through the format-aware present
+		 * helper so 16 bpp xRGB1555 -> BGRA8Unorm goes through a DSp-
+		 * owned render pass (Metal blit copyFromTexture rejects pixel-
+		 * size-mismatched format pairs on Catalyst). */
+		bool front_presented = false;
+		if (present_front_staging) {
+			front_presented =
+			    DSpEncodeFrontBufferStagingToFramebuffer(active,
+			                                             (__bridge void *)cb,
+			                                             fb_tex_raw);
+		}
+		if (!front_presented) {
+			DSpEncodePresentToFramebuffer(active, (__bridge void *)cb, fb_tex_raw);
+		}
+		/* Register the GPU-completion latch BEFORE commit
+		 * (addCompletedHandler is illegal afterwards): the encoded present
+		 * reads back_texture — DSp-heap memory — so the heap bump reset
+		 * must defer until this buffer completes. */
+		gfxaccel_resources_heap_note_gpu_commit(kHeapEngineDSp,
+		                                        (__bridge void *)cb);
+		[cb commit];
+	}
+
+	/* Build the engine-blind CompositeLayer + FrameDescriptor and submit.
+	 * Mirrors SwapBuffers lines 2157-2179. */
+	struct CompositeLayer layer;
+	std::memset(&layer, 0, sizeof(layer));
+	layer.source       = fb_tex_raw;
+	layer.src_origin_x = 0;
+	layer.src_origin_y = 0;
+	layer.src_size_w   = active->attr.displayWidth;
+	layer.src_size_h   = active->attr.displayHeight;
+	layer.dst_origin_x = 0.0f;
+	layer.dst_origin_y = 0.0f;
+	layer.dst_size_w   = (float)active->attr.displayWidth;
+	layer.dst_size_h   = (float)active->attr.displayHeight;
+	layer.slot         = kLayerSlotFramebuffer;
+	layer.blend        = kBlendOpaque;
+	layer.alpha        = 1.0f;
+
+	struct FrameDescriptor desc;
+	desc.layers               = &layer;
+	desc.layer_count          = 1;
+	desc.generation           = snap->generation;
+	desc.vbl_tick_target_usec = 0;
+
+	(void)MetalCompositorSubmitFrame(&desc);
+}
+
+extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
+                                                  uint32_t busyProcAddr,
+                                                  uint32_t userRefCon)
+{
+	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
+	if (ctx == nullptr) {
+		DSP_LOG("SwapBuffers: invalid ctxRef=%u", ctxRef);
+		return kDSpInvalidContextErr;
+	}
+	if (ctx->back_texture == NULL || ctx->back_buffer == NULL) {
+		DSP_LOG("SwapBuffers: ctxRef=%u has no back-buffer", ctxRef);
+		return kDSpInternalErr;
+	}
+
+	ctx->explicit_swap_observed = true;
+	ctx->swap_generation++;
+
+	/* State captured at entry — revalidation rejects on CHANGE during the
+	 * busyProc / frame-pacing re-entry windows, not on non-Active per se. */
+	const uint32_t entry_state = ctx->state;
+
+	/* Pre-swap busyProc gate (PDF p.39 — constraints-before-swap, NOT
+	 * post-swap completion). */
+	if (!DSpPollBusyProc(ctxRef, busyProcAddr, userRefCon)) {
+		DSP_LOG("SwapBuffers: busyProc gate timed out (2 VBL cap); "
+		        "proceeding with swap");
+	}
+	int32_t revalidate_rc =
+	    DSpRevalidateSwapContext(ctxRef, ctx, entry_state, &ctx, "busyProc");
+	if (revalidate_rc != kDSpNoErr) return revalidate_rc;
+
+	/* VBL sync unless kDSpContextOption_DontSyncVBL is set. max_frame_rate
+	 * multiplies the same DSp pacing lane, so a 60-fps cap on a 120-Hz
+	 * display waits for two VBL periods instead of one. */
+	if ((ctx->attr.contextOptions & kDSpContextOption_DontSyncVBL) == 0) {
+		DSpSyncSwapFramePacing(ctxRef, ctx->max_frame_rate);
+		revalidate_rc =
+		    DSpRevalidateSwapContext(ctxRef, ctx, entry_state, &ctx,
+		                             "frame pacing");
+		if (revalidate_rc != kDSpNoErr) return revalidate_rc;
+	}
+
+	/* Explicit pre-blit into the compositor-owned
+	 * framebuffer texture. CompositeLayer.source is the framebuffer
+	 * texture (NOT ctx->back_texture) so the compositor sees only slot +
+	 * framebuffer handle; no DSp identity leaks. SC #5 preserved
+	 * by construction. */
+	void *fb_tex_raw = MetalCompositorGetFramebufferTexture();
+	if (fb_tex_raw == NULL) {
+		DSP_LOG("SwapBuffers: no compositor framebuffer texture — "
+		        "compositor not initialized?");
+		return kDSpInternalErr;
+	}
+
+	id<MTLCommandQueue> queue =
+	    (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
+	if (queue == NULL) {
+		DSP_LOG("SwapBuffers: shared Metal command queue is NULL");
+		return kDSpInternalErr;
+	}
+
+	@autoreleasepool {
+		id<MTLCommandBuffer> cb = [queue commandBuffer];
+		if (cb == NULL) {
+			DSP_LOG("SwapBuffers: commandBuffer returned NULL");
+			return kDSpInternalErr;
+		}
+
+		bool present_front_staging =
+		    DSpShouldPresentFrontBufferStagingForSwap(
+		        ctx->attr.backBufferBestDepth,
+		        ctx->attr.displayBestDepth,
+		        ctx->front_staging_mac_addr,
+		        ctx->front_staging_size,
+		        ctx->state,
+		        (uint32_t)kDSpContextState_Active);
+		const bool has_back_buffer_staging = (ctx->staging_mac_addr != 0);
+		if (DSpShouldFlushNQDBeforeStagingDrain(has_back_buffer_staging,
+		                                       present_front_staging)) {
+			NQDMetalFlush();
+		}
+
+		/* Stage 1 (W1 staging path): if GetBackBuffer was forced to
+		 * vend a guest-RAM staging region because Host2MacAddr could not
+		 * map the MTLBuffer contents pointer, the emulated app has been
+		 * writing into the staging region. memcpy staging →
+		 * back_buffer.contents BEFORE encoding the GPU blit so the
+		 * texture view sees the latest pixels. This preserves guest-
+		 * writable CGrafPtr semantics. */
+		if (has_back_buffer_staging) {
+			uint32_t w         = ctx->attr.displayWidth;
+			uint32_t h         = ctx->attr.displayHeight;
+			uint32_t bpp       = ctx->attr.backBufferBestDepth;
+			uint32_t row_bytes = (w * bpp + 7) / 8;
+			uint32_t alignedRB = (row_bytes + 255) & ~255u;
+			uint32_t buffer_size = alignedRB * h;
+
+			uint8_t *staging_host = Mac2HostAddr(ctx->staging_mac_addr);
+			void    *back_contents = ctx->back_buffer.contents;
+			if (staging_host != NULL && back_contents != NULL) {
+				memcpy(back_contents, staging_host, buffer_size);
+			}
+		}
+
+		/* Stage 2: encode the back_texture → framebuffer_texture blit
+		 * (or unpack render pass when pixel formats differ — e.g. 16 bpp
+		 * R16Uint back_texture against a BGRA8Unorm framebuffer texture
+		 * after a mid-app depth switch). DSpEncodePresentToFramebuffer
+		 * opens / closes its own encoder; we just commit the command
+		 * buffer afterwards. */
+		bool front_presented = false;
+		if (present_front_staging) {
+			front_presented =
+			    DSpEncodeFrontBufferStagingToFramebuffer(ctx,
+			                                             (__bridge void *)cb,
+			                                             fb_tex_raw);
+		}
+		if (!front_presented) {
+			DSpEncodePresentToFramebuffer(ctx, (__bridge void *)cb, fb_tex_raw);
+		}
+		/* Register the GPU-completion latch BEFORE commit
+		 * (addCompletedHandler is illegal afterwards): the encoded present
+		 * reads back_texture — DSp-heap memory — so the heap bump reset
+		 * must defer until this buffer completes. */
+		gfxaccel_resources_heap_note_gpu_commit(kHeapEngineDSp,
+		                                        (__bridge void *)cb);
+		[cb commit];
+	}
+
+	/* Stage 3: submit an engine-blind CompositeLayer whose source is the
+	 * COMPOSITOR-OWNED framebuffer texture. The compositor's production
+	 * SubmitFrame caches overlay layers and no-ops framebuffer-slot
+	 * layers in favor of MetalCompositorPresent's internal path — our
+	 * blit into compositor_texture above is what actually makes the
+	 * DSp-owned pixels visible. The SubmitFrame call here carries
+	 * descriptor validation + stale-generation rejection semantics so
+	 * DSp participates in the same frame-fence shape as RAVE/GL. */
+	struct CompositeLayer layer;
+	std::memset(&layer, 0, sizeof(layer));
+	layer.source       = fb_tex_raw;
+	layer.src_origin_x = 0;
+	layer.src_origin_y = 0;
+	layer.src_size_w   = ctx->attr.displayWidth;
+	layer.src_size_h   = ctx->attr.displayHeight;
+	layer.dst_origin_x = 0.0f;
+	layer.dst_origin_y = 0.0f;
+	layer.dst_size_w   = (float)ctx->attr.displayWidth;
+	layer.dst_size_h   = (float)ctx->attr.displayHeight;
+	layer.slot         = kLayerSlotFramebuffer;
+	layer.blend        = kBlendOpaque;
+	layer.alpha        = 1.0f;
+
+	const struct DMCModeSnapshot *snap = dmc_current_snapshot();
+	struct FrameDescriptor desc;
+	desc.layers               = &layer;
+	desc.layer_count          = 1;
+	desc.generation           = snap ? snap->generation : 0;
+	desc.vbl_tick_target_usec = 0;
+
+	int32_t rc = MetalCompositorSubmitFrame(&desc);
+	if (rc == kGfxAccelErrStaleGeneration) {
+		DSP_LOG("SwapBuffers: SubmitFrame stale generation; dropping "
+		        "frame (ctxRef=%u)", ctxRef);
+		/* Per the engine-blind contract, the caller should rebuild on the
+		 * next mode snapshot — return noErr so DSp clients don't abandon
+		 * their run-loops; classic-Mac apps have no "rebuild" concept
+		 * and expect SwapBuffers to always succeed unless something is
+		 * critically wrong. */
+	} else if (rc != kGfxAccelNoErr) {
+		DSP_LOG("SwapBuffers: SubmitFrame returned %d (ctxRef=%u)",
+		        rc, ctxRef);
+	}
+
+	/* Reset dirty state. SwapBuffers always full-blits; the
+	 * dirty-union reset logic subsumes these two lines. */
+	ctx->dirty_empty      = true;
+	ctx->dirty_cold_start = false;
+
+	/* PDF p.39: "This function returns immediately, even if the buffer
+	 * swap has not yet occurred." */
+	return kDSpNoErr;
+}
+
+static inline MTLPixelFormat DSpAltPixelFormatForDepth(uint32_t depth)
+{
+	switch (depth) {
+		case 8:  return MTLPixelFormatR8Uint;
+		case 16: return MTLPixelFormatR16Uint;
+		default: return MTLPixelFormatBGRA8Unorm;
+	}
+}
+
+/* Allocate the heap-routed depth-matched backing (MTLBuffer + texture view)
+ * for an alt-buffer record. Mirrors DSpAllocateBackBuffer's heap-alloc +
+ * texture-view idiom at rec->depth (set by New from the owning context;
+ * persists across the background/foreground release-restore cycle). Returns
+ * true on success; on failure leaves rec->backing/texture nil. */
+static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
+                                     uint32_t w, uint32_t h)
+{
+	if (rec == nullptr || w == 0 || h == 0) return false;
+	const uint32_t bpp_bytes = DSpAltBytesPerPixel(rec->depth);
+
+	/* Bound the dimensions and compute the backing size in 64-bit so the
+	 * uint32 row-bytes / buffer-size products cannot overflow (which would
+	 * under-allocate for a record whose width/height are huge). The dim cap
+	 * also keeps alignedRB <= 0x3FFF so the 16-bit GetCGrafPtr rowBytes write
+	 * is always exact. Reject anything past the caps. */
+	if (w > DSP_ALT_MAX_DIM || h > DSP_ALT_MAX_DIM) {
+		DSP_LOG("DSpAllocAltBufferBacking: dims %ux%u exceed DSP_ALT_MAX_DIM=%u",
+		        w, h, (uint32_t)DSP_ALT_MAX_DIM);
+		return false;
+	}
+	uint64_t row_bytes64 = (uint64_t)w * (uint64_t)bpp_bytes;
+	uint64_t aligned64   = (row_bytes64 + 255u) & ~(uint64_t)255u;
+	uint64_t size64      = aligned64 * (uint64_t)h;
+	if (aligned64 > 0xFFFFFFFFu || size64 > DSP_ALT_MAX_BACKING_BYTES) {
+		DSP_LOG("DSpAllocAltBufferBacking: backing too large (alignedRB=%llu "
+		        "size=%llu, %ux%u) -> reject",
+		        (unsigned long long)aligned64, (unsigned long long)size64, w, h);
+		return false;
+	}
+	uint32_t alignedRB   = (uint32_t)aligned64;
+	uint32_t buffer_size = (uint32_t)size64;
+
+	void *buf_raw = gfxaccel_resources_heap_alloc_buffer(
+	    kHeapEngineDSp,                            /* per-engine DSp heap */
+	    buffer_size,
+	    (uint32_t)MTLResourceStorageModeShared);
+	if (buf_raw == NULL) {
+		DSP_LOG("DSpAllocAltBufferBacking: heap alloc failed (size=%u, %ux%u)",
+		        buffer_size, w, h);
+		return false;
+	}
+	id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buf_raw;
+
+	MTLTextureDescriptor *desc = [MTLTextureDescriptor new];
+	desc.textureType = MTLTextureType2D;
+	desc.pixelFormat = DSpAltPixelFormatForDepth(rec->depth);
+	desc.width       = (NSUInteger)w;
+	desc.height      = (NSUInteger)h;
+	desc.storageMode = MTLStorageModeShared;
+	desc.usage       = MTLTextureUsageShaderRead;
+
+	id<MTLTexture> tex = [buf newTextureWithDescriptor:desc
+	                                            offset:0
+	                                       bytesPerRow:alignedRB];
+	if (tex == nil) {
+		DSP_LOG("DSpAllocAltBufferBacking: newTextureWithDescriptor returned nil "
+		        "(%ux%u alignedRB=%u)", w, h, alignedRB);
+		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
+		return false;
+	}
+
+	rec->backing = buf;
+	rec->texture = tex;
+	rec->width   = w;
+	rec->height  = h;
+
+	/* Tag the backing with the DSp engine id for per-buffer ownership.
+	 * The compositor never queries this tag. */
+	gfxaccel_resources_set_buffer_owner((__bridge void *)buf,
+	                                    (uint32_t)kGfxEngineDSp);
+	return true;
+}
+
+void* DSpGetBackingContents(void* backing)
+{
+	return [((__bridge id<MTLBuffer>)backing) contents];
 }

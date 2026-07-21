@@ -2897,3 +2897,11 @@ void RaveRefreshTextureFromPixmap(RaveResourceEntry *entry)
 		                  stats.alpha);
 	}
 }
+int32_t NativeATIClearDrawBuffer(uint32_t ctx, uint32_t rect)
+{
+	return NativeClearDrawBuffer(ctx, rect, 0);
+}
+int32_t NativeATIClearZBuffer(uint32_t ctx, uint32_t rect)
+{
+	return NativeClearZBuffer(ctx, rect, 0);
+}

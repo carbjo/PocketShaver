@@ -15,7 +15,6 @@
  *  declared in dsp_draw_context.h; the internal statics have no out-of-module
  *  callers, so no extra header is needed.
  */
-#import <Metal/Metal.h>
 
 #include "sysdeps.h"
 #include "cpu_emulation.h"

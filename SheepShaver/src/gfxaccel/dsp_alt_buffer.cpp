@@ -16,8 +16,6 @@
  *  DSpResetAltBufferTable) is declared in dsp_alt_buffer.h. The record struct +
  *  DSP_MAX_ALT_BUFFERS live in dsp_alt_buffer.h.
  */
-#import <Metal/Metal.h>
-
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "thunks.h"                /* SheepMem::Reserve (test hook) */
@@ -68,7 +66,7 @@ static void DSpResetHeapIfIdleAfterAltBufferRelease(const char *reason)
 
 /* Zero a record's fields WITHOUT memset (DSpAltBufferRecord holds ARC
  * id<MTLBuffer>/id<MTLTexture> fields — memset over them bypasses ARC and is
- * undefined, -Wnontrivial-memcall). ObjC fields are assigned nil (ARC
+ * undefined, -Wnontrivial-memcall). ObjC fields are assigned NULL (ARC
  * releases); POD fields are explicitly reset. */
 static void DSpClearAltBufferRecord(DSpAltBufferRecord *rec)
 {
@@ -81,12 +79,12 @@ static void DSpClearAltBufferRecord(DSpAltBufferRecord *rec)
 		                               rec->baseaddr_size, true);
 	}
 	rec->in_use            = false;
-	rec->texture           = nil;   /* texture is a view over backing — drop it first */
-	if (rec->backing != nil) {
-		gfxaccel_resources_clear_buffer_owner((__bridge void *)rec->backing);
+	rec->texture           = NULL;   /* texture is a view over backing — drop it first */
+	if (rec->backing != NULL) {
+		gfxaccel_resources_clear_buffer_owner(rec->backing);
 		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 	}
-	rec->backing           = nil;   /* DSp heap resets when all DSp buffers are idle */
+	rec->backing           = NULL;   /* DSp heap resets when all DSp buffers are idle */
 	rec->cgrafptr_mac_addr = 0;
 	rec->baseaddr_mac      = 0;
 	rec->baseaddr_size     = 0;
@@ -160,101 +158,6 @@ static void DSpFreeAltBuffer(uint32_t handle)
  *  a depth mismatch and the game presented nothing).                     *
  * --------------------------------------------------------------------- */
 
-/* Bytes per pixel / Metal format for an alt-buffer depth. Same depth->format
- * mapping as the back buffer (dsp_metal_renderer.mm DSpPixelFormatForDepthBits):
- * 8 -> R8Uint (indexed, CLUT unpack), 16 -> R16Uint (xRGB1555), 32 ->
- * BGRA8Unorm. Anything else is normalized to 32 at New time. */
-static inline uint32_t DSpAltBytesPerPixel(uint32_t depth)
-{
-	switch (depth) {
-		case 8:  return 1u;
-		case 16: return 2u;
-		default: return 4u;
-	}
-}
-
-static inline MTLPixelFormat DSpAltPixelFormatForDepth(uint32_t depth)
-{
-	switch (depth) {
-		case 8:  return MTLPixelFormatR8Uint;
-		case 16: return MTLPixelFormatR16Uint;
-		default: return MTLPixelFormatBGRA8Unorm;
-	}
-}
-
-/* Allocate the heap-routed depth-matched backing (MTLBuffer + texture view)
- * for an alt-buffer record. Mirrors DSpAllocateBackBuffer's heap-alloc +
- * texture-view idiom at rec->depth (set by New from the owning context;
- * persists across the background/foreground release-restore cycle). Returns
- * true on success; on failure leaves rec->backing/texture nil. */
-static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
-                                     uint32_t w, uint32_t h)
-{
-	if (rec == nullptr || w == 0 || h == 0) return false;
-	const uint32_t bpp_bytes = DSpAltBytesPerPixel(rec->depth);
-
-	/* Bound the dimensions and compute the backing size in 64-bit so the
-	 * uint32 row-bytes / buffer-size products cannot overflow (which would
-	 * under-allocate for a record whose width/height are huge). The dim cap
-	 * also keeps alignedRB <= 0x3FFF so the 16-bit GetCGrafPtr rowBytes write
-	 * is always exact. Reject anything past the caps. */
-	if (w > DSP_ALT_MAX_DIM || h > DSP_ALT_MAX_DIM) {
-		DSP_LOG("DSpAllocAltBufferBacking: dims %ux%u exceed DSP_ALT_MAX_DIM=%u",
-		        w, h, (uint32_t)DSP_ALT_MAX_DIM);
-		return false;
-	}
-	uint64_t row_bytes64 = (uint64_t)w * (uint64_t)bpp_bytes;
-	uint64_t aligned64   = (row_bytes64 + 255u) & ~(uint64_t)255u;
-	uint64_t size64      = aligned64 * (uint64_t)h;
-	if (aligned64 > 0xFFFFFFFFu || size64 > DSP_ALT_MAX_BACKING_BYTES) {
-		DSP_LOG("DSpAllocAltBufferBacking: backing too large (alignedRB=%llu "
-		        "size=%llu, %ux%u) -> reject",
-		        (unsigned long long)aligned64, (unsigned long long)size64, w, h);
-		return false;
-	}
-	uint32_t alignedRB   = (uint32_t)aligned64;
-	uint32_t buffer_size = (uint32_t)size64;
-
-	void *buf_raw = gfxaccel_resources_heap_alloc_buffer(
-	    kHeapEngineDSp,                            /* per-engine DSp heap */
-	    buffer_size,
-	    (uint32_t)MTLResourceStorageModeShared);
-	if (buf_raw == NULL) {
-		DSP_LOG("DSpAllocAltBufferBacking: heap alloc failed (size=%u, %ux%u)",
-		        buffer_size, w, h);
-		return false;
-	}
-	id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buf_raw;
-
-	MTLTextureDescriptor *desc = [MTLTextureDescriptor new];
-	desc.textureType = MTLTextureType2D;
-	desc.pixelFormat = DSpAltPixelFormatForDepth(rec->depth);
-	desc.width       = (NSUInteger)w;
-	desc.height      = (NSUInteger)h;
-	desc.storageMode = MTLStorageModeShared;
-	desc.usage       = MTLTextureUsageShaderRead;
-
-	id<MTLTexture> tex = [buf newTextureWithDescriptor:desc
-	                                            offset:0
-	                                       bytesPerRow:alignedRB];
-	if (tex == nil) {
-		DSP_LOG("DSpAllocAltBufferBacking: newTextureWithDescriptor returned nil "
-		        "(%ux%u alignedRB=%u)", w, h, alignedRB);
-		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
-		return false;
-	}
-
-	rec->backing = buf;
-	rec->texture = tex;
-	rec->width   = w;
-	rec->height  = h;
-
-	/* Tag the backing with the DSp engine id for per-buffer ownership.
-	 * The compositor never queries this tag. */
-	gfxaccel_resources_set_buffer_owner((__bridge void *)buf,
-	                                    (uint32_t)kGfxEngineDSp);
-	return true;
-}
 
 /* --- DSpAltBuffer_NewHandler (sub-op 700) ---
  *
@@ -381,6 +284,19 @@ extern "C" int32_t DSpAltBuffer_DisposeHandler(uint32_t altBuffer)
 }
 
 
+/* Bytes per pixel / Metal format for an alt-buffer depth. Same depth->format
+ * mapping as the back buffer (dsp_metal_renderer.mm DSpPixelFormatForDepthBits):
+ * 8 -> R8Uint (indexed, CLUT unpack), 16 -> R16Uint (xRGB1555), 32 ->
+ * BGRA8Unorm. Anything else is normalized to 32 at New time. */
+inline uint32_t DSpAltBytesPerPixel(uint32_t depth)
+{
+	switch (depth) {
+		case 8:  return 1u;
+		case 16: return 2u;
+		default: return 4u;
+	}
+}
+
 /* --- DSpAltBuffer_GetCGrafPtrHandler (sub-op 702) ---
  *
  *  DSp 1.7 PDF p.50: DSpAltBuffer_GetCGrafPtr(inAltBuffer, inBufferKind,
@@ -443,8 +359,8 @@ extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
 	 * (uint32)(uintptr_t) — UB on arm64. */
 	uint32_t baseAddr_mac = 0;
 	bool baseaddr_owned_staging = false;
-	void *contents = rec->backing.contents;        /* NULL on StorageModePrivate */
-	if (contents != NULL) {
+	void *contents = DSpGetBackingContents(rec->backing);
+	if (contents != NULL) { /* NULL on StorageModePrivate */
 		baseAddr_mac = DSpUsableGuestBaseOrZero(
 			Host2MacAddr((uint8 *)contents),
 			buffer_size,
@@ -645,10 +561,10 @@ extern "C" int32_t DSpContext_GetUnderlayAltBufferHandler(uint32_t ctxRef,
  * no owned guest staging. */
 void DSpSyncAltBufferStagingToBacking(DSpAltBufferRecord *rec)
 {
-	if (rec == nullptr || rec->backing == nil) return;
+	if (rec == nullptr || rec->backing == NULL) return;
 	if (rec->baseaddr_mac == 0 || !rec->baseaddr_owned_staging) return;
-	void *dst = rec->backing.contents;        /* NULL on StorageModePrivate */
-	if (dst == NULL) return;
+	void *dst = DSpGetBackingContents(rec->backing);
+	if (dst == NULL) return; /* NULL on StorageModePrivate */
 	uint8_t *src = Mac2HostAddr(rec->baseaddr_mac);
 	if (src == NULL) return;
 	uint32_t alignedRB  = ((rec->width * DSpAltBytesPerPixel(rec->depth))
@@ -674,13 +590,13 @@ void DSpReleaseAltBufferBackingsForBackground(void)
 	uint32_t released = 0;
 	for (int i = 0; i < DSP_MAX_ALT_BUFFERS; i++) {
 		DSpAltBufferRecord *rec = &dsp_alt_buffer_table[i];
-		if (!rec->in_use || rec->backing == nil) continue;
+		if (!rec->in_use || rec->backing == NULL) continue;
 		/* Texture is a view over the backing — drop it first. Guest
 		 * staging, dims, and in_use stay intact for foreground restore. */
-		rec->texture = nil;
-		gfxaccel_resources_clear_buffer_owner((__bridge void *)rec->backing);
+		rec->texture = NULL;
+		gfxaccel_resources_clear_buffer_owner(rec->backing);
 		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
-		rec->backing = nil;
+		rec->backing = NULL;
 		released++;
 	}
 	if (released > 0) {
@@ -693,10 +609,10 @@ void DSpRestoreAltBufferBackingsForForeground(void)
 {
 	for (int i = 0; i < DSP_MAX_ALT_BUFFERS; i++) {
 		DSpAltBufferRecord *rec = &dsp_alt_buffer_table[i];
-		if (!rec->in_use || rec->backing != nil) continue;
+		if (!rec->in_use || rec->backing != NULL) continue;
 		if (rec->width == 0 || rec->height == 0) continue;
 		if (!DSpAllocAltBufferBacking(rec, rec->width, rec->height)) {
-			/* Leave backing nil — sync/blit paths nil-check it; the next
+			/* Leave backing NULL — sync/blit paths NULL-check it; the next
 			 * foreground retries, matching the back-buffer policy. */
 			DSP_LOG("Foreground: alt-buffer %d backing re-alloc FAILED "
 			        "(retry on next fg)", i + 1);

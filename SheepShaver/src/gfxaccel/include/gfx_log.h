@@ -115,11 +115,11 @@ static inline void gfx_log_emit(const char *prefix, const char *format, ...)
 	gfx_log_emit("", "[%s ERROR] " fmt, (tag), ##__VA_ARGS__)
 
 #ifndef QD3D_INIT_LOGGING_ENABLED
-#define QD3D_INIT_LOGGING_ENABLED 0
+#define QD3D_INIT_LOGGING_ENABLED 1
 #endif
 
 #ifndef QD3D_GRAPHICS_LOGGING_ENABLED
-#define QD3D_GRAPHICS_LOGGING_ENABLED 0
+#define QD3D_GRAPHICS_LOGGING_ENABLED 1
 #endif
 
 #ifndef QD3D_AUDIO_LOGGING_ENABLED
