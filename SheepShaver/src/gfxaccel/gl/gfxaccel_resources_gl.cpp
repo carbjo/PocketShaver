@@ -5,10 +5,9 @@
 
 #include "sysdeps.h"
 #include "gfxaccel_resources.h"
-#include "gl_device.h"
 #include "gl_ext.h"
 #include "vbl_source.h"
-#include "metal_compositor.h"
+#include "metal_device_shared.h"
 
 #include <SDL_opengl.h>
 #include <cstdio>
@@ -32,7 +31,7 @@ extern "C" void gfxaccel_resources_mm_init_metal_state(void)
 
 extern "C" void gfxaccel_resources_mm_shutdown_metal_state(void)
 {
-	if (GfxGLDeviceMakeCurrent()) {
+	if (SharedMetalDevice()) {
 		for (int e = 0; e < kGfxEngineCount; e++) {
 			for (int i = 0; i < 2; i++) {
 				if (s_overlays[e].tex[i]) {
@@ -53,7 +52,7 @@ void *gfxaccel_resources_get_framebuffer_buffer(void *host_base, uint32_t /*leng
 
 static GLuint make_tex(uint32_t w, uint32_t h)
 {
-	if (!GfxGLDeviceMakeCurrent()) return 0;
+	if (!SharedMetalDevice()) return 0;
 	GLuint tex = 0;
 	glGenTextures(1, &tex);
 	glBindTexture(GL_TEXTURE_2D, tex);
@@ -82,7 +81,7 @@ void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine_id,
 	OverlaySlot &s = s_overlays[engine_id];
 	if (s.w != width || s.h != height || s.format != pixel_format) {
 		for (int i = 0; i < 2; i++) {
-			if (s.tex[i] && GfxGLDeviceMakeCurrent())
+			if (s.tex[i] && SharedMetalDevice())
 				glDeleteTextures(1, &s.tex[i]);
 			s.tex[i] = 0;
 		}
@@ -102,7 +101,7 @@ void gfxaccel_resources_release_overlay_texture(uint32_t engine_id, void *textur
 	OverlaySlot &s = s_overlays[engine_id];
 	for (int i = 0; i < 2; i++) {
 		if (s.tex[i] == tex) {
-			if (GfxGLDeviceMakeCurrent()) glDeleteTextures(1, &s.tex[i]);
+			if (SharedMetalDevice()) glDeleteTextures(1, &s.tex[i]);
 			s.tex[i] = 0;
 		}
 	}

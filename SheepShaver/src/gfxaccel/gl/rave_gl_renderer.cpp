@@ -16,10 +16,10 @@
 #include "rave_mipmap_bias_policy.h"
 #include "rave_overlay_clear_policy.h"
 #include "rave_compositor_rect.h"
+#include "metal_device_shared.h"
 #include "metal_compositor.h"
 #include "gfxaccel_resources.h"
 #include "display_mode_controller.h"
-#include "gl_device.h"
 #include "gl_ext.h"
 #include "gfxaccel_backend.h"
 #include "macos_util.h"
@@ -330,11 +330,6 @@ void RaveInitMetalResources(RaveDrawPrivate *priv)
 		QD3D_INIT_LOG("RaveInitMetalResources(GL): rejected null context");
 		return;
 	}
-	if (!GfxGLDeviceInit()) {
-		QD3D_INIT_LOG("RaveInitMetalResources(GL): GL device/current failed; returning without native state");
-		RAVE_LOG("RaveInitMetalResources: GL device failed");
-		return;
-	}
 	if (priv->metal) {
 		delete priv->metal;
 		priv->metal = nullptr;
@@ -358,7 +353,7 @@ void RaveReleaseMetalResources(RaveDrawPrivate *priv)
 		s_active_render_pass = nullptr;
 	if (s_draw_state_owner == priv->metal)
 		s_draw_state_owner = nullptr;
-	if (GfxGLDeviceMakeCurrent()) {
+	if (SharedMetalDevice()) {
 		auto &ext = gfx_gl_ext();
 		if (ext.fbo) {
 			if (ms->fbo) ext.DeleteFramebuffers(1, &ms->fbo);
@@ -374,7 +369,7 @@ void RaveReleaseMetalResources(RaveDrawPrivate *priv)
 static bool bind_overlay_fbo(RaveMetalState *ms, uint32_t w, uint32_t h)
 {
 	assert(ms != nullptr);
-	if (!GfxGLDeviceMakeCurrent()) {
+	if (!SharedMetalDevice()) {
 		QD3D_RENDER_LOG("bind_overlay_fbo: MakeCurrent failed");
 		return false;
 	}
@@ -446,7 +441,7 @@ static void unbind_fbo(void)
 static bool restore_overlay_fbo(RaveMetalState *ms)
 {
 	assert(ms != nullptr);
-	if (!ms->fbo || !ms->color_tex || !GfxGLDeviceMakeCurrent())
+	if (!ms->fbo || !ms->color_tex || !SharedMetalDevice())
 		return false;
 	auto &ext = gfx_gl_ext();
 	if (!ext.fbo) return false;
@@ -566,7 +561,7 @@ static bool copy_overlay_to_guest(const RaveDrawPrivate *priv,
 	                              RaveMetalState *ms)
 {
 	const uint32_t pixel_type = notice_pixel_type(priv);
-	if (!ensure_draw_buffer_cpu(ms, pixel_type) || !GfxGLDeviceMakeCurrent())
+	if (!ensure_draw_buffer_cpu(ms, pixel_type) || !SharedMetalDevice())
 		return false;
 	auto &ext = gfx_gl_ext();
 	if (!ext.fbo || !ms->fbo) return false;
@@ -616,7 +611,7 @@ static bool copy_overlay_to_guest(const RaveDrawPrivate *priv,
 static bool upload_guest_to_overlay(RaveMetalState *ms, uint32_t rect_addr)
 {
 	if (!ms || !ms->color_tex || !ms->draw_cpu_mac ||
-	    !GfxGLDeviceMakeCurrent()) return false;
+	    !SharedMetalDevice()) return false;
 	int32_t left = 0, right = (int32_t)ms->w;
 	int32_t top = 0, bottom = (int32_t)ms->h;
 	if (rect_addr) {
@@ -1491,7 +1486,7 @@ static void flush_zsort_buffer(RaveDrawPrivate *priv)
 {
 	flush_draw_batch();
 	if (!priv || !priv->zsortBuffer || priv->zsortCount == 0) return;
-	if (!GfxGLDeviceMakeCurrent()) return;
+	if (!SharedMetalDevice()) return;
 
 	std::sort(priv->zsortBuffer, priv->zsortBuffer + priv->zsortCount,
 	          [](const ZSortTriangle &x, const ZSortTriangle &y) {
@@ -1827,8 +1822,8 @@ int32_t NativeRenderAbort(uint32_t drawContextAddr)
 	                (unsigned long long)ms->vertices);
 	return kQANoErr;
 }
-int32_t NativeFlush(uint32_t) { flush_draw_batch(); if (GfxGLDeviceMakeCurrent()) glFlush(); return kQANoErr; }
-int32_t NativeSync(uint32_t) { flush_draw_batch(); if (GfxGLDeviceMakeCurrent()) glFinish(); return kQANoErr; }
+int32_t NativeFlush(uint32_t) { flush_draw_batch(); if (SharedMetalDevice()) glFlush(); return kQANoErr; }
+int32_t NativeSync(uint32_t) { flush_draw_batch(); if (SharedMetalDevice()) glFinish(); return kQANoErr; }
 
 /*
  *  NativeATIGetDrawBuffer - ATI RaveExtFuncs slot 4 (sub-opcode 304)
@@ -1920,7 +1915,7 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 	const bool newContent = (ms->frame_generation != ms->cpu_composite_copied_gen) ||
 	                        ms->pass_active;
 	if (newContent && ms->color_tex && ms->ati_back_buffer_host &&
-	    GfxGLDeviceMakeCurrent()) {
+	    SharedMetalDevice()) {
 		auto &ext = gfx_gl_ext();
 		if (ext.fbo && ms->fbo) {
 			const uint32_t w = ms->w, h = ms->h;
@@ -2536,7 +2531,7 @@ int32_t NativeAccessDrawBuffer(uint32_t drawContextAddr, uint32_t bufferStructAd
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !bufferStructAddr) return kQAError;
 	RaveMetalState *ms = priv->metal;
-	if (!ms->pass_active || !ms->color_tex || !GfxGLDeviceMakeCurrent()) return kQAError;
+	if (!ms->pass_active || !ms->color_tex || !SharedMetalDevice()) return kQAError;
 	if (!copy_overlay_to_guest(priv, ms)) return kQAError;
 	WriteMacInt32(bufferStructAddr + 0, ms->draw_cpu_row_bytes);
 	WriteMacInt32(bufferStructAddr + 4, ms->draw_cpu_pixel_type);
@@ -2553,7 +2548,7 @@ int32_t NativeAccessDrawBufferEnd(uint32_t drawContextAddr, uint32_t dirtyRectAd
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return kQAError;
 	RaveMetalState *ms = priv->metal;
-	if (!ms->draw_accessed || !ms->draw_cpu_mac || !GfxGLDeviceMakeCurrent()) return kQANoErr;
+	if (!ms->draw_accessed || !ms->draw_cpu_mac || !SharedMetalDevice()) return kQANoErr;
 	const bool uploaded = upload_guest_to_overlay(ms, dirtyRectAddr);
 	ms->draw_accessed = false;
 	ms->pass_active = uploaded;
@@ -2566,7 +2561,7 @@ int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !bufferStructAddr) return kQAError;
 	RaveMetalState *ms = priv->metal;
-	if (!ms->pass_active || !ms->depth_rb || !GfxGLDeviceMakeCurrent()) return kQAError;
+	if (!ms->pass_active || !ms->depth_rb || !SharedMetalDevice()) return kQAError;
 	uint32_t w = ms->w, h = ms->h;
 	uint32_t rowBytes = w * 4;
 	uint32_t bufSize = rowBytes * h;
@@ -2601,7 +2596,7 @@ int32_t NativeAccessZBufferEnd(uint32_t drawContextAddr, uint32_t /*dirtyRectAdd
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return kQAError;
 	RaveMetalState *ms = priv->metal;
-	if (!ms->z_accessed || !ms->z_cpu_mac || !GfxGLDeviceMakeCurrent()) return kQANoErr;
+	if (!ms->z_accessed || !ms->z_cpu_mac || !SharedMetalDevice()) return kQANoErr;
 	uint32_t w = ms->w, h = ms->h;
 	std::vector<float> depth((size_t)w * h);
 	for (uint32_t i = 0; i < w * h; i++) {
@@ -2655,7 +2650,7 @@ int32_t NativeClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint3
 	flush_draw_batch();
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->pass_active) return kQANoErr;
-	if (!GfxGLDeviceMakeCurrent()) return 1;
+	if (!SharedMetalDevice()) return 1;
 	invalidate_draw_state(priv->metal);
 	float cr = priv->state[2].f, cg = priv->state[3].f,
 	      cb = priv->state[4].f, ca = 1.f;
@@ -2707,7 +2702,7 @@ int32_t NativeClearZBuffer(uint32_t drawContextAddr, uint32_t rectAddr,
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->pass_active) return kQANoErr;
-	if (!GfxGLDeviceMakeCurrent()) return 1;
+	if (!SharedMetalDevice()) return 1;
 	invalidate_draw_state(priv->metal);
 	if (!RaveContextUsesMetalDepthAttachment(priv->flags) ||
 	    !RaveEffectiveDepthWriteEnabled(
@@ -2766,7 +2761,7 @@ int32_t NativeTextureNewFromDrawContext(uint32_t drawContextAddr, uint32_t /*fla
 	if (!handle) return kQAError;
 	RaveResourceEntry *entry = RaveResourceGet(handle);
 	if (!entry) return kQAError;
-	if (!GfxGLDeviceMakeCurrent()) { RaveResourceFree(handle); return kQAError; }
+	if (!SharedMetalDevice()) { RaveResourceFree(handle); return kQAError; }
 	invalidate_external_gl_state();
 	GLuint tex = 0;
 	glGenTextures(1, &tex);
@@ -2800,7 +2795,7 @@ void *RaveCreateMetalTexture(uint32_t width, uint32_t height, uint32_t /*mipLeve
                              const uint8_t *pixels, uint32_t /*rowBytes*/)
 {
 	flush_draw_batch();
-	if (!GfxGLDeviceMakeCurrent()) return nullptr;
+	if (!SharedMetalDevice()) return nullptr;
 	invalidate_external_gl_state();
 	GLuint tex = 0;
 	glGenTextures(1, &tex);
@@ -2818,7 +2813,7 @@ void *RaveCreateMetalTexture(uint32_t width, uint32_t height, uint32_t /*mipLeve
 void RaveUploadMipLevel(void *metalTexture, uint32_t level, uint32_t width, uint32_t height,
                         const uint8_t *data, uint32_t /*rowBytes*/)
 {
-	if (!metalTexture || !data || !GfxGLDeviceMakeCurrent()) return;
+	if (!metalTexture || !data || !SharedMetalDevice()) return;
 	invalidate_external_gl_state();
 	GLuint tex = (GLuint)(uintptr_t)metalTexture;
 	glBindTexture(GL_TEXTURE_2D, tex);
@@ -2828,7 +2823,7 @@ void RaveUploadMipLevel(void *metalTexture, uint32_t level, uint32_t width, uint
 
 void RaveGenerateMipmaps(void *metalTexture)
 {
-	if (!metalTexture || !GfxGLDeviceMakeCurrent()) return;
+	if (!metalTexture || !SharedMetalDevice()) return;
 	invalidate_external_gl_state();
 	glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)metalTexture);
 	auto &ext = gfx_gl_ext();
@@ -2838,7 +2833,7 @@ void RaveGenerateMipmaps(void *metalTexture)
 
 void RaveReleaseTexture(void *metalTexture)
 {
-	if (!metalTexture || !GfxGLDeviceMakeCurrent()) return;
+	if (!metalTexture || !SharedMetalDevice()) return;
 	invalidate_external_gl_state();
 	GLuint tex = (GLuint)(uintptr_t)metalTexture;
 	glDeleteTextures(1, &tex);
@@ -2850,7 +2845,7 @@ void RaveForgetRTTResourceHandle(uint32_t /*handle*/, uint32_t /*generation*/)
 }
 
 void RaveTextureUploadBatchBegin(void) {}
-void RaveTextureUploadBatchEnd(void) { if (GfxGLDeviceMakeCurrent()) glFlush(); }
+void RaveTextureUploadBatchEnd(void) { if (SharedMetalDevice()) glFlush(); }
 
 /*
  * Live pixmap re-upload (Metal implementation lives in rave_metal_renderer.mm).

@@ -7,7 +7,6 @@
 
 #include "sysdeps.h"
 #include "vbl_source.h"
-#include "gl_device.h"
 #include "gfx_log.h"
 
 #include <SDL.h>

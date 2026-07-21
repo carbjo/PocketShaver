@@ -9,8 +9,8 @@
 #include "dsp_context_private.h"
 #include "gfxaccel_resources.h"
 #include "gfxaccel_resources_heap.h"
+#include "metal_device_shared.h"
 #include "metal_compositor.h"
-#include "gl_device.h"
 #include "macos_util.h"
 #include "video.h"
 #include "dsp_back_buffer_range.h"
@@ -197,7 +197,7 @@ bool DSpDoAllocateBackBuffer(uint32_t w, uint32_t h, uint32_t bpp,
 	std::memset(buf, 0, size);
 
 	GLuint tex = 0;
-	if (GfxGLDeviceMakeCurrent()) {
+	if (SharedMetalDevice()) {
 		glGenTextures(1, &tex);
 		glBindTexture(GL_TEXTURE_2D, tex);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -237,13 +237,13 @@ void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
 	if (!ctx) return;
 	auto front_it = s_front_textures.find(ctx->handle);
 	if (front_it != s_front_textures.end()) {
-		if (front_it->second.texture && GfxGLDeviceMakeCurrent()) {
+		if (front_it->second.texture && SharedMetalDevice()) {
 			GLuint texture = front_it->second.texture;
 			glDeleteTextures(1, &texture);
 		}
 		s_front_textures.erase(front_it);
 	}
-	if (ctx->back_texture && GfxGLDeviceMakeCurrent()) {
+	if (ctx->back_texture && SharedMetalDevice()) {
 		GLuint tex = (GLuint)(uintptr_t)ctx->back_texture;
 		glDeleteTextures(1, &tex);
 	}
@@ -357,7 +357,7 @@ void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx, void * /*encoder*/, void * 
 	if (!ctx || !ctx->back_buffer) return;
 
 	/* Upload back buffer into GL texture and cache as compositor overlay */
-	if (ctx->back_texture && GfxGLDeviceMakeCurrent()) {
+	if (ctx->back_texture && SharedMetalDevice()) {
 		/* DSp swaps every movie frame. Reuse conversion storage and update the
 		 * texture allocated at Reserve time instead of reallocating driver
 		 * storage with glTexImage2D on every swap. */
@@ -455,7 +455,7 @@ bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, vo
 		return true;
 	}
 
-	if (!GfxGLDeviceMakeCurrent()) return false;
+	if (!SharedMetalDevice()) return false;
 	DSpGLFrontTexture &front_gl = s_front_textures[ctx->handle];
 	if (front_gl.texture && (front_gl.width != w || front_gl.height != h)) {
 		glDeleteTextures(1, &front_gl.texture);

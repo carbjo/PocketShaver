@@ -1,10 +1,10 @@
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "gl_engine.h"
+#include "metal_device_shared.h"
 #include "metal_compositor.h"
 #include "gfxaccel_resources.h"
 #include "display_mode_controller.h"
-#include "gl_device.h"
 #include "gl_ext.h"
 #include "gfxaccel_backend.h"
 #include <SDL_opengl.h>
@@ -63,7 +63,6 @@ static void bind_ov_fbo(){
 }
 void GLMetalInit(GLContext*ctx){
   if(!ctx)return;
-  GfxGLDeviceInit();
   /* Host GL draws accumulate in im_vertices and flush on glEnd. */
 }
 static void load_ctx_matrices(GLContext*ctx){
@@ -74,14 +73,14 @@ static void load_ctx_matrices(GLContext*ctx){
   glMatrixMode(GL_MODELVIEW); glLoadMatrixf(mv);
 }
 void GLMetalBeginFrame(GLContext*ctx){
-  if(!ctx||!GfxGLDeviceMakeCurrent())return;
+  if(!ctx||!SharedMetalDevice())return;
   bind_ov_fbo();
   load_ctx_matrices(ctx);
   if(ctx->viewport[2]>0&&ctx->viewport[3]>0)
     glViewport(ctx->viewport[0],ctx->viewport[1],ctx->viewport[2],ctx->viewport[3]);
 }
 void GLMetalClear(GLContext*ctx,uint32_t mask){
-  if(!ctx||!GfxGLDeviceMakeCurrent())return;
+  if(!ctx||!SharedMetalDevice())return;
   glClearColor(ctx->clear_color[0],ctx->clear_color[1],ctx->clear_color[2],ctx->clear_color[3]);
   glClearDepth(ctx->clear_depth);
   GLbitfield m=0;
@@ -93,7 +92,7 @@ void GLMetalClear(GLContext*ctx,uint32_t mask){
 }
 void GLMetalEndFrame(GLContext*ctx){
   (void)ctx;
-  if(!GfxGLDeviceMakeCurrent())return;
+  if(!SharedMetalDevice())return;
   auto&e=gfx_gl_ext();
   if(e.fbo)e.BindFramebuffer(GL_FRAMEBUFFER,0);
 }
@@ -246,7 +245,7 @@ static void apply_host_ffp_state(GLContext *ctx)
 }
 
 void GLMetalFlushImmediateMode(GLContext*ctx){
-  if(!ctx||!GfxGLDeviceMakeCurrent()||ctx->im_vertices.empty())return;
+  if(!ctx||!SharedMetalDevice()||ctx->im_vertices.empty())return;
   apply_host_ffp_state(ctx);
 
   const auto &in=ctx->im_vertices;
@@ -282,7 +281,7 @@ void GLMetalFlushImmediateMode(GLContext*ctx){
 }
 void GLMetalRelease(GLContext*ctx){(void)ctx;}
 void GLMetalUploadTexture(GLContext*ctx,GLTextureObject*texObj,int level,int width,int height,const uint8_t*pixels,int data_len){
-  (void)ctx;(void)data_len; if(!texObj||!GfxGLDeviceMakeCurrent())return;
+  (void)ctx;(void)data_len; if(!texObj||!SharedMetalDevice())return;
   GLuint id=(GLuint)(uintptr_t)texObj->metal_texture; if(!id){ glGenTextures(1,&id); texObj->metal_texture=(void*)(uintptr_t)id; }
   glBindTexture(GL_TEXTURE_2D,id); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
   if(pixels) glTexImage2D(GL_TEXTURE_2D,level,GL_RGBA8,width,height,0,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
@@ -291,7 +290,7 @@ void GLMetalUploadTexture(GLContext*ctx,GLTextureObject*texObj,int level,int wid
   (void)format;(void)type; GLMetalUploadTexture(ctx,texObj,level,width,height,(const uint8_t*)pixels,0);
 }
 void GLMetalUploadSubTexture(GLContext*ctx,GLTextureObject*texObj,int level,int xoff,int yoff,int width,int height,const uint8_t*pixels,int data_len){
-  (void)ctx;(void)data_len; if(!texObj||!texObj->metal_texture||!pixels||!GfxGLDeviceMakeCurrent())return;
+  (void)ctx;(void)data_len; if(!texObj||!texObj->metal_texture||!pixels||!SharedMetalDevice())return;
   glBindTexture(GL_TEXTURE_2D,(GLuint)(uintptr_t)texObj->metal_texture);
   glTexSubImage2D(GL_TEXTURE_2D,level,xoff,yoff,width,height,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
 }
@@ -300,7 +299,7 @@ void GLMetalUploadSubTexture(GLContext*ctx,GLTextureObject*texObj,int level,int 
 #endif
 void GLMetalUpload3DTexture(GLContext*ctx,GLTextureObject*texObj,int level,int width,int height,int depth,const uint8_t*pixels,int data_len){
   (void)ctx;(void)data_len;
-  if(!texObj||!GfxGLDeviceMakeCurrent())return;
+  if(!texObj||!SharedMetalDevice())return;
   GLuint id=(GLuint)(uintptr_t)texObj->metal_texture;
   if(!id){ glGenTextures(1,&id); texObj->metal_texture=(void*)(uintptr_t)id; }
   glBindTexture(GL_TEXTURE_3D,id);
@@ -316,7 +315,7 @@ void GLMetalUpload3DTexture(GLContext*ctx,GLTextureObject*texObj,int level,int w
 }
 void GLMetalUploadSubTexture3D(GLContext*ctx,GLTextureObject*texObj,int level,int xoff,int yoff,int zoff,int width,int height,int depth,const uint8_t*pixels,int data_len,int){
   (void)ctx;(void)data_len;
-  if(!texObj||!texObj->metal_texture||!pixels||!GfxGLDeviceMakeCurrent())return;
+  if(!texObj||!texObj->metal_texture||!pixels||!SharedMetalDevice())return;
   typedef void (APIENTRY *PFNGLTEXSUBIMAGE3DPROC)(GLenum,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei,GLenum,GLenum,const void*);
   static PFNGLTEXSUBIMAGE3DPROC pSub=nullptr; static bool tried=false;
   if(!tried){ tried=true; pSub=(PFNGLTEXSUBIMAGE3DPROC)SDL_GL_GetProcAddress("glTexSubImage3D");
@@ -325,15 +324,15 @@ void GLMetalUploadSubTexture3D(GLContext*ctx,GLTextureObject*texObj,int level,in
   glBindTexture(GL_TEXTURE_3D,(GLuint)(uintptr_t)texObj->metal_texture);
   pSub(GL_TEXTURE_3D,level,xoff,yoff,zoff,width,height,depth,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
 }
-void GLMetalDestroyTexture(GLTextureObject*texObj){ if(!texObj||!texObj->metal_texture||!GfxGLDeviceMakeCurrent())return; GLuint id=(GLuint)(uintptr_t)texObj->metal_texture; glDeleteTextures(1,&id); texObj->metal_texture=nullptr; }
+void GLMetalDestroyTexture(GLTextureObject*texObj){ if(!texObj||!texObj->metal_texture||!SharedMetalDevice())return; GLuint id=(GLuint)(uintptr_t)texObj->metal_texture; glDeleteTextures(1,&id); texObj->metal_texture=nullptr; }
 void GLMetalDrawPixels(GLContext*ctx,int width,int height,const uint8_t*pixels,int data_len){
-  (void)data_len; if(!ctx||!pixels||!GfxGLDeviceMakeCurrent())return;
+  (void)data_len; if(!ctx||!pixels||!SharedMetalDevice())return;
   apply_host_ffp_state(ctx);
   glRasterPos2i(0,0);
   glDrawPixels(width,height,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
 }
 void GLMetalBitmap(GLContext*ctx,int width,int height,const uint8_t*bits,int data_len){
-  (void)data_len; if(!ctx||!bits||!GfxGLDeviceMakeCurrent())return;
+  (void)data_len; if(!ctx||!bits||!SharedMetalDevice())return;
   apply_host_ffp_state(ctx);
   glRasterPos2i(0,0);
   glBitmap(width,height,0,0,0,0,bits);
@@ -348,7 +347,7 @@ uint8_t* GLMetalReadFramebufferRect(GLContext*ctx,int x,int y,int w,int h,int*ou
   if(sw>std::numeric_limits<size_t>::max()/4/sh)return nullptr;
   const size_t bytes=sw*sh*4;
   if(bytes>(size_t)std::numeric_limits<int>::max())return nullptr;
-  if(!GfxGLDeviceMakeCurrent())return nullptr;
+  if(!SharedMetalDevice())return nullptr;
   uint8_t*p=(uint8_t*)std::malloc(bytes);
   if(!p)return nullptr;
   glReadPixels(x,y,w,h,GL_BGRA,GL_UNSIGNED_BYTE,p);
@@ -366,7 +365,7 @@ static GLOffscreenLatest s_off_latest;
 
 static void gl_capture_offscreen_to_cache(void)
 {
-  if(!s_cur||!s_ow||!s_oh||!GfxGLDeviceMakeCurrent())return;
+  if(!s_cur||!s_ow||!s_oh||!SharedMetalDevice())return;
   auto&e=gfx_gl_ext();
   if(e.fbo&&s_fbo) e.BindFramebuffer(GL_FRAMEBUFFER,s_fbo);
   s_off_latest.pixels.resize((size_t)s_ow*s_oh*4);
@@ -466,10 +465,10 @@ void NativeGLEnd(GLContext*ctx){
   ctx->in_begin=false;
   GLMetalFlushImmediateMode(ctx);
 }
-void NativeGLFinish(GLContext*ctx){(void)ctx; if(GfxGLDeviceMakeCurrent()) glFinish();}
-void NativeGLFlush(GLContext*ctx){(void)ctx; if(GfxGLDeviceMakeCurrent()) glFlush();}
+void NativeGLFinish(GLContext*ctx){(void)ctx; if(SharedMetalDevice()) glFinish();}
+void NativeGLFlush(GLContext*ctx){(void)ctx; if(SharedMetalDevice()) glFlush();}
 void NativeGLAccum(GLContext*c,uint32_t op,float val){
-  (void)c; if(!GfxGLDeviceMakeCurrent())return;
+  (void)c; if(!SharedMetalDevice())return;
   glAccum((GLenum)op,val);
 }
 /* ---- Client vertex arrays (DrawArrays / DrawElements / ArrayElement) ---- */
@@ -604,7 +603,7 @@ void NativeGLVertex4i(GLContext*c,int32_t x,int32_t y,int32_t z,int32_t w){PushV
 void NativeGLVertex2s(GLContext*c,int16_t x,int16_t y){PushVertex(c,(float)x,(float)y,0,1);}
 void NativeGLVertex3s(GLContext*c,int16_t x,int16_t y,int16_t z){PushVertex(c,(float)x,(float)y,(float)z,1);}
 void NativeGLVertex4s(GLContext*c,int16_t x,int16_t y,int16_t z,int16_t w){PushVertex(c,(float)x,(float)y,(float)z,(float)w);}
-void NativeGLColor4f(GLContext*c,float r,float g,float b,float a){ if(!c)return; c->current_color[0]=r;c->current_color[1]=g;c->current_color[2]=b;c->current_color[3]=a; if(GfxGLDeviceMakeCurrent()) glColor4f(r,g,b,a);}
+void NativeGLColor4f(GLContext*c,float r,float g,float b,float a){ if(!c)return; c->current_color[0]=r;c->current_color[1]=g;c->current_color[2]=b;c->current_color[3]=a; if(SharedMetalDevice()) glColor4f(r,g,b,a);}
 void NativeGLColor3f(GLContext*c,float r,float g,float b){NativeGLColor4f(c,r,g,b,1);}
 void NativeGLColor3d(GLContext*c,double r,double g,double b){NativeGLColor4f(c,(float)r,(float)g,(float)b,1);}
 void NativeGLColor4d(GLContext*c,double r,double g,double b,double a){NativeGLColor4f(c,(float)r,(float)g,(float)b,(float)a);}
@@ -656,7 +655,7 @@ GL_GUEST_VEC4(NativeGLVertex4iv, NativeGLVertex4i, gl_read_i32, 4)
 GL_GUEST_VEC2(NativeGLVertex2sv, NativeGLVertex2s, gl_read_i16, 2)
 GL_GUEST_VEC3(NativeGLVertex3sv, NativeGLVertex3s, gl_read_i16, 2)
 GL_GUEST_VEC4(NativeGLVertex4sv, NativeGLVertex4s, gl_read_i16, 2)
-void NativeGLNormal3f(GLContext*c,float x,float y,float z){ if(c){c->current_normal[0]=x;c->current_normal[1]=y;c->current_normal[2]=z;} if(GfxGLDeviceMakeCurrent()) glNormal3f(x,y,z);}
+void NativeGLNormal3f(GLContext*c,float x,float y,float z){ if(c){c->current_normal[0]=x;c->current_normal[1]=y;c->current_normal[2]=z;} if(SharedMetalDevice()) glNormal3f(x,y,z);}
 void NativeGLNormal3d(GLContext*c,double x,double y,double z){NativeGLNormal3f(c,(float)x,(float)y,(float)z);}
 void NativeGLNormal3b(GLContext*c,int8_t x,int8_t y,int8_t z){NativeGLNormal3f(c,x/127.f,y/127.f,z/127.f);}
 void NativeGLNormal3i(GLContext*c,int32_t x,int32_t y,int32_t z){
@@ -671,12 +670,12 @@ GL_GUEST_VEC3(NativeGLNormal3dv, NativeGLNormal3d, gl_read_f64, 8)
 GL_GUEST_VEC3(NativeGLNormal3bv, NativeGLNormal3b, gl_read_i8, 1)
 GL_GUEST_VEC3(NativeGLNormal3iv, NativeGLNormal3i, gl_read_i32, 4)
 GL_GUEST_VEC3(NativeGLNormal3sv, NativeGLNormal3s, gl_read_i16, 2)
-void NativeGLTexCoord2f(GLContext*c,float s,float t){ if(c){c->current_texcoord[0][0]=s;c->current_texcoord[0][1]=t;c->current_texcoord[0][3]=1.f;} if(GfxGLDeviceMakeCurrent()) glTexCoord2f(s,t);}
+void NativeGLTexCoord2f(GLContext*c,float s,float t){ if(c){c->current_texcoord[0][0]=s;c->current_texcoord[0][1]=t;c->current_texcoord[0][3]=1.f;} if(SharedMetalDevice()) glTexCoord2f(s,t);}
 void NativeGLTexCoord1f(GLContext*c,float s){NativeGLTexCoord2f(c,s,0);}
 void NativeGLTexCoord4f(GLContext*c,float s,float t,float r,float q){
   if(c){ c->current_texcoord[0][0]=s; c->current_texcoord[0][1]=t;
          c->current_texcoord[0][2]=r; c->current_texcoord[0][3]=q; }
-  if(GfxGLDeviceMakeCurrent()) glTexCoord4f(s,t,r,q);
+  if(SharedMetalDevice()) glTexCoord4f(s,t,r,q);
 }
 void NativeGLTexCoord3f(GLContext*c,float s,float t,float r){NativeGLTexCoord4f(c,s,t,r,1.f);}
 
@@ -765,7 +764,7 @@ void NativeGLInterleavedArrays(GLContext *ctx, uint32_t format, int32_t stride, 
   }
 }
 void NativeGLReadPixels(GLContext*ctx,int32_t x,int32_t y,int32_t w,int32_t h,uint32_t format,uint32_t type,uint32_t pixels){
-  if(!ctx||!pixels||w<=0||h<=0||!GfxGLDeviceMakeCurrent())return;
+  if(!ctx||!pixels||w<=0||h<=0||!SharedMetalDevice())return;
   int bpp=4;
   if(format==0x1907 /*RGB*/ ) bpp=3;
   else if(format==0x1909 /*LUMINANCE*/) bpp=1;

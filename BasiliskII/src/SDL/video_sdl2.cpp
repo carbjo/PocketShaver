@@ -257,12 +257,31 @@ extern void SysMountFirstFloppy(void);
 /*
  *  Framebuffer allocation routines
  */
+#if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
+/* Persistent oversized framebuffer aperture, mirroring PocketShaver's
+ * vm_acquire_reserved() region (80 MB, sized for 6K Retina). The RAVE
+ * engine advertises a 32 MB VRAM card (kRaveAdvertisedVRAMBytes), and
+ * ATI-aware titles (Myth II) do VRAM pointer arithmetic behind the visible
+ * frame: with only the visible frame mapped those accesses hit unmapped
+ * guest space and fault. Allocate once and never release, so the guest
+ * base address also stays stable across mode switches. */
+static void *fb_aperture = VM_MAP_FAILED;
+static const uint32 fb_aperture_size = 80 * 1024 * 1024;
+#endif
 
 static void *vm_acquire_framebuffer(uint32 size)
 {
-#ifdef HAVE_MACH_VM
+#if defined(HAVE_MACH_VM) || defined(HAVE_MMAP_VM) && defined(__aarch64__)
 	return vm_acquire_reserved(size);
 #else
+#if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
+	if (size <= fb_aperture_size) {
+		if (fb_aperture == VM_MAP_FAILED)
+			fb_aperture = vm_acquire(fb_aperture_size, VM_MAP_DEFAULT | VM_MAP_32BIT);
+		if (fb_aperture != VM_MAP_FAILED)
+			return fb_aperture;
+	}
+#endif
 	// always try to reallocate framebuffer at the same address
 	static void *fb = VM_MAP_FAILED;
 	if (fb != VM_MAP_FAILED) {
@@ -282,6 +301,10 @@ static void *vm_acquire_framebuffer(uint32 size)
 static inline void vm_release_framebuffer(void *fb, uint32 size)
 {
 #ifndef HAVE_MACH_VM
+#if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
+	if (fb == fb_aperture)
+		return;		// aperture persists across mode switches
+#endif
 	vm_release(fb, size);
 #endif
 }
@@ -1762,8 +1785,20 @@ bool VideoInit(bool classic)
 			for (int i = 0; video_modes[i].w != 0; i++) {
 				const int w = video_modes[i].w;
 				const int h = video_modes[i].h;
+#if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
+				/* Advertise the standard resolution table up to the desktop
+				 * size instead of capping at the initial window size - games
+				 * switch modes through the Display Manager and the window is
+				 * recreated at the new size (Diablo II requires 800x600 in
+				 * the mode list). Skip table entries duplicating the default
+				 * mode's dimensions (slot 0 already covers them). */
+				if (i > 0 && ((w == default_width && h == default_height) ||
+				              w > sdl_display_width() || h > sdl_display_height()))
+					continue;
+#else
 				if (i > 0 && (w >= default_width || h >= default_height))
 					continue;
+#endif
 				for (int d = VIDEO_DEPTH_1BIT; d <= default_depth; d++)
 					add_mode(display_type, w, h, video_modes[i].resolution_id, TrivialBytesPerRow(w, (video_depth)d), d);
 			}

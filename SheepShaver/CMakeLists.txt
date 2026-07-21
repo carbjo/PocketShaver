@@ -401,7 +401,6 @@ if(ENABLE_GFXACCEL)
 	# OpenGL + SDL backend (default on Windows/Linux)
 	list(APPEND SS_GFXACCEL_DEFS ENABLE_GFXACCEL=1 GFXACCEL_USE_OPENGL=1)
 	list(APPEND SS_GFXACCEL
-		"${GA}/gl/gl_device.cpp"
 		"${GA}/gl/gl_compositor.cpp"
 		"${GA}/gl/vbl_source_sdl.cpp"
 		"${GA}/gl/gfxaccel_resources_gl.cpp"

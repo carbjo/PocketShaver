@@ -9,11 +9,11 @@
 #include "cpu_emulation.h"   /* ReadMacInt32 (guest tick at 0x016a) */
 #include "video.h"
 #include "video_blit.h"
+#include "metal_device_shared.h"
 #include "metal_compositor.h"
 #include "display_mode_controller.h"
 #include "gfxaccel_resources.h"
 #include "vbl_source.h"
-#include "gl_device.h"
 #include "gfx_color_policy.h"
 #include "gfx_log.h"
 /* Windows GL 1.1 has no GLSL compile entry points; present path uses FFP. */
@@ -31,7 +31,146 @@
 #include <cmath>
 
 extern SDL_Window *sdl_window;
-extern SDL_Window *gl_device_sdl_window;
+
+
+extern SDL_Window *sdl_window;
+SDL_Window *gl_device_sdl_window = nullptr;
+
+static SDL_GLContext s_gl_ctx = nullptr;
+static bool s_ready = false;
+
+/* Opaque sentinels so code that null-checks SharedMetalDevice() still works. */
+static char s_device_sentinel = 1;
+static char s_queue_sentinel = 1;
+
+bool GfxGLDeviceInit(void)
+{ /* Should ONLY be called by MetalCompositorInit or otherwise
+	the backing variables will not be recreated correctly and it will
+	white screen */
+	QD3D_INIT_LOG("GfxGLDeviceInit: ready=%d context=%p window=%p",
+	              s_ready, s_gl_ctx, (void *)sdl_window);
+
+	if (!sdl_window) {
+		QD3D_INIT_LOG("GfxGLDeviceInit: FAILED because SDL window is null");
+		fprintf(stderr, "[gfxaccel-gl] GfxGLDeviceInit: sdl_window is NULL\n");
+		return false;
+	}
+
+	/* Prefer a compatibility profile so Mac GL 1.2 FFP maps cleanly. */
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+#if defined(SDL_GL_CONTEXT_PROFILE_MASK)
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+#endif
+
+	if (s_gl_ctx) {
+		SDL_GL_DeleteContext(s_gl_ctx);
+		s_gl_ctx = nullptr;
+	}
+
+	s_gl_ctx = SDL_GL_CreateContext(sdl_window);
+	if (!s_gl_ctx) {
+		QD3D_INIT_LOG("GfxGLDeviceInit: SDL_GL_CreateContext FAILED: %s", SDL_GetError());
+		fprintf(stderr, "[gfxaccel-gl] SDL_GL_CreateContext failed: %s\n", SDL_GetError());
+		s_ready = false;
+		return false;
+	}
+
+	if (SDL_GL_MakeCurrent(sdl_window, s_gl_ctx) != 0) {
+		QD3D_INIT_LOG("GfxGLDeviceInit: SDL_GL_MakeCurrent FAILED: %s", SDL_GetError());
+		fprintf(stderr, "[gfxaccel-gl] SDL_GL_MakeCurrent failed: %s\n", SDL_GetError());
+		SDL_GL_DeleteContext(s_gl_ctx);
+		s_gl_ctx = nullptr;
+		s_ready = false;
+		return false;
+	}
+
+	/* Never block the emulator thread on vsync. Present is invoked from
+	 * VideoVBL on the emul thread; SwapInterval(1) + full-frame uploads
+	 * at 2560x1440 starves PPC execution and looks like a hard lockup. */
+	SDL_GL_SetSwapInterval(0);
+
+	const char *vendor = (const char *)glGetString(GL_VENDOR);
+	const char *renderer = (const char *)glGetString(GL_RENDERER);
+	const char *version = (const char *)glGetString(GL_VERSION);
+	fprintf(stderr, "[gfxaccel-gl] OpenGL ready: %s / %s / %s\n",
+	        vendor ? vendor : "?",
+	        renderer ? renderer : "?",
+	        version ? version : "?");
+
+	gl_device_sdl_window = sdl_window;
+	s_ready = true;
+	QD3D_INIT_LOG("GfxGLDeviceInit: SUCCESS context=%p vendor='%s' renderer='%s' version='%s'",
+	              s_gl_ctx, vendor ? vendor : "?", renderer ? renderer : "?",
+	              version ? version : "?");
+	return true;
+}
+
+void GfxGLDeviceShutdown(void)
+{
+	if (s_gl_ctx) {
+		if (gl_device_sdl_window)
+			SDL_GL_MakeCurrent(gl_device_sdl_window, nullptr);
+		SDL_GL_DeleteContext(s_gl_ctx);
+		s_gl_ctx = nullptr;
+	}
+	s_ready = false;
+}
+
+bool GfxGLDeviceIsReady(void)
+{
+	return s_ready && s_gl_ctx != nullptr;
+}
+
+void GfxGLDeviceSwap(void)
+{
+	assert(s_ready);
+	assert(s_gl_ctx != nullptr);
+	assert(gl_device_sdl_window != nullptr);
+	SDL_GL_SwapWindow(gl_device_sdl_window);
+}
+
+void GfxGLDeviceGetDrawableSize(int *out_w, int *out_h)
+{
+	assert(s_ready);
+	assert(s_gl_ctx != nullptr);
+	assert(gl_device_sdl_window != nullptr);
+	assert(out_w != nullptr);
+	assert(out_h != nullptr);
+	SDL_GL_GetDrawableSize(gl_device_sdl_window, out_w, out_h);
+}
+
+void *SharedMetalDevice(void)
+{
+	assert(s_ready);
+	assert(s_gl_ctx != nullptr);
+	assert(gl_device_sdl_window == SDL_GL_GetCurrentWindow());
+	/* RAVE calls this at public API boundaries and resource uploads, often
+	 * hundreds of times per frame. SDL_GL_MakeCurrent enters the driver even
+	 * when nothing changed; avoid that round trip on the single render thread. */
+	if(SDL_GL_GetCurrentContext() != s_gl_ctx
+			|| SDL_GL_MakeCurrent(gl_device_sdl_window, s_gl_ctx) != 0)
+	{
+		QD3D_INIT_LOG("SDL_GL_MakeCurrent failed: %s", SDL_GetError());
+		return NULL;
+	}
+
+	return (void *)&s_device_sentinel;
+}
+
+void *SharedMetalCommandQueue(void)
+{
+	return SharedMetalDevice();
+}
+
+void MetalValidation_InstallErrorHandler(void * /*cmdBufPtr*/)
+{
+	/* no-op on OpenGL */
+}
+
 extern "C" void vbl_source_sdl_tick(double target_ts);
 extern "C" int RaveGLRenderPassActive(void);
 
@@ -804,7 +943,7 @@ void MetalCompositorPresent(void)
 
 	if (!do_draw)
 		return;
-	if (!GfxGLDeviceMakeCurrent())
+	if (!SharedMetalDevice())
 		return;
 	s_last_present_usec = now_usec;
 
@@ -951,7 +1090,7 @@ void MetalCompositorPresent(void)
 void MetalCompositorShutdown(void)
 {
 	if (s_init) {
-		if (GfxGLDeviceMakeCurrent()) {
+		if (SharedMetalDevice()) {
 			MetalCompositorSubmitFrame_ClearCachedOverlay();
 			MetalCompositorSubmitFrame_ClearCachedFramebuffer();
 			destroy_textures();
@@ -975,9 +1114,9 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
 	if (!s_init || gl_device_sdl_window != sdl_window)
 		return MetalCompositorInit(width, height, depth,
 			row_bytes, pitch, buffer, buffer_size);
-	if (!GfxGLDeviceMakeCurrent())
+	if (!SharedMetalDevice())
 	{
-		COMPOSITOR_LOG("couldn't GfxGLDeviceMakeCurrent()!");
+		COMPOSITOR_LOG("couldn't SharedMetalDevice()!");
 		return -1;
 	}
 
@@ -1151,7 +1290,7 @@ void MetalCompositorUpdateGammaLUT(const uint8_t *lut)
 		}
 	}
 	s_classic_fb_texture_valid = false;
-	if (s_init && GfxGLDeviceMakeCurrent())
+	if (s_init && SharedMetalDevice())
 		upload_gamma_texture();
 }
 
