@@ -79,7 +79,7 @@ extension UIScreen {
 	}
 
 	/// Height in points of the Mac camera-housing (notch) / menu-bar strip on Mac
-	/// Catalyst — where UIKit does NOT surface it as a safe-area inset — sourced from
+	/// Catalyst - where UIKit does NOT surface it as a safe-area inset - sourced from
 	/// AppKit's NSScreen via `catalyst_screen_top_inset()`. Zero off Catalyst and on
 	/// notchless / external displays.
 	static var macCatalystNotchInset: CGFloat {
@@ -92,7 +92,7 @@ extension UIScreen {
 
 	/// Landscape / portrait screen size with the Mac Catalyst camera-housing strip
 	/// removed from the physical-vertical dimension, so pixel-aligned resolutions
-	/// occupy the usable area below the notch — parity with Designed-for-iPad, whose
+	/// occupy the usable area below the notch - parity with Designed-for-iPad, whose
 	/// `bounds` already exclude it. Identical to the plain sizes off Catalyst and on
 	/// notchless / external displays (`macCatalystNotchInset` is 0 there).
 	static var pixelAlignedLandscapeSize: CGSize {
@@ -123,7 +123,7 @@ extension UIDevice {
 		#if targetEnvironment(macCatalyst)
 		// Mac Catalyst IS a Mac app, but ProcessInfo.isiOSAppOnMac is false here
 		// (that flag is only true for "Designed for iPad" apps). Detect Catalyst
-		// explicitly so all the app's existing `.mac` behaviour applies —
+		// explicitly so all the app's existing `.mac` behaviour applies -
 		// notably suppressing the on-screen gamepad and its (main-thread,
 		// full-window) thumbnail rendering.
 		return .mac
@@ -147,7 +147,7 @@ extension UIDevice {
 	}
 
 	/// True when running as "Designed for iPad" (or Mac Catalyst) on macOS.
-	/// The on-screen gamepad is pointless there — the user has a real keyboard
+	/// The on-screen gamepad is pointless there - the user has a real keyboard
 	/// and mouse/trackpad.
 	static let isiOSAppOnMac: Bool = {
 		if #available(iOS 14.0, *) {

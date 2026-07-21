@@ -543,7 +543,7 @@ static void RaveSetDepthStencilStateForDraw(RaveDrawPrivate *priv,
 	if (!RaveContextUsesMetalDepthAttachment(priv->flags)) {
 		/* No depth attachment: leave the encoder on Metal's default
 		 * depth-stencil state (always pass, no write). Passing nil to
-		 * setDepthStencilState: is a Metal API validation error — it
+		 * setDepthStencilState: is a Metal API validation error - it
 		 * aborted DII's z-less 800x600 menu context on its first draw. */
 		return;
 	}
@@ -1202,7 +1202,7 @@ static id<MTLRenderPipelineState> GetGLBlendPipeline(RaveMetalState *ms, int fun
  *  window that staged into every slot would wait forever acquiring the next
  *  one. Mirror GL's mid-frame flush (GLMetalFlushAndResetRingBuffer): commit
  *  and restart with LoadActionLoad. Must run at a draw-sequence boundary,
- *  BEFORE any per-draw encoder state is applied — a mid-draw restart would
+ *  BEFORE any per-draw encoder state is applied - a mid-draw restart would
  *  orphan bindings already encoded for the draw in progress, whereas here
  *  the caller applies everything on the new encoder.
  */
@@ -1305,7 +1305,7 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 
 	if (forceAll || pipelineKey != ms->currentPipelineKey) {
 		// kQABlend_OpenGL pipeline lookup only when the binding actually
-		// changes — the hash find is redundant while the key matches the
+		// changes - the hash find is redundant while the key matches the
 		// encoder's current pipeline (the steady state for UE1 titles).
 		id<MTLRenderPipelineState> selectedPipeline = nil;
 		if (blend_mode == 2) {
@@ -1725,7 +1725,7 @@ static void FlushZSortBuffer(RaveDrawPrivate *priv)
 			curTexOpaque = false;
 
 			// Texture realize / live pixmap refresh can break and restart the
-			// render pass (fenced staging upload) — run it after the previous
+			// render pass (fenced staging upload) - run it after the previous
 			// batch's flush but before the pipeline/depth/texture binds below,
 			// so a restart cannot orphan state already issued for this batch
 			// (same hazard as ApplyDirtyState's texture section).
@@ -3400,7 +3400,7 @@ int32 NativeRenderStart(uint32 drawContextAddr, uint32 dirtyRectAddr, uint32 ini
 	// Fire kQAMethod_ImageBufferInitialize (selector 3) callback
 	FireNoticeMethod(priv, 3);
 
-	// SetOverlayRect is gone — destination rect now travels with
+	// SetOverlayRect is gone - destination rect now travels with
 	// each SubmitFrame's CompositeLayer (encoded in NativeRenderEnd from
 	// s_rave_dst_*). Update local cached dst rect in case the viewport
 	// changed after context creation.
@@ -3477,7 +3477,7 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 	// With offscreen texture, the rendered content persists regardless and the
 	// command buffer commits unconditionally; DontSwap just controls whether we
 	// log "committed (DontSwap)" vs "frame committed to offscreen". There is no
-	// presentDrawable / held back-buffer to suppress — the compositor reads the
+	// presentDrawable / held back-buffer to suppress - the compositor reads the
 	// offscreen overlay on its next VBL, so this is semantically equivalent to a
 	// true single-overlay DontSwap. Test: RAVEABITests.testDontSwap_intentionalNoOp
 	int32_t dont_swap = (int32_t)priv->state[32].i;
@@ -3565,7 +3565,7 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 		} else {
 			rave_advance_overlay_texture_after_submit();
 		}
-		/* Re-declare RAVE owner — fast no-op when already RAVE. */
+		/* Re-declare RAVE owner - fast no-op when already RAVE. */
 		(void)dmc_set_active_owner(kDMCOwnerRAVE);
 	}
 
@@ -4178,7 +4178,7 @@ int32_t NativeAccessZBufferEnd(uint32_t drawContextAddr, uint32_t dirtyRectAddr)
 	ms->zBufferAccessed = false;
 	if (ms->msaaActive) {
 		// Mirror AccessDrawBufferEnd: the upload above wrote depthBuffer, so
-		// resume single-sampled — restarting with msaaDepthTexture attached
+		// resume single-sampled - restarting with msaaDepthTexture attached
 		// would drop the guest's depth edits.
 		ms->msaaActive = false;
 		RAVE_VLOG("AccessZBufferEnd: continuing frame without MSAA after CPU depth access");
@@ -4212,7 +4212,7 @@ int32_t NativeClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint3
 	// Read BG color: from initialContext if non-NULL per RAVE.h, else from current context
 	float r, g, b, a;
 	if (initialContextAddr != 0) {
-		// Per RAVE.h: initialContext is a TQADrawContext* — read its drawPrivate handle
+		// Per RAVE.h: initialContext is a TQADrawContext* - read its drawPrivate handle
 		// from offset 0, then look up the native context to read its BG color state
 		uint32_t initHandle = ReadMacInt32(initialContextAddr);
 		RaveDrawPrivate *initCtx = RaveGetContext(initHandle);
@@ -4224,7 +4224,7 @@ int32_t NativeClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint3
 			RAVE_LOG("ClearDrawBuffer: using initialContext 0x%08x BG=(%.2f,%.2f,%.2f)",
 			         initialContextAddr, r, g, b);
 		} else {
-			// initialContext handle invalid — fall back to current context
+			// initialContext handle invalid - fall back to current context
 			a = 1.0f;
 			r = priv->state[2].f;
 			g = priv->state[3].f;
@@ -4233,7 +4233,7 @@ int32_t NativeClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint3
 			         initialContextAddr, initHandle);
 		}
 	} else {
-		// NULL initialContext — use current context's BG color
+		// NULL initialContext - use current context's BG color
 		a = 1.0f;              // Force opaque for overlay compositing
 		r = priv->state[2].f;  // kQATag_ColorBG_r
 		g = priv->state[3].f;  // kQATag_ColorBG_g
@@ -4323,12 +4323,12 @@ int32_t NativeClearZBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint32_t
 	// Determine clear depth: from initialContext if non-NULL per RAVE.h, else default 1.0
 	float clearDepth;
 	if (initialContextAddr != 0) {
-		// Per RAVE.h: initialContext is a TQADrawContext* — read its drawPrivate handle
+		// Per RAVE.h: initialContext is a TQADrawContext* - read its drawPrivate handle
 		// from offset 0, then look up its depth BG state
 		uint32_t initHandle = ReadMacInt32(initialContextAddr);
 		RaveDrawPrivate *initCtx = RaveGetContext(initHandle);
 		if (initCtx) {
-			// kQATagGL_DepthBG = 112 — if set, use it; otherwise default 1.0
+			// kQATagGL_DepthBG = 112 - if set, use it; otherwise default 1.0
 			float depthBG = initCtx->state[112].f;
 			clearDepth = (depthBG != 0.0f) ? depthBG : 1.0f;
 			RAVE_LOG("ClearZBuffer: using initialContext 0x%08x depth=%.4f",
@@ -4339,7 +4339,7 @@ int32_t NativeClearZBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint32_t
 			         initialContextAddr, initHandle);
 		}
 	} else {
-		// NULL initialContext — use far plane default
+		// NULL initialContext - use far plane default
 		clearDepth = 1.0f;
 	}
 	MTLScissorRect clearScissor;
@@ -4497,7 +4497,7 @@ void RaveUploadMipLevel(void *metalTexture, uint32_t level, uint32_t width, uint
 	id<MTLTexture> tex = (__bridge id<MTLTexture>)metalTexture;
 	RaveDrawPrivate *currentCtx = RaveCurrentDrawContext();
 	// Inside a Begin/End batch the pass was already broken once for the whole
-	// mip chain — do not re-break it per level.
+	// mip chain - do not re-break it per level.
 	bool restartRenderPass = (s_rave_upload_batch_depth == 0) &&
 		RaveEndActiveRenderPassForTextureUpload(currentCtx);
 	auto restartIfNeeded = [&]() {
@@ -4610,7 +4610,7 @@ void RaveRefreshTextureFromPixmap(RaveResourceEntry *entry)
 
 	// Prefer cpu_pixel_data when a
 	// Q3Pixmap_Set_Image intercept has populated it. Same logic as
-	// RaveRealizeDeferredTexture — the pixmap_mac_addr path reads
+	// RaveRealizeDeferredTexture - the pixmap_mac_addr path reads
 	// potentially-stale heap data for titles (e.g. Bugdom) that
 	// free the source buffer after QATextureNew.
 	uint32_t pixmap = entry->pixmap_mac_addr;
@@ -4639,7 +4639,7 @@ void RaveRefreshTextureFromPixmap(RaveResourceEntry *entry)
 	// (RAVE-05): a raw replaceRegion CPU-writes a shared texture that prior
 	// committed in-flight frames may still be sampling. While the source is
 	// still empty the texture already holds the zeros uploaded when it was
-	// realized, so skip the byte-identical re-upload — it would otherwise
+	// realized, so skip the byte-identical re-upload - it would otherwise
 	// break the render pass on every draw that polls this texture.
 	if (hasData) {
 		RaveUploadMipLevel(entry->metal_texture, 0, w, h, expanded, w * 4);
@@ -4699,7 +4699,7 @@ int32_t NativeATIClearZBuffer(uint32_t drawContextAddr, uint32_t rectAddr)
  *  On real hardware this is simply the VRAM draw buffer. Here we transfer
  *  the Metal overlay's rendered frame into the guest screen framebuffer
  *  (xRGB1555 big-endian) and clear the compositor's cached overlay, so the
- *  framebuffer — scene plus whatever the guest draws into it next — is what
+ *  framebuffer - scene plus whatever the guest draws into it next - is what
  *  the compositor presents until the next RenderEnd resubmits a 3D frame.
  */
 int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAddr)
@@ -4738,7 +4738,7 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 	// Vend a private guest back buffer, laid out identically to the screen
 	// framebuffer. The guest composes scene + interface here; the visible
 	// framebuffer only ever receives completed frames (the present below),
-	// so no intermediate erase/redraw state can reach the display — that
+	// so no intermediate erase/redraw state can reach the display - that
 	// was the residual in-game-menu flicker.
 	const uint32_t backSize = mode.viRowBytes * mode.viYsize;
 	if (ms->atiBackBufferMac == 0 || ms->atiBackBufferSize != backSize) {
@@ -4751,7 +4751,7 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 	}
 
 	// Present: everything the guest drew since the previous lock is now a
-	// completed frame — copy it to the visible framebuffer in one pass.
+	// completed frame - copy it to the visible framebuffer in one pass.
 	if (ms->atiBackBufferDirty) {
 		memcpy(Mac2HostAddr(screen_base), ms->atiBackBufferHost, backSize);
 	}

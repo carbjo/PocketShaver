@@ -9,7 +9,7 @@ import UIKit
 
 /// Shared base for the preferences table screens. The stock plain-style
 /// section headers are small and pale, which on the full-screen Mac window
-/// makes each tab read as one undifferentiated list — replace them with big
+/// makes each tab read as one undifferentiated list - replace them with big
 /// bold full-contrast headings there. iPhone/iPad keep the stock look.
 ///
 /// The header view is built from scratch rather than restyled: UIKit renders

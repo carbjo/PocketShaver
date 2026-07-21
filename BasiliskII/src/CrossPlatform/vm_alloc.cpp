@@ -280,7 +280,7 @@ static void *vm_acquire_internal(size_t size, int options)
 	// vm_allocate() returns a zero-filled memory region
 #ifdef MEM_BULK
 	// In MEM_BULK mode, vm_init_reserved() carves out the reserved buffer
-	// from the bulk block later — don't add RESERVED_SIZE here.
+	// from the bulk block later - don't add RESERVED_SIZE here.
 	kern_return_t ret_code = vm_allocate(mach_task_self(), (vm_address_t *)&addr, size, TRUE);
 #else
 	kern_return_t ret_code = vm_allocate(mach_task_self(), (vm_address_t *)&addr, reserved_buf ? size : size + RESERVED_SIZE, TRUE);

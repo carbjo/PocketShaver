@@ -23,8 +23,8 @@ struct GLVertexIn {
     float4 position        [[attribute(0)]];
     float4 color           [[attribute(1)]];
     float3 normal          [[attribute(2)]];
-    float3 texcoord        [[attribute(3)]];   // (s, t, q) unit 0 — q enables projective texturing
-    float3 texcoord1       [[attribute(4)]];   // (s, t, q) unit 1 — for multitexture
+    float3 texcoord        [[attribute(3)]];   // (s, t, q) unit 0 - q enables projective texturing
+    float3 texcoord1       [[attribute(4)]];   // (s, t, q) unit 1 - for multitexture
     float3 secondary_color [[attribute(5)]];   // (r, g, b) EXT_secondary_color / GL_COLOR_SUM
 };
 
@@ -33,9 +33,9 @@ struct GLVertexOut {
     float  point_size   [[point_size]];
     float4 color;
     float3 eye_normal;
-    float3 texcoord;    // (s, t, q) unit 0 — interpolated, then divided per-fragment
-    float3 texcoord1;   // (s, t, q) unit 1 — for multitexture
-    float3 secondary_color; // (r, g, b) EXT_secondary_color / GL_COLOR_SUM — added after texturing
+    float3 texcoord;    // (s, t, q) unit 0 - interpolated, then divided per-fragment
+    float3 texcoord1;   // (s, t, q) unit 1 - for multitexture
+    float3 secondary_color; // (r, g, b) EXT_secondary_color / GL_COLOR_SUM - added after texturing
     float3 eye_position;
     float  fog_factor;
     float  clip_dist0;  // user clip plane distances (interpolated, discard if < 0)
@@ -319,7 +319,7 @@ fragment float4 gl_fragment_main(
     // texture with texcoord1 and combine it onto the running color per unit 1's texenv
     // mode (same modes 0-4 template as unit 0). Scope: 2-unit modulate/add (the standard
     // texenv modes). The GL_COMBINE crossbar is store-only and
-    // GL_EXT_texture_env_combine is de-advertised — texenv1_mode is one of 0-4 only.
+    // GL_EXT_texture_env_combine is de-advertised - texenv1_mode is one of 0-4 only.
     if (uniforms.has_texture_unit1) {
         float2 uv1 = (in.texcoord1.z != 0.0) ? in.texcoord1.xy / in.texcoord1.z : in.texcoord1.xy;
         float4 t1 = tex1.sample(samp1, uv1);

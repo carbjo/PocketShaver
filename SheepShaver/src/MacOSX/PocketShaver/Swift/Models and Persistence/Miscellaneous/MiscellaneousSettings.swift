@@ -190,7 +190,7 @@ class MiscellaneousSettings: Codable {
 		}
 
 		// Macs have no touch input, so mouse passthrough must always be on
-		// there — but it is persisted state and its toggle is iPad-only UI, so
+		// there - but it is persisted state and its toggle is iPad-only UI, so
 		// a stale `false` (e.g. settings written by a pre-Mac build) would
 		// silently leave ADB in touch semantics (delayed clicks, post-click
 		// move suppression) with no way to recover from Preferences.

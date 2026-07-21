@@ -40,7 +40,7 @@
  *  Core write path shared by the SetCLUTEntries handler and the Reserve
  *  colorTable application path (dsp_draw_context.mm).
  *  `entries_host_range` points to (last - first + 1) * 3 bytes
- *  of R/G/B data — NOT a 768-byte buffer; the caller's responsibility is
+ *  of R/G/B data - NOT a 768-byte buffer; the caller's responsibility is
  *  to lay out the partial range starting at offset 0. This core helper
  *  only handles the post-validation write + compositor push + DMC bump.
  *
@@ -58,7 +58,7 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
 	if (first > last) return kDSpInvalidAttributesErr;
 
 	/* Write into per-context storage at offset first*3. The
-	 * reader-visible clut_bytes_latched is NOT touched here —
+	 * reader-visible clut_bytes_latched is NOT touched here -
 	 * DSpVBLClutLatchCallback drains clut_bytes -> clut_bytes_latched at
 	 * the next VBL tick, giving GetCLUTEntries last-VBL-
 	 * boundary semantics. */
@@ -73,7 +73,7 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
 	if (ctx->state == (uint32_t)kDSpContextState_Active) {
 		MetalCompositorUpdatePalette(ctx->clut_bytes, 256);
 		/* DMC bump: dmc_record_palette_change is the public DMC
-		 * API — a function call, not a direct generation-counter
+		 * API - a function call, not a direct generation-counter
 		 * assignment. The DMC write-site CI gate
 		 * (testNoDirectDMCWritesInDSpFiles) scans for the bare-word
 		 * DMC-owned identifier set followed by an assignment, which does
@@ -86,13 +86,13 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
 /*
  *  DSpContext_SetCLUTEntries (sub-opcode 300).
  *
- *  Argument contract (DSp 1.7 p.56 — corrected wire-format;
+ *  Argument contract (DSp 1.7 p.56 - corrected wire-format;
  *  pointer-before-index arg order):
  *    ctxRef          = context handle from DSpContext_Reserve
  *    entriesAddr     = guest Mac address of inEntryCount x 8-byte ColorSpec
  *                      structs (ColorSpec = { SInt16 value; RGBColor rgb })
  *                      with 16-bit big-endian channels: value@+0 (ignored
- *                      for Set), r@+2, g@+4, b@+6 — read via ReadMacInt16
+ *                      for Set), r@+2, g@+4, b@+6 - read via ReadMacInt16
  *    inStartingEntry = first CLUT index to write; must be <= 255
  *    inEntryCount    = number of entries (a COUNT, NOT an inclusive last
  *                      index); must be > 0; inStartingEntry + inEntryCount
@@ -125,7 +125,7 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
  *
  *  DMC contract:
  *    dmc_record_palette_change() fires AFTER a successful compositor
- *    push (Active only) to bump persisted_palette_generation — ONLY
+ *    push (Active only) to bump persisted_palette_generation - ONLY
  *    through the public DMC API, never a direct generation-counter
  *    assignment.
  *
@@ -148,7 +148,7 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 		        ctxRef);
 		return kDSpInvalidContextErr;
 	}
-	/* Validate entriesAddr next — a NULL buffer on a valid context is
+	/* Validate entriesAddr next - a NULL buffer on a valid context is
 	 * reported as kDSpInvalidAttributesErr so the app can distinguish
 	 * it from a bad handle. */
 	if (entriesAddr == 0) {
@@ -163,7 +163,7 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 	 * inStartingEntry + inEntryCount must be <= 256 (a full-CLUT replace
 	 * is start=0, count=256). Both operands are guest-controlled uint32
 	 * (r5/r6), so the headroom MUST be compared by subtraction rather than
-	 * by summing — `inStartingEntry + inEntryCount` would wrap in 32-bit
+	 * by summing - `inStartingEntry + inEntryCount` would wrap in 32-bit
 	 * unsigned arithmetic (CWE-190) and defeat the guard (e.g. start=1,
 	 * count=0xFFFFFFFF -> sum=0). The first clause guarantees
 	 * inStartingEntry <= 255, so `256 - inStartingEntry` is in [1..256] and
@@ -183,14 +183,14 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 	/* Read guest-RAM entries into a host-local 3-byte/8-bit staging
 	 * range. The guest passes an array of 8-byte ColorSpec structs
 	 * (DSp 1.7 p.56): value@+0 (SInt16, ignored for Set), r@+2, g@+4,
-	 * b@+6 — 16-bit big-endian channels via ReadMacInt16. Down-convert
+	 * b@+6 - 16-bit big-endian channels via ReadMacInt16. Down-convert
 	 * 16->8 (>> 8) at this guest-RAM boundary ONLY so
 	 * the internal clut_bytes storage + DSpSetCLUTCore stay 8-bit and
 	 * the composited pixels (which sample the latched 8-bit values) are
 	 * byte-identical. The staging buffer keeps DSpSetCLUTCore pure-host
 	 * (no guest-RAM reads) so the Reserve colorTable path can reuse the
 	 * same validation + write core. */
-	uint8_t staged[256 * 3];  /* 768 bytes — compile-time sized for worst case */
+	uint8_t staged[256 * 3];  /* 768 bytes - compile-time sized for worst case */
 	for (uint32_t i = 0; i < count; i++) {
 		uint32_t e = entriesAddr + i * 8;  /* 8-byte ColorSpec stride */
 		staged[i * 3 + 0] = (uint8_t)(ReadMacInt16(e + 2) >> 8);  /* r */
@@ -201,7 +201,7 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 	/* Defer to core helper for the validated write + compositor push +
 	 * DMC bump. ctx/start/last/staged are already validated, so
 	 * DSpSetCLUTCore's defensive re-checks are no-ops on this path. The
-	 * core is UNCHANGED — it still takes an inclusive (first, last) range
+	 * core is UNCHANGED - it still takes an inclusive (first, last) range
 	 * + a 3-byte host buffer. */
 	int32_t rv = DSpSetCLUTCore(ctx, start, last, staged);
 	if (rv == kDSpNoErr) {
@@ -226,7 +226,7 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
  *  clut_bytes -> clut_bytes_latched on every VBL tick.
  *
  *  `entries_out_host_range` points to (last - first + 1) * 3 bytes of
- *  output storage starting at offset 0 (NOT offset first*3) — the caller
+ *  output storage starting at offset 0 (NOT offset first*3) - the caller
  *  lays out the partial range compactly. Symmetric with DSpSetCLUTCore's
  *  input-range contract.
  */
@@ -252,7 +252,7 @@ int32_t DSpGetCLUTCore(DSpContextPrivate *ctx,
 /*
  *  DSpContext_GetCLUTEntries (sub-opcode 301).
  *
- *  Argument contract (DSp 1.7 p.57 — corrected wire-format;
+ *  Argument contract (DSp 1.7 p.57 - corrected wire-format;
  *  symmetric with SetCLUTEntries, pointer-before-index arg order):
  *    ctxRef          = context handle from DSpContext_Reserve
  *    entriesOutAddr  = guest Mac address to receive inEntryCount x 8-byte
@@ -276,11 +276,11 @@ int32_t DSpGetCLUTCore(DSpContextPrivate *ctx,
  *                                written to guest RAM at entriesOutAddr
  *
  *  VBL-latched read contract:
- *    Reads from ctx->clut_bytes_latched — the snapshot maintained by
+ *    Reads from ctx->clut_bytes_latched - the snapshot maintained by
  *    DSpVBLClutLatchCallback (memcpy clut_bytes ->
  *    clut_bytes_latched on every VBL tick). A SetCLUTEntries +
  *    GetCLUTEntries pair within the same VBL window sees the PREVIOUS
- *    VBL's palette via Get — DSp 1.7's palette-animation contract.
+ *    VBL's palette via Get - DSp 1.7's palette-animation contract.
  *
  *  Initial-state contract:
  *    ctx->clut_bytes_latched is zero-initialized by `new
@@ -288,7 +288,7 @@ int32_t DSpGetCLUTCore(DSpContextPrivate *ctx,
  *    GetCLUTEntries before any SetCLUTEntries returns all-zero bytes.
  *
  *  Non-mutating: Get does not call MetalCompositorUpdatePalette and does
- *  not call dmc_record_palette_change — DMC write-site CI gate stays
+ *  not call dmc_record_palette_change - DMC write-site CI gate stays
  *  zero-match because this handler touches only ctx->clut_bytes_latched
  *  (long-suffix name not in the forbidden-identifier regex).
  */
@@ -305,7 +305,7 @@ extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
 		        ctxRef);
 		return kDSpInvalidContextErr;
 	}
-	/* Validate entriesOutAddr — NULL output buffer on a valid context is
+	/* Validate entriesOutAddr - NULL output buffer on a valid context is
 	 * reported as kDSpInvalidAttributesErr so the app can distinguish it
 	 * from a bad handle. */
 	if (entriesOutAddr == 0) {
@@ -317,7 +317,7 @@ extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
 	/* Range-check BEFORE the write loop (ASVS V5):
 	 * inEntryCount is a COUNT (not an inclusive last index). Compare the
 	 * headroom by subtraction, never by summing the two guest-controlled
-	 * uint32 operands — `inStartingEntry + inEntryCount` would wrap in
+	 * uint32 operands - `inStartingEntry + inEntryCount` would wrap in
 	 * 32-bit unsigned arithmetic (CWE-190) and defeat the guard. The first
 	 * clause bounds inStartingEntry <= 255, so 256 - inStartingEntry is in
 	 * [1..256] and cannot underflow. */
@@ -338,10 +338,10 @@ extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
 	 * layer (cheap; no-op on this path because we just validated above)
 	 * and is UNCHANGED (still takes an inclusive (first, last) range +
 	 * a 3-byte output buffer). */
-	uint8_t staged[256 * 3];  /* 768 bytes — compile-time sized for worst case */
+	uint8_t staged[256 * 3];  /* 768 bytes - compile-time sized for worst case */
 	int32_t rv = DSpGetCLUTCore(ctx, start, last, staged);
 	if (rv != kDSpNoErr) {
-		/* Shouldn't happen — we validated above — but defensive return. */
+		/* Shouldn't happen - we validated above - but defensive return. */
 		return rv;
 	}
 
@@ -389,11 +389,11 @@ extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
  *  Channels are read via ReadMacInt16 at r@+0, g@+2, b@+4 (NOT
  *  ReadMacInt8 at +0/+1/+2) so guest addresses stay in the emulated
  *  address space and the VM layer bounds-checks them
- *  (arm64 >4GiB UB avoidance — never host-pointer casts).
+ *  (arm64 >4GiB UB avoidance - never host-pointer casts).
  *
  *  The internal LUT machinery (DSpComputeFadeGammaTargetLUT) stays
  *  8-bit, so we down-convert each 16-bit channel to 8-bit by taking the
- *  high byte (>> 8) — the classic Mac convention where the 8-bit value
+ *  high byte (>> 8) - the classic Mac convention where the 8-bit value
  *  lives in the high byte of each 16-bit channel. This is the SINGLE
  *  replacement point flagged by the original in-code comment.
  *

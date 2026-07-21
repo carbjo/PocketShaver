@@ -76,7 +76,7 @@
 		if (outError != NULL) *outError = readError;
 		return false;
 	} else if ((NSUInteger)amtRead < mdbData.length) {
-		NSError *_Nonnull const underrunError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:@{ NSLocalizedDescriptionKey: @"Unexpected end of file reading source volume HFS header — are you sure this is an HFS volume?" }];
+		NSError *_Nonnull const underrunError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:@{ NSLocalizedDescriptionKey: @"Unexpected end of file reading source volume HFS header - are you sure this is an HFS volume?" }];
 		if (outError != NULL) *outError = underrunError;
 		return false;
 	}
@@ -105,7 +105,7 @@
 	off_t vbmEndPos = (
 		vbmStartPos
 		+
-		//Note: Not drAlBlkSiz, per TN1150—the VBM is specifically always based on 512-byte blocks.
+		//Note: Not drAlBlkSiz, per TN1150-the VBM is specifically always based on 512-byte blocks.
 		ImpNextMultipleOfSize(vbmMinimumNumBytes, kISOStandardBlockSize)
 	);
 	off_t const vbmFinalNumBytes = vbmEndPos - vbmStartPos;
@@ -124,7 +124,7 @@
 		if (outError != NULL) *outError = readError;
 		return false;
 	} else if ((NSUInteger)amtRead < volumeBitmap.length) {
-		NSError *_Nonnull const underrunError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:@{ NSLocalizedDescriptionKey: @"Unexpected end of file reading source volume allocation bitmap — are you sure this is an HFS volume?" }];
+		NSError *_Nonnull const underrunError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:@{ NSLocalizedDescriptionKey: @"Unexpected end of file reading source volume allocation bitmap - are you sure this is an HFS volume?" }];
 		if (outError != NULL) *outError = underrunError;
 		return false;
 	}

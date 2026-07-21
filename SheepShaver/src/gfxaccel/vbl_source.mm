@@ -83,7 +83,7 @@ static inline void FireVBLCallbackChain(void *drawable, double ts)
 {
 	if (s_callback_depth != 0) {
 		/* Potentially per-tick for titles whose guest VBL/fade procs pump
-		 * the runloop across a vsync boundary — rate-limit to the first
+		 * the runloop across a vsync boundary - rate-limit to the first
 		 * skip plus one summary per 600 skips (~10 s at 60 Hz) so the
 		 * always-on VBL_LOG cannot become per-frame stdout spam. */
 		static uint64_t s_nested_skip_count = 0;
@@ -102,8 +102,8 @@ static inline void FireVBLCallbackChain(void *drawable, double ts)
 	DrainSecondaryCallbacks(drawable, ts);
 	s_callback_depth--;
 
-	// FPS tally for the Preferences overlay. Counted here — after the chain
-	// completes — rather than at the MetalCompositorPresent site, because that
+	// FPS tally for the Preferences overlay. Counted here - after the chain
+	// completes - rather than at the MetalCompositorPresent site, because that
 	// site sits inside the present -> nift-drain window whose timing is frozen
 	// for the Diablo II bisection (see the NOTE in MetalCompositorPresent).
 	// One completed chain corresponds to one serviced VBL and hence one
@@ -272,7 +272,7 @@ int32_t vbl_source_init(void *cametal_layer,
 	// UIKit pumping, and presentation on the same main==emul thread, so moving
 	// rendering wholly inside the delegate would require a major architectural
 	// refactor. ProMotion is already honored
-	// via CADisplayLink's preferredFrameRateRange = (60,120) — there is no
+	// via CADisplayLink's preferredFrameRateRange = (60,120) - there is no
 	// pacing benefit to the revive. Using CADisplayLink for timing for ALL iOS
 	// versions; nextDrawable for drawables. vbl_source_uses_metal_display_link()
 	// returns 0 by design.
@@ -430,7 +430,7 @@ int32_t vbl_source_sync_3d_pacing_for_engine(int32_t engine_id)
 		/* First sync for this engine, or its deadline chain ran
 		 * implausibly far ahead of the live tick grid (cadence change /
 		 * long idle): re-anchor to the first boundary after the latest
-		 * tick. NOTE: deliberately NOT re-anchored on every new tick —
+		 * tick. NOTE: deliberately NOT re-anchored on every new tick -
 		 * doing so discarded the engine's own already-crossed boundary
 		 * and forced a full period wait per call, which made co-resident
 		 * engines (DSp+GL) pace to CONSECUTIVE boundaries: two periods

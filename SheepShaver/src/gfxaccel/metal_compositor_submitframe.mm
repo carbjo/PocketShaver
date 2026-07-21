@@ -42,7 +42,7 @@
  *  MetalCompositorSubmitFrame_AcquireCachedOverlay and composites the
  *  last-known overlay atop the 2D framebuffer in its own render pass.
  *
- *  Fix (Iteration #3, 2026-04-16 — 2D/3D composition regression):
+ *  Fix (Iteration #3, 2026-04-16 - 2D/3D composition regression):
  *  Iteration #2 introduced a second presenter: SubmitFrame was still
  *  acquiring its own drawable via [layer nextDrawable] and calling
  *  presentDrawable:/presentAtTime: alongside the new Present-path
@@ -119,8 +119,8 @@ static id<MTLRenderPipelineState>     s_pipe_display_premultiplied = nil;
  * MetalCompositorGetFramebufferTexture (also defined below) and blits its
  * private back_texture into it before submitting a kLayerSlotFramebuffer
  * CompositeLayer. The setter / getter live in this module (rather than in
- * metal_compositor.mm) so the test target — which does not compile
- * metal_compositor.mm due to SDL2 deps — can still resolve both symbols.
+ * metal_compositor.mm) so the test target - which does not compile
+ * metal_compositor.mm due to SDL2 deps - can still resolve both symbols.
  *
  * Threading: written from emul thread during MetalCompositorInit / Resize /
  * Shutdown (same thread that calls SwapBuffers); read from emul thread
@@ -671,7 +671,7 @@ extern "C" void MetalCompositorSubmitFrame_UnbindPresentationContext(void)
     s_queue   = nil;
     s_layer   = nil;
     s_library = nil;
-    /* Drop the framebuffer-texture publication — avoids dangling-texture
+    /* Drop the framebuffer-texture publication - avoids dangling-texture
      * reads from a stray late SwapBuffers on a torn-down compositor. */
     s_framebuffer_texture = nil;
     /* Drop any cached overlay whose texture is tied to a now-torn-down

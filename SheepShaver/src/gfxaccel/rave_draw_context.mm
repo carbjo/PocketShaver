@@ -327,7 +327,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	rave_context_count++;
 
 	// Initialize Metal overlay (viewport-sized) and per-context resources.
-	// Shared-overlay retain call deleted — per-engine ownership
+	// Shared-overlay retain call deleted - per-engine ownership
 	// via gfxaccel_resources eliminates the shared refcount model entirely.
 	// RaveCreateMetalOverlay vends a per-engine overlay texture from
 	// gfxaccel_resources directly.
@@ -534,7 +534,7 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 	return kQANoErr;
 }
 
-// Writes the 5 identified slots only — safe for caller-provided structs,
+// Writes the 5 identified slots only - safe for caller-provided structs,
 // whose true size is unknown beyond the 5 entries proven by Myth II.
 static void WriteATIRaveExtFuncsTable(uint32 ptr)
 {

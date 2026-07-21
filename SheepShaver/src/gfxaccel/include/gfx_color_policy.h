@@ -46,7 +46,7 @@ static inline uint8_t GfxColorClassicMacToSRGBByte(uint8_t value)
 
 /* Exact inverse of GfxColorClassicMacToSRGBByte (up to +/-1 LSB rounding).
  * Composing a guest table with this curve cancels the Mac Standard profile
- * gamma back to identity — the anchor for the Linear display policy. */
+ * gamma back to identity - the anchor for the Linear display policy. */
 static inline uint8_t GfxColorSRGBToClassicMacByte(uint8_t value)
 {
 	if (value == 0 || value == 255) return value;

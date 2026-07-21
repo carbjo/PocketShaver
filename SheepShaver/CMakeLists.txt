@@ -412,7 +412,6 @@ if(ENABLE_GFXACCEL)
 		"${GA}/gl/rave_gl_renderer.cpp"
 		"${GA}/gl/gl_ffp_renderer.cpp"
 		"${GA}/gl/dsp_gl_renderer.cpp"
-		"${GA}/gl/gfxaccel_link_stubs.cpp"
 	)
 	if(WIN32)
 		list(APPEND SS_GFXACCEL_LIBS opengl32)

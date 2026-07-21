@@ -323,7 +323,7 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
 
 // Per-heap bump-offset reset. Zeros g_next_offset[heap_id] and returns
 // the number of bytes reclaimed (= the previous next_offset). Does NOT
-// release g_heaps[heap_id] — only the offset counter is reset.
+// release g_heaps[heap_id] - only the offset counter is reset.
 // Invalid heap_id is a no-op returning 0 (bounds check at function entry).
 // gpu_idle_asserted skips the GPU-completion latch for callers that have
 // already proven idleness (explicit waitUntilCompleted on the shared
@@ -354,7 +354,7 @@ static uint64_t heap_mm_reset_internal(uint32_t heap_id,
 	        g_gpu_commits_pending[heap_id]) {
 		// In-flight GPU reads of heap memory: deferring keeps offset 0
 		// from aliasing bytes a committed blit may still touch. Expected
-		// transient — the caller's next reset attempt (e.g. the DSp VBL
+		// transient - the caller's next reset attempt (e.g. the DSp VBL
 		// release drain) lands after the completed handler fires.
 		os_log(gfxaccel_heap_log(),
 		       "heap reset deferred for heap_id=%u: command buffer(s) "

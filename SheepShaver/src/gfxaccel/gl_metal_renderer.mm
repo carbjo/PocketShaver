@@ -60,7 +60,7 @@ extern uint32 Mac_sysalloc(uint32 size);
  *  the still-bound drawable.
  *
  *  NativeAGLSwapBuffers emits a kLayerSlotOverlay CompositeLayer via
- *  MetalCompositorSubmitFrame — the "active" signal is the presence of the
+ *  MetalCompositorSubmitFrame - the "active" signal is the presence of the
  *  layer in the descriptor, not a separate enable call. SubmitFrame is
  *  cache-only in production; Step 3 restores real per-frame pacing.
  */
@@ -187,7 +187,7 @@ static void gl_release_overlay_texture(void)
 extern "C" void gl_overlay_bind(int32_t left, int32_t top, int32_t width, int32_t height)
 {
     if (width <= 0 || height <= 0) {
-        GL_METAL_LOG("gl_overlay_bind: invalid dims %dx%d — ignoring", width, height);
+        GL_METAL_LOG("gl_overlay_bind: invalid dims %dx%d - ignoring", width, height);
         return;
     }
     s_gl_dst_left   = left;
@@ -241,7 +241,7 @@ extern "C" void gl_overlay_unbind(void)
 extern "C" void gl_overlay_present(void)
 {
     if (!s_gl_overlay_committed_frame) {
-        GL_METAL_VLOG("gl_overlay_present: overlay has no committed frame — skipping SubmitFrame");
+        GL_METAL_VLOG("gl_overlay_present: overlay has no committed frame - skipping SubmitFrame");
         return;
     }
     if (GLShouldReacquireBoundOverlayForPresent(
@@ -257,12 +257,12 @@ extern "C" void gl_overlay_present(void)
         }
     }
     if (s_gl_overlay_tex == nil) {
-        GL_METAL_VLOG("gl_overlay_present: no cached overlay — skipping SubmitFrame");
+        GL_METAL_VLOG("gl_overlay_present: no cached overlay - skipping SubmitFrame");
         return;
     }
     if (!GLShouldSubmitOverlayFrame(s_gl_overlay_tex != nil,
                                     s_gl_overlay_committed_frame)) {
-        GL_METAL_VLOG("gl_overlay_present: overlay has no committed frame — skipping SubmitFrame");
+        GL_METAL_VLOG("gl_overlay_present: overlay has no committed frame - skipping SubmitFrame");
         return;
     }
 
@@ -312,7 +312,7 @@ extern "C" void gl_overlay_present(void)
     } else {
         gl_advance_overlay_texture_after_submit();
     }
-    /* Declare GL owner — fast no-op when already GL (idempotent). */
+    /* Declare GL owner - fast no-op when already GL (idempotent). */
     (void)dmc_set_active_owner(kDMCOwnerGL);
 }
 
@@ -477,9 +477,9 @@ struct GLMetalVertex {
     float position[4];        // float4, offset 0
     float color[4];           // float4, offset 16
     float normal[3];          // float3, offset 32
-    float texcoord[3];        // float3 (s, t, q), offset 44 — q enables projective texturing (unit 0)
-    float texcoord1[3];       // float3 (s, t, q), offset 56 — unit 1 for multitexture
-    float secondary_color[3]; // float3 (r, g, b), offset 68 — EXT_secondary_color / GL_COLOR_SUM (attribute 5)
+    float texcoord[3];        // float3 (s, t, q), offset 44 - q enables projective texturing (unit 0)
+    float texcoord1[3];       // float3 (s, t, q), offset 56 - unit 1 for multitexture
+    float secondary_color[3]; // float3 (r, g, b), offset 68 - EXT_secondary_color / GL_COLOR_SUM (attribute 5)
     // Total stride = 80 bytes
 };
 
@@ -502,7 +502,7 @@ struct GLMetalVertexUniforms {
     int32_t num_clip_planes;    // offset 216 (not 16-byte aligned: 216 = 13.5 * 16)
     float   _clip_pad[1];       // offset 220: ONE float (4 bytes) brings the next field
                                 // to offset 224 = 14 * 16, the float4 alignment boundary.
-                                // (only 4 bytes are needed here, not 12 — see static_assert below)
+                                // (only 4 bytes are needed here, not 12 - see static_assert below)
     float   clip_planes[6][4];  // offset 224, 16-byte aligned: 6 clip plane equations (float4 each)
 };
 
@@ -519,10 +519,10 @@ struct GLMetalFragmentUniforms {
     int32_t has_texture;             // offset 60
     int32_t has_texture_3d;          // offset 64
     int32_t shade_model;             // offset 68
-    int32_t color_sum_enabled;       // offset 72 — EXT_secondary_color / GL_COLOR_SUM (consumes former _pad3)
-    int32_t has_texture_unit1;       // offset 76 — ARB_multitexture: unit 1 has a bound+enabled 2D texture (consumes former _pad4)
-    int32_t texenv1_mode;            // offset 80 — unit-1 texenv mode (GLTexEnvModeToShader: 0=modulate..4=add)
-    int32_t force_opaque_output;     // offset 84 — window overlay with GL blending disabled stores coverage alpha
+    int32_t color_sum_enabled;       // offset 72 - EXT_secondary_color / GL_COLOR_SUM (consumes former _pad3)
+    int32_t has_texture_unit1;       // offset 76 - ARB_multitexture: unit 1 has a bound+enabled 2D texture (consumes former _pad4)
+    int32_t texenv1_mode;            // offset 80 - unit-1 texenv mode (GLTexEnvModeToShader: 0=modulate..4=add)
+    int32_t force_opaque_output;     // offset 84 - window overlay with GL blending disabled stores coverage alpha
     int32_t _pad6, _pad7;            // offset 88-92 (pad to 96, 16-byte struct alignment)
 };
 
@@ -791,10 +791,10 @@ typedef struct GLMetalGuestCompositeBackup {
     uint32_t rect_w;
     uint32_t rect_h;
     /* pixels: the world content BENEATH the stamp (never includes guest
-     * content drawn over it — denied pixels propagate the world value from
+     * content drawn over it - denied pixels propagate the world value from
      * the prior backup so occluders can't leak into the background).
      * composed_pixels: destination content after the stamp.
-     * stamped: 1 byte per rect pixel — 1 where the stamp actually wrote. */
+     * stamped: 1 byte per rect pixel - 1 where the stamp actually wrote. */
     std::vector<uint8_t> pixels;
     std::vector<uint8_t> composed_pixels;
     std::vector<uint8_t> stamped;
@@ -840,7 +840,7 @@ static void GLMetalInvalidatePreviousGuestComposite()
 /* Erase the tracked stamp (pixel-tested) and drop its tracking. The
  * tracking invariant: at most one live stamp exists in the destination and
  * the backup always describes it. A stamp must never lose its tracking
- * without being erased first — an untracked stamp is a permanent remnant
+ * without being erased first - an untracked stamp is a permanent remnant
  * (The Sims: one leaked model fragment per animation tick reads as a trail
  * of ghost copies behind every walking Sim). */
 static void GLMetalRestorePreviousGuestCompositeNow(
@@ -873,7 +873,7 @@ static void GLMetalRestorePreviousGuestCompositeNow(
     /* Pixel-tested restore: only put the captured background back where WE
      * wrote (stamped mask) and the destination still holds OUR stamped
      * output. Pixels the guest repainted since the stamp (world tile
-     * redraws, occluding sprites) must survive — a blind memcpy resurrects
+     * redraws, occluding sprites) must survive - a blind memcpy resurrects
      * the stale pre-stamp background over them (visible as old world
      * fragments around a moving model). Without composed_pixels there is
      * nothing to test against, so fall back to the full restore. */
@@ -1029,14 +1029,14 @@ static void GLMetalCaptureGuestCompositeOutput(
  * of guest content drawn ABOVE the model.
  *
  * gateWrites=false (fresh stamp at readback time, guest-ordered): every
- * opaque pixel is written — real hardware rasterizes the GL frame over
+ * opaque pixel is written - real hardware rasterizes the GL frame over
  * whatever is in the framebuffer, and the game redraws its occluding
  * sprites afterwards.
  *
  * gateWrites=true (asynchronous gap-filling re-stamp): a pixel is written
  * ONLY where the destination still shows the world background the previous
  * stamp sat on (reference). Anywhere the guest has since drawn something
- * else — occluding sprites, changed world — keeps its content; that is
+ * else - occluding sprites, changed world - keeps its content; that is
  * what lets 2D elements sit IN FRONT of the 3D model.
  *
  * In both modes, wherever the destination differs from the reference world
@@ -1092,7 +1092,7 @@ static uint64_t GLMetalStampLatestReadbackRect(
         reference->pixels.size() ==
             (size_t)reference->rect_w * reference->rect_h * bytesPerPixel;
     if (gateWrites && !haveReference) {
-        /* Nothing safe to compare against — refuse rather than trample. */
+        /* Nothing safe to compare against - refuse rather than trample. */
         return 0;
     }
 
@@ -1128,7 +1128,7 @@ static uint64_t GLMetalStampLatestReadbackRect(
                 dstPx[0] == refBg[0] && dstPx[1] == refBg[1];
 
             if (trackBackup && refBg != NULL && !dstIsWorld) {
-                /* Guest content above the world here — keep the WORLD
+                /* Guest content above the world here - keep the WORLD
                  * value as this pixel's background so it never gets
                  * "restored" onto, or compared as, guest content. */
                 uint8_t *bgPx = backup.pixels.data() +
@@ -1235,7 +1235,7 @@ static uint64_t GLCompositeLatestOffscreenToGuestSurfaceInternal(uint32_t dstBas
     }
 
     if (!compositeRect.valid) {
-        /* Nothing stampable. NEVER erase here — on real hardware nothing
+        /* Nothing stampable. NEVER erase here - on real hardware nothing
          * removes the GL frame's pixels from the framebuffer except the
          * guest drawing over them, and an erase with no follow-up stamp
          * blanks the model until the next readback (visible flicker at
@@ -1279,13 +1279,13 @@ static uint64_t GLCompositeLatestOffscreenToGuestSurfaceInternal(uint32_t dstBas
     }
     /* Asynchronous callers (blit bridge, present publish) re-stamp with
      * per-pixel gating so guest content drawn over the model since the
-     * last guest-ordered stamp stays on top. Only the flush-time stamp —
-     * which runs in guest order right after the readback — writes
+     * last guest-ordered stamp stays on top. Only the flush-time stamp -
+     * which runs in guest order right after the readback - writes
      * unconditionally, like real hardware rasterizing the GL frame. */
     const bool gateWrites = !freshStampAtReadback;
 
     /* About to stamp: the old stamp must be erased and untracked first,
-     * regardless of what the dirty region touched — the capture below
+     * regardless of what the dirty region touched - the capture below
      * replaces the tracking, and any stamp that loses tracking without
      * being restored becomes a permanent ghost. */
     GLMetalRestorePreviousGuestCompositeNow(dst,
@@ -1301,7 +1301,7 @@ static uint64_t GLCompositeLatestOffscreenToGuestSurfaceInternal(uint32_t dstBas
     const uint32_t rectH = compositeRect.height;
     /* Capture unconditionally: every stamp must be tracked by the backup
      * (background + output) or it can never be erased later. Untracked
-     * stamps are how the walking-Sim ghost trails formed — a dirty-path
+     * stamps are how the walking-Sim ghost trails formed - a dirty-path
      * stamp replaced the backup without covering the old stamp region. */
     const bool captured =
         GLMetalCaptureGuestCompositeBackground(dst,
@@ -1332,7 +1332,7 @@ static uint64_t GLCompositeLatestOffscreenToGuestSurfaceInternal(uint32_t dstBas
             reference.valid ? &reference : NULL);
     if (captured) {
         /* Keep composed_pixels coherent with the destination even when the
-         * gate denied every pixel — a stale composed snapshot would make
+         * gate denied every pixel - a stale composed snapshot would make
          * the next restore misfire. */
         GLMetalCaptureGuestCompositeOutput(dst,
                                            dstRowbytes,
@@ -1401,7 +1401,7 @@ extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentIfN
  * the moment real hardware would have rasterized the GL frame into the
  * framebuffer: the game's world repaint has already landed and its
  * occluding sprites have NOT been drawn yet, so an ungated stamp here is
- * exactly correct — and it is the only ungated stamp; every asynchronous
+ * exactly correct - and it is the only ungated stamp; every asynchronous
  * re-stamp after it is per-pixel gated. */
 extern "C" bool NQDReadMainDevicePixMapForGLBridge(uint32_t *baseAddr,
                                                    uint32_t *rowBytes,
@@ -2179,9 +2179,9 @@ static MTLBlendFactor GLBlendToMetal(uint32_t gl_blend) {
 // ---- Blend equation mapping (EXT_blend_equation / EXT_blend_minmax / EXT_blend_subtract) ----
 // Maps the stored ctx->blend_equation to a Metal blend op. Previously the apply
 // site hardcoded MTLBlendOperationAdd, silently ignoring subtract/min/max equations
-// (a stored-but-not-applied PARTIAL — silent wrong output, not allowed).
+// (a stored-but-not-applied PARTIAL - silent wrong output, not allowed).
 // Note: MTLBlendOperationMin/Max ignore the src/dst factors per Metal spec, matching
-// GL_MIN/GL_MAX semantics — no special-casing needed beyond the op map.
+// GL_MIN/GL_MAX semantics - no special-casing needed beyond the op map.
 static MTLBlendOperation GLBlendEquationToMetal(uint32_t eq) {
     switch (eq) {
         case GL_FUNC_ADD:              return MTLBlendOperationAdd;
@@ -2230,7 +2230,7 @@ static MTLStencilOperation GLStencilOpToMetal(uint32_t gl_op) {
 // MakePipelineKey includes all Metal render pipeline
 // state: blend_enabled, blend_src, blend_dst, blend_equation, depth_write, color_mask_bits,
 // has_texture. blend_equation sets rgb/alphaBlendOperation on the MTLRenderPipelineDescriptor,
-// so it MUST be in the key — otherwise a non-Add equation would silently
+// so it MUST be in the key - otherwise a non-Add equation would silently
 // reuse a stale Add pipeline. Depth test/func, stencil, and cull face are NOT part of the Metal
 // pipeline state object (they are set separately via setDepthStencilState: and setCullMode:), so
 // their absence from this key is correct. Depth-stencil state has its own cache key
@@ -2366,7 +2366,7 @@ void GLMetalInit(GLContext *ctx)
     ms->vertexDescriptor.attributes[5].bufferIndex = 0;
 
     // Stride desync: GLMetalVertex (C++), the attribute offsets above,
-    // and GLVertexIn in gl_shaders.metal must stay in exact lockstep — a desync
+    // and GLVertexIn in gl_shaders.metal must stay in exact lockstep - a desync
     // corrupts position too. stride auto-grows to sizeof(GLMetalVertex) == 80.
     ms->vertexDescriptor.layouts[0].stride = sizeof(GLMetalVertex);
 
@@ -2686,7 +2686,7 @@ void GLMetalBeginFrame(GLContext *ctx)
     int viewportW = ctx->viewport[2];
     int viewportH = ctx->viewport[3];
     if (viewportW <= 0 || viewportH <= 0) {
-        // No viewport yet — fall back to the last bound overlay dims.
+        // No viewport yet - fall back to the last bound overlay dims.
         if (s_gl_overlay_w != 0 && s_gl_overlay_h != 0) {
             viewportW = (int)s_gl_overlay_w;
             viewportH = (int)s_gl_overlay_h;
@@ -3005,7 +3005,7 @@ static void ConvertVertices(const std::vector<GLVertex> &in, std::vector<GLMetal
         out[i].texcoord1[2] = in[i].texcoord[1][3];
         // EXT_secondary_color / GL_COLOR_SUM: carry the already-stored secondary
         // color through to attribute 5. This non-expansion path (used for
-        // GL_TRIANGLES/STRIP, GL_LINES/STRIP, GL_POINTS — the dominant primitive
+        // GL_TRIANGLES/STRIP, GL_LINES/STRIP, GL_POINTS - the dominant primitive
         // types) was silently dropping it, so GL_COLOR_SUM had no effect for most
         // real draws (mirrors copyVertex in ExpandPrimitives).
         memcpy(out[i].secondary_color, in[i].secondary_color, sizeof(float) * 3);
@@ -3209,7 +3209,7 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
             }
         } else if (mtlPrim == MTLPrimitiveTypeTriangleStrip) {
             // For strips, provoking vertex is the last vertex of each triangle
-            // Triangle i uses vertices i, i+1, i+2 — provoking is i+2
+            // Triangle i uses vertices i, i+1, i+2 - provoking is i+2
             for (size_t i = 0; i + 2 < vertCount; i++) {
                 expandedVerts[i].color[0] = expandedVerts[i + 2].color[0];
                 expandedVerts[i].color[1] = expandedVerts[i + 2].color[1];
@@ -3351,14 +3351,14 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
                          ctx->tex_units[texUnit].bound_texture_3d != 0) ? 1 : 0;
     fu.shade_model = (ctx->shade_model == GL_SMOOTH) ? 1 : 0;
     // EXT_secondary_color / GL_COLOR_SUM: honestly gated on the tracked enable bit
-    // (NOT silently always-on) — secondary color is added after texturing only
+    // (NOT silently always-on) - secondary color is added after texturing only
     // when glEnable(GL_COLOR_SUM) is active.
     fu.color_sum_enabled = ctx->color_sum ? 1 : 0;
     // ARB_multitexture (glMultiTexCoord*ARB, 406-437): unit 1 contributes a second
     // 2D texture sampled with texcoord1 and combined per its texenv mode (2-unit
     // modulate/add scope). Gated honestly on unit 1 being enabled with a bound 2D
     // texture (NOT silently always-on). The GL_COMBINE crossbar is store-only
-    // and GL_EXT_texture_env_combine is de-advertised — only modes 0-4 are honored.
+    // and GL_EXT_texture_env_combine is de-advertised - only modes 0-4 are honored.
     fu.has_texture_unit1 = (GLMetalTexture2DEnabledForDraw(ctx, 1) &&
                             ctx->tex_units[1].bound_texture_2d != 0) ? 1 : 0;
     fu.texenv1_mode = GLTexEnvModeToShader(ctx->tex_units[1].env_mode);
@@ -3500,7 +3500,7 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     // fragment indices texture(2)/sampler(1). Index 1 is reserved for 3D textures
     // (texIdx = has_texture_3d ? 1 : 0 above), so unit 1's 2D texture must NOT reuse
     // it. The shader always declares tex1 [[texture(2)]] / samp1 [[sampler(1)]], so we
-    // bind on every draw (Metal validation) — the white fallback when unit 1 is
+    // bind on every draw (Metal validation) - the white fallback when unit 1 is
     // inactive (the shader gates the sample on has_texture_unit1). Same
     // texture_objects.find + metal_texture null-check shape as unit 0; a deleted unit-1
     // texture falls back to white rather than binding a dangling MTLTexture.
@@ -4076,7 +4076,7 @@ void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
     if (level > 0 && existing && [existing mipmapLevelCount] <= (NSUInteger)level) {
         texObj->has_mipmaps = true;
         // Recreate the texture with mipmap support, preserving base level contents.
-        // Use the existing texture's base dimensions — texObj->width/height may have
+        // Use the existing texture's base dimensions - texObj->width/height may have
         // been overwritten by the caller with this mip level's dimensions.
         NSUInteger baseW = [existing width];
         NSUInteger baseH = [existing height];

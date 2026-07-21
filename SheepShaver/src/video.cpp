@@ -337,7 +337,7 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 			 * trusts that at boot and only pushes the display profile's
 			 * table during a resolution/depth switch. A linear default here
 			 * therefore leaves the screen uncorrected from boot until the
-			 * first mode switch — which never comes when the guest boots at
+			 * first mode switch - which never comes when the guest boots at
 			 * the panel-native resolution in full screen. Default to the
 			 * same classic-Mac standard curve the profile table carries so
 			 * boot matches the post-switch presentation. */
@@ -1109,7 +1109,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 				/* csDepthMode is a RELATIVE kDepthModeN selector; translate
 				 * STRICTLY (no absolute fallback) so the Display Manager's
 				 * probe loop terminates after exactly the supported depth
-				 * count — dual-accepting absolute values here made every
+				 * count - dual-accepting absolute values here made every
 				 * depth answer twice (once relative, once absolute) and
 				 * doubled each resolution's depth records. */
 				uint32 abs = video_abs_depth_from_rel(requested_mode);
@@ -1181,7 +1181,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 					}
 					WriteMacInt32(param + csPageCount, 1);
 					/* Zero csReserved (packed 68k layout: csDeviceType@14 is
-					 * 4 bytes, csReserved@18) — same stale-guest-RAM hazard
+					 * 4 bytes, csReserved@18) - same stale-guest-RAM hazard
 					 * as csResolutionFlags in cscGetNextResolution. */
 					WriteMacInt32(param + csDeviceType + 4, 0);	// csReserved
 					return noErr;
@@ -1204,7 +1204,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 					 * the enabled-resolution prefs, NOT the classic fixed
 					 * APPLE_* id-to-resolution table, so switching on the id
 					 * (as this code originally did) reported a shuffled
-					 * timing constant for every mode — e.g. the native-panel
+					 * timing constant for every mode - e.g. the native-panel
 					 * mode carried timingVESA_640x480_75hz. The Display
 					 * Manager cross-references these constants when it
 					 * builds mode-list entries for apps. */

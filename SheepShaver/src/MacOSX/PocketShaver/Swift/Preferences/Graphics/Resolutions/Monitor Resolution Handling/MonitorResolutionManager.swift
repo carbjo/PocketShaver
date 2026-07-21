@@ -132,8 +132,8 @@ public class MonitorResolutionManager: NSObject {
 		}
 	}
 
-	/// The always-on boot resolution — the native-scale, pixel-aligned mode the UI marks
-	/// "cannot be deselected / needed for boot sequence" — for the launch orientation,
+	/// The always-on boot resolution - the native-scale, pixel-aligned mode the UI marks
+	/// "cannot be deselected / needed for boot sequence" - for the launch orientation,
 	/// freshly detected from the current display each launch (never a persisted copy).
 	/// `availableResolutions` is rebuilt from the live screen in init(), so this always
 	/// reflects the current device; `isResolutionAlwaysEnabled` pins this same value.
@@ -143,8 +143,8 @@ public class MonitorResolutionManager: NSObject {
 	}
 
 	/// The resolution PocketShaver records into the "screen" pref to boot into. Sourced
-	/// from `freshBootResolutionOption` — the freshly-detected "cannot be deselected"
-	/// pixel-aligned mode — not the live UIScreen point size and not a stale persisted
+	/// from `freshBootResolutionOption` - the freshly-detected "cannot be deselected"
+	/// pixel-aligned mode - not the live UIScreen point size and not a stale persisted
 	/// value. On Mac Catalyst the pixel-aligned modes are already computed from the
 	/// camera-housing-excluded screen size (see `UIScreen.pixelAligned*Size`), so this
 	/// boots the usable-below-the-notch resolution without any extra trim here.
@@ -297,13 +297,13 @@ public class MonitorResolutionManager: NSObject {
 
 	/// Refresh a persisted enabled list against the freshly-detected pixel-aligned modes for
 	/// the current display, and guarantee the always-on boot resolution (the first pixel-aligned
-	/// entry — the one the UI marks "cannot be deselected") is present. Persisted entries carry
+	/// entry - the one the UI marks "cannot be deselected") is present. Persisted entries carry
 	/// concrete pixel dimensions, so any pixel-aligned entry saved on a previous display or a
 	/// pre-notch build would otherwise show stale values in the UI and diverge from what the
 	/// guest receives (e.g. a Mac Catalyst 1x mode saved as 4112x2658 before the camera-housing
 	/// strip was excluded, now 4112x2582). Every persisted entry of `category` is re-matched to
-	/// the current option by the notch-invariant axis — width in landscape, height in portrait,
-	/// since the camera housing only trims the other axis — keeping `enabledResolutions` the
+	/// the current option by the notch-invariant axis - width in landscape, height in portrait,
+	/// since the camera housing only trims the other axis - keeping `enabledResolutions` the
 	/// single fresh source of truth read by both the Preferences UI and the SDL mode list.
 	private static func withRefreshedBootResolution(
 		_ persisted: [MonitorResolutionOption],

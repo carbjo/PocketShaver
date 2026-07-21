@@ -65,21 +65,21 @@ static void DSpResetHeapIfIdleAfterAltBufferRelease(const char *reason)
 }
 
 /* Zero a record's fields WITHOUT memset (DSpAltBufferRecord holds ARC
- * id<MTLBuffer>/id<MTLTexture> fields — memset over them bypasses ARC and is
+ * id<MTLBuffer>/id<MTLTexture> fields - memset over them bypasses ARC and is
  * undefined, -Wnontrivial-memcall). ObjC fields are assigned NULL (ARC
  * releases); POD fields are explicitly reset. */
 static void DSpClearAltBufferRecord(DSpAltBufferRecord *rec)
 {
 	/* Release the guest-RAM pixel-staging buffer that backed the CGrafPort
 	 * (if any). It was exposed to the guest as a PixMap baseAddr, so it must
-	 * be quarantined (retained, never freed back to the app heap) — exactly
+	 * be quarantined (retained, never freed back to the app heap) - exactly
 	 * like the back/front buffer staging in DSpReleaseFrontBufferStaging. */
 	if (rec->baseaddr_owned_staging && rec->baseaddr_mac != 0) {
 		DSpQuarantineGuestPixelStaging(rec->baseaddr_mac,
 		                               rec->baseaddr_size, true);
 	}
 	rec->in_use            = false;
-	rec->texture           = NULL;   /* texture is a view over backing — drop it first */
+	rec->texture           = NULL;   /* texture is a view over backing - drop it first */
 	if (rec->backing != NULL) {
 		gfxaccel_resources_clear_buffer_owner(rec->backing);
 		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
@@ -140,7 +140,7 @@ static void DSpFreeAltBuffer(uint32_t handle)
  *                                                                       *
  *  Real Metal-backed AltBuffer implementations reusing the              *
  *  engine-blind gfxaccel infra: each alt-buffer backs onto the          *
- *  DSp heap (kHeapEngineDSp) — NOT the one-per-engine overlay slot, so   *
+ *  DSp heap (kHeapEngineDSp) - NOT the one-per-engine overlay slot, so   *
  *  N alt-buffers coexist. A designated underlay feeds the                *
  *  DSpRestoreBackBufferFromUnderlay CPU dirty-band restore path when     *
  *  host-visible depth-matched backing is available. ZERO new concurrency *
@@ -154,7 +154,7 @@ static void DSpFreeAltBuffer(uint32_t handle)
  *  CGrafPort GetCGrafPtr emits describes that same depth, which keeps    *
  *  DSpBlit_* src/dst depths equal (Diablo II software mode draws its     *
  *  8-bpp frame into an alt buffer and Blit_Fastest's it to the front     *
- *  buffer — a fixed 32-bpp alt backing made every such blit fail with    *
+ *  buffer - a fixed 32-bpp alt backing made every such blit fail with    *
  *  a depth mismatch and the game presented nothing).                     *
  * --------------------------------------------------------------------- */
 
@@ -167,7 +167,7 @@ static void DSpFreeAltBuffer(uint32_t handle)
  *  p.49). A non-NULL inAttributes => overlay-kind (NOT underlay-usable).
  *  inVRAMBuffer is advisory (we always heap-back via kHeapEngineDSp).
  *  Writes the new 1-based handle to outAltBuffer. NULL outAltBuffer =>
- *  kDSpInvalidAttributesErr (ASVS V5 — guard out-ptr before write). */
+ *  kDSpInvalidAttributesErr (ASVS V5 - guard out-ptr before write). */
 extern "C" int32_t DSpAltBuffer_NewHandler(uint32_t ctxRef,
                                            uint32_t inVRAMBuffer,
                                            uint32_t inAttributesAddr,
@@ -302,13 +302,13 @@ inline uint32_t DSpAltBytesPerPixel(uint32_t depth)
  *  DSp 1.7 PDF p.50: DSpAltBuffer_GetCGrafPtr(inAltBuffer, inBufferKind,
  *  outCGrafPtr). Returns a stable guest-RAM CGrafPort describing the alt-
  *  buffer's drawable surface (the app draws into it, then calls InvalRect).
- *  "Currently the only supported buffer kind is kDSpBufferKind_Normal" — any
+ *  "Currently the only supported buffer kind is kDSpBufferKind_Normal" - any
  *  other kind => kDSpInvalidAttributesErr. SheepMem reserve + cache the Mac
  *  address on the record + W1 staging fallback when Host2MacAddr cannot map
  *  the MTLBuffer contents pointer (arm64 iOS bump-allocator outside vm_alloc).
  *  The CGrafPort is a REAL port at the record's depth, built by the shared
  *  DSpEmitSurfaceCGrafPort emitter (classic PixMap + handle + portVersion
- *  0xC000 + vis/clip regions) — apps draw into the alt buffer by
+ *  0xC000 + vis/clip regions) - apps draw into the alt buffer by
  *  dereferencing this as a genuine port (portPixMap -> GetPixBaseAddr /
  *  CopyBits), so the former compact PixMap-shaped shim sent Diablo II's
  *  software-renderer writes through misread garbage pointers (noise on
@@ -354,9 +354,9 @@ extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
 
 	/* baseAddr: Mac-address view of the backing's CPU-side contents pointer.
 	 * On arm64 iOS the heap bump-allocator can live outside guest RAM.
-	 * Treat non-guest mapped values the same as 0 — W1 staging fallback
+	 * Treat non-guest mapped values the same as 0 - W1 staging fallback
 	 * reserves a guest-RAM region the size of the backing. NEVER
-	 * (uint32)(uintptr_t) — UB on arm64. */
+	 * (uint32)(uintptr_t) - UB on arm64. */
 	uint32_t baseAddr_mac = 0;
 	bool baseaddr_owned_staging = false;
 	void *contents = DSpGetBackingContents(rec->backing);
@@ -370,7 +370,7 @@ extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
 	if (baseAddr_mac == 0) {
 		/* The Metal backing's contents pointer is outside guest RAM (the iOS
 		 * MEM_BULK case), so expose a guest-RAM pixel-staging buffer the size
-		 * of the alt-buffer — the SAME framebuffer-staging allocator the back
+		 * of the alt-buffer - the SAME framebuffer-staging allocator the back
 		 * buffer uses (Mac system heap via NewPtrSys). NEVER
 		 * DSpReserveGuestScratch here: that is the 512 KB SheepMem thunk
 		 * stack, and a framebuffer-sized request (up to ~1.2 MB) overruns it,
@@ -388,7 +388,7 @@ extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
 	rec->baseaddr_size          = buffer_size;
 	rec->baseaddr_owned_staging = baseaddr_owned_staging;
 
-	/* Emit a REAL CGrafPort at the record's depth (shared emitter — same
+	/* Emit a REAL CGrafPort at the record's depth (shared emitter - same
 	 * construction as the front buffer). The guest dereferences this as a
 	 * genuine port (portPixMap -> pixel writes / CopyBits). */
 	uint32_t cgp_addr = DSpEmitSurfaceCGrafPort(baseAddr_mac,
@@ -413,7 +413,7 @@ extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
 
 
 /* Per-alt-buffer dirty-rect accumulator. Clamps to the alt-buffer's bounds
- * (ASVS V5) then unions into the record's dirty rect — same shape + semantics
+ * (ASVS V5) then unions into the record's dirty rect - same shape + semantics
  * as DSpInvalBackBufferRect_Accumulate (the back-buffer dirty accumulator),
  * single-writer, NO sync primitive. The union flows into the GetBackBuffer
  * underlay-restore on the next retrieval (sub-op 705 commit). */
@@ -491,10 +491,10 @@ extern "C" int32_t DSpAltBuffer_InvalRectHandler(uint32_t altBuffer,
  *  DSp 1.7 PDF p.51: DSpContext_SetUnderlayAltBuffer(inContext, inNewUnderlay).
  *  Designates an alt-buffer as the context's underlay. "When a back buffer is
  *  retrieved and there is an underlay buffer, the invalid areas in the back
- *  buffer are restored from the underlay buffer" — that restore is the
+ *  buffer are restored from the underlay buffer" - that restore is the
  *  GetBackBuffer branch below. inNewUnderlay == 0 clears the designation
  *  (no underlay). A non-zero handle must resolve to an alt-buffer that is
- *  underlay-capable (NULL-attributes kind, PDF p.49) — else
+ *  underlay-capable (NULL-attributes kind, PDF p.49) - else
  *  kDSpInvalidAttributesErr. Bad ctxRef -> kDSpInvalidContextErr. */
 extern "C" int32_t DSpContext_SetUnderlayAltBufferHandler(uint32_t ctxRef,
                                                           uint32_t inNewUnderlay)
@@ -557,7 +557,7 @@ extern "C" int32_t DSpContext_GetUnderlayAltBufferHandler(uint32_t ctxRef,
  * the guest-RAM staging; the Metal backing is a separate allocation that would
  * otherwise stay empty. Both sides are the record's depth at the same
  * 256-aligned row stride, so a flat copy of the backing extent is exact. No-op
- * on StorageModePrivate (simulator — contents NULL) or when the alt-buffer has
+ * on StorageModePrivate (simulator - contents NULL) or when the alt-buffer has
  * no owned guest staging. */
 void DSpSyncAltBufferStagingToBacking(DSpAltBufferRecord *rec)
 {
@@ -582,7 +582,7 @@ void DSpSyncAltBufferStagingToBacking(DSpAltBufferRecord *rec)
  * GetCGrafPtr CGrafPort, and DSpSyncAltBufferStagingToBacking rebuilds the
  * backing from it. Alt-buffer backings therefore release on background and
  * re-create on foreground exactly like back buffers. Without this, any title
- * holding one alt buffer kept the DSp heap live count nonzero forever — the
+ * holding one alt buffer kept the DSp heap live count nonzero forever - the
  * bump heap could never reset, and every background/foreground cycle leaked
  * a back-buffer-sized region toward the 32 MiB ceiling (CORE-09 ratchet). */
 void DSpReleaseAltBufferBackingsForBackground(void)
@@ -591,7 +591,7 @@ void DSpReleaseAltBufferBackingsForBackground(void)
 	for (int i = 0; i < DSP_MAX_ALT_BUFFERS; i++) {
 		DSpAltBufferRecord *rec = &dsp_alt_buffer_table[i];
 		if (!rec->in_use || rec->backing == NULL) continue;
-		/* Texture is a view over the backing — drop it first. Guest
+		/* Texture is a view over the backing - drop it first. Guest
 		 * staging, dims, and in_use stay intact for foreground restore. */
 		rec->texture = NULL;
 		gfxaccel_resources_clear_buffer_owner(rec->backing);
@@ -612,7 +612,7 @@ void DSpRestoreAltBufferBackingsForForeground(void)
 		if (!rec->in_use || rec->backing != NULL) continue;
 		if (rec->width == 0 || rec->height == 0) continue;
 		if (!DSpAllocAltBufferBacking(rec, rec->width, rec->height)) {
-			/* Leave backing NULL — sync/blit paths NULL-check it; the next
+			/* Leave backing NULL - sync/blit paths NULL-check it; the next
 			 * foreground retries, matching the back-buffer policy. */
 			DSP_LOG("Foreground: alt-buffer %d backing re-alloc FAILED "
 			        "(retry on next fg)", i + 1);

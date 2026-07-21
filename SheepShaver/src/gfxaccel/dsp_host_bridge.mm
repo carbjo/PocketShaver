@@ -17,7 +17,7 @@
  *    - NotificationCenter.postNotification is thread-safe by Apple's
  *      documented contract (internal lock; safe to call from any thread).
  *    - Observer closure runs on main queue (queue: .main in addObserver
- *      call) — UIApplication.shared.isIdleTimerDisabled write happens on
+ *      call) - UIApplication.shared.isIdleTimerDisabled write happens on
  *      main thread per UIKit's main-thread contract.
  *    - Getter: single-word _Atomic bool read (memory_order_relaxed);
  *      callable from any thread.
@@ -29,7 +29,7 @@
  *      willEnterForegroundNotification observer; the emul-thread
  *      conditional-set read in DSpContext_SetStateHandler (both via
  *      DSpHostBridge_GetActiveFullscreen).
- *    - Cross-thread single-word bool — `_Atomic bool` with
+ *    - Cross-thread single-word bool - `_Atomic bool` with
  *      memory_order_relaxed is the minimum sanctioned primitive per the
  *      read-mostly precedent. The threading-grep CI gate
  *      (MTLFence|MTLSharedEvent|std::mutex|@synchronized) does not
@@ -37,7 +37,7 @@
  *
  *  The `_Atomic bool s_dsp_active_fullscreen` flag is kept
  *  because DSpIdleTimerService re-reads it on willEnterForegroundNotification
- *  — the notification post path alone would miss the case where DSp
+ *  - the notification post path alone would miss the case where DSp
  *  transitioned to Active-fullscreen WHILE the app was backgrounded (no
  *  observer firing during that window). The flag provides the source of
  *  truth for foreground re-apply decisions.
@@ -49,7 +49,7 @@
 
 #include <stdatomic.h>
 
-/* Module-scope storage — single writer emul-thread; readers: main-thread
+/* Module-scope storage - single writer emul-thread; readers: main-thread
  * Swift observer on foreground re-apply, plus the emul-thread
  * conditional-set read via the getter. Initial state = false (no DSp
  * context is Active at DSp boot time; DSpContext_Reserve's default
@@ -61,7 +61,7 @@ extern "C" void DSpHostBridge_SetActiveFullscreen(bool active)
 	/* Write the flag first so readers (including the observer
 	 * closure that the notification post will trigger) see the new value
 	 * atomically. _Atomic bool with memory_order_relaxed is the minimum
-	 * sanctioned primitive — the Swift observer's queue: .main hop
+	 * sanctioned primitive - the Swift observer's queue: .main hop
 	 * provides the happens-before for the subsequent UIApplication write
 	 * (main-runloop iteration boundary is a synchronization point). */
 	atomic_store_explicit(&s_dsp_active_fullscreen, active,
@@ -74,7 +74,7 @@ extern "C" void DSpHostBridge_SetActiveFullscreen(bool active)
 	 * writing UIApplication.shared.isIdleTimerDisabled.
 	 *
 	 * @autoreleasepool guards against any autoreleased objects the post
-	 * might create internally (defensive — the NATIVE_DSP_DISPATCH emul
+	 * might create internally (defensive - the NATIVE_DSP_DISPATCH emul
 	 * thread does not have an enclosing autorelease pool). Negligible
 	 * cost on a transition-edge-only call path. */
 	@autoreleasepool {

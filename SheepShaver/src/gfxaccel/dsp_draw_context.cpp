@@ -13,7 +13,7 @@
  *    - rave_draw_context.mm:43-75 (context-table shape; 1-based handles,
  *      slot 0 reserved, linear-scan free-list via nullptr slots)
  *    - VBL-bounded release FIFO with _Atomic uint32_t head/tail
- *    - Metal texture view must be released BEFORE the underlying buffer —
+ *    - Metal texture view must be released BEFORE the underlying buffer -
  *      ARC order matters on some iOS Metal drivers
  *
  *  GetBackBuffer/SwapBuffers/SetState/GetState/InvalBackBufferRect handler
@@ -180,12 +180,12 @@ static void DSpReleaseFrontBufferStaging(DSpContextPrivate *ctx)
 extern "C" void DSpHostBridge_SetActiveFullscreen(bool active);
 extern "C" bool DSpHostBridge_GetActiveFullscreen(void);
 
-/* MainDevice PixMap redirect/restore forward decls — defined later in this
+/* MainDevice PixMap redirect/restore forward decls - defined later in this
  * file (near DSpContext_SetStateHandler). Forward-declared here so the
  * release-path call sites at DSpReleaseNow / DSpQueueReleaseAtVBL /
  * DSpQueueReleaseAtVBLPartial and the bg/fg bridges
  * (DSpHandleBackgroundFromEmulThread / DSpHandleForegroundFromEmulThread)
- * — all of which appear earlier in the file than the helper bodies —
+ * - all of which appear earlier in the file than the helper bodies -
  * can call the helpers per Landmine-7. */
 extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx);
 extern "C" void DSpRestoreMainDevicePixMap(DSpContextPrivate *ctx);
@@ -235,7 +235,7 @@ static int                dsp_context_count                   = 0;
  * Single-writer emul-thread: DSpVBLServiceCallback fires from the VBL
  * secondary-callback drain on the emul thread.
  *
- * C11 _Atomic primitive per the read-mostly precedent — exact
+ * C11 _Atomic primitive per the read-mostly precedent - exact
  * mirror of vbl_source.mm's s_tick_count pattern (documented inline
  * in that file as the sanctioned minimal
  * primitive). NO mutex, NO MTLFence, NO MTLSharedEvent, NO
@@ -253,7 +253,7 @@ extern "C" DSpContextPrivate *DSpGetContext(uint32_t handle)
 }
 
 /*
- *  Debug session `dsp-sims-enumeration-stall` fix (2026-04-19) — C-safe
+ *  Debug session `dsp-sims-enumeration-stall` fix (2026-04-19) - C-safe
  *  accessor that lets dsp_mode_enumerate.cpp (a pure .cpp file, no
  *  <Metal/Metal.h>) read ctx->enumeration_mode_index without needing the
  *  full DSpContextPrivate struct layout. See dsp_draw_context.h for the
@@ -310,7 +310,7 @@ static _Atomic(uint32_t)   dsp_release_tail = 0;  /* VBL drain writes */
  * runs after gfxaccel_handle_background_enter Step 2 committed an empty
  * command buffer on the shared queue and waited for completion
  * (gfxaccel_resources.mm), so GPU work referencing the DSp heap is
- * provably complete — resets reached from that drain may skip the
+ * provably complete - resets reached from that drain may skip the
  * GPU-completion latch instead of deferring while the VBL source is
  * paused (no retry tick would fire). The foreground edge inherits the
  * same guarantee: the VBL source stays paused through the background
@@ -375,7 +375,7 @@ static void DSpQueueReleaseAtVBL(DSpContextPrivate *ctx)
 	}
 	/* Clear the owner-tag here (not in the VBL
 	 * drain) so the map reflects DSp ownership ending at the moment
-	 * Release was requested — the actual Metal refcount drop is
+	 * Release was requested - the actual Metal refcount drop is
 	 * deferred to the VBL boundary, but logically the buffer is "no
 	 * longer owned by DSp" as soon as it's queued. Any NQD dispatch
 	 * between here and the drain sees DMC owner transitioning away
@@ -427,7 +427,7 @@ static void DSpQueueReleaseAtVBLPartial(DSpContextPrivate *ctx)
 		        "to synchronous partial release (cap=%d)",
 		        DSP_RELEASE_QUEUE_CAPACITY);
 		/* Synchronous partial: texture + buffer only:
-		 * texture first); struct is NOT deleted — bg restore path will
+		 * texture first); struct is NOT deleted - bg restore path will
 		 * re-alloc into it. */
 		if (ctx->back_buffer != NULL) {
 			gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
@@ -509,7 +509,7 @@ extern "C" void DSpVBLClutLatchCallback(void *cb_ctx, void *drawable, double ts)
 	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
 		DSpContextPrivate *ctx = dsp_context_table[i];
 		if (ctx == nullptr) continue;
-		/* Snapshot every context (not just Active) — Paused contexts
+		/* Snapshot every context (not just Active) - Paused contexts
 		 * have a valid stale CLUT the app can Get between Pause and
 		 * Resume; the snapshot is correct for both states because
 		 * SetCLUTEntries only runs via DSp dispatch on the emul thread
@@ -582,7 +582,7 @@ static void DSpInterpolateGammaLUT(const uint8_t *start_lut,
  *  DSp 1.7 semantics (the wrong-output defect this REPLACES):
  *    - inPercentOfOriginalIntensity = 100  -> display at FULL intensity:
  *        output[c][i] = full_lut[c][i]  (the driver's installed gamma
- *        table — "original intensity" is what the guest's SetGamma put
+ *        table - "original intensity" is what the guest's SetGamma put
  *        in effect, NOT the identity ramp; identity is only the
  *        pre-SetGamma boot state).
  *    - inPercentOfOriginalIntensity = 0    -> display at ZERO intensity:
@@ -598,7 +598,7 @@ static void DSpInterpolateGammaLUT(const uint8_t *start_lut,
  *
  *  The PREVIOUS formula `(channel[c] * i * percent) / 25500` DISCARDED
  *  the zero-intensity tint (output was 0 at i=0 or percent=0 regardless
- *  of the tint) — an M2-detectable wrong-output defect. The corrected
+ *  of the tint) - an M2-detectable wrong-output defect. The corrected
  *  formula HONORS inZeroIntensityColor as the zero-intensity floor.
  *
  *  Boundary equivalences (asserted by the corrected DSpGammaTests):
@@ -660,7 +660,7 @@ static void DSpComputeFadeGammaTargetLUT(uint8_t color_r,
 
 /*
  *  Copy the driver's current gamma table (the guest's last SetGamma) out of
- *  the DMC snapshot — the "original intensity" reference for every fade
+ *  the DMC snapshot - the "original intensity" reference for every fade
  *  formula above. Falls back to the identity ramp when the DMC is Quiescent
  *  (no snapshot yet), which matches the pre-SetGamma boot state.
  */
@@ -687,13 +687,13 @@ static void DSpCopyDriverGammaLUT(uint8_t out_lut[768])
  *  start_lut snapshot logic (active-fade-replacement):
  *    - If ctx->fade_state.active != 0: compute the CURRENT INTERPOLATED
  *      state via DSpInterpolateGammaLUT(old_start, old_end, old_elapsed,
- *      old_duration). This preserves visual continuity — the new fade
+ *      old_duration). This preserves visual continuity - the new fade
  *      starts from where the old fade was visually, NOT from the old
  *      fade's start. Without this, a SetGamma -> FadeGammaIn(50, ...)
  *      -> FadeGammaOut(20, ...) sequence would snap back to the
  *      first fade's source, creating a visual flash.
  *    - If ctx->fade_state.active == 0: snapshot dmc_current_snapshot()
- *      ->gamma_lut into start_lut. This is the "fresh fade" path —
+ *      ->gamma_lut into start_lut. This is the "fresh fade" path -
  *      the current displayed gamma becomes the fade source.
  *    - dmc_current_snapshot() NULL handling: extreme edge case (DSp
  *      Quiescent), use the identity LUT as start (visually equivalent
@@ -712,7 +712,7 @@ static void DSpInitFadeStateCore(DSpContextPrivate *ctx,
 {
 	/* Snapshot the start_lut from the current visual state. */
 	if (ctx->fade_state.active != 0) {
-		/* Active fade in progress — snapshot current interpolated state. */
+		/* Active fade in progress - snapshot current interpolated state. */
 		uint8_t snapshot[768];
 		DSpInterpolateGammaLUT(ctx->fade_state.start_lut,
 		                       ctx->fade_state.end_lut,
@@ -726,18 +726,18 @@ static void DSpInitFadeStateCore(DSpContextPrivate *ctx,
 		        (unsigned)ctx->fade_state.elapsed_vbls,
 		        (unsigned)ctx->fade_state.duration_vbls);
 	} else {
-		/* Fresh fade — snapshot DMC current gamma. */
+		/* Fresh fade - snapshot DMC current gamma. */
 		const struct DMCModeSnapshot *snap = dmc_current_snapshot();
 		if (snap != nullptr) {
 			memcpy(ctx->fade_state.start_lut, snap->gamma_lut, 768);
 		} else {
-			/* DMC Quiescent — fall back to identity LUT (no-op gamma). */
+			/* DMC Quiescent - fall back to identity LUT (no-op gamma). */
 			for (uint32_t c = 0; c < 3; c++) {
 				for (uint32_t i = 0; i < 256; i++) {
 					ctx->fade_state.start_lut[c * 256 + i] = (uint8_t)i;
 				}
 			}
-			DSP_LOG("DSpInitFadeStateCore: DMC NULL snapshot — "
+			DSP_LOG("DSpInitFadeStateCore: DMC NULL snapshot - "
 			        "using identity LUT as start (ctx=%u)", ctx->handle);
 		}
 	}
@@ -759,7 +759,7 @@ static void DSpInitFadeStateCore(DSpContextPrivate *ctx,
  *  AFTER DSpVBLClutLatchCallback; unregistered from
  *  DSpShutdown FIRST (reverse registration order). Runs on the emul
  *  thread on each VBL tick AFTER DSpVBLClutLatchCallback has drained
- *  the per-context CLUT snapshots — the gamma fade is independent of
+ *  the per-context CLUT snapshots - the gamma fade is independent of
  *  CLUT, but ordering is preserved for predictability of any future
  *  cross-callback observation.
  *
@@ -782,7 +782,7 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 	 * ONE frame; the correct global semantics is "any context still fading ->
 	 * linear ramp". A per-context publish that set fade_active from only that
 	 * context's state let a higher-index context completing its fade
-	 * (fade_active=0) clobber a lower-index context still mid-fade — warping the
+	 * (fade_active=0) clobber a lower-index context still mid-fade - warping the
 	 * survivor's fade. Instead we OR across all contexts: pre-scan to decide
 	 * whether ANY context will STILL be fading AFTER this tick's advancement,
 	 * then publish that single OR'd flag with every per-context LUT push.
@@ -809,10 +809,10 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 
 		/* Per-context fade advancement. Runs on the emul thread per VBL
 		 * tick after DSpVBLClutLatchCallback. Single-writer invariant
-		 * preserved — SetGamma + FadeGammaIn/Out + this callback all
+		 * preserved - SetGamma + FadeGammaIn/Out + this callback all
 		 * serialize on the emul thread. */
 
-		/* Skip contexts with no active fade (early-out — most contexts
+		/* Skip contexts with no active fade (early-out - most contexts
 		 * most of the time). */
 		if (ctx->fade_state.active == 0) continue;
 
@@ -823,7 +823,7 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 		 * gamma state, update persistence, clear active flag. */
 		if (ctx->fade_state.elapsed_vbls >= ctx->fade_state.duration_vbls) {
 			// This context just completed, but
-			// fade_active is the OR across ALL contexts — publish end_lut with
+			// fade_active is the OR across ALL contexts - publish end_lut with
 			// any_still_fading so a concurrent lower/higher-index fade is not
 			// clobbered to 0. The compositor restores its static display-LUT
 			// composition only once NO context is fading.
@@ -831,9 +831,9 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 			    ctx->fade_state.end_lut, (int)any_still_fading);
 			if (rv != kDMCNoErr) {
 				DSP_LOG("DSpVBLGammaFadeCallback: final-frame DMC push failed "
-				        "(ctx=%u, rv=%d) — leaving fade active for retry",
+				        "(ctx=%u, rv=%d) - leaving fade active for retry",
 				        ctx->handle, rv);
-				/* Don't clear active — retry on next VBL tick. */
+				/* Don't clear active - retry on next VBL tick. */
 				ctx->fade_state.elapsed_vbls--;  /* roll back the increment */
 				continue;
 			}
@@ -853,14 +853,14 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 		                       (uint32_t)ctx->fade_state.elapsed_vbls,
 		                       (uint32_t)ctx->fade_state.duration_vbls,
 		                       interp_lut);
-		// Fade in progress — publish the interpolated
+		// Fade in progress - publish the interpolated
 		// LUT with the OR'd fade_active=1 (this context is mid-fade, so the OR is
 		// trivially 1) so the compositor bypasses pow and the ramp marches
 		// linearly (DSp-1.7). Flag + LUT publish atomically.
 		int32_t rv = dmc_record_gamma_change_with_lut_fade(interp_lut, 1);
 		if (rv != kDMCNoErr) {
 			DSP_LOG("DSpVBLGammaFadeCallback: mid-fade DMC push failed "
-			        "(ctx=%u, elapsed=%u/%u, rv=%d) — leaving fade active",
+			        "(ctx=%u, elapsed=%u/%u, rv=%d) - leaving fade active",
 			        ctx->handle,
 			        (unsigned)ctx->fade_state.elapsed_vbls,
 			        (unsigned)ctx->fade_state.duration_vbls, rv);
@@ -876,7 +876,7 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
  *  via call_macos3.
  *
  *  Registered from DSpInit via vbl_source_register_secondary_callback
- *  AFTER DSpVBLGammaFadeCallback — 4th and FINAL VBL
+ *  AFTER DSpVBLGammaFadeCallback - 4th and FINAL VBL
  *  secondary callback slot. Unregistered from DSpShutdown FIRST
  *  (reverse registration order).
  *
@@ -916,12 +916,12 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
  *  time budget: < 1 ms aggregate across all contexts
  *  (4 contexts × ~250 µs per VBLProc). If any single VBLProc exceeds
  *  250 µs, DSP_LOG warns (post-call wall-time check) but the callback
- *  does NOT early-exit — all registered VBLProcs must fire every VBL
+ *  does NOT early-exit - all registered VBLProcs must fire every VBL
  *  per DSp 1.7 semantics. Caller is responsible for keeping VBLProcs
  *  short (documented game-author contract).
  *
  *  Robustness: if call_macos3 returns kDSpInternalErr-like values (no
- *  error path from this API — it's void-returning by design), the
+ *  error path from this API - it's void-returning by design), the
  *  callback continues to the next context. A SIGSEGV in the user
  *  VBLProc is uncatchable and crashes the process; that's a guest-code
  *  bug matching DSp 1.7 semantics (bad VBLProc crashes the game).
@@ -930,7 +930,7 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
 {
 	(void)cb_ctx; (void)drawable; (void)ts;
 
-	/* Step 1: monotonic tick counter. Relaxed ordering — reader
+	/* Step 1: monotonic tick counter. Relaxed ordering - reader
 	 * side only needs monotonicity, not happens-before vs other state. */
 	atomic_fetch_add_explicit(&s_dsp_vbl_count, 1u,
 	                          memory_order_relaxed);
@@ -938,7 +938,7 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
 	/* Step 2-3: walk contexts in INDEX ORDER;
 	 * invoke registered VBLProcs via call_macos3. */
 
-	/* Read the post-increment tick count once — all VBLProcs fired this
+	/* Read the post-increment tick count once - all VBLProcs fired this
 	 * tick see the same vblCount argument. Matches DSp 1.7 spec p.81
 	 * which documents vblCount as "the tick number of the VBL that
 	 * fired this call". */
@@ -964,7 +964,7 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
 		/* Snapshot the proc + refcon + handle to local vars so the call
 		 * sees a consistent tuple even if (hypothetically) the fields
 		 * were mutated by future code. In practice single-writer
-		 * main==emul execution makes this an invariant — snapshotting is
+		 * main==emul execution makes this an invariant - snapshotting is
 		 * defense-in-depth if a future thread split weakens it. */
 		const uint32_t proc_addr    = ctx->vbl_proc_ptr;
 		const uint32_t proc_refcon  = ctx->vbl_proc_refcon;
@@ -991,7 +991,7 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
  *
  *  Argument contract:
  *    ctxRef   = context handle from DSpContext_Reserve
- *    procPtr  = guest PPC TVECT address of the VBLProc. 0 is VALID —
+ *    procPtr  = guest PPC TVECT address of the VBLProc. 0 is VALID -
  *               it uninstalls any previously-registered proc per DSp
  *               1.7 spec p.81 (the handler just writes 0 to
  *               vbl_proc_ptr; no special short-circuit needed).
@@ -1010,7 +1010,7 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
  *    NATIVE_DSP_DISPATCH serializes SetVBLProc calls; the reader
  *    (DSpVBLServiceCallback) also runs on emul thread per the VBL
  *    secondary-callback contract. No cross-thread race possible. No
- *    atomic primitive needed — matches the fade_state / clut_bytes
+ *    atomic primitive needed - matches the fade_state / clut_bytes
  *    pattern.
  */
 extern "C" int32_t DSpContext_SetVBLProcHandler(uint32_t ctxRef,
@@ -1092,7 +1092,7 @@ extern "C" int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef,
  * This is the CANONICAL DSp 1.7 export and the OPPOSITE direction to
  * the RETIRED sub-op-600 dequeue handler (the old DSpContext_*
  * ProcessEvent export, which let the GUEST READ enqueued events OUT). That
- * handler — and its header decl — are RETIRED (retire, NOT
+ * handler - and its header decl - are RETIRED (retire, NOT
  * repurpose), and the SPSC input-fanout ring it observed has since been
  * removed outright (it had become write-only). UIKit background/foreground
  * lifecycle flows through
@@ -1104,7 +1104,7 @@ extern "C" int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef,
  *   OSStatus DSpProcessEvent(EventRecord *inEvent, Boolean *outEventWasProcessed)
  * The app passes ITS OWN event in; DSp inspects it for the suspend/resume
  * osEvt it must handle, drives context state accordingly, and reports via the
- * Boolean out-param whether it consumed the event. NO ctxRef — the dispatch
+ * Boolean out-param whether it consumed the event. NO ctxRef - the dispatch
  * case routes r3 = inEvent (EventRecord*), r4 = outEventWasProcessed (Boolean*).
  *
  * EventRecord byte layout (16 bytes; same as the retired handler read/wrote):
@@ -1120,17 +1120,17 @@ extern "C" int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef,
  * bg-induced-Paused context back to Active (mirroring
  * DSpHandleForegroundFromEmulThread). We mark
  * the event consumed ONLY for that suspend/resume osEvt. For everything DSp
- * does NOT handle we return outEventWasProcessed = false — HONEST, never a
+ * does NOT handle we return outEventWasProcessed = false - HONEST, never a
  * silent always-true stub. The full consumed-event-set refinement is a
  * device-UAT gate; The Sims never calls this.
  *
- * Synchronous, emul-thread — NO ring read, NO atomic.
+ * Synchronous, emul-thread - NO ring read, NO atomic.
  */
 extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
                                           uint32_t outProcessedAddr)
 {
 	/* ASVS V5: NULL-guard BOTH guest addresses BEFORE any
-	 * read or write. Fixed 16-byte read + 1-byte write — no attacker-
+	 * read or write. Fixed 16-byte read + 1-byte write - no attacker-
 	 * controlled length. */
 	if (inEventAddr == 0 || outProcessedAddr == 0) {
 		DSP_LOG("DSpProcessEvent: NULL inEvent=0x%08x or outProcessed=0x%08x "
@@ -1147,7 +1147,7 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 	 * context suspend/resume: high byte = subtype, bit 0 = resume flag.
 	 *
 	 * SCOPE (explicit, NOT a silent partial-fidelity stub):
-	 * this handler drives the DSp context STATE MACHINE only — the
+	 * this handler drives the DSp context STATE MACHINE only - the
 	 * Active<->Paused flag transition + the paused_by_background
 	 * bookkeeping, matching DSpHandleBackgroundFromEmulThread /
 	 * DSpHandleForegroundFromEmulThread's state-drive DIRECTION. It does
@@ -1174,10 +1174,10 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 				/* Resume (foreground): drive every bg-induced-Paused
 				 * context back to Active. Matches
 				 * DSpHandleForegroundFromEmulThread's state-drive
-				 * direction — SetState(Active) then clear paused_by_background;
+				 * direction - SetState(Active) then clear paused_by_background;
 				 * user-Paused contexts (paused_by_background == 0) stay
 				 * Paused (distinction preserved). Uses the public
-				 * DSpGetContext(i+1) accessor — same handle->slot mapping
+				 * DSpGetContext(i+1) accessor - same handle->slot mapping
 				 * and bounds/null guard as the foreground drain, not the
 				 * raw dsp_context_table[] array. */
 				for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
@@ -1192,7 +1192,7 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 			} else {
 				/* Suspend (background): drive every Active context to
 				 * Paused. Matches DSpHandleBackgroundFromEmulThread's
-				 * state-drive direction — SetState(Paused) + mark
+				 * state-drive direction - SetState(Paused) + mark
 				 * paused_by_background so a later resume auto-restores.
 				 * Uses DSpGetContext(i+1) to match the background drain. */
 				for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
@@ -1221,7 +1221,7 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 /* --- Background / Foreground emul-thread drain --- */
 
 /*
- *  Background restore path — runs on the EMUL THREAD via the VBL
+ *  Background restore path - runs on the EMUL THREAD via the VBL
  *  secondary-callback drain chain. For every Active context:
  *    1. Snapshot metadata into ctx->persisted (attr + palette/gamma
  *       generation counters + invalidated_full=1 so foreground restore
@@ -1231,7 +1231,7 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
  *    3. Transition state Active -> Paused via the DMC (Paused routes to
  *       kDMCOwnerQuickDraw).
  *
- *  Palette / gamma generation placeholders are 0 — the CLUT and
+ *  Palette / gamma generation placeholders are 0 - the CLUT and
  *  gamma/fade subsystems populate the persisted snapshots when
  *  those paths run. The invalidated_full=1 flag guarantees a
  *  cold-start full re-upload once the backing Metal resources come
@@ -1253,17 +1253,17 @@ extern "C" void DSpHandleBackgroundFromEmulThread(void)
 		 * here from the VBL drain rather than inside the lifecycle hook.) */
 		DSpRestoreMainDevicePixMap(ctx);
 
-		/* Persist metadata — attr + palette/gamma generation counters.
+		/* Persist metadata - attr + palette/gamma generation counters.
 		 * Field names use the `persisted_*_generation` form so the DMC
 		 * write-site inventory grep gate (DMCWriteSiteInventoryTests)
-		 * does NOT match — only the DMC module itself owns the bare-word
+		 * does NOT match - only the DMC module itself owns the bare-word
 		 * generation identifiers. */
 		ctx->persisted.attr                          = ctx->attr;
 		ctx->persisted.persisted_palette_generation  = 0u;  /* CLUT */
 		ctx->persisted.persisted_gamma_generation    = 0u;  /* gamma/fade */
 		ctx->persisted.invalidated_full              = 1u;
 
-		/* Release Metal back-buffer via the partial queue — struct
+		/* Release Metal back-buffer via the partial queue - struct
 		 * stays alive for foreground restore; only buffer + texture
 		 * are freed. */
 		DSpQueueReleaseAtVBLPartial(ctx);
@@ -1280,7 +1280,7 @@ extern "C" void DSpHandleBackgroundFromEmulThread(void)
 	}
 
 	/* D-4-1: alt-buffer Metal backings release alongside the back
-	 * buffers — otherwise their live allocations pin the DSp bump heap
+	 * buffers - otherwise their live allocations pin the DSp bump heap
 	 * (no reset possible) and every bg/fg cycle leaks a back-buffer-
 	 * sized region toward the heap ceiling. Guest staging survives;
 	 * foreground re-allocates and repopulates from it. */
@@ -1288,13 +1288,13 @@ extern "C" void DSpHandleBackgroundFromEmulThread(void)
 }
 
 /*
- *  Foreground restore path — runs on the EMUL THREAD via the VBL
+ *  Foreground restore path - runs on the EMUL THREAD via the VBL
  *  secondary-callback drain chain. For every Paused context whose
  *  persisted.invalidated_full==1 (i.e., previously backgrounded via
  *  DSpHandleBackgroundFromEmulThread):
  *    1. Re-allocate Metal back-buffer + texture from persisted
  *       attributes via DSpAllocateBackBuffer. Failure leaves the
- *       context Paused — next foreground tick retries.
+ *       context Paused - next foreground tick retries.
  *    2. Reset dirty state + set dirty_cold_start=true so the next
  *       SwapBuffers performs a full re-upload (PDF p.38).
  *    3. Clear invalidated_full so a redundant foreground event (shouldn't
@@ -1333,7 +1333,7 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 		ctx->dirty_right      = 0;
 		ctx->dirty_bottom     = 0;
 
-		/* Invalidate the restore flag — defence-in-depth against a
+		/* Invalidate the restore flag - defence-in-depth against a
 		 * redundant foreground event double-restoring the context. */
 		ctx->persisted.invalidated_full = 0u;
 
@@ -1363,7 +1363,7 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 }
 
 /*
- *  VBL drain entry point — runs AFTER DSpVBLReleaseCallback has drained
+ *  VBL drain entry point - runs AFTER DSpVBLReleaseCallback has drained
  *  the release FIFO (drain-first ordering). Reads + clears the pending
  *  flag from the engine-module atomic (DSpExchangeBgFgPending bridge),
  *  then dispatches to the matching emul-thread handler.
@@ -1392,10 +1392,10 @@ extern "C" void DSpVBLBackgroundForegroundDrain(void)
 }
 
 /*
- *  Synchronous lifecycle drain — see dsp_draw_context.h. Runs the bg/fg
+ *  Synchronous lifecycle drain - see dsp_draw_context.h. Runs the bg/fg
  *  transition drain, then the release-FIFO drain so back buffers queued by
  *  DSpQueueReleaseAtVBLPartial are actually freed NOW (the VBL release
- *  callback that normally drains the FIFO is paused during background —
+ *  callback that normally drains the FIFO is paused during background -
  *  deferring the free to it would hold the memory through the entire
  *  background period, defeating the release). The chained
  *  DSpVBLBackgroundForegroundDrain inside DSpVBLReleaseCallback re-runs
@@ -1414,7 +1414,7 @@ extern "C" void DSpDrainLifecycleSync(void)
 	/* GPU work was drained on the background edge (waitUntilCompleted in
 	 * gfxaccel_handle_background_enter Step 2) and the VBL source is
 	 * paused, so resets reached from this drain may bypass the heap's
-	 * GPU-completion latch — see dsp_lifecycle_gpu_drained. */
+	 * GPU-completion latch - see dsp_lifecycle_gpu_drained. */
 	dsp_lifecycle_gpu_drained = true;
 	DSpVBLBackgroundForegroundDrain();
 	DSpVBLReleaseCallback(NULL, NULL, 0.0);
@@ -1449,7 +1449,7 @@ static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
 	}
 
 	/* Validate every guest extent BEFORE dereferencing it (the
-	 * NQDMetalAddrInBuffer reject-first idiom, dsp_flatten_restore.mm) — a
+	 * NQDMetalAddrInBuffer reject-first idiom, dsp_flatten_restore.mm) - a
 	 * garbage non-NULL CTabHandle in the Reserve attributes must fall back
 	 * to the default CLUT, not fault the ReadMacInt* translation layer. */
 	if (!NQDMetalAddrInBuffer(colorTableHandle) ||
@@ -1528,7 +1528,7 @@ static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
 }
 
 /*
- *  Debug session `dsp-sims-post-reserve-black-screen` fix (2026-04-19) —
+ *  Debug session `dsp-sims-post-reserve-black-screen` fix (2026-04-19) -
  *  Reserve_OnHandle_Core attaches Metal back-buffer + back-texture to an
  *  EXISTING metadata-only ctx (typically one vended by
  *  DSpFindBestContextHandler or DSpGetFirstContextHandler). Per DSp 1.7
@@ -1543,7 +1543,7 @@ static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
  *    - Validates `attr` (same validation rules as Reserve_Core).
  *    - Overrides ctx->attr with the caller-provided DesiredAttributes
  *      (allows apps to request a back-buffer depth different from the
- *      display depth — PDF p.25 DISCUSSION).
+ *      display depth - PDF p.25 DISCUSSION).
  *    - Refuses re-reservation (ctx already has a back_buffer) with
  *      kDSpContextAlreadyReservedErr (PDF p.87 error code).
  *    - Allocates back_buffer + back_texture via DSpAllocateBackBuffer.
@@ -1582,7 +1582,7 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	uint32_t colorNeeds          = attr->colorNeeds;
 	uint32_t contextOptions      = attr->contextOptions;
 
-	/* Validation rules — same invariants as Reserve_Core. */
+	/* Validation rules - same invariants as Reserve_Core. */
 	if (pageCount == 0 || desiredWidth == 0 || desiredHeight == 0) {
 		DSP_LOG("Reserve_OnHandle: invalid attrs (w=%u h=%u pc=%u)",
 		        desiredWidth, desiredHeight, pageCount);
@@ -1606,13 +1606,13 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 		return kDSpInvalidAttributesErr;
 	}
 
-	/* PDF p.87 — kDSpContextAlreadyReservedErr if caller re-reserves a
+	/* PDF p.87 - kDSpContextAlreadyReservedErr if caller re-reserves a
 	 * context that already has a back-buffer. Real DSp 1.7 guards against
 	 * double-Reserve; the earlier Reserve used to always create a fresh
 	 * ctx so this code path was unreachable. Now that Reserve attaches
 	 * to an existing handle, we must surface the spec error. */
 	if (ctx->back_buffer != NULL) {
-		DSP_LOG("Reserve_OnHandle: ctx=%u already has back-buffer — "
+		DSP_LOG("Reserve_OnHandle: ctx=%u already has back-buffer - "
 		        "kDSpContextAlreadyReservedErr",
 		        ctx->handle);
 		return kDSpContextAlreadyReservedErr;
@@ -1653,14 +1653,14 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	ctx->attr.colorTable          = attr->colorTable;
 	ctx->attr.contextOptions      = contextOptions;
 
-	/* Reserve transitions this context off the enumeration chain —
+	/* Reserve transitions this context off the enumeration chain -
 	 * DSpGetNextContext with a reserved handle terminates per PDF p.17
 	 * "last context in the list" + debug session dsp-sims-enumeration-
 	 * stall precedent. */
 	ctx->enumeration_mode_index = DSP_ENUMERATION_INDEX_NONE;
 	ctx->state                  = kDSpContextState_Inactive;
 	ctx->dirty_empty            = true;
-	ctx->dirty_cold_start       = true;   /* PDF p.38 — first swap = full */
+	ctx->dirty_cold_start       = true;   /* PDF p.38 - first swap = full */
 	ctx->explicit_swap_observed = false;
 	ctx->swap_generation = 0;
 	ctx->front_staging_refresh_swap_generation = 0;
@@ -1698,7 +1698,7 @@ extern "C" int32_t DSpContext_ReserveHandler(uint32_t ctxRef,
                                               uint32_t attrAddr)
 {
 	/*
-	 *  Debug session `dsp-sims-post-reserve-black-screen` fix (2026-04-19) —
+	 *  Debug session `dsp-sims-post-reserve-black-screen` fix (2026-04-19) -
 	 *  Signature corrected to DSp 1.7 PDF p.25:
 	 *      OSStatus DSpContext_Reserve(DSpContextReference inContext,
 	 *                                  const DSpContextAttributesPtr inDesiredAttributes);
@@ -1713,12 +1713,12 @@ extern "C" int32_t DSpContext_ReserveHandler(uint32_t ctxRef,
 	 *  reached the display.
 	 */
 	if (attrAddr == 0) {
-		DSP_LOG("Reserve: NULL attr addr — kDSpInvalidAttributesErr");
+		DSP_LOG("Reserve: NULL attr addr - kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
-		DSP_LOG("Reserve: invalid ctxRef=%u — kDSpInvalidContextErr",
+		DSP_LOG("Reserve: invalid ctxRef=%u - kDSpInvalidContextErr",
 		        ctxRef);
 		return kDSpInvalidContextErr;
 	}
@@ -1731,7 +1731,7 @@ extern "C" int32_t DSpContext_ReserveHandler(uint32_t ctxRef,
 	 *  filler[3] @ +52..+54 + gameMustConfirmSwitch (Boolean) @ +55 +
 	 *  reserved3[4] @ +56..+71 are not validated on input (PDF p.67).
 	 *  backBufferWidth / backBufferHeight are host-only mirror fields
-	 *  (not on the wire) — populated from displayWidth / displayHeight.
+	 *  (not on the wire) - populated from displayWidth / displayHeight.
 	 */
 	DSpContextAttributes attr = {};
 	attr.frequency            = ReadMacInt32(attrAddr +  0);  /* input ignored per PDF */
@@ -1765,7 +1765,7 @@ extern "C" int32_t DSpContext_ReserveHandler(uint32_t ctxRef,
  *  entry point for "claim a slot, populate attr, return handle" without
  *  the Metal-resource allocation that Reserve_Core performs.
  *
- *  Threading: emul-thread single-writer. No mutex — same contract as
+ *  Threading: emul-thread single-writer. No mutex - same contract as
  *  DSpAllocContextHandle / Reserve_Core.
  *
  *  Debug session `dsp-sims-enumeration-stall` fix (2026-04-19): added the
@@ -1790,7 +1790,7 @@ extern "C" uint32_t DSpAllocFirstContextHandle(const DSpContextAttributes *attr,
 	 * s_dsp_modes[]. Sentinel value DSP_ENUMERATION_INDEX_NONE means
 	 * the context is a terminator (e.g., FindBest best-match result). */
 	ctx->enumeration_mode_index = enumeration_mode_index;
-	/* Cheap-query bookkeeping — explicit zero-init (see
+	/* Cheap-query bookkeeping - explicit zero-init (see
 	 * Reserve_Core; 0 = no max-fps restriction + grid defaults to base unit). */
 	ctx->max_frame_rate = 0;
 	ctx->dirty_grid_w   = 0;
@@ -1828,7 +1828,7 @@ extern "C" uint32_t DSpAllocMetadataContextHandle(
 		 * retained-ref semantics), so under table pressure the oldest
 		 * stale walk is reclaimed here. An app can only lose a ref it is
 		 * still holding if it accumulates more than DSP_MAX_CONTEXTS live
-		 * enumerated refs — far beyond any real walk. */
+		 * enumerated refs - far beyond any real walk. */
 
 		const uint32_t recycled_handle = i + 1u;
 		DSpFreeContextHandle(recycled_handle);
@@ -1885,7 +1885,7 @@ extern "C" int32_t DSpContext_GetBackBufferHandler(uint32_t ctxRef,
 	/* Sub-op 705 underlay contract (PDF p.51):
 	 * when this context has a designated underlay alt-buffer, restore the
 	 * back buffer's invalid (dirty) areas from the underlay before handing
-	 * the drawable back — "this is most useful in sprite games" (clean a
+	 * the drawable back - "this is most useful in sprite games" (clean a
 	 * back buffer). No-op when no underlay is designated. */
 	DSpRestoreBackBufferFromUnderlay(ctx);
 	WriteMacInt32(outBufAddr, cgrafptr);
@@ -1946,7 +1946,7 @@ static void DSpSyncSwapFramePacing(uint32_t ctxRef, uint32_t maxFrameRate)
  * Boolean (*)(DSpContextReference inContext, void *inRefCon), shared by
  * SwapBuffers and SetVBLProc. The callback returns false when its checks are
  * complete and true while it is still busy. If busyProcAddr is 0 the caller
- * skipped the gate — proceed immediately. Poll cadence is 0.5 ms with a
+ * skipped the gate - proceed immediately. Poll cadence is 0.5 ms with a
  * 2-VBL total budget (~33 ms at 60 Hz) so an infinite-loop PPC busyProc
  * cannot hang the emul thread. */
 static bool DSpPollBusyProc(uint32_t ctxRef, uint32_t busyProcAddr,
@@ -1995,7 +1995,7 @@ static int32_t DSpRevalidateSwapContext(uint32_t ctxRef,
 	 * CHANGED across the re-entry window (guest busyProc / frame-pacing
 	 * runloop pump). A context that ENTERED the swap non-Active (e.g.
 	 * Paused by a background transition) swapped fine pre-revalidation and
-	 * still must — classic apps expect SwapBuffers to succeed unless
+	 * still must - classic apps expect SwapBuffers to succeed unless
 	 * something is critically wrong. */
 	if (fresh->state != entry_state) {
 		DSP_LOG("SwapBuffers: ctxRef=%u state changed during %s "
@@ -2020,7 +2020,7 @@ static int32_t DSpRevalidateSwapContext(uint32_t ctxRef,
  *                                                                       *
  *  DSpAlignedRowBytes / DSpBackBufferSize / DSpReserveGuestScratch live *
  *  as file-local static-inline helpers in dsp_metal_renderer.mm:73-143  *
- *  (not exported through any header — they predate the per-engine      *
+ *  (not exported through any header - they predate the per-engine      *
  *  refactor). The Redirect helper below needs all three. Re-declaring   *
  *  them here as the same static-inline bodies keeps the implementations *
  *  identical (single source of truth for the formulas) and avoids a    *
@@ -2279,7 +2279,7 @@ static uint32_t DSpEnsureFrontBufferStaging(DSpContextPrivate *ctx,
  *  blit path) and add ZERO new concurrency primitive. The async path
  *  (inAsyncFlag + completionProc) is synchronous-then-complete: encode +
  *  flush, set completionFlag = true, then invoke completionProc via
- *  call_macos1 (the PPC-trampoline idiom — NEVER a raw C cast of the guest
+ *  call_macos1 (the PPC-trampoline idiom - NEVER a raw C cast of the guest
  *  fn-ptr). A guest DSpBlitDoneProc takes one arg (the DSpBlitInfoPtr back).
  *
  *  Security (ASVS L1 V5): NULL-guard inBlitInfo; reject OOB src/dst baseAddr
@@ -2320,8 +2320,8 @@ static uint32_t DSpResolvePixMapRecord(uint32_t cgrafptr_mac)
  * either the DSp flat shim layout (alt buffers and legacy callers) or a real
  * CGrafPort whose portPixMap points at a PixMapHandle (back/front buffers).
  * The resolved PixMap uses
- * baseAddr@0, rowBytes@4 — high bit is the classic PixMap flag and is masked
- * off — and bounds@6 in both layouts. Extra PixMap fields use compact offsets
+ * baseAddr@0, rowBytes@4 - high bit is the classic PixMap flag and is masked
+ * off - and bounds@6 in both layouts. Extra PixMap fields use compact offsets
  * for flat shims and real QuickDraw offsets for Color CGrafPorts. The blit
  * Rect (top@+0/left@+2/bottom@+4/right@+6, big-endian i16) is clamped to the
  * PixMap bounds. Returns false on a NULL CGrafPtr, an unsupported depth, or an
@@ -2355,7 +2355,7 @@ static bool DSpResolveBlitSide(uint32_t cgrafptr_mac, uint32_t rect_mac,
 	 * BGRA (compositor contract), so a genuinely negative (bottom-up DIB)
 	 * stride is unsupported. The classic PixMap rowBytes high bit is a flag,
 	 * not a sign bit, so masking it off (& 0x7FFF) already yields a positive
-	 * 15-bit magnitude — the contract is therefore "positive stride only", and
+	 * 15-bit magnitude - the contract is therefore "positive stride only", and
 	 * the extent check uses abs(row_bytes) only as belt-and-suspenders.
 	 * A zero stride is degenerate and rejected. */
 	uint32_t row_bytes = (uint32_t)(rb_raw & 0x7FFFu);   /* mask the PixMap high bit -> positive */
@@ -2401,7 +2401,7 @@ static bool DSpResolveBlitSide(uint32_t cgrafptr_mac, uint32_t rect_mac,
 
 /* Shared completion epilogue: flush the NQD batch so the GPU work is visible,
  * set DSpBlitInfo.completionFlag = true, and (when async + a non-NULL
- * completionProc was supplied) invoke the guest proc via call_macos1 — the
+ * completionProc was supplied) invoke the guest proc via call_macos1 - the
  * sanctioned PPC-trampoline idiom (NEVER a raw C cast of the guest fn-ptr).
  * Synchronous-then-complete is behavior-faithful for a single-display
  * emulator; NO MTLFence/MTLSharedEvent/_Atomic. */
@@ -2414,7 +2414,7 @@ static void DSpBlitComplete(uint32_t inBlitInfo, uint32_t inAsyncFlag)
 
 	uint32_t completionProc = ReadMacInt32(inBlitInfo + DSP_BLITINFO_OFF_completionProc);
 	if (inAsyncFlag != 0 && completionProc != 0) {
-		/* DSpBlitDoneProc(DSpBlitInfoPtr) — one arg, the DSpBlitInfo back.
+		/* DSpBlitDoneProc(DSpBlitInfoPtr) - one arg, the DSpBlitInfo back.
 		 * call_macos1 marshals the arg into PPC r3 and executes the
 		 * TVECT-addressed routine (same trampoline as the VBLProc call_macos3
 		 * at the top of this file). */
@@ -2427,7 +2427,7 @@ static void DSpBlitComplete(uint32_t inBlitInfo, uint32_t inAsyncFlag)
  *  DSp 1.7 PDF p.47: DSpBlit_Fastest(inBlitInfo, inAsyncFlag). The spec defines
  *  Fastest as a strict 1:1 copy where the caller GUARANTEES srcRect == dstRect
  *  and the real implementation does no validation. We deliberately
- *  DIVERGE for safety — if the guest passes mismatched src/dst rects we clamp
+ *  DIVERGE for safety - if the guest passes mismatched src/dst rects we clamp
  *  the copied extent to the OVERLAP (the smaller of the two rects) rather than
  *  scale or fault, so a mismatched-rect request can never read/write outside
  *  the resolved geometry (defense-in-depth alongside the extent check).
@@ -2461,7 +2461,7 @@ extern "C" int32_t DSpBlit_FastestHandler(uint32_t inBlitInfo,
 	}
 	/* Fastest is 1:1 (no scaling). The spec assumes srcRect == dstRect;
 	 * we do NOT trust that. If the guest passed mismatched sizes we clamp the
-	 * copied extent to the OVERLAP (min of the two rects) as a safety measure —
+	 * copied extent to the OVERLAP (min of the two rects) as a safety measure -
 	 * this both honors "no scaling" and keeps the copy inside the smaller
 	 * resolved rect. This intentionally diverges from real DSpBlit_Fastest
 	 * (which would copy/fault per the larger rect); see the handler doc above. */
@@ -2556,13 +2556,13 @@ extern "C" int32_t DSpBlit_FasterHandler(uint32_t inBlitInfo,
  *
  *  When ctx has a designated underlay AND the back buffer has dirty areas,
  *  this copies the dirty sub-rect underlay->back_buffer (CPU memcpy on the
- *  MTLStorageModeShared backing — the alt-buffer is BGRA8Unorm 32-bpp; a copy
+ *  MTLStorageModeShared backing - the alt-buffer is BGRA8Unorm 32-bpp; a copy
  *  is only attempted when both contents pointers are non-NULL, which holds on
- *  device/Catalyst — on the simulator the heap forces StorageModePrivate so
+ *  device/Catalyst - on the simulator the heap forces StorageModePrivate so
  *  the copy is skipped).
  *
  *  No-op when no underlay is designated or the back buffer is clean. Single-
- *  writer emul-thread; ZERO new concurrency primitive — the copy is a
+ *  writer emul-thread; ZERO new concurrency primitive - the copy is a
  *  plain memcpy. */
 
 
@@ -2571,7 +2571,7 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
 	if (ctx == nullptr || ctx->underlay_alt_buffer == 0) return;
 	DSpAltBufferRecord *u = DSpGetAltBuffer(ctx->underlay_alt_buffer);
 	if (u == nullptr) {
-		/* Stale designation (underlay disposed) — clear it defensively. */
+		/* Stale designation (underlay disposed) - clear it defensively. */
 		ctx->underlay_alt_buffer = 0;
 		return;
 	}
@@ -2593,7 +2593,7 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
 	if ((uint32_t)ry1 > u->height) ry1 = (int32_t)u->height;
 	if (rx1 <= rx0 || ry1 <= ry0) return;
 
-	/* (1) CPU restore copy (underlay -> back buffer) — only when both
+	/* (1) CPU restore copy (underlay -> back buffer) - only when both
 	 * backings are host-visible (Shared). Alt buffers inherit the owning
 	 * context's depth at New time (DSpAllocAltBufferBacking), so when the
 	 * depths still agree the copy is a direct row-wise memcpy of the dirty
@@ -2631,7 +2631,7 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
 		/* Depth mismatch precludes the restore copy.
 		 * Make the skipped restore observable instead of silently no-op'ing. */
 		DSP_LOG("UnderlayRestore: ctx=%u underlay=%u depth mismatch "
-		        "(underlay=%u back-buffer=%u) — CPU dirty-band restore SKIPPED "
+		        "(underlay=%u back-buffer=%u) - CPU dirty-band restore SKIPPED "
 		        "(cross-depth conversion deferred; no compositor underlay "
 		        "fallback)",
 		        ctx->handle, ctx->underlay_alt_buffer, u->depth, bb_depth);
@@ -2709,23 +2709,23 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	 * waste the lowmem walk. Bail early. */
 	if (ctx->back_buffer == NULL) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S0 ctx->back_buffer is NULL "
-		         "(ctx=%p) — skipping redirect", (void *)ctx);
+		         "(ctx=%p) - skipping redirect", (void *)ctx);
 		return;
 	}
 
-	/* DSP-RDR-S1: read lowmem MainDevice handle from 0x8A4 (always safe —
+	/* DSP-RDR-S1: read lowmem MainDevice handle from 0x8A4 (always safe -
 	 * lives inside gZeroPage). */
 	uint32_t mainDeviceH = ReadMacInt32(LMADDR_MAIN_DEVICE);
 	DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S1 LMADDR_MAIN_DEVICE@0x%08x -> "
 	         "mainDeviceH=0x%08x", (uint32_t)LMADDR_MAIN_DEVICE, mainDeviceH);
 	if (mainDeviceH == 0) {
-		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S1 mainDeviceH==0 — "
+		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S1 mainDeviceH==0 - "
 		         "pre-boot graceful skip");
 		return;
 	}
 	if (!DSP_REDIR_INRANGE(mainDeviceH)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S1 mainDeviceH=0x%08x "
-		         "OUT-OF-RANGE (RAMBase=0x%08x RAMSize=0x%08x) — refusing walk",
+		         "OUT-OF-RANGE (RAMBase=0x%08x RAMSize=0x%08x) - refusing walk",
 		         mainDeviceH, kRamLo, (uint32_t)RAMSize);
 		return;
 	}
@@ -2735,12 +2735,12 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S2 *mainDeviceH=0x%08x -> "
 	         "gdevicePtr=0x%08x", mainDeviceH, gdevicePtr);
 	if (gdevicePtr == 0) {
-		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S2 gdevicePtr==0 — skip");
+		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S2 gdevicePtr==0 - skip");
 		return;
 	}
 	if (!DSP_REDIR_INRANGE(gdevicePtr)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S2 gdevicePtr=0x%08x "
-		         "OUT-OF-RANGE — refusing walk", gdevicePtr);
+		         "OUT-OF-RANGE - refusing walk", gdevicePtr);
 		return;
 	}
 
@@ -2748,7 +2748,7 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	uint32_t gdPMapAddr = gdevicePtr + GDEVICE_OFF_PMAP;
 	if (!DSP_REDIR_INRANGE(gdPMapAddr)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S3 gdPMapAddr=0x%08x "
-		         "OUT-OF-RANGE (gdevicePtr+0x16 spilled) — refusing walk",
+		         "OUT-OF-RANGE (gdevicePtr+0x16 spilled) - refusing walk",
 		         gdPMapAddr);
 		return;
 	}
@@ -2756,12 +2756,12 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S3 *(gdevicePtr+0x16)@0x%08x -> "
 	         "pixMapH=0x%08x", gdPMapAddr, pixMapH);
 	if (pixMapH == 0) {
-		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S3 pixMapH==0 — skip");
+		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S3 pixMapH==0 - skip");
 		return;
 	}
 	if (!DSP_REDIR_INRANGE(pixMapH)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S3 pixMapH=0x%08x "
-		         "OUT-OF-RANGE — refusing walk", pixMapH);
+		         "OUT-OF-RANGE - refusing walk", pixMapH);
 		return;
 	}
 
@@ -2776,13 +2776,13 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	}
 	if (!DSP_REDIR_INRANGE(pixMapPtr)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S4 pixMapPtr=0x%08x "
-		         "OUT-OF-RANGE — refusing walk", pixMapPtr);
+		         "OUT-OF-RANGE - refusing walk", pixMapPtr);
 		return;
 	}
 	/* Real MainDevice PixMap spans at least through cmpSize. */
 	if (!DSP_REDIR_INRANGE(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_CMPSIZE + 2)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S4 PixMap struct "
-		         "spills past RAM end (pixMapPtr=0x%08x) — refusing walk",
+		         "spills past RAM end (pixMapPtr=0x%08x) - refusing walk",
 		         pixMapPtr);
 		return;
 	}
@@ -2814,7 +2814,7 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 		ctx->saved_pixmap_vRes      = ReadMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_VRES);
 		ctx->saved_pixmap_planeBytes = ReadMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PLANEBYTES);
 		ctx->saved_pixmap_valid    = 1;
-		/* Cache the GDevice.gdRect alongside the PixMap originals — apps
+		/* Cache the GDevice.gdRect alongside the PixMap originals - apps
 		 * read gdRect for the display's global bounds (the
 		 * DMGetGDeviceByDisplayID centering idiom), so the redirect below
 		 * rewrites it to the context resolution and the restore puts this
@@ -2865,12 +2865,12 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	bool using_back_buffer_redirect = false;
 
 	/* DSP-RDR-S6: prefer a distinct display-depth front-staging surface so the
-	 * guest sees proper double-buffering — the front buffer is the visible
+	 * guest sees proper double-buffering - the front buffer is the visible
 	 * screen and the back buffer is the draw target; they must NOT alias.
 	 * Only redirect MainDevice straight at the back-buffer staging when there
 	 * is no presentable front staging AND the depths match. (Reverts the prior
 	 * same-depth "front==back" reuse, which collapsed double-buffering and
-	 * desynced the guest's page arithmetic — the splash half-buffer roll.) */
+	 * desynced the guest's page arithmetic - the splash half-buffer roll.) */
 	if (!expose_front_staging &&
 	    !has_presentable_front_staging &&
 	    redirect_depth == ctx->attr.backBufferBestDepth) {
@@ -3014,7 +3014,7 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	}
 	DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-DONE pixMapPtr=0x%08x "
 	         "newBaseAddr=0x%08x rowBytes=%u rowBytesField=0x%04x %ux%u@%ubpp "
-	         "(backBuffer@%u display@%u) — redirect installed",
+	         "(backBuffer@%u display@%u) - redirect installed",
 	         pixMapPtr, newBaseAddr_mac, (unsigned)alignedRB,
 	         (unsigned)rowBytesField,
 	         pixmap_width, pixmap_height,
@@ -3258,7 +3258,7 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	 * AFTER the DMC owner swap. Read-once here; ctx->state is mutated
 	 * by the handler body below (line 983-ish). */
 	const uint32_t prev_state = ctx->state;
-	/* Idempotent self-transition — return noErr without touching DMC. */
+	/* Idempotent self-transition - return noErr without touching DMC. */
 	if (ctx->state == state) {
 		DSP_LOG("SetState: idempotent self-transition ctx=%u state=%u (noErr)",
 		        ctxRef, state);
@@ -3267,15 +3267,15 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 
 	/* When transitioning TO Active,
 	 * check if the context's attributes differ from the current DMC
-	 * snapshot. If yes, fire a mode switch through the DMC — the only
+	 * snapshot. If yes, fire a mode switch through the DMC - the only
 	 * sanctioned mode-switch entry point (display_mode_controller.h:247).
 	 *
 	 * Three-guard gate:
-	 *   1. state == kDSpContextState_Active — only Activation reclaims
+	 *   1. state == kDSpContextState_Active - only Activation reclaims
 	 *      the display; Paused/Inactive keep whatever mode is current.
-	 *   2. ctx->state != state — non-idempotent, already enforced by the
+	 *   2. ctx->state != state - non-idempotent, already enforced by the
 	 *      early-return above; listed here for traceability.
-	 *   3. Mode differs from dmc_current_snapshot() — avoid pointless
+	 *   3. Mode differs from dmc_current_snapshot() - avoid pointless
 	 *      OnModeExit/OnModeEnter churn when the app re-activates at the
 	 *      same mode the compositor is already presenting.
 	 *
@@ -3283,7 +3283,7 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	 * (compositor overlay-cache clear) and OnModeEnter (frame interval
 	 * refresh) subscribers that MUST NOT re-enter DSp. SetState does not
 	 * invoke subscribers directly, so reentrancy is a natural non-issue
-	 * here — but palette work must not nest a mode switch
+	 * here - but palette work must not nest a mode switch
 	 * inside a palette-change callback (DMCReentryScope at
 	 * display_mode_controller.cpp:614 catches and returns
 	 * kDMCErrReentrantRequest on violation).
@@ -3342,7 +3342,7 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 
 	/* Route through DMC (preserves DMCWriteSiteInventoryTests CI gate).
 	 * Use DSpMapStateToDMCOwnerTyped (from dsp_engine_internal.h) to get
-	 * the DMCOwner enum type directly — the public DSpMapStateToDMCOwner
+	 * the DMCOwner enum type directly - the public DSpMapStateToDMCOwner
 	 * returns uint32_t (no DMC header leak through public API). */
 	DMCOwner new_owner = DSpMapStateToDMCOwnerTyped(state);
 	int32_t dmc_rc = dmc_set_active_owner((uint32_t)new_owner);
@@ -3354,7 +3354,7 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	/* Page-flip page-0 reset on Paused (PDF p.29). Page flipping is not
 	 * implemented yet; log the reset as a no-op note. */
 	if (state == (uint32_t)kDSpContextState_Paused) {
-		DSP_LOG("SetState: Paused — page-flip reset to page 0 (no-op; "
+		DSP_LOG("SetState: Paused - page-flip reset to page 0 (no-op; "
 		        "page flipping not implemented)");
 	}
 	DSP_LOG("SetState: ctx=%u %u->%u DMC owner->%d",
@@ -3379,7 +3379,7 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	 *  updated to Active and the DMC owner swap has succeeded. Idempotent
 	 *  self-transitions were short-circuited at function entry (prev_state
 	 *  == state returned kDSpNoErr above), so prev_state != state holds
-	 *  here — state == Active and prev_state != Active means this is an
+	 *  here - state == Active and prev_state != Active means this is an
 	 *  actual activation edge.
 	 */
 	if (state == (uint32_t)kDSpContextState_Active) {
@@ -3404,12 +3404,12 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	 *    - This ctx going Active → aggregate becomes true (if not already).
 	 *    - This ctx leaving Active → aggregate stays true if ANY OTHER
 	 *      context is still Active, otherwise becomes false.
-	 *    - Idempotent self-transition (Active->Active etc.) — unreachable
+	 *    - Idempotent self-transition (Active->Active etc.) - unreachable
 	 *      here because the handler early-returns kDSpNoErr at line 1819
 	 *      before reaching this block (prev_state == state short-circuit).
 	 *
 	 *  The call to DSpHostBridge_SetActiveFullscreen is CONDITIONAL on
-	 *  the aggregate changing — otherwise we'd post the notification on
+	 *  the aggregate changing - otherwise we'd post the notification on
 	 *  every SetState call and spam the observer. Compare against the
 	 *  existing C-side value via DSpHostBridge_GetActiveFullscreen.
 	 */
@@ -3498,7 +3498,7 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
  *  Reads ctx->state and writes via WriteMacInt32(outStateAddr, state).
  *  Validates ctxRef via DSpGetContext (returns kDSpInvalidContextErr
  *  on NULL) and null-checks outStateAddr (returns kDSpInvalidContextErr
- *  when zero — byte-identical to the DSp 1.7 reference behavior).
+ *  when zero - byte-identical to the DSp 1.7 reference behavior).
  *
  *  No DMC round-trip: DSp state is the authoritative copy at context
  *  scope; the controller's active_owner is a DSp-to-display-system
@@ -3554,7 +3554,7 @@ extern "C" int32_t DSpContext_IsBusyHandler(uint32_t ctxRef,
  *  *outDisplayID). Writes the display id the context lives on. iOS has a
  *  single display; report the guest Display Manager's id for that screen
  *  (kDSpGuestDMMainDisplayID) so apps can round-trip the id through
- *  DMGetGDeviceByDisplayID — the per-mode APPLE_* ids are NOT DM display
+ *  DMGetGDeviceByDisplayID - the per-mode APPLE_* ids are NOT DM display
  *  ids and fail that lookup (see dsp_display_id_policy.h). 4-byte
  *  DisplayIDType (UInt32) out-write. */
 extern "C" int32_t DSpContext_GetDisplayIDHandler(uint32_t ctxRef,
@@ -3585,7 +3585,7 @@ extern "C" int32_t DSpContext_GetDisplayIDHandler(uint32_t ctxRef,
  *
  *  DSp 1.7 PDF p.43: DSpContext_GetDirtyRectGridUnits(inContext, UInt32
  *  *outCellPixelWidth, UInt32 *outCellPixelHeight). Writes the base grid
- *  units — a CONSTANT 32 x 32 (PPC cache-line); no stored field. Two 4-byte
+ *  units - a CONSTANT 32 x 32 (PPC cache-line); no stored field. Two 4-byte
  *  out-writes. */
 extern "C" int32_t DSpContext_GetDirtyRectGridUnitsHandler(uint32_t ctxRef,
                                                            uint32_t wAddr,
@@ -3670,7 +3670,7 @@ extern "C" int32_t DSpContext_GetMonitorFrequencyHandler(uint32_t ctxRef,
 
 
 /* Round a requested dirty-rect grid cell dimension UP to a multiple of the
- * 32x32 base grid unit (DSp 1.7 PDF p.41 "suggests" — the library quantizes
+ * 32x32 base grid unit (DSp 1.7 PDF p.41 "suggests" - the library quantizes
  * to the base unit). 0 stays 0 (means "default to base unit" until a Set). */
 static uint32_t DSpRoundUpToGridUnit(uint32_t v)
 {
@@ -3750,10 +3750,10 @@ static uint32_t DSpCreateFrontRectRegion(uint32_t w, uint32_t h)
  * surface DSp hands the guest as a "CGrafPtr" (front buffer AND alt buffers):
  * guest code legitimately dereferences these as ports (portPixMap ->
  * GetPixBaseAddr / CopyBits / portRect), so a PixMap-shaped shim is NOT
- * enough — Diablo II software mode drew its frames through the alt-buffer
+ * enough - Diablo II software mode drew its frames through the alt-buffer
  * port and a shim sent every write into misread garbage pointers.
  * seed_pixmap_mac (optional, 0 = zero-init) seeds the PixMap record before
- * the canonical fields are written — the front buffer passes the saved
+ * the canonical fields are written - the front buffer passes the saved
  * MainDevice PixMap so unspecified fields inherit real-screen metadata.
  * Returns the CGrafPort Mac address (0 on scratch exhaustion); out_pixmap_mac
  * / out_pixmap_handle_mac (optional) receive the PixMap record + handle. */
@@ -3859,7 +3859,7 @@ static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
 		uint32_t back_cgraf = DSpGetBackBufferCGrafPtr(ctx);
 		DSP_VLOG("DSpGetFrontBufferCGrafPtr: REUSING back-buffer CGrafPtr as "
 		         "FRONT (front==back alias) ctx=%u cgrafptr=0x%08x staging=0x%08x "
-		         "back@%u display@%u — front and back buffers are identical; "
+		         "back@%u display@%u - front and back buffers are identical; "
 		         "if the guest expects a distinct front buffer this is the "
 		         "regression suspect",
 		         ctx->handle, back_cgraf, ctx->staging_mac_addr,
@@ -3988,7 +3988,7 @@ extern "C" int32_t DSpGetCurrentContextHandler(uint32_t displayID,
                                                uint32_t outCtxRefAddr)
 {
 	if (outCtxRefAddr == 0) {
-		DSP_LOG("GetCurrentContext: NULL outCtxRefAddr — kDSpInvalidAttributesErr");
+		DSP_LOG("GetCurrentContext: NULL outCtxRefAddr - kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 	if (!DSpAcceptsSingleDisplayID(displayID)) {
@@ -3996,7 +3996,7 @@ extern "C" int32_t DSpGetCurrentContextHandler(uint32_t displayID,
 		return kDSpContextNotFoundErr;
 	}
 	/* Walk dsp_context_table for the single Active context with a live
-	 * back_buffer — mirrors the SwapBuffers active-context gate. */
+	 * back_buffer - mirrors the SwapBuffers active-context gate. */
 	uint32_t active_handle = 0;
 	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
 		DSpContextPrivate *ctx = dsp_context_table[i];
@@ -4011,17 +4011,17 @@ extern "C" int32_t DSpGetCurrentContextHandler(uint32_t displayID,
 }
 
 
-/* The Mac low-memory MouseLocation global (DSp 1.7 PDF p.54 — DSpGetMouse
+/* The Mac low-memory MouseLocation global (DSp 1.7 PDF p.54 - DSpGetMouse
  * reports the SAME global mouse position the Toolbox exposes). adb.cpp writes
  * the host mouse here every interrupt in the non-POWERPC_ROM path
  * (adb.cpp:659-660): a 4-byte Point with v at 0x82c and h at 0x82e. */
-#define kDSpLM_MouseLocation_v 0x82cu   /* Point.v — vertical (top) coord */
-#define kDSpLM_MouseLocation_h 0x82eu   /* Point.h — horizontal (left) coord */
+#define kDSpLM_MouseLocation_v 0x82cu   /* Point.v - vertical (top) coord */
+#define kDSpLM_MouseLocation_h 0x82eu   /* Point.h - horizontal (left) coord */
 
 
 /* Read the current global host mouse position into (*v, *h). Reads
  * the Mac MouseLocation lowmem Point (kept live by adb.cpp's input stack).
- * This is the REAL host mouse source — NOT a hardcoded (0,0) stub. */
+ * This is the REAL host mouse source - NOT a hardcoded (0,0) stub. */
 static void DSpReadGlobalMousePoint(int16_t *v, int16_t *h)
 {
 	/* MouseLocation is a Point {v, h}; vertical at 0x82c, horizontal at 0x82e
@@ -4032,7 +4032,7 @@ static void DSpReadGlobalMousePoint(int16_t *v, int16_t *h)
 
 /* --- DSpGetMouseHandler (sub-op 720) ---
  *
- *  DSp 1.7 PDF p.54: DSpGetMouse(Point *outGlobalPoint). NO context param —
+ *  DSp 1.7 PDF p.54: DSpGetMouse(Point *outGlobalPoint). NO context param -
  *  r3 is the out-Point address. Writes the current global mouse position the
  *  host input stack maintains (the Mac MouseLocation lowmem global, kept live
  *  by adb.cpp). Mac Point on the wire is v (high half) then h (low half): two
@@ -4040,7 +4040,7 @@ static void DSpReadGlobalMousePoint(int16_t *v, int16_t *h)
 extern "C" int32_t DSpGetMouseHandler(uint32_t outGlobalPointAddr)
 {
 	if (outGlobalPointAddr == 0) {
-		DSP_LOG("GetMouse: NULL outGlobalPointAddr — kDSpInvalidAttributesErr");
+		DSP_LOG("GetMouse: NULL outGlobalPointAddr - kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 	int16_t v = 0, h = 0;
@@ -4059,7 +4059,7 @@ extern "C" int32_t DSpGetMouseHandler(uint32_t outGlobalPointAddr)
  *  the whole screen with its local origin at (0,0), so the conversion is the
  *  IDENTITY: read the Point, leave it unchanged, write it back.
  *  (If a future ppcdis cross-check of the GlobalToLocal TVECT reveals a nonzero
- *  context-rect offset, subtract it here — the structure is unchanged.) The
+ *  context-rect offset, subtract it here - the structure is unchanged.) The
  *  read-modify-write uses the InvalBackBufferRect Point/Rect I/O idiom
  *  ((int16_t)ReadMacInt16 / WriteMacInt16). Validates ctxRef
  *  and guards a NULL ioPoint. */
@@ -4075,8 +4075,8 @@ extern "C" int32_t DSpContext_GlobalToLocalHandler(uint32_t ctxRef,
 	/* Identity at the single fullscreen origin (0,0). */
 	const int16_t v = (int16_t)ReadMacInt16(ioPointAddr + 0);
 	const int16_t h = (int16_t)ReadMacInt16(ioPointAddr + 2);
-	WriteMacInt16(ioPointAddr + 0, (uint16_t)v);   /* Point.v — unchanged */
-	WriteMacInt16(ioPointAddr + 2, (uint16_t)h);   /* Point.h — unchanged */
+	WriteMacInt16(ioPointAddr + 0, (uint16_t)v);   /* Point.v - unchanged */
+	WriteMacInt16(ioPointAddr + 2, (uint16_t)h);   /* Point.h - unchanged */
 	return kDSpNoErr;
 }
 
@@ -4084,7 +4084,7 @@ extern "C" int32_t DSpContext_GlobalToLocalHandler(uint32_t ctxRef,
 /* --- DSpContext_LocalToGlobalHandler (sub-op 722) ---
  *
  *  DSp 1.7 PDF p.55: DSpContext_LocalToGlobal(inContext, Point *ioPoint). The
- *  inverse of GlobalToLocal — converts a context-local Point to global (screen)
+ *  inverse of GlobalToLocal - converts a context-local Point to global (screen)
  *  coordinates in place. At the iOS single fullscreen origin (0,0) this is also
  *  the IDENTITY; if GlobalToLocal subtracts a context-rect offset, this
  *  adds it back. Same read-modify-write idiom + ctxRef / NULL-ioPoint guards. */
@@ -4100,8 +4100,8 @@ extern "C" int32_t DSpContext_LocalToGlobalHandler(uint32_t ctxRef,
 	/* Identity inverse at the single fullscreen origin (0,0). */
 	const int16_t v = (int16_t)ReadMacInt16(ioPointAddr + 0);
 	const int16_t h = (int16_t)ReadMacInt16(ioPointAddr + 2);
-	WriteMacInt16(ioPointAddr + 0, (uint16_t)v);   /* Point.v — unchanged */
-	WriteMacInt16(ioPointAddr + 2, (uint16_t)h);   /* Point.h — unchanged */
+	WriteMacInt16(ioPointAddr + 0, (uint16_t)v);   /* Point.v - unchanged */
+	WriteMacInt16(ioPointAddr + 2, (uint16_t)h);   /* Point.h - unchanged */
 	return kDSpNoErr;
 }
 
@@ -4111,8 +4111,8 @@ extern "C" int32_t DSpContext_LocalToGlobalHandler(uint32_t ctxRef,
  * (the SwapBuffers active-context gate) and, if the point is inside that
  * context's display bounds, returns its handle. Returns 0 for an off-screen
  * point (negative or beyond display bounds) OR when no Active context exists
- * — the error-code-IS-the-answer single-display posture. The (v, h) are
- * already-unpacked by-VALUE coords — never a dereferenced pointer.
+ * - the error-code-IS-the-answer single-display posture. The (v, h) are
+ * already-unpacked by-VALUE coords - never a dereferenced pointer.
  * ASVS V5: the display-bounds check runs BEFORE returning any handle. */
 static uint32_t DSpResolveContextHandleAtPoint(int16_t v, int16_t h)
 {
@@ -4139,7 +4139,7 @@ static uint32_t DSpResolveContextHandleAtPoint(int16_t v, int16_t h)
  *  DSp 1.7 PDF p.53: DSpFindContextFromPoint(Point inGlobalPoint,
  *  DSpContextReference *outContext). The Point is passed by VALUE:
  *  the dispatch case unpacks it from r3 (v = high half, h = low half) and hands
- *  the int16 coords here — this handler NEVER dereferences a pointer for the
+ *  the int16 coords here - this handler NEVER dereferences a pointer for the
  *  Point. On the iOS single fullscreen display the one Active context contains
  *  every on-screen point, so an in-bounds (v, h) resolves to that context's
  *  handle. An off-screen point (negative or beyond display bounds) OR no Active
@@ -4149,7 +4149,7 @@ extern "C" int32_t DSpFindContextFromPointHandler(int16_t v, int16_t h,
                                                   uint32_t outCtxRefAddr)
 {
 	if (outCtxRefAddr == 0) {
-		DSP_LOG("FindContextFromPoint: NULL outCtxRefAddr — kDSpInvalidAttributesErr");
+		DSP_LOG("FindContextFromPoint: NULL outCtxRefAddr - kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 	const uint32_t handle = DSpResolveContextHandleAtPoint(v, h);
@@ -4163,7 +4163,7 @@ extern "C" int32_t DSpFindContextFromPointHandler(int16_t v, int16_t h,
  *  744, 746, 747, 760, 761). Single-display-faithful: on the one
  *  iOS display CanUserSelectContext reports false, FindBestContextOnDisplayID
  *  and UserSelectContext delegate to the existing FindBest 3-tier matcher
- *  (DSpFindBestContextHandler — no new
+ *  (DSpFindBestContextHandler - no new
  *  algorithm), and the error code IS the correct single-display answer.
  *  SetDebugMode stores a global flag (store only). SetBlankingColor assigns
  *  the DMC blanking color via the no-transition dmc_set_blanking_color
@@ -4171,7 +4171,7 @@ extern "C" int32_t DSpFindContextFromPointHandler(int16_t v, int16_t h,
  *  concurrency primitive.
  * ========================================================================== */
 
-/* DSpSetDebugMode global flag (sub-op 761). Single-writer emul-thread — same
+/* DSpSetDebugMode global flag (sub-op 761). Single-writer emul-thread - same
  * contract as every dsp logging-flag global; no mutex, no _Atomic. The
  * fade-path / debug-overlay consumption is left to a later fidelity pass;
  * this stores the flag and exposes a getter only. */
@@ -4179,10 +4179,10 @@ static bool s_dsp_debug_mode = false;
 
 /* --- DSpSetDebugModeHandler (sub-op 761) ---
  *
- *  DSp 1.7 PDF p.59: DSpSetDebugMode(Boolean inDebugMode). NO ctxRef — r3 is
+ *  DSp 1.7 PDF p.59: DSpSetDebugMode(Boolean inDebugMode). NO ctxRef - r3 is
  *  the Boolean debug-mode value. Stores the global s_dsp_debug_mode flag so a
  *  future fidelity pass can consult it on the fade path. Always
- *  succeeds (kDSpNoErr) — there is no failure mode for a global Boolean set. */
+ *  succeeds (kDSpNoErr) - there is no failure mode for a global Boolean set. */
 extern "C" int32_t DSpSetDebugModeHandler(uint32_t inDebugMode)
 {
 	s_dsp_debug_mode = (inDebugMode != 0);
@@ -4204,11 +4204,11 @@ extern "C" int32_t DSpCanUserSelectContextHandler(uint32_t attrAddr,
                                                   uint32_t outCanAddr)
 {
 	if (attrAddr == 0) {
-		DSP_LOG("CanUserSelectContext: NULL attrAddr — kDSpInvalidAttributesErr");
+		DSP_LOG("CanUserSelectContext: NULL attrAddr - kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 	if (outCanAddr == 0) {
-		DSP_LOG("CanUserSelectContext: NULL outCanAddr — kDSpInvalidAttributesErr");
+		DSP_LOG("CanUserSelectContext: NULL outCanAddr - kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 
@@ -4245,10 +4245,10 @@ extern "C" int32_t DSpCanUserSelectContextHandler(uint32_t attrAddr,
  *  displayID THIRD (r5).
  *
  *  Lifted single-screen policy: iOS hosts a single backing
- *  screen, so ANY inDisplayID hard-routes to that screen — accepted + logged,
+ *  screen, so ANY inDisplayID hard-routes to that screen - accepted + logged,
  *  mirroring DSpGetFirstContextHandler (sub-op 200). Real apps pass
  *  Display-Manager IDs; after routing, delegate verbatim to the
- *  EXISTING FindBest matcher (DSpFindBestContextHandler — the same attr-read +
+ *  EXISTING FindBest matcher (DSpFindBestContextHandler - the same attr-read +
  *  3-tier Core + AllocAndWriteBack + WriteMacInt32 path; NO new algorithm).
  *  Guards a NULL outCtxRefAddr. A genuinely unmatchable attribute request
  *  still surfaces as 0 + kDSpContextNotFoundErr from the matcher (NOT a
@@ -4258,7 +4258,7 @@ extern "C" int32_t DSpFindBestContextOnDisplayIDHandler(uint32_t attrAddr,
                                                         uint32_t inDisplayID)
 {
 	if (outCtxRefAddr == 0) {
-		DSP_LOG("FindBestContextOnDisplayID: NULL outCtxRefAddr — kDSpInvalidAttributesErr");
+		DSP_LOG("FindBestContextOnDisplayID: NULL outCtxRefAddr - kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 	if (!DSpAcceptsSingleDisplayID(inDisplayID)) {
@@ -4266,7 +4266,7 @@ extern "C" int32_t DSpFindBestContextOnDisplayIDHandler(uint32_t attrAddr,
 		 * loggo captures show real-world Display-Manager IDs (e.g. 256)
 		 * reaching the single-screen mapping instead of being rejected. */
 		DSP_LOG("FindBestContextOnDisplayID: displayID=%u accepted "
-		        "(single-screen iOS — mapped to backing screen)", inDisplayID);
+		        "(single-screen iOS - mapped to backing screen)", inDisplayID);
 	}
 	/* Single screen -> delegate to the existing FindBest 3-tier matcher. An
 	 * unmatchable attribute request becomes 0 + kDSpContextNotFoundErr there. */
@@ -4282,8 +4282,8 @@ extern "C" int32_t DSpFindBestContextOnDisplayIDHandler(uint32_t attrAddr,
  *  dialogLoc r4, eventProc r5, outContext r6). Normally this presents a
  *  monitor/mode-selection DIALOG to the user; on the single iOS display there
  *  is no meaningful choice and no dialog UI, so it behaves as a FindBest
- *  auto-pick — delegate VERBATIM to the existing FindBest matcher
- *  (DSpFindBestContextHandler — NO new algorithm, NO dialog). The dialog
+ *  auto-pick - delegate VERBATIM to the existing FindBest matcher
+ *  (DSpFindBestContextHandler - NO new algorithm, NO dialog). The dialog
  *  location + cleanup event proc are not used on a single display ((void)'d
  *  for -Werror). Guards a NULL outCtxRefAddr. The auto-pick IS the correct
  *  single-display answer, NOT a convenience stub. */
@@ -4295,7 +4295,7 @@ extern "C" int32_t DSpUserSelectContextHandler(uint32_t attrAddr,
 	(void)inDialogDisplayLocation;   /* no dialog on a single display */
 	(void)inEventProc;               /* no cleanup proc invoked (no dialog) */
 	if (outCtxRefAddr == 0) {
-		DSP_LOG("UserSelectContext: NULL outCtxRefAddr — kDSpInvalidAttributesErr");
+		DSP_LOG("UserSelectContext: NULL outCtxRefAddr - kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 	/* No dialog -> auto-pick via the existing FindBest matcher. */
@@ -4306,7 +4306,7 @@ extern "C" int32_t DSpUserSelectContextHandler(uint32_t attrAddr,
 /* --- DSpSetBlankingColorHandler (sub-op 760) ---
  *
  *  DSp 1.7 PDF p.30: DSpSetBlankingColor(const RGBColor *inRGBColor). NO
- *  ctxRef — r3 is the RGBColor address. Assigns the color the library uses the
+ *  ctxRef - r3 is the RGBColor address. Assigns the color the library uses the
  *  next time a context is blanked; it does NOT blank the screen now. The
  *  RGBColor is three 16-bit channels (red@+0, green@+2, blue@+4); down-convert
  *  to 8-bit by taking the high byte (universal QuickDraw 16->8 convention)
@@ -4315,11 +4315,11 @@ extern "C" int32_t DSpUserSelectContextHandler(uint32_t attrAddr,
  *  entering the Blanking state). Guards a NULL inRGBColorAddr.
  *  Always returns kDSpNoErr on a valid set (the DMC accessor
  *  may report not-initialized in a no-DMC build, which is still kDSpNoErr at
- *  the DSp ABI — the color set is best-effort, not a failure the app acts on). */
+ *  the DSp ABI - the color set is best-effort, not a failure the app acts on). */
 extern "C" int32_t DSpSetBlankingColorHandler(uint32_t inRGBColorAddr)
 {
 	if (inRGBColorAddr == 0) {
-		DSP_LOG("SetBlankingColor: NULL inRGBColorAddr — kDSpInvalidAttributesErr");
+		DSP_LOG("SetBlankingColor: NULL inRGBColorAddr - kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 	uint16_t r16 = (uint16_t)ReadMacInt16(inRGBColorAddr + 0);
@@ -4342,13 +4342,13 @@ extern "C" int32_t DSpSetBlankingColorHandler(uint32_t inRGBColorAddr)
  *
  *  Design: bounding-rect union (O(1)) NOT per-rect list. Classic
  *  Mac DSp apps either dirty the whole back-buffer or dirty one rect, not
- *  scattered N-rect patterns — a union accumulator with a > 90% coverage
+ *  scattered N-rect patterns - a union accumulator with a > 90% coverage
  *  promotion threshold back to full-blit captures the behavior envelope
  *  without the per-rect bookkeeping cost. Tile-based dirty tracking is
  *  overkill for the workload.
  *
  *  Cold-start semantics (PDF p.38): zero Inval calls between
- *  SwapBuffers means the ENTIRE back-buffer is considered dirty — this is
+ *  SwapBuffers means the ENTIRE back-buffer is considered dirty - this is
  *  the case on the very first swap and after background→foreground
  *  restore. Reserve sets dirty_cold_start=true; foreground restore sets
  *  it again. SwapBuffers checks cold_start
@@ -4375,7 +4375,7 @@ static void DSpInvalBackBufferRect_Accumulate(DSpContextPrivate *ctx,
 {
 	if (ctx == nullptr) return;
 
-	/* ASVS V5 input validation — clamp to back-buffer bounds.
+	/* ASVS V5 input validation - clamp to back-buffer bounds.
 	 * Integer-max right/bottom values get clipped; negative top/left
 	 * get clipped to 0. */
 	int32_t clamped_top    = (top    < 0) ? 0 : top;
@@ -4387,7 +4387,7 @@ static void DSpInvalBackBufferRect_Accumulate(DSpContextPrivate *ctx,
 	if ((uint32_t)clamped_bottom > ctx->attr.displayHeight)
 		clamped_bottom = (int32_t)ctx->attr.displayHeight;
 
-	/* Empty / inverted rect? (bottom <= top or right <= left) — no-op. */
+	/* Empty / inverted rect? (bottom <= top or right <= left) - no-op. */
 	if (clamped_right <= clamped_left || clamped_bottom <= clamped_top) {
 		DSP_LOG("InvalBackBufferRect: empty/inverted rect ignored "
 		        "(t=%d l=%d b=%d r=%d)",
@@ -4445,16 +4445,16 @@ extern "C" int32_t DSpContext_InvalBackBufferRectHandler(uint32_t ctxRef,
 /*  Returns ctx->attr verbatim (stored as-reserved at Reserve      */
 /*  time). PDF p.18 "as-active" reading is observationally         */
 /*  equivalent because FindBest returns exact-match or             */
-/*  kDSpContextNotFoundErr — no substitution. Revisit if           */
+/*  kDSpContextNotFoundErr - no substitution. Revisit if           */
 /*  substitution is ever introduced (at which point we'll add      */
 /*  ctx->actual_attr and GetAttributes will prefer it).            */
 /*                                                                 */
 /*  Writes through the PDF-p.65 layout.                            */
-/*  Writes ZERO DMC-owned fields — DMCWriteSiteInventoryTests      */
+/*  Writes ZERO DMC-owned fields - DMCWriteSiteInventoryTests      */
 /*  .testNoDirectDMCWritesInDSpFiles gate stays                    */
 /*  green. Lives in dsp_draw_context.mm (NOT                       */
 /*  dsp_mode_enumerate.cpp) because it operates on                 */
-/*  DSpContextPrivate — the context table is private to            */
+/*  DSpContextPrivate - the context table is private to            */
 /*  this translation unit per the DMC-invariant discipline.        */
 /* ============================================================== */
 
@@ -4463,7 +4463,7 @@ extern "C" int32_t DSpContext_InvalBackBufferRectHandler(uint32_t ctxRef,
  *  offsets into guest Mac RAM. Reserved/filler fields are explicitly
  *  zeroed so the emulated app reads a canonical out-struct, not whatever
  *  guest-RAM garbage preceded the call. frequency is always 0 per PDF
- *  p.66 ("value is 0 if actual frequency is not available") — the
+ *  p.66 ("value is 0 if actual frequency is not available") - the
  *  emulator does not synthesize a refresh rate from
  *  vbl_source_get_cadence_usec.
  */
@@ -4553,9 +4553,9 @@ extern "C" int32_t DSpContext_GetAttributesHandler(uint32_t ctxRef,
  *                              immediately if durationVbls == 0)
  *
  *  Fade target:
- *    end_lut = identity LUT — for each channel c in {R, G, B} and each
+ *    end_lut = identity LUT - for each channel c in {R, G, B} and each
  *    index i in [0..255], end_lut[c*256 + i] = i. The identity LUT is
- *    the "no gamma correction" state — the screen displays exactly the
+ *    the "no gamma correction" state - the screen displays exactly the
  *    framebuffer's stored colors.
  *
  *  Fade behavior:
@@ -4577,7 +4577,7 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
 	/*
 	 *  Debug session `dsp-sims-post-reserve-black-screen` fix (2026-04-19):
 	 *  DSp 1.7 PDF p.35 (FadeGammaIn) shares the NULL-context semantics of
-	 *  the FadeGamma trio — inContext == NULL applies the fade
+	 *  the FadeGamma trio - inContext == NULL applies the fade
 	 *  simultaneously to all displays (ambient gamma, not a per-context
 	 *  fade). Real DSp apps call `DSpContext_FadeGammaOut(NULL, NULL)`
 	 *  between Reserve and SetState to fade the system-wide gamma to black
@@ -4585,7 +4585,7 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
 	 *  OpenGL DSp sample at
 	 *  resources/OpenGL_SDK_1.2/.../OpenGL DrawSprocket.c).
 	 *
-	 *  Pre-fix behavior: rejected with kDSpInvalidContextErr — which
+	 *  Pre-fix behavior: rejected with kDSpInvalidContextErr - which
 	 *  caused The Sims to mark DSp as unhealthy and silently degrade its
 	 *  render path (no GetBackBuffer / SwapBuffers ever issued).
 	 *
@@ -4594,7 +4594,7 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
 	 *  is per-context in the DSp engine; the compositor's own gamma path
 	 *  lives in MetalCompositor and has its own APIs). Returning
 	 *  kDSpNoErr matches the spec contract "the call succeeded" without
-	 *  introducing a cross-subsystem ambient-fade dependency — the game's
+	 *  introducing a cross-subsystem ambient-fade dependency - the game's
 	 *  later per-ctx fade calls + our compositor LUT keep pixels correct.
 	 */
 	if (ctxRef == 0) {
@@ -4615,7 +4615,7 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
 	 *  and fades 0% -> 100% intensity over a FIXED ONE SECOND (PDF p.35),
 	 *  NOT a guest-supplied durationVbls. Derive the 1-second VBL count
 	 *  from the live device-native cadence: 60 VBLs on a 60 Hz panel,
-	 *  120 on a 120 Hz ProMotion panel — never a hardcoded 60.
+	 *  120 on a 120 Hz ProMotion panel - never a hardcoded 60.
 	 *  inZeroIntensityColor is accepted (NULL -> black, legal); for the
 	 *  IN direction the end state is full intensity (the driver's
 	 *  installed gamma table), so the tint defines only the conceptual
@@ -4638,7 +4638,7 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
 
 	/* Initialize the fade machinery (active-fade-replacement snapshot
 	 * + end_lut copy + duration/elapsed/active reset). The VBL driver
-	 * (DSpVBLGammaFadeCallback) is UNCHANGED — only the duration source
+	 * (DSpVBLGammaFadeCallback) is UNCHANGED - only the duration source
 	 * changed from a guest arg to the derived 1-second count. */
 	DSpInitFadeStateCore(ctx, full_lut, (uint16_t)vbls_1sec);
 	DSP_LOG("FadeGammaIn: ctx=%u 1-second fade -> %u VBLs (cadence %llu usec) started",
@@ -4653,7 +4653,7 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
  *  Error map: identical to FadeGammaIn.
  *
  *  Fade target:
- *    end_lut = all zeros (768 bytes of 0x00) — black-screen state. With
+ *    end_lut = all zeros (768 bytes of 0x00) - black-screen state. With
  *    a zero gamma LUT, the screen displays pure black regardless of
  *    framebuffer contents. Used by games for screen blanking + scene
  *    transitions.
@@ -4690,7 +4690,7 @@ extern "C" int32_t DSpContext_FadeGammaOutHandler(uint32_t ctxRef,
 	 *  NOT a guest-supplied durationVbls. The end state is 0% intensity =
 	 *  the inZeroIntensityColor tint (NULL -> black -> zeros, preserving
 	 *  the prior fade-to-black default). Derive the 1-second VBL count
-	 *  from the live device-native cadence — never hardcode 60.
+	 *  from the live device-native cadence - never hardcode 60.
 	 */
 	uint8_t color_r = 0, color_g = 0, color_b = 0;
 	if (colorAddr != 0) {
@@ -4712,7 +4712,7 @@ extern "C" int32_t DSpContext_FadeGammaOutHandler(uint32_t ctxRef,
 	uint8_t end_lut[768];
 	DSpComputeFadeGammaTargetLUT(color_r, color_g, color_b, 0, full_lut, end_lut);
 
-	/* Initialize the fade machinery (VBL driver UNCHANGED — only the
+	/* Initialize the fade machinery (VBL driver UNCHANGED - only the
 	 * duration source changed from a guest arg to the derived 1-second
 	 * count, and the end_lut now honors the zero-intensity tint). */
 	DSpInitFadeStateCore(ctx, end_lut, (uint16_t)vbls_1sec);
@@ -4753,10 +4753,10 @@ extern "C" int32_t DSpContext_FadeGammaOutHandler(uint32_t ctxRef,
  *    kDSpNoErr             - success; the target LUT was applied
  *
  *  Immediate-apply (PDF p.33 "repeated, timed calls"):
- *    The parametric FadeGamma is an INCREMENTAL process — the APP makes
+ *    The parametric FadeGamma is an INCREMENTAL process - the APP makes
  *    repeated, timed calls, each passing an incrementally different
  *    inPercent. DSp applies the target LUT IMMEDIATELY each call (there
- *    is no DSp-internal fade timer for the parametric variant — that is
+ *    is no DSp-internal fade timer for the parametric variant - that is
  *    FadeGammaIn/Out). The previous handler's `durationVbls == 0`
  *    short-circuit body IS the new always-path.
  *
@@ -4770,12 +4770,12 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
                                                 uint32_t colorAddr)
 {
 	/*
-	 *  PDF p.32 — inContext == NULL applies the fade simultaneously to all
+	 *  PDF p.32 - inContext == NULL applies the fade simultaneously to all
 	 *  displays (ambient). The standard Apple DSp transition idiom fades the
 	 *  ambient display to black and then calls FadeGamma(NULL, 100) to restore
 	 *  full intensity (see Apple's "OpenGL DrawSprocket.c" sample). On our
-	 *  single display we APPLY that ambient fade to the compositor gamma — NOT
-	 *  a no-op — or the restore is lost and the screen stays stuck black
+	 *  single display we APPLY that ambient fade to the compositor gamma - NOT
+	 *  a no-op - or the restore is lost and the screen stays stuck black
 	 *  (Cro-Mag Rally: gameplay invisible after a fade transition). This is the
 	 *  PARAMETRIC FadeGamma (sub-opcode 404) only; the timed FadeGammaIn/Out
 	 *  (401/403) keep their ctxRef==0 no-op, since The Sims drives THOSE between
@@ -4824,7 +4824,7 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 	}
 
 	/* Build the target LUT per the DSp 1.7 signed-percent tint-honoring
-	 * formula. inPercent is passed through verbatim — the formula owns
+	 * formula. inPercent is passed through verbatim - the formula owns
 	 * the >100 (white) / <0 (black) convergence + the [0,255] clamp. */
 	uint8_t full_lut[768];
 	DSpCopyDriverGammaLUT(full_lut);
@@ -4833,7 +4833,7 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 	                              inPercent, full_lut, target_lut);
 
 	/* Parametric FadeGamma applies the target immediately, in a
-	 * single push — the app loops it over time. There is no internal
+	 * single push - the app loops it over time. There is no internal
 	 * fade timer for the parametric variant. fade_active rides the
 	 * publish: any percent other than exactly 100 leaves the display
 	 * mid-fade (LUT must march linearly, and driver SetGamma arriving
@@ -4890,7 +4890,7 @@ enum : uint32_t {
 struct DSpPixelStagingPoolBlock {
 	uint32_t mac_addr;
 	uint32_t size;        /* logical size of the most recent exposure */
-	uint32_t alloc_size;  /* TRUE Mac_sysalloc size; NEVER grown — the
+	uint32_t alloc_size;  /* TRUE Mac_sysalloc size; NEVER grown - the
 	                       * ground truth a write must never exceed. */
 	bool     in_use;
 	bool     ever_exposed_to_guest;
@@ -5003,10 +5003,10 @@ extern "C" uint32_t DSpGuardStagingWrite(uint32_t mac_addr, uint32_t size,
 	DSpPixelStagingPoolBlock *block = DSpFindPixelStagingBlock(mac_addr);
 	if (block == nullptr) {
 		/* Write targets an address that is not a tracked staging block.
-		 * We cannot bound it — flag it so the field log shows an untracked
+		 * We cannot bound it - flag it so the field log shows an untracked
 		 * staging write (itself suspicious). */
 		DSP_LOG("DSpGuardStagingWrite: UNTRACKED staging target site=%s "
-		        "addr=0x%08x size=%u (no pool entry — cannot bound)",
+		        "addr=0x%08x size=%u (no pool entry - cannot bound)",
 		        site ? site : "?", mac_addr, size);
 		return size;
 	}

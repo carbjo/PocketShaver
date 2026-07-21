@@ -59,7 +59,7 @@ public class PreferencesViewController: UIViewController {
 			// height), leaving a washed-out sliver. Keep the iPad rendering.
 			button.preferredBehavioralStyle = .pad
 			// The prefs window fills the whole Mac screen, so the default
-			// title size gets lost in the full-width bar — scale the type up
+			// title size gets lost in the full-width bar - scale the type up
 			// with the taller Mac height set in viewDidLoad.
 			button.configuration?.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
 				var attributes = attributes

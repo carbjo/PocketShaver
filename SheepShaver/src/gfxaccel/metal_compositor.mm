@@ -20,13 +20,13 @@
  *
  *  Key design choices:
  *    - UIView created manually, NOT via SDL_Metal_CreateView (avoids
- *      SDL_GetWindowSize corruption feedback loop — see engine overlay
+ *      SDL_GetWindowSize corruption feedback loop - see engine overlay
  *      comments for historical detail).
  *    - newBufferWithBytesNoCopy for zero-copy GPU access to the_buffer.
  *    - Fullscreen triangle (3 vertices via vertex_id, no vertex buffer).
  *    - Drawables are never cached across frames.
  *    - CAMetalLayer.drawableSize = Mac framebuffer dimensions, not UIView frame.
- *    - Integer textures (R8Uint, R16Uint) use tex.read() in shaders — not
+ *    - Integer textures (R8Uint, R16Uint) use tex.read() in shaders - not
  *      tex.sample(). CAMetalLayer min/magnificationFilter provides scaling.
  */
 
@@ -83,13 +83,13 @@ static constexpr bool compositor_logging_enabled = false;
 #endif
 
 // ---------------------------------------------------------------------------
-// SDL window — declared in video_sdl2.cpp
+// SDL window - declared in video_sdl2.cpp
 // ---------------------------------------------------------------------------
 
 extern SDL_Window *sdl_window;
 
 // ---------------------------------------------------------------------------
-// CompositorMetalView — UIView backed by CAMetalLayer
+// CompositorMetalView - UIView backed by CAMetalLayer
 // ---------------------------------------------------------------------------
 
 @interface CompositorMetalView : UIView
@@ -102,7 +102,7 @@ extern SDL_Window *sdl_window;
 @end
 
 // ---------------------------------------------------------------------------
-// GetSDLUIWindow — retrieve UIWindow from SDL (shared pattern across engines)
+// GetSDLUIWindow - retrieve UIWindow from SDL (shared pattern across engines)
 // ---------------------------------------------------------------------------
 
 static UIWindow *GetSDLUIWindow(void)
@@ -139,7 +139,7 @@ static id<MTLSamplerState>          compositor_sampler  = nil;
 static bool                         compositor_initialized = false;
 
 // ---------------------------------------------------------------------------
-// Present-rect cache — authoritative source for the absolute-cursor map in
+// Present-rect cache - authoritative source for the absolute-cursor map in
 // video_sdl2.cpp's handle_mouse_event / VideoMapWindowPointToGuestAndMove.
 //
 // The cursor map must map the finger/pointer into the SAME rectangle the
@@ -147,7 +147,7 @@ static bool                         compositor_initialized = false;
 // Catalyst the view is pinned to its superview's FULL bounds
 // (MetalCompositorPinViewToWindow), so this rect is the whole window and does
 // not shift when the menu bar shows/hides on an unfocus/refocus. Reading
-// uiWindow.bounds (or, worse, SDL_GetWindowSize — transposed/stale off the main
+// uiWindow.bounds (or, worse, SDL_GetWindowSize - transposed/stale off the main
 // thread on Catalyst) is avoided so the cursor map and the drawn image never
 // disagree.
 //
@@ -256,7 +256,7 @@ static int                          s_last_overlay_scale_fb_w = 0;
 static int                          s_last_overlay_scale_fb_h = 0;
 
 // ---------------------------------------------------------------------------
-// Frame-pacing state — local cadence cache refreshed from DMC snapshots.
+// Frame-pacing state - local cadence cache refreshed from DMC snapshots.
 // ---------------------------------------------------------------------------
 
 static uint64_t                     frame_interval_usec = 0;   // microseconds per VBL frame
@@ -338,7 +338,7 @@ static void MetalCompositorScaleLayerToDrawable(struct CompositeLayer *layer,
 //
 // Compositor registers as DMC subscriber FIRST (in MetalCompositorInit) so
 // that reverse-order on_mode_enter dispatch makes the compositor the LAST
-// subscriber to re-enter each mode — correct for a presentation layer that
+// subscriber to re-enter each mode - correct for a presentation layer that
 // needs every engine to have bound its new overlay before the frame is drawn.
 //
 // Callbacks are observational / refresh local cadence cache.
@@ -424,7 +424,7 @@ static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incomin
                 bgra_size);
             if (rc != 0) {
                 COMPOSITOR_ERR("DMC on_mode_enter: MetalCompositorResize failed (rc=%d) for "
-                               "DSp owner %dx%d — drawable will appear small in window",
+                               "DSp owner %dx%d - drawable will appear small in window",
                                rc, new_w, new_h);
                 /* Non-fatal: engine writes still land in the existing (mismatched)
                  * framebuffer texture, which appears in a corner of the window
@@ -470,7 +470,7 @@ static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incomin
 }
 
 // ---------------------------------------------------------------------------
-// bits_per_pixel_for_depth — convert VIDEO_DEPTH_* to actual bit count
+// bits_per_pixel_for_depth - convert VIDEO_DEPTH_* to actual bit count
 // ---------------------------------------------------------------------------
 
 static int bits_per_pixel_for_depth(int depth)
@@ -485,7 +485,7 @@ static int bits_per_pixel_for_depth(int depth)
 }
 
 // ---------------------------------------------------------------------------
-// fill_identity_gamma_lut — write a 768-byte planar identity ramp (256 R +
+// fill_identity_gamma_lut - write a 768-byte planar identity ramp (256 R +
 // 256 G + 256 B) into a buffer's contents.
 // ---------------------------------------------------------------------------
 
@@ -495,7 +495,7 @@ static void fill_identity_gamma_lut(uint8_t *lut)
 }
 
 // ---------------------------------------------------------------------------
-// alloc_gamma_buffer — allocate a 768-byte shared MTLBuffer and seed it with
+// alloc_gamma_buffer - allocate a 768-byte shared MTLBuffer and seed it with
 // either the display-ready default LUT or a no-op identity ramp. Gamma buffers
 // persist across frame ownership handoffs, so they stay off resettable heaps.
 // ---------------------------------------------------------------------------
@@ -521,7 +521,7 @@ static id<MTLBuffer> alloc_gamma_buffer(id<MTLDevice> device,
 }
 
 // ---------------------------------------------------------------------------
-// texture_format_name — human-readable format name for logging
+// texture_format_name - human-readable format name for logging
 // ---------------------------------------------------------------------------
 
 static const char *texture_format_name(MTLPixelFormat fmt)
@@ -560,13 +560,13 @@ static int MetalCompositorBuildDepthResources(const char *op,
                                               CompositorDepthResources *out)
 {
     if (!device || !out) {
-        COMPOSITOR_ERR("%s: FAILED — missing Metal device or output record", op);
+        COMPOSITOR_ERR("%s: FAILED - missing Metal device or output record", op);
         return -1;
     }
 
     int bits_per_pixel = bits_per_pixel_for_depth(depth);
     if (bits_per_pixel == 0) {
-        COMPOSITOR_ERR("%s: FAILED — unknown depth value %d", op, depth);
+        COMPOSITOR_ERR("%s: FAILED - unknown depth value %d", op, depth);
         return -1;
     }
 
@@ -574,13 +574,13 @@ static int MetalCompositorBuildDepthResources(const char *op,
         out->buffer = (__bridge id<MTLBuffer>)gfxaccel_resources_get_framebuffer_buffer(
             buffer, buffer_size);
         if (!out->buffer) {
-            COMPOSITOR_ERR("%s: FAILED — gfxaccel_resources_get_framebuffer_buffer "
+            COMPOSITOR_ERR("%s: FAILED - gfxaccel_resources_get_framebuffer_buffer "
                            "returned NULL (buffer=%p size=%u)",
                            op, buffer, buffer_size);
             return -1;
         }
     } else if (!allow_null_buffer) {
-        COMPOSITOR_ERR("%s: FAILED — NULL framebuffer buffer for initial compositor setup",
+        COMPOSITOR_ERR("%s: FAILED - NULL framebuffer buffer for initial compositor setup",
                        op);
         return -1;
     }
@@ -621,7 +621,7 @@ static int MetalCompositorBuildDepthResources(const char *op,
         texDesc.storageMode = MTLStorageModeShared;
         out->texture = [device newTextureWithDescriptor:texDesc];
         if (!out->texture) {
-            COMPOSITOR_ERR("%s: FAILED — newTextureWithDescriptor fallback "
+            COMPOSITOR_ERR("%s: FAILED - newTextureWithDescriptor fallback "
                            "(format=%s width=%lu height=%d)",
                            op, texture_format_name(out->tex_format),
                            (unsigned long)out->tex_width, height);
@@ -635,7 +635,7 @@ static int MetalCompositorBuildDepthResources(const char *op,
             out->palette_buffers[i] = [device newBufferWithLength:256 * 4
                                                           options:MTLResourceStorageModeShared];
             if (!out->palette_buffers[i]) {
-                COMPOSITOR_ERR("%s: FAILED — palette_buffer[%d] creation", op, i);
+                COMPOSITOR_ERR("%s: FAILED - palette_buffer[%d] creation", op, i);
                 return -1;
             }
             memset(out->palette_buffers[i].contents, 0, 256 * 4);
@@ -645,7 +645,7 @@ static int MetalCompositorBuildDepthResources(const char *op,
     out->gamma_lut      = alloc_gamma_buffer(device, "gamma_lut_buffer", true);
     out->gamma_identity = alloc_gamma_buffer(device, "gamma_identity_buffer", false);
     if (!out->gamma_lut || !out->gamma_identity) {
-        COMPOSITOR_ERR("%s: FAILED — gamma buffer creation (lut=%p identity=%p)",
+        COMPOSITOR_ERR("%s: FAILED - gamma buffer creation (lut=%p identity=%p)",
                        op, out->gamma_lut, out->gamma_identity);
         return -1;
     }
@@ -655,14 +655,14 @@ static int MetalCompositorBuildDepthResources(const char *op,
         library = [device newDefaultLibrary];
     }
     if (!library) {
-        COMPOSITOR_ERR("%s: FAILED — newDefaultLibrary returned nil", op);
+        COMPOSITOR_ERR("%s: FAILED - newDefaultLibrary returned nil", op);
         return -1;
     }
     out->library = library;
 
     id<MTLFunction> vertexFunc = [library newFunctionWithName:@"compositor_vertex"];
     if (!vertexFunc) {
-        COMPOSITOR_ERR("%s: FAILED — vertex function 'compositor_vertex' not found", op);
+        COMPOSITOR_ERR("%s: FAILED - vertex function 'compositor_vertex' not found", op);
         return -1;
     }
 
@@ -676,7 +676,7 @@ static int MetalCompositorBuildDepthResources(const char *op,
 
     id<MTLFunction> fragmentFunc = [library newFunctionWithName:out->fragment_name];
     if (!fragmentFunc) {
-        COMPOSITOR_ERR("%s: FAILED — fragment function '%s' not found",
+        COMPOSITOR_ERR("%s: FAILED - fragment function '%s' not found",
                        op, [out->fragment_name UTF8String]);
         return -1;
     }
@@ -690,7 +690,7 @@ static int MetalCompositorBuildDepthResources(const char *op,
     out->pipeline = [device newRenderPipelineStateWithDescriptor:pipeDesc
                                                            error:&pipeError];
     if (!out->pipeline) {
-        COMPOSITOR_ERR("%s: FAILED — pipeline creation for '%s': %s",
+        COMPOSITOR_ERR("%s: FAILED - pipeline creation for '%s': %s",
                        op, [out->fragment_name UTF8String],
                        [[pipeError localizedDescription] UTF8String]);
         return -1;
@@ -705,7 +705,7 @@ static int MetalCompositorBuildDepthResources(const char *op,
 
         out->sampler = [device newSamplerStateWithDescriptor:sampDesc];
         if (!out->sampler) {
-            COMPOSITOR_ERR("%s: FAILED — sampler creation", op);
+            COMPOSITOR_ERR("%s: FAILED - sampler creation", op);
             return -1;
         }
     }
@@ -714,7 +714,7 @@ static int MetalCompositorBuildDepthResources(const char *op,
 }
 
 // ---------------------------------------------------------------------------
-// VBL callback — fired on every display-link tick
+// VBL callback - fired on every display-link tick
 // ---------------------------------------------------------------------------
 static void compositor_vbl_callback(void *ctx, void *drawable, double target_ts)
 {
@@ -750,14 +750,14 @@ static void compositor_vbl_callback(void *ctx, void *drawable, double target_ts)
 }
 
 // ---------------------------------------------------------------------------
-// MetalCompositorPinViewToWindow (Mac Catalyst) — size the compositor view to its
+// MetalCompositorPinViewToWindow (Mac Catalyst) - size the compositor view to its
 // superview's FULL bounds via Auto Layout (deliberately NOT the safe area): the guest image
 // fills the whole window edge-to-edge, overscanning the Mac menu-bar / camera-housing strip
 // and the rounded screen corners, so there is no black border. Combined with the layer's
 // aspect-fill gravity, the overscan is cropped at those edges. On Catalyst the view runs with
 // translatesAutoresizingMaskIntoConstraints = NO, so it has NO size unless pinned. A mode
 // switch that re-homes the view into a fresh SDL rootViewController.view drops the previous
-// pin (it referenced the old superview), collapsing the view to 0x0 — a black desktop. Re-pin
+// pin (it referenced the old superview), collapsing the view to 0x0 - a black desktop. Re-pin
 // on every re-home. Storing the constraints lets us deactivate the stale set first, so
 // re-pinning against an unchanged superview cannot stack duplicates. (iOS/iPad use the
 // autoresizing mask and are unaffected.)
@@ -765,7 +765,7 @@ static void compositor_vbl_callback(void *ctx, void *drawable, double target_ts)
 #if TARGET_OS_MACCATALYST
 static NSArray<NSLayoutConstraint *> *s_compositor_pin_constraints = nil;
 
-// Defined in PreferencesViewControllerObjC.mm — true iff the app's NSWindow is full screen.
+// Defined in PreferencesViewControllerObjC.mm - true iff the app's NSWindow is full screen.
 extern "C" bool catalyst_is_window_fullscreen(void);
 
 static void MetalCompositorPinViewToWindow(void)
@@ -861,27 +861,27 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     compositor_use_fallback_texture = false;
 
     if (compositor_bits_per_pixel == 0) {
-        COMPOSITOR_ERR("MetalCompositorInit: FAILED — unknown depth value %d", depth);
+        COMPOSITOR_ERR("MetalCompositorInit: FAILED - unknown depth value %d", depth);
         return -1;
     }
 
     // --- Device & queue from shared singleton ---
     compositor_device = (__bridge id<MTLDevice>)SharedMetalDevice();
     if (!compositor_device) {
-        COMPOSITOR_ERR("MetalCompositorInit: FAILED — SharedMetalDevice returned nil");
+        COMPOSITOR_ERR("MetalCompositorInit: FAILED - SharedMetalDevice returned nil");
         return -1;
     }
 
     compositor_queue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
     if (!compositor_queue) {
-        COMPOSITOR_ERR("MetalCompositorInit: FAILED — SharedMetalCommandQueue returned nil");
+        COMPOSITOR_ERR("MetalCompositorInit: FAILED - SharedMetalCommandQueue returned nil");
         return -1;
     }
 
     // --- UIWindow ---
     UIWindow *uiWindow = GetSDLUIWindow();
     if (!uiWindow) {
-        COMPOSITOR_ERR("MetalCompositorInit: FAILED — cannot get UIWindow");
+        COMPOSITOR_ERR("MetalCompositorInit: FAILED - cannot get UIWindow");
         return -1;
     }
 
@@ -909,7 +909,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     // automatically; on Mac Catalyst they come up at 1.0 even on a 2x screen, so
     // the CAMetalLayer composites the guest at 1x and the window server then
     // upscales to physical pixels with linear filtering → blur. Detect the live
-    // backing scale (read fresh from the window's screen — never hardcoded) and
+    // backing scale (read fresh from the window's screen - never hardcoded) and
     // apply it, so the layer renders at native pixels and its own magnification
     // filter (nearest, per scale_nearest) does the crisp HiDPI upscale instead.
     {
@@ -927,7 +927,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     MetalCompositorDrawableSize target_size =
         MetalCompositorCurrentDrawableSize(width, height);
     compositor_layer.drawableSize = CGSizeMake(target_size.width, target_size.height);
-    // Always aspect-fit (letterbox) so the whole guest shows and is never cropped offscreen —
+    // Always aspect-fit (letterbox) so the whole guest shows and is never cropped offscreen -
     // full screen and windowed alike. The letterbox colour differs by mode (see above).
     compositor_layer.contentsGravity = kCAGravityResizeAspect;
 
@@ -957,12 +957,12 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     // --- Zero-copy shared buffer wrapping the_buffer ---
     // gfxaccel_resources is the sole owner of the
     // framebuffer MTLBuffer. The newBufferWithBytesNoCopy fallback
-    // has been removed — any nil return from the resource manager is a hard
+    // has been removed - any nil return from the resource manager is a hard
     // Init failure.
     compositor_buffer = (__bridge id<MTLBuffer>)gfxaccel_resources_get_framebuffer_buffer(
         buffer, buffer_size);
     if (!compositor_buffer) {
-        COMPOSITOR_ERR("MetalCompositorInit: FAILED — gfxaccel_resources_get_framebuffer_buffer "
+        COMPOSITOR_ERR("MetalCompositorInit: FAILED - gfxaccel_resources_get_framebuffer_buffer "
                        "returned NULL (buffer=%p size=%u)",
                        buffer, buffer_size);
         return -1;
@@ -1003,7 +1003,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 
     // Try zero-copy texture from buffer first (bytesPerRow = row_bytes for indexed,
     // or pitch for direct modes). Metal requires bytesPerRow to be 16-byte aligned
-    // for buffer-backed textures — a hard assertion failure, not a nil return.
+    // for buffer-backed textures - a hard assertion failure, not a nil return.
     int texBytesPerRow = (depth <= VIDEO_DEPTH_8BIT) ? row_bytes : pitch;
     bool bytesPerRowAligned = (texBytesPerRow % 16 == 0);
 
@@ -1023,7 +1023,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         texDesc.storageMode = MTLStorageModeShared;
         compositor_texture = [compositor_device newTextureWithDescriptor:texDesc];
         if (!compositor_texture) {
-            COMPOSITOR_ERR("MetalCompositorInit: FAILED — newTextureWithDescriptor fallback "
+            COMPOSITOR_ERR("MetalCompositorInit: FAILED - newTextureWithDescriptor fallback "
                            "(format=%s width=%lu height=%d)",
                            texture_format_name(texFormat), (unsigned long)texWidth, height);
             return -1;
@@ -1045,7 +1045,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
             s_palette_buffers[i] = [compositor_device newBufferWithLength:256 * 4
                                                                    options:MTLResourceStorageModeShared];
             if (!s_palette_buffers[i]) {
-                COMPOSITOR_ERR("MetalCompositorInit: FAILED — palette_buffer[%d] creation", i);
+                COMPOSITOR_ERR("MetalCompositorInit: FAILED - palette_buffer[%d] creation", i);
                 return -1;
             }
             memset(s_palette_buffers[i].contents, 0, 256 * 4);
@@ -1061,9 +1061,9 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     gamma_lut_buffer      = alloc_gamma_buffer(compositor_device, "gamma_lut_buffer", true);
     gamma_identity_buffer = alloc_gamma_buffer(compositor_device, "gamma_identity_buffer", false);
     if (!gamma_lut_buffer || !gamma_identity_buffer) {
-        // A nil gamma buffer is a hard init failure — proceeding would
+        // A nil gamma buffer is a hard init failure - proceeding would
         // encode a present whose shaders dereference an unbound argument (UB).
-        COMPOSITOR_ERR("MetalCompositorInit: FAILED — gamma buffer creation "
+        COMPOSITOR_ERR("MetalCompositorInit: FAILED - gamma buffer creation "
                        "(lut=%p identity=%p)", gamma_lut_buffer, gamma_identity_buffer);
         return -1;
     }
@@ -1078,13 +1078,13 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     }
     id<MTLLibrary> library = compositor_library;
     if (!library) {
-        COMPOSITOR_ERR("MetalCompositorInit: FAILED — newDefaultLibrary returned nil");
+        COMPOSITOR_ERR("MetalCompositorInit: FAILED - newDefaultLibrary returned nil");
         return -1;
     }
 
     id<MTLFunction> vertexFunc = [library newFunctionWithName:@"compositor_vertex"];
     if (!vertexFunc) {
-        COMPOSITOR_ERR("MetalCompositorInit: FAILED — vertex function 'compositor_vertex' not found");
+        COMPOSITOR_ERR("MetalCompositorInit: FAILED - vertex function 'compositor_vertex' not found");
         return -1;
     }
 
@@ -1100,7 +1100,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 
     id<MTLFunction> fragmentFunc = [library newFunctionWithName:fragmentName];
     if (!fragmentFunc) {
-        COMPOSITOR_ERR("MetalCompositorInit: FAILED — fragment function '%s' not found",
+        COMPOSITOR_ERR("MetalCompositorInit: FAILED - fragment function '%s' not found",
                        [fragmentName UTF8String]);
         return -1;
     }
@@ -1115,7 +1115,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     compositor_pipeline = [compositor_device newRenderPipelineStateWithDescriptor:pipeDesc
                                                                            error:&pipeError];
     if (!compositor_pipeline) {
-        COMPOSITOR_ERR("MetalCompositorInit: FAILED — pipeline creation for '%s': %s",
+        COMPOSITOR_ERR("MetalCompositorInit: FAILED - pipeline creation for '%s': %s",
                        [fragmentName UTF8String],
                        [[pipeError localizedDescription] UTF8String]);
         return -1;
@@ -1131,14 +1131,14 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 
         compositor_sampler = [compositor_device newSamplerStateWithDescriptor:sampDesc];
         if (!compositor_sampler) {
-            COMPOSITOR_ERR("MetalCompositorInit: FAILED — sampler creation");
+            COMPOSITOR_ERR("MetalCompositorInit: FAILED - sampler creation");
             return -1;
         }
     } else {
         compositor_sampler = nil;
     }
 
-    COMPOSITOR_LOG("MetalCompositorInit: resources ready — depth=%d (%dbpp) format=%s "
+    COMPOSITOR_LOG("MetalCompositorInit: resources ready - depth=%d (%dbpp) format=%s "
                    "pixel_width=%d tex_width=%lu shader=%s filter=%s%s",
                    depth, compositor_bits_per_pixel,
                    texture_format_name(texFormat),
@@ -1170,7 +1170,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         (__bridge void *)compositor_queue,
         (__bridge void *)compositor_layer);
     if (sf_err != 0) {
-        COMPOSITOR_ERR("MetalCompositorInit: FAILED — SubmitFrame bind err=%d", sf_err);
+        COMPOSITOR_ERR("MetalCompositorInit: FAILED - SubmitFrame bind err=%d", sf_err);
         return -1;
     }
 
@@ -1188,7 +1188,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         if (sdlContainer) {
             [sdlContainer insertSubview:compositor_view atIndex:0];
         } else {
-            // No rootViewController yet — keep it at the window, but at the
+            // No rootViewController yet - keep it at the window, but at the
             // bottom so it still never covers the overlay.
             [uiWindow insertSubview:compositor_view atIndex:0];
         }
@@ -1208,7 +1208,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
     // to re-enter, after every engine has bound its new overlay. Subsequent
     // Init calls (after Shutdown/Init cycles) are idempotent on the subscriber
     // front: if the name is already registered, dmc_subscribe returns
-    // kDMCErrSubscriberAlreadyRegistered — which we tolerate silently.
+    // kDMCErrSubscriberAlreadyRegistered - which we tolerate silently.
     {
         static DMCSubscriber compositor_sub = {
             /* .name          = */ "compositor",
@@ -1218,7 +1218,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         };
         int32_t sub_err = dmc_subscribe(&compositor_sub);
         if (sub_err != kDMCNoErr && sub_err != kDMCErrSubscriberAlreadyRegistered) {
-            COMPOSITOR_ERR("dmc_subscribe('compositor') FAILED err=%d — "
+            COMPOSITOR_ERR("dmc_subscribe('compositor') FAILED err=%d - "
                            "falling back to local cadence", (int)sub_err);
         }
     }
@@ -1238,7 +1238,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 }
 
 // ---------------------------------------------------------------------------
-// MetalCompositorUpdatePalette — upload palette for indexed depths
+// MetalCompositorUpdatePalette - upload palette for indexed depths
 // ---------------------------------------------------------------------------
 
 void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
@@ -1276,7 +1276,7 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
 }
 
 // ---------------------------------------------------------------------------
-// MetalCompositorPaletteLatch — VBL-latched dirty swap
+// MetalCompositorPaletteLatch - VBL-latched dirty swap
 // ---------------------------------------------------------------------------
 // Called from the VBL callback BEFORE any command encoding for the frame
 // begins. Promotes back->front only after an update so the compositor does
@@ -1292,7 +1292,7 @@ void MetalCompositorPaletteLatch(void)
 }
 
 // ---------------------------------------------------------------------------
-// MetalCompositorUpdateGammaLUT — upload display-ready gamma LUT
+// MetalCompositorUpdateGammaLUT - upload display-ready gamma LUT
 // ---------------------------------------------------------------------------
 // Called when a Mac-side gamma LUT changes outside the VBL snapshot latch.
 // The source LUT is composed with the shared non-fade display policy before
@@ -1308,7 +1308,7 @@ void MetalCompositorUpdateGammaLUT(const uint8_t *lut)
 
 // Production accessor for the gamma_lut_buffer so the DSp
 // 16bpp unpack render pass can bind the same LUT the present shaders sample
-// (the non-visible-path twin — see dsp_metal_renderer.mm).
+// (the non-visible-path twin - see dsp_metal_renderer.mm).
 void *MetalCompositorGetGammaLUTBuffer(void)
 {
     return (__bridge void *)gamma_lut_buffer;
@@ -1318,7 +1318,7 @@ void *MetalCompositorGetGammaLUTBuffer(void)
 // The DSp 16bpp unpack twin binds this when MetalCompositorGetGammaLUTBuffer()
 // is nil (compositor mid-init) so its gamma-sampling shader never reads an
 // unbound buffer index (UB). Returns NULL only if the compositor is fully
-// uninitialized — the twin then aborts the pass rather than encoding an
+// uninitialized - the twin then aborts the pass rather than encoding an
 // unbound read.
 void *MetalCompositorGetGammaIdentityBuffer(void)
 {
@@ -1332,12 +1332,12 @@ void *MetalCompositorGetGammaIdentityBuffer(void)
 // (overlay_texture, overlay_active, overlay_pipeline, overlay_sampler,
 // overlay_x/y/width/height/viewport_w/h, last_3d_frame_usec). The 3D engines
 // now own their overlays via gfxaccel_resources_vend_overlay_texture and
-// submit frames via MetalCompositorSubmitFrame — the compositor is blind to
+// submit frames via MetalCompositorSubmitFrame - the compositor is blind to
 // which engine produced any given CompositeLayer (RES-04 / Success #5).
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// MetalCompositorPresent — render one frame (2D framebuffer only)
+// MetalCompositorPresent - render one frame (2D framebuffer only)
 // ---------------------------------------------------------------------------
 
 void MetalCompositorPresent(void)
@@ -1441,7 +1441,7 @@ void MetalCompositorPresent(void)
         // 16bpp samples the display-ready gamma LUT. Always bound.
         [enc setFragmentBuffer:gamma_to_bind offset:0 atIndex:0];
     } else if (compositor_depth == VIDEO_DEPTH_32BIT) {
-        // 32-bit mode: bind sampler (sampler-state index, NOT a buffer index — no
+        // 32-bit mode: bind sampler (sampler-state index, NOT a buffer index - no
         // collision with the gamma_lut buffer at index 0).
         [enc setFragmentSamplerState:compositor_sampler atIndex:0];
         // Bind the display-ready gamma LUT. Always bound.
@@ -1500,10 +1500,10 @@ void MetalCompositorPresent(void)
 }
 
 // ---------------------------------------------------------------------------
-// MetalCompositorResize — rebuild buffer/texture/pipeline for new mode
+// MetalCompositorResize - rebuild buffer/texture/pipeline for new mode
 // ---------------------------------------------------------------------------
 // Called from PPC emulation thread with interrupts disabled during a mode
-// switch. Keeps the view, layer, device, and queue alive — only rebuilds
+// switch. Keeps the view, layer, device, and queue alive - only rebuilds
 // depth-dependent resources. This avoids the visual flash and UIView
 // lifecycle overhead of full Shutdown→Init cycles. Per-engine overlay
 // textures are managed by gfxaccel_resources; each engine re-vends its own
@@ -1513,12 +1513,12 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
                           int pitch, void *buffer, uint32_t buffer_size)
 {
     if (!compositor_initialized) {
-        COMPOSITOR_ERR("MetalCompositorResize: FAILED — compositor not initialized "
+        COMPOSITOR_ERR("MetalCompositorResize: FAILED - compositor not initialized "
                        "(use MetalCompositorInit for first init)");
         return -1;
     }
     if (!compositor_device || !compositor_layer) {
-        COMPOSITOR_ERR("MetalCompositorResize: FAILED — initialized flag set without "
+        COMPOSITOR_ERR("MetalCompositorResize: FAILED - initialized flag set without "
                        "device/layer (device=%p layer=%p)",
                        compositor_device, compositor_layer);
         return -1;
@@ -1528,7 +1528,7 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
     // MetalCompositorInit only runs on a cold init; the view otherwise persists
     // across mode switches (this Resize path). If SDL ever swapped its
     // rootViewController.view out from under us, the compositor would be
-    // orphaned (black screen) — so re-assert it as the bottom-most child of the
+    // orphaned (black screen) - so re-assert it as the bottom-most child of the
     // current SDL container on every resize. Idempotent: a no-op when already
     // correctly parented.
     if (compositor_view) {
@@ -1540,7 +1540,7 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
 #if TARGET_OS_MACCATALYST
         // Re-homing drops the Init-time full-window pin (it referenced the previous
         // superview) while translatesAutoresizingMaskIntoConstraints is NO, so the
-        // view would otherwise collapse to 0x0 — a black desktop after a mode
+        // view would otherwise collapse to 0x0 - a black desktop after a mode
         // switch. Re-pin to the current superview's full bounds. Idempotent: the
         // helper deactivates any prior pin first, so an unchanged superview is a
         // no-op in effect.
@@ -1558,7 +1558,7 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
 
     int new_bits_per_pixel = bits_per_pixel_for_depth(depth);
     if (new_bits_per_pixel == 0) {
-        COMPOSITOR_ERR("MetalCompositorResize: FAILED — unknown depth value %d", depth);
+        COMPOSITOR_ERR("MetalCompositorResize: FAILED - unknown depth value %d", depth);
         return -1;
     }
 
@@ -1655,7 +1655,7 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
 }
 
 // ---------------------------------------------------------------------------
-// MetalCompositorIsInitialized — query compositor lifecycle state
+// MetalCompositorIsInitialized - query compositor lifecycle state
 // ---------------------------------------------------------------------------
 
 int MetalCompositorIsInitialized(void)
@@ -1664,7 +1664,7 @@ int MetalCompositorIsInitialized(void)
 }
 
 // ---------------------------------------------------------------------------
-// MetalCompositorGetLayer — layer accessor
+// MetalCompositorGetLayer - layer accessor
 // ---------------------------------------------------------------------------
 
 void *MetalCompositorGetLayer(void)
@@ -1682,7 +1682,7 @@ void *MetalCompositorGetLayer(void)
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// MetalCompositorShutdown — tear down all resources
+// MetalCompositorShutdown - tear down all resources
 // ---------------------------------------------------------------------------
 
 void MetalCompositorShutdown(void)

@@ -37,16 +37,16 @@
 /*  later (no second consumer of the byte layout exists on iOS).   */
 /*  Flatten runs BEFORE the context's play state                   */
 /*  goes Active (PDF p.22), so the back-buffer Metal resources do  */
-/*  NOT exist yet and MUST NOT be serialized — only                */
+/*  NOT exist yet and MUST NOT be serialized - only                */
 /*  the attribute + bookkeeping subset is portable. Restore "has   */
 /*  a high probability of failure" (p.22), so a magic/version      */
 /*  mismatch -> kDSpContextNotFoundErr is a documented, valid      */
-/*  outcome (NOT masked). Pure RAM serialization — ZERO new        */
+/*  outcome (NOT masked). Pure RAM serialization - ZERO new        */
 /*  concurrency primitive.                                         */
 /*                                                                  */
 /*  The handlers serialize/deserialize the DSP_FLAT_* on-wire       */
 /*  layout directly through WriteMacInt32 / ReadMacInt32 (big-      */
-/*  endian on the Mac side) — no separate host-buffer core.        */
+/*  endian on the Mac side) - no separate host-buffer core.        */
 /* ============================================================== */
 
 /* --- DSpContext_GetFlattenedSizeHandler (sub-op 740) ---
@@ -96,7 +96,7 @@ extern "C" int32_t DSpContext_FlattenHandler(uint32_t ctxRef,
 		return kDSpInvalidContextErr;
 	}
 
-	/* Serialize via WriteMacInt32 at the DSP_FLAT_* offsets — same field-
+	/* Serialize via WriteMacInt32 at the DSP_FLAT_* offsets - same field-
 	 * serialize idiom as DSpWriteAttributesCore. */
 	const DSpContextAttributes *a = &ctx->attr;
 	WriteMacInt32(outFlatContext + DSP_FLAT_OFF_magic,               DSP_FLAT_MAGIC);
@@ -129,7 +129,7 @@ extern "C" int32_t DSpContext_FlattenHandler(uint32_t ctxRef,
  *  DSpContextReference *outRestoredContext). Reads the blob field-by-field,
  *  validates magic+version (mismatch -> kDSpContextNotFoundErr, the documented
  *  high-probability-of-failure path), then allocates a FRESH metadata-only
- *  context (NO Metal resources — the app re-Reserves before going Active per
+ *  context (NO Metal resources - the app re-Reserves before going Active per
  *  PDF p.22) and writes its ctxRef. Both out-ptrs NULL-guarded;
  *  no field is trusted past the magic+version check. */
 extern "C" int32_t DSpContext_RestoreHandler(uint32_t inFlatContext,
@@ -196,16 +196,16 @@ extern "C" int32_t DSpContext_RestoreHandler(uint32_t inFlatContext,
  *  DSp 1.7 PDF pp.26-27 (DSp-1.7-only deferred-context-switch exports).
  *  Queue (742) stages a child context against a parent; Switch (743) applies
  *  the staged switch. This is RAM-only single-writer bookkeeping on the emul
- *  thread (queued_child / state / vbl_proc_ptr fields) — NO cross-thread queue,
+ *  thread (queued_child / state / vbl_proc_ptr fields) - NO cross-thread queue,
  *  NO concurrency primitive (the retired sub-op-600 cross-thread SPSC ring
  *  was the anti-pattern here, deliberately NOT copied).
  * ===================================================================== */
 
-/* Apply a guest DSpContextAttributes block (on-wire layout, PDF p.65 — same
+/* Apply a guest DSpContextAttributes block (on-wire layout, PDF p.65 - same
  * offsets DSpWriteAttributesCore writes) onto a child context's attr. Only
  * called when inDesiredAttributes is non-zero (PDF p.26: Queue's
  * inDesiredAttributes is optional). The attr block is read field-by-field via
- * ReadMacInt32 at the canonical offsets — NO host-pointer cast of the guest
+ * ReadMacInt32 at the canonical offsets - NO host-pointer cast of the guest
  * address (arm64 >4GiB safety), NO struct overlay.
 	 * The caller NULL-guards the ptr; this core trusts only the 12 meaningful
 	 * UInt32 fields and ignores filler/reserved. Desired attributes describe the
@@ -292,7 +292,7 @@ static int32_t DSpQueueCore(uint32_t parentCtx, uint32_t childCtx)
  *
  *  DSp 1.7 PDF p.26: DSpContext_Queue(inParentContext, inChildContext,
  *  inDesiredAttributes). Queues a context to switch to. "DrawSprocket will
- *  check that both contexts are on the same display" — trivially true on the
+ *  check that both contexts are on the same display" - trivially true on the
  *  single iOS display. inDesiredAttributes (optional) is applied to the child
  *  when non-zero. Unresolved ctxRefs -> kDSpInvalidContextErr. */
 extern "C" int32_t DSpContext_QueueHandler(uint32_t parentCtx, uint32_t childCtx,
@@ -308,7 +308,7 @@ extern "C" int32_t DSpContext_QueueHandler(uint32_t parentCtx, uint32_t childCtx
 		return kDSpInvalidContextErr;
 	}
 	if (inDesiredAttributes != 0) {
-		/* Reject-before-mutate — if the attribute struct is out of
+		/* Reject-before-mutate - if the attribute struct is out of
 		 * mapped RAM, fail without staging the switch. */
 		if (!DSpApplyDesiredAttributesToChild(child, inDesiredAttributes)) {
 			DSP_LOG("Queue: inDesiredAttributes=0x%08x invalid -> "
@@ -323,10 +323,10 @@ extern "C" int32_t DSpContext_QueueHandler(uint32_t parentCtx, uint32_t childCtx
 
 /* Core deferred-switch apply for the Switch handler. Requires a prior Queue
  * (old->queued_child == newRef, else kDSpInternalErr per PDF p.27 "returns an
- * error" — no partial
+ * error" - no partial
  * switch, reject-before-mutate). Routes the OLD context out through
  * SetState(Inactive), then kills its piggyback VBL proc (old->vbl_proc_ptr
- * = 0 — the VBL service walk at dsp_metal_renderer.mm early-outs on ==0),
+ * = 0 - the VBL service walk at dsp_metal_renderer.mm early-outs on ==0),
  * routes the NEW context in through SetState(Active), then clears
  * old->queued_child. Failure paths unwind: a failed deactivation leaves old
  * untouched; a failed activation restores old's VBL proc and re-activates
@@ -361,7 +361,7 @@ static int32_t DSpSwitchCore(uint32_t oldCtx, uint32_t newCtx)
 	    oldCtx, (uint32_t)kDSpContextState_Inactive);
 	DSpContext_SetStateSwitchHandoff(0);
 	if (rc != kDSpNoErr) {
-		/* Nothing mutated yet — old stays Active with its VBL proc
+		/* Nothing mutated yet - old stays Active with its VBL proc
 		 * intact (no partial switch). */
 		DSP_LOG("Switch: old=%u SetState(Inactive) failed rc=%d",
 		        oldCtx, rc);
@@ -369,7 +369,7 @@ static int32_t DSpSwitchCore(uint32_t oldCtx, uint32_t newCtx)
 	}
 	/* PDF p.27: "switching contexts will kill any piggyback VBL routines
 	 * attached to the context you are switching out." Clearing vbl_proc_ptr is
-	 * the SetVBLProc(0) uninstall path (p.81) — the DSpVBLServiceCallback walk
+	 * the SetVBLProc(0) uninstall path (p.81) - the DSpVBLServiceCallback walk
 	 * skips contexts with vbl_proc_ptr == 0. Killed only AFTER the old
 	 * context's deactivation succeeds, so a SetState failure can never leave
 	 * an Active context with its VBL proc already destroyed. */
@@ -394,7 +394,7 @@ static int32_t DSpSwitchCore(uint32_t oldCtx, uint32_t newCtx)
 		(void)rb; /* log-only when ACCEL_LOGGING_ENABLED=0 */
 		return rc;
 	}
-	/* Clear the staged switch — a subsequent Switch needs a fresh Queue. */
+	/* Clear the staged switch - a subsequent Switch needs a fresh Queue. */
 	old->queued_child = 0;
 	DSP_LOG("Switch: old=%u inactive -> new=%u active via SetState, "
 	        "old VBL proc killed, queued_child cleared", oldCtx, newCtx);

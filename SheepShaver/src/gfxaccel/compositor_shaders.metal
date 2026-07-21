@@ -33,7 +33,7 @@ static inline float3 apply_display_gamma_lut(float3 c,
 
 /*
  *  Fullscreen triangle trick: three vertices cover the entire clip space.
- *  Positions: (-1,-1), (3,-1), (-1,3)  — triangle covers [-1,1]x[-1,1]
+ *  Positions: (-1,-1), (3,-1), (-1,3)  - triangle covers [-1,1]x[-1,1]
  *
  *  UV mapping: Metal's texture origin is top-left (0,0).
  *  Clip-space (-1,-1) is bottom-left, so we flip Y:
@@ -89,12 +89,12 @@ fragment float4 compositor_fragment_32bpp(CompositorVertexOut in [[stage_in]],
 /*
  *  Indexed color fragment shader for 1/2/4/8-bit Mac depths.
  *
- *  The framebuffer texture is R8Uint — one byte per texel. For sub-8-bit
+ *  The framebuffer texture is R8Uint - one byte per texel. For sub-8-bit
  *  depths, multiple pixels are packed into each byte (MSB = leftmost pixel).
  *  The shader unpacks the pixel index from the byte using bits_per_pixel,
  *  then looks up the color in the 256-entry RGBA palette buffer.
  *
- *  Integer textures require tex.read(uint2) — tex.sample() is not
+ *  Integer textures require tex.read(uint2) - tex.sample() is not
  *  available for MTLPixelFormatR8Uint.
  */
 fragment float4 compositor_fragment_indexed(CompositorVertexOut in [[stage_in]],
@@ -138,12 +138,12 @@ fragment float4 compositor_fragment_indexed(CompositorVertexOut in [[stage_in]],
 /*
  *  16-bit fragment shader for big-endian xRGB1555 Mac depth.
  *
- *  The framebuffer texture is R16Uint — one 16-bit value per texel.
+ *  The framebuffer texture is R16Uint - one 16-bit value per texel.
  *  Mac stores 16-bit pixels as big-endian xRGB1555, but the ARM64
  *  GPU reads them as little-endian, so we byte-swap before extracting
  *  the 5-bit RGB channels.
  *
- *  Integer textures require tex.read(uint2) — tex.sample() is not
+ *  Integer textures require tex.read(uint2) - tex.sample() is not
  *  available for MTLPixelFormatR16Uint.
  */
 fragment float4 compositor_fragment_16bpp(CompositorVertexOut in [[stage_in]],

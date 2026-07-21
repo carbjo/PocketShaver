@@ -10,13 +10,13 @@
 #   KPX_LOCKSTEP_OPT="-O3" KPX_LOCKSTEP_NO_INSTRUMENT=1 ./build-jit-lockstep.sh
 #     (bench flavor: -O3 matches the app's GCC_OPTIMIZATION_LEVEL=3, and
 #     dropping KPX_JIT_INSTRUMENT removes counter increments from timed code
-#     paths — the shipping app never defines it. Correctness runs keep the
+#     paths - the shipping app never defines it. Correctness runs keep the
 #     faster -O1 compile and the fail-if-zero counters.)
 #   KPX_LOCKSTEP_ARCH=x86_64 ./build-jit-lockstep.sh
 #     (Intel Catalyst slice: exercises the classic dyngen backend via
 #     config-ios-x86_64.h; run the binary under Rosetta on arm64 hosts.
-#     The arm64-only teeth — trap chaining, native vector/FP, inline
-#     fastmem — legitimately read 0 there.)
+#     The arm64-only teeth - trap chaining, native vector/FP, inline
+#     fastmem - legitimately read 0 there.)
 set -e
 HERE=${0:A:h}                       # .../kpx_cpu/src/test
 K=${HERE:h}                         # .../kpx_cpu/src

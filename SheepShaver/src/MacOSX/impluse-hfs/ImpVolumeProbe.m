@@ -94,7 +94,7 @@ struct APMPartitionRecord_IM5 {
 	u_int32_t thisPartitionBlockCount;
 	char partitionName[32]; //Not as useful as you might think. Often contradicted by the volume header, partly because naming it something starting with 'Maci' (like "Macintosh HD") triggers the boot code checksum verification.
 	char partitionType[32]; //Much more useful. "Apple_HFS" is the type we're looking for.
-	u_int32_t dataStartBlock; //Logical block—relative to thisPartitionStartBlock.
+	u_int32_t dataStartBlock; //Logical block-relative to thisPartitionStartBlock.
 	u_int32_t dataBlockCount;
 	u_int32_t status; //“currently used only by the A/UX operating system”
 	u_int32_t bootStartBlock;
@@ -230,7 +230,7 @@ struct APMPartitionRecord_IM5 {
 				return [self scanIM4PartitionMap:partition4 firstPartitionMapBlock:firstPMBlock];
 				break;
 			default:
-				//Signature mismatch—this is not an APM entry. And since it's supposed to be first APM entry, that means there's no APM.
+				//Signature mismatch-this is not an APM entry. And since it's supposed to be first APM entry, that means there's no APM.
 				if (self.verbose) ImpPrintf(@"Space where partition map entry should be is not an Apple Partition Map entry");
 				break;
 		}
@@ -261,7 +261,7 @@ struct APMPartitionRecord_IM5 {
 					if (self.verbose) ImpPrintf(@"Found an IM4 Apple Partition Map inside an IM5 Apple Partition Map????");
 					break;
 				default:
-					//Signature mismatch—this is not an APM entry. And since it's supposed to be first APM entry, that means there's no APM.
+					//Signature mismatch-this is not an APM entry. And since it's supposed to be first APM entry, that means there's no APM.
 					if (self.verbose) ImpPrintf(@"Space where partition map entry should be is not an Apple Partition Map entry");
 					break;
 			}

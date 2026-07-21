@@ -62,7 +62,7 @@
 		if (outError != NULL) *outError = readError;
 		return false;
 	} else if ((NSUInteger)amtRead < _bootBlocksData.length) {
-		NSError *_Nonnull const underrunError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:@{ NSLocalizedDescriptionKey: @"Unexpected end of file reading source volume boot blocks — are you sure this is an HFS volume?" }];
+		NSError *_Nonnull const underrunError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:@{ NSLocalizedDescriptionKey: @"Unexpected end of file reading source volume boot blocks - are you sure this is an HFS volume?" }];
 		if (outError != NULL) *outError = underrunError;
 		return false;
 	}
@@ -103,7 +103,7 @@
 		if (outError != NULL) *outError = readError;
 		return false;
 	} else if ((NSUInteger)amtRead < lastBlockData.length) {
-		NSError *_Nonnull const underrunError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:@{ NSLocalizedDescriptionKey: @"Unexpected end of file reading source volume last block — are you sure this is an HFS volume?" }];
+		NSError *_Nonnull const underrunError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:@{ NSLocalizedDescriptionKey: @"Unexpected end of file reading source volume last block - are you sure this is an HFS volume?" }];
 		if (outError != NULL) *outError = underrunError;
 		return false;
 	}

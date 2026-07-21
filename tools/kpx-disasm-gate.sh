@@ -68,7 +68,7 @@ PATTERN='kpx_vm_|kpx_op_|kpx_fp_|execute_loadstore|execute_fp_loadstore'
 normalize() {
 	# symbol blocks in sorted order for layout stability; strip addresses and
 	# raw branch-target offsets, keep <sym+off> anchors and #imm operands.
-	# adrp annotations are normalized wholesale (greedy, to end of line —
+	# adrp annotations are normalized wholesale (greedy, to end of line -
 	# demangled template names contain '>'): in an unlinked .o the page
 	# anchor resolves against arbitrary neighboring symbols, pure layout noise
 	xcrun llvm-objdump -d --demangle --no-show-raw-insn "$1" |

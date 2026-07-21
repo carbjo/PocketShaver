@@ -338,7 +338,7 @@ extern "C" void gfxaccel_resources_release_overlay_texture(uint32_t engine_id,
 // by test harnesses (coexistence tests) to cross-check tag integrity.
 //
 // Bounded 32-slot array, linear scan on set/get/clear. No dynamic
-// allocation. No mutex / atomic — DSp Reserve + engine allocations fire
+// allocation. No mutex / atomic - DSp Reserve + engine allocations fire
 // at mode-enter (not per-frame) on the emul thread, so O(n) with n<=32
 // is well within budget. Single-writer invariant matches the rest of
 // the resource manager.

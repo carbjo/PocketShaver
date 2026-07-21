@@ -84,7 +84,7 @@ import UIKit
 			}
 		}
 
-		/* State-transition notification — fires from
+		/* State-transition notification - fires from
 		 * DSpHostBridge_SetActiveFullscreen on the emul thread when
 		 * DSpContext_SetStateHandler completes a transition that changes
 		 * the aggregate "any Active DSp context?" predicate. The observer

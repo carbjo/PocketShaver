@@ -182,7 +182,7 @@ struct DSpContextPrivate {
 	uint8_t   saved_pixmap_reserved[3]; /* alignment padding (preserves uint16 alignment of any trailing fields) */
 	/* Original MainDevice GDevice.gdRect, cached alongside the PixMap
 	 * originals when the redirect installs (apps read gdRect for the
-	 * display's global bounds — the DMGetGDeviceByDisplayID centering
+	 * display's global bounds - the DMGetGDeviceByDisplayID centering
 	 * idiom), restored by DSpRestoreMainDevicePixMap. */
 	uint32_t  saved_gdevice_ptr;        /* GDevice struct pointer the gdRect save came from */
 	int16_t   saved_gdrect[4];          /* original gdRect: top, left, bottom, right */

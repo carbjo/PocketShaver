@@ -9,14 +9,14 @@
  *  (at your option) any later version.
  *
  *  Compute kernels for NQD bitblt (srcCopy), fillrect, and invrect.
- *  The buffer parameter is the Mac RAM shared buffer — src and dest are
+ *  The buffer parameter is the Mac RAM shared buffer - src and dest are
  *  addressed by byte offsets within it.
  */
 
 #include <metal_stdlib>
 using namespace metal;
 
-// Uniform struct — must match NQDBitbltUniforms in nqd_metal_renderer.mm
+// Uniform struct - must match NQDBitbltUniforms in nqd_metal_renderer.mm
 struct NQDBitbltUniforms {
     uint src_offset;
     uint dst_offset;
@@ -33,7 +33,7 @@ struct NQDBitbltUniforms {
     uint mask_enabled;   // 1 = mask gating active, 0 = no mask
     uint mask_offset;    // byte offset into mask_buffer where mask data starts
     uint mask_stride;    // mask row stride (width_bytes for Boolean, width_pixels for arithmetic)
-    uint bits_per_pixel; // raw pixel depth in bits (1, 2, 4, 8, 16, or 32) — for packed pixel support
+    uint bits_per_pixel; // raw pixel depth in bits (1, 2, 4, 8, 16, or 32) - for packed pixel support
     // Per-channel rgbOpColor blend weights [0-65535] for mode
     // 32 (blend). 0=all dst, 65535=all src. Must match the 3-field layout in
     // NQDBitbltUniforms in nqd_metal_renderer.mm exactly.
@@ -42,7 +42,7 @@ struct NQDBitbltUniforms {
     uint blend_weight_b;
 };
 
-// Uniform struct — must match NQDFillRectUniforms in nqd_metal_renderer.mm
+// Uniform struct - must match NQDFillRectUniforms in nqd_metal_renderer.mm
 struct NQDFillRectUniforms {
     uint dst_offset;
     int  row_bytes;
@@ -59,7 +59,7 @@ struct NQDFillRectUniforms {
     uint mask_enabled;   // 1 = mask gating active, 0 = no mask
     uint mask_offset;    // byte offset into mask_buffer where mask data starts
     uint mask_stride;    // mask row stride (width_bytes for Boolean, width_pixels for arithmetic)
-    uint bits_per_pixel; // raw pixel depth in bits (1, 2, 4, 8, 16, or 32) — for packed pixel support
+    uint bits_per_pixel; // raw pixel depth in bits (1, 2, 4, 8, 16, or 32) - for packed pixel support
     // Per-channel rgbOpColor blend weights [0-65535] for mode
     // 32 (blend). 0=all dst, 65535=all src. Must match the 3-field layout in
     // NQDFillRectUniforms in nqd_metal_renderer.mm exactly.
@@ -236,7 +236,7 @@ static inline uint nqd_comp_max(uint bpp, uint bits_per_pixel_val)
 // (e.g. a 1-bit index 1 is accl_params bytes [00][00][00][01]). ReadMacInt32
 // returns it host-native as 0x00000001, and htonl() then lands that index byte
 // in bits 31-24 of the uniform word. So the correct packed index is the LOW
-// (1/2/4) bits of the *most-significant* byte — NOT `pen & 1u`, which reads the
+// (1/2/4) bits of the *most-significant* byte - NOT `pen & 1u`, which reads the
 // wrong byte after the htonl packing and mis-colorizes a real fore/back pen.
 // (Previously the only validated pens were lane-replicated like 0xC8C8C8C8,
 // which hid this byte-order asymmetry; distinct fore/back indices expose it.)
@@ -247,7 +247,7 @@ static inline uint nqd_pen_index_packed(uint pen_htonl, uint bits_per_pixel_val)
 }
 
 // ---------------------------------------------------------------------------
-// nqd_bitblt — bitblt compute kernel with all 17 transfer modes
+// nqd_bitblt - bitblt compute kernel with all 17 transfer modes
 //
 // Boolean modes (0-7): per-byte operations. Thread gid ranges over
 // width_bytes * height. Each thread processes one byte.
@@ -291,17 +291,17 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
         // Color-QuickDraw fore/back colorize for a 1-bit source.
         // On a colour port, Boolean SOURCE modes apply the port's FOREGROUND pen
         // colour where the source bit is 1 and the BACKGROUND pen colour where 0,
-        // THEN the Boolean op against the destination — they do NOT run raw
+        // THEN the Boolean op against the destination - they do NOT run raw
         // per-byte bitwise on the source (that is correct only when the source is
         // already a 1-bit/index device, i.e. fore=1/back=0). When bits_per_pixel
         // == 1 the source byte packs eight 1-bit pixels; colorize each bit to the
         // 1-bit index of fore_pen (1) / back_pen (0) before the Boolean op.
         // fore_pen / back_pen are already in the uniform (accl_params 0x1c/0x20)
-        // — no new marshalling — but they are htonl-packed, so the 1-bit index is
+        // - no new marshalling - but they are htonl-packed, so the 1-bit index is
         // the big-endian LSByte's low bit, extracted via nqd_pen_index_packed()
         // (NOT `pen & 1u`, which reads the wrong byte and mis-colorizes a real
         // fore/back pen). The GENERAL multi-bit colour source under a Boolean op
-        // is gated to software in gfxaccel.cpp (NQD_bitblt_hook) — it never
+        // is gated to software in gfxaccel.cpp (NQD_bitblt_hook) - it never
         // reaches this kernel, so no raw-bitwise colour-source path remains here.
         if (u.bits_per_pixel == 1) {
             uint fore_bit = nqd_pen_index_packed(u.fore_pen, 1u);
@@ -392,7 +392,7 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
 
             // Mode 36 (transparent): skip if src matches background.
             // The pen index is the big-endian LSByte of the htonl-packed pen,
-            // extracted via nqd_pen_index_packed() — NOT
+            // extracted via nqd_pen_index_packed() - NOT
             // `back_pen & ((1<<bpp)-1)`, which reads the LOW bits of the packed
             // word and (for a non-lane-replicated 2/4bpp index) compares against
             // the wrong value, so transparent skips the wrong pixels. Identical
@@ -409,15 +409,15 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
             // prior `else if (dst == hilite_color) -> back_pen` reverse arm
             // corrupted dest pixels that legitimately equalled the hilite colour;
             // it is deleted so such pixels are preserved. (This 2/4-bpp packed
-            // arm is reached only for bpp_local 2/4 — the 1-bit case is already
+            // arm is reached only for bpp_local 2/4 - the 1-bit case is already
             // routed through the Table 4-2 srcXor behavior above.)
             // The COMPARED background pen (back_pen) is the
             // htonl-packed pen field, so its packed index is the big-endian LSByte
-            // via nqd_pen_index_packed() — NOT the LOW bits of the packed word,
+            // via nqd_pen_index_packed() - NOT the LOW bits of the packed word,
             // which mis-compared a non-lane-replicated 2/4bpp pen and replaced the
             // wrong pixels. hilite_color is DIFFERENT: the renderer builds it via
             // nqd_pack_hilite_color(bpp==1 for packed) as a raw low-byte index (it
-            // is NOT htonl'd), so its index IS the low bits — extracting it via
+            // is NOT htonl'd), so its index IS the low bits - extracting it via
             // nqd_pen_index_packed() would read the wrong (zero) byte. Only
             // back_pen moves to the byte-order-correct helper; hilite_color keeps
             // the low-bit mask (the documented index-approximation surface).
@@ -427,7 +427,7 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
                 if (dst_val == bp) {
                     nqd_write_packed_pixel(buffer, dst_byte_addr, pi, bpp_local, hc);
                 }
-                // else: leave dst unchanged (one-directional — no reverse arm)
+                // else: leave dst unchanged (one-directional - no reverse arm)
                 continue;
             }
 
@@ -438,10 +438,10 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
             uint4 p_result;
 
             switch (u.transfer_mode) {
-                case 32: { // blend — weighted by OpColor (packed index-approx)
+                case 32: { // blend - weighted by OpColor (packed index-approx)
                     // The packed (<8bpp) branch operates on a single-scalar
                     // palette index, not per-channel colour, so it keeps the
-                    // red rgbOpColor weight only — this is the documented
+                    // red rgbOpColor weight only - this is the documented
                     // index-approximation surface, not a per-channel colour
                     // blend.
                     uint w = u.blend_weight_r;
@@ -505,7 +505,7 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
         if (dst_pixel == u.back_pen) {
             nqd_write_pixel(buffer, dst_addr, bpp, u.hilite_color);
         }
-        // else: leave dst unchanged (one-directional — no reverse arm)
+        // else: leave dst unchanged (one-directional - no reverse arm)
         return;
     }
 
@@ -516,22 +516,22 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
     uint4 result;
 
     switch (u.transfer_mode) {
-        case 32: {  // blend — weighted by per-channel rgbOpColor
+        case 32: {  // blend - weighted by per-channel rgbOpColor
             // uint4 lanes: x=R y=G z=B; w mirrors R (alpha follows red weight).
             uint4 w = uint4(u.blend_weight_r, u.blend_weight_g,
                             u.blend_weight_b, u.blend_weight_r);
             result = (sc * w + dc * (65535u - w)) / 65535u;
             break;
         }
-        case 33: {  // addPin — add and clamp to max (white)
+        case 33: {  // addPin - add and clamp to max (white)
             result = min(sc + dc, uint4(cmax, cmax, cmax, cmax));
             break;
         }
-        case 34: {  // addOver — add with modular wrap
+        case 34: {  // addOver - add with modular wrap
             result = (sc + dc) & uint4(cmax, cmax, cmax, cmax);
             break;
         }
-        case 35: {  // subPin — subtract and clamp to 0 (black)
+        case 35: {  // subPin - subtract and clamp to 0 (black)
             // Use int math to avoid underflow: max(dst - src, 0)
             result.x = (dc.x > sc.x) ? (dc.x - sc.x) : 0;
             result.y = (dc.y > sc.y) ? (dc.y - sc.y) : 0;
@@ -539,20 +539,20 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
             result.w = (dc.w > sc.w) ? (dc.w - sc.w) : 0;
             break;
         }
-        case 37: {  // adMax — component-wise maximum
+        case 37: {  // adMax - component-wise maximum
             result = max(sc, dc);
             break;
         }
-        case 38: {  // subOver — subtract with modular wrap
+        case 38: {  // subOver - subtract with modular wrap
             result = (dc - sc) & uint4(cmax, cmax, cmax, cmax);
             break;
         }
-        case 39: {  // adMin — component-wise minimum
+        case 39: {  // adMin - component-wise minimum
             result = min(sc, dc);
             break;
         }
         default: {
-            // Unknown mode — fall back to srcCopy for safety
+            // Unknown mode - fall back to srcCopy for safety
             result = sc;
             break;
         }
@@ -562,7 +562,7 @@ kernel void nqd_bitblt(device uint8_t *buffer        [[buffer(0)]],
 }
 
 // ---------------------------------------------------------------------------
-// nqd_fillrect — fill rect compute kernel (all 17 pen modes)
+// nqd_fillrect - fill rect compute kernel (all 17 pen modes)
 //
 // Boolean modes (8-15): per-byte operations. Thread gid ranges over
 // width_bytes * height. Each thread processes one byte. The fill byte is
@@ -677,7 +677,7 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
 
             // Mode 36 (transparent): skip if fill matches background.
             // back_pen index is the big-endian LSByte of
-            // the htonl-packed pen via nqd_pen_index_packed() — NOT `back_pen &
+            // the htonl-packed pen via nqd_pen_index_packed() - NOT `back_pen &
             // fill_mask_val`, which reads the LOW bits and (for a non-lane-
             // replicated 2/4bpp index) mis-compares against the wrong value.
             // fill_val itself stays `fill_color & fill_mask_val`: fill_color is
@@ -694,15 +694,15 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
             // prior `else if (dst == hilite_color) -> back_pen` reverse arm
             // corrupted dest pixels that legitimately equalled the hilite colour;
             // it is deleted so such pixels are preserved. (This 2/4-bpp packed
-            // arm is reached only for bpp_local 2/4 — the 1-bit case is already
+            // arm is reached only for bpp_local 2/4 - the 1-bit case is already
             // routed through the Table 4-2 srcXor behavior above.)
             // The COMPARED background pen (back_pen) is the
             // htonl-packed pen field, so its packed index is the big-endian LSByte
-            // via nqd_pen_index_packed() — NOT the LOW bits of the packed word,
+            // via nqd_pen_index_packed() - NOT the LOW bits of the packed word,
             // which mis-compared a non-lane-replicated 2/4bpp pen and replaced the
             // wrong pixels. hilite_color is DIFFERENT: the renderer builds it via
             // nqd_pack_hilite_color(bpp==1 for packed) as a raw low-byte index (it
-            // is NOT htonl'd), so its index IS the low bits — only back_pen moves
+            // is NOT htonl'd), so its index IS the low bits - only back_pen moves
             // to the byte-order-correct helper; hilite_color keeps the low-bit
             // mask (the documented index-approximation surface).
             if (u.transfer_mode == 50) {
@@ -711,7 +711,7 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
                 if (dst_val == bp) {
                     nqd_write_packed_pixel(buffer, dst_byte_addr, pi, bpp_local, hc);
                 }
-                // else: leave dst unchanged (one-directional — no reverse arm)
+                // else: leave dst unchanged (one-directional - no reverse arm)
                 continue;
             }
 
@@ -722,7 +722,7 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
             uint4 p_result;
 
             switch (u.transfer_mode) {
-                case 32: { uint w = u.blend_weight_r; p_result = (fc * w + dc * (65535u - w)) / 65535u; break; }  // packed index-approx — red weight only
+                case 32: { uint w = u.blend_weight_r; p_result = (fc * w + dc * (65535u - w)) / 65535u; break; }  // packed index-approx - red weight only
                 case 33: p_result = min(fc + dc, uint4(cmax_p, cmax_p, cmax_p, cmax_p)); break;
                 case 34: p_result = (fc + dc) & uint4(cmax_p, cmax_p, cmax_p, cmax_p); break;  // addOver: modular wrap
                 case 35:
@@ -780,7 +780,7 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
         if (dst_pixel == u.back_pen) {
             nqd_write_pixel(buffer, dst_addr, bpp, u.hilite_color);
         }
-        // else: leave dst unchanged (one-directional — no reverse arm)
+        // else: leave dst unchanged (one-directional - no reverse arm)
         return;
     }
 
@@ -791,45 +791,45 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
     uint4 result;
 
     switch (u.transfer_mode) {
-        case 32: {  // blend — weighted by per-channel rgbOpColor
+        case 32: {  // blend - weighted by per-channel rgbOpColor
             // uint4 lanes: x=R y=G z=B; w mirrors R (alpha follows red weight).
             uint4 w = uint4(u.blend_weight_r, u.blend_weight_g,
                             u.blend_weight_b, u.blend_weight_r);
             result = (fc * w + dc * (65535u - w)) / 65535u;
             break;
         }
-        case 33: {  // addPin — add and clamp to max
+        case 33: {  // addPin - add and clamp to max
             result = min(fc + dc, uint4(cmax, cmax, cmax, cmax));
             break;
         }
-        case 34: {  // addOver — add with modular wrap
+        case 34: {  // addOver - add with modular wrap
             // IWQD 4-40 addOver: modular wrap (fc+dc)&cmax, NOT saturating
             // min() (that is addPin behaviour). Matches the codebase's own
             // bitblt addOver (case 34) and FillRect packed addOver.
             result = (fc + dc) & uint4(cmax, cmax, cmax, cmax);
             break;
         }
-        case 35: {  // subPin — subtract and clamp to 0
+        case 35: {  // subPin - subtract and clamp to 0
             result.x = (dc.x > fc.x) ? (dc.x - fc.x) : 0;
             result.y = (dc.y > fc.y) ? (dc.y - fc.y) : 0;
             result.z = (dc.z > fc.z) ? (dc.z - fc.z) : 0;
             result.w = (dc.w > fc.w) ? (dc.w - fc.w) : 0;
             break;
         }
-        case 37: {  // adMax — component-wise maximum
+        case 37: {  // adMax - component-wise maximum
             result = max(fc, dc);
             break;
         }
-        case 38: {  // subOver — subtract with modular wrap
+        case 38: {  // subOver - subtract with modular wrap
             result = (dc - fc) & uint4(cmax, cmax, cmax, cmax);
             break;
         }
-        case 39: {  // adMin — component-wise minimum
+        case 39: {  // adMin - component-wise minimum
             result = min(fc, dc);
             break;
         }
         default: {
-            // Unknown mode — fall back to fill copy for safety
+            // Unknown mode - fall back to fill copy for safety
             result = fc;
             break;
         }
@@ -839,13 +839,13 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
 }
 
 // ---------------------------------------------------------------------------
-// nqd_bitblt_scaled — scaling bitblt compute kernel (DSpBlit_Faster, sub-op 710)
+// nqd_bitblt_scaled - scaling bitblt compute kernel (DSpBlit_Faster, sub-op 710)
 //
 // Sibling to nqd_bitblt (which is strictly 1:1). One thread per DST
 // pixel; the source coordinate is derived by integer scaling:
 //   - nearest-neighbor by default (sx=(dx*src_w)/dst_w, sy=(dy*src_h)/dst_h)
 //   - bilinear of the 4 neighbors only when u.interpolate is set
-//     (kDSpBlitMode_Interpolation, PDF p.87 — A5 CONFIRMED nearest default)
+//     (kDSpBlitMode_Interpolation, PDF p.87 - A5 CONFIRMED nearest default)
 // Color-key transparency (DSpBlitMode SrcKey/DstKey) is honored when
 // u.key_enable carries the corresponding bit: SrcKey skips writing src pixels
 // matching u.src_key; DstKey skips overwriting dst pixels matching u.dst_key.
@@ -857,7 +857,7 @@ kernel void nqd_fillrect(device uint8_t *buffer          [[buffer(0)]],
 // works for 8/16-bpp packed-byte surfaces (pixel_size 1/2).
 // ---------------------------------------------------------------------------
 
-// Uniform struct — must match NQDBitbltScaledUniforms in nqd_metal_renderer.mm
+// Uniform struct - must match NQDBitbltScaledUniforms in nqd_metal_renderer.mm
 struct NQDBitbltScaledUniforms {
     uint src_offset;     // byte offset of src rect origin within the RAM buffer
     uint dst_offset;     // byte offset of dst rect origin within the RAM buffer
@@ -897,7 +897,7 @@ kernel void nqd_bitblt_scaled(device uint8_t *buffer                  [[buffer(0
     // Defense-in-depth: the host validated the blit extent against
     // ram_size before dispatch, but the kernel still trusts the resolved
     // geometry. Clamp every per-pixel access so a host-side mismatch cannot
-    // turn into an OOB GPU read/write — out-of-range threads simply no-op.
+    // turn into an OOB GPU read/write - out-of-range threads simply no-op.
     if (u.ram_size != 0u && (dst_addr + bpp) > u.ram_size) return;
 
     // DstKey: do not overwrite a dst pixel that matches the dest color key.

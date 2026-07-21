@@ -201,7 +201,7 @@
 		for (idx = searchStartIdx; idx > 0 && [self isNodeAllocatedAtIndex:idx]; --idx);
 
 		if ([self isNodeAllocatedAtIndex:idx]) {
-			//Bummer. We're full—all nodes are in use. We'll need to grow the file.
+			//Bummer. We're full-all nodes are in use. We'll need to grow the file.
 			return 0;
 		}
 	}

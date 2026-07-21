@@ -13,7 +13,7 @@
  *  already provides all of them via CoreServices/CarbonCore (HFSVolumes.h
  *  includes usr/include/hfs/hfs_format.h; CarbonCore.h includes Finder.h,
  *  TextCommon.h, UnicodeConverter.h, MacErrors.h), and redefining them is
- *  a compile error — so the replicas are iOS-only.
+ *  a compile error - so the replicas are iOS-only.
  */
 #if TARGET_OS_IPHONE && !TARGET_OS_MACCATALYST
 

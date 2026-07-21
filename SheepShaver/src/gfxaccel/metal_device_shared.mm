@@ -28,7 +28,7 @@ static dispatch_once_t s_device_token;
 static dispatch_once_t s_queue_token;
 
 // ---------------------------------------------------------------------------
-// SharedMetalDevice — create the device on first call
+// SharedMetalDevice - create the device on first call
 // ---------------------------------------------------------------------------
 
 void *SharedMetalDevice(void)
@@ -47,7 +47,7 @@ void *SharedMetalDevice(void)
 }
 
 // ---------------------------------------------------------------------------
-// Metal validation — command buffer error handler
+// Metal validation - command buffer error handler
 // ---------------------------------------------------------------------------
 
 
@@ -78,7 +78,7 @@ extern "C" void MetalValidation_InstallErrorHandler(void *cmdBufPtr)
 #endif
 
 // ---------------------------------------------------------------------------
-// SharedMetalCommandQueue — create the queue on first call
+// SharedMetalCommandQueue - create the queue on first call
 // ---------------------------------------------------------------------------
 
 void *SharedMetalCommandQueue(void)
