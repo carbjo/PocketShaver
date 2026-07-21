@@ -352,51 +352,19 @@ static void expand_back_to_rgba(const DSpContextPrivate *ctx,
 						   w, h, bpp, row, out);
 }
 
-void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx, void * /*encoder*/, void * /*framebuffer_texture*/)
+void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx, void * /*encoder*/, void *framebuffer_texture)
 {
 	if (!ctx || !ctx->back_buffer) return;
 
-	/* Upload back buffer into GL texture and cache as compositor overlay */
-	if (ctx->back_texture && SharedMetalDevice()) {
-		/* DSp swaps every movie frame. Reuse conversion storage and update the
-		 * texture allocated at Reserve time instead of reallocating driver
-		 * storage with glTexImage2D on every swap. */
+	GLuint fb_tex = (GLuint)(uintptr_t)framebuffer_texture;
+	if (fb_tex && SharedMetalDevice()) {
 		static std::vector<uint8_t> rgba;
 		expand_back_to_rgba(ctx, rgba);
 		const uint32_t w = DSpContextBackBufferWidth(ctx);
 		const uint32_t h = DSpContextBackBufferHeight(ctx);
-		GLuint tex = (GLuint)(uintptr_t)ctx->back_texture;
-		glBindTexture(GL_TEXTURE_2D, tex);
+		glBindTexture(GL_TEXTURE_2D, fb_tex);
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)w, (GLsizei)h,
 						GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
-
-		/* DSp is the 2D framebuffer beneath RAVE. Publishing it as an overlay
-		 * races and replaces the one-slot RAVE mailbox, hiding all 3D. */
-		CompositeLayer layer = {};
-		layer.source = (void *)(uintptr_t)tex;
-		layer.src_size_w = w;
-		layer.src_size_h = h;
-		layer.dst_origin_x = 0;
-		layer.dst_origin_y = 0;
-		layer.dst_size_w = (float)w;
-		layer.dst_size_h = (float)h;
-		layer.slot = kLayerSlotFramebuffer;
-		layer.blend = kBlendOpaque;
-		layer.alpha = 1.f;
-		if (ctx->state == (uint32_t)kDSpContextState_Active) {
-			FrameDescriptor desc = {};
-			desc.layers = &layer;
-			desc.layer_count = 1;
-			const DMCModeSnapshot *snap = dmc_current_snapshot();
-			desc.generation = snap ? snap->generation : 0;
-			(void)MetalCompositorSubmitFrame(&desc);
-		}
-	}
-
-	/* Also mirror into Mac main framebuffer when base matches screen */
-	if (ctx->staging_mac_addr && ctx->staging_size && ctx->back_buffer) {
-		/* staging already copied to back_buffer at SwapBuffers; if screen_base
-		 * points at the same region, compositor will show it on next present. */
 	}
 
 	ctx->dirty_empty = true;
@@ -409,7 +377,7 @@ void DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx, void *command_buffer,
 	DSpEncodeBackBufferBlit(ctx, command_buffer, framebuffer_texture);
 }
 
-bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, void *)
+bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, void *framebuffer_texture)
 {
 	if (!ctx || !ctx->front_staging_mac_addr || !ctx->front_staging_size)
 		return false;
@@ -438,10 +406,6 @@ bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, vo
 	const uint32_t required = (uint32_t)required64;
 	const uint32_t hash = DSpFrontStagingHashBytes(front, required);
 	const DMCModeSnapshot *snap = dmc_current_snapshot();
-	/* GL expands indexed/direct pixels and applies display gamma on the CPU
-	 * before uploading the framebuffer-layer texture.  A palette or gamma
-	 * change therefore invalidates the upload even when pixel indices/values
-	 * did not change. */
 	const uint32_t color_generation = snap
 		? (snap->gamma_gen ^ (snap->palette_gen * 0x9e3779b9u)) : 0;
 	const uint32_t fade_active = snap ? snap->fade_active : 0;
@@ -455,26 +419,8 @@ bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, vo
 		return true;
 	}
 
-	if (!SharedMetalDevice()) return false;
-	DSpGLFrontTexture &front_gl = s_front_textures[ctx->handle];
-	if (front_gl.texture && (front_gl.width != w || front_gl.height != h)) {
-		glDeleteTextures(1, &front_gl.texture);
-		front_gl = {};
-	}
-	if (!front_gl.texture) {
-		glGenTextures(1, &front_gl.texture);
-		if (!front_gl.texture) {
-			s_front_textures.erase(ctx->handle);
-			return false;
-		}
-		front_gl.width = w;
-		front_gl.height = h;
-		glBindTexture(GL_TEXTURE_2D, front_gl.texture);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h,
-					 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-	}
+	GLuint fb_tex = (GLuint)(uintptr_t)framebuffer_texture;
+	if (!fb_tex || !SharedMetalDevice()) return false;
 
 	static std::vector<uint8_t> rgba;
 	uint32_t visible_x = 0, visible_y = 0, geometry_row = 0,
@@ -485,32 +431,9 @@ bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, vo
 		visible_y + h > geometry_height) return false;
 	expand_surface_to_rgba(ctx, front, w, h, depth, row, rgba,
 						   visible_x, visible_y);
-	glBindTexture(GL_TEXTURE_2D, front_gl.texture);
+	glBindTexture(GL_TEXTURE_2D, fb_tex);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)w, (GLsizei)h,
 					GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
-
-	CompositeLayer layer = {};
-	layer.source = (void *)(uintptr_t)front_gl.texture;
-	layer.src_size_w = w;
-	layer.src_size_h = h;
-	layer.dst_origin_x = 0;
-	layer.dst_origin_y = 0;
-	layer.dst_size_w = (float)w;
-	layer.dst_size_h = (float)h;
-	layer.slot = kLayerSlotFramebuffer;
-	layer.blend = kBlendOpaque;
-	layer.alpha = 1.f;
-	FrameDescriptor desc = {};
-	desc.layers = &layer;
-	desc.layer_count = 1;
-	desc.generation = snap ? snap->generation : 0;
-	const int32_t result = ctx->state == (uint32_t)kDSpContextState_Active
-		? MetalCompositorSubmitFrame(&desc) : kGfxAccelNoErr;
-	if (result != kGfxAccelNoErr) {
-		QD3D_RENDER_LOG("DSpFrontPresent(GL): submit failed ctx=%u result=%d",
-						ctx->handle, result);
-		return false;
-	}
 
 	DSpFrontStagingRememberHashForGamma(
 		&present, hash, required, color_generation, fade_active);

@@ -200,11 +200,11 @@ static inline bool gl_compositor_is_linear_gamma(void) { return false; }
 // ---------------------------------------------------------------------------
 static bool s_init = false;
 static bool s_present_in_progress = false;
-static int s_width = 0, s_height = 0, s_depth = 0;
-static int s_row_bytes = 0, s_pitch = 0;
-static int s_bits_per_pixel = 0;
-static void *s_buffer = nullptr;
-static uint32_t s_buffer_size = 0;
+static int compositor_pixel_width = 0, compositor_pixel_height = 0, compositor_depth = 0;
+static int compositor_row_bytes = 0, compositor_pitch = 0;
+static int compositor_bits_per_pixel = 0;
+static void *compositor_buffer = nullptr;
+static uint32_t compositor_buffer_size = 0;
 
 static GLuint s_fb_tex = 0;
 static int s_fb_tex_width = 0;
@@ -277,10 +277,10 @@ static GLuint s_fb_tex_export = 0;
 
 static size_t visible_framebuffer_bytes(void)
 {
-	if (!s_buffer || s_row_bytes <= 0 || s_height <= 0)
+	if (!compositor_buffer || compositor_row_bytes <= 0 || compositor_pixel_height <= 0)
 		return 0;
-	const size_t visible = (size_t)s_row_bytes * (size_t)s_height;
-	return visible < (size_t)s_buffer_size ? visible : (size_t)s_buffer_size;
+	const size_t visible = (size_t)compositor_row_bytes * (size_t)compositor_pixel_height;
+	return visible < (size_t)compositor_buffer_size ? visible : (size_t)compositor_buffer_size;
 }
 
 static uint64_t compositor_now_usec(void)
@@ -292,7 +292,7 @@ static uint64_t compositor_now_usec(void)
 static bool classic_framebuffer_needs_upload(void)
 {
 	const size_t bytes = visible_framebuffer_bytes();
-	assert(bytes == 0 || s_buffer != nullptr);
+	assert(bytes == 0 || compositor_buffer != nullptr);
 	if (!s_classic_fb_texture_valid ||
 	    bytes != s_classic_fb_upload_baseline.size()) {
 #if DESCENT_HITCH_DEBUG
@@ -306,7 +306,7 @@ static bool classic_framebuffer_needs_upload(void)
 		return true;
 	}
 	const bool diff = bytes != 0 &&
-		std::memcmp(s_buffer, s_classic_fb_upload_baseline.data(), bytes) != 0;
+		std::memcmp(compositor_buffer, s_classic_fb_upload_baseline.data(), bytes) != 0;
 #if DESCENT_HITCH_DEBUG
 	static int s_nu_diff_log = 0;
 	if (s_nu_diff_log++ < 40)
@@ -319,10 +319,10 @@ static bool classic_framebuffer_needs_upload(void)
 static void remember_classic_framebuffer_upload(void)
 {
 	const size_t bytes = visible_framebuffer_bytes();
-	assert(bytes == 0 || s_buffer != nullptr);
+	assert(bytes == 0 || compositor_buffer != nullptr);
 	s_classic_fb_upload_baseline.resize(bytes);
 	if (bytes != 0)
-		std::memcpy(s_classic_fb_upload_baseline.data(), s_buffer, bytes);
+		std::memcpy(s_classic_fb_upload_baseline.data(), compositor_buffer, bytes);
 	s_classic_fb_texture_valid = true;
 }
 
@@ -333,7 +333,7 @@ static void remember_overlay_framebuffer_baseline(void)
 		s_overlay_fb_baseline.clear();
 		return;
 	}
-	const uint8_t *src = static_cast<const uint8_t *>(s_buffer);
+	const uint8_t *src = static_cast<const uint8_t *>(compositor_buffer);
 	s_overlay_fb_baseline.assign(src, src + bytes);
 }
 
@@ -349,7 +349,7 @@ static void detect_implicit_quickdraw_handoff(void)
 	const size_t bytes = visible_framebuffer_bytes();
 	if (bytes != s_overlay_fb_baseline.size())
 		return;
-	if (std::memcmp(s_buffer, s_overlay_fb_baseline.data(), bytes) == 0)
+	if (std::memcmp(compositor_buffer, s_overlay_fb_baseline.data(), bytes) == 0)
 		return;
 	/* At 60 Hz a VideoVBL can land between two RAVE frames. Descent writes
 	 * incidental QuickDraw data while its RAVE context remains live; treating
@@ -544,12 +544,12 @@ static void ensure_fb_texture(void)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		s_fb_tex_export = s_fb_tex;
 	}
-	if (s_fb_tex_width != s_width || s_fb_tex_height != s_height) {
+	if (s_fb_tex_width != compositor_pixel_width || s_fb_tex_height != compositor_pixel_height) {
 		glBindTexture(GL_TEXTURE_2D, s_fb_tex);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, s_width, s_height, 0,
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, compositor_pixel_width, compositor_pixel_height, 0,
 		             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-		s_fb_tex_width = s_width;
-		s_fb_tex_height = s_height;
+		s_fb_tex_width = compositor_pixel_width;
+		s_fb_tex_height = compositor_pixel_height;
 		s_classic_fb_texture_valid = false;
 		s_classic_fb_upload_baseline.clear();
 	}
@@ -562,22 +562,22 @@ static bool framebuffer_layer_occludes_classic_framebuffer(void)
 	       s_framebuffer_cache.alpha >= 1.f &&
 	       s_framebuffer_cache.dst_origin_x <= 0.f &&
 	       s_framebuffer_cache.dst_origin_y <= 0.f &&
-	       s_framebuffer_cache.dst_size_w >= (float)s_width &&
-	       s_framebuffer_cache.dst_size_h >= (float)s_height;
+	       s_framebuffer_cache.dst_size_w >= (float)compositor_pixel_width &&
+	       s_framebuffer_cache.dst_size_h >= (float)compositor_pixel_height;
 }
 
 /* Expand guest framebuffer into tightly packed RGBA8 for upload. */
 static void expand_framebuffer_rgba(std::vector<uint8_t> &out)
 {
-	out.resize((size_t)s_width * (size_t)s_height * 4);
-	const uint8_t *src = (const uint8_t *)s_buffer;
+	out.resize((size_t)compositor_pixel_width * (size_t)compositor_pixel_height * 4);
+	const uint8_t *src = (const uint8_t *)compositor_buffer;
 	if (!src) {
 		std::memset(out.data(), 0, out.size());
 		return;
 	}
 
-	const int rb = s_row_bytes;
-	const int bpp = s_bits_per_pixel;
+	const int rb = compositor_row_bytes;
+	const int bpp = compositor_bits_per_pixel;
 
 	if (bpp == 32) {
 		/* Upload raw guest BE ARGB -> RGBA8. Gamma is applied ONCE in the
@@ -585,10 +585,10 @@ static void expand_framebuffer_rgba(std::vector<uint8_t> &out)
 		 * framebuffer raw and lets the shader apply the display LUT. Pre-
 		 * applying s_gamma_lut here double-corrects (washed-out / too bright,
 		 * white-on-light invisible) - do NOT apply it on upload. */
-		for (int y = 0; y < s_height; y++) {
+		for (int y = 0; y < compositor_pixel_height; y++) {
 			const uint8_t *row = src + (size_t)y * (size_t)rb;
-			uint8_t *dst = out.data() + (size_t)y * (size_t)s_width * 4;
-			for (int x = 0; x < s_width; x++) {
+			uint8_t *dst = out.data() + (size_t)y * (size_t)compositor_pixel_width * 4;
+			for (int x = 0; x < compositor_pixel_width; x++) {
 				dst[x * 4 + 0] = row[x * 4 + 1]; /* R */
 				dst[x * 4 + 1] = row[x * 4 + 2]; /* G */
 				dst[x * 4 + 2] = row[x * 4 + 3]; /* B */
@@ -599,10 +599,10 @@ static void expand_framebuffer_rgba(std::vector<uint8_t> &out)
 	}
 
 	if (bpp == 16) {
-		for (int y = 0; y < s_height; y++) {
+		for (int y = 0; y < compositor_pixel_height; y++) {
 			const uint8_t *row = src + (size_t)y * (size_t)rb;
-			uint8_t *dst = out.data() + (size_t)y * (size_t)s_width * 4;
-			for (int x = 0; x < s_width; x++) {
+			uint8_t *dst = out.data() + (size_t)y * (size_t)compositor_pixel_width * 4;
+			for (int x = 0; x < compositor_pixel_width; x++) {
 				uint16_t be = (uint16_t)((row[x * 2] << 8) | row[x * 2 + 1]);
 				uint8_t R = (uint8_t)(((be >> 10) & 0x1f) * 255 / 31);
 				uint8_t G = (uint8_t)(((be >> 5) & 0x1f) * 255 / 31);
@@ -618,10 +618,10 @@ static void expand_framebuffer_rgba(std::vector<uint8_t> &out)
 	}
 
 	/* Indexed 1/2/4/8 */
-	for (int y = 0; y < s_height; y++) {
+	for (int y = 0; y < compositor_pixel_height; y++) {
 		const uint8_t *row = src + (size_t)y * (size_t)rb;
-		uint8_t *dst = out.data() + (size_t)y * (size_t)s_width * 4;
-		for (int x = 0; x < s_width; x++) {
+		uint8_t *dst = out.data() + (size_t)y * (size_t)compositor_pixel_width * 4;
+		for (int x = 0; x < compositor_pixel_width; x++) {
 			uint8_t index = 0;
 			if (bpp == 8) {
 				index = row[x];
@@ -721,17 +721,17 @@ static void draw_overlay_layer(const CompositeLayer *layer)
 	glColor4f(1.f, 1.f, 1.f, a);
 
 	/* Map dst rect in framebuffer pixels to NDC. If size is full-screen, cover all. */
-	float dw = (layer->dst_size_w > 0.f) ? layer->dst_size_w : (float)s_width;
-	float dh = (layer->dst_size_h > 0.f) ? layer->dst_size_h : (float)s_height;
+	float dw = (layer->dst_size_w > 0.f) ? layer->dst_size_w : (float)compositor_pixel_width;
+	float dh = (layer->dst_size_h > 0.f) ? layer->dst_size_h : (float)compositor_pixel_height;
 	float x0 = layer->dst_origin_x;
 	float y0 = layer->dst_origin_y;
 	float x1 = x0 + dw;
 	float y1 = y0 + dh;
-	float nx0 = (x0 / (float)s_width) * 2.f - 1.f;
-	float nx1 = (x1 / (float)s_width) * 2.f - 1.f;
+	float nx0 = (x0 / (float)compositor_pixel_width) * 2.f - 1.f;
+	float nx1 = (x1 / (float)compositor_pixel_width) * 2.f - 1.f;
 	/* Guest Y top-down -> NDC Y up */
-	float ny0 = 1.f - (y1 / (float)s_height) * 2.f;
-	float ny1 = 1.f - (y0 / (float)s_height) * 2.f;
+	float ny0 = 1.f - (y1 / (float)compositor_pixel_height) * 2.f;
+	float ny1 = 1.f - (y0 / (float)compositor_pixel_height) * 2.f;
 
 	glBegin(GL_QUADS);
 	if (layer->slot == kLayerSlotFramebuffer) {
@@ -756,64 +756,88 @@ static void draw_overlay_layer(const CompositeLayer *layer)
 }
 
 // ---------------------------------------------------------------------------
-// DMC callbacks
+// DMC subscriber callbacks (Metal copies)
 // ---------------------------------------------------------------------------
-static int32_t Compositor_OnModeExit(const struct DMCModeSnapshot *outgoing, void *ctx)
+static int32_t MetalCompositor_OnModeExit(const struct DMCModeSnapshot *outgoing, void *ctx)
 {
-	(void)outgoing; (void)ctx;
-	MetalCompositorSubmitFrame_ClearCachedOverlay();
-	MetalCompositorSubmitFrame_ClearCachedFramebuffer();
-	return 0;
+    (void)ctx;
+    if (outgoing) {
+        COMPOSITOR_LOG("DMC on_mode_exit: outgoing gen=%u %ux%u depth=%u",
+                       outgoing->generation, outgoing->width, outgoing->height, outgoing->depth);
+    }
+    MetalCompositorSubmitFrame_ClearCachedOverlay();
+    return 0;
 }
 
-static int compositor_depth_mode_for_bits(uint32_t bits)
+static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incoming, void *ctx)
 {
-	switch (bits) {
-	case 1:  return VIDEO_DEPTH_1BIT;
-	case 2:  return VIDEO_DEPTH_2BIT;
-	case 4:  return VIDEO_DEPTH_4BIT;
-	case 8:  return VIDEO_DEPTH_8BIT;
-	case 16: return VIDEO_DEPTH_16BIT;
-	case 32: return VIDEO_DEPTH_32BIT;
-	default: return VIDEO_DEPTH_32BIT;
-	}
+    (void)ctx;
+    if (incoming) {
+        COMPOSITOR_LOG("DMC on_mode_enter: incoming gen=%u %ux%u depth=%u vbl_usec=%llu",
+                       incoming->generation, incoming->width, incoming->height, incoming->depth,
+                       (unsigned long long)incoming->vbl_usec);
+    } else {
+        return 0;
+    }
+
+    if (incoming->active_owner == (uint32_t)kDMCOwnerDSp && 0) {
+        int new_w = (int)incoming->width;
+        int new_h = (int)incoming->height;
+        int cur_w = compositor_pixel_width;
+        int cur_h = compositor_pixel_height;
+        if (new_w != cur_w || new_h != cur_h || compositor_depth != VIDEO_DEPTH_32BIT) {
+            uint32_t bgra_row_bytes = (uint32_t)new_w * 4;
+            uint32_t bgra_size      = bgra_row_bytes * (uint32_t)new_h;
+            int rc = MetalCompositorResize(
+                new_w, new_h,
+                VIDEO_DEPTH_32BIT,
+                (int)bgra_row_bytes,
+                (int)bgra_row_bytes,
+                NULL,
+                bgra_size);
+            if (rc != 0) {
+                COMPOSITOR_ERR("DMC on_mode_enter: MetalCompositorResize failed (rc=%d) for "
+                               "DSp owner %dx%d - drawable will appear small in window",
+                               rc, new_w, new_h);
+            }
+        }
+    } else if (incoming->active_owner == (uint32_t)kDMCOwnerQuickDraw &&
+               incoming->screen_base_host != NULL && 0) {
+        int new_w = (int)incoming->width;
+        int new_h = (int)incoming->height;
+        int new_pixel_depth = (int)incoming->depth;
+        int new_depth = DepthModeForPixelDepth(new_pixel_depth);
+        int new_row_bytes = (int)incoming->row_bytes;
+        int new_pitch = (int)incoming->pitch;
+        int cur_w = compositor_pixel_width;
+        int cur_h = compositor_pixel_height;
+        if (new_w != cur_w ||
+            new_h != cur_h ||
+            compositor_depth != new_depth ||
+            compositor_row_bytes != new_row_bytes ||
+            compositor_pitch != new_pitch) {
+            uint64_t buffer_size64 = (uint64_t)incoming->pitch *
+                                     (uint64_t)incoming->height;
+            uint32_t buffer_size =
+                buffer_size64 > UINT32_MAX ? UINT32_MAX : (uint32_t)buffer_size64;
+            int rc = MetalCompositorResize(
+                new_w, new_h,
+                new_depth,
+                new_row_bytes,
+                new_pitch,
+                incoming->screen_base_host,
+                buffer_size);
+            if (rc != 0) {
+                COMPOSITOR_ERR("DMC on_mode_enter: MetalCompositorResize failed "
+                               "(rc=%d) for QuickDraw restore %dx%d@%d rb=%d host=%p",
+                               rc, new_w, new_h, new_pixel_depth, new_row_bytes,
+                               incoming->screen_base_host);
+            }
+        }
+    }
+
+    return 0;
 }
-
-static int32_t Compositor_OnModeEnter(const struct DMCModeSnapshot *incoming, void *ctx)
-{
-	(void)ctx;
-	if (!incoming || !s_init) return 0;
-
-	/* DSp submits already-expanded RGBA framebuffer layers.  Resize the
-	 * compositor to the DSp display geometry and use an internal 32-bit target;
-	 * retaining the boot-time QuickDraw 800x600 indexed surface made Diablo's
-	 * 640x480 page appear as a black inset with a white border. */
-	if (incoming->active_owner == (uint32_t)kDMCOwnerDSp) {
-		const int width = (int)incoming->width;
-		const int height = (int)incoming->height;
-		const int row = width * 4;
-		const uint64_t size = (uint64_t)(uint32_t)row * incoming->height;
-		return MetalCompositorResize(width, height, VIDEO_DEPTH_32BIT,
-		                             row, row, nullptr,
-		                             size <= UINT32_MAX ? (uint32_t)size : UINT32_MAX);
-	}
-
-	/* A QuickDraw restore snapshot carries the real guest framebuffer.  Rehome
-	 * the compositor from its DSp-owned internal target when such a snapshot
-	 * is published. */
-	if (incoming->active_owner == (uint32_t)kDMCOwnerQuickDraw &&
-	    incoming->screen_base_host != nullptr) {
-		const uint64_t size = (uint64_t)incoming->pitch * incoming->height;
-		return MetalCompositorResize(
-		    (int)incoming->width, (int)incoming->height,
-		    compositor_depth_mode_for_bits(incoming->depth),
-		    (int)incoming->row_bytes, (int)incoming->pitch,
-		    incoming->screen_base_host,
-		    size <= UINT32_MAX ? (uint32_t)size : UINT32_MAX);
-	}
-	return 0;
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -825,14 +849,14 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 		return -1;
 	}
 
-	s_width = width;
-	s_height = height;
-	s_depth = depth;
-	s_row_bytes = row_bytes;
-	s_pitch = pitch;
-	s_buffer = buffer;
-	s_buffer_size = buffer_size;
-	s_bits_per_pixel = depth_to_bpp_bits(depth);
+	compositor_pixel_width = width;
+	compositor_pixel_height = height;
+	compositor_depth = depth;
+	compositor_row_bytes = row_bytes;
+	compositor_pitch = pitch;
+	compositor_buffer = buffer;
+	compositor_buffer_size = buffer_size;
+	compositor_bits_per_pixel = depth_to_bpp_bits(depth);
 
 	ensure_identity_gamma();
 	std::memset(s_palette, 0, sizeof(s_palette));
@@ -847,8 +871,8 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 	/* Subscribe to DMC first (compositor is presentation layer). */
 	struct DMCSubscriber sub = {};
 	sub.name = "compositor";
-	sub.on_mode_exit = Compositor_OnModeExit;
-	sub.on_mode_enter = Compositor_OnModeEnter;
+	sub.on_mode_exit = MetalCompositor_OnModeExit;
+	sub.on_mode_enter = MetalCompositor_OnModeEnter;
 	sub.ctx = nullptr;
 	dmc_subscribe(&sub);
 
@@ -858,7 +882,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 	s_init = true;
 	COMPOSITOR_LOG("Init tick=%u %dx%d depth=%d rb=%d pitch=%d bpp=%d",
 	               ReadMacInt32(0x016a),
-	               width, height, depth, row_bytes, pitch, s_bits_per_pixel);
+	               width, height, depth, row_bytes, pitch, compositor_bits_per_pixel);
 	return 0;
 }
 
@@ -962,8 +986,8 @@ void MetalCompositorPresent(void)
 		if (sdl_window)
 			SDL_GetWindowSize(sdl_window, &dw, &dh);
 	}
-	if (dw <= 0) dw = s_width;
-	if (dh <= 0) dh = s_height;
+	if (dw <= 0) dw = compositor_pixel_width;
+	if (dh <= 0) dh = compositor_pixel_height;
 
 	glViewport(0, 0, dw, dh);
 	glClearColor(0.f, 0.f, 0.f, 1.f);
@@ -987,7 +1011,7 @@ void MetalCompositorPresent(void)
 		if (classic_framebuffer_needs_upload()) {
 			static std::vector<uint8_t> rgba;
 			expand_framebuffer_rgba(rgba);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s_width, s_height,
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, compositor_pixel_width, compositor_pixel_height,
 			                GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
 			remember_classic_framebuffer_upload();
 			classic_uploaded = true;
@@ -1003,12 +1027,12 @@ void MetalCompositorPresent(void)
 		draw_overlay_layer(&s_framebuffer_cache);
 	if (s_overlay_valid)
 		draw_overlay_layer(&s_overlay_cache);
-#if QD3D_GRAPHICS_LOGGING_ENABLED
+#if QD3D_GRAPHICS_LOGGING_ENABLED && 0
 	s_present_count++;
 	if (compositor_trace_sample(s_present_count)) {
 		QD3D_RENDER_LOG("CompositorPresent count=%llu drawable=%dx%d guest=%dx%d classicOccluded=%d classicUploaded=%d framebufferValid=%d framebuffer=%u overlayValid=%d overlay=%u dst=%.1f,%.1f %.1fx%.1f inheritedScissor=%d[%d,%d %dx%d] inheritedMask=%d%d%d%d glError=0x%x",
-		                (unsigned long long)s_present_count, dw, dh, s_width,
-		                s_height, classic_occluded ? 1 : 0,
+		                (unsigned long long)s_present_count, dw, dh, compositor_pixel_width,
+		                compositor_pixel_height, classic_occluded ? 1 : 0,
 		                classic_uploaded ? 1 : 0,
 		                s_framebuffer_valid ? 1 : 0,
 		                (unsigned)s_framebuffer_tex_cache,
@@ -1032,7 +1056,7 @@ void MetalCompositorPresent(void)
 #if defined(DESCENT_HITCH_DEBUG) && 0
 	/* Present heartbeat (throttled). Confirms the emul-thread present path is
 	 * actually swapping frames during a suspected freeze. The two hashes both
-	 * sample s_buffer: fbHash over the full frame, sBufRegion over just the
+	 * sample compositor_buffer: fbHash over the full frame, sBufRegion over just the
 	 * movie sub-rect (rows 60..372) that Cinepak writes, so we can tell a
 	 * content freeze from a GPU-upload freeze. */
 	{
@@ -1047,11 +1071,11 @@ void MetalCompositorPresent(void)
 			uint32_t regionhash = 2166136261u;
 			uint32_t macRegion = 2166136261u;   /* same region via live VM map */
 			const size_t vb = visible_framebuffer_bytes();
-			if (s_buffer && vb) {
-				const uint8_t *b = (const uint8_t *)s_buffer;
+			if (compositor_buffer && vb) {
+				const uint8_t *b = (const uint8_t *)compositor_buffer;
 				for (size_t i = 0; i < vb; i += 257)
 					fbhash = (fbhash ^ b[i]) * 16777619u;
-				const size_t rb = (size_t)s_row_bytes;
+				const size_t rb = (size_t)compositor_row_bytes;
 				if (rb != 0 && vb >= (size_t)372 * rb) {
 					const uint8_t *rbp = b + (size_t)60 * rb;
 					for (size_t i = 0; i < (size_t)312 * rb; i += 257)
@@ -1059,10 +1083,10 @@ void MetalCompositorPresent(void)
 				}
 			}
 			/* Cinepak writes through Mac2HostAddr(guest screen base). If this
-			 * differs from sBufRegion during the freeze, s_buffer is stale
+			 * differs from sBufRegion during the freeze, compositor_buffer is stale
 			 * relative to the live framebuffer mapping (dual mapping). */
 			const uint8_t *mb = Mac2HostAddr(0x20000000);
-			const size_t mrb = (size_t)s_row_bytes;
+			const size_t mrb = (size_t)compositor_row_bytes;
 			if (mb && mrb != 0 && vb >= (size_t)372 * mrb) {
 				const uint8_t *mrbp = mb + (size_t)60 * mrb;
 				for (size_t i = 0; i < (size_t)312 * mrb; i += 257)
@@ -1074,7 +1098,7 @@ void MetalCompositorPresent(void)
 				(unsigned long long)(hb_now - s_hb_last_usec),
 				ReadMacInt32(0x016a),
 				classic_occluded ? 1 : 0, classic_uploaded ? 1 : 0,
-				s_buffer, (void *)mb, vb, fbhash, regionhash, macRegion);
+				compositor_buffer, (void *)mb, vb, fbhash, regionhash, macRegion);
 			s_hb_last_usec = hb_now;
 			s_hb_frames = 0;
 		}
@@ -1099,7 +1123,7 @@ void MetalCompositorShutdown(void)
 		vbl_source_shutdown();
 		dmc_unsubscribe("compositor");
 		s_init = false;
-		s_buffer = nullptr;
+		compositor_buffer = nullptr;
 		COMPOSITOR_LOG("Shutdown tick=%u", ReadMacInt32(0x016a));
 	}
 
@@ -1122,14 +1146,14 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
 
 	MetalCompositorSubmitFrame_ClearCachedOverlay();
 	MetalCompositorSubmitFrame_ClearCachedFramebuffer();
-	s_width = width;
-	s_height = height;
-	s_depth = depth;
-	s_row_bytes = row_bytes;
-	s_pitch = pitch;
-	s_buffer = buffer;
-	s_buffer_size = buffer_size;
-	s_bits_per_pixel = depth_to_bpp_bits(depth);
+	compositor_pixel_width = width;
+	compositor_pixel_height = height;
+	compositor_depth = depth;
+	compositor_row_bytes = row_bytes;
+	compositor_pitch = pitch;
+	compositor_buffer = buffer;
+	compositor_buffer_size = buffer_size;
+	compositor_bits_per_pixel = depth_to_bpp_bits(depth);
 	s_classic_fb_texture_valid = false;
 	s_classic_fb_upload_baseline.clear();
 	ensure_fb_texture();
@@ -1145,13 +1169,13 @@ int MetalCompositorIsInitialized(void)
 /* Guest address and size of the current visible screen surface. Consumed by
  * the NQD CPU blit path (nqd_gl_renderer.cpp) to validate screen-destined
  * surface ranges; the screen lives outside guest RAM. Emul-thread only, like
- * the NQD hooks and mode switches that update s_buffer. */
+ * the NQD hooks and mode switches that update compositor_buffer. */
 int MetalCompositorGetGuestSurface(uint32_t *out_mac_base, uint32_t *out_byte_size)
 {
-	if (!s_init || s_buffer == nullptr || s_buffer_size == 0)
+	if (!s_init || compositor_buffer == nullptr || compositor_buffer_size == 0)
 		return -1;
-	*out_mac_base = Host2MacAddr((uint8 *)s_buffer);
-	*out_byte_size = s_buffer_size;
+	*out_mac_base = Host2MacAddr((uint8 *)compositor_buffer);
+	*out_byte_size = compositor_buffer_size;
 	return 0;
 }
 
@@ -1159,9 +1183,9 @@ int MetalCompositorCurrentMode(int *out_width, int *out_height, int *out_depth)
 {
 	if (!s_init)
 		return 0;
-	if (out_width)  *out_width  = s_width;
-	if (out_height) *out_height = s_height;
-	if (out_depth)  *out_depth  = s_depth;
+	if (out_width)  *out_width  = compositor_pixel_width;
+	if (out_height) *out_height = compositor_pixel_height;
+	if (out_depth)  *out_depth  = compositor_depth;
 	return 1;
 }
 
