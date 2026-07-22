@@ -35,11 +35,7 @@ bool nqd_logging_enabled = accel_log_subsystem_on("nqd");
 
 extern uint32 RAMBase;
 extern uint32 RAMSize;
-
-/* gl_compositor.cpp - current guest-visible screen surface (base/size track
- * the live mode across switches). */
 extern int MetalCompositorGetGuestSurface(uint32_t *out_mac_base, uint32_t *out_byte_size);
-
 static uint32 nqd_ram_size = 0;
 
 static inline bool nqd_range_in_buffer(uint64 mac_addr, uint64 length)
