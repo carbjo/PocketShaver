@@ -74,6 +74,7 @@ prefs_desc common_prefs_items[] = {
 	{"raveaccel", TYPE_BOOLEAN, false,	"enable RAVE 3D acceleration"},
 	{"glaccel", TYPE_BOOLEAN, false,	"enable OpenGL acceleration"},
 	{"dspaccel", TYPE_BOOLEAN, true,	"enable DrawSprocket (DSp) acceleration"},
+	{"glideaccel", TYPE_BOOLEAN, false,	"enable 3dfx Glide 2/3 acceleration"},
 	{"swap_opt_cmd", TYPE_BOOLEAN, false,	"swap option and command key"},
 	{"host_domain", TYPE_STRING, true,	"handle DNS requests for this domain on the host (slirp only)"},
 	{"redir", TYPE_STRING, true,		"port forwarding for slirp"},
@@ -123,6 +124,7 @@ void AddPrefsDefaults(void)
 	PrefsAddBool("raveaccel", true);
 	PrefsAddBool("glaccel", true);
 	PrefsAddBool("dspaccel", true);
+	PrefsAddBool("glideaccel", true);
 	PrefsAddBool("nocdrom", false);
 	PrefsAddBool("nonet", false);
 	PrefsAddBool("nosound", false);

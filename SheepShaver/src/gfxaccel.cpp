@@ -26,6 +26,7 @@
 #include "rave_engine.h"
 #include "gl_engine.h"
 #include "dsp_engine.h"
+#include "glide_engine.h"
 #include "nqd_accel.h"
 #include "gfx_log.h"
 #include "cinepak_hooks.h"
@@ -779,6 +780,8 @@ void GfxAccelResetForReboot(void)
 	RaveResetForReboot();
 	GLResetForReboot();
 	DSpResetForReboot();
+	if (PrefsFindBool("glideaccel"))
+		GlideResetForReboot();
 #if defined(ENABLE_NATIVE_CINEPAK_PATCH) && ENABLE_NATIVE_CINEPAK_PATCH
 	CinepakResetForReboot();
 #endif
@@ -889,6 +892,12 @@ void VideoInstallAccel(void)
 	if (PrefsFindBool("dspaccel")) {
 		DSpInit();
 		DSpInstallHooks();
+	}
+
+	/* 3dfx Glide 2.x / 3.x (Diablo II is Glide 3.0). Same late-bind retry
+	 * pattern as DSp/GL: CFM fragment may load after first accRun ticks. */
+	if (PrefsFindBool("glideaccel")) {
+		GlideInstallHooks();
 	}
 
 	#if defined(ENABLE_NATIVE_CINEPAK_PATCH) \

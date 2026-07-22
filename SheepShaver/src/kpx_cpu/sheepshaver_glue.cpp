@@ -52,6 +52,7 @@ extern "C" void catalyst_pump_appkit_events(void);
 #include "rave_engine.h"
 #include "gl_engine.h"
 #include "dsp_engine.h"
+#include "glide_engine.h"
 #include "cinepak_hooks.h"
 #endif
 
@@ -1504,6 +1505,23 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		if (ctr() != saved_ctr) { ctr() = saved_ctr; }
 		if (gpr(1) != saved_sp) { gpr(1) = saved_sp; }
 		if (gpr(2) != saved_r2) { gpr(2) = saved_r2; }
+		break;
+#endif
+	}
+	case NATIVE_GLIDE_DISPATCH: {
+#if !defined(ENABLE_GFXACCEL)
+		gpr(3) = (uint32)-1;
+		break;
+#else
+		uint32 saved_lr = lr();
+		uint32 saved_ctr = ctr();
+		uint32 saved_sp = gpr(1);
+		uint32 saved_r2 = gpr(2);
+		gpr(3) = GlideDispatch(gpr(3), gpr(4), gpr(5), gpr(6), gpr(7), gpr(8));
+		if (lr() != saved_lr) lr() = saved_lr;
+		if (ctr() != saved_ctr) ctr() = saved_ctr;
+		if (gpr(1) != saved_sp) gpr(1) = saved_sp;
+		if (gpr(2) != saved_r2) gpr(2) = saved_r2;
 		break;
 #endif
 	}

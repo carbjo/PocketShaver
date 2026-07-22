@@ -354,6 +354,11 @@ if(ENABLE_GFXACCEL)
 	"${GA}/rave_draw_context.cpp"
 	"${GA}/rave_engine.cpp"
 	"${GA}/rave_thunks.cpp"
+	"${GA}/glide_thunks.cpp"
+	"${GA}/glide_dispatch.cpp"
+	"${GA}/glide_engine.cpp"
+	"${GA}/glide_state.cpp"
+	"${GA}/glide_pef_register.cpp"
 	)
 
 	if(ENABLE_NATIVE_CINEPAK_PATCH)
@@ -411,6 +416,7 @@ if(ENABLE_GFXACCEL)
 		"${GA}/gl/rave_gl_renderer.cpp"
 		"${GA}/gl/gl_ffp_renderer.cpp"
 		"${GA}/gl/dsp_gl_renderer.cpp"
+		"${GA}/gl/glide_gl_renderer.cpp"
 	)
 	if(WIN32)
 		list(APPEND SS_GFXACCEL_LIBS opengl32)

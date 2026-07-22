@@ -485,6 +485,11 @@ extern "C" void MetalCompositorSubmitFrame_ClearCachedOverlay(void)
     os_unfair_lock_unlock(&s_overlay_cache_lock);
 }
 
+extern "C" void MetalCompositorFlushDeferredPresent(void)
+{
+	/* Metal encodes independently of engine passes; nothing to flush. */
+}
+
 extern "C" void MetalCompositorSubmitFrame_ClearCachedFramebuffer(void)
 {
 	/* Metal copies DSp directly into its framebuffer texture and therefore

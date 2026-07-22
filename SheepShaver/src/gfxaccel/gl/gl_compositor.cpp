@@ -145,19 +145,21 @@ void GfxGLDeviceGetDrawableSize(int *out_w, int *out_h)
 
 void *SharedMetalDevice(void)
 {
-	assert(s_ready);
-	assert(s_gl_ctx != nullptr);
-	assert(gl_device_sdl_window == SDL_GL_GetCurrentWindow());
-	/* RAVE calls this at public API boundaries and resource uploads, often
-	 * hundreds of times per frame. SDL_GL_MakeCurrent enters the driver even
-	 * when nothing changed; avoid that round trip on the single render thread. */
-	if(SDL_GL_GetCurrentContext() != s_gl_ctx
-			|| SDL_GL_MakeCurrent(gl_device_sdl_window, s_gl_ctx) != 0)
-	{
-		QD3D_INIT_LOG("SDL_GL_MakeCurrent failed: %s", SDL_GetError());
+	/* Twin of metal_device_shared: return the shared GPU device, making the
+	 * compositor GL context current only when the thread is on a different
+	 * context/window. The previous `ctx != s_gl_ctx || MakeCurrent(...)`
+	 * short-circuit was inverted: when the context was already wrong the
+	 * `||` never called MakeCurrent and every Present/upload returned NULL
+	 * (desktop appeared frozen for long stretches between rare successes). */
+	if (!s_ready || !s_gl_ctx || !gl_device_sdl_window)
 		return NULL;
+	if (SDL_GL_GetCurrentContext() != s_gl_ctx ||
+	    SDL_GL_GetCurrentWindow() != gl_device_sdl_window) {
+		if (SDL_GL_MakeCurrent(gl_device_sdl_window, s_gl_ctx) != 0) {
+			QD3D_INIT_LOG("SDL_GL_MakeCurrent failed: %s", SDL_GetError());
+			return NULL;
+		}
 	}
-
 	return (void *)&s_device_sentinel;
 }
 
@@ -173,6 +175,10 @@ void MetalValidation_InstallErrorHandler(void * /*cmdBufPtr*/)
 
 extern "C" void vbl_source_sdl_tick(double target_ts);
 extern "C" int RaveGLRenderPassActive(void);
+
+/* Set when Present is skipped because a RAVE (or nested) pass owns the
+ * shared GL context. Cleared when a Present completes or is cancelled. */
+static bool s_present_deferred = false;
 
 /* Metal (iOS) reads the "Linear" gamma pref through the ObjC bridge. The
  * desktop/SDL build has no such pref plumbing, so default to the OS-defined
@@ -205,6 +211,18 @@ static int compositor_row_bytes = 0, compositor_pitch = 0;
 static int compositor_bits_per_pixel = 0;
 static void *compositor_buffer = nullptr;
 static uint32_t compositor_buffer_size = 0;
+
+/* DSp OnModeEnter Resize passes buffer=NULL (engine writes s_fb_tex).  Diablo's
+ * dual-context scan can leave DMC on QuickDraw without a restore mode switch
+ * (handoff suppressed on the parent; child never redirected).  Stash the last
+ * classic host surface so we can rebind it when the owner returns to QD. */
+static void *s_classic_host_stash = nullptr;
+static uint32_t s_classic_host_stash_size = 0;
+static int s_classic_host_stash_w = 0;
+static int s_classic_host_stash_h = 0;
+static int s_classic_host_stash_depth = 0;
+static int s_classic_host_stash_rb = 0;
+static int s_classic_host_stash_pitch = 0;
 
 static GLuint s_fb_tex = 0;
 static int s_fb_tex_width = 0;
@@ -289,8 +307,34 @@ static uint64_t compositor_now_usec(void)
 		std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
+/* Match metal_compositor.mm MetalCompositorPresent: when DSp owns the
+ * display it writes compositor_texture via DSpEncode*ToFramebuffer. A CPU
+ * re-upload from compositor_buffer (often NULL after OnModeEnter Resize)
+ * would clobber those pixels with black every VBL. RAVE/GL (and later Glide)
+ * still need the QuickDraw underlay so they keep the classic upload path. */
+static bool classic_cpu_upload_allowed(void)
+{
+	if (!compositor_buffer)
+		return false;
+	const DMCModeSnapshot *snap = dmc_current_snapshot();
+	if (snap != nullptr) {
+		const uint32_t owner = snap->active_owner;
+		/* Metal: skip CPU upload only for non-underlay owners (DSp, blanking…).
+		 * Overlay engines (RAVE/GL/Glide) keep the classic base. */
+		if (owner != (uint32_t)kDMCOwnerQuickDraw &&
+		    owner != (uint32_t)kDMCOwnerRAVE &&
+		    owner != (uint32_t)kDMCOwnerGL &&
+		    owner != (uint32_t)kDMCOwnerGlide) {
+			return false;
+		}
+	}
+	return true;
+}
+
 static bool classic_framebuffer_needs_upload(void)
 {
+	if (!classic_cpu_upload_allowed())
+		return false;
 	const size_t bytes = visible_framebuffer_bytes();
 	assert(bytes == 0 || compositor_buffer != nullptr);
 	if (!s_classic_fb_texture_valid ||
@@ -720,18 +764,31 @@ static void draw_overlay_layer(const CompositeLayer *layer)
 	if (a > 1.f) a = 1.f;
 	glColor4f(1.f, 1.f, 1.f, a);
 
-	/* Map dst rect in framebuffer pixels to NDC. If size is full-screen, cover all. */
-	float dw = (layer->dst_size_w > 0.f) ? layer->dst_size_w : (float)compositor_pixel_width;
-	float dh = (layer->dst_size_h > 0.f) ? layer->dst_size_h : (float)compositor_pixel_height;
+	/* Layer dst is in guest/framebuffer pixel space (Metal twin). Map to NDC
+	 * of the full drawable viewport. Prefer the live DMC mode size when the
+	 * compositor texture was force-resized to a DSp BGRA surface so RAVE/GL
+	 * overlays that still publish guest-mode rectangles land correctly. */
+	int space_w = compositor_pixel_width;
+	int space_h = compositor_pixel_height;
+	const DMCModeSnapshot *snap = dmc_current_snapshot();
+	if (snap && snap->width > 0 && snap->height > 0) {
+		space_w = (int)snap->width;
+		space_h = (int)snap->height;
+	}
+	if (space_w <= 0) space_w = 1;
+	if (space_h <= 0) space_h = 1;
+
+	float dw = (layer->dst_size_w > 0.f) ? layer->dst_size_w : (float)space_w;
+	float dh = (layer->dst_size_h > 0.f) ? layer->dst_size_h : (float)space_h;
 	float x0 = layer->dst_origin_x;
 	float y0 = layer->dst_origin_y;
 	float x1 = x0 + dw;
 	float y1 = y0 + dh;
-	float nx0 = (x0 / (float)compositor_pixel_width) * 2.f - 1.f;
-	float nx1 = (x1 / (float)compositor_pixel_width) * 2.f - 1.f;
+	float nx0 = (x0 / (float)space_w) * 2.f - 1.f;
+	float nx1 = (x1 / (float)space_w) * 2.f - 1.f;
 	/* Guest Y top-down -> NDC Y up */
-	float ny0 = 1.f - (y1 / (float)compositor_pixel_height) * 2.f;
-	float ny1 = 1.f - (y0 / (float)compositor_pixel_height) * 2.f;
+	float ny0 = 1.f - (y1 / (float)space_h) * 2.f;
+	float ny1 = 1.f - (y0 / (float)space_h) * 2.f;
 
 	glBegin(GL_QUADS);
 	if (layer->slot == kLayerSlotFramebuffer) {
@@ -765,7 +822,12 @@ static int32_t MetalCompositor_OnModeExit(const struct DMCModeSnapshot *outgoing
         COMPOSITOR_LOG("DMC on_mode_exit: outgoing gen=%u %ux%u depth=%u",
                        outgoing->generation, outgoing->width, outgoing->height, outgoing->depth);
     }
+    /* Metal clears the overlay cache on every real mode exit so a stale
+     * engine texture cannot composite into the next mode. GL also drops the
+     * framebuffer-slot cache (DSp) for the same lifetime reason. */
     MetalCompositorSubmitFrame_ClearCachedOverlay();
+    MetalCompositorSubmitFrame_ClearCachedFramebuffer();
+    s_present_deferred = false;
     return 0;
 }
 
@@ -780,7 +842,7 @@ static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incomin
         return 0;
     }
 
-    if (incoming->active_owner == (uint32_t)kDMCOwnerDSp && 0) {
+    if (incoming->active_owner == (uint32_t)kDMCOwnerDSp) {
         int new_w = (int)incoming->width;
         int new_h = (int)incoming->height;
         int cur_w = compositor_pixel_width;
@@ -802,7 +864,7 @@ static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incomin
             }
         }
     } else if (incoming->active_owner == (uint32_t)kDMCOwnerQuickDraw &&
-               incoming->screen_base_host != NULL && 0) {
+               incoming->screen_base_host != NULL) {
         int new_w = (int)incoming->width;
         int new_h = (int)incoming->height;
         int new_pixel_depth = (int)incoming->depth;
@@ -863,6 +925,16 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 	s_palette[0 * 4 + 0] = 255; s_palette[0 * 4 + 1] = 255; s_palette[0 * 4 + 2] = 255; s_palette[0 * 4 + 3] = 255;
 	/* index 1 black already zero */
 
+	if (buffer != nullptr) {
+		s_classic_host_stash = buffer;
+		s_classic_host_stash_size = buffer_size;
+		s_classic_host_stash_w = width;
+		s_classic_host_stash_h = height;
+		s_classic_host_stash_depth = depth;
+		s_classic_host_stash_rb = row_bytes;
+		s_classic_host_stash_pitch = pitch;
+	}
+
 	destroy_textures();
 	ensure_fb_texture();
 	upload_gamma_texture();
@@ -888,6 +960,20 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 
 void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
 {
+	/* Match metal_compositor.mm: palette buffers only exist for indexed
+	 * depths. DSpContext_SetStateHandler always replays a 256-entry CLUT on
+	 * Active; for 16/32 bpp contexts that CLUT is zero-filled (or a 1/2-entry
+	 * B/W seed). Applying it while the compositor is in VIDEO_DEPTH_32BIT
+	 * (DSp OnModeEnter normalises the FB to BGRA) permanently wipes the
+	 * classic 8-bit desktop palette → black screen after Rescan Monitors /
+	 * title-mode switches. Metal no-ops those updates; GL must too. */
+	if (compositor_bits_per_pixel > 8 ||
+	    compositor_depth > VIDEO_DEPTH_8BIT) {
+		COMPOSITOR_LOG("MetalCompositorUpdatePalette: ignored %d colors "
+		               "(depth=%d bpp=%d is not indexed)",
+		               num_colors, compositor_depth, compositor_bits_per_pixel);
+		return;
+	}
 	if (!pal || num_colors <= 0) return;
 	if (num_colors > 256) num_colors = 256;
 	for (int i = 0; i < num_colors; i++) {
@@ -918,6 +1004,7 @@ void MetalCompositorPresent(void)
 	 * A second clear/swap while the outer present is incomplete can replay the
 	 * first movie frames and expose a partially composed back buffer. */
 	if (s_present_in_progress) {
+		s_present_deferred = true;
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 		static uint64_t s_nested_present_count = 0;
 		++s_nested_present_count;
@@ -931,8 +1018,11 @@ void MetalCompositorPresent(void)
 
 	/* Guest notice callbacks can run VideoVBL before NativeRenderEnd returns.
 	 * Do not let presentation rebind framebuffer 0 or overwrite compatibility
-	 * state while RAVE is still building the current overlay frame. */
+	 * state while RAVE is still building the current overlay frame. Metal can
+	 * encode independently; GL shares one context with RAVE, so defer and
+	 * flush from NativeRenderEnd via MetalCompositorFlushDeferredPresent. */
 	if (RaveGLRenderPassActive()) {
+		s_present_deferred = true;
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 		static uint64_t s_deferred_present_count = 0;
 		++s_deferred_present_count;
@@ -945,31 +1035,59 @@ void MetalCompositorPresent(void)
 	}
 	ScopedCompositorPresent present_scope;
 
-	/* VideoVBL and completed RAVE frames present on the emulation thread.
-	 * Unchanged framebuffer uploads are cached below. */
-	static uint64_t s_last_present_usec = 0;
-	const uint64_t now_usec = compositor_now_usec();
-	const uint64_t cadence_usec = GfxFramePacingClampCadenceUsec(
-		vbl_source_get_cadence_usec());
-	/* A pending classic-framebuffer upload (forced after a depth switch that
-	 * invalidated the upload baseline) must not be starved by the cadence
-	 * gate - otherwise the first 16bpp frame after a mid-movie SetDepth holds
-	 * on screen for the full cadence window (Descent II intro hitch). */
-	const bool do_draw = !s_classic_fb_texture_valid ||
-	                     s_last_present_usec == 0 ||
-	                     now_usec - s_last_present_usec >= cadence_usec ||
-	                     s_overlay_present_serial != s_overlay_submit_serial;
-
 	/* Drive VBL secondary callbacks (DSp drains etc.) every call. */
 	vbl_source_sdl_tick(0.0);
 	MetalCompositorPaletteLatch();
 	detect_implicit_quickdraw_handoff();
 
+	/* Recover classic host mapping after a DSp NULL-buffer Resize when DMC
+	 * has already returned ownership to QuickDraw without OnModeEnter restore
+	 * (see dual-context handoff in DSpContext_SetStateHandler). Must run
+	 * before the cadence gate so the first recovered frame is drawn.
+	 * Only the stashed *classic* desktop surface is restored — never a freed
+	 * DSp heap (Metal: QD snapshot screen_base_host only). */
+	{
+		const DMCModeSnapshot *snap = dmc_current_snapshot();
+		if (compositor_buffer == nullptr &&
+		    s_classic_host_stash != nullptr &&
+		    snap != nullptr &&
+		    snap->active_owner == (uint32_t)kDMCOwnerQuickDraw &&
+		    snap->transitioning == 0) {
+			(void)MetalCompositorResize(
+				s_classic_host_stash_w, s_classic_host_stash_h,
+				s_classic_host_stash_depth,
+				s_classic_host_stash_rb, s_classic_host_stash_pitch,
+				s_classic_host_stash, s_classic_host_stash_size);
+		}
+	}
+
+	/* Metal Present always samples the live FB when upload is allowed.
+	 * GL skips the full expand when the baseline matches, but must still
+	 * redraw when content changed, an overlay was submitted, a deferred
+	 * present is owed, or the host cadence interval has elapsed. */
+	static uint64_t s_last_present_usec = 0;
+	const uint64_t now_usec = compositor_now_usec();
+	const uint64_t cadence_usec = GfxFramePacingClampCadenceUsec(
+		vbl_source_get_cadence_usec());
+	const bool classic_dirty = classic_framebuffer_needs_upload();
+	const bool do_draw = classic_dirty ||
+	                     !s_classic_fb_texture_valid ||
+	                     s_last_present_usec == 0 ||
+	                     s_present_deferred ||
+	                     now_usec - s_last_present_usec >= cadence_usec ||
+	                     s_overlay_present_serial != s_overlay_submit_serial ||
+	                     s_framebuffer_valid;
+
 	if (!do_draw)
 		return;
-	if (!SharedMetalDevice())
+	if (!SharedMetalDevice()) {
+		/* Keep the deferral: a transient make-current failure must not
+		 * permanently drop a dirty desktop frame. */
+		s_present_deferred = true;
 		return;
+	}
 	s_last_present_usec = now_usec;
+	s_present_deferred = false;
 
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 	GLboolean inherited_color_mask[4] = {};
@@ -1000,7 +1118,12 @@ void MetalCompositorPresent(void)
 
 	/* A full-screen opaque DSp page completely hides the classic framebuffer.
 	 * Avoid expanding and uploading that second full-screen surface during
-	 * movies; otherwise update the already-allocated texture in place. */
+	 * movies; otherwise update the already-allocated texture in place.
+	 *
+	 * When DSp owns the FB, s_fb_tex is written by DSpEncode*ToFramebuffer
+	 * (and VBL publish). Keep sampling it without a host-buffer re-upload —
+	 * OnModeEnter Resize passes buffer=NULL for DSp, and expand-from-null
+	 * would paint solid black over the DSp pixels every present. */
 	const bool classic_occluded =
 		framebuffer_layer_occludes_classic_framebuffer();
 	bool classic_uploaded = false;
@@ -1124,6 +1247,8 @@ void MetalCompositorShutdown(void)
 		dmc_unsubscribe("compositor");
 		s_init = false;
 		compositor_buffer = nullptr;
+		s_classic_host_stash = nullptr;
+		s_classic_host_stash_size = 0;
 		COMPOSITOR_LOG("Shutdown tick=%u", ReadMacInt32(0x016a));
 	}
 
@@ -1142,6 +1267,26 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
 	{
 		COMPOSITOR_LOG("couldn't SharedMetalDevice()!");
 		return -1;
+	}
+
+	/* Stash / refresh classic host mapping. DSp OnModeEnter passes NULL so
+	 * the previous desktop surface is remembered for a QD rebind. */
+	if (buffer != nullptr) {
+		s_classic_host_stash = buffer;
+		s_classic_host_stash_size = buffer_size;
+		s_classic_host_stash_w = width;
+		s_classic_host_stash_h = height;
+		s_classic_host_stash_depth = depth;
+		s_classic_host_stash_rb = row_bytes;
+		s_classic_host_stash_pitch = pitch;
+	} else if (compositor_buffer != nullptr) {
+		s_classic_host_stash = compositor_buffer;
+		s_classic_host_stash_size = compositor_buffer_size;
+		s_classic_host_stash_w = compositor_pixel_width;
+		s_classic_host_stash_h = compositor_pixel_height;
+		s_classic_host_stash_depth = compositor_depth;
+		s_classic_host_stash_rb = compositor_row_bytes;
+		s_classic_host_stash_pitch = compositor_pitch;
 	}
 
 	MetalCompositorSubmitFrame_ClearCachedOverlay();
@@ -1274,6 +1419,18 @@ void MetalCompositorSubmitFrame_ClearCachedFramebuffer(void)
 	s_framebuffer_valid = false;
 	std::memset(&s_framebuffer_cache, 0, sizeof(s_framebuffer_cache));
 	s_framebuffer_tex_cache = 0;
+}
+
+/* GL-only: flush a Present that was deferred while the shared context was
+ * owned by a RAVE render pass (or a nested present). Metal has no equivalent
+ * because it encodes without borrowing the 3D engine's command stream. */
+extern "C" void MetalCompositorFlushDeferredPresent(void)
+{
+	if (!s_init || !s_present_deferred)
+		return;
+	if (s_present_in_progress || RaveGLRenderPassActive())
+		return;
+	MetalCompositorPresent();
 }
 
 void *MetalCompositorGetLayer(void)

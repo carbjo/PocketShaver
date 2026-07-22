@@ -77,8 +77,9 @@ typedef enum {
 	kGfxEngineNQD    = 0,
 	kGfxEngineRAVE   = 1,
 	kGfxEngineGL     = 2,
-	kGfxEngineDSp    = 3,   /* fourth engine (DrawSprocket) */
-	kGfxEngineCount  = 4
+	kGfxEngineDSp    = 3,   /* DrawSprocket */
+	kGfxEngineGlide  = 4,   /* 3dfx Glide 2.x / 3.x */
+	kGfxEngineCount  = 5
 } GfxEngineId;
 
 /*

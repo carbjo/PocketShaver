@@ -322,6 +322,10 @@ void MetalCompositorSubmitFrame_ClearCachedOverlay(void);
  * overlay mailbox. Metal has no persistent framebuffer-slot cache. */
 void MetalCompositorSubmitFrame_ClearCachedFramebuffer(void);
 
+/* GL only: flush a Present deferred while a RAVE/Glide FBO pass owned the
+ * shared GL context. Metal implements this as a no-op. */
+void MetalCompositorFlushDeferredPresent(void);
+
 
 /*
  * MetalCompositorGetLayer.

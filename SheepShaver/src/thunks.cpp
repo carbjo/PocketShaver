@@ -116,6 +116,9 @@ uint32 NativeOpcode(int selector)
 	case NATIVE_DSP_DISPATCH:
 		opcode = POWERPC_NATIVE_OP(0, selector);
 		break;
+	case NATIVE_GLIDE_DISPATCH:
+		opcode = POWERPC_NATIVE_OP(0, selector);
+		break;
 #if defined(ENABLE_NATIVE_CINEPAK_PATCH) \
 		&& ENABLE_NATIVE_CINEPAK_PATCH
 	case NATIVE_CINEPAK_DISPATCH:

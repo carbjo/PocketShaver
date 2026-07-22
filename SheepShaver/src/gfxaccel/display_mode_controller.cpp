@@ -296,7 +296,8 @@ static DMCModeSnapshot *dmc_clone_snapshot_with_owner(const DMCModeSnapshot *src
 // Callers that pass Blanking / Quiescent owners must handle those cases
 // separately (they are not legal targets of dmc_set_active_owner).
 static DMCState dmc_target_state_for_owner(uint32_t owner) {
-	if (owner == kDMCOwnerRAVE || owner == kDMCOwnerGL || owner == kDMCOwnerDSp) {
+	if (owner == kDMCOwnerRAVE || owner == kDMCOwnerGL ||
+	    owner == kDMCOwnerDSp || owner == kDMCOwnerGlide) {
 		return kDMCStateThreeDOwner;
 	}
 	return kDMCStateQuickDrawOwner;
@@ -618,7 +619,8 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 	uint32_t new_owner;
 	if (prior_owner == kDMCOwnerRAVE ||
 	    prior_owner == kDMCOwnerGL ||
-	    prior_owner == kDMCOwnerDSp) {
+	    prior_owner == kDMCOwnerDSp ||
+	    prior_owner == kDMCOwnerGlide) {
 		new_owner = prior_owner;
 	} else {
 		new_owner = (uint32_t)kDMCOwnerQuickDraw;
@@ -714,11 +716,10 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 	if (!s_dmc_initialized) {
 		return kDMCErrNotInitialized;
 	}
-	// Out-of-enum-range check. kDMCOwnerQuiescent (5) is the maximum legal
-	// enum value; anything above that is invalid. Using set_active_owner to
-	// request Blanking or Quiescent is also illegal (those are reached via
-	// dmc_request_blanking / dmc_shutdown respectively).
-	if (owner > (uint32_t)kDMCOwnerQuiescent) {
+	// Out-of-enum-range check. kDMCOwnerGlide is the highest legal owner
+	// that set_active_owner may request. Blanking / Quiescent are reached
+	// only via dmc_request_blanking / dmc_shutdown.
+	if (owner > (uint32_t)kDMCOwnerGlide) {
 		return kDMCErrInvalidOwner;
 	}
 	if (owner == (uint32_t)kDMCOwnerBlanking ||

@@ -77,7 +77,8 @@ enum DMCOwner {
 	kDMCOwnerGL          = 2,  /* OpenGL 3D context active */
 	kDMCOwnerDSp         = 3,  /* reserved for M2 (DrawSprocket 1.7) */
 	kDMCOwnerBlanking    = 4,  /* solid-color blanking (fade / app-suspend) */
-	kDMCOwnerQuiescent   = 5   /* no display */
+	kDMCOwnerQuiescent   = 5,  /* no display */
+	kDMCOwnerGlide       = 6   /* 3dfx Glide 2.x / 3.x context active */
 };
 
 /*

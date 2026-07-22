@@ -77,31 +77,29 @@ static inline void DisposePtr(uint32 arg1)
 	CallMacOS1(d_ptr, d_tvect, arg1);
 }
 
-#if TARGET_OS_IPHONE
+#if defined(ENABLE_GFXACCEL)
+#include "gl_synthetic_symbol_policy.h"
+#endif
+
 static uint32 FindSyntheticLibSymbol(const char *lib_str, const char *sym_str)
 {
+#if defined(ENABLE_GFXACCEL) && TARGET_OS_IPHONE
 	uint16_t sub_opcode = 0;
-	if (!GLSyntheticFindLibSymbolSubOpcode(lib_str, sym_str, &sub_opcode))
-		return 0;
-	if (sub_opcode >= GL_MAX_SUBOPCODE)
-		return 0;
-
-	const uint32 tvect = gl_method_tvects[sub_opcode];
-	if (tvect == 0)
-		return 0;
-
-	D(bug("FindLibSymbol: synthetic symbol '%s' in '%s' -> 0x%08lx\n",
-	      sym_str + 1, lib_str + 1, (unsigned long)tvect));
-	return tvect;
-}
+	if (GLSyntheticFindLibSymbolSubOpcode(lib_str, sym_str, &sub_opcode) &&
+	    sub_opcode < GL_MAX_SUBOPCODE) {
+		const uint32 tvect = gl_method_tvects[sub_opcode];
+		if (tvect != 0) {
+			D(bug("FindLibSymbol: GL synthetic '%s' in '%s' -> 0x%08lx\n",
+			      sym_str + 1, lib_str + 1, (unsigned long)tvect));
+			return tvect;
+		}
+	}
 #else
-static uint32 FindSyntheticLibSymbol(const char *lib_str, const char *sym_str)
-{
 	(void)lib_str;
 	(void)sym_str;
+#endif
 	return 0;
 }
-#endif
 
 /*
  *  Reset MacOS utilities
@@ -306,7 +304,7 @@ uint32 FindLibSymbol(const char *lib_str, const char *sym_str)
 		}
 		D(bug(" GetSharedLibrary: ret %d, connection ID %ld, main %p\n", (int16)r.d[0], conn_id.value(), main_addr.value()));
 		if (r.d[0])
-			return 0;
+			return FindSyntheticLibSymbol(lib_str, sym_str);
 	
 		// Find symbol
 		static const uint8 proc2_template[] = {
@@ -348,7 +346,7 @@ uint32 FindLibSymbol(const char *lib_str, const char *sym_str)
 			   res, (long)conn_id.value(), (unsigned long)main_addr.value()));
 		D(bug(" GetSharedLibrary: ret %d, connection ID %ld, main %p\n", res, conn_id.value(), main_addr.value()));
 		if (res)
-			return 0;
+			return FindSyntheticLibSymbol(lib_str, sym_str);
 		res = FindSymbol(conn_id.value(), sym.addr(), sym_addr.addr(), sym_class.addr());
 		D(bug("FindLibSymbol: FindSymbol returned %d (addr=0x%lx, class=%ld)\n",
 			   res, (unsigned long)sym_addr.value(), (long)sym_class.value()));

@@ -1732,6 +1732,8 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 		assert(s_active_render_pass == ms);
 		s_active_render_pass = nullptr;
 		MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineRAVE);
+		/* Present may have been deferred during notice callbacks. */
+		MetalCompositorFlushDeferredPresent();
 		return kQANoErr;
 	}
 
@@ -1797,6 +1799,11 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 	assert(s_active_render_pass == ms);
 	s_active_render_pass = nullptr;
 	MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineRAVE);
+	/* GL shares one context with the compositor: Present is deferred while
+	 * s_active_render_pass is set. Flush any owed frame now that the FBO
+	 * pass is closed and the overlay mailbox is updated (Metal encodes
+	 * independently and needs no equivalent). */
+	MetalCompositorFlushDeferredPresent();
 	return kQANoErr;
 }
 
@@ -1820,6 +1827,7 @@ int32_t NativeRenderAbort(uint32_t drawContextAddr)
 	                priv->frameCount, drawContextAddr, (unsigned)ms->color_tex,
 	                (unsigned long long)ms->draw_calls,
 	                (unsigned long long)ms->vertices);
+	MetalCompositorFlushDeferredPresent();
 	return kQANoErr;
 }
 int32_t NativeFlush(uint32_t) { flush_draw_batch(); if (SharedMetalDevice()) glFlush(); return kQANoErr; }

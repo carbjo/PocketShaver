@@ -14,7 +14,8 @@ enum GfxFramePacingEngine {
 	kGfxFramePacingEngineGL = 1,
 	kGfxFramePacingEngineRAVE = 2,
 	kGfxFramePacingEngineLegacy = 3,
-	kGfxFramePacingEngineCount = 4
+	kGfxFramePacingEngineGlide = 4,
+	kGfxFramePacingEngineCount = 5
 };
 
 /*

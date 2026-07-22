@@ -74,6 +74,7 @@ enum {
   NATIVE_RAVE_DISPATCH,
   NATIVE_OPENGL_DISPATCH,
   NATIVE_DSP_DISPATCH,     /* fourth engine */
+  NATIVE_GLIDE_DISPATCH,   /* 3dfx Glide 2.x / 3.x */
   #if defined(ENABLE_NATIVE_CINEPAK_PATCH) \
 			&& ENABLE_NATIVE_CINEPAK_PATCH
 	NATIVE_CINEPAK_DISPATCH, /* QuickTime Cinepak ('cvid') 

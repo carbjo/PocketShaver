@@ -17,8 +17,11 @@
 #include "dsp_back_buffer_cgraf_policy.h"
 #include "dsp_cgraf_port_policy.h"
 #include "dsp_front_buffer_policy.h"
+#include "dsp_front_staging_present_policy.h"
+#include "dsp_vbl_publish_policy.h"
 #include "dsp_pixmap_offsets.h"
 #include "dsp_draw_context.h"
+#include "display_mode_controller.h"
 #include "dsp_alt_buffer.h"
 #include "gfx_log.h"
 #include "thunks.h"
@@ -702,14 +705,138 @@ int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef, uint32_t /*doneProc*/, ui
 	ctx->dirty_cold_start = false;
 	ctx->dirty_empty = true;
 
-	/* Present into compositor framebuffer texture path (host expand on next Present) */
+	/* Present into compositor-owned framebuffer texture (same contract as
+	 * Metal): DSp expands guest pixels into s_fb_tex; Present samples that
+	 * texture without a host-buffer re-upload while DSp owns the display. */
 	void *fb = MetalCompositorGetFramebufferTexture();
+	if (!fb) return kDSpInternalErr;
 	DSpEncodePresentToFramebuffer(ctx, nullptr, fb);
+
+	/* Engine-blind SubmitFrame (descriptor validation + stale-gen reject).
+	 * Production Present composites s_fb_tex as the classic layer; the
+	 * framebuffer slot is recorded for occlusion/diagnostics parity. */
+	struct CompositeLayer layer;
+	std::memset(&layer, 0, sizeof(layer));
+	layer.source       = fb;
+	layer.src_origin_x = 0;
+	layer.src_origin_y = 0;
+	layer.src_size_w   = ctx->attr.displayWidth;
+	layer.src_size_h   = ctx->attr.displayHeight;
+	layer.dst_origin_x = 0.0f;
+	layer.dst_origin_y = 0.0f;
+	layer.dst_size_w   = (float)ctx->attr.displayWidth;
+	layer.dst_size_h   = (float)ctx->attr.displayHeight;
+	layer.slot         = kLayerSlotFramebuffer;
+	layer.blend        = kBlendOpaque;
+	layer.alpha        = 1.0f;
+
+	const struct DMCModeSnapshot *snap = dmc_current_snapshot();
+	struct FrameDescriptor desc;
+	desc.layers               = &layer;
+	desc.layer_count          = 1;
+	desc.generation           = snap ? snap->generation : 0;
+	desc.vbl_tick_target_usec = 0;
+	(void)MetalCompositorSubmitFrame(&desc);
 	return kDSpNoErr;
 }
+
 /* RsrcLocksDumpOnCrash now has a real implementation in rsrc_patches.cpp
  * (DII 'nift' CFM monitor); the placeholder stub was removed to avoid LNK2005. */
-extern "C" void DSpVBLCompositorPublishCallback(void *, void *, double) {}
+
+/*
+ * VBL-driven auto-publish (desktop GL twin of dsp_metal_renderer.mm).
+ * Classic DSp apps that Reserve + draw via the main port without
+ * SwapBuffers still need pixels on screen each VBL. The previous empty
+ * stub left s_fb_tex black after MetalCompositor_OnModeEnter Resize
+ * (buffer=NULL) wiped the host pointer.
+ */
+extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
+                                                void *drawable,
+                                                double ts)
+{
+	(void)cb_ctx; (void)drawable; (void)ts;
+
+	const DMCModeSnapshot *snap = dmc_current_snapshot();
+	if (snap == nullptr || snap->transitioning != 0)
+		return;
+
+	DSpContextPrivate *active = nullptr;
+	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
+		DSpContextPrivate *ctx = DSpGetContext(i + 1);
+		if (ctx == nullptr) continue;
+		if (ctx->state != (uint32_t)kDSpContextState_Active) continue;
+		if (ctx->back_buffer == nullptr) continue;
+		active = ctx;
+		break;
+	}
+	if (active == nullptr) return;
+
+	const bool present_front_staging =
+	    DSpShouldPresentFrontBufferStagingForState(
+	        active->attr.backBufferBestDepth,
+	        active->attr.displayBestDepth,
+	        active->front_staging_mac_addr,
+	        active->front_staging_size,
+	        active->state,
+	        (uint32_t)kDSpContextState_Active);
+	if (!DSpShouldPublishActiveContextOnVBL(snap->active_owner,
+	                                        (uint32_t)kDMCOwnerDSp,
+	                                        active != nullptr,
+	                                        present_front_staging,
+	                                        active->explicit_swap_observed)) {
+		return;
+	}
+
+	/* Drain guest staging → host back_buffer before expand/upload. */
+	if (active->staging_mac_addr != 0 && active->staging_size != 0) {
+		const uint32_t w = DSpContextBackBufferWidth(active);
+		const uint32_t h = DSpContextBackBufferHeight(active);
+		const uint32_t row = DSpBackBufferAlignedRowBytes(
+			w, active->attr.backBufferBestDepth);
+		const uint64_t expected64 = (uint64_t)row * h;
+		const uint32_t expected = expected64 <= UINT32_MAX
+			? (uint32_t)expected64 : 0;
+		uint8_t *src = Mac2HostAddr(active->staging_mac_addr);
+		const uint32_t copy_size = expected
+			? std::min(expected, active->staging_size) : 0;
+		if (src && copy_size && active->back_buffer)
+			std::memcpy(active->back_buffer, src, copy_size);
+	}
+
+	void *fb = MetalCompositorGetFramebufferTexture();
+	if (!fb || !SharedMetalDevice()) return;
+
+	bool front_presented = false;
+	if (present_front_staging) {
+		front_presented =
+		    DSpEncodeFrontBufferStagingToFramebuffer(active, nullptr, fb);
+	}
+	if (!front_presented)
+		DSpEncodePresentToFramebuffer(active, nullptr, fb);
+
+	struct CompositeLayer layer;
+	std::memset(&layer, 0, sizeof(layer));
+	layer.source       = fb;
+	layer.src_origin_x = 0;
+	layer.src_origin_y = 0;
+	layer.src_size_w   = active->attr.displayWidth;
+	layer.src_size_h   = active->attr.displayHeight;
+	layer.dst_origin_x = 0.0f;
+	layer.dst_origin_y = 0.0f;
+	layer.dst_size_w   = (float)active->attr.displayWidth;
+	layer.dst_size_h   = (float)active->attr.displayHeight;
+	layer.slot         = kLayerSlotFramebuffer;
+	layer.blend        = kBlendOpaque;
+	layer.alpha        = 1.0f;
+
+	struct FrameDescriptor desc;
+	desc.layers               = &layer;
+	desc.layer_count          = 1;
+	desc.generation           = snap->generation;
+	desc.vbl_tick_target_usec = 0;
+	(void)MetalCompositorSubmitFrame(&desc);
+}
+
 void* DSpGetBackingContents(void* backing)
 {
 	return backing;

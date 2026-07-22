@@ -1378,7 +1378,8 @@ void MetalCompositorPresent(void)
             uint32_t owner = snap->active_owner;
             if (owner != (uint32_t)kDMCOwnerQuickDraw &&
                 owner != (uint32_t)kDMCOwnerRAVE &&
-                owner != (uint32_t)kDMCOwnerGL) {
+                owner != (uint32_t)kDMCOwnerGL &&
+                owner != (uint32_t)kDMCOwnerGlide) {
                 skip_cpu_upload = true;
             }
         }
