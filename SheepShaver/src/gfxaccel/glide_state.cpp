@@ -63,7 +63,7 @@ struct GlideState {
 
 	int      clip_minx, clip_miny, clip_maxx, clip_maxy;
 
-	/* Official GR_PARAM_* are small, but Mac D2 uses 0x30/0x40/0x50 — need 256. */
+	/* Official GR_PARAM_* are small, but Mac D2 uses 0x30/0x40/0x50 - need 256. */
 	GlideVertexAttrib vlayout[256];
 	int      coord_system;
 	int      vertex_stride; /* inferred max(offset)+size, or set by draw */
@@ -428,7 +428,7 @@ int GlideTexBpp(int format)
 
 void GlideTexLodDims(int lod, int aspect_log2, int *out_w, int *out_h)
 {
-	/* largeLodLog2=8 → 256, aspect 0 = 1:1. aspect_log2 >0 wider, <0 taller. */
+	/* largeLodLog2=8 -> 256, aspect 0 = 1:1. aspect_log2 >0 wider, <0 taller. */
 	int base = 1 << (lod < 0 ? 0 : (lod > 11 ? 11 : lod));
 	int w = base, h = base;
 	if (aspect_log2 > 0) {
@@ -540,7 +540,7 @@ void GlideStateResolveResolution(int res_enum, int *out_w, int *out_h)
 
 /* ---- Linear frame buffer (grLfbLock) ---------------------------------- */
 
-/* Glide writeMode → bytes/pixel. 0 = 565 is the D2 path (log r5=0). */
+/* Glide writeMode -> bytes/pixel. 0 = 565 is the D2 path (log r5=0). */
 static int glide_lfb_bpp_for_mode(int write_mode)
 {
 	switch (write_mode) {
@@ -556,7 +556,7 @@ static int glide_lfb_bpp_for_mode(int write_mode)
 	case 4:  /* 8888 */
 	case 8:  /* 888_DEPTH? rare */
 		return 4;
-	case 0xff: /* ANY — pick 565 for Voodoo-class */
+	case 0xff: /* ANY - pick 565 for Voodoo-class */
 		return 2;
 	default:
 		return 2;
@@ -688,7 +688,7 @@ const uint8_t *GlideStateLfbConvertToBGRA(int *out_w, int *out_h, int *out_pitch
 	const int mode = g_glide.lfb_write_mode;
 
 	/* Guest LFB is top-down. Overlay slot samples t=1 at screen top (RAVE
-	 * FBO convention), while glTexSubImage row0 is t≈0 — flip so movies
+	 * FBO convention), while glTexSubImage row0 is t~=0 - flip so movies
 	 * are right-side up. */
 	for (int y = 0; y < h; y++) {
 		const uint8_t *row = src + (size_t)y * stride;
@@ -722,7 +722,7 @@ const uint8_t *GlideStateLfbConvertToBGRA(int *out_w, int *out_h, int *out_pitch
 				drow += 4;
 			}
 		} else {
-			/* 8888 packed: treat guest big-endian ARGB words → BGRA. */
+			/* 8888 packed: treat guest big-endian ARGB words -> BGRA. */
 			for (int x = 0; x < w; x++) {
 				const uint32_t p = ((uint32_t)row[0] << 24) | ((uint32_t)row[1] << 16) |
 				                   ((uint32_t)row[2] << 8) | (uint32_t)row[3];
@@ -750,7 +750,7 @@ void GlideStateLfbClear(uint16_t color565)
 	uint8_t *host = Mac2HostAddr(g_glide.lfb_guest_ptr);
 	if (!host) return;
 	const int bpp = g_glide.lfb_bpp > 0 ? g_glide.lfb_bpp : 2;
-	/* Never use window width alone — after 640→800 reswitch, stride/rows
+	/* Never use window width alone - after 640->800 reswitch, stride/rows
 	 * may still describe the old buffer; overflowing corrupts guest heap. */
 	const int max_w = (int)(g_glide.lfb_stride / (uint32_t)bpp);
 	const int w = (g_glide.width > 0 && g_glide.width < max_w) ? g_glide.width : max_w;

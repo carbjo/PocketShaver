@@ -331,7 +331,7 @@ static bool classic_cpu_upload_allowed(void)
 	const DMCModeSnapshot *snap = dmc_current_snapshot();
 	if (snap != nullptr) {
 		const uint32_t owner = snap->active_owner;
-		/* Metal: skip CPU upload only for non-underlay owners (DSp, blanking…).
+		/* Metal: skip CPU upload only for non-underlay owners (DSp, blanking&).
 		 * Overlay engines (RAVE/GL/Glide) keep the classic base. */
 		if (owner != (uint32_t)kDMCOwnerQuickDraw &&
 		    owner != (uint32_t)kDMCOwnerRAVE &&
@@ -938,7 +938,7 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 	compositor_bits_per_pixel = depth_to_bpp_bits(depth);
 
 	ensure_identity_gamma();
-	/* Identity-ish CLUT: index 0 black (NOT white — zeroed 8bpp staging
+	/* Identity-ish CLUT: index 0 black (NOT white - zeroed 8bpp staging
 	 * expands to solid white if palette[0] is white, which is what D2's
 	 * post-movie underlay looked like). */
 	std::memset(s_palette, 0, sizeof(s_palette));
@@ -986,7 +986,7 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
 {
 	/* ALWAYS store the CLUT for CPU expand of DSp 8bpp underlays.
 	 * Compositor FB is often VIDEO_DEPTH_32BIT (BGRA normalized) even when
-	 * the DSp context is 8bpp — ignoring the CLUT then leaves palette[0]
+	 * the DSp context is 8bpp - ignoring the CLUT then leaves palette[0]
 	 * wrong and zeroed staging draws as solid white/black. We still skip
 	 * only the GPU indexed-texture path when bpp>8; storage is always kept. */
 	if (!pal || num_colors <= 0) return;
@@ -1073,7 +1073,7 @@ void MetalCompositorPresent(void)
 	 * has already returned ownership to QuickDraw without OnModeEnter restore
 	 * (see dual-context handoff in DSpContext_SetStateHandler). Must run
 	 * before the cadence gate so the first recovered frame is drawn.
-	 * Only the stashed *classic* desktop surface is restored — never a freed
+	 * Only the stashed *classic* desktop surface is restored - never a freed
 	 * DSp heap (Metal: QD snapshot screen_base_host only). */
 	{
 		const DMCModeSnapshot *snap = dmc_current_snapshot();
@@ -1150,7 +1150,7 @@ void MetalCompositorPresent(void)
 	 * movies; otherwise update the already-allocated texture in place.
 	 *
 	 * When DSp owns the FB, s_fb_tex is written by DSpEncode*ToFramebuffer
-	 * (and VBL publish). Keep sampling it without a host-buffer re-upload —
+	 * (and VBL publish). Keep sampling it without a host-buffer re-upload -
 	 * OnModeEnter Resize passes buffer=NULL for DSp, and expand-from-null
 	 * would paint solid black over the DSp pixels every present. */
 	const bool classic_occluded =

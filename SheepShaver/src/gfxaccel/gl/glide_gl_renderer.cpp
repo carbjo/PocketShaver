@@ -45,7 +45,7 @@ static uint32_t s_w = 0, s_h = 0;
 static uint32_t s_write = 0;
 static bool s_ready = false;
 static bool s_in_frame = false;
-/* False until LFB unlock / real draw — avoids painting opaque black over
+/* False until LFB unlock / real draw - avoids painting opaque black over
  * the DSp underlay during menu load (black screen after movies). */
 static bool s_has_content = false;
 
@@ -324,7 +324,7 @@ void GlideGLApplyState(void)
 	            GlideStateColorMaskG() ? GL_TRUE : GL_FALSE,
 	            GlideStateColorMaskB() ? GL_TRUE : GL_FALSE,
 	            GlideStateColorMaskA() ? GL_TRUE : GL_FALSE);
-	/* Clip window → scissor in window coords (origin upper-left). */
+	/* Clip window -> scissor in window coords (origin upper-left). */
 	{
 		const int minx = GlideStateClipMinX();
 		const int miny = GlideStateClipMinY();
@@ -403,13 +403,13 @@ void GlideGLSetDepthBias(float bias)
 
 void GlideGLSplash(void)
 {
-	/* Classic Glide splash — solid color flash so titles that call it
+	/* Classic Glide splash - solid color flash so titles that call it
 	 * get a visible frame rather than a silent no-op. */
 	if (!bind_draw_fbo()) return;
 	glClearColor(0.1f, 0.15f, 0.35f, 1.f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	s_has_content = true;
-	/* Splash is a one-shot visible frame — Present is intentional. */
+	/* Splash is a one-shot visible frame - Present is intentional. */
 	glide_submit_overlay(/*do_present=*/1);
 }
 
@@ -440,7 +440,7 @@ void GlideGLShutdown(void)
 
 /* Drive DMC to whatever resolution this WinOpen requested. Glide titles
  * (D2 included) legitimately switch 640x480 <-> 800x600 (and others) for
- * movies vs menus vs gameplay — never assume a fixed "intro" size. */
+ * movies vs menus vs gameplay - never assume a fixed "intro" size. */
 static void glide_sync_dmc_to_window(int width, int height)
 {
 	if (width <= 0 || height <= 0)
@@ -502,9 +502,9 @@ int GlideGLWinOpen(int width, int height, int origin_upper_left)
 	s_in_frame = false;
 	s_has_content = false;
 
-	/* Match host display mode to THIS open (movies 640, menu 800, …). */
+	/* Match host display mode to THIS open (movies 640, menu 800, &). */
 	glide_sync_dmc_to_window(width, height);
-	/* Show the cleared Glide buffer immediately (black), owned by Glide —
+	/* Show the cleared Glide buffer immediately (black), owned by Glide -
 	 * leaving DSp underlay with a missing CLUT produced a solid WHITE
 	 * screen. Movies then overwrite via LFB; menu draws via LFB/GL.
 	 * One Present on open is intentional (mode switch); later swaps/clears
@@ -521,7 +521,7 @@ void GlideGLWinClose(void)
 {
 	/*
 	 * Keep free-run VBL alive across WinClose. D2 spams grSstWinClose then
-	 * re-inits/opens (movie 640 → menu 800). Killing free-run here drops the
+	 * re-inits/opens (movie 640 -> menu 800). Killing free-run here drops the
 	 * extra VIA cadence during that handoff; Mac 60Hz still ticks from the
 	 * host tick thread, but Glide-owned sessions should not tear down VBL
 	 * until grGlideShutdown. Overlay is released; next WinOpen rebuilds it.
@@ -530,7 +530,7 @@ void GlideGLWinClose(void)
 		release_overlay();
 	s_in_frame = false;
 	s_has_content = false;
-	/* Do not force QuickDraw owner here — DSp SetState / the next WinOpen
+	/* Do not force QuickDraw owner here - DSp SetState / the next WinOpen
 	 * owns the handoff. Forcing QD on every spam-close caused thrash. */
 }
 
@@ -740,7 +740,7 @@ void GlideGLDrawVertexArrayContiguous(uint32_t mode, uint32_t count,
 
 /*
  * Publish the Glide color buffer into the compositor overlay mailbox.
- * do_present=0: SubmitFrame only — VideoVBL/free-run owns Present so we
+ * do_present=0: SubmitFrame only - VideoVBL/free-run owns Present so we
  * never nest guest VBL (call_macos) inside NATIVE_GLIDE_DISPATCH.
  * do_present=1: also Present (WinOpen first black frame, LFB unlock).
  */
@@ -764,7 +764,7 @@ static void glide_submit_overlay(int do_present)
 		dst_h = (float)snap->height;
 		static uint32_t s_mismatch_log = 0;
 		if (s_mismatch_log++ < 8)
-			QD3D_INIT_LOG("Glide submit: DMC %ux%u != glide %ux%u — fill-scale fallback",
+			QD3D_INIT_LOG("Glide submit: DMC %ux%u != glide %ux%u - fill-scale fallback",
 			              snap->width, snap->height, s_w, s_h);
 	}
 
@@ -950,7 +950,7 @@ static void glide_decode_tex_level(const uint8_t *src, int w, int h, int format,
 		if (bpp == 1) {
 			const uint8_t p = *s++;
 			if (format == 0x05 || format == 0x08) {
-				/* P_8 palette index — palette is guest ARGB words we stored LE host */
+				/* P_8 palette index - palette is guest ARGB words we stored LE host */
 				const uint32_t c = pal ? pal[p] : 0xffffffffu;
 				A = (uint8_t)((c >> 24) & 0xff);
 				R = (uint8_t)((c >> 16) & 0xff);
@@ -1195,7 +1195,7 @@ void GlideGLTexDownloadTable(int type, const void *data)
 			         ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 			p += 4;
 		}
-		/* Store on state via re-export — write through palette setter. */
+		/* Store on state via re-export - write through palette setter. */
 		const uint32_t *old_palette = GlideStateTexPalette();
 		const bool changed = old_palette == nullptr ||
 			std::memcmp(old_palette, pal, sizeof(pal)) != 0;

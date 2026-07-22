@@ -1513,7 +1513,7 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		gpr(3) = (uint32)-1;
 		break;
 #else
-		/* Pass r3–r10: grTexDownloadMipMapLevel needs evenOdd/data in r9/r10.
+		/* Pass r3-r10: grTexDownloadMipMapLevel needs evenOdd/data in r9/r10.
 		 * r1=SP for 9th+ stack args (e.g. grLfbWriteRegion src_data). */
 		uint32 saved_lr = lr();
 		uint32 saved_ctr = ctr();

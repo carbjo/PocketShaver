@@ -151,7 +151,7 @@ enum {
 	kGlide_grLfbWriteColorFormat       = 406,
 	kGlide_grLfbWriteColorSwizzle      = 407,
 
-	/* CFM gate hooks (InterfaceLib) — intercept guest Glide loads.
+	/* CFM gate hooks (InterfaceLib) - intercept guest Glide loads.
 	 * Synthetic conn IDs are unknown to the real CFM manager, so we must
 	 * also handle CountSymbols / GetIndSymbol / CloseConnection or the
 	 * guest crashes when it probes the connection after FindSymbol. */
@@ -219,7 +219,7 @@ enum {
 };
 
 /*
- * grGet / grGetString tokens — official Glide 3 (3Dfx glide.h GLIDE3 block).
+ * grGet / grGetString tokens - official Glide 3 (3Dfx glide.h GLIDE3 block).
  * Earlier shifted values were wrong and broke D2 setup (notably 0x24 is
  * GR_TEXTURE_ALIGN); 0xa0 is the first grGetString token.
  */
@@ -284,7 +284,7 @@ void GlideForceReinstallHooks(void);
 bool GlideRegisterCfmLibraries(void);
 
 /* Dispatch: called from sheepshaver_glue NATIVE_GLIDE_DISPATCH.
- * r3–r10 = first 8 integer args; sp = guest r1 for 9th+ stack args. */
+ * r3-r10 = first 8 integer args; sp = guest r1 for 9th+ stack args. */
 uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
                        uint32_t r6, uint32_t r7, uint32_t r8,
                        uint32_t r9, uint32_t r10, uint32_t sp);
@@ -334,7 +334,7 @@ void GlideGLSetAlphaTest(int enabled, int func, float ref);
 void GlideGLSetChromakey(void);
 void GlideGLSetFog(int mode, uint32_t color);
 void GlideGLSetDepthBias(float bias);
-/* Mark that the overlay has real pixels (LFB / draws) — enables present. */
+/* Mark that the overlay has real pixels (LFB / draws) - enables present. */
 void GlideGLMarkContent(void);
 void GlideGLSplash(void);
 void GlideGLFinish(void);

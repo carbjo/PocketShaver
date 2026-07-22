@@ -258,7 +258,7 @@ static uint32_t handle_grGetString(uint32_t pname)
 		if (p) memcpy(p, text, n);
 		return slot;
 	};
-	/* Official grGetString tokens are 0xa0–0xa4. */
+	/* Official grGetString tokens are 0xa0-0xa4. */
 	switch (pname) {
 	case GR_EXTENSION:
 		return ensure(s_ext, "DEVICE ");
@@ -341,7 +341,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	++s_call_n;
 	s_call_n_global = s_call_n;
 	s_last_sub = sub;
-	/* Record history (including hot paths — hang diagnosis needs them). */
+	/* Record history (including hot paths - hang diagnosis needs them). */
 	{
 		GlideCallRec &c = s_glide_hist[s_glide_hist_i];
 		c.n = s_call_n; c.sub = sub;
@@ -382,7 +382,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		glide_log("GlideENTER #%llu sub=%u r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x",
 		          (unsigned long long)s_call_n, sub, r3, r4, r5, r6, r7, r8, r9, r10);
 
-	/* RAII exit log — if the log freezes mid-call, ENTER was last without EXIT. */
+	/* RAII exit log - if the log freezes mid-call, ENTER was last without EXIT. */
 	struct GlideExitLog {
 		uint64_t n;
 		uint32_t sub;
@@ -400,7 +400,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		GlideStateResetDefaults();
 		GlideStateSetInited(true);
 		GlideGLInit();
-		/* Re-smash exports — grGlideInit / library reload can restore stock
+		/* Re-smash exports - grGlideInit / library reload can restore stock
 		 * TVECTs and leave wait paths spinning in PEF hardware stubs. */
 		extern void GlideForceReinstallHooks(void);
 		GlideForceReinstallHooks();
@@ -460,12 +460,12 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const int cfmt = (int)r6;
 		const int org = (int)r7;
 		const int nCol = (int)r8;
-		/* nAux is stack arg on PPC when > 8 words — default 1 if missing. */
+		/* nAux is stack arg on PPC when > 8 words - default 1 if missing. */
 		int nAux = 1;
 		int w = 640, h = 480;
 		GlideStateResolveResolution(res, &w, &h);
 		const int origin_ul = (org == GR_ORIGIN_UPPER_LEFT) ? 1 : 0;
-		/* Drop any stale lock from a prior mode (movies → menu). */
+		/* Drop any stale lock from a prior mode (movies -> menu). */
 		if (GlideStateLfbIsLocked())
 			(void)GlideStateLfbUnlock(0);
 		if (GlideGLWinOpen(w, h, origin_ul) != 0) {
@@ -480,7 +480,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	}
 
 	case kGlide_grSstWinClose: {
-		/* D2 spams WinClose on teardown — ignore when already closed. */
+		/* D2 spams WinClose on teardown - ignore when already closed. */
 		static uint32_t s_close_n = 0;
 		if (!GlideStateWindowOpen())
 			return 0;
@@ -489,8 +489,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 			(void)GlideStateLfbUnlock(0);
 		GlideGLWinClose();
 		GlideStateSetWindowOpen(false);
-		/* Keep LFB alloc across close/reopen (mode switch 640→800); free on shutdown.
-		 * Leave DMC owner alone — next DSp SetState / WinOpen owns the handoff. */
+		/* Keep LFB alloc across close/reopen (mode switch 640->800); free on shutdown.
+		 * Leave DMC owner alone - next DSp SetState / WinOpen owns the handoff. */
 		if (s_close_n <= 4 || (s_close_n & (s_close_n - 1)) == 0)
 			glide_log("grSstWinClose (#%u)", (unsigned)s_close_n);
 		return 0;
@@ -514,7 +514,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		return 0;
 	case kGlide_grSstVRetraceOn: {
 		/*
-		 * D2 PEF may not even export this (FindLibSymbol=0) — still implement
+		 * D2 PEF may not even export this (FindLibSymbol=0) - still implement
 		 * for GetProcAddress / future PEFs. Toggle every call AND time-based
 		 * so while(grSstVRetraceOn()) / while(!...) cannot stick forever.
 		 */
@@ -554,7 +554,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	case kGlide_grBufferClear: {
 		/* void grBufferClear(GrColor_t color, GrAlpha_t alpha, FxU32 depth) */
 		glide_log("grBufferClear begin color=%08x", r3);
-		/* Clear back buffer only — real Glide does not display on clear. */
+		/* Clear back buffer only - real Glide does not display on clear. */
 		GlideGLBufferClear(r3, r4, r5);
 		(void)dmc_set_active_owner(kDMCOwnerGlide);
 		glide_log("grBufferClear done");
@@ -736,10 +736,10 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		GlideGLSetFog((int)r3, GlideStateFogColor());
 		return 0;
 	case kGlide_grFogTable:
-		/* void grFogTable(const GrFog_t table[GR_FOG_TABLE_SIZE]) — accept. */
+		/* void grFogTable(const GrFog_t table[GR_FOG_TABLE_SIZE]) - accept. */
 		return 0;
 	case kGlide_grGammaCorrectionValue: {
-		/* float gamma — accept. */
+		/* float gamma - accept. */
 		return 0;
 	}
 	case kGlide_grHints:
@@ -793,7 +793,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		return 0;
 	case kGlide_grTexCombine:
 		/* void grTexCombine(tmu, rgb_func, rgb_factor, alpha_func, alpha_factor,
-		 *                   rgb_invert, alpha_invert) — store rgb/alpha funcs. */
+		 *                   rgb_invert, alpha_invert) - store rgb/alpha funcs. */
 		GlideStateSetTexCombine((int)r4, (int)r6);
 		return 0;
 	case kGlide_grTexDetailControl:
@@ -822,7 +822,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const uint32_t data_mac = ReadMacInt32(info + 16);
 		const uint8_t *data = data_mac ? Mac2HostAddr(data_mac) : nullptr;
 		if (!data) return 0;
-		/* Download each LOD from large→small; data packs levels sequentially. */
+		/* Download each LOD from large->small; data packs levels sequentially. */
 		uint32_t addr = start;
 		const uint8_t *p = data;
 		const int lo = small_lod < large_lod ? small_lod : large_lod;
@@ -840,7 +840,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		/* void grTexDownloadMipMapLevel(GrChipID_t tmu, FxU32 startAddress,
 		 *   GrLOD_t thisLod, GrLOD_t largeLod, GrAspectRatio_t aspect,
 		 *   GrTextureFormat_t format, FxU32 evenOdd, void *data)
-		 * PPC: r3..r10 — evenOdd=r9, data=r10. Partial has more stack args;
+		 * PPC: r3..r10 - evenOdd=r9, data=r10. Partial has more stack args;
 		 * we treat as full level download. */
 		const uint32_t start = r4;
 		const int this_lod = (int)r5;
@@ -863,7 +863,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	case kGlide_grTexDownloadTablePartial: {
 		/* Glide2: grTexDownloadTable(type, data)
 		 * Glide3: grTexDownloadTable(tmu, type, data)
-		 * Log shows r3=2 (palette type) with data in r4 — Glide2 style. */
+		 * Log shows r3=2 (palette type) with data in r4 - Glide2 style. */
 		int type = (int)r3;
 		uint32_t data_mac = r4;
 		if (r3 <= 1 && r4 <= 0x10) {
@@ -910,7 +910,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 			{ "grChromakeyMode", kGlide_grChromakeyMode },
 			{ "grChromakeyValue", kGlide_grChromakeyValue },
 			{ "grDitherMode", kGlide_grDitherMode },
-			/* Wait/sync — often missing as PEF exports; offer via GetProcAddress. */
+			/* Wait/sync - often missing as PEF exports; offer via GetProcAddress. */
 			{ "grSstVRetraceOn", kGlide_grSstVRetraceOn },
 			{ "grSstVideoLine", kGlide_grSstVideoLine },
 			{ "grSstIsBusy", kGlide_grSstIsBusy },
@@ -929,7 +929,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 				 * Return the TVECT (CFM ProcPtr), not raw code. Mac callers
 				 * do lwz r0,0(r3); mtctr; bctrl. Returning code would break
 				 * that. Raw-code callers that bctr to the TVECT itself hit
-				 * illegal opcodes — execute_illegal now recovers via LR.
+				 * illegal opcodes - execute_illegal now recovers via LR.
 				 */
 				uint32_t tv = glide_method_tvects[kExt[i].sub];
 				glide_log("grGetProcAddress('%s') -> tvect=0x%08x code=0x%08x",
@@ -963,7 +963,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	}
 	case kGlide_guGammaCorrectionRGB:
 		/* void guGammaCorrectionRGB(float r, float g, float b);
-		 * PPC Mac: floats in f1–f3 (we don't read FPRs here). No-op is fine —
+		 * PPC Mac: floats in f1-f3 (we don't read FPRs here). No-op is fine -
 		 * D2 calls this after the first menu BufferSwap; we must not hang. */
 		glide_log("guGammaCorrectionRGB (no-op)");
 		return 0;
@@ -971,7 +971,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		return 0;
 	case kGlide_grEnable:
 	case kGlide_grDisable:
-		/* Combinatorial enable bits — state recorded via specific setters. */
+		/* Combinatorial enable bits - state recorded via specific setters. */
 		return 0;
 	case kGlide_grCoordinateSystem:
 		GlideStateSetCoordSystem((int)r3);
@@ -1016,7 +1016,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	case kGlide_grGlideSetState:
 	case kGlide_grGlideGetVertexLayout:
 	case kGlide_grGlideSetVertexLayout:
-		/* Opaque state blobs — accept without faulting. */
+		/* Opaque state blobs - accept without faulting. */
 		return 0;
 	case kGlide_grFinish:
 	case kGlide_grFlush:
@@ -1034,7 +1034,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const int writeMode = (int)r5;
 		const int origin = (int)r6;
 		const uint32_t info = r8; /* 6th arg */
-		(void)r7; /* pixelPipeline — ignore for software LFB */
+		(void)r7; /* pixelPipeline - ignore for software LFB */
 
 		uint32_t lfbPtr = 0, stride = 0;
 		int resolvedMode = writeMode;
@@ -1078,7 +1078,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		if (!GlideStateLfbUnlock(buffer))
 			return FXFALSE;
 
-		/* On write unlock: convert 565/etc → BGRA, upload overlay, present.
+		/* On write unlock: convert 565/etc -> BGRA, upload overlay, present.
 		 * Front-buffer locks present immediately; back-buffer also present
 		 * so D2 soft-blit paths that skip BufferSwap still show pixels. */
 		if (was_write) {

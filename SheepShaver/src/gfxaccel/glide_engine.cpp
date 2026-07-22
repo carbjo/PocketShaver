@@ -55,7 +55,7 @@ static const GlideInstallSymbol glide_symbols[] = {
 	{ "\013grSstStatus",              kGlide_grSstStatus,              "grSstStatus" },
 	{ "\017grSstVRetraceOn",          kGlide_grSstVRetraceOn,          "grSstVRetraceOn" },
 	/* Alternate export spellings seen on some Mac 3Dfx builds.
-	 * grSstVRetrace is 13 chars — was wrongly \016 (14) so FindLibSymbol never hit. */
+	 * grSstVRetrace is 13 chars - was wrongly \016 (14) so FindLibSymbol never hit. */
 	{ "\015grSstVRetrace",            kGlide_grSstVRetraceOn,          "grSstVRetrace" },
 	{ "\016grSstVideoLine",           kGlide_grSstVideoLine,           "grSstVideoLine" },
 	{ "\015grBufferClear",            kGlide_grBufferClear,            "grBufferClear" },
@@ -109,10 +109,10 @@ static const GlideInstallSymbol glide_symbols[] = {
 	{ "\013grLfbUnlock",              kGlide_grLfbUnlock,              "grLfbUnlock" },
 	{ "\017grLfbReadRegion",          kGlide_grLfbReadRegion,          "grLfbReadRegion" },
 	{ "\020grLfbWriteRegion",         kGlide_grLfbWriteRegion,         "grLfbWriteRegion" },
-	/* "guGammaCorrectionRGB" is 20 chars; was wrongly \023 (19) — MISMATCH
+	/* "guGammaCorrectionRGB" is 20 chars; was wrongly \023 (19) - MISMATCH
 	 * meant FindLibSymbol never resolved it and stock PEF could spin on HW. */
 	{ "\024guGammaCorrectionRGB",     kGlide_guGammaCorrectionRGB,     "guGammaCorrectionRGB" },
-	/* Extra wait/status aliases — grSstBusy is 9 chars; was wrongly \014 (12). */
+	/* Extra wait/status aliases - grSstBusy is 9 chars; was wrongly \014 (12). */
 	{ "\011grSstBusy",                kGlide_grSstIsBusy,              "grSstBusy" },
 };
 static const int num_glide_symbols =
@@ -120,8 +120,8 @@ static const int num_glide_symbols =
 
 /* Guest CFM fragment name candidates (Pascal). D2 PEF-imports 3DfxGlideLib3.x. */
 static const char *const kGlideLibCandidates[] = {
-	"\0173DfxGlideLib3.x",   /* 15 — D2 import / real cfrg name */
-	"\0203dfx GlideLib3.x",  /* 16 — file name with space */
+	"\0173DfxGlideLib3.x",   /* 15 - D2 import / real cfrg name */
+	"\0203dfx GlideLib3.x",  /* 16 - file name with space */
 	"\007Glide3x",
 	"\0173DfxGlideLib2.x",
 	"\0203dfx GlideLib2.x",
@@ -136,7 +136,7 @@ static const int kGlideLibCandidateCount =
  *   overwrite first 4 PPC instructions at the export's code with a branch
  *   into our native thunk. CFM callers load code from the TVECT; some paths
  *   also cache/use the code pointer. TVECT-only rewrite produced zero runtime
- *   GlideDispatch (D2 still ran stock entry points) — code smash is required.
+ *   GlideDispatch (D2 still ran stock entry points) - code smash is required.
  *
  * Also rewrite TVECT[0] so any TVECT that still pointed at the old entry is
  * consistent if something reloads it.
@@ -257,7 +257,7 @@ void GlideInstallHooks(void)
 
 			uint32_t tvect = FindLibSymbol(glide_lib, psym);
 			/* If table length byte was wrong, rebuild a correct Pascal name from
-			 * the C name and retry — wrong length = silent miss + stock HW spin. */
+			 * the C name and retry - wrong length = silent miss + stock HW spin. */
 			char fixed_psym[64];
 			if (tvect == 0 && name_len > 0 && name_len < 63) {
 				fixed_psym[0] = (char)name_len;
@@ -368,7 +368,7 @@ void GlideForceReinstallHooks(void)
 uint32_t GlideResolveSyntheticSymbol(const char * /*lib_pascal*/,
                                      const char * /*sym_pascal*/)
 {
-	/* Do not fake FindLibSymbol success — that hid real CFM failures. */
+	/* Do not fake FindLibSymbol success - that hid real CFM failures. */
 	return 0;
 }
 

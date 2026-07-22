@@ -23,7 +23,7 @@
 ## Diablo II
 
 - **Primary 3D path: Glide 3.0** (pref `glideaccel`, default on). **Identical model to DSpInstallHooks**:
-  - Guest already has the Glide CFM extension (`3DfxGlideLib3.x` / etc. in Extensions). Host `3dfx GlideLib*.bin` files are for **offline analysis only** — never loaded into the emulator.
+  - Guest already has the Glide CFM extension (`3DfxGlideLib3.x` / etc. in Extensions). Host `3dfx GlideLib*.bin` files are for **offline analysis only** - never loaded into the emulator.
   - `GlideInstallHooks`: candidate `FindLibSymbol` for the library, resolve each export, 4-instruction PPC branch into native TVECTs (we **are** Glide; stock driver not run).
   - No `GetMemFragment`, no synthetic CFM connection, no Extensions install.
 
@@ -33,11 +33,11 @@
 
 - Software: Crash on game launch
 
-- Black screen on "Rescan Monitors" in configuration — fixed on GL by matching Metal `UpdatePalette` (ignore non-indexed) + DSp OnModeEnter NULL-buffer Resize without classic 8bpp wipe
+- Black screen on "Rescan Monitors" in configuration - fixed on GL by matching Metal `UpdatePalette` (ignore non-indexed) + DSp OnModeEnter NULL-buffer Resize without classic 8bpp wipe
 
 - There are brief blue screens with artifacts after each opening movie
 
-### GL ↔ Metal compositor parity (desktop)
+### GL <-> Metal compositor parity (desktop)
 
 Intentional GL deltas vs Metal are only where the API forces them (CPU expand vs GPU blit, shared GL context with RAVE/Glide). Behavioral contracts:
 

@@ -204,7 +204,7 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx);
 #ifndef DSP_MAX_CONTEXTS
 #define DSP_MAX_CONTEXTS             8
 #endif
-#define DSP_RELEASE_QUEUE_CAPACITY  16   /* 8 contexts × 2 pending cycles */
+#define DSP_RELEASE_QUEUE_CAPACITY  16   /* 8 contexts x 2 pending cycles */
 
 /* Clamp duration_vbls to this maximum to
  * protect ctx->fade_state.elapsed_vbls (uint16_t) against overflow on
@@ -914,8 +914,8 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
  *  invocation is itself on the emul thread; call_macos3 blocks the
  *  emul thread on PPC execution until the user VBLProc returns. Total
  *  time budget: < 1 ms aggregate across all contexts
- *  (4 contexts × ~250 µs per VBLProc). If any single VBLProc exceeds
- *  250 µs, DSP_LOG warns (post-call wall-time check) but the callback
+ *  (4 contexts x ~250 ?s per VBLProc). If any single VBLProc exceeds
+ *  250 ?s, DSP_LOG warns (post-call wall-time check) but the callback
  *  does NOT early-exit - all registered VBLProcs must fire every VBL
  *  per DSp 1.7 semantics. Caller is responsible for keeping VBLProcs
  *  short (documented game-author contract).
@@ -3401,8 +3401,8 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	 *  UIApplication.shared.isIdleTimerDisabled on the main thread.
 	 *
 	 *  Edge cases handled by walking dsp_context_table:
-	 *    - This ctx going Active → aggregate becomes true (if not already).
-	 *    - This ctx leaving Active → aggregate stays true if ANY OTHER
+	 *    - This ctx going Active -> aggregate becomes true (if not already).
+	 *    - This ctx leaving Active -> aggregate stays true if ANY OTHER
 	 *      context is still Active, otherwise becomes false.
 	 *    - Idempotent self-transition (Active->Active etc.) - unreachable
 	 *      here because the handler early-returns kDSpNoErr at line 1819
@@ -4349,7 +4349,7 @@ extern "C" int32_t DSpSetBlankingColorHandler(uint32_t inRGBColorAddr)
  *
  *  Cold-start semantics (PDF p.38): zero Inval calls between
  *  SwapBuffers means the ENTIRE back-buffer is considered dirty - this is
- *  the case on the very first swap and after background→foreground
+ *  the case on the very first swap and after background->foreground
  *  restore. Reserve sets dirty_cold_start=true; foreground restore sets
  *  it again. SwapBuffers checks cold_start
  *  FIRST, before the dirty-rect accumulator.
