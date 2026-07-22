@@ -135,7 +135,7 @@ static uint32_t DSpCreateBackBufferRectRegion(uint32_t w, uint32_t h)
  * ---------------------------------------------------------------------- */
 
 extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
-                                       uint32_t w, uint32_t h, uint32_t bpp)
+									   uint32_t w, uint32_t h, uint32_t bpp)
 {
 	if (ctx == nullptr || w == 0 || h == 0) return false;
 
@@ -160,12 +160,12 @@ extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
 	 * This closes the root cause "DSp back buffer reclaimed by kHeapCompositor
 	 * reset" with a single-argument change. */
 	void *buf_raw = gfxaccel_resources_heap_alloc_buffer(
-	    kHeapEngineDSp,                                          // DSp back buffer now owns its 5th per-engine heap (kHeapDSp excluded from on_mode_exit reset)
-	    buffer_size,
-	    (uint32_t)MTLResourceStorageModeShared);
+		kHeapEngineDSp,                                          // DSp back buffer now owns its 5th per-engine heap (kHeapDSp excluded from on_mode_exit reset)
+		buffer_size,
+		(uint32_t)MTLResourceStorageModeShared);
 	if (buf_raw == NULL) {
 		DSP_LOG("DSpAllocateBackBuffer: heap alloc failed (size=%u, %ux%u@%ubpp)",
-		        buffer_size, w, h, bpp);
+				buffer_size, w, h, bpp);
 		return false;
 	}
 	/* The heap API returns a retained object. Transfer it into ARC so the
@@ -201,11 +201,11 @@ extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
 	 * Metal requires bytesPerRow to be 16-byte aligned for buffer-backed
 	 * textures; 256-byte alignedRB satisfies that trivially. */
 	id<MTLTexture> tex = [buf newTextureWithDescriptor:desc
-	                                            offset:0
-	                                       bytesPerRow:alignedRB];
+												offset:0
+										   bytesPerRow:alignedRB];
 	if (tex == nil) {
 		DSP_LOG("DSpAllocateBackBuffer: newTextureWithDescriptor returned nil "
-		        "(bpp=%u, alignedRB=%u)", bpp, alignedRB);
+				"(bpp=%u, alignedRB=%u)", bpp, alignedRB);
 		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 		ctx->back_buffer = nil;
 		return false;
@@ -220,10 +220,10 @@ extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
 	 * cross-check. The compositor NEVER queries this tag -
 	 * compositor-blindness is preserved. */
 	gfxaccel_resources_set_buffer_owner(
-	    (__bridge void *)ctx->back_buffer, (uint32_t)kGfxEngineDSp);
+		(__bridge void *)ctx->back_buffer, (uint32_t)kGfxEngineDSp);
 
 	DSP_LOG("DSpAllocateBackBuffer: %ux%u@%ubpp alignedRB=%u size=%u",
-	        w, h, bpp, alignedRB, buffer_size);
+			w, h, bpp, alignedRB, buffer_size);
 	return true;
 }
 
@@ -239,7 +239,7 @@ extern "C" void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
 	 * goes away so the owner map does not hold a dangling pointer. */
 	if (ctx->back_buffer != nil) {
 		gfxaccel_resources_clear_buffer_owner(
-		    (__bridge void *)ctx->back_buffer);
+			(__bridge void *)ctx->back_buffer);
 		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 	}
 	/* Texture FIRST (drops the view
@@ -261,7 +261,7 @@ extern "C" void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
 		uint64_t reclaimed = gfxaccel_resources_heap_reset(kHeapEngineDSp);
 		if (reclaimed > 0) {
 			DSP_LOG("DSp heap reset after DSpReleaseBackBufferNow reclaimed %llu bytes",
-			        (unsigned long long)reclaimed);
+					(unsigned long long)reclaimed);
 		}
 	}
 }
@@ -291,13 +291,13 @@ extern "C" void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
  *  bg/fg restore).
  */
 extern "C" void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
-                                         void *encoder_raw,
-                                         void *framebuffer_texture_raw)
+										 void *encoder_raw,
+										 void *framebuffer_texture_raw)
 {
 	id<MTLBlitCommandEncoder> encoder =
-	    (__bridge id<MTLBlitCommandEncoder>)encoder_raw;
+		(__bridge id<MTLBlitCommandEncoder>)encoder_raw;
 	id<MTLTexture> framebuffer_texture =
-	    (__bridge id<MTLTexture>)framebuffer_texture_raw;
+		(__bridge id<MTLTexture>)framebuffer_texture_raw;
 	if (ctx == nullptr || encoder == nil || framebuffer_texture == nil) return;
 	if (ctx->back_texture == nil) return;
 
@@ -339,17 +339,17 @@ extern "C" void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
 
 	if (full_upload) {
 		[encoder copyFromTexture:ctx->back_texture
-		             sourceSlice:0
-		             sourceLevel:0
-		            sourceOrigin:MTLOriginMake(0, 0, 0)
-		              sourceSize:MTLSizeMake(clamp_w, clamp_h, 1)
-		               toTexture:framebuffer_texture
-		        destinationSlice:0
-		        destinationLevel:0
-		       destinationOrigin:MTLOriginMake(0, 0, 0)];
+					 sourceSlice:0
+					 sourceLevel:0
+					sourceOrigin:MTLOriginMake(0, 0, 0)
+					  sourceSize:MTLSizeMake(clamp_w, clamp_h, 1)
+					   toTexture:framebuffer_texture
+				destinationSlice:0
+				destinationLevel:0
+			   destinationOrigin:MTLOriginMake(0, 0, 0)];
 		DSP_VLOG("EncodeBackBufferBlit: FULL %lux%lu (cold_start=%d empty=%d)",
-		         (unsigned long)clamp_w, (unsigned long)clamp_h,
-		         ctx->dirty_cold_start, ctx->dirty_empty);
+				 (unsigned long)clamp_w, (unsigned long)clamp_h,
+				 ctx->dirty_cold_start, ctx->dirty_empty);
 	} else {
 		/* Sub-rect extent; clamp so source range stays inside the
 		 * back-buffer and destination range stays inside the framebuffer
@@ -362,20 +362,20 @@ extern "C" void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
 		if (origin_y + sub_h > clamp_h) sub_h = (origin_y < clamp_h) ? (clamp_h - origin_y) : 0;
 		if (sub_w > 0 && sub_h > 0) {
 			[encoder copyFromTexture:ctx->back_texture
-			             sourceSlice:0
-			             sourceLevel:0
-			            sourceOrigin:MTLOriginMake((NSUInteger)ctx->dirty_left,
-			                                        (NSUInteger)ctx->dirty_top, 0)
-			              sourceSize:MTLSizeMake(sub_w, sub_h, 1)
-			               toTexture:framebuffer_texture
-			        destinationSlice:0
-			        destinationLevel:0
-			       destinationOrigin:MTLOriginMake((NSUInteger)ctx->dirty_left,
-			                                        (NSUInteger)ctx->dirty_top, 0)];
+						 sourceSlice:0
+						 sourceLevel:0
+						sourceOrigin:MTLOriginMake((NSUInteger)ctx->dirty_left,
+													(NSUInteger)ctx->dirty_top, 0)
+						  sourceSize:MTLSizeMake(sub_w, sub_h, 1)
+						   toTexture:framebuffer_texture
+					destinationSlice:0
+					destinationLevel:0
+				   destinationOrigin:MTLOriginMake((NSUInteger)ctx->dirty_left,
+													(NSUInteger)ctx->dirty_top, 0)];
 		}
 		DSP_VLOG("EncodeBackBufferBlit: SUB %lux%lu at (%d,%d)",
-		         (unsigned long)sub_w, (unsigned long)sub_h,
-		         (int)ctx->dirty_left, (int)ctx->dirty_top);
+				 (unsigned long)sub_w, (unsigned long)sub_h,
+				 (int)ctx->dirty_left, (int)ctx->dirty_top);
 	}
 
 	/* Reset dirty state - next frame starts fresh. */
@@ -432,8 +432,8 @@ extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 		(uintptr_t)back_contents);
 	if (baseAddr_mac == 0) {
 		DSP_LOG("DSpGetBackBufferCGrafPtr: direct base rejected "
-		        "(mapped=0x%08x roundTrip=%p contents=%p size=%u)",
-		        mapped_addr, round_trip_host, back_contents, buffer_size);
+				"(mapped=0x%08x roundTrip=%p contents=%p size=%u)",
+				mapped_addr, round_trip_host, back_contents, buffer_size);
 		if (ctx->staging_mac_addr != 0) {
 			baseAddr_mac = DSpUsableGuestBaseOrZero(
 				ctx->staging_mac_addr,
@@ -442,8 +442,8 @@ extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 				(uint32_t)RAMSize);
 			if (baseAddr_mac == 0) {
 				DSP_LOG("DSpGetBackBufferCGrafPtr: discarding unusable cached "
-				        "staging baseAddr=0x%08x (size=%u)",
-				        ctx->staging_mac_addr, buffer_size);
+						"staging baseAddr=0x%08x (size=%u)",
+						ctx->staging_mac_addr, buffer_size);
 				DSpReleaseBackBufferStaging(ctx);
 			}
 		}
@@ -457,26 +457,26 @@ extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 			if (baseAddr_mac == 0) {
 				DSpDiscardUnusedGuestPixelStaging(staging_mac, true);
 				DSP_LOG("DSpGetBackBufferCGrafPtr: neither Host2MacAddr nor "
-				        "pixel staging allocation (%u) could vend a usable "
-				        "guest-RAM baseAddr "
-				        "(last=0x%08x)",
-				        buffer_size, staging_mac);
+						"pixel staging allocation (%u) could vend a usable "
+						"guest-RAM baseAddr "
+						"(last=0x%08x)",
+						buffer_size, staging_mac);
 				return 0;
 			}
 			ctx->staging_mac_addr = baseAddr_mac;
 			ctx->staging_size = buffer_size;
 			ctx->staging_owned_sysheap = true;
 			uint32_t seed_n = DSpGuardStagingWrite(baseAddr_mac, buffer_size,
-			                                       "GetBackBufferCGrafPtr.seed");
+												   "GetBackBufferCGrafPtr.seed");
 			if (back_contents != NULL) {
 				Host2Mac_memcpy(baseAddr_mac, back_contents, seed_n);
 			} else {
 				Mac_memset(baseAddr_mac, 0, seed_n);
 			}
 			DSP_LOG("DSpGetBackBufferCGrafPtr: using guest-RAM staging at 0x%08x "
-			        "(size=%u); initialized from back_buffer; SwapBuffers will "
-			        "memcpy staging→back_buffer",
-			        baseAddr_mac, buffer_size);
+					"(size=%u); initialized from back_buffer; SwapBuffers will "
+					"memcpy staging→back_buffer",
+					baseAddr_mac, buffer_size);
 		}
 	}
 
@@ -515,26 +515,26 @@ extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 	}
 
 	uint32_t pixmap_addr =
-	    DSpReserveGuestScratch(DSpBackBufferPixMapRecordSize());
+		DSpReserveGuestScratch(DSpBackBufferPixMapRecordSize());
 	uint32_t pixmap_handle_addr =
-	    DSpReserveGuestScratch(DSpBackBufferPixMapHandleSize());
+		DSpReserveGuestScratch(DSpBackBufferPixMapHandleSize());
 	uint32_t cgrafptr_addr =
-	    DSpReserveGuestScratch(DSpBackBufferCGrafPortSize());
+		DSpReserveGuestScratch(DSpBackBufferCGrafPortSize());
 	uint32_t vis_rgn_handle = DSpCreateBackBufferRectRegion(w, h);
 	uint32_t clip_rgn_handle = DSpCreateBackBufferRectRegion(w, h);
 	if (pixmap_addr == 0 || pixmap_handle_addr == 0 ||
-	    cgrafptr_addr == 0 || vis_rgn_handle == 0 ||
-	    clip_rgn_handle == 0) {
+		cgrafptr_addr == 0 || vis_rgn_handle == 0 ||
+		clip_rgn_handle == 0) {
 		DSP_LOG("DSpGetBackBufferCGrafPtr: guest-scratch reserve failed "
-		        "(pixmap=0x%08x handle=0x%08x cgraf=0x%08x "
-		        "vis=0x%08x clip=0x%08x)",
-		        pixmap_addr, pixmap_handle_addr, cgrafptr_addr,
-		        vis_rgn_handle, clip_rgn_handle);
+				"(pixmap=0x%08x handle=0x%08x cgraf=0x%08x "
+				"vis=0x%08x clip=0x%08x)",
+				pixmap_addr, pixmap_handle_addr, cgrafptr_addr,
+				vis_rgn_handle, clip_rgn_handle);
 		return 0;
 	}
 
 	const uint16_t row_bytes_field =
-	    DSpBackBufferPixMapRowBytesField(alignedRB);
+		DSpBackBufferPixMapRowBytesField(alignedRB);
 
 	Mac_memset(pixmap_addr, 0, DSpBackBufferPixMapRecordSize());
 	WriteMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR,     baseAddr_mac);
@@ -555,26 +555,26 @@ extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 
 	Mac_memset(cgrafptr_addr, 0, DSpBackBufferCGrafPortSize());
 	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_PIXMAP,
-	              pixmap_handle_addr);
+				  pixmap_handle_addr);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_VERSION, 0xC000);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 0,
-	              (uint16_t)bounds_top);
+				  (uint16_t)bounds_top);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 2,
-	              (uint16_t)bounds_left);
+				  (uint16_t)bounds_left);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 4,
-	              (uint16_t)bounds_bottom);
+				  (uint16_t)bounds_bottom);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 6,
-	              (uint16_t)bounds_right);
+				  (uint16_t)bounds_right);
 	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_VIS_RGN,
-	              vis_rgn_handle);
+				  vis_rgn_handle);
 	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_CLIP_RGN,
-	              clip_rgn_handle);
+				  clip_rgn_handle);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 0,
-	              0xffff);
+				  0xffff);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 2,
-	              0xffff);
+				  0xffff);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 4,
-	              0xffff);
+				  0xffff);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 0, 0);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 2, 0);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 4, 0);
@@ -587,11 +587,11 @@ extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 
 	ctx->cgrafptr_mac_addr = cgrafptr_addr;
 	DSP_LOG("DSpGetBackBufferCGrafPtr: ctx=%u cgrafptr=0x%08x pixmapH=0x%08x "
-	        "pixmap=0x%08x visRgn=0x%08x clipRgn=0x%08x baseAddr=0x%08x "
-	        "rbRaw=0x%04x rb=%u bpp=%u",
-	        ctx->handle, cgrafptr_addr, pixmap_handle_addr, pixmap_addr,
-	        vis_rgn_handle, clip_rgn_handle, baseAddr_mac, row_bytes_field,
-	        alignedRB, bpp);
+			"pixmap=0x%08x visRgn=0x%08x clipRgn=0x%08x baseAddr=0x%08x "
+			"rbRaw=0x%04x rb=%u bpp=%u",
+			ctx->handle, cgrafptr_addr, pixmap_handle_addr, pixmap_addr,
+			vis_rgn_handle, clip_rgn_handle, baseAddr_mac, row_bytes_field,
+			alignedRB, bpp);
 	return cgrafptr_addr;
 }
 
@@ -618,215 +618,215 @@ extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
  * ====================================================================== */
 
 static const char *kDSpUnpackShaderSource =
-    "#include <metal_stdlib>\n"
-    "using namespace metal;\n"
-    "\n"
-    "struct DSpUnpackVertexOut {\n"
-    "    float4 position [[position]];\n"
-    "    float2 texCoord;\n"
-    "};\n"
-    "\n"
-    "/* Fullscreen-triangle vertex shader (3 vertices). UV mapped with Y\n"
-    " * unflipped because back_texture pixel (0,0) is top-left in Mac\n"
-    " * raster order and the framebuffer texture is also top-left origin.\n"
-    " * Matches the unflipped sense of [blit copyFromTexture: ... ] which\n"
-    " * preserves Mac raster orientation. */\n"
-    "vertex DSpUnpackVertexOut dsp_unpack_vertex(uint vid [[vertex_id]])\n"
-    "{\n"
-    "    DSpUnpackVertexOut out;\n"
-    "    float2 pos;\n"
-    "    pos.x = (vid == 1) ? 3.0 : -1.0;\n"
-    "    pos.y = (vid == 2) ? 3.0 : -1.0;\n"
-    "    out.position = float4(pos, 0.0, 1.0);\n"
-    "    /* Mac raster: top-left origin. Metal clip-space Y points up, so\n"
-    "     * Y=+1 in clip maps to V=0 (top). Unflipped Y mapping: */\n"
-    "    out.texCoord.x = (pos.x + 1.0) * 0.5;\n"
-    "    out.texCoord.y = 1.0 - (pos.y + 1.0) * 0.5;\n"
-    "    return out;\n"
-    "}\n"
-    "\n"
-    "/* R8Uint indexed -> BGRA8Unorm. Mirrors compositor_fragment_indexed\n"
-    " * while reading DSp's per-context planar RGB CLUT directly. */\n"
-    "fragment float4 dsp_unpack_fragment_indexed(\n"
-    "    DSpUnpackVertexOut in [[stage_in]],\n"
-    "    texture2d<uint, access::read> tex [[texture(0)]],\n"
-    "    constant uchar *gamma_lut [[buffer(0)]],\n"
-    "    constant uint &fade_active [[buffer(1)]],\n"
-    "    constant uchar *clut_rgb [[buffer(2)]],\n"
-    "    constant uint &bits_per_pixel [[buffer(3)]],\n"
-    "    constant uint &pixel_width [[buffer(4)]])\n"
-    "{\n"
-    "    (void)fade_active;\n"
-    "    uint px = uint(in.texCoord.x * float(pixel_width));\n"
-    "    uint py = uint(in.texCoord.y * float(tex.get_height()));\n"
-    "    px = min(px, pixel_width - 1);\n"
-    "    py = min(py, tex.get_height() - 1);\n"
-    "\n"
-    "    uint index = 0;\n"
-    "    if (bits_per_pixel == 8u) {\n"
-    "        index = tex.read(uint2(px, py)).r;\n"
-    "    } else if (bits_per_pixel == 4u) {\n"
-    "        uint byte_val = tex.read(uint2(px / 2u, py)).r;\n"
-    "        index = ((px & 1u) == 0u) ? (byte_val >> 4u) : (byte_val & 0xFu);\n"
-    "    } else if (bits_per_pixel == 2u) {\n"
-    "        uint byte_val = tex.read(uint2(px / 4u, py)).r;\n"
-    "        uint shift = (3u - (px & 3u)) * 2u;\n"
-    "        index = (byte_val >> shift) & 0x3u;\n"
-    "    } else if (bits_per_pixel == 1u) {\n"
-    "        uint byte_val = tex.read(uint2(px / 8u, py)).r;\n"
-    "        index = (byte_val >> (7u - (px & 7u))) & 0x1u;\n"
-    "    }\n"
-    "\n"
-    "    uint clut_offset = index * 3u;\n"
-    "    float r = float(gamma_lut[clut_rgb[clut_offset + 0u]])        / 255.0;\n"
-    "    float g = float(gamma_lut[256u + clut_rgb[clut_offset + 1u]]) / 255.0;\n"
-    "    float b = float(gamma_lut[512u + clut_rgb[clut_offset + 2u]]) / 255.0;\n"
-    "    return float4(r, g, b, 1.0);\n"
-    "}\n"
-    "\n"
-    "fragment float4 dsp_unpack_fragment_indexed_compositor32(\n"
-    "    DSpUnpackVertexOut in [[stage_in]],\n"
-    "    texture2d<uint, access::read> tex [[texture(0)]],\n"
-    "    constant uchar *gamma_lut [[buffer(0)]],\n"
-    "    constant uint &fade_active [[buffer(1)]],\n"
-    "    constant uchar *clut_rgb [[buffer(2)]],\n"
-    "    constant uint &bits_per_pixel [[buffer(3)]],\n"
-    "    constant uint &pixel_width [[buffer(4)]])\n"
-    "{\n"
-    "    (void)fade_active;\n"
-    "    uint px = uint(in.texCoord.x * float(pixel_width));\n"
-    "    uint py = uint(in.texCoord.y * float(tex.get_height()));\n"
-    "    px = min(px, pixel_width - 1);\n"
-    "    py = min(py, tex.get_height() - 1);\n"
-    "\n"
-    "    uint index = 0;\n"
-    "    if (bits_per_pixel == 8u) {\n"
-    "        index = tex.read(uint2(px, py)).r;\n"
-    "    } else if (bits_per_pixel == 4u) {\n"
-    "        uint byte_val = tex.read(uint2(px / 2u, py)).r;\n"
-    "        index = ((px & 1u) == 0u) ? (byte_val >> 4u) : (byte_val & 0xFu);\n"
-    "    } else if (bits_per_pixel == 2u) {\n"
-    "        uint byte_val = tex.read(uint2(px / 4u, py)).r;\n"
-    "        uint shift = (3u - (px & 3u)) * 2u;\n"
-    "        index = (byte_val >> shift) & 0x3u;\n"
-    "    } else if (bits_per_pixel == 1u) {\n"
-    "        uint byte_val = tex.read(uint2(px / 8u, py)).r;\n"
-    "        index = (byte_val >> (7u - (px & 7u))) & 0x1u;\n"
-    "    }\n"
-    "\n"
-    "    uint clut_offset = index * 3u;\n"
-    "    float r = float(gamma_lut[clut_rgb[clut_offset + 0u]])        / 255.0;\n"
-    "    float g = float(gamma_lut[256u + clut_rgb[clut_offset + 1u]]) / 255.0;\n"
-    "    float b = float(gamma_lut[512u + clut_rgb[clut_offset + 2u]]) / 255.0;\n"
-    "    return float4(g, r, 1.0, b);\n"
-    "}\n"
-    "\n"
-    "static inline float4 dsp_unpack_rgb555_to_rgba(\n"
-    "    uint packed,\n"
-    "    constant uchar *gamma_lut,\n"
-    "    uint fade_active)\n"
-    "{\n"
-    "    (void)fade_active;\n"
-    "    uint R = (packed >> 10) & 0x1F;\n"
-    "    uint G = (packed >>  5) & 0x1F;\n"
-    "    uint B =  packed        & 0x1F;\n"
-    "    uint idx_r = (R * 255u) / 31u;\n"
-    "    uint idx_g = (G * 255u) / 31u;\n"
-    "    uint idx_b = (B * 255u) / 31u;\n"
-    "    float r = float(gamma_lut[idx_r])        / 255.0;\n"
-    "    float g = float(gamma_lut[256u + idx_g]) / 255.0;\n"
-    "    float b = float(gamma_lut[512u + idx_b]) / 255.0;\n"
-    "    return float4(r, g, b, 1.0);\n"
-    "}\n"
-    "\n"
-    "static inline float4 dsp_store_for_compositor_32bpp(float4 rgba)\n"
-    "{\n"
-    "    /* MetalCompositorPresent's 32-bit shader treats the compositor\n"
-    "     * texture as classic big-endian ARGB memory and reconstructs RGB\n"
-    "     * as (s.g, s.r, s.a). Store front-staging pixels in that layout. */\n"
-    "    return float4(rgba.g, rgba.r, 1.0, rgba.b);\n"
-    "}\n"
-    "\n"
-    "/* R16Uint xRGB1555 -> BGRA8Unorm. Mirrors compositor_fragment_16bpp\n"
-    " * (compositor_shaders.metal:143). The Mac stores 16-bit pixels as\n"
-    " * big-endian xRGB1555, but ARM64 reads them as little-endian. */\n"
-    "/* Non-visible-path twin: DSp force-resize to 32bpp routes the\n"
-    " * visible pixels through compositor_fragment_32bpp via the blit fast-path;\n"
-    " * this unpack pass is hit only for the rare R16Uint-back / non-BGRA\n"
-    " * framebuffer case. We sample the same display-ready planar gamma_lut the\n"
-    " * compositor present shaders use, for four-shader consistency. */\n"
-    "fragment float4 dsp_unpack_fragment_16bpp(\n"
-    "    DSpUnpackVertexOut in [[stage_in]],\n"
-    "    texture2d<uint, access::read> tex [[texture(0)]],\n"
-    "    constant uchar *gamma_lut [[buffer(0)]],\n"
-    "    constant uint &fade_active [[buffer(1)]])\n"
-    "{\n"
-    "    uint w = tex.get_width();\n"
-    "    uint h = tex.get_height();\n"
-    "    uint px = uint(in.texCoord.x * float(w));\n"
-    "    uint py = uint(in.texCoord.y * float(h));\n"
-    "    px = min(px, w - 1);\n"
-    "    py = min(py, h - 1);\n"
-    "    uint packed = tex.read(uint2(px, py)).r;\n"
-    "    /* Byte-swap big-endian -> little-endian (matches compositor\n"
-    "     * shader; Mac authored xRGB1555 big-endian). */\n"
-    "    packed = ((packed & 0xFF) << 8) | ((packed >> 8) & 0xFF);\n"
-    "    return dsp_unpack_rgb555_to_rgba(packed, gamma_lut, fade_active);\n"
-    "}\n"
-    "\n"
-    "/* R16Uint xRGB1555 -> BGRA8Unorm for native-order staging inputs.\n"
-    " * Most Mac-authored 16-bit DSp pixels use dsp_unpack_fragment_16bpp,\n"
-    " * which swaps big-endian xRGB1555 before decoding. */\n"
-    "fragment float4 dsp_unpack_fragment_16bpp_native(\n"
-    "    DSpUnpackVertexOut in [[stage_in]],\n"
-    "    texture2d<uint, access::read> tex [[texture(0)]],\n"
-    "    constant uchar *gamma_lut [[buffer(0)]],\n"
-    "    constant uint &fade_active [[buffer(1)]])\n"
-    "{\n"
-    "    uint w = tex.get_width();\n"
-    "    uint h = tex.get_height();\n"
-    "    uint px = uint(in.texCoord.x * float(w));\n"
-    "    uint py = uint(in.texCoord.y * float(h));\n"
-    "    px = min(px, w - 1);\n"
-    "    py = min(py, h - 1);\n"
-    "    uint packed = tex.read(uint2(px, py)).r;\n"
-    "    return dsp_unpack_rgb555_to_rgba(packed, gamma_lut, fade_active);\n"
-    "}\n"
-    "\n"
-    "fragment float4 dsp_unpack_fragment_16bpp_compositor32(\n"
-    "    DSpUnpackVertexOut in [[stage_in]],\n"
-    "    texture2d<uint, access::read> tex [[texture(0)]],\n"
-    "    constant uchar *gamma_lut [[buffer(0)]],\n"
-    "    constant uint &fade_active [[buffer(1)]])\n"
-    "{\n"
-    "    uint w = tex.get_width();\n"
-    "    uint h = tex.get_height();\n"
-    "    uint px = uint(in.texCoord.x * float(w));\n"
-    "    uint py = uint(in.texCoord.y * float(h));\n"
-    "    px = min(px, w - 1);\n"
-    "    py = min(py, h - 1);\n"
-    "    uint packed = tex.read(uint2(px, py)).r;\n"
-    "    packed = ((packed & 0xFF) << 8) | ((packed >> 8) & 0xFF);\n"
-    "    return dsp_store_for_compositor_32bpp(\n"
-    "        dsp_unpack_rgb555_to_rgba(packed, gamma_lut, fade_active));\n"
-    "}\n"
-    "\n"
-    "fragment float4 dsp_unpack_fragment_16bpp_native_compositor32(\n"
-    "    DSpUnpackVertexOut in [[stage_in]],\n"
-    "    texture2d<uint, access::read> tex [[texture(0)]],\n"
-    "    constant uchar *gamma_lut [[buffer(0)]],\n"
-    "    constant uint &fade_active [[buffer(1)]])\n"
-    "{\n"
-    "    uint w = tex.get_width();\n"
-    "    uint h = tex.get_height();\n"
-    "    uint px = uint(in.texCoord.x * float(w));\n"
-    "    uint py = uint(in.texCoord.y * float(h));\n"
-    "    px = min(px, w - 1);\n"
-    "    py = min(py, h - 1);\n"
-    "    uint packed = tex.read(uint2(px, py)).r;\n"
-    "    return dsp_store_for_compositor_32bpp(\n"
-    "        dsp_unpack_rgb555_to_rgba(packed, gamma_lut, fade_active));\n"
-    "}\n";
+	"#include <metal_stdlib>\n"
+	"using namespace metal;\n"
+	"\n"
+	"struct DSpUnpackVertexOut {\n"
+	"    float4 position [[position]];\n"
+	"    float2 texCoord;\n"
+	"};\n"
+	"\n"
+	"/* Fullscreen-triangle vertex shader (3 vertices). UV mapped with Y\n"
+	" * unflipped because back_texture pixel (0,0) is top-left in Mac\n"
+	" * raster order and the framebuffer texture is also top-left origin.\n"
+	" * Matches the unflipped sense of [blit copyFromTexture: ... ] which\n"
+	" * preserves Mac raster orientation. */\n"
+	"vertex DSpUnpackVertexOut dsp_unpack_vertex(uint vid [[vertex_id]])\n"
+	"{\n"
+	"    DSpUnpackVertexOut out;\n"
+	"    float2 pos;\n"
+	"    pos.x = (vid == 1) ? 3.0 : -1.0;\n"
+	"    pos.y = (vid == 2) ? 3.0 : -1.0;\n"
+	"    out.position = float4(pos, 0.0, 1.0);\n"
+	"    /* Mac raster: top-left origin. Metal clip-space Y points up, so\n"
+	"     * Y=+1 in clip maps to V=0 (top). Unflipped Y mapping: */\n"
+	"    out.texCoord.x = (pos.x + 1.0) * 0.5;\n"
+	"    out.texCoord.y = 1.0 - (pos.y + 1.0) * 0.5;\n"
+	"    return out;\n"
+	"}\n"
+	"\n"
+	"/* R8Uint indexed -> BGRA8Unorm. Mirrors compositor_fragment_indexed\n"
+	" * while reading DSp's per-context planar RGB CLUT directly. */\n"
+	"fragment float4 dsp_unpack_fragment_indexed(\n"
+	"    DSpUnpackVertexOut in [[stage_in]],\n"
+	"    texture2d<uint, access::read> tex [[texture(0)]],\n"
+	"    constant uchar *gamma_lut [[buffer(0)]],\n"
+	"    constant uint &fade_active [[buffer(1)]],\n"
+	"    constant uchar *clut_rgb [[buffer(2)]],\n"
+	"    constant uint &bits_per_pixel [[buffer(3)]],\n"
+	"    constant uint &pixel_width [[buffer(4)]])\n"
+	"{\n"
+	"    (void)fade_active;\n"
+	"    uint px = uint(in.texCoord.x * float(pixel_width));\n"
+	"    uint py = uint(in.texCoord.y * float(tex.get_height()));\n"
+	"    px = min(px, pixel_width - 1);\n"
+	"    py = min(py, tex.get_height() - 1);\n"
+	"\n"
+	"    uint index = 0;\n"
+	"    if (bits_per_pixel == 8u) {\n"
+	"        index = tex.read(uint2(px, py)).r;\n"
+	"    } else if (bits_per_pixel == 4u) {\n"
+	"        uint byte_val = tex.read(uint2(px / 2u, py)).r;\n"
+	"        index = ((px & 1u) == 0u) ? (byte_val >> 4u) : (byte_val & 0xFu);\n"
+	"    } else if (bits_per_pixel == 2u) {\n"
+	"        uint byte_val = tex.read(uint2(px / 4u, py)).r;\n"
+	"        uint shift = (3u - (px & 3u)) * 2u;\n"
+	"        index = (byte_val >> shift) & 0x3u;\n"
+	"    } else if (bits_per_pixel == 1u) {\n"
+	"        uint byte_val = tex.read(uint2(px / 8u, py)).r;\n"
+	"        index = (byte_val >> (7u - (px & 7u))) & 0x1u;\n"
+	"    }\n"
+	"\n"
+	"    uint clut_offset = index * 3u;\n"
+	"    float r = float(gamma_lut[clut_rgb[clut_offset + 0u]])        / 255.0;\n"
+	"    float g = float(gamma_lut[256u + clut_rgb[clut_offset + 1u]]) / 255.0;\n"
+	"    float b = float(gamma_lut[512u + clut_rgb[clut_offset + 2u]]) / 255.0;\n"
+	"    return float4(r, g, b, 1.0);\n"
+	"}\n"
+	"\n"
+	"fragment float4 dsp_unpack_fragment_indexed_compositor32(\n"
+	"    DSpUnpackVertexOut in [[stage_in]],\n"
+	"    texture2d<uint, access::read> tex [[texture(0)]],\n"
+	"    constant uchar *gamma_lut [[buffer(0)]],\n"
+	"    constant uint &fade_active [[buffer(1)]],\n"
+	"    constant uchar *clut_rgb [[buffer(2)]],\n"
+	"    constant uint &bits_per_pixel [[buffer(3)]],\n"
+	"    constant uint &pixel_width [[buffer(4)]])\n"
+	"{\n"
+	"    (void)fade_active;\n"
+	"    uint px = uint(in.texCoord.x * float(pixel_width));\n"
+	"    uint py = uint(in.texCoord.y * float(tex.get_height()));\n"
+	"    px = min(px, pixel_width - 1);\n"
+	"    py = min(py, tex.get_height() - 1);\n"
+	"\n"
+	"    uint index = 0;\n"
+	"    if (bits_per_pixel == 8u) {\n"
+	"        index = tex.read(uint2(px, py)).r;\n"
+	"    } else if (bits_per_pixel == 4u) {\n"
+	"        uint byte_val = tex.read(uint2(px / 2u, py)).r;\n"
+	"        index = ((px & 1u) == 0u) ? (byte_val >> 4u) : (byte_val & 0xFu);\n"
+	"    } else if (bits_per_pixel == 2u) {\n"
+	"        uint byte_val = tex.read(uint2(px / 4u, py)).r;\n"
+	"        uint shift = (3u - (px & 3u)) * 2u;\n"
+	"        index = (byte_val >> shift) & 0x3u;\n"
+	"    } else if (bits_per_pixel == 1u) {\n"
+	"        uint byte_val = tex.read(uint2(px / 8u, py)).r;\n"
+	"        index = (byte_val >> (7u - (px & 7u))) & 0x1u;\n"
+	"    }\n"
+	"\n"
+	"    uint clut_offset = index * 3u;\n"
+	"    float r = float(gamma_lut[clut_rgb[clut_offset + 0u]])        / 255.0;\n"
+	"    float g = float(gamma_lut[256u + clut_rgb[clut_offset + 1u]]) / 255.0;\n"
+	"    float b = float(gamma_lut[512u + clut_rgb[clut_offset + 2u]]) / 255.0;\n"
+	"    return float4(g, r, 1.0, b);\n"
+	"}\n"
+	"\n"
+	"static inline float4 dsp_unpack_rgb555_to_rgba(\n"
+	"    uint packed,\n"
+	"    constant uchar *gamma_lut,\n"
+	"    uint fade_active)\n"
+	"{\n"
+	"    (void)fade_active;\n"
+	"    uint R = (packed >> 10) & 0x1F;\n"
+	"    uint G = (packed >>  5) & 0x1F;\n"
+	"    uint B =  packed        & 0x1F;\n"
+	"    uint idx_r = (R * 255u) / 31u;\n"
+	"    uint idx_g = (G * 255u) / 31u;\n"
+	"    uint idx_b = (B * 255u) / 31u;\n"
+	"    float r = float(gamma_lut[idx_r])        / 255.0;\n"
+	"    float g = float(gamma_lut[256u + idx_g]) / 255.0;\n"
+	"    float b = float(gamma_lut[512u + idx_b]) / 255.0;\n"
+	"    return float4(r, g, b, 1.0);\n"
+	"}\n"
+	"\n"
+	"static inline float4 dsp_store_for_compositor_32bpp(float4 rgba)\n"
+	"{\n"
+	"    /* MetalCompositorPresent's 32-bit shader treats the compositor\n"
+	"     * texture as classic big-endian ARGB memory and reconstructs RGB\n"
+	"     * as (s.g, s.r, s.a). Store front-staging pixels in that layout. */\n"
+	"    return float4(rgba.g, rgba.r, 1.0, rgba.b);\n"
+	"}\n"
+	"\n"
+	"/* R16Uint xRGB1555 -> BGRA8Unorm. Mirrors compositor_fragment_16bpp\n"
+	" * (compositor_shaders.metal:143). The Mac stores 16-bit pixels as\n"
+	" * big-endian xRGB1555, but ARM64 reads them as little-endian. */\n"
+	"/* Non-visible-path twin: DSp force-resize to 32bpp routes the\n"
+	" * visible pixels through compositor_fragment_32bpp via the blit fast-path;\n"
+	" * this unpack pass is hit only for the rare R16Uint-back / non-BGRA\n"
+	" * framebuffer case. We sample the same display-ready planar gamma_lut the\n"
+	" * compositor present shaders use, for four-shader consistency. */\n"
+	"fragment float4 dsp_unpack_fragment_16bpp(\n"
+	"    DSpUnpackVertexOut in [[stage_in]],\n"
+	"    texture2d<uint, access::read> tex [[texture(0)]],\n"
+	"    constant uchar *gamma_lut [[buffer(0)]],\n"
+	"    constant uint &fade_active [[buffer(1)]])\n"
+	"{\n"
+	"    uint w = tex.get_width();\n"
+	"    uint h = tex.get_height();\n"
+	"    uint px = uint(in.texCoord.x * float(w));\n"
+	"    uint py = uint(in.texCoord.y * float(h));\n"
+	"    px = min(px, w - 1);\n"
+	"    py = min(py, h - 1);\n"
+	"    uint packed = tex.read(uint2(px, py)).r;\n"
+	"    /* Byte-swap big-endian -> little-endian (matches compositor\n"
+	"     * shader; Mac authored xRGB1555 big-endian). */\n"
+	"    packed = ((packed & 0xFF) << 8) | ((packed >> 8) & 0xFF);\n"
+	"    return dsp_unpack_rgb555_to_rgba(packed, gamma_lut, fade_active);\n"
+	"}\n"
+	"\n"
+	"/* R16Uint xRGB1555 -> BGRA8Unorm for native-order staging inputs.\n"
+	" * Most Mac-authored 16-bit DSp pixels use dsp_unpack_fragment_16bpp,\n"
+	" * which swaps big-endian xRGB1555 before decoding. */\n"
+	"fragment float4 dsp_unpack_fragment_16bpp_native(\n"
+	"    DSpUnpackVertexOut in [[stage_in]],\n"
+	"    texture2d<uint, access::read> tex [[texture(0)]],\n"
+	"    constant uchar *gamma_lut [[buffer(0)]],\n"
+	"    constant uint &fade_active [[buffer(1)]])\n"
+	"{\n"
+	"    uint w = tex.get_width();\n"
+	"    uint h = tex.get_height();\n"
+	"    uint px = uint(in.texCoord.x * float(w));\n"
+	"    uint py = uint(in.texCoord.y * float(h));\n"
+	"    px = min(px, w - 1);\n"
+	"    py = min(py, h - 1);\n"
+	"    uint packed = tex.read(uint2(px, py)).r;\n"
+	"    return dsp_unpack_rgb555_to_rgba(packed, gamma_lut, fade_active);\n"
+	"}\n"
+	"\n"
+	"fragment float4 dsp_unpack_fragment_16bpp_compositor32(\n"
+	"    DSpUnpackVertexOut in [[stage_in]],\n"
+	"    texture2d<uint, access::read> tex [[texture(0)]],\n"
+	"    constant uchar *gamma_lut [[buffer(0)]],\n"
+	"    constant uint &fade_active [[buffer(1)]])\n"
+	"{\n"
+	"    uint w = tex.get_width();\n"
+	"    uint h = tex.get_height();\n"
+	"    uint px = uint(in.texCoord.x * float(w));\n"
+	"    uint py = uint(in.texCoord.y * float(h));\n"
+	"    px = min(px, w - 1);\n"
+	"    py = min(py, h - 1);\n"
+	"    uint packed = tex.read(uint2(px, py)).r;\n"
+	"    packed = ((packed & 0xFF) << 8) | ((packed >> 8) & 0xFF);\n"
+	"    return dsp_store_for_compositor_32bpp(\n"
+	"        dsp_unpack_rgb555_to_rgba(packed, gamma_lut, fade_active));\n"
+	"}\n"
+	"\n"
+	"fragment float4 dsp_unpack_fragment_16bpp_native_compositor32(\n"
+	"    DSpUnpackVertexOut in [[stage_in]],\n"
+	"    texture2d<uint, access::read> tex [[texture(0)]],\n"
+	"    constant uchar *gamma_lut [[buffer(0)]],\n"
+	"    constant uint &fade_active [[buffer(1)]])\n"
+	"{\n"
+	"    uint w = tex.get_width();\n"
+	"    uint h = tex.get_height();\n"
+	"    uint px = uint(in.texCoord.x * float(w));\n"
+	"    uint py = uint(in.texCoord.y * float(h));\n"
+	"    px = min(px, w - 1);\n"
+	"    py = min(py, h - 1);\n"
+	"    uint packed = tex.read(uint2(px, py)).r;\n"
+	"    return dsp_store_for_compositor_32bpp(\n"
+	"        dsp_unpack_rgb555_to_rgba(packed, gamma_lut, fade_active));\n"
+	"}\n";
 
 /* Lazy-initialised PSOs for the indexed and 16 bpp unpack passes. Built once per
  * process; reused across every VBL present. The destination format is
@@ -843,9 +843,9 @@ static dispatch_once_t            s_dsp_unpack_pso_once = 0;
 static bool                       s_dsp_unpack_pso_build_failed = false;
 
 static id<MTLRenderPipelineState> DSpBuildUnpackPSO(id<MTLDevice> device,
-                                                     id<MTLFunction> vfn,
-                                                     id<MTLFunction> ffn,
-                                                     const char *name)
+													 id<MTLFunction> vfn,
+													 id<MTLFunction> ffn,
+													 const char *name)
 {
 	if (vfn == nil || ffn == nil) {
 		DSP_LOG("DSpBuildUnpackPSOs: missing function for %s", name);
@@ -859,10 +859,10 @@ static id<MTLRenderPipelineState> DSpBuildUnpackPSO(id<MTLDevice> device,
 
 	NSError *psoErr = nil;
 	id<MTLRenderPipelineState> pso = [device newRenderPipelineStateWithDescriptor:desc
-	                                                                        error:&psoErr];
+																			error:&psoErr];
 	if (pso == nil) {
 		DSP_LOG("DSpBuildUnpackPSOs: %s PSO creation failed: %s",
-		        name, psoErr ? [[psoErr localizedDescription] UTF8String] : "(no error)");
+				name, psoErr ? [[psoErr localizedDescription] UTF8String] : "(no error)");
 	}
 	return pso;
 }
@@ -879,25 +879,25 @@ static void DSpBuildUnpackPSOs(void)
 	NSError *libErr = nil;
 	NSString *src = [NSString stringWithUTF8String:kDSpUnpackShaderSource];
 	id<MTLLibrary> lib = [device newLibraryWithSource:src
-	                                          options:nil
-	                                            error:&libErr];
+											  options:nil
+												error:&libErr];
 	if (lib == nil) {
 		s_dsp_unpack_pso_build_failed = true;
 		DSP_LOG("DSpBuildUnpackPSOs: newLibraryWithSource failed: %s",
-		        libErr ? [[libErr localizedDescription] UTF8String] : "(no error)");
+				libErr ? [[libErr localizedDescription] UTF8String] : "(no error)");
 		return;
 	}
 
 	id<MTLFunction> vfn = [lib newFunctionWithName:@"dsp_unpack_vertex"];
 	id<MTLFunction> indexed_ffn = [lib newFunctionWithName:@"dsp_unpack_fragment_indexed"];
 	id<MTLFunction> indexed_compositor32_ffn =
-	    [lib newFunctionWithName:@"dsp_unpack_fragment_indexed_compositor32"];
+		[lib newFunctionWithName:@"dsp_unpack_fragment_indexed_compositor32"];
 	id<MTLFunction> ffn_16bpp = [lib newFunctionWithName:@"dsp_unpack_fragment_16bpp"];
 	id<MTLFunction> ffn_16bpp_native = [lib newFunctionWithName:@"dsp_unpack_fragment_16bpp_native"];
 	id<MTLFunction> ffn_16bpp_compositor32 =
-	    [lib newFunctionWithName:@"dsp_unpack_fragment_16bpp_compositor32"];
+		[lib newFunctionWithName:@"dsp_unpack_fragment_16bpp_compositor32"];
 	id<MTLFunction> ffn_16bpp_native_compositor32 =
-	    [lib newFunctionWithName:@"dsp_unpack_fragment_16bpp_native_compositor32"];
+		[lib newFunctionWithName:@"dsp_unpack_fragment_16bpp_native_compositor32"];
 	if (vfn == nil) {
 		s_dsp_unpack_pso_build_failed = true;
 		DSP_LOG("DSpBuildUnpackPSOs: missing dsp_unpack_vertex");
@@ -906,17 +906,17 @@ static void DSpBuildUnpackPSOs(void)
 
 	s_dsp_unpack_pso_indexed = DSpBuildUnpackPSO(device, vfn, indexed_ffn, "indexed");
 	s_dsp_unpack_pso_indexed_compositor32 =
-	    DSpBuildUnpackPSO(device, vfn, indexed_compositor32_ffn,
-	                      "indexed-compositor32");
+		DSpBuildUnpackPSO(device, vfn, indexed_compositor32_ffn,
+						  "indexed-compositor32");
 	s_dsp_unpack_pso_16bpp   = DSpBuildUnpackPSO(device, vfn, ffn_16bpp, "16bpp");
 	s_dsp_unpack_pso_16bpp_native =
-	    DSpBuildUnpackPSO(device, vfn, ffn_16bpp_native, "16bpp-native");
+		DSpBuildUnpackPSO(device, vfn, ffn_16bpp_native, "16bpp-native");
 	s_dsp_unpack_pso_16bpp_compositor32 =
-	    DSpBuildUnpackPSO(device, vfn, ffn_16bpp_compositor32,
-	                      "16bpp-compositor32");
+		DSpBuildUnpackPSO(device, vfn, ffn_16bpp_compositor32,
+						  "16bpp-compositor32");
 	s_dsp_unpack_pso_16bpp_native_compositor32 =
-	    DSpBuildUnpackPSO(device, vfn, ffn_16bpp_native_compositor32,
-	                      "16bpp-native-compositor32");
+		DSpBuildUnpackPSO(device, vfn, ffn_16bpp_native_compositor32,
+						  "16bpp-native-compositor32");
 
 	if (s_dsp_unpack_pso_indexed != nil)
 		DSP_LOG("DSpBuildUnpackPSOs: indexed R8Uint->BGRA8Unorm PSO ready");
@@ -942,15 +942,15 @@ static void DSpBuildUnpackPSOs(void)
  *  format isn't currently supported.
  */
 static bool DSpEncodeUnpackTextureRenderPass(DSpContextPrivate *ctx,
-                                             id<MTLTexture> source_texture,
-                                             uint32_t source_bpp,
-                                             uint32_t source_pixel_width,
-                                             const char *source_label,
-                                             bool native_r16_order,
-                                             bool use_display_gamma,
-                                             bool write_compositor32_layout,
-                                             id<MTLCommandBuffer> cb,
-                                             id<MTLTexture> framebuffer_texture)
+											 id<MTLTexture> source_texture,
+											 uint32_t source_bpp,
+											 uint32_t source_pixel_width,
+											 const char *source_label,
+											 bool native_r16_order,
+											 bool use_display_gamma,
+											 bool write_compositor32_layout,
+											 id<MTLCommandBuffer> cb,
+											 id<MTLTexture> framebuffer_texture)
 {
 	if (ctx == nullptr || cb == nil || framebuffer_texture == nil) return false;
 	if (source_texture == nil) return false;
@@ -962,28 +962,28 @@ static bool DSpEncodeUnpackTextureRenderPass(DSpContextPrivate *ctx,
 	MTLPixelFormat dst_fmt = framebuffer_texture.pixelFormat;
 	const uint32_t bpp = source_bpp;
 	const bool indexed =
-	    (src_fmt == MTLPixelFormatR8Uint && dst_fmt == MTLPixelFormatBGRA8Unorm &&
-	     (bpp == 1 || bpp == 2 || bpp == 4 || bpp == 8));
+		(src_fmt == MTLPixelFormatR8Uint && dst_fmt == MTLPixelFormatBGRA8Unorm &&
+		 (bpp == 1 || bpp == 2 || bpp == 4 || bpp == 8));
 
 	id<MTLRenderPipelineState> pso = nil;
 	if (indexed) {
 		pso = write_compositor32_layout ? s_dsp_unpack_pso_indexed_compositor32
-		                                 : s_dsp_unpack_pso_indexed;
+										 : s_dsp_unpack_pso_indexed;
 	} else if (src_fmt == MTLPixelFormatR16Uint && dst_fmt == MTLPixelFormatBGRA8Unorm) {
 		if (write_compositor32_layout) {
 			pso = native_r16_order ? s_dsp_unpack_pso_16bpp_native_compositor32
-			                       : s_dsp_unpack_pso_16bpp_compositor32;
+								   : s_dsp_unpack_pso_16bpp_compositor32;
 		} else {
 			pso = native_r16_order ? s_dsp_unpack_pso_16bpp_native
-			                       : s_dsp_unpack_pso_16bpp;
+								   : s_dsp_unpack_pso_16bpp;
 		}
 	}
 	if (pso == nil) {
 		DSP_LOG("DSpEncodeUnpackRenderPass: unsupported format pair "
-		        "(%s src=%lu dst=%lu bpp=%u) - present skipped to avoid "
-		        "Metal-incompatible blit",
-		        source_label ? source_label : "source",
-		        (unsigned long)src_fmt, (unsigned long)dst_fmt, bpp);
+				"(%s src=%lu dst=%lu bpp=%u) - present skipped to avoid "
+				"Metal-incompatible blit",
+				source_label ? source_label : "source",
+				(unsigned long)src_fmt, (unsigned long)dst_fmt, bpp);
 		return false;
 	}
 
@@ -1007,7 +1007,7 @@ static bool DSpEncodeUnpackTextureRenderPass(DSpContextPrivate *ctx,
 	 * lagging compositor framebuffer during a mode-switch in flight must
 	 * not be over-rasterised). */
 	NSUInteger back_w = indexed ? (NSUInteger)source_pixel_width
-	                            : source_texture.width;
+								: source_texture.width;
 	NSUInteger back_h = source_texture.height;
 	NSUInteger fb_w   = framebuffer_texture.width;
 	NSUInteger fb_h   = framebuffer_texture.height;
@@ -1043,8 +1043,8 @@ static bool DSpEncodeUnpackTextureRenderPass(DSpContextPrivate *ctx,
 	}
 	if (gamma_buf == nil) {
 		DSP_LOG("DSpEncodeUnpackRenderPass: no gamma LUT buffer (compositor "
-		        "uninitialized) - aborting unpack pass to avoid unbound-buffer "
-		        "read; caller skips present");
+				"uninitialized) - aborting unpack pass to avoid unbound-buffer "
+				"read; caller skips present");
 		[re endEncoding];
 		return false;
 	}
@@ -1055,8 +1055,8 @@ static bool DSpEncodeUnpackTextureRenderPass(DSpContextPrivate *ctx,
 		fade_active = (snap && snap->fade_active) ? 1u : 0u;
 	}
 	fade_active = DSpUnpackShaderFadeActiveForGammaPolicy(
-	    use_display_gamma,
-	    fade_active != 0u);
+		use_display_gamma,
+		fade_active != 0u);
 	[re setFragmentBytes:&fade_active length:sizeof(fade_active) atIndex:1];
 	if (indexed) {
 		[re setFragmentBytes:ctx->clut_bytes length:768 atIndex:2];
@@ -1066,64 +1066,64 @@ static bool DSpEncodeUnpackTextureRenderPass(DSpContextPrivate *ctx,
 	}
 
 	[re drawPrimitives:MTLPrimitiveTypeTriangle
-	       vertexStart:0
-	       vertexCount:3];
+		   vertexStart:0
+		   vertexCount:3];
 	[re endEncoding];
 
 	if (indexed) {
 		DSP_VLOG("DSpEncodeUnpackRenderPass: %s %lux%lu R8Uint indexed -> "
-		         "BGRA8Unorm (bpp=%u output=%s gamma=%s shaderFade=%u "
-		         "cold_start=%d empty=%d "
-		         "clut0=%u,%u,%u clut1=%u,%u,%u)",
-		         source_label ? source_label : "source",
-		         (unsigned long)vp_w, (unsigned long)vp_h,
-		         bpp, write_compositor32_layout ? "compositor32" : "normalized",
-		         use_display_gamma ? "display" : "identity",
-		         fade_active, ctx->dirty_cold_start, ctx->dirty_empty,
-		         ctx->clut_bytes[0], ctx->clut_bytes[1], ctx->clut_bytes[2],
-		         ctx->clut_bytes[3], ctx->clut_bytes[4], ctx->clut_bytes[5]);
+				 "BGRA8Unorm (bpp=%u output=%s gamma=%s shaderFade=%u "
+				 "cold_start=%d empty=%d "
+				 "clut0=%u,%u,%u clut1=%u,%u,%u)",
+				 source_label ? source_label : "source",
+				 (unsigned long)vp_w, (unsigned long)vp_h,
+				 bpp, write_compositor32_layout ? "compositor32" : "normalized",
+				 use_display_gamma ? "display" : "identity",
+				 fade_active, ctx->dirty_cold_start, ctx->dirty_empty,
+				 ctx->clut_bytes[0], ctx->clut_bytes[1], ctx->clut_bytes[2],
+				 ctx->clut_bytes[3], ctx->clut_bytes[4], ctx->clut_bytes[5]);
 	} else {
 		DSP_VLOG("DSpEncodeUnpackRenderPass: %s %lux%lu R16Uint -> BGRA8Unorm "
-		         "(bpp=%u order=%s output=%s gamma=%s shaderFade=%u "
-		         "cold_start=%d empty=%d)",
-		         source_label ? source_label : "source",
-		         (unsigned long)vp_w, (unsigned long)vp_h,
-		         bpp, native_r16_order ? "native" : "mac-be",
-		         write_compositor32_layout ? "compositor32" : "normalized",
-		         use_display_gamma ? "display" : "identity", fade_active,
-		         ctx->dirty_cold_start, ctx->dirty_empty);
+				 "(bpp=%u order=%s output=%s gamma=%s shaderFade=%u "
+				 "cold_start=%d empty=%d)",
+				 source_label ? source_label : "source",
+				 (unsigned long)vp_w, (unsigned long)vp_h,
+				 bpp, native_r16_order ? "native" : "mac-be",
+				 write_compositor32_layout ? "compositor32" : "normalized",
+				 use_display_gamma ? "display" : "identity", fade_active,
+				 ctx->dirty_cold_start, ctx->dirty_empty);
 	}
 	return true;
 }
 
 static bool DSpEncodeUnpackRenderPass(DSpContextPrivate *ctx,
-                                       id<MTLCommandBuffer> cb,
-                                       id<MTLTexture> framebuffer_texture)
+									   id<MTLCommandBuffer> cb,
+									   id<MTLTexture> framebuffer_texture)
 {
 	if (ctx == nullptr) return false;
 	const bool write_compositor32_layout =
-	    DSpBackBufferWritesCompositor32Layout();
+		DSpBackBufferWritesCompositor32Layout();
 	return DSpEncodeUnpackTextureRenderPass(ctx,
-	                                        ctx->back_texture,
-	                                        ctx->attr.backBufferBestDepth,
-	                                        DSpContextBackBufferWidth(ctx),
-	                                        "backBuffer",
-	                                        false,
-	                                        DSpBackBufferUnpackUsesDisplayGamma(
-	                                            write_compositor32_layout),
-	                                        write_compositor32_layout,
-	                                        cb,
-	                                        framebuffer_texture);
+											ctx->back_texture,
+											ctx->attr.backBufferBestDepth,
+											DSpContextBackBufferWidth(ctx),
+											"backBuffer",
+											false,
+											DSpBackBufferUnpackUsesDisplayGamma(
+												write_compositor32_layout),
+											write_compositor32_layout,
+											cb,
+											framebuffer_texture);
 }
 
 extern "C" void DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx,
-                                                void *command_buffer_raw,
-                                                void *framebuffer_texture_raw)
+												void *command_buffer_raw,
+												void *framebuffer_texture_raw)
 {
 	id<MTLCommandBuffer> cb =
-	    (__bridge id<MTLCommandBuffer>)command_buffer_raw;
+		(__bridge id<MTLCommandBuffer>)command_buffer_raw;
 	id<MTLTexture> framebuffer_texture =
-	    (__bridge id<MTLTexture>)framebuffer_texture_raw;
+		(__bridge id<MTLTexture>)framebuffer_texture_raw;
 	if (ctx == nullptr || cb == nil || framebuffer_texture == nil) return;
 	if (ctx->back_texture == nil) return;
 
@@ -1137,11 +1137,11 @@ extern "C" void DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx,
 		id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
 		if (blit == nil) {
 			DSP_LOG("DSpEncodePresentToFramebuffer: blitCommandEncoder "
-			        "returned nil (fast path)");
+					"returned nil (fast path)");
 			return;
 		}
 		DSpEncodeBackBufferBlit(ctx, (__bridge void *)blit,
-		                         (__bridge void *)framebuffer_texture);
+								 (__bridge void *)framebuffer_texture);
 		[blit endEncoding];
 		return;
 	}
@@ -1152,9 +1152,9 @@ extern "C" void DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx,
 	bool ok = DSpEncodeUnpackRenderPass(ctx, cb, framebuffer_texture);
 	if (!ok) {
 		DSP_LOG("DSpEncodePresentToFramebuffer: no compatible present path "
-		        "(src=%lu dst=%lu bpp=%u)",
-		        (unsigned long)src_fmt, (unsigned long)dst_fmt,
-		        ctx->attr.backBufferBestDepth);
+				"(src=%lu dst=%lu bpp=%u)",
+				(unsigned long)src_fmt, (unsigned long)dst_fmt,
+				ctx->attr.backBufferBestDepth);
 		return;
 	}
 
@@ -1167,30 +1167,30 @@ extern "C" void DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx,
 }
 
 extern "C" bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx,
-                                                          void *command_buffer_raw,
-                                                          void *framebuffer_texture_raw)
+														  void *command_buffer_raw,
+														  void *framebuffer_texture_raw)
 {
 	id<MTLCommandBuffer> cb =
-	    (__bridge id<MTLCommandBuffer>)command_buffer_raw;
+		(__bridge id<MTLCommandBuffer>)command_buffer_raw;
 	id<MTLTexture> framebuffer_texture =
-	    (__bridge id<MTLTexture>)framebuffer_texture_raw;
+		(__bridge id<MTLTexture>)framebuffer_texture_raw;
 	if (ctx == nullptr || cb == nil || framebuffer_texture == nil) return false;
 	if (ctx->front_staging_mac_addr == 0 || ctx->front_staging_size == 0) return false;
 
 	const uint32_t front_depth =
-	    DSpDisplayModeDepth(ctx->attr.backBufferBestDepth,
-	                        ctx->attr.displayBestDepth);
+		DSpDisplayModeDepth(ctx->attr.backBufferBestDepth,
+							ctx->attr.displayBestDepth);
 	MTLPixelFormat fmt = DSpPixelFormatForDepthBits(front_depth);
 	if (fmt == MTLPixelFormatInvalid) {
 		DSP_LOG("DSpEncodeFrontBufferStagingToFramebuffer: unsupported "
-		        "front depth %u", front_depth);
+				"front depth %u", front_depth);
 		return false;
 	}
 
 	const uint32_t w = ctx->attr.displayWidth;
 	const uint32_t h = ctx->attr.displayHeight;
 	const uint32_t row_bytes =
-	    DSpDisplayModePitch(w, front_depth);
+		DSpDisplayModePitch(w, front_depth);
 	const uint32_t buffer_size = row_bytes * h;
 	uint32_t baseAddr_mac = DSpUsableGuestBaseOrZero(
 		ctx->front_staging_mac_addr,
@@ -1199,16 +1199,16 @@ extern "C" bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx,
 		(uint32_t)RAMSize);
 	if (baseAddr_mac == 0 || buffer_size > ctx->front_staging_size) {
 		DSP_LOG("DSpEncodeFrontBufferStagingToFramebuffer: unusable front "
-		        "staging addr=0x%08x size=%u need=%u depth=%u",
-		        ctx->front_staging_mac_addr, ctx->front_staging_size,
-		        buffer_size, front_depth);
+				"staging addr=0x%08x size=%u need=%u depth=%u",
+				ctx->front_staging_mac_addr, ctx->front_staging_size,
+				buffer_size, front_depth);
 		return false;
 	}
 
 	uint8_t *front_host = Mac2HostAddr(baseAddr_mac);
 	if (front_host == NULL) {
 		DSP_LOG("DSpEncodeFrontBufferStagingToFramebuffer: Mac2HostAddr "
-		        "failed for 0x%08x", baseAddr_mac);
+				"failed for 0x%08x", baseAddr_mac);
 		return false;
 	}
 
@@ -1224,19 +1224,19 @@ extern "C" bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx,
 	 * re-blit this stale front-staging snapshot over freshly swapped
 	 * frames on EVERY fade tick (gamma_gen bumps per VBL during fades). */
 	const uint32_t current_hash =
-	    DSpFrontStagingHashBytes(front_host, buffer_size);
+		DSpFrontStagingHashBytes(front_host, buffer_size);
 	if (!DSpFrontStagingShouldEncodeHash(
-	        &ctx->front_staging_present_state,
-	        current_hash,
-	        buffer_size)) {
+			&ctx->front_staging_present_state,
+			current_hash,
+			buffer_size)) {
 		const uint32_t skips =
-		    ctx->front_staging_present_state.unchanged_skips;
+			ctx->front_staging_present_state.unchanged_skips;
 		if (skips <= 3 || (skips % 120u) == 0) {
 			DSP_VLOG("DSpEncodeFrontBufferStagingToFramebuffer: skipped "
-			         "unchanged front staging addr=0x%08x rowBytes=%u "
-			         "%ux%u@%u hash=0x%08x skips=%u",
-			         baseAddr_mac, row_bytes, w, h, front_depth,
-			         current_hash, skips);
+					 "unchanged front staging addr=0x%08x rowBytes=%u "
+					 "%ux%u@%u hash=0x%08x skips=%u",
+					 baseAddr_mac, row_bytes, w, h, front_depth,
+					 current_hash, skips);
 		}
 		return true;
 	}
@@ -1244,36 +1244,36 @@ extern "C" bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx,
 	id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
 	if (device == nil) {
 		DSP_LOG("DSpEncodeFrontBufferStagingToFramebuffer: shared Metal "
-		        "device is nil");
+				"device is nil");
 		return false;
 	}
 
 	id<MTLBuffer> staging_copy =
-	    [device newBufferWithBytes:front_host
-	                        length:buffer_size
-	                       options:MTLResourceStorageModeShared];
+		[device newBufferWithBytes:front_host
+							length:buffer_size
+						   options:MTLResourceStorageModeShared];
 	if (staging_copy == nil) {
 		DSP_LOG("DSpEncodeFrontBufferStagingToFramebuffer: newBufferWithBytes "
-		        "failed (size=%u depth=%u)", buffer_size, front_depth);
+				"failed (size=%u depth=%u)", buffer_size, front_depth);
 		return false;
 	}
 
 	MTLTextureDescriptor *td =
-	    [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:fmt
-	                                                       width:DSpDisplayModeTextureWidth(w, front_depth)
-	                                                      height:h
-	                                                   mipmapped:NO];
+		[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:fmt
+														   width:DSpDisplayModeTextureWidth(w, front_depth)
+														  height:h
+													   mipmapped:NO];
 	td.usage       = MTLTextureUsageShaderRead;
 	td.storageMode = MTLStorageModeShared;
 
 	id<MTLTexture> front_texture =
-	    [staging_copy newTextureWithDescriptor:td
-	                                    offset:0
-	                               bytesPerRow:row_bytes];
+		[staging_copy newTextureWithDescriptor:td
+										offset:0
+								   bytesPerRow:row_bytes];
 	if (front_texture == nil) {
 		DSP_LOG("DSpEncodeFrontBufferStagingToFramebuffer: front texture "
-		        "creation failed (rowBytes=%u depth=%u)",
-		        row_bytes, front_depth);
+				"creation failed (rowBytes=%u depth=%u)",
+				row_bytes, front_depth);
 		return false;
 	}
 
@@ -1290,46 +1290,46 @@ extern "C" bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx,
 			id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
 			if (blit != nil) {
 				[blit copyFromTexture:front_texture
-				           sourceSlice:0
-				           sourceLevel:0
-				          sourceOrigin:MTLOriginMake(0, 0, 0)
-				            sourceSize:MTLSizeMake(copy_w, copy_h, 1)
-				             toTexture:framebuffer_texture
-				      destinationSlice:0
-				      destinationLevel:0
-				     destinationOrigin:MTLOriginMake(0, 0, 0)];
+						   sourceSlice:0
+						   sourceLevel:0
+						  sourceOrigin:MTLOriginMake(0, 0, 0)
+							sourceSize:MTLSizeMake(copy_w, copy_h, 1)
+							 toTexture:framebuffer_texture
+					  destinationSlice:0
+					  destinationLevel:0
+					 destinationOrigin:MTLOriginMake(0, 0, 0)];
 				[blit endEncoding];
 				ok = true;
 				DSP_VLOG("DSpEncodeFrontBufferStagingToFramebuffer: direct "
-				         "front staging blit %lux%lu",
-				         (unsigned long)copy_w, (unsigned long)copy_h);
+						 "front staging blit %lux%lu",
+						 (unsigned long)copy_w, (unsigned long)copy_h);
 			} else {
 				DSP_VLOG("DSpEncodeFrontBufferStagingToFramebuffer: "
-				         "blitCommandEncoder returned nil for direct front "
-				         "staging path");
+						 "blitCommandEncoder returned nil for direct front "
+						 "staging path");
 			}
 		}
 	} else {
 		ok = DSpEncodeUnpackTextureRenderPass(ctx,
-		                                      front_texture,
-		                                      front_depth,
-		                                      w,
-		                                      "frontStaging",
-		                                      DSpFrontStagingUsesNativeR16OrderInMetal(),
-		                                      DSpFrontStagingUsesDisplayGamma(),
-		                                      DSpFrontStagingWritesCompositor32Layout(),
-		                                      cb,
-		                                      framebuffer_texture);
+											  front_texture,
+											  front_depth,
+											  w,
+											  "frontStaging",
+											  DSpFrontStagingUsesNativeR16OrderInMetal(),
+											  DSpFrontStagingUsesDisplayGamma(),
+											  DSpFrontStagingWritesCompositor32Layout(),
+											  cb,
+											  framebuffer_texture);
 	}
 	if (ok) {
 		DSpFrontStagingRememberHash(
-		    &ctx->front_staging_present_state,
-		    current_hash,
-		    buffer_size);
+			&ctx->front_staging_present_state,
+			current_hash,
+			buffer_size);
 		DSP_VLOG("DSpEncodeFrontBufferStagingToFramebuffer: presented "
-		         "front staging addr=0x%08x rowBytes=%u %ux%u@%u "
-		         "hash=0x%08x",
-		         baseAddr_mac, row_bytes, w, h, front_depth, current_hash);
+				 "front staging addr=0x%08x rowBytes=%u %ux%u@%u "
+				 "hash=0x%08x",
+				 baseAddr_mac, row_bytes, w, h, front_depth, current_hash);
 	}
 	return ok;
 }
@@ -1373,8 +1373,8 @@ struct DSpReleaseEntry {
  *  thread (vbl_source.mm:23) - same threading shape as DSpVBLServiceCallback.
  */
 extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
-                                                 void *drawable,
-                                                 double ts)
+												 void *drawable,
+												 double ts)
 {
 	(void)cb_ctx; (void)drawable; (void)ts;
 
@@ -1403,24 +1403,24 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 	if (active == nullptr) return;
 
 	bool present_front_staging =
-	    DSpShouldPresentFrontBufferStagingForState(
-	        active->attr.backBufferBestDepth,
-	        active->attr.displayBestDepth,
-	        active->front_staging_mac_addr,
-	        active->front_staging_size,
-	        active->state,
-	        (uint32_t)kDSpContextState_Active);
+		DSpShouldPresentFrontBufferStagingForState(
+			active->attr.backBufferBestDepth,
+			active->attr.displayBestDepth,
+			active->front_staging_mac_addr,
+			active->front_staging_size,
+			active->state,
+			(uint32_t)kDSpContextState_Active);
 	if (!DSpShouldPublishActiveContextOnVBL(snap->active_owner,
-	                                        (uint32_t)kDMCOwnerDSp,
-	                                        active != nullptr,
-	                                        present_front_staging,
-	                                        active->explicit_swap_observed)) {
+											(uint32_t)kDMCOwnerDSp,
+											active != nullptr,
+											present_front_staging,
+											active->explicit_swap_observed)) {
 		return;
 	}
 
 	const bool has_back_buffer_staging = (active->staging_mac_addr != 0);
 	if (DSpShouldFlushNQDBeforeStagingDrain(has_back_buffer_staging,
-	                                       present_front_staging)) {
+										   present_front_staging)) {
 		NQDMetalFlush();
 	}
 
@@ -1465,7 +1465,7 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 	}
 
 	id<MTLCommandQueue> queue =
-	    (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
+		(__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
 	if (queue == NULL) {
 		return;
 	}
@@ -1482,9 +1482,9 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 		bool front_presented = false;
 		if (present_front_staging) {
 			front_presented =
-			    DSpEncodeFrontBufferStagingToFramebuffer(active,
-			                                             (__bridge void *)cb,
-			                                             fb_tex_raw);
+				DSpEncodeFrontBufferStagingToFramebuffer(active,
+														 (__bridge void *)cb,
+														 fb_tex_raw);
 		}
 		if (!front_presented) {
 			DSpEncodePresentToFramebuffer(active, (__bridge void *)cb, fb_tex_raw);
@@ -1494,7 +1494,7 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 		 * reads back_texture - DSp-heap memory - so the heap bump reset
 		 * must defer until this buffer completes. */
 		gfxaccel_resources_heap_note_gpu_commit(kHeapEngineDSp,
-		                                        (__bridge void *)cb);
+												(__bridge void *)cb);
 		[cb commit];
 	}
 
@@ -1525,8 +1525,8 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 }
 
 extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
-                                                  uint32_t busyProcAddr,
-                                                  uint32_t userRefCon)
+												  uint32_t busyProcAddr,
+												  uint32_t userRefCon)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
@@ -1549,10 +1549,10 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 	 * post-swap completion). */
 	if (!DSpPollBusyProc(ctxRef, busyProcAddr, userRefCon)) {
 		DSP_LOG("SwapBuffers: busyProc gate timed out (2 VBL cap); "
-		        "proceeding with swap");
+				"proceeding with swap");
 	}
 	int32_t revalidate_rc =
-	    DSpRevalidateSwapContext(ctxRef, ctx, entry_state, &ctx, "busyProc");
+		DSpRevalidateSwapContext(ctxRef, ctx, entry_state, &ctx, "busyProc");
 	if (revalidate_rc != kDSpNoErr) return revalidate_rc;
 
 	/* VBL sync unless kDSpContextOption_DontSyncVBL is set. max_frame_rate
@@ -1561,8 +1561,8 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 	if ((ctx->attr.contextOptions & kDSpContextOption_DontSyncVBL) == 0) {
 		DSpSyncSwapFramePacing(ctxRef, ctx->max_frame_rate);
 		revalidate_rc =
-		    DSpRevalidateSwapContext(ctxRef, ctx, entry_state, &ctx,
-		                             "frame pacing");
+			DSpRevalidateSwapContext(ctxRef, ctx, entry_state, &ctx,
+									 "frame pacing");
 		if (revalidate_rc != kDSpNoErr) return revalidate_rc;
 	}
 
@@ -1574,12 +1574,12 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 	void *fb_tex_raw = MetalCompositorGetFramebufferTexture();
 	if (fb_tex_raw == NULL) {
 		DSP_LOG("SwapBuffers: no compositor framebuffer texture - "
-		        "compositor not initialized?");
+				"compositor not initialized?");
 		return kDSpInternalErr;
 	}
 
 	id<MTLCommandQueue> queue =
-	    (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
+		(__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
 	if (queue == NULL) {
 		DSP_LOG("SwapBuffers: shared Metal command queue is NULL");
 		return kDSpInternalErr;
@@ -1593,16 +1593,16 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 		}
 
 		bool present_front_staging =
-		    DSpShouldPresentFrontBufferStagingForSwap(
-		        ctx->attr.backBufferBestDepth,
-		        ctx->attr.displayBestDepth,
-		        ctx->front_staging_mac_addr,
-		        ctx->front_staging_size,
-		        ctx->state,
-		        (uint32_t)kDSpContextState_Active);
+			DSpShouldPresentFrontBufferStagingForSwap(
+				ctx->attr.backBufferBestDepth,
+				ctx->attr.displayBestDepth,
+				ctx->front_staging_mac_addr,
+				ctx->front_staging_size,
+				ctx->state,
+				(uint32_t)kDSpContextState_Active);
 		const bool has_back_buffer_staging = (ctx->staging_mac_addr != 0);
 		if (DSpShouldFlushNQDBeforeStagingDrain(has_back_buffer_staging,
-		                                       present_front_staging)) {
+											   present_front_staging)) {
 			NQDMetalFlush();
 		}
 
@@ -1637,9 +1637,9 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 		bool front_presented = false;
 		if (present_front_staging) {
 			front_presented =
-			    DSpEncodeFrontBufferStagingToFramebuffer(ctx,
-			                                             (__bridge void *)cb,
-			                                             fb_tex_raw);
+				DSpEncodeFrontBufferStagingToFramebuffer(ctx,
+														 (__bridge void *)cb,
+														 fb_tex_raw);
 		}
 		if (!front_presented) {
 			DSpEncodePresentToFramebuffer(ctx, (__bridge void *)cb, fb_tex_raw);
@@ -1649,7 +1649,7 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 		 * reads back_texture - DSp-heap memory - so the heap bump reset
 		 * must defer until this buffer completes. */
 		gfxaccel_resources_heap_note_gpu_commit(kHeapEngineDSp,
-		                                        (__bridge void *)cb);
+												(__bridge void *)cb);
 		[cb commit];
 	}
 
@@ -1686,7 +1686,7 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 	int32_t rc = MetalCompositorSubmitFrame(&desc);
 	if (rc == kGfxAccelErrStaleGeneration) {
 		DSP_LOG("SwapBuffers: SubmitFrame stale generation; dropping "
-		        "frame (ctxRef=%u)", ctxRef);
+				"frame (ctxRef=%u)", ctxRef);
 		/* Per the engine-blind contract, the caller should rebuild on the
 		 * next mode snapshot - return noErr so DSp clients don't abandon
 		 * their run-loops; classic-Mac apps have no "rebuild" concept
@@ -1694,7 +1694,7 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 		 * critically wrong. */
 	} else if (rc != kGfxAccelNoErr) {
 		DSP_LOG("SwapBuffers: SubmitFrame returned %d (ctxRef=%u)",
-		        rc, ctxRef);
+				rc, ctxRef);
 	}
 
 	/* Reset dirty state. SwapBuffers always full-blits; the
@@ -1722,7 +1722,7 @@ static inline MTLPixelFormat DSpAltPixelFormatForDepth(uint32_t depth)
  * persists across the background/foreground release-restore cycle). Returns
  * true on success; on failure leaves rec->backing/texture nil. */
 static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
-                                     uint32_t w, uint32_t h)
+									 uint32_t w, uint32_t h)
 {
 	if (rec == nullptr || w == 0 || h == 0) return false;
 	const uint32_t bpp_bytes = DSpAltBytesPerPixel(rec->depth);
@@ -1734,7 +1734,7 @@ static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 	 * is always exact. Reject anything past the caps. */
 	if (w > DSP_ALT_MAX_DIM || h > DSP_ALT_MAX_DIM) {
 		DSP_LOG("DSpAllocAltBufferBacking: dims %ux%u exceed DSP_ALT_MAX_DIM=%u",
-		        w, h, (uint32_t)DSP_ALT_MAX_DIM);
+				w, h, (uint32_t)DSP_ALT_MAX_DIM);
 		return false;
 	}
 	uint64_t row_bytes64 = (uint64_t)w * (uint64_t)bpp_bytes;
@@ -1742,20 +1742,20 @@ static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 	uint64_t size64      = aligned64 * (uint64_t)h;
 	if (aligned64 > 0xFFFFFFFFu || size64 > DSP_ALT_MAX_BACKING_BYTES) {
 		DSP_LOG("DSpAllocAltBufferBacking: backing too large (alignedRB=%llu "
-		        "size=%llu, %ux%u) -> reject",
-		        (unsigned long long)aligned64, (unsigned long long)size64, w, h);
+				"size=%llu, %ux%u) -> reject",
+				(unsigned long long)aligned64, (unsigned long long)size64, w, h);
 		return false;
 	}
 	uint32_t alignedRB   = (uint32_t)aligned64;
 	uint32_t buffer_size = (uint32_t)size64;
 
 	void *buf_raw = gfxaccel_resources_heap_alloc_buffer(
-	    kHeapEngineDSp,                            /* per-engine DSp heap */
-	    buffer_size,
-	    (uint32_t)MTLResourceStorageModeShared);
+		kHeapEngineDSp,                            /* per-engine DSp heap */
+		buffer_size,
+		(uint32_t)MTLResourceStorageModeShared);
 	if (buf_raw == NULL) {
 		DSP_LOG("DSpAllocAltBufferBacking: heap alloc failed (size=%u, %ux%u)",
-		        buffer_size, w, h);
+				buffer_size, w, h);
 		return false;
 	}
 	id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buf_raw;
@@ -1769,11 +1769,11 @@ static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 	desc.usage       = MTLTextureUsageShaderRead;
 
 	id<MTLTexture> tex = [buf newTextureWithDescriptor:desc
-	                                            offset:0
-	                                       bytesPerRow:alignedRB];
+												offset:0
+										   bytesPerRow:alignedRB];
 	if (tex == nil) {
 		DSP_LOG("DSpAllocAltBufferBacking: newTextureWithDescriptor returned nil "
-		        "(%ux%u alignedRB=%u)", w, h, alignedRB);
+				"(%ux%u alignedRB=%u)", w, h, alignedRB);
 		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 		return false;
 	}
@@ -1786,7 +1786,7 @@ static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 	/* Tag the backing with the DSp engine id for per-buffer ownership.
 	 * The compositor never queries this tag. */
 	gfxaccel_resources_set_buffer_owner((__bridge void *)buf,
-	                                    (uint32_t)kGfxEngineDSp);
+										(uint32_t)kGfxEngineDSp);
 	return true;
 }
 

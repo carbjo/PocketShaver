@@ -38,7 +38,7 @@ int cinepak_height(const cinepak_context_t *ctx);
  * cinepak_frame() returns the up-to-date frame.
  */
 int cinepak_decode_frame(cinepak_context_t *ctx,
-                         const uint8_t *src, size_t src_size);
+						 const uint8_t *src, size_t src_size);
 
 /* Pointer to the internal frame store: width*height uint32 0x00RRGGBB. */
 const uint32_t *cinepak_frame(const cinepak_context_t *ctx);

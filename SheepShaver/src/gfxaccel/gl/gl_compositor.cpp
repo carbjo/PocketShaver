@@ -3,6 +3,8 @@
  *
  *  Desktop counterpart of metal_compositor.mm: presents the Mac framebuffer
  *  (all classic depths) plus a cached RAVE/GL overlay into the SDL window.
+ *
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #include "sysdeps.h"
@@ -30,29 +32,75 @@
 #include <vector>
 #include <cmath>
 
-extern SDL_Window *sdl_window;
-
+#define COMPOSITOR_LOG(...) GFX_DEBUG_EMIT("[compositor] ", __VA_ARGS__)
+#define COMPOSITOR_ERR(...) GFX_DEBUG_EMIT("[compositor ERROR] ", __VA_ARGS__)
 
 extern SDL_Window *sdl_window;
 SDL_Window *gl_device_sdl_window = nullptr;
-
 static SDL_GLContext s_gl_ctx = nullptr;
 static bool s_ready = false;
-
 /* Opaque sentinels so code that null-checks SharedMetalDevice() still works. */
 static char s_device_sentinel = 1;
 static char s_queue_sentinel = 1;
+/* Set when Present is skipped because a guest 3D pass (or nested Present)
+ * owns the shared GL context. Cleared when a Present completes or is
+ * cancelled. */
+static bool s_present_deferred = false;
+static bool s_init = false;
+static bool s_present_in_progress = false;
+static int compositor_pixel_width = 0, compositor_pixel_height = 0, compositor_depth = 0;
+static int compositor_row_bytes = 0, compositor_pitch = 0;
+static int compositor_bits_per_pixel = 0;
+static void *compositor_buffer = nullptr;
+static uint32_t compositor_buffer_size = 0;
+static void *s_classic_host_stash = nullptr;
+static uint32_t s_classic_host_stash_size = 0;
+static int s_classic_host_stash_w = 0;
+static int s_classic_host_stash_h = 0;
+static int s_classic_host_stash_depth = 0;
+static int s_classic_host_stash_rb = 0;
+static int s_classic_host_stash_pitch = 0;
+static GLuint s_fb_tex = 0;
+static int s_fb_tex_width = 0;
+static int s_fb_tex_height = 0;
+static GLuint s_palette_tex = 0;   /* 256x1 RGB for indexed */
+static GLuint s_prog_32 = 0, s_prog_16 = 0, s_prog_idx = 0, s_prog_overlay = 0;
+static GLuint s_gamma_tex = 0;
+static uint8_t s_palette[256 * 4];
+static uint8_t s_gamma_lut[768];
+static uint8_t s_gamma_identity[768];
+static bool s_palette_dirty = true;
+static bool s_gamma_is_identity = true;
+static CompositeLayer s_overlay_cache;
+static bool s_overlay_valid = false;
+static GLuint s_overlay_tex_cache = 0;
+static uint64_t s_overlay_submit_serial = 0;
+static uint64_t s_overlay_present_serial = 0;
+static std::vector<uint8_t> s_overlay_fb_baseline;
+static uint64_t s_last_overlay_submit_usec = 0;
+static std::vector<uint8_t> s_classic_fb_upload_baseline;
+static bool s_classic_fb_texture_valid = false;
+static CompositeLayer s_framebuffer_cache;
+static bool s_framebuffer_valid = false;
+static GLuint s_framebuffer_tex_cache = 0;
+static std::atomic<uint64_t> s_present_origin{0};
+static std::atomic<uint64_t> s_present_size{0};
+static GLuint s_fb_tex_export = 0;
+#if QD3D_GRAPHICS_LOGGING_ENABLED
+static uint64_t s_overlay_submit_count = 0;
+static uint64_t s_present_count = 0;
+#endif
 
-bool GfxGLDeviceInit(void)
+bool GLCompositorDeviceInit(void)
 { /* Should ONLY be called by MetalCompositorInit or otherwise
 	the backing variables will not be recreated correctly and it will
 	white screen */
-	QD3D_INIT_LOG("GfxGLDeviceInit: ready=%d context=%p window=%p",
-	              s_ready, s_gl_ctx, (void *)sdl_window);
+	QD3D_INIT_LOG("GLCompositorDeviceInit: ready=%d context=%p window=%p",
+				  s_ready, s_gl_ctx, (void *)sdl_window);
 
 	if (!sdl_window) {
-		QD3D_INIT_LOG("GfxGLDeviceInit: FAILED because SDL window is null");
-		fprintf(stderr, "[gfxaccel-gl] GfxGLDeviceInit: sdl_window is NULL\n");
+		QD3D_INIT_LOG("GLCompositorDeviceInit: FAILED because SDL window is null");
+		fprintf(stderr, "[gfxaccel-gl] GLCompositorDeviceInit: sdl_window is NULL\n");
 		return false;
 	}
 
@@ -73,14 +121,14 @@ bool GfxGLDeviceInit(void)
 
 	s_gl_ctx = SDL_GL_CreateContext(sdl_window);
 	if (!s_gl_ctx) {
-		QD3D_INIT_LOG("GfxGLDeviceInit: SDL_GL_CreateContext FAILED: %s", SDL_GetError());
+		QD3D_INIT_LOG("GLCompositorDeviceInit: SDL_GL_CreateContext FAILED: %s", SDL_GetError());
 		fprintf(stderr, "[gfxaccel-gl] SDL_GL_CreateContext failed: %s\n", SDL_GetError());
 		s_ready = false;
 		return false;
 	}
 
 	if (SDL_GL_MakeCurrent(sdl_window, s_gl_ctx) != 0) {
-		QD3D_INIT_LOG("GfxGLDeviceInit: SDL_GL_MakeCurrent FAILED: %s", SDL_GetError());
+		QD3D_INIT_LOG("GLCompositorDeviceInit: SDL_GL_MakeCurrent FAILED: %s", SDL_GetError());
 		fprintf(stderr, "[gfxaccel-gl] SDL_GL_MakeCurrent failed: %s\n", SDL_GetError());
 		SDL_GL_DeleteContext(s_gl_ctx);
 		s_gl_ctx = nullptr;
@@ -88,28 +136,25 @@ bool GfxGLDeviceInit(void)
 		return false;
 	}
 
-	/* Never block the emulator thread on vsync. Present is invoked from
-	 * VideoVBL on the emul thread; SwapInterval(1) + full-frame uploads
-	 * at 2560x1440 starves PPC execution and looks like a hard lockup. */
 	SDL_GL_SetSwapInterval(0);
 
 	const char *vendor = (const char *)glGetString(GL_VENDOR);
 	const char *renderer = (const char *)glGetString(GL_RENDERER);
 	const char *version = (const char *)glGetString(GL_VERSION);
 	fprintf(stderr, "[gfxaccel-gl] OpenGL ready: %s / %s / %s\n",
-	        vendor ? vendor : "?",
-	        renderer ? renderer : "?",
-	        version ? version : "?");
+			vendor ? vendor : "?",
+			renderer ? renderer : "?",
+			version ? version : "?");
 
 	gl_device_sdl_window = sdl_window;
 	s_ready = true;
-	QD3D_INIT_LOG("GfxGLDeviceInit: SUCCESS context=%p vendor='%s' renderer='%s' version='%s'",
-	              s_gl_ctx, vendor ? vendor : "?", renderer ? renderer : "?",
-	              version ? version : "?");
+	QD3D_INIT_LOG("GLCompositorDeviceInit: SUCCESS context=%p vendor='%s' renderer='%s' version='%s'",
+				  s_gl_ctx, vendor ? vendor : "?", renderer ? renderer : "?",
+				  version ? version : "?");
 	return true;
 }
 
-void GfxGLDeviceShutdown(void)
+void GLCompositorDeviceShutdown(void)
 {
 	if (s_gl_ctx) {
 		if (gl_device_sdl_window)
@@ -120,12 +165,12 @@ void GfxGLDeviceShutdown(void)
 	s_ready = false;
 }
 
-bool GfxGLDeviceIsReady(void)
+bool GLCompositorDeviceIsReady(void)
 {
 	return s_ready && s_gl_ctx != nullptr;
 }
 
-void GfxGLDeviceSwap(void)
+void GLCompositorDeviceSwap(void)
 {
 	assert(s_ready);
 	assert(s_gl_ctx != nullptr);
@@ -133,7 +178,7 @@ void GfxGLDeviceSwap(void)
 	SDL_GL_SwapWindow(gl_device_sdl_window);
 }
 
-void GfxGLDeviceGetDrawableSize(int *out_w, int *out_h)
+void GLCompositorDeviceGetDrawableSize(int *out_w, int *out_h)
 {
 	assert(s_ready);
 	assert(s_gl_ctx != nullptr);
@@ -142,31 +187,16 @@ void GfxGLDeviceGetDrawableSize(int *out_w, int *out_h)
 	assert(out_h != nullptr);
 	SDL_GL_GetDrawableSize(gl_device_sdl_window, out_w, out_h);
 }
-
-void *SharedMetalDevice(void)
-{
-	/* Twin of metal_device_shared: return the shared GPU device, making the
-	 * compositor GL context current only when the thread is on a different
-	 * context/window. The previous `ctx != s_gl_ctx || MakeCurrent(...)`
-	 * short-circuit was inverted: when the context was already wrong the
-	 * `||` never called MakeCurrent and every Present/upload returned NULL
-	 * (desktop appeared frozen for long stretches between rare successes). */
-	if (!s_ready || !s_gl_ctx || !gl_device_sdl_window)
-		return NULL;
-	if (SDL_GL_GetCurrentContext() != s_gl_ctx ||
-	    SDL_GL_GetCurrentWindow() != gl_device_sdl_window) {
-		if (SDL_GL_MakeCurrent(gl_device_sdl_window, s_gl_ctx) != 0) {
-			QD3D_INIT_LOG("SDL_GL_MakeCurrent failed: %s", SDL_GetError());
-			return NULL;
-		}
-	}
-	return (void *)&s_device_sentinel;
+#if defined(__APPLE__) && defined(TARGET_OS_IPHONE)
+extern bool objc_getIsLinearGammaEnabled(void);
+static inline bool GLCompositorIsLinearGamma(void) {
+	return objc_getIsLinearGammaEnabled();
 }
+#else
+static inline bool GLCompositorIsLinearGamma(void)
+{ return false; }
+#endif
 
-void *SharedMetalCommandQueue(void)
-{
-	return SharedMetalDevice();
-}
 
 void MetalValidation_InstallErrorHandler(void * /*cmdBufPtr*/)
 {
@@ -181,103 +211,14 @@ extern "C" int GlideGLRenderPassActive(void);
 /* All guest 3D backends borrow the compositor's compatibility context.  Keep
  * the ownership test in one place so Present and the deferred flush cannot
  * drift apart as backends are added or removed. */
-static bool guest_3d_render_pass_active(void)
+static bool MetalIs3DRenderPassActive(void)
 {
 	return RaveGLRenderPassActive() || GLFFPRenderPassActive() ||
-	       GlideGLRenderPassActive();
+		   GlideGLRenderPassActive();
 }
 
-/* Set when Present is skipped because a guest 3D pass (or nested Present)
- * owns the shared GL context. Cleared when a Present completes or is
- * cancelled. */
-static bool s_present_deferred = false;
 
-/* Metal (iOS) reads the "Linear" gamma pref through the ObjC bridge. The
- * desktop/SDL build has no such pref plumbing, so default to the OS-defined
- * (apply_correction = true) policy to stay in lock-step with Metal's default
- * presentation. When the bridge is compiled in, honor it so the two backends
- * apply an identical transform to the guest LUT. */
-#if defined(__APPLE__) && defined(TARGET_OS_IPHONE)
-extern bool objc_getIsLinearGammaEnabled(void);
-static inline bool gl_compositor_is_linear_gamma(void) {
-	return objc_getIsLinearGammaEnabled();
-}
-#else
-static inline bool gl_compositor_is_linear_gamma(void) { return false; }
-#endif
 
-// ---------------------------------------------------------------------------
-// Logging
-// ---------------------------------------------------------------------------
-#include "gfx_log.h"
-#define COMPOSITOR_LOG(...) GFX_DEBUG_EMIT("[compositor] ", __VA_ARGS__)
-#define COMPOSITOR_ERR(...) GFX_DEBUG_EMIT("[compositor ERROR] ", __VA_ARGS__)
-
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-static bool s_init = false;
-static bool s_present_in_progress = false;
-static int compositor_pixel_width = 0, compositor_pixel_height = 0, compositor_depth = 0;
-static int compositor_row_bytes = 0, compositor_pitch = 0;
-static int compositor_bits_per_pixel = 0;
-static void *compositor_buffer = nullptr;
-static uint32_t compositor_buffer_size = 0;
-
-/* DSp OnModeEnter Resize passes buffer=NULL (engine writes s_fb_tex).  Diablo's
- * dual-context scan can leave DMC on QuickDraw without a restore mode switch
- * (handoff suppressed on the parent; child never redirected).  Stash the last
- * classic host surface so we can rebind it when the owner returns to QD. */
-static void *s_classic_host_stash = nullptr;
-static uint32_t s_classic_host_stash_size = 0;
-static int s_classic_host_stash_w = 0;
-static int s_classic_host_stash_h = 0;
-static int s_classic_host_stash_depth = 0;
-static int s_classic_host_stash_rb = 0;
-static int s_classic_host_stash_pitch = 0;
-
-static GLuint s_fb_tex = 0;
-static int s_fb_tex_width = 0;
-static int s_fb_tex_height = 0;
-static GLuint s_palette_tex = 0;   /* 256x1 RGB for indexed */
-static GLuint s_prog_32 = 0, s_prog_16 = 0, s_prog_idx = 0, s_prog_overlay = 0;
-static GLuint s_gamma_tex = 0;
-
-static uint8_t s_palette[256 * 4];
-static uint8_t s_gamma_lut[768];
-static uint8_t s_gamma_identity[768];
-static bool s_palette_dirty = true;
-static bool s_gamma_is_identity = true;
-
-/* Overlay mailbox (SubmitFrame caches last overlay). */
-static CompositeLayer s_overlay_cache;
-static bool s_overlay_valid = false;
-static GLuint s_overlay_tex_cache = 0; /* GL name retained as GLuint in void* */
-static uint64_t s_overlay_submit_serial = 0;
-static uint64_t s_overlay_present_serial = 0;
-/*
- * Some RAVE applications keep their draw context allocated when returning to
- * a QuickDraw menu.  Remember the guest framebuffer as it stood when the last
- * RAVE frame was submitted: a later write to it is an implicit ownership
- * handoff even if the application never calls QAEngineDisable.
- */
-static std::vector<uint8_t> s_overlay_fb_baseline;
-static uint64_t s_last_overlay_submit_usec = 0;
-static std::vector<uint8_t> s_classic_fb_upload_baseline;
-static bool s_classic_fb_texture_valid = false;
-static CompositeLayer s_framebuffer_cache;
-static bool s_framebuffer_valid = false;
-static GLuint s_framebuffer_tex_cache = 0;
-#if QD3D_GRAPHICS_LOGGING_ENABLED
-static uint64_t s_overlay_submit_count = 0;
-static uint64_t s_present_count = 0;
-
-static bool compositor_trace_sample(uint64_t count)
-{
-	return count <= 8 || (count != 0 && (count & (count - 1)) == 0) ||
-	       (count % 120) == 0;
-}
-#endif
 
 class ScopedCompositorPresent
 {
@@ -298,12 +239,6 @@ public:
 	ScopedCompositorPresent &operator=(const ScopedCompositorPresent &) = delete;
 };
 
-/* Present-rect cache (window coords). */
-static std::atomic<uint64_t> s_present_origin{0};
-static std::atomic<uint64_t> s_present_size{0};
-
-/* Framebuffer texture handle exported to DSp as void*. */
-static GLuint s_fb_tex_export = 0;
 
 static size_t visible_framebuffer_bytes(void)
 {
@@ -334,9 +269,9 @@ static bool classic_cpu_upload_allowed(void)
 		/* Metal: skip CPU upload only for non-underlay owners (DSp, blanking&).
 		 * Overlay engines (RAVE/GL/Glide) keep the classic base. */
 		if (owner != (uint32_t)kDMCOwnerQuickDraw &&
-		    owner != (uint32_t)kDMCOwnerRAVE &&
-		    owner != (uint32_t)kDMCOwnerGL &&
-		    owner != (uint32_t)kDMCOwnerGlide) {
+			owner != (uint32_t)kDMCOwnerRAVE &&
+			owner != (uint32_t)kDMCOwnerGL &&
+			owner != (uint32_t)kDMCOwnerGlide) {
 			return false;
 		}
 	}
@@ -350,25 +285,11 @@ static bool classic_framebuffer_needs_upload(void)
 	const size_t bytes = visible_framebuffer_bytes();
 	assert(bytes == 0 || compositor_buffer != nullptr);
 	if (!s_classic_fb_texture_valid ||
-	    bytes != s_classic_fb_upload_baseline.size()) {
-#if DESCENT_HITCH_DEBUG
-		static int s_nu_force_log = 0;
-		if (s_nu_force_log++ < 40)
-			gfx_log_emit("[compositor] ",
-				"needsUpload FORCE valid=%d bytes=%zu baseSize=%zu",
-				s_classic_fb_texture_valid ? 1 : 0,
-				bytes, s_classic_fb_upload_baseline.size());
-#endif
+		bytes != s_classic_fb_upload_baseline.size()) {
 		return true;
 	}
 	const bool diff = bytes != 0 &&
 		std::memcmp(compositor_buffer, s_classic_fb_upload_baseline.data(), bytes) != 0;
-#if DESCENT_HITCH_DEBUG
-	static int s_nu_diff_log = 0;
-	if (s_nu_diff_log++ < 40)
-		gfx_log_emit("[compositor] ",
-			"needsUpload memcmp diff=%d bytes=%zu", diff ? 1 : 0, bytes);
-#endif
 	return diff;
 }
 
@@ -407,27 +328,15 @@ static void detect_implicit_quickdraw_handoff(void)
 		return;
 	if (std::memcmp(compositor_buffer, s_overlay_fb_baseline.data(), bytes) == 0)
 		return;
-	/* At 60 Hz a VideoVBL can land between two RAVE frames. Descent writes
-	 * incidental QuickDraw data while its RAVE context remains live; treating
-	 * that single write as an immediate owner change clears the cached overlay
-	 * until the next RenderEnd and produces severe alternating-frame flicker.
-	 * A real menu handoff stops RAVE submissions, so wait for a short quiet
-	 * interval before accepting the framebuffer write as authoritative. */
-	static constexpr uint64_t kRaveHandoffQuietUsec = 250000u;
-	const uint64_t now = compositor_now_usec();
-	if (s_last_overlay_submit_usec != 0 &&
-	    now - s_last_overlay_submit_usec < kRaveHandoffQuietUsec)
-		return;
 
-	QD3D_RENDER_LOG("CompositorQuickDrawHandoff: guest framebuffer changed after the last RAVE frame; restoring QuickDraw owner");
 	/* The compositor's DMC exit callback clears both the cached overlay and
 	 * this baseline before the next present. */
 	(void)dmc_set_active_owner((uint32_t)kDMCOwnerQuickDraw);
 }
 
-// ---------------------------------------------------------------------------
-// Shaders (GLSL 1.20 compatibility)
-// ---------------------------------------------------------------------------
+/* ---------------------------------------------------------------------------
+	Shaders (GLSL 1.20 compatibility)
+ --------------------------------------------------------------------------- */
 static const char *kVS = R"GLSL(
 #version 120
 varying vec2 v_uv;
@@ -515,7 +424,14 @@ void main() {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-static int depth_to_bpp_bits(int depth_mode)
+#if QD3D_GRAPHICS_LOGGING_ENABLED
+static bool MetalCompositorShouldTracePresent(uint64_t count)
+{
+	return count <= 8 || (count != 0 && (count & (count - 1)) == 0) ||
+		   (count % 120) == 0;
+}
+#endif
+static int MetalCompositorDepthToBPPBits(int depth_mode)
 {
 	switch (depth_mode) {
 	case VIDEO_DEPTH_1BIT: return 1;
@@ -528,7 +444,7 @@ static int depth_to_bpp_bits(int depth_mode)
 	}
 }
 
-static void ensure_identity_gamma(void)
+static void MetalCompositorEnsureIdentityGamma(void)
 {
 	for (int i = 0; i < 256; i++) {
 		s_gamma_identity[i] = (uint8_t)i;
@@ -540,7 +456,7 @@ static void ensure_identity_gamma(void)
 	}
 }
 
-static void upload_gamma_texture(void)
+static void MetalCompositorUploadGammaTexture(void)
 {
 	if (!s_gamma_tex) {
 		glGenTextures(1, &s_gamma_tex);
@@ -562,14 +478,14 @@ static void upload_gamma_texture(void)
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 256, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, packed);
 }
 
-static void destroy_programs(void)
+static void MetalCompositorDestroyPrograms(void)
 {
 	s_prog_32 = s_prog_16 = s_prog_idx = s_prog_overlay = 0;
 }
 
-static bool build_programs(void)
+static bool MetalCompositorCreatePrograms(void)
 {
-	destroy_programs();
+	MetalCompositorDestroyPrograms();
 	/* Prefer fixed-function for maximum desktop GL compatibility;
 	 * shaders optional. For now always use FFP + CPU color expand. */
 	s_use_shaders = false;
@@ -577,7 +493,7 @@ static bool build_programs(void)
 	return true;
 }
 
-static void destroy_textures(void)
+static void MetalCompositorDestroyTextures(void)
 {
 	if (s_fb_tex) { glDeleteTextures(1, &s_fb_tex); s_fb_tex = 0; }
 	s_fb_tex_width = 0;
@@ -589,7 +505,7 @@ static void destroy_textures(void)
 	s_fb_tex_export = 0;
 }
 
-static void ensure_fb_texture(void)
+static void MetalCompositorEnsureFrameBufferTexture(void)
 {
 	if (!s_fb_tex) {
 		glGenTextures(1, &s_fb_tex);
@@ -603,7 +519,7 @@ static void ensure_fb_texture(void)
 	if (s_fb_tex_width != compositor_pixel_width || s_fb_tex_height != compositor_pixel_height) {
 		glBindTexture(GL_TEXTURE_2D, s_fb_tex);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, compositor_pixel_width, compositor_pixel_height, 0,
-		             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+					 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 		s_fb_tex_width = compositor_pixel_width;
 		s_fb_tex_height = compositor_pixel_height;
 		s_classic_fb_texture_valid = false;
@@ -614,12 +530,12 @@ static void ensure_fb_texture(void)
 static bool framebuffer_layer_occludes_classic_framebuffer(void)
 {
 	return s_framebuffer_valid && s_framebuffer_cache.source &&
-	       s_framebuffer_cache.blend == kBlendOpaque &&
-	       s_framebuffer_cache.alpha >= 1.f &&
-	       s_framebuffer_cache.dst_origin_x <= 0.f &&
-	       s_framebuffer_cache.dst_origin_y <= 0.f &&
-	       s_framebuffer_cache.dst_size_w >= (float)compositor_pixel_width &&
-	       s_framebuffer_cache.dst_size_h >= (float)compositor_pixel_height;
+		   s_framebuffer_cache.blend == kBlendOpaque &&
+		   s_framebuffer_cache.alpha >= 1.f &&
+		   s_framebuffer_cache.dst_origin_x <= 0.f &&
+		   s_framebuffer_cache.dst_origin_y <= 0.f &&
+		   s_framebuffer_cache.dst_size_w >= (float)compositor_pixel_width &&
+		   s_framebuffer_cache.dst_size_h >= (float)compositor_pixel_height;
 }
 
 /* Expand guest framebuffer into tightly packed RGBA8 for upload. */
@@ -829,102 +745,122 @@ static void draw_overlay_layer(const CompositeLayer *layer)
 // ---------------------------------------------------------------------------
 static int32_t MetalCompositor_OnModeExit(const struct DMCModeSnapshot *outgoing, void *ctx)
 {
-    (void)ctx;
-    if (outgoing) {
-        COMPOSITOR_LOG("DMC on_mode_exit: outgoing gen=%u %ux%u depth=%u",
-                       outgoing->generation, outgoing->width, outgoing->height, outgoing->depth);
-    }
-    /* Metal clears the overlay cache on every real mode exit so a stale
-     * engine texture cannot composite into the next mode. GL also drops the
-     * framebuffer-slot cache (DSp) for the same lifetime reason. */
-    MetalCompositorSubmitFrame_ClearCachedOverlay();
-    MetalCompositorSubmitFrame_ClearCachedFramebuffer();
-    s_present_deferred = false;
-    return 0;
+	(void)ctx;
+	if (outgoing) {
+		COMPOSITOR_LOG("DMC on_mode_exit: outgoing gen=%u %ux%u depth=%u",
+					   outgoing->generation, outgoing->width, outgoing->height, outgoing->depth);
+	}
+	/* Metal clears the overlay cache on every real mode exit so a stale
+	 * engine texture cannot composite into the next mode. GL also drops the
+	 * framebuffer-slot cache (DSp) for the same lifetime reason. */
+	MetalCompositorSubmitFrame_ClearCachedOverlay();
+	MetalCompositorSubmitFrame_ClearCachedFramebuffer();
+	s_present_deferred = false;
+	return 0;
 }
 
 static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incoming, void *ctx)
 {
-    (void)ctx;
-    if (incoming) {
-        COMPOSITOR_LOG("DMC on_mode_enter: incoming gen=%u %ux%u depth=%u vbl_usec=%llu",
-                       incoming->generation, incoming->width, incoming->height, incoming->depth,
-                       (unsigned long long)incoming->vbl_usec);
-    } else {
-        return 0;
-    }
+	(void)ctx;
+	if (incoming) {
+		COMPOSITOR_LOG("DMC on_mode_enter: incoming gen=%u %ux%u depth=%u vbl_usec=%llu",
+					   incoming->generation, incoming->width, incoming->height, incoming->depth,
+					   (unsigned long long)incoming->vbl_usec);
+	} else {
+		return 0;
+	}
 
-    if (incoming->active_owner == (uint32_t)kDMCOwnerDSp
+	if (incoming->active_owner == (uint32_t)kDMCOwnerDSp
 		/* Do not enable these - this will break Descent 2/Mechwarrior 2 */
 		/*||
-        incoming->active_owner == (uint32_t)kDMCOwnerGlide ||
-        incoming->active_owner == (uint32_t)kDMCOwnerRAVE ||
-        incoming->active_owner == (uint32_t)kDMCOwnerGL*/) {
-        int new_w = (int)incoming->width;
-        int new_h = (int)incoming->height;
-        int cur_w = compositor_pixel_width;
-        int cur_h = compositor_pixel_height;
-        if (new_w != cur_w || new_h != cur_h || compositor_depth != VIDEO_DEPTH_32BIT) {
-            uint32_t bgra_row_bytes = (uint32_t)new_w * 4;
-            uint32_t bgra_size      = bgra_row_bytes * (uint32_t)new_h;
-            int rc = MetalCompositorResize(
-                new_w, new_h,
-                VIDEO_DEPTH_32BIT,
-                (int)bgra_row_bytes,
-                (int)bgra_row_bytes,
-                NULL,
-                bgra_size);
-            if (rc != 0) {
-                COMPOSITOR_ERR("DMC on_mode_enter: MetalCompositorResize failed (rc=%d) for "
-                               "owner=%u %dx%d - drawable will appear small in window",
-                               rc, (unsigned)incoming->active_owner, new_w, new_h);
-            }
-        }
-    } else if (incoming->active_owner == (uint32_t)kDMCOwnerQuickDraw &&
-               incoming->screen_base_host != NULL) {
-        int new_w = (int)incoming->width;
-        int new_h = (int)incoming->height;
-        int new_pixel_depth = (int)incoming->depth;
-        int new_depth = DepthModeForPixelDepth(new_pixel_depth);
-        int new_row_bytes = (int)incoming->row_bytes;
-        int new_pitch = (int)incoming->pitch;
-        int cur_w = compositor_pixel_width;
-        int cur_h = compositor_pixel_height;
-        if (new_w != cur_w ||
-            new_h != cur_h ||
-            compositor_depth != new_depth ||
-            compositor_row_bytes != new_row_bytes ||
-            compositor_pitch != new_pitch) {
-            uint64_t buffer_size64 = (uint64_t)incoming->pitch *
-                                     (uint64_t)incoming->height;
-            uint32_t buffer_size =
-                buffer_size64 > UINT32_MAX ? UINT32_MAX : (uint32_t)buffer_size64;
-            int rc = MetalCompositorResize(
-                new_w, new_h,
-                new_depth,
-                new_row_bytes,
-                new_pitch,
-                incoming->screen_base_host,
-                buffer_size);
-            if (rc != 0) {
-                COMPOSITOR_ERR("DMC on_mode_enter: MetalCompositorResize failed "
-                               "(rc=%d) for QuickDraw restore %dx%d@%d rb=%d host=%p",
-                               rc, new_w, new_h, new_pixel_depth, new_row_bytes,
-                               incoming->screen_base_host);
-            }
-        }
-    }
+		incoming->active_owner == (uint32_t)kDMCOwnerGlide ||
+		incoming->active_owner == (uint32_t)kDMCOwnerRAVE ||
+		incoming->active_owner == (uint32_t)kDMCOwnerGL*/) {
+		int new_w = (int)incoming->width;
+		int new_h = (int)incoming->height;
+		int cur_w = compositor_pixel_width;
+		int cur_h = compositor_pixel_height;
+		if (new_w != cur_w || new_h != cur_h || compositor_depth != VIDEO_DEPTH_32BIT) {
+			uint32_t bgra_row_bytes = (uint32_t)new_w * 4;
+			uint32_t bgra_size      = bgra_row_bytes * (uint32_t)new_h;
+			int rc = MetalCompositorResize(
+				new_w, new_h,
+				VIDEO_DEPTH_32BIT,
+				(int)bgra_row_bytes,
+				(int)bgra_row_bytes,
+				NULL,
+				bgra_size);
+			if (rc != 0) {
+				COMPOSITOR_ERR("DMC on_mode_enter: MetalCompositorResize failed (rc=%d) for "
+							   "owner=%u %dx%d - drawable will appear small in window",
+							   rc, (unsigned)incoming->active_owner, new_w, new_h);
+			}
+		}
+	} else if (incoming->active_owner == (uint32_t)kDMCOwnerQuickDraw &&
+			   incoming->screen_base_host != NULL) {
+		int new_w = (int)incoming->width;
+		int new_h = (int)incoming->height;
+		int new_pixel_depth = (int)incoming->depth;
+		int new_depth = DepthModeForPixelDepth(new_pixel_depth);
+		int new_row_bytes = (int)incoming->row_bytes;
+		int new_pitch = (int)incoming->pitch;
+		int cur_w = compositor_pixel_width;
+		int cur_h = compositor_pixel_height;
+		if (new_w != cur_w ||
+			new_h != cur_h ||
+			compositor_depth != new_depth ||
+			compositor_row_bytes != new_row_bytes ||
+			compositor_pitch != new_pitch) {
+			uint64_t buffer_size64 = (uint64_t)incoming->pitch *
+									 (uint64_t)incoming->height;
+			uint32_t buffer_size =
+				buffer_size64 > UINT32_MAX ? UINT32_MAX : (uint32_t)buffer_size64;
+			int rc = MetalCompositorResize(
+				new_w, new_h,
+				new_depth,
+				new_row_bytes,
+				new_pitch,
+				incoming->screen_base_host,
+				buffer_size);
+			if (rc != 0) {
+				COMPOSITOR_ERR("DMC on_mode_enter: MetalCompositorResize failed "
+							   "(rc=%d) for QuickDraw restore %dx%d@%d rb=%d host=%p",
+							   rc, new_w, new_h, new_pixel_depth, new_row_bytes,
+							   incoming->screen_base_host);
+			}
+		}
+	}
 
-    return 0;
+	return 0;
 }
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-int MetalCompositorInit(int width, int height, int depth, int row_bytes,
-                        int pitch, void *buffer, uint32_t buffer_size)
+/* ---------------------------------------------------------------------------
+	Public API
+ --------------------------------------------------------------------------- */
+
+void *SharedMetalDevice(void)
 {
-	if (!GfxGLDeviceInit()) {
-		COMPOSITOR_ERR("GfxGLDeviceInit failed");
+	assert(s_ready);
+	assert(s_gl_ctx);
+	assert(gl_device_sdl_window == sdl_window);
+	if (SDL_GL_GetCurrentContext() != s_gl_ctx) {
+		if (SDL_GL_MakeCurrent(gl_device_sdl_window, s_gl_ctx) != 0) {
+			QD3D_INIT_LOG("SDL_GL_MakeCurrent failed: %s", SDL_GetError());
+			return NULL;
+		}
+	}
+	return (void *)&s_device_sentinel;
+}
+
+void *SharedMetalCommandQueue(void)
+{
+	return SharedMetalDevice();
+}
+
+int MetalCompositorInit(int width, int height, int depth, int row_bytes,
+						int pitch, void *buffer, uint32_t buffer_size)
+{
+	if (!GLCompositorDeviceInit()) {
+		COMPOSITOR_ERR("GLCompositorDeviceInit failed");
 		return -1;
 	}
 
@@ -935,9 +871,9 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 	compositor_pitch = pitch;
 	compositor_buffer = buffer;
 	compositor_buffer_size = buffer_size;
-	compositor_bits_per_pixel = depth_to_bpp_bits(depth);
+	compositor_bits_per_pixel = MetalCompositorDepthToBPPBits(depth);
 
-	ensure_identity_gamma();
+	MetalCompositorEnsureIdentityGamma();
 	/* Identity-ish CLUT: index 0 black (NOT white - zeroed 8bpp staging
 	 * expands to solid white if palette[0] is white, which is what D2's
 	 * post-movie underlay looked like). */
@@ -959,10 +895,10 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 		s_classic_host_stash_pitch = pitch;
 	}
 
-	destroy_textures();
-	ensure_fb_texture();
-	upload_gamma_texture();
-	build_programs();
+	MetalCompositorDestroyTextures();
+	MetalCompositorEnsureFrameBufferTexture();
+	MetalCompositorUploadGammaTexture();
+	MetalCompositorCreatePrograms();
 
 	/* Subscribe to DMC first (compositor is presentation layer). */
 	struct DMCSubscriber sub = {};
@@ -977,8 +913,8 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 
 	s_init = true;
 	COMPOSITOR_LOG("Init tick=%u %dx%d depth=%d rb=%d pitch=%d bpp=%d",
-	               ReadMacInt32(0x016a),
-	               width, height, depth, row_bytes, pitch, compositor_bits_per_pixel);
+				   ReadMacInt32(0x016a),
+				   width, height, depth, row_bytes, pitch, compositor_bits_per_pixel);
 	return 0;
 }
 
@@ -999,8 +935,8 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
 	}
 	if (!any_nonzero && num_colors >= 16) {
 		COMPOSITOR_LOG("MetalCompositorUpdatePalette: skip all-zero %d colors "
-		               "(depth=%d bpp=%d)",
-		               num_colors, compositor_depth, compositor_bits_per_pixel);
+					   "(depth=%d bpp=%d)",
+					   num_colors, compositor_depth, compositor_bits_per_pixel);
 		return;
 	}
 	for (int i = 0; i < num_colors; i++) {
@@ -1012,8 +948,8 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
 	s_palette_dirty = true;
 	s_classic_fb_texture_valid = false;
 	COMPOSITOR_LOG("MetalCompositorUpdatePalette: stored %d colors "
-	               "(compositor depth=%d bpp=%d)",
-	               num_colors, compositor_depth, compositor_bits_per_pixel);
+				   "(compositor depth=%d bpp=%d)",
+				   num_colors, compositor_depth, compositor_bits_per_pixel);
 }
 
 extern "C" bool GLCompositorCopyCurrentPaletteRGB(uint8_t out_rgb[768])
@@ -1038,9 +974,9 @@ void MetalCompositorPresent(void)
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 		static uint64_t s_nested_present_count = 0;
 		++s_nested_present_count;
-		if (compositor_trace_sample(s_nested_present_count)) {
+		if (MetalCompositorShouldTracePresent(s_nested_present_count)) {
 			QD3D_RENDER_LOG("CompositorPresent deferred: nested present count=%llu",
-			                (unsigned long long)s_nested_present_count);
+							(unsigned long long)s_nested_present_count);
 		}
 #endif
 		return;
@@ -1050,14 +986,14 @@ void MetalCompositorPresent(void)
 	 * let presentation rebind framebuffer 0 or overwrite compatibility state
 	 * while RAVE, AGL, or Glide is building its overlay.  Their frame-end path
 	 * presents after releasing ownership of the shared compatibility context. */
-	if (guest_3d_render_pass_active()) {
+	if (MetalIs3DRenderPassActive()) {
 		s_present_deferred = true;
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 		static uint64_t s_deferred_present_count = 0;
 		++s_deferred_present_count;
-		if (compositor_trace_sample(s_deferred_present_count)) {
+		if (MetalCompositorShouldTracePresent(s_deferred_present_count)) {
 			QD3D_RENDER_LOG("CompositorPresent deferred: 3D render pass active count=%llu",
-			                (unsigned long long)s_deferred_present_count);
+							(unsigned long long)s_deferred_present_count);
 		}
 #endif
 		return;
@@ -1078,10 +1014,10 @@ void MetalCompositorPresent(void)
 	{
 		const DMCModeSnapshot *snap = dmc_current_snapshot();
 		if (compositor_buffer == nullptr &&
-		    s_classic_host_stash != nullptr &&
-		    snap != nullptr &&
-		    snap->active_owner == (uint32_t)kDMCOwnerQuickDraw &&
-		    snap->transitioning == 0) {
+			s_classic_host_stash != nullptr &&
+			snap != nullptr &&
+			snap->active_owner == (uint32_t)kDMCOwnerQuickDraw &&
+			snap->transitioning == 0) {
 			(void)MetalCompositorResize(
 				s_classic_host_stash_w, s_classic_host_stash_h,
 				s_classic_host_stash_depth,
@@ -1100,12 +1036,12 @@ void MetalCompositorPresent(void)
 		vbl_source_get_cadence_usec());
 	const bool classic_dirty = classic_framebuffer_needs_upload();
 	const bool do_draw = classic_dirty ||
-	                     !s_classic_fb_texture_valid ||
-	                     s_last_present_usec == 0 ||
-	                     s_present_deferred ||
-	                     now_usec - s_last_present_usec >= cadence_usec ||
-	                     s_overlay_present_serial != s_overlay_submit_serial ||
-	                     s_framebuffer_valid;
+						 !s_classic_fb_texture_valid ||
+						 s_last_present_usec == 0 ||
+						 s_present_deferred ||
+						 now_usec - s_last_present_usec >= cadence_usec ||
+						 s_overlay_present_serial != s_overlay_submit_serial ||
+						 s_framebuffer_valid;
 
 	if (!do_draw)
 		return;
@@ -1128,7 +1064,7 @@ void MetalCompositorPresent(void)
 	prepare_present_state();
 
 	int dw = 0, dh = 0;
-	GfxGLDeviceGetDrawableSize(&dw, &dh);
+	GLCompositorDeviceGetDrawableSize(&dw, &dh);
 	if (dw <= 0 || dh <= 0) {
 		if (sdl_window)
 			SDL_GetWindowSize(sdl_window, &dw, &dh);
@@ -1157,14 +1093,14 @@ void MetalCompositorPresent(void)
 		framebuffer_layer_occludes_classic_framebuffer();
 	bool classic_uploaded = false;
 	if (!classic_occluded) {
-		ensure_fb_texture();
+		MetalCompositorEnsureFrameBufferTexture();
 		glEnable(GL_TEXTURE_2D);
 		glBindTexture(GL_TEXTURE_2D, s_fb_tex);
 		if (classic_dirty) {
 			static std::vector<uint8_t> rgba;
 			expand_framebuffer_rgba(rgba);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, compositor_pixel_width, compositor_pixel_height,
-			                GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+							GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
 			remember_classic_framebuffer_upload();
 			classic_uploaded = true;
 		}
@@ -1181,81 +1117,29 @@ void MetalCompositorPresent(void)
 		draw_overlay_layer(&s_overlay_cache);
 #if QD3D_GRAPHICS_LOGGING_ENABLED && 0
 	s_present_count++;
-	if (compositor_trace_sample(s_present_count)) {
+	if (MetalCompositorShouldTracePresent(s_present_count)) {
 		QD3D_RENDER_LOG("CompositorPresent count=%llu drawable=%dx%d guest=%dx%d classicOccluded=%d classicUploaded=%d framebufferValid=%d framebuffer=%u overlayValid=%d overlay=%u dst=%.1f,%.1f %.1fx%.1f inheritedScissor=%d[%d,%d %dx%d] inheritedMask=%d%d%d%d glError=0x%x",
-		                (unsigned long long)s_present_count, dw, dh, compositor_pixel_width,
-		                compositor_pixel_height, classic_occluded ? 1 : 0,
-		                classic_uploaded ? 1 : 0,
-		                s_framebuffer_valid ? 1 : 0,
-		                (unsigned)s_framebuffer_tex_cache,
-		                s_overlay_valid ? 1 : 0,
-		                (unsigned)s_overlay_tex_cache,
-		                s_overlay_cache.dst_origin_x, s_overlay_cache.dst_origin_y,
-		                s_overlay_cache.dst_size_w, s_overlay_cache.dst_size_h,
-		                inherited_scissor ? 1 : 0, inherited_scissor_box[0],
-		                inherited_scissor_box[1], inherited_scissor_box[2],
-		                inherited_scissor_box[3], inherited_color_mask[0] ? 1 : 0,
-		                inherited_color_mask[1] ? 1 : 0,
-		                inherited_color_mask[2] ? 1 : 0,
-		                inherited_color_mask[3] ? 1 : 0,
-		                (unsigned)glGetError());
+						(unsigned long long)s_present_count, dw, dh, compositor_pixel_width,
+						compositor_pixel_height, classic_occluded ? 1 : 0,
+						classic_uploaded ? 1 : 0,
+						s_framebuffer_valid ? 1 : 0,
+						(unsigned)s_framebuffer_tex_cache,
+						s_overlay_valid ? 1 : 0,
+						(unsigned)s_overlay_tex_cache,
+						s_overlay_cache.dst_origin_x, s_overlay_cache.dst_origin_y,
+						s_overlay_cache.dst_size_w, s_overlay_cache.dst_size_h,
+						inherited_scissor ? 1 : 0, inherited_scissor_box[0],
+						inherited_scissor_box[1], inherited_scissor_box[2],
+						inherited_scissor_box[3], inherited_color_mask[0] ? 1 : 0,
+						inherited_color_mask[1] ? 1 : 0,
+						inherited_color_mask[2] ? 1 : 0,
+						inherited_color_mask[3] ? 1 : 0,
+						(unsigned)glGetError());
 	}
 #endif
 
-	GfxGLDeviceSwap();
+	GLCompositorDeviceSwap();
 	s_overlay_present_serial = s_overlay_submit_serial;
-
-#if defined(DESCENT_HITCH_DEBUG) && 0
-	/* Present heartbeat (throttled). Confirms the emul-thread present path is
-	 * actually swapping frames during a suspected freeze. The two hashes both
-	 * sample compositor_buffer: fbHash over the full frame, sBufRegion over just the
-	 * movie sub-rect (rows 60..372) that Cinepak writes, so we can tell a
-	 * content freeze from a GPU-upload freeze. */
-	{
-		static uint64_t s_hb_last_usec = 0;
-		static uint64_t s_hb_frames = 0;
-		++s_hb_frames;
-		const uint64_t hb_now = compositor_now_usec();
-		if (s_hb_last_usec == 0)
-			s_hb_last_usec = hb_now;
-		if (hb_now - s_hb_last_usec >= 250000) {
-			uint32_t fbhash = 2166136261u;
-			uint32_t regionhash = 2166136261u;
-			uint32_t macRegion = 2166136261u;   /* same region via live VM map */
-			const size_t vb = visible_framebuffer_bytes();
-			if (compositor_buffer && vb) {
-				const uint8_t *b = (const uint8_t *)compositor_buffer;
-				for (size_t i = 0; i < vb; i += 257)
-					fbhash = (fbhash ^ b[i]) * 16777619u;
-				const size_t rb = (size_t)compositor_row_bytes;
-				if (rb != 0 && vb >= (size_t)372 * rb) {
-					const uint8_t *rbp = b + (size_t)60 * rb;
-					for (size_t i = 0; i < (size_t)312 * rb; i += 257)
-						regionhash = (regionhash ^ rbp[i]) * 16777619u;
-				}
-			}
-			/* Cinepak writes through Mac2HostAddr(guest screen base). If this
-			 * differs from sBufRegion during the freeze, compositor_buffer is stale
-			 * relative to the live framebuffer mapping (dual mapping). */
-			const uint8_t *mb = Mac2HostAddr(0x20000000);
-			const size_t mrb = (size_t)compositor_row_bytes;
-			if (mb && mrb != 0 && vb >= (size_t)372 * mrb) {
-				const uint8_t *mrbp = mb + (size_t)60 * mrb;
-				for (size_t i = 0; i < (size_t)312 * mrb; i += 257)
-					macRegion = (macRegion ^ mrbp[i]) * 16777619u;
-			}
-			gfx_log_emit("[compositor] ",
-				"presentHB frames=%llu dtUsec=%llu tick=%u classicOccluded=%d classicUploaded=%d sBuf=%p macBuf=%p vbBytes=%zu fbHash=%08x sBufRegion=%08x macRegion=%08x",
-				(unsigned long long)s_hb_frames,
-				(unsigned long long)(hb_now - s_hb_last_usec),
-				ReadMacInt32(0x016a),
-				classic_occluded ? 1 : 0, classic_uploaded ? 1 : 0,
-				compositor_buffer, (void *)mb, vb, fbhash, regionhash, macRegion);
-			s_hb_last_usec = hb_now;
-			s_hb_frames = 0;
-		}
-	}
-#endif
 
 	/* Update present rect to full window for cursor mapping. */
 	atomic_store_explicit(&s_present_origin, 0, std::memory_order_relaxed);
@@ -1269,8 +1153,8 @@ void MetalCompositorShutdown(void)
 		if (SharedMetalDevice()) {
 			MetalCompositorSubmitFrame_ClearCachedOverlay();
 			MetalCompositorSubmitFrame_ClearCachedFramebuffer();
-			destroy_textures();
-			destroy_programs();
+			MetalCompositorDestroyTextures();
+			MetalCompositorDestroyPrograms();
 		}
 		vbl_source_shutdown();
 		dmc_unsubscribe("compositor");
@@ -1283,11 +1167,11 @@ void MetalCompositorShutdown(void)
 
 	/* The shared SDL_GLContext is tied to the current SDL window.  It must be
 	 * deleted while that window is still alive, including partial-init paths. */
-	GfxGLDeviceShutdown();
+	GLCompositorDeviceShutdown();
 }
 
 int MetalCompositorResize(int width, int height, int depth, int row_bytes,
-                          int pitch, void *buffer, uint32_t buffer_size)
+						  int pitch, void *buffer, uint32_t buffer_size)
 { /* gl_device_sdl_window change == w/h/flags changed; recreate everything */
 	if (!s_init || gl_device_sdl_window != sdl_window)
 		return MetalCompositorInit(width, height, depth,
@@ -1327,10 +1211,10 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
 	compositor_pitch = pitch;
 	compositor_buffer = buffer;
 	compositor_buffer_size = buffer_size;
-	compositor_bits_per_pixel = depth_to_bpp_bits(depth);
+	compositor_bits_per_pixel = MetalCompositorDepthToBPPBits(depth);
 	s_classic_fb_texture_valid = false;
 	s_classic_fb_upload_baseline.clear();
-	ensure_fb_texture();
+	MetalCompositorEnsureFrameBufferTexture();
 	COMPOSITOR_LOG("Resize %dx%d depth=%d", width, height, depth);
 	return 0;
 }
@@ -1394,11 +1278,11 @@ int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc)
 	}
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 	s_overlay_submit_count++;
-	if (compositor_trace_sample(s_overlay_submit_count)) {
+	if (MetalCompositorShouldTracePresent(s_overlay_submit_count)) {
 		QD3D_RENDER_LOG("CompositorSubmit count=%llu layers=%u generation=%llu overlayValid=%d overlay=%u",
-		                (unsigned long long)s_overlay_submit_count,
-		                desc->layer_count, (unsigned long long)desc->generation,
-		                s_overlay_valid ? 1 : 0, (unsigned)s_overlay_tex_cache);
+						(unsigned long long)s_overlay_submit_count,
+						desc->layer_count, (unsigned long long)desc->generation,
+						s_overlay_valid ? 1 : 0, (unsigned)s_overlay_tex_cache);
 	}
 #endif
 	return kGfxAccelNoErr;
@@ -1414,7 +1298,7 @@ void MetalCompositorSubmitFrame_SetTargetTimestamp(double /*ts*/)
 }
 
 int MetalCompositorSubmitFrame_AcquireCachedOverlay(struct CompositeLayer *out_layer,
-                                                    void **out_tex_retained)
+													void **out_tex_retained)
 {
 	if (!s_overlay_valid) return 0;
 	if (out_layer) *out_layer = s_overlay_cache;
@@ -1428,8 +1312,8 @@ void MetalCompositorSubmitFrame_ReleaseCachedOverlay(void * /*tex_retained*/)
 }
 
 void MetalCompositorSubmitFrame_EncodeCachedOverlay(void * /*render_encoder*/,
-                                                    const struct CompositeLayer *layer,
-                                                    void * /*display_gamma_lut*/)
+													const struct CompositeLayer *layer,
+													void * /*display_gamma_lut*/)
 {
 	if (layer) draw_overlay_layer(layer);
 }
@@ -1458,7 +1342,7 @@ extern "C" void MetalCompositorFlushDeferredPresent(void)
 {
 	if (!s_init || !s_present_deferred)
 		return;
-	if (s_present_in_progress || guest_3d_render_pass_active())
+	if (s_present_in_progress || MetalIs3DRenderPassActive())
 		return;
 	MetalCompositorPresent();
 }
@@ -1482,27 +1366,21 @@ void MetalCompositorPaletteLatch(void)
 void MetalCompositorUpdateGammaLUT(const uint8_t *lut)
 {
 	if (!lut) return;
-	/* Mirror metal_compositor.mm: the caller passes the raw guest LUT; the
-	 * display policy (OS-defined => verbatim, Linear => inverse Mac Standard
-	 * curve) is composed here so the GL and Metal backends present the
-	 * identical ramp. A raw memcpy here (the old GL behaviour) diverged from
-	 * Metal whenever the policy was non-identity, which is what produced the
-	 * over-bright / washed-out / white-invisible presentation in D2. */
 	GfxColorBuildDisplayGammaLUT(lut, false,
-	                             !gl_compositor_is_linear_gamma(),
-	                             s_gamma_lut);
+								 !GLCompositorIsLinearGamma(),
+								 s_gamma_lut);
 	s_gamma_is_identity = true;
 	for (int i = 0; i < 256; i++) {
 		if (s_gamma_lut[i] != (uint8_t)i ||
-		    s_gamma_lut[256 + i] != (uint8_t)i ||
-		    s_gamma_lut[512 + i] != (uint8_t)i) {
+			s_gamma_lut[256 + i] != (uint8_t)i ||
+			s_gamma_lut[512 + i] != (uint8_t)i) {
 			s_gamma_is_identity = false;
 			break;
 		}
 	}
 	s_classic_fb_texture_valid = false;
 	if (s_init && SharedMetalDevice())
-		upload_gamma_texture();
+		MetalCompositorUploadGammaTexture();
 }
 
 void *MetalCompositorGetGammaLUTBuffer(void)
@@ -1537,7 +1415,7 @@ void MetalCompositorGetPresentRect(int *out_x, int *out_y, int *out_w, int *out_
 
 /* Internal helpers used by Metal submitframe module - provide stubs. */
 extern "C" int MetalCompositorSubmitFrame_BindPresentationContext(
-    void *, void *, void *) { return 0; }
+	void *, void *, void *) { return 0; }
 extern "C" void MetalCompositorSubmitFrame_UnbindPresentationContext(void) {}
 extern "C" void MetalCompositorSubmitFrame_SetFramebufferTexture(void *texture)
 {

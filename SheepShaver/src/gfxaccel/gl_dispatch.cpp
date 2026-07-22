@@ -134,31 +134,31 @@ extern void NativeGLTexParameterf(GLContext *ctx, uint32_t target, uint32_t pnam
 extern void NativeGLTexParameterfv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t mac_ptr);
 extern void NativeGLTexParameteriv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t mac_ptr);
 extern void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
-                                int32_t internalformat, int32_t width, int32_t height,
-                                int32_t border, uint32_t format, uint32_t type,
-                                uint32_t mac_pixels);
+								int32_t internalformat, int32_t width, int32_t height,
+								int32_t border, uint32_t format, uint32_t type,
+								uint32_t mac_pixels);
 extern void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
-                                   int32_t xoffset, int32_t yoffset,
-                                   int32_t width, int32_t height,
-                                   uint32_t format, uint32_t type, uint32_t mac_pixels);
+								   int32_t xoffset, int32_t yoffset,
+								   int32_t width, int32_t height,
+								   uint32_t format, uint32_t type, uint32_t mac_pixels);
 extern void NativeGLTexImage1D(GLContext *ctx, uint32_t target, int32_t level,
-                                int32_t internalformat, int32_t width, int32_t border,
-                                uint32_t format, uint32_t type, uint32_t mac_pixels);
+								int32_t internalformat, int32_t width, int32_t border,
+								uint32_t format, uint32_t type, uint32_t mac_pixels);
 extern void NativeGLTexSubImage1D(GLContext *ctx, uint32_t target, int32_t level,
-                                   int32_t xoffset, int32_t width,
-                                   uint32_t format, uint32_t type, uint32_t mac_pixels);
+								   int32_t xoffset, int32_t width,
+								   uint32_t format, uint32_t type, uint32_t mac_pixels);
 extern void NativeGLCopyTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
-                                    uint32_t internalformat, int32_t x, int32_t y,
-                                    int32_t width, int32_t height, int32_t border);
+									uint32_t internalformat, int32_t x, int32_t y,
+									int32_t width, int32_t height, int32_t border);
 extern void NativeGLCopyTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
-                                       int32_t xoffset, int32_t yoffset,
-                                       int32_t x, int32_t y, int32_t width, int32_t height);
+									   int32_t xoffset, int32_t yoffset,
+									   int32_t x, int32_t y, int32_t width, int32_t height);
 extern uint32_t NativeGLIsTexture(GLContext *ctx, uint32_t texture);
 extern void NativeGLActiveTextureARB(GLContext *ctx, uint32_t texture);
 extern void NativeGLClientActiveTextureARB(GLContext *ctx, uint32_t texture);
 // ---- Metal renderer texture externs (implemented in gl_metal_renderer.mm) ----
 extern void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int32_t height,
-                                uint32_t format, uint32_t type, uint32_t mac_pixels);
+								uint32_t format, uint32_t type, uint32_t mac_pixels);
 extern void NativeGLGetIntegerv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr);
 extern void NativeGLGetFloatv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr);
 extern void NativeGLGetBooleanv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr);
@@ -537,9 +537,9 @@ extern uint32_t NativeAGLDescribePixelFormat(uint32_t pix, uint32_t attrib, uint
 extern uint32_t NativeAGLCopyContext(uint32_t src, uint32_t dst, uint32_t mask);
 extern uint32_t NativeAGLUpdateContext(uint32_t ctx);
 extern uint32_t NativeAGLSetOffScreen(uint32_t ctx, uint32_t width, uint32_t height,
-                                       uint32_t rowbytes, uint32_t baseaddr);
+									   uint32_t rowbytes, uint32_t baseaddr);
 extern uint32_t NativeAGLSetFullScreen(uint32_t ctx, uint32_t width, uint32_t height,
-                                        uint32_t freq, uint32_t device);
+										uint32_t freq, uint32_t device);
 extern uint32_t NativeAGLGetDrawable(uint32_t ctx);
 extern uint32_t NativeAGLSetVirtualScreen(uint32_t ctx, uint32_t screen);
 extern uint32_t NativeAGLGetVirtualScreen(uint32_t ctx);
@@ -550,7 +550,7 @@ extern uint32_t NativeAGLIsEnabled(uint32_t ctx, uint32_t pname);
 extern uint32_t NativeAGLSetInteger(uint32_t ctx, uint32_t pname, uint32_t params);
 extern uint32_t NativeAGLGetInteger(uint32_t ctx, uint32_t pname, uint32_t params);
 extern uint32_t NativeAGLUseFont(uint32_t ctx, uint32_t fontID, uint32_t face,
-                                  uint32_t size, uint32_t first, uint32_t count, uint32_t base);
+								  uint32_t size, uint32_t first, uint32_t count, uint32_t base);
 extern uint32_t NativeAGLErrorString(uint32_t code);
 extern uint32_t NativeAGLResetLibrary();
 extern uint32_t NativeAGLQueryRendererInfo(uint32_t gdevs, uint32_t ndev);
@@ -562,23 +562,23 @@ extern uint32_t NativeAGLDevicesOfPixelFormat(uint32_t pix, uint32_t ndevsPtr);
 // ---- GLU handler externs (implemented in gl_engine.cpp) ----
 extern void NativeGLUPerspective(GLContext *ctx, double fovy, double aspect, double zNear, double zFar);
 extern void NativeGLULookAt(GLContext *ctx, double eyeX, double eyeY, double eyeZ,
-                            double centerX, double centerY, double centerZ,
-                            double upX, double upY, double upZ);
+							double centerX, double centerY, double centerZ,
+							double upX, double upY, double upZ);
 extern void NativeGLUOrtho2D(GLContext *ctx, double left, double right, double bottom, double top);
 extern void NativeGLUPickMatrix(GLContext *ctx, double x, double y, double deltaX, double deltaY, uint32_t viewport_ptr);
 extern uint32_t NativeGLUProject(GLContext *ctx, double objX, double objY, double objZ,
-                                  uint32_t model_ptr, uint32_t proj_ptr, uint32_t viewport_ptr,
-                                  uint32_t winX_ptr, uint32_t winY_ptr, uint32_t winZ_ptr);
+								  uint32_t model_ptr, uint32_t proj_ptr, uint32_t viewport_ptr,
+								  uint32_t winX_ptr, uint32_t winY_ptr, uint32_t winZ_ptr);
 extern uint32_t NativeGLUUnProject(GLContext *ctx, double winX, double winY, double winZ,
-                                    uint32_t model_ptr, uint32_t proj_ptr, uint32_t viewport_ptr,
-                                    uint32_t objX_ptr, uint32_t objY_ptr, uint32_t objZ_ptr);
+									uint32_t model_ptr, uint32_t proj_ptr, uint32_t viewport_ptr,
+									uint32_t objX_ptr, uint32_t objY_ptr, uint32_t objZ_ptr);
 extern uint32_t NativeGLUBuild2DMipmaps(GLContext *ctx, uint32_t target, int32_t internalFormat,
-                                         int32_t width, int32_t height, uint32_t format, uint32_t type, uint32_t data_ptr);
+										 int32_t width, int32_t height, uint32_t format, uint32_t type, uint32_t data_ptr);
 extern uint32_t NativeGLUBuild1DMipmaps(GLContext *ctx, uint32_t target, int32_t internalFormat,
-                                         int32_t width, uint32_t format, uint32_t type, uint32_t data_ptr);
+										 int32_t width, uint32_t format, uint32_t type, uint32_t data_ptr);
 extern uint32_t NativeGLUScaleImage(GLContext *ctx, uint32_t format,
-                                     int32_t wIn, int32_t hIn, uint32_t typeIn, uint32_t dataIn,
-                                     int32_t wOut, int32_t hOut, uint32_t typeOut, uint32_t dataOut);
+									 int32_t wIn, int32_t hIn, uint32_t typeIn, uint32_t dataIn,
+									 int32_t wOut, int32_t hOut, uint32_t typeOut, uint32_t dataOut);
 extern uint32_t NativeGLUNewQuadric();
 extern void NativeGLUDeleteQuadric(uint32_t quad_handle);
 extern void NativeGLUQuadricNormals(uint32_t quad_handle, uint32_t normal);
@@ -847,7 +847,7 @@ static bool IsNonRecordableOpcode(uint32_t op) {
  *  to capture, or 0 if not a pointer command.
  */
 static int PointerDataSize(uint32_t op, uint32_t r3, uint32_t r4, uint32_t r5,
-                            int &arg_index) {
+							int &arg_index) {
 	arg_index = -1;
 	switch (op) {
 	// Matrix loads: 16 floats (64 bytes) or 16 doubles (128 bytes) at pointer in r3
@@ -932,9 +932,9 @@ static int PointerDataSize(uint32_t op, uint32_t r3, uint32_t r4, uint32_t r5,
  *  and captured pointer data into a GLCommand struct.
  */
 static void GLRecordCommand(GLContext *ctx, uint32_t sub_opcode,
-                             uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
-                             uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
-                             const uint32_t *float_bits, int num_float_args)
+							 uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
+							 uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
+							 const uint32_t *float_bits, int num_float_args)
 {
 	GLCommand cmd;
 	cmd.opcode = (uint16_t)sub_opcode;
@@ -1053,8 +1053,8 @@ void GLReplayCommand(GLContext *ctx, const GLCommand &cmd)
 
 	// Re-dispatch through GLDispatch
 	GLDispatch(r3, r4, r5, r6, r7, r8, r9, r10,
-	           float_bits ? float_bits : (const uint32_t *)"\0\0\0\0",
-	           num_float_args);
+			   float_bits ? float_bits : (const uint32_t *)"\0\0\0\0",
+			   num_float_args);
 
 	ctx->in_display_list = was_in_list;
 }
@@ -1070,8 +1070,8 @@ void GLReplayCommand(GLContext *ctx, const GLCommand &cmd)
  *  Returns the value to be placed in gpr(3) by the caller.
  */
 uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
-                    uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
-                    const uint32_t *float_bits, int num_float_args)
+					uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
+					const uint32_t *float_bits, int num_float_args)
 {
 	// Read sub-opcode from scratch word (same pattern as RAVE)
 	uint32_t sub_opcode = ReadMacInt32(gl_scratch_addr);
@@ -1088,9 +1088,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		if (s_unmapped_dt_log_count < 128) {
 			s_unmapped_dt_log_count++;
 			GL_LOG("*** UNMAPPED dispatch-table slot %u (handle+0x%x) called -- "
-			       "no GL function wired here; returning 0 no-op. Wire this slot to "
-			       "its extension handler if a game feature is missing.",
-			       slot, (unsigned)(4 + slot * 4));
+				   "no GL function wired here; returning 0 no-op. Wire this slot to "
+				   "its extension handler if a game feature is missing.",
+				   slot, (unsigned)(4 + slot * 4));
 		}
 		return 0;
 	}
@@ -1113,16 +1113,16 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 	}
 
 	GL_VLOG("GLDispatch sub_opcode=%u r3=0x%x r4=0x%x r5=0x%x r6=0x%x r7=0x%x r8=0x%x r9=0x%x r10=0x%x ctx=%p",
-	        sub_opcode, r3, r4, r5, r6, r7, r8, r9, r10, gl_current_context);
+			sub_opcode, r3, r4, r5, r6, r7, r8, r9, r10, gl_current_context);
 
 	// ---- Display list recording check ----
 	// When compiling a display list, most commands are recorded rather than executed.
 	// Non-recordable commands (list management, queries, sync) always execute.
 	if (gl_current_context && gl_current_context->in_display_list &&
-	    !IsNonRecordableOpcode(sub_opcode)) {
+		!IsNonRecordableOpcode(sub_opcode)) {
 		GLRecordCommand(gl_current_context, sub_opcode,
-		                r3, r4, r5, r6, r7, r8, r9, r10,
-		                float_bits, num_float_args);
+						r3, r4, r5, r6, r7, r8, r9, r10,
+						float_bits, num_float_args);
 
 		if (gl_current_context->current_list_mode == 0x1301) {
 			// GL_COMPILE_AND_EXECUTE: fall through to execute
@@ -1192,9 +1192,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_COLOR3D: {
 			NativeGLColor3d(gl_current_context,
-			                double_arg(float_bits, 0),
-			                double_arg(float_bits, 1),
-			                double_arg(float_bits, 2));
+							double_arg(float_bits, 0),
+							double_arg(float_bits, 1),
+							double_arg(float_bits, 2));
 			return 0;
 		}
 		case GL_SUB_COLOR3DV:
@@ -1244,10 +1244,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_COLOR4D: {
 			NativeGLColor4d(gl_current_context,
-			                double_arg(float_bits, 0),
-			                double_arg(float_bits, 1),
-			                double_arg(float_bits, 2),
-			                double_arg(float_bits, 3));
+							double_arg(float_bits, 0),
+							double_arg(float_bits, 1),
+							double_arg(float_bits, 2),
+							double_arg(float_bits, 3));
 			return 0;
 		}
 		case GL_SUB_COLOR4DV:
@@ -1255,7 +1255,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_COLOR4F:
 			NativeGLColor4f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1),
-			                float_arg(float_bits, 2), float_arg(float_bits, 3));
+							float_arg(float_bits, 2), float_arg(float_bits, 3));
 			return 0;
 		case GL_SUB_COLOR4FV:
 			NativeGLColor4fv(gl_current_context, r3);
@@ -1302,13 +1302,13 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_COPY_TEX_IMAGE1D: NativeGLCopyTexImage1D(gl_current_context, r3, (int32_t)r4, r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9); return 0;
 		case GL_SUB_COPY_TEX_IMAGE2D:
 			NativeGLCopyTexImage2D(gl_current_context, r3, (int32_t)r4, r5,
-			                        (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10);
+									(int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10);
 			return 0;
 		case GL_SUB_COPY_TEX_SUB_IMAGE1D: NativeGLCopyTexSubImage1D(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8); return 0;
 		case GL_SUB_COPY_TEX_SUB_IMAGE2D:
 			NativeGLCopyTexSubImage2D(gl_current_context, r3, (int32_t)r4,
-			                           (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8,
-			                           (int32_t)r9, (int32_t)r10);
+									   (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8,
+									   (int32_t)r9, (int32_t)r10);
 			return 0;
 		case GL_SUB_CULL_FACE:
 			NativeGLCullFace(gl_current_context, r3);
@@ -1326,8 +1326,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_DEPTH_RANGE: {
 			// FPR extraction truncates doubles to float -- read as floats
 			NativeGLDepthRange(gl_current_context,
-			                   (double)float_arg(float_bits, 0),
-			                   (double)float_arg(float_bits, 1));
+							   (double)float_arg(float_bits, 0),
+							   (double)float_arg(float_bits, 1));
 			return 0;
 		}
 		case GL_SUB_DISABLE:
@@ -1365,8 +1365,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_EVAL_COORD1FV: NativeGLEvalCoord1fv(gl_current_context, r3); return 0;
 		case GL_SUB_EVAL_COORD2D:
 			NativeGLEvalCoord2d(gl_current_context,
-			                    double_arg(float_bits, 0),
-			                    double_arg(float_bits, 1));
+								double_arg(float_bits, 0),
+								double_arg(float_bits, 1));
 			return 0;
 		case GL_SUB_EVAL_COORD2DV: NativeGLEvalCoord2dv(gl_current_context, r3); return 0;
 		case GL_SUB_EVAL_COORD2F: NativeGLEvalCoord2f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1)); return 0;
@@ -1560,9 +1560,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_NORMAL3D: {
 			NativeGLNormal3d(gl_current_context,
-			                 double_arg(float_bits, 0),
-			                 double_arg(float_bits, 1),
-			                 double_arg(float_bits, 2));
+							 double_arg(float_bits, 0),
+							 double_arg(float_bits, 1),
+							 double_arg(float_bits, 2));
 			return 0;
 		}
 		case GL_SUB_NORMAL3DV:
@@ -1643,8 +1643,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		// --- Core GL: Raster, Read, Rect, Render, Rotate, Scale ---
 		case GL_SUB_RASTER_POS2D:
 			NativeGLRasterPos2d(gl_current_context,
-			                    double_arg(float_bits, 0),
-			                    double_arg(float_bits, 1));
+								double_arg(float_bits, 0),
+								double_arg(float_bits, 1));
 			return 0;
 		case GL_SUB_RASTER_POS2DV: NativeGLRasterPos2dv(gl_current_context, r3); return 0;
 		case GL_SUB_RASTER_POS2F: NativeGLRasterPos2f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1)); return 0;
@@ -1655,9 +1655,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_RASTER_POS2SV: NativeGLRasterPos2sv(gl_current_context, r3); return 0;
 		case GL_SUB_RASTER_POS3D:
 			NativeGLRasterPos3d(gl_current_context,
-			                    double_arg(float_bits, 0),
-			                    double_arg(float_bits, 1),
-			                    double_arg(float_bits, 2));
+								double_arg(float_bits, 0),
+								double_arg(float_bits, 1),
+								double_arg(float_bits, 2));
 			return 0;
 		case GL_SUB_RASTER_POS3DV: NativeGLRasterPos3dv(gl_current_context, r3); return 0;
 		case GL_SUB_RASTER_POS3F: NativeGLRasterPos3f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2)); return 0;
@@ -1668,10 +1668,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_RASTER_POS3SV: NativeGLRasterPos3sv(gl_current_context, r3); return 0;
 		case GL_SUB_RASTER_POS4D:
 			NativeGLRasterPos4d(gl_current_context,
-			                    double_arg(float_bits, 0),
-			                    double_arg(float_bits, 1),
-			                    double_arg(float_bits, 2),
-			                    double_arg(float_bits, 3));
+								double_arg(float_bits, 0),
+								double_arg(float_bits, 1),
+								double_arg(float_bits, 2),
+								double_arg(float_bits, 3));
 			return 0;
 		case GL_SUB_RASTER_POS4DV: NativeGLRasterPos4dv(gl_current_context, r3); return 0;
 		case GL_SUB_RASTER_POS4F: NativeGLRasterPos4f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2), float_arg(float_bits, 3)); return 0;
@@ -1683,7 +1683,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_READ_BUFFER: NativeGLReadBuffer(gl_current_context, r3); return 0;
 		case GL_SUB_READ_PIXELS:
 			NativeGLReadPixels(gl_current_context, (int32_t)r3, (int32_t)r4,
-			                    (int32_t)r5, (int32_t)r6, r7, r8, r9);
+								(int32_t)r5, (int32_t)r6, r7, r8, r9);
 			return 0;
 		case GL_SUB_RECTD: NativeGLRectd(gl_current_context, (double)float_arg(float_bits,0), (double)float_arg(float_bits,1), (double)float_arg(float_bits,2), (double)float_arg(float_bits,3)); return 0;
 		case GL_SUB_RECTDV: NativeGLRectdv(gl_current_context, r3, r4); return 0;
@@ -1743,8 +1743,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_TEX_COORD1SV: NativeGLTexCoord1sv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD2D: {
 			NativeGLTexCoord2d(gl_current_context,
-			                   double_arg(float_bits, 0),
-			                   double_arg(float_bits, 1)); return 0;
+							   double_arg(float_bits, 0),
+							   double_arg(float_bits, 1)); return 0;
 		}
 		case GL_SUB_TEX_COORD2DV: NativeGLTexCoord2dv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD2F: NativeGLTexCoord2f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1)); return 0;
@@ -1755,9 +1755,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_TEX_COORD2SV: NativeGLTexCoord2sv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD3D: {
 			NativeGLTexCoord3d(gl_current_context,
-			                   double_arg(float_bits, 0),
-			                   double_arg(float_bits, 1),
-			                   double_arg(float_bits, 2)); return 0;
+							   double_arg(float_bits, 0),
+							   double_arg(float_bits, 1),
+							   double_arg(float_bits, 2)); return 0;
 		}
 		case GL_SUB_TEX_COORD3DV: NativeGLTexCoord3dv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD3F: NativeGLTexCoord3f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2)); return 0;
@@ -1768,10 +1768,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_TEX_COORD3SV: NativeGLTexCoord3sv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD4D: {
 			NativeGLTexCoord4d(gl_current_context,
-			                   double_arg(float_bits, 0),
-			                   double_arg(float_bits, 1),
-			                   double_arg(float_bits, 2),
-			                   double_arg(float_bits, 3)); return 0;
+							   double_arg(float_bits, 0),
+							   double_arg(float_bits, 1),
+							   double_arg(float_bits, 2),
+							   double_arg(float_bits, 3)); return 0;
 		}
 		case GL_SUB_TEX_COORD4DV: NativeGLTexCoord4dv(gl_current_context, r3); return 0;
 		case GL_SUB_TEX_COORD4F: NativeGLTexCoord4f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1), float_arg(float_bits, 2), float_arg(float_bits, 3)); return 0;
@@ -1796,7 +1796,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_TEX_GEND: {
 			NativeGLTexGend(gl_current_context, r3, r4,
-			                double_arg(float_bits, 0));
+							double_arg(float_bits, 0));
 			return 0;
 		}
 		case GL_SUB_TEX_GENDV:
@@ -1816,7 +1816,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_TEX_IMAGE1D:
 			NativeGLTexImage1D(gl_current_context, r3, (int32_t)r4, (int32_t)r5,
-			                    (int32_t)r6, (int32_t)r7, r8, r9, r10);
+								(int32_t)r6, (int32_t)r7, r8, r9, r10);
 			return 0;
 		case GL_SUB_TEX_IMAGE2D:
 			{
@@ -1843,9 +1843,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 					pixels = gl_ppc_stack_arg(0);
 				}
 				GL_VLOG("glTexImage2D target=0x%x level=%d ifmt=%d w=%d h=%d border=%d fmt=0x%x type=0x%x pixels=0x%08x (sp=0x%08x dt=%d)",
-				       r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, r9, type, pixels, gl_ppc_sp, gl_ppc_stack_arg_offset);
+					   r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, r9, type, pixels, gl_ppc_sp, gl_ppc_stack_arg_offset);
 				NativeGLTexImage2D(gl_current_context, r3, (int32_t)r4, (int32_t)r5,
-				                    (int32_t)r6, (int32_t)r7, (int32_t)r8, r9, type, pixels);
+									(int32_t)r6, (int32_t)r7, (int32_t)r8, r9, type, pixels);
 			}
 			return 0;
 		case GL_SUB_TEX_PARAMETERF:
@@ -1862,7 +1862,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_TEX_SUB_IMAGE1D:
 			NativeGLTexSubImage1D(gl_current_context, r3, (int32_t)r4,
-			                      (int32_t)r5, (int32_t)r6, r7, r8, r9);
+								  (int32_t)r5, (int32_t)r6, r7, r8, r9);
 			return 0;
 		case GL_SUB_TEX_SUB_IMAGE2D:
 			{
@@ -1878,8 +1878,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 					pixels = gl_ppc_stack_arg(0);
 				}
 				NativeGLTexSubImage2D(gl_current_context, r3, (int32_t)r4,
-				                       (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8,
-				                       r9, type, pixels);
+									   (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8,
+									   r9, type, pixels);
 			}
 			return 0;
 		// --- Core GL: Translate, Vertex, Viewport ---
@@ -1894,8 +1894,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_VERTEX2D: {
 			NativeGLVertex2d(gl_current_context,
-			                 double_arg(float_bits, 0),
-			                 double_arg(float_bits, 1)); return 0;
+							 double_arg(float_bits, 0),
+							 double_arg(float_bits, 1)); return 0;
 		}
 		case GL_SUB_VERTEX2DV: NativeGLVertex2dv(gl_current_context, r3); return 0;
 		case GL_SUB_VERTEX2F:
@@ -1908,9 +1908,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_VERTEX2SV: NativeGLVertex2sv(gl_current_context, r3); return 0;
 		case GL_SUB_VERTEX3D: {
 			NativeGLVertex3d(gl_current_context,
-			                 double_arg(float_bits, 0),
-			                 double_arg(float_bits, 1),
-			                 double_arg(float_bits, 2)); return 0;
+							 double_arg(float_bits, 0),
+							 double_arg(float_bits, 1),
+							 double_arg(float_bits, 2)); return 0;
 		}
 		case GL_SUB_VERTEX3DV: NativeGLVertex3dv(gl_current_context, r3); return 0;
 		case GL_SUB_VERTEX3F:
@@ -1923,15 +1923,15 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_VERTEX3SV: NativeGLVertex3sv(gl_current_context, r3); return 0;
 		case GL_SUB_VERTEX4D: {
 			NativeGLVertex4d(gl_current_context,
-			                 double_arg(float_bits, 0),
-			                 double_arg(float_bits, 1),
-			                 double_arg(float_bits, 2),
-			                 double_arg(float_bits, 3)); return 0;
+							 double_arg(float_bits, 0),
+							 double_arg(float_bits, 1),
+							 double_arg(float_bits, 2),
+							 double_arg(float_bits, 3)); return 0;
 		}
 		case GL_SUB_VERTEX4DV: NativeGLVertex4dv(gl_current_context, r3); return 0;
 		case GL_SUB_VERTEX4F:
 			NativeGLVertex4f(gl_current_context, float_arg(float_bits, 0), float_arg(float_bits, 1),
-			                 float_arg(float_bits, 2), float_arg(float_bits, 3));
+							 float_arg(float_bits, 2), float_arg(float_bits, 3));
 			return 0;
 		case GL_SUB_VERTEX4FV: NativeGLVertex4fv(gl_current_context, r3); return 0;
 		case GL_SUB_VERTEX4I: NativeGLVertex4i(gl_current_context, (int32_t)r3, (int32_t)r4, (int32_t)r5, (int32_t)r6); return 0;
@@ -1972,7 +1972,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		// MultiTexCoord 1D variants
 		case GL_SUB_MULTI_TEX_COORD1D_ARB: {
 			NativeGLMultiTexCoord1fARB(gl_current_context, r3,
-			                           float_arg(float_bits, 0));
+									   float_arg(float_bits, 0));
 			return 0;
 		}
 		case GL_SUB_MULTI_TEX_COORD1DV_ARB:
@@ -2000,8 +2000,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		// MultiTexCoord 2D variants
 		case GL_SUB_MULTI_TEX_COORD2D_ARB: {
 			NativeGLMultiTexCoord2fARB(gl_current_context, r3,
-			                           float_arg(float_bits, 0),
-			                           float_arg(float_bits, 1));
+									   float_arg(float_bits, 0),
+									   float_arg(float_bits, 1));
 			return 0;
 		}
 		case GL_SUB_MULTI_TEX_COORD2DV_ARB:
@@ -2029,9 +2029,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		// MultiTexCoord 3D variants
 		case GL_SUB_MULTI_TEX_COORD3D_ARB: {
 			NativeGLMultiTexCoord3fARB(gl_current_context, r3,
-			                           float_arg(float_bits, 0),
-			                           float_arg(float_bits, 1),
-			                           float_arg(float_bits, 2));
+									   float_arg(float_bits, 0),
+									   float_arg(float_bits, 1),
+									   float_arg(float_bits, 2));
 			return 0;
 		}
 		case GL_SUB_MULTI_TEX_COORD3DV_ARB:
@@ -2059,10 +2059,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		// MultiTexCoord 4D variants
 		case GL_SUB_MULTI_TEX_COORD4D_ARB: {
 			NativeGLMultiTexCoord4fARB(gl_current_context, r3,
-			                           float_arg(float_bits, 0),
-			                           float_arg(float_bits, 1),
-			                           float_arg(float_bits, 2),
-			                           float_arg(float_bits, 3));
+									   float_arg(float_bits, 0),
+									   float_arg(float_bits, 1),
+									   float_arg(float_bits, 2),
+									   float_arg(float_bits, 3));
 			return 0;
 		}
 		case GL_SUB_MULTI_TEX_COORD4DV_ARB:
@@ -2133,9 +2133,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_SECONDARYCOLOR3D_EXT: {
 			NativeGLSecondaryColor3fEXT(gl_current_context,
-			                            float_arg(float_bits, 0),
-			                            float_arg(float_bits, 1),
-			                            float_arg(float_bits, 2));
+										float_arg(float_bits, 0),
+										float_arg(float_bits, 1),
+										float_arg(float_bits, 2));
 			return 0;
 		}
 		case GL_SUB_SECONDARY_COLOR3DV_EXT:
@@ -2326,9 +2326,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			if (++s_swap_count >= 120) {
 				s_swap_count = 0;
 				GL_LOG("GLDefer stats (120-frame): drain_calls=%llu records_drained=%llu fallbacks=%llu",
-				       (unsigned long long)g_defer_drain_calls,
-				       (unsigned long long)g_defer_records_drained,
-				       (unsigned long long)g_defer_fallbacks);
+					   (unsigned long long)g_defer_drain_calls,
+					   (unsigned long long)g_defer_records_drained,
+					   (unsigned long long)g_defer_fallbacks);
 			}
 			return NativeAGLSwapBuffers(r3);
 		}
@@ -2363,12 +2363,12 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return NativeGLUBuild2DMipmaps(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, r7, r8, r9);
 		case GL_SUB_GLU_CYLINDER: {
 			NativeGLUCylinder(gl_current_context, r3,
-			                  double_arg(float_bits, 0),
-			                  double_arg(float_bits, 1),
-			                  double_arg(float_bits, 2),
-			                  /* quad w0=r3; 3 doubles w1-6; slices w7;
-			                   * stacks w8 (first stack word) */
-			                  (int32_t)r10, (int32_t)gl_ppc_stack_arg(0));
+							  double_arg(float_bits, 0),
+							  double_arg(float_bits, 1),
+							  double_arg(float_bits, 2),
+							  /* quad w0=r3; 3 doubles w1-6; slices w7;
+							   * stacks w8 (first stack word) */
+							  (int32_t)r10, (int32_t)gl_ppc_stack_arg(0));
 			return 0;
 		}
 		case GL_SUB_GLU_DELETENURBSRENDERER:      NativeGLUDeleteNurbsRenderer(r3); return 0;
@@ -2377,10 +2377,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLU_DELETETESS:                NativeGLUDeleteTess(r3); return 0;
 		case GL_SUB_GLU_DISK: {
 			NativeGLUDisk(gl_current_context, r3,
-			              double_arg(float_bits, 0),
-			              double_arg(float_bits, 1),
-			              /* quad w0=r3; 2 doubles w1-4; slices w5; loops w6 */
-			              (int32_t)r8, (int32_t)r9);
+						  double_arg(float_bits, 0),
+						  double_arg(float_bits, 1),
+						  /* quad w0=r3; 2 doubles w1-4; slices w5; loops w6 */
+						  (int32_t)r8, (int32_t)r9);
 			return 0;
 		}
 		case GL_SUB_GLU_ENDCURVE:     NativeGLUEndCurve(r3); return 0;
@@ -2398,7 +2398,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 				args[i] = double_arg(float_bits, i);
 			}
 			NativeGLULookAt(gl_current_context, args[0], args[1], args[2],
-			                args[3], args[4], args[5], args[6], args[7], args[8]);
+							args[3], args[4], args[5], args[6], args[7], args[8]);
 			return 0;
 		}
 		case GL_SUB_GLU_NEWNURBSRENDERER:      return NativeGLUNewNurbsRenderer();
@@ -2431,12 +2431,12 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_GLU_PICKMATRIX: {
 			NativeGLUPickMatrix(gl_current_context,
-			                    double_arg(float_bits, 0),
-			                    double_arg(float_bits, 1),
-			                    double_arg(float_bits, 2),
-			                    double_arg(float_bits, 3),
-			                    /* 4 doubles w0-7; viewport ptr w8 */
-			                    gl_ppc_stack_arg(0));
+								double_arg(float_bits, 0),
+								double_arg(float_bits, 1),
+								double_arg(float_bits, 2),
+								double_arg(float_bits, 3),
+								/* 4 doubles w0-7; viewport ptr w8 */
+								gl_ppc_stack_arg(0));
 			return 0;
 		}
 		case GL_SUB_GLU_PROJECT: {
@@ -2445,12 +2445,12 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			 * doubles' skipped shadows - WriteMacDouble through those
 			 * garbage registers corrupted guest memory. */
 			return NativeGLUProject(gl_current_context,
-			                        double_arg(float_bits, 0),
-			                        double_arg(float_bits, 1),
-			                        double_arg(float_bits, 2),
-			                        r9, r10, gl_ppc_stack_arg(0),
-			                        gl_ppc_stack_arg(1), gl_ppc_stack_arg(2),
-			                        gl_ppc_stack_arg(3));
+									double_arg(float_bits, 0),
+									double_arg(float_bits, 1),
+									double_arg(float_bits, 2),
+									r9, r10, gl_ppc_stack_arg(0),
+									gl_ppc_stack_arg(1), gl_ppc_stack_arg(2),
+									gl_ppc_stack_arg(3));
 		}
 		case GL_SUB_GLU_PWLCURVE:        NativeGLUPwlCurve(r3, (int32_t)r4, r5, (int32_t)r6, r7); return 0;
 		case GL_SUB_GLU_QUADRICCALLBACK:  NativeGLUQuadricCallback(r3, r4, r5); return 0;
@@ -2462,9 +2462,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return NativeGLUScaleImage(gl_current_context, r3, (int32_t)r4, (int32_t)r5, r6, r7, (int32_t)r8, (int32_t)r9, r10, gl_ppc_stack_arg(0));
 		case GL_SUB_GLU_SPHERE: {
 			NativeGLUSphere(gl_current_context, r3,
-			                double_arg(float_bits, 0),
-			                /* quad w0=r3; radius w1-2; slices w3; stacks w4 */
-			                (int32_t)r6, (int32_t)r7);
+							double_arg(float_bits, 0),
+							/* quad w0=r3; radius w1-2; slices w3; stacks w4 */
+							(int32_t)r6, (int32_t)r7);
 			return 0;
 		}
 		case GL_SUB_GLU_TESSBEGINCONTOUR: NativeGLUTessBeginContour(r3); return 0;
@@ -2474,9 +2474,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLU_TESSENDPOLYGON:   NativeGLUTessEndPolygon(r3); return 0;
 		case GL_SUB_GLU_TESSNORMAL: {
 			NativeGLUTessNormal(r3,
-			                    double_arg(float_bits, 0),
-			                    double_arg(float_bits, 1),
-			                    double_arg(float_bits, 2));
+								double_arg(float_bits, 0),
+								double_arg(float_bits, 1),
+								double_arg(float_bits, 2));
 			return 0;
 		}
 		case GL_SUB_GLU_TESSPROPERTY: {
@@ -2487,12 +2487,12 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLU_UNPROJECT: {
 			/* Same layout as gluProject above. */
 			return NativeGLUUnProject(gl_current_context,
-			                          double_arg(float_bits, 0),
-			                          double_arg(float_bits, 1),
-			                          double_arg(float_bits, 2),
-			                          r9, r10, gl_ppc_stack_arg(0),
-			                          gl_ppc_stack_arg(1), gl_ppc_stack_arg(2),
-			                          gl_ppc_stack_arg(3));
+									  double_arg(float_bits, 0),
+									  double_arg(float_bits, 1),
+									  double_arg(float_bits, 2),
+									  r9, r10, gl_ppc_stack_arg(0),
+									  gl_ppc_stack_arg(1), gl_ppc_stack_arg(2),
+									  gl_ppc_stack_arg(3));
 		}
 
 		// --- GLUT (800-915) --- real handlers in gl_engine.cpp
@@ -2589,26 +2589,26 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLUT_WIRESPHERE: {
 			/* radius w0-1; slices w2=r5, stacks w3=r6 */
 			NativeGLUTWireSphere(gl_current_context, double_arg(float_bits, 0),
-			                     (int32_t)r5, (int32_t)r6); return 0;
+								 (int32_t)r5, (int32_t)r6); return 0;
 		}
 		case GL_SUB_GLUT_SOLIDSPHERE: {
 			/* radius w0-1; slices w2=r5, stacks w3=r6 */
 			NativeGLUTSolidSphere(gl_current_context, double_arg(float_bits, 0),
-			                      (int32_t)r5, (int32_t)r6); return 0;
+								  (int32_t)r5, (int32_t)r6); return 0;
 		}
 		case GL_SUB_GLUT_WIRECONE: {
 			/* base/height w0-3; slices w4=r7, stacks w5=r8 */
 			NativeGLUTWireCone(gl_current_context,
-			                   double_arg(float_bits, 0),
-			                   double_arg(float_bits, 1),
-			                   (int32_t)r7, (int32_t)r8); return 0;
+							   double_arg(float_bits, 0),
+							   double_arg(float_bits, 1),
+							   (int32_t)r7, (int32_t)r8); return 0;
 		}
 		case GL_SUB_GLUT_SOLIDCONE: {
 			/* base/height w0-3; slices w4=r7, stacks w5=r8 */
 			NativeGLUTSolidCone(gl_current_context,
-			                    double_arg(float_bits, 0),
-			                    double_arg(float_bits, 1),
-			                    (int32_t)r7, (int32_t)r8); return 0;
+								double_arg(float_bits, 0),
+								double_arg(float_bits, 1),
+								(int32_t)r7, (int32_t)r8); return 0;
 		}
 		case GL_SUB_GLUT_WIRECUBE: {
 			NativeGLUTWireCube(gl_current_context, double_arg(float_bits, 0)); return 0;
@@ -2619,16 +2619,16 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_GLUT_WIRETORUS: {
 			/* inner/outer w0-3; nsides w4=r7, rings w5=r8 */
 			NativeGLUTWireTorus(gl_current_context,
-			                    double_arg(float_bits, 0),
-			                    double_arg(float_bits, 1),
-			                    (int32_t)r7, (int32_t)r8); return 0;
+								double_arg(float_bits, 0),
+								double_arg(float_bits, 1),
+								(int32_t)r7, (int32_t)r8); return 0;
 		}
 		case GL_SUB_GLUT_SOLIDTORUS: {
 			/* inner/outer w0-3; nsides w4=r7, rings w5=r8 */
 			NativeGLUTSolidTorus(gl_current_context,
-			                     double_arg(float_bits, 0),
-			                     double_arg(float_bits, 1),
-			                     (int32_t)r7, (int32_t)r8); return 0;
+								 double_arg(float_bits, 0),
+								 double_arg(float_bits, 1),
+								 (int32_t)r7, (int32_t)r8); return 0;
 		}
 		case GL_SUB_GLUT_WIREDODECAHEDRON:  NativeGLUTWireDodecahedron(gl_current_context); return 0;
 		case GL_SUB_GLUT_SOLIDDODECAHEDRON: NativeGLUTSolidDodecahedron(gl_current_context); return 0;

@@ -90,7 +90,7 @@ static inline void FireVBLCallbackChain(void *drawable, double ts)
 		s_nested_skip_count++;
 		if (s_nested_skip_count == 1 || (s_nested_skip_count % 600u) == 0) {
 			VBL_LOG("skipping nested VBL callback chain (skips=%llu)",
-			        (unsigned long long)s_nested_skip_count);
+					(unsigned long long)s_nested_skip_count);
 		}
 		return;
 	}
@@ -142,7 +142,7 @@ static uint64_t vbl_source_usec_to_abs(uint64_t usec)
 {
 	if (s_timebase.numer == 0 || s_timebase.denom == 0) {
 		if (mach_timebase_info(&s_timebase) != KERN_SUCCESS ||
-		    s_timebase.numer == 0 || s_timebase.denom == 0) {
+			s_timebase.numer == 0 || s_timebase.denom == 0) {
 			return usec * 1000;
 		}
 	}
@@ -158,16 +158,16 @@ static void vbl_source_store_cadence_usec(uint64_t cadence_usec)
 	uint64_t clamped = GfxFramePacingClampCadenceUsec(cadence_usec);
 	atomic_store_explicit(&s_cadence_usec, clamped, memory_order_relaxed);
 	atomic_store_explicit(&s_cadence_abs, vbl_source_usec_to_abs(clamped),
-	                      memory_order_relaxed);
+						  memory_order_relaxed);
 }
 
 static void vbl_source_reset_deadlines(void)
 {
 	for (int i = 0; i < kGfxFramePacingEngineCount; i++) {
 		atomic_store_explicit(&s_engine_next_deadline_abs[i], 0,
-		                      memory_order_relaxed);
+							  memory_order_relaxed);
 		atomic_store_explicit(&s_engine_seen_tick[i], 0,
-		                      memory_order_relaxed);
+							  memory_order_relaxed);
 	}
 }
 
@@ -182,7 +182,7 @@ API_AVAILABLE(ios(17))
 @implementation VBLMetalDisplayLinkDelegate
 
 - (void)metalDisplayLink:(CAMetalDisplayLink *)link
-             needsUpdate:(CAMetalDisplayLinkUpdate *)update
+			 needsUpdate:(CAMetalDisplayLinkUpdate *)update
 {
 	// Increment tick count
 	atomic_fetch_add_explicit(&s_tick_count, 1, memory_order_relaxed);
@@ -191,7 +191,7 @@ API_AVAILABLE(ios(17))
 	// than preferredFrameRateRange).
 	static CFTimeInterval s_last_target_ts = 0;
 	if (s_last_target_ts > 0 &&
-	    update.targetPresentationTimestamp > s_last_target_ts) {
+		update.targetPresentationTimestamp > s_last_target_ts) {
 		uint64_t delta_usec = (uint64_t)(
 			(update.targetPresentationTimestamp - s_last_target_ts) * 1e6);
 		if (delta_usec > 0) {
@@ -206,7 +206,7 @@ API_AVAILABLE(ios(17))
 	// Fire primary + secondary callbacks, guarded against same-thread
 	// re-entrancy through guest CallMacOS*/runloop pump points.
 	FireVBLCallbackChain((__bridge void *)update.drawable,
-	                     update.targetPresentationTimestamp);
+						 update.targetPresentationTimestamp);
 }
 
 @end
@@ -252,8 +252,8 @@ static VBLDisplayLinkTarget *s_link_target = nil;
 
 extern "C"
 int32_t vbl_source_init(void *cametal_layer,
-                        VBLSourceCallbackFn callback,
-                        void *ctx)
+						VBLSourceCallbackFn callback,
+						void *ctx)
 {
 	if (s_initialized) {
 		VBL_ERR("vbl_source_init: already running");
@@ -287,7 +287,7 @@ int32_t vbl_source_init(void *cametal_layer,
 		s_link_target = [[VBLDisplayLinkTarget alloc] init];
 		CADisplayLink *link =
 			[CADisplayLink displayLinkWithTarget:s_link_target
-			                            selector:@selector(displayLinkFired:)];
+										selector:@selector(displayLinkFired:)];
 
 		if (@available(iOS 15, *)) {
 			link.preferredFrameRateRange =
@@ -297,7 +297,7 @@ int32_t vbl_source_init(void *cametal_layer,
 		}
 
 		[link addToRunLoop:[NSRunLoop mainRunLoop]
-		           forMode:NSDefaultRunLoopMode];
+				   forMode:NSDefaultRunLoopMode];
 
 		s_ca_display_link = link;
 		VBL_LOG("vbl_source_init: CADisplayLink created");
@@ -403,7 +403,7 @@ int32_t vbl_source_sync_3d_pacing_for_engine(int32_t engine_id)
 	}
 
 	uint64_t period_abs = atomic_load_explicit(&s_cadence_abs,
-	                                           memory_order_relaxed);
+											   memory_order_relaxed);
 	if (period_abs == 0) {
 		period_abs = vbl_source_usec_to_abs(GFX_FRAME_PACING_DEFAULT_USEC);
 	}
@@ -411,7 +411,7 @@ int32_t vbl_source_sync_3d_pacing_for_engine(int32_t engine_id)
 	uint64_t now = mach_absolute_time();
 	uint64_t tick = atomic_load_explicit(&s_tick_count, memory_order_relaxed);
 	uint64_t last_tick_abs = atomic_load_explicit(&s_last_tick_abs,
-	                                             memory_order_relaxed);
+												 memory_order_relaxed);
 	uint64_t deadline = atomic_load_explicit(
 		&s_engine_next_deadline_abs[engine_id], memory_order_relaxed);
 
@@ -422,11 +422,11 @@ int32_t vbl_source_sync_3d_pacing_for_engine(int32_t engine_id)
 	if (!tick_is_fresh) {
 		uint64_t fallback_deadline = now + period_abs;
 		if (deadline == 0 || deadline <= now ||
-		    deadline > fallback_deadline + period_abs) {
+			deadline > fallback_deadline + period_abs) {
 			deadline = fallback_deadline;
 		}
 	} else if (deadline == 0 ||
-	           deadline > last_tick_abs + 2u * period_abs) {
+			   deadline > last_tick_abs + 2u * period_abs) {
 		/* First sync for this engine, or its deadline chain ran
 		 * implausibly far ahead of the live tick grid (cadence change /
 		 * long idle): re-anchor to the first boundary after the latest
@@ -450,9 +450,9 @@ int32_t vbl_source_sync_3d_pacing_for_engine(int32_t engine_id)
 			deadline += period_abs;
 		}
 		atomic_store_explicit(&s_engine_next_deadline_abs[engine_id],
-		                      deadline, memory_order_relaxed);
+							  deadline, memory_order_relaxed);
 		atomic_store_explicit(&s_engine_seen_tick[engine_id], tick,
-		                      memory_order_relaxed);
+							  memory_order_relaxed);
 		return 0;  // kGfxAccelNoErr (boundary already satisfied)
 	}
 
@@ -466,9 +466,9 @@ int32_t vbl_source_sync_3d_pacing_for_engine(int32_t engine_id)
 	}
 
 	atomic_store_explicit(&s_engine_next_deadline_abs[engine_id],
-	                      deadline + period_abs, memory_order_relaxed);
+						  deadline + period_abs, memory_order_relaxed);
 	atomic_store_explicit(&s_engine_seen_tick[engine_id], tick,
-	                      memory_order_relaxed);
+						  memory_order_relaxed);
 	return 0;  // kGfxAccelNoErr
 }
 
@@ -482,7 +482,7 @@ extern "C"
 void vbl_source_signal_3d_pacing(void)
 {
 	atomic_store_explicit(&s_last_tick_abs, mach_absolute_time(),
-	                      memory_order_relaxed);
+						  memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------
@@ -491,7 +491,7 @@ void vbl_source_signal_3d_pacing(void)
 
 extern "C"
 int32_t vbl_source_register_secondary_callback(VBLSourceCallbackFn cb,
-                                                void *ctx)
+												void *ctx)
 {
 	if (cb == NULL) return kGfxAccelErrVBLAlreadyRunning;  /* reject NULL cb */
 	for (int i = 0; i < VBL_SECONDARY_CALLBACK_MAX; i++) {

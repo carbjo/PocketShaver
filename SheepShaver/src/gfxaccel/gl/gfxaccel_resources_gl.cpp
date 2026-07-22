@@ -1,6 +1,8 @@
 /*
  *  gfxaccel_resources_gl.cpp - OpenGL side of resource manager
  *  (implements symbols from gfxaccel_resources.mm)
+ * 
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #include "sysdeps.h"
@@ -61,21 +63,21 @@ static GLuint make_tex(uint32_t w, uint32_t h)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h, 0,
-	             GL_BGRA, GL_UNSIGNED_BYTE, nullptr);
+				 GL_BGRA, GL_UNSIGNED_BYTE, nullptr);
 	return tex;
 }
 
 void *gfxaccel_resources_vend_overlay_texture(uint32_t engine_id,
-                                              uint32_t width, uint32_t height,
-                                              uint32_t pixel_format)
+											  uint32_t width, uint32_t height,
+											  uint32_t pixel_format)
 {
 	return gfxaccel_resources_vend_overlay_texture_indexed(engine_id, 0, width, height, pixel_format);
 }
 
 void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine_id,
-                                                      uint32_t texture_index,
-                                                      uint32_t width, uint32_t height,
-                                                      uint32_t pixel_format)
+													  uint32_t texture_index,
+													  uint32_t width, uint32_t height,
+													  uint32_t pixel_format)
 {
 	if (engine_id >= kGfxEngineCount || texture_index > 1) return nullptr;
 	OverlaySlot &s = s_overlays[engine_id];

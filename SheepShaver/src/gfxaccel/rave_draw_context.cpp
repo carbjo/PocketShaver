@@ -79,7 +79,7 @@ static uint32_t GDeviceDrawBufferPixelType(uint32_t gdeviceH)
 	const uint32_t kRGB32 = 3;
 	const uint32_t gdevice = gdeviceH ? ReadMacInt32(gdeviceH) : 0;
 	const uint32_t pixMapH = gdevice
-	    ? ReadMacInt32(gdevice + GDEVICE_OFF_PMAP) : 0;
+		? ReadMacInt32(gdevice + GDEVICE_OFF_PMAP) : 0;
 	const uint32_t pixMap = pixMapH ? ReadMacInt32(pixMapH) : 0;
 	if (!pixMap)
 		return kRGB16;
@@ -88,7 +88,7 @@ static uint32_t GDeviceDrawBufferPixelType(uint32_t gdeviceH)
 	 * other depth (including 8-bit screens) maps to the RAGE-class 16-bit
 	 * 1555 draw buffer, which is what era clients software-render into. */
 	const uint16_t pixelSize = (uint16_t)ReadMacInt16(
-	    pixMap + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE);
+		pixMap + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE);
 	return pixelSize == 32 ? kRGB32 : kRGB16;
 }
 
@@ -112,14 +112,14 @@ uint32_t RaveDeviceDrawBufferPixelType(uint32_t deviceAddr)
 	const uint32_t deviceType = ReadMacInt32(deviceAddr + kRaveDeviceOff_Type);
 	if (deviceType == kRaveDeviceTypeMemory) {
 		const uint32_t pixelType = ReadMacInt32(
-		    deviceAddr + kRaveDeviceOff_MemoryPixelType);
+			deviceAddr + kRaveDeviceOff_MemoryPixelType);
 		return pixelType == kRGB32 ? kRGB32 : kRGB16;
 	}
 	if (deviceType != kRaveDeviceTypeGDevice)
 		return kRGB16;
 
 	return GDeviceDrawBufferPixelType(
-	    ReadMacInt32(deviceAddr + kRaveDeviceOff_GDeviceHandle));
+		ReadMacInt32(deviceAddr + kRaveDeviceOff_GDeviceHandle));
 }
 
 /*
@@ -236,9 +236,9 @@ static void InitStateDefaults(RaveDrawPrivate *ctx, uint32 flags)
 		ctx->ati_state[i].i = atiIntDefaults[i];
 	}
 	RAVE_LOG("InitStateDefaults: ATI UT probe tag %u default=%u (0x%08x)",
-	         kRaveATIUnrealTournamentProbeTag,
-	         ctx->ati_state[kRaveATIUnrealTournamentProbeIndex].i,
-	         ctx->ati_state[kRaveATIUnrealTournamentProbeIndex].i);
+			 kRaveATIUnrealTournamentProbeTag,
+			 ctx->ati_state[kRaveATIUnrealTournamentProbeIndex].i,
+			 ctx->ati_state[kRaveATIUnrealTournamentProbeIndex].i);
 }
 
 /*
@@ -272,14 +272,14 @@ static const int struct_field_to_subopcode[35] = {
  *  Returns TQAError (0 = success)
  */
 int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
-                           uint32 rectAddr, uint32 clipAddr, uint32 flags)
+						   uint32 rectAddr, uint32 clipAddr, uint32 flags)
 {
 	QD3D_INIT_LOG("NativeDrawPrivateNew: ctx=0x%08x device=0x%08x rect=0x%08x clip=0x%08x flags=0x%08x contexts=%d",
-	              drawContextAddr, deviceAddr, rectAddr, clipAddr, flags,
-	              rave_context_count);
+				  drawContextAddr, deviceAddr, rectAddr, clipAddr, flags,
+				  rave_context_count);
 	if (rave_logging_enabled) {
 		printf("RAVE DrawPrivateNew ENTER: ctx=0x%08x dev=0x%08x rect=0x%08x clip=0x%08x flags=0x%x\n",
-		       drawContextAddr, deviceAddr, rectAddr, clipAddr, flags);
+			   drawContextAddr, deviceAddr, rectAddr, clipAddr, flags);
 
 		// Dump context table state on entry
 		printf("RAVE DrawPrivateNew: context_table state on entry (count=%d):\n", rave_context_count);
@@ -296,11 +296,11 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	int32 top    = (int32)ReadMacInt32(rectAddr + 8);
 	int32 bottom = (int32)ReadMacInt32(rectAddr + 12);
 	QD3D_INIT_LOG("NativeDrawPrivateNew: rect left=%d right=%d top=%d bottom=%d size=%dx%d",
-	              left, right, top, bottom, right - left, bottom - top);
+				  left, right, top, bottom, right - left, bottom - top);
 
 	if (rave_logging_enabled)
 		printf("RAVE DrawPrivateNew: rect raw=(%d,%d,%d,%d) size=%dx%d\n",
-		       left, top, right, bottom, right - left, bottom - top);
+			   left, top, right, bottom, right - left, bottom - top);
 
 	// Allocate RaveDrawPrivate on native heap
 	RaveDrawPrivate *ctx = new RaveDrawPrivate();
@@ -327,7 +327,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	 * guaranteed valid during this call. */
 	ctx->noticePixelType = RaveDeviceDrawBufferPixelType(deviceAddr);
 	QD3D_INIT_LOG("NativeDrawPrivateNew: device draw-buffer pixelType=%u",
-	              ctx->noticePixelType);
+				  ctx->noticePixelType);
 
 	// Initialize state defaults per RAVE spec
 	InitStateDefaults(ctx, flags);
@@ -357,7 +357,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	uint32_t handle = AllocContextHandle(ctx);
 	if (handle == 0) {
 		QD3D_INIT_LOG("NativeDrawPrivateNew: context table full (%d slots)",
-		              RAVE_MAX_CONTEXTS);
+					  RAVE_MAX_CONTEXTS);
 		if (rave_logging_enabled)
 			printf("RAVE DrawPrivateNew: FAIL - no free context slots (all %d occupied)\n", RAVE_MAX_CONTEXTS);
 		delete[] ctx->vertexStagingBuffer;
@@ -397,10 +397,10 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	RaveCreateMetalOverlay(ctx->left, ctx->top, ctx->width, ctx->height);
 	RaveInitMetalResources(ctx);
 	QD3D_INIT_LOG("NativeDrawPrivateNew: renderer initialization returned; handle=%u nativeState=%p size=%dx%d",
-	              handle, (void *)ctx->metal, ctx->width, ctx->height);
+				  handle, (void *)ctx->metal, ctx->width, ctx->height);
 	if (!ctx->metal) {
 		QD3D_INIT_LOG("NativeDrawPrivateNew: renderer initialization failed; rejecting context 0x%08x",
-		              drawContextAddr);
+					  drawContextAddr);
 		WriteMacInt32(drawContextAddr + 0, 0);
 		FreeContextHandle(handle);
 		rave_context_count--;
@@ -412,7 +412,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	}
 
 	RAVE_LOG("DrawPrivateNew: handle=%d size=%dx%d contexts=%d",
-	         handle, ctx->width, ctx->height, rave_context_count);
+			 handle, ctx->width, ctx->height, rave_context_count);
 
 	// Diagnostic: dump TQADrawContext struct contents for crash debugging
 	if (rave_logging_enabled) {
@@ -424,7 +424,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 			if (tvect != 0) {
 				uint32 code_ptr = ReadMacInt32(tvect);
 				printf("  [+%d] method[%d] = TVECT 0x%08x -> code 0x%08x\n",
-				       8 + i * 4, i, tvect, code_ptr);
+					   8 + i * 4, i, tvect, code_ptr);
 			} else {
 				printf("  [+%d] method[%d] = NULL\n", 8 + i * 4, i);
 			}
@@ -434,7 +434,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	// Track the most recent draw context for EngineGestalt(kQATIGestalt_CurrentContext)
 	rave_current_draw_context_addr = drawContextAddr;
 	QD3D_INIT_LOG("NativeDrawPrivateNew: success context=0x%08x handle=%u method0=0x%08x",
-	              drawContextAddr, handle, ReadMacInt32(drawContextAddr + 8));
+				  drawContextAddr, handle, ReadMacInt32(drawContextAddr + 8));
 
 	return kQANoErr;
 }
@@ -524,14 +524,14 @@ static bool ShouldTraceStateTag(uint32 tag)
 	/* Rendering decisions, texture selection, fog/clear values, and the GL
 	 * extension range. Leave inert compatibility tags out of the focused log. */
 	return tag <= 14 || (tag >= 17 && tag <= 35) ||
-	       (tag >= 41 && tag <= 54) || (tag >= 100 && tag <= 116) ||
-	       tag >= 1000;
+		   (tag >= 41 && tag <= 54) || (tag >= 100 && tag <= 116) ||
+		   tag >= 1000;
 }
 
 static bool ShouldTraceStateChange(uint64_t count)
 {
 	return count <= 256 || (count != 0 && (count & (count - 1)) == 0) ||
-	       (count % 2048) == 0;
+		   (count % 2048) == 0;
 }
 #endif
 
@@ -563,13 +563,13 @@ int32 NativeSetFloat(uint32 drawContextAddr, uint32 tag, uint32 valueBits)
 				static uint64_t changes = 0;
 				if (ShouldTraceStateChange(++changes))
 					QD3D_STATE_LOG("SetFloat ATI change=%llu ctx=0x%08x frame=%u tag=%u index=%u old=%.7g new=%.7g bits=0x%08x",
-					               (unsigned long long)changes, drawContextAddr,
-					               ctx->frameCount, tag, ati_idx, oldValue, value,
-					               valueBits);
+								   (unsigned long long)changes, drawContextAddr,
+								   ctx->frameCount, tag, ati_idx, oldValue, value,
+								   valueBits);
 			}
 #endif
 			if (oldBits != valueBits &&
-			    ati_idx == kRaveATIDepthWriteEnableIndex) {
+				ati_idx == kRaveATIDepthWriteEnableIndex) {
 				ctx->dirty_flags |= 1;
 			}
 			// Activate ATI fog override when fog-related tags are set (indices 2-9)
@@ -603,8 +603,8 @@ int32 NativeSetFloat(uint32 drawContextAddr, uint32 tag, uint32 valueBits)
 		changes++;
 		if (ShouldTraceStateChange(changes)) {
 			QD3D_STATE_LOG("SetFloat change=%llu ctx=0x%08x frame=%u tag=%u old=%.7g new=%.7g bits=0x%08x",
-			               (unsigned long long)changes, drawContextAddr,
-			               ctx->frameCount, tag, oldValue, value, valueBits);
+						   (unsigned long long)changes, drawContextAddr,
+						   ctx->frameCount, tag, oldValue, value, valueBits);
 		}
 	}
 #endif
@@ -636,13 +636,13 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 				static uint64_t changes = 0;
 				if (ShouldTraceStateChange(++changes))
 					QD3D_STATE_LOG("SetInt ATI change=%llu ctx=0x%08x frame=%u tag=%u index=%u old=%u/0x%08x new=%u/0x%08x",
-					               (unsigned long long)changes, drawContextAddr,
-					               ctx->frameCount, tag, ati_idx, oldValue,
-					               oldValue, value, value);
+								   (unsigned long long)changes, drawContextAddr,
+								   ctx->frameCount, tag, ati_idx, oldValue,
+								   oldValue, value, value);
 			}
 #endif
 			if (oldValue != value &&
-			    ati_idx == kRaveATIDepthWriteEnableIndex) {
+				ati_idx == kRaveATIDepthWriteEnableIndex) {
 				ctx->dirty_flags |= 1;
 			}
 			// Activate ATI fog override when fog-related tags are set (indices 2-9)
@@ -669,8 +669,8 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 		changes++;
 		if (ShouldTraceStateChange(changes)) {
 			QD3D_STATE_LOG("SetInt change=%llu ctx=0x%08x frame=%u tag=%u old=%u/0x%08x new=%u/0x%08x",
-			               (unsigned long long)changes, drawContextAddr,
-			               ctx->frameCount, tag, oldValue, oldValue, value, value);
+						   (unsigned long long)changes, drawContextAddr,
+						   ctx->frameCount, tag, oldValue, oldValue, value, value);
 		}
 	}
 #endif
@@ -688,15 +688,15 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 static void WriteATIRaveExtFuncsTable(uint32 ptr)
 {
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotClearDrawBuffer * 4,
-	              rave_method_tvects[kRaveATIClearDrawBuffer]);
+				  rave_method_tvects[kRaveATIClearDrawBuffer]);
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotClearZBuffer * 4,
-	              rave_method_tvects[kRaveATIClearZBuffer]);
+				  rave_method_tvects[kRaveATIClearZBuffer]);
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotTextureUpdate * 4,
-	              rave_method_tvects[kRaveATITextureUpdate]);
+				  rave_method_tvects[kRaveATITextureUpdate]);
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotBindCodeBook * 4,
-	              rave_method_tvects[kRaveATIBindCodeBook]);
+				  rave_method_tvects[kRaveATIBindCodeBook]);
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotGetDrawBuffer * 4,
-	              rave_method_tvects[kRaveATIGetDrawBuffer]);
+				  rave_method_tvects[kRaveATIGetDrawBuffer]);
 }
 
 static uint32 EnsureATIRaveExtFuncsTable(RaveDrawPrivate *ctx)
@@ -716,7 +716,7 @@ static uint32 EnsureATIRaveExtFuncsTable(RaveDrawPrivate *ctx)
 	// a callable stub so an out-of-range index can never jump through heap
 	// garbage (the Myth II RAVE-entry crash).
 	for (uint32 slot = kRaveATIRaveExtFuncsKnownSlotCount;
-	     slot < kRaveATIRaveExtFuncsEntryCount; slot++) {
+		 slot < kRaveATIRaveExtFuncsEntryCount; slot++) {
 		WriteMacInt32(ptr + slot * 4, rave_method_tvects[kRaveATIStub]);
 	}
 	return ptr;
@@ -756,8 +756,8 @@ int32 NativeSetPtr(uint32 drawContextAddr, uint32 tag, uint32 ptr)
 				static uint64_t changes = 0;
 				if (ShouldTraceStateChange(++changes))
 					QD3D_STATE_LOG("SetPtr ATI change=%llu ctx=0x%08x frame=%u tag=%u index=%u old=0x%08x new=0x%08x",
-					               (unsigned long long)changes, drawContextAddr,
-					               ctx->frameCount, tag, ati_idx, oldPtr, ptr);
+								   (unsigned long long)changes, drawContextAddr,
+								   ctx->frameCount, tag, ati_idx, oldPtr, ptr);
 			}
 #endif
 		}
@@ -777,8 +777,8 @@ int32 NativeSetPtr(uint32 drawContextAddr, uint32 tag, uint32 ptr)
 		changes++;
 		if (ShouldTraceStateChange(changes)) {
 			QD3D_STATE_LOG("SetPtr change=%llu ctx=0x%08x frame=%u tag=%u old=0x%08x new=0x%08x",
-			               (unsigned long long)changes, drawContextAddr,
-			               ctx->frameCount, tag, oldPtr, ptr);
+						   (unsigned long long)changes, drawContextAddr,
+						   ctx->frameCount, tag, oldPtr, ptr);
 		}
 	}
 #endif

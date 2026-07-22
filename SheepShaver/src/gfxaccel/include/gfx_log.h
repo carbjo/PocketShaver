@@ -134,23 +134,6 @@ static inline void gfx_log_emit(const char *prefix, const char *format, ...)
 #define QD3D_WAIT_LOGGING_ENABLED 0
 #endif
 
-/* Per-VIA-tick emu-thread wall-time accounting. PC sampling can't find diffuse
- * cost (the movie handoff is slow everywhere, not stuck at one PC). This brackets
- * each emu-thread consumer (EMUL_OP handlers incl. nested Execute68k, native
- * RAVE/GL/DSp dispatch, native Cinepak decode) and dumps the breakdown once per
- * guest tick, so a fat tick shows which bucket ate it and 'unacc' (= tick wall
- * minus accounted) exposes raw-interpreter grind. Enable for a targeted capture. */
-#ifndef GFX_TICKPROF_ENABLED
-#define GFX_TICKPROF_ENABLED 0
-#endif
-
-/* Descent II mid-movie SetDepth(16) video-hitch instrumentation (present
- * heartbeat, framebuffer-region hash, switch log, Cinepak blit probe, upload
- * gate probe). DEFAULT OFF - targeted debugging only. */
-#ifndef DESCENT_HITCH_DEBUG
-#define DESCENT_HITCH_DEBUG 0
-#endif
-
 #if QD3D_INIT_LOGGING_ENABLED || QD3D_GRAPHICS_LOGGING_ENABLED || \
     QD3D_AUDIO_LOGGING_ENABLED || QD3D_MEDIA_LOGGING_ENABLED || \
     QD3D_WAIT_LOGGING_ENABLED

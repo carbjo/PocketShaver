@@ -1,5 +1,7 @@
 /*
  *  gl_ext.h - Minimal OpenGL extension entry points for FBO on desktop
+ *
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 #ifndef GFXACCEL_GL_EXT_H
 #define GFXACCEL_GL_EXT_H

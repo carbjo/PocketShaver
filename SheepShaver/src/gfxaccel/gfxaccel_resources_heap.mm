@@ -130,7 +130,7 @@ extern "C" void gfxaccel_heap_pso_cache_clear(void);
 // simple buffer); 256 is the conservative cache-line / MTL offset
 // alignment requirement that also matches the RAVE ring buffer stride.
 static inline NSUInteger align_offset_up(NSUInteger offset,
-                                          NSUInteger alignment)
+										  NSUInteger alignment)
 {
 	if (alignment == 0) {
 		alignment = 256;
@@ -149,12 +149,12 @@ static bool restore_heap_if_purgeable(uint32_t heap_id)
 	}
 
 	MTLPurgeableState previous =
-	    [g_heaps[heap_id] setPurgeableState:MTLPurgeableStateNonVolatile];
+		[g_heaps[heap_id] setPurgeableState:MTLPurgeableStateNonVolatile];
 	g_heap_purgeable_empty[heap_id] = false;
 	if (previous == MTLPurgeableStateEmpty) {
 		os_log(gfxaccel_heap_log(),
-		       "heap_id=%u restored from MTLPurgeableStateEmpty before reuse",
-		       (unsigned)heap_id);
+			   "heap_id=%u restored from MTLPurgeableStateEmpty before reuse",
+			   (unsigned)heap_id);
 	}
 	return true;
 }
@@ -214,7 +214,7 @@ extern "C" void *gfxaccel_resources_heap_mm_get(uint32_t heap_id)
 	id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
 	if (device == nil) {
 		fprintf(stderr, "[gfxaccel-heap] heap_get(id=%u): SharedMetalDevice() "
-		                "returned nil\n", (unsigned)heap_id);
+						"returned nil\n", (unsigned)heap_id);
 		return NULL;
 	}
 
@@ -241,8 +241,8 @@ extern "C" void *gfxaccel_resources_heap_mm_get(uint32_t heap_id)
 	g_heaps[heap_id] = [device newHeapWithDescriptor:desc];
 	if (g_heaps[heap_id] == nil) {
 		os_log_fault(gfxaccel_heap_log(),
-		             "Failed to create MTLHeap for heap_id=%u size=%lu",
-		             (unsigned)heap_id, (unsigned long)g_heap_sizes[heap_id]);
+					 "Failed to create MTLHeap for heap_id=%u size=%lu",
+					 (unsigned)heap_id, (unsigned long)g_heap_sizes[heap_id]);
 		return NULL;
 	}
 	g_heap_purgeable_empty[heap_id] = false;
@@ -251,8 +251,8 @@ extern "C" void *gfxaccel_resources_heap_mm_get(uint32_t heap_id)
 }
 
 extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
-                                                          uint32_t length,
-                                                          uint32_t options)
+														  uint32_t length,
+														  uint32_t options)
 {
 	// Ensure heap exists (lazy create).
 	if (gfxaccel_resources_heap_mm_get(heap_id) == NULL) {
@@ -275,7 +275,7 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
 	// bump offset.
 	id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
 	MTLSizeAndAlign sa = [device heapBufferSizeAndAlignWithLength:(NSUInteger)length
-	                                                       options:allocOptions];
+														   options:allocOptions];
 
 	id<MTLBuffer> buf = nil;
 	for (int tier = 0; tier < 3; ++tier) {
@@ -289,8 +289,8 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
 			// Fall through to eviction below.
 		} else {
 			buf = [heap newBufferWithLength:(NSUInteger)length
-			                        options:allocOptions
-			                         offset:aligned];
+									options:allocOptions
+									 offset:aligned];
 			if (buf != nil) {
 				g_next_offset[heap_id] = aligned + sa.size;
 				g_live_allocations[heap_id]++;
@@ -312,11 +312,11 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
 
 	// Tier 3 - Loud failure. No silent fallback.
 	os_log_fault(gfxaccel_heap_log(),
-	             "Heap exhausted for heap_id=%u: alloc_buffer(length=%u) "
-	             "failed after 3-tier eviction (next_offset=%lu, size=%lu, align=%lu)",
-	             (unsigned)heap_id, (unsigned)length,
-	             (unsigned long)g_next_offset[heap_id],
-	             (unsigned long)sa.size, (unsigned long)sa.align);
+				 "Heap exhausted for heap_id=%u: alloc_buffer(length=%u) "
+				 "failed after 3-tier eviction (next_offset=%lu, size=%lu, align=%lu)",
+				 (unsigned)heap_id, (unsigned)length,
+				 (unsigned long)g_next_offset[heap_id],
+				 (unsigned long)sa.size, (unsigned long)sa.align);
 
 	return NULL;
 }
@@ -329,38 +329,38 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
 // already proven idleness (explicit waitUntilCompleted on the shared
 // queue); the live-allocation gate always applies.
 static uint64_t heap_mm_reset_internal(uint32_t heap_id,
-                                       bool gpu_idle_asserted)
+									   bool gpu_idle_asserted)
 {
 	if (heap_id >= kHeapCount) {
 		return 0;
 	}
 	if (g_live_allocations[heap_id] != 0) {
 		os_log_fault(gfxaccel_heap_log(),
-		             "heap reset skipped for heap_id=%u: %u live sub-allocations "
-		             "(next_offset=%lu)",
-		             (unsigned)heap_id,
-		             (unsigned)g_live_allocations[heap_id],
-		             (unsigned long)g_next_offset[heap_id]);
+					 "heap reset skipped for heap_id=%u: %u live sub-allocations "
+					 "(next_offset=%lu)",
+					 (unsigned)heap_id,
+					 (unsigned)g_live_allocations[heap_id],
+					 (unsigned long)g_next_offset[heap_id]);
 		fprintf(stderr,
-		        "[gfxaccel-heap] reset skipped: heap_id=%u live=%u "
-		        "next_offset=%llu\n",
-		        (unsigned)heap_id,
-		        (unsigned)g_live_allocations[heap_id],
-		        (unsigned long long)g_next_offset[heap_id]);
+				"[gfxaccel-heap] reset skipped: heap_id=%u live=%u "
+				"next_offset=%llu\n",
+				(unsigned)heap_id,
+				(unsigned)g_live_allocations[heap_id],
+				(unsigned long long)g_next_offset[heap_id]);
 		return 0;
 	}
 	if (!gpu_idle_asserted &&
-	    g_gpu_commits_completed[heap_id].load(std::memory_order_acquire) <
-	        g_gpu_commits_pending[heap_id]) {
+		g_gpu_commits_completed[heap_id].load(std::memory_order_acquire) <
+			g_gpu_commits_pending[heap_id]) {
 		// In-flight GPU reads of heap memory: deferring keeps offset 0
 		// from aliasing bytes a committed blit may still touch. Expected
 		// transient - the caller's next reset attempt (e.g. the DSp VBL
 		// release drain) lands after the completed handler fires.
 		os_log(gfxaccel_heap_log(),
-		       "heap reset deferred for heap_id=%u: command buffer(s) "
-		       "referencing this heap still in flight (next_offset=%lu)",
-		       (unsigned)heap_id,
-		       (unsigned long)g_next_offset[heap_id]);
+			   "heap reset deferred for heap_id=%u: command buffer(s) "
+			   "referencing this heap still in flight (next_offset=%lu)",
+			   (unsigned)heap_id,
+			   (unsigned long)g_next_offset[heap_id]);
 		return 0;
 	}
 	NSUInteger reclaimed = g_next_offset[heap_id];
@@ -379,7 +379,7 @@ extern "C" uint64_t gfxaccel_resources_heap_reset_gpu_idle(uint32_t heap_id)
 }
 
 extern "C" void gfxaccel_resources_heap_note_gpu_commit(uint32_t heap_id,
-                                                         void *command_buffer)
+														 void *command_buffer)
 {
 	if (heap_id >= kHeapCount || command_buffer == NULL) {
 		return;
@@ -400,11 +400,11 @@ extern "C" void gfxaccel_resources_heap_mm_note_allocation_released(uint32_t hea
 	}
 	if (g_live_allocations[heap_id] == 0) {
 		os_log_fault(gfxaccel_heap_log(),
-		             "heap live allocation underflow for heap_id=%u",
-		             (unsigned)heap_id);
+					 "heap live allocation underflow for heap_id=%u",
+					 (unsigned)heap_id);
 		fprintf(stderr,
-		        "[gfxaccel-heap] live allocation underflow: heap_id=%u\n",
-		        (unsigned)heap_id);
+				"[gfxaccel-heap] live allocation underflow: heap_id=%u\n",
+				(unsigned)heap_id);
 		return;
 	}
 	g_live_allocations[heap_id]--;
@@ -429,8 +429,8 @@ extern "C" void gfxaccel_resources_heap_mm_lru_purge(void)
 		}
 		if (g_live_allocations[i] != 0) {
 			os_log(gfxaccel_heap_log(),
-			       "heap purge skipped for heap_id=%d: %u live sub-allocations",
-			       i, (unsigned)g_live_allocations[i]);
+				   "heap purge skipped for heap_id=%d: %u live sub-allocations",
+				   i, (unsigned)g_live_allocations[i]);
 			continue;
 		}
 		[g_heaps[i] setPurgeableState:MTLPurgeableStateEmpty];
@@ -509,12 +509,12 @@ static bool gfxaccel_rave_ring_acquire_slot(void)
 	}
 
 	if (dispatch_semaphore_wait(slot_sem,
-	        dispatch_time(DISPATCH_TIME_NOW, RAVE_RING_ACQUIRE_TIMEOUT_NSEC)) != 0) {
+			dispatch_time(DISPATCH_TIME_NOW, RAVE_RING_ACQUIRE_TIMEOUT_NSEC)) != 0) {
 		os_log_fault(gfxaccel_heap_log(),
-		             "rave_ring_acquire_slot: slot %u still in flight after "
-		             "%llu ms; dropping stage instead of deadlocking",
-		             (unsigned)g_rave_ring_slot_index,
-		             (unsigned long long)(RAVE_RING_ACQUIRE_TIMEOUT_NSEC / NSEC_PER_MSEC));
+					 "rave_ring_acquire_slot: slot %u still in flight after "
+					 "%llu ms; dropping stage instead of deadlocking",
+					 (unsigned)g_rave_ring_slot_index,
+					 (unsigned long long)(RAVE_RING_ACQUIRE_TIMEOUT_NSEC / NSEC_PER_MSEC));
 		return false;
 	}
 	if (g_rave_ring_slots_in_submission == 0) {
@@ -533,8 +533,8 @@ static void gfxaccel_rave_ring_advance_slot(void)
 }
 
 static void gfxaccel_rave_ring_signal_slot_range(
-    const std::array<dispatch_semaphore_t, RAVE_RING_BUFFER_COUNT> &sems,
-    uint32_t first_slot, uint32_t slot_count)
+	const std::array<dispatch_semaphore_t, RAVE_RING_BUFFER_COUNT> &sems,
+	uint32_t first_slot, uint32_t slot_count)
 {
 	for (uint32_t i = 0; i < slot_count; i++) {
 		dispatch_semaphore_t sem = sems[(first_slot + i) % RAVE_RING_BUFFER_COUNT];
@@ -558,11 +558,11 @@ extern "C" int32_t gfxaccel_rave_ring_init(void)
 
 	NSUInteger totalSize = (NSUInteger)RAVE_RING_BUFFER_SIZE * RAVE_RING_BUFFER_COUNT;
 	g_rave_ring_buffer = [device newBufferWithLength:totalSize
-	                                         options:MTLResourceStorageModeShared];
+											 options:MTLResourceStorageModeShared];
 	if (g_rave_ring_buffer == nil) {
 		os_log_fault(gfxaccel_heap_log(),
-		             "rave_ring_init: failed to allocate %lu byte ring buffer",
-		             (unsigned long)totalSize);
+					 "rave_ring_init: failed to allocate %lu byte ring buffer",
+					 (unsigned long)totalSize);
 		return -4006;
 	}
 
@@ -592,7 +592,7 @@ extern "C" void gfxaccel_rave_ring_shutdown(void)
 }
 
 extern "C" void *gfxaccel_rave_ring_stage(const void *data, uint32_t size,
-                                          uint32_t *out_offset)
+										  uint32_t *out_offset)
 {
 	if (g_rave_ring_buffer == nil || data == NULL || out_offset == NULL) {
 		return NULL;
@@ -602,12 +602,12 @@ extern "C" void *gfxaccel_rave_ring_stage(const void *data, uint32_t size,
 	NSUInteger alignedSize = ((NSUInteger)size + 255) & ~(NSUInteger)255;
 	if (alignedSize > (NSUInteger)RAVE_RING_BUFFER_SIZE) {
 		fprintf(stderr, "[gfxaccel-heap] rave_ring_stage: size %u exceeds slot "
-		        "capacity\n", (unsigned)size);
+				"capacity\n", (unsigned)size);
 		return NULL;
 	}
 
 	if (!g_rave_ring_slot_acquired &&
-	    !gfxaccel_rave_ring_acquire_slot()) {
+		!gfxaccel_rave_ring_acquire_slot()) {
 		return NULL;
 	}
 
@@ -626,8 +626,8 @@ extern "C" void *gfxaccel_rave_ring_stage(const void *data, uint32_t size,
 	// Verify write stays within slot boundary.
 	if (writeOff + size > slotBase + RAVE_RING_BUFFER_SIZE) {
 		fprintf(stderr, "[gfxaccel-heap] rave_ring_stage: size %u exceeds slot "
-		        "capacity at offset %lu\n", (unsigned)size,
-		        (unsigned long)g_rave_ring_offset);
+				"capacity at offset %lu\n", (unsigned)size,
+				(unsigned long)g_rave_ring_offset);
 		return NULL;
 	}
 

@@ -38,13 +38,13 @@ extern uint32 NativeHookGetNextEngine(uint32 device, uint32 prevEngine);
 extern uint32 NativeHookEngineGestalt(uint32 engine, uint32 selector, uint32 responsePtr);
 extern uint32 NativeHookEngineCheckDevice(uint32 engine, uint32 device);
 extern uint32 NativeHookDrawContextNew(uint32 device, uint32 rect, uint32 clip,
-                                        uint32 engine, uint32 flags, uint32 drawContextPtr);
+										uint32 engine, uint32 flags, uint32 drawContextPtr);
 extern uint32 NativeHookTextureNew(uint32 engine, uint32 flags, uint32 pixelType,
-                                    uint32 images, uint32 newTexturePtr);
+									uint32 images, uint32 newTexturePtr);
 extern uint32 NativeHookBitmapNew(uint32 engine, uint32 flags, uint32 pixelType,
-                                   uint32 image, uint32 newBitmapPtr);
+								   uint32 image, uint32 newBitmapPtr);
 extern uint32 NativeHookColorTableNew(uint32 engine, uint32 tableType, uint32 pixelData,
-                                       uint32 transparentFlag, uint32 newTablePtr);
+									   uint32 transparentFlag, uint32 newTablePtr);
 extern uint32 NativeHookDrawContextDelete(uint32 drawContextPtr);
 extern uint32 NativeHookTextureDelete(uint32 enginePtr, uint32 texturePtr);
 extern uint32 NativeHookBitmapDelete(uint32 enginePtr, uint32 bitmapPtr);
@@ -54,7 +54,7 @@ extern uint32 NativeHookBitmapBindColorTable(uint32 engine, uint32 bitmap, uint3
 extern uint32 NativeHookTextureDetach(uint32 engine, uint32 texture);
 extern uint32 NativeHookBitmapDetach(uint32 engine, uint32 bitmap);
 extern uint32 NativeHookAccessTexture(uint32 engine, uint32 texture, uint32 mipmapLevel,
-                                       uint32 flags, uint32 buffer);
+									   uint32 flags, uint32 buffer);
 extern uint32 NativeHookAccessTextureEnd(uint32 engine, uint32 texture, uint32 dirtyRect);
 extern uint32 NativeHookAccessBitmap(uint32 engine, uint32 bitmap, uint32 flags, uint32 buffer);
 extern uint32 NativeHookAccessBitmapEnd(uint32 engine, uint32 bitmap, uint32 dirtyRect);
@@ -163,7 +163,7 @@ static const char *engine_method_names[] = {
  *  appropriate method handler.
  */
 uint32 RaveDispatch(uint32 r3, uint32 r4, uint32 r5,
-                    uint32 r6, uint32 r7, uint32 r8)
+					uint32 r6, uint32 r7, uint32 r8)
 {
 	// Read sub-opcode from scratch word
 	uint32 method_id = ReadMacInt32(rave_scratch_addr);
@@ -173,10 +173,10 @@ uint32 RaveDispatch(uint32 r3, uint32 r4, uint32 r5,
 		static uint64_t drawDispatchCount[kRaveDrawMethodCount] = {};
 		uint64_t count = ++drawDispatchCount[method_id];
 		if (method_id >= kRaveDrawDrawPoint &&
-		    (count <= 8 || (count & (count - 1)) == 0 || (count % 1024) == 0)) {
+			(count <= 8 || (count & (count - 1)) == 0 || (count % 1024) == 0)) {
 			QD3D_RENDER_LOG("Dispatch method=%u/%s count=%llu r3-r8=%08x,%08x,%08x,%08x,%08x,%08x",
-			                method_id, draw_method_names[method_id],
-			                (unsigned long long)count, r3, r4, r5, r6, r7, r8);
+							method_id, draw_method_names[method_id],
+							(unsigned long long)count, r3, r4, r5, r6, r7, r8);
 		}
 #endif
 		// Draw method dispatch (0-34)

@@ -1,5 +1,7 @@
 /*
  *  gfxaccel_resources_heap_gl.cpp - OpenGL/host-memory heap (mm_* side)
+ * 
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #include "sysdeps.h"

@@ -22,33 +22,14 @@
 
 ## Diablo II
 
-- **Primary 3D path: Glide 3.0** (pref `glideaccel`, default on). **Identical model to DSpInstallHooks**:
-  - Guest already has the Glide CFM extension (`3DfxGlideLib3.x` / etc. in Extensions). Host `3dfx GlideLib*.bin` files are for **offline analysis only** - never loaded into the emulator.
-  - `GlideInstallHooks`: candidate `FindLibSymbol` for the library, resolve each export, 4-instruction PPC branch into native TVECTs (we **are** Glide; stock driver not run).
-  - No `GetMemFragment`, no synthetic CFM connection, no Extensions install.
+- GLIDE: Same as RAVE but also has some texture rendering issues and crashes on program exit
+
+-- For Glide (Diablo II is Glide 3.0) you need the Glide extensions (`3DfxGlideLib3.x` et al) in extensions from something like "3dfx Voodoo 5", and you need to manually install them from the CD. 
 
 - RAVE: Currently unplayable due to slow/lagged framerate and frame skips once a character is chosen and is loads the main playable game
 
-- OpenGL: Black Screen on main title
+- OpenGL: Odd rendering issues once title is hit, slow
 
-- Software: Crash on game launch
-
-- Black screen on "Rescan Monitors" in configuration - fixed on GL by matching Metal `UpdatePalette` (ignore non-indexed) + DSp OnModeEnter NULL-buffer Resize without classic 8bpp wipe
+- Software: Renders fine but unusable on title as mouse presses aren't registered
 
 - There are brief blue screens with artifacts after each opening movie
-
-### GL <-> Metal compositor parity (desktop)
-
-Intentional GL deltas vs Metal are only where the API forces them (CPU expand vs GPU blit, shared GL context with RAVE/Glide). Behavioral contracts:
-
-| API / path | Status |
-|------------|--------|
-| UpdatePalette non-indexed no-op | matched |
-| OnModeEnter DSp BGRA+NULL / QD host restore | matched |
-| OnModeExit clear overlay (+ GL framebuffer cache) | matched |
-| Present skip classic upload for DSp | matched |
-| Present classic dirty = full memcmp | matched (Metal always uploads) |
-| SharedMetalDevice make-current only if needed | matched (fixed inverted `\|\|` short-circuit) |
-| Deferred Present during RAVE FBO + flush on RenderEnd | GL-only (shared context) |
-| Overlay dst in guest mode space | matched |
-| kDMCOwnerGlide underlay upload | matched (like RAVE/GL) |

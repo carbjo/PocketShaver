@@ -3,6 +3,8 @@
  *
  *  Same layout as rave_thunks / dsp_thunks: 32-byte TVECT writes a
  *  sub-opcode into glide_scratch_addr then executes NATIVE_GLIDE_DISPATCH.
+ *
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #include "sysdeps.h"

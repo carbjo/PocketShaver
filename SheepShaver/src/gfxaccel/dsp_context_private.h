@@ -352,15 +352,15 @@ struct DSpContextPrivate {
 static inline uint32_t DSpContextBackBufferWidth(const DSpContextPrivate *ctx)
 {
 	return ctx->attr.backBufferWidth != 0
-	       ? ctx->attr.backBufferWidth
-	       : ctx->attr.displayWidth;
+		   ? ctx->attr.backBufferWidth
+		   : ctx->attr.displayWidth;
 }
 
 static inline uint32_t DSpContextBackBufferHeight(const DSpContextPrivate *ctx)
 {
 	return ctx->attr.backBufferHeight != 0
-	       ? ctx->attr.backBufferHeight
-	       : ctx->attr.displayHeight;
+		   ? ctx->attr.backBufferHeight
+		   : ctx->attr.displayHeight;
 }
 
 /* Reserve guest-RAM scratch (SheepMem). Definition stays in
@@ -370,10 +370,10 @@ uint32_t DSpReserveGuestScratch(uint32_t size);
 
 extern "C" uint32_t DSpReserveGuestPixelStaging(uint32_t size);
 extern "C" void DSpQuarantineGuestPixelStaging(uint32_t mac_addr,
-                                               uint32_t size,
-                                               bool allocated_from_mac_system_heap);
+											   uint32_t size,
+											   bool allocated_from_mac_system_heap);
 extern "C" void DSpDiscardUnusedGuestPixelStaging(uint32_t mac_addr,
-                                                  bool allocated_from_mac_system_heap);
+												  bool allocated_from_mac_system_heap);
 void* DSpGetBackingContents(void* backing);
 
 #endif /* DSP_CONTEXT_PRIVATE_H */

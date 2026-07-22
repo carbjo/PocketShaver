@@ -1,3 +1,8 @@
+/*
+ * OpenGL FFP Renderer for gfx gl backend.
+ *
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
+ */
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "gl_engine.h"
@@ -36,10 +41,10 @@ static void release_overlay_textures(bool clear_drawable)
   auto&e=gfx_gl_ext();
   if(s_frame_active&&e.fbo)e.BindFramebuffer(GL_FRAMEBUFFER,0);
   for(int i=0;i<2;i++){
-    if(s_ov[i]){
-      gfxaccel_resources_release_overlay_texture(kGfxEngineGL,(void*)(uintptr_t)s_ov[i]);
-      s_ov[i]=0;
-    }
+	if(s_ov[i]){
+	  gfxaccel_resources_release_overlay_texture(kGfxEngineGL,(void*)(uintptr_t)s_ov[i]);
+	  s_ov[i]=0;
+	}
   }
   s_cur=0;s_ow=s_oh=0;s_frame_active=false;s_frame_committed=false;
   if(clear_drawable){s_dl=s_dt=s_dw=s_dh=0;}
@@ -50,17 +55,17 @@ extern "C" void gl_overlay_bind(int32_t left,int32_t top,int32_t width,int32_t h
   if(width<=0||height<=0)return;
   uint32_t w=(uint32_t)width,h=(uint32_t)height;
   if((s_ov[0]||s_ov[1])&&(s_ow!=w||s_oh!=h)){
-    release_overlay_textures(false);
+	release_overlay_textures(false);
   }
   if(!s_ov[0]){
-    void*a=gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL,0,w,h,MTLPixelFormatBGRA8Unorm);
-    void*b=gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL,1,w,h,MTLPixelFormatBGRA8Unorm);
-    if(!a||!b){
-      if(a)gfxaccel_resources_release_overlay_texture(kGfxEngineGL,a);
-      if(b)gfxaccel_resources_release_overlay_texture(kGfxEngineGL,b);
-      return;
-    }
-    s_ov[0]=(GLuint)(uintptr_t)a;s_ov[1]=(GLuint)(uintptr_t)b;s_ow=w;s_oh=h;
+	void*a=gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL,0,w,h,MTLPixelFormatBGRA8Unorm);
+	void*b=gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL,1,w,h,MTLPixelFormatBGRA8Unorm);
+	if(!a||!b){
+	  if(a)gfxaccel_resources_release_overlay_texture(kGfxEngineGL,a);
+	  if(b)gfxaccel_resources_release_overlay_texture(kGfxEngineGL,b);
+	  return;
+	}
+	s_ov[0]=(GLuint)(uintptr_t)a;s_ov[1]=(GLuint)(uintptr_t)b;s_ow=w;s_oh=h;
   }
   s_cur=s_ov[s_wr];
   s_frame_committed=false;
@@ -111,7 +116,7 @@ void GLMetalBeginFrame(GLContext*ctx){
   if(!ctx||!SharedMetalDevice())return;
   const DMCModeSnapshot*snap=dmc_current_snapshot();
   if(!snap||snap->active_owner!=(uint32_t)kDMCOwnerGL){
-    if(dmc_set_active_owner(kDMCOwnerGL)!=kDMCNoErr)return;
+	if(dmc_set_active_owner(kDMCOwnerGL)!=kDMCNoErr)return;
   }
   /* The DMC transition releases outgoing engine textures.  A bound AGL
    * drawable remains valid across that transition, so reacquire its pair
@@ -121,20 +126,20 @@ void GLMetalBeginFrame(GLContext*ctx){
   if(!s_frame_active){bind_ov_fbo();s_frame_active=true;}
   load_ctx_matrices(ctx);
   if(ctx->viewport[2]>0&&ctx->viewport[3]>0)
-    glViewport(ctx->viewport[0],ctx->viewport[1],ctx->viewport[2],ctx->viewport[3]);
+	glViewport(ctx->viewport[0],ctx->viewport[1],ctx->viewport[2],ctx->viewport[3]);
 }
 void GLMetalClear(GLContext*ctx,uint32_t mask){
   if(!ctx||!SharedMetalDevice())return;
   GLMetalBeginFrame(ctx);
   if(!s_frame_active)return;
   const bool is_offscreen =
-    GLContextGetOffscreenDrawable(ctx,nullptr,nullptr,nullptr,nullptr)!=0;
+	GLContextGetOffscreenDrawable(ctx,nullptr,nullptr,nullptr,nullptr)!=0;
   const float alpha=GLMetalOverlayClearAlpha(is_offscreen,ctx->clear_color[3]);
   glClearColor(
-    GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[0],alpha),
-    GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[1],alpha),
-    GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[2],alpha),
-    alpha);
+	GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[0],alpha),
+	GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[1],alpha),
+	GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[2],alpha),
+	alpha);
   glClearDepth(ctx->clear_depth);
   GLbitfield m=0;
   if(mask&0x4000)m|=GL_COLOR_BUFFER_BIT;
@@ -155,28 +160,28 @@ void GLMetalEndFrame(GLContext*ctx){
 /* Expand GL_QUADS / fans / strips to triangle lists for host GL. */
 static void emit_gl_vertex(const GLVertex &v,bool force_opaque){
   if(force_opaque){
-    const GLfloat color[4]={v.color[0],v.color[1],v.color[2],1.f};
-    glColor4fv(color);
+	const GLfloat color[4]={v.color[0],v.color[1],v.color[2],1.f};
+	glColor4fv(color);
   }else{
-    glColor4fv(v.color);
+	glColor4fv(v.color);
   }
   glNormal3fv(v.normal);
   auto &ext = gfx_gl_ext();
   if (ext.multitex && ext.MultiTexCoord4f) {
-    /* Perspective-capable multitex: q=1 for FFP current coords */
-    ext.MultiTexCoord4f(GL_TEXTURE0, v.texcoord[0][0], v.texcoord[0][1], v.texcoord[0][2], v.texcoord[0][3] != 0.f ? v.texcoord[0][3] : 1.f);
-    ext.MultiTexCoord4f(GL_TEXTURE1, v.texcoord[1][0], v.texcoord[1][1], v.texcoord[1][2], v.texcoord[1][3] != 0.f ? v.texcoord[1][3] : 1.f);
+	/* Perspective-capable multitex: q=1 for FFP current coords */
+	ext.MultiTexCoord4f(GL_TEXTURE0, v.texcoord[0][0], v.texcoord[0][1], v.texcoord[0][2], v.texcoord[0][3] != 0.f ? v.texcoord[0][3] : 1.f);
+	ext.MultiTexCoord4f(GL_TEXTURE1, v.texcoord[1][0], v.texcoord[1][1], v.texcoord[1][2], v.texcoord[1][3] != 0.f ? v.texcoord[1][3] : 1.f);
   } else if (ext.multitex && ext.MultiTexCoord2f) {
-    ext.MultiTexCoord2f(GL_TEXTURE0, v.texcoord[0][0], v.texcoord[0][1]);
-    ext.MultiTexCoord2f(GL_TEXTURE1, v.texcoord[1][0], v.texcoord[1][1]);
+	ext.MultiTexCoord2f(GL_TEXTURE0, v.texcoord[0][0], v.texcoord[0][1]);
+	ext.MultiTexCoord2f(GL_TEXTURE1, v.texcoord[1][0], v.texcoord[1][1]);
   } else {
-    glTexCoord4f(v.texcoord[0][0], v.texcoord[0][1], v.texcoord[0][2],
-                 v.texcoord[0][3] != 0.f ? v.texcoord[0][3] : 1.f);
+	glTexCoord4f(v.texcoord[0][0], v.texcoord[0][1], v.texcoord[0][2],
+				 v.texcoord[0][3] != 0.f ? v.texcoord[0][3] : 1.f);
   }
   glVertex4fv(v.position);
 }
 static void flush_im_triangles(const std::vector<GLVertex> &tris,
-                               bool force_opaque){
+							   bool force_opaque){
   if(tris.empty())return;
   glBegin(GL_TRIANGLES);
   for(const auto &v: tris) emit_gl_vertex(v,force_opaque);
@@ -190,119 +195,119 @@ static void apply_host_ffp_state(GLContext *ctx)
   /* Texture unit 0 */
   auto it = ctx->texture_objects.find(ctx->tex_units[0].bound_texture_2d);
   if (ctx->tex_units[0].enabled_2d && it != ctx->texture_objects.end() && it->second.metal_texture) {
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)it->second.metal_texture);
-    GLint env = GL_MODULATE;
-    switch (ctx->tex_units[0].env_mode) {
-    case 0x1E01: env = GL_REPLACE; break;
-    case 0x2100: env = GL_MODULATE; break;
-    case 0x2101: env = GL_DECAL; break;
-    case 0x0BE2: env = GL_BLEND; break;
-    default: break;
-    }
-    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, env);
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)it->second.metal_texture);
+	GLint env = GL_MODULATE;
+	switch (ctx->tex_units[0].env_mode) {
+	case 0x1E01: env = GL_REPLACE; break;
+	case 0x2100: env = GL_MODULATE; break;
+	case 0x2101: env = GL_DECAL; break;
+	case 0x0BE2: env = GL_BLEND; break;
+	default: break;
+	}
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, env);
   } else {
-    glDisable(GL_TEXTURE_2D);
+	glDisable(GL_TEXTURE_2D);
   }
 
   /* Texture unit 1 (ARB multitexture) when present */
   auto &ext = gfx_gl_ext();
   if (ext.multitex && ext.ActiveTexture) {
-    ext.ActiveTexture(GL_TEXTURE1);
-    auto it1 = ctx->texture_objects.find(ctx->tex_units[1].bound_texture_2d);
-    if (ctx->tex_units[1].enabled_2d && it1 != ctx->texture_objects.end() && it1->second.metal_texture) {
-      glEnable(GL_TEXTURE_2D);
-      glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)it1->second.metal_texture);
-      glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-    } else {
-      glDisable(GL_TEXTURE_2D);
-    }
-    ext.ActiveTexture(GL_TEXTURE0);
+	ext.ActiveTexture(GL_TEXTURE1);
+	auto it1 = ctx->texture_objects.find(ctx->tex_units[1].bound_texture_2d);
+	if (ctx->tex_units[1].enabled_2d && it1 != ctx->texture_objects.end() && it1->second.metal_texture) {
+	  glEnable(GL_TEXTURE_2D);
+	  glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)it1->second.metal_texture);
+	  glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	} else {
+	  glDisable(GL_TEXTURE_2D);
+	}
+	ext.ActiveTexture(GL_TEXTURE0);
   }
 
   if (ctx->blend) {
-    glEnable(GL_BLEND);
-    glBlendFunc(ctx->blend_src ? ctx->blend_src : GL_SRC_ALPHA,
-                ctx->blend_dst ? ctx->blend_dst : GL_ONE_MINUS_SRC_ALPHA);
+	glEnable(GL_BLEND);
+	glBlendFunc(ctx->blend_src ? ctx->blend_src : GL_SRC_ALPHA,
+				ctx->blend_dst ? ctx->blend_dst : GL_ONE_MINUS_SRC_ALPHA);
   } else {
-    glDisable(GL_BLEND);
+	glDisable(GL_BLEND);
   }
   if (ctx->depth_test) {
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(ctx->depth_func ? ctx->depth_func : GL_LESS);
-    glDepthMask(ctx->depth_mask ? GL_TRUE : GL_FALSE);
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(ctx->depth_func ? ctx->depth_func : GL_LESS);
+	glDepthMask(ctx->depth_mask ? GL_TRUE : GL_FALSE);
   } else {
-    glDisable(GL_DEPTH_TEST);
+	glDisable(GL_DEPTH_TEST);
   }
   if (ctx->cull_face_enabled) {
-    glEnable(GL_CULL_FACE);
-    glCullFace(ctx->cull_face_mode ? ctx->cull_face_mode : GL_BACK);
-    glFrontFace(ctx->front_face ? ctx->front_face : GL_CCW);
+	glEnable(GL_CULL_FACE);
+	glCullFace(ctx->cull_face_mode ? ctx->cull_face_mode : GL_BACK);
+	glFrontFace(ctx->front_face ? ctx->front_face : GL_CCW);
   } else {
-    glDisable(GL_CULL_FACE);
+	glDisable(GL_CULL_FACE);
   }
   if (ctx->alpha_test) {
-    glEnable(GL_ALPHA_TEST);
-    glAlphaFunc(ctx->alpha_func ? ctx->alpha_func : GL_ALWAYS, ctx->alpha_ref);
+	glEnable(GL_ALPHA_TEST);
+	glAlphaFunc(ctx->alpha_func ? ctx->alpha_func : GL_ALWAYS, ctx->alpha_ref);
   } else {
-    glDisable(GL_ALPHA_TEST);
+	glDisable(GL_ALPHA_TEST);
   }
   if (ctx->scissor_test) {
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(ctx->scissor_box[0], ctx->scissor_box[1], ctx->scissor_box[2], ctx->scissor_box[3]);
+	glEnable(GL_SCISSOR_TEST);
+	glScissor(ctx->scissor_box[0], ctx->scissor_box[1], ctx->scissor_box[2], ctx->scissor_box[3]);
   } else {
-    glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_SCISSOR_TEST);
   }
   if (ctx->fog_enabled) {
-    glEnable(GL_FOG);
-    glFogi(GL_FOG_MODE, (GLint)(ctx->fog_mode ? ctx->fog_mode : GL_LINEAR));
-    glFogfv(GL_FOG_COLOR, ctx->fog_color);
-    glFogf(GL_FOG_DENSITY, ctx->fog_density);
-    glFogf(GL_FOG_START, ctx->fog_start);
-    glFogf(GL_FOG_END, ctx->fog_end);
+	glEnable(GL_FOG);
+	glFogi(GL_FOG_MODE, (GLint)(ctx->fog_mode ? ctx->fog_mode : GL_LINEAR));
+	glFogfv(GL_FOG_COLOR, ctx->fog_color);
+	glFogf(GL_FOG_DENSITY, ctx->fog_density);
+	glFogf(GL_FOG_START, ctx->fog_start);
+	glFogf(GL_FOG_END, ctx->fog_end);
   } else {
-    glDisable(GL_FOG);
+	glDisable(GL_FOG);
   }
   if (ctx->normalize) glEnable(GL_NORMALIZE); else glDisable(GL_NORMALIZE);
 
   /* Fixed-function lighting mirrored to host GL */
   if (ctx->lighting_enabled) {
-    glEnable(GL_LIGHTING);
-    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, ctx->light_model_ambient);
-    glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, ctx->light_model_two_side ? 1 : 0);
-    glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, ctx->light_model_local_viewer ? 1 : 0);
-    for (int i = 0; i < 8; i++) {
-      GLenum L = GL_LIGHT0 + i;
-      if (ctx->lights[i].enabled) {
-        glEnable(L);
-        glLightfv(L, GL_AMBIENT, ctx->lights[i].ambient);
-        glLightfv(L, GL_DIFFUSE, ctx->lights[i].diffuse);
-        glLightfv(L, GL_SPECULAR, ctx->lights[i].specular);
-        glLightfv(L, GL_POSITION, ctx->lights[i].position);
-        glLightfv(L, GL_SPOT_DIRECTION, ctx->lights[i].spot_direction);
-        glLightf(L, GL_SPOT_EXPONENT, ctx->lights[i].spot_exponent);
-        glLightf(L, GL_SPOT_CUTOFF, ctx->lights[i].spot_cutoff);
-        glLightf(L, GL_CONSTANT_ATTENUATION, ctx->lights[i].constant_attenuation);
-        glLightf(L, GL_LINEAR_ATTENUATION, ctx->lights[i].linear_attenuation);
-        glLightf(L, GL_QUADRATIC_ATTENUATION, ctx->lights[i].quadratic_attenuation);
-      } else {
-        glDisable(L);
-      }
-    }
-    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ctx->materials[0].ambient);
-    glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, ctx->materials[0].diffuse);
-    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, ctx->materials[0].specular);
-    glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, ctx->materials[0].emission);
-    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, ctx->materials[0].shininess);
-    if (ctx->color_material_enabled) {
-      glEnable(GL_COLOR_MATERIAL);
-      glColorMaterial(ctx->color_material_face ? ctx->color_material_face : GL_FRONT_AND_BACK,
-                      ctx->color_material_mode ? ctx->color_material_mode : GL_AMBIENT_AND_DIFFUSE);
-    } else {
-      glDisable(GL_COLOR_MATERIAL);
-    }
+	glEnable(GL_LIGHTING);
+	glLightModelfv(GL_LIGHT_MODEL_AMBIENT, ctx->light_model_ambient);
+	glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, ctx->light_model_two_side ? 1 : 0);
+	glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, ctx->light_model_local_viewer ? 1 : 0);
+	for (int i = 0; i < 8; i++) {
+	  GLenum L = GL_LIGHT0 + i;
+	  if (ctx->lights[i].enabled) {
+		glEnable(L);
+		glLightfv(L, GL_AMBIENT, ctx->lights[i].ambient);
+		glLightfv(L, GL_DIFFUSE, ctx->lights[i].diffuse);
+		glLightfv(L, GL_SPECULAR, ctx->lights[i].specular);
+		glLightfv(L, GL_POSITION, ctx->lights[i].position);
+		glLightfv(L, GL_SPOT_DIRECTION, ctx->lights[i].spot_direction);
+		glLightf(L, GL_SPOT_EXPONENT, ctx->lights[i].spot_exponent);
+		glLightf(L, GL_SPOT_CUTOFF, ctx->lights[i].spot_cutoff);
+		glLightf(L, GL_CONSTANT_ATTENUATION, ctx->lights[i].constant_attenuation);
+		glLightf(L, GL_LINEAR_ATTENUATION, ctx->lights[i].linear_attenuation);
+		glLightf(L, GL_QUADRATIC_ATTENUATION, ctx->lights[i].quadratic_attenuation);
+	  } else {
+		glDisable(L);
+	  }
+	}
+	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ctx->materials[0].ambient);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, ctx->materials[0].diffuse);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, ctx->materials[0].specular);
+	glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, ctx->materials[0].emission);
+	glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, ctx->materials[0].shininess);
+	if (ctx->color_material_enabled) {
+	  glEnable(GL_COLOR_MATERIAL);
+	  glColorMaterial(ctx->color_material_face ? ctx->color_material_face : GL_FRONT_AND_BACK,
+					  ctx->color_material_mode ? ctx->color_material_mode : GL_AMBIENT_AND_DIFFUSE);
+	} else {
+	  glDisable(GL_COLOR_MATERIAL);
+	}
   } else {
-    glDisable(GL_LIGHTING);
+	glDisable(GL_LIGHTING);
   }
 }
 
@@ -312,38 +317,38 @@ void GLMetalFlushImmediateMode(GLContext*ctx){
   if(!s_frame_active)return;
   apply_host_ffp_state(ctx);
   const bool is_offscreen =
-    GLContextGetOffscreenDrawable(ctx,nullptr,nullptr,nullptr,nullptr)!=0;
+	GLContextGetOffscreenDrawable(ctx,nullptr,nullptr,nullptr,nullptr)!=0;
   const bool force_opaque=
-    GLMetalForceOpaqueOverlayOutput(is_offscreen,ctx->blend);
+	GLMetalForceOpaqueOverlayOutput(is_offscreen,ctx->blend);
 
   const auto &in=ctx->im_vertices;
   const uint32_t mode=ctx->im_mode;
   std::vector<GLVertex> out;
   if(mode==0x0007 /*GL_QUADS*/ && in.size()>=4){
-    for(size_t i=0;i+3<in.size();i+=4){
-      out.push_back(in[i]); out.push_back(in[i+1]); out.push_back(in[i+2]);
-      out.push_back(in[i]); out.push_back(in[i+2]); out.push_back(in[i+3]);
-    }
-    flush_im_triangles(out,force_opaque);
+	for(size_t i=0;i+3<in.size();i+=4){
+	  out.push_back(in[i]); out.push_back(in[i+1]); out.push_back(in[i+2]);
+	  out.push_back(in[i]); out.push_back(in[i+2]); out.push_back(in[i+3]);
+	}
+	flush_im_triangles(out,force_opaque);
   } else if(mode==0x0006 /*GL_TRIANGLE_FAN*/ && in.size()>=3){
-    for(size_t i=1;i+1<in.size();i++){
-      out.push_back(in[0]); out.push_back(in[i]); out.push_back(in[i+1]);
-    }
-    flush_im_triangles(out,force_opaque);
+	for(size_t i=1;i+1<in.size();i++){
+	  out.push_back(in[0]); out.push_back(in[i]); out.push_back(in[i+1]);
+	}
+	flush_im_triangles(out,force_opaque);
   } else if(mode==0x0005 /*GL_TRIANGLE_STRIP*/ && in.size()>=3){
-    for(size_t i=0;i+2<in.size();i++){
-      if(i&1){ out.push_back(in[i+1]); out.push_back(in[i]); out.push_back(in[i+2]); }
-      else { out.push_back(in[i]); out.push_back(in[i+1]); out.push_back(in[i+2]); }
-    }
-    flush_im_triangles(out,force_opaque);
+	for(size_t i=0;i+2<in.size();i++){
+	  if(i&1){ out.push_back(in[i+1]); out.push_back(in[i]); out.push_back(in[i+2]); }
+	  else { out.push_back(in[i]); out.push_back(in[i+1]); out.push_back(in[i+2]); }
+	}
+	flush_im_triangles(out,force_opaque);
   } else if(mode==0x0001 /*GL_LINES*/ || mode==0x0003 /*GL_LINE_STRIP*/ || mode==0x0002 /*GL_LINE_LOOP*/){
-    GLenum m = (mode==0x0001)?GL_LINES:(mode==0x0002)?GL_LINE_LOOP:GL_LINE_STRIP;
-    glBegin(m); for(const auto&v:in) emit_gl_vertex(v,force_opaque); glEnd();
+	GLenum m = (mode==0x0001)?GL_LINES:(mode==0x0002)?GL_LINE_LOOP:GL_LINE_STRIP;
+	glBegin(m); for(const auto&v:in) emit_gl_vertex(v,force_opaque); glEnd();
   } else if(mode==0x0000 /*GL_POINTS*/){
-    glBegin(GL_POINTS); for(const auto&v:in) emit_gl_vertex(v,force_opaque); glEnd();
+	glBegin(GL_POINTS); for(const auto&v:in) emit_gl_vertex(v,force_opaque); glEnd();
   } else {
-    /* GL_TRIANGLES and default */
-    flush_im_triangles(in,force_opaque);
+	/* GL_TRIANGLES and default */
+	flush_im_triangles(in,force_opaque);
   }
   ctx->im_vertices.clear();
 }
@@ -376,9 +381,9 @@ void GLMetalUpload3DTexture(GLContext*ctx,GLTextureObject*texObj,int level,int w
   typedef void (APIENTRY *PFNGLTEXIMAGE3DPROC)(GLenum,GLint,GLint,GLsizei,GLsizei,GLsizei,GLint,GLenum,GLenum,const void*);
   static PFNGLTEXIMAGE3DPROC pTexImage3D=nullptr; static bool tried=false;
   if(!tried){ tried=true; pTexImage3D=(PFNGLTEXIMAGE3DPROC)SDL_GL_GetProcAddress("glTexImage3D");
-    if(!pTexImage3D) pTexImage3D=(PFNGLTEXIMAGE3DPROC)SDL_GL_GetProcAddress("glTexImage3DEXT"); }
+	if(!pTexImage3D) pTexImage3D=(PFNGLTEXIMAGE3DPROC)SDL_GL_GetProcAddress("glTexImage3DEXT"); }
   if(pTexImage3D && pixels)
-    pTexImage3D(GL_TEXTURE_3D,level,GL_RGBA8,width,height,depth,0,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
+	pTexImage3D(GL_TEXTURE_3D,level,GL_RGBA8,width,height,depth,0,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
   texObj->width=width; texObj->height=height;
 }
 void GLMetalUploadSubTexture3D(GLContext*ctx,GLTextureObject*texObj,int level,int xoff,int yoff,int zoff,int width,int height,int depth,const uint8_t*pixels,int data_len,int){
@@ -387,7 +392,7 @@ void GLMetalUploadSubTexture3D(GLContext*ctx,GLTextureObject*texObj,int level,in
   typedef void (APIENTRY *PFNGLTEXSUBIMAGE3DPROC)(GLenum,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei,GLenum,GLenum,const void*);
   static PFNGLTEXSUBIMAGE3DPROC pSub=nullptr; static bool tried=false;
   if(!tried){ tried=true; pSub=(PFNGLTEXSUBIMAGE3DPROC)SDL_GL_GetProcAddress("glTexSubImage3D");
-    if(!pSub) pSub=(PFNGLTEXSUBIMAGE3DPROC)SDL_GL_GetProcAddress("glTexSubImage3DEXT"); }
+	if(!pSub) pSub=(PFNGLTEXSUBIMAGE3DPROC)SDL_GL_GetProcAddress("glTexSubImage3DEXT"); }
   if(!pSub)return;
   glBindTexture(GL_TEXTURE_3D,(GLuint)(uintptr_t)texObj->metal_texture);
   pSub(GL_TEXTURE_3D,level,xoff,yoff,zoff,width,height,depth,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
@@ -449,7 +454,7 @@ static void gl_capture_offscreen_to_cache(void)
 }
 
 static uint64_t gl_composite_offscreen_to_guest(uint32_t dstBase, uint32_t dstRowBytes, uint32_t dstDepthBits,
-                                                int32_t dx, int32_t dy, int32_t dw, int32_t dh)
+												int32_t dx, int32_t dy, int32_t dw, int32_t dh)
 {
   if(!s_off_latest.valid || s_off_latest.pixels.empty() || !dstBase || !dstRowBytes) return 0;
   uint8_t *dst = Mac2HostAddr(dstBase);
@@ -467,22 +472,22 @@ static uint64_t gl_composite_offscreen_to_guest(uint32_t dstBase, uint32_t dstRo
   if(guestBegin<ramBegin||guestBegin>=ramEnd||guestSpan>ramEnd-guestBegin)return 0;
   uint64_t written=0;
   for(int32_t y=0;y<dh;y++){
-    const uint8_t *srow = s_off_latest.pixels.data() + (size_t)(dy+y)*s_off_latest.rowbytes + (size_t)dx*4;
-    uint8_t *drow = dst + (size_t)(dy+y)*(size_t)dstRowBytes + (size_t)dx*(size_t)bpp;
-    for(int32_t x=0;x<dw;x++){
-      uint8_t B=srow[x*4+0], G=srow[x*4+1], R=srow[x*4+2], A=srow[x*4+3];
-      if(A==0) continue; /* transparent: leave guest pixel */
-      if(bpp==4){
-        /* Guest BE ARGB */
-        drow[x*4+0]=A; drow[x*4+1]=R; drow[x*4+2]=G; drow[x*4+3]=B;
-      } else if(bpp==2){
-        uint16_t p=(uint16_t)(0x8000|((R>>3)<<10)|((G>>3)<<5)|(B>>3));
-        drow[x*2]=(uint8_t)(p>>8); drow[x*2+1]=(uint8_t)p;
-      } else {
-        drow[x]=(uint8_t)((R*30+G*59+B*11)/100);
-      }
-      written++;
-    }
+	const uint8_t *srow = s_off_latest.pixels.data() + (size_t)(dy+y)*s_off_latest.rowbytes + (size_t)dx*4;
+	uint8_t *drow = dst + (size_t)(dy+y)*(size_t)dstRowBytes + (size_t)dx*(size_t)bpp;
+	for(int32_t x=0;x<dw;x++){
+	  uint8_t B=srow[x*4+0], G=srow[x*4+1], R=srow[x*4+2], A=srow[x*4+3];
+	  if(A==0) continue; /* transparent: leave guest pixel */
+	  if(bpp==4){
+		/* Guest BE ARGB */
+		drow[x*4+0]=A; drow[x*4+1]=R; drow[x*4+2]=G; drow[x*4+3]=B;
+	  } else if(bpp==2){
+		uint16_t p=(uint16_t)(0x8000|((R>>3)<<10)|((G>>3)<<5)|(B>>3));
+		drow[x*2]=(uint8_t)(p>>8); drow[x*2+1]=(uint8_t)p;
+	  } else {
+		drow[x]=(uint8_t)((R*30+G*59+B*11)/100);
+	  }
+	  written++;
+	}
   }
   return written;
 }
@@ -617,37 +622,37 @@ static void gl_fetch_vertex(GLContext *ctx, int32_t index, GLVertex &out)
   std::memcpy(out.texcoord, ctx->current_texcoord, sizeof(out.texcoord));
 
   if(ctx->vertex_array.enabled && ctx->vertex_array.pointer){
-    uint32_t str=gl_array_stride(ctx->vertex_array);
-    uint32_t base=ctx->vertex_array.pointer + (uint32_t)index*str;
-    int n=ctx->vertex_array.size; if(n<1)n=1; if(n>4)n=4;
-    int ts=gl_type_size(ctx->vertex_array.type);
-    for(int i=0;i<n;i++) out.position[i]=gl_read_raw(base+(uint32_t)(i*ts), ctx->vertex_array.type);
-    if(n<4) out.position[3]=1.f;
+	uint32_t str=gl_array_stride(ctx->vertex_array);
+	uint32_t base=ctx->vertex_array.pointer + (uint32_t)index*str;
+	int n=ctx->vertex_array.size; if(n<1)n=1; if(n>4)n=4;
+	int ts=gl_type_size(ctx->vertex_array.type);
+	for(int i=0;i<n;i++) out.position[i]=gl_read_raw(base+(uint32_t)(i*ts), ctx->vertex_array.type);
+	if(n<4) out.position[3]=1.f;
   }
   if(ctx->normal_array.enabled && ctx->normal_array.pointer){
-    uint32_t str=gl_array_stride(ctx->normal_array);
-    uint32_t base=ctx->normal_array.pointer + (uint32_t)index*str;
-    int ts=gl_type_size(ctx->normal_array.type);
-    out.normal[0]=gl_read_comp(base, ctx->normal_array.type);
-    out.normal[1]=gl_read_comp(base+ts, ctx->normal_array.type);
-    out.normal[2]=gl_read_comp(base+2*ts, ctx->normal_array.type);
+	uint32_t str=gl_array_stride(ctx->normal_array);
+	uint32_t base=ctx->normal_array.pointer + (uint32_t)index*str;
+	int ts=gl_type_size(ctx->normal_array.type);
+	out.normal[0]=gl_read_comp(base, ctx->normal_array.type);
+	out.normal[1]=gl_read_comp(base+ts, ctx->normal_array.type);
+	out.normal[2]=gl_read_comp(base+2*ts, ctx->normal_array.type);
   }
   if(ctx->color_array.enabled && ctx->color_array.pointer){
-    uint32_t str=gl_array_stride(ctx->color_array);
-    uint32_t base=ctx->color_array.pointer + (uint32_t)index*str;
-    int n=ctx->color_array.size; if(n<3)n=3; if(n>4)n=4;
-    int ts=gl_type_size(ctx->color_array.type);
-    for(int i=0;i<n;i++) out.color[i]=gl_read_comp(base+(uint32_t)(i*ts), ctx->color_array.type);
-    if(n<4) out.color[3]=1.f;
+	uint32_t str=gl_array_stride(ctx->color_array);
+	uint32_t base=ctx->color_array.pointer + (uint32_t)index*str;
+	int n=ctx->color_array.size; if(n<3)n=3; if(n>4)n=4;
+	int ts=gl_type_size(ctx->color_array.type);
+	for(int i=0;i<n;i++) out.color[i]=gl_read_comp(base+(uint32_t)(i*ts), ctx->color_array.type);
+	if(n<4) out.color[3]=1.f;
   }
   for(int u=0;u<4;u++){
-    if(!ctx->texcoord_array[u].enabled || !ctx->texcoord_array[u].pointer) continue;
-    uint32_t str=gl_array_stride(ctx->texcoord_array[u]);
-    uint32_t base=ctx->texcoord_array[u].pointer + (uint32_t)index*str;
-    int n=ctx->texcoord_array[u].size; if(n<1)n=1; if(n>4)n=4;
-    int ts=gl_type_size(ctx->texcoord_array[u].type);
-    for(int i=0;i<n;i++) out.texcoord[u][i]=gl_read_raw(base+(uint32_t)(i*ts), ctx->texcoord_array[u].type);
-    if(n<4) out.texcoord[u][3]=1.f;
+	if(!ctx->texcoord_array[u].enabled || !ctx->texcoord_array[u].pointer) continue;
+	uint32_t str=gl_array_stride(ctx->texcoord_array[u]);
+	uint32_t base=ctx->texcoord_array[u].pointer + (uint32_t)index*str;
+	int n=ctx->texcoord_array[u].size; if(n<1)n=1; if(n>4)n=4;
+	int ts=gl_type_size(ctx->texcoord_array[u].type);
+	for(int i=0;i<n;i++) out.texcoord[u][i]=gl_read_raw(base+(uint32_t)(i*ts), ctx->texcoord_array[u].type);
+	if(n<4) out.texcoord[u][3]=1.f;
   }
 }
 static void gl_draw_vertex_list(GLContext *ctx, uint32_t mode, const std::vector<GLVertex> &verts)
@@ -746,7 +751,7 @@ void NativeGLTexCoord2f(GLContext*c,float s,float t){ if(c){c->current_texcoord[
 void NativeGLTexCoord1f(GLContext*c,float s){NativeGLTexCoord2f(c,s,0);}
 void NativeGLTexCoord4f(GLContext*c,float s,float t,float r,float q){
   if(c){ c->current_texcoord[0][0]=s; c->current_texcoord[0][1]=t;
-         c->current_texcoord[0][2]=r; c->current_texcoord[0][3]=q; }
+		 c->current_texcoord[0][2]=r; c->current_texcoord[0][3]=q; }
   if(SharedMetalDevice()) glTexCoord4f(s,t,r,q);
 }
 void NativeGLTexCoord3f(GLContext*c,float s,float t,float r){NativeGLTexCoord4f(c,s,t,r,1.f);}
@@ -761,11 +766,11 @@ void NativeGLDrawElements(GLContext *ctx, uint32_t mode, int32_t count, uint32_t
   if(!ctx||count<=0||!indices_ptr)return;
   std::vector<GLVertex> verts; verts.reserve((size_t)count);
   for(int32_t i=0;i<count;i++){
-    uint32_t idx=0;
-    if(type==GL_UNSIGNED_BYTE) idx=ReadMacInt8(indices_ptr+(uint32_t)i);
-    else if(type==GL_UNSIGNED_SHORT) idx=ReadMacInt16(indices_ptr+(uint32_t)i*2);
-    else idx=ReadMacInt32(indices_ptr+(uint32_t)i*4);
-    GLVertex v; gl_fetch_vertex(ctx,(int32_t)idx,v); verts.push_back(v);
+	uint32_t idx=0;
+	if(type==GL_UNSIGNED_BYTE) idx=ReadMacInt8(indices_ptr+(uint32_t)i);
+	else if(type==GL_UNSIGNED_SHORT) idx=ReadMacInt16(indices_ptr+(uint32_t)i*2);
+	else idx=ReadMacInt32(indices_ptr+(uint32_t)i*4);
+	GLVertex v; gl_fetch_vertex(ctx,(int32_t)idx,v); verts.push_back(v);
   }
   gl_draw_vertex_list(ctx, mode, verts);
 }
@@ -786,53 +791,53 @@ void NativeGLInterleavedArrays(GLContext *ctx, uint32_t format, int32_t stride, 
   switch(format){
   case 0x2A21: /* GL_V3F */ if(fstride<=0)fstride=12; ctx->vertex_array.stride=fstride; ctx->vertex_array.pointer=pointer; break;
   case 0x2A22: /* GL_C4UB_V2F */ if(fstride<=0)fstride=12;
-    ctx->color_array={pointer,4,(int)fstride,GL_UNSIGNED_BYTE,true};
-    ctx->vertex_array={pointer+4,2,(int)fstride,GL_FLOAT,true}; break;
+	ctx->color_array={pointer,4,(int)fstride,GL_UNSIGNED_BYTE,true};
+	ctx->vertex_array={pointer+4,2,(int)fstride,GL_FLOAT,true}; break;
   case 0x2A23: /* GL_C4UB_V3F */ if(fstride<=0)fstride=16;
-    ctx->color_array={pointer,4,(int)fstride,GL_UNSIGNED_BYTE,true};
-    ctx->vertex_array={pointer+4,3,(int)fstride,GL_FLOAT,true}; break;
+	ctx->color_array={pointer,4,(int)fstride,GL_UNSIGNED_BYTE,true};
+	ctx->vertex_array={pointer+4,3,(int)fstride,GL_FLOAT,true}; break;
   case 0x2A24: /* GL_C3F_V3F */ if(fstride<=0)fstride=24;
-    ctx->color_array={pointer,3,(int)fstride,GL_FLOAT,true};
-    ctx->vertex_array={pointer+12,3,(int)fstride,GL_FLOAT,true}; break;
+	ctx->color_array={pointer,3,(int)fstride,GL_FLOAT,true};
+	ctx->vertex_array={pointer+12,3,(int)fstride,GL_FLOAT,true}; break;
   case 0x2A25: /* GL_N3F_V3F */ if(fstride<=0)fstride=24;
-    ctx->normal_array={pointer,3,(int)fstride,GL_FLOAT,true};
-    ctx->vertex_array={pointer+12,3,(int)fstride,GL_FLOAT,true}; break;
+	ctx->normal_array={pointer,3,(int)fstride,GL_FLOAT,true};
+	ctx->vertex_array={pointer+12,3,(int)fstride,GL_FLOAT,true}; break;
   case 0x2A26: /* GL_C4F_N3F_V3F */ if(fstride<=0)fstride=40;
-    ctx->color_array={pointer,4,(int)fstride,GL_FLOAT,true};
-    ctx->normal_array={pointer+16,3,(int)fstride,GL_FLOAT,true};
-    ctx->vertex_array={pointer+28,3,(int)fstride,GL_FLOAT,true}; break;
+	ctx->color_array={pointer,4,(int)fstride,GL_FLOAT,true};
+	ctx->normal_array={pointer+16,3,(int)fstride,GL_FLOAT,true};
+	ctx->vertex_array={pointer+28,3,(int)fstride,GL_FLOAT,true}; break;
   case 0x2A27: /* GL_T2F_V3F */ if(fstride<=0)fstride=20;
-    ctx->texcoord_array[0]={pointer,2,(int)fstride,GL_FLOAT,true};
-    ctx->vertex_array={pointer+8,3,(int)fstride,GL_FLOAT,true}; break;
+	ctx->texcoord_array[0]={pointer,2,(int)fstride,GL_FLOAT,true};
+	ctx->vertex_array={pointer+8,3,(int)fstride,GL_FLOAT,true}; break;
   case 0x2A28: /* GL_T4F_V4F */ if(fstride<=0)fstride=32;
-    ctx->texcoord_array[0]={pointer,4,(int)fstride,GL_FLOAT,true};
-    ctx->vertex_array={pointer+16,4,(int)fstride,GL_FLOAT,true}; break;
+	ctx->texcoord_array[0]={pointer,4,(int)fstride,GL_FLOAT,true};
+	ctx->vertex_array={pointer+16,4,(int)fstride,GL_FLOAT,true}; break;
   case 0x2A29: /* GL_T2F_C4UB_V3F */ if(fstride<=0)fstride=24;
-    ctx->texcoord_array[0]={pointer,2,(int)fstride,GL_FLOAT,true};
-    ctx->color_array={pointer+8,4,(int)fstride,GL_UNSIGNED_BYTE,true};
-    ctx->vertex_array={pointer+12,3,(int)fstride,GL_FLOAT,true}; break;
+	ctx->texcoord_array[0]={pointer,2,(int)fstride,GL_FLOAT,true};
+	ctx->color_array={pointer+8,4,(int)fstride,GL_UNSIGNED_BYTE,true};
+	ctx->vertex_array={pointer+12,3,(int)fstride,GL_FLOAT,true}; break;
   case 0x2A2A: /* GL_T2F_C3F_V3F */ if(fstride<=0)fstride=32;
-    ctx->texcoord_array[0]={pointer,2,(int)fstride,GL_FLOAT,true};
-    ctx->color_array={pointer+8,3,(int)fstride,GL_FLOAT,true};
-    ctx->vertex_array={pointer+20,3,(int)fstride,GL_FLOAT,true}; break;
+	ctx->texcoord_array[0]={pointer,2,(int)fstride,GL_FLOAT,true};
+	ctx->color_array={pointer+8,3,(int)fstride,GL_FLOAT,true};
+	ctx->vertex_array={pointer+20,3,(int)fstride,GL_FLOAT,true}; break;
   case 0x2A2B: /* GL_T2F_N3F_V3F */ if(fstride<=0)fstride=32;
-    ctx->texcoord_array[0]={pointer,2,(int)fstride,GL_FLOAT,true};
-    ctx->normal_array={pointer+8,3,(int)fstride,GL_FLOAT,true};
-    ctx->vertex_array={pointer+20,3,(int)fstride,GL_FLOAT,true}; break;
+	ctx->texcoord_array[0]={pointer,2,(int)fstride,GL_FLOAT,true};
+	ctx->normal_array={pointer+8,3,(int)fstride,GL_FLOAT,true};
+	ctx->vertex_array={pointer+20,3,(int)fstride,GL_FLOAT,true}; break;
   case 0x2A2C: /* GL_T2F_C4F_N3F_V3F */ if(fstride<=0)fstride=48;
-    ctx->texcoord_array[0]={pointer,2,(int)fstride,GL_FLOAT,true};
-    ctx->color_array={pointer+8,4,(int)fstride,GL_FLOAT,true};
-    ctx->normal_array={pointer+24,3,(int)fstride,GL_FLOAT,true};
-    ctx->vertex_array={pointer+36,3,(int)fstride,GL_FLOAT,true}; break;
+	ctx->texcoord_array[0]={pointer,2,(int)fstride,GL_FLOAT,true};
+	ctx->color_array={pointer+8,4,(int)fstride,GL_FLOAT,true};
+	ctx->normal_array={pointer+24,3,(int)fstride,GL_FLOAT,true};
+	ctx->vertex_array={pointer+36,3,(int)fstride,GL_FLOAT,true}; break;
   case 0x2A2D: /* GL_T4F_C4F_N3F_V4F */ if(fstride<=0)fstride=60;
-    ctx->texcoord_array[0]={pointer,4,(int)fstride,GL_FLOAT,true};
-    ctx->color_array={pointer+16,4,(int)fstride,GL_FLOAT,true};
-    ctx->normal_array={pointer+32,3,(int)fstride,GL_FLOAT,true};
-    ctx->vertex_array={pointer+44,4,(int)fstride,GL_FLOAT,true}; break;
+	ctx->texcoord_array[0]={pointer,4,(int)fstride,GL_FLOAT,true};
+	ctx->color_array={pointer+16,4,(int)fstride,GL_FLOAT,true};
+	ctx->normal_array={pointer+32,3,(int)fstride,GL_FLOAT,true};
+	ctx->vertex_array={pointer+44,4,(int)fstride,GL_FLOAT,true}; break;
   default:
-    if(fstride<=0)fstride=12;
-    ctx->vertex_array.stride=fstride;
-    break;
+	if(fstride<=0)fstride=12;
+	ctx->vertex_array.stride=fstride;
+	break;
   }
 }
 void NativeGLReadPixels(GLContext*ctx,int32_t x,int32_t y,int32_t w,int32_t h,uint32_t format,uint32_t type,uint32_t pixels){

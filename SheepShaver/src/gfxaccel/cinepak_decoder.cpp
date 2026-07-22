@@ -60,7 +60,7 @@ struct cinepak_context {
 static inline uint32_t read_be32(const uint8_t *p)
 {
 	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-	       ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+		   ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 }
 
 static inline uint32_t read_be24(const uint8_t *p)
@@ -114,7 +114,7 @@ int cinepak_last_frame_was_key(const cinepak_context_t *ctx) { return ctx ? ctx-
 /* Decode a codebook chunk into cb[256]. chunk_id bits: 0x01 = partial update
  * (32-bit selection masks), 0x04 = 4-byte grayscale entries. */
 static void decode_codebook(struct cinepak_cb_entry *cb, int chunk_id,
-                            const uint8_t *data, int size)
+							const uint8_t *data, int size)
 {
 	const uint8_t *end = data + size;
 	const int gray = (chunk_id & 0x04) != 0;
@@ -160,7 +160,7 @@ static void decode_codebook(struct cinepak_cb_entry *cb, int chunk_id,
 /* Paint one 4x4 block at pixel (bx,by) from a V1 entry: each entry pixel
  * covers a 2x2 quadrant. Clips against frame bounds. */
 static void paint_v1(struct cinepak_context *ctx, int bx, int by,
-                     const struct cinepak_cb_entry *e)
+					 const struct cinepak_cb_entry *e)
 {
 	for (int y = 0; y < 4; y++) {
 		const int py = by + y;
@@ -180,10 +180,10 @@ static void paint_v1(struct cinepak_context *ctx, int bx, int by,
 /* Paint one 4x4 block from four V4 entries (TL, TR, BL, BR quadrants); each
  * entry's 4 pixels map 1:1 onto its 2x2 quadrant. */
 static void paint_v4(struct cinepak_context *ctx, int bx, int by,
-                     const struct cinepak_cb_entry *e0,
-                     const struct cinepak_cb_entry *e1,
-                     const struct cinepak_cb_entry *e2,
-                     const struct cinepak_cb_entry *e3)
+					 const struct cinepak_cb_entry *e0,
+					 const struct cinepak_cb_entry *e1,
+					 const struct cinepak_cb_entry *e2,
+					 const struct cinepak_cb_entry *e3)
 {
 	const struct cinepak_cb_entry *quads[4] = { e0, e1, e2, e3 };
 	for (int y = 0; y < 4; y++) {
@@ -205,9 +205,9 @@ static void paint_v4(struct cinepak_context *ctx, int bx, int by,
  * Bit stream: 32-bit big-endian words, MSB first, shared between the
  * "block updated?" level (inter only) and the "V1 or V4?" level. */
 static int decode_vectors(struct cinepak_context *ctx,
-                          struct cinepak_strip_state *strip, int chunk_id,
-                          const uint8_t *data, int size,
-                          int x1, int y1, int x2, int y2)
+						  struct cinepak_strip_state *strip, int chunk_id,
+						  const uint8_t *data, int size,
+						  int x1, int y1, int x2, int y2)
 {
 	const uint8_t *end = data + size;
 	const int inter = (chunk_id & 0x01) != 0;   /* 0x31: skip bits present */
@@ -246,8 +246,8 @@ static int decode_vectors(struct cinepak_context *ctx,
 				if (data + 4 > end)
 					return -1;
 				paint_v4(ctx, bx, by,
-				         &strip->v4[data[0]], &strip->v4[data[1]],
-				         &strip->v4[data[2]], &strip->v4[data[3]]);
+						 &strip->v4[data[0]], &strip->v4[data[1]],
+						 &strip->v4[data[2]], &strip->v4[data[3]]);
 				data += 4;
 			} else {
 				if (data + 1 > end)
@@ -261,9 +261,9 @@ static int decode_vectors(struct cinepak_context *ctx,
 }
 
 static int decode_strip(struct cinepak_context *ctx,
-                        struct cinepak_strip_state *strip,
-                        const uint8_t *data, int size,
-                        int x1, int y1, int x2, int y2)
+						struct cinepak_strip_state *strip,
+						const uint8_t *data, int size,
+						int x1, int y1, int x2, int y2)
 {
 	const uint8_t *end = data + size;
 
@@ -286,7 +286,7 @@ static int decode_strip(struct cinepak_context *ctx,
 		case 0x30: case 0x31: case 0x32:
 			/* Vector chunk terminates the strip payload. */
 			return decode_vectors(ctx, strip, chunk_id, data, chunk_size,
-			                      x1, y1, x2, y2);
+								  x1, y1, x2, y2);
 		default:
 			/* Unknown chunk: skip. */
 			break;
@@ -297,7 +297,7 @@ static int decode_strip(struct cinepak_context *ctx,
 }
 
 int cinepak_decode_frame(cinepak_context_t *ctx,
-                         const uint8_t *src, size_t src_size)
+						 const uint8_t *src, size_t src_size)
 {
 	if (!ctx || !src || src_size < 10)
 		return -1;
@@ -353,7 +353,7 @@ int cinepak_decode_frame(cinepak_context_t *ctx,
 			ctx->strips[i] = ctx->strips[i - 1];
 
 		if (decode_strip(ctx, &ctx->strips[i], data, strip_size,
-		                 x1, y1, x2, y2) < 0)
+						 x1, y1, x2, y2) < 0)
 			return -1;
 
 		data += strip_size;

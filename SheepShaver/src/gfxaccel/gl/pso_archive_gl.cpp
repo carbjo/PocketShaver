@@ -1,5 +1,7 @@
 /*
  *  pso_archive_gl.cpp - PSO archive stub (OpenGL has no MTLBinaryArchive)
+ *
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 #include "pso_archive.h"
 

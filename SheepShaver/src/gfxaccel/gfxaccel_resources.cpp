@@ -89,12 +89,12 @@ static int32_t GfxRes_OnModeExit(const struct DMCModeSnapshot *outgoing, void *c
 		const GfxResEngineRegistration &entry = s_engine_handlers[i];
 		if (entry.handlers.detach != NULL) {
 			int32_t r = entry.handlers.detach(entry.engine_id, outgoing,
-			                                   entry.handlers.ctx);
+											   entry.handlers.ctx);
 			if (r != 0) {
 				fprintf(stderr,
-				        "[gfxaccel_resources] detach(engine_id=%u) returned %d "
-				        "during on_mode_exit (advisory; ignored)\n",
-				        (unsigned)entry.engine_id, (int)r);
+						"[gfxaccel_resources] detach(engine_id=%u) returned %d "
+						"during on_mode_exit (advisory; ignored)\n",
+						(unsigned)entry.engine_id, (int)r);
 			}
 		}
 	}
@@ -110,15 +110,15 @@ static int32_t GfxRes_OnModeEnter(const struct DMCModeSnapshot *incoming, void *
 {
 	(void)ctx;
 	for (std::vector<GfxResEngineRegistration>::reverse_iterator it = s_engine_handlers.rbegin();
-	     it != s_engine_handlers.rend(); ++it) {
+		 it != s_engine_handlers.rend(); ++it) {
 		if (it->handlers.attach != NULL) {
 			int32_t r = it->handlers.attach(it->engine_id, incoming,
-			                                 it->handlers.ctx);
+											 it->handlers.ctx);
 			if (r != 0) {
 				fprintf(stderr,
-				        "[gfxaccel_resources] attach(engine_id=%u) returned %d "
-				        "during on_mode_enter - propagating as subscriber rejection\n",
-				        (unsigned)it->engine_id, (int)r);
+						"[gfxaccel_resources] attach(engine_id=%u) returned %d "
+						"during on_mode_enter - propagating as subscriber rejection\n",
+						(unsigned)it->engine_id, (int)r);
 				return kDMCErrSubscriberRejected;
 			}
 		}
@@ -146,8 +146,8 @@ extern "C" int32_t gfxaccel_resources_init(void)
 	int32_t sub_err = dmc_subscribe(&s_dmc_subscriber);
 	if (sub_err != kDMCNoErr && sub_err != kDMCErrSubscriberAlreadyRegistered) {
 		fprintf(stderr,
-		        "[gfxaccel_resources] dmc_subscribe('gfxaccel_resources') FAILED "
-		        "err=%d - resource manager not usable\n", (int)sub_err);
+				"[gfxaccel_resources] dmc_subscribe('gfxaccel_resources') FAILED "
+				"err=%d - resource manager not usable\n", (int)sub_err);
 		return kGfxAccelResErrGeneric;
 	}
 
@@ -168,8 +168,8 @@ extern "C" int32_t gfxaccel_resources_init(void)
 		int32_t pso_err = pso_archive_init();
 		if (pso_err != 0 && pso_err != kGfxAccelErrPSOArchiveNotAvailable) {
 			fprintf(stderr,
-			        "[gfxaccel_resources] pso_archive_init() returned %d "
-			        "(non-fatal; runtime compile fallback)\n", (int)pso_err);
+					"[gfxaccel_resources] pso_archive_init() returned %d "
+					"(non-fatal; runtime compile fallback)\n", (int)pso_err);
 		}
 	}
 
@@ -209,25 +209,25 @@ extern "C" void gfxaccel_resources_shutdown(void)
 	int32_t unsub_err = dmc_unsubscribe(s_dmc_subscriber.name);
 	if (unsub_err != kDMCNoErr && unsub_err != kDMCErrSubscriberNotFound) {
 		fprintf(stderr,
-		        "[gfxaccel_resources] dmc_unsubscribe('gfxaccel_resources') "
-		        "returned err=%d (tolerated)\n", (int)unsub_err);
+				"[gfxaccel_resources] dmc_unsubscribe('gfxaccel_resources') "
+				"returned err=%d (tolerated)\n", (int)unsub_err);
 	}
 
 	s_initialized = false;
 }
 
 extern "C" void gfxaccel_resources_register_engine(uint32_t engine_id,
-                                                   const struct GfxResEngineHandlers *h)
+												   const struct GfxResEngineHandlers *h)
 {
 	if (h == NULL) {
 		fprintf(stderr, "[gfxaccel_resources] register_engine(%u) with NULL handlers "
-		                "- ignored\n", (unsigned)engine_id);
+						"- ignored\n", (unsigned)engine_id);
 		return;
 	}
 	if (engine_id >= (uint32_t)kGfxEngineCount) {
 		fprintf(stderr, "[gfxaccel_resources] register_engine: engine_id=%u out of "
-		                "range (max=%u)\n",
-		        (unsigned)engine_id, (unsigned)kGfxEngineCount);
+						"range (max=%u)\n",
+				(unsigned)engine_id, (unsigned)kGfxEngineCount);
 		return;
 	}
 

@@ -53,7 +53,7 @@ typedef struct {
 	uint32_t       w;
 	uint32_t       h;
 	uint32_t       fmt;         // stored as uint32_t so the bridging header
-	                            // can pass numeric MTLPixelFormat values
+								// can pass numeric MTLPixelFormat values
 } GfxResOverlaySlot;
 
 static GfxResOverlaySlot s_overlay_fleet[kGfxEngineCount] = {};
@@ -115,8 +115,8 @@ extern "C" void gfxaccel_resources_mm_shutdown_metal_state(void)
 	}
 
 	s_framebuffer_buffer    = nil;  // ARC release; deallocator:nil means
-	                                // the emul RAM backing is NOT freed
-	                                // - it belongs to the emul runtime.
+									// the emul RAM backing is NOT freed
+									// - it belongs to the emul runtime.
 	s_framebuffer_host_base = NULL;
 	s_framebuffer_length    = 0;
 
@@ -136,7 +136,7 @@ extern "C" void *gfxaccel_resources_get_framebuffer_buffer(void *host_base, uint
 {
 	if (host_base == NULL || length == 0) {
 		fprintf(stderr, "[gfxaccel_resources] get_framebuffer_buffer: invalid "
-		                "host_base=%p length=%u\n", host_base, (unsigned)length);
+						"host_base=%p length=%u\n", host_base, (unsigned)length);
 		return NULL;
 	}
 
@@ -144,17 +144,17 @@ extern "C" void *gfxaccel_resources_get_framebuffer_buffer(void *host_base, uint
 	const uintptr_t page = gfxres_page_size();
 	if (((uintptr_t)host_base & (page - 1)) != 0) {
 		fprintf(stderr, "[gfxaccel_resources] get_framebuffer_buffer: "
-		                "host_base=%p is NOT page-aligned (page=%lu) - "
-		                "newBufferWithBytesNoCopy would assert on 16K-page "
-		                "devices. Returning NULL.\n",
-		        host_base, (unsigned long)page);
+						"host_base=%p is NOT page-aligned (page=%lu) - "
+						"newBufferWithBytesNoCopy would assert on 16K-page "
+						"devices. Returning NULL.\n",
+				host_base, (unsigned long)page);
 		return NULL;
 	}
 
 	// Cache hit: same backing + length.
 	if (s_framebuffer_buffer != nil &&
-	    s_framebuffer_host_base == host_base &&
-	    s_framebuffer_length == length) {
+		s_framebuffer_host_base == host_base &&
+		s_framebuffer_length == length) {
 		return (__bridge void *)s_framebuffer_buffer;
 	}
 
@@ -166,20 +166,20 @@ extern "C" void *gfxaccel_resources_get_framebuffer_buffer(void *host_base, uint
 	id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
 	if (device == nil) {
 		fprintf(stderr, "[gfxaccel_resources] get_framebuffer_buffer: "
-		                "SharedMetalDevice() returned nil\n");
+						"SharedMetalDevice() returned nil\n");
 		return NULL;
 	}
 
 	// Byte-identical to metal_compositor.mm:279-282 zero-copy creation.
 	id<MTLBuffer> buf = [device newBufferWithBytesNoCopy:host_base
-	                                              length:length
-	                                             options:MTLResourceStorageModeShared
-	                                         deallocator:nil];
+												  length:length
+												 options:MTLResourceStorageModeShared
+											 deallocator:nil];
 	if (buf == nil) {
 		fprintf(stderr, "[gfxaccel_resources] get_framebuffer_buffer: "
-		                "newBufferWithBytesNoCopy returned nil "
-		                "(host_base=%p length=%u)\n",
-		        host_base, (unsigned)length);
+						"newBufferWithBytesNoCopy returned nil "
+						"(host_base=%p length=%u)\n",
+				host_base, (unsigned)length);
 		return NULL;
 	}
 
@@ -195,42 +195,42 @@ extern "C" void *gfxaccel_resources_get_framebuffer_buffer(void *host_base, uint
 // ---------------------------------------------------------------------------
 
 extern "C" void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine_id,
-                                                                 uint32_t texture_index,
-                                                                 uint32_t width,
-                                                                 uint32_t height,
-                                                                 uint32_t pixel_format);
+																 uint32_t texture_index,
+																 uint32_t width,
+																 uint32_t height,
+																 uint32_t pixel_format);
 
 extern "C" void *gfxaccel_resources_vend_overlay_texture(uint32_t engine_id,
-                                                         uint32_t width,
-                                                         uint32_t height,
-                                                         uint32_t pixel_format)
+														 uint32_t width,
+														 uint32_t height,
+														 uint32_t pixel_format)
 {
 	return gfxaccel_resources_vend_overlay_texture_indexed(
-	    engine_id, 0, width, height, pixel_format);
+		engine_id, 0, width, height, pixel_format);
 }
 
 extern "C" void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine_id,
-                                                                 uint32_t texture_index,
-                                                                 uint32_t width,
-                                                                 uint32_t height,
-                                                                 uint32_t pixel_format)
+																 uint32_t texture_index,
+																 uint32_t width,
+																 uint32_t height,
+																 uint32_t pixel_format)
 {
 	if (engine_id >= (uint32_t)kGfxEngineCount) {
 		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture_indexed: engine_id=%u "
-		                "out of range (max=%u)\n",
-		        (unsigned)engine_id, (unsigned)kGfxEngineCount);
+						"out of range (max=%u)\n",
+				(unsigned)engine_id, (unsigned)kGfxEngineCount);
 		return NULL;
 	}
 	if (texture_index >= 2) {
 		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture_indexed(engine_id=%u): "
-		                "texture_index=%u out of range\n",
-		        (unsigned)engine_id, (unsigned)texture_index);
+						"texture_index=%u out of range\n",
+				(unsigned)engine_id, (unsigned)texture_index);
 		return NULL;
 	}
 	if (width == 0 || height == 0) {
 		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture_indexed(engine_id=%u): "
-		                "invalid dimensions %ux%u\n",
-		        (unsigned)engine_id, (unsigned)width, (unsigned)height);
+						"invalid dimensions %ux%u\n",
+				(unsigned)engine_id, (unsigned)width, (unsigned)height);
 		return NULL;
 	}
 
@@ -238,15 +238,15 @@ extern "C" void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine
 
 	// Cache hit: same engine, same pair index, same dimensions + format.
 	if (slot->tex[texture_index] != nil &&
-	    slot->w == width &&
-	    slot->h == height &&
-	    slot->fmt == pixel_format) {
+		slot->w == width &&
+		slot->h == height &&
+		slot->fmt == pixel_format) {
 		return (__bridge void *)slot->tex[texture_index];
 	}
 
 	// Size/format change invalidates the pair as a unit.
 	if ((slot->tex[0] != nil || slot->tex[1] != nil) &&
-	    (slot->w != width || slot->h != height || slot->fmt != pixel_format)) {
+		(slot->w != width || slot->h != height || slot->fmt != pixel_format)) {
 		slot->tex[0] = nil;  // ARC release
 		slot->tex[1] = nil;
 		slot->w = 0;
@@ -257,26 +257,26 @@ extern "C" void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine
 	id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
 	if (device == nil) {
 		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture_indexed(engine_id=%u): "
-		                "SharedMetalDevice() returned nil\n",
-		        (unsigned)engine_id);
+						"SharedMetalDevice() returned nil\n",
+				(unsigned)engine_id);
 		return NULL;
 	}
 
 	MTLTextureDescriptor *desc = [MTLTextureDescriptor
 		texture2DDescriptorWithPixelFormat:(MTLPixelFormat)pixel_format
-		                             width:(NSUInteger)width
-		                            height:(NSUInteger)height
-		                         mipmapped:NO];
+									 width:(NSUInteger)width
+									height:(NSUInteger)height
+								 mipmapped:NO];
 	desc.usage       = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
 	desc.storageMode = MTLStorageModePrivate;
 
 	id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
 	if (tex == nil) {
 		fprintf(stderr, "[gfxaccel_resources] vend_overlay_texture_indexed(engine_id=%u): "
-		                "newTextureWithDescriptor returned nil "
-		                "(idx=%u %ux%u fmt=%u)\n",
-		        (unsigned)engine_id, (unsigned)texture_index,
-		        (unsigned)width, (unsigned)height, (unsigned)pixel_format);
+						"newTextureWithDescriptor returned nil "
+						"(idx=%u %ux%u fmt=%u)\n",
+				(unsigned)engine_id, (unsigned)texture_index,
+				(unsigned)width, (unsigned)height, (unsigned)pixel_format);
 		return NULL;
 	}
 
@@ -289,14 +289,14 @@ extern "C" void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine
 }
 
 extern "C" void gfxaccel_resources_release_overlay_texture(uint32_t engine_id,
-                                                           void *texture)
+														   void *texture)
 {
 	if (texture == NULL) {
 		return;
 	}
 	if (engine_id >= (uint32_t)kGfxEngineCount) {
 		fprintf(stderr, "[gfxaccel_resources] release_overlay_texture: "
-		                "engine_id=%u out of range\n", (unsigned)engine_id);
+						"engine_id=%u out of range\n", (unsigned)engine_id);
 		return;
 	}
 
@@ -311,10 +311,10 @@ extern "C" void gfxaccel_resources_release_overlay_texture(uint32_t engine_id,
 		// texture so we can't release it safely, and we don't know
 		// which engine actually does.
 		fprintf(stderr, "[gfxaccel_resources] release_overlay_texture(engine_id=%u): "
-		                "texture=%p does not match cached pair (%p, %p); ignoring\n",
-		        (unsigned)engine_id, texture,
-		        (__bridge void *)slot->tex[0],
-		        (__bridge void *)slot->tex[1]);
+						"texture=%p does not match cached pair (%p, %p); ignoring\n",
+				(unsigned)engine_id, texture,
+				(__bridge void *)slot->tex[0],
+				(__bridge void *)slot->tex[1]);
 		return;
 	}
 
@@ -357,13 +357,13 @@ typedef struct {
 static GfxResOwnerEntry s_owner_map[GFXRES_OWNER_MAP_CAP];
 
 extern "C" void gfxaccel_resources_set_buffer_owner(void *buffer,
-                                                    uint32_t engine_id)
+													uint32_t engine_id)
 {
 	if (buffer == NULL) return;
 	if (engine_id >= (uint32_t)kGfxEngineCount) {
 		fprintf(stderr, "[gfxaccel_resources] set_buffer_owner: engine_id=%u "
-		                "out of range (max=%u)\n",
-		        (unsigned)engine_id, (unsigned)kGfxEngineCount);
+						"out of range (max=%u)\n",
+				(unsigned)engine_id, (unsigned)kGfxEngineCount);
 		return;
 	}
 	// Replace-in-place: if the buffer is already tagged, overwrite.
@@ -382,9 +382,9 @@ extern "C" void gfxaccel_resources_set_buffer_owner(void *buffer,
 		}
 	}
 	fprintf(stderr, "[gfxaccel_resources] set_buffer_owner: owner-map "
-	                "overflow (cap=%u) - increase GFXRES_OWNER_MAP_CAP. "
-	                "buffer=%p engine_id=%u dropped.\n",
-	        (unsigned)GFXRES_OWNER_MAP_CAP, buffer, (unsigned)engine_id);
+					"overflow (cap=%u) - increase GFXRES_OWNER_MAP_CAP. "
+					"buffer=%p engine_id=%u dropped.\n",
+			(unsigned)GFXRES_OWNER_MAP_CAP, buffer, (unsigned)engine_id);
 }
 
 extern "C" void gfxaccel_resources_clear_buffer_owner(void *buffer)
@@ -462,7 +462,7 @@ extern "C" void gfxaccel_handle_foreground_enter(void)
 		if (snap != NULL && snap->width > 0 && snap->height > 0) {
 			CAMetalLayer *layer = (__bridge CAMetalLayer *)layerPtr;
 			layer.drawableSize = CGSizeMake((CGFloat)snap->width,
-			                                (CGFloat)snap->height);
+											(CGFloat)snap->height);
 		}
 	}
 

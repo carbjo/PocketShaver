@@ -49,8 +49,8 @@
  *  the re-check is cheap.
  */
 int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
-                       uint32_t first, uint32_t last,
-                       const uint8_t *entries_host_range)
+					   uint32_t first, uint32_t last,
+					   const uint8_t *entries_host_range)
 {
 	if (ctx == nullptr) return kDSpInvalidContextErr;
 	if (entries_host_range == nullptr) return kDSpInvalidAttributesErr;
@@ -136,16 +136,16 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
  *    MetalCompositorUpdatePalette + dmc_record_palette_change pair.
  */
 extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
-                                                     uint32_t entriesAddr,
-                                                     uint32_t inStartingEntry,
-                                                     uint32_t inEntryCount)
+													 uint32_t entriesAddr,
+													 uint32_t inStartingEntry,
+													 uint32_t inEntryCount)
 {
 	/* Validate ctxRef first so a bad handle + NULL entriesAddr reports
 	 * the more specific kDSpInvalidContextErr. */
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
 		DSP_LOG("SetCLUTEntries: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
+				ctxRef);
 		return kDSpInvalidContextErr;
 	}
 	/* Validate entriesAddr next - a NULL buffer on a valid context is
@@ -153,8 +153,8 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 	 * it from a bad handle. */
 	if (entriesAddr == 0) {
 		DSP_LOG("SetCLUTEntries: NULL entriesAddr (ctxRef=%u start=%u count=%u) "
-		        "-> kDSpInvalidAttributesErr",
-		        ctxRef, inStartingEntry, inEntryCount);
+				"-> kDSpInvalidAttributesErr",
+				ctxRef, inStartingEntry, inEntryCount);
 		return kDSpInvalidAttributesErr;
 	}
 	/* Range-check BEFORE any guest-RAM read (ASVS V5):
@@ -169,10 +169,10 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 	 * inStartingEntry <= 255, so `256 - inStartingEntry` is in [1..256] and
 	 * never underflows. */
 	if (inStartingEntry > 255 || inEntryCount == 0 ||
-	    inEntryCount > 256 - inStartingEntry) {
+		inEntryCount > 256 - inStartingEntry) {
 		DSP_LOG("SetCLUTEntries: out-of-range (ctxRef=%u start=%u count=%u) "
-		        "-> kDSpInvalidAttributesErr",
-		        ctxRef, inStartingEntry, inEntryCount);
+				"-> kDSpInvalidAttributesErr",
+				ctxRef, inStartingEntry, inEntryCount);
 		return kDSpInvalidAttributesErr;
 	}
 
@@ -206,8 +206,8 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 	int32_t rv = DSpSetCLUTCore(ctx, start, last, staged);
 	if (rv == kDSpNoErr) {
 		DSP_LOG("SetCLUTEntries: ctx=%u start=%u count=%u range=[%u..%u] "
-		        "state=%u -> OK",
-		        ctxRef, start, count, start, last, ctx->state);
+				"state=%u -> OK",
+				ctxRef, start, count, start, last, ctx->state);
 	}
 	return rv;
 }
@@ -231,8 +231,8 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
  *  input-range contract.
  */
 int32_t DSpGetCLUTCore(DSpContextPrivate *ctx,
-                               uint32_t first, uint32_t last,
-                               uint8_t *entries_out_host_range)
+							   uint32_t first, uint32_t last,
+							   uint8_t *entries_out_host_range)
 {
 	if (ctx == nullptr) return kDSpInvalidContextErr;
 	if (entries_out_host_range == nullptr) return kDSpInvalidAttributesErr;
@@ -244,8 +244,8 @@ int32_t DSpGetCLUTCore(DSpContextPrivate *ctx,
 	 * bytes starting at offset 0. */
 	const uint32_t count = last - first + 1;
 	memcpy(entries_out_host_range,
-	       ctx->clut_bytes_latched + first * 3,
-	       count * 3);
+		   ctx->clut_bytes_latched + first * 3,
+		   count * 3);
 	return kDSpNoErr;
 }
 
@@ -293,16 +293,16 @@ int32_t DSpGetCLUTCore(DSpContextPrivate *ctx,
  *  (long-suffix name not in the forbidden-identifier regex).
  */
 extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
-                                                     uint32_t entriesOutAddr,
-                                                     uint32_t inStartingEntry,
-                                                     uint32_t inEntryCount)
+													 uint32_t entriesOutAddr,
+													 uint32_t inStartingEntry,
+													 uint32_t inEntryCount)
 {
 	/* Validate ctxRef first so a bad handle + NULL entriesOutAddr reports
 	 * the more specific kDSpInvalidContextErr. */
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
 		DSP_LOG("GetCLUTEntries: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
+				ctxRef);
 		return kDSpInvalidContextErr;
 	}
 	/* Validate entriesOutAddr - NULL output buffer on a valid context is
@@ -310,8 +310,8 @@ extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
 	 * from a bad handle. */
 	if (entriesOutAddr == 0) {
 		DSP_LOG("GetCLUTEntries: NULL entriesOutAddr (ctxRef=%u start=%u count=%u) "
-		        "-> kDSpInvalidAttributesErr",
-		        ctxRef, inStartingEntry, inEntryCount);
+				"-> kDSpInvalidAttributesErr",
+				ctxRef, inStartingEntry, inEntryCount);
 		return kDSpInvalidAttributesErr;
 	}
 	/* Range-check BEFORE the write loop (ASVS V5):
@@ -322,10 +322,10 @@ extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
 	 * clause bounds inStartingEntry <= 255, so 256 - inStartingEntry is in
 	 * [1..256] and cannot underflow. */
 	if (inStartingEntry > 255 || inEntryCount == 0 ||
-	    inEntryCount > 256 - inStartingEntry) {
+		inEntryCount > 256 - inStartingEntry) {
 		DSP_LOG("GetCLUTEntries: out-of-range (ctxRef=%u start=%u count=%u) "
-		        "-> kDSpInvalidAttributesErr",
-		        ctxRef, inStartingEntry, inEntryCount);
+				"-> kDSpInvalidAttributesErr",
+				ctxRef, inStartingEntry, inEntryCount);
 		return kDSpInvalidAttributesErr;
 	}
 
@@ -363,8 +363,8 @@ extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
 	}
 
 	DSP_LOG("GetCLUTEntries: ctx=%u start=%u count=%u range=[%u..%u] "
-	        "state=%u -> OK",
-	        ctxRef, start, count, start, last, ctx->state);
+			"state=%u -> OK",
+			ctxRef, start, count, start, last, ctx->state);
 	return kDSpNoErr;
 }
 
@@ -402,9 +402,9 @@ extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
  *  caller BEFORE this helper is reached.)
  */
 void DSpReadParametricColorFromGuest(uint32_t colorAddr,
-                                              uint8_t *out_r,
-                                              uint8_t *out_g,
-                                              uint8_t *out_b)
+											  uint8_t *out_r,
+											  uint8_t *out_g,
+											  uint8_t *out_b)
 {
 	*out_r = (uint8_t)(ReadMacInt16(colorAddr + 0) >> 8);
 	*out_g = (uint8_t)(ReadMacInt16(colorAddr + 2) >> 8);

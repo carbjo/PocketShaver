@@ -4,6 +4,8 @@
  *  Metal NQD used shared MTLBuffers over Mac RAM + compute kernels.
  *  On desktop OpenGL the guest RAM is already host-visible, so the kernels
  *  become CPU loops over Mac2HostAddr. API names stay NQDMetal* for glue.
+ *
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #include "sysdeps.h"
@@ -72,7 +74,7 @@ static inline bool nqd_addr_in_buffer(uint32 mac_addr)
 }
 
 static bool nqd_surface_range(uint32 base, int32 row_bytes, int x_bytes,
-	                         int width_bytes, int y, int height)
+							 int width_bytes, int y, int height)
 {
 	if (row_bytes <= 0 || x_bytes < 0 || width_bytes <= 0 || y < 0 || height <= 0)
 		return false;
@@ -84,7 +86,7 @@ static bool nqd_surface_range(uint32 base, int32 row_bytes, int x_bytes,
 }
 
 static bool nqd_rect_layout(uint32 pixel_size_bits, int x, int width,
-	                       int &x_bytes, int &width_bytes)
+						   int &x_bytes, int &width_bytes)
 {
 	if (x < 0 || width <= 0)
 		return false;
@@ -99,7 +101,7 @@ static bool nqd_rect_layout(uint32 pixel_size_bits, int x, int width,
 	const uint64 xb = start_bits / 8;
 	const uint64 wb = (end_bits + 7) / 8 - xb;
 	if (xb > (uint64)std::numeric_limits<int>::max() ||
-	    wb > (uint64)std::numeric_limits<int>::max())
+		wb > (uint64)std::numeric_limits<int>::max())
 		return false;
 	x_bytes = (int)xb;
 	width_bytes = (int)wb;
@@ -147,7 +149,7 @@ static inline int bpp_bytes(uint32 pixel_size_bits)
 
 /* Standard srcCopy / invert / fill for byte-aligned rects. */
 static void cpu_copy_rect(uint8 *src, int32 src_rb, uint8 *dst, int32 dst_rb,
-                          int width_bytes, int height)
+						  int width_bytes, int height)
 {
 	if (!src || !dst || width_bytes <= 0 || height <= 0) return;
 	if (src == dst && src_rb == dst_rb) return; /* identity - no-op */
@@ -329,7 +331,7 @@ static inline uint32 nqd_pack_rgb(int bpp, uint32 r, uint32 g, uint32 b, uint32 
 }
 
 static uint32 nqd_arith_pixel(uint32 mode, uint32 sp, uint32 dp, int bpp,
-                              uint32 back_pen, uint32 hilite, const NQDOpColor &op)
+							  uint32 back_pen, uint32 hilite, const NQDOpColor &op)
 {
 	/* transparent (36): skip write when src == background */
 	if (mode == 36) {
@@ -393,8 +395,8 @@ static uint32 nqd_arith_pixel(uint32 mode, uint32 sp, uint32 dp, int bpp,
 }
 
 static void cpu_arith_blit(uint8 *src, int32 src_rb, uint8 *dst, int32 dst_rb,
-                           int w, int h, int bpp, uint32 mode,
-                           uint32 back_pen, uint32 hilite, const NQDOpColor &op)
+						   int w, int h, int bpp, uint32 mode,
+						   uint32 back_pen, uint32 hilite, const NQDOpColor &op)
 {
 	for (int y = 0; y < h; y++) {
 		uint8 *s = src + (size_t)y * src_rb;
@@ -411,8 +413,8 @@ static void cpu_arith_blit(uint8 *src, int32 src_rb, uint8 *dst, int32 dst_rb,
 }
 
 static void cpu_arith_fill(uint8 *dst, int32 dst_rb, int w, int h, int bpp,
-                           uint32 mode, uint32 pen, uint32 back_pen, uint32 hilite,
-                           const NQDOpColor &op)
+						   uint32 mode, uint32 pen, uint32 back_pen, uint32 hilite,
+						   const NQDOpColor &op)
 {
 	for (int y = 0; y < h; y++) {
 		uint8 *d = dst + (size_t)y * dst_rb;
@@ -449,10 +451,10 @@ static bool nqd_normalize_row_bytes(int32 row_bytes, int32 &normalized)
 }
 
 static bool decode_rect(uint32 p, bool has_src,
-                        int &sx, int &sy, int &dx, int &dy, int &w, int &h,
-                        uint32 &src_base, int32 &src_rb,
-                        uint32 &dst_base, int32 &dst_rb,
-                        uint32 &src_ps, uint32 &dst_ps, uint32 &mode)
+						int &sx, int &sy, int &dx, int &dy, int &w, int &h,
+						uint32 &src_base, int32 &src_rb,
+						uint32 &dst_base, int32 &dst_rb,
+						uint32 &src_ps, uint32 &dst_ps, uint32 &mode)
 {
 	const int dst_bounds_left = (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
 	const int dst_bounds_top = (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
@@ -574,9 +576,9 @@ void NQDMetalBitblt(uint32 p)
 	}
 	int src_x_bytes, src_layout_width, dst_x_bytes, dst_layout_width;
 	if (!nqd_rect_layout(sps, sx, w, src_x_bytes, src_layout_width) ||
-	    !nqd_rect_layout(dps, dx, w, dst_x_bytes, dst_layout_width) ||
-	    !nqd_surface_range(sb, srb, src_x_bytes, width_bytes, sy, h) ||
-	    !nqd_surface_range(db, drb, dst_x_bytes, width_bytes, dy, h)) {
+		!nqd_rect_layout(dps, dx, w, dst_x_bytes, dst_layout_width) ||
+		!nqd_surface_range(sb, srb, src_x_bytes, width_bytes, sy, h) ||
+		!nqd_surface_range(db, drb, dst_x_bytes, width_bytes, dy, h)) {
 		// Committed-then-dropped: leaves stale destination pixels (drag streaks).
 		NQD_LOG("NQDMetalBitblt DROP (range/layout) p=%08x sb=%08x db=%08x sx=%d sy=%d "
 			"dx=%d dy=%d w=%d h=%d srb=%d drb=%d sps=%u dps=%u -> stale pixels possible",
@@ -595,11 +597,11 @@ void NQDMetalBitblt(uint32 p)
 	const uintptr dst_begin = (uintptr)dst;
 	const uintptr dst_end = dst_begin + (size_t)(h - 1) * drb + width_bytes;
 	if (src_begin < dst_end && dst_begin < src_end &&
-	    !(src_begin == dst_begin && srb == drb)) {
+		!(src_begin == dst_begin && srb == drb)) {
 		overlap_scratch.resize((size_t)width_bytes * h);
 		for (int y = 0; y < h; y++)
 			std::memcpy(overlap_scratch.data() + (size_t)y * width_bytes,
-			            src + (size_t)y * srb, (size_t)width_bytes);
+						src + (size_t)y * srb, (size_t)width_bytes);
 		src = overlap_scratch.data();
 		srb = width_bytes;
 	}
@@ -680,7 +682,7 @@ void NQDMetalFillRect(uint32 p)
 	int width_bytes = (dps < 8) ? (w * (int)dps + 7) / 8 : w * bpp;
 	int dst_x_bytes, dst_layout_width;
 	if (!nqd_rect_layout(dps, dx, w, dst_x_bytes, dst_layout_width) ||
-	    !nqd_surface_range(db, drb, dst_x_bytes, width_bytes, dy, h)) {
+		!nqd_surface_range(db, drb, dst_x_bytes, width_bytes, dy, h)) {
 		NQD_LOG("NQDMetalFillRect DROP (range/layout) p=%08x db=%08x dx=%d dy=%d w=%d h=%d "
 			"drb=%d dps=%u -> stale pixels possible", p, db, dx, dy, w, h, (int)drb, dps);
 		return;
@@ -756,7 +758,7 @@ void NQDMetalInvertRect(uint32 p)
 	int width_bytes = (dps < 8) ? (w * (int)dps + 7) / 8 : w * bpp;
 	int dst_x_bytes, dst_layout_width;
 	if (!nqd_rect_layout(dps, dx, w, dst_x_bytes, dst_layout_width) ||
-	    !nqd_surface_range(db, drb, dst_x_bytes, width_bytes, dy, h)) {
+		!nqd_surface_range(db, drb, dst_x_bytes, width_bytes, dy, h)) {
 		NQD_LOG("NQDMetalInvertRect DROP (range/layout) p=%08x db=%08x dx=%d dy=%d w=%d h=%d "
 			"drb=%d dps=%u -> stale pixels possible", p, db, dx, dy, w, h, (int)drb, dps);
 		return;
@@ -775,10 +777,10 @@ void NQDMetalInvertRect(uint32 p)
  * width_bytes (coarse byte columns) for packed depths. ---- */
 
 static inline void nqd_set_mask_pixel(uint8 *out_mask, int mask_row,
-                                      int pixel_col, int width_pixels,
-                                      int dest_height, int mask_stride,
-                                      uint32 bits_per_pixel,
-                                      bool pixel_mask_columns)
+									  int pixel_col, int width_pixels,
+									  int dest_height, int mask_stride,
+									  uint32 bits_per_pixel,
+									  bool pixel_mask_columns)
 {
 	if (mask_row < 0 || mask_row >= dest_height) return;
 	if (pixel_col < 0 || pixel_col >= width_pixels) return;
@@ -790,10 +792,10 @@ static inline void nqd_set_mask_pixel(uint8 *out_mask, int mask_row,
 }
 
 static bool nqd_decode_region(uint32 rgn_addr, int rect_left, int rect_top,
-                              int width_pixels, int dest_height,
-                              int mask_stride, uint32 bits_per_pixel,
-                              bool pixel_mask_columns,
-                              uint8 *out_mask, size_t mask_size)
+							  int width_pixels, int dest_height,
+							  int mask_stride, uint32 bits_per_pixel,
+							  bool pixel_mask_columns,
+							  uint8 *out_mask, size_t mask_size)
 {
 	if (rgn_addr == 0) {
 		NQD_ERR("nqd_decode_region: null region address");
@@ -812,7 +814,7 @@ static bool nqd_decode_region(uint32 rgn_addr, int rect_left, int rect_top,
 	int16 bbox_right  = (int16)ReadMacInt16(rgn_addr + 8);
 	if (bbox_top >= bbox_bottom || bbox_left >= bbox_right) {
 		NQD_ERR("nqd_decode_region: invalid bbox (%d,%d)-(%d,%d)",
-		        bbox_top, bbox_left, bbox_bottom, bbox_right);
+				bbox_top, bbox_left, bbox_bottom, bbox_right);
 		return false;
 	}
 
@@ -833,8 +835,8 @@ static bool nqd_decode_region(uint32 rgn_addr, int rect_left, int rect_top,
 		for (int row = top; row < bottom; row++)
 			for (int x = left; x < right; x++)
 				nqd_set_mask_pixel(out_mask, row - rect_top, x - rect_left,
-				                   width_pixels, dest_height, mask_stride,
-				                   bits_per_pixel, pixel_mask_columns);
+								   width_pixels, dest_height, mask_stride,
+								   bits_per_pixel, pixel_mask_columns);
 		return true;
 	}
 
@@ -860,9 +862,9 @@ static bool nqd_decode_region(uint32 rgn_addr, int rect_left, int rect_top,
 			for (int c = 0; c < rgn_width; c++)
 				if (col_state[c])
 					nqd_set_mask_pixel(out_mask, row - rect_top,
-					                   (bbox_left + c) - rect_left,
-					                   width_pixels, dest_height, mask_stride,
-					                   bits_per_pixel, pixel_mask_columns);
+									   (bbox_left + c) - rect_left,
+									   width_pixels, dest_height, mask_stride,
+									   bits_per_pixel, pixel_mask_columns);
 
 		while (offset + 2 <= rgn_end) {
 			int16 h_point = (int16)ReadMacInt16(offset);
@@ -881,9 +883,9 @@ static bool nqd_decode_region(uint32 rgn_addr, int rect_left, int rect_top,
 		for (int c = 0; c < rgn_width; c++)
 			if (col_state[c])
 				nqd_set_mask_pixel(out_mask, row - rect_top,
-				                   (bbox_left + c) - rect_left,
-				                   width_pixels, dest_height, mask_stride,
-				                   bits_per_pixel, pixel_mask_columns);
+								   (bbox_left + c) - rect_left,
+								   width_pixels, dest_height, mask_stride,
+								   bits_per_pixel, pixel_mask_columns);
 	return true;
 }
 
@@ -892,7 +894,7 @@ static bool nqd_decode_region(uint32 rgn_addr, int rect_left, int rect_top,
  * bounds-relative MEMORY offsets, possibly clip-trimmed. Add the trim back
  * onto the rect's own origin so the clip shape is not displaced. */
 static void nqd_region_origin_for_dest(uint32 p, int dx, int dy,
-                                       int &rgn_left, int &rgn_top)
+									   int &rgn_left, int &rgn_top)
 {
 	const int dest_rect_left   = (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
 	const int dest_rect_top    = (int16)ReadMacInt16(p + NQD_acclDestRect + 0);
@@ -922,9 +924,9 @@ void NQDMetalBltMask(uint32 p)
 	const int bpp = pixel_cols ? bpp_bytes(dps) : 1;
 	int src_x_bytes, src_width_bytes, dst_x_bytes, dst_width_bytes;
 	if (!nqd_rect_layout(sps, sx, w, src_x_bytes, src_width_bytes) ||
-	    !nqd_rect_layout(dps, dx, w, dst_x_bytes, dst_width_bytes) ||
-	    !nqd_surface_range(sb, srb, src_x_bytes, src_width_bytes, sy, h) ||
-	    !nqd_surface_range(db, drb, dst_x_bytes, dst_width_bytes, dy, h)) {
+		!nqd_rect_layout(dps, dx, w, dst_x_bytes, dst_width_bytes) ||
+		!nqd_surface_range(sb, srb, src_x_bytes, src_width_bytes, sy, h) ||
+		!nqd_surface_range(db, drb, dst_x_bytes, dst_width_bytes, dy, h)) {
 		NQD_LOG("NQDMetalBltMask DROP (range/layout) p=%08x sb=%08x db=%08x mask=%08x "
 			"dx=%d dy=%d w=%d h=%d -> stale pixels possible", p, sb, db, mask_addr, dx, dy, w, h);
 		return;
@@ -935,7 +937,7 @@ void NQDMetalBltMask(uint32 p)
 	int rgn_left, rgn_top;
 	nqd_region_origin_for_dest(p, dx, dy, rgn_left, rgn_top);
 	if (!nqd_decode_region(mask_addr, rgn_left, rgn_top, w, h, mask_stride,
-	                       dps, pixel_cols, mask.data(), mask.size())) {
+						   dps, pixel_cols, mask.data(), mask.size())) {
 		NQD_LOG("NQDMetalBltMask DROP (region decode) p=%08x mask=%08x -> stale pixels possible",
 			p, mask_addr);
 		return;
@@ -956,7 +958,7 @@ void NQDMetalBltMask(uint32 p)
 			overlap_scratch.resize((size_t)src_width_bytes * (size_t)h);
 			for (int y = 0; y < h; y++)
 				std::memcpy(overlap_scratch.data() + (size_t)y * src_width_bytes,
-				            src + (size_t)y * srb, (size_t)src_width_bytes);
+							src + (size_t)y * srb, (size_t)src_width_bytes);
 			src = overlap_scratch.data();
 			srb = src_width_bytes;
 		}
@@ -977,7 +979,7 @@ void NQDMetalBltMask(uint32 p)
 				if (mode == 36 && sp == back) continue;
 				uint32 dp = nqd_read_pix(d + x * bpp, bpp);
 				nqd_write_pix(d + x * bpp, bpp,
-				              nqd_arith_pixel(mode, sp, dp, bpp, back, hilite, op));
+							  nqd_arith_pixel(mode, sp, dp, bpp, back, hilite, op));
 			}
 		}
 		return;
@@ -1033,7 +1035,7 @@ void NQDMetalFillMask(uint32 p)
 	const int bpp = pixel_cols ? bpp_bytes(dps) : 1;
 	int dst_x_bytes, dst_width_bytes;
 	if (!nqd_rect_layout(dps, dx, w, dst_x_bytes, dst_width_bytes) ||
-	    !nqd_surface_range(db, drb, dst_x_bytes, dst_width_bytes, dy, h)) {
+		!nqd_surface_range(db, drb, dst_x_bytes, dst_width_bytes, dy, h)) {
 		NQD_LOG("NQDMetalFillMask DROP (range/layout) p=%08x db=%08x mask=%08x "
 			"dx=%d dy=%d w=%d h=%d -> stale pixels possible", p, db, mask_addr, dx, dy, w, h);
 		return;
@@ -1044,7 +1046,7 @@ void NQDMetalFillMask(uint32 p)
 	int rgn_left, rgn_top;
 	nqd_region_origin_for_dest(p, dx, dy, rgn_left, rgn_top);
 	if (!nqd_decode_region(mask_addr, rgn_left, rgn_top, w, h, mask_stride,
-	                       dps, pixel_cols, mask.data(), mask.size())) {
+						   dps, pixel_cols, mask.data(), mask.size())) {
 		NQD_LOG("NQDMetalFillMask DROP (region decode) p=%08x mask=%08x -> stale pixels possible",
 			p, mask_addr);
 		return;
@@ -1070,7 +1072,7 @@ void NQDMetalFillMask(uint32 p)
 				if (mode == 36 && pen == back_pen) continue;
 				uint32 dp = nqd_read_pix(d + x * bpp, bpp);
 				nqd_write_pix(d + x * bpp, bpp,
-				              nqd_arith_pixel(mode, pen, dp, bpp, back_pen, hilite, op));
+							  nqd_arith_pixel(mode, pen, dp, bpp, back_pen, hilite, op));
 			}
 		}
 		return;
@@ -1096,21 +1098,21 @@ void NQDMetalFillMask(uint32 p)
 }
 
 bool NQDMetalBitblt1to1(uint32 src_base, int32 src_row_bytes,
-                        uint32 dst_base, int32 dst_row_bytes,
-                        uint32 pixel_size_bytes, uint32 /*bits_per_pixel*/,
-                        uint32 width_pixels, uint32 height,
-                        uint32 transfer_mode, uint32 src_key)
+						uint32 dst_base, int32 dst_row_bytes,
+						uint32 pixel_size_bytes, uint32 /*bits_per_pixel*/,
+						uint32 width_pixels, uint32 height,
+						uint32 transfer_mode, uint32 src_key)
 {
 	if (!nqd_metal_available) return false;
 	if (width_pixels == 0 || height == 0 ||
-	    (pixel_size_bytes != 1 && pixel_size_bytes != 2 && pixel_size_bytes != 4) ||
-	    src_row_bytes <= 0 || dst_row_bytes <= 0 ||
-	    height > (uint32)std::numeric_limits<int>::max()) return false;
+		(pixel_size_bytes != 1 && pixel_size_bytes != 2 && pixel_size_bytes != 4) ||
+		src_row_bytes <= 0 || dst_row_bytes <= 0 ||
+		height > (uint32)std::numeric_limits<int>::max()) return false;
 	const uint64 width_bytes_64 = (uint64)width_pixels * pixel_size_bytes;
 	if (width_bytes_64 > (uint64)std::numeric_limits<int>::max()) return false;
 	const int width_bytes = (int)width_bytes_64;
 	if (!nqd_surface_range(src_base, src_row_bytes, 0, width_bytes, 0, (int)height) ||
-	    !nqd_surface_range(dst_base, dst_row_bytes, 0, width_bytes, 0, (int)height)) return false;
+		!nqd_surface_range(dst_base, dst_row_bytes, 0, width_bytes, 0, (int)height)) return false;
 
 	uint8 *src = host_ptr(src_base);
 	uint8 *dst = host_ptr(dst_base);
@@ -1146,26 +1148,26 @@ bool NQDMetalBitblt1to1(uint32 src_base, int32 src_row_bytes,
 }
 
 bool NQDMetalBitbltScaled(uint32 src_base, int32 src_row_bytes,
-                          uint32 dst_base, int32 dst_row_bytes,
-                          uint32 pixel_size_bytes, uint32 /*bits_per_pixel*/,
-                          uint32 src_w, uint32 src_h,
-                          uint32 dst_w, uint32 dst_h,
-                          uint32 /*interpolate*/,
-                          uint32 src_key, uint32 /*dst_key*/,
-                          uint32 key_enable)
+						  uint32 dst_base, int32 dst_row_bytes,
+						  uint32 pixel_size_bytes, uint32 /*bits_per_pixel*/,
+						  uint32 src_w, uint32 src_h,
+						  uint32 dst_w, uint32 dst_h,
+						  uint32 /*interpolate*/,
+						  uint32 src_key, uint32 /*dst_key*/,
+						  uint32 key_enable)
 {
 	if (!nqd_metal_available) return false;
 	if (!src_w || !src_h || !dst_w || !dst_h ||
-	    (pixel_size_bytes != 1 && pixel_size_bytes != 2 && pixel_size_bytes != 4) ||
-	    src_row_bytes <= 0 || dst_row_bytes <= 0 ||
-	    src_h > (uint32)std::numeric_limits<int>::max() ||
-	    dst_h > (uint32)std::numeric_limits<int>::max()) return false;
+		(pixel_size_bytes != 1 && pixel_size_bytes != 2 && pixel_size_bytes != 4) ||
+		src_row_bytes <= 0 || dst_row_bytes <= 0 ||
+		src_h > (uint32)std::numeric_limits<int>::max() ||
+		dst_h > (uint32)std::numeric_limits<int>::max()) return false;
 	const uint64 src_width_bytes = (uint64)src_w * pixel_size_bytes;
 	const uint64 dst_width_bytes = (uint64)dst_w * pixel_size_bytes;
 	if (src_width_bytes > (uint64)std::numeric_limits<int>::max() ||
-	    dst_width_bytes > (uint64)std::numeric_limits<int>::max()) return false;
+		dst_width_bytes > (uint64)std::numeric_limits<int>::max()) return false;
 	if (!nqd_surface_range(src_base, src_row_bytes, 0, (int)src_width_bytes, 0, (int)src_h) ||
-	    !nqd_surface_range(dst_base, dst_row_bytes, 0, (int)dst_width_bytes, 0, (int)dst_h)) return false;
+		!nqd_surface_range(dst_base, dst_row_bytes, 0, (int)dst_width_bytes, 0, (int)dst_h)) return false;
 
 	uint8 *src = host_ptr(src_base);
 	uint8 *dst = host_ptr(dst_base);

@@ -489,8 +489,8 @@ static bool GLOtherDrawableBound(int except_idx)
 {
 	for (int i = 0; i < GL_MAX_CONTEXTS; ++i) {
 		if (i != except_idx &&
-		    gl_contexts[i] != nullptr &&
-		    agl_ctx_state[i].agl_drawable != 0) {
+			gl_contexts[i] != nullptr &&
+			agl_ctx_state[i].agl_drawable != 0) {
 			return true;
 		}
 	}
@@ -500,7 +500,7 @@ static bool GLOtherDrawableBound(int except_idx)
 static void GLCaptureOwnerBeforeDrawableBind(int idx)
 {
 	if (!GLShouldSnapshotDrawableOwner(agl_ctx_state[idx].agl_drawable != 0,
-	                                   agl_ctx_state[idx].agl_owner_before_drawable_valid)) {
+									   agl_ctx_state[idx].agl_owner_before_drawable_valid)) {
 		return;
 	}
 
@@ -509,14 +509,14 @@ static void GLCaptureOwnerBeforeDrawableBind(int idx)
 	agl_ctx_state[idx].agl_owner_before_drawable = owner;
 	agl_ctx_state[idx].agl_owner_before_drawable_valid = true;
 	GL_LOG("aglSetDrawable: captured display owner %s before binding context %d",
-	       GLDMCOwnerName(owner), idx + 1);
+		   GLDMCOwnerName(owner), idx + 1);
 }
 
 static void GLFinishDrawableUnbind(int idx)
 {
 	uint32_t captured_owner = agl_ctx_state[idx].agl_owner_before_drawable_valid
-	                            ? agl_ctx_state[idx].agl_owner_before_drawable
-	                            : kDMCOwnerQuickDraw;
+								? agl_ctx_state[idx].agl_owner_before_drawable
+								: kDMCOwnerQuickDraw;
 	uint32_t restore_owner = GLRestorableDrawableOwner(captured_owner);
 	bool other_drawable = GLOtherDrawableBound(idx);
 
@@ -526,13 +526,13 @@ static void GLFinishDrawableUnbind(int idx)
 
 	if (other_drawable) {
 		GL_LOG("aglSetDrawable: deferred owner restore after context %d unbind; another GL drawable remains",
-		       idx + 1);
+			   idx + 1);
 		return;
 	}
 
 	(void)dmc_set_active_owner(restore_owner);
 	GL_LOG("aglSetDrawable: restored display owner %s after context %d unbind (captured %s)",
-	       GLDMCOwnerName(restore_owner), idx + 1, GLDMCOwnerName(captured_owner));
+		   GLDMCOwnerName(restore_owner), idx + 1, GLDMCOwnerName(captured_owner));
 }
 
 
@@ -955,7 +955,7 @@ uint32_t NativeAGLChoosePixelFormat(uint32_t gdevs, uint32_t ndev, uint32_t attr
 	WriteMacInt32(mac_handle, idx);
 
 	GL_LOG("aglChoosePixelFormat: allocated format %d (handle=0x%08x) rgba=%d depth=%d double=%d",
-	       idx, mac_handle, has_rgba, has_depth, has_double);
+		   idx, mac_handle, has_rgba, has_depth, has_double);
 
 	gl_agl_last_error = AGL_NO_ERROR;
 	return mac_handle;
@@ -989,8 +989,8 @@ static void GLPopulateDispatchTable(uint32_t mac_handle)
 			// gl_dispatch_ext_slots[]). Unmapped slots fall through to the
 			// diagnostic no-op below so new ones still surface in the log.
 			for (size_t e = 0;
-			     e < sizeof(gl_dispatch_ext_slots) / sizeof(gl_dispatch_ext_slots[0]);
-			     e++) {
+				 e < sizeof(gl_dispatch_ext_slots) / sizeof(gl_dispatch_ext_slots[0]);
+				 e++) {
 				if (gl_dispatch_ext_slots[e].slot == i) {
 					uint16_t sub = gl_dispatch_ext_slots[e].sub_opcode;
 					if (sub < GL_MAX_SUBOPCODE)
@@ -1085,10 +1085,10 @@ static GLContext *GLContextFromHandle(uint32_t mac_handle, int *out_idx = nullpt
 }
 
 extern "C" int GLContextGetOffscreenDrawable(GLContext *context,
-                                             uint32_t *outW,
-                                             uint32_t *outH,
-                                             uint32_t *outRowbytes,
-                                             uint32_t *outBaseaddr)
+											 uint32_t *outW,
+											 uint32_t *outH,
+											 uint32_t *outRowbytes,
+											 uint32_t *outBaseaddr)
 {
 	if (context == nullptr) return 0;
 
@@ -1097,11 +1097,11 @@ extern "C" int GLContextGetOffscreenDrawable(GLContext *context,
 
 		const AGLContextState &state = agl_ctx_state[i];
 		if (!GLShouldReadbackOffscreenDrawable(
-		        state.agl_offscreen,
-		        state.agl_offscreen_width,
-		        state.agl_offscreen_height,
-		        state.agl_offscreen_rowbytes,
-		        state.agl_offscreen_baseaddr)) {
+				state.agl_offscreen,
+				state.agl_offscreen_width,
+				state.agl_offscreen_height,
+				state.agl_offscreen_rowbytes,
+				state.agl_offscreen_baseaddr)) {
 			return 0;
 		}
 
@@ -1203,7 +1203,7 @@ uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 	}
 
 	GL_LOG("aglSetDrawable: port rect=(%d,%d,%d,%d) -> %dx%d",
-	       port_top, port_left, port_bottom, port_right, width, height);
+		   port_top, port_left, port_bottom, port_right, width, height);
 
 	GLCaptureOwnerBeforeDrawableBind(idx);
 
@@ -1706,7 +1706,7 @@ uint32_t NativeAGLUpdateContext(uint32_t ctx)
 		context->viewport[3] = height;
 
 		GL_LOG("aglUpdateContext: re-read port rect -> %dx%d for context %d",
-		       width, height, idx + 1);
+			   width, height, idx + 1);
 	}
 
 	gl_agl_last_error = AGL_NO_ERROR;
@@ -1724,10 +1724,10 @@ uint32_t NativeAGLUpdateContext(uint32_t ctx)
  *  still-unsupported fullscreen/font calls.
  */
 uint32_t NativeAGLSetOffScreen(uint32_t ctx, uint32_t width, uint32_t height,
-                                uint32_t rowbytes, uint32_t baseaddr)
+								uint32_t rowbytes, uint32_t baseaddr)
 {
 	GL_LOG("aglSetOffScreen: ctx=0x%08x %dx%d rowbytes=%u base=0x%08x",
-	       ctx, width, height, rowbytes, baseaddr);
+		   ctx, width, height, rowbytes, baseaddr);
 
 	int idx;
 	GLContext *context = GLContextFromHandle(ctx, &idx);
@@ -1773,7 +1773,7 @@ uint32_t NativeAGLSetOffScreen(uint32_t ctx, uint32_t width, uint32_t height,
 }
 
 uint32_t NativeAGLSetFullScreen(uint32_t ctx, uint32_t width, uint32_t height,
-                                 uint32_t freq, uint32_t device)
+								 uint32_t freq, uint32_t device)
 {
 	GL_LOG("aglSetFullScreen: ctx=0x%08x %dx%d@%d (known limitation: windowed only)", ctx, width, height, freq);
 	gl_agl_last_error = AGL_BAD_FULLSCREEN;
@@ -1991,15 +1991,15 @@ uint32_t NativeAGLSetInteger(uint32_t ctx, uint32_t pname, uint32_t params)
 			for (int i = 0; i < 4; i++)
 				agl_ctx_state[idx].agl_buffer_rect[i] = (int32_t)ReadMacInt32(params + i * 4);
 			GL_LOG("aglSetInteger: buffer_rect=(%d,%d,%d,%d)",
-			       agl_ctx_state[idx].agl_buffer_rect[0], agl_ctx_state[idx].agl_buffer_rect[1],
-			       agl_ctx_state[idx].agl_buffer_rect[2], agl_ctx_state[idx].agl_buffer_rect[3]);
+				   agl_ctx_state[idx].agl_buffer_rect[0], agl_ctx_state[idx].agl_buffer_rect[1],
+				   agl_ctx_state[idx].agl_buffer_rect[2], agl_ctx_state[idx].agl_buffer_rect[3]);
 			break;
 		case AGL_SWAP_RECT:
 			for (int i = 0; i < 4; i++)
 				agl_ctx_state[idx].agl_swap_rect[i] = (int32_t)ReadMacInt32(params + i * 4);
 			GL_LOG("aglSetInteger: swap_rect=(%d,%d,%d,%d)",
-			       agl_ctx_state[idx].agl_swap_rect[0], agl_ctx_state[idx].agl_swap_rect[1],
-			       agl_ctx_state[idx].agl_swap_rect[2], agl_ctx_state[idx].agl_swap_rect[3]);
+				   agl_ctx_state[idx].agl_swap_rect[0], agl_ctx_state[idx].agl_swap_rect[1],
+				   agl_ctx_state[idx].agl_swap_rect[2], agl_ctx_state[idx].agl_swap_rect[3]);
 			break;
 		case AGL_COLORMAP_ENTRY:
 			// Known pname: colormap entry {index, r, g, b}. We don't track an
@@ -2070,10 +2070,10 @@ uint32_t NativeAGLGetInteger(uint32_t ctx, uint32_t pname, uint32_t params)
  *  This is a deliberate known limitation.
  */
 uint32_t NativeAGLUseFont(uint32_t ctx, uint32_t fontID, uint32_t face,
-                           uint32_t size, uint32_t first, uint32_t count, uint32_t base)
+						   uint32_t size, uint32_t first, uint32_t count, uint32_t base)
 {
 	GL_LOG("aglUseFont: ctx=0x%08x fontID=%d face=%d size=%d first=%d count=%d base=%d (known limitation: no Font Manager access)",
-	       ctx, fontID, face, size, first, count, base);
+		   ctx, fontID, face, size, first, count, base);
 	return GL_FALSE;
 }
 
@@ -2285,8 +2285,8 @@ uint32_t NativeAGLDevicesOfPixelFormat(uint32_t pix, uint32_t ndevsPtr)
 // gl_engine.h (gl_has_active_overlay / gl_get_overlay_dims /
 // gl_release_overlay_for_detach).
 static int32_t GLOnAttach(uint32_t /* engine_id */,
-                          const struct DMCModeSnapshot *incoming,
-                          void * /* ctx */)
+						  const struct DMCModeSnapshot *incoming,
+						  void * /* ctx */)
 {
 	/* If GL has no active overlay at attach time, skip pre-vending - the
 	 * next gl_overlay_bind (driven by an actual AGL drawable bind) will
@@ -2303,17 +2303,17 @@ static int32_t GLOnAttach(uint32_t /* engine_id */,
 	 * after the mode switch. Vend format is
 	 * BGRA8Unorm (= MTLPixelFormatBGRA8Unorm = 80). */
 	void *tex0 = gfxaccel_resources_vend_overlay_texture_indexed(
-	                kGfxEngineGL,
-	                0,
-	                incoming->width,
-	                incoming->height,
-	                80 /* MTLPixelFormatBGRA8Unorm */);
+					kGfxEngineGL,
+					0,
+					incoming->width,
+					incoming->height,
+					80 /* MTLPixelFormatBGRA8Unorm */);
 	void *tex1 = gfxaccel_resources_vend_overlay_texture_indexed(
-	                kGfxEngineGL,
-	                1,
-	                incoming->width,
-	                incoming->height,
-	                80 /* MTLPixelFormatBGRA8Unorm */);
+					kGfxEngineGL,
+					1,
+					incoming->width,
+					incoming->height,
+					80 /* MTLPixelFormatBGRA8Unorm */);
 	if (tex0 == NULL || tex1 == NULL) {
 		if (tex0 != NULL) gfxaccel_resources_release_overlay_texture(kGfxEngineGL, tex0);
 		if (tex1 != NULL) gfxaccel_resources_release_overlay_texture(kGfxEngineGL, tex1);
@@ -2325,8 +2325,8 @@ static int32_t GLOnAttach(uint32_t /* engine_id */,
 }
 
 static int32_t GLOnDetach(uint32_t /* engine_id */,
-                          const struct DMCModeSnapshot * /* outgoing */,
-                          void * /* ctx */)
+						  const struct DMCModeSnapshot * /* outgoing */,
+						  void * /* ctx */)
 {
 	/* Release the cached overlay (idempotent - no-op if GL has none).
 	 * The next gl_overlay_bind after the mode switch will re-vend at the
@@ -2992,7 +2992,7 @@ void GLInstallHooks()
 		}
 	}
 	GL_LOG("GLInstallHooks: found %d extra GL functions, %d not found",
-	       gl_extra_found, gl_extra_notfound);
+		   gl_extra_found, gl_extra_notfound);
 
 	// Search GLU functions. They normally live in the separate OpenGLUtility
 	// library; some builds fold them into OpenGLLibrary, so try OpenGLUtility
@@ -3047,7 +3047,7 @@ void GLInstallHooks()
 		if (orig_tvect == hook_tvect) {
 			synthetic_count++;
 			GL_LOG("  synthetic %s: TVECT 0x%08x is our own thunk, no patch needed",
-			       cached_tvects[i].name, orig_tvect);
+				   cached_tvects[i].name, orig_tvect);
 			continue;
 		}
 
@@ -3078,11 +3078,11 @@ void GLInstallHooks()
 
 		patched_count++;
 		GL_LOG("  patched %s: orig_code=0x%08x -> hook_code=0x%08x",
-		       cached_tvects[i].name, orig_code, hook_code);
+			   cached_tvects[i].name, orig_code, hook_code);
 	}
 
 	GL_LOG("GLInstallHooks: patched %d real exports, %d synthetic (skipped)",
-	       patched_count, synthetic_count);
+		   patched_count, synthetic_count);
 
 	if (patched_count > 0) {
 		gl_hooks_installed = true;
@@ -3094,7 +3094,7 @@ void GLInstallHooks()
 			GL_LOG("GLInstallHooks: OpenGL library not available after %d attempts, giving up", gl_hooks_attempts);
 		else
 			GL_LOG("GLInstallHooks: patched 0 functions, will retry on next accRun (attempt %d/%d)",
-			       gl_hooks_attempts, GL_HOOKS_MAX_ATTEMPTS);
+				   gl_hooks_attempts, GL_HOOKS_MAX_ATTEMPTS);
 		return;
 	}
 }
@@ -3112,7 +3112,7 @@ void GLInstallHooks()
 void GLResetForReboot(void)
 {
 	GL_LOG("GLResetForReboot: hooksInstalled=%d attempts=%d",
-	       gl_hooks_installed, gl_hooks_attempts);
+		   gl_hooks_installed, gl_hooks_attempts);
 	gl_hooks_installed   = false;
 	gl_hooks_in_progress = false;
 	gl_hooks_attempts    = 0;
@@ -3420,12 +3420,12 @@ void NativeGLUPerspective(GLContext *ctx, double fovy, double aspect, double zNe
  *  Build view matrix: forward, side, up vectors, then translate.
  */
 void NativeGLULookAt(GLContext *ctx,
-                     double eyeX, double eyeY, double eyeZ,
-                     double centerX, double centerY, double centerZ,
-                     double upX, double upY, double upZ)
+					 double eyeX, double eyeY, double eyeZ,
+					 double centerX, double centerY, double centerZ,
+					 double upX, double upY, double upZ)
 {
 	GL_LOG("gluLookAt: eye(%f,%f,%f) center(%f,%f,%f) up(%f,%f,%f)",
-	       eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ);
+		   eyeX, eyeY, eyeZ, centerX, centerY, centerZ, upX, upY, upZ);
 
 	if (!ctx) return;
 
@@ -3512,9 +3512,9 @@ void NativeGLUPickMatrix(GLContext *ctx, double x, double y, double deltaX, doub
  *  Returns 1 on success, 0 on failure.
  */
 uint32_t NativeGLUProject(GLContext *ctx,
-                          double objX, double objY, double objZ,
-                          uint32_t model_ptr, uint32_t proj_ptr, uint32_t viewport_ptr,
-                          uint32_t winX_ptr, uint32_t winY_ptr, uint32_t winZ_ptr)
+						  double objX, double objY, double objZ,
+						  uint32_t model_ptr, uint32_t proj_ptr, uint32_t viewport_ptr,
+						  uint32_t winX_ptr, uint32_t winY_ptr, uint32_t winZ_ptr)
 {
 	GL_LOG("gluProject: obj(%f,%f,%f)", objX, objY, objZ);
 	if (!model_ptr || !proj_ptr || !viewport_ptr) return 0;
@@ -3568,9 +3568,9 @@ uint32_t NativeGLUProject(GLContext *ctx,
  *  Returns 1 on success, 0 on failure (singular matrix).
  */
 uint32_t NativeGLUUnProject(GLContext *ctx,
-                            double winX, double winY, double winZ,
-                            uint32_t model_ptr, uint32_t proj_ptr, uint32_t viewport_ptr,
-                            uint32_t objX_ptr, uint32_t objY_ptr, uint32_t objZ_ptr)
+							double winX, double winY, double winZ,
+							uint32_t model_ptr, uint32_t proj_ptr, uint32_t viewport_ptr,
+							uint32_t objX_ptr, uint32_t objY_ptr, uint32_t objZ_ptr)
 {
 	GL_LOG("gluUnProject: win(%f,%f,%f)", winX, winY, winZ);
 	if (!model_ptr || !proj_ptr || !viewport_ptr) return 0;
@@ -3591,7 +3591,7 @@ uint32_t NativeGLUUnProject(GLContext *ctx,
 	for (int c = 0; c < 4; c++)
 		for (int r = 0; r < 4; r++)
 			combined[c*4+r] = proj[0*4+r]*model[c*4+0] + proj[1*4+r]*model[c*4+1] +
-			                  proj[2*4+r]*model[c*4+2] + proj[3*4+r]*model[c*4+3];
+							  proj[2*4+r]*model[c*4+2] + proj[3*4+r]*model[c*4+3];
 
 	// Invert the combined 4x4 matrix
 	double inv[16];
@@ -3657,9 +3657,9 @@ uint32_t NativeGLUUnProject(GLContext *ctx,
 
 // Forward declaration for GL texture upload (implemented below).
 extern void NativeGLTexImage2D_Direct(GLContext *ctx, uint32_t target, int32_t level,
-                                       int32_t internalFormat, int32_t width, int32_t height,
-                                       int32_t border, uint32_t format, uint32_t type,
-                                       const uint8_t *pixels, int32_t pixel_data_size);
+									   int32_t internalFormat, int32_t width, int32_t height,
+									   int32_t border, uint32_t format, uint32_t type,
+									   const uint8_t *pixels, int32_t pixel_data_size);
 
 // Forward declare the real Metal uploader (implemented in gl_metal_renderer.mm).
 // gl_engine.h carries a stale 8-arg prototype for this symbol; the actual definition
@@ -3667,11 +3667,11 @@ extern void NativeGLTexImage2D_Direct(GLContext *ctx, uint32_t target, int32_t l
 // (data + dataLen). Declare the correct overload locally so NativeGLTexImage2D_Direct
 // binds to it - mirror gl_state.cpp:430-432.
 extern void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
-                                  int width, int height, const uint8_t *data, int dataLen);
+								  int width, int height, const uint8_t *data, int dataLen);
 extern uint8_t *GLConvertMacPixelsToBGRA8(GLContext *ctx, uint32_t mac_pixels,
-                                          int width, int height,
-                                          uint32_t format, uint32_t type,
-                                          int *outLen);
+										  int width, int height,
+										  uint32_t format, uint32_t type,
+										  int *outLen);
 
 // Host-pixel -> Metal texture uploader for the mipmap path.
 //
@@ -3689,9 +3689,9 @@ extern uint8_t *GLConvertMacPixelsToBGRA8(GLContext *ctx, uint32_t mac_pixels,
 // gluBuild1DMipmaps returned GL_NO_ERROR while uploading nothing - silent wrong output
 // (untextured). Reproduced by GLP0RemediationTests.testMipmaps_uploadComputedLevels.
 void NativeGLTexImage2D_Direct(GLContext *ctx, uint32_t target, int32_t level,
-                                int32_t internalFormat, int32_t width, int32_t height,
-                                int32_t border, uint32_t format, uint32_t type,
-                                const uint8_t *pixels, int32_t pixel_data_size)
+								int32_t internalFormat, int32_t width, int32_t height,
+								int32_t border, uint32_t format, uint32_t type,
+								const uint8_t *pixels, int32_t pixel_data_size)
 {
 	(void)internalFormat; (void)border; (void)type; (void)pixel_data_size;
 
@@ -3775,12 +3775,12 @@ void NativeGLTexImage2D_Direct(GLContext *ctx, uint32_t target, int32_t level,
 }
 
 uint32_t NativeGLUBuild2DMipmaps(GLContext *ctx,
-                                  uint32_t target, int32_t internalFormat,
-                                  int32_t width, int32_t height,
-                                  uint32_t format, uint32_t type, uint32_t data_ptr)
+								  uint32_t target, int32_t internalFormat,
+								  int32_t width, int32_t height,
+								  uint32_t format, uint32_t type, uint32_t data_ptr)
 {
 	GL_LOG("gluBuild2DMipmaps: target=0x%x ifmt=%d %dx%d fmt=0x%x type=0x%x data=0x%08x",
-	       target, internalFormat, width, height, format, type, data_ptr);
+		   target, internalFormat, width, height, format, type, data_ptr);
 
 	if (!ctx || data_ptr == 0 || width <= 0 || height <= 0) return GLU_INVALID_VALUE;
 
@@ -3812,7 +3812,7 @@ uint32_t NativeGLUBuild2DMipmaps(GLContext *ctx,
 	free(baseBGRA);
 
 	GLMetalUploadTexture(ctx, &tex, 0, width, height,
-	                     current.data(), (int)current.size());
+						 current.data(), (int)current.size());
 
 	// Generate mipmap chain by box filtering canonical BGRA8 upload pixels.
 	// This preserves legacy/packed source interpretation from the base
@@ -3843,7 +3843,7 @@ uint32_t NativeGLUBuild2DMipmaps(GLContext *ctx,
 		}
 
 		GLMetalUploadTexture(ctx, &tex, level, nw, nh,
-		                     next.data(), (int)next.size());
+							 next.data(), (int)next.size());
 
 		current = std::move(next);
 		w = nw;
@@ -3860,9 +3860,9 @@ uint32_t NativeGLUBuild2DMipmaps(GLContext *ctx,
  *  NativeGLUBuild1DMipmaps -- 1D variant
  */
 uint32_t NativeGLUBuild1DMipmaps(GLContext *ctx,
-                                  uint32_t target, int32_t internalFormat,
-                                  int32_t width,
-                                  uint32_t format, uint32_t type, uint32_t data_ptr)
+								  uint32_t target, int32_t internalFormat,
+								  int32_t width,
+								  uint32_t format, uint32_t type, uint32_t data_ptr)
 {
 	GL_LOG("gluBuild1DMipmaps: (delegates to 2D with height=1)");
 	return NativeGLUBuild2DMipmaps(ctx, target, internalFormat, width, 1, format, type, data_ptr);
@@ -3873,9 +3873,9 @@ uint32_t NativeGLUBuild1DMipmaps(GLContext *ctx,
  *  NativeGLUScaleImage -- scale image data using bilinear interpolation
  */
 uint32_t NativeGLUScaleImage(GLContext *ctx,
-                              uint32_t format,
-                              int32_t wIn, int32_t hIn, uint32_t typeIn, uint32_t dataIn,
-                              int32_t wOut, int32_t hOut, uint32_t typeOut, uint32_t dataOut)
+							  uint32_t format,
+							  int32_t wIn, int32_t hIn, uint32_t typeIn, uint32_t dataIn,
+							  int32_t wOut, int32_t hOut, uint32_t typeOut, uint32_t dataOut)
 {
 	GL_LOG("gluScaleImage: %dx%d -> %dx%d fmt=0x%x", wIn, hIn, wOut, hOut, format);
 
@@ -3918,7 +3918,7 @@ uint32_t NativeGLUScaleImage(GLContext *ctx,
 				float v11 = src[(y1 * wIn + x1) * bpp + c];
 
 				float v = v00 * (1 - fx) * (1 - fy) + v10 * fx * (1 - fy) +
-				          v01 * (1 - fx) * fy + v11 * fx * fy;
+						  v01 * (1 - fx) * fy + v11 * fx * fy;
 				int iv = (int)(v + 0.5f);
 				if (iv > 255) iv = 255;
 				if (iv < 0) iv = 0;
@@ -4065,7 +4065,7 @@ static inline int32_t ClampTessCount(int32_t v, const char *what)
  *  Standard sphere tessellation with triangle strips per stack.
  */
 void NativeGLUSphere(GLContext *ctx, uint32_t quad_handle,
-                     double radius, int32_t slices, int32_t stacks)
+					 double radius, int32_t slices, int32_t stacks)
 {
 	GL_LOG("gluSphere: radius=%f slices=%d stacks=%d", radius, slices, stacks);
 	if (!ctx || slices < 2 || stacks < 1) {
@@ -4138,8 +4138,8 @@ void NativeGLUSphere(GLContext *ctx, uint32_t quad_handle,
  *  NativeGLUCylinder(quad, base, top, height, slices, stacks)
  */
 void NativeGLUCylinder(GLContext *ctx, uint32_t quad_handle,
-                       double base, double top, double height,
-                       int32_t slices, int32_t stacks)
+					   double base, double top, double height,
+					   int32_t slices, int32_t stacks)
 {
 	GL_LOG("gluCylinder: base=%f top=%f height=%f slices=%d stacks=%d", base, top, height, slices, stacks);
 	if (!ctx || slices < 2 || stacks < 1) return;
@@ -4201,7 +4201,7 @@ void NativeGLUCylinder(GLContext *ctx, uint32_t quad_handle,
  *  NativeGLUDisk(quad, inner, outer, slices, loops)
  */
 void NativeGLUDisk(GLContext *ctx, uint32_t quad_handle,
-                   double inner, double outer, int32_t slices, int32_t loops)
+				   double inner, double outer, int32_t slices, int32_t loops)
 {
 	GL_LOG("gluDisk: inner=%f outer=%f slices=%d loops=%d", inner, outer, slices, loops);
 	if (!ctx || slices < 2 || loops < 1) return;
@@ -4252,11 +4252,11 @@ void NativeGLUDisk(GLContext *ctx, uint32_t quad_handle,
  *  NativeGLUPartialDisk(quad, inner, outer, slices, loops, start, sweep)
  */
 void NativeGLUPartialDisk(GLContext *ctx, uint32_t quad_handle,
-                          double inner, double outer, int32_t slices, int32_t loops,
-                          double start, double sweep)
+						  double inner, double outer, int32_t slices, int32_t loops,
+						  double start, double sweep)
 {
 	GL_LOG("gluPartialDisk: inner=%f outer=%f slices=%d loops=%d start=%f sweep=%f",
-	       inner, outer, slices, loops, start, sweep);
+		   inner, outer, slices, loops, start, sweep);
 	if (!ctx || slices < 2 || loops < 1) return;
 	slices = ClampTessCount(slices, "slices");
 	loops  = ClampTessCount(loops, "loops");
@@ -4518,8 +4518,8 @@ static bool tess_has_emit_callbacks(const GLUTessState *t)
 {
 	if (!t) return false;
 	return t->callbacks[GLU_TESS_BEGIN  - GLU_TESS_BEGIN] != 0
-	    && t->callbacks[GLU_TESS_VERTEX - GLU_TESS_BEGIN] != 0
-	    && t->callbacks[GLU_TESS_END    - GLU_TESS_BEGIN] != 0;
+		&& t->callbacks[GLU_TESS_VERTEX - GLU_TESS_BEGIN] != 0
+		&& t->callbacks[GLU_TESS_END    - GLU_TESS_BEGIN] != 0;
 }
 
 // ---- Ear-clipping triangulation helpers ----
@@ -4532,7 +4532,7 @@ static float ear_clip_cross_2d(float ax, float ay, float bx, float by, float cx,
 
 // Test if point P is inside triangle ABC (2D, assumes CCW winding)
 static bool ear_clip_point_in_triangle(float px, float py,
-                                       float ax, float ay, float bx, float by, float cx, float cy)
+									   float ax, float ay, float bx, float by, float cx, float cy)
 {
 	float d1 = ear_clip_cross_2d(ax, ay, bx, by, px, py);
 	float d2 = ear_clip_cross_2d(bx, by, cx, cy, px, py);
@@ -4553,8 +4553,8 @@ static bool ear_clip_point_in_triangle(float px, float py,
 // When `cb_tess` is null the original immediate-mode path is used UNCHANGED
 // (the fallback for the non-callback gluTessEndPolygon consumer).
 static void ear_clip_triangulate(GLContext *ctx, const std::vector<GLUTessVertex3> &verts,
-                                 float nx, float ny, float nz,
-                                 GLUTessState *cb_tess = nullptr)
+								 float nx, float ny, float nz,
+								 GLUTessState *cb_tess = nullptr)
 {
 	const bool use_callbacks = (cb_tess != nullptr);
 	int n = (int)verts.size();
@@ -4625,7 +4625,7 @@ static void ear_clip_triangulate(GLContext *ctx, const std::vector<GLUTessVertex
 				if (k == prev || k == idx || k == next) continue;
 				int ik = indices[k];
 				if (ear_clip_point_in_triangle(u[ik], v[ik],
-				                               u[i0], v[i0], u[i1], v[i1], u[i2], v[i2])) {
+											   u[i0], v[i0], u[i1], v[i1], u[i2], v[i2])) {
 					is_ear = false;
 					break;
 				}
@@ -4669,7 +4669,7 @@ static void ear_clip_triangulate(GLContext *ctx, const std::vector<GLUTessVertex
 // Bridge-edge merge: merge outer contour with inner contours (holes) into a single polygon
 // by finding bridge edges that connect each inner contour to the outer contour.
 static std::vector<GLUTessVertex3> tess_merge_contours(const std::vector<GLUTessContour> &contours,
-                                                        float nx, float ny, float nz)
+														float nx, float ny, float nz)
 {
 	if (contours.empty()) return {};
 	if (contours.size() == 1) return contours[0].vertices;
@@ -4832,7 +4832,7 @@ void NativeGLUTessEndPolygon(uint32_t tess)
 	// registered, pass `t` so the emit path fires the guest callbacks via
 	// call_macos*; otherwise the immediate-mode fallback is used unchanged.
 	ear_clip_triangulate(gl_current_context, merged, nx, ny, nz,
-	                     emit_via_callbacks ? t : nullptr);
+						 emit_via_callbacks ? t : nullptr);
 
 	// Clean up
 	t->contours.clear();
@@ -5046,12 +5046,12 @@ void NativeGLUBeginSurface(uint32_t nurb)
 }
 
 void NativeGLUNurbsSurface(uint32_t nurb, int32_t sKnots, uint32_t sKnotsPtr,
-                           int32_t tKnots, uint32_t tKnotsPtr,
-                           int32_t sStride, int32_t tStride, uint32_t control,
-                           int32_t sOrder, int32_t tOrder, uint32_t type)
+						   int32_t tKnots, uint32_t tKnotsPtr,
+						   int32_t sStride, int32_t tStride, uint32_t control,
+						   int32_t sOrder, int32_t tOrder, uint32_t type)
 {
 	GL_LOG("gluNurbsSurface: nurb=0x%08x sKnots=%d tKnots=%d sStride=%d tStride=%d sOrder=%d tOrder=%d type=0x%x",
-	       nurb, sKnots, tKnots, sStride, tStride, sOrder, tOrder, type);
+		   nurb, sKnots, tKnots, sStride, tStride, sOrder, tOrder, type);
 	GLUNurbsState *ns = GLUNurbsFromHandle(nurb);
 	if (!ns || !ns->in_surface) return;
 
@@ -5112,7 +5112,7 @@ void NativeGLUNurbsSurface(uint32_t nurb, int32_t sKnots, uint32_t sKnotsPtr,
 // t: parameter value
 // result: output point (dim floats)
 static void de_boor_evaluate(const float *knots, const float *control, int n, int order,
-                             int dim, float t, float *result)
+							 int dim, float t, float *result)
 {
 	int degree = order - 1;
 
@@ -5228,13 +5228,13 @@ void NativeGLUEndSurface(uint32_t nurb)
 				}
 				// Evaluate s-direction curve at u_param
 				de_boor_evaluate(ns->s_knots.data(), s_control.data(), s_cp, ns->s_order,
-				                 dim, u_param, &t_curve_control[tj * dim]);
+								 dim, u_param, &t_curve_control[tj * dim]);
 			}
 
 			// Evaluate t-direction curve at v_param
 			float point[4];
 			de_boor_evaluate(ns->t_knots.data(), t_curve_control.data(), t_cp, ns->t_order,
-			                 dim, v_param, point);
+							 dim, v_param, point);
 
 			// Store result (project if dim==4)
 			int grid_idx = (vi * (u_steps + 1) + ui) * 3;
@@ -5285,7 +5285,7 @@ void NativeGLUEndSurface(uint32_t nurb)
 	}
 
 	GL_LOG("gluEndSurface: emitted %d triangle strips (%dx%d grid, %d total vertices)",
-	       strip_count, u_steps, v_steps, (u_steps + 1) * v_steps * 2);
+		   strip_count, u_steps, v_steps, (u_steps + 1) * v_steps * 2);
 }
 
 void NativeGLUBeginCurve(uint32_t nurb)
@@ -5300,10 +5300,10 @@ void NativeGLUBeginCurve(uint32_t nurb)
 }
 
 void NativeGLUNurbsCurve(uint32_t nurb, int32_t knotCount, uint32_t knots,
-                         int32_t stride, uint32_t control, int32_t order, uint32_t type)
+						 int32_t stride, uint32_t control, int32_t order, uint32_t type)
 {
 	GL_LOG("gluNurbsCurve: nurb=0x%08x knotCount=%d stride=%d order=%d type=0x%x",
-	       nurb, knotCount, stride, order, type);
+		   nurb, knotCount, stride, order, type);
 	GLUNurbsState *ns = GLUNurbsFromHandle(nurb);
 	if (!ns || !ns->in_curve) return;
 
@@ -5370,7 +5370,7 @@ void NativeGLUEndCurve(uint32_t nurb)
 		float t = t_min + (t_max - t_min) * i / steps;
 		float point[4];
 		de_boor_evaluate(ns->curve_knots.data(), ns->curve_control.data(), n_cp, ns->curve_order,
-		                 dim, t, point);
+						 dim, t, point);
 
 		if (dim == 4 && fabsf(point[3]) > 1e-10f) {
 			NativeGLVertex3f(ctx, point[0] / point[3], point[1] / point[3], point[2] / point[3]);
@@ -6614,7 +6614,7 @@ static void teapot_eval(const float cp[16][3], float u, float v, float out[3], f
 }
 
 static void teapot_render_patch(GLContext *ctx, const int patch_idx[16], float scale,
-                                float sx, float sy, float sz, bool wire)
+								float sx, float sy, float sz, bool wire)
 {
 	const int N = 10; // subdivisions per patch edge
 	// Build local control point array with scale and reflection applied

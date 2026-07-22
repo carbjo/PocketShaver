@@ -459,17 +459,17 @@ extern bool RaveGetLastCL8ColorTableRGBSnapshot(uint8_t outRGB[768]);
 
 // Forward declare Metal upload (implemented in gl_metal_renderer.mm)
 extern void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
-                                 int width, int height, const uint8_t *data, int dataLen);
+								 int width, int height, const uint8_t *data, int dataLen);
 extern void GLMetalUploadSubTexture(GLContext *ctx, GLTextureObject *texObj, int level,
-                                    int xoff, int yoff, int w, int h,
-                                    const uint8_t *data, int bytesPerRow);
+									int xoff, int yoff, int w, int h,
+									const uint8_t *data, int bytesPerRow);
 extern void GLMetalUpload3DTexture(GLContext *ctx, GLTextureObject *texObj, int level,
-                                   int width, int height, int depth,
-                                   const uint8_t *data, int dataLen);
+								   int width, int height, int depth,
+								   const uint8_t *data, int dataLen);
 extern void GLMetalUploadSubTexture3D(GLContext *ctx, GLTextureObject *texObj, int level,
-                                      int xoff, int yoff, int zoff,
-                                      int w, int h, int d,
-                                      const uint8_t *data, int bytesPerRow, int bytesPerImage);
+									  int xoff, int yoff, int zoff,
+									  int w, int h, int d,
+									  const uint8_t *data, int bytesPerRow, int bytesPerImage);
 extern void GLMetalDestroyTexture(GLTextureObject *texObj);
 
 
@@ -672,7 +672,7 @@ static int *gl_get_stack_depth_ptr(GLContext *ctx)
 void NativeGLMatrixMode(GLContext *ctx, uint32_t mode)
 {
 	if (mode == GL_MODELVIEW || mode == GL_PROJECTION ||
-	    mode == GL_TEXTURE || mode == GL_COLOR) {
+		mode == GL_TEXTURE || mode == GL_COLOR) {
 		ctx->matrix_mode = mode;
 	} else {
 		ctx->last_error = GL_INVALID_ENUM;
@@ -736,8 +736,8 @@ void NativeGLPushMatrix(GLContext *ctx)
 	if (*depth + 1 >= max_depth) {
 		ctx->last_error = GL_STACK_OVERFLOW;
 		GL_LOG("glPushMatrix OVERFLOW mode=0x%x depth=%d max=%d "
-		       "(raise gl_get_max_stack_depth / *_stack[] if a game needs deeper)",
-		       ctx->matrix_mode, *depth, max_depth);
+			   "(raise gl_get_max_stack_depth / *_stack[] if a game needs deeper)",
+			   ctx->matrix_mode, *depth, max_depth);
 		return;
 	}
 	// Copy current top to new top
@@ -1088,7 +1088,7 @@ void NativeGLClear(GLContext *ctx, uint32_t mask)
 		if (ctx->accum_allocated && ctx->accum_buffer) {
 			int n = ctx->accum_width * ctx->accum_height * 4;
 			bool non_zero = (ctx->clear_accum[0] != 0.0f || ctx->clear_accum[1] != 0.0f ||
-			                 ctx->clear_accum[2] != 0.0f || ctx->clear_accum[3] != 0.0f);
+							 ctx->clear_accum[2] != 0.0f || ctx->clear_accum[3] != 0.0f);
 			if (non_zero) {
 				for (int i = 0; i < ctx->accum_width * ctx->accum_height; i++) {
 					ctx->accum_buffer[i * 4 + 0] = ctx->clear_accum[0];
@@ -1275,8 +1275,8 @@ void NativeGLLightiv(GLContext *ctx, uint32_t light, uint32_t pname, uint32_t ma
 	int count = 4;
 	if (pname == GL_SPOT_DIRECTION) count = 3;
 	else if (pname == GL_SPOT_EXPONENT || pname == GL_SPOT_CUTOFF ||
-	         pname == GL_CONSTANT_ATTENUATION || pname == GL_LINEAR_ATTENUATION ||
-	         pname == GL_QUADRATIC_ATTENUATION) count = 1;
+			 pname == GL_CONSTANT_ATTENUATION || pname == GL_LINEAR_ATTENUATION ||
+			 pname == GL_QUADRATIC_ATTENUATION) count = 1;
 
 	float vals[4];
 	for (int i = 0; i < count; i++)
@@ -2334,7 +2334,7 @@ void NativeGLDeleteTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 			// Log deletion for debugging texture lifecycle
 			bool had_metal = (it->second.metal_texture != nullptr);
 			GL_LOG("glDeleteTextures: deleting tex %u (had_metal=%d, %dx%d)",
-			       name, had_metal, it->second.width, it->second.height);
+				   name, had_metal, it->second.width, it->second.height);
 
 			// Destroy Metal texture
 			GLMetalDestroyTexture(&it->second);
@@ -2564,9 +2564,9 @@ static uint8_t ReadColorIndexTo8(uint32_t addr, uint32_t type)
 }
 
 static bool ConvertPackedPixelToBGRA8(uint32_t pixAddr,
-                                      uint32_t format,
-                                      uint32_t type,
-                                      uint8_t out[4])
+									  uint32_t format,
+									  uint32_t type,
+									  uint8_t out[4])
 {
 	switch (type) {
 		case GL_UNSIGNED_BYTE_3_3_2:
@@ -2623,14 +2623,14 @@ static bool ConvertPackedPixelToBGRA8(uint32_t pixAddr,
 }
 
 static bool ConvertScalarPixelToBGRA8(uint32_t pixAddr,
-                                      uint32_t format,
-                                      uint32_t type,
-                                      uint8_t out[4])
+									  uint32_t format,
+									  uint32_t type,
+									  uint8_t out[4])
 {
 	const int componentCount = GLPixelFormatComponentCount(format);
 	const int scalarBytes = GLPixelScalarTypeBytes(type);
 	if (componentCount <= 0 || scalarBytes <= 0 ||
-	    format == GL_COLOR_INDEX) {
+		format == GL_COLOR_INDEX) {
 		return false;
 	}
 
@@ -2645,12 +2645,12 @@ static bool ConvertScalarPixelToBGRA8(uint32_t pixAddr,
 }
 
 static bool GLDetectLegacyUnsignedShortPaletteIndexTexture(uint32_t srcBase,
-                                                           int width,
-                                                           int height,
-                                                           int srcBpp,
-                                                           int rowStride,
-                                                           bool useMacVideoPalette,
-                                                           bool hasExplicitPalette)
+														   int width,
+														   int height,
+														   int srcBpp,
+														   int rowStride,
+														   bool useMacVideoPalette,
+														   bool hasExplicitPalette)
 {
 	if (srcBase == 0 || width <= 0 || height <= 0 || srcBpp != 2)
 		return false;
@@ -2709,9 +2709,9 @@ static bool GLDetectLegacyUnsignedShortExactDuplicatedByteTexture(
 		*outStats = stats;
 
 	return !hasExplicitPalette &&
-	       stats.sampled_words >= 4 &&
-	       stats.duplicated_byte_words == stats.sampled_words &&
-	       stats.non_extreme_duplicated_byte_words >= 2;
+		   stats.sampled_words >= 4 &&
+		   stats.duplicated_byte_words == stats.sampled_words &&
+		   stats.non_extreme_duplicated_byte_words >= 2;
 }
 
 static void GLGetMacVideoPaletteSnapshot(uint8_t outRGB[768])
@@ -2731,13 +2731,13 @@ static void GLGetMacVideoPaletteSnapshot(uint8_t outRGB[768])
  *  Returns the buffer (caller must free) and sets outLen.
  */
 static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
-                                      uint32_t format, uint32_t type,
-                                      const GLPixelStore &ps,
-                                      const GLContext *ctx,
-                                      int *outLen,
-                                      GLTextureObject *textureObject = nullptr,
-                                      int32_t textureLevel = 0,
-                                      bool updateTextureLegacyState = false)
+									  uint32_t format, uint32_t type,
+									  const GLPixelStore &ps,
+									  const GLContext *ctx,
+									  int *outLen,
+									  GLTextureObject *textureObject = nullptr,
+									  int32_t textureLevel = 0,
+									  bool updateTextureLegacyState = false)
 {
 	int dstBytes = width * height * 4;
 	uint8_t *dst = (uint8_t *)malloc(dstBytes);
@@ -2762,9 +2762,9 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 		ctx != nullptr &&
 		(ctx->color_table_enabled || ctx->color_tables[0].defined ||
 		 GLColorIndexPixelMapsDefined(ctx->pixel_map_i_to_r_size,
-		                             ctx->pixel_map_i_to_g_size,
-		                             ctx->pixel_map_i_to_b_size,
-		                             ctx->pixel_map_i_to_a_size));
+									 ctx->pixel_map_i_to_g_size,
+									 ctx->pixel_map_i_to_b_size,
+									 ctx->pixel_map_i_to_a_size));
 	uint8_t activeDSpCLUT[768];
 	uint8_t macVideoPalette[768];
 	uint8_t raveCL8Palette[768];
@@ -2818,7 +2818,7 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 			GLPixelLegacyUnsignedShortPackedBytesPerPixel(format, type);
 		const int legacyRowStride =
 			ComputeRowStride(width, legacySrcBpp, ps.unpack_alignment,
-			                 ps.unpack_row_length);
+							 ps.unpack_row_length);
 		const uint32_t legacySrcBase =
 			mac_pixels + ps.unpack_skip_rows * legacyRowStride +
 			ps.unpack_skip_pixels * legacySrcBpp;
@@ -2848,10 +2848,10 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 			if (s_legacyScalarUnsignedShortLogCount < 64) {
 				s_legacyScalarUnsignedShortLogCount++;
 				GL_VLOG("  -> scalar unsigned-short texture: %dx%d "
-				        "fmt=0x%x srcBase=0x%08x rowStride=%d uses "
-				        "standard %d-byte pixels; ignored duplicated-byte "
-				        "legacy layout with no usable palette",
-				        width, height, format, srcBase, rowStride, srcBpp);
+						"fmt=0x%x srcBase=0x%08x rowStride=%d uses "
+						"standard %d-byte pixels; ignored duplicated-byte "
+						"legacy layout with no usable palette",
+						width, height, format, srcBase, rowStride, srcBpp);
 			}
 		}
 	}
@@ -2884,20 +2884,20 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 				s_legacyPaletteMipChainLogCount++;
 				if (legacyUnsignedShortPaletteIndex) {
 					GL_VLOG("  -> legacy ushort mip-chain texture: tex=%u level=%d "
-					        "%dx%d fmt=0x%x srcBase=0x%08x rowStride=%d using "
-					        "level-0 duplicated-byte palette%s%s",
-					        textureObject->name, textureLevel, width, height,
-					        format, srcBase, rowStride,
-					        legacyPaletteSource ? " from " : "",
-					        legacyPaletteSource ? legacyPaletteSource : "");
+							"%dx%d fmt=0x%x srcBase=0x%08x rowStride=%d using "
+							"level-0 duplicated-byte palette%s%s",
+							textureObject->name, textureLevel, width, height,
+							format, srcBase, rowStride,
+							legacyPaletteSource ? " from " : "",
+							legacyPaletteSource ? legacyPaletteSource : "");
 				}
 				else {
 					GL_VLOG("  -> legacy ushort mip-chain texture: tex=%u level=%d "
-					        "%dx%d fmt=0x%x srcBase=0x%08x rowStride=%d had "
-					        "level-0 duplicated-byte palette state but no usable "
-					        "palette; using index-gray fallback",
-					        textureObject->name, textureLevel, width, height,
-					        format, srcBase, rowStride);
+							"%dx%d fmt=0x%x srcBase=0x%08x rowStride=%d had "
+							"level-0 duplicated-byte palette state but no usable "
+							"palette; using index-gray fallback",
+							textureObject->name, textureLevel, width, height,
+							format, srcBase, rowStride);
 				}
 			}
 		}
@@ -2913,25 +2913,25 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 					s_legacyBGR332MipChainLogCount++;
 					if (mipStillDuplicated) {
 						GL_VLOG("  -> legacy ushort mip-chain texture: tex=%u level=%d "
-						        "%dx%d fmt=0x%x srcBase=0x%08x rowStride=%d confirmed "
-						        "duplicated-byte mip; using level-0 BGR332 fallback",
-						        textureObject->name, textureLevel, width, height,
-						        format, srcBase, rowStride);
+								"%dx%d fmt=0x%x srcBase=0x%08x rowStride=%d confirmed "
+								"duplicated-byte mip; using level-0 BGR332 fallback",
+								textureObject->name, textureLevel, width, height,
+								format, srcBase, rowStride);
 					}
 					else {
 						GL_VLOG("  -> legacy ushort mip-chain texture: tex=%u level=%d "
-						        "%dx%d fmt=0x%x srcBase=0x%08x rowStride=%d skipped "
-						        "level-0 BGR332 fallback for mixed mip data "
-						        "(sampled=%d duplicated=%d nonExtreme=%d uniqueLow=%d "
-						        "lowRange=0x%02x..0x%02x)",
-					        textureObject->name, textureLevel, width, height,
-					        format, srcBase, rowStride,
-					        mipStats.sampled_words,
-					        mipStats.duplicated_byte_words,
-					        mipStats.non_extreme_duplicated_byte_words,
-					        mipStats.unique_low_byte_values,
-					        mipStats.min_low_byte,
-					        mipStats.max_low_byte);
+								"%dx%d fmt=0x%x srcBase=0x%08x rowStride=%d skipped "
+								"level-0 BGR332 fallback for mixed mip data "
+								"(sampled=%d duplicated=%d nonExtreme=%d uniqueLow=%d "
+								"lowRange=0x%02x..0x%02x)",
+							textureObject->name, textureLevel, width, height,
+							format, srcBase, rowStride,
+							mipStats.sampled_words,
+							mipStats.duplicated_byte_words,
+							mipStats.non_extreme_duplicated_byte_words,
+							mipStats.unique_low_byte_values,
+							mipStats.min_low_byte,
+							mipStats.max_low_byte);
 				}
 			}
 		}
@@ -2941,34 +2941,34 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 			if (s_legacyMipChainLogCount < 96) {
 				s_legacyMipChainLogCount++;
 				GL_VLOG("  -> legacy ushort mip-chain texture: tex=%u level=%d "
-				        "%dx%d fmt=0x%x srcBase=0x%08x rowStride=%d using "
-				        "level-0 duplicated-byte index-gray fallback",
-				        textureObject->name, textureLevel, width, height,
-				        format, srcBase, rowStride);
+						"%dx%d fmt=0x%x srcBase=0x%08x rowStride=%d using "
+						"level-0 duplicated-byte index-gray fallback",
+						textureObject->name, textureLevel, width, height,
+						format, srcBase, rowStride);
 			}
 		}
 		else if (canUseActiveDSpCLUT &&
-		    GLDetectLegacyUnsignedShortPaletteIndexTexture(srcBase, width, height,
-		                                                   srcBpp, rowStride,
-		                                                   false, false)) {
+			GLDetectLegacyUnsignedShortPaletteIndexTexture(srcBase, width, height,
+														   srcBpp, rowStride,
+														   false, false)) {
 			legacyUnsignedShortPaletteIndex = true;
 			colorIndexPalette = activeDSpCLUT;
 			colorIndexPaletteEntries = 256;
 			legacyPaletteSource = "active DSp CLUT";
 		}
 		else if (canUseRaveCL8Palette &&
-		    GLDetectLegacyUnsignedShortPaletteIndexTexture(srcBase, width, height,
-		                                                   srcBpp, rowStride,
-		                                                   false, false)) {
+			GLDetectLegacyUnsignedShortPaletteIndexTexture(srcBase, width, height,
+														   srcBpp, rowStride,
+														   false, false)) {
 			legacyUnsignedShortPaletteIndex = true;
 			colorIndexPalette = raveCL8Palette;
 			colorIndexPaletteEntries = 256;
 			legacyPaletteSource = "RAVE CL8 color table";
 		}
 		else if (GLDetectLegacyUnsignedShortPaletteIndexTexture(srcBase, width, height,
-		                                                        srcBpp, rowStride,
-		                                                        true,
-		                                                        hasExplicitColorIndexPalette)) {
+																srcBpp, rowStride,
+																true,
+																hasExplicitColorIndexPalette)) {
 			if (macVideoPaletteUsable) {
 				legacyUnsignedShortPaletteIndex = true;
 				colorIndexPalette = macVideoPalette;
@@ -2982,9 +2982,9 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 					if (s_legacyEmptyMacPaletteLogCount < 64) {
 						s_legacyEmptyMacPaletteLogCount++;
 						GL_VLOG("  -> legacy ushort duplicated-index texture: %dx%d "
-						        "fmt=0x%x srcBase=0x%08x rowStride=%d ignored empty "
-						        "Mac video palette; using duplicated-byte BGR332 fallback",
-						        width, height, format, srcBase, rowStride);
+								"fmt=0x%x srcBase=0x%08x rowStride=%d ignored empty "
+								"Mac video palette; using duplicated-byte BGR332 fallback",
+								width, height, format, srcBase, rowStride);
 					}
 				}
 				else {
@@ -2992,18 +2992,18 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 					if (s_legacyPackedFallbackLogCount < 64) {
 						s_legacyPackedFallbackLogCount++;
 						GL_VLOG("  -> legacy ushort duplicated-index texture: %dx%d "
-						        "fmt=0x%x srcBase=0x%08x rowStride=%d ignored empty "
-						        "Mac video palette; using native packed unsigned-short decode",
-						        width, height, format, srcBase, rowStride);
+								"fmt=0x%x srcBase=0x%08x rowStride=%d ignored empty "
+								"Mac video palette; using native packed unsigned-short decode",
+								width, height, format, srcBase, rowStride);
 					}
 				}
 			}
 		}
 	}
 	if (legacyUnsignedShortEligible &&
-	    updateTextureLegacyState &&
-	    textureObject != nullptr &&
-	    textureLevel == 0) {
+		updateTextureLegacyState &&
+		textureObject != nullptr &&
+		textureLevel == 0) {
 		const bool previousPalette =
 			textureObject->legacy_ushort_palette_index_chain;
 		const bool previousBGR332 =
@@ -3019,17 +3019,17 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 		textureObject->legacy_ushort_scalar_no_palette_chain =
 			legacyUnsignedShortScalarNoPalette;
 		if (previousPalette != legacyUnsignedShortPaletteIndex ||
-		    previousBGR332 != legacyUnsignedShortBGR332 ||
-		    previousGray != legacyUnsignedShortIndexGray ||
-		    previousScalarNoPalette != legacyUnsignedShortScalarNoPalette) {
+			previousBGR332 != legacyUnsignedShortBGR332 ||
+			previousGray != legacyUnsignedShortIndexGray ||
+			previousScalarNoPalette != legacyUnsignedShortScalarNoPalette) {
 			GL_LOG("  -> legacy ushort texture state: tex=%u level-0 "
-			       "palette-index mip chain %s, BGR332 mip chain %s, "
-			       "index-gray mip chain %s, scalar no-palette mip chain %s",
-			       textureObject->name,
-			       legacyUnsignedShortPaletteIndex ? "enabled" : "disabled",
-			       legacyUnsignedShortBGR332 ? "enabled" : "disabled",
-			       legacyUnsignedShortIndexGray ? "enabled" : "disabled",
-			       legacyUnsignedShortScalarNoPalette ? "enabled" : "disabled");
+				   "palette-index mip chain %s, BGR332 mip chain %s, "
+				   "index-gray mip chain %s, scalar no-palette mip chain %s",
+				   textureObject->name,
+				   legacyUnsignedShortPaletteIndex ? "enabled" : "disabled",
+				   legacyUnsignedShortBGR332 ? "enabled" : "disabled",
+				   legacyUnsignedShortIndexGray ? "enabled" : "disabled",
+				   legacyUnsignedShortScalarNoPalette ? "enabled" : "disabled");
 		}
 	}
 	if (legacyUnsignedShortPaletteIndex) {
@@ -3037,9 +3037,9 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 		if (s_legacyPaletteLogCount < 64) {
 			s_legacyPaletteLogCount++;
 			GL_VLOG("  -> legacy ushort duplicated-index texture: %dx%d fmt=0x%x "
-			        "srcBase=0x%08x rowStride=%d using %s",
-			        width, height, format, srcBase, rowStride,
-			        legacyPaletteSource ? legacyPaletteSource : "palette");
+					"srcBase=0x%08x rowStride=%d using %s",
+					width, height, format, srcBase, rowStride,
+					legacyPaletteSource ? legacyPaletteSource : "palette");
 		}
 	}
 
@@ -3101,21 +3101,21 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 }
 
 uint8_t *GLConvertMacPixelsToBGRA8(GLContext *ctx,
-                                   uint32_t mac_pixels,
-                                   int width,
-                                   int height,
-                                   uint32_t format,
-                                   uint32_t type,
-                                   int *outLen)
+								   uint32_t mac_pixels,
+								   int width,
+								   int height,
+								   uint32_t format,
+								   uint32_t type,
+								   int *outLen)
 {
 	if (!outLen) return nullptr;
 	if (ctx)
 		return ConvertPixelsToBGRA8(mac_pixels, width, height, format, type,
-		                            ctx->pixel_store, ctx, outLen);
+									ctx->pixel_store, ctx, outLen);
 
 	GLPixelStore ps = {4, 0, 0, 0, 4, 0, 0, 0};
 	return ConvertPixelsToBGRA8(mac_pixels, width, height, format, type,
-	                            ps, nullptr, outLen);
+								ps, nullptr, outLen);
 }
 
 
@@ -3180,12 +3180,12 @@ static void GLApplyColorTableLUT(GLContext *ctx, uint8_t *bgra, int width, int h
  *  plus mac_pixels from stack/r10.
  */
 void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
-                         int32_t internalformat, int32_t width, int32_t height,
-                         int32_t border, uint32_t format, uint32_t type,
-                         uint32_t mac_pixels)
+						 int32_t internalformat, int32_t width, int32_t height,
+						 int32_t border, uint32_t format, uint32_t type,
+						 uint32_t mac_pixels)
 {
 	GL_VLOG("NativeGLTexImage2D: ctx=%p target=0x%x level=%d w=%d h=%d fmt=0x%x type=0x%x pixels=0x%08x",
-	       ctx, target, level, width, height, format, type, mac_pixels);
+		   ctx, target, level, width, height, format, type, mac_pixels);
 
 	if (!ctx) { GL_LOG("NativeGLTexImage2D: ctx is NULL, returning"); return; }
 
@@ -3220,9 +3220,9 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 			tex.legacy_ushort_scalar_no_palette_chain ?
 			"scalar no-palette" : "BGR332 fallback";
 		GL_VLOG("  -> legacy ushort %s texture: tex=%u level=%d "
-		        "%dx%d fmt=0x%x type=0x%x ignoring client mip; "
-		        "sampling level-0 fallback texture only",
-		        fallbackName, tex.name, level, width, height, format, type);
+				"%dx%d fmt=0x%x type=0x%x ignoring client mip; "
+				"sampling level-0 fallback texture only",
+				fallbackName, tex.name, level, width, height, format, type);
 		return;
 	}
 	if (level > 0) tex.has_mipmaps = true;
@@ -3240,11 +3240,11 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 
 	// Convert pixel data
 	GL_VLOG("  -> about to ConvertPixelsToBGRA8: mac_pixels=0x%08x host=%p w=%d h=%d fmt=0x%x type=0x%x",
-	       mac_pixels, Mac2HostAddr(mac_pixels), width, height, format, type);
+		   mac_pixels, Mac2HostAddr(mac_pixels), width, height, format, type);
 	int dataLen = 0;
 	uint8_t *converted = ConvertPixelsToBGRA8(mac_pixels, width, height,
-	                                           format, type, ctx->pixel_store, ctx, &dataLen,
-	                                           &tex, level, true);
+											   format, type, ctx->pixel_store, ctx, &dataLen,
+											   &tex, level, true);
 	if (!converted) return;
 
 	// ARB_imaging color-table LUT apply: when GL_COLOR_TABLE is
@@ -3267,9 +3267,9 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
  *  glTexSubImage2D -- partial texture update
  */
 void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
-                            int32_t xoffset, int32_t yoffset,
-                            int32_t width, int32_t height,
-                            uint32_t format, uint32_t type, uint32_t mac_pixels)
+							int32_t xoffset, int32_t yoffset,
+							int32_t width, int32_t height,
+							uint32_t format, uint32_t type, uint32_t mac_pixels)
 {
 	if (!ctx || mac_pixels == 0) return;
 
@@ -3285,8 +3285,8 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 
 	int dataLen = 0;
 	uint8_t *converted = ConvertPixelsToBGRA8(mac_pixels, width, height,
-	                                           format, type, ctx->pixel_store, ctx, &dataLen,
-	                                           &tex, level, false);
+											   format, type, ctx->pixel_store, ctx, &dataLen,
+											   &tex, level, false);
 	if (!converted) return;
 
 	// ARB_imaging color-table LUT apply: same upload-path remap as
@@ -3295,7 +3295,7 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	GLApplyColorTableLUT(ctx, converted, width, height, dataLen);
 
 	GLMetalUploadSubTexture(ctx, &tex, level, xoffset, yoffset, width, height,
-	                         converted, width * 4);
+							 converted, width * 4);
 	free(converted);
 }
 
@@ -3304,11 +3304,11 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
  *  glTexImage1D -- treat as 2D with height=1 (Metal has no 1D textures on iOS)
  */
 void NativeGLTexImage1D(GLContext *ctx, uint32_t target, int32_t level,
-                         int32_t internalformat, int32_t width, int32_t border,
-                         uint32_t format, uint32_t type, uint32_t mac_pixels)
+						 int32_t internalformat, int32_t width, int32_t border,
+						 uint32_t format, uint32_t type, uint32_t mac_pixels)
 {
 	NativeGLTexImage2D(ctx, GL_TEXTURE_2D, level, internalformat, width, 1,
-	                    border, format, type, mac_pixels);
+						border, format, type, mac_pixels);
 }
 
 
@@ -3316,11 +3316,11 @@ void NativeGLTexImage1D(GLContext *ctx, uint32_t target, int32_t level,
  *  glTexSubImage1D -- partial 1D texture update (height=1)
  */
 void NativeGLTexSubImage1D(GLContext *ctx, uint32_t target, int32_t level,
-                            int32_t xoffset, int32_t width,
-                            uint32_t format, uint32_t type, uint32_t mac_pixels)
+							int32_t xoffset, int32_t width,
+							uint32_t format, uint32_t type, uint32_t mac_pixels)
 {
 	NativeGLTexSubImage2D(ctx, GL_TEXTURE_2D, level, xoffset, 0, width, 1,
-	                       format, type, mac_pixels);
+						   format, type, mac_pixels);
 }
 
 
@@ -3328,8 +3328,8 @@ void NativeGLTexSubImage1D(GLContext *ctx, uint32_t target, int32_t level,
  *  glCopyTexImage2D -- copy framebuffer rect into a new texture level
  */
 void NativeGLCopyTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
-                             uint32_t internalformat, int32_t x, int32_t y,
-                             int32_t width, int32_t height, int32_t border)
+							 uint32_t internalformat, int32_t x, int32_t y,
+							 int32_t width, int32_t height, int32_t border)
 {
 	if (!ctx || width <= 0 || height <= 0) return;
 
@@ -3353,15 +3353,15 @@ void NativeGLCopyTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	free(bgra);
 
 	GL_LOG("glCopyTexImage2D: %dx%d from (%d,%d) -> tex %u level %d",
-		        width, height, x, y, texName, level);
+				width, height, x, y, texName, level);
 }
 
 /*
  *  glCopyTexSubImage2D -- copy framebuffer rect into existing texture sub-region
  */
 void NativeGLCopyTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
-                                int32_t xoffset, int32_t yoffset,
-                                int32_t x, int32_t y, int32_t width, int32_t height)
+								int32_t xoffset, int32_t yoffset,
+								int32_t x, int32_t y, int32_t width, int32_t height)
 {
 	if (!ctx || width <= 0 || height <= 0) return;
 
@@ -3382,7 +3382,7 @@ void NativeGLCopyTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	// For simplicity, upload the full level and let Metal handle the sub-region
 	// TODO: Use a dedicated sub-image upload for better efficiency
 	if (xoffset == 0 && yoffset == 0 && level == 0 &&
-	    width == tex.width && height == tex.height) {
+		width == tex.width && height == tex.height) {
 		GLMetalUploadTexture(ctx, &tex, level, width, height, bgra, bufLen);
 	} else {
 		// For sub-region copies, re-upload the full texture with the modified region
@@ -3392,7 +3392,7 @@ void NativeGLCopyTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	free(bgra);
 
 	GL_LOG("glCopyTexSubImage2D: %dx%d from (%d,%d) -> tex %u level %d offset (%d,%d)",
-	        width, height, x, y, texName, level, xoffset, yoffset);
+			width, height, x, y, texName, level, xoffset, yoffset);
 }
 
 
@@ -3534,7 +3534,7 @@ void NativeGLRasterPos4sv(GLContext *ctx, uint32_t p) { gl_raster_pos4f(ctx, (fl
 
 // --- Bitmap ---
 void NativeGLBitmap(GLContext *ctx, int32_t width, int32_t height, float xorig, float yorig,
-                    float xmove, float ymove, uint32_t bitmap_ptr)
+					float xmove, float ymove, uint32_t bitmap_ptr)
 {
 	// Render the bitmap if we have valid data and raster position
 	if (bitmap_ptr != 0 && ctx->raster_pos_valid && width > 0 && height > 0) {
@@ -3873,7 +3873,7 @@ void NativeGLMap2f(GLContext *ctx, uint32_t t, float u1, float u2, int32_t us, i
 	map.defined = true;
 
 	GL_LOG("Map2f target=0x%X uorder=%d vorder=%d dim=%d u=[%f,%f] v=[%f,%f]",
-	       t, uo, vo, dim, u1, u2, v1, v2);
+		   t, uo, vo, dim, u1, u2, v1, v2);
 }
 
 // glMap2d -- define a 2D evaluator map (double version)
@@ -4441,12 +4441,12 @@ void NativeGLCallLists(GLContext *ctx, int32_t n, uint32_t type, uint32_t lists_
 			break;
 		case 0x1407: // GL_2_BYTES
 			name = ((uint32_t)ReadMacInt8(lists_ptr + i * 2) << 8) |
-			        ReadMacInt8(lists_ptr + i * 2 + 1);
+					ReadMacInt8(lists_ptr + i * 2 + 1);
 			break;
 		case 0x1408: // GL_3_BYTES
 			name = ((uint32_t)ReadMacInt8(lists_ptr + i * 3) << 16) |
-			       ((uint32_t)ReadMacInt8(lists_ptr + i * 3 + 1) << 8) |
-			        ReadMacInt8(lists_ptr + i * 3 + 2);
+				   ((uint32_t)ReadMacInt8(lists_ptr + i * 3 + 1) << 8) |
+					ReadMacInt8(lists_ptr + i * 3 + 2);
 			break;
 		case 0x1409: // GL_4_BYTES
 			name = ReadMacInt32(lists_ptr + i * 4);
@@ -4476,7 +4476,7 @@ void NativeGLVertexPointer(GLContext *ctx, int32_t size, uint32_t type, int32_t 
 void NativeGLNormalPointer(GLContext *ctx, uint32_t type, int32_t stride, uint32_t pointer) { ctx->normal_array.type = type; ctx->normal_array.stride = stride; ctx->normal_array.pointer = pointer; }
 void NativeGLColorPointer(GLContext *ctx, int32_t size, uint32_t type, int32_t stride, uint32_t pointer) { ctx->color_array.size = size; ctx->color_array.type = type; ctx->color_array.stride = stride; ctx->color_array.pointer = pointer; }
 void NativeGLTexCoordPointer(GLContext *ctx, int32_t size, uint32_t type,
-                             int32_t stride, uint32_t pointer)
+							 int32_t stride, uint32_t pointer)
 {
 	int u = gl_clamp_texture_unit(ctx->client_active_texture);
 	ctx->texcoord_array[u].size = size;
@@ -5090,7 +5090,7 @@ void NativeGLMultiTexCoord4iARB(GLContext *ctx, uint32_t target, int32_t s, int3
 void NativeGLMultiTexCoord4ivARB(GLContext *ctx, uint32_t target, uint32_t mac_ptr) {
 	if (!ctx) return;
 	gl_set_texcoord(ctx, target, (float)(int32_t)ReadMacInt32(mac_ptr), (float)(int32_t)ReadMacInt32(mac_ptr+4),
-	                (float)(int32_t)ReadMacInt32(mac_ptr+8), (float)(int32_t)ReadMacInt32(mac_ptr+12));
+					(float)(int32_t)ReadMacInt32(mac_ptr+8), (float)(int32_t)ReadMacInt32(mac_ptr+12));
 }
 void NativeGLMultiTexCoord4sARB(GLContext *ctx, uint32_t target, int16_t s, int16_t t, int16_t r, int16_t q) {
 	if (!ctx) return;
@@ -5099,7 +5099,7 @@ void NativeGLMultiTexCoord4sARB(GLContext *ctx, uint32_t target, int16_t s, int1
 void NativeGLMultiTexCoord4svARB(GLContext *ctx, uint32_t target, uint32_t mac_ptr) {
 	if (!ctx) return;
 	gl_set_texcoord(ctx, target, (float)(int16_t)ReadMacInt16(mac_ptr), (float)(int16_t)ReadMacInt16(mac_ptr+2),
-	                (float)(int16_t)ReadMacInt16(mac_ptr+4), (float)(int16_t)ReadMacInt16(mac_ptr+6));
+					(float)(int16_t)ReadMacInt16(mac_ptr+4), (float)(int16_t)ReadMacInt16(mac_ptr+6));
 }
 
 
@@ -5480,8 +5480,8 @@ void NativeGLSecondaryColor3iEXT(GLContext *ctx, int32_t r, int32_t g, int32_t b
 void NativeGLSecondaryColor3ivEXT(GLContext *ctx, uint32_t mac_ptr) {
 	if (!ctx) return;
 	gl_set_secondary_color(ctx, (int32_t)ReadMacInt32(mac_ptr)/2147483647.0f,
-	                       (int32_t)ReadMacInt32(mac_ptr+4)/2147483647.0f,
-	                       (int32_t)ReadMacInt32(mac_ptr+8)/2147483647.0f);
+						   (int32_t)ReadMacInt32(mac_ptr+4)/2147483647.0f,
+						   (int32_t)ReadMacInt32(mac_ptr+8)/2147483647.0f);
 }
 void NativeGLSecondaryColor3sEXT(GLContext *ctx, int16_t r, int16_t g, int16_t b) {
 	if (!ctx) return;
@@ -5490,8 +5490,8 @@ void NativeGLSecondaryColor3sEXT(GLContext *ctx, int16_t r, int16_t g, int16_t b
 void NativeGLSecondaryColor3svEXT(GLContext *ctx, uint32_t mac_ptr) {
 	if (!ctx) return;
 	gl_set_secondary_color(ctx, (int16_t)ReadMacInt16(mac_ptr)/32767.0f,
-	                       (int16_t)ReadMacInt16(mac_ptr+2)/32767.0f,
-	                       (int16_t)ReadMacInt16(mac_ptr+4)/32767.0f);
+						   (int16_t)ReadMacInt16(mac_ptr+2)/32767.0f,
+						   (int16_t)ReadMacInt16(mac_ptr+4)/32767.0f);
 }
 void NativeGLSecondaryColor3ubEXT(GLContext *ctx, uint8_t r, uint8_t g, uint8_t b) {
 	if (!ctx) return;
@@ -5508,8 +5508,8 @@ void NativeGLSecondaryColor3uiEXT(GLContext *ctx, uint32_t r, uint32_t g, uint32
 void NativeGLSecondaryColor3uivEXT(GLContext *ctx, uint32_t mac_ptr) {
 	if (!ctx) return;
 	gl_set_secondary_color(ctx, ReadMacInt32(mac_ptr)/4294967295.0f,
-	                       ReadMacInt32(mac_ptr+4)/4294967295.0f,
-	                       ReadMacInt32(mac_ptr+8)/4294967295.0f);
+						   ReadMacInt32(mac_ptr+4)/4294967295.0f,
+						   ReadMacInt32(mac_ptr+8)/4294967295.0f);
 }
 void NativeGLSecondaryColor3usEXT(GLContext *ctx, uint16_t r, uint16_t g, uint16_t b) {
 	if (!ctx) return;
@@ -5518,8 +5518,8 @@ void NativeGLSecondaryColor3usEXT(GLContext *ctx, uint16_t r, uint16_t g, uint16
 void NativeGLSecondaryColor3usvEXT(GLContext *ctx, uint32_t mac_ptr) {
 	if (!ctx) return;
 	gl_set_secondary_color(ctx, ReadMacInt16(mac_ptr)/65535.0f,
-	                       ReadMacInt16(mac_ptr+2)/65535.0f,
-	                       ReadMacInt16(mac_ptr+4)/65535.0f);
+						   ReadMacInt16(mac_ptr+2)/65535.0f,
+						   ReadMacInt16(mac_ptr+4)/65535.0f);
 }
 void NativeGLSecondaryColorPointerEXT(GLContext *ctx, int32_t size, uint32_t type, int32_t stride, uint32_t pointer)
 {
@@ -6283,7 +6283,7 @@ void NativeGLTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level,
 	}
 
 	GLMetalUploadSubTexture3D(ctx, &tex, level, xoff, yoff, zoff, w, h, d,
-	                          converted, w * 4, sliceSize);
+							  converted, w * 4, sliceSize);
 	free(converted);
 }
 

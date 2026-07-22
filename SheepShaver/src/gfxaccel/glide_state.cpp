@@ -3,6 +3,8 @@
  *
  *  Holds combinatorial state for Glide 3 and legacy Glide 2 setters.
  *  The GL renderer reads this on draw/swap.
+ *
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #include "sysdeps.h"
@@ -369,7 +371,7 @@ void GlideStateSetTexSource(uint32_t startAddress, int evenOdd, int format)
 }
 
 void GlideStateSetTexSourceEx(uint32_t startAddress, int evenOdd,
-                              int small_lod, int large_lod, int aspect_log2, int format)
+							  int small_lod, int large_lod, int aspect_log2, int format)
 {
 	g_glide.tex_start_address = startAddress;
 	g_glide.tex_even_odd = evenOdd;
@@ -587,7 +589,7 @@ static bool glide_lfb_ensure_guest(int bpp)
 		need = 4096;
 
 	if (g_glide.lfb_guest_ptr && g_glide.lfb_alloc_size >= need &&
-	    g_glide.lfb_bpp == bpp) {
+		g_glide.lfb_bpp == bpp) {
 		g_glide.lfb_stride = stride;
 		g_glide.lfb_height_rows = (uint32_t)h;
 		return true;
@@ -619,7 +621,7 @@ static bool glide_lfb_ensure_guest(int bpp)
 }
 
 bool GlideStateLfbLock(int type, int buffer, int write_mode, int origin,
-                       uint32_t *out_ptr, uint32_t *out_stride, int *out_write_mode)
+					   uint32_t *out_ptr, uint32_t *out_stride, int *out_write_mode)
 {
 	if (g_glide.lfb_locked)
 		return false;
@@ -725,7 +727,7 @@ const uint8_t *GlideStateLfbConvertToBGRA(int *out_w, int *out_h, int *out_pitch
 			/* 8888 packed: treat guest big-endian ARGB words -> BGRA. */
 			for (int x = 0; x < w; x++) {
 				const uint32_t p = ((uint32_t)row[0] << 24) | ((uint32_t)row[1] << 16) |
-				                   ((uint32_t)row[2] << 8) | (uint32_t)row[3];
+								   ((uint32_t)row[2] << 8) | (uint32_t)row[3];
 				row += 4;
 				const uint8_t A = (uint8_t)((p >> 24) & 0xff);
 				const uint8_t R = (uint8_t)((p >> 16) & 0xff);
@@ -774,8 +776,8 @@ void GlideStateLfbClear(uint16_t color565)
 }
 
 bool GlideStateLfbWriteRegion(int /*dst_buffer*/, int dst_x, int dst_y,
-                              int /*src_format*/, int src_w, int src_h,
-                              int src_stride, const void *src_data)
+							  int /*src_format*/, int src_w, int src_h,
+							  int src_stride, const void *src_data)
 {
 	if (!src_data || src_w <= 0 || src_h <= 0) return false;
 	if (!g_glide.lfb_guest_ptr && !glide_lfb_ensure_guest(g_glide.lfb_bpp > 0 ? g_glide.lfb_bpp : 2))
@@ -803,7 +805,7 @@ bool GlideStateLfbWriteRegion(int /*dst_buffer*/, int dst_x, int dst_y,
 }
 
 bool GlideStateLfbReadRegion(int /*src_buffer*/, int src_x, int src_y,
-                             int src_w, int src_h, int dst_stride, void *dst_data)
+							 int src_w, int src_h, int dst_stride, void *dst_data)
 {
 	if (!dst_data || src_w <= 0 || src_h <= 0) return false;
 	if (!g_glide.lfb_guest_ptr) return false;

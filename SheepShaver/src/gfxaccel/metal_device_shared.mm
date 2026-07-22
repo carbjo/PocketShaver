@@ -33,17 +33,17 @@ static dispatch_once_t s_queue_token;
 
 void *SharedMetalDevice(void)
 {
-    dispatch_once(&s_device_token, ^{
-        s_device = MTLCreateSystemDefaultDevice();
-        if (s_device) {
-            printf("SharedMetalDevice: created device=%p (%s)\n",
-                   (__bridge void *)s_device,
-                   [[s_device name] UTF8String]);
-        } else {
-            printf("SharedMetalDevice: MTLCreateSystemDefaultDevice failed\n");
-        }
-    });
-    return (__bridge void *)s_device;
+	dispatch_once(&s_device_token, ^{
+		s_device = MTLCreateSystemDefaultDevice();
+		if (s_device) {
+			printf("SharedMetalDevice: created device=%p (%s)\n",
+				   (__bridge void *)s_device,
+				   [[s_device name] UTF8String]);
+		} else {
+			printf("SharedMetalDevice: MTLCreateSystemDefaultDevice failed\n");
+		}
+	});
+	return (__bridge void *)s_device;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,26 +54,26 @@ void *SharedMetalDevice(void)
 #ifdef DEBUG
 static void MetalValidation_CheckCommandBufferError(id<MTLCommandBuffer> cmdBuf)
 {
-    if (cmdBuf.error != nil) {
-        NSCAssert(NO, @"[Metal Validation] Command buffer error: %@\n"
-                       "Status: %lu\nDevice: %@",
-                  cmdBuf.error.localizedDescription,
-                  (unsigned long)cmdBuf.status,
-                  [cmdBuf.device name]);
-    }
+	if (cmdBuf.error != nil) {
+		NSCAssert(NO, @"[Metal Validation] Command buffer error: %@\n"
+					   "Status: %lu\nDevice: %@",
+				  cmdBuf.error.localizedDescription,
+				  (unsigned long)cmdBuf.status,
+				  [cmdBuf.device name]);
+	}
 }
 
 extern "C" void MetalValidation_InstallErrorHandler(void *cmdBufPtr)
 {
-    id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)cmdBufPtr;
-    [cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull completed) {
-        MetalValidation_CheckCommandBufferError(completed);
-    }];
+	id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)cmdBufPtr;
+	[cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull completed) {
+		MetalValidation_CheckCommandBufferError(completed);
+	}];
 }
 #else
 extern "C" void MetalValidation_InstallErrorHandler(void *cmdBufPtr)
 {
-    (void)cmdBufPtr; // no-op in release
+	(void)cmdBufPtr; // no-op in release
 }
 #endif
 
@@ -83,19 +83,19 @@ extern "C" void MetalValidation_InstallErrorHandler(void *cmdBufPtr)
 
 void *SharedMetalCommandQueue(void)
 {
-    // Ensure device exists first (ordering guarantee)
-    SharedMetalDevice();
+	// Ensure device exists first (ordering guarantee)
+	SharedMetalDevice();
 
-    dispatch_once(&s_queue_token, ^{
-        if (s_device) {
-            s_queue = [s_device newCommandQueue];
-            if (s_queue) {
-                printf("SharedMetalCommandQueue: created queue=%p\n",
-                       (__bridge void *)s_queue);
-            } else {
-                printf("SharedMetalCommandQueue: newCommandQueue failed\n");
-            }
-        }
-    });
-    return (__bridge void *)s_queue;
+	dispatch_once(&s_queue_token, ^{
+		if (s_device) {
+			s_queue = [s_device newCommandQueue];
+			if (s_queue) {
+				printf("SharedMetalCommandQueue: created queue=%p\n",
+					   (__bridge void *)s_queue);
+			} else {
+				printf("SharedMetalCommandQueue: newCommandQueue failed\n");
+			}
+		}
+	});
+	return (__bridge void *)s_queue;
 }

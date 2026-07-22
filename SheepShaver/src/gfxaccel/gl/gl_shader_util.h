@@ -1,5 +1,7 @@
 /*
  *  gl_shader_util.h - Minimal GLSL helper for gfxaccel OpenGL backend
+ *
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #ifndef GFXACCEL_GL_SHADER_UTIL_H

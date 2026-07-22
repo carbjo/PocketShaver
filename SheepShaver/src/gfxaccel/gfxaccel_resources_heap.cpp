@@ -41,8 +41,8 @@ extern "C" void gfxaccel_resources_heap_mm_init(void);
 extern "C" void gfxaccel_resources_heap_mm_shutdown(void);
 extern "C" void *gfxaccel_resources_heap_mm_get(uint32_t heap_id);
 extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
-                                                          uint32_t length,
-                                                          uint32_t options);
+														  uint32_t length,
+														  uint32_t options);
 extern "C" void gfxaccel_resources_heap_mm_lru_purge(void);
 extern "C" uint64_t gfxaccel_resources_heap_mm_reset(uint32_t heap_id);
 extern "C" void gfxaccel_resources_heap_mm_note_allocation_released(uint32_t heap_id);
@@ -65,11 +65,11 @@ struct PSOCacheKey {
 
 	bool operator==(const PSOCacheKey &other) const {
 		return shader_pair_hash == other.shader_pair_hash &&
-		       vertex_descriptor_hash == other.vertex_descriptor_hash &&
-		       color_format[0] == other.color_format[0] &&
-		       color_format[1] == other.color_format[1] &&
-		       color_format[2] == other.color_format[2] &&
-		       color_format[3] == other.color_format[3];
+			   vertex_descriptor_hash == other.vertex_descriptor_hash &&
+			   color_format[0] == other.color_format[0] &&
+			   color_format[1] == other.color_format[1] &&
+			   color_format[2] == other.color_format[2] &&
+			   color_format[3] == other.color_format[3];
 	}
 };
 
@@ -129,7 +129,7 @@ static std::deque<PurgeableEntry> g_lru;
 // missed. Tests can call gfxaccel_resources_heap_reset directly to
 // exercise the reset semantics without depending on a DMC fan-out.
 static int32_t s_heap_reset_on_mode_exit(const struct DMCModeSnapshot *outgoing,
-                                          void *ctx)
+										  void *ctx)
 {
 	(void)outgoing;
 	(void)ctx;
@@ -138,9 +138,9 @@ static int32_t s_heap_reset_on_mode_exit(const struct DMCModeSnapshot *outgoing,
 		uint64_t reclaimed = gfxaccel_resources_heap_mm_reset(i);
 		if (reclaimed > 0) {
 			fprintf(stderr,
-			        "[gfxaccel-heap] on_mode_exit: heap_id=%u reset "
-			        "reclaimed %llu bytes\n",
-			        (unsigned)i, (unsigned long long)reclaimed);
+					"[gfxaccel-heap] on_mode_exit: heap_id=%u reset "
+					"reclaimed %llu bytes\n",
+					(unsigned)i, (unsigned long long)reclaimed);
 		}
 	}
 	return kDMCNoErr;
@@ -174,12 +174,12 @@ extern "C" int32_t gfxaccel_resources_heap_init(void)
 	// on failure (tests can call gfxaccel_resources_heap_reset directly).
 	int32_t sub_err = dmc_subscribe(&s_heap_reset_subscriber);
 	if (sub_err != kDMCNoErr &&
-	    sub_err != kDMCErrSubscriberAlreadyRegistered) {
+		sub_err != kDMCErrSubscriberAlreadyRegistered) {
 		fprintf(stderr,
-		        "[gfxaccel-heap] dmc_subscribe('gfxaccel_heap_reset') "
-		        "returned %d (non-fatal; automatic per-mode-exit reset "
-		        "disabled for this session)\n",
-		        (int)sub_err);
+				"[gfxaccel-heap] dmc_subscribe('gfxaccel_heap_reset') "
+				"returned %d (non-fatal; automatic per-mode-exit reset "
+				"disabled for this session)\n",
+				(int)sub_err);
 	}
 
 	s_heap_initialized = true;
@@ -219,19 +219,19 @@ extern "C" void *gfxaccel_resources_heap_get(uint32_t heap_id)
 {
 	if (heap_id >= kHeapCount) {
 		fprintf(stderr, "[gfxaccel-heap] heap_get: heap_id=%u out of range "
-		                "(max=%u)\n", (unsigned)heap_id, (unsigned)kHeapCount);
+						"(max=%u)\n", (unsigned)heap_id, (unsigned)kHeapCount);
 		return NULL;
 	}
 	return gfxaccel_resources_heap_mm_get(heap_id);
 }
 
 extern "C" void *gfxaccel_resources_heap_alloc_buffer(uint32_t heap_id,
-                                                       uint32_t length,
-                                                       uint32_t options)
+													   uint32_t length,
+													   uint32_t options)
 {
 	if (heap_id >= kHeapCount) {
 		fprintf(stderr, "[gfxaccel-heap] alloc_buffer: heap_id=%u out of range\n",
-		        (unsigned)heap_id);
+				(unsigned)heap_id);
 		return NULL;
 	}
 	return gfxaccel_resources_heap_mm_alloc_buffer(heap_id, length, options);
@@ -253,7 +253,7 @@ extern "C" void gfxaccel_resources_heap_note_allocation_released(uint32_t heap_i
 {
 	if (heap_id >= kHeapCount) {
 		fprintf(stderr, "[gfxaccel-heap] note_allocation_released: heap_id=%u "
-		                "out of range\n", (unsigned)heap_id);
+						"out of range\n", (unsigned)heap_id);
 		return;
 	}
 	gfxaccel_resources_heap_mm_note_allocation_released(heap_id);

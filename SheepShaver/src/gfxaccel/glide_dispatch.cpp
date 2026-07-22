@@ -1,6 +1,8 @@
 /*
  *  glide_dispatch.cpp - NATIVE_GLIDE_DISPATCH multiplex
  *
+ *
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #include "sysdeps.h"
@@ -96,14 +98,14 @@ extern void GlideStateDisableAllEffects(void);
 extern void GlideStateSetVertexLayout(int param, int offset, int mode);
 extern void GlideStateSetTexSource(uint32_t startAddress, int evenOdd, int format);
 extern void GlideStateSetTexSourceEx(uint32_t startAddress, int evenOdd,
-                                     int small_lod, int large_lod, int aspect_log2, int format);
+									 int small_lod, int large_lod, int aspect_log2, int format);
 extern void GlideStateSetTexClamp(int s, int t);
 extern void GlideStateSetTexFilter(int minf, int magf);
 extern bool GlideStateLfbWriteRegion(int dst_buffer, int dst_x, int dst_y,
-                                     int src_format, int src_w, int src_h,
-                                     int src_stride, const void *src_data);
+									 int src_format, int src_w, int src_h,
+									 int src_stride, const void *src_data);
 extern bool GlideStateLfbReadRegion(int src_buffer, int src_x, int src_y,
-                                    int src_w, int src_h, int dst_stride, void *dst_data);
+									int src_w, int src_h, int dst_stride, void *dst_data);
 extern uint32_t GlideStateTexMinAddress(int tmu);
 extern uint32_t GlideStateTexMaxAddress(int tmu);
 extern uint32_t GlideStateFbMem(void);
@@ -113,7 +115,7 @@ extern uint32_t GlideTexLevelSizeBytes(int lod, int aspect_log2, int format);
 extern void GlideStateResolveResolution(int res_enum, int *out_w, int *out_h);
 extern void GlideStateLfbRelease(void);
 extern bool GlideStateLfbLock(int type, int buffer, int write_mode, int origin,
-                              uint32_t *out_ptr, uint32_t *out_stride, int *out_write_mode);
+							  uint32_t *out_ptr, uint32_t *out_stride, int *out_write_mode);
 extern bool GlideStateLfbUnlock(int buffer);
 extern bool GlideStateLfbIsLocked(void);
 extern uint32_t GlideStateLfbGuestPtr(void);
@@ -234,7 +236,7 @@ static uint32_t handle_grGet(uint32_t pname, uint32_t plength, uint32_t paramsPt
 
 	if (plength < required) {
 		glide_log("grGet(pname=0x%x plength=%u) needs %u -> 0 bytes",
-		          pname, plength, required);
+				  pname, plength, required);
 		return 0;
 	}
 	WriteMacInt32(paramsPtr + 0, (int32_t)v0);
@@ -242,7 +244,7 @@ static uint32_t handle_grGet(uint32_t pname, uint32_t plength, uint32_t paramsPt
 	if (required >= 12) WriteMacInt32(paramsPtr + 8, (int32_t)v2);
 	if (required >= 16) WriteMacInt32(paramsPtr + 12, (int32_t)v3);
 	glide_log("grGet(pname=0x%x plength=%u) -> v0=%u v1=%u bytes=%u",
-	          pname, plength, v0, v1, required);
+			  pname, plength, v0, v1, required);
 	return required;
 }
 
@@ -294,40 +296,40 @@ void GlideHangDumpState(void)
 {
 	glide_log("======== GLIDE HANG STATE ========");
 	glide_log("glide: call_n=%llu last_sub=%u hist_total=%llu",
-	          (unsigned long long)s_call_n_global, s_last_sub,
-	          (unsigned long long)s_glide_hist_total);
+			  (unsigned long long)s_call_n_global, s_last_sub,
+			  (unsigned long long)s_glide_hist_total);
 	glide_log("glide: inited=%d win_open=%d size=%dx%d originUL=%d chroma_mode=%d chroma_val=%08x",
-	          GlideStateIsInited() ? 1 : 0,
-	          GlideStateWindowOpen() ? 1 : 0,
-	          GlideStateWidth(), GlideStateHeight(),
-	          GlideStateOriginUpperLeft(),
-	          GlideStateChromaMode(),
-	          (unsigned)GlideStateChromaValue());
+			  GlideStateIsInited() ? 1 : 0,
+			  GlideStateWindowOpen() ? 1 : 0,
+			  GlideStateWidth(), GlideStateHeight(),
+			  GlideStateOriginUpperLeft(),
+			  GlideStateChromaMode(),
+			  (unsigned)GlideStateChromaValue());
 	glide_log("glide: swap=sync lfb_locked=%d lfb_ptr=%08x stride=%u type=%d buf=%d mode=%d",
-	          GlideStateLfbIsLocked() ? 1 : 0,
-	          (unsigned)GlideStateLfbGuestPtr(),
-	          (unsigned)GlideStateLfbStride(),
-	          GlideStateLfbType(), GlideStateLfbBuffer(), GlideStateLfbWriteMode());
+			  GlideStateLfbIsLocked() ? 1 : 0,
+			  (unsigned)GlideStateLfbGuestPtr(),
+			  (unsigned)GlideStateLfbStride(),
+			  GlideStateLfbType(), GlideStateLfbBuffer(), GlideStateLfbWriteMode());
 	glide_log("glide: scratch=%08x (sub slot)", (unsigned)glide_scratch_addr);
 	if (glide_scratch_addr)
 		glide_log("glide: scratch_sub_now=%u", (unsigned)ReadMacInt32(glide_scratch_addr));
 	/* Dump hist oldest..newest */
 	const int n = (s_glide_hist_total < (uint64_t)kGlideHist)
-	              ? (int)s_glide_hist_total : kGlideHist;
+				  ? (int)s_glide_hist_total : kGlideHist;
 	glide_log("glide: last %d calls (oldest first):", n);
 	for (int k = 0; k < n; k++) {
 		const int idx = (s_glide_hist_i - n + k + kGlideHist * 2) % kGlideHist;
 		const GlideCallRec &c = s_glide_hist[idx];
 		glide_log("  hist[%d] #%llu sub=%u r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x sp9=%08x",
-		          k, (unsigned long long)c.n, c.sub,
-		          c.r3, c.r4, c.r5, c.r6, c.r7, c.r8, c.r9, c.r10, c.stack9);
+				  k, (unsigned long long)c.n, c.sub,
+				  c.r3, c.r4, c.r5, c.r6, c.r7, c.r8, c.r9, c.r10, c.stack9);
 	}
 	glide_log("======== GLIDE HANG STATE END ========");
 }
 
 uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
-                       uint32_t r6, uint32_t r7, uint32_t r8,
-                       uint32_t r9, uint32_t r10, uint32_t sp)
+					   uint32_t r6, uint32_t r7, uint32_t r8,
+					   uint32_t r9, uint32_t r10, uint32_t sp)
 {
 	if (!glide_scratch_addr)
 		return 0;
@@ -373,14 +375,14 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		 (sub >= 200 && sub < 230));
 
 	const bool log_this = true;/*hot ? (++s_hot_n <= 16 || (s_hot_n % 10000u) == 0)
-	                          : always_log;*/
+							  : always_log;*/
 	if (hot && log_this)
 		glide_log("GlideENTER #%llu sub=%u HOT#%u r3=%08x (win=%d)",
-		          (unsigned long long)s_call_n, sub, s_hot_n, r3,
-		          GlideStateWindowOpen() ? 1 : 0);
+				  (unsigned long long)s_call_n, sub, s_hot_n, r3,
+				  GlideStateWindowOpen() ? 1 : 0);
 	else if (!hot && log_this)
 		glide_log("GlideENTER #%llu sub=%u r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x",
-		          (unsigned long long)s_call_n, sub, r3, r4, r5, r6, r7, r8, r9, r10);
+				  (unsigned long long)s_call_n, sub, r3, r4, r5, r6, r7, r8, r9, r10);
 
 	/* RAII exit log - if the log freezes mid-call, ENTER was last without EXIT. */
 	struct GlideExitLog {
@@ -391,7 +393,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		{
 			if (on)
 				glide_log("GlideEXIT  #%llu sub=%u",
-				          (unsigned long long)n, sub);
+						  (unsigned long long)n, sub);
 		}
 	} exit_log{s_call_n, sub, log_this && !hot};
 
@@ -475,7 +477,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		GlideStateSetWin(w, h, origin_ul, cfmt, nCol ? nCol : 2, nAux);
 		(void)dmc_set_active_owner(kDMCOwnerGlide);
 		glide_log("grSstWinOpen %dx%d orgUL=%d cfmt=%d nCol=%d",
-		          w, h, origin_ul, cfmt, nCol);
+				  w, h, origin_ul, cfmt, nCol);
 		return FXTRUE;
 	}
 
@@ -532,7 +534,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		uint32_t in_retrace = (phase < 3ull) ? FXTRUE : FXFALSE;
 		if (s_vr_calls <= 12 || (s_vr_calls % 50000u) == 0) {
 			glide_log("grSstVRetraceOn #%u -> %u phase=%llu",
-			          s_vr_calls, in_retrace, (unsigned long long)phase);
+					  s_vr_calls, in_retrace, (unsigned long long)phase);
 		}
 		return in_retrace;
 	}
@@ -665,7 +667,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const float ref = (r3 > 255) ? 1.f : (r3 / 255.f);
 		GlideStateSetAlphaTest(GlideStateAlphaTestFunc(), ref);
 		GlideGLSetAlphaTest(GlideStateAlphaTestEnabled(),
-		                    GlideStateAlphaTestFunc(), ref);
+							GlideStateAlphaTestFunc(), ref);
 		return 0;
 	}
 	case kGlide_grChromakeyMode:
@@ -851,7 +853,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const uint8_t *data = data_mac ? Mac2HostAddr(data_mac) : nullptr;
 		if (!data) {
 			glide_log("grTexDownloadMipMapLevel NO DATA start=%08x r9=%08x r10=%08x",
-			          start, r9, r10);
+					  start, r9, r10);
 			return 0;
 		}
 		const uint32_t n = GlideTexLevelSizeBytes(this_lod, aspect, format);
@@ -933,7 +935,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 				 */
 				uint32_t tv = glide_method_tvects[kExt[i].sub];
 				glide_log("grGetProcAddress('%s') -> tvect=0x%08x code=0x%08x",
-				          name, tv, tv ? ReadMacInt32(tv) : 0);
+						  name, tv, tv ? ReadMacInt32(tv) : 0);
 				return tv;
 			}
 		}
@@ -980,7 +982,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		/* void grVertexLayout(FxU32 param, FxI32 offset, FxU32 mode) */
 		GlideStateSetVertexLayout((int)r3, (int)r4, (int)r5);
 		glide_log("grVertexLayout param=0x%x off=%d mode=%u",
-		          (unsigned)r3, (int)r4, r5);
+				  (unsigned)r3, (int)r4, r5);
 		return 0;
 	case kGlide_grDrawVertexArray: {
 		/* void grDrawVertexArray(FxU32 mode, FxU32 count, void *pointers) */
@@ -1040,17 +1042,17 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		int resolvedMode = writeMode;
 		if (!info) {
 			glide_log("grLfbLock FAIL info=NULL type=%d buf=%d mode=%d",
-			          type, buffer, writeMode);
+					  type, buffer, writeMode);
 			return FXFALSE;
 		}
 		if (!GlideStateLfbLock(type, buffer, writeMode, origin,
-		                       &lfbPtr, &stride, &resolvedMode)) {
+							   &lfbPtr, &stride, &resolvedMode)) {
 			static uint32_t s_lfb_fail = 0;
 			if (++s_lfb_fail <= 8)
 				glide_log("grLfbLock FAIL type=%d buf=%d mode=%d locked=%d win=%d",
-				          type, buffer, writeMode,
-				          GlideStateLfbIsLocked() ? 1 : 0,
-				          GlideStateWindowOpen() ? 1 : 0);
+						  type, buffer, writeMode,
+						  GlideStateLfbIsLocked() ? 1 : 0,
+						  GlideStateWindowOpen() ? 1 : 0);
 			return FXFALSE;
 		}
 
@@ -1066,8 +1068,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		static uint32_t s_lfb_ok = 0;
 		if (++s_lfb_ok <= 8 || (s_lfb_ok & (s_lfb_ok - 1)) == 0)
 			glide_log("grLfbLock OK #%u type=%d buf=%d mode=%d ptr=%08x stride=%u",
-			          (unsigned)s_lfb_ok, type, buffer, resolvedMode,
-			          lfbPtr, stride);
+					  (unsigned)s_lfb_ok, type, buffer, resolvedMode,
+					  lfbPtr, stride);
 		return FXTRUE;
 	}
 	case kGlide_grLfbUnlock: {
@@ -1130,7 +1132,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 			GlideGLMarkContent();
 		}
 		glide_log("grLfbWriteRegion %dx%d @%d,%d fmt=%d -> %s",
-		          w, h, x, y, fmt, ok ? "OK" : "FAIL");
+				  w, h, x, y, fmt, ok ? "OK" : "FAIL");
 		return ok ? FXTRUE : FXFALSE;
 	}
 	case kGlide_grLfbConstantAlpha:

@@ -56,17 +56,17 @@
  *  Validate outSize BEFORE the ctx lookup so a bad pointer +
  *  valid handle reports the more specific kDSpInvalidAttributesErr. */
 extern "C" int32_t DSpContext_GetFlattenedSizeHandler(uint32_t ctxRef,
-                                                      uint32_t outSize)
+													  uint32_t outSize)
 {
 	if (outSize == 0) {
 		DSP_LOG("GetFlattenedSize: NULL outSize (ctxRef=%u) -> "
-		        "kDSpInvalidAttributesErr", ctxRef);
+				"kDSpInvalidAttributesErr", ctxRef);
 		return kDSpInvalidAttributesErr;
 	}
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
 		DSP_LOG("GetFlattenedSize: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
+				ctxRef);
 		return kDSpInvalidContextErr;
 	}
 	WriteMacInt32(outSize, DSP_FLAT_SIZE);
@@ -83,11 +83,11 @@ extern "C" int32_t DSpContext_GetFlattenedSizeHandler(uint32_t ctxRef,
  *  resources do not exist; also the info-disclosure mitigation).
  *  Validate outFlatContext BEFORE the ctx lookup. */
 extern "C" int32_t DSpContext_FlattenHandler(uint32_t ctxRef,
-                                             uint32_t outFlatContext)
+											 uint32_t outFlatContext)
 {
 	if (outFlatContext == 0) {
 		DSP_LOG("Flatten: NULL outFlatContext (ctxRef=%u) -> "
-		        "kDSpInvalidAttributesErr", ctxRef);
+				"kDSpInvalidAttributesErr", ctxRef);
 		return kDSpInvalidAttributesErr;
 	}
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
@@ -118,8 +118,8 @@ extern "C" int32_t DSpContext_FlattenHandler(uint32_t ctxRef,
 	WriteMacInt32(outFlatContext + DSP_FLAT_OFF_dirty_grid_h,        ctx->dirty_grid_h);
 
 	DSP_LOG("Flatten: ctx=%u -> %u bytes (%ux%u@%ubpp pc=%u)",
-	        ctxRef, DSP_FLAT_SIZE, a->displayWidth, a->displayHeight,
-	        a->backBufferBestDepth, a->pageCount);
+			ctxRef, DSP_FLAT_SIZE, a->displayWidth, a->displayHeight,
+			a->backBufferBestDepth, a->pageCount);
 	return kDSpNoErr;
 }
 
@@ -133,11 +133,11 @@ extern "C" int32_t DSpContext_FlattenHandler(uint32_t ctxRef,
  *  PDF p.22) and writes its ctxRef. Both out-ptrs NULL-guarded;
  *  no field is trusted past the magic+version check. */
 extern "C" int32_t DSpContext_RestoreHandler(uint32_t inFlatContext,
-                                             uint32_t outRestoredContext)
+											 uint32_t outRestoredContext)
 {
 	if (inFlatContext == 0 || outRestoredContext == 0) {
 		DSP_LOG("Restore: NULL inFlatContext=0x%08x or outRestoredContext=0x%08x"
-		        " -> kDSpInvalidAttributesErr", inFlatContext, outRestoredContext);
+				" -> kDSpInvalidAttributesErr", inFlatContext, outRestoredContext);
 		return kDSpInvalidAttributesErr;
 	}
 
@@ -146,7 +146,7 @@ extern "C" int32_t DSpContext_RestoreHandler(uint32_t inFlatContext,
 	uint32_t version = ReadMacInt32(inFlatContext + DSP_FLAT_OFF_version);
 	if (magic != DSP_FLAT_MAGIC || version != DSP_FLAT_VERSION) {
 		DSP_LOG("Restore: blob magic=0x%08x ver=%u mismatch -> "
-		        "kDSpContextNotFoundErr", magic, version);
+				"kDSpContextNotFoundErr", magic, version);
 		return kDSpContextNotFoundErr;
 	}
 
@@ -184,8 +184,8 @@ extern "C" int32_t DSpContext_RestoreHandler(uint32_t inFlatContext,
 
 	WriteMacInt32(outRestoredContext, newRef);
 	DSP_LOG("Restore: blob valid -> fresh metadata ctx=%u (%ux%u@%ubpp pc=%u)",
-	        newRef, attr.displayWidth, attr.displayHeight,
-	        attr.backBufferBestDepth, attr.pageCount);
+			newRef, attr.displayWidth, attr.displayHeight,
+			attr.backBufferBestDepth, attr.pageCount);
 	return kDSpNoErr;
 }
 
@@ -213,7 +213,7 @@ extern "C" int32_t DSpContext_RestoreHandler(uint32_t inFlatContext,
 	 * its selected display mode and store the desired size in backBufferWidth /
 	 * backBufferHeight. */
 static bool DSpApplyDesiredAttributesToChild(DSpContextPrivate *child,
-                                             uint32_t inDesiredAttributes)
+											 uint32_t inDesiredAttributes)
 {
 	if (child == nullptr || inDesiredAttributes == 0) return false;
 	/* Validate the whole attribute-struct extent lies in mapped RAM
@@ -225,9 +225,9 @@ static bool DSpApplyDesiredAttributesToChild(DSpContextPrivate *child,
 	 * than faulting the ReadMacInt* translation layer. */
 	const uint32_t kDesiredAttrSize = 56u;
 	if (!NQDMetalAddrInBuffer(inDesiredAttributes) ||
-	    !NQDMetalAddrInBuffer(inDesiredAttributes + kDesiredAttrSize - 1u)) {
+		!NQDMetalAddrInBuffer(inDesiredAttributes + kDesiredAttrSize - 1u)) {
 		DSP_LOG("Queue: inDesiredAttributes 0x%08x out of mapped RAM -> reject",
-		        inDesiredAttributes);
+				inDesiredAttributes);
 		return false;
 	}
 	const uint32_t desiredWidth = ReadMacInt32(inDesiredAttributes +  4);
@@ -236,11 +236,11 @@ static bool DSpApplyDesiredAttributesToChild(DSpContextPrivate *child,
 	const uint32_t desiredDisplayDepth = ReadMacInt32(inDesiredAttributes + 44);
 
 	child->attr.displayWidth        =
-	    DSpReserveActualDisplayDimension(child->attr.displayWidth,
-	                                     desiredWidth);
+		DSpReserveActualDisplayDimension(child->attr.displayWidth,
+										 desiredWidth);
 	child->attr.displayHeight       =
-	    DSpReserveActualDisplayDimension(child->attr.displayHeight,
-	                                     desiredHeight);
+		DSpReserveActualDisplayDimension(child->attr.displayHeight,
+										 desiredHeight);
 	child->attr.colorNeeds          = ReadMacInt32(inDesiredAttributes + 20);
 	child->attr.colorTable          = ReadMacInt32(inDesiredAttributes + 24);
 	child->attr.contextOptions      = ReadMacInt32(inDesiredAttributes + 28);
@@ -248,17 +248,17 @@ static bool DSpApplyDesiredAttributesToChild(DSpContextPrivate *child,
 	child->attr.displayDepthMask    = ReadMacInt32(inDesiredAttributes + 36);
 	child->attr.backBufferBestDepth = desiredBackDepth;
 	child->attr.displayBestDepth    =
-	    DSpReserveActualDisplayDepth(child->attr.displayBestDepth,
-	                                 desiredDisplayDepth,
-	                                 desiredBackDepth);
+		DSpReserveActualDisplayDepth(child->attr.displayBestDepth,
+									 desiredDisplayDepth,
+									 desiredBackDepth);
 	child->attr.pageCount           = ReadMacInt32(inDesiredAttributes + 48);
 	child->attr.gameMustConfirmSwitch = ReadMacInt8(inDesiredAttributes + 55);
 	child->attr.backBufferWidth     = DSpReserveBackBufferDimension(
-	                                      child->attr.displayWidth,
-	                                      desiredWidth);
+										  child->attr.displayWidth,
+										  desiredWidth);
 	child->attr.backBufferHeight    = DSpReserveBackBufferDimension(
-	                                      child->attr.displayHeight,
-	                                      desiredHeight);
+										  child->attr.displayHeight,
+										  desiredHeight);
 	return true;
 }
 
@@ -275,8 +275,8 @@ static int32_t DSpQueueCore(uint32_t parentCtx, uint32_t childCtx)
 	DSpContextPrivate *child  = DSpGetContext(childCtx);
 	if (parent == nullptr || child == nullptr) {
 		DSP_LOG("Queue: unresolved parent=%u (%p) or child=%u (%p) -> "
-		        "kDSpInvalidContextErr", parentCtx, (void *)parent,
-		        childCtx, (void *)child);
+				"kDSpInvalidContextErr", parentCtx, (void *)parent,
+				childCtx, (void *)child);
 		return kDSpInvalidContextErr;
 	}
 	/* Same-display check (PDF p.26): both contexts must be on the same
@@ -296,7 +296,7 @@ static int32_t DSpQueueCore(uint32_t parentCtx, uint32_t childCtx)
  *  single iOS display. inDesiredAttributes (optional) is applied to the child
  *  when non-zero. Unresolved ctxRefs -> kDSpInvalidContextErr. */
 extern "C" int32_t DSpContext_QueueHandler(uint32_t parentCtx, uint32_t childCtx,
-                                           uint32_t inDesiredAttributes)
+										   uint32_t inDesiredAttributes)
 {
 	/* Resolve both BEFORE any mutation (no deref before the
 	 * null-guard inside DSpQueueCore). Apply optional attributes to the child
@@ -304,7 +304,7 @@ extern "C" int32_t DSpContext_QueueHandler(uint32_t parentCtx, uint32_t childCtx
 	DSpContextPrivate *child = DSpGetContext(childCtx);
 	if (DSpGetContext(parentCtx) == nullptr || child == nullptr) {
 		DSP_LOG("Queue: unresolved parent=%u or child=%u -> "
-		        "kDSpInvalidContextErr", parentCtx, childCtx);
+				"kDSpInvalidContextErr", parentCtx, childCtx);
 		return kDSpInvalidContextErr;
 	}
 	if (inDesiredAttributes != 0) {
@@ -312,11 +312,11 @@ extern "C" int32_t DSpContext_QueueHandler(uint32_t parentCtx, uint32_t childCtx
 		 * mapped RAM, fail without staging the switch. */
 		if (!DSpApplyDesiredAttributesToChild(child, inDesiredAttributes)) {
 			DSP_LOG("Queue: inDesiredAttributes=0x%08x invalid -> "
-			        "kDSpInvalidAttributesErr", inDesiredAttributes);
+					"kDSpInvalidAttributesErr", inDesiredAttributes);
 			return kDSpInvalidAttributesErr;
 		}
 		DSP_LOG("Queue: applied inDesiredAttributes=0x%08x to child=%u",
-		        inDesiredAttributes, childCtx);
+				inDesiredAttributes, childCtx);
 	}
 	return DSpQueueCore(parentCtx, childCtx);
 }
@@ -338,8 +338,8 @@ static int32_t DSpSwitchCore(uint32_t oldCtx, uint32_t newCtx)
 	DSpContextPrivate *neu = DSpGetContext(newCtx);
 	if (old == nullptr || neu == nullptr) {
 		DSP_LOG("Switch: unresolved old=%u (%p) or new=%u (%p) -> "
-		        "kDSpInvalidContextErr", oldCtx, (void *)old,
-		        newCtx, (void *)neu);
+				"kDSpInvalidContextErr", oldCtx, (void *)old,
+				newCtx, (void *)neu);
 		return kDSpInvalidContextErr;
 	}
 	/* PDF p.27: "If you did not queue the contexts you want to switch (via
@@ -347,8 +347,8 @@ static int32_t DSpSwitchCore(uint32_t oldCtx, uint32_t newCtx)
 	 * any state mutation (no partial switch). */
 	if (old->queued_child != newCtx) {
 		DSP_LOG("Switch: old=%u was not queued to new=%u (queued_child=%u) -> "
-		        "kDSpInternalErr (PDF p.27 switch-without-queue)",
-		        oldCtx, newCtx, old->queued_child);
+				"kDSpInternalErr (PDF p.27 switch-without-queue)",
+				oldCtx, newCtx, old->queued_child);
 		return kDSpInternalErr;
 	}
 	/* Route through SetState so DMC ownership/mode, MainDevice PixMap
@@ -358,13 +358,13 @@ static int32_t DSpSwitchCore(uint32_t oldCtx, uint32_t newCtx)
 	 * Switch then activates the new context immediately per PDF p.27. */
 	DSpContext_SetStateSwitchHandoff(oldCtx);
 	int32_t rc = DSpContext_SetStateHandler(
-	    oldCtx, (uint32_t)kDSpContextState_Inactive);
+		oldCtx, (uint32_t)kDSpContextState_Inactive);
 	DSpContext_SetStateSwitchHandoff(0);
 	if (rc != kDSpNoErr) {
 		/* Nothing mutated yet - old stays Active with its VBL proc
 		 * intact (no partial switch). */
 		DSP_LOG("Switch: old=%u SetState(Inactive) failed rc=%d",
-		        oldCtx, rc);
+				oldCtx, rc);
 		return rc;
 	}
 	/* PDF p.27: "switching contexts will kill any piggyback VBL routines
@@ -378,7 +378,7 @@ static int32_t DSpSwitchCore(uint32_t oldCtx, uint32_t newCtx)
 	old->vbl_proc_ptr    = 0;
 	old->vbl_proc_refcon = 0;
 	rc = DSpContext_SetStateHandler(
-	    newCtx, (uint32_t)kDSpContextState_Active);
+		newCtx, (uint32_t)kDSpContextState_Active);
 	if (rc != kDSpNoErr) {
 		/* Unwind the half-completed switch: restore the old context's VBL
 		 * proc and re-activate it (best effort) so a failed activation never
@@ -387,17 +387,17 @@ static int32_t DSpSwitchCore(uint32_t oldCtx, uint32_t newCtx)
 		old->vbl_proc_ptr    = saved_vbl_proc;
 		old->vbl_proc_refcon = saved_vbl_refcon;
 		int32_t rb = DSpContext_SetStateHandler(
-		    oldCtx, (uint32_t)kDSpContextState_Active);
+			oldCtx, (uint32_t)kDSpContextState_Active);
 		DSP_LOG("Switch: new=%u SetState(Active) failed rc=%d; rolled back "
-		        "old=%u to Active (rollback rc=%d)",
-		        newCtx, rc, oldCtx, rb);
+				"old=%u to Active (rollback rc=%d)",
+				newCtx, rc, oldCtx, rb);
 		(void)rb; /* log-only when ACCEL_LOGGING_ENABLED=0 */
 		return rc;
 	}
 	/* Clear the staged switch - a subsequent Switch needs a fresh Queue. */
 	old->queued_child = 0;
 	DSP_LOG("Switch: old=%u inactive -> new=%u active via SetState, "
-	        "old VBL proc killed, queued_child cleared", oldCtx, newCtx);
+			"old VBL proc killed, queued_child cleared", oldCtx, newCtx);
 	return kDSpNoErr;
 }
 

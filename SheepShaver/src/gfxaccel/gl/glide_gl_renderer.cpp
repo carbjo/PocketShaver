@@ -3,9 +3,8 @@
  *
  *  Renders into a double-buffered overlay texture (same compositor contract
  *  as RAVE) and publishes via MetalCompositorSubmitFrame each buffer swap.
- *
- *  First bring-up targets Diablo II Glide 3.0: win open/clear/swap/triangle.
- *  Texture download and full combinatorial combines arrive as D2 logs demand.
+ * 
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #include "sysdeps.h"
@@ -37,22 +36,19 @@ struct GrVertexClassic {
 	float s, t, w;           /* 32 - simplified */
 };
 
-static GLuint s_overlay_pair[2] = {0, 0};
-static GLuint s_color_tex = 0;
-static GLuint s_fbo = 0;
-static GLuint s_depth_rb = 0;
-static uint32_t s_w = 0, s_h = 0;
-static uint32_t s_write = 0;
-static bool s_ready = false;
-static bool s_in_frame = false;
-/* False until LFB unlock / real draw - avoids painting opaque black over
- * the DSp underlay during menu load (black screen after movies). */
-static bool s_has_content = false;
+static GLuint glide_overlay_pair[2] = {0, 0};
+static GLuint glide_color_tex = 0;
+static GLuint glide_fbo = 0;
+static GLuint glide_depth_rb = 0;
+static uint32_t glide_width = 0, glide_height = 0;
+static uint32_t glide_write = 0;
+static bool glide_is_ready = false;
+static bool glide_is_in_frame = false;
+static bool glide_has_context = false;
 
-/* Bound Glide texture (one TMU for D2 bring-up). */
-static GLuint s_tex_gl = 0;
-static int s_tex_w = 0, s_tex_h = 0;
-static bool s_tex_enabled = false;
+static GLuint glide_gl_texture = 0;
+static int glide_texture_width = 0, glide_texture_height = 0;
+static bool glide_is_texture_enabled = false;
 
 struct GlideGLTextureCacheEntry {
 	uint32_t address;
@@ -71,31 +67,34 @@ struct GlideGLTextureCacheEntry {
 
 /* Diablo II switches among hundreds of resident TMU addresses per frame.
  * A single host texture forced a CPU decode + glTexSubImage for every
- * grTexSource, even when the guest had not changed that address. */
-static std::vector<GlideGLTextureCacheEntry> s_texture_cache;
+ * grTexSource, even when the guest had not changed that address.
+ * FIXME: Awful idea for a global texture cache.
+ */
+static std::vector<GlideGLTextureCacheEntry> glide_texture_cache;
 
-static void glide_submit_overlay(int do_present);
+static void GlideSubitOverlay(int do_present);
 
-static void release_texture_cache(void)
+static void GlideReleaseTextureCache(void)
 {
 	if (SharedMetalDevice()) {
-		for (const GlideGLTextureCacheEntry &entry : s_texture_cache) {
+		for (const GlideGLTextureCacheEntry &entry : glide_texture_cache) {
 			if (entry.texture)
 				glDeleteTextures(1, &entry.texture);
 		}
 	}
-	s_texture_cache.clear();
-	s_tex_gl = 0;
-	s_tex_w = s_tex_h = 0;
-	s_tex_enabled = false;
+	glide_texture_cache.clear();
+	glide_gl_texture = 0;
+	glide_texture_width = glide_texture_height = 0;
+	glide_is_texture_enabled = false;
 }
 
 /* The SDL compositor and Glide use the same compatibility context.  A VBL
  * Present must not bind framebuffer 0 or replace Glide state between two
- * guest draw calls in the same back-buffer frame. */
+ * guest draw calls in the same back-buffer frame.
+ */
 extern "C" int GlideGLRenderPassActive(void)
 {
-	return s_in_frame ? 1 : 0;
+	return glide_is_in_frame ? 1 : 0;
 }
 
 extern int GlideStateDepthMode(void);
@@ -136,43 +135,43 @@ extern int GlideStateTexClampT(void);
 extern int GlideStateTexFilterMin(void);
 extern int GlideStateTexFilterMag(void);
 
-static void release_overlay(void)
+static void GlideReleaseOverlay(void)
 {
 	if (!SharedMetalDevice()) {
-		s_overlay_pair[0] = s_overlay_pair[1] = 0;
-		s_color_tex = 0;
-		s_w = s_h = 0;
+		glide_overlay_pair[0] = glide_overlay_pair[1] = 0;
+		glide_color_tex = 0;
+		glide_width = glide_height = 0;
 		return;
 	}
 	auto &ext = gfx_gl_ext();
-	if (ext.fbo && s_fbo) {
+	if (ext.fbo && glide_fbo) {
 		ext.BindFramebuffer(GL_FRAMEBUFFER, 0);
-		ext.DeleteFramebuffers(1, &s_fbo);
-		s_fbo = 0;
+		ext.DeleteFramebuffers(1, &glide_fbo);
+		glide_fbo = 0;
 	}
-	if (ext.fbo && s_depth_rb) {
-		ext.DeleteRenderbuffers(1, &s_depth_rb);
-		s_depth_rb = 0;
+	if (ext.fbo && glide_depth_rb) {
+		ext.DeleteRenderbuffers(1, &glide_depth_rb);
+		glide_depth_rb = 0;
 	}
 	for (int i = 0; i < 2; i++) {
-		if (s_overlay_pair[i]) {
+		if (glide_overlay_pair[i]) {
 			gfxaccel_resources_release_overlay_texture(
-				kGfxEngineGlide, (void *)(uintptr_t)s_overlay_pair[i]);
-			s_overlay_pair[i] = 0;
+				kGfxEngineGlide, (void *)(uintptr_t)glide_overlay_pair[i]);
+			glide_overlay_pair[i] = 0;
 		}
 	}
-	s_color_tex = 0;
-	s_w = s_h = 0;
-	s_has_content = false;
+	glide_color_tex = 0;
+	glide_width = glide_height = 0;
+	glide_has_context = false;
 	MetalCompositorSubmitFrame_ClearCachedOverlay();
 }
 
-static bool ensure_overlay(uint32_t w, uint32_t h)
+static bool GlideEnsureOverlay(uint32_t w, uint32_t h)
 {
 	if (!SharedMetalDevice()) return false;
-	if (s_overlay_pair[0] && s_overlay_pair[1] && s_w == w && s_h == h)
+	if (glide_overlay_pair[0] && glide_overlay_pair[1] && glide_width == w && glide_height == h)
 		return true;
-	release_overlay();
+	GlideReleaseOverlay();
 
 	void *a = gfxaccel_resources_vend_overlay_texture_indexed(
 		kGfxEngineGlide, 0, w, h, MTLPixelFormatBGRA8Unorm);
@@ -184,60 +183,60 @@ static bool ensure_overlay(uint32_t w, uint32_t h)
 		QD3D_INIT_LOG("GlideGL: overlay vend failed %ux%u", w, h);
 		return false;
 	}
-	s_overlay_pair[0] = (GLuint)(uintptr_t)a;
-	s_overlay_pair[1] = (GLuint)(uintptr_t)b;
-	s_write = 0;
-	s_color_tex = s_overlay_pair[s_write];
-	s_w = w;
-	s_h = h;
+	glide_overlay_pair[0] = (GLuint)(uintptr_t)a;
+	glide_overlay_pair[1] = (GLuint)(uintptr_t)b;
+	glide_write = 0;
+	glide_color_tex = glide_overlay_pair[glide_write];
+	glide_width = w;
+	glide_height = h;
 
 	auto &ext = gfx_gl_ext();
 	if (!ext.fbo) {
 		QD3D_INIT_LOG("GlideGL: FBO extension missing");
-		release_overlay();
+		GlideReleaseOverlay();
 		return false;
 	}
-	ext.GenFramebuffers(1, &s_fbo);
-	ext.GenRenderbuffers(1, &s_depth_rb);
-	ext.BindRenderbuffer(GL_RENDERBUFFER, s_depth_rb);
+	ext.GenFramebuffers(1, &glide_fbo);
+	ext.GenRenderbuffers(1, &glide_depth_rb);
+	ext.BindRenderbuffer(GL_RENDERBUFFER, glide_depth_rb);
 	ext.RenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, (GLsizei)w, (GLsizei)h);
-	ext.BindFramebuffer(GL_FRAMEBUFFER, s_fbo);
+	ext.BindFramebuffer(GL_FRAMEBUFFER, glide_fbo);
 	ext.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-	                         GL_TEXTURE_2D, s_color_tex, 0);
+							 GL_TEXTURE_2D, glide_color_tex, 0);
 	ext.FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-	                            GL_RENDERBUFFER, s_depth_rb);
+								GL_RENDERBUFFER, glide_depth_rb);
 	GLenum st = ext.CheckFramebufferStatus(GL_FRAMEBUFFER);
 	ext.BindFramebuffer(GL_FRAMEBUFFER, 0);
 	if (st != GL_FRAMEBUFFER_COMPLETE) {
 		QD3D_INIT_LOG("GlideGL: FBO incomplete 0x%x", (unsigned)st);
-		release_overlay();
+		GlideReleaseOverlay();
 		return false;
 	}
 	return true;
 }
 
-static bool bind_draw_fbo(void)
+static bool GlideBindDrawFBO(void)
 {
-	if (!s_fbo || !s_color_tex || !SharedMetalDevice()) return false;
+	if (!glide_fbo || !glide_color_tex || !SharedMetalDevice()) return false;
 	auto &ext = gfx_gl_ext();
-	ext.BindFramebuffer(GL_FRAMEBUFFER, s_fbo);
+	ext.BindFramebuffer(GL_FRAMEBUFFER, glide_fbo);
 	ext.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-	                         GL_TEXTURE_2D, s_color_tex, 0);
-	glViewport(0, 0, (GLsizei)s_w, (GLsizei)s_h);
+							 GL_TEXTURE_2D, glide_color_tex, 0);
+	glViewport(0, 0, (GLsizei)glide_width, (GLsizei)glide_height);
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	/* Glide window coords: x right, y down if origin upper-left. */
 	if (GlideStateOriginUpperLeft())
-		glOrtho(0.0, (double)s_w, (double)s_h, 0.0, -1.0, 1.0);
+		glOrtho(0.0, (double)glide_width, (double)glide_height, 0.0, -1.0, 1.0);
 	else
-		glOrtho(0.0, (double)s_w, 0.0, (double)s_h, -1.0, 1.0);
+		glOrtho(0.0, (double)glide_width, 0.0, (double)glide_height, -1.0, 1.0);
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
-	s_in_frame = true;
+	glide_is_in_frame = true;
 	return true;
 }
 
-static GLenum map_blend_factor(int gr, bool source_factor)
+static GLenum GlideMapBlendFactor(int gr, bool source_factor)
 {
 	/* Glide 3 GrAlphaBlendFnc_t values.  Color factors are relative to the
 	 * opposite input: SRC_COLOR means destination color when used as the
@@ -250,14 +249,14 @@ static GLenum map_blend_factor(int gr, bool source_factor)
 	case 0x4: return GL_ONE;
 	case 0x5: return GL_ONE_MINUS_SRC_ALPHA;
 	case 0x6: return source_factor ? GL_ONE_MINUS_DST_COLOR
-	                               : GL_ONE_MINUS_SRC_COLOR;
+								   : GL_ONE_MINUS_SRC_COLOR;
 	case 0x7: return GL_ONE_MINUS_DST_ALPHA;
 	case 0xf: return source_factor ? GL_SRC_ALPHA_SATURATE : GL_ONE;
 	default:  return GL_ONE;
 	}
 }
 
-static GLenum map_cmp_func(int gr)
+static GLenum GlideMapGLCmpFunc(int gr)
 {
 	/* GR_CMP_* */
 	switch (gr) {
@@ -285,7 +284,7 @@ void GlideGLApplyState(void)
 	}
 	if (GlideStateDepthMode() != 0) {
 		glEnable(GL_DEPTH_TEST);
-		glDepthFunc(map_cmp_func(GlideStateDepthFunc() ? GlideStateDepthFunc() : 3));
+		glDepthFunc(GlideMapGLCmpFunc(GlideStateDepthFunc() ? GlideStateDepthFunc() : 3));
 		glDepthMask(GlideStateDepthMask() ? GL_TRUE : GL_FALSE);
 		const float bias = GlideStateDepthBias();
 		if (bias != 0.f) {
@@ -299,11 +298,11 @@ void GlideGLApplyState(void)
 		glDisable(GL_POLYGON_OFFSET_FILL);
 	}
 	glEnable(GL_BLEND);
-	glBlendFunc(map_blend_factor(GlideStateAlphaBlendSrc(), true),
-	            map_blend_factor(GlideStateAlphaBlendDst(), false));
-	if (s_tex_enabled && s_tex_gl) {
+	glBlendFunc(GlideMapBlendFactor(GlideStateAlphaBlendSrc(), true),
+				GlideMapBlendFactor(GlideStateAlphaBlendDst(), false));
+	if (glide_is_texture_enabled && glide_gl_texture) {
 		glEnable(GL_TEXTURE_2D);
-		glBindTexture(GL_TEXTURE_2D, s_tex_gl);
+		glBindTexture(GL_TEXTURE_2D, glide_gl_texture);
 		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 	} else {
 		glDisable(GL_TEXTURE_2D);
@@ -315,15 +314,15 @@ void GlideGLApplyState(void)
 		glAlphaFunc(GL_GREATER, 0.f);
 	} else if (GlideStateAlphaTestEnabled()) {
 		glEnable(GL_ALPHA_TEST);
-		glAlphaFunc(map_cmp_func(GlideStateAlphaTestFunc()),
-		            GlideStateAlphaTestRef());
+		glAlphaFunc(GlideMapGLCmpFunc(GlideStateAlphaTestFunc()),
+					GlideStateAlphaTestRef());
 	} else {
 		glDisable(GL_ALPHA_TEST);
 	}
 	glColorMask(GlideStateColorMaskR() ? GL_TRUE : GL_FALSE,
-	            GlideStateColorMaskG() ? GL_TRUE : GL_FALSE,
-	            GlideStateColorMaskB() ? GL_TRUE : GL_FALSE,
-	            GlideStateColorMaskA() ? GL_TRUE : GL_FALSE);
+				GlideStateColorMaskG() ? GL_TRUE : GL_FALSE,
+				GlideStateColorMaskB() ? GL_TRUE : GL_FALSE,
+				GlideStateColorMaskA() ? GL_TRUE : GL_FALSE);
 	/* Clip window -> scissor in window coords (origin upper-left). */
 	{
 		const int minx = GlideStateClipMinX();
@@ -333,12 +332,12 @@ void GlideGLApplyState(void)
 		const int w = maxx - minx;
 		const int h = maxy - miny;
 		if (w > 0 && h > 0 && (minx > 0 || miny > 0 ||
-		    maxx < (int)s_w || maxy < (int)s_h)) {
+			maxx < (int)glide_width || maxy < (int)glide_height)) {
 			glEnable(GL_SCISSOR_TEST);
 			/* GL scissor origin is lower-left if we use raw GL without flip;
 			 * our FBO ortho is upper-left y-down, but scissor is still bottom-left
 			 * in window coordinates of the FBO. Convert. */
-			const int gl_y = (int)s_h - miny - h;
+			const int gl_y = (int)glide_height - miny - h;
 			glScissor(minx, gl_y > 0 ? gl_y : 0, w, h);
 		} else {
 			glDisable(GL_SCISSOR_TEST);
@@ -365,14 +364,14 @@ void GlideGLSetClipWindow(int minx, int miny, int maxx, int maxy)
 {
 	/* State already stored; re-apply if in frame. */
 	(void)minx; (void)miny; (void)maxx; (void)maxy;
-	if (s_in_frame) GlideGLApplyState();
+	if (glide_is_in_frame) GlideGLApplyState();
 }
 
 void GlideGLSetColorMask(int r, int g, int b, int a)
 {
 	if (!SharedMetalDevice()) return;
 	glColorMask(r ? GL_TRUE : GL_FALSE, g ? GL_TRUE : GL_FALSE,
-	            b ? GL_TRUE : GL_FALSE, a ? GL_TRUE : GL_FALSE);
+				b ? GL_TRUE : GL_FALSE, a ? GL_TRUE : GL_FALSE);
 }
 
 void GlideGLSetAlphaTest(int enabled, int func, float ref)
@@ -383,7 +382,7 @@ void GlideGLSetAlphaTest(int enabled, int func, float ref)
 		glAlphaFunc(GL_GREATER, 0.f);
 	} else if (enabled) {
 		glEnable(GL_ALPHA_TEST);
-		glAlphaFunc(map_cmp_func(func), ref);
+		glAlphaFunc(GlideMapGLCmpFunc(func), ref);
 	} else {
 		glDisable(GL_ALPHA_TEST);
 	}
@@ -392,25 +391,25 @@ void GlideGLSetAlphaTest(int enabled, int func, float ref)
 void GlideGLSetFog(int mode, uint32_t color)
 {
 	(void)mode; (void)color;
-	if (s_in_frame) GlideGLApplyState();
+	if (glide_is_in_frame) GlideGLApplyState();
 }
 
 void GlideGLSetDepthBias(float bias)
 {
 	(void)bias;
-	if (s_in_frame) GlideGLApplyState();
+	if (glide_is_in_frame) GlideGLApplyState();
 }
 
 void GlideGLSplash(void)
 {
 	/* Classic Glide splash - solid color flash so titles that call it
 	 * get a visible frame rather than a silent no-op. */
-	if (!bind_draw_fbo()) return;
+	if (!GlideBindDrawFBO()) return;
 	glClearColor(0.1f, 0.15f, 0.35f, 1.f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	s_has_content = true;
+	glide_has_context = true;
 	/* Splash is a one-shot visible frame - Present is intentional. */
-	glide_submit_overlay(/*do_present=*/1);
+	GlideSubitOverlay(/*do_present=*/1);
 }
 
 void GlideGLFinish(void)
@@ -421,27 +420,27 @@ void GlideGLFinish(void)
 
 int GlideGLInit(void)
 {
-	s_ready = SharedMetalDevice() != nullptr;
-	QD3D_INIT_LOG("GlideGLInit: ready=%d", s_ready ? 1 : 0);
-	return s_ready ? 0 : -1;
+	glide_is_ready = SharedMetalDevice() != nullptr;
+	QD3D_INIT_LOG("GlideGLInit: ready=%d", glide_is_ready ? 1 : 0);
+	return glide_is_ready ? 0 : -1;
 }
 
 void GlideGLShutdown(void)
 {
 	if (SharedMetalDevice()) {
-		release_texture_cache();
-		release_overlay();
+		GlideReleaseTextureCache();
+		GlideReleaseOverlay();
 	} else {
-		s_texture_cache.clear();
+		glide_texture_cache.clear();
 	}
-	s_ready = false;
-	s_in_frame = false;
+	glide_is_ready = false;
+	glide_is_in_frame = false;
 }
 
 /* Drive DMC to whatever resolution this WinOpen requested. Glide titles
  * (D2 included) legitimately switch 640x480 <-> 800x600 (and others) for
  * movies vs menus vs gameplay - never assume a fixed "intro" size. */
-static void glide_sync_dmc_to_window(int width, int height)
+static void GlideSyncDMCToWindow(int width, int height)
 {
 	if (width <= 0 || height <= 0)
 		return;
@@ -475,10 +474,10 @@ static void glide_sync_dmc_to_window(int width, int height)
 	}
 	if (rc != kDMCNoErr) {
 		QD3D_INIT_LOG("GlideGLWinOpen: DMC mode switch %dx%d failed rc=%d",
-		              width, height, (int)rc);
+					  width, height, (int)rc);
 	} else {
 		QD3D_INIT_LOG("GlideGLWinOpen: DMC mode -> %dx%d (from grSstWinOpen)",
-		              width, height);
+					  width, height);
 	}
 	/* Mode switch can leave owner sticky; reassert. */
 	(void)dmc_set_active_owner(kDMCOwnerGlide);
@@ -491,65 +490,56 @@ int GlideGLWinOpen(int width, int height, int origin_upper_left)
 	if (!SharedMetalDevice()) {
 		if (GlideGLInit() != 0) return -1;
 	}
-	if (!ensure_overlay((uint32_t)width, (uint32_t)height))
+	if (!GlideEnsureOverlay((uint32_t)width, (uint32_t)height))
 		return -1;
-	if (!bind_draw_fbo())
+	if (!GlideBindDrawFBO())
 		return -1;
 	glClearColor(0.f, 0.f, 0.f, 1.f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	auto &ext = gfx_gl_ext();
 	ext.BindFramebuffer(GL_FRAMEBUFFER, 0);
-	s_in_frame = false;
-	s_has_content = false;
+	glide_is_in_frame = false;
+	glide_has_context = false;
 
 	/* Match host display mode to THIS open (movies 640, menu 800, &). */
-	glide_sync_dmc_to_window(width, height);
+	GlideSyncDMCToWindow(width, height);
 	/* Show the cleared Glide buffer immediately (black), owned by Glide -
 	 * leaving DSp underlay with a missing CLUT produced a solid WHITE
 	 * screen. Movies then overwrite via LFB; menu draws via LFB/GL.
 	 * One Present on open is intentional (mode switch); later swaps/clears
 	 * only SubmitFrame and let free-run VideoVBL Present. */
-	s_has_content = true;
-	glide_submit_overlay(/*do_present=*/1);
+	glide_has_context = true;
+	GlideSubitOverlay(/*do_present=*/1);
 
 	QD3D_INIT_LOG("GlideGLWinOpen: %dx%d overlay=%u (clear present; free-run VBL)",
-	              width, height, (unsigned)s_color_tex);
+				  width, height, (unsigned)glide_color_tex);
 	return 0;
 }
 
 void GlideGLWinClose(void)
 {
-	/*
-	 * Keep free-run VBL alive across WinClose. D2 spams grSstWinClose then
-	 * re-inits/opens (movie 640 -> menu 800). Killing free-run here drops the
-	 * extra VIA cadence during that handoff; Mac 60Hz still ticks from the
-	 * host tick thread, but Glide-owned sessions should not tear down VBL
-	 * until grGlideShutdown. Overlay is released; next WinOpen rebuilds it.
-	 */
 	if (SharedMetalDevice())
-		release_overlay();
-	s_in_frame = false;
-	s_has_content = false;
-	/* Do not force QuickDraw owner here - DSp SetState / the next WinOpen
-	 * owns the handoff. Forcing QD on every spam-close caused thrash. */
+		GlideReleaseOverlay();
+	glide_is_in_frame = false;
+	glide_has_context = false;
 }
 
 /* Host-endian float load from guest big-endian PPC memory. */
-static float glide_load_f32(const uint8_t *p)
+static float GlideLoadF32(const uint8_t *p)
 {
 	union { uint32_t u; float f; } v;
 	v.u = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-	      ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+		  ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 	return v.f;
 }
 
-static uint32_t glide_load_u32(const uint8_t *p)
+static uint32_t GlideLoadU32(const uint8_t *p)
 {
 	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-	       ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+		   ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 }
 
-static int glide_layout_off(int standard_param, int d2_alias)
+static int GlideLayoutOff(int standard_param, int d2_alias)
 {
 	int o = GlideStateVertexOffset(standard_param);
 	if (o >= 0) return o;
@@ -558,32 +548,32 @@ static int glide_layout_off(int standard_param, int d2_alias)
 	return -1;
 }
 
-static void emit_vertex(const uint8_t *base)
+static void GlideEmitVertex(const uint8_t *base)
 {
 	/* Defaults: classic GrVertex. */
-	float x = glide_load_f32(base + 0);
-	float y = glide_load_f32(base + 4);
+	float x = GlideLoadF32(base + 0);
+	float y = GlideLoadF32(base + 4);
 	float r = 1.f, g = 1.f, b = 1.f, a = 1.f;
 
 	/* Official GR_PARAM_XY=1. */
-	int xy_off = glide_layout_off(0x01, -1);
+	int xy_off = GlideLayoutOff(0x01, -1);
 	if (xy_off >= 0) {
-		x = glide_load_f32(base + xy_off);
-		y = glide_load_f32(base + xy_off + 4);
+		x = GlideLoadF32(base + xy_off);
+		y = GlideLoadF32(base + xy_off + 4);
 	}
 
 	/* Glide 3 layout tokens are grouped by attribute: RGB=0x20,
 	 * PARGB=0x30.  Keep the small Glide-2-compatible IDs as fallbacks.
 	 * In particular, 0x50 is Q0 -- treating it as PARGB converts the bits of
 	 * reciprocal-W into an almost-black vertex color. */
-	int rgb_off = glide_layout_off(0x20, 0x07);
-	int pargb_off = glide_layout_off(0x30, 0x08);
+	int rgb_off = GlideLayoutOff(0x20, 0x07);
+	int pargb_off = GlideLayoutOff(0x30, 0x08);
 	if (rgb_off >= 0) {
-		r = glide_load_f32(base + rgb_off);
-		g = glide_load_f32(base + rgb_off + 4);
-		b = glide_load_f32(base + rgb_off + 8);
+		r = GlideLoadF32(base + rgb_off);
+		g = GlideLoadF32(base + rgb_off + 4);
+		b = GlideLoadF32(base + rgb_off + 8);
 	} else if (pargb_off >= 0) {
-		const uint32_t c = glide_load_u32(base + pargb_off);
+		const uint32_t c = GlideLoadU32(base + pargb_off);
 		a = ((c >> 24) & 0xff) / 255.f;
 		r = ((c >> 16) & 0xff) / 255.f;
 		g = ((c >> 8) & 0xff) / 255.f;
@@ -597,23 +587,23 @@ static void emit_vertex(const uint8_t *base)
 		b = (c & 0xff) / 255.f;
 	}
 
-	int a_off = glide_layout_off(0x10, 0x06);
+	int a_off = GlideLayoutOff(0x10, 0x06);
 	if (a_off >= 0 && pargb_off < 0)
-		a = glide_load_f32(base + a_off);
+		a = GlideLoadF32(base + a_off);
 
 	/* ST0 contains s/q,t/q in Glide texel units and Q0 contains q.  OpenGL's
 	 * projective coordinate division happens after interpolation, so divide
 	 * the numerators by the bound texture dimensions and pass Q0 as q. */
-	int st_off = glide_layout_off(0x40, 0x09);
+	int st_off = GlideLayoutOff(0x40, 0x09);
 	if (st_off >= 0) {
-		const float s = glide_load_f32(base + st_off);
-		const float t = glide_load_f32(base + st_off + 4);
-		const int q_off = glide_layout_off(0x50, 0x04);
-		float q = q_off >= 0 ? glide_load_f32(base + q_off) : 1.f;
+		const float s = GlideLoadF32(base + st_off);
+		const float t = GlideLoadF32(base + st_off + 4);
+		const int q_off = GlideLayoutOff(0x50, 0x04);
+		float q = q_off >= 0 ? GlideLoadF32(base + q_off) : 1.f;
 		if (!std::isfinite(q) || std::fabs(q) < 1.0e-20f)
 			q = 1.f;
-		const float tw = s_tex_w > 0 ? (float)s_tex_w : 1.f;
-		const float th = s_tex_h > 0 ? (float)s_tex_h : 1.f;
+		const float tw = glide_texture_width > 0 ? (float)glide_texture_width : 1.f;
+		const float th = glide_texture_height > 0 ? (float)glide_texture_height : 1.f;
 		glTexCoord4f(s / tw, t / th, 0.f, q);
 	}
 
@@ -625,7 +615,7 @@ static void emit_vertex(const uint8_t *base)
 	glVertex3f(x, y, 0.f);
 }
 
-static GLenum map_glide_prim(uint32_t mode)
+static GLenum GlideMapGlideToGLPrim(uint32_t mode)
 {
 	/* GrPrimitive_t */
 	switch (mode) {
@@ -645,97 +635,97 @@ static GLenum map_glide_prim(uint32_t mode)
 void GlideGLDrawPoint(const void *a)
 {
 	if (!a) return;
-	if (!bind_draw_fbo()) return;
+	if (!GlideBindDrawFBO()) return;
 	GlideGLApplyState();
 	glBegin(GL_POINTS);
-	emit_vertex((const uint8_t *)a);
+	GlideEmitVertex((const uint8_t *)a);
 	glEnd();
-	s_has_content = true;
+	glide_has_context = true;
 }
 
 void GlideGLDrawLine(const void *a, const void *b)
 {
 	if (!a || !b) return;
-	if (!bind_draw_fbo()) return;
+	if (!GlideBindDrawFBO()) return;
 	GlideGLApplyState();
 	glBegin(GL_LINES);
-	emit_vertex((const uint8_t *)a);
-	emit_vertex((const uint8_t *)b);
+	GlideEmitVertex((const uint8_t *)a);
+	GlideEmitVertex((const uint8_t *)b);
 	glEnd();
-	s_has_content = true;
+	glide_has_context = true;
 }
 
 void GlideGLDrawTriangle(const void *a, const void *b, const void *c)
 {
 	if (!a || !b || !c) return;
-	if (!bind_draw_fbo()) return;
+	if (!GlideBindDrawFBO()) return;
 	GlideGLApplyState();
 	glBegin(GL_TRIANGLES);
-	emit_vertex((const uint8_t *)a);
-	emit_vertex((const uint8_t *)b);
-	emit_vertex((const uint8_t *)c);
+	GlideEmitVertex((const uint8_t *)a);
+	GlideEmitVertex((const uint8_t *)b);
+	GlideEmitVertex((const uint8_t *)c);
 	glEnd();
-	s_has_content = true;
+	glide_has_context = true;
 }
 
 void GlideGLDrawPolygon(int nverts, const void *const *ptrs)
 {
 	if (!ptrs || nverts < 3) return;
-	if (!bind_draw_fbo()) return;
+	if (!GlideBindDrawFBO()) return;
 	GlideGLApplyState();
 	glBegin(GL_TRIANGLE_FAN);
 	for (int i = 0; i < nverts; i++) {
 		if (ptrs[i])
-			emit_vertex((const uint8_t *)ptrs[i]);
+			GlideEmitVertex((const uint8_t *)ptrs[i]);
 	}
 	glEnd();
-	s_has_content = true;
+	glide_has_context = true;
 }
 
 void GlideGLDrawPolygonContiguous(int nverts, const void *verts, uint32_t stride)
 {
 	if (!verts || nverts < 3) return;
-	if (!bind_draw_fbo()) return;
+	if (!GlideBindDrawFBO()) return;
 	if (stride == 0) stride = (uint32_t)GlideStateVertexStride();
 	if (stride < 8) stride = 8;
 	GlideGLApplyState();
 	const uint8_t *base = (const uint8_t *)verts;
 	glBegin(GL_TRIANGLE_FAN);
 	for (int i = 0; i < nverts; i++)
-		emit_vertex(base + (size_t)i * stride);
+		GlideEmitVertex(base + (size_t)i * stride);
 	glEnd();
-	s_has_content = true;
+	glide_has_context = true;
 }
 
 void GlideGLDrawVertexArray(uint32_t mode, uint32_t count, const void *const *ptrs)
 {
 	if (!ptrs || count == 0) return;
-	if (!bind_draw_fbo()) return;
+	if (!GlideBindDrawFBO()) return;
 	GlideGLApplyState();
-	glBegin(map_glide_prim(mode));
+	glBegin(GlideMapGlideToGLPrim(mode));
 	for (uint32_t i = 0; i < count; i++) {
 		if (ptrs[i])
-			emit_vertex((const uint8_t *)ptrs[i]);
+			GlideEmitVertex((const uint8_t *)ptrs[i]);
 	}
 	glEnd();
-	s_has_content = true;
+	glide_has_context = true;
 }
 
 void GlideGLDrawVertexArrayContiguous(uint32_t mode, uint32_t count,
-                                      const void *vertices, uint32_t stride)
+									  const void *vertices, uint32_t stride)
 {
 	if (!vertices || count == 0) return;
-	if (!bind_draw_fbo()) return;
+	if (!GlideBindDrawFBO()) return;
 	if (stride == 0)
 		stride = (uint32_t)GlideStateVertexStride();
 	if (stride < 8) stride = 8;
 	GlideGLApplyState();
 	const uint8_t *base = (const uint8_t *)vertices;
-	glBegin(map_glide_prim(mode));
+	glBegin(GlideMapGlideToGLPrim(mode));
 	for (uint32_t i = 0; i < count; i++)
-		emit_vertex(base + (size_t)i * stride);
+		GlideEmitVertex(base + (size_t)i * stride);
 	glEnd();
-	s_has_content = true;
+	glide_has_context = true;
 }
 
 /*
@@ -744,11 +734,11 @@ void GlideGLDrawVertexArrayContiguous(uint32_t mode, uint32_t count,
  * never nest guest VBL (call_macos) inside NATIVE_GLIDE_DISPATCH.
  * do_present=1: also Present (WinOpen first black frame, LFB unlock).
  */
-static void glide_submit_overlay(int do_present)
+static void GlideSubitOverlay(int do_present)
 {
-	if (!s_color_tex || !SharedMetalDevice()) return;
+	if (!glide_color_tex || !SharedMetalDevice()) return;
 	/* Never push an empty/clear-only frame as opaque overlay. */
-	if (!s_has_content) {
+	if (!glide_has_context) {
 		MetalCompositorSubmitFrame_ClearCachedOverlay();
 		if (do_present)
 			MetalCompositorPresent(); /* VBL chain only */
@@ -756,24 +746,24 @@ static void glide_submit_overlay(int do_present)
 	}
 
 	const DMCModeSnapshot *snap = dmc_current_snapshot();
-	float dst_w = (float)s_w;
-	float dst_h = (float)s_h;
+	float dst_w = (float)glide_width;
+	float dst_h = (float)glide_height;
 	if (snap && snap->width > 0 && snap->height > 0 &&
-	    (snap->width != s_w || snap->height != s_h)) {
+		(snap->width != glide_width || snap->height != glide_height)) {
 		dst_w = (float)snap->width;
 		dst_h = (float)snap->height;
 		static uint32_t s_mismatch_log = 0;
 		if (s_mismatch_log++ < 8)
 			QD3D_INIT_LOG("Glide submit: DMC %ux%u != glide %ux%u - fill-scale fallback",
-			              snap->width, snap->height, s_w, s_h);
+						  snap->width, snap->height, glide_width, glide_height);
 	}
 
 	CompositeLayer layer = {};
-	layer.source = (void *)(uintptr_t)s_color_tex;
+	layer.source = (void *)(uintptr_t)glide_color_tex;
 	layer.src_origin_x = 0;
 	layer.src_origin_y = 0;
-	layer.src_size_w = s_w;
-	layer.src_size_h = s_h;
+	layer.src_size_w = glide_width;
+	layer.src_size_h = glide_height;
 	layer.dst_origin_x = 0.f;
 	layer.dst_origin_y = 0.f;
 	layer.dst_size_w = dst_w;
@@ -795,18 +785,18 @@ static void glide_submit_overlay(int do_present)
 
 void GlideGLPublishOverlay(int do_present)
 {
-	glide_submit_overlay(do_present ? 1 : 0);
+	GlideSubitOverlay(do_present ? 1 : 0);
 }
 
 void GlideGLBufferSwap(int swap_interval)
 {
-	if (!s_color_tex || !SharedMetalDevice()) return;
+	if (!glide_color_tex || !SharedMetalDevice()) return;
 
 	auto &ext = gfx_gl_ext();
 	glFlush();
 	if (ext.fbo)
 		ext.BindFramebuffer(GL_FRAMEBUFFER, 0);
-	s_in_frame = false;
+	glide_is_in_frame = false;
 
 	/* grBufferSwap(1) blocks for the next retrace on real Glide hardware.
 	 * Pending-count emulation cannot provide that contract on a single-threaded
@@ -825,13 +815,13 @@ void GlideGLBufferSwap(int swap_interval)
 	 * Mac VBL timebase alive between swaps; it is not a substitute for the
 	 * swap Present itself.
 	 */
-	glide_submit_overlay(/*do_present=*/1);
+	GlideSubitOverlay(/*do_present=*/1);
 }
 
 void GlideGLBufferClear(uint32_t color, uint32_t alpha, uint32_t depth)
 {
 	(void)depth;
-	if (!bind_draw_fbo()) return;
+	if (!GlideBindDrawFBO()) return;
 	/* GrColor packing depends on color format; treat as ARGB8888 common case. */
 	const float r = ((color >> 16) & 0xff) / 255.f;
 	const float g = ((color >> 8) & 0xff) / 255.f;
@@ -844,64 +834,64 @@ void GlideGLBufferClear(uint32_t color, uint32_t alpha, uint32_t depth)
 	 * Real Glide only clears the back buffer. Display is grBufferSwap /
 	 * LFB unlock. Mark content so the next swap is allowed to present.
 	 */
-	s_has_content = true;
+	glide_has_context = true;
 	{
 		auto &ext = gfx_gl_ext();
 		if (ext.fbo)
 			ext.BindFramebuffer(GL_FRAMEBUFFER, 0);
-		s_in_frame = false;
+		glide_is_in_frame = false;
 	}
 }
 
 void GlideGLMarkContent(void)
 {
-	s_has_content = true;
+	glide_has_context = true;
 }
 
 void GlideGLUploadLfbAndPresent(const uint8_t *bgra, int w, int h, int pitch,
-                                int present)
+								int present)
 {
-	if (!bgra || w <= 0 || h <= 0 || !s_color_tex || !SharedMetalDevice())
+	if (!bgra || w <= 0 || h <= 0 || !glide_color_tex || !SharedMetalDevice())
 		return;
-	if ((uint32_t)w > s_w) w = (int)s_w;
-	if ((uint32_t)h > s_h) h = (int)s_h;
+	if ((uint32_t)w > glide_width) w = (int)glide_width;
+	if ((uint32_t)h > glide_height) h = (int)glide_height;
 
 	/* Upload into the current write color texture (BGRA8). Unbind FBO so
 	 * the texture is not both attachment and upload target. */
 	auto &ext = gfx_gl_ext();
 	if (ext.fbo)
 		ext.BindFramebuffer(GL_FRAMEBUFFER, 0);
-	s_in_frame = false;
+	glide_is_in_frame = false;
 
-	glBindTexture(GL_TEXTURE_2D, s_color_tex);
+	glBindTexture(GL_TEXTURE_2D, glide_color_tex);
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 	if (pitch == w * 4) {
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h,
-		                GL_BGRA, GL_UNSIGNED_BYTE, bgra);
+						GL_BGRA, GL_UNSIGNED_BYTE, bgra);
 	} else {
 		/* Row-by-row if pitch differs (should not for our converter). */
 		for (int y = 0; y < h; y++) {
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y, w, 1,
-			                GL_BGRA, GL_UNSIGNED_BYTE,
-			                bgra + (size_t)y * (size_t)pitch);
+							GL_BGRA, GL_UNSIGNED_BYTE,
+							bgra + (size_t)y * (size_t)pitch);
 		}
 	}
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glFlush();
 
-	s_has_content = true;
+	glide_has_context = true;
 	/* LFB unlock path: Present so movies keep working without waiting VBL. */
 	if (present)
-		glide_submit_overlay(/*do_present=*/1);
+		GlideSubitOverlay(/*do_present=*/1);
 	else
-		glide_submit_overlay(/*do_present=*/0);
+		GlideSubitOverlay(/*do_present=*/0);
 }
 
 /* ---- Textures ---------------------------------------------------------- */
 
-static void glide_unpack_chroma_rgb(uint32_t color, int color_format,
-                                    uint8_t *out_r, uint8_t *out_g,
-                                    uint8_t *out_b)
+static void GlideUnpackChromaRGB(uint32_t color, int color_format,
+									uint8_t *out_r, uint8_t *out_g,
+									uint8_t *out_b)
 {
 	uint8_t r = 0, g = 0, b = 0;
 	switch (color_format) {
@@ -932,17 +922,17 @@ static void glide_unpack_chroma_rgb(uint32_t color, int color_format,
 	*out_b = b;
 }
 
-static void glide_decode_tex_level(const uint8_t *src, int w, int h, int format,
-                                   int chroma_mode, uint32_t chroma_value,
-                                   int color_format,
-                                   std::vector<uint8_t> &rgba)
+static void GlideDecodeTextureLevel(const uint8_t *src, int w, int h, int format,
+								   int chroma_mode, uint32_t chroma_value,
+								   int color_format,
+								   std::vector<uint8_t> &rgba)
 {
 	rgba.resize((size_t)w * (size_t)h * 4u);
 	const uint32_t *pal = GlideStateTexPalette();
 	const int bpp = GlideTexBpp(format);
 	uint8_t chroma_r = 0, chroma_g = 0, chroma_b = 0;
-	glide_unpack_chroma_rgb(chroma_value, color_format,
-	                        &chroma_r, &chroma_g, &chroma_b);
+	GlideUnpackChromaRGB(chroma_value, color_format,
+							&chroma_r, &chroma_g, &chroma_b);
 	uint8_t *d = rgba.data();
 	const uint8_t *s = src;
 	for (int i = 0; i < w * h; i++) {
@@ -1003,19 +993,19 @@ static void glide_decode_tex_level(const uint8_t *src, int w, int h, int format,
 	}
 }
 
-static void glide_upload_cached_texture(GlideGLTextureCacheEntry &entry,
-                                        const uint8_t *src,
-                                        int chroma_mode,
-                                        uint32_t chroma_value,
-                                        int color_format)
+static void GlideUploadCachedTexture(GlideGLTextureCacheEntry &entry,
+										const uint8_t *src,
+										int chroma_mode,
+										uint32_t chroma_value,
+										int color_format)
 {
 	std::vector<uint8_t> rgba;
-	glide_decode_tex_level(src, entry.width, entry.height, entry.format,
-	                       chroma_mode, chroma_value, color_format, rgba);
+	GlideDecodeTextureLevel(src, entry.width, entry.height, entry.format,
+						   chroma_mode, chroma_value, color_format, rgba);
 	glBindTexture(GL_TEXTURE_2D, entry.texture);
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, entry.width, entry.height, 0,
-	             GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+				 GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
 	entry.chroma_mode = chroma_mode;
 	entry.chroma_value = chroma_value;
 	entry.color_format = color_format;
@@ -1028,12 +1018,12 @@ void GlideGLSetChromakey(void)
 	const uint32_t chroma_value = GlideStateChromaValue();
 	const int color_format = GlideStateColorFormat();
 	GlideGLTextureCacheEntry *bound = nullptr;
-	for (GlideGLTextureCacheEntry &entry : s_texture_cache) {
+	for (GlideGLTextureCacheEntry &entry : glide_texture_cache) {
 		if (entry.chroma_mode != chroma_mode ||
-		    entry.chroma_value != chroma_value ||
-		    entry.color_format != color_format)
+			entry.chroma_value != chroma_value ||
+			entry.color_format != color_format)
 			entry.dirty = true;
-		if (s_tex_gl != 0 && entry.texture == s_tex_gl)
+		if (glide_gl_texture != 0 && entry.texture == glide_gl_texture)
 			bound = &entry;
 	}
 
@@ -1043,21 +1033,21 @@ void GlideGLSetChromakey(void)
 		uint32_t avail = 0;
 		const uint8_t *src = GlideStateTmuPtr(bound->address, &avail);
 		const uint32_t need = (uint32_t)bound->width *
-		                      (uint32_t)bound->height *
-		                      (uint32_t)GlideTexBpp(bound->format);
+							  (uint32_t)bound->height *
+							  (uint32_t)GlideTexBpp(bound->format);
 		if (src && avail >= need)
-			glide_upload_cached_texture(*bound, src, chroma_mode,
-			                            chroma_value, color_format);
+			GlideUploadCachedTexture(*bound, src, chroma_mode,
+										chroma_value, color_format);
 	}
-	if (s_in_frame)
+	if (glide_is_in_frame)
 		GlideGLApplyState();
 	else if (SharedMetalDevice())
 		glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void GlideGLTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
-                             int aspect_log2, int format, const void *data,
-                             uint32_t nbytes)
+							 int aspect_log2, int format, const void *data,
+							 uint32_t nbytes)
 {
 	(void)large_lod;
 	if (!data) return;
@@ -1072,14 +1062,14 @@ void GlideGLTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
 		std::memcmp(old_data, data, need) != 0;
 	if (changed && !GlideStateTmuWrite(start_addr, data, need)) {
 		QD3D_INIT_LOG("GlideGLTexDownloadLevel FAIL addr=%08x need=%u",
-		              start_addr, need);
+					  start_addr, need);
 		return;
 	}
 	/* Invalidate every resident base whose sampled level overlaps a real write. */
 	const uint64_t write_begin = start_addr;
 	const uint64_t write_end = write_begin + need;
 	if (changed) {
-		for (GlideGLTextureCacheEntry &entry : s_texture_cache) {
+		for (GlideGLTextureCacheEntry &entry : glide_texture_cache) {
 			const uint64_t entry_begin = entry.address;
 			const uint64_t entry_end = entry_begin +
 				(uint64_t)entry.width * (uint64_t)entry.height *
@@ -1091,11 +1081,11 @@ void GlideGLTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
 	static uint32_t s_dl_n = 0;
 	if (++s_dl_n <= 12 || (s_dl_n & (s_dl_n - 1)) == 0)
 		QD3D_INIT_LOG("GlideGLTexDownloadLevel #%u addr=%08x lod=%d %dx%d fmt=%d n=%u",
-		              (unsigned)s_dl_n, start_addr, lod, w, h, format, need);
+					  (unsigned)s_dl_n, start_addr, lod, w, h, format, need);
 }
 
 void GlideGLTexSource(uint32_t start_addr, int even_odd, int small_lod,
-                      int large_lod, int aspect_log2, int format)
+					  int large_lod, int aspect_log2, int format)
 {
 	(void)even_odd;
 	(void)small_lod;
@@ -1107,9 +1097,9 @@ void GlideGLTexSource(uint32_t start_addr, int even_odd, int small_lod,
 	const uint8_t *src = GlideStateTmuPtr(start_addr, &avail);
 	const uint32_t need = GlideTexLevelSizeBytes(large_lod, aspect_log2, format);
 	if (!src || avail < need || need == 0) {
-		s_tex_enabled = false;
+		glide_is_texture_enabled = false;
 		QD3D_INIT_LOG("GlideGLTexSource FAIL addr=%08x need=%u avail=%u",
-		              start_addr, need, avail);
+					  start_addr, need, avail);
 		return;
 	}
 
@@ -1117,9 +1107,9 @@ void GlideGLTexSource(uint32_t start_addr, int even_odd, int small_lod,
 	const uint32_t chroma_value = GlideStateChromaValue();
 	const int color_format = GlideStateColorFormat();
 	GlideGLTextureCacheEntry *cached = nullptr;
-	for (GlideGLTextureCacheEntry &entry : s_texture_cache) {
+	for (GlideGLTextureCacheEntry &entry : glide_texture_cache) {
 		if (entry.address == start_addr && entry.width == w &&
-		    entry.height == h && entry.format == format) {
+			entry.height == h && entry.format == format) {
 			cached = &entry;
 			break;
 		}
@@ -1138,21 +1128,21 @@ void GlideGLTexSource(uint32_t start_addr, int even_odd, int small_lod,
 		entry.wrap_t = -1;
 		entry.filter = -1;
 		glGenTextures(1, &entry.texture);
-		s_texture_cache.push_back(entry);
-		cached = &s_texture_cache.back();
+		glide_texture_cache.push_back(entry);
+		cached = &glide_texture_cache.back();
 	}
 
 	const bool upload = cached->dirty ||
 		cached->chroma_mode != chroma_mode ||
 		cached->chroma_value != chroma_value ||
 		cached->color_format != color_format;
-	s_tex_gl = cached->texture;
+	glide_gl_texture = cached->texture;
 	glBindTexture(GL_TEXTURE_2D, cached->texture);
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 	const GLint wrap_s = GlideStateTexClampS() ? GL_CLAMP_TO_EDGE : GL_REPEAT;
 	const GLint wrap_t = GlideStateTexClampT() ? GL_CLAMP_TO_EDGE : GL_REPEAT;
 	const GLint filt = (GlideStateTexFilterMin() || GlideStateTexFilterMag())
-	                       ? GL_LINEAR : GL_NEAREST;
+						   ? GL_LINEAR : GL_NEAREST;
 	if (cached->wrap_s != wrap_s) {
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_s);
 		cached->wrap_s = wrap_s;
@@ -1167,19 +1157,19 @@ void GlideGLTexSource(uint32_t start_addr, int even_odd, int small_lod,
 		cached->filter = filt;
 	}
 	if (upload) {
-		glide_upload_cached_texture(*cached, src, chroma_mode,
-		                            chroma_value, color_format);
+		GlideUploadCachedTexture(*cached, src, chroma_mode,
+									chroma_value, color_format);
 	}
 	glBindTexture(GL_TEXTURE_2D, 0);
 
-	s_tex_w = w;
-	s_tex_h = h;
-	s_tex_enabled = true;
+	glide_texture_width = w;
+	glide_texture_height = h;
+	glide_is_texture_enabled = true;
 
 	static uint32_t s_src_n = 0;
 	if (++s_src_n <= 12 || (s_src_n & (s_src_n - 1)) == 0)
 		QD3D_INIT_LOG("GlideGLTexSource #%u addr=%08x %dx%d fmt=%d",
-		              (unsigned)s_src_n, start_addr, w, h, format);
+					  (unsigned)s_src_n, start_addr, w, h, format);
 }
 
 void GlideGLTexDownloadTable(int type, const void *data)
@@ -1192,7 +1182,7 @@ void GlideGLTexDownloadTable(int type, const void *data)
 		for (int i = 0; i < 256; i++) {
 			/* Guest big-endian ARGB words */
 			pal[i] = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-			         ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+					 ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 			p += 4;
 		}
 		/* Store on state via re-export - write through palette setter. */
@@ -1203,7 +1193,7 @@ void GlideGLTexDownloadTable(int type, const void *data)
 		GlideStateTexSetPalette(pal);
 		if (changed) {
 			/* Palette changes affect every resident paletted texture. */
-			for (GlideGLTextureCacheEntry &entry : s_texture_cache) {
+			for (GlideGLTextureCacheEntry &entry : glide_texture_cache) {
 				if (entry.format == 0x05 || entry.format == 0x08)
 					entry.dirty = true;
 			}

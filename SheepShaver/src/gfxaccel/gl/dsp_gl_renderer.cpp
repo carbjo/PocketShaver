@@ -1,5 +1,7 @@
 /*
  *  dsp_gl_renderer.cpp - DSp back-buffer via host memory + compositor present
+ * 
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #include "sysdeps.h"
@@ -205,7 +207,7 @@ bool DSpDoAllocateBackBuffer(uint32_t w, uint32_t h, uint32_t bpp,
 	return true;
 }
 bool DSpAllocateBackBuffer(struct DSpContextPrivate *ctx,
-                                   uint32_t w, uint32_t h, uint32_t bpp)
+								   uint32_t w, uint32_t h, uint32_t bpp)
 {
 	if(!DSpDoAllocateBackBuffer(w, h, bpp,
 			&ctx->back_buffer, &ctx->back_texture))
@@ -721,19 +723,9 @@ int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
-/* RsrcLocksDumpOnCrash now has a real implementation in rsrc_patches.cpp
- * (DII 'nift' CFM monitor); the placeholder stub was removed to avoid LNK2005. */
-
-/*
- * VBL-driven auto-publish (desktop GL twin of dsp_metal_renderer.mm).
- * Classic DSp apps that Reserve + draw via the main port without
- * SwapBuffers still need pixels on screen each VBL. The previous empty
- * stub left s_fb_tex black after MetalCompositor_OnModeEnter Resize
- * (buffer=NULL) wiped the host pointer.
- */
 extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
-                                                void *drawable,
-                                                double ts)
+												void *drawable,
+												double ts)
 {
 	(void)cb_ctx; (void)drawable; (void)ts;
 
@@ -753,18 +745,18 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 	if (active == nullptr) return;
 
 	const bool present_front_staging =
-	    DSpShouldPresentFrontBufferStagingForState(
-	        active->attr.backBufferBestDepth,
-	        active->attr.displayBestDepth,
-	        active->front_staging_mac_addr,
-	        active->front_staging_size,
-	        active->state,
-	        (uint32_t)kDSpContextState_Active);
+		DSpShouldPresentFrontBufferStagingForState(
+			active->attr.backBufferBestDepth,
+			active->attr.displayBestDepth,
+			active->front_staging_mac_addr,
+			active->front_staging_size,
+			active->state,
+			(uint32_t)kDSpContextState_Active);
 	if (!DSpShouldPublishActiveContextOnVBL(snap->active_owner,
-	                                        (uint32_t)kDMCOwnerDSp,
-	                                        active != nullptr,
-	                                        present_front_staging,
-	                                        active->explicit_swap_observed)) {
+											(uint32_t)kDMCOwnerDSp,
+											active != nullptr,
+											present_front_staging,
+											active->explicit_swap_observed)) {
 		return;
 	}
 
@@ -790,7 +782,7 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 	bool front_presented = false;
 	if (present_front_staging) {
 		front_presented =
-		    DSpEncodeFrontBufferStagingToFramebuffer(active, nullptr, fb);
+			DSpEncodeFrontBufferStagingToFramebuffer(active, nullptr, fb);
 	}
 	if (!front_presented)
 		DSpEncodePresentToFramebuffer(active, nullptr, fb);
@@ -842,11 +834,6 @@ extern "C" void DSpHostBridgeShutdown(void)
 	s_dsp_active_fullscreen = false;
 }
 
-/*
- * Allocate the texture backing.
- * Instead of a Metal Buffer + View, we create a standard OpenGL Texture.
- * 'rec->texture' is now assumed to be a GLuint.
- */
 bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 	uint32_t w, uint32_t h) {
 	bool res;
@@ -861,7 +848,7 @@ bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 		&rec->backing, &rec->texture);
 	if (res == false) {
 		DSP_LOG("DSpAllocAltBufferBacking: DSpAllocateBackBuffer failed "
-		        "(%ux%u@%u)", w, h, rec->depth);
+				"(%ux%u@%u)", w, h, rec->depth);
 		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 		return false;
 	}

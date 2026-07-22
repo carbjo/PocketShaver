@@ -3,6 +3,8 @@
  *
  *  Replaces CAMetalDisplayLink / CADisplayLink with a paced tick counter
  *  driven from MetalCompositorPresent (and optionally an SDL timer).
+ *
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #include "sysdeps.h"
@@ -38,8 +40,8 @@ static uint64_t now_usec(void)
 }
 
 int32_t vbl_source_init(void * /*cametal_layer*/,
-                        VBLSourceCallbackFn callback,
-                        void *ctx)
+						VBLSourceCallbackFn callback,
+						void *ctx)
 {
 	if (s_initialized)
 		return kGfxAccelErrVBLAlreadyRunning;
@@ -49,7 +51,7 @@ int32_t vbl_source_init(void * /*cametal_layer*/,
 	s_cadence_usec.store(16667);
 	s_last_tick_usec.store(0);
 	std::memset(s_engine_deadline_usec, 0,
-	            sizeof(s_engine_deadline_usec));
+				sizeof(s_engine_deadline_usec));
 	s_paused.store(0);
 	s_initialized = true;
 	return 0; /* kGfxAccelNoErr */
@@ -66,7 +68,7 @@ void vbl_source_shutdown(void)
 	s_tick_count.store(0);
 	s_last_tick_usec.store(0);
 	std::memset(s_engine_deadline_usec, 0,
-	            sizeof(s_engine_deadline_usec));
+				sizeof(s_engine_deadline_usec));
 }
 
 uint64_t vbl_source_get_cadence_usec(void)
@@ -119,7 +121,7 @@ int32_t vbl_source_sync_3d_pacing_for_engine(int32_t engine_id)
 	if (!tick_is_fresh) {
 		const uint64_t fallback_deadline = now + cad;
 		if (deadline == 0 || deadline <= now ||
-		    deadline > fallback_deadline + cad)
+			deadline > fallback_deadline + cad)
 			deadline = fallback_deadline;
 	} else if (deadline == 0 || deadline > last_tick + 2u * cad) {
 		/* First sync, cadence change, or long idle: anchor to the first
@@ -191,10 +193,10 @@ extern "C" void vbl_source_sdl_tick(double target_ts)
 		static uint64_t s_nested_tick_count = 0;
 		++s_nested_tick_count;
 		if (s_nested_tick_count <= 8 ||
-		    (s_nested_tick_count & (s_nested_tick_count - 1u)) == 0 ||
-		    (s_nested_tick_count % 120u) == 0) {
+			(s_nested_tick_count & (s_nested_tick_count - 1u)) == 0 ||
+			(s_nested_tick_count % 120u) == 0) {
 			QD3D_RENDER_LOG("VBL tick deferred: nested callback chain count=%llu",
-			                (unsigned long long)s_nested_tick_count);
+							(unsigned long long)s_nested_tick_count);
 		}
 #endif
 		return;

@@ -57,7 +57,7 @@
 #include "gl_engine.h"
 
 uint32_t RaveDispatchARC(uint32_t r3, uint32_t r4, uint32_t r5,
-                                     uint32_t r6, uint32_t r7, uint32_t r8)
+									 uint32_t r6, uint32_t r7, uint32_t r8)
 {
 	uint32_t result = 0;
 	@autoreleasepool {
@@ -86,16 +86,16 @@ uint32_t RaveDispatchARC(uint32_t r3, uint32_t r4, uint32_t r5,
 static inline bool GLOpcodeIsObjCFreeImmediate(uint32_t op)
 {
 	return op == GL_SUB_BEGIN
-	    || (op >= GL_SUB_COLOR3B     && op <= GL_SUB_COLOR4USV)
-	    || (op >= GL_SUB_NORMAL3B    && op <= GL_SUB_NORMAL3SV)
-	    || (op >= GL_SUB_TEX_COORD1D && op <= GL_SUB_TEX_COORD4SV)
-	    || (op >= GL_SUB_VERTEX2D    && op <= GL_SUB_VERTEX4SV);
+		|| (op >= GL_SUB_COLOR3B     && op <= GL_SUB_COLOR4USV)
+		|| (op >= GL_SUB_NORMAL3B    && op <= GL_SUB_NORMAL3SV)
+		|| (op >= GL_SUB_TEX_COORD1D && op <= GL_SUB_TEX_COORD4SV)
+		|| (op >= GL_SUB_VERTEX2D    && op <= GL_SUB_VERTEX4SV);
 }
 
 uint32_t GLDispatchARC(uint32_t r3, uint32_t r4, uint32_t r5,
-                                   uint32_t r6, uint32_t r7, uint32_t r8,
-                                   uint32_t r9, uint32_t r10,
-                                   const uint32_t *float_bits, int num_float_args)
+								   uint32_t r6, uint32_t r7, uint32_t r8,
+								   uint32_t r9, uint32_t r10,
+								   const uint32_t *float_bits, int num_float_args)
 {
 	// GLDispatch reads the sub-opcode from gl_scratch_addr; read the same word
 	// here (there is no intervening write) to decide whether a pool is needed.
@@ -105,13 +105,13 @@ uint32_t GLDispatchARC(uint32_t r3, uint32_t r4, uint32_t r5,
 	// timing could differ; every other opcode still gets its @autoreleasepool.
 	if (GLOpcodeIsObjCFreeImmediate(ReadMacInt32(gl_scratch_addr))) {
 		return GLDispatch(r3, r4, r5, r6, r7, r8, r9, r10,
-		                  float_bits, num_float_args);
+						  float_bits, num_float_args);
 	}
 
 	uint32_t result = 0;
 	@autoreleasepool {
 		result = GLDispatch(r3, r4, r5, r6, r7, r8, r9, r10,
-		                    float_bits, num_float_args);
+							float_bits, num_float_args);
 	}
 	return result;
 }

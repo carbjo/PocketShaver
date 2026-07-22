@@ -80,20 +80,20 @@ std::vector<DSpContextAttributes> s_dsp_modes;
 const int kMaxVModesScan = 128;
 
 bool DSpPublicModeAttributesEqual(const DSpContextAttributes &a,
-                                  const DSpContextAttributes &b)
+								  const DSpContextAttributes &b)
 {
 	return a.frequency == b.frequency &&
-	       a.displayWidth == b.displayWidth &&
-	       a.displayHeight == b.displayHeight &&
-	       a.colorNeeds == b.colorNeeds &&
-	       a.colorTable == b.colorTable &&
-	       a.contextOptions == b.contextOptions &&
-	       a.backBufferDepthMask == b.backBufferDepthMask &&
-	       a.displayDepthMask == b.displayDepthMask &&
-	       a.backBufferBestDepth == b.backBufferBestDepth &&
-	       a.displayBestDepth == b.displayBestDepth &&
-	       a.pageCount == b.pageCount &&
-	       a.gameMustConfirmSwitch == b.gameMustConfirmSwitch;
+		   a.displayWidth == b.displayWidth &&
+		   a.displayHeight == b.displayHeight &&
+		   a.colorNeeds == b.colorNeeds &&
+		   a.colorTable == b.colorTable &&
+		   a.contextOptions == b.contextOptions &&
+		   a.backBufferDepthMask == b.backBufferDepthMask &&
+		   a.displayDepthMask == b.displayDepthMask &&
+		   a.backBufferBestDepth == b.backBufferBestDepth &&
+		   a.displayBestDepth == b.displayBestDepth &&
+		   a.pageCount == b.pageCount &&
+		   a.gameMustConfirmSwitch == b.gameMustConfirmSwitch;
 }
 
 
@@ -137,7 +137,7 @@ void DSpBuildModesFromVModes(void)
 		 * viAppleMode values (AppleModeToBitDepth returns 0 for non-APPLE_*_BIT
 		 * inputs). */
 		if (depth != 1 && depth != 2 && depth != 4 && depth != 8 &&
-		    depth != 16 && depth != 32) {
+			depth != 16 && depth != 32) {
 			filtered_depth++;
 			continue;
 		}
@@ -161,7 +161,7 @@ void DSpBuildModesFromVModes(void)
 		a.displayDepthMask     = DepthMaskForDepth(depth);
 		a.pageCount            = 2;
 		a.colorNeeds           = (depth == 8) ? 1u /* Request */
-		                                       : 2u /* Require */;
+											   : 2u /* Require */;
 		a.contextOptions       = kDSpContextOption_PageFlip;
 		/* colorTable, gameMustConfirmSwitch, reserved3[4]: zero-init
 		 * already applied by memset. */
@@ -180,14 +180,14 @@ void DSpBuildModesFromVModes(void)
 
 	const size_t before_coalesce = s_dsp_modes.size();
 	s_dsp_modes.erase(
-	    std::unique(s_dsp_modes.begin(), s_dsp_modes.end(),
-	                DSpPublicModeAttributesEqual),
-	    s_dsp_modes.end());
+		std::unique(s_dsp_modes.begin(), s_dsp_modes.end(),
+					DSpPublicModeAttributesEqual),
+		s_dsp_modes.end());
 
 	DSP_LOG("BuildModesFromVModes: %zu modes cached (scanned=%d, "
-	        "filtered_depth=%d, filtered_zero=%d, coalesced=%zu)",
-	        s_dsp_modes.size(), scanned, filtered_depth, filtered_zero,
-	        before_coalesce - s_dsp_modes.size());
+			"filtered_depth=%d, filtered_zero=%d, coalesced=%zu)",
+			s_dsp_modes.size(), scanned, filtered_depth, filtered_zero,
+			before_coalesce - s_dsp_modes.size());
 }
 
 void DSpClearModes(void)
@@ -199,7 +199,7 @@ size_t DSpUserSelectableModeCount(const DSpContextAttributes *req)
 {
 	if (req == nullptr) return 0;
 	return DSpCountUserSelectableContexts(s_dsp_modes.data(),
-	                                      s_dsp_modes.size(), *req);
+										  s_dsp_modes.size(), *req);
 }
 
 /*
@@ -235,7 +235,7 @@ static int32_t DSpGetFirstContext_Core(uint32_t *outHandle)
 	 * their depth requirement. */
 	const DSpContextAttributes *head = &s_dsp_modes[0];
 	uint32_t handle = DSpAllocMetadataContextHandle(
-	    head, /*enumeration_mode_index=*/0);
+		head, /*enumeration_mode_index=*/0);
 	if (handle == 0) {
 		DSP_LOG("GetFirstContext: table full - kDSpInternalErr");
 		return kDSpInternalErr;
@@ -243,8 +243,8 @@ static int32_t DSpGetFirstContext_Core(uint32_t *outHandle)
 
 	*outHandle = handle;
 	DSP_LOG("GetFirstContext: vended handle=%u %ux%u@%ubpp (enum_idx=0 of %zu)",
-	        handle, head->displayWidth, head->displayHeight,
-	        head->backBufferBestDepth, s_dsp_modes.size());
+			handle, head->displayWidth, head->displayHeight,
+			head->backBufferBestDepth, s_dsp_modes.size());
 	return kDSpNoErr;
 }
 
@@ -264,19 +264,19 @@ static int32_t DSpGetFirstContext_Core(uint32_t *outHandle)
  *  After validation the core logic takes over.
  */
 extern "C" int32_t DSpGetFirstContextHandler(uint32_t displayID,
-                                              uint32_t outContextRefAddr)
+											  uint32_t outContextRefAddr)
 {
 	if (displayID != 0) {
 		/* Diagnostic: surface the non-zero path so future loggo captures
 		 * show real-world Display-Manager IDs reaching the single-screen
 		 * mapping. */
 		DSP_LOG("GetFirstContext: displayID=%u accepted "
-		        "(single-screen iOS - mapped to backing screen)",
-		        displayID);
+				"(single-screen iOS - mapped to backing screen)",
+				displayID);
 	}
 	if (outContextRefAddr == 0) {
 		DSP_LOG("GetFirstContext: NULL outContextRefAddr - "
-		        "kDSpInvalidAttributesErr");
+				"kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 
@@ -342,14 +342,14 @@ static int32_t DSpGetNextContext_Core(uint32_t prevCtxRef, uint32_t *outHandle)
 	if (prevCtxRef == 0) {
 		*outHandle = 0;
 		DSP_LOG("GetNextContext: prevCtxRef=0 - terminator "
-		        "(kDSpContextNotFoundErr)");
+				"(kDSpContextNotFoundErr)");
 		return kDSpContextNotFoundErr;
 	}
 
 	DSpContextPrivate *prev_ctx = DSpGetContext(prevCtxRef);
 	if (prev_ctx == nullptr) {
 		DSP_LOG("GetNextContext: invalid prevCtxRef=0x%08x - "
-		        "kDSpInvalidContextErr", prevCtxRef);
+				"kDSpInvalidContextErr", prevCtxRef);
 		return kDSpInvalidContextErr;
 	}
 
@@ -368,8 +368,8 @@ static int32_t DSpGetNextContext_Core(uint32_t prevCtxRef, uint32_t *outHandle)
 	if (prev_idx == DSP_ENUMERATION_INDEX_NONE) {
 		*outHandle = 0;
 		DSP_LOG("GetNextContext: prevCtxRef=%u has no enumeration cursor "
-		        "(FindBest/Reserved) - terminator (kDSpContextNotFoundErr)",
-		        prevCtxRef);
+				"(FindBest/Reserved) - terminator (kDSpContextNotFoundErr)",
+				prevCtxRef);
 		return kDSpContextNotFoundErr;
 	}
 
@@ -391,8 +391,8 @@ static int32_t DSpGetNextContext_Core(uint32_t prevCtxRef, uint32_t *outHandle)
 		 * contexts are reclaimed by DSpAllocMetadataContextHandle
 		 * recycling under table pressure instead. */
 		DSP_LOG("GetNextContext: prevCtxRef=%u at last mode (idx=%u of %zu) "
-		        "- terminator, ref stays valid; kDSpContextNotFoundErr",
-		        prevCtxRef, (unsigned)prev_idx, s_dsp_modes.size());
+				"- terminator, ref stays valid; kDSpContextNotFoundErr",
+				prevCtxRef, (unsigned)prev_idx, s_dsp_modes.size());
 		return kDSpContextNotFoundErr;
 	}
 
@@ -408,32 +408,32 @@ static int32_t DSpGetNextContext_Core(uint32_t prevCtxRef, uint32_t *outHandle)
 	 * DSpAllocMetadataContextHandle. */
 	const DSpContextAttributes *next_mode = &s_dsp_modes[next_idx];
 	uint32_t next_handle = DSpAllocMetadataContextHandle(next_mode,
-	                                                     (uint32_t)next_idx);
+														 (uint32_t)next_idx);
 	if (next_handle == 0) {
 		DSP_LOG("GetNextContext: metadata context alloc failed at idx=%zu "
-		        "(table full, nothing recyclable) - kDSpInternalErr",
-		        next_idx);
+				"(table full, nothing recyclable) - kDSpInternalErr",
+				next_idx);
 		return kDSpInternalErr;
 	}
 
 	*outHandle = next_handle;
 	DSP_LOG("GetNextContext: handle=%u %ux%u@%ubpp "
-	        "(enum_idx=%zu of %zu; distinct handle, prev=%u untouched)",
-	        next_handle, next_mode->displayWidth, next_mode->displayHeight,
-	        next_mode->backBufferBestDepth,
-	        next_idx, s_dsp_modes.size(), prevCtxRef);
+			"(enum_idx=%zu of %zu; distinct handle, prev=%u untouched)",
+			next_handle, next_mode->displayWidth, next_mode->displayHeight,
+			next_mode->backBufferBestDepth,
+			next_idx, s_dsp_modes.size(), prevCtxRef);
 	return kDSpNoErr;
 }
 
 extern "C" int32_t DSpGetNextContextHandler(uint32_t prevCtxRef,
-                                             uint32_t outContextRefAddr)
+											 uint32_t outContextRefAddr)
 {
 	/* Null out-ptr: mirrors GetFirstContext validation (PDF p.87
 	 * kDSpInvalidAttributesErr "Some field in an attributes structure
 	 * has an invalid value"). */
 	if (outContextRefAddr == 0) {
 		DSP_LOG("GetNextContext: NULL outContextRefAddr - "
-		        "kDSpInvalidAttributesErr");
+				"kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 
@@ -492,7 +492,7 @@ extern "C" int32_t DSpGetNextContextHandler(uint32_t prevCtxRef,
  *    - Map nullptr to kDSpContextNotFoundErr.
  */
 const DSpContextAttributes *DSpFindBestContext_Core(
-    const DSpContextAttributes *req)
+	const DSpContextAttributes *req)
 {
 	/* --- Tier 0: display-depth-mask overlap ----------------------------
 	 * s_dsp_modes represents display contexts. The requested display mask
@@ -503,7 +503,7 @@ const DSpContextAttributes *DSpFindBestContext_Core(
 	std::vector<const DSpContextAttributes *> pool;
 	pool.reserve(s_dsp_modes.size());
 	const uint32_t display_depth_mask =
-	    DSpUserSelectRequestedDisplayDepthMask(*req);
+		DSpUserSelectRequestedDisplayDepthMask(*req);
 	for (const auto &m : s_dsp_modes) {
 		uint32_t mode_depth_mask = DepthMaskForDepth(m.displayBestDepth);
 		if ((display_depth_mask & mode_depth_mask) != 0) {
@@ -512,8 +512,8 @@ const DSpContextAttributes *DSpFindBestContext_Core(
 	}
 	if (pool.empty()) {
 		DSP_LOG("FindBest: Tier 0 empty - req displayDepthMask=0x%08x yields "
-		        "no candidates; kDSpContextNotFoundErr",
-		        display_depth_mask);
+				"no candidates; kDSpContextNotFoundErr",
+				display_depth_mask);
 		return nullptr;
 	}
 
@@ -536,7 +536,7 @@ const DSpContextAttributes *DSpFindBestContext_Core(
 		uint32_t best_depth = 0;
 		for (auto *c : pool) {
 			if (c->displayBestDepth >= exact_depth &&
-			    c->displayBestDepth > best_depth) {
+				c->displayBestDepth > best_depth) {
 				best_depth = c->displayBestDepth;
 			}
 		}
@@ -560,7 +560,7 @@ const DSpContextAttributes *DSpFindBestContext_Core(
 		 * surface via kDSpContextNotFoundErr rather than fronting an
 		 * out-of-bounds read. */
 		DSP_LOG("FindBest: Tier 1 unexpectedly empty - "
-		        "kDSpContextNotFoundErr");
+				"kDSpContextNotFoundErr");
 		return nullptr;
 	}
 
@@ -575,7 +575,7 @@ const DSpContextAttributes *DSpFindBestContext_Core(
 	resolution_filtered.reserve(depth_filtered.size());
 	for (auto *c : depth_filtered) {
 		if (c->displayWidth == req->displayWidth &&
-		    c->displayHeight == req->displayHeight) {
+			c->displayHeight == req->displayHeight) {
 			resolution_filtered.push_back(c);
 		}
 	}
@@ -584,35 +584,35 @@ const DSpContextAttributes *DSpFindBestContext_Core(
 		uint64_t best_area = UINT64_MAX;
 		for (auto *c : depth_filtered) {
 			if (c->displayWidth >= req->displayWidth &&
-			    c->displayHeight >= req->displayHeight) {
+				c->displayHeight >= req->displayHeight) {
 				uint64_t a = (uint64_t)c->displayWidth *
-				             (uint64_t)c->displayHeight;
+							 (uint64_t)c->displayHeight;
 				if (a < best_area) best_area = a;
 			}
 		}
 		if (best_area != UINT64_MAX) {
 			for (auto *c : depth_filtered) {
 				uint64_t a = (uint64_t)c->displayWidth *
-				             (uint64_t)c->displayHeight;
+							 (uint64_t)c->displayHeight;
 				if (a == best_area) resolution_filtered.push_back(c);
 			}
 		} else {
 			/* Fallback B: closest-by-absolute-area-delta. */
 			uint64_t req_area = (uint64_t)req->displayWidth *
-			                    (uint64_t)req->displayHeight;
+								(uint64_t)req->displayHeight;
 			uint64_t best_delta = UINT64_MAX;
 			for (auto *c : depth_filtered) {
 				uint64_t a = (uint64_t)c->displayWidth *
-				             (uint64_t)c->displayHeight;
+							 (uint64_t)c->displayHeight;
 				uint64_t delta = a > req_area ? a - req_area
-				                                : req_area - a;
+												: req_area - a;
 				if (delta < best_delta) best_delta = delta;
 			}
 			for (auto *c : depth_filtered) {
 				uint64_t a = (uint64_t)c->displayWidth *
-				             (uint64_t)c->displayHeight;
+							 (uint64_t)c->displayHeight;
 				uint64_t delta = a > req_area ? a - req_area
-				                                : req_area - a;
+												: req_area - a;
 				if (delta == best_delta) {
 					resolution_filtered.push_back(c);
 				}
@@ -632,15 +632,15 @@ const DSpContextAttributes *DSpFindBestContext_Core(
 	 * Can be extended with quantization. */
 	const DSpContextAttributes *best = resolution_filtered.front();
 	DSP_LOG("FindBest: req=%ux%u back@%ubpp/bmask=0x%08x "
-	        "display@%ubpp/dmask=0x%08x pc=%u => best display=%ux%u@%ubpp "
-	        "(pool=%zu depth=%zu res=%zu)",
-	        req->displayWidth, req->displayHeight,
-	        req->backBufferBestDepth, req->backBufferDepthMask,
-	        req->displayBestDepth, req->displayDepthMask, req->pageCount,
-	        best->displayWidth, best->displayHeight,
-	        best->displayBestDepth,
-	        pool.size(), depth_filtered.size(),
-	        resolution_filtered.size());
+			"display@%ubpp/dmask=0x%08x pc=%u => best display=%ux%u@%ubpp "
+			"(pool=%zu depth=%zu res=%zu)",
+			req->displayWidth, req->displayHeight,
+			req->backBufferBestDepth, req->backBufferDepthMask,
+			req->displayBestDepth, req->displayDepthMask, req->pageCount,
+			best->displayWidth, best->displayHeight,
+			best->displayBestDepth,
+			pool.size(), depth_filtered.size(),
+			resolution_filtered.size());
 	return best;
 }
 
@@ -656,7 +656,7 @@ const DSpContextAttributes *DSpFindBestContext_Core(
  *  false on table-full. The caller maps false to kDSpInternalErr.
  */
 bool DSpFindBestContext_AllocAndWriteBack(const DSpContextAttributes *best,
-                                          uint32_t *outHandle)
+										  uint32_t *outHandle)
 {
 	/* Debug session `dsp-sims-enumeration-stall` fix (2026-04-19):
 	 * FindBest returns a best-match result, not a cursor into the
@@ -664,10 +664,10 @@ bool DSpFindBestContext_AllocAndWriteBack(const DSpContextAttributes *best,
 	 * treats the handle as a terminator (PDF p.17 "last context in the
 	 * list"). */
 	uint32_t handle = DSpAllocMetadataContextHandle(
-	    best, DSP_ENUMERATION_INDEX_NONE);
+		best, DSP_ENUMERATION_INDEX_NONE);
 	if (handle == 0) {
 		DSP_LOG("FindBest: AllocMetadataContextHandle failed - "
-		        "table full (kDSpInternalErr upstream)");
+				"table full (kDSpInternalErr upstream)");
 		return false;
 	}
 	*outHandle = handle;
@@ -686,7 +686,7 @@ bool DSpFindBestContext_AllocAndWriteBack(const DSpContextAttributes *best,
  *  any ReadMacInt* / WriteMacInt32.
  */
 extern "C" int32_t DSpFindBestContextHandler(uint32_t attrAddr,
-                                              uint32_t outContextRefAddr)
+											  uint32_t outContextRefAddr)
 {
 	if (attrAddr == 0) {
 		DSP_LOG("FindBest: NULL attrAddr - kDSpInvalidAttributesErr");
@@ -694,7 +694,7 @@ extern "C" int32_t DSpFindBestContextHandler(uint32_t attrAddr,
 	}
 	if (outContextRefAddr == 0) {
 		DSP_LOG("FindBest: NULL outContextRefAddr - "
-		        "kDSpInvalidAttributesErr");
+				"kDSpInvalidAttributesErr");
 		return kDSpInvalidAttributesErr;
 	}
 

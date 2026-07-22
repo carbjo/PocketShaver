@@ -163,7 +163,7 @@ struct DMCReentryScope {
 	do { \
 		if (s_emul_thread != 0 && dmc_thread_self() != s_emul_thread) { \
 			DMC_ERR("dmc_* called from non-emul thread (got %p, expected %p)", \
-			        (void *)(uintptr_t)dmc_thread_self(), (void *)(uintptr_t)s_emul_thread); \
+					(void *)(uintptr_t)dmc_thread_self(), (void *)(uintptr_t)s_emul_thread); \
 			assert(0 && "DMC write from wrong thread"); \
 		} \
 	} while (0)
@@ -185,7 +185,7 @@ static int32_t dmc_validate_mode_desc(const DMCModeDesc *m) {
 		return kDMCErrInvalidModeDesc;
 	}
 	if (m->depth != 1 && m->depth != 2 && m->depth != 4 &&
-	    m->depth != 8 && m->depth != 16 && m->depth != 32) {
+		m->depth != 8 && m->depth != 16 && m->depth != 32) {
 		return kDMCErrInvalidModeDesc;
 	}
 	if (m->row_bytes == 0) {
@@ -227,9 +227,9 @@ static void dmc_init_identity_gamma(DMCModeSnapshot *snap) {
 // seeing the old snapshot for a sub-microsecond transition window during
 // which s_current still points at `outgoing`.
 static DMCModeSnapshot *dmc_alloc_snapshot_from_desc(const DMCModeDesc *m,
-                                                     uint32_t generation,
-                                                     uint32_t active_owner,
-                                                     const uint8_t blanking_rgba[4]) {
+													 uint32_t generation,
+													 uint32_t active_owner,
+													 const uint8_t blanking_rgba[4]) {
 	DMCModeSnapshot *s = dmc_alloc_zeroed_snapshot();
 	if (s == NULL) {
 		return NULL;
@@ -269,9 +269,9 @@ static DMCModeSnapshot *dmc_alloc_snapshot_from_desc(const DMCModeDesc *m,
 // dmc_end_blanking to produce a new snapshot without re-validating a
 // DMCModeDesc (the existing fields were validated on the previous commit).
 static DMCModeSnapshot *dmc_clone_snapshot_with_owner(const DMCModeSnapshot *src,
-                                                      uint32_t generation,
-                                                      uint32_t active_owner,
-                                                      const uint8_t blanking_rgba[4]) {
+													  uint32_t generation,
+													  uint32_t active_owner,
+													  const uint8_t blanking_rgba[4]) {
 	DMCModeSnapshot *s = dmc_alloc_zeroed_snapshot();
 	if (s == NULL) {
 		return NULL;
@@ -297,7 +297,7 @@ static DMCModeSnapshot *dmc_clone_snapshot_with_owner(const DMCModeSnapshot *src
 // separately (they are not legal targets of dmc_set_active_owner).
 static DMCState dmc_target_state_for_owner(uint32_t owner) {
 	if (owner == kDMCOwnerRAVE || owner == kDMCOwnerGL ||
-	    owner == kDMCOwnerDSp || owner == kDMCOwnerGlide) {
+		owner == kDMCOwnerDSp || owner == kDMCOwnerGlide) {
 		return kDMCStateThreeDOwner;
 	}
 	return kDMCStateQuickDrawOwner;
@@ -348,7 +348,7 @@ static void dmc_internal_fire_exit_events(const DMCModeSnapshot *outgoing) {
 			int32_t r = s_subscribers[i].on_mode_exit(outgoing, s_subscribers[i].ctx);
 			if (r != kDMCNoErr) {
 				DMC_LOG("subscriber %s on_mode_exit returned %d (advisory; not vetoable)",
-				        s_subscribers[i].name != NULL ? s_subscribers[i].name : "?", (int)r);
+						s_subscribers[i].name != NULL ? s_subscribers[i].name : "?", (int)r);
 			}
 		}
 	}
@@ -369,7 +369,7 @@ static int32_t dmc_internal_fire_enter_events(const DMCModeSnapshot *incoming) {
 			int32_t r = s_subscribers[idx].on_mode_enter(incoming, s_subscribers[idx].ctx);
 			if (r != kDMCNoErr) {
 				DMC_ERR("subscriber %s on_mode_enter returned %d - initiating rollback",
-				        s_subscribers[idx].name != NULL ? s_subscribers[idx].name : "?", (int)r);
+						s_subscribers[idx].name != NULL ? s_subscribers[idx].name : "?", (int)r);
 				return kDMCErrSubscriberRejected;
 			}
 		}
@@ -386,12 +386,12 @@ static void dmc_internal_fire_enter_events_advisory(
 		size_t idx = i - 1;
 		if (s_subscribers[idx].on_mode_enter != NULL) {
 			int32_t r = s_subscribers[idx].on_mode_enter(incoming,
-			                                             s_subscribers[idx].ctx);
+														 s_subscribers[idx].ctx);
 			if (r != kDMCNoErr) {
 				DMC_ERR("subscriber %s on_mode_enter returned %d during "
-				        "%s - rollback compensation continues",
-				        s_subscribers[idx].name != NULL ? s_subscribers[idx].name : "?",
-				        (int)r, reason != NULL ? reason : "rollback compensation");
+						"%s - rollback compensation continues",
+						s_subscribers[idx].name != NULL ? s_subscribers[idx].name : "?",
+						(int)r, reason != NULL ? reason : "rollback compensation");
 			}
 		}
 	}
@@ -450,9 +450,9 @@ int32_t dmc_create(const struct DMCModeDesc *initial_mode) {
 
 	const uint8_t default_blanking[4] = { 0x00, 0x00, 0x00, 0xFF };
 	DMCModeSnapshot *snap = dmc_alloc_snapshot_from_desc(initial_mode,
-	                                                     s_next_generation,
-	                                                     (uint32_t)kDMCOwnerQuickDraw,
-	                                                     default_blanking);
+														 s_next_generation,
+														 (uint32_t)kDMCOwnerQuickDraw,
+														 default_blanking);
 	if (snap == NULL) {
 		return kDMCErrOutOfMemory;  // uniform OOM return
 	}
@@ -471,7 +471,7 @@ int32_t dmc_create(const struct DMCModeDesc *initial_mode) {
 		// Rollback: undo T1. Since there is no prior snapshot, we tear
 		// back down to Quiescent.
 		dmc_internal_compensate_rejected_transition(
-		    snap, NULL, kDMCStateQuiescent, "dmc_create enter veto");
+			snap, NULL, kDMCStateQuiescent, "dmc_create enter veto");
 		free(snap);
 		s_dmc_initialized = false;
 		s_next_generation--;
@@ -538,7 +538,7 @@ int32_t dmc_subscribe(const struct DMCSubscriber *sub) {
 	// Duplicate-name check.
 	for (size_t i = 0; i < s_subscribers.size(); ++i) {
 		if (s_subscribers[i].name != NULL &&
-		    strcmp(s_subscribers[i].name, sub->name) == 0) {
+			strcmp(s_subscribers[i].name, sub->name) == 0) {
 			return kDMCErrSubscriberAlreadyRegistered;
 		}
 	}
@@ -575,7 +575,7 @@ int32_t dmc_unsubscribe(const char *name) {
 	}
 	for (size_t i = 0; i < s_subscribers.size(); ++i) {
 		if (s_subscribers[i].name != NULL &&
-		    strcmp(s_subscribers[i].name, name) == 0) {
+			strcmp(s_subscribers[i].name, name) == 0) {
 			s_subscribers.erase(s_subscribers.begin() + i);
 			return kDMCNoErr;
 		}
@@ -618,9 +618,9 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 	uint32_t prior_owner = (outgoing != NULL) ? outgoing->active_owner : (uint32_t)kDMCOwnerQuickDraw;
 	uint32_t new_owner;
 	if (prior_owner == kDMCOwnerRAVE ||
-	    prior_owner == kDMCOwnerGL ||
-	    prior_owner == kDMCOwnerDSp ||
-	    prior_owner == kDMCOwnerGlide) {
+		prior_owner == kDMCOwnerGL ||
+		prior_owner == kDMCOwnerDSp ||
+		prior_owner == kDMCOwnerGlide) {
 		new_owner = prior_owner;
 	} else {
 		new_owner = (uint32_t)kDMCOwnerQuickDraw;
@@ -653,15 +653,15 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 
 	// Build incoming snapshot.
 	DMCModeSnapshot *incoming = dmc_alloc_snapshot_from_desc(new_mode,
-	                                                         s_next_generation,
-	                                                         new_owner,
-	                                                         carry_blanking);
+															 s_next_generation,
+															 new_owner,
+															 carry_blanking);
 	if (incoming == NULL) {
 		// Allocation failure - roll back to prior stable state. No enter
 		// has fired yet, but exits already ran and must be compensated.
 		s_state = src_state;
 		dmc_internal_fire_enter_events_advisory(
-		    outgoing, "dmc_request_mode_switch allocation rollback");
+			outgoing, "dmc_request_mode_switch allocation rollback");
 		return kDMCErrOutOfMemory;
 	}
 	incoming->palette_gen = carry_palette_gen;
@@ -686,8 +686,8 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 		// Rollback: compensate subscribers, re-publish outgoing, and
 		// retire the rejected incoming.
 		dmc_internal_compensate_rejected_transition(
-		    incoming, outgoing, src_state,
-		    "dmc_request_mode_switch enter veto");
+			incoming, outgoing, src_state,
+			"dmc_request_mode_switch enter veto");
 		// Route the rejected snapshot through
 		// the retirement ring so concurrent readers get one more publish of
 		// grace before it is freed. incoming->generation + 1 is the ring slot
@@ -723,7 +723,7 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 		return kDMCErrInvalidOwner;
 	}
 	if (owner == (uint32_t)kDMCOwnerBlanking ||
-	    owner == (uint32_t)kDMCOwnerQuiescent) {
+		owner == (uint32_t)kDMCOwnerQuiescent) {
 		return kDMCErrInvalidOwner;
 	}
 	if (s_state == kDMCStateBlanking) {
@@ -741,8 +741,8 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 	// owner AND state must match - a state transition (e.g. back from Blanking)
 	// still requires a real transition.
 	if (outgoing != NULL &&
-	    outgoing->active_owner == owner &&
-	    s_state == dmc_target_state_for_owner(owner)) {
+		outgoing->active_owner == owner &&
+		s_state == dmc_target_state_for_owner(owner)) {
 		return kDMCNoErr;
 	}
 	DMCState         src_state = s_state;
@@ -753,15 +753,15 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 	}
 
 	DMCModeSnapshot *incoming = dmc_clone_snapshot_with_owner(outgoing,
-	                                                          s_next_generation,
-	                                                          owner,
-	                                                          NULL);
+															  s_next_generation,
+															  owner,
+															  NULL);
 	if (incoming == NULL) {
 		// Uniform kDMCErrOutOfMemory on alloc failure; exits already
 		// ran and must be compensated.
 		s_state = src_state;
 		dmc_internal_fire_enter_events_advisory(
-		    outgoing, "dmc_set_active_owner allocation rollback");
+			outgoing, "dmc_set_active_owner allocation rollback");
 		return kDMCErrOutOfMemory;
 	}
 	s_next_generation++;
@@ -772,8 +772,8 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 	int32_t enter_err = dmc_internal_fire_enter_events(incoming);
 	if (enter_err != kDMCNoErr) {
 		dmc_internal_compensate_rejected_transition(
-		    incoming, outgoing, src_state,
-		    "dmc_set_active_owner enter veto");
+			incoming, outgoing, src_state,
+			"dmc_set_active_owner enter veto");
 		// Route the rejected snapshot through
 		// the retirement ring. See dmc_request_mode_switch rollback site for
 		// the uniform-across-4-sites rationale.
@@ -812,15 +812,15 @@ int32_t dmc_request_blanking(const uint8_t rgba[4]) {
 	}
 
 	DMCModeSnapshot *incoming = dmc_clone_snapshot_with_owner(outgoing,
-	                                                          s_next_generation,
-	                                                          (uint32_t)kDMCOwnerBlanking,
-	                                                          rgba);
+															  s_next_generation,
+															  (uint32_t)kDMCOwnerBlanking,
+															  rgba);
 	if (incoming == NULL) {
 		// Uniform kDMCErrOutOfMemory on alloc failure; exits already
 		// ran and must be compensated.
 		s_state = src_state;
 		dmc_internal_fire_enter_events_advisory(
-		    outgoing, "dmc_request_blanking allocation rollback");
+			outgoing, "dmc_request_blanking allocation rollback");
 		return kDMCErrOutOfMemory;
 	}
 	s_next_generation++;
@@ -830,8 +830,8 @@ int32_t dmc_request_blanking(const uint8_t rgba[4]) {
 	int32_t enter_err = dmc_internal_fire_enter_events(incoming);
 	if (enter_err != kDMCNoErr) {
 		dmc_internal_compensate_rejected_transition(
-		    incoming, outgoing, src_state,
-		    "dmc_request_blanking enter veto");
+			incoming, outgoing, src_state,
+			"dmc_request_blanking enter veto");
 		// Route the rejected snapshot through
 		// the retirement ring. See dmc_request_mode_switch rollback site for
 		// the uniform-across-4-sites rationale.
@@ -867,15 +867,15 @@ int32_t dmc_end_blanking(void) {
 	}
 
 	DMCModeSnapshot *incoming = dmc_clone_snapshot_with_owner(outgoing,
-	                                                          s_next_generation,
-	                                                          (uint32_t)kDMCOwnerQuickDraw,
-	                                                          NULL);
+															  s_next_generation,
+															  (uint32_t)kDMCOwnerQuickDraw,
+															  NULL);
 	if (incoming == NULL) {
 		// Uniform kDMCErrOutOfMemory on alloc failure; exits already
 		// ran and must be compensated.
 		s_state = src_state;
 		dmc_internal_fire_enter_events_advisory(
-		    outgoing, "dmc_end_blanking allocation rollback");
+			outgoing, "dmc_end_blanking allocation rollback");
 		return kDMCErrOutOfMemory;
 	}
 	s_next_generation++;
@@ -885,8 +885,8 @@ int32_t dmc_end_blanking(void) {
 	int32_t enter_err = dmc_internal_fire_enter_events(incoming);
 	if (enter_err != kDMCNoErr) {
 		dmc_internal_compensate_rejected_transition(
-		    incoming, outgoing, src_state,
-		    "dmc_end_blanking enter veto");
+			incoming, outgoing, src_state,
+			"dmc_end_blanking enter veto");
 		// Route the rejected snapshot through
 		// the retirement ring. See dmc_request_mode_switch rollback site for
 		// the uniform-across-4-sites rationale.

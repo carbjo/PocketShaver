@@ -4,6 +4,8 @@
  *  Host 3dfx GlideLib*.bin / PEF files are for offline analysis only.
  *  The guest already has the Glide CFM extension; GlideInstallHooks patches
  *  it with FindLibSymbol exactly like DSpInstallHooks.
+ *
+ * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
 #include "sysdeps.h"

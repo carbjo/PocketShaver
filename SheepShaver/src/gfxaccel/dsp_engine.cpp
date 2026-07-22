@@ -64,8 +64,8 @@ extern "C" void DSpRestoreMainDevicePixMap(struct DSpContextPrivate *ctx);
  * only call site - secondary-callback fan-out is owned by vbl_source.mm
  * after registration. */
 extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
-                                                 void *drawable,
-                                                 double ts);
+												 void *drawable,
+												 double ts);
 
 #if ACCEL_LOGGING_ENABLED
 #ifdef __APPLE__
@@ -189,16 +189,16 @@ extern "C" uint32_t DSpExchangeBgFgPending(void)
  *  RAVE threat model cited in rave_engine.cpp).
  */
 static int32_t DSpOnAttach(uint32_t /* engine_id */,
-                           const struct DMCModeSnapshot * /* incoming */,
-                           void * /* ctx */)
+						   const struct DMCModeSnapshot * /* incoming */,
+						   void * /* ctx */)
 {
 	/* No DSp resources yet; always accept the mode transition. */
 	return 0;  /* kGfxAccelResNoErr */
 }
 
 static int32_t DSpOnDetach(uint32_t /* engine_id */,
-                           const struct DMCModeSnapshot * /* outgoing */,
-                           void * /* ctx */)
+						   const struct DMCModeSnapshot * /* outgoing */,
+						   void * /* ctx */)
 {
 	/* No DSp resources to release. */
 	return 0;
@@ -228,9 +228,9 @@ static uint32_t DSpAllocateGestaltCallback(uint32_t value)
 
 	const uint32_t r3 = 3, r4 = 4, r5 = 5;
 	WriteMacInt32(code + 0, 0x3C000000 | (r5 << 21) |
-	                         ((value >> 16) & 0xFFFF));
+							 ((value >> 16) & 0xFFFF));
 	WriteMacInt32(code + 4, 0x60000000 | (r5 << 21) |
-	                         (r5 << 16) | (value & 0xFFFF));
+							 (r5 << 16) | (value & 0xFFFF));
 	WriteMacInt32(code + 8, 0x90000000 | (r5 << 21) | (r4 << 16));
 	WriteMacInt32(code + 12, 0x38000000 | (r3 << 21));
 	WriteMacInt32(code + 16, 0x4E800020);
@@ -273,9 +273,9 @@ static void DSpRegisterGestaltVersion(void)
 
 	if (new_gestalt_tvect != 0) {
 		const int16 gerr = (int16)CallMacOS2(DSpNewGestaltProc,
-		                                     new_gestalt_tvect,
-		                                     kDSpGestaltSelector,
-		                                     dsp_gestalt_callback);
+											 new_gestalt_tvect,
+											 kDSpGestaltSelector,
+											 dsp_gestalt_callback);
 		if (gerr == 0) {
 			dsp_gestalt_registered = true;
 			return;
@@ -290,10 +290,10 @@ static void DSpRegisterGestaltVersion(void)
 			return;
 		}
 		const int16 rerr = (int16)CallMacOS3(DSpReplaceGestaltProc,
-		                                     replace_gestalt_tvect,
-		                                     kDSpGestaltSelector,
-		                                     dsp_gestalt_callback,
-		                                     dsp_gestalt_old_callback_slot);
+											 replace_gestalt_tvect,
+											 kDSpGestaltSelector,
+											 dsp_gestalt_callback,
+											 dsp_gestalt_old_callback_slot);
 		dsp_gestalt_registered = (rerr == 0);
 	}
 }
@@ -470,11 +470,11 @@ int32_t DSpShutdownHandler(void)
 			uint64_t reclaimed = gfxaccel_resources_heap_reset(kHeapEngineDSp);
 			if (reclaimed > 0) {
 				DSP_LOG("DSpShutdownHandler: DSp heap reset reclaimed %llu bytes",
-				        (unsigned long long)reclaimed);
+						(unsigned long long)reclaimed);
 			}
 		} else {
 			DSP_LOG("DSpShutdownHandler: DSp heap reset skipped; live allocations=%u",
-			        (unsigned)gfxaccel_resources_heap_live_allocation_count(kHeapEngineDSp));
+					(unsigned)gfxaccel_resources_heap_live_allocation_count(kHeapEngineDSp));
 		}
 		vbl_source_unregister_secondary_callback(DSpVBLReleaseCallback);
 		/* Symmetric clear of the bg/fg hook slots + reset the pending-flag

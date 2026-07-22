@@ -70,31 +70,31 @@
 #endif
 
 static bool DSpBuildSavedQuickDrawModeDesc(const DSpContextPrivate *ctx,
-                                           DMCModeDesc *out_mode)
+										   DMCModeDesc *out_mode)
 {
 	if (ctx == nullptr || out_mode == nullptr) {
 		return false;
 	}
 	if (!DSpSavedQuickDrawModeIsUsable(
-	        ctx->saved_pixmap_valid,
-	        ctx->saved_pixmap_baseAddr,
-	        ctx->saved_pixmap_rowBytes,
-	        ctx->saved_pixmap_bounds[0],
-	        ctx->saved_pixmap_bounds[1],
-	        ctx->saved_pixmap_bounds[2],
-	        ctx->saved_pixmap_bounds[3],
-	        ctx->saved_pixmap_pixelSize,
-	        (uint32_t)RAMBase,
-	        (uint32_t)RAMSize)) {
+			ctx->saved_pixmap_valid,
+			ctx->saved_pixmap_baseAddr,
+			ctx->saved_pixmap_rowBytes,
+			ctx->saved_pixmap_bounds[0],
+			ctx->saved_pixmap_bounds[1],
+			ctx->saved_pixmap_bounds[2],
+			ctx->saved_pixmap_bounds[3],
+			ctx->saved_pixmap_pixelSize,
+			(uint32_t)RAMBase,
+			(uint32_t)RAMSize)) {
 		return false;
 	}
 
 	const uint32_t width =
-	    (uint32_t)(ctx->saved_pixmap_bounds[3] - ctx->saved_pixmap_bounds[1]);
+		(uint32_t)(ctx->saved_pixmap_bounds[3] - ctx->saved_pixmap_bounds[1]);
 	const uint32_t height =
-	    (uint32_t)(ctx->saved_pixmap_bounds[2] - ctx->saved_pixmap_bounds[0]);
+		(uint32_t)(ctx->saved_pixmap_bounds[2] - ctx->saved_pixmap_bounds[0]);
 	const uint32_t row_bytes =
-	    DSpPixMapRowBytesPayload(ctx->saved_pixmap_rowBytes);
+		DSpPixMapRowBytesPayload(ctx->saved_pixmap_rowBytes);
 
 	out_mode->width = width;
 	out_mode->height = height;
@@ -108,46 +108,46 @@ static bool DSpBuildSavedQuickDrawModeDesc(const DSpContextPrivate *ctx,
 }
 
 static void DSpDetachFrontBufferCGrafPtr(DSpContextPrivate *ctx,
-                                         const char *caller)
+										 const char *caller)
 {
 	if (ctx == nullptr || ctx->front_pixmap_mac_addr == 0) return;
 
 	WriteMacInt32(ctx->front_pixmap_mac_addr +
-	              DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR,
-	              ctx->saved_pixmap_baseAddr);
+				  DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR,
+				  ctx->saved_pixmap_baseAddr);
 	WriteMacInt16(ctx->front_pixmap_mac_addr +
-	              DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES,
-	              ctx->saved_pixmap_rowBytes);
+				  DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES,
+				  ctx->saved_pixmap_rowBytes);
 	WriteMacInt16(ctx->front_pixmap_mac_addr +
-	              DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_TOP,
-	              ctx->saved_pixmap_bounds[0]);
+				  DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_TOP,
+				  ctx->saved_pixmap_bounds[0]);
 	WriteMacInt16(ctx->front_pixmap_mac_addr +
-	              DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_LEFT,
-	              ctx->saved_pixmap_bounds[1]);
+				  DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_LEFT,
+				  ctx->saved_pixmap_bounds[1]);
 	WriteMacInt16(ctx->front_pixmap_mac_addr +
-	              DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_BOT,
-	              ctx->saved_pixmap_bounds[2]);
+				  DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_BOT,
+				  ctx->saved_pixmap_bounds[2]);
 	WriteMacInt16(ctx->front_pixmap_mac_addr +
-	              DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_RIGHT,
-	              ctx->saved_pixmap_bounds[3]);
+				  DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_RIGHT,
+				  ctx->saved_pixmap_bounds[3]);
 	WriteMacInt16(ctx->front_pixmap_mac_addr +
-	              DSP_MAINDEVICE_PIXMAP_OFF_PIXELTYPE,
-	              ctx->saved_pixmap_pixelType);
+				  DSP_MAINDEVICE_PIXMAP_OFF_PIXELTYPE,
+				  ctx->saved_pixmap_pixelType);
 	WriteMacInt16(ctx->front_pixmap_mac_addr +
-	              DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE,
-	              ctx->saved_pixmap_pixelSize);
+				  DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE,
+				  ctx->saved_pixmap_pixelSize);
 	WriteMacInt16(ctx->front_pixmap_mac_addr +
-	              DSP_MAINDEVICE_PIXMAP_OFF_CMPCOUNT,
-	              ctx->saved_pixmap_cmpCount);
+				  DSP_MAINDEVICE_PIXMAP_OFF_CMPCOUNT,
+				  ctx->saved_pixmap_cmpCount);
 	WriteMacInt16(ctx->front_pixmap_mac_addr +
-	              DSP_MAINDEVICE_PIXMAP_OFF_CMPSIZE,
-	              ctx->saved_pixmap_cmpSize);
+				  DSP_MAINDEVICE_PIXMAP_OFF_CMPSIZE,
+				  ctx->saved_pixmap_cmpSize);
 	DSP_LOG("%s: detached cached front CGrafPtr pixmap=0x%08x "
-	        "baseAddr=0x%08x rowBytes=0x%04x pixelSize=%u",
-	        caller, ctx->front_pixmap_mac_addr,
-	        ctx->saved_pixmap_baseAddr,
-	        ctx->saved_pixmap_rowBytes,
-	        ctx->saved_pixmap_pixelSize);
+			"baseAddr=0x%08x rowBytes=0x%04x pixelSize=%u",
+			caller, ctx->front_pixmap_mac_addr,
+			ctx->saved_pixmap_baseAddr,
+			ctx->saved_pixmap_rowBytes,
+			ctx->saved_pixmap_pixelSize);
 }
 
 static void DSpReleaseFrontBufferStaging(DSpContextPrivate *ctx)
@@ -269,9 +269,9 @@ extern "C" uint32_t DSpGetContextEnumerationIndex(uint32_t ctxRef)
 static bool DSpIsInactiveMetadataOnlyContext(const DSpContextPrivate *ctx)
 {
 	return ctx != nullptr &&
-	       ctx->state == (uint32_t)kDSpContextState_Inactive &&
-	       ctx->back_buffer == NULL &&
-	       ctx->back_texture == NULL;
+		   ctx->state == (uint32_t)kDSpContextState_Inactive &&
+		   ctx->back_buffer == NULL &&
+		   ctx->back_texture == NULL;
 }
 
 static uint32_t DSpAllocContextHandle(DSpContextPrivate *ctx)
@@ -330,12 +330,12 @@ static void DSpResetHeapIfIdle(const char *reason)
 	 * (SwapBuffers / VBL-publish presents reading back_texture) is still
 	 * in flight; the VBL release drain retries every tick. */
 	uint64_t reclaimed = dsp_lifecycle_gpu_drained
-	    ? gfxaccel_resources_heap_reset_gpu_idle(kHeapEngineDSp)
-	    : gfxaccel_resources_heap_reset(kHeapEngineDSp);
+		? gfxaccel_resources_heap_reset_gpu_idle(kHeapEngineDSp)
+		: gfxaccel_resources_heap_reset(kHeapEngineDSp);
 	if (reclaimed > 0) {
 		DSP_LOG("DSp heap reset after %s reclaimed %llu bytes",
-		        reason ? reason : "release",
-		        (unsigned long long)reclaimed);
+				reason ? reason : "release",
+				(unsigned long long)reclaimed);
 	}
 }
 
@@ -362,14 +362,14 @@ static void DSpQueueReleaseAtVBL(DSpContextPrivate *ctx)
 {
 	DSpRestoreMainDevicePixMap(ctx);  /* Landmine-7: drop PixMap redirect BEFORE back_buffer goes away (no dangling Mac address in lowmem). */
 	uint32_t head = atomic_load_explicit(&dsp_release_head,
-	                                      memory_order_relaxed);
+										  memory_order_relaxed);
 	uint32_t next = (head + 1) % DSP_RELEASE_QUEUE_CAPACITY;
 	uint32_t tail = atomic_load_explicit(&dsp_release_tail,
-	                                      memory_order_acquire);
+										  memory_order_acquire);
 	if (next == tail) {
 		DSP_LOG("DSpQueueReleaseAtVBL: FIFO full, falling back to "
-		        "synchronous release (cap=%d)",
-		        DSP_RELEASE_QUEUE_CAPACITY);
+				"synchronous release (cap=%d)",
+				DSP_RELEASE_QUEUE_CAPACITY);
 		DSpReleaseNow(ctx);
 		return;
 	}
@@ -393,7 +393,7 @@ static void DSpQueueReleaseAtVBL(DSpContextPrivate *ctx)
 	ctx->cgrafptr_mac_addr = 0;
 	DSpReleaseFrontBufferStaging(ctx);
 	atomic_store_explicit(&dsp_release_head, next,
-	                      memory_order_release);
+						  memory_order_release);
 }
 
 /*
@@ -411,10 +411,10 @@ static void DSpQueueReleaseAtVBLPartial(DSpContextPrivate *ctx)
 {
 	DSpRestoreMainDevicePixMap(ctx);  /* Landmine-7: drop PixMap redirect BEFORE back_buffer goes away (no dangling Mac address in lowmem). */
 	uint32_t head = atomic_load_explicit(&dsp_release_head,
-	                                      memory_order_relaxed);
+										  memory_order_relaxed);
 	uint32_t next = (head + 1) % DSP_RELEASE_QUEUE_CAPACITY;
 	uint32_t tail = atomic_load_explicit(&dsp_release_tail,
-	                                      memory_order_acquire);
+										  memory_order_acquire);
 	/* Clear the owner-tag on the buffer before it
 	 * leaves DSp ownership. The bg/fg path will re-allocate a fresh
 	 * buffer at foreground restore (DSpHandleForegroundFromEmulThread
@@ -424,8 +424,8 @@ static void DSpQueueReleaseAtVBLPartial(DSpContextPrivate *ctx)
 	}
 	if (next == tail) {
 		DSP_LOG("DSpQueueReleaseAtVBLPartial: FIFO full, falling back "
-		        "to synchronous partial release (cap=%d)",
-		        DSP_RELEASE_QUEUE_CAPACITY);
+				"to synchronous partial release (cap=%d)",
+				DSP_RELEASE_QUEUE_CAPACITY);
 		/* Synchronous partial: texture + buffer only:
 		 * texture first); struct is NOT deleted - bg restore path will
 		 * re-alloc into it. */
@@ -449,17 +449,17 @@ static void DSpQueueReleaseAtVBLPartial(DSpContextPrivate *ctx)
 	ctx->cgrafptr_mac_addr = 0;
 	DSpReleaseFrontBufferStaging(ctx);
 	atomic_store_explicit(&dsp_release_head, next,
-	                      memory_order_release);
+						  memory_order_release);
 }
 
 extern "C" void DSpVBLReleaseCallback(void * /*ctx*/,
-                                       void * /*drawable*/,
-                                       double /*ts*/)
+									   void * /*drawable*/,
+									   double /*ts*/)
 {
 	uint32_t tail = atomic_load_explicit(&dsp_release_tail,
-	                                      memory_order_relaxed);
+										  memory_order_relaxed);
 	uint32_t head = atomic_load_explicit(&dsp_release_head,
-	                                      memory_order_acquire);
+										  memory_order_acquire);
 	while (tail != head) {
 		DSpReleaseEntry *entry = &dsp_release_queue[tail];
 		/* Drop texture reference first, buffer second. */
@@ -475,7 +475,7 @@ extern "C" void DSpVBLReleaseCallback(void * /*ctx*/,
 		tail = (tail + 1) % DSP_RELEASE_QUEUE_CAPACITY;
 	}
 	atomic_store_explicit(&dsp_release_tail, tail,
-	                      memory_order_release);
+						  memory_order_release);
 	DSpResetHeapIfIdle("VBL release drain");
 
 	/* Chain the background/foreground drain off the same VBL hook so
@@ -558,17 +558,17 @@ extern "C" int32_t DSpGetActiveCLUTSnapshot(uint8_t out_clut_bytes[768])
  *    - start, end, out             non-null 768-byte buffers
  */
 static void DSpInterpolateGammaLUT(const uint8_t *start_lut,
-                                    const uint8_t *end_lut,
-                                    uint32_t elapsed_vbls,
-                                    uint32_t duration_vbls,
-                                    uint8_t *out_lut)
+									const uint8_t *end_lut,
+									uint32_t elapsed_vbls,
+									uint32_t duration_vbls,
+									uint8_t *out_lut)
 {
 	const uint32_t complement = duration_vbls - elapsed_vbls;
 	const uint32_t halfdur    = duration_vbls / 2;
 	for (uint32_t i = 0; i < 768; i++) {
 		const uint32_t numer = (uint32_t)start_lut[i] * complement
-		                     + (uint32_t)end_lut[i]   * elapsed_vbls
-		                     + halfdur;
+							 + (uint32_t)end_lut[i]   * elapsed_vbls
+							 + halfdur;
 		out_lut[i] = (uint8_t)(numer / duration_vbls);
 	}
 }
@@ -617,11 +617,11 @@ static void DSpInterpolateGammaLUT(const uint8_t *start_lut,
  *    - out_lut               non-null 768-byte buffer
  */
 static void DSpComputeFadeGammaTargetLUT(uint8_t color_r,
-                                          uint8_t color_g,
-                                          uint8_t color_b,
-                                          int32_t percent,
-                                          const uint8_t *full_lut,
-                                          uint8_t *out_lut)
+										  uint8_t color_g,
+										  uint8_t color_b,
+										  int32_t percent,
+										  const uint8_t *full_lut,
+										  uint8_t *out_lut)
 {
 	const uint8_t channels[3] = { color_r, color_g, color_b };
 	for (uint32_t c = 0; c < 3; c++) {
@@ -707,24 +707,24 @@ static void DSpCopyDriverGammaLUT(uint8_t out_lut[768])
  *  short-circuit (push end_lut directly, do NOT call this helper).
  */
 static void DSpInitFadeStateCore(DSpContextPrivate *ctx,
-                                  const uint8_t *end_lut_768,
-                                  uint16_t duration_vbls)
+								  const uint8_t *end_lut_768,
+								  uint16_t duration_vbls)
 {
 	/* Snapshot the start_lut from the current visual state. */
 	if (ctx->fade_state.active != 0) {
 		/* Active fade in progress - snapshot current interpolated state. */
 		uint8_t snapshot[768];
 		DSpInterpolateGammaLUT(ctx->fade_state.start_lut,
-		                       ctx->fade_state.end_lut,
-		                       (uint32_t)ctx->fade_state.elapsed_vbls,
-		                       (uint32_t)ctx->fade_state.duration_vbls,
-		                       snapshot);
+							   ctx->fade_state.end_lut,
+							   (uint32_t)ctx->fade_state.elapsed_vbls,
+							   (uint32_t)ctx->fade_state.duration_vbls,
+							   snapshot);
 		memcpy(ctx->fade_state.start_lut, snapshot, 768);
 		DSP_LOG("DSpInitFadeStateCore: replacing active fade "
-		        "(ctx=%u, prev_elapsed=%u/%u)",
-		        ctx->handle,
-		        (unsigned)ctx->fade_state.elapsed_vbls,
-		        (unsigned)ctx->fade_state.duration_vbls);
+				"(ctx=%u, prev_elapsed=%u/%u)",
+				ctx->handle,
+				(unsigned)ctx->fade_state.elapsed_vbls,
+				(unsigned)ctx->fade_state.duration_vbls);
 	} else {
 		/* Fresh fade - snapshot DMC current gamma. */
 		const struct DMCModeSnapshot *snap = dmc_current_snapshot();
@@ -738,7 +738,7 @@ static void DSpInitFadeStateCore(DSpContextPrivate *ctx,
 				}
 			}
 			DSP_LOG("DSpInitFadeStateCore: DMC NULL snapshot - "
-			        "using identity LUT as start (ctx=%u)", ctx->handle);
+					"using identity LUT as start (ctx=%u)", ctx->handle);
 		}
 	}
 
@@ -828,11 +828,11 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 			// clobbered to 0. The compositor restores its static display-LUT
 			// composition only once NO context is fading.
 			int32_t rv = dmc_record_gamma_change_with_lut_fade(
-			    ctx->fade_state.end_lut, (int)any_still_fading);
+				ctx->fade_state.end_lut, (int)any_still_fading);
 			if (rv != kDMCNoErr) {
 				DSP_LOG("DSpVBLGammaFadeCallback: final-frame DMC push failed "
-				        "(ctx=%u, rv=%d) - leaving fade active for retry",
-				        ctx->handle, rv);
+						"(ctx=%u, rv=%d) - leaving fade active for retry",
+						ctx->handle, rv);
 				/* Don't clear active - retry on next VBL tick. */
 				ctx->fade_state.elapsed_vbls--;  /* roll back the increment */
 				continue;
@@ -840,19 +840,19 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 			memcpy(ctx->gamma_lut_persisted, ctx->fade_state.end_lut, 768);
 			ctx->fade_state.active = 0;
 			DSP_LOG("DSpVBLGammaFadeCallback: fade complete (ctx=%u, "
-			        "duration=%u VBLs, any_still_fading=%u)",
-			        ctx->handle, (unsigned)ctx->fade_state.duration_vbls,
-			        (unsigned)any_still_fading);
+					"duration=%u VBLs, any_still_fading=%u)",
+					ctx->handle, (unsigned)ctx->fade_state.duration_vbls,
+					(unsigned)any_still_fading);
 			continue;
 		}
 
 		/* Mid-fade frame: compute interpolated LUT and push. */
 		uint8_t interp_lut[768];
 		DSpInterpolateGammaLUT(ctx->fade_state.start_lut,
-		                       ctx->fade_state.end_lut,
-		                       (uint32_t)ctx->fade_state.elapsed_vbls,
-		                       (uint32_t)ctx->fade_state.duration_vbls,
-		                       interp_lut);
+							   ctx->fade_state.end_lut,
+							   (uint32_t)ctx->fade_state.elapsed_vbls,
+							   (uint32_t)ctx->fade_state.duration_vbls,
+							   interp_lut);
 		// Fade in progress - publish the interpolated
 		// LUT with the OR'd fade_active=1 (this context is mid-fade, so the OR is
 		// trivially 1) so the compositor bypasses pow and the ramp marches
@@ -860,10 +860,10 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 		int32_t rv = dmc_record_gamma_change_with_lut_fade(interp_lut, 1);
 		if (rv != kDMCNoErr) {
 			DSP_LOG("DSpVBLGammaFadeCallback: mid-fade DMC push failed "
-			        "(ctx=%u, elapsed=%u/%u, rv=%d) - leaving fade active",
-			        ctx->handle,
-			        (unsigned)ctx->fade_state.elapsed_vbls,
-			        (unsigned)ctx->fade_state.duration_vbls, rv);
+					"(ctx=%u, elapsed=%u/%u, rv=%d) - leaving fade active",
+					ctx->handle,
+					(unsigned)ctx->fade_state.elapsed_vbls,
+					(unsigned)ctx->fade_state.duration_vbls, rv);
 			ctx->fade_state.elapsed_vbls--;  /* roll back so next tick retries this frame */
 			continue;
 		}
@@ -933,7 +933,7 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
 	/* Step 1: monotonic tick counter. Relaxed ordering - reader
 	 * side only needs monotonicity, not happens-before vs other state. */
 	atomic_fetch_add_explicit(&s_dsp_vbl_count, 1u,
-	                          memory_order_relaxed);
+							  memory_order_relaxed);
 
 	/* Step 2-3: walk contexts in INDEX ORDER;
 	 * invoke registered VBLProcs via call_macos3. */
@@ -943,8 +943,8 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
 	 * which documents vblCount as "the tick number of the VBL that
 	 * fired this call". */
 	const uint32_t vbl_count_arg =
-	    (uint32_t)(atomic_load_explicit(&s_dsp_vbl_count,
-	                                     memory_order_relaxed) & 0xFFFFFFFFu);
+		(uint32_t)(atomic_load_explicit(&s_dsp_vbl_count,
+										 memory_order_relaxed) & 0xFFFFFFFFu);
 
 	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
 		DSpContextPrivate *ctx = dsp_context_table[i];
@@ -979,9 +979,9 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
 		 * Return value ignored (VBLProc is void-returning in spec).
 		 */
 		(void)call_macos3(proc_addr,
-		                  proc_handle,
-		                  proc_refcon,
-		                  vbl_count_arg);
+						  proc_handle,
+						  proc_refcon,
+						  vbl_count_arg);
 	}
 }
 
@@ -1014,13 +1014,13 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
  *    pattern.
  */
 extern "C" int32_t DSpContext_SetVBLProcHandler(uint32_t ctxRef,
-                                                 uint32_t procPtr,
-                                                 uint32_t refCon)
+												 uint32_t procPtr,
+												 uint32_t refCon)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
 		DSP_LOG("SetVBLProc: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
+				ctxRef);
 		return kDSpInvalidContextErr;
 	}
 
@@ -1032,10 +1032,10 @@ extern "C" int32_t DSpContext_SetVBLProcHandler(uint32_t ctxRef,
 
 	if (procPtr == 0) {
 		DSP_LOG("SetVBLProc: ctx=%u UNINSTALL (procPtr=0) -> OK",
-		        ctxRef);
+				ctxRef);
 	} else {
 		DSP_LOG("SetVBLProc: ctx=%u procPtr=0x%08x refCon=0x%08x -> OK",
-		        ctxRef, procPtr, refCon);
+				ctxRef, procPtr, refCon);
 	}
 	return kDSpNoErr;
 }
@@ -1063,19 +1063,19 @@ extern "C" int32_t DSpContext_SetVBLProcHandler(uint32_t ctxRef,
  *                                two out addresses
  */
 extern "C" int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef,
-                                                 uint32_t procOutAddr,
-                                                 uint32_t refConOutAddr)
+												 uint32_t procOutAddr,
+												 uint32_t refConOutAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
 		DSP_LOG("GetVBLProc: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
+				ctxRef);
 		return kDSpInvalidContextErr;
 	}
 	if (procOutAddr == 0 || refConOutAddr == 0) {
 		DSP_LOG("GetVBLProc: NULL out addr (ctx=%u, proc=0x%08x, refCon=0x%08x) "
-		        "-> kDSpInvalidAttributesErr",
-		        ctxRef, procOutAddr, refConOutAddr);
+				"-> kDSpInvalidAttributesErr",
+				ctxRef, procOutAddr, refConOutAddr);
 		return kDSpInvalidAttributesErr;
 	}
 
@@ -1083,7 +1083,7 @@ extern "C" int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef,
 	WriteMacInt32(refConOutAddr, ctx->vbl_proc_refcon);
 
 	DSP_LOG("GetVBLProc: ctx=%u procPtr=0x%08x refCon=0x%08x -> OK",
-	        ctxRef, ctx->vbl_proc_ptr, ctx->vbl_proc_refcon);
+			ctxRef, ctx->vbl_proc_ptr, ctx->vbl_proc_refcon);
 	return kDSpNoErr;
 }
 
@@ -1127,14 +1127,14 @@ extern "C" int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef,
  * Synchronous, emul-thread - NO ring read, NO atomic.
  */
 extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
-                                          uint32_t outProcessedAddr)
+										  uint32_t outProcessedAddr)
 {
 	/* ASVS V5: NULL-guard BOTH guest addresses BEFORE any
 	 * read or write. Fixed 16-byte read + 1-byte write - no attacker-
 	 * controlled length. */
 	if (inEventAddr == 0 || outProcessedAddr == 0) {
 		DSP_LOG("DSpProcessEvent: NULL inEvent=0x%08x or outProcessed=0x%08x "
-		        "-> kDSpInvalidAttributesErr", inEventAddr, outProcessedAddr);
+				"-> kDSpInvalidAttributesErr", inEventAddr, outProcessedAddr);
 		return kDSpInvalidAttributesErr;
 	}
 
@@ -1213,7 +1213,7 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 	WriteMacInt8(outProcessedAddr, consumed ? 1 : 0);
 
 	DSP_LOG("DSpProcessEvent: what=%u message=0x%08x -> consumed=%d",
-	        (unsigned)what, message, consumed ? 1 : 0);
+			(unsigned)what, message, consumed ? 1 : 0);
 
 	return kDSpNoErr;
 }
@@ -1271,12 +1271,12 @@ extern "C" void DSpHandleBackgroundFromEmulThread(void)
 		/* Transition Active -> Paused via the DMC
 		 * (typed wrapper from dsp_engine_internal.h). */
 		DMCOwner new_owner =
-		    DSpMapStateToDMCOwnerTyped(kDSpContextState_Paused);
+			DSpMapStateToDMCOwnerTyped(kDSpContextState_Paused);
 		(void)dmc_set_active_owner((uint32_t)new_owner);
 		ctx->state = (uint32_t)kDSpContextState_Paused;
 		DSP_LOG("Background: ctx=%u Active->Paused "
-		        "(back-buffer queued for VBL partial release)",
-		        ctx->handle);
+				"(back-buffer queued for VBL partial release)",
+				ctx->handle);
 	}
 
 	/* D-4-1: alt-buffer Metal backings release alongside the back
@@ -1315,12 +1315,12 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 
 		/* Re-allocate Metal back-buffer from persisted attributes. */
 		if (!DSpAllocateBackBuffer(ctx,
-		                           ctx->persisted.attr.displayWidth,
-		                           ctx->persisted.attr.displayHeight,
-		                           ctx->persisted.attr.backBufferBestDepth)) {
+								   ctx->persisted.attr.displayWidth,
+								   ctx->persisted.attr.displayHeight,
+								   ctx->persisted.attr.backBufferBestDepth)) {
 			DSP_LOG("Foreground: ctx=%u back-buffer re-alloc FAILED; "
-			        "context remains Paused (retry on next fg)",
-			        ctx->handle);
+					"context remains Paused (retry on next fg)",
+					ctx->handle);
 			continue;
 		}
 
@@ -1339,7 +1339,7 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 
 		/* Transition Paused -> Active via the DMC. */
 		DMCOwner new_owner =
-		    DSpMapStateToDMCOwnerTyped(kDSpContextState_Active);
+			DSpMapStateToDMCOwnerTyped(kDSpContextState_Active);
 		(void)dmc_set_active_owner((uint32_t)new_owner);
 		ctx->state = (uint32_t)kDSpContextState_Active;
 
@@ -1351,8 +1351,8 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 		DSpRedirectMainDevicePixMap(ctx);
 
 		DSP_LOG("Foreground: ctx=%u Paused->Active "
-		        "(back-buffer re-allocated; dirty_cold_start=1)",
-		        ctx->handle);
+				"(back-buffer re-allocated; dirty_cold_start=1)",
+				ctx->handle);
 	}
 
 	/* D-4-1: re-create alt-buffer Metal backings released on background
@@ -1439,12 +1439,12 @@ enum {
  * one-less-than-count; each ColorSpec.value supplies the destination CLUT
  * index. Direct-color contexts ignore the table per the PDF. */
 static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
-                                      uint32_t colorTableHandle,
-                                      uint32_t depth_bits)
+									  uint32_t colorTableHandle,
+									  uint32_t depth_bits)
 {
 	if (ctx == nullptr || colorTableHandle == 0) return;
 	if (depth_bits != 1 && depth_bits != 2 &&
-	    depth_bits != 4 && depth_bits != 8) {
+		depth_bits != 4 && depth_bits != 8) {
 		return;
 	}
 
@@ -1453,30 +1453,30 @@ static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
 	 * garbage non-NULL CTabHandle in the Reserve attributes must fall back
 	 * to the default CLUT, not fault the ReadMacInt* translation layer. */
 	if (!NQDMetalAddrInBuffer(colorTableHandle) ||
-	    !NQDMetalAddrInBuffer(colorTableHandle + 3u)) {
+		!NQDMetalAddrInBuffer(colorTableHandle + 3u)) {
 		DSP_LOG("Reserve: colorTable handle=0x%08x out of mapped RAM; "
-		        "default indexed CLUT retained", colorTableHandle);
+				"default indexed CLUT retained", colorTableHandle);
 		return;
 	}
 	uint32_t colorTableAddr = ReadMacInt32(colorTableHandle);
 	if (colorTableAddr == 0) {
 		DSP_LOG("Reserve: colorTable handle=0x%08x is NULL/purged; "
-		        "default indexed CLUT retained", colorTableHandle);
+				"default indexed CLUT retained", colorTableHandle);
 		return;
 	}
 	/* ColorTable header: ctSeed/ctFlags/ctSize = 8 bytes before ctTable. */
 	if (!NQDMetalAddrInBuffer(colorTableAddr) ||
-	    !NQDMetalAddrInBuffer(colorTableAddr + kDSpColorTable_ctTable - 1u)) {
+		!NQDMetalAddrInBuffer(colorTableAddr + kDSpColorTable_ctTable - 1u)) {
 		DSP_LOG("Reserve: colorTable handle=0x%08x table=0x%08x header out "
-		        "of mapped RAM; default indexed CLUT retained",
-		        colorTableHandle, colorTableAddr);
+				"of mapped RAM; default indexed CLUT retained",
+				colorTableHandle, colorTableAddr);
 		return;
 	}
 	int16_t ctSize = (int16_t)ReadMacInt16(colorTableAddr + kDSpColorTable_ctSize);
 	if (ctSize < 0) {
 		DSP_LOG("Reserve: colorTable handle=0x%08x table=0x%08x "
-		        "has negative ctSize=%d; default indexed CLUT retained",
-		        colorTableHandle, colorTableAddr, (int)ctSize);
+				"has negative ctSize=%d; default indexed CLUT retained",
+				colorTableHandle, colorTableAddr, (int)ctSize);
 		return;
 	}
 
@@ -1485,11 +1485,11 @@ static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
 
 	/* Full ColorSpec array extent (header + entry_count * 8 bytes). */
 	uint32_t table_bytes = kDSpColorTable_ctTable +
-	                       entry_count * kDSpColorSpec_stride;
+						   entry_count * kDSpColorSpec_stride;
 	if (!NQDMetalAddrInBuffer(colorTableAddr + table_bytes - 1u)) {
 		DSP_LOG("Reserve: colorTable handle=0x%08x table=0x%08x ctTable "
-		        "extent %u bytes out of mapped RAM; default indexed CLUT "
-		        "retained", colorTableHandle, colorTableAddr, table_bytes);
+				"extent %u bytes out of mapped RAM; default indexed CLUT "
+				"retained", colorTableHandle, colorTableAddr, table_bytes);
 		return;
 	}
 
@@ -1498,7 +1498,7 @@ static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
 	uint32_t applied = 0;
 	for (uint32_t i = 0; i < entry_count; i++) {
 		uint32_t e = colorTableAddr + kDSpColorTable_ctTable +
-		             i * kDSpColorSpec_stride;
+					 i * kDSpColorSpec_stride;
 		int16_t value = (int16_t)ReadMacInt16(e + kDSpColorSpec_value);
 		if (value < 0 || value > 255) continue;
 		uint32_t idx = (uint32_t)value;
@@ -1509,8 +1509,8 @@ static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
 	}
 	if (applied == 0) {
 		DSP_LOG("Reserve: colorTable handle=0x%08x table=0x%08x "
-		        "had no valid ColorSpec.value entries; default indexed CLUT retained",
-		        colorTableHandle, colorTableAddr);
+				"had no valid ColorSpec.value entries; default indexed CLUT retained",
+				colorTableHandle, colorTableAddr);
 		return;
 	}
 
@@ -1518,12 +1518,12 @@ static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
 	if (rv == kDSpNoErr) {
 		memcpy(ctx->clut_bytes_latched, ctx->clut_bytes, 768);
 		DSP_LOG("Reserve: applied colorTable handle=0x%08x table=0x%08x "
-		        "entries=%u applied=%u depth=%u",
-		        colorTableHandle, colorTableAddr, entry_count, applied, depth_bits);
+				"entries=%u applied=%u depth=%u",
+				colorTableHandle, colorTableAddr, entry_count, applied, depth_bits);
 	} else {
 		DSP_LOG("Reserve: DSpSetCLUTCore failed for colorTable handle=0x%08x "
-		        "table=0x%08x rv=%d; default indexed CLUT retained",
-		        colorTableHandle, colorTableAddr, rv);
+				"table=0x%08x rv=%d; default indexed CLUT retained",
+				colorTableHandle, colorTableAddr, rv);
 	}
 }
 
@@ -1561,7 +1561,7 @@ static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
  *  No mutex / MTLFence / _Atomic / @synchronized.
  */
 static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
-                                                 const DSpContextAttributes *attr)
+												 const DSpContextAttributes *attr)
 {
 	if (attr == nullptr) {
 		DSP_LOG("Reserve_OnHandle: NULL attr ptr");
@@ -1585,15 +1585,15 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	/* Validation rules - same invariants as Reserve_Core. */
 	if (pageCount == 0 || desiredWidth == 0 || desiredHeight == 0) {
 		DSP_LOG("Reserve_OnHandle: invalid attrs (w=%u h=%u pc=%u)",
-		        desiredWidth, desiredHeight, pageCount);
+				desiredWidth, desiredHeight, pageCount);
 		return kDSpInvalidAttributesErr;
 	}
 	if (backBufferBestDepth != 1 && backBufferBestDepth != 2 &&
-	    backBufferBestDepth != 4 && backBufferBestDepth != 8 &&
-	    backBufferBestDepth != 16 && backBufferBestDepth != 32) {
+		backBufferBestDepth != 4 && backBufferBestDepth != 8 &&
+		backBufferBestDepth != 16 && backBufferBestDepth != 32) {
 		DSP_LOG("Reserve_OnHandle: unsupported back-buffer depth %u "
-		        "(valid: 1/2/4/8/16/32)",
-		        backBufferBestDepth);
+				"(valid: 1/2/4/8/16/32)",
+				backBufferBestDepth);
 		return kDSpInvalidAttributesErr;
 	}
 	if (backBufferDepthMask == 0) {
@@ -1602,7 +1602,7 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	}
 	if (desiredWidth > 4096 || desiredHeight > 4096) {
 		DSP_LOG("Reserve_OnHandle: oversize resolution %ux%u clamped to paramErr",
-		        desiredWidth, desiredHeight);
+				desiredWidth, desiredHeight);
 		return kDSpInvalidAttributesErr;
 	}
 
@@ -1613,24 +1613,24 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	 * to an existing handle, we must surface the spec error. */
 	if (ctx->back_buffer != NULL) {
 		DSP_LOG("Reserve_OnHandle: ctx=%u already has back-buffer - "
-		        "kDSpContextAlreadyReservedErr",
-		        ctx->handle);
+				"kDSpContextAlreadyReservedErr",
+				ctx->handle);
 		return kDSpContextAlreadyReservedErr;
 	}
 
 	const uint32_t actualDisplayWidth =
-	    DSpReserveActualDisplayDimension(ctx->attr.displayWidth,
-	                                     desiredWidth);
+		DSpReserveActualDisplayDimension(ctx->attr.displayWidth,
+										 desiredWidth);
 	const uint32_t actualDisplayHeight =
-	    DSpReserveActualDisplayDimension(ctx->attr.displayHeight,
-	                                     desiredHeight);
+		DSpReserveActualDisplayDimension(ctx->attr.displayHeight,
+										 desiredHeight);
 	const uint32_t actualDisplayDepth =
-	    DSpReserveActualDisplayDepth(ctx->attr.displayBestDepth,
-	                                 desiredDisplayDepth,
-	                                 backBufferBestDepth);
+		DSpReserveActualDisplayDepth(ctx->attr.displayBestDepth,
+									 desiredDisplayDepth,
+									 backBufferBestDepth);
 	const uint32_t actualDisplayMask =
-	    ctx->attr.displayDepthMask != 0 ? ctx->attr.displayDepthMask
-	                                    : desiredDisplayMask;
+		ctx->attr.displayDepthMask != 0 ? ctx->attr.displayDepthMask
+										: desiredDisplayMask;
 
 	/* Apply desired back-buffer attributes while preserving the selected
 	 * display mode that FindBest/GetFirst put on the metadata context.
@@ -1641,9 +1641,9 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	ctx->attr.displayWidth        = actualDisplayWidth;
 	ctx->attr.displayHeight       = actualDisplayHeight;
 	ctx->attr.backBufferWidth     = DSpReserveBackBufferDimension(
-	                                    actualDisplayWidth, desiredWidth);
+										actualDisplayWidth, desiredWidth);
 	ctx->attr.backBufferHeight    = DSpReserveBackBufferDimension(
-	                                    actualDisplayHeight, desiredHeight);
+										actualDisplayHeight, desiredHeight);
 	ctx->attr.backBufferBestDepth = backBufferBestDepth;
 	ctx->attr.displayBestDepth    = actualDisplayDepth;
 	ctx->attr.backBufferDepthMask = backBufferDepthMask;
@@ -1665,37 +1665,37 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	ctx->swap_generation = 0;
 	ctx->front_staging_refresh_swap_generation = 0;
 	DSpInitDefaultCLUT(ctx->clut_bytes, ctx->clut_bytes_latched,
-	                   backBufferBestDepth);
+					   backBufferBestDepth);
 	DSpApplyReserveColorTable(ctx, ctx->attr.colorTable,
-	                          backBufferBestDepth);
+							  backBufferBestDepth);
 
 	/* Allocate Metal back-buffer + texture on the existing ctx. The
 	 * MTLBuffer / MTLTexture slots were NULL before (this was a metadata-
 	 * only ctx); DSpAllocateBackBuffer fills them in with the same
 	 * gfxaccel heap routing as Reserve_Core. */
 	if (!DSpAllocateBackBuffer(ctx,
-	                           ctx->attr.backBufferWidth,
-	                           ctx->attr.backBufferHeight,
-	                           backBufferBestDepth)) {
+							   ctx->attr.backBufferWidth,
+							   ctx->attr.backBufferHeight,
+							   backBufferBestDepth)) {
 		DSP_LOG("Reserve_OnHandle: DSpAllocateBackBuffer failed for "
-		        "ctx=%u %ux%u@%ubpp",
-		        ctx->handle, ctx->attr.backBufferWidth,
-		        ctx->attr.backBufferHeight,
-		        backBufferBestDepth);
+				"ctx=%u %ux%u@%ubpp",
+				ctx->handle, ctx->attr.backBufferWidth,
+				ctx->attr.backBufferHeight,
+				backBufferBestDepth);
 		return kDSpInternalErr;
 	}
 
 	DSP_LOG("Reserve_OnHandle: ctx=%u display=%ux%u@%u "
-	        "back=%ux%u@%ubpp pc=%u opts=0x%x",
-	        ctx->handle, ctx->attr.displayWidth, ctx->attr.displayHeight,
-	        ctx->attr.displayBestDepth,
-	        ctx->attr.backBufferWidth, ctx->attr.backBufferHeight,
-	        backBufferBestDepth, pageCount, contextOptions);
+			"back=%ux%u@%ubpp pc=%u opts=0x%x",
+			ctx->handle, ctx->attr.displayWidth, ctx->attr.displayHeight,
+			ctx->attr.displayBestDepth,
+			ctx->attr.backBufferWidth, ctx->attr.backBufferHeight,
+			backBufferBestDepth, pageCount, contextOptions);
 	return kDSpNoErr;
 }
 
 extern "C" int32_t DSpContext_ReserveHandler(uint32_t ctxRef,
-                                              uint32_t attrAddr)
+											  uint32_t attrAddr)
 {
 	/*
 	 *  Debug session `dsp-sims-post-reserve-black-screen` fix (2026-04-19) -
@@ -1719,7 +1719,7 @@ extern "C" int32_t DSpContext_ReserveHandler(uint32_t ctxRef,
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
 		DSP_LOG("Reserve: invalid ctxRef=%u - kDSpInvalidContextErr",
-		        ctxRef);
+				ctxRef);
 		return kDSpInvalidContextErr;
 	}
 
@@ -1778,7 +1778,7 @@ extern "C" int32_t DSpContext_ReserveHandler(uint32_t ctxRef,
  *  terminator (no successor).
  */
 extern "C" uint32_t DSpAllocFirstContextHandle(const DSpContextAttributes *attr,
-                                                uint32_t enumeration_mode_index)
+												uint32_t enumeration_mode_index)
 {
 	if (attr == nullptr) return 0;
 
@@ -1796,7 +1796,7 @@ extern "C" uint32_t DSpAllocFirstContextHandle(const DSpContextAttributes *attr,
 	ctx->dirty_grid_w   = 0;
 	ctx->dirty_grid_h   = 0;
 	DSpInitDefaultCLUT(ctx->clut_bytes, ctx->clut_bytes_latched,
-	                   ctx->attr.backBufferBestDepth);
+					   ctx->attr.backBufferBestDepth);
 
 	uint32_t handle = DSpAllocContextHandle(ctx);
 	if (handle == 0) {
@@ -1805,15 +1805,15 @@ extern "C" uint32_t DSpAllocFirstContextHandle(const DSpContextAttributes *attr,
 	}
 	dsp_context_count++;
 	DSP_LOG("AllocFirstContextHandle: handle=%u %ux%u@%ubpp (metadata-only, enum_idx=%u)",
-	        handle, attr->displayWidth, attr->displayHeight,
-	        attr->backBufferBestDepth,
-	        (unsigned)enumeration_mode_index);
+			handle, attr->displayWidth, attr->displayHeight,
+			attr->backBufferBestDepth,
+			(unsigned)enumeration_mode_index);
 	return handle;
 }
 
 extern "C" uint32_t DSpAllocMetadataContextHandle(
-    const DSpContextAttributes *attr,
-    uint32_t enumeration_mode_index)
+	const DSpContextAttributes *attr,
+	uint32_t enumeration_mode_index)
 {
 	if (attr == nullptr) return 0;
 
@@ -1835,13 +1835,13 @@ extern "C" uint32_t DSpAllocMetadataContextHandle(
 		dsp_context_count--;
 		DSpReleaseNow(ctx);
 		DSP_LOG("AllocMetadataContextHandle: recycled inactive "
-		        "metadata-only handle=%u",
-		        recycled_handle);
+				"metadata-only handle=%u",
+				recycled_handle);
 		return DSpAllocFirstContextHandle(attr, enumeration_mode_index);
 	}
 
 	DSP_LOG("AllocMetadataContextHandle: table full; no recyclable "
-	        "inactive metadata-only handle");
+			"inactive metadata-only handle");
 	return 0;
 }
 
@@ -1865,21 +1865,21 @@ extern "C" int32_t DSpContext_ReleaseHandler(uint32_t ctxRef)
 /* --- DSpContext_GetBackBufferHandler --- */
 
 extern "C" int32_t DSpContext_GetBackBufferHandler(uint32_t ctxRef,
-                                                    uint32_t options,
-                                                    uint32_t outBufAddr)
+													uint32_t options,
+													uint32_t outBufAddr)
 {
 	/* PDF: options are reserved in DSp 1.7; ignore but don't error. */
 	(void)options;
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || outBufAddr == 0) {
 		DSP_LOG("GetBackBuffer: invalid ctxRef=%u or outBufAddr=0x%08x",
-		        ctxRef, outBufAddr);
+				ctxRef, outBufAddr);
 		return kDSpInvalidContextErr;
 	}
 	uint32_t cgrafptr = DSpGetBackBufferCGrafPtr(ctx);
 	if (cgrafptr == 0) {
 		DSP_LOG("GetBackBuffer: CGrafPort emission failed for ctxRef=%u",
-		        ctxRef);
+				ctxRef);
 		return kDSpInternalErr;
 	}
 	/* Sub-op 705 underlay contract (PDF p.51):
@@ -1896,7 +1896,7 @@ extern "C" int32_t DSpContext_GetBackBufferHandler(uint32_t ctxRef,
 /* --- DSpContext_SwapBuffersHandler --- */
 
 static uint32_t DSpMaxFrameRatePacingVBLs(uint32_t maxFrameRate,
-                                          uint64_t cadenceUsec)
+										  uint64_t cadenceUsec)
 {
 	if (maxFrameRate == 0) return 1;
 
@@ -1911,7 +1911,7 @@ static uint32_t DSpMaxFrameRatePacingVBLs(uint32_t maxFrameRate,
 	if ((uint64_t)maxFrameRate >= refreshHz) return 1;
 
 	uint64_t vbls = (refreshHz + (uint64_t)maxFrameRate - 1u) /
-	                (uint64_t)maxFrameRate;
+					(uint64_t)maxFrameRate;
 	if (vbls == 0) return 1;
 	if (vbls > UINT32_MAX) return UINT32_MAX;
 	return (uint32_t)vbls;
@@ -1921,21 +1921,21 @@ static void DSpSyncSwapFramePacing(uint32_t ctxRef, uint32_t maxFrameRate)
 {
 	uint64_t cadenceUsec = vbl_source_get_cadence_usec();
 	uint32_t pacingVBLs = DSpMaxFrameRatePacingVBLs(maxFrameRate,
-	                                                cadenceUsec);
+													cadenceUsec);
 	if (maxFrameRate != 0 && pacingVBLs > 1) {
 		DSP_VLOG("SwapBuffers: ctx=%u maxFrameRate=%u cadence=%llu "
-		         "-> pacing %u VBLs",
-		         ctxRef, maxFrameRate,
-		         (unsigned long long)cadenceUsec, pacingVBLs);
+				 "-> pacing %u VBLs",
+				 ctxRef, maxFrameRate,
+				 (unsigned long long)cadenceUsec, pacingVBLs);
 	}
 
 	for (uint32_t i = 0; i < pacingVBLs; i++) {
 		int32_t rc =
-		    vbl_source_sync_3d_pacing_for_engine(kGfxFramePacingEngineDSp);
+			vbl_source_sync_3d_pacing_for_engine(kGfxFramePacingEngineDSp);
 		if (rc != kGfxAccelNoErr) {
 			DSP_LOG("SwapBuffers: frame pacing sync failed rc=%d "
-			        "(ctx=%u, pass=%u/%u)",
-			        rc, ctxRef, i + 1u, pacingVBLs);
+					"(ctx=%u, pass=%u/%u)",
+					rc, ctxRef, i + 1u, pacingVBLs);
 			break;
 		}
 	}
@@ -1950,7 +1950,7 @@ static void DSpSyncSwapFramePacing(uint32_t ctxRef, uint32_t maxFrameRate)
  * 2-VBL total budget (~33 ms at 60 Hz) so an infinite-loop PPC busyProc
  * cannot hang the emul thread. */
 static bool DSpPollBusyProc(uint32_t ctxRef, uint32_t busyProcAddr,
-                            uint32_t userRefCon)
+							uint32_t userRefCon)
 {
 	if (busyProcAddr == 0) return true;
 
@@ -1974,21 +1974,21 @@ static bool DSpPollBusyProc(uint32_t ctxRef, uint32_t busyProcAddr,
 		elapsed += poll_step_usec;
 	}
 	DSP_LOG("DSpPollBusyProc: 2-VBL timeout (busyProcAddr=0x%08x "
-	        "userRefCon=0x%08x elapsed=%llu)",
-	        busyProcAddr, userRefCon, (unsigned long long)elapsed);
+			"userRefCon=0x%08x elapsed=%llu)",
+			busyProcAddr, userRefCon, (unsigned long long)elapsed);
 	return false;
 }
 
 static int32_t DSpRevalidateSwapContext(uint32_t ctxRef,
-                                        DSpContextPrivate *expected,
-                                        uint32_t entry_state,
-                                        DSpContextPrivate **outCtx,
-                                        const char *site)
+										DSpContextPrivate *expected,
+										uint32_t entry_state,
+										DSpContextPrivate **outCtx,
+										const char *site)
 {
 	DSpContextPrivate *fresh = DSpGetContext(ctxRef);
 	if (fresh == nullptr || fresh != expected) {
 		DSP_LOG("SwapBuffers: ctxRef=%u was released/replaced during %s",
-		        ctxRef, site);
+				ctxRef, site);
 		return kDSpInvalidContextErr;
 	}
 	/* Re-entry guard, not a state mandate: reject only when the state
@@ -1999,13 +1999,13 @@ static int32_t DSpRevalidateSwapContext(uint32_t ctxRef,
 	 * something is critically wrong. */
 	if (fresh->state != entry_state) {
 		DSP_LOG("SwapBuffers: ctxRef=%u state changed during %s "
-		        "(entry=%u now=%u)",
-		        ctxRef, site, entry_state, fresh->state);
+				"(entry=%u now=%u)",
+				ctxRef, site, entry_state, fresh->state);
 		return kDSpInvalidContextErr;
 	}
 	if (fresh->back_texture == NULL || fresh->back_buffer == NULL) {
 		DSP_LOG("SwapBuffers: ctxRef=%u lost back-buffer during %s",
-		        ctxRef, site);
+				ctxRef, site);
 		return kDSpInternalErr;
 	}
 	if (outCtx != nullptr) {
@@ -2040,10 +2040,10 @@ static inline uint32_t DSpBackBufferSize(uint32_t w, uint32_t h, uint32_t bpp)
 }
 
 static inline void DSpPixMapFormatForDepth(uint32_t bpp,
-                                            uint16_t *pixelType,
-                                            uint16_t *pixelSize,
-                                            uint16_t *cmpCount,
-                                            uint16_t *cmpSize)
+											uint16_t *pixelType,
+											uint16_t *pixelSize,
+											uint16_t *cmpCount,
+											uint16_t *cmpSize)
 {
 	if (bpp == 16) {
 		*pixelType = 0x10;    /* RGBDirect */
@@ -2066,17 +2066,17 @@ static inline void DSpPixMapFormatForDepth(uint32_t bpp,
 static inline void DSpWriteCanonicalMainDevicePixMapMetadata(uint32_t pixMapPtr)
 {
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PMVERSION,
-	              DSpMainDevicePixMapVersion());
+				  DSpMainDevicePixMapVersion());
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PACKTYPE,
-	              DSpMainDevicePixMapPackType());
+				  DSpMainDevicePixMapPackType());
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PACKSIZE,
-	              DSpMainDevicePixMapPackSize());
+				  DSpMainDevicePixMapPackSize());
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_HRES,
-	              DSpMainDevicePixMapResolution());
+				  DSpMainDevicePixMapResolution());
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_VRES,
-	              DSpMainDevicePixMapResolution());
+				  DSpMainDevicePixMapResolution());
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PLANEBYTES,
-	              DSpMainDevicePixMapPlaneBytes());
+				  DSpMainDevicePixMapPlaneBytes());
 }
 
 
@@ -2086,29 +2086,29 @@ uint32_t DSpReserveGuestScratch(uint32_t size)
 }
 
 static void DSpInitializeFrontBufferStaging(DSpContextPrivate *ctx,
-                                            uint32_t baseAddr_mac,
-                                            uint32_t buffer_size,
-                                            uint32_t front_depth,
-                                            const char *caller)
+											uint32_t baseAddr_mac,
+											uint32_t buffer_size,
+											uint32_t front_depth,
+											const char *caller)
 {
 	if (ctx == nullptr || baseAddr_mac == 0 || buffer_size == 0) return;
 
 	DSpFrontStagingSeedRGB seed =
-	    DSpFrontStagingSeedRGBForBackPixelZero(ctx->attr.backBufferBestDepth,
-	                                           ctx->clut_bytes);
+		DSpFrontStagingSeedRGBForBackPixelZero(ctx->attr.backBufferBestDepth,
+											   ctx->clut_bytes);
 	uint8_t *dst = Mac2HostAddr(baseAddr_mac);
 	if (dst == NULL) {
 		Mac_memset(baseAddr_mac, 0, buffer_size);
 		ctx->front_staging_present_state = {};
 		DSP_LOG("%s: front staging seed fallback memset zero "
-		        "(addr=0x%08x size=%u depth=%u)",
-		        caller, baseAddr_mac, buffer_size, front_depth);
+				"(addr=0x%08x size=%u depth=%u)",
+				caller, baseAddr_mac, buffer_size, front_depth);
 		return;
 	}
 
 	if (front_depth == 16) {
 		const uint16_t pixel =
-		    DSpPackRGB555BigEndian(seed.r, seed.g, seed.b);
+			DSpPackRGB555BigEndian(seed.r, seed.g, seed.b);
 		uint8_t pixel_bytes[2];
 		DSpStoreRGB555FrontStagingBytes(pixel, pixel_bytes);
 		for (uint32_t i = 0; i + 1 < buffer_size; i += 2) {
@@ -2120,11 +2120,11 @@ static void DSpInitializeFrontBufferStaging(DSpContextPrivate *ctx,
 			dst,
 			buffer_size);
 		DSP_LOG("%s: front staging initialized from back pixel zero "
-		        "(addr=0x%08x size=%u depth=%u rgb=%u,%u,%u pixel=0x%04x "
-		        "bytes=%02x,%02x)",
-		        caller, baseAddr_mac, buffer_size, front_depth,
-		        seed.r, seed.g, seed.b, pixel,
-		        pixel_bytes[0], pixel_bytes[1]);
+				"(addr=0x%08x size=%u depth=%u rgb=%u,%u,%u pixel=0x%04x "
+				"bytes=%02x,%02x)",
+				caller, baseAddr_mac, buffer_size, front_depth,
+				seed.r, seed.g, seed.b, pixel,
+				pixel_bytes[0], pixel_bytes[1]);
 		return;
 	}
 
@@ -2134,25 +2134,25 @@ static void DSpInitializeFrontBufferStaging(DSpContextPrivate *ctx,
 		dst,
 		buffer_size);
 	DSP_LOG("%s: front staging initialized to zero "
-	        "(addr=0x%08x size=%u depth=%u rgb=%u,%u,%u)",
-	        caller, baseAddr_mac, buffer_size, front_depth,
-	        seed.r, seed.g, seed.b);
+			"(addr=0x%08x size=%u depth=%u rgb=%u,%u,%u)",
+			caller, baseAddr_mac, buffer_size, front_depth,
+			seed.r, seed.g, seed.b);
 }
 
 static uint32_t DSpEnsureFrontBufferStaging(DSpContextPrivate *ctx,
-                                            uint32_t row_bytes,
-                                            uint32_t height,
-                                            uint32_t front_depth,
-                                            const char *caller)
+											uint32_t row_bytes,
+											uint32_t height,
+											uint32_t front_depth,
+											const char *caller)
 {
 	if (ctx == nullptr || row_bytes == 0 || height == 0) return 0;
 
 	const uint32_t buffer_size = row_bytes * height;
 	const uint32_t back_staging_row_bytes =
-	    DSpAlignedRowBytes(DSpContextBackBufferWidth(ctx),
-	                       ctx->attr.backBufferBestDepth);
+		DSpAlignedRowBytes(DSpContextBackBufferWidth(ctx),
+						   ctx->attr.backBufferBestDepth);
 	if (ctx->front_staging_mac_addr != 0 &&
-	    ctx->front_staging_size >= buffer_size) {
+		ctx->front_staging_size >= buffer_size) {
 		uint32_t reusable = DSpUsableGuestBaseOrZero(
 			ctx->front_staging_mac_addr,
 			buffer_size,
@@ -2160,36 +2160,36 @@ static uint32_t DSpEnsureFrontBufferStaging(DSpContextPrivate *ctx,
 			(uint32_t)RAMSize);
 		if (reusable != 0) {
 			const bool geometry_changed =
-			    ctx->front_staging_row_bytes != row_bytes ||
-			    ctx->front_staging_height != height;
+				ctx->front_staging_row_bytes != row_bytes ||
+				ctx->front_staging_height != height;
 			if (DSpShouldRefreshFrontBufferStagingFromBackStaging(
-			        ctx->attr.backBufferBestDepth,
-			        front_depth,
-			        ctx->staging_mac_addr,
-			        reusable,
-			        ctx->staging_size,
-			        buffer_size,
-			        back_staging_row_bytes,
-			        row_bytes,
-			        ctx->swap_generation,
-			        ctx->front_staging_refresh_swap_generation,
-			        geometry_changed)) {
+					ctx->attr.backBufferBestDepth,
+					front_depth,
+					ctx->staging_mac_addr,
+					reusable,
+					ctx->staging_size,
+					buffer_size,
+					back_staging_row_bytes,
+					row_bytes,
+					ctx->swap_generation,
+					ctx->front_staging_refresh_swap_generation,
+					geometry_changed)) {
 				uint8_t *dst = Mac2HostAddr(reusable);
 				uint8_t *src = Mac2HostAddr(ctx->staging_mac_addr);
 				if (dst != NULL && src != NULL) {
 					memcpy(dst, src, buffer_size);
 					ctx->front_staging_refresh_swap_generation =
-					    ctx->swap_generation;
+						ctx->swap_generation;
 					DSpFrontStagingRememberSeedBytes(
 						&ctx->front_staging_present_state,
 						dst,
 						buffer_size);
 					DSP_LOG("%s: front staging refreshed from back staging "
-					        "(src=0x%08x dst=0x%08x size=%u rowBytes=%u bpp=%u "
-					        "swapGen=%u)",
-					        caller, ctx->staging_mac_addr, reusable,
-					        buffer_size, row_bytes, front_depth,
-					        ctx->swap_generation);
+							"(src=0x%08x dst=0x%08x size=%u rowBytes=%u bpp=%u "
+							"swapGen=%u)",
+							caller, ctx->staging_mac_addr, reusable,
+							buffer_size, row_bytes, front_depth,
+							ctx->swap_generation);
 				}
 			}
 			ctx->front_staging_row_bytes = row_bytes;
@@ -2197,15 +2197,15 @@ static uint32_t DSpEnsureFrontBufferStaging(DSpContextPrivate *ctx,
 			return reusable;
 		}
 		DSP_LOG("%s: discarding unusable front staging "
-		        "(addr=0x%08x size=%u need=%u)",
-		        caller, ctx->front_staging_mac_addr,
-		        ctx->front_staging_size, buffer_size);
+				"(addr=0x%08x size=%u need=%u)",
+				caller, ctx->front_staging_mac_addr,
+				ctx->front_staging_size, buffer_size);
 		DSpReleaseFrontBufferStaging(ctx);
 	} else if (ctx->front_staging_mac_addr != 0) {
 		DSP_LOG("%s: replacing undersized front staging "
-		        "(addr=0x%08x size=%u need=%u)",
-		        caller, ctx->front_staging_mac_addr,
-		        ctx->front_staging_size, buffer_size);
+				"(addr=0x%08x size=%u need=%u)",
+				caller, ctx->front_staging_mac_addr,
+				ctx->front_staging_size, buffer_size);
 		DSpReleaseFrontBufferStaging(ctx);
 	}
 
@@ -2218,8 +2218,8 @@ static uint32_t DSpEnsureFrontBufferStaging(DSpContextPrivate *ctx,
 	if (baseAddr_mac == 0) {
 		DSpDiscardUnusedGuestPixelStaging(staging_mac, true);
 		DSP_LOG("%s: front staging allocation unusable "
-		        "(size=%u, addr=0x%08x, frontDepth=%u)",
-		        caller, buffer_size, staging_mac, front_depth);
+				"(size=%u, addr=0x%08x, frontDepth=%u)",
+				caller, buffer_size, staging_mac, front_depth);
 		return 0;
 	}
 
@@ -2230,37 +2230,37 @@ static uint32_t DSpEnsureFrontBufferStaging(DSpContextPrivate *ctx,
 	ctx->front_staging_height = height;
 	bool seeded_from_back_staging = false;
 	if (DSpShouldSeedFrontBufferStagingFromBackStaging(
-	        ctx->attr.backBufferBestDepth,
-	        front_depth,
-	        ctx->staging_mac_addr,
-	        ctx->staging_size,
-	        back_staging_row_bytes,
-	        buffer_size,
-	        row_bytes)) {
+			ctx->attr.backBufferBestDepth,
+			front_depth,
+			ctx->staging_mac_addr,
+			ctx->staging_size,
+			back_staging_row_bytes,
+			buffer_size,
+			row_bytes)) {
 		uint8_t *dst = Mac2HostAddr(baseAddr_mac);
 		uint8_t *src = Mac2HostAddr(ctx->staging_mac_addr);
 		if (dst != NULL && src != NULL) {
 			memcpy(dst, src, buffer_size);
 			ctx->front_staging_refresh_swap_generation =
-			    ctx->swap_generation;
+				ctx->swap_generation;
 			DSpFrontStagingRememberSeedBytes(
 				&ctx->front_staging_present_state,
 				dst,
 				buffer_size);
 			seeded_from_back_staging = true;
 			DSP_LOG("%s: front staging seeded from back staging "
-			        "(src=0x%08x dst=0x%08x size=%u rowBytes=%u bpp=%u)",
-			        caller, ctx->staging_mac_addr, baseAddr_mac,
-			        buffer_size, row_bytes, front_depth);
+					"(src=0x%08x dst=0x%08x size=%u rowBytes=%u bpp=%u)",
+					caller, ctx->staging_mac_addr, baseAddr_mac,
+					buffer_size, row_bytes, front_depth);
 		}
 	}
 	if (!seeded_from_back_staging) {
 		DSpInitializeFrontBufferStaging(ctx, baseAddr_mac, buffer_size,
-		                                front_depth, caller);
+										front_depth, caller);
 	}
 	DSP_LOG("%s: front staging reserved "
-	        "(addr=0x%08x size=%u rowBytes=%u bpp=%u)",
-	        caller, baseAddr_mac, buffer_size, row_bytes, front_depth);
+			"(addr=0x%08x size=%u rowBytes=%u bpp=%u)",
+			caller, baseAddr_mac, buffer_size, row_bytes, front_depth);
 	return baseAddr_mac;
 }
 
@@ -2305,13 +2305,13 @@ static uint32_t DSpResolvePixMapRecord(uint32_t cgrafptr_mac)
 	if (cgrafptr_mac == 0) return 0;
 
 	uint16_t port_version =
-	    (uint16_t)ReadMacInt16(cgrafptr_mac + DSP_CGRAFPORT_OFF_PORT_VERSION);
+		(uint16_t)ReadMacInt16(cgrafptr_mac + DSP_CGRAFPORT_OFF_PORT_VERSION);
 	if (!DSpLooksLikeColorCGrafPort(port_version)) {
 		return cgrafptr_mac;
 	}
 
 	uint32_t pixmap_handle =
-	    ReadMacInt32(cgrafptr_mac + DSP_CGRAFPORT_OFF_PORT_PIXMAP);
+		ReadMacInt32(cgrafptr_mac + DSP_CGRAFPORT_OFF_PORT_PIXMAP);
 	if (pixmap_handle == 0) return 0;
 	return ReadMacInt32(pixmap_handle);
 }
@@ -2327,12 +2327,12 @@ static uint32_t DSpResolvePixMapRecord(uint32_t cgrafptr_mac)
  * PixMap bounds. Returns false on a NULL CGrafPtr, an unsupported depth, or an
  * empty/inverted rect. */
 static bool DSpResolveBlitSide(uint32_t cgrafptr_mac, uint32_t rect_mac,
-                               DSpBlitSide *out)
+							   DSpBlitSide *out)
 {
 	if (cgrafptr_mac == 0 || rect_mac == 0 || out == nullptr) return false;
 
 	uint16_t port_version =
-	    (uint16_t)ReadMacInt16(cgrafptr_mac + DSP_CGRAFPORT_OFF_PORT_VERSION);
+		(uint16_t)ReadMacInt16(cgrafptr_mac + DSP_CGRAFPORT_OFF_PORT_VERSION);
 	uint32_t pixmap_mac = DSpResolvePixMapRecord(cgrafptr_mac);
 	if (pixmap_mac == 0) return false;
 
@@ -2343,10 +2343,10 @@ static bool DSpResolveBlitSide(uint32_t cgrafptr_mac, uint32_t rect_mac,
 	int16_t  pbnd_bot   = (int16_t)ReadMacInt16(pixmap_mac + DSP_PIXMAP_OFF_BOUNDS_BOT);
 	int16_t  pbnd_right = (int16_t)ReadMacInt16(pixmap_mac + DSP_PIXMAP_OFF_BOUNDS_RIGHT);
 	uint32_t pixel_size_offset =
-	    DSpPixMapExtraFieldOffsetForPortVersion(
-	        port_version,
-	        DSP_PIXMAP_OFF_PIXELSIZE,
-	        DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE);
+		DSpPixMapExtraFieldOffsetForPortVersion(
+			port_version,
+			DSP_PIXMAP_OFF_PIXELSIZE,
+			DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE);
 	uint16_t pixelSize  = (uint16_t)ReadMacInt16(pixmap_mac + pixel_size_offset);
 
 	if (baseAddr == 0) return false;
@@ -2439,7 +2439,7 @@ static void DSpBlitComplete(uint32_t inBlitInfo, uint32_t inAsyncFlag)
  *  (0). NULL inBlitInfo -> kDSpInvalidAttributesErr; OOB baseAddr / unsupported
  *  depth -> kDSpInternalErr. */
 extern "C" int32_t DSpBlit_FastestHandler(uint32_t inBlitInfo,
-                                          uint32_t inAsyncFlag)
+										  uint32_t inAsyncFlag)
 {
 	if (inBlitInfo == 0) {
 		DSP_LOG("DSpBlit_Fastest: NULL inBlitInfo -> kDSpInvalidAttributesErr");
@@ -2455,7 +2455,7 @@ extern "C" int32_t DSpBlit_FastestHandler(uint32_t inBlitInfo,
 
 	DSpBlitSide s, d;
 	if (!DSpResolveBlitSide(srcBuffer, srcRect, &s) ||
-	    !DSpResolveBlitSide(dstBuffer, dstRect, &d)) {
+		!DSpResolveBlitSide(dstBuffer, dstRect, &d)) {
 		DSP_LOG("DSpBlit_Fastest: unresolved/empty src or dst -> kDSpInternalErr");
 		return kDSpInternalErr;
 	}
@@ -2476,17 +2476,17 @@ extern "C" int32_t DSpBlit_FastestHandler(uint32_t inBlitInfo,
 	uint32_t transfer_mode = (mode & (uint32_t)kDSpBlitMode_SrcKey) ? 36u : 0u;
 
 	if (!NQDMetalBitblt1to1(s.base_origin_mac, s.row_bytes,
-	                        d.base_origin_mac, d.row_bytes,
-	                        d.pixel_bytes, d.bits_per_pixel,
-	                        (uint32_t)w, (uint32_t)h,
-	                        transfer_mode, srcKey)) {
+							d.base_origin_mac, d.row_bytes,
+							d.pixel_bytes, d.bits_per_pixel,
+							(uint32_t)w, (uint32_t)h,
+							transfer_mode, srcKey)) {
 		DSP_LOG("DSpBlit_Fastest: NQD dispatch rejected (OOB/unavailable) -> kDSpInternalErr");
 		return kDSpInternalErr;
 	}
 
 	DSpBlitComplete(inBlitInfo, inAsyncFlag);
 	DSP_VLOG("DSpBlit_Fastest: 1:1 %dx%d mode=0x%x async=%u",
-	         w, h, mode, inAsyncFlag);
+			 w, h, mode, inAsyncFlag);
 	return kDSpNoErr;
 }
 
@@ -2499,7 +2499,7 @@ extern "C" int32_t DSpBlit_FastestHandler(uint32_t inBlitInfo,
  *  NULL inBlitInfo -> kDSpInvalidAttributesErr; OOB baseAddr / unsupported
  *  depth -> kDSpInternalErr. */
 extern "C" int32_t DSpBlit_FasterHandler(uint32_t inBlitInfo,
-                                         uint32_t inAsyncFlag)
+										 uint32_t inAsyncFlag)
 {
 	if (inBlitInfo == 0) {
 		DSP_LOG("DSpBlit_Faster: NULL inBlitInfo -> kDSpInvalidAttributesErr");
@@ -2516,7 +2516,7 @@ extern "C" int32_t DSpBlit_FasterHandler(uint32_t inBlitInfo,
 
 	DSpBlitSide s, d;
 	if (!DSpResolveBlitSide(srcBuffer, srcRect, &s) ||
-	    !DSpResolveBlitSide(dstBuffer, dstRect, &d)) {
+		!DSpResolveBlitSide(dstBuffer, dstRect, &d)) {
 		DSP_LOG("DSpBlit_Faster: unresolved/empty src or dst -> kDSpInternalErr");
 		return kDSpInternalErr;
 	}
@@ -2531,18 +2531,18 @@ extern "C" int32_t DSpBlit_FasterHandler(uint32_t inBlitInfo,
 	if (mode & (uint32_t)kDSpBlitMode_DstKey) key_enable |= 2u;
 
 	if (!NQDMetalBitbltScaled(s.base_origin_mac, s.row_bytes,
-	                          d.base_origin_mac, d.row_bytes,
-	                          d.pixel_bytes, d.bits_per_pixel,
-	                          (uint32_t)s.rect_w, (uint32_t)s.rect_h,
-	                          (uint32_t)d.rect_w, (uint32_t)d.rect_h,
-	                          interpolate, srcKey, dstKey, key_enable)) {
+							  d.base_origin_mac, d.row_bytes,
+							  d.pixel_bytes, d.bits_per_pixel,
+							  (uint32_t)s.rect_w, (uint32_t)s.rect_h,
+							  (uint32_t)d.rect_w, (uint32_t)d.rect_h,
+							  interpolate, srcKey, dstKey, key_enable)) {
 		DSP_LOG("DSpBlit_Faster: NQD scaled dispatch rejected (OOB/unavailable) -> kDSpInternalErr");
 		return kDSpInternalErr;
 	}
 
 	DSpBlitComplete(inBlitInfo, inAsyncFlag);
 	DSP_VLOG("DSpBlit_Faster: scaled %dx%d->%dx%d interp=%u key=0x%x async=%u",
-	         s.rect_w, s.rect_h, d.rect_w, d.rect_h, interpolate, key_enable, inAsyncFlag);
+			 s.rect_w, s.rect_h, d.rect_w, d.rect_h, interpolate, key_enable, inAsyncFlag);
 	return kDSpNoErr;
 }
 
@@ -2610,12 +2610,12 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
 	void *bb_contents = DSpGetBackingContents(ctx->back_buffer);
 	uint32_t bb_depth = ctx->attr.backBufferBestDepth;
 	if (u_contents != NULL && bb_contents != NULL &&
-	    u->depth == bb_depth &&
-	    (bb_depth == 8 || bb_depth == 16 || bb_depth == 32)) {
+		u->depth == bb_depth &&
+		(bb_depth == 8 || bb_depth == 16 || bb_depth == 32)) {
 		uint32_t px_bytes = bb_depth / 8u;
 		uint32_t u_rb  = ((u->width * px_bytes) + 255u) & ~255u;
 		uint32_t bb_rb = DSpAlignedRowBytes(DSpContextBackBufferWidth(ctx),
-		                                    bb_depth);
+											bb_depth);
 		uint8_t *u_base  = (uint8_t *)u_contents;
 		uint8_t *bb_base = (uint8_t *)bb_contents;
 		uint32_t band_bytes = (uint32_t)(rx1 - rx0) * px_bytes;
@@ -2625,16 +2625,16 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
 			memcpy(dst, src, band_bytes);
 		}
 		DSP_LOG("UnderlayRestore: ctx=%u underlay=%u copied dirty band "
-		        "(%d,%d)-(%d,%d) @%ubpp", ctx->handle, ctx->underlay_alt_buffer,
-		        rx0, ry0, rx1, ry1, bb_depth);
+				"(%d,%d)-(%d,%d) @%ubpp", ctx->handle, ctx->underlay_alt_buffer,
+				rx0, ry0, rx1, ry1, bb_depth);
 	} else if (u_contents != NULL && bb_contents != NULL) {
 		/* Depth mismatch precludes the restore copy.
 		 * Make the skipped restore observable instead of silently no-op'ing. */
 		DSP_LOG("UnderlayRestore: ctx=%u underlay=%u depth mismatch "
-		        "(underlay=%u back-buffer=%u) - CPU dirty-band restore SKIPPED "
-		        "(cross-depth conversion deferred; no compositor underlay "
-		        "fallback)",
-		        ctx->handle, ctx->underlay_alt_buffer, u->depth, bb_depth);
+				"(underlay=%u back-buffer=%u) - CPU dirty-band restore SKIPPED "
+				"(cross-depth conversion deferred; no compositor underlay "
+				"fallback)",
+				ctx->handle, ctx->underlay_alt_buffer, u->depth, bb_depth);
 	}
 }
 
@@ -2672,20 +2672,20 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	if (ctx == nullptr) return;
 
 	const uint32_t display_depth =
-	    DSpDisplayModeDepth(ctx->attr.backBufferBestDepth,
-	                        ctx->attr.displayBestDepth);
+		DSpDisplayModeDepth(ctx->attr.backBufferBestDepth,
+							ctx->attr.displayBestDepth);
 	if (!DSpShouldRedirectMainDevicePixMap(ctx->attr.backBufferBestDepth,
-	                                       display_depth)) {
+										   display_depth)) {
 		DSpRestoreMainDevicePixMap(ctx);
 		DSP_VLOG("DSpRedirectMainDevicePixMap: skipped MainDevice redirect "
-		         "(backBuffer@%u display@%u); preserving screen PixMap for "
-		         "RAVE/QD3D device discovery",
-		         ctx->attr.backBufferBestDepth, display_depth);
+				 "(backBuffer@%u display@%u); preserving screen PixMap for "
+				 "RAVE/QD3D device discovery",
+				 ctx->attr.backBufferBestDepth, display_depth);
 		return;
 	}
 	const uint32_t redirect_depth =
-	    DSpMainDevicePixMapDepth(ctx->attr.backBufferBestDepth,
-	                             display_depth);
+		DSpMainDevicePixMapDepth(ctx->attr.backBufferBestDepth,
+								 display_depth);
 
 	/* Instrumented + defensive walk. Each step logs its input/output and
 	 * refuses to dereference an intermediate Mac address that is not inside
@@ -2709,7 +2709,7 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	 * waste the lowmem walk. Bail early. */
 	if (ctx->back_buffer == NULL) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S0 ctx->back_buffer is NULL "
-		         "(ctx=%p) - skipping redirect", (void *)ctx);
+				 "(ctx=%p) - skipping redirect", (void *)ctx);
 		return;
 	}
 
@@ -2717,30 +2717,30 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	 * lives inside gZeroPage). */
 	uint32_t mainDeviceH = ReadMacInt32(LMADDR_MAIN_DEVICE);
 	DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S1 LMADDR_MAIN_DEVICE@0x%08x -> "
-	         "mainDeviceH=0x%08x", (uint32_t)LMADDR_MAIN_DEVICE, mainDeviceH);
+			 "mainDeviceH=0x%08x", (uint32_t)LMADDR_MAIN_DEVICE, mainDeviceH);
 	if (mainDeviceH == 0) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S1 mainDeviceH==0 - "
-		         "pre-boot graceful skip");
+				 "pre-boot graceful skip");
 		return;
 	}
 	if (!DSP_REDIR_INRANGE(mainDeviceH)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S1 mainDeviceH=0x%08x "
-		         "OUT-OF-RANGE (RAMBase=0x%08x RAMSize=0x%08x) - refusing walk",
-		         mainDeviceH, kRamLo, (uint32_t)RAMSize);
+				 "OUT-OF-RANGE (RAMBase=0x%08x RAMSize=0x%08x) - refusing walk",
+				 mainDeviceH, kRamLo, (uint32_t)RAMSize);
 		return;
 	}
 
 	/* DSP-RDR-S2: dereference MainDevice handle -> GDevice pointer. */
 	uint32_t gdevicePtr = ReadMacInt32(mainDeviceH);
 	DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S2 *mainDeviceH=0x%08x -> "
-	         "gdevicePtr=0x%08x", mainDeviceH, gdevicePtr);
+			 "gdevicePtr=0x%08x", mainDeviceH, gdevicePtr);
 	if (gdevicePtr == 0) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S2 gdevicePtr==0 - skip");
 		return;
 	}
 	if (!DSP_REDIR_INRANGE(gdevicePtr)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S2 gdevicePtr=0x%08x "
-		         "OUT-OF-RANGE - refusing walk", gdevicePtr);
+				 "OUT-OF-RANGE - refusing walk", gdevicePtr);
 		return;
 	}
 
@@ -2748,42 +2748,42 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	uint32_t gdPMapAddr = gdevicePtr + GDEVICE_OFF_PMAP;
 	if (!DSP_REDIR_INRANGE(gdPMapAddr)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S3 gdPMapAddr=0x%08x "
-		         "OUT-OF-RANGE (gdevicePtr+0x16 spilled) - refusing walk",
-		         gdPMapAddr);
+				 "OUT-OF-RANGE (gdevicePtr+0x16 spilled) - refusing walk",
+				 gdPMapAddr);
 		return;
 	}
 	uint32_t pixMapH = ReadMacInt32(gdPMapAddr);
 	DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S3 *(gdevicePtr+0x16)@0x%08x -> "
-	         "pixMapH=0x%08x", gdPMapAddr, pixMapH);
+			 "pixMapH=0x%08x", gdPMapAddr, pixMapH);
 	if (pixMapH == 0) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S3 pixMapH==0 - skip");
 		return;
 	}
 	if (!DSP_REDIR_INRANGE(pixMapH)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S3 pixMapH=0x%08x "
-		         "OUT-OF-RANGE - refusing walk", pixMapH);
+				 "OUT-OF-RANGE - refusing walk", pixMapH);
 		return;
 	}
 
 	/* DSP-RDR-S4: dereference PixMapHandle -> PixMap pointer. */
 	uint32_t pixMapPtr = ReadMacInt32(pixMapH);
 	DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S4 *pixMapH=0x%08x -> "
-	         "pixMapPtr=0x%08x", pixMapH, pixMapPtr);
+			 "pixMapPtr=0x%08x", pixMapH, pixMapPtr);
 	if (pixMapPtr == 0) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S4 pixMapPtr==0 "
-		         "(pixMapPtr gate)");
+				 "(pixMapPtr gate)");
 		return;
 	}
 	if (!DSP_REDIR_INRANGE(pixMapPtr)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S4 pixMapPtr=0x%08x "
-		         "OUT-OF-RANGE - refusing walk", pixMapPtr);
+				 "OUT-OF-RANGE - refusing walk", pixMapPtr);
 		return;
 	}
 	/* Real MainDevice PixMap spans at least through cmpSize. */
 	if (!DSP_REDIR_INRANGE(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_CMPSIZE + 2)) {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S4 PixMap struct "
-		         "spills past RAM end (pixMapPtr=0x%08x) - refusing walk",
-		         pixMapPtr);
+				 "spills past RAM end (pixMapPtr=0x%08x) - refusing walk",
+				 pixMapPtr);
 		return;
 	}
 
@@ -2791,10 +2791,10 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	 * reassertions must preserve the original screen PixMap snapshot; Nanosaur
 	 * calls DSpContext_GetFrontBuffer and then directly probes MainDevice. */
 	const bool should_cache_original =
-	    DSpShouldCacheMainDevicePixMapOriginal(
-	        ctx->saved_pixmap_valid != 0,
-	        ctx->saved_pixmap_addr,
-	        pixMapPtr);
+		DSpShouldCacheMainDevicePixMapOriginal(
+			ctx->saved_pixmap_valid != 0,
+			ctx->saved_pixmap_addr,
+			pixMapPtr);
 	if (should_cache_original) {
 		ctx->saved_pixmap_addr     = pixMapPtr;
 		ctx->saved_pixmap_baseAddr = ReadMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR);
@@ -2820,7 +2820,7 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 		 * rewrites it to the context resolution and the restore puts this
 		 * back. */
 		if (DSP_REDIR_INRANGE(gdevicePtr + GDEVICE_OFF_GDRECT) &&
-		    DSP_REDIR_INRANGE(gdevicePtr + GDEVICE_OFF_GDRECT + 7)) {
+			DSP_REDIR_INRANGE(gdevicePtr + GDEVICE_OFF_GDRECT + 7)) {
 			ctx->saved_gdevice_ptr = gdevicePtr;
 			ctx->saved_gdrect[0] = (int16_t)ReadMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 0);
 			ctx->saved_gdrect[1] = (int16_t)ReadMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 2);
@@ -2829,19 +2829,19 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 			ctx->saved_gdrect_valid = 1;
 		}
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S5 cached originals "
-		         "(baseAddr=0x%08x rowBytes=%u pixelSize=%u packType=%u "
-		         "packSize=%u hRes=0x%08x vRes=0x%08x planeBytes=%u)",
-		         ctx->saved_pixmap_baseAddr, (unsigned)ctx->saved_pixmap_rowBytes,
-		         (unsigned)ctx->saved_pixmap_pixelSize,
-		         (unsigned)ctx->saved_pixmap_packType,
-		         ctx->saved_pixmap_packSize,
-		         ctx->saved_pixmap_hRes,
-		         ctx->saved_pixmap_vRes,
-		         ctx->saved_pixmap_planeBytes);
+				 "(baseAddr=0x%08x rowBytes=%u pixelSize=%u packType=%u "
+				 "packSize=%u hRes=0x%08x vRes=0x%08x planeBytes=%u)",
+				 ctx->saved_pixmap_baseAddr, (unsigned)ctx->saved_pixmap_rowBytes,
+				 (unsigned)ctx->saved_pixmap_pixelSize,
+				 (unsigned)ctx->saved_pixmap_packType,
+				 ctx->saved_pixmap_packSize,
+				 ctx->saved_pixmap_hRes,
+				 ctx->saved_pixmap_vRes,
+				 ctx->saved_pixmap_planeBytes);
 	} else {
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S5 reasserting existing "
-		         "redirect (pixMapPtr=0x%08x; saved original preserved)",
-		         pixMapPtr);
+				 "redirect (pixMapPtr=0x%08x; saved original preserved)",
+				 pixMapPtr);
 	}
 
 	uint32_t alignedRB = DSpMainDevicePixMapRowBytes(
@@ -2853,15 +2853,15 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	const uint32_t back_height = DSpContextBackBufferHeight(ctx);
 	uint32_t newBaseAddr_mac = 0;
 	const bool has_presentable_front_staging =
-	    DSpShouldPresentFrontBufferStaging(ctx->attr.backBufferBestDepth,
-	                                       ctx->attr.displayBestDepth,
-	                                       ctx->front_staging_mac_addr,
-	                                       ctx->front_staging_size);
+		DSpShouldPresentFrontBufferStaging(ctx->attr.backBufferBestDepth,
+										   ctx->attr.displayBestDepth,
+										   ctx->front_staging_mac_addr,
+										   ctx->front_staging_size);
 	const bool expose_front_staging =
-	    has_presentable_front_staging ||
-	    DSpMainDeviceRedirectShouldExposeFrontStaging(
-	        ctx->attr.backBufferBestDepth,
-	        display_depth);
+		has_presentable_front_staging ||
+		DSpMainDeviceRedirectShouldExposeFrontStaging(
+			ctx->attr.backBufferBestDepth,
+			display_depth);
 	bool using_back_buffer_redirect = false;
 
 	/* DSP-RDR-S6: prefer a distinct display-depth front-staging surface so the
@@ -2872,15 +2872,15 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	 * same-depth "front==back" reuse, which collapsed double-buffering and
 	 * desynced the guest's page arithmetic - the splash half-buffer roll.) */
 	if (!expose_front_staging &&
-	    !has_presentable_front_staging &&
-	    redirect_depth == ctx->attr.backBufferBestDepth) {
+		!has_presentable_front_staging &&
+		redirect_depth == ctx->attr.backBufferBestDepth) {
 		using_back_buffer_redirect = true;
 		buffer_size = DSpBackBufferSize(
 			back_width,
 			back_height,
 			ctx->attr.backBufferBestDepth);
 		alignedRB = DSpAlignedRowBytes(back_width,
-		                                ctx->attr.backBufferBestDepth);
+										ctx->attr.backBufferBestDepth);
 		uint8_t *back_contents = (uint8_t *)DSpGetBackingContents(ctx->back_buffer);
 		uint32_t mappedBaseAddr_mac = Host2MacAddr(back_contents);
 		uint8_t *roundTripHost = mappedBaseAddr_mac != 0 ? Mac2HostAddr(mappedBaseAddr_mac) : NULL;
@@ -2892,8 +2892,8 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 			(uintptr_t)roundTripHost,
 			(uintptr_t)back_contents);
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S6 Host2MacAddr(back_buffer.contents) "
-		         "-> 0x%08x roundTrip=%p contents=%p usable=0x%08x",
-		         mappedBaseAddr_mac, roundTripHost, back_contents, newBaseAddr_mac);
+				 "-> 0x%08x roundTrip=%p contents=%p usable=0x%08x",
+				 mappedBaseAddr_mac, roundTripHost, back_contents, newBaseAddr_mac);
 		if (newBaseAddr_mac == 0) {
 			if (ctx->staging_mac_addr != 0) {
 				newBaseAddr_mac = DSpUsableGuestBaseOrZero(
@@ -2903,8 +2903,8 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 					(uint32_t)RAMSize);
 				if (newBaseAddr_mac == 0) {
 					DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S6 discarding "
-					         "unusable cached staging baseAddr=0x%08x (size=%u)",
-					         ctx->staging_mac_addr, buffer_size);
+							 "unusable cached staging baseAddr=0x%08x (size=%u)",
+							 ctx->staging_mac_addr, buffer_size);
 					DSpReleaseBackBufferStaging(ctx);
 				}
 			}
@@ -2918,24 +2918,24 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 				if (newBaseAddr_mac == 0) {
 					DSpDiscardUnusedGuestPixelStaging(staging_mac, true);
 					DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S6 staging "
-					         "allocation unusable (size=%u, addr=0x%08x)",
-					         buffer_size, staging_mac);
+							 "allocation unusable (size=%u, addr=0x%08x)",
+							 buffer_size, staging_mac);
 				} else {
 					ctx->staging_mac_addr = newBaseAddr_mac;
 					ctx->staging_size = buffer_size;
 					ctx->staging_owned_sysheap = true;
 					uint32_t redir_seed_n =
-					    DSpGuardStagingWrite(ctx->staging_mac_addr,
-					                         buffer_size,
-					                         "Redirect.seed");
+						DSpGuardStagingWrite(ctx->staging_mac_addr,
+											 buffer_size,
+											 "Redirect.seed");
 					if (back_contents != NULL) {
 						Host2Mac_memcpy(ctx->staging_mac_addr, back_contents, redir_seed_n);
 					} else {
 						Mac_memset(ctx->staging_mac_addr, 0, redir_seed_n);
 					}
 					DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S6 fresh staging "
-					         "reserved (size=%u) -> 0x%08x; initialized from back_buffer",
-					         buffer_size, ctx->staging_mac_addr);
+							 "reserved (size=%u) -> 0x%08x; initialized from back_buffer",
+							 buffer_size, ctx->staging_mac_addr);
 				}
 			}
 		}
@@ -2947,10 +2947,10 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 			redirect_depth,
 			"DSpRedirectMainDevicePixMap");
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S6 using display-depth "
-		         "front staging (backBuffer@%u display@%u redirect@%u presentable=%u) "
-		         "-> 0x%08x",
-		         ctx->attr.backBufferBestDepth, display_depth, redirect_depth,
-		         has_presentable_front_staging ? 1u : 0u, newBaseAddr_mac);
+				 "front staging (backBuffer@%u display@%u redirect@%u presentable=%u) "
+				 "-> 0x%08x",
+				 ctx->attr.backBufferBestDepth, display_depth, redirect_depth,
+				 has_presentable_front_staging ? 1u : 0u, newBaseAddr_mac);
 	}
 
 	/* Security gate (ASVS L1): refuse to write an
@@ -2960,32 +2960,32 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	 * memory. Failure path clears saved_pixmap_valid so the symmetric
 	 * Restore call is a no-op (graceful degradation). */
 	if (newBaseAddr_mac == 0 ||
-	    newBaseAddr_mac < (uint32_t)RAMBase ||
-	    newBaseAddr_mac >= (uint32_t)(RAMBase + RAMSize)) {
+		newBaseAddr_mac < (uint32_t)RAMBase ||
+		newBaseAddr_mac >= (uint32_t)(RAMBase + RAMSize)) {
 		if (should_cache_original) {
 			ctx->saved_pixmap_valid = 0;
 		}
 		DSP_VLOG("DSpRedirectMainDevicePixMap: refusing OOB write "
-		         "(newBaseAddr_mac=0x%08x, RAMBase=0x%08x, RAMSize=0x%08x)",
-		         newBaseAddr_mac, (uint32_t)RAMBase, (uint32_t)RAMSize);
+				 "(newBaseAddr_mac=0x%08x, RAMBase=0x%08x, RAMSize=0x%08x)",
+				 newBaseAddr_mac, (uint32_t)RAMBase, (uint32_t)RAMSize);
 		return;
 	}
 
 	uint16_t pixelType, pixelSize, cmpCount, cmpSize;
 	DSpPixMapFormatForDepth(redirect_depth,
-	                         &pixelType, &pixelSize, &cmpCount, &cmpSize);
+							 &pixelType, &pixelSize, &cmpCount, &cmpSize);
 	const uint16_t rowBytesField =
-	    DSpMainDevicePixMapRowBytesField(alignedRB);
+		DSpMainDevicePixMapRowBytesField(alignedRB);
 	const uint32_t pixmap_width =
-	    using_back_buffer_redirect
-	        ? back_width
-	        : DSpMainDevicePixMapBoundDimension(ctx->attr.displayWidth,
-	                                            back_width);
+		using_back_buffer_redirect
+			? back_width
+			: DSpMainDevicePixMapBoundDimension(ctx->attr.displayWidth,
+												back_width);
 	const uint32_t pixmap_height =
-	    using_back_buffer_redirect
-	        ? back_height
-	        : DSpMainDevicePixMapBoundDimension(ctx->attr.displayHeight,
-	                                            back_height);
+		using_back_buffer_redirect
+			? back_height
+			: DSpMainDevicePixMapBoundDimension(ctx->attr.displayHeight,
+												back_height);
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR, newBaseAddr_mac);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES, rowBytesField);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_TOP,   0);
@@ -3004,27 +3004,27 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 	 * (112,84)). Idempotent on reassert; restore writes the cached rect
 	 * back. */
 	if (DSP_REDIR_INRANGE(gdevicePtr + GDEVICE_OFF_GDRECT) &&
-	    DSP_REDIR_INRANGE(gdevicePtr + GDEVICE_OFF_GDRECT + 7)) {
+		DSP_REDIR_INRANGE(gdevicePtr + GDEVICE_OFF_GDRECT + 7)) {
 		WriteMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 0, 0);
 		WriteMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 2, 0);
 		WriteMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 4,
-		              (uint16_t)pixmap_height);
+					  (uint16_t)pixmap_height);
 		WriteMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 6,
-		              (uint16_t)pixmap_width);
+					  (uint16_t)pixmap_width);
 	}
 	DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-DONE pixMapPtr=0x%08x "
-	         "newBaseAddr=0x%08x rowBytes=%u rowBytesField=0x%04x %ux%u@%ubpp "
-	         "(backBuffer@%u display@%u) - redirect installed",
-	         pixMapPtr, newBaseAddr_mac, (unsigned)alignedRB,
-	         (unsigned)rowBytesField,
-	         pixmap_width, pixmap_height,
-	         (unsigned)pixelSize, ctx->attr.backBufferBestDepth,
-	         display_depth);
+			 "newBaseAddr=0x%08x rowBytes=%u rowBytesField=0x%04x %ux%u@%ubpp "
+			 "(backBuffer@%u display@%u) - redirect installed",
+			 pixMapPtr, newBaseAddr_mac, (unsigned)alignedRB,
+			 (unsigned)rowBytesField,
+			 pixmap_width, pixmap_height,
+			 (unsigned)pixelSize, ctx->attr.backBufferBestDepth,
+			 display_depth);
 	#undef DSP_REDIR_INRANGE
 }
 
 static inline bool DSpLowMemOrGuestRAMContains(uint32_t mac_addr,
-                                               uint32_t byte_count)
+											   uint32_t byte_count)
 {
 	if (mac_addr == 0 || byte_count == 0) return false;
 	uint64_t start = (uint64_t)mac_addr;
@@ -3038,8 +3038,8 @@ static inline bool DSpLowMemOrGuestRAMContains(uint32_t mac_addr,
 }
 
 static inline bool DSpLowMemOrGuestRAMContainsAtOffset(uint32_t mac_addr,
-                                                       uint32_t offset,
-                                                       uint32_t byte_count)
+													   uint32_t offset,
+													   uint32_t byte_count)
 {
 	if (mac_addr == 0) return false;
 	if (mac_addr > UINT32_MAX - offset) return false;
@@ -3061,83 +3061,83 @@ static uint32_t DSpResolveLiveMainDevicePixMapPtr(void)
 
 	uint32_t pixMapPtr = ReadMacInt32(pixMapH);
 	if (!DSpLowMemOrGuestRAMContainsAtOffset(
-	        pixMapPtr, DSP_MAINDEVICE_PIXMAP_OFF_CMPSIZE, 2)) {
+			pixMapPtr, DSP_MAINDEVICE_PIXMAP_OFF_CMPSIZE, 2)) {
 		return 0;
 	}
 	return pixMapPtr;
 }
 
 static void DSpWriteSavedMainDevicePixMap(DSpContextPrivate *ctx,
-                                          uint32_t pixMapPtr)
+										  uint32_t pixMapPtr)
 {
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR,
-	              ctx->saved_pixmap_baseAddr);
+				  ctx->saved_pixmap_baseAddr);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES,
-	              ctx->saved_pixmap_rowBytes);
+				  ctx->saved_pixmap_rowBytes);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_TOP,
-	              ctx->saved_pixmap_bounds[0]);
+				  ctx->saved_pixmap_bounds[0]);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_LEFT,
-	              ctx->saved_pixmap_bounds[1]);
+				  ctx->saved_pixmap_bounds[1]);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_BOT,
-	              ctx->saved_pixmap_bounds[2]);
+				  ctx->saved_pixmap_bounds[2]);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_RIGHT,
-	              ctx->saved_pixmap_bounds[3]);
+				  ctx->saved_pixmap_bounds[3]);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PIXELTYPE,
-	              ctx->saved_pixmap_pixelType);
+				  ctx->saved_pixmap_pixelType);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE,
-	              ctx->saved_pixmap_pixelSize);
+				  ctx->saved_pixmap_pixelSize);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_CMPCOUNT,
-	              ctx->saved_pixmap_cmpCount);
+				  ctx->saved_pixmap_cmpCount);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_CMPSIZE,
-	              ctx->saved_pixmap_cmpSize);
+				  ctx->saved_pixmap_cmpSize);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PMVERSION,
-	              ctx->saved_pixmap_pmVersion);
+				  ctx->saved_pixmap_pmVersion);
 	WriteMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PACKTYPE,
-	              ctx->saved_pixmap_packType);
+				  ctx->saved_pixmap_packType);
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PACKSIZE,
-	              ctx->saved_pixmap_packSize);
+				  ctx->saved_pixmap_packSize);
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_HRES,
-	              ctx->saved_pixmap_hRes);
+				  ctx->saved_pixmap_hRes);
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_VRES,
-	              ctx->saved_pixmap_vRes);
+				  ctx->saved_pixmap_vRes);
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PLANEBYTES,
-	              ctx->saved_pixmap_planeBytes);
+				  ctx->saved_pixmap_planeBytes);
 }
 
 static bool DSpPixMapLooksLikeContextRedirect(DSpContextPrivate *ctx,
-                                              uint32_t pixMapPtr)
+											  uint32_t pixMapPtr)
 {
 	if (ctx == nullptr || pixMapPtr == 0) return false;
 
 	uint32_t baseAddr = ReadMacInt32(pixMapPtr +
-	                                 DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR);
+									 DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR);
 	uint32_t rowBytes = (uint32_t)(
-	    ReadMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES) & 0x7FFFu);
+		ReadMacInt16(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES) & 0x7FFFu);
 	uint32_t pixelSize = (uint32_t)ReadMacInt16(
-	    pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE);
+		pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE);
 
 	const uint32_t display_depth =
-	    DSpDisplayModeDepth(ctx->attr.backBufferBestDepth,
-	                        ctx->attr.displayBestDepth);
+		DSpDisplayModeDepth(ctx->attr.backBufferBestDepth,
+							ctx->attr.displayBestDepth);
 	const uint32_t redirect_depth =
-	    DSpMainDevicePixMapDepth(ctx->attr.backBufferBestDepth,
-	                             display_depth);
+		DSpMainDevicePixMapDepth(ctx->attr.backBufferBestDepth,
+								 display_depth);
 	const uint32_t front_row_bytes =
-	    DSpMainDevicePixMapRowBytes(ctx->attr.displayWidth,
-	                                ctx->attr.backBufferBestDepth,
-	                                display_depth);
+		DSpMainDevicePixMapRowBytes(ctx->attr.displayWidth,
+									ctx->attr.backBufferBestDepth,
+									display_depth);
 	if (ctx->front_staging_mac_addr != 0 &&
-	    baseAddr == ctx->front_staging_mac_addr) {
+		baseAddr == ctx->front_staging_mac_addr) {
 		return rowBytes == front_row_bytes && pixelSize == redirect_depth;
 	}
 
 	const uint32_t back_row_bytes =
-	    DSpAlignedRowBytes(DSpContextBackBufferWidth(ctx),
-	                       ctx->attr.backBufferBestDepth);
+		DSpAlignedRowBytes(DSpContextBackBufferWidth(ctx),
+						   ctx->attr.backBufferBestDepth);
 	if (ctx->staging_mac_addr != 0 &&
-	    baseAddr == ctx->staging_mac_addr) {
+		baseAddr == ctx->staging_mac_addr) {
 		return rowBytes == back_row_bytes &&
-		       pixelSize == ctx->attr.backBufferBestDepth;
+			   pixelSize == ctx->attr.backBufferBestDepth;
 	}
 
 	if (ctx->back_buffer != NULL) {
@@ -3145,7 +3145,7 @@ static bool DSpPixMapLooksLikeContextRedirect(DSpContextPrivate *ctx,
 		uint32_t mappedBaseAddr = Host2MacAddr(back_contents);
 		if (mappedBaseAddr != 0 && baseAddr == mappedBaseAddr) {
 			return rowBytes == back_row_bytes &&
-			       pixelSize == ctx->attr.backBufferBestDepth;
+				   pixelSize == ctx->attr.backBufferBestDepth;
 		}
 	}
 
@@ -3160,40 +3160,40 @@ extern "C" void DSpRestoreMainDevicePixMap(DSpContextPrivate *ctx)
 	if (savedPixMapPtr != 0) {
 		DSpWriteSavedMainDevicePixMap(ctx, savedPixMapPtr);
 		DSP_LOG("DSpRestoreMainDevicePixMap: restored pixMapPtr=0x%08x "
-		        "baseAddr=0x%08x rowBytes=0x%04x pixelSize=%u",
-		        savedPixMapPtr,
-		        ctx->saved_pixmap_baseAddr,
-		        ctx->saved_pixmap_rowBytes,
-		        ctx->saved_pixmap_pixelSize);
+				"baseAddr=0x%08x rowBytes=0x%04x pixelSize=%u",
+				savedPixMapPtr,
+				ctx->saved_pixmap_baseAddr,
+				ctx->saved_pixmap_rowBytes,
+				ctx->saved_pixmap_pixelSize);
 	}
 	if (livePixMapPtr != 0 &&
-	    livePixMapPtr != savedPixMapPtr &&
-	    DSpPixMapLooksLikeContextRedirect(ctx, livePixMapPtr)) {
+		livePixMapPtr != savedPixMapPtr &&
+		DSpPixMapLooksLikeContextRedirect(ctx, livePixMapPtr)) {
 		DSpWriteSavedMainDevicePixMap(ctx, livePixMapPtr);
 		DSP_LOG("DSpRestoreMainDevicePixMap: restored live pixMapPtr=0x%08x "
-		        "baseAddr=0x%08x rowBytes=0x%04x pixelSize=%u",
-		        livePixMapPtr,
-		        ctx->saved_pixmap_baseAddr,
-		        ctx->saved_pixmap_rowBytes,
-		        ctx->saved_pixmap_pixelSize);
+				"baseAddr=0x%08x rowBytes=0x%04x pixelSize=%u",
+				livePixMapPtr,
+				ctx->saved_pixmap_baseAddr,
+				ctx->saved_pixmap_rowBytes,
+				ctx->saved_pixmap_pixelSize);
 	}
 	/* Symmetric GDevice.gdRect restore (cached at redirect-install time). */
 	if (ctx->saved_gdrect_valid != 0 &&
-	    DSpLowMemOrGuestRAMContainsAtOffset(ctx->saved_gdevice_ptr,
-	                                        GDEVICE_OFF_GDRECT, 8)) {
+		DSpLowMemOrGuestRAMContainsAtOffset(ctx->saved_gdevice_ptr,
+											GDEVICE_OFF_GDRECT, 8)) {
 		WriteMacInt16(ctx->saved_gdevice_ptr + GDEVICE_OFF_GDRECT + 0,
-		              (uint16_t)ctx->saved_gdrect[0]);
+					  (uint16_t)ctx->saved_gdrect[0]);
 		WriteMacInt16(ctx->saved_gdevice_ptr + GDEVICE_OFF_GDRECT + 2,
-		              (uint16_t)ctx->saved_gdrect[1]);
+					  (uint16_t)ctx->saved_gdrect[1]);
 		WriteMacInt16(ctx->saved_gdevice_ptr + GDEVICE_OFF_GDRECT + 4,
-		              (uint16_t)ctx->saved_gdrect[2]);
+					  (uint16_t)ctx->saved_gdrect[2]);
 		WriteMacInt16(ctx->saved_gdevice_ptr + GDEVICE_OFF_GDRECT + 6,
-		              (uint16_t)ctx->saved_gdrect[3]);
+					  (uint16_t)ctx->saved_gdrect[3]);
 		DSP_LOG("DSpRestoreMainDevicePixMap: restored gdRect (%d,%d)-(%d,%d) "
-		        "gdevicePtr=0x%08x",
-		        ctx->saved_gdrect[0], ctx->saved_gdrect[1],
-		        ctx->saved_gdrect[2], ctx->saved_gdrect[3],
-		        ctx->saved_gdevice_ptr);
+				"gdevicePtr=0x%08x",
+				ctx->saved_gdrect[0], ctx->saved_gdrect[1],
+				ctx->saved_gdrect[2], ctx->saved_gdrect[3],
+				ctx->saved_gdevice_ptr);
 	}
 	ctx->saved_gdrect_valid = 0;
 	ctx->saved_pixmap_valid = 0;
@@ -3246,11 +3246,11 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	}
 	/* State-value bounds check (PDF pp.75, 86: only 0/1/2 valid). */
 	if (state != (uint32_t)kDSpContextState_Active  &&
-	    state != (uint32_t)kDSpContextState_Paused  &&
-	    state != (uint32_t)kDSpContextState_Inactive) {
+		state != (uint32_t)kDSpContextState_Paused  &&
+		state != (uint32_t)kDSpContextState_Inactive) {
 		DSP_LOG("SetState: out-of-range state=%u "
-		        "(valid: 0=Active, 1=Paused, 2=Inactive)",
-		        state);
+				"(valid: 0=Active, 1=Paused, 2=Inactive)",
+				state);
 		return kDSpInvalidAttributesErr;
 	}
 	/* Paused-persistence: capture the
@@ -3261,7 +3261,7 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	/* Idempotent self-transition - return noErr without touching DMC. */
 	if (ctx->state == state) {
 		DSP_LOG("SetState: idempotent self-transition ctx=%u state=%u (noErr)",
-		        ctxRef, state);
+				ctxRef, state);
 		return kDSpNoErr;
 	}
 
@@ -3295,26 +3295,26 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	 * snapshot publish; subscriber FIFO/LIFO fan-out). SetState just
 	 * fires the event at the right moment with the right guards. */
 	if (state == (uint32_t)kDSpContextState_Active &&
-	    prev_state != (uint32_t)kDSpContextState_Active) {
+		prev_state != (uint32_t)kDSpContextState_Active) {
 		const DMCModeSnapshot *snap = dmc_current_snapshot();
 		const uint32_t display_depth =
-		    DSpDisplayModeDepth(ctx->attr.backBufferBestDepth,
-		                        ctx->attr.displayBestDepth);
+			DSpDisplayModeDepth(ctx->attr.backBufferBestDepth,
+								ctx->attr.displayBestDepth);
 		bool mode_differs = (snap == nullptr) ||
-		    (snap->width  != ctx->attr.displayWidth) ||
-		    (snap->height != ctx->attr.displayHeight) ||
-		    (snap->depth  != display_depth);
+			(snap->width  != ctx->attr.displayWidth) ||
+			(snap->height != ctx->attr.displayHeight) ||
+			(snap->depth  != display_depth);
 		if (mode_differs) {
 			DMCModeDesc new_mode = {};
 			new_mode.width     = ctx->attr.displayWidth;
 			new_mode.height    = ctx->attr.displayHeight;
 			new_mode.depth     = display_depth;
 			new_mode.row_bytes =
-			    DSpDisplayModeRowBytes(ctx->attr.displayWidth,
-			                           display_depth);
+				DSpDisplayModeRowBytes(ctx->attr.displayWidth,
+									   display_depth);
 			new_mode.pitch =
-			    DSpDisplayModePitch(ctx->attr.displayWidth,
-			                        display_depth);
+				DSpDisplayModePitch(ctx->attr.displayWidth,
+									display_depth);
 			new_mode.vbl_usec  = 0;  /* DMC keeps current cadence when 0 */
 			new_mode.screen_base_mac  = 0;
 			new_mode.screen_base_host = nullptr;
@@ -3322,21 +3322,21 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 			int32_t rc = dmc_request_mode_switch(&new_mode);
 			if (rc != kDMCNoErr) {
 				DSP_LOG("SetState: dmc_request_mode_switch FAILED "
-				        "(rc=%d) for %ux%u@%u; refusing transition "
-				        "(backBuffer@%u ctx->state unchanged)",
-				        rc, ctx->attr.displayWidth,
-				        ctx->attr.displayHeight,
-				        display_depth,
-				        ctx->attr.backBufferBestDepth);
+						"(rc=%d) for %ux%u@%u; refusing transition "
+						"(backBuffer@%u ctx->state unchanged)",
+						rc, ctx->attr.displayWidth,
+						ctx->attr.displayHeight,
+						display_depth,
+						ctx->attr.backBufferBestDepth);
 				return kDSpInternalErr;
 			}
 			/* DMC fired OnModeExit (overlay cache cleared) and
 			 * OnModeEnter (frame interval refreshed). No explicit
 			 * wiring needed here. */
 			DSP_LOG("SetState: mode switch %ux%u@%u completed via DMC "
-			        "(backBuffer@%u ctx=%u)",
-			        ctx->attr.displayWidth, ctx->attr.displayHeight,
-			        display_depth, ctx->attr.backBufferBestDepth, ctxRef);
+					"(backBuffer@%u ctx=%u)",
+					ctx->attr.displayWidth, ctx->attr.displayHeight,
+					display_depth, ctx->attr.backBufferBestDepth, ctxRef);
 		}
 	}
 
@@ -3348,17 +3348,17 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	int32_t dmc_rc = dmc_set_active_owner((uint32_t)new_owner);
 	if (dmc_rc != 0) {
 		DSP_LOG("SetState: DMC rejected transition ctx=%u %u->%u rc=%d",
-		        ctxRef, ctx->state, state, dmc_rc);
+				ctxRef, ctx->state, state, dmc_rc);
 		return kDSpInvalidAttributesErr;
 	}
 	/* Page-flip page-0 reset on Paused (PDF p.29). Page flipping is not
 	 * implemented yet; log the reset as a no-op note. */
 	if (state == (uint32_t)kDSpContextState_Paused) {
 		DSP_LOG("SetState: Paused - page-flip reset to page 0 (no-op; "
-		        "page flipping not implemented)");
+				"page flipping not implemented)");
 	}
 	DSP_LOG("SetState: ctx=%u %u->%u DMC owner->%d",
-	        ctxRef, ctx->state, state, (int)new_owner);
+			ctxRef, ctx->state, state, (int)new_owner);
 	ctx->state = state;
 
 	/*
@@ -3386,7 +3386,7 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 		MetalCompositorUpdatePalette(ctx->clut_bytes, 256);
 		dmc_record_palette_change();
 		DSP_LOG("SetState: %u->Active CLUT replay (ctx=%u) -> OK",
-		        prev_state, ctxRef);
+				prev_state, ctxRef);
 	}
 
 	/*
@@ -3426,10 +3426,10 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	if (any_active != prev_active) {
 		DSpHostBridge_SetActiveFullscreen(any_active);
 		DSP_LOG("SetState: aggregate Active-fullscreen flag changed %s -> %s "
-		        "(ctx=%u; idle-timer bridge fired)",
-		        prev_active ? "true" : "false",
-		        any_active  ? "true" : "false",
-		        ctxRef);
+				"(ctx=%u; idle-timer bridge fired)",
+				prev_active ? "true" : "false",
+				any_active  ? "true" : "false",
+				ctxRef);
 	}
 
 	/* Install / restore MainDevice PixMap redirect.
@@ -3441,50 +3441,50 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 		DSpRedirectMainDevicePixMap(ctx);
 	} else {
 		const bool switch_handoff =
-		    (state == (uint32_t)kDSpContextState_Inactive) &&
-		    (s_dsp_setstate_switch_handoff_ctx == ctxRef);
+			(state == (uint32_t)kDSpContextState_Inactive) &&
+			(s_dsp_setstate_switch_handoff_ctx == ctxRef);
 		DMCModeDesc restored_qd_mode = {};
 		const bool have_restored_qd_mode =
-		    !switch_handoff &&
-		    !any_active &&
-		    DSpBuildSavedQuickDrawModeDesc(ctx, &restored_qd_mode);
+			!switch_handoff &&
+			!any_active &&
+			DSpBuildSavedQuickDrawModeDesc(ctx, &restored_qd_mode);
 		DSpRestoreMainDevicePixMap(ctx);
 		DSpReleaseFrontBufferStaging(ctx);
 		if (switch_handoff) {
 			DSP_LOG("SetState: ctx=%u switch handoff suppressed "
-			        "intermediate QuickDraw mode restore", ctxRef);
+					"intermediate QuickDraw mode restore", ctxRef);
 		}
 		if (have_restored_qd_mode) {
 			const DMCModeSnapshot *snap = dmc_current_snapshot();
 			const bool mode_differs =
-			    snap == nullptr ||
-			    DSpQuickDrawModeRestoreDiffers(restored_qd_mode.width,
-			                                   restored_qd_mode.height,
-			                                   restored_qd_mode.depth,
-			                                   snap->width,
-			                                   snap->height,
-			                                   snap->depth);
+				snap == nullptr ||
+				DSpQuickDrawModeRestoreDiffers(restored_qd_mode.width,
+											   restored_qd_mode.height,
+											   restored_qd_mode.depth,
+											   snap->width,
+											   snap->height,
+											   snap->depth);
 			if (mode_differs) {
 				int32_t rc = dmc_request_mode_switch(&restored_qd_mode);
 				if (rc != kDMCNoErr) {
 					DSP_LOG("SetState: QuickDraw restore mode switch FAILED "
-					        "(rc=%d) for %ux%u@%u rb=%u base=0x%08x host=%p",
-					        rc,
-					        restored_qd_mode.width,
-					        restored_qd_mode.height,
-					        restored_qd_mode.depth,
-					        restored_qd_mode.row_bytes,
-					        restored_qd_mode.screen_base_mac,
-					        restored_qd_mode.screen_base_host);
+							"(rc=%d) for %ux%u@%u rb=%u base=0x%08x host=%p",
+							rc,
+							restored_qd_mode.width,
+							restored_qd_mode.height,
+							restored_qd_mode.depth,
+							restored_qd_mode.row_bytes,
+							restored_qd_mode.screen_base_mac,
+							restored_qd_mode.screen_base_host);
 				} else {
 					DSP_LOG("SetState: QuickDraw restore mode switch %ux%u@%u "
-					        "rb=%u base=0x%08x host=%p completed",
-					        restored_qd_mode.width,
-					        restored_qd_mode.height,
-					        restored_qd_mode.depth,
-					        restored_qd_mode.row_bytes,
-					        restored_qd_mode.screen_base_mac,
-					        restored_qd_mode.screen_base_host);
+							"rb=%u base=0x%08x host=%p completed",
+							restored_qd_mode.width,
+							restored_qd_mode.height,
+							restored_qd_mode.depth,
+							restored_qd_mode.row_bytes,
+							restored_qd_mode.screen_base_mac,
+							restored_qd_mode.screen_base_host);
 				}
 			}
 		}
@@ -3505,12 +3505,12 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
  *  projection, not a reciprocal reader-of-truth.
  */
 extern "C" int32_t DSpContext_GetStateHandler(uint32_t ctxRef,
-                                               uint32_t outStateAddr)
+											   uint32_t outStateAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || outStateAddr == 0) {
 		DSP_LOG("GetState: invalid ctxRef=%u or outStateAddr=0x%08x",
-		        ctxRef, outStateAddr);
+				ctxRef, outStateAddr);
 		return kDSpInvalidContextErr;
 	}
 	WriteMacInt32(outStateAddr, ctx->state);
@@ -3529,12 +3529,12 @@ extern "C" int32_t DSpContext_GetStateHandler(uint32_t ctxRef,
  *  (metadata-only / pre-Reserve context) report busy (1). 1-byte Boolean
  *  out-write via WriteMacInt8 (PDF Boolean ABI). */
 extern "C" int32_t DSpContext_IsBusyHandler(uint32_t ctxRef,
-                                             uint32_t outBusyAddr)
+											 uint32_t outBusyAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || outBusyAddr == 0) {
 		DSP_LOG("IsBusy: invalid ctxRef=%u or outBusyAddr=0x%08x",
-		        ctxRef, outBusyAddr);
+				ctxRef, outBusyAddr);
 		return kDSpInvalidContextErr;
 	}
 	/* PDF p.40: true == NO buffer available. Single fullscreen back-buffer
@@ -3558,19 +3558,19 @@ extern "C" int32_t DSpContext_IsBusyHandler(uint32_t ctxRef,
  *  ids and fail that lookup (see dsp_display_id_policy.h). 4-byte
  *  DisplayIDType (UInt32) out-write. */
 extern "C" int32_t DSpContext_GetDisplayIDHandler(uint32_t ctxRef,
-                                                   uint32_t outIDAddr)
+												   uint32_t outIDAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || outIDAddr == 0) {
 		DSP_LOG("GetDisplayID: invalid ctxRef=%u or outIDAddr=0x%08x",
-		        ctxRef, outIDAddr);
+				ctxRef, outIDAddr);
 		return kDSpInvalidContextErr;
 	}
 	const uint32_t display_id = kDSpGuestDMMainDisplayID;
 	WriteMacInt32(outIDAddr, display_id);
 	DSP_LOG("GetDisplayID: ctx=%u %ux%u -> displayID=0x%08x",
-	        ctxRef, ctx->attr.displayWidth, ctx->attr.displayHeight,
-	        display_id);
+			ctxRef, ctx->attr.displayWidth, ctx->attr.displayHeight,
+			display_id);
 	return kDSpNoErr;
 }
 
@@ -3588,13 +3588,13 @@ extern "C" int32_t DSpContext_GetDisplayIDHandler(uint32_t ctxRef,
  *  units - a CONSTANT 32 x 32 (PPC cache-line); no stored field. Two 4-byte
  *  out-writes. */
 extern "C" int32_t DSpContext_GetDirtyRectGridUnitsHandler(uint32_t ctxRef,
-                                                           uint32_t wAddr,
-                                                           uint32_t hAddr)
+														   uint32_t wAddr,
+														   uint32_t hAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || wAddr == 0 || hAddr == 0) {
 		DSP_LOG("GetDirtyRectGridUnits: invalid ctxRef=%u or wAddr=0x%08x "
-		        "hAddr=0x%08x", ctxRef, wAddr, hAddr);
+				"hAddr=0x%08x", ctxRef, wAddr, hAddr);
 		return kDSpInvalidContextErr;
 	}
 	WriteMacInt32(wAddr, kDSpDirtyRectGridUnit);
@@ -3609,12 +3609,12 @@ extern "C" int32_t DSpContext_GetDirtyRectGridUnitsHandler(uint32_t ctxRef,
  *  *outMaxFPS). Writes the stored max-frame-rate bookkeeping field; 0 means
  *  no restriction. 4-byte UInt32 out-write. */
 extern "C" int32_t DSpContext_GetMaxFrameRateHandler(uint32_t ctxRef,
-                                                     uint32_t outAddr)
+													 uint32_t outAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || outAddr == 0) {
 		DSP_LOG("GetMaxFrameRate: invalid ctxRef=%u or outAddr=0x%08x",
-		        ctxRef, outAddr);
+				ctxRef, outAddr);
 		return kDSpInvalidContextErr;
 	}
 	WriteMacInt32(outAddr, ctx->max_frame_rate);
@@ -3627,7 +3627,7 @@ extern "C" int32_t DSpContext_GetMaxFrameRateHandler(uint32_t ctxRef,
  *  Stores inMaxFPS as store-only bookkeeping (PDF "does not guarantee"; the
  *  actual frame-skip pacing belongs to SwapBuffers). No out-write. */
 extern "C" int32_t DSpContext_SetMaxFrameRateHandler(uint32_t ctxRef,
-                                                     uint32_t inMaxFPS)
+													 uint32_t inMaxFPS)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
@@ -3656,12 +3656,12 @@ static uint32_t DSpComputeMonitorFrequencyFixed(void)
  *  derived from the VBL cadence (device-native 60/120 Hz). 4-byte Fixed
  *  out-write. */
 extern "C" int32_t DSpContext_GetMonitorFrequencyHandler(uint32_t ctxRef,
-                                                         uint32_t outFixedAddr)
+														 uint32_t outFixedAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || outFixedAddr == 0) {
 		DSP_LOG("GetMonitorFrequency: invalid ctxRef=%u or outFixedAddr=0x%08x",
-		        ctxRef, outFixedAddr);
+				ctxRef, outFixedAddr);
 		return kDSpInvalidContextErr;
 	}
 	WriteMacInt32(outFixedAddr, DSpComputeMonitorFrequencyFixed());
@@ -3676,7 +3676,7 @@ static uint32_t DSpRoundUpToGridUnit(uint32_t v)
 {
 	if (v == 0) return 0;
 	return ((v + kDSpDirtyRectGridUnit - 1) / kDSpDirtyRectGridUnit)
-	       * kDSpDirtyRectGridUnit;
+		   * kDSpDirtyRectGridUnit;
 }
 
 /* --- DSpContext_SetDirtyRectGridSizeHandler (sub-op 737) ---
@@ -3686,8 +3686,8 @@ static uint32_t DSpRoundUpToGridUnit(uint32_t v)
  *  rounds each requested dimension UP to a multiple of the 32-px base unit
  *  and stores it (never trust raw guest ints). No out-write. */
 extern "C" int32_t DSpContext_SetDirtyRectGridSizeHandler(uint32_t ctxRef,
-                                                          uint32_t w,
-                                                          uint32_t h)
+														  uint32_t w,
+														  uint32_t h)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
@@ -3706,19 +3706,19 @@ extern "C" int32_t DSpContext_SetDirtyRectGridSizeHandler(uint32_t ctxRef,
  *  cell (w,h); defaults to the 32x32 base unit until a Set lands. Two 4-byte
  *  out-writes. */
 extern "C" int32_t DSpContext_GetDirtyRectGridSizeHandler(uint32_t ctxRef,
-                                                          uint32_t wAddr,
-                                                          uint32_t hAddr)
+														  uint32_t wAddr,
+														  uint32_t hAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || wAddr == 0 || hAddr == 0) {
 		DSP_LOG("GetDirtyRectGridSize: invalid ctxRef=%u or wAddr=0x%08x "
-		        "hAddr=0x%08x", ctxRef, wAddr, hAddr);
+				"hAddr=0x%08x", ctxRef, wAddr, hAddr);
 		return kDSpInvalidContextErr;
 	}
 	WriteMacInt32(wAddr, ctx->dirty_grid_w ? ctx->dirty_grid_w
-	                                        : kDSpDirtyRectGridUnit);
+											: kDSpDirtyRectGridUnit);
 	WriteMacInt32(hAddr, ctx->dirty_grid_h ? ctx->dirty_grid_h
-	                                        : kDSpDirtyRectGridUnit);
+											: kDSpDirtyRectGridUnit);
 	return kDSpNoErr;
 }
 
@@ -3758,44 +3758,44 @@ static uint32_t DSpCreateFrontRectRegion(uint32_t w, uint32_t h)
  * Returns the CGrafPort Mac address (0 on scratch exhaustion); out_pixmap_mac
  * / out_pixmap_handle_mac (optional) receive the PixMap record + handle. */
 extern "C" uint32_t DSpEmitSurfaceCGrafPort(uint32_t baseAddr_mac,
-                                            uint32_t w,
-                                            uint32_t h,
-                                            uint32_t depth,
-                                            uint32_t row_bytes,
-                                            uint32_t seed_pixmap_mac,
-                                            uint32_t *out_pixmap_mac,
-                                            uint32_t *out_pixmap_handle_mac)
+											uint32_t w,
+											uint32_t h,
+											uint32_t depth,
+											uint32_t row_bytes,
+											uint32_t seed_pixmap_mac,
+											uint32_t *out_pixmap_mac,
+											uint32_t *out_pixmap_handle_mac)
 {
 	if (baseAddr_mac == 0 || w == 0 || h == 0 || row_bytes == 0) return 0;
 
 	uint32_t pixmap_addr = DSpReserveGuestScratch(DSP_FRONT_PIXMAP_SIZE);
 	uint32_t pixmap_handle_addr =
-	    DSpReserveGuestScratch(DSP_FRONT_PIXMAP_HANDLE_SIZE);
+		DSpReserveGuestScratch(DSP_FRONT_PIXMAP_HANDLE_SIZE);
 	uint32_t cgrafptr_addr = DSpReserveGuestScratch(DSP_FRONT_CGP_SIZE);
 	uint32_t vis_rgn_handle = DSpCreateFrontRectRegion(w, h);
 	uint32_t clip_rgn_handle = DSpCreateFrontRectRegion(w, h);
 	if (pixmap_addr == 0 || pixmap_handle_addr == 0 ||
-	    cgrafptr_addr == 0 || vis_rgn_handle == 0 ||
-	    clip_rgn_handle == 0) {
+		cgrafptr_addr == 0 || vis_rgn_handle == 0 ||
+		clip_rgn_handle == 0) {
 		DSP_LOG("DSpEmitSurfaceCGrafPort: guest-scratch reserve failed "
-		        "(pixmap=0x%08x handle=0x%08x cgraf=0x%08x "
-		        "vis=0x%08x clip=0x%08x)",
-		        pixmap_addr, pixmap_handle_addr, cgrafptr_addr,
-		        vis_rgn_handle, clip_rgn_handle);
+				"(pixmap=0x%08x handle=0x%08x cgraf=0x%08x "
+				"vis=0x%08x clip=0x%08x)",
+				pixmap_addr, pixmap_handle_addr, cgrafptr_addr,
+				vis_rgn_handle, clip_rgn_handle);
 		return 0;
 	}
 
 	uint16_t pixelType, pixelSize, cmpCount, cmpSize;
 	DSpPixMapFormatForDepth(depth,
-	                         &pixelType, &pixelSize, &cmpCount, &cmpSize);
+							 &pixelType, &pixelSize, &cmpCount, &cmpSize);
 
 	const uint16_t row_bytes_field =
-	    DSpFrontBufferPixMapRowBytesField(row_bytes);
+		DSpFrontBufferPixMapRowBytesField(row_bytes);
 
 	if (seed_pixmap_mac != 0) {
 		Host2Mac_memcpy(pixmap_addr,
-		                Mac2HostAddr(seed_pixmap_mac),
-		                DSP_FRONT_PIXMAP_SIZE);
+						Mac2HostAddr(seed_pixmap_mac),
+						DSP_FRONT_PIXMAP_SIZE);
 	} else {
 		Mac_memset(pixmap_addr, 0, DSP_FRONT_PIXMAP_SIZE);
 	}
@@ -3815,24 +3815,24 @@ extern "C" uint32_t DSpEmitSurfaceCGrafPort(uint32_t baseAddr_mac,
 
 	Mac_memset(cgrafptr_addr, 0, DSP_FRONT_CGP_SIZE);
 	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_PIXMAP,
-	              pixmap_handle_addr);
+				  pixmap_handle_addr);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_VERSION, 0xC000);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 0, 0);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 2, 0);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 4,
-	              (uint16_t)h);
+				  (uint16_t)h);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 6,
-	              (uint16_t)w);
+				  (uint16_t)w);
 	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_VIS_RGN,
-	              vis_rgn_handle);
+				  vis_rgn_handle);
 	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_CLIP_RGN,
-	              clip_rgn_handle);
+				  clip_rgn_handle);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 0,
-	              0xffff);
+				  0xffff);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 2,
-	              0xffff);
+				  0xffff);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 4,
-	              0xffff);
+				  0xffff);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 0, 0);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 2, 0);
 	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 4, 0);
@@ -3854,16 +3854,16 @@ static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
 	if (ctx == nullptr || ctx->back_buffer == NULL) return 0;
 
 	if (DSpShouldReuseBackBufferCGrafPtrForFrontBuffer(
-	        ctx->attr.backBufferBestDepth,
-	        ctx->attr.displayBestDepth)) {
+			ctx->attr.backBufferBestDepth,
+			ctx->attr.displayBestDepth)) {
 		uint32_t back_cgraf = DSpGetBackBufferCGrafPtr(ctx);
 		DSP_VLOG("DSpGetFrontBufferCGrafPtr: REUSING back-buffer CGrafPtr as "
-		         "FRONT (front==back alias) ctx=%u cgrafptr=0x%08x staging=0x%08x "
-		         "back@%u display@%u - front and back buffers are identical; "
-		         "if the guest expects a distinct front buffer this is the "
-		         "regression suspect",
-		         ctx->handle, back_cgraf, ctx->staging_mac_addr,
-		         ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+				 "FRONT (front==back alias) ctx=%u cgrafptr=0x%08x staging=0x%08x "
+				 "back@%u display@%u - front and back buffers are identical; "
+				 "if the guest expects a distinct front buffer this is the "
+				 "regression suspect",
+				 ctx->handle, back_cgraf, ctx->staging_mac_addr,
+				 ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
 		return back_cgraf;
 	}
 
@@ -3872,25 +3872,25 @@ static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
 	}
 
 	const uint32_t front_depth =
-	    DSpFrontBufferDepth(ctx->attr.backBufferBestDepth,
-	                        ctx->attr.displayBestDepth);
+		DSpFrontBufferDepth(ctx->attr.backBufferBestDepth,
+							ctx->attr.displayBestDepth);
 	const uint32_t w = ctx->attr.displayWidth;
 	const uint32_t h = ctx->attr.displayHeight;
 	const uint32_t row_bytes =
-	    DSpFrontBufferRowBytes(w,
-	                           ctx->attr.backBufferBestDepth,
-	                           ctx->attr.displayBestDepth);
+		DSpFrontBufferRowBytes(w,
+							   ctx->attr.backBufferBestDepth,
+							   ctx->attr.displayBestDepth);
 	const uint32_t buffer_size = row_bytes * h;
 
 	uint32_t baseAddr_mac = DSpEnsureFrontBufferStaging(ctx,
-	                                                    row_bytes,
-	                                                    h,
-	                                                    front_depth,
-	                                                    "DSpGetFrontBufferCGrafPtr");
+														row_bytes,
+														h,
+														front_depth,
+														"DSpGetFrontBufferCGrafPtr");
 	if (baseAddr_mac == 0) {
 		DSP_LOG("DSpGetFrontBufferCGrafPtr: staging allocation unusable "
-		        "(size=%u, frontDepth=%u)",
-		        buffer_size, front_depth);
+				"(size=%u, frontDepth=%u)",
+				buffer_size, front_depth);
 		return 0;
 	}
 
@@ -3899,26 +3899,26 @@ static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
 	 * metadata (same policy as before the shared-emitter extraction). */
 	uint32_t seed_pixmap_mac = 0;
 	if (ctx->saved_pixmap_valid != 0 &&
-	    ctx->saved_pixmap_addr != 0 &&
-	    DSpGuestRAMContains(ctx->saved_pixmap_addr,
-	                        DSP_FRONT_PIXMAP_SIZE,
-	                        (uint32_t)RAMBase,
-	                        (uint32_t)RAMSize)) {
+		ctx->saved_pixmap_addr != 0 &&
+		DSpGuestRAMContains(ctx->saved_pixmap_addr,
+							DSP_FRONT_PIXMAP_SIZE,
+							(uint32_t)RAMBase,
+							(uint32_t)RAMSize)) {
 		seed_pixmap_mac = ctx->saved_pixmap_addr;
 	}
 
 	uint32_t pixmap_addr = 0;
 	uint32_t pixmap_handle_addr = 0;
 	uint32_t cgrafptr_addr = DSpEmitSurfaceCGrafPort(baseAddr_mac,
-	                                                 w, h,
-	                                                 front_depth,
-	                                                 row_bytes,
-	                                                 seed_pixmap_mac,
-	                                                 &pixmap_addr,
-	                                                 &pixmap_handle_addr);
+													 w, h,
+													 front_depth,
+													 row_bytes,
+													 seed_pixmap_mac,
+													 &pixmap_addr,
+													 &pixmap_handle_addr);
 	if (cgrafptr_addr == 0) {
 		DSP_LOG("DSpGetFrontBufferCGrafPtr: CGrafPort emission failed "
-		        "(ctx=%u %ux%u@%u)", ctx->handle, w, h, front_depth);
+				"(ctx=%u %ux%u@%u)", ctx->handle, w, h, front_depth);
 		return 0;
 	}
 
@@ -3926,18 +3926,18 @@ static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
 	ctx->front_pixmap_mac_addr = pixmap_addr;
 	ctx->front_pixmap_handle_mac_addr = pixmap_handle_addr;
 	DSP_LOG("DSpGetFrontBufferCGrafPtr: ctx=%u cgrafptr=0x%08x pixmapH=0x%08x "
-	        "pixmap=0x%08x baseAddr=0x%08x "
-	        "rbRaw=0x%04x rb=%u pixelSize=%u "
-	        "hRes=0x%08x vRes=0x%08x pmTable=0x%08x (backBuffer@%u)",
-	        ctx->handle, cgrafptr_addr, pixmap_handle_addr, pixmap_addr,
-	        baseAddr_mac,
-	        ReadMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES),
-	        row_bytes,
-	        ReadMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE),
-	        ReadMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_HRES),
-	        ReadMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_VRES),
-	        ReadMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_PMTABLE),
-	        ctx->attr.backBufferBestDepth);
+			"pixmap=0x%08x baseAddr=0x%08x "
+			"rbRaw=0x%04x rb=%u pixelSize=%u "
+			"hRes=0x%08x vRes=0x%08x pmTable=0x%08x (backBuffer@%u)",
+			ctx->handle, cgrafptr_addr, pixmap_handle_addr, pixmap_addr,
+			baseAddr_mac,
+			ReadMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES),
+			row_bytes,
+			ReadMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE),
+			ReadMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_HRES),
+			ReadMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_VRES),
+			ReadMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_PMTABLE),
+			ctx->attr.backBufferBestDepth);
 	return cgrafptr_addr;
 }
 
@@ -3950,25 +3950,25 @@ static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
  *  front CGrafPtr must describe the display surface, not the back buffer.
  *  4-byte CGrafPtr out-write. */
 extern "C" int32_t DSpContext_GetFrontBufferHandler(uint32_t ctxRef,
-                                                    uint32_t outCGrafPtrAddr)
+													uint32_t outCGrafPtrAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || outCGrafPtrAddr == 0) {
 		DSP_LOG("GetFrontBuffer: invalid ctxRef=%u or outCGrafPtrAddr=0x%08x",
-		        ctxRef, outCGrafPtrAddr);
+				ctxRef, outCGrafPtrAddr);
 		return kDSpInvalidContextErr;
 	}
 	uint32_t cgrafptr = DSpGetFrontBufferCGrafPtr(ctx);
 	if (cgrafptr == 0) {
 		DSP_LOG("GetFrontBuffer: CGrafPort emission failed for ctxRef=%u",
-		        ctxRef);
+				ctxRef);
 		return kDSpInternalErr;
 	}
 	if (ctx->state == (uint32_t)kDSpContextState_Active) {
 		DSpRedirectMainDevicePixMap(ctx);
 		DSP_LOG("GetFrontBuffer: reasserted MainDevice PixMap redirect "
-		        "before returning front buffer (ctx=%u cgrafptr=0x%08x)",
-		        ctx->handle, cgrafptr);
+				"before returning front buffer (ctx=%u cgrafptr=0x%08x)",
+				ctx->handle, cgrafptr);
 	}
 	WriteMacInt32(outCGrafPtrAddr, cgrafptr);
 	return kDSpNoErr;
@@ -3985,7 +3985,7 @@ extern "C" int32_t DSpContext_GetFrontBufferHandler(uint32_t ctxRef,
  *  Incoming display IDs all map to the single backing display. If no context
  *  is active, writes 0 + returns kDSpContextNotFoundErr. */
 extern "C" int32_t DSpGetCurrentContextHandler(uint32_t displayID,
-                                               uint32_t outCtxRefAddr)
+											   uint32_t outCtxRefAddr)
 {
 	if (outCtxRefAddr == 0) {
 		DSP_LOG("GetCurrentContext: NULL outCtxRefAddr - kDSpInvalidAttributesErr");
@@ -4064,12 +4064,12 @@ extern "C" int32_t DSpGetMouseHandler(uint32_t outGlobalPointAddr)
  *  ((int16_t)ReadMacInt16 / WriteMacInt16). Validates ctxRef
  *  and guards a NULL ioPoint. */
 extern "C" int32_t DSpContext_GlobalToLocalHandler(uint32_t ctxRef,
-                                                   uint32_t ioPointAddr)
+												   uint32_t ioPointAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || ioPointAddr == 0) {
 		DSP_LOG("GlobalToLocal: invalid ctxRef=%u or ioPointAddr=0x%08x",
-		        ctxRef, ioPointAddr);
+				ctxRef, ioPointAddr);
 		return kDSpInvalidContextErr;
 	}
 	/* Identity at the single fullscreen origin (0,0). */
@@ -4089,12 +4089,12 @@ extern "C" int32_t DSpContext_GlobalToLocalHandler(uint32_t ctxRef,
  *  the IDENTITY; if GlobalToLocal subtracts a context-rect offset, this
  *  adds it back. Same read-modify-write idiom + ctxRef / NULL-ioPoint guards. */
 extern "C" int32_t DSpContext_LocalToGlobalHandler(uint32_t ctxRef,
-                                                   uint32_t ioPointAddr)
+												   uint32_t ioPointAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || ioPointAddr == 0) {
 		DSP_LOG("LocalToGlobal: invalid ctxRef=%u or ioPointAddr=0x%08x",
-		        ctxRef, ioPointAddr);
+				ctxRef, ioPointAddr);
 		return kDSpInvalidContextErr;
 	}
 	/* Identity inverse at the single fullscreen origin (0,0). */
@@ -4146,7 +4146,7 @@ static uint32_t DSpResolveContextHandleAtPoint(int16_t v, int16_t h)
  *  context -> write 0 + kDSpContextNotFoundErr (error-code-IS-the-answer).
  *  Guards a NULL outCtxRefAddr. */
 extern "C" int32_t DSpFindContextFromPointHandler(int16_t v, int16_t h,
-                                                  uint32_t outCtxRefAddr)
+												  uint32_t outCtxRefAddr)
 {
 	if (outCtxRefAddr == 0) {
 		DSP_LOG("FindContextFromPoint: NULL outCtxRefAddr - kDSpInvalidAttributesErr");
@@ -4201,7 +4201,7 @@ extern "C" int32_t DSpSetDebugModeHandler(uint32_t inDebugMode)
  *  selection path and fall back to DSpFindBestContext.
  */
 extern "C" int32_t DSpCanUserSelectContextHandler(uint32_t attrAddr,
-                                                  uint32_t outCanAddr)
+												  uint32_t outCanAddr)
 {
 	if (attrAddr == 0) {
 		DSP_LOG("CanUserSelectContext: NULL attrAddr - kDSpInvalidAttributesErr");
@@ -4225,13 +4225,13 @@ extern "C" int32_t DSpCanUserSelectContextHandler(uint32_t attrAddr,
 
 	const size_t selectable = DSpUserSelectableModeCount(&req);
 	const uint8_t canSelect =
-	    DSpCanUserSelectContextFromCount(selectable) ? 1 : 0;
+		DSpCanUserSelectContextFromCount(selectable) ? 1 : 0;
 	DSP_LOG("CanUserSelectContext: req=%ux%u back@%ubpp/bmask=0x%08x "
-	        "display@%ubpp/dmask=0x%08x pc=%u selectable=%zu -> %u",
-	        req.displayWidth, req.displayHeight,
-	        req.backBufferBestDepth, req.backBufferDepthMask,
-	        req.displayBestDepth, req.displayDepthMask,
-	        req.pageCount, selectable, canSelect);
+			"display@%ubpp/dmask=0x%08x pc=%u selectable=%zu -> %u",
+			req.displayWidth, req.displayHeight,
+			req.backBufferBestDepth, req.backBufferDepthMask,
+			req.displayBestDepth, req.displayDepthMask,
+			req.pageCount, selectable, canSelect);
 	WriteMacInt8(outCanAddr, canSelect);
 	return kDSpNoErr;
 }
@@ -4254,8 +4254,8 @@ extern "C" int32_t DSpCanUserSelectContextHandler(uint32_t attrAddr,
  *  still surfaces as 0 + kDSpContextNotFoundErr from the matcher (NOT a
  *  displayID mismatch). */
 extern "C" int32_t DSpFindBestContextOnDisplayIDHandler(uint32_t attrAddr,
-                                                        uint32_t outCtxRefAddr,
-                                                        uint32_t inDisplayID)
+														uint32_t outCtxRefAddr,
+														uint32_t inDisplayID)
 {
 	if (outCtxRefAddr == 0) {
 		DSP_LOG("FindBestContextOnDisplayID: NULL outCtxRefAddr - kDSpInvalidAttributesErr");
@@ -4266,7 +4266,7 @@ extern "C" int32_t DSpFindBestContextOnDisplayIDHandler(uint32_t attrAddr,
 		 * loggo captures show real-world Display-Manager IDs (e.g. 256)
 		 * reaching the single-screen mapping instead of being rejected. */
 		DSP_LOG("FindBestContextOnDisplayID: displayID=%u accepted "
-		        "(single-screen iOS - mapped to backing screen)", inDisplayID);
+				"(single-screen iOS - mapped to backing screen)", inDisplayID);
 	}
 	/* Single screen -> delegate to the existing FindBest 3-tier matcher. An
 	 * unmatchable attribute request becomes 0 + kDSpContextNotFoundErr there. */
@@ -4288,9 +4288,9 @@ extern "C" int32_t DSpFindBestContextOnDisplayIDHandler(uint32_t attrAddr,
  *  for -Werror). Guards a NULL outCtxRefAddr. The auto-pick IS the correct
  *  single-display answer, NOT a convenience stub. */
 extern "C" int32_t DSpUserSelectContextHandler(uint32_t attrAddr,
-                                               uint32_t inDialogDisplayLocation,
-                                               uint32_t inEventProc,
-                                               uint32_t outCtxRefAddr)
+											   uint32_t inDialogDisplayLocation,
+											   uint32_t inEventProc,
+											   uint32_t outCtxRefAddr)
 {
 	(void)inDialogDisplayLocation;   /* no dialog on a single display */
 	(void)inEventProc;               /* no cleanup proc invoked (no dialog) */
@@ -4326,7 +4326,7 @@ extern "C" int32_t DSpSetBlankingColorHandler(uint32_t inRGBColorAddr)
 	uint16_t g16 = (uint16_t)ReadMacInt16(inRGBColorAddr + 2);
 	uint16_t b16 = (uint16_t)ReadMacInt16(inRGBColorAddr + 4);
 	uint8_t rgba[4] = { (uint8_t)(r16 >> 8), (uint8_t)(g16 >> 8),
-	                    (uint8_t)(b16 >> 8), 0xFF };
+						(uint8_t)(b16 >> 8), 0xFF };
 	dmc_set_blanking_color(rgba);   /* no state transition */
 	return kDSpNoErr;
 }
@@ -4370,8 +4370,8 @@ extern "C" int32_t DSpSetBlankingColorHandler(uint32_t inRGBColorAddr)
  *  top/left are clamped to 0.
  */
 static void DSpInvalBackBufferRect_Accumulate(DSpContextPrivate *ctx,
-                                               int16_t top, int16_t left,
-                                               int16_t bottom, int16_t right)
+											   int16_t top, int16_t left,
+											   int16_t bottom, int16_t right)
 {
 	if (ctx == nullptr) return;
 
@@ -4390,8 +4390,8 @@ static void DSpInvalBackBufferRect_Accumulate(DSpContextPrivate *ctx,
 	/* Empty / inverted rect? (bottom <= top or right <= left) - no-op. */
 	if (clamped_right <= clamped_left || clamped_bottom <= clamped_top) {
 		DSP_LOG("InvalBackBufferRect: empty/inverted rect ignored "
-		        "(t=%d l=%d b=%d r=%d)",
-		        clamped_top, clamped_left, clamped_bottom, clamped_right);
+				"(t=%d l=%d b=%d r=%d)",
+				clamped_top, clamped_left, clamped_bottom, clamped_right);
 		return;
 	}
 
@@ -4414,12 +4414,12 @@ static void DSpInvalBackBufferRect_Accumulate(DSpContextPrivate *ctx,
 }
 
 extern "C" int32_t DSpContext_InvalBackBufferRectHandler(uint32_t ctxRef,
-                                                          uint32_t rectAddr)
+														  uint32_t rectAddr)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr || rectAddr == 0) {
 		DSP_LOG("InvalBackBufferRect: invalid ctxRef=%u or rectAddr=0",
-		        ctxRef);
+				ctxRef);
 		return kDSpInvalidContextErr;
 	}
 	/* Mac Rect in guest RAM: big-endian 4 x int16. ReadMacInt16 returns
@@ -4431,10 +4431,10 @@ extern "C" int32_t DSpContext_InvalBackBufferRectHandler(uint32_t ctxRef,
 
 	DSpInvalBackBufferRect_Accumulate(ctx, top, left, bottom, right);
 	DSP_VLOG("InvalBackBufferRect: ctx=%u rect=(%d,%d)-(%d,%d) "
-	         "union=(%d,%d)-(%d,%d) cold_start=%d",
-	         ctxRef, top, left, bottom, right,
-	         ctx->dirty_top, ctx->dirty_left, ctx->dirty_bottom, ctx->dirty_right,
-	         ctx->dirty_cold_start);
+			 "union=(%d,%d)-(%d,%d) cold_start=%d",
+			 ctxRef, top, left, bottom, right,
+			 ctx->dirty_top, ctx->dirty_left, ctx->dirty_bottom, ctx->dirty_right,
+			 ctx->dirty_cold_start);
 	return kDSpNoErr;
 }
 
@@ -4468,7 +4468,7 @@ extern "C" int32_t DSpContext_InvalBackBufferRectHandler(uint32_t ctxRef,
  *  vbl_source_get_cadence_usec.
  */
 static void DSpWriteAttributesCore(const DSpContextAttributes *attr,
-                                    uint32_t outAttrAddr)
+									uint32_t outAttrAddr)
 {
 	/* DSp 1.7 PDF p.65 on-wire byte layout.  All UInt32 / Fixed / OptionBits /
 	 * CTabHandle fields are 4 bytes each.  filler[3] + gameMustConfirmSwitch
@@ -4502,7 +4502,7 @@ static void DSpWriteAttributesCore(const DSpContextAttributes *attr,
 }
 
 extern "C" int32_t DSpContext_GetAttributesHandler(uint32_t ctxRef,
-                                                    uint32_t outAttrAddr)
+													uint32_t outAttrAddr)
 {
 	/* Validate outAttrAddr before any read of ctx->attr so
 	 * a bad pointer + valid handle combination is reported as the more
@@ -4510,7 +4510,7 @@ extern "C" int32_t DSpContext_GetAttributesHandler(uint32_t ctxRef,
 	 * kDSpInvalidContextErr. */
 	if (outAttrAddr == 0) {
 		DSP_LOG("GetAttributes: NULL outAttrAddr (ctxRef=%u) -> "
-		        "kDSpInvalidAttributesErr", ctxRef);
+				"kDSpInvalidAttributesErr", ctxRef);
 		return kDSpInvalidAttributesErr;
 	}
 	/* DSpGetContext returns nullptr on invalid handle;
@@ -4518,7 +4518,7 @@ extern "C" int32_t DSpContext_GetAttributesHandler(uint32_t ctxRef,
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
 		DSP_LOG("GetAttributes: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
+				ctxRef);
 		return kDSpInvalidContextErr;
 	}
 
@@ -4527,12 +4527,12 @@ extern "C" int32_t DSpContext_GetAttributesHandler(uint32_t ctxRef,
 	DSpWriteAttributesCore(&public_attr, outAttrAddr);
 
 	DSP_LOG("GetAttributes: ctx=%u internal=%ux%u@%ubpp display@%u "
-	        "public@%u pc=%u state=%u -> returned",
-	        ctxRef,
-	        ctx->attr.displayWidth, ctx->attr.displayHeight,
-	        ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth,
-	        public_attr.backBufferBestDepth, ctx->attr.pageCount,
-	        ctx->state);
+			"public@%u pc=%u state=%u -> returned",
+			ctxRef,
+			ctx->attr.displayWidth, ctx->attr.displayHeight,
+			ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth,
+			public_attr.backBufferBestDepth, ctx->attr.pageCount,
+			ctx->state);
 	return kDSpNoErr;
 }
 
@@ -4572,7 +4572,7 @@ extern "C" int32_t DSpContext_GetAttributesHandler(uint32_t ctxRef,
  *    transition is continuous (no snap-back to the old fade's source).
  */
 extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
-                                                  uint32_t colorAddr)
+												  uint32_t colorAddr)
 {
 	/*
 	 *  Debug session `dsp-sims-post-reserve-black-screen` fix (2026-04-19):
@@ -4599,14 +4599,14 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
 	 */
 	if (ctxRef == 0) {
 		DSP_LOG("FadeGammaIn: ctxRef=0 (ambient-display no-op per PDF p.35); "
-		        "colorAddr=0x%08x accepted",
-		        colorAddr);
+				"colorAddr=0x%08x accepted",
+				colorAddr);
 		return kDSpNoErr;
 	}
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
 		DSP_LOG("FadeGammaIn: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
+				ctxRef);
 		return kDSpInvalidContextErr;
 	}
 
@@ -4626,8 +4626,8 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
 
 	uint64_t cadence_usec = vbl_source_get_cadence_usec();
 	uint32_t vbls_1sec = (cadence_usec > 0)
-	                     ? (uint32_t)((1000000ull + cadence_usec / 2) / cadence_usec)
-	                     : 60u;
+						 ? (uint32_t)((1000000ull + cadence_usec / 2) / cadence_usec)
+						 : 60u;
 	if (vbls_1sec > DSP_MAX_FADE_VBLS) vbls_1sec = DSP_MAX_FADE_VBLS;
 
 	/* End state = the driver's current gamma table ("original intensity"),
@@ -4642,7 +4642,7 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
 	 * changed from a guest arg to the derived 1-second count. */
 	DSpInitFadeStateCore(ctx, full_lut, (uint16_t)vbls_1sec);
 	DSP_LOG("FadeGammaIn: ctx=%u 1-second fade -> %u VBLs (cadence %llu usec) started",
-	        ctxRef, vbls_1sec, (unsigned long long)cadence_usec);
+			ctxRef, vbls_1sec, (unsigned long long)cadence_usec);
 	return kDSpNoErr;
 }
 
@@ -4661,7 +4661,7 @@ extern "C" int32_t DSpContext_FadeGammaInHandler(uint32_t ctxRef,
  *  Fade behavior + active-fade replacement: identical to FadeGammaIn.
  */
 extern "C" int32_t DSpContext_FadeGammaOutHandler(uint32_t ctxRef,
-                                                   uint32_t colorAddr)
+												   uint32_t colorAddr)
 {
 	/*
 	 *  Debug session `dsp-sims-post-reserve-black-screen` fix (2026-04-19):
@@ -4673,14 +4673,14 @@ extern "C" int32_t DSpContext_FadeGammaOutHandler(uint32_t ctxRef,
 	 */
 	if (ctxRef == 0) {
 		DSP_LOG("FadeGammaOut: ctxRef=0 (ambient-display no-op per PDF p.34); "
-		        "colorAddr=0x%08x accepted",
-		        colorAddr);
+				"colorAddr=0x%08x accepted",
+				colorAddr);
 		return kDSpNoErr;
 	}
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
 		DSP_LOG("FadeGammaOut: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
+				ctxRef);
 		return kDSpInvalidContextErr;
 	}
 
@@ -4699,8 +4699,8 @@ extern "C" int32_t DSpContext_FadeGammaOutHandler(uint32_t ctxRef,
 
 	uint64_t cadence_usec = vbl_source_get_cadence_usec();
 	uint32_t vbls_1sec = (cadence_usec > 0)
-	                     ? (uint32_t)((1000000ull + cadence_usec / 2) / cadence_usec)
-	                     : 60u;
+						 ? (uint32_t)((1000000ull + cadence_usec / 2) / cadence_usec)
+						 : 60u;
 	if (vbls_1sec > DSP_MAX_FADE_VBLS) vbls_1sec = DSP_MAX_FADE_VBLS;
 
 	/* Build the end_lut at 0% intensity = the zero-intensity tint. The
@@ -4717,9 +4717,9 @@ extern "C" int32_t DSpContext_FadeGammaOutHandler(uint32_t ctxRef,
 	 * count, and the end_lut now honors the zero-intensity tint). */
 	DSpInitFadeStateCore(ctx, end_lut, (uint16_t)vbls_1sec);
 	DSP_LOG("FadeGammaOut: ctx=%u tint=(%u,%u,%u) 1-second fade -> %u VBLs "
-	        "(cadence %llu usec) started",
-	        ctxRef, color_r, color_g, color_b,
-	        vbls_1sec, (unsigned long long)cadence_usec);
+			"(cadence %llu usec) started",
+			ctxRef, color_r, color_g, color_b,
+			vbls_1sec, (unsigned long long)cadence_usec);
 	return kDSpNoErr;
 }
 
@@ -4766,8 +4766,8 @@ extern "C" int32_t DSpContext_FadeGammaOutHandler(uint32_t ctxRef,
  *    - dmc_record_gamma_change_with_lut for the immediate DMC push.
  */
 extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
-                                                int32_t  inPercent,
-                                                uint32_t colorAddr)
+												int32_t  inPercent,
+												uint32_t colorAddr)
 {
 	/*
 	 *  PDF p.32 - inContext == NULL applies the fade simultaneously to all
@@ -4791,27 +4791,27 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 		DSpCopyDriverGammaLUT(full_lut);
 		uint8_t target_lut[768];
 		DSpComputeFadeGammaTargetLUT(color_r, color_g, color_b,
-		                              inPercent, full_lut, target_lut);
+									  inPercent, full_lut, target_lut);
 		/* fade_active rides the publish: any percent other than exactly
 		 * 100 leaves the display mid-fade (LUT must march linearly, and
 		 * driver SetGamma arriving now must defer, not pop). 100 restores
 		 * the driver table and ends the fade. */
 		int32_t rv = dmc_record_gamma_change_with_lut_fade(
-		    target_lut, (inPercent != 100) ? 1 : 0);
+			target_lut, (inPercent != 100) ? 1 : 0);
 		if (rv != kDMCNoErr) {
 			DSP_LOG("FadeGamma: ctxRef=0 ambient inPercent=%d "
-			        "dmc_record_gamma_change_with_lut_fade returned %d", inPercent, rv);
+					"dmc_record_gamma_change_with_lut_fade returned %d", inPercent, rv);
 			return kDSpInternalErr;
 		}
 		DSP_LOG("FadeGamma: ctxRef=0 ambient inPercent=%d tint=(%u,%u,%u) "
-		        "-> applied to compositor gamma (all-displays restore)",
-		        inPercent, color_r, color_g, color_b);
+				"-> applied to compositor gamma (all-displays restore)",
+				inPercent, color_r, color_g, color_b);
 		return kDSpNoErr;
 	}
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (ctx == nullptr) {
 		DSP_LOG("FadeGamma: invalid ctxRef=%u -> kDSpInvalidContextErr",
-		        ctxRef);
+				ctxRef);
 		return kDSpInvalidContextErr;
 	}
 
@@ -4830,7 +4830,7 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 	DSpCopyDriverGammaLUT(full_lut);
 	uint8_t target_lut[768];
 	DSpComputeFadeGammaTargetLUT(color_r, color_g, color_b,
-	                              inPercent, full_lut, target_lut);
+								  inPercent, full_lut, target_lut);
 
 	/* Parametric FadeGamma applies the target immediately, in a
 	 * single push - the app loops it over time. There is no internal
@@ -4840,11 +4840,11 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 	 * now must defer, not pop); 100 restores the driver table and ends
 	 * the fade. */
 	int32_t rv = dmc_record_gamma_change_with_lut_fade(
-	    target_lut, (inPercent != 100) ? 1 : 0);
+		target_lut, (inPercent != 100) ? 1 : 0);
 	if (rv != kDMCNoErr) {
 		DSP_LOG("FadeGamma: dmc_record_gamma_change_with_lut_fade returned %d "
-		        "for ctx=%u",
-		        rv, ctxRef);
+				"for ctx=%u",
+				rv, ctxRef);
 		return kDSpInternalErr;
 	}
 	memcpy(ctx->gamma_lut_persisted, target_lut, 768);
@@ -4852,9 +4852,9 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 	 * authoritative. */
 	ctx->fade_state.active = 0;
 	DSP_LOG("FadeGamma: ctx=%u inPercent=%d tint=(%u,%u,%u) "
-	        "-> target applied immediately",
-	        ctxRef, inPercent,
-	        color_r, color_g, color_b);
+			"-> target applied immediately",
+			ctxRef, inPercent,
+			color_r, color_g, color_b);
 	return kDSpNoErr;
 }
 
@@ -4891,7 +4891,7 @@ struct DSpPixelStagingPoolBlock {
 	uint32_t mac_addr;
 	uint32_t size;        /* logical size of the most recent exposure */
 	uint32_t alloc_size;  /* TRUE Mac_sysalloc size; NEVER grown - the
-	                       * ground truth a write must never exceed. */
+						   * ground truth a write must never exceed. */
 	bool     in_use;
 	bool     ever_exposed_to_guest;
 	bool     allocated_from_mac_system_heap;
@@ -4928,7 +4928,7 @@ static void DSpPrewarmPixelStagingSpare(void)
 	for (uint32_t i = 0; i < kDSpPixelStagingPoolCapacity; i++) {
 		DSpPixelStagingPoolBlock *block = &s_dsp_pixel_staging_pool[i];
 		if (block->mac_addr != 0 && !block->in_use &&
-		    block->alloc_size >= kDSpPixelStagingAllocFloor)
+			block->alloc_size >= kDSpPixelStagingAllocFloor)
 			return;                    /* an idle spare already exists */
 	}
 	DSpPixelStagingPoolBlock *slot = DSpFindEmptyPixelStagingBlock();
@@ -4944,7 +4944,7 @@ static void DSpPrewarmPixelStagingSpare(void)
 	slot->ever_exposed_to_guest = false;
 	slot->allocated_from_mac_system_heap = true;
 	DSP_LOG("DSpReserveGuestPixelStaging: prewarmed spare 0x%08x alloc=%u",
-	        mac_addr, (unsigned)kDSpPixelStagingAllocFloor);
+			mac_addr, (unsigned)kDSpPixelStagingAllocFloor);
 }
 
 extern "C" uint32_t DSpReserveGuestPixelStaging(uint32_t size)
@@ -4954,13 +4954,13 @@ extern "C" uint32_t DSpReserveGuestPixelStaging(uint32_t size)
 	for (uint32_t i = 0; i < kDSpPixelStagingPoolCapacity; i++) {
 		DSpPixelStagingPoolBlock *block = &s_dsp_pixel_staging_pool[i];
 		if (block->mac_addr != 0 &&
-		    !block->in_use &&
-		    DSpPixelStagingCanReuseQuarantinedAllocation(block->alloc_size, size)) {
+			!block->in_use &&
+			DSpPixelStagingCanReuseQuarantinedAllocation(block->alloc_size, size)) {
 			block->in_use = true;
 			block->size = size;
 			DSP_LOG("DSpReserveGuestPixelStaging: reused quarantined "
-			        "staging 0x%08x alloc=%u need=%u",
-			        block->mac_addr, block->alloc_size, size);
+					"staging 0x%08x alloc=%u need=%u",
+					block->mac_addr, block->alloc_size, size);
 			return block->mac_addr;
 		}
 	}
@@ -4985,18 +4985,18 @@ extern "C" uint32_t DSpReserveGuestPixelStaging(uint32_t size)
 		slot->ever_exposed_to_guest = false;
 		slot->allocated_from_mac_system_heap = true;
 		DSP_LOG("DSpReserveGuestPixelStaging: fresh Mac_sysalloc 0x%08x alloc=%u need=%u",
-		        mac_addr, alloc_request, size);
+				mac_addr, alloc_request, size);
 		DSpPrewarmPixelStagingSpare();
 	} else {
 		DSP_LOG("DSpReserveGuestPixelStaging: pool full; 0x%08x "
-		        "size=%u will be quarantined untracked on release",
-		        mac_addr, size);
+				"size=%u will be quarantined untracked on release",
+				mac_addr, size);
 	}
 	return mac_addr;
 }
 
 extern "C" uint32_t DSpGuardStagingWrite(uint32_t mac_addr, uint32_t size,
-                                         const char *site)
+										 const char *site)
 {
 	if (mac_addr == 0 || size == 0) return size;
 
@@ -5006,17 +5006,17 @@ extern "C" uint32_t DSpGuardStagingWrite(uint32_t mac_addr, uint32_t size,
 		 * We cannot bound it - flag it so the field log shows an untracked
 		 * staging write (itself suspicious). */
 		DSP_LOG("DSpGuardStagingWrite: UNTRACKED staging target site=%s "
-		        "addr=0x%08x size=%u (no pool entry - cannot bound)",
-		        site ? site : "?", mac_addr, size);
+				"addr=0x%08x size=%u (no pool entry - cannot bound)",
+				site ? site : "?", mac_addr, size);
 		return size;
 	}
 
 	if (size > block->alloc_size) {
 		DSP_LOG("DSpGuardStagingWrite: *** STAGING OVERRUN PREVENTED *** "
-		        "site=%s addr=0x%08x requested=%u alloc=%u overrun=%u "
-		        "-> CLAMPED to alloc",
-		        site ? site : "?", mac_addr, size, block->alloc_size,
-		        size - block->alloc_size);
+				"site=%s addr=0x%08x requested=%u alloc=%u overrun=%u "
+				"-> CLAMPED to alloc",
+				site ? site : "?", mac_addr, size, block->alloc_size,
+				size - block->alloc_size);
 		return block->alloc_size;
 	}
 	return size;
@@ -5037,8 +5037,8 @@ extern "C" void DSpQuarantineGuestPixelStaging(
 		block->allocated_from_mac_system_heap =
 			allocated_from_mac_system_heap;
 		DSP_LOG("DSpQuarantineGuestPixelStaging: retained exposed "
-		        "staging 0x%08x size=%u",
-		        mac_addr, block->size);
+				"staging 0x%08x size=%u",
+				mac_addr, block->size);
 		return;
 	}
 
@@ -5052,20 +5052,20 @@ extern "C" void DSpQuarantineGuestPixelStaging(
 		slot->allocated_from_mac_system_heap =
 			allocated_from_mac_system_heap;
 		DSP_LOG("DSpQuarantineGuestPixelStaging: retained untracked "
-		        "exposed staging 0x%08x size=%u",
-		        mac_addr, size);
+				"exposed staging 0x%08x size=%u",
+				mac_addr, size);
 		return;
 	}
 
 	if (DSpPixelStagingShouldReturnExposedAllocationToMacHeap(
-	        allocated_from_mac_system_heap)) {
+			allocated_from_mac_system_heap)) {
 		Mac_sysfree(mac_addr);
 		return;
 	}
 
 	DSP_LOG("DSpQuarantineGuestPixelStaging: pool full; leaving exposed "
-	        "staging 0x%08x size=%u allocated",
-	        mac_addr, size);
+			"staging 0x%08x size=%u allocated",
+			mac_addr, size);
 }
 
 extern "C" void DSpDiscardUnusedGuestPixelStaging(
@@ -5079,8 +5079,8 @@ extern "C" void DSpDiscardUnusedGuestPixelStaging(
 		if (block->ever_exposed_to_guest) {
 			block->in_use = false;
 			DSP_LOG("DSpDiscardUnusedGuestPixelStaging: retained "
-			        "previously exposed staging 0x%08x size=%u",
-			        mac_addr, block->size);
+					"previously exposed staging 0x%08x size=%u",
+					mac_addr, block->size);
 			return;
 		}
 		if (block->allocated_from_mac_system_heap) {
@@ -5099,8 +5099,8 @@ extern "C" void DSpReleaseBackBufferStaging(DSpContextPrivate *ctx)
 {
 	if (ctx == nullptr || ctx->staging_mac_addr == 0) return;
 	DSpQuarantineGuestPixelStaging(ctx->staging_mac_addr,
-	                               ctx->staging_size,
-	                               ctx->staging_owned_sysheap);
+								   ctx->staging_size,
+								   ctx->staging_owned_sysheap);
 	ctx->staging_mac_addr = 0;
 	ctx->staging_size = 0;
 	ctx->staging_owned_sysheap = false;

@@ -191,9 +191,9 @@ static void InitStateDefaults(RaveDrawPrivate *ctx, uint32 flags)
 		ctx->ati_state[i].i = atiIntDefaults[i];
 	}
 	RAVE_LOG("InitStateDefaults: ATI UT probe tag %u default=%u (0x%08x)",
-	         kRaveATIUnrealTournamentProbeTag,
-	         ctx->ati_state[kRaveATIUnrealTournamentProbeIndex].i,
-	         ctx->ati_state[kRaveATIUnrealTournamentProbeIndex].i);
+			 kRaveATIUnrealTournamentProbeTag,
+			 ctx->ati_state[kRaveATIUnrealTournamentProbeIndex].i,
+			 ctx->ati_state[kRaveATIUnrealTournamentProbeIndex].i);
 }
 
 /*
@@ -227,11 +227,11 @@ static const int struct_field_to_subopcode[35] = {
  *  Returns TQAError (0 = success)
  */
 int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
-                           uint32 rectAddr, uint32 clipAddr, uint32 flags)
+						   uint32 rectAddr, uint32 clipAddr, uint32 flags)
 {
 	if (rave_logging_enabled) {
 		printf("RAVE DrawPrivateNew ENTER: ctx=0x%08x dev=0x%08x rect=0x%08x clip=0x%08x flags=0x%x\n",
-		       drawContextAddr, deviceAddr, rectAddr, clipAddr, flags);
+			   drawContextAddr, deviceAddr, rectAddr, clipAddr, flags);
 
 		// Dump context table state on entry
 		printf("RAVE DrawPrivateNew: context_table state on entry (count=%d):\n", rave_context_count);
@@ -250,7 +250,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 
 	if (rave_logging_enabled)
 		printf("RAVE DrawPrivateNew: rect raw=(%d,%d,%d,%d) size=%dx%d\n",
-		       left, top, right, bottom, right - left, bottom - top);
+			   left, top, right, bottom, right - left, bottom - top);
 
 	// Allocate RaveDrawPrivate on native heap
 	RaveDrawPrivate *ctx = new RaveDrawPrivate();
@@ -335,7 +335,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	RaveInitMetalResources(ctx);
 
 	RAVE_LOG("DrawPrivateNew: handle=%d size=%dx%d contexts=%d",
-	         handle, ctx->width, ctx->height, rave_context_count);
+			 handle, ctx->width, ctx->height, rave_context_count);
 
 	// Diagnostic: dump TQADrawContext struct contents for crash debugging
 	if (rave_logging_enabled) {
@@ -347,7 +347,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 			if (tvect != 0) {
 				uint32 code_ptr = ReadMacInt32(tvect);
 				printf("  [+%d] method[%d] = TVECT 0x%08x -> code 0x%08x\n",
-				       8 + i * 4, i, tvect, code_ptr);
+					   8 + i * 4, i, tvect, code_ptr);
 			} else {
 				printf("  [+%d] method[%d] = NULL\n", 8 + i * 4, i);
 			}
@@ -539,15 +539,15 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 static void WriteATIRaveExtFuncsTable(uint32 ptr)
 {
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotClearDrawBuffer * 4,
-	              rave_method_tvects[kRaveATIClearDrawBuffer]);
+				  rave_method_tvects[kRaveATIClearDrawBuffer]);
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotClearZBuffer * 4,
-	              rave_method_tvects[kRaveATIClearZBuffer]);
+				  rave_method_tvects[kRaveATIClearZBuffer]);
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotTextureUpdate * 4,
-	              rave_method_tvects[kRaveATITextureUpdate]);
+				  rave_method_tvects[kRaveATITextureUpdate]);
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotBindCodeBook * 4,
-	              rave_method_tvects[kRaveATIBindCodeBook]);
+				  rave_method_tvects[kRaveATIBindCodeBook]);
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotGetDrawBuffer * 4,
-	              rave_method_tvects[kRaveATIGetDrawBuffer]);
+				  rave_method_tvects[kRaveATIGetDrawBuffer]);
 }
 
 static uint32 EnsureATIRaveExtFuncsTable(RaveDrawPrivate *ctx)
@@ -567,7 +567,7 @@ static uint32 EnsureATIRaveExtFuncsTable(RaveDrawPrivate *ctx)
 	// a callable stub so an out-of-range index can never jump through heap
 	// garbage (the Myth II RAVE-entry crash).
 	for (uint32 slot = kRaveATIRaveExtFuncsKnownSlotCount;
-	     slot < kRaveATIRaveExtFuncsEntryCount; slot++) {
+		 slot < kRaveATIRaveExtFuncsEntryCount; slot++) {
 		WriteMacInt32(ptr + slot * 4, rave_method_tvects[kRaveATIStub]);
 	}
 	return ptr;
@@ -597,7 +597,7 @@ int32 NativeSetPtr(uint32 drawContextAddr, uint32 tag, uint32 ptr)
 			WriteATIRaveExtFuncsTable(ptr);
 			ctx->ati_state[kRaveATIRaveExtFuncsIndex].i = ptr;
 			RAVE_LOG("SetPtr: kATIRaveExtFuncs -> delivered %u TVECT addresses to 0x%08x",
-			         kRaveATIRaveExtFuncsKnownSlotCount, ptr);
+					 kRaveATIRaveExtFuncsKnownSlotCount, ptr);
 			return kQANoErr;
 		}
 		if (ati_idx < RAVE_ATI_TAG_COUNT) {
