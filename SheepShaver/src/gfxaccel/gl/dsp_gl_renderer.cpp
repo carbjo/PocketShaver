@@ -154,35 +154,19 @@ static void dsp_front_staging_geometry(const DSpContextPrivate *ctx,
 										uint32_t *out_visible_x = nullptr,
 										uint32_t *out_visible_y = nullptr)
 {
-	uint32_t storage_w = visible_w;
-	uint32_t storage_h = visible_h;
-	if (ctx && ctx->saved_pixmap_valid) {
-		const int32_t saved_w =
-			(int32_t)ctx->saved_pixmap_bounds[3] -
-			(int32_t)ctx->saved_pixmap_bounds[1];
-		const int32_t saved_h =
-			(int32_t)ctx->saved_pixmap_bounds[2] -
-			(int32_t)ctx->saved_pixmap_bounds[0];
-		/* Diablo builds its cutscene destination while MainDevice still has
-		 * the desktop geometry, then obtains DSp's smaller front buffer. Keep
-		 * the old stride and vertical extent as invisible padding so those
-		 * cached writes neither wrap rows nor overrun the allocation. */
-		if (saved_w > 0 && (uint32_t)saved_w > storage_w)
-			storage_w = (uint32_t)saved_w;
-		if (saved_h > 0 && (uint32_t)saved_h > storage_h)
-			storage_h = (uint32_t)saved_h;
-	}
+	(void)ctx;
+	/* GetFrontBuffer vends a surface in the active DSp mode.  The saved
+	 * MainDevice PixMap describes the desktop being restored on release; it
+	 * must not change the staging allocation's pitch or visible origin.  In
+	 * particular, Diablo's 640x480 movies run from an 800x600 desktop. */
 	if (out_row)
-		*out_row = DSpDisplayModePitch(storage_w, depth);
+		*out_row = DSpDisplayModePitch(visible_w, depth);
 	if (out_height)
-		*out_height = storage_h;
-	/* A client which cached the old display rectangle draws the new surface
-	 * centred in this padded storage. Present that visible rectangle, not the
-	 * stale desktop pixels at the allocation's top-left. */
+		*out_height = visible_h;
 	if (out_visible_x)
-		*out_visible_x = (storage_w - visible_w) / 2u;
+		*out_visible_x = 0;
 	if (out_visible_y)
-		*out_visible_y = (storage_h - visible_h) / 2u;
+		*out_visible_y = 0;
 }
 
 bool DSpDoAllocateBackBuffer(uint32_t w, uint32_t h, uint32_t bpp,
@@ -884,5 +868,7 @@ bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 		return false;
 	}
+	rec->width = w;
+	rec->height = h;
 	return true;
 }

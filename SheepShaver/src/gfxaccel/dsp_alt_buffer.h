@@ -49,6 +49,7 @@ struct DSpAltBufferRecord {
 	uint32_t              width;
 	uint32_t              height;
 	uint32_t              depth;               /* bits/pixel (8/16/32) - the OWNING context's back-buffer depth at New time; drawable surface + backing both use it */
+	uint32_t              seed_pixmap_mac;      /* owning screen PixMap metadata; required by indexed alt CGrafPorts (pmTable) */
 	uint32_t              options;             /* DSpAltBufferOption bits */
 	bool                  underlay_capable;    /* NULL inAttributes => true (PDF p.49) */
 	/* Dirty-rect union - same fields/semantics as DSpContextPrivate's

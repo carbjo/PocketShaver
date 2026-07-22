@@ -92,6 +92,7 @@ static void DSpClearAltBufferRecord(DSpAltBufferRecord *rec)
 	rec->width             = 0;
 	rec->height            = 0;
 	rec->depth             = 0;
+	rec->seed_pixmap_mac   = 0;
 	rec->options           = 0;
 	rec->underlay_capable  = false;
 	rec->dirty_left        = 0;
@@ -240,6 +241,18 @@ extern "C" int32_t DSpAltBuffer_NewHandler(uint32_t ctxRef,
 	uint32_t depth = ctx->attr.backBufferBestDepth;
 	if (depth != 8 && depth != 16 && depth != 32) depth = 32;
 	rec->depth = depth;
+	/* Alternate buffers are PixMaps for the owning display, not anonymous
+	 * bitmaps. Preserve the screen PixMap's ColorTable handle and the other
+	 * QuickDraw metadata that is independent of base/stride/bounds. This is
+	 * essential at 8 bpp: a zero pmTable makes indexed QuickDraw dereference
+	 * invalid palette state after Diablo's opening movies. */
+	rec->seed_pixmap_mac =
+		(ctx->saved_pixmap_valid && ctx->saved_pixmap_addr != 0 &&
+		 DSpGuestRAMContains(ctx->saved_pixmap_addr,
+		                       DSpFrontBufferPixMapRecordSize(),
+		                       (uint32_t)RAMBase,
+		                       (uint32_t)RAMSize))
+			? ctx->saved_pixmap_addr : 0;
 
 	if (!DSpAllocAltBufferBacking(rec, w, h)) {
 		DSpFreeAltBuffer(handle);
@@ -395,7 +408,7 @@ extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
 	                                            w, h,
 	                                            rec->depth,
 	                                            alignedRB,
-	                                            0 /* zero-init PixMap */,
+	                                            rec->seed_pixmap_mac,
 	                                            nullptr, nullptr);
 	if (cgp_addr == 0) {
 		DSP_LOG("AltBuffer_GetCGrafPtr: CGrafPort emission failed "

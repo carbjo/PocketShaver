@@ -175,9 +175,21 @@ void MetalValidation_InstallErrorHandler(void * /*cmdBufPtr*/)
 
 extern "C" void vbl_source_sdl_tick(double target_ts);
 extern "C" int RaveGLRenderPassActive(void);
+extern "C" int GLFFPRenderPassActive(void);
+extern "C" int GlideGLRenderPassActive(void);
 
-/* Set when Present is skipped because a RAVE (or nested) pass owns the
- * shared GL context. Cleared when a Present completes or is cancelled. */
+/* All guest 3D backends borrow the compositor's compatibility context.  Keep
+ * the ownership test in one place so Present and the deferred flush cannot
+ * drift apart as backends are added or removed. */
+static bool guest_3d_render_pass_active(void)
+{
+	return RaveGLRenderPassActive() || GLFFPRenderPassActive() ||
+	       GlideGLRenderPassActive();
+}
+
+/* Set when Present is skipped because a guest 3D pass (or nested Present)
+ * owns the shared GL context. Cleared when a Present completes or is
+ * cancelled. */
 static bool s_present_deferred = false;
 
 /* Metal (iOS) reads the "Linear" gamma pref through the ObjC bridge. The
@@ -842,7 +854,13 @@ static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incomin
         return 0;
     }
 
-    if (incoming->active_owner == (uint32_t)kDMCOwnerDSp) {
+    if (incoming->active_owner == (uint32_t)kDMCOwnerDSp ||
+        incoming->active_owner == (uint32_t)kDMCOwnerGlide ||
+        incoming->active_owner == (uint32_t)kDMCOwnerRAVE ||
+        incoming->active_owner == (uint32_t)kDMCOwnerGL) {
+        /* DSp and 3D owners (Glide/RAVE/GL) publish guest mode size; resize
+         * the host drawable so a 640 movie open then 800 menu open both fill
+         * the window 1:1 instead of letterboxing into a stale desktop mode. */
         int new_w = (int)incoming->width;
         int new_h = (int)incoming->height;
         int cur_w = compositor_pixel_width;
@@ -859,8 +877,8 @@ static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incomin
                 bgra_size);
             if (rc != 0) {
                 COMPOSITOR_ERR("DMC on_mode_enter: MetalCompositorResize failed (rc=%d) for "
-                               "DSp owner %dx%d - drawable will appear small in window",
-                               rc, new_w, new_h);
+                               "owner=%u %dx%d - drawable will appear small in window",
+                               rc, (unsigned)incoming->active_owner, new_w, new_h);
             }
         }
     } else if (incoming->active_owner == (uint32_t)kDMCOwnerQuickDraw &&
@@ -921,9 +939,16 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 	compositor_bits_per_pixel = depth_to_bpp_bits(depth);
 
 	ensure_identity_gamma();
+	/* Identity-ish CLUT: index 0 black (NOT white — zeroed 8bpp staging
+	 * expands to solid white if palette[0] is white, which is what D2's
+	 * post-movie underlay looked like). */
 	std::memset(s_palette, 0, sizeof(s_palette));
-	s_palette[0 * 4 + 0] = 255; s_palette[0 * 4 + 1] = 255; s_palette[0 * 4 + 2] = 255; s_palette[0 * 4 + 3] = 255;
-	/* index 1 black already zero */
+	for (int i = 0; i < 256; i++) {
+		s_palette[i * 4 + 0] = (uint8_t)i;
+		s_palette[i * 4 + 1] = (uint8_t)i;
+		s_palette[i * 4 + 2] = (uint8_t)i;
+		s_palette[i * 4 + 3] = 255;
+	}
 
 	if (buffer != nullptr) {
 		s_classic_host_stash = buffer;
@@ -960,22 +985,25 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 
 void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
 {
-	/* Match metal_compositor.mm: palette buffers only exist for indexed
-	 * depths. DSpContext_SetStateHandler always replays a 256-entry CLUT on
-	 * Active; for 16/32 bpp contexts that CLUT is zero-filled (or a 1/2-entry
-	 * B/W seed). Applying it while the compositor is in VIDEO_DEPTH_32BIT
-	 * (DSp OnModeEnter normalises the FB to BGRA) permanently wipes the
-	 * classic 8-bit desktop palette → black screen after Rescan Monitors /
-	 * title-mode switches. Metal no-ops those updates; GL must too. */
-	if (compositor_bits_per_pixel > 8 ||
-	    compositor_depth > VIDEO_DEPTH_8BIT) {
-		COMPOSITOR_LOG("MetalCompositorUpdatePalette: ignored %d colors "
-		               "(depth=%d bpp=%d is not indexed)",
+	/* ALWAYS store the CLUT for CPU expand of DSp 8bpp underlays.
+	 * Compositor FB is often VIDEO_DEPTH_32BIT (BGRA normalized) even when
+	 * the DSp context is 8bpp — ignoring the CLUT then leaves palette[0]
+	 * wrong and zeroed staging draws as solid white/black. We still skip
+	 * only the GPU indexed-texture path when bpp>8; storage is always kept. */
+	if (!pal || num_colors <= 0) return;
+	if (num_colors > 256) num_colors = 256;
+	/* Reject all-zero CLUTs from non-indexed DSp contexts so we don't wipe
+	 * a good 8bpp palette with a 16/32-bit context's empty seed. */
+	bool any_nonzero = false;
+	for (int i = 0; i < num_colors * 3; i++) {
+		if (pal[i]) { any_nonzero = true; break; }
+	}
+	if (!any_nonzero && num_colors >= 16) {
+		COMPOSITOR_LOG("MetalCompositorUpdatePalette: skip all-zero %d colors "
+		               "(depth=%d bpp=%d)",
 		               num_colors, compositor_depth, compositor_bits_per_pixel);
 		return;
 	}
-	if (!pal || num_colors <= 0) return;
-	if (num_colors > 256) num_colors = 256;
 	for (int i = 0; i < num_colors; i++) {
 		s_palette[i * 4 + 0] = pal[i * 3 + 0];
 		s_palette[i * 4 + 1] = pal[i * 3 + 1];
@@ -984,6 +1012,9 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
 	}
 	s_palette_dirty = true;
 	s_classic_fb_texture_valid = false;
+	COMPOSITOR_LOG("MetalCompositorUpdatePalette: stored %d colors "
+	               "(compositor depth=%d bpp=%d)",
+	               num_colors, compositor_depth, compositor_bits_per_pixel);
 }
 
 extern "C" bool GLCompositorCopyCurrentPaletteRGB(uint8_t out_rgb[768])
@@ -1016,18 +1047,17 @@ void MetalCompositorPresent(void)
 		return;
 	}
 
-	/* Guest notice callbacks can run VideoVBL before NativeRenderEnd returns.
-	 * Do not let presentation rebind framebuffer 0 or overwrite compatibility
-	 * state while RAVE is still building the current overlay frame. Metal can
-	 * encode independently; GL shares one context with RAVE, so defer and
-	 * flush from NativeRenderEnd via MetalCompositorFlushDeferredPresent. */
-	if (RaveGLRenderPassActive()) {
+	/* Guest notice callbacks can run VideoVBL before a 3D frame ends.  Do not
+	 * let presentation rebind framebuffer 0 or overwrite compatibility state
+	 * while RAVE, AGL, or Glide is building its overlay.  Their frame-end path
+	 * presents after releasing ownership of the shared compatibility context. */
+	if (guest_3d_render_pass_active()) {
 		s_present_deferred = true;
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 		static uint64_t s_deferred_present_count = 0;
 		++s_deferred_present_count;
 		if (compositor_trace_sample(s_deferred_present_count)) {
-			QD3D_RENDER_LOG("CompositorPresent deferred: RAVE render pass active count=%llu",
+			QD3D_RENDER_LOG("CompositorPresent deferred: 3D render pass active count=%llu",
 			                (unsigned long long)s_deferred_present_count);
 		}
 #endif
@@ -1131,7 +1161,7 @@ void MetalCompositorPresent(void)
 		ensure_fb_texture();
 		glEnable(GL_TEXTURE_2D);
 		glBindTexture(GL_TEXTURE_2D, s_fb_tex);
-		if (classic_framebuffer_needs_upload()) {
+		if (classic_dirty) {
 			static std::vector<uint8_t> rgba;
 			expand_framebuffer_rgba(rgba);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, compositor_pixel_width, compositor_pixel_height,
@@ -1422,13 +1452,14 @@ void MetalCompositorSubmitFrame_ClearCachedFramebuffer(void)
 }
 
 /* GL-only: flush a Present that was deferred while the shared context was
- * owned by a RAVE render pass (or a nested present). Metal has no equivalent
- * because it encodes without borrowing the 3D engine's command stream. */
+ * owned by a guest 3D render pass (or a nested present). Metal has no
+ * equivalent because it encodes without borrowing the 3D engine's command
+ * stream. */
 extern "C" void MetalCompositorFlushDeferredPresent(void)
 {
 	if (!s_init || !s_present_deferred)
 		return;
-	if (s_present_in_progress || RaveGLRenderPassActive())
+	if (s_present_in_progress || guest_3d_render_pass_active())
 		return;
 	MetalCompositorPresent();
 }

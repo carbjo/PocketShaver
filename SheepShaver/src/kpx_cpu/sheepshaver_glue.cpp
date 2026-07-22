@@ -938,7 +938,7 @@ sigsegv_return_t sigsegv_handler(sigsegv_info_t *sip)
 			return SIGSEGV_RETURN_SKIP_INSTRUCTION;
 
 		// Ignore all other faults, if requested
-		if (PrefsFindBool("ignoresegv")) 
+		if (PrefsFindBool("ignoresegv"))
 			return SIGSEGV_RETURN_SKIP_INSTRUCTION;
 	}
 #else
@@ -1513,11 +1513,14 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		gpr(3) = (uint32)-1;
 		break;
 #else
+		/* Pass r3–r10: grTexDownloadMipMapLevel needs evenOdd/data in r9/r10.
+		 * r1=SP for 9th+ stack args (e.g. grLfbWriteRegion src_data). */
 		uint32 saved_lr = lr();
 		uint32 saved_ctr = ctr();
 		uint32 saved_sp = gpr(1);
 		uint32 saved_r2 = gpr(2);
-		gpr(3) = GlideDispatch(gpr(3), gpr(4), gpr(5), gpr(6), gpr(7), gpr(8));
+		gpr(3) = GlideDispatch(gpr(3), gpr(4), gpr(5), gpr(6), gpr(7), gpr(8),
+		                       gpr(9), gpr(10), gpr(1));
 		if (lr() != saved_lr) lr() = saved_lr;
 		if (ctr() != saved_ctr) ctr() = saved_ctr;
 		if (gpr(1) != saved_sp) gpr(1) = saved_sp;

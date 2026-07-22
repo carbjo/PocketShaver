@@ -54,10 +54,14 @@ static const GlideInstallSymbol glide_symbols[] = {
 	{ "\021grSstScreenHeight",        kGlide_grSstScreenHeight,        "grSstScreenHeight" },
 	{ "\013grSstStatus",              kGlide_grSstStatus,              "grSstStatus" },
 	{ "\017grSstVRetraceOn",          kGlide_grSstVRetraceOn,          "grSstVRetraceOn" },
+	/* Alternate export spellings seen on some Mac 3Dfx builds.
+	 * grSstVRetrace is 13 chars — was wrongly \016 (14) so FindLibSymbol never hit. */
+	{ "\015grSstVRetrace",            kGlide_grSstVRetraceOn,          "grSstVRetrace" },
 	{ "\016grSstVideoLine",           kGlide_grSstVideoLine,           "grSstVideoLine" },
 	{ "\015grBufferClear",            kGlide_grBufferClear,            "grBufferClear" },
 	{ "\014grBufferSwap",             kGlide_grBufferSwap,             "grBufferSwap" },
 	{ "\022grBufferNumPending",       kGlide_grBufferNumPending,       "grBufferNumPending" },
+	{ "\020grBuffersPending",         kGlide_grBufferNumPending,       "grBuffersPending" },
 	{ "\016grRenderBuffer",           kGlide_grRenderBuffer,           "grRenderBuffer" },
 	{ "\013grDrawPoint",              kGlide_grDrawPoint,              "grDrawPoint" },
 	{ "\012grDrawLine",               kGlide_grDrawLine,               "grDrawLine" },
@@ -105,7 +109,11 @@ static const GlideInstallSymbol glide_symbols[] = {
 	{ "\013grLfbUnlock",              kGlide_grLfbUnlock,              "grLfbUnlock" },
 	{ "\017grLfbReadRegion",          kGlide_grLfbReadRegion,          "grLfbReadRegion" },
 	{ "\020grLfbWriteRegion",         kGlide_grLfbWriteRegion,         "grLfbWriteRegion" },
-	{ "\023guGammaCorrectionRGB",     kGlide_guGammaCorrectionRGB,     "guGammaCorrectionRGB" },
+	/* "guGammaCorrectionRGB" is 20 chars; was wrongly \023 (19) — MISMATCH
+	 * meant FindLibSymbol never resolved it and stock PEF could spin on HW. */
+	{ "\024guGammaCorrectionRGB",     kGlide_guGammaCorrectionRGB,     "guGammaCorrectionRGB" },
+	/* Extra wait/status aliases — grSstBusy is 9 chars; was wrongly \014 (12). */
+	{ "\011grSstBusy",                kGlide_grSstIsBusy,              "grSstBusy" },
 };
 static const int num_glide_symbols =
 	(int)(sizeof(glide_symbols) / sizeof(glide_symbols[0]));
@@ -248,6 +256,16 @@ void GlideInstallHooks(void)
 			if (!length_match) length_mismatches++;
 
 			uint32_t tvect = FindLibSymbol(glide_lib, psym);
+			/* If table length byte was wrong, rebuild a correct Pascal name from
+			 * the C name and retry — wrong length = silent miss + stock HW spin. */
+			char fixed_psym[64];
+			if (tvect == 0 && name_len > 0 && name_len < 63) {
+				fixed_psym[0] = (char)name_len;
+				memcpy(fixed_psym + 1, glide_symbols[i].name, (size_t)name_len);
+				fixed_psym[1 + name_len] = 0;
+				if (!length_match || memcmp(psym + 1, glide_symbols[i].name, (size_t)name_len) != 0)
+					tvect = FindLibSymbol(glide_lib, fixed_psym);
+			}
 			QD3D_INIT_LOG("[diagnostic] %-32s pascal_len=%d strlen(ascii)=%d "
 			              "strlen(name)=%d match=%s FindLibSymbol=0x%08x",
 			              glide_symbols[i].name, pascal_len, ascii_len, name_len,
@@ -332,7 +350,17 @@ void GlideResetForReboot(void)
 	              glide_hooks_installed, glide_hooks_attempts);
 	glide_hooks_installed = false;
 	glide_hooks_in_progress = false;
+	/* Keep attempts at 0 so grGlideInit re-patch is allowed. */
 	glide_hooks_attempts = 0;
+}
+
+/* Allow grGlideInit to force a re-patch without full reboot bookkeeping. */
+void GlideForceReinstallHooks(void)
+{
+	glide_hooks_installed = false;
+	glide_hooks_in_progress = false;
+	glide_hooks_attempts = 0;
+	GlideInstallHooks();
 }
 
 /* ---- Stubs: no synthetic CFM ---- */

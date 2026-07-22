@@ -7,6 +7,7 @@
 #include "display_mode_controller.h"
 #include "gl_ext.h"
 #include "gfxaccel_backend.h"
+#include "gl_metal_draw_state.h"
 #include <SDL_opengl.h>
 #include "gl_ext.h"
 #include <vector>
@@ -18,39 +19,73 @@
 static GLuint s_ov[2]={0,0}; static GLuint s_cur=0; static uint32_t s_ow=0,s_oh=0,s_wr=0;
 static int32_t s_dl=0,s_dt=0,s_dw=0,s_dh=0;
 static GLuint s_fbo=0,s_depth=0;
+static bool s_frame_active=false;
+static bool s_frame_committed=false;
+
+/* The AGL renderer and the SDL compositor share one compatibility-profile
+ * context.  A VBL-driven compositor pass must not rebind framebuffer 0 or
+ * replace the matrices/viewport while the guest is between its first draw
+ * and aglSwapBuffers. */
+extern "C" int GLFFPRenderPassActive(void)
+{
+  return s_frame_active ? 1 : 0;
+}
+
+static void release_overlay_textures(bool clear_drawable)
+{
+  auto&e=gfx_gl_ext();
+  if(s_frame_active&&e.fbo)e.BindFramebuffer(GL_FRAMEBUFFER,0);
+  for(int i=0;i<2;i++){
+    if(s_ov[i]){
+      gfxaccel_resources_release_overlay_texture(kGfxEngineGL,(void*)(uintptr_t)s_ov[i]);
+      s_ov[i]=0;
+    }
+  }
+  s_cur=0;s_ow=s_oh=0;s_frame_active=false;s_frame_committed=false;
+  if(clear_drawable){s_dl=s_dt=s_dw=s_dh=0;}
+}
 
 extern "C" void gl_overlay_bind(int32_t left,int32_t top,int32_t width,int32_t height){
   s_dl=left;s_dt=top;s_dw=width;s_dh=height;
   if(width<=0||height<=0)return;
   uint32_t w=(uint32_t)width,h=(uint32_t)height;
   if((s_ov[0]||s_ov[1])&&(s_ow!=w||s_oh!=h)){
-    for(int i=0;i<2;i++){ if(s_ov[i]){ gfxaccel_resources_release_overlay_texture(kGfxEngineGL,(void*)(uintptr_t)s_ov[i]); s_ov[i]=0; } }
+    release_overlay_textures(false);
   }
   if(!s_ov[0]){
     void*a=gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL,0,w,h,MTLPixelFormatBGRA8Unorm);
     void*b=gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL,1,w,h,MTLPixelFormatBGRA8Unorm);
-    s_ov[0]=a?(GLuint)(uintptr_t)a:0; s_ov[1]=b?(GLuint)(uintptr_t)b:0; s_ow=w;s_oh=h;
+    if(!a||!b){
+      if(a)gfxaccel_resources_release_overlay_texture(kGfxEngineGL,a);
+      if(b)gfxaccel_resources_release_overlay_texture(kGfxEngineGL,b);
+      return;
+    }
+    s_ov[0]=(GLuint)(uintptr_t)a;s_ov[1]=(GLuint)(uintptr_t)b;s_ow=w;s_oh=h;
   }
   s_cur=s_ov[s_wr];
+  s_frame_committed=false;
 }
 extern "C" void gl_overlay_unbind(void){
-  for(int i=0;i<2;i++){ if(s_ov[i]){ gfxaccel_resources_release_overlay_texture(kGfxEngineGL,(void*)(uintptr_t)s_ov[i]); s_ov[i]=0; } }
-  s_cur=0;s_ow=s_oh=0;
+  release_overlay_textures(true);
 }
 extern "C" void gl_overlay_present(void){
-  if(!s_cur)return;
+  if(!s_cur||!s_frame_committed)return;
+  /* Ownership transitions can discard the compositor mailbox.  Establish GL
+   * ownership before publishing, matching the RAVE/Metal presentation order. */
+  if(dmc_set_active_owner(kDMCOwnerGL)!=kDMCNoErr)return;
+  if(!s_cur||!s_frame_committed)return;
   CompositeLayer L={}; L.source=(void*)(uintptr_t)s_cur; L.src_size_w=s_ow;L.src_size_h=s_oh;
   L.dst_origin_x=(float)s_dl;L.dst_origin_y=(float)s_dt;
   L.dst_size_w=(float)(s_dw>0?s_dw:(int)s_ow); L.dst_size_h=(float)(s_dh>0?s_dh:(int)s_oh);
   L.slot=kLayerSlotOverlay; L.blend=kBlendPremultiplied; L.alpha=1.f;
   FrameDescriptor d={}; d.layers=&L; d.layer_count=1;
   const DMCModeSnapshot*snap=dmc_current_snapshot(); d.generation=snap?snap->generation:0;
-  MetalCompositorSubmitFrame(&d); s_wr^=1; s_cur=s_ov[s_wr];
-  MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineGL);
+  const int32_t rc=MetalCompositorSubmitFrame(&d);
+  if(rc==kGfxAccelNoErr){s_wr^=1;s_cur=s_ov[s_wr];s_frame_committed=false;}
 }
 extern "C" int gl_has_active_overlay(void){return s_dw>0&&s_dh>0;}
 extern "C" int gl_get_overlay_dims(uint32_t*w,uint32_t*h){if(w)*w=s_ow?s_ow:(uint32_t)s_dw;if(h)*h=s_oh?s_oh:(uint32_t)s_dh;return gl_has_active_overlay();}
-extern "C" void gl_release_overlay_for_detach(void){gl_overlay_unbind();}
+extern "C" void gl_release_overlay_for_detach(void){release_overlay_textures(false);}
 static void bind_ov_fbo(){
   auto&e=gfx_gl_ext(); if(!e.fbo||!s_cur)return;
   if(!s_fbo){e.GenFramebuffers(1,&s_fbo);e.GenRenderbuffers(1,&s_depth);}
@@ -74,14 +109,32 @@ static void load_ctx_matrices(GLContext*ctx){
 }
 void GLMetalBeginFrame(GLContext*ctx){
   if(!ctx||!SharedMetalDevice())return;
-  bind_ov_fbo();
+  const DMCModeSnapshot*snap=dmc_current_snapshot();
+  if(!snap||snap->active_owner!=(uint32_t)kDMCOwnerGL){
+    if(dmc_set_active_owner(kDMCOwnerGL)!=kDMCNoErr)return;
+  }
+  /* The DMC transition releases outgoing engine textures.  A bound AGL
+   * drawable remains valid across that transition, so reacquire its pair
+   * before attaching the GL framebuffer. */
+  if(!s_cur&&s_dw>0&&s_dh>0)gl_overlay_bind(s_dl,s_dt,s_dw,s_dh);
+  if(!s_cur)return;
+  if(!s_frame_active){bind_ov_fbo();s_frame_active=true;}
   load_ctx_matrices(ctx);
   if(ctx->viewport[2]>0&&ctx->viewport[3]>0)
     glViewport(ctx->viewport[0],ctx->viewport[1],ctx->viewport[2],ctx->viewport[3]);
 }
 void GLMetalClear(GLContext*ctx,uint32_t mask){
   if(!ctx||!SharedMetalDevice())return;
-  glClearColor(ctx->clear_color[0],ctx->clear_color[1],ctx->clear_color[2],ctx->clear_color[3]);
+  GLMetalBeginFrame(ctx);
+  if(!s_frame_active)return;
+  const bool is_offscreen =
+    GLContextGetOffscreenDrawable(ctx,nullptr,nullptr,nullptr,nullptr)!=0;
+  const float alpha=GLMetalOverlayClearAlpha(is_offscreen,ctx->clear_color[3]);
+  glClearColor(
+    GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[0],alpha),
+    GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[1],alpha),
+    GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[2],alpha),
+    alpha);
   glClearDepth(ctx->clear_depth);
   GLbitfield m=0;
   if(mask&0x4000)m|=GL_COLOR_BUFFER_BIT;
@@ -92,13 +145,21 @@ void GLMetalClear(GLContext*ctx,uint32_t mask){
 }
 void GLMetalEndFrame(GLContext*ctx){
   (void)ctx;
-  if(!SharedMetalDevice())return;
+  if(!SharedMetalDevice()||!s_frame_active)return;
+  glFlush();
   auto&e=gfx_gl_ext();
   if(e.fbo)e.BindFramebuffer(GL_FRAMEBUFFER,0);
+  s_frame_active=false;
+  s_frame_committed=true;
 }
 /* Expand GL_QUADS / fans / strips to triangle lists for host GL. */
-static void emit_gl_vertex(const GLVertex &v){
-  glColor4fv(v.color);
+static void emit_gl_vertex(const GLVertex &v,bool force_opaque){
+  if(force_opaque){
+    const GLfloat color[4]={v.color[0],v.color[1],v.color[2],1.f};
+    glColor4fv(color);
+  }else{
+    glColor4fv(v.color);
+  }
   glNormal3fv(v.normal);
   auto &ext = gfx_gl_ext();
   if (ext.multitex && ext.MultiTexCoord4f) {
@@ -114,10 +175,11 @@ static void emit_gl_vertex(const GLVertex &v){
   }
   glVertex4fv(v.position);
 }
-static void flush_im_triangles(const std::vector<GLVertex> &tris){
+static void flush_im_triangles(const std::vector<GLVertex> &tris,
+                               bool force_opaque){
   if(tris.empty())return;
   glBegin(GL_TRIANGLES);
-  for(const auto &v: tris) emit_gl_vertex(v);
+  for(const auto &v: tris) emit_gl_vertex(v,force_opaque);
   glEnd();
 }
 static void apply_host_ffp_state(GLContext *ctx)
@@ -246,7 +308,13 @@ static void apply_host_ffp_state(GLContext *ctx)
 
 void GLMetalFlushImmediateMode(GLContext*ctx){
   if(!ctx||!SharedMetalDevice()||ctx->im_vertices.empty())return;
+  GLMetalBeginFrame(ctx);
+  if(!s_frame_active)return;
   apply_host_ffp_state(ctx);
+  const bool is_offscreen =
+    GLContextGetOffscreenDrawable(ctx,nullptr,nullptr,nullptr,nullptr)!=0;
+  const bool force_opaque=
+    GLMetalForceOpaqueOverlayOutput(is_offscreen,ctx->blend);
 
   const auto &in=ctx->im_vertices;
   const uint32_t mode=ctx->im_mode;
@@ -256,26 +324,26 @@ void GLMetalFlushImmediateMode(GLContext*ctx){
       out.push_back(in[i]); out.push_back(in[i+1]); out.push_back(in[i+2]);
       out.push_back(in[i]); out.push_back(in[i+2]); out.push_back(in[i+3]);
     }
-    flush_im_triangles(out);
+    flush_im_triangles(out,force_opaque);
   } else if(mode==0x0006 /*GL_TRIANGLE_FAN*/ && in.size()>=3){
     for(size_t i=1;i+1<in.size();i++){
       out.push_back(in[0]); out.push_back(in[i]); out.push_back(in[i+1]);
     }
-    flush_im_triangles(out);
+    flush_im_triangles(out,force_opaque);
   } else if(mode==0x0005 /*GL_TRIANGLE_STRIP*/ && in.size()>=3){
     for(size_t i=0;i+2<in.size();i++){
       if(i&1){ out.push_back(in[i+1]); out.push_back(in[i]); out.push_back(in[i+2]); }
       else { out.push_back(in[i]); out.push_back(in[i+1]); out.push_back(in[i+2]); }
     }
-    flush_im_triangles(out);
+    flush_im_triangles(out,force_opaque);
   } else if(mode==0x0001 /*GL_LINES*/ || mode==0x0003 /*GL_LINE_STRIP*/ || mode==0x0002 /*GL_LINE_LOOP*/){
     GLenum m = (mode==0x0001)?GL_LINES:(mode==0x0002)?GL_LINE_LOOP:GL_LINE_STRIP;
-    glBegin(m); for(const auto&v:in) emit_gl_vertex(v); glEnd();
+    glBegin(m); for(const auto&v:in) emit_gl_vertex(v,force_opaque); glEnd();
   } else if(mode==0x0000 /*GL_POINTS*/){
-    glBegin(GL_POINTS); for(const auto&v:in) emit_gl_vertex(v); glEnd();
+    glBegin(GL_POINTS); for(const auto&v:in) emit_gl_vertex(v,force_opaque); glEnd();
   } else {
     /* GL_TRIANGLES and default */
-    flush_im_triangles(in);
+    flush_im_triangles(in,force_opaque);
   }
   ctx->im_vertices.clear();
 }
@@ -327,12 +395,16 @@ void GLMetalUploadSubTexture3D(GLContext*ctx,GLTextureObject*texObj,int level,in
 void GLMetalDestroyTexture(GLTextureObject*texObj){ if(!texObj||!texObj->metal_texture||!SharedMetalDevice())return; GLuint id=(GLuint)(uintptr_t)texObj->metal_texture; glDeleteTextures(1,&id); texObj->metal_texture=nullptr; }
 void GLMetalDrawPixels(GLContext*ctx,int width,int height,const uint8_t*pixels,int data_len){
   (void)data_len; if(!ctx||!pixels||!SharedMetalDevice())return;
+  GLMetalBeginFrame(ctx);
+  if(!s_frame_active)return;
   apply_host_ffp_state(ctx);
   glRasterPos2i(0,0);
   glDrawPixels(width,height,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
 }
 void GLMetalBitmap(GLContext*ctx,int width,int height,const uint8_t*bits,int data_len){
   (void)data_len; if(!ctx||!bits||!SharedMetalDevice())return;
+  GLMetalBeginFrame(ctx);
+  if(!s_frame_active)return;
   apply_host_ffp_state(ctx);
   glRasterPos2i(0,0);
   glBitmap(width,height,0,0,0,0,bits);
