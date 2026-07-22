@@ -894,10 +894,9 @@ void VideoInstallAccel(void)
 		DSpInstallHooks();
 	}
 
-	/* 3dfx Glide 2.x / 3.x (Diablo II is Glide 3.0). Same late-bind retry
-	 * pattern as DSp/GL: CFM fragment may load after first accRun ticks. */
+	/* 3dfx Glide 2.x / 3.x - disabled as it crashes on guest exit */
 	if (PrefsFindBool("glideaccel")) {
-		GlideInstallHooks();
+		/*GlideInstallHooks();*/
 	}
 
 	#if defined(ENABLE_NATIVE_CINEPAK_PATCH) \

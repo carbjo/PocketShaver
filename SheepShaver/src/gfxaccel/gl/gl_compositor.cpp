@@ -854,13 +854,12 @@ static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incomin
         return 0;
     }
 
-    if (incoming->active_owner == (uint32_t)kDMCOwnerDSp ||
+    if (incoming->active_owner == (uint32_t)kDMCOwnerDSp
+		/* Do not enable these - this will break Descent 2/Mechwarrior 2 */
+		/*||
         incoming->active_owner == (uint32_t)kDMCOwnerGlide ||
         incoming->active_owner == (uint32_t)kDMCOwnerRAVE ||
-        incoming->active_owner == (uint32_t)kDMCOwnerGL) {
-        /* DSp and 3D owners (Glide/RAVE/GL) publish guest mode size; resize
-         * the host drawable so a 640 movie open then 800 menu open both fill
-         * the window 1:1 instead of letterboxing into a stale desktop mode. */
+        incoming->active_owner == (uint32_t)kDMCOwnerGL*/) {
         int new_w = (int)incoming->width;
         int new_h = (int)incoming->height;
         int cur_w = compositor_pixel_width;

@@ -57,13 +57,13 @@ struct DSpGLFrontTexture {
  * out of the shared Metal/OpenGL DSpContextPrivate ABI. */
 static std::map<uint32_t, DSpGLFrontTexture> s_front_textures;
 
-static bool dsp_valid_depth(uint32_t depth)
+static bool DSpGLIsValidDepth(uint32_t depth)
 {
 	return depth == 1 || depth == 2 || depth == 4 || depth == 8 ||
 		   depth == 16 || depth == 32;
 }
 
-static uint32_t pack_rgba(uint8_t r, uint8_t g, uint8_t b)
+static uint32_t DSpGLPackRGBA(uint8_t r, uint8_t g, uint8_t b)
 {
 	/* The desktop OpenGL backends are little-endian; this integer layout is
 	 * byte-for-byte RGBA when uploaded with GL_UNSIGNED_BYTE. */
@@ -71,7 +71,7 @@ static uint32_t pack_rgba(uint8_t r, uint8_t g, uint8_t b)
 		   ((uint32_t)b << 16) | 0xff000000u;
 }
 
-static const uint32_t *rgb555_gamma_lut(const uint8_t *gamma)
+static const uint32_t *DSpGLRGB555GammaLut(const uint8_t *gamma)
 {
 	static std::array<uint32_t, 32768> lut;
 	static std::array<uint8_t, 768> gamma_snapshot;
@@ -93,7 +93,7 @@ static const uint32_t *rgb555_gamma_lut(const uint8_t *gamma)
 			const uint8_t r = (uint8_t)(((value >> 10) & 31u) * 255u / 31u);
 			const uint8_t g = (uint8_t)(((value >> 5) & 31u) * 255u / 31u);
 			const uint8_t b = (uint8_t)((value & 31u) * 255u / 31u);
-			lut[value] = pack_rgba(gamma_snapshot[r],
+			lut[value] = DSpGLPackRGBA(gamma_snapshot[r],
 								   gamma_snapshot[256u + g],
 								   gamma_snapshot[512u + b]);
 		}
@@ -102,11 +102,11 @@ static const uint32_t *rgb555_gamma_lut(const uint8_t *gamma)
 	return lut.data();
 }
 
-static bool dsp_back_buffer_layout(uint32_t w, uint32_t h, uint32_t depth,
+static bool DSpGLIsValidBackBufferLayout(uint32_t w, uint32_t h, uint32_t depth,
 								   uint32_t *out_row_bytes,
 								   uint32_t *out_size)
 {
-	if (!w || !h || !dsp_valid_depth(depth)) return false;
+	if (!w || !h || !DSpGLIsValidDepth(depth)) return false;
 	const uint32_t row_bytes = DSpBackBufferAlignedRowBytes(w, depth);
 	const uint64_t size = (uint64_t)row_bytes * (uint64_t)h;
 	if (!row_bytes || size > std::numeric_limits<uint32_t>::max()) return false;
@@ -115,7 +115,7 @@ static bool dsp_back_buffer_layout(uint32_t w, uint32_t h, uint32_t depth,
 	return true;
 }
 
-static void dsp_pixmap_format(uint32_t depth, uint16_t *pixel_type,
+static void DSpGLGetPixmapFormat(uint32_t depth, uint16_t *pixel_type,
 							  uint16_t *pixel_size, uint16_t *component_count,
 							  uint16_t *component_size)
 {
@@ -126,7 +126,7 @@ static void dsp_pixmap_format(uint32_t depth, uint16_t *pixel_type,
 					  depth == 16 ? 5 : 8;
 }
 
-static uint32_t dsp_create_rect_region(uint32_t w, uint32_t h)
+static uint32_t DSpGLAllocRectRegion(uint32_t w, uint32_t h)
 {
 	/* Region handles embedded in a guest-visible CGrafPort must outlive any
 	 * Toolbox drawing that retains the port.  Mac_sysalloc storage is movable
@@ -145,14 +145,10 @@ static uint32_t dsp_create_rect_region(uint32_t w, uint32_t h)
 	return handle;
 }
 
-static void dsp_front_staging_geometry(const DSpContextPrivate *ctx,
-										uint32_t visible_w,
-										uint32_t visible_h,
-										uint32_t depth,
-										uint32_t *out_row,
-										uint32_t *out_height,
-										uint32_t *out_visible_x = nullptr,
-										uint32_t *out_visible_y = nullptr)
+static void DSpGLGetFrontStagingGeometry(const DSpContextPrivate *ctx,
+	uint32_t visible_w, uint32_t visible_h, uint32_t depth,
+	uint32_t *out_row, uint32_t *out_height, uint32_t *out_visible_x = nullptr,
+	uint32_t *out_visible_y = nullptr)
 {
 	(void)ctx;
 	/* GetFrontBuffer vends a surface in the active DSp mode.  The saved
@@ -174,7 +170,7 @@ bool DSpDoAllocateBackBuffer(uint32_t w, uint32_t h, uint32_t bpp,
 {
 	uint32_t row = 0;
 	uint32_t size = 0;
-	if (!dsp_back_buffer_layout(w, h, bpp, &row, &size)) {
+	if (!DSpGLIsValidBackBufferLayout(w, h, bpp, &row, &size)) {
 		QD3D_RESOURCE_LOG("DSpAllocateBackBuffer(GL): invalid layout %ux%u@%u",
 						  w, h, bpp);
 		return false;
@@ -265,7 +261,7 @@ static void expand_surface_to_rgba(const DSpContextPrivate *ctx,
 	out.resize((size_t)w * h * 4);
 	const uint32_t minimum_row =
 		(uint32_t)(((uint64_t)(src_x + w) * bpp + 7u) / 8u);
-	if (!ctx || !src || !w || !h || !dsp_valid_depth(bpp) ||
+	if (!ctx || !src || !w || !h || !DSpGLIsValidDepth(bpp) ||
 		!row || row < minimum_row) {
 		std::memset(out.data(), 0, out.size());
 		return;
@@ -274,7 +270,7 @@ static void expand_surface_to_rgba(const DSpContextPrivate *ctx,
 	auto apply_gamma = [gamma](uint8_t c, uint32_t plane) -> uint8_t {
 		return gamma ? gamma[plane * 256u + c] : c;
 	};
-	const uint32_t *rgb555_lut = bpp == 16 ? rgb555_gamma_lut(gamma) : nullptr;
+	const uint32_t *rgb555_lut = bpp == 16 ? DSpGLRGB555GammaLut(gamma) : nullptr;
 	std::array<uint32_t, 256> palette_rgba = {};
 	if (bpp <= 8) {
 		uint8_t display_palette[768];
@@ -286,7 +282,7 @@ static void expand_surface_to_rgba(const DSpContextPrivate *ctx,
 		if (GLCompositorCopyCurrentPaletteRGB(display_palette))
 			pal = display_palette;
 		for (uint32_t i = 0; i < palette_rgba.size(); i++) {
-			palette_rgba[i] = pack_rgba(
+			palette_rgba[i] = DSpGLPackRGBA(
 				apply_gamma(pal[i * 3u + 0u], 0),
 				apply_gamma(pal[i * 3u + 1u], 1),
 				apply_gamma(pal[i * 3u + 2u], 2));
@@ -300,7 +296,7 @@ static void expand_surface_to_rgba(const DSpContextPrivate *ctx,
 			const uint32_t sx = src_x + x;
 			if (bpp == 32) {
 				/* Guest BE ARGB */
-				drow[x] = pack_rgba(
+				drow[x] = DSpGLPackRGBA(
 					apply_gamma(srow[sx * 4u + 1u], 0),
 					apply_gamma(srow[sx * 4u + 2u], 1),
 					apply_gamma(srow[sx * 4u + 3u], 2));
@@ -380,7 +376,7 @@ bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, vo
 	const uint32_t storage_h = ctx->front_staging_height
 		? ctx->front_staging_height : h;
 	const uint64_t required64 = (uint64_t)row * storage_h;
-	if (!w || !h || !dsp_valid_depth(depth) || !row ||
+	if (!w || !h || !DSpGLIsValidDepth(depth) || !row ||
 		required64 > ctx->front_staging_size || required64 > UINT32_MAX) {
 		QD3D_RENDER_LOG("DSpFrontPresent(GL): invalid surface ctx=%u %ux%u@%u row=%u have=%u",
 						ctx->handle, w, h, depth, row,
@@ -412,7 +408,7 @@ bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx, void *, vo
 	static std::vector<uint8_t> rgba;
 	uint32_t visible_x = 0, visible_y = 0, geometry_row = 0,
 			 geometry_height = 0;
-	dsp_front_staging_geometry(ctx, w, h, depth, &geometry_row,
+	DSpGLGetFrontStagingGeometry(ctx, w, h, depth, &geometry_row,
 							   &geometry_height, &visible_x, &visible_y);
 	if (geometry_row != row || geometry_height > storage_h ||
 		visible_y + h > geometry_height) return false;
@@ -437,9 +433,9 @@ extern "C" uint32_t DSpGetFrontBufferCGrafPtrGL(DSpContextPrivate *ctx)
 	const uint32_t h = ctx->attr.displayHeight;
 	uint32_t row = 0;
 	uint32_t storage_h = 0;
-	dsp_front_staging_geometry(ctx, w, h, depth, &row, &storage_h);
+	DSpGLGetFrontStagingGeometry(ctx, w, h, depth, &row, &storage_h);
 	const uint64_t size64 = (uint64_t)row * storage_h;
-	if (!w || !h || !dsp_valid_depth(depth) || !row || size64 > UINT32_MAX)
+	if (!w || !h || !DSpGLIsValidDepth(depth) || !row || size64 > UINT32_MAX)
 		return 0;
 	const uint32_t size = (uint32_t)size64;
 
@@ -481,14 +477,14 @@ extern "C" uint32_t DSpGetFrontBufferCGrafPtrGL(DSpContextPrivate *ctx)
 	const uint32_t pixmap = SheepMem::Reserve(DSpFrontBufferPixMapRecordSize());
 	const uint32_t pixmap_handle = SheepMem::Reserve(DSpBackBufferPixMapHandleSize());
 	const uint32_t port = SheepMem::Reserve(DSpBackBufferCGrafPortSize());
-	const uint32_t vis_region = dsp_create_rect_region(w, h);
-	const uint32_t clip_region = dsp_create_rect_region(w, h);
+	const uint32_t vis_region = DSpGLAllocRectRegion(w, h);
+	const uint32_t clip_region = DSpGLAllocRectRegion(w, h);
 	if (!pixmap || !pixmap_handle || !port || !vis_region || !clip_region)
 		return 0;
 
 	uint16_t pixel_type = 0, pixel_size = 0, component_count = 0,
 			 component_size = 0;
-	dsp_pixmap_format(depth, &pixel_type, &pixel_size, &component_count,
+	DSpGLGetPixmapFormat(depth, &pixel_type, &pixel_size, &component_count,
 					  &component_size);
 	/* Preserve the real screen PixMap's otherwise-unspecified metadata, as the
 	 * Metal emitter does, then replace every surface-dependent field. */
@@ -564,7 +560,7 @@ uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 	const uint32_t h = DSpContextBackBufferHeight(ctx);
 	uint32_t row_bytes = 0;
 	uint32_t buffer_size = 0;
-	if (!dsp_back_buffer_layout(w, h, bpp, &row_bytes, &buffer_size)) return 0;
+	if (!DSpGLIsValidBackBufferLayout(w, h, bpp, &row_bytes, &buffer_size)) return 0;
 
 	if (!ctx->staging_mac_addr || ctx->staging_size < buffer_size) {
 		const uint32_t pixels = Mac_sysalloc(buffer_size);
@@ -578,14 +574,14 @@ uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 	const uint32_t pixmap = SheepMem::Reserve(DSpBackBufferPixMapRecordSize());
 	const uint32_t pixmap_handle = SheepMem::Reserve(DSpBackBufferPixMapHandleSize());
 	const uint32_t port = SheepMem::Reserve(DSpBackBufferCGrafPortSize());
-	const uint32_t vis_region = dsp_create_rect_region(w, h);
-	const uint32_t clip_region = dsp_create_rect_region(w, h);
+	const uint32_t vis_region = DSpGLAllocRectRegion(w, h);
+	const uint32_t clip_region = DSpGLAllocRectRegion(w, h);
 	if (!pixmap || !pixmap_handle || !port || !vis_region || !clip_region)
 		return 0;
 
 	uint16_t pixel_type = 0, pixel_size = 0, component_count = 0,
 			 component_size = 0;
-	dsp_pixmap_format(bpp, &pixel_type, &pixel_size, &component_count,
+	DSpGLGetPixmapFormat(bpp, &pixel_type, &pixel_size, &component_count,
 					  &component_size);
 	Mac_memset(pixmap, 0, DSpBackBufferPixMapRecordSize());
 	WriteMacInt32(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR, ctx->staging_mac_addr);
@@ -658,7 +654,8 @@ static void dsp_refresh_front_staging_after_swap(DSpContextPrivate *ctx)
 	DSpFrontStagingRememberSeedBytes(
 		&ctx->front_staging_present_state, dst, ctx->front_staging_size);
 }
-int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef, uint32_t /*doneProc*/, uint32_t /*refCon*/)
+int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
+	uint32_t /*doneProc*/, uint32_t /*refCon*/)
 {
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
 	if (!ctx || !ctx->back_buffer) return kDSpInternalErr;
@@ -771,7 +768,7 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 		return;
 	}
 
-	/* Drain guest staging → host back_buffer before expand/upload. */
+	/* Drain guest staging -> host back_buffer before expand/upload. */
 	if (active->staging_mac_addr != 0 && active->staging_size != 0) {
 		const uint32_t w = DSpContextBackBufferWidth(active);
 		const uint32_t h = DSpContextBackBufferHeight(active);
