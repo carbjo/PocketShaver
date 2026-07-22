@@ -50,7 +50,7 @@ static GLuint glide_gl_texture = 0;
 static int glide_texture_width = 0, glide_texture_height = 0;
 static bool glide_is_texture_enabled = false;
 
-struct GlideGLTextureCacheEntry {
+struct GlideMetalTextureCacheEntry {
 	uint32_t address;
 	int width;
 	int height;
@@ -70,14 +70,14 @@ struct GlideGLTextureCacheEntry {
  * grTexSource, even when the guest had not changed that address.
  * FIXME: Awful idea for a global texture cache.
  */
-static std::vector<GlideGLTextureCacheEntry> glide_texture_cache;
+static std::vector<GlideMetalTextureCacheEntry> glide_texture_cache;
 
 static void GlideSubitOverlay(int do_present);
 
 static void GlideReleaseTextureCache(void)
 {
 	if (SharedMetalDevice()) {
-		for (const GlideGLTextureCacheEntry &entry : glide_texture_cache) {
+		for (const GlideMetalTextureCacheEntry &entry : glide_texture_cache) {
 			if (entry.texture)
 				glDeleteTextures(1, &entry.texture);
 		}
@@ -92,7 +92,7 @@ static void GlideReleaseTextureCache(void)
  * Present must not bind framebuffer 0 or replace Glide state between two
  * guest draw calls in the same back-buffer frame.
  */
-extern "C" int GlideGLRenderPassActive(void)
+extern "C" int GlideMetalRenderPassActive(void)
 {
 	return glide_is_in_frame ? 1 : 0;
 }
@@ -180,7 +180,7 @@ static bool GlideEnsureOverlay(uint32_t w, uint32_t h)
 	if (!a || !b) {
 		if (a) gfxaccel_resources_release_overlay_texture(kGfxEngineGlide, a);
 		if (b) gfxaccel_resources_release_overlay_texture(kGfxEngineGlide, b);
-		QD3D_INIT_LOG("GlideGL: overlay vend failed %ux%u", w, h);
+		QD3D_INIT_LOG("GlideMetal: overlay vend failed %ux%u", w, h);
 		return false;
 	}
 	glide_overlay_pair[0] = (GLuint)(uintptr_t)a;
@@ -192,7 +192,7 @@ static bool GlideEnsureOverlay(uint32_t w, uint32_t h)
 
 	auto &ext = gfx_gl_ext();
 	if (!ext.fbo) {
-		QD3D_INIT_LOG("GlideGL: FBO extension missing");
+		QD3D_INIT_LOG("GlideMetal: FBO extension missing");
 		GlideReleaseOverlay();
 		return false;
 	}
@@ -208,7 +208,7 @@ static bool GlideEnsureOverlay(uint32_t w, uint32_t h)
 	GLenum st = ext.CheckFramebufferStatus(GL_FRAMEBUFFER);
 	ext.BindFramebuffer(GL_FRAMEBUFFER, 0);
 	if (st != GL_FRAMEBUFFER_COMPLETE) {
-		QD3D_INIT_LOG("GlideGL: FBO incomplete 0x%x", (unsigned)st);
+		QD3D_INIT_LOG("GlideMetal: FBO incomplete 0x%x", (unsigned)st);
 		GlideReleaseOverlay();
 		return false;
 	}
@@ -272,7 +272,7 @@ static GLenum GlideMapGLCmpFunc(int gr)
 	}
 }
 
-void GlideGLApplyState(void)
+void GlideMetalApplyState(void)
 {
 	if (!SharedMetalDevice()) return;
 	const int cull = GlideStateCullMode();
@@ -360,21 +360,21 @@ void GlideGLApplyState(void)
 	glDisable(GL_LIGHTING);
 }
 
-void GlideGLSetClipWindow(int minx, int miny, int maxx, int maxy)
+void GlideMetalSetClipWindow(int minx, int miny, int maxx, int maxy)
 {
 	/* State already stored; re-apply if in frame. */
 	(void)minx; (void)miny; (void)maxx; (void)maxy;
-	if (glide_is_in_frame) GlideGLApplyState();
+	if (glide_is_in_frame) GlideMetalApplyState();
 }
 
-void GlideGLSetColorMask(int r, int g, int b, int a)
+void GlideMetalSetColorMask(int r, int g, int b, int a)
 {
 	if (!SharedMetalDevice()) return;
 	glColorMask(r ? GL_TRUE : GL_FALSE, g ? GL_TRUE : GL_FALSE,
 				b ? GL_TRUE : GL_FALSE, a ? GL_TRUE : GL_FALSE);
 }
 
-void GlideGLSetAlphaTest(int enabled, int func, float ref)
+void GlideMetalSetAlphaTest(int enabled, int func, float ref)
 {
 	if (!SharedMetalDevice()) return;
 	if (GlideStateChromaMode()) {
@@ -388,19 +388,19 @@ void GlideGLSetAlphaTest(int enabled, int func, float ref)
 	}
 }
 
-void GlideGLSetFog(int mode, uint32_t color)
+void GlideMetalSetFog(int mode, uint32_t color)
 {
 	(void)mode; (void)color;
-	if (glide_is_in_frame) GlideGLApplyState();
+	if (glide_is_in_frame) GlideMetalApplyState();
 }
 
-void GlideGLSetDepthBias(float bias)
+void GlideMetalSetDepthBias(float bias)
 {
 	(void)bias;
-	if (glide_is_in_frame) GlideGLApplyState();
+	if (glide_is_in_frame) GlideMetalApplyState();
 }
 
-void GlideGLSplash(void)
+void GlideMetalSplash(void)
 {
 	/* Classic Glide splash - solid color flash so titles that call it
 	 * get a visible frame rather than a silent no-op. */
@@ -412,20 +412,20 @@ void GlideGLSplash(void)
 	GlideSubitOverlay(/*do_present=*/1);
 }
 
-void GlideGLFinish(void)
+void GlideMetalFinish(void)
 {
 	if (SharedMetalDevice())
 		glFlush();
 }
 
-int GlideGLInit(void)
+int GlideMetalInit(void)
 {
 	glide_is_ready = SharedMetalDevice() != nullptr;
-	QD3D_INIT_LOG("GlideGLInit: ready=%d", glide_is_ready ? 1 : 0);
+	QD3D_INIT_LOG("GlideMetalInit: ready=%d", glide_is_ready ? 1 : 0);
 	return glide_is_ready ? 0 : -1;
 }
 
-void GlideGLShutdown(void)
+void GlideMetalShutdown(void)
 {
 	if (SharedMetalDevice()) {
 		GlideReleaseTextureCache();
@@ -473,22 +473,22 @@ static void GlideSyncDMCToWindow(int width, int height)
 		rc = dmc_request_mode_switch(&mode);
 	}
 	if (rc != kDMCNoErr) {
-		QD3D_INIT_LOG("GlideGLWinOpen: DMC mode switch %dx%d failed rc=%d",
+		QD3D_INIT_LOG("GlideMetalWinOpen: DMC mode switch %dx%d failed rc=%d",
 					  width, height, (int)rc);
 	} else {
-		QD3D_INIT_LOG("GlideGLWinOpen: DMC mode -> %dx%d (from grSstWinOpen)",
+		QD3D_INIT_LOG("GlideMetalWinOpen: DMC mode -> %dx%d (from grSstWinOpen)",
 					  width, height);
 	}
 	/* Mode switch can leave owner sticky; reassert. */
 	(void)dmc_set_active_owner(kDMCOwnerGlide);
 }
 
-int GlideGLWinOpen(int width, int height, int origin_upper_left)
+int GlideMetalWinOpen(int width, int height, int origin_upper_left)
 {
 	(void)origin_upper_left;
 	if (width <= 0 || height <= 0) return -1;
 	if (!SharedMetalDevice()) {
-		if (GlideGLInit() != 0) return -1;
+		if (GlideMetalInit() != 0) return -1;
 	}
 	if (!GlideEnsureOverlay((uint32_t)width, (uint32_t)height))
 		return -1;
@@ -511,12 +511,12 @@ int GlideGLWinOpen(int width, int height, int origin_upper_left)
 	glide_has_context = true;
 	GlideSubitOverlay(/*do_present=*/1);
 
-	QD3D_INIT_LOG("GlideGLWinOpen: %dx%d overlay=%u (clear present; free-run VBL)",
+	QD3D_INIT_LOG("GlideMetalWinOpen: %dx%d overlay=%u (clear present; free-run VBL)",
 				  width, height, (unsigned)glide_color_tex);
 	return 0;
 }
 
-void GlideGLWinClose(void)
+void GlideMetalWinClose(void)
 {
 	if (SharedMetalDevice())
 		GlideReleaseOverlay();
@@ -632,22 +632,22 @@ static GLenum GlideMapGlideToGLPrim(uint32_t mode)
 	}
 }
 
-void GlideGLDrawPoint(const void *a)
+void GlideMetalDrawPoint(const void *a)
 {
 	if (!a) return;
 	if (!GlideBindDrawFBO()) return;
-	GlideGLApplyState();
+	GlideMetalApplyState();
 	glBegin(GL_POINTS);
 	GlideEmitVertex((const uint8_t *)a);
 	glEnd();
 	glide_has_context = true;
 }
 
-void GlideGLDrawLine(const void *a, const void *b)
+void GlideMetalDrawLine(const void *a, const void *b)
 {
 	if (!a || !b) return;
 	if (!GlideBindDrawFBO()) return;
-	GlideGLApplyState();
+	GlideMetalApplyState();
 	glBegin(GL_LINES);
 	GlideEmitVertex((const uint8_t *)a);
 	GlideEmitVertex((const uint8_t *)b);
@@ -655,11 +655,11 @@ void GlideGLDrawLine(const void *a, const void *b)
 	glide_has_context = true;
 }
 
-void GlideGLDrawTriangle(const void *a, const void *b, const void *c)
+void GlideMetalDrawTriangle(const void *a, const void *b, const void *c)
 {
 	if (!a || !b || !c) return;
 	if (!GlideBindDrawFBO()) return;
-	GlideGLApplyState();
+	GlideMetalApplyState();
 	glBegin(GL_TRIANGLES);
 	GlideEmitVertex((const uint8_t *)a);
 	GlideEmitVertex((const uint8_t *)b);
@@ -668,11 +668,11 @@ void GlideGLDrawTriangle(const void *a, const void *b, const void *c)
 	glide_has_context = true;
 }
 
-void GlideGLDrawPolygon(int nverts, const void *const *ptrs)
+void GlideMetalDrawPolygon(int nverts, const void *const *ptrs)
 {
 	if (!ptrs || nverts < 3) return;
 	if (!GlideBindDrawFBO()) return;
-	GlideGLApplyState();
+	GlideMetalApplyState();
 	glBegin(GL_TRIANGLE_FAN);
 	for (int i = 0; i < nverts; i++) {
 		if (ptrs[i])
@@ -682,13 +682,13 @@ void GlideGLDrawPolygon(int nverts, const void *const *ptrs)
 	glide_has_context = true;
 }
 
-void GlideGLDrawPolygonContiguous(int nverts, const void *verts, uint32_t stride)
+void GlideMetalDrawPolygonContiguous(int nverts, const void *verts, uint32_t stride)
 {
 	if (!verts || nverts < 3) return;
 	if (!GlideBindDrawFBO()) return;
 	if (stride == 0) stride = (uint32_t)GlideStateVertexStride();
 	if (stride < 8) stride = 8;
-	GlideGLApplyState();
+	GlideMetalApplyState();
 	const uint8_t *base = (const uint8_t *)verts;
 	glBegin(GL_TRIANGLE_FAN);
 	for (int i = 0; i < nverts; i++)
@@ -697,11 +697,11 @@ void GlideGLDrawPolygonContiguous(int nverts, const void *verts, uint32_t stride
 	glide_has_context = true;
 }
 
-void GlideGLDrawVertexArray(uint32_t mode, uint32_t count, const void *const *ptrs)
+void GlideMetalDrawVertexArray(uint32_t mode, uint32_t count, const void *const *ptrs)
 {
 	if (!ptrs || count == 0) return;
 	if (!GlideBindDrawFBO()) return;
-	GlideGLApplyState();
+	GlideMetalApplyState();
 	glBegin(GlideMapGlideToGLPrim(mode));
 	for (uint32_t i = 0; i < count; i++) {
 		if (ptrs[i])
@@ -711,7 +711,7 @@ void GlideGLDrawVertexArray(uint32_t mode, uint32_t count, const void *const *pt
 	glide_has_context = true;
 }
 
-void GlideGLDrawVertexArrayContiguous(uint32_t mode, uint32_t count,
+void GlideMetalDrawVertexArrayContiguous(uint32_t mode, uint32_t count,
 									  const void *vertices, uint32_t stride)
 {
 	if (!vertices || count == 0) return;
@@ -719,7 +719,7 @@ void GlideGLDrawVertexArrayContiguous(uint32_t mode, uint32_t count,
 	if (stride == 0)
 		stride = (uint32_t)GlideStateVertexStride();
 	if (stride < 8) stride = 8;
-	GlideGLApplyState();
+	GlideMetalApplyState();
 	const uint8_t *base = (const uint8_t *)vertices;
 	glBegin(GlideMapGlideToGLPrim(mode));
 	for (uint32_t i = 0; i < count; i++)
@@ -783,12 +783,12 @@ static void GlideSubitOverlay(int do_present)
 		MetalCompositorPresent();
 }
 
-void GlideGLPublishOverlay(int do_present)
+void GlideMetalPublishOverlay(int do_present)
 {
 	GlideSubitOverlay(do_present ? 1 : 0);
 }
 
-void GlideGLBufferSwap(int swap_interval)
+void GlideMetalBufferSwap(int swap_interval)
 {
 	if (!glide_color_tex || !SharedMetalDevice()) return;
 
@@ -818,7 +818,7 @@ void GlideGLBufferSwap(int swap_interval)
 	GlideSubitOverlay(/*do_present=*/1);
 }
 
-void GlideGLBufferClear(uint32_t color, uint32_t alpha, uint32_t depth)
+void GlideMetalBufferClear(uint32_t color, uint32_t alpha, uint32_t depth)
 {
 	(void)depth;
 	if (!GlideBindDrawFBO()) return;
@@ -843,12 +843,12 @@ void GlideGLBufferClear(uint32_t color, uint32_t alpha, uint32_t depth)
 	}
 }
 
-void GlideGLMarkContent(void)
+void GlideMetalMarkContent(void)
 {
 	glide_has_context = true;
 }
 
-void GlideGLUploadLfbAndPresent(const uint8_t *bgra, int w, int h, int pitch,
+void GlideMetalUploadLfbAndPresent(const uint8_t *bgra, int w, int h, int pitch,
 								int present)
 {
 	if (!bgra || w <= 0 || h <= 0 || !glide_color_tex || !SharedMetalDevice())
@@ -993,7 +993,7 @@ static void GlideDecodeTextureLevel(const uint8_t *src, int w, int h, int format
 	}
 }
 
-static void GlideUploadCachedTexture(GlideGLTextureCacheEntry &entry,
+static void GlideUploadCachedTexture(GlideMetalTextureCacheEntry &entry,
 										const uint8_t *src,
 										int chroma_mode,
 										uint32_t chroma_value,
@@ -1012,13 +1012,13 @@ static void GlideUploadCachedTexture(GlideGLTextureCacheEntry &entry,
 	entry.dirty = false;
 }
 
-void GlideGLSetChromakey(void)
+void GlideMetalSetChromakey(void)
 {
 	const int chroma_mode = GlideStateChromaMode();
 	const uint32_t chroma_value = GlideStateChromaValue();
 	const int color_format = GlideStateColorFormat();
-	GlideGLTextureCacheEntry *bound = nullptr;
-	for (GlideGLTextureCacheEntry &entry : glide_texture_cache) {
+	GlideMetalTextureCacheEntry *bound = nullptr;
+	for (GlideMetalTextureCacheEntry &entry : glide_texture_cache) {
 		if (entry.chroma_mode != chroma_mode ||
 			entry.chroma_value != chroma_value ||
 			entry.color_format != color_format)
@@ -1040,12 +1040,12 @@ void GlideGLSetChromakey(void)
 										chroma_value, color_format);
 	}
 	if (glide_is_in_frame)
-		GlideGLApplyState();
+		GlideMetalApplyState();
 	else if (SharedMetalDevice())
 		glBindTexture(GL_TEXTURE_2D, 0);
 }
 
-void GlideGLTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
+void GlideMetalTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
 							 int aspect_log2, int format, const void *data,
 							 uint32_t nbytes)
 {
@@ -1061,7 +1061,7 @@ void GlideGLTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
 	const bool changed = old_data == nullptr || old_avail < need ||
 		std::memcmp(old_data, data, need) != 0;
 	if (changed && !GlideStateTmuWrite(start_addr, data, need)) {
-		QD3D_INIT_LOG("GlideGLTexDownloadLevel FAIL addr=%08x need=%u",
+		QD3D_INIT_LOG("GlideMetalTexDownloadLevel FAIL addr=%08x need=%u",
 					  start_addr, need);
 		return;
 	}
@@ -1069,7 +1069,7 @@ void GlideGLTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
 	const uint64_t write_begin = start_addr;
 	const uint64_t write_end = write_begin + need;
 	if (changed) {
-		for (GlideGLTextureCacheEntry &entry : glide_texture_cache) {
+		for (GlideMetalTextureCacheEntry &entry : glide_texture_cache) {
 			const uint64_t entry_begin = entry.address;
 			const uint64_t entry_end = entry_begin +
 				(uint64_t)entry.width * (uint64_t)entry.height *
@@ -1080,11 +1080,11 @@ void GlideGLTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
 	}
 	static uint32_t s_dl_n = 0;
 	if (++s_dl_n <= 12 || (s_dl_n & (s_dl_n - 1)) == 0)
-		QD3D_INIT_LOG("GlideGLTexDownloadLevel #%u addr=%08x lod=%d %dx%d fmt=%d n=%u",
+		QD3D_INIT_LOG("GlideMetalTexDownloadLevel #%u addr=%08x lod=%d %dx%d fmt=%d n=%u",
 					  (unsigned)s_dl_n, start_addr, lod, w, h, format, need);
 }
 
-void GlideGLTexSource(uint32_t start_addr, int even_odd, int small_lod,
+void GlideMetalTexSource(uint32_t start_addr, int even_odd, int small_lod,
 					  int large_lod, int aspect_log2, int format)
 {
 	(void)even_odd;
@@ -1098,7 +1098,7 @@ void GlideGLTexSource(uint32_t start_addr, int even_odd, int small_lod,
 	const uint32_t need = GlideTexLevelSizeBytes(large_lod, aspect_log2, format);
 	if (!src || avail < need || need == 0) {
 		glide_is_texture_enabled = false;
-		QD3D_INIT_LOG("GlideGLTexSource FAIL addr=%08x need=%u avail=%u",
+		QD3D_INIT_LOG("GlideMetalTexSource FAIL addr=%08x need=%u avail=%u",
 					  start_addr, need, avail);
 		return;
 	}
@@ -1106,8 +1106,8 @@ void GlideGLTexSource(uint32_t start_addr, int even_odd, int small_lod,
 	const int chroma_mode = GlideStateChromaMode();
 	const uint32_t chroma_value = GlideStateChromaValue();
 	const int color_format = GlideStateColorFormat();
-	GlideGLTextureCacheEntry *cached = nullptr;
-	for (GlideGLTextureCacheEntry &entry : glide_texture_cache) {
+	GlideMetalTextureCacheEntry *cached = nullptr;
+	for (GlideMetalTextureCacheEntry &entry : glide_texture_cache) {
 		if (entry.address == start_addr && entry.width == w &&
 			entry.height == h && entry.format == format) {
 			cached = &entry;
@@ -1115,7 +1115,7 @@ void GlideGLTexSource(uint32_t start_addr, int even_odd, int small_lod,
 		}
 	}
 	if (!cached) {
-		GlideGLTextureCacheEntry entry = {};
+		GlideMetalTextureCacheEntry entry = {};
 		entry.address = start_addr;
 		entry.width = w;
 		entry.height = h;
@@ -1168,11 +1168,11 @@ void GlideGLTexSource(uint32_t start_addr, int even_odd, int small_lod,
 
 	static uint32_t s_src_n = 0;
 	if (++s_src_n <= 12 || (s_src_n & (s_src_n - 1)) == 0)
-		QD3D_INIT_LOG("GlideGLTexSource #%u addr=%08x %dx%d fmt=%d",
+		QD3D_INIT_LOG("GlideMetalTexSource #%u addr=%08x %dx%d fmt=%d",
 					  (unsigned)s_src_n, start_addr, w, h, format);
 }
 
-void GlideGLTexDownloadTable(int type, const void *data)
+void GlideMetalTexDownloadTable(int type, const void *data)
 {
 	/* type 2 = palette (Glide2 GR_TEXTABLE_PALETTE). 256 x 32-bit ARGB. */
 	if (!data) return;
@@ -1193,13 +1193,13 @@ void GlideGLTexDownloadTable(int type, const void *data)
 		GlideStateTexSetPalette(pal);
 		if (changed) {
 			/* Palette changes affect every resident paletted texture. */
-			for (GlideGLTextureCacheEntry &entry : glide_texture_cache) {
+			for (GlideMetalTextureCacheEntry &entry : glide_texture_cache) {
 				if (entry.format == 0x05 || entry.format == 0x08)
 					entry.dirty = true;
 			}
 		}
 		static uint32_t s_pal_n = 0;
 		if (++s_pal_n <= 8)
-			QD3D_INIT_LOG("GlideGLTexDownloadTable palette #%u", (unsigned)s_pal_n);
+			QD3D_INIT_LOG("GlideMetalTexDownloadTable palette #%u", (unsigned)s_pal_n);
 	}
 }

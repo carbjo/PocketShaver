@@ -311,42 +311,42 @@ extern uint32_t glide_scratch_addr;
 extern uint32_t glide_method_tvects[GLIDE_MAX_SUBOPCODE];
 
 /* GL renderer entry points (gl/glide_gl_renderer.cpp). */
-int  GlideGLInit(void);
-void GlideGLShutdown(void);
-int  GlideGLWinOpen(int width, int height, int origin_upper_left);
-void GlideGLWinClose(void);
-void GlideGLBufferClear(uint32_t color, uint32_t alpha, uint32_t depth);
-void GlideGLBufferSwap(int swap_interval);
+int  GlideMetalInit(void);
+void GlideMetalShutdown(void);
+int  GlideMetalWinOpen(int width, int height, int origin_upper_left);
+void GlideMetalWinClose(void);
+void GlideMetalBufferClear(uint32_t color, uint32_t alpha, uint32_t depth);
+void GlideMetalBufferSwap(int swap_interval);
 /* Submit overlay mailbox; do_present=0 defers Present to VideoVBL. */
-void GlideGLPublishOverlay(int do_present);
-void GlideGLDrawPoint(const void *a);
-void GlideGLDrawLine(const void *a, const void *b);
-void GlideGLDrawTriangle(const void *a, const void *b, const void *c);
-void GlideGLDrawPolygon(int nverts, const void *const *ptrs);
-void GlideGLDrawPolygonContiguous(int nverts, const void *verts, uint32_t stride);
-void GlideGLDrawVertexArray(uint32_t mode, uint32_t count, const void *const *ptrs);
-void GlideGLDrawVertexArrayContiguous(uint32_t mode, uint32_t count,
+void GlideMetalPublishOverlay(int do_present);
+void GlideMetalDrawPoint(const void *a);
+void GlideMetalDrawLine(const void *a, const void *b);
+void GlideMetalDrawTriangle(const void *a, const void *b, const void *c);
+void GlideMetalDrawPolygon(int nverts, const void *const *ptrs);
+void GlideMetalDrawPolygonContiguous(int nverts, const void *verts, uint32_t stride);
+void GlideMetalDrawVertexArray(uint32_t mode, uint32_t count, const void *const *ptrs);
+void GlideMetalDrawVertexArrayContiguous(uint32_t mode, uint32_t count,
                                       const void *vertices, uint32_t stride);
-void GlideGLApplyState(void);
-void GlideGLSetClipWindow(int minx, int miny, int maxx, int maxy);
-void GlideGLSetColorMask(int r, int g, int b, int a);
-void GlideGLSetAlphaTest(int enabled, int func, float ref);
-void GlideGLSetChromakey(void);
-void GlideGLSetFog(int mode, uint32_t color);
-void GlideGLSetDepthBias(float bias);
+void GlideMetalApplyState(void);
+void GlideMetalSetClipWindow(int minx, int miny, int maxx, int maxy);
+void GlideMetalSetColorMask(int r, int g, int b, int a);
+void GlideMetalSetAlphaTest(int enabled, int func, float ref);
+void GlideMetalSetChromakey(void);
+void GlideMetalSetFog(int mode, uint32_t color);
+void GlideMetalSetDepthBias(float bias);
 /* Mark that the overlay has real pixels (LFB / draws) - enables present. */
-void GlideGLMarkContent(void);
-void GlideGLSplash(void);
-void GlideGLFinish(void);
+void GlideMetalMarkContent(void);
+void GlideMetalSplash(void);
+void GlideMetalFinish(void);
 /* Upload guest LFB (already converted to BGRA8) into overlay and present. */
-void GlideGLUploadLfbAndPresent(const uint8_t *bgra, int w, int h, int pitch,
+void GlideMetalUploadLfbAndPresent(const uint8_t *bgra, int w, int h, int pitch,
                                 int present);
 /* Texture path: download into TMU sim, bind for draw. */
-void GlideGLTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
+void GlideMetalTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
                              int aspect_log2, int format, const void *data, uint32_t nbytes);
-void GlideGLTexSource(uint32_t start_addr, int even_odd, int small_lod,
+void GlideMetalTexSource(uint32_t start_addr, int even_odd, int small_lod,
                       int large_lod, int aspect_log2, int format);
-void GlideGLTexDownloadTable(int type, const void *data);
+void GlideMetalTexDownloadTable(int type, const void *data);
 
 #ifdef __cplusplus
 }

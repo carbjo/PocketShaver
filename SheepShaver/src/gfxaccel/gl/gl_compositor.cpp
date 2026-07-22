@@ -206,7 +206,7 @@ void MetalValidation_InstallErrorHandler(void * /*cmdBufPtr*/)
 extern "C" void vbl_source_sdl_tick(double target_ts);
 extern "C" int RaveGLRenderPassActive(void);
 extern "C" int GLFFPRenderPassActive(void);
-extern "C" int GlideGLRenderPassActive(void);
+extern "C" int GlideMetalRenderPassActive(void);
 
 /* All guest 3D backends borrow the compositor's compatibility context.  Keep
  * the ownership test in one place so Present and the deferred flush cannot
@@ -214,7 +214,7 @@ extern "C" int GlideGLRenderPassActive(void);
 static bool MetalIs3DRenderPassActive(void)
 {
 	return RaveGLRenderPassActive() || GLFFPRenderPassActive() ||
-		   GlideGLRenderPassActive();
+		   GlideMetalRenderPassActive();
 }
 
 

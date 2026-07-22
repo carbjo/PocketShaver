@@ -22,34 +22,34 @@
 
 #if !defined(GFXACCEL_USE_OPENGL)
 /* Metal Glide raster path is not implemented yet; keep dispatch linkable. */
-int  GlideGLInit(void) { return -1; }
-void GlideGLShutdown(void) {}
-int  GlideGLWinOpen(int, int, int) { return -1; }
-void GlideGLWinClose(void) {}
-void GlideGLBufferClear(uint32_t, uint32_t, uint32_t) {}
-void GlideGLBufferSwap(int) {}
-void GlideGLDrawPoint(const void *) {}
-void GlideGLDrawLine(const void *, const void *) {}
-void GlideGLDrawTriangle(const void *, const void *, const void *) {}
-void GlideGLDrawPolygon(int, const void *const *) {}
-void GlideGLDrawPolygonContiguous(int, const void *, uint32_t) {}
-void GlideGLDrawVertexArray(uint32_t, uint32_t, const void *const *) {}
-void GlideGLDrawVertexArrayContiguous(uint32_t, uint32_t, const void *, uint32_t) {}
-void GlideGLApplyState(void) {}
-void GlideGLSetClipWindow(int, int, int, int) {}
-void GlideGLSetColorMask(int, int, int, int) {}
-void GlideGLSetAlphaTest(int, int, float) {}
-void GlideGLSetChromakey(void) {}
-void GlideGLSetFog(int, uint32_t) {}
-void GlideGLSetDepthBias(float) {}
-void GlideGLMarkContent(void) {}
-void GlideGLPublishOverlay(int) {}
-void GlideGLSplash(void) {}
-void GlideGLFinish(void) {}
-void GlideGLUploadLfbAndPresent(const uint8_t *, int, int, int, int) {}
-void GlideGLTexDownloadLevel(uint32_t, int, int, int, int, const void *, uint32_t) {}
-void GlideGLTexSource(uint32_t, int, int, int, int, int) {}
-void GlideGLTexDownloadTable(int, const void *) {}
+int  GlideMetalInit(void) { return -1; }
+void GlideMetalShutdown(void) {}
+int  GlideMetalWinOpen(int, int, int) { return -1; }
+void GlideMetalWinClose(void) {}
+void GlideMetalBufferClear(uint32_t, uint32_t, uint32_t) {}
+void GlideMetalBufferSwap(int) {}
+void GlideMetalDrawPoint(const void *) {}
+void GlideMetalDrawLine(const void *, const void *) {}
+void GlideMetalDrawTriangle(const void *, const void *, const void *) {}
+void GlideMetalDrawPolygon(int, const void *const *) {}
+void GlideMetalDrawPolygonContiguous(int, const void *, uint32_t) {}
+void GlideMetalDrawVertexArray(uint32_t, uint32_t, const void *const *) {}
+void GlideMetalDrawVertexArrayContiguous(uint32_t, uint32_t, const void *, uint32_t) {}
+void GlideMetalApplyState(void) {}
+void GlideMetalSetClipWindow(int, int, int, int) {}
+void GlideMetalSetColorMask(int, int, int, int) {}
+void GlideMetalSetAlphaTest(int, int, float) {}
+void GlideMetalSetChromakey(void) {}
+void GlideMetalSetFog(int, uint32_t) {}
+void GlideMetalSetDepthBias(float) {}
+void GlideMetalMarkContent(void) {}
+void GlideMetalPublishOverlay(int) {}
+void GlideMetalSplash(void) {}
+void GlideMetalFinish(void) {}
+void GlideMetalUploadLfbAndPresent(const uint8_t *, int, int, int, int) {}
+void GlideMetalTexDownloadLevel(uint32_t, int, int, int, int, const void *, uint32_t) {}
+void GlideMetalTexSource(uint32_t, int, int, int, int, int) {}
+void GlideMetalTexDownloadTable(int, const void *) {}
 #endif
 
 /* State accessors (glide_state.cpp) */
@@ -401,7 +401,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	case kGlide_grGlideInit:
 		GlideStateResetDefaults();
 		GlideStateSetInited(true);
-		GlideGLInit();
+		GlideMetalInit();
 		/* Re-smash exports - grGlideInit / library reload can restore stock
 		 * TVECTs and leave wait paths spinning in PEF hardware stubs. */
 		extern void GlideForceReinstallHooks(void);
@@ -411,12 +411,12 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 
 	case kGlide_grGlideShutdown:
 		if (GlideStateWindowOpen()) {
-			GlideGLWinClose();
+			GlideMetalWinClose();
 			GlideStateSetWindowOpen(false);
 			(void)dmc_set_active_owner(kDMCOwnerQuickDraw);
 		}
 		GlideStateLfbRelease();
-		GlideGLShutdown();
+		GlideMetalShutdown();
 		GlideStateSetInited(false);
 		glide_log("grGlideShutdown");
 		return 0;
@@ -470,7 +470,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		/* Drop any stale lock from a prior mode (movies -> menu). */
 		if (GlideStateLfbIsLocked())
 			(void)GlideStateLfbUnlock(0);
-		if (GlideGLWinOpen(w, h, origin_ul) != 0) {
+		if (GlideMetalWinOpen(w, h, origin_ul) != 0) {
 			glide_log("grSstWinOpen FAILED %dx%d", w, h);
 			return FXFALSE;
 		}
@@ -489,7 +489,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		++s_close_n;
 		if (GlideStateLfbIsLocked())
 			(void)GlideStateLfbUnlock(0);
-		GlideGLWinClose();
+		GlideMetalWinClose();
 		GlideStateSetWindowOpen(false);
 		/* Keep LFB alloc across close/reopen (mode switch 640->800); free on shutdown.
 		 * Leave DMC owner alone - next DSp SetState / WinOpen owns the handoff. */
@@ -557,7 +557,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		/* void grBufferClear(GrColor_t color, GrAlpha_t alpha, FxU32 depth) */
 		glide_log("grBufferClear begin color=%08x", r3);
 		/* Clear back buffer only - real Glide does not display on clear. */
-		GlideGLBufferClear(r3, r4, r5);
+		GlideMetalBufferClear(r3, r4, r5);
 		(void)dmc_set_active_owner(kDMCOwnerGlide);
 		glide_log("grBufferClear done");
 		return 0;
@@ -572,7 +572,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		 * completion: pending=0 after Present. free-run keeps Mac VBL alive
 		 * between swaps; see docs/d2-glide-menu-hang.md.
 		 */
-		GlideGLBufferSwap(interval);
+		GlideMetalBufferSwap(interval);
 		(void)dmc_set_active_owner(kDMCOwnerGlide);
 		(void)interval; /* hardware would wait ~interval VBLs; we present now */
 		glide_log("grBufferSwap done (pending=0, presented)");
@@ -588,13 +588,13 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 
 	case kGlide_grDrawPoint: {
 		const void *a = r3 ? Mac2HostAddr(r3) : nullptr;
-		if (a) { GlideGLDrawPoint(a); GlideGLMarkContent(); }
+		if (a) { GlideMetalDrawPoint(a); GlideMetalMarkContent(); }
 		return 0;
 	}
 	case kGlide_grDrawLine: {
 		const void *a = r3 ? Mac2HostAddr(r3) : nullptr;
 		const void *b = r4 ? Mac2HostAddr(r4) : nullptr;
-		if (a && b) { GlideGLDrawLine(a, b); GlideGLMarkContent(); }
+		if (a && b) { GlideMetalDrawLine(a, b); GlideMetalMarkContent(); }
 		return 0;
 	}
 	case kGlide_grDrawTriangle: {
@@ -602,8 +602,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const void *b = r4 ? Mac2HostAddr(r4) : nullptr;
 		const void *c = r5 ? Mac2HostAddr(r5) : nullptr;
 		if (a && b && c) {
-			GlideGLDrawTriangle(a, b, c);
-			GlideGLMarkContent();
+			GlideMetalDrawTriangle(a, b, c);
+			GlideMetalMarkContent();
 		}
 		return 0;
 	}
@@ -612,8 +612,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const void *b = r4 ? Mac2HostAddr(r4) : nullptr;
 		const void *c = r5 ? Mac2HostAddr(r5) : nullptr;
 		if (a && b && c) {
-			GlideGLDrawTriangle(a, b, c);
-			GlideGLMarkContent();
+			GlideMetalDrawTriangle(a, b, c);
+			GlideMetalMarkContent();
 		}
 		return 0;
 	}
@@ -632,11 +632,11 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 				const uint32_t mac = ReadMacInt32(r5 + (uint32_t)i * 4);
 				ptrs[(size_t)i] = mac ? Mac2HostAddr(mac) : nullptr;
 			}
-			GlideGLDrawPolygon(n, ptrs.data());
+			GlideMetalDrawPolygon(n, ptrs.data());
 		} else if (r4) {
-			GlideGLDrawPolygonContiguous(n, Mac2HostAddr(r4), 0);
+			GlideMetalDrawPolygonContiguous(n, Mac2HostAddr(r4), 0);
 		}
-		GlideGLMarkContent();
+		GlideMetalMarkContent();
 		return 0;
 	}
 	case kGlide_grDrawPlanarPolygonVertexList:
@@ -645,8 +645,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const int n = (int)r3;
 		const void *v = r4 ? Mac2HostAddr(r4) : nullptr;
 		if (v && n >= 3)
-			GlideGLDrawPolygonContiguous(n, v, 0);
-		GlideGLMarkContent();
+			GlideMetalDrawPolygonContiguous(n, v, 0);
+		GlideMetalMarkContent();
 		return 0;
 	}
 
@@ -660,27 +660,27 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		return 0;
 	case kGlide_grAlphaTestFunction:
 		GlideStateSetAlphaTest((int)r3, GlideStateAlphaTestRef());
-		GlideGLSetAlphaTest(1, (int)r3, GlideStateAlphaTestRef());
+		GlideMetalSetAlphaTest(1, (int)r3, GlideStateAlphaTestRef());
 		return 0;
 	case kGlide_grAlphaTestReferenceValue: {
 		/* GrAlpha_t often 0..255 */
 		const float ref = (r3 > 255) ? 1.f : (r3 / 255.f);
 		GlideStateSetAlphaTest(GlideStateAlphaTestFunc(), ref);
-		GlideGLSetAlphaTest(GlideStateAlphaTestEnabled(),
+		GlideMetalSetAlphaTest(GlideStateAlphaTestEnabled(),
 							GlideStateAlphaTestFunc(), ref);
 		return 0;
 	}
 	case kGlide_grChromakeyMode:
 		GlideStateSetChromakey((int)r3, GlideStateChromaValue());
-		GlideGLSetChromakey();
+		GlideMetalSetChromakey();
 		return 0;
 	case kGlide_grChromakeyValue:
 		GlideStateSetChromakey(GlideStateChromaMode(), r3);
-		GlideGLSetChromakey();
+		GlideMetalSetChromakey();
 		return 0;
 	case kGlide_grClipWindow:
 		GlideStateSetClip((int)r3, (int)r4, (int)r5, (int)r6);
-		GlideGLSetClipWindow((int)r3, (int)r4, (int)r5, (int)r6);
+		GlideMetalSetClipWindow((int)r3, (int)r4, (int)r5, (int)r6);
 		return 0;
 	case kGlide_grColorCombine:
 		GlideStateSetColorCombine((int)r3);
@@ -688,7 +688,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	case kGlide_grColorMask:
 		/* void grColorMask(FxBool rgb, FxBool a) */
 		GlideStateSetColorMask(r3 ? 1 : 0, r3 ? 1 : 0, r3 ? 1 : 0, r4 ? 1 : 0);
-		GlideGLSetColorMask(r3 ? 1 : 0, r3 ? 1 : 0, r3 ? 1 : 0, r4 ? 1 : 0);
+		GlideMetalSetColorMask(r3 ? 1 : 0, r3 ? 1 : 0, r3 ? 1 : 0, r4 ? 1 : 0);
 		return 0;
 	case kGlide_grConstantColorValue:
 		GlideStateSetConstantColor(r3);
@@ -711,7 +711,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		/* Prefer small int as integer bias, else float bits */
 		const float bias = (v.i > -10000 && v.i < 10000) ? (float)v.i : v.f;
 		GlideStateSetDepthBias(bias);
-		GlideGLSetDepthBias(bias);
+		GlideMetalSetDepthBias(bias);
 		return 0;
 	}
 	case kGlide_grDepthBufferFunction:
@@ -731,11 +731,11 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		return 0;
 	case kGlide_grFogColorValue:
 		GlideStateSetFog(GlideStateFogMode(), r3);
-		GlideGLSetFog(GlideStateFogMode(), r3);
+		GlideMetalSetFog(GlideStateFogMode(), r3);
 		return 0;
 	case kGlide_grFogMode:
 		GlideStateSetFog((int)r3, GlideStateFogColor());
-		GlideGLSetFog((int)r3, GlideStateFogColor());
+		GlideMetalSetFog((int)r3, GlideStateFogColor());
 		return 0;
 	case kGlide_grFogTable:
 		/* void grFogTable(const GrFog_t table[GR_FOG_TABLE_SIZE]) - accept. */
@@ -747,7 +747,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	case kGlide_grHints:
 		return 0;
 	case kGlide_grSplash:
-		GlideGLSplash();
+		GlideMetalSplash();
 		return 0;
 
 	case kGlide_grTexCalcMemRequired: {
@@ -784,7 +784,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 			format = (int)ReadMacInt32(info + 12);
 		}
 		GlideStateSetTexSourceEx(start, evenOdd, small_lod, large_lod, aspect, format);
-		GlideGLTexSource(start, evenOdd, small_lod, large_lod, aspect, format);
+		GlideMetalTexSource(start, evenOdd, small_lod, large_lod, aspect, format);
 		return 0;
 	}
 	case kGlide_grTexClampMode:
@@ -831,7 +831,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const int hi = small_lod < large_lod ? large_lod : small_lod;
 		for (int lod = hi; lod >= lo; --lod) {
 			const uint32_t n = GlideTexLevelSizeBytes(lod, aspect, format);
-			GlideGLTexDownloadLevel(addr, lod, hi, aspect, format, p, n);
+			GlideMetalTexDownloadLevel(addr, lod, hi, aspect, format, p, n);
 			addr += n;
 			p += n;
 		}
@@ -858,7 +858,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		}
 		const uint32_t n = GlideTexLevelSizeBytes(this_lod, aspect, format);
 		/* For partial, still use full level size from start of guest buffer. */
-		GlideGLTexDownloadLevel(start, this_lod, large_lod, aspect, format, data, n);
+		GlideMetalTexDownloadLevel(start, this_lod, large_lod, aspect, format, data, n);
 		return 0;
 	}
 	case kGlide_grTexDownloadTable:
@@ -874,7 +874,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 			data_mac = r5;
 		}
 		const void *data = data_mac ? Mac2HostAddr(data_mac) : nullptr;
-		GlideGLTexDownloadTable(type, data);
+		GlideMetalTexDownloadTable(type, data);
 		return 0;
 	}
 	case kGlide_grTexMultibase:
@@ -997,8 +997,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 			const uint32_t mac = ReadMacInt32(ptrs_mac + i * 4);
 			host_ptrs[i] = mac ? Mac2HostAddr(mac) : nullptr;
 		}
-		GlideGLDrawVertexArray(mode, count, host_ptrs.data());
-		GlideGLMarkContent();
+		GlideMetalDrawVertexArray(mode, count, host_ptrs.data());
+		GlideMetalMarkContent();
 		return 0;
 	}
 	case kGlide_grDrawVertexArrayContiguous: {
@@ -1009,8 +1009,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const void *verts = r5 ? Mac2HostAddr(r5) : nullptr;
 		const uint32_t stride = r6;
 		if (verts && count && count <= 65536u) {
-			GlideGLDrawVertexArrayContiguous(mode, count, verts, stride);
-			GlideGLMarkContent();
+			GlideMetalDrawVertexArrayContiguous(mode, count, verts, stride);
+			GlideMetalMarkContent();
 		}
 		return 0;
 	}
@@ -1022,7 +1022,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		return 0;
 	case kGlide_grFinish:
 	case kGlide_grFlush:
-		GlideGLFinish();
+		GlideMetalFinish();
 		/* GPU idle: no outstanding swaps. */
 		return 0;
 
@@ -1087,7 +1087,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 			int uw = 0, uh = 0, upitch = 0;
 			const uint8_t *bgra = GlideStateLfbConvertToBGRA(&uw, &uh, &upitch);
 			if (bgra)
-				GlideGLUploadLfbAndPresent(bgra, uw, uh, upitch, /*present=*/1);
+				GlideMetalUploadLfbAndPresent(bgra, uw, uh, upitch, /*present=*/1);
 			(void)dmc_set_active_owner(kDMCOwnerGlide);
 		}
 		return FXTRUE;
@@ -1128,8 +1128,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 			int uw = 0, uh = 0, upitch = 0;
 			const uint8_t *bgra = GlideStateLfbConvertToBGRA(&uw, &uh, &upitch);
 			if (bgra)
-				GlideGLUploadLfbAndPresent(bgra, uw, uh, upitch, 1);
-			GlideGLMarkContent();
+				GlideMetalUploadLfbAndPresent(bgra, uw, uh, upitch, 1);
+			GlideMetalMarkContent();
 		}
 		glide_log("grLfbWriteRegion %dx%d @%d,%d fmt=%d -> %s",
 				  w, h, x, y, fmt, ok ? "OK" : "FAIL");
