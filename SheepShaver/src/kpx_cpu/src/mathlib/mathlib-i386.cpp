@@ -20,7 +20,8 @@
  */
 
 // 7.12.9.8  The trunc functions
-#ifndef HAVE_TRUNC
+// MSVC CRT already provides trunc; do not redefine.
+#if !defined(HAVE_TRUNC) && !defined(_MSC_VER)
 #define HAVE_TRUNC
 double trunc(double x)
 {
