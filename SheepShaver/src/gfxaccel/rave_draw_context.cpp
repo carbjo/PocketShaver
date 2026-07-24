@@ -1,12 +1,5 @@
 /*
- *  rave_draw_context.mm - RAVE draw context lifecycle and state management
- *
- *  (C) 2026 Sierra Burkhart (sierra760)
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  rave_draw_context.cpp - RAVE draw context lifecycle and state management
  *
  *  Implements:
  *    - NativeDrawPrivateNew: allocates RaveDrawPrivate, populates TQADrawContext TVECTs
@@ -21,6 +14,9 @@
 #include "cpu_emulation.h"
 #include "rave_engine.h"
 #include "rave_metal_renderer.h"
+#include "rave_device_summary.h"
+#include "dsp_pixmap_offsets.h"
+#include "gfx_log.h"
 
 #include <cstring>
 
@@ -75,6 +71,55 @@ static void FreeContextHandle(uint32_t handle)
 	if (handle > 0 && handle <= RAVE_MAX_CONTEXTS) {
 		context_table[handle - 1] = nullptr;
 	}
+}
+
+static uint32_t GDeviceDrawBufferPixelType(uint32_t gdeviceH)
+{
+	const uint32_t kRGB16 = 1;
+	const uint32_t kRGB32 = 3;
+	const uint32_t gdevice = gdeviceH ? ReadMacInt32(gdeviceH) : 0;
+	const uint32_t pixMapH = gdevice
+		? ReadMacInt32(gdevice + GDEVICE_OFF_PMAP) : 0;
+	const uint32_t pixMap = pixMapH ? ReadMacInt32(pixMapH) : 0;
+	if (!pixMap)
+		return kRGB16;
+
+	/* A 32-bit GDevice plausibly means the client draws 32-bit data; any
+	 * other depth (including 8-bit screens) maps to the RAGE-class 16-bit
+	 * 1555 draw buffer, which is what era clients software-render into. */
+	const uint16_t pixelSize = (uint16_t)ReadMacInt16(
+		pixMap + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE);
+	return pixelSize == 32 ? kRGB32 : kRGB16;
+}
+
+uint32_t RaveDeviceDrawBufferPixelType(uint32_t deviceAddr)
+{
+	/* RAVE pixel types: RGB16=1 and RGB32=3. A GDevice's QuickDraw
+	 * pixelType field describes direct/indexed organization, while pixelSize
+	 * is the actual bit depth needed by the CPU image-buffer contract. */
+	const uint32_t kRGB16 = 1;
+	const uint32_t kRGB32 = 3;
+	if (!deviceAddr) {
+		/* A NULL TQADevice means "whatever buffer the driver renders into".
+		 * On the ATI RAGE family that buffer is always 16-bit 1555, and
+		 * MechWarrior 2 6500 software-draws its HUD into the image buffer
+		 * as big-endian 555 regardless of screen depth (verified by dumping
+		 * the notice buffer around its BufferComposite callback). Advertise
+		 * the ATI-faithful format. */
+		return kRGB16;
+	}
+
+	const uint32_t deviceType = ReadMacInt32(deviceAddr + kRaveDeviceOff_Type);
+	if (deviceType == kRaveDeviceTypeMemory) {
+		const uint32_t pixelType = ReadMacInt32(
+			deviceAddr + kRaveDeviceOff_MemoryPixelType);
+		return pixelType == kRGB32 ? kRGB32 : kRGB16;
+	}
+	if (deviceType != kRaveDeviceTypeGDevice)
+		return kRGB16;
+
+	return GDeviceDrawBufferPixelType(
+		ReadMacInt32(deviceAddr + kRaveDeviceOff_GDeviceHandle));
 }
 
 /*
@@ -229,6 +274,9 @@ static const int struct_field_to_subopcode[35] = {
 int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 						   uint32 rectAddr, uint32 clipAddr, uint32 flags)
 {
+	QD3D_INIT_LOG("NativeDrawPrivateNew: ctx=0x%08x device=0x%08x rect=0x%08x clip=0x%08x flags=0x%08x contexts=%d",
+				  drawContextAddr, deviceAddr, rectAddr, clipAddr, flags,
+				  rave_context_count);
 	if (rave_logging_enabled) {
 		printf("RAVE DrawPrivateNew ENTER: ctx=0x%08x dev=0x%08x rect=0x%08x clip=0x%08x flags=0x%x\n",
 			   drawContextAddr, deviceAddr, rectAddr, clipAddr, flags);
@@ -247,6 +295,8 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	int32 right  = (int32)ReadMacInt32(rectAddr + 4);
 	int32 top    = (int32)ReadMacInt32(rectAddr + 8);
 	int32 bottom = (int32)ReadMacInt32(rectAddr + 12);
+	QD3D_INIT_LOG("NativeDrawPrivateNew: rect left=%d right=%d top=%d bottom=%d size=%dx%d",
+				  left, right, top, bottom, right - left, bottom - top);
 
 	if (rave_logging_enabled)
 		printf("RAVE DrawPrivateNew: rect raw=(%d,%d,%d,%d) size=%dx%d\n",
@@ -255,6 +305,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	// Allocate RaveDrawPrivate on native heap
 	RaveDrawPrivate *ctx = new RaveDrawPrivate();
 	if (!ctx) {
+		QD3D_INIT_LOG("NativeDrawPrivateNew: failed to allocate native context");
 		if (rave_logging_enabled)
 			printf("RAVE DrawPrivateNew: FAIL - native allocation returned null\n");
 		return kQAError;
@@ -270,6 +321,13 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	ctx->height = bottom - top;
 	ctx->flags  = flags;
 	ctx->drawContextAddr = drawContextAddr;
+	ctx->deviceAddr = deviceAddr;
+	/* Resolve the CPU image-buffer format NOW: clients may pass a
+	 * stack-allocated TQADevice (MechWarrior 2 does), so the struct is only
+	 * guaranteed valid during this call. */
+	ctx->noticePixelType = RaveDeviceDrawBufferPixelType(deviceAddr);
+	QD3D_INIT_LOG("NativeDrawPrivateNew: device draw-buffer pixelType=%u",
+				  ctx->noticePixelType);
 
 	// Initialize state defaults per RAVE spec
 	InitStateDefaults(ctx, flags);
@@ -298,8 +356,13 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	// Register in context table
 	uint32_t handle = AllocContextHandle(ctx);
 	if (handle == 0) {
+		QD3D_INIT_LOG("NativeDrawPrivateNew: context table full (%d slots)",
+					  RAVE_MAX_CONTEXTS);
 		if (rave_logging_enabled)
 			printf("RAVE DrawPrivateNew: FAIL - no free context slots (all %d occupied)\n", RAVE_MAX_CONTEXTS);
+		delete[] ctx->vertexStagingBuffer;
+		delete[] ctx->multiTexStagingBuffer;
+		delete[] ctx->zsortBuffer;
 		delete ctx;
 		return kQAError;
 	}
@@ -333,6 +396,20 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	// gfxaccel_resources directly.
 	RaveCreateMetalOverlay(ctx->left, ctx->top, ctx->width, ctx->height);
 	RaveInitMetalResources(ctx);
+	QD3D_INIT_LOG("NativeDrawPrivateNew: renderer initialization returned; handle=%u nativeState=%p size=%dx%d",
+				  handle, (void *)ctx->metal, ctx->width, ctx->height);
+	if (!ctx->metal) {
+		QD3D_INIT_LOG("NativeDrawPrivateNew: renderer initialization failed; rejecting context 0x%08x",
+					  drawContextAddr);
+		WriteMacInt32(drawContextAddr + 0, 0);
+		FreeContextHandle(handle);
+		rave_context_count--;
+		delete[] ctx->vertexStagingBuffer;
+		delete[] ctx->multiTexStagingBuffer;
+		delete[] ctx->zsortBuffer;
+		delete ctx;
+		return kQAError;
+	}
 
 	RAVE_LOG("DrawPrivateNew: handle=%d size=%dx%d contexts=%d",
 			 handle, ctx->width, ctx->height, rave_context_count);
@@ -356,6 +433,8 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 
 	// Track the most recent draw context for EngineGestalt(kQATIGestalt_CurrentContext)
 	rave_current_draw_context_addr = drawContextAddr;
+	QD3D_INIT_LOG("NativeDrawPrivateNew: success context=0x%08x handle=%u method0=0x%08x",
+				  drawContextAddr, handle, ReadMacInt32(drawContextAddr + 8));
 
 	return kQANoErr;
 }
@@ -412,9 +491,9 @@ int32 NativeDrawPrivateDelete(uint32 drawPrivateHandle)
 	// The gfxaccel_resources fan-out (RaveOnDetach in rave_engine.cpp) will
 	// release it on real mode changes, and RaveOnAttach will re-vend at the
 	// new resolution. Tearing down here caused visible black flashes on every
-	// Nanosaur scene transition (menu ↔ gameplay) because the host's main-
+	// Nanosaur scene transition (menu <-> gameplay) because the host's main-
 	// thread VBL presented frames during the interval between destroy and the
-	// next DrawPrivateNew → RaveCreateMetalOverlay call.
+	// next DrawPrivateNew -> RaveCreateMetalOverlay call.
 
 	// Clamp for safety
 	if (rave_context_count <= 0) {
@@ -439,6 +518,23 @@ static RaveDrawPrivate *GetContextFromDrawAddr(uint32 drawContextAddr)
 	return RaveGetContext(handle);
 }
 
+#if QD3D_GRAPHICS_LOGGING_ENABLED
+static bool ShouldTraceStateTag(uint32 tag)
+{
+	/* Rendering decisions, texture selection, fog/clear values, and the GL
+	 * extension range. Leave inert compatibility tags out of the focused log. */
+	return tag <= 14 || (tag >= 17 && tag <= 35) ||
+		   (tag >= 41 && tag <= 54) || (tag >= 100 && tag <= 116) ||
+		   tag >= 1000;
+}
+
+static bool ShouldTraceStateChange(uint64_t count)
+{
+	return count <= 256 || (count != 0 && (count & (count - 1)) == 0) ||
+		   (count % 2048) == 0;
+}
+#endif
+
 
 /*
  *  NativeSetFloat - Store a float state value
@@ -458,8 +554,22 @@ int32 NativeSetFloat(uint32 drawContextAddr, uint32 tag, uint32 valueBits)
 		if (ati_idx < RAVE_ATI_TAG_COUNT) {
 			float value;
 			memcpy(&value, &valueBits, sizeof(float));
-			ctx->ati_state[ati_idx].f = value;
-			if (ati_idx == kRaveATIDepthWriteEnableIndex) {
+			const uint32 oldBits = ctx->ati_state[ati_idx].i;
+			float oldValue;
+			memcpy(&oldValue, &oldBits, sizeof(float));
+			ctx->ati_state[ati_idx].i = valueBits;
+#if QD3D_GRAPHICS_LOGGING_ENABLED
+			if (oldValue != value) {
+				static uint64_t changes = 0;
+				if (ShouldTraceStateChange(++changes))
+					QD3D_STATE_LOG("SetFloat ATI change=%llu ctx=0x%08x frame=%u tag=%u index=%u old=%.7g new=%.7g bits=0x%08x",
+								   (unsigned long long)changes, drawContextAddr,
+								   ctx->frameCount, tag, ati_idx, oldValue, value,
+								   valueBits);
+			}
+#endif
+			if (oldBits != valueBits &&
+				ati_idx == kRaveATIDepthWriteEnableIndex) {
 				ctx->dirty_flags |= 1;
 			}
 			// Activate ATI fog override when fog-related tags are set (indices 2-9)
@@ -480,10 +590,24 @@ int32 NativeSetFloat(uint32 drawContextAddr, uint32 tag, uint32 valueBits)
 	if (tag == 6 || tag == 7) return kQANoErr;
 
 	// Store float bits directly (PPC passes float as uint32 in r5)
-	float value;
+	float value, oldValue;
+	const uint32 oldBits = ctx->state[tag].i;
 	memcpy(&value, &valueBits, sizeof(float));
-	ctx->state[tag].f = value;
-	ctx->dirty_flags |= (1 << (tag & 31));
+	memcpy(&oldValue, &oldBits, sizeof(float));
+	ctx->state[tag].i = valueBits;
+	if (oldBits != valueBits)
+		ctx->dirty_flags |= (1u << (tag & 31));
+#if QD3D_GRAPHICS_LOGGING_ENABLED
+	if (oldValue != value && ShouldTraceStateTag(tag)) {
+		static uint64_t changes = 0;
+		changes++;
+		if (ShouldTraceStateChange(changes)) {
+			QD3D_STATE_LOG("SetFloat change=%llu ctx=0x%08x frame=%u tag=%u old=%.7g new=%.7g bits=0x%08x",
+						   (unsigned long long)changes, drawContextAddr,
+						   ctx->frameCount, tag, oldValue, value, valueBits);
+		}
+	}
+#endif
 
 	return kQANoErr;
 }
@@ -505,8 +629,20 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 	if (tag >= 1000) {
 		uint32_t ati_idx = tag - 1000;
 		if (ati_idx < RAVE_ATI_TAG_COUNT) {
+			uint32 oldValue = ctx->ati_state[ati_idx].i;
 			ctx->ati_state[ati_idx].i = value;
-			if (ati_idx == kRaveATIDepthWriteEnableIndex) {
+#if QD3D_GRAPHICS_LOGGING_ENABLED
+			if (oldValue != value) {
+				static uint64_t changes = 0;
+				if (ShouldTraceStateChange(++changes))
+					QD3D_STATE_LOG("SetInt ATI change=%llu ctx=0x%08x frame=%u tag=%u index=%u old=%u/0x%08x new=%u/0x%08x",
+								   (unsigned long long)changes, drawContextAddr,
+								   ctx->frameCount, tag, ati_idx, oldValue,
+								   oldValue, value, value);
+			}
+#endif
+			if (oldValue != value &&
+				ati_idx == kRaveATIDepthWriteEnableIndex) {
 				ctx->dirty_flags |= 1;
 			}
 			// Activate ATI fog override when fog-related tags are set (indices 2-9)
@@ -523,8 +659,21 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 	// compatibility with callers that set them.
 	if (tag >= RAVE_MAX_TAG) return kQANoErr;
 
+	uint32 oldValue = ctx->state[tag].i;
 	ctx->state[tag].i = value;
-	ctx->dirty_flags |= (1 << (tag & 31));
+	if (oldValue != value)
+		ctx->dirty_flags |= (1u << (tag & 31));
+#if QD3D_GRAPHICS_LOGGING_ENABLED
+	if (oldValue != value && ShouldTraceStateTag(tag)) {
+		static uint64_t changes = 0;
+		changes++;
+		if (ShouldTraceStateChange(changes)) {
+			QD3D_STATE_LOG("SetInt change=%llu ctx=0x%08x frame=%u tag=%u old=%u/0x%08x new=%u/0x%08x",
+						   (unsigned long long)changes, drawContextAddr,
+						   ctx->frameCount, tag, oldValue, oldValue, value, value);
+		}
+	}
+#endif
 
 	// Reset ATI fog when standard fog mode is explicitly set
 	if (tag == 17 && value != 0) {
@@ -596,12 +745,21 @@ int32 NativeSetPtr(uint32 drawContextAddr, uint32 tag, uint32 ptr)
 			}
 			WriteATIRaveExtFuncsTable(ptr);
 			ctx->ati_state[kRaveATIRaveExtFuncsIndex].i = ptr;
-			RAVE_LOG("SetPtr: kATIRaveExtFuncs -> delivered %u TVECT addresses to 0x%08x",
-					 kRaveATIRaveExtFuncsKnownSlotCount, ptr);
+			RAVE_LOG("SetPtr: kATIRaveExtFuncs -> delivered 5 TVECT addresses to 0x%08x", ptr);
 			return kQANoErr;
 		}
 		if (ati_idx < RAVE_ATI_TAG_COUNT) {
+			uint32 oldPtr = ctx->ati_state[ati_idx].i;
 			ctx->ati_state[ati_idx].i = ptr;
+#if QD3D_GRAPHICS_LOGGING_ENABLED
+			if (oldPtr != ptr) {
+				static uint64_t changes = 0;
+				if (ShouldTraceStateChange(++changes))
+					QD3D_STATE_LOG("SetPtr ATI change=%llu ctx=0x%08x frame=%u tag=%u index=%u old=0x%08x new=0x%08x",
+								   (unsigned long long)changes, drawContextAddr,
+								   ctx->frameCount, tag, ati_idx, oldPtr, ptr);
+			}
+#endif
 		}
 		// Silently ignore unknown engine-specific tags
 		return kQANoErr;
@@ -609,8 +767,21 @@ int32 NativeSetPtr(uint32 drawContextAddr, uint32 tag, uint32 ptr)
 	// GL + standard range (0-153)
 	if (tag >= RAVE_MAX_TAG) return kQANoErr;
 
+	uint32 oldPtr = ctx->state[tag].i;
 	ctx->state[tag].i = ptr;  // Mac address stored as uint32
-	ctx->dirty_flags |= (1 << (tag & 31));
+	if (oldPtr != ptr)
+		ctx->dirty_flags |= (1u << (tag & 31));
+#if QD3D_GRAPHICS_LOGGING_ENABLED
+	if (oldPtr != ptr && ShouldTraceStateTag(tag)) {
+		static uint64_t changes = 0;
+		changes++;
+		if (ShouldTraceStateChange(changes)) {
+			QD3D_STATE_LOG("SetPtr change=%llu ctx=0x%08x frame=%u tag=%u old=0x%08x new=0x%08x",
+						   (unsigned long long)changes, drawContextAddr,
+						   ctx->frameCount, tag, oldPtr, ptr);
+		}
+	}
+#endif
 
 	return kQANoErr;
 }
