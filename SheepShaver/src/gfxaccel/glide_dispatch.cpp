@@ -83,9 +83,13 @@ extern int GlideStateFogMode(void);
 extern uint32_t GlideStateFogColor(void);
 extern void GlideStateSetDither(int mode);
 extern void GlideStateSetRenderBuffer(int buf);
-extern void GlideStateSetColorCombine(int func);
-extern void GlideStateSetAlphaCombine(int func);
-extern void GlideStateSetTexCombine(int rgb, int a);
+extern void GlideStateSetColorCombine(int func, int factor, int local,
+									 int other, int invert);
+extern void GlideStateSetAlphaCombine(int func, int factor, int local,
+									 int other, int invert);
+extern void GlideStateSetTexCombine(int rgb_func, int rgb_factor,
+								   int alpha_func, int alpha_factor,
+								   int rgb_invert, int alpha_invert);
 extern void GlideStateSetTexLodBias(float b);
 extern void GlideStateSetTexDetail(int n, int d, int clamp);
 extern void GlideStateSetTexMipMapMode(int mode);
@@ -662,7 +666,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		GlideStateSetAlphaBlend((int)r3, (int)r4, (int)r5, (int)r6);
 		return 0;
 	case kGlide_grAlphaCombine:
-		GlideStateSetAlphaCombine((int)r3);
+		GlideStateSetAlphaCombine((int)r3, (int)r4, (int)r5,
+								 (int)r6, (int)r7);
 		return 0;
 	case kGlide_grAlphaControlsITRGBLighting:
 		return 0;
@@ -691,7 +696,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		GlideMetalSetClipWindow((int)r3, (int)r4, (int)r5, (int)r6);
 		return 0;
 	case kGlide_grColorCombine:
-		GlideStateSetColorCombine((int)r3);
+		GlideStateSetColorCombine((int)r3, (int)r4, (int)r5,
+								 (int)r6, (int)r7);
 		return 0;
 	case kGlide_grColorMask:
 		/* void grColorMask(FxBool rgb, FxBool a) */
@@ -803,8 +809,9 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		return 0;
 	case kGlide_grTexCombine:
 		/* void grTexCombine(tmu, rgb_func, rgb_factor, alpha_func, alpha_factor,
-		 *                   rgb_invert, alpha_invert) - store rgb/alpha funcs. */
-		GlideStateSetTexCombine((int)r4, (int)r6);
+		 *                   rgb_invert, alpha_invert) */
+		GlideStateSetTexCombine((int)r4, (int)r5, (int)r6, (int)r7,
+							  (int)r8, (int)r9);
 		return 0;
 	case kGlide_grTexDetailControl:
 		GlideStateSetTexDetail((int)r4, (int)r5, (int)r6);

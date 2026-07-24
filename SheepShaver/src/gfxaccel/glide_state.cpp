@@ -54,8 +54,21 @@ struct GlideState {
 	int      dither_mode;
 	int      render_buffer;
 	int      color_combine_func;
+	int      color_combine_factor;
+	int      color_combine_local;
+	int      color_combine_other;
+	int      color_combine_invert;
 	int      alpha_combine_func;
-	int      tex_combine_rgb, tex_combine_alpha;
+	int      alpha_combine_factor;
+	int      alpha_combine_local;
+	int      alpha_combine_other;
+	int      alpha_combine_invert;
+	int      tex_combine_rgb_func;
+	int      tex_combine_rgb_factor;
+	int      tex_combine_alpha_func;
+	int      tex_combine_alpha_factor;
+	int      tex_combine_rgb_invert;
+	int      tex_combine_alpha_invert;
 	float    tex_lod_bias;
 	int      tex_detail_n, tex_detail_d, tex_detail_clamp;
 	uint32_t lfb_const_alpha;
@@ -81,7 +94,7 @@ struct GlideState {
 	int      tex_mipmap_mode;
 	/* Simulated TMU framebuffer (guest addresses are offsets into this). */
 	std::vector<uint8_t> tmu_mem;
-	/* 256-entry ARGB8888 palette for GR_TEXFMT_P_8 / download table. */
+	/* 256-entry RGB palette words for GR_TEXFMT_P_8 / download table. */
 	uint32_t tex_palette[256];
 
 	bool     lfb_locked;
@@ -136,10 +149,23 @@ void GlideStateResetDefaults(void)
 	g_glide.fog_color = 0;
 	g_glide.dither_mode = 0;
 	g_glide.render_buffer = 0;
-	g_glide.color_combine_func = 0;
-	g_glide.alpha_combine_func = 0;
-	g_glide.tex_combine_rgb = 0;
-	g_glide.tex_combine_alpha = 0;
+	/* Glide defaults: pass the iterated local color/alpha through. */
+	g_glide.color_combine_func = 1; /* GR_COMBINE_FUNCTION_LOCAL */
+	g_glide.color_combine_factor = 0;
+	g_glide.color_combine_local = 0; /* GR_COMBINE_LOCAL_ITERATED */
+	g_glide.color_combine_other = 3; /* GR_COMBINE_OTHER_NONE */
+	g_glide.color_combine_invert = 0;
+	g_glide.alpha_combine_func = 1;
+	g_glide.alpha_combine_factor = 0;
+	g_glide.alpha_combine_local = 0;
+	g_glide.alpha_combine_other = 3;
+	g_glide.alpha_combine_invert = 0;
+	g_glide.tex_combine_rgb_func = 1;
+	g_glide.tex_combine_rgb_factor = 0;
+	g_glide.tex_combine_alpha_func = 1;
+	g_glide.tex_combine_alpha_factor = 0;
+	g_glide.tex_combine_rgb_invert = 0;
+	g_glide.tex_combine_alpha_invert = 0;
 	g_glide.tex_lod_bias = 0.f;
 	g_glide.tex_detail_n = g_glide.tex_detail_d = g_glide.tex_detail_clamp = 0;
 	g_glide.lfb_const_alpha = 0xff;
@@ -219,10 +245,33 @@ void GlideStateSetClip(int minx, int miny, int maxx, int maxy)
 void GlideStateSetConstantColor(uint32_t c)
 {
 	g_glide.constant_color = c;
-	g_glide.constant_a = ((c >> 24) & 0xff) / 255.f;
-	g_glide.constant_r = ((c >> 16) & 0xff) / 255.f;
-	g_glide.constant_g = ((c >> 8) & 0xff) / 255.f;
-	g_glide.constant_b = (c & 0xff) / 255.f;
+	switch (g_glide.color_format) {
+	case GR_COLORFORMAT_ABGR:
+		g_glide.constant_a = ((c >> 24) & 0xff) / 255.f;
+		g_glide.constant_b = ((c >> 16) & 0xff) / 255.f;
+		g_glide.constant_g = ((c >> 8) & 0xff) / 255.f;
+		g_glide.constant_r = (c & 0xff) / 255.f;
+		break;
+	case GR_COLORFORMAT_RGBA:
+		g_glide.constant_r = ((c >> 24) & 0xff) / 255.f;
+		g_glide.constant_g = ((c >> 16) & 0xff) / 255.f;
+		g_glide.constant_b = ((c >> 8) & 0xff) / 255.f;
+		g_glide.constant_a = (c & 0xff) / 255.f;
+		break;
+	case GR_COLORFORMAT_BGRA:
+		g_glide.constant_b = ((c >> 24) & 0xff) / 255.f;
+		g_glide.constant_g = ((c >> 16) & 0xff) / 255.f;
+		g_glide.constant_r = ((c >> 8) & 0xff) / 255.f;
+		g_glide.constant_a = (c & 0xff) / 255.f;
+		break;
+	case GR_COLORFORMAT_ARGB:
+	default:
+		g_glide.constant_a = ((c >> 24) & 0xff) / 255.f;
+		g_glide.constant_r = ((c >> 16) & 0xff) / 255.f;
+		g_glide.constant_g = ((c >> 8) & 0xff) / 255.f;
+		g_glide.constant_b = (c & 0xff) / 255.f;
+		break;
+	}
 }
 void GlideStateSetConstantColor4(float r, float g, float b, float a)
 {
@@ -235,6 +284,10 @@ void GlideStateSetConstantColor4(float r, float g, float b, float a)
 	g_glide.constant_color = (q(a) << 24) | (q(r) << 16) | (q(g) << 8) | q(b);
 }
 uint32_t GlideStateConstantColor(void) { return g_glide.constant_color; }
+float GlideStateConstantR(void) { return g_glide.constant_r; }
+float GlideStateConstantG(void) { return g_glide.constant_g; }
+float GlideStateConstantB(void) { return g_glide.constant_b; }
+float GlideStateConstantA(void) { return g_glide.constant_a; }
 
 void GlideStateSetDepth(int mode, int func, int mask)
 {
@@ -284,12 +337,32 @@ void GlideStateSetFog(int mode, uint32_t color)
 }
 void GlideStateSetDither(int mode) { g_glide.dither_mode = mode; }
 void GlideStateSetRenderBuffer(int buf) { g_glide.render_buffer = buf; }
-void GlideStateSetColorCombine(int func) { g_glide.color_combine_func = func; }
-void GlideStateSetAlphaCombine(int func) { g_glide.alpha_combine_func = func; }
-void GlideStateSetTexCombine(int rgb, int a)
+void GlideStateSetColorCombine(int func, int factor, int local, int other, int invert)
 {
-	g_glide.tex_combine_rgb = rgb;
-	g_glide.tex_combine_alpha = a;
+	g_glide.color_combine_func = func;
+	g_glide.color_combine_factor = factor;
+	g_glide.color_combine_local = local;
+	g_glide.color_combine_other = other;
+	g_glide.color_combine_invert = invert;
+}
+void GlideStateSetAlphaCombine(int func, int factor, int local, int other, int invert)
+{
+	g_glide.alpha_combine_func = func;
+	g_glide.alpha_combine_factor = factor;
+	g_glide.alpha_combine_local = local;
+	g_glide.alpha_combine_other = other;
+	g_glide.alpha_combine_invert = invert;
+}
+void GlideStateSetTexCombine(int rgb_func, int rgb_factor,
+							int alpha_func, int alpha_factor,
+							int rgb_invert, int alpha_invert)
+{
+	g_glide.tex_combine_rgb_func = rgb_func;
+	g_glide.tex_combine_rgb_factor = rgb_factor;
+	g_glide.tex_combine_alpha_func = alpha_func;
+	g_glide.tex_combine_alpha_factor = alpha_factor;
+	g_glide.tex_combine_rgb_invert = rgb_invert;
+	g_glide.tex_combine_alpha_invert = alpha_invert;
 }
 void GlideStateSetTexLodBias(float b) { g_glide.tex_lod_bias = b; }
 void GlideStateSetTexDetail(int n, int d, int clamp)
@@ -304,6 +377,7 @@ void GlideStateSetLfbConstDepth(uint32_t d) { g_glide.lfb_const_depth = d; }
 void GlideStateSetLfbWriteColorFormat(int f) { g_glide.lfb_write_color_format = f; }
 void GlideStateSetLfbWriteColorSwizzle(int s) { g_glide.lfb_write_color_swizzle = s; }
 void GlideStateSetCoordSystem(int c) { g_glide.coord_system = c; }
+int GlideStateCoordSystem(void) { return g_glide.coord_system; }
 void GlideStateDisableAllEffects(void)
 {
 	g_glide.fog_mode = 0;
@@ -316,6 +390,16 @@ void GlideStateDisableAllEffects(void)
 
 int GlideStateAlphaBlendSrc(void) { return g_glide.alpha_blend_src; }
 int GlideStateAlphaBlendDst(void) { return g_glide.alpha_blend_dst; }
+int GlideStateColorCombineFunction(void) { return g_glide.color_combine_func; }
+int GlideStateColorCombineFactor(void) { return g_glide.color_combine_factor; }
+int GlideStateColorCombineLocal(void) { return g_glide.color_combine_local; }
+int GlideStateColorCombineOther(void) { return g_glide.color_combine_other; }
+int GlideStateColorCombineInvert(void) { return g_glide.color_combine_invert; }
+int GlideStateAlphaCombineFunction(void) { return g_glide.alpha_combine_func; }
+int GlideStateAlphaCombineFactor(void) { return g_glide.alpha_combine_factor; }
+int GlideStateAlphaCombineLocal(void) { return g_glide.alpha_combine_local; }
+int GlideStateAlphaCombineOther(void) { return g_glide.alpha_combine_other; }
+int GlideStateAlphaCombineInvert(void) { return g_glide.alpha_combine_invert; }
 int GlideStateColorFormat(void) { return g_glide.color_format; }
 int GlideStateChromaMode(void) { return g_glide.chroma_mode; }
 uint32_t GlideStateChromaValue(void) { return g_glide.chroma_value; }

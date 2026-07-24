@@ -47,7 +47,8 @@ static bool glide_is_in_frame = false;
 static bool glide_has_context = false;
 
 static GLuint glide_gl_texture = 0;
-static int glide_texture_width = 0, glide_texture_height = 0;
+static float glide_texture_s_extent = 256.f;
+static float glide_texture_t_extent = 256.f;
 static bool glide_is_texture_enabled = false;
 
 struct GlideMetalTextureCacheEntry {
@@ -84,7 +85,7 @@ static void GlideReleaseTextureCache(void)
 	}
 	glide_texture_cache.clear();
 	glide_gl_texture = 0;
-	glide_texture_width = glide_texture_height = 0;
+	glide_texture_s_extent = glide_texture_t_extent = 256.f;
 	glide_is_texture_enabled = false;
 }
 
@@ -105,7 +106,19 @@ extern int GlideStateCullMode(void);
 extern int GlideStateAlphaBlendSrc(void);
 extern int GlideStateAlphaBlendDst(void);
 extern int GlideStateColorFormat(void);
-extern uint32_t GlideStateConstantColor(void);
+extern float GlideStateConstantR(void);
+extern float GlideStateConstantG(void);
+extern float GlideStateConstantB(void);
+extern float GlideStateConstantA(void);
+extern int GlideStateColorCombineFunction(void);
+extern int GlideStateColorCombineFactor(void);
+extern int GlideStateColorCombineLocal(void);
+extern int GlideStateColorCombineOther(void);
+extern int GlideStateColorCombineInvert(void);
+extern int GlideStateAlphaCombineFunction(void);
+extern int GlideStateAlphaCombineLocal(void);
+extern int GlideStateAlphaCombineInvert(void);
+extern int GlideStateCoordSystem(void);
 extern int GlideStateVertexOffset(int param);
 extern int GlideStateVertexStride(void);
 extern int GlideStateOriginUpperLeft(void);
@@ -272,6 +285,41 @@ static GLenum GlideMapGLCmpFunc(int gr)
 	}
 }
 
+enum {
+	kGlideCombineFunctionZero = 0,
+	kGlideCombineFunctionLocal = 1,
+	kGlideCombineFunctionLocalAlpha = 2,
+	kGlideCombineFunctionScaleOther = 3,
+	kGlideCombineFunctionScaleOtherAddLocal = 4,
+	kGlideCombineFunctionScaleOtherAddLocalAlpha = 5,
+	kGlideCombineFunctionScaleOtherMinusLocal = 6,
+	kGlideCombineFunctionScaleOtherMinusLocalAddLocal = 7,
+	kGlideCombineFunctionScaleOtherMinusLocalAddLocalAlpha = 8,
+	kGlideCombineFactorLocal = 1,
+	kGlideCombineFactorOne = 8,
+	kGlideCombineLocalIterated = 0,
+	kGlideCombineLocalConstant = 1,
+	kGlideCombineOtherTexture = 1,
+	kGlideWindowCoords = 0
+};
+
+static bool GlideColorCombineUsesTexture(void)
+{
+	if (GlideStateColorCombineOther() != kGlideCombineOtherTexture)
+		return false;
+	switch (GlideStateColorCombineFunction()) {
+	case kGlideCombineFunctionScaleOther:
+	case kGlideCombineFunctionScaleOtherAddLocal:
+	case kGlideCombineFunctionScaleOtherAddLocalAlpha:
+	case kGlideCombineFunctionScaleOtherMinusLocal:
+	case kGlideCombineFunctionScaleOtherMinusLocalAddLocal:
+	case kGlideCombineFunctionScaleOtherMinusLocalAddLocalAlpha:
+		return true;
+	default:
+		return false;
+	}
+}
+
 void GlideMetalApplyState(void)
 {
 	if (!SharedMetalDevice()) return;
@@ -300,7 +348,8 @@ void GlideMetalApplyState(void)
 	glEnable(GL_BLEND);
 	glBlendFunc(GlideMapBlendFactor(GlideStateAlphaBlendSrc(), true),
 				GlideMapBlendFactor(GlideStateAlphaBlendDst(), false));
-	if (glide_is_texture_enabled && glide_gl_texture) {
+	if (glide_is_texture_enabled && glide_gl_texture &&
+		GlideColorCombineUsesTexture()) {
 		glEnable(GL_TEXTURE_2D);
 		glBindTexture(GL_TEXTURE_2D, glide_gl_texture);
 		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
@@ -578,22 +627,82 @@ static void GlideEmitVertex(const uint8_t *base)
 		r = ((c >> 16) & 0xff) / 255.f;
 		g = ((c >> 8) & 0xff) / 255.f;
 		b = (c & 0xff) / 255.f;
-	} else {
-		/* Constant color fallback. */
-		const uint32_t c = GlideStateConstantColor();
-		a = ((c >> 24) & 0xff) / 255.f;
-		r = ((c >> 16) & 0xff) / 255.f;
-		g = ((c >> 8) & 0xff) / 255.f;
-		b = (c & 0xff) / 255.f;
 	}
 
 	int a_off = GlideLayoutOff(0x10, 0x06);
 	if (a_off >= 0 && pargb_off < 0)
 		a = GlideLoadF32(base + a_off);
 
+	if (r > 1.f || g > 1.f || b > 1.f) {
+		r /= 255.f; g /= 255.f; b /= 255.f;
+	}
+	if (a > 1.f) a /= 255.f;
+
+	const float iterated_r = r;
+	const float iterated_g = g;
+	const float iterated_b = b;
+	const float iterated_a = a;
+	auto select_local_rgb = [&](int local) {
+		if (local == kGlideCombineLocalConstant) {
+			r = GlideStateConstantR();
+			g = GlideStateConstantG();
+			b = GlideStateConstantB();
+		} else if (local == kGlideCombineLocalIterated) {
+			r = iterated_r;
+			g = iterated_g;
+			b = iterated_b;
+		} else {
+			r = g = b = 0.f;
+		}
+	};
+
+	/* Implement the two color-combine paths used by Diablo II:
+	 *   LOCAL                         -> solid iterated/constant color
+	 *   SCALE_OTHER(texture, LOCAL)  -> texture modulated by local color
+	 * SCALE_OTHER(texture, ONE) uses a white modulation color. */
+	const int color_func = GlideStateColorCombineFunction();
+	if (color_func == kGlideCombineFunctionZero) {
+		r = g = b = 0.f;
+	} else if (color_func == kGlideCombineFunctionLocal) {
+		select_local_rgb(GlideStateColorCombineLocal());
+	} else if (color_func == kGlideCombineFunctionLocalAlpha) {
+		const float local_a = GlideStateColorCombineLocal() ==
+			kGlideCombineLocalConstant ? GlideStateConstantA() : iterated_a;
+		r = g = b = local_a;
+	} else if (GlideColorCombineUsesTexture()) {
+		if (GlideStateColorCombineFactor() == kGlideCombineFactorOne) {
+			r = g = b = 1.f;
+		} else {
+			select_local_rgb(GlideStateColorCombineLocal());
+		}
+	}
+
+	if (GlideStateColorCombineInvert() && !GlideColorCombineUsesTexture()) {
+		r = 1.f - r;
+		g = 1.f - g;
+		b = 1.f - b;
+	}
+
+	/* Preserve texture alpha as a chroma discard mask. Chroma-keying happens
+	 * before Glide's alpha combine stage, so a ZERO alpha combine must not
+	 * erase that mask in the fixed-function emulation. */
+	const int alpha_func = GlideStateAlphaCombineFunction();
+	if (alpha_func == kGlideCombineFunctionZero) {
+		a = GlideStateChromaMode() && GlideColorCombineUsesTexture() ? 1.f : 0.f;
+	} else if (alpha_func == kGlideCombineFunctionLocal) {
+		a = GlideStateAlphaCombineLocal() == kGlideCombineLocalConstant
+			? GlideStateConstantA() : iterated_a;
+	} else {
+		a = iterated_a;
+	}
+	if (GlideStateAlphaCombineInvert() &&
+		!(GlideStateChromaMode() && GlideColorCombineUsesTexture()))
+		a = 1.f - a;
+
 	/* ST0 contains s/q,t/q in Glide texel units and Q0 contains q.  OpenGL's
-	 * projective coordinate division happens after interpolation, so divide
-	 * the numerators by the bound texture dimensions and pass Q0 as q. */
+	 * projective coordinate division happens after interpolation. Window
+	 * coordinates use a virtual 256-unit long axis regardless of mip size;
+	 * clip coordinates are already normalized to [0,1]. */
 	int st_off = GlideLayoutOff(0x40, 0x09);
 	if (st_off >= 0) {
 		const float s = GlideLoadF32(base + st_off);
@@ -602,15 +711,14 @@ static void GlideEmitVertex(const uint8_t *base)
 		float q = q_off >= 0 ? GlideLoadF32(base + q_off) : 1.f;
 		if (!std::isfinite(q) || std::fabs(q) < 1.0e-20f)
 			q = 1.f;
-		const float tw = glide_texture_width > 0 ? (float)glide_texture_width : 1.f;
-		const float th = glide_texture_height > 0 ? (float)glide_texture_height : 1.f;
-		glTexCoord4f(s / tw, t / th, 0.f, q);
+		if (GlideStateCoordSystem() == kGlideWindowCoords) {
+			glTexCoord4f(s / glide_texture_s_extent,
+						 t / glide_texture_t_extent, 0.f, q);
+		} else {
+			glTexCoord4f(s, t, 0.f, q);
+		}
 	}
 
-	if (r > 1.f || g > 1.f || b > 1.f) {
-		r /= 255.f; g /= 255.f; b /= 255.f;
-	}
-	if (a > 1.f) a /= 255.f;
 	glColor4f(r, g, b, a);
 	glVertex3f(x, y, 0.f);
 }
@@ -940,9 +1048,10 @@ static void GlideDecodeTextureLevel(const uint8_t *src, int w, int h, int format
 		if (bpp == 1) {
 			const uint8_t p = *s++;
 			if (format == 0x05 || format == 0x08) {
-				/* P_8 palette index - palette is guest ARGB words we stored LE host */
+				/* P_8 expands a palette RGB value with opaque alpha. The
+				 * standard palette word's high byte is not texture alpha. */
 				const uint32_t c = pal ? pal[p] : 0xffffffffu;
-				A = (uint8_t)((c >> 24) & 0xff);
+				A = 255;
 				R = (uint8_t)((c >> 16) & 0xff);
 				G = (uint8_t)((c >> 8) & 0xff);
 				B = (uint8_t)(c & 0xff);
@@ -1162,8 +1271,18 @@ void GlideMetalTexSource(uint32_t start_addr, int even_odd, int small_lod,
 	}
 	glBindTexture(GL_TEXTURE_2D, 0);
 
-	glide_texture_width = w;
-	glide_texture_height = h;
+	/* Window-coordinate texture coordinates describe one repeat with a
+	 * 256-unit long axis. The shorter axis is reduced only by aspect ratio,
+	 * never by the selected LOD's physical pixel dimensions. */
+	glide_texture_s_extent = 256.f;
+	glide_texture_t_extent = 256.f;
+	if (aspect_log2 > 0) {
+		const int shift = aspect_log2 > 3 ? 3 : aspect_log2;
+		glide_texture_t_extent /= (float)(1 << shift);
+	} else if (aspect_log2 < 0) {
+		const int shift = -aspect_log2 > 3 ? 3 : -aspect_log2;
+		glide_texture_s_extent /= (float)(1 << shift);
+	}
 	glide_is_texture_enabled = true;
 
 	static uint32_t s_src_n = 0;
@@ -1174,13 +1293,13 @@ void GlideMetalTexSource(uint32_t start_addr, int even_odd, int small_lod,
 
 void GlideMetalTexDownloadTable(int type, const void *data)
 {
-	/* type 2 = palette (Glide2 GR_TEXTABLE_PALETTE). 256 x 32-bit ARGB. */
+	/* type 2 = palette (Glide2 GR_TEXTABLE_PALETTE). 256 RGB words. */
 	if (!data) return;
 	if (type == 2 || type == 0x2) {
 		const uint8_t *p = (const uint8_t *)data;
 		uint32_t pal[256];
 		for (int i = 0; i < 256; i++) {
-			/* Guest big-endian ARGB words */
+			/* Guest big-endian palette words; P_8 ignores the high byte. */
 			pal[i] = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
 					 ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 			p += 4;
