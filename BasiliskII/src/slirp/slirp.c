@@ -3,6 +3,18 @@
 #include <winerror.h>
 #endif
 
+#ifdef __APPLE__
+#include "TargetConditionals.h"
+#endif
+
+#if TARGET_OS_IPHONE
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <resolv.h>
+#include <dns.h>
+#include <stdlib.h>
+#endif
+
 /* host address */
 struct in_addr our_addr;
 /* host dns address */
@@ -86,16 +98,44 @@ static int get_dns_addr(struct in_addr *pdns_addr)
 
 static int get_dns_addr(struct in_addr *pdns_addr)
 {
-    char buff[512];
-    char buff2[257];
-    FILE *f;
-    int found = 0;
-    struct in_addr tmp_addr;
-    
-    f = fopen("/etc/resolv.conf", "r");
-    if (!f)
-        return -1;
+#if TARGET_OS_IPHONE
+	// /etc/resolv.conf is outside the app's allowed permissions on iOS.
+	res_state res = malloc(sizeof(struct __res_state));
+	
+	int result = res_ninit(res);
+	
+	if ( result == 0 )
+	{
+		for ( int i = 0; i < res->nscount; i++ )
+		{
+			char* anAddress = inet_ntoa(res->nsaddr_list[i].sin_addr);
+			lprint ("%s Found address: %s\n", __PRETTY_FUNCTION__, anAddress);
+			
+			if ((res->nsaddr_list[i].sin_addr.s_addr != loopback_addr.s_addr) && (res->nsaddr_list[i].sin_addr.s_addr != 0)) {
+				*pdns_addr = res->nsaddr_list[i].sin_addr;
+				lprint ("%s Using DNS address: %s\n", __PRETTY_FUNCTION__, anAddress);
+				break;
+			}
+		}
+	}
+	else {
+		lprint ("%s res_init result != 0\n", __PRETTY_FUNCTION__);
+		return -1;
+	}
+	free (res);
+#else
+	char buff[512];
+	char buff2[257];
+	FILE *f;
+	int found = 0;
+	struct in_addr tmp_addr;
 
+	f = fopen("/etc/resolv.conf", "r");
+	if (!f) {
+		lprint ("%s Can't open /etc/resolv.conf\n", __PRETTY_FUNCTION__);
+        return -1;
+	}
+	
     lprint("IP address of your DNS(s): ");
     while (fgets(buff, 512, f) != NULL) {
         if (sscanf(buff, "nameserver%*[ \t]%256s", buff2) == 1) {
@@ -118,6 +158,7 @@ static int get_dns_addr(struct in_addr *pdns_addr)
     fclose(f);
     if (!found)
         return -1;
+#endif
     return 0;
 }
 

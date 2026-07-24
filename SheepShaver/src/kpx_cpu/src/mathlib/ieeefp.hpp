@@ -23,7 +23,7 @@
 
 // Can we use C99 extensions in C++ mode?
 #ifdef HAVE_FENV_H
-#if defined(__GNUC__) || defined(_MSC_VER) || defined(__clang__)
+#if defined __GNUC__
 #define USE_FENV_H 1
 #endif
 #endif
@@ -48,7 +48,7 @@ extern "C" int fesetround(int);
 
 // Make sure previous instructions are executed first
 // XXX this is most really a hint to the compiler so that is doesn't
-// reorder calls to fe*() functions before the actual computation...
+// reorder calls to fe*() functions before the actual compuation...
 #if defined __GNUC__
 #define febarrier() __asm__ __volatile__ ("")
 #endif

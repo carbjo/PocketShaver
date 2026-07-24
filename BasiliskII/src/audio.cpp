@@ -166,6 +166,24 @@ static int32 AudioGetInfo(uint32 infoPtr, uint32 selector, uint32 sourceID)
 			WriteMacInt32(infoPtr + scd_reserved, 0);
 			break;
 
+		case siCompressionFactor: {
+			// Answer like a real sound output device: this output takes
+			// uncompressed PCM.  Delegating this to the Apple Mixer returns
+			// siUnknownInfoType forever, and some apps (Diablo II's splash)
+			// poll the selector in a loop until they get a valid answer --
+			// the eternal -231 left them hung.
+			uint32 bytes_per_sample = AudioStatus.sample_size >> 3;
+			WriteMacInt32(infoPtr + 0, 20);								// recordSize
+			WriteMacInt32(infoPtr + 4, AudioStatus.sample_size == 16 ? FOURCC('t','w','o','s') : FOURCC('r','a','w',' '));	// format
+			WriteMacInt16(infoPtr + 8, 0);								// compressionID = notCompressed
+			WriteMacInt16(infoPtr + 10, 1);								// samplesPerPacket
+			WriteMacInt16(infoPtr + 12, bytes_per_sample);				// bytesPerPacket
+			WriteMacInt16(infoPtr + 14, bytes_per_sample * AudioStatus.channels);	// bytesPerFrame
+			WriteMacInt16(infoPtr + 16, bytes_per_sample);				// bytesPerSample
+			WriteMacInt16(infoPtr + 18, 0);								// futureUse
+			break;
+		}
+
 		default:	// Delegate to Apple Mixer
 			if (AudioStatus.mixer == 0)
 				return badComponentSelector;
@@ -558,7 +576,7 @@ int16 SoundInPrime(uint32 pb, uint32 dce)
 {
 	D(bug("SoundInPrime\n"));
 	//!!
-
+	
 	uint16 code = ReadMacInt16(pb + csCode);
 	D(bug("SoundInControl %d\n", code));
 
@@ -592,7 +610,7 @@ int16 SoundInControl(uint32 pb, uint32 dce)
 
 	if (code != 2)
 		return -231;	// siUnknownInfoType
-
+	
 	uint32 selector = ReadMacInt32(pb + csParam); // 4-byte selector (should match via FOURCC above)
 
 	switch (selector) {
@@ -600,31 +618,31 @@ int16 SoundInControl(uint32 pb, uint32 dce)
 //			If possible, the driver initializes the device to a sampling rate of 22 kHz, a sample size of 8 bits, mono recording, no compression, automatic gain control on, and all other features off.
 			return noErr;
 		}
-
+			
 		case siCloseDriver: {
 //			The sound input device driver should stop any recording in progress, deallocate the input hardware, and initialize local variables to default settings.
 			return noErr;
 		}
-
+			
 		case siInputSource: {
 			SoundInSource = ReadMacInt16(pb + csParam + 4);
 			return noErr;
 		}
-
+			
 		case siPlayThruOnOff: {
 			SoundInPlaythrough = ReadMacInt16(pb + csParam + 4);
 			return noErr;
 		}
-
+			
 		case siOptionsDialog: {
 			return noErr;
 		}
-
+			
 		case siInputGain: {
 			SoundInGain = ReadMacInt32(pb + csParam + 4);
 			return noErr;
 		}
-
+			
 		default:
 			return -231;	// siUnknownInfoType
 	}
@@ -641,7 +659,7 @@ int16 SoundInStatus(uint32 pb, uint32 dce) // A0 points to Device Manager parame
 	D(bug("SoundInStatus %d\n", code));
 	if (code != 2)
 		return -231;	// siUnknownInfoType
-
+	
 	// two choices on return
 	// 1: if under 18 bytes, place # of bytes at (pb+csParam) and write from (pb+csParam+4) on
 	// 2: if over 18 bytes, place 0 at (pb+csParam) and directly write into address pointed to by (pb+csParam+4)
@@ -668,14 +686,14 @@ int16 SoundInStatus(uint32 pb, uint32 dce) // A0 points to Device Manager parame
 //			};
 			WriteMacInt32(pb + csParam, 0); // response will be written directly into buffer
 			Host2Mac_memcpy(bufferptr, str, sizeof(str));
-
+			
 			return noErr;
 		}
 
 		case siDeviceIcon: {
 			// todo: add soundin ICN, borrow from CD ROM for now
 			WriteMacInt32(pb + csParam, 0);
-
+			
 			M68kRegisters r;
 			r.d[0] = sizeof(CDROMIcon);
 			Execute68kTrap(0xa122, &r);	// NewHandle()
@@ -685,9 +703,9 @@ int16 SoundInStatus(uint32 pb, uint32 dce) // A0 points to Device Manager parame
 			WriteMacInt32(bufferptr, h);
 			uint32 sp = ReadMacInt32(h);
 			Host2Mac_memcpy(sp, CDROMIcon, sizeof(CDROMIcon));
-
+			
 			return noErr;
-
+			
 			// 68k code causes crash in sheep and link error in basilisk
 //			M68kRegisters r;
 //			static const uint8 proc[] = {
@@ -720,7 +738,7 @@ int16 SoundInStatus(uint32 pb, uint32 dce) // A0 points to Device Manager parame
 //			} else
 //				return -192;		// resNotFound
 		}
-
+			
 		case siInputSource: {
 			// return -231 if only 1 or index of current source if more
 
@@ -728,10 +746,10 @@ int16 SoundInStatus(uint32 pb, uint32 dce) // A0 points to Device Manager parame
 			WriteMacInt16(pb + csParam + 4, SoundInSource); // index of selected source
 			return noErr;
 		}
-
+			
 		case siInputSourceNames: {
 			// return -231 if only 1 or handle to STR# resource if more
-
+			
 			const uint8 str[] = {
 				0x00, 0x02, // 2-byte count of #strings
 				// byte size indicator (up to 255 length supported)
@@ -761,40 +779,40 @@ int16 SoundInStatus(uint32 pb, uint32 dce) // A0 points to Device Manager parame
 			WriteMacInt32(bufferptr, h);
 			uint32 sp = ReadMacInt32(h);
 			Host2Mac_memcpy(sp, str, sizeof(str));
-
+			
 			return noErr;
 		}
-
+			
 		case siOptionsDialog: {
 			// 0 if no options box supported and 1 if so
 			WriteMacInt32(pb + csParam, 2); // response not in buffer, need to copy integer
 			WriteMacInt16(pb + csParam + 4, 1); // Integer data type
 			return noErr;
 		}
-
+			
 		case siPlayThruOnOff: {
 			// playthrough volume, 0 is off and 7 is max
 			WriteMacInt32(pb + csParam, 2);
 			WriteMacInt16(pb + csParam + 4, SoundInPlaythrough);
 			return noErr;
 		}
-
+			
 		case siNumberChannels: {
 			// 1 is mono and 2 is stereo
 			WriteMacInt32(pb + csParam, 2);
 			WriteMacInt16(pb + csParam + 4, 2);
 			return noErr;
 		}
-
+	
 		case siSampleRate: {
 			WriteMacInt32(pb + csParam, 0);
 			WriteMacInt32(bufferptr, 0xac440000); // 44100.00000 Hz, of Fixed data type
 			return noErr;
 		}
-
+	
 		case siSampleRateAvailable: {
 			WriteMacInt32(pb + csParam, 0);
-
+            
             M68kRegisters r;
             r.d[0] = 4;
             Execute68kTrap(0xa122, &r);    // NewHandle()
@@ -808,14 +826,14 @@ int16 SoundInStatus(uint32 pb, uint32 dce) // A0 points to Device Manager parame
 
 			return noErr;
 		}
-
+			
 		case siInputGain: {
 			WriteMacInt32(pb + csParam, 4);
 			WriteMacInt32(pb + csParam + 4, SoundInGain);
 			return noErr;
 		}
-
-
+								   
+			
 		default:
 			return -231;	// siUnknownInfoType
 	}

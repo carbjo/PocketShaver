@@ -23,35 +23,6 @@
 #include "main.h"
 #include "macos_util.h"
 #include "timer.h"
-#include "audio.h"
-
-/* Always include when available so DESCENT_MOVIE_DIAGNOSTICS is independent
- * of cmake wait-logging. SheepShaver stages this header; Basilisk II may not. */
-#if defined(SHEEPSHAVER) || (defined(QD3D_WAIT_LOGGING_ENABLED) && QD3D_WAIT_LOGGING_ENABLED)
-#include "gfx_log.h"
-#else
-#ifndef QD3D_WAIT_LOGGING_ENABLED
-#define QD3D_WAIT_LOGGING_ENABLED 0
-#endif
-#ifndef DESCENT_MOVIE_DIAGNOSTICS
-#define DESCENT_MOVIE_DIAGNOSTICS 0
-#endif
-#define QD3D_WAIT_LOG(...) do { } while (0)
-#endif
-#ifndef DESCENT_MOVIE_USEC_COALESCE_US
-/* Coalesce Microseconds under thrash: guest GetTime/sync loops can hammer
- * A193 tens of thousands of times/sec and starve drawing + audio IRQ.
- * Applies whenever any sound source is active (all apps). 0 disables. */
-#define DESCENT_MOVIE_USEC_COALESCE_US 1000
-#endif
-#if QD3D_WAIT_LOGGING_ENABLED
-static bool timer_windows_descent_ii_is_current_application()
-{
-	return ReadMacInt32(0x0910) == 0x0a446573 &&
-	       ReadMacInt32(0x0914) == 0x63656e74 &&
-	       (ReadMacInt32(0x0918) & 0xffffff00) == 0x20494900;
-}
-#endif
 
 #define DEBUG 0
 #include "debug.h"
@@ -105,108 +76,6 @@ void timer_init(void)
 void Microseconds(uint32 &hi, uint32 &lo)
 {
 	D(bug("Microseconds\n"));
-#if DESCENT_MOVIE_USEC_COALESCE_US > 0
-	/* Any active sound source can host a busy-poll sync loop. Coalesce the
-	 * host QPC sample so the emul thread has time for audio IRQ + drawing. */
-	if (AudioStatus.num_sources >= 1) {
-		static uint32 cache_hi, cache_lo;
-		static uint64 cache_qpc;
-		static bool cache_valid;
-		LARGE_INTEGER now_qpc;
-		QueryPerformanceCounter(&now_qpc);
-		const uint64 min_delta =
-			(uint64)DESCENT_MOVIE_USEC_COALESCE_US * frequency / 1000000ull;
-		if (cache_valid &&
-		    (uint64)now_qpc.QuadPart - cache_qpc < min_delta &&
-		    min_delta > 0) {
-			hi = cache_hi;
-			lo = cache_lo;
-			return;
-		}
-		LARGE_INTEGER tt;
-		tt.QuadPart = TICKS2USECS(now_qpc.QuadPart - mac_boot_ticks);
-		hi = tt.HighPart;
-		lo = tt.LowPart;
-		cache_hi = hi;
-		cache_lo = lo;
-		cache_qpc = (uint64)now_qpc.QuadPart;
-		cache_valid = true;
-#if QD3D_WAIT_LOGGING_ENABLED
-		goto descent_usec_logged;
-#else
-		return;
-#endif
-	}
-#endif
-	{
-	LARGE_INTEGER tt;
-	QueryPerformanceCounter(&tt);
-	tt.QuadPart = TICKS2USECS(tt.QuadPart - mac_boot_ticks);
-	hi = tt.HighPart;
-	lo = tt.LowPart;
-	}
-#if QD3D_WAIT_LOGGING_ENABLED
-#if DESCENT_MOVIE_USEC_COALESCE_US > 0
-descent_usec_logged:
-#endif
-	static uint32 last_tick;
-	static uint32 calls_this_tick;
-	static uint64 first_value;
-	static uint64 last_value;
-	if (timer_windows_descent_ii_is_current_application()) {
-		const uint32 tick = ReadMacInt32(0x016a);
-		const uint64 value = ((uint64)hi << 32) | lo;
-		if (calls_this_tick && tick != last_tick) {
-			QD3D_WAIT_LOG("Microseconds polling tick=%u calls=%u first=%llu last=%llu spanUsec=%llu",
-			              last_tick, calls_this_tick,
-			              (unsigned long long)first_value,
-			              (unsigned long long)last_value,
-			              (unsigned long long)(last_value - first_value));
-			calls_this_tick = 0;
-		}
-		if (!calls_this_tick)
-			first_value = value;
-		last_tick = tick;
-		last_value = value;
-		calls_this_tick++;
-#if DESCENT_MOVIE_DIAGNOSTICS
-		// One-shot dump of the movie busy-wait loop code. A burst of 500+
-		// Microseconds() calls within one tick only happens inside Descent's
-		// movie-startup polling loop; the loop code has been observed at
-		// 0x232450..0x2356ac across launches.
-		static bool movie_loop_dumped;
-		if (!movie_loop_dumped && calls_this_tick == 500) {
-			movie_loop_dumped = true;
-			const uint32 base = 0x00230000, size = 0x8000;
-			if (uint8 *host = Mac2HostAddr(base)) {
-				if (FILE *f = fopen("descent_movie_loop.bin", "wb")) {
-					fwrite(host, 1, size, f);
-					fclose(f);
-					QD3D_WAIT_LOG("Movie-loop dump guestBase=0x%08x bytes=0x%x tick=%u",
-					              base, size, tick);
-				}
-			}
-		}
-#endif
-	} else {
-		calls_this_tick = 0;
-	}
-#endif
-}
-
-
-/*
- *  Uncoalesced Microseconds: always a fresh QPC read, no 1 ms coalesce.
- *
- *  The coalesce in Microseconds() returns an identical value for up to 1 ms.
- *  A caller that busy-waits for the clock to advance past a target (QuickTime's
- *  movie sound clock) then spins tens of thousands of times per second while
- *  the value is frozen. This path gives it a monotonic, fine-grained value so
- *  each wait resolves in far fewer polls.
- */
-
-void MicrosecondsRaw(uint32 &hi, uint32 &lo)
-{
 	LARGE_INTEGER tt;
 	QueryPerformanceCounter(&tt);
 	tt.QuadPart = TICKS2USECS(tt.QuadPart - mac_boot_ticks);
@@ -316,36 +185,6 @@ uint64 GetTicks_usec(void)
 }
 
 
-#if QD3D_WAIT_LOGGING_ENABLED
-static void log_idle_wait_complete(uint64 started, bool descent_was_current)
-{
-	if (!descent_was_current)
-		return;
-
-	static uint32 wait_count;
-	static uint64 total_wait_usec;
-	static uint64 max_wait_usec;
-	static uint32 last_log_tick;
-	const uint64 wait_usec = GetTicks_usec() - started;
-	const uint32 tick = ReadMacInt32(0x016a);
-	wait_count++;
-	total_wait_usec += wait_usec;
-	if (wait_usec > max_wait_usec)
-		max_wait_usec = wait_usec;
-	if (wait_usec >= 50000 || tick - last_log_tick >= 30) {
-		QD3D_WAIT_LOG("Idle/Event wait tick=%u waits=%u totalUsec=%llu maxUsec=%llu lastUsec=%llu",
-		              tick, wait_count, (unsigned long long)total_wait_usec,
-		              (unsigned long long)max_wait_usec,
-		              (unsigned long long)wait_usec);
-		wait_count = 0;
-		total_wait_usec = 0;
-		max_wait_usec = 0;
-		last_log_tick = tick;
-	}
-}
-#endif
-
-
 /*
  *  Delay by specified number of microseconds (<1 second)
  */
@@ -398,27 +237,17 @@ idle_sentinel::~idle_sentinel()
 
 void idle_wait(void)
 {
-#if QD3D_WAIT_LOGGING_ENABLED
-	const bool log_descent_wait = timer_windows_descent_ii_is_current_application();
-	const uint64 wait_started = GetTicks_usec();
-#endif
 	LOCK_IDLE;
 	if (idle_sem_ok > 0) {
 		idle_sem_ok++;
 		UNLOCK_IDLE;
 		WaitForSingleObject(idle_sem, INFINITE);
-#if QD3D_WAIT_LOGGING_ENABLED
-		log_idle_wait_complete(wait_started, log_descent_wait);
-#endif
 		return;
 	}
 	UNLOCK_IDLE;
 
 	// Fallback: sleep 10 ms (this should not happen though)
 	Delay_usec(10000);
-#if QD3D_WAIT_LOGGING_ENABLED
-	log_idle_wait_complete(wait_started, log_descent_wait);
-#endif
 }
 
 

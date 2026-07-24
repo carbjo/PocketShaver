@@ -221,10 +221,7 @@ static inline uint8 * vm_do_get_real_address(vm_addr_t addr)
 	// land here and fall through to the same flat mapping they always had.
 	// Deliberately not a separate noinline function: a call would de-leaf
 	// every memory handler (LR save + spills on the hot path).
-	#if defined(__GNUC__) || defined(__clang__)
-	if (__builtin_expect((a >> 19) >= 0xbff, 0))
-	#endif
-	{
+	if (__builtin_expect((a >> 19) >= 0xbff, 0)) {
 		// 16 KB kernel-data window: KernelData struct in the upper 8 KB
 		// (0x68ffe000 / 0x5fffe000); the lower 8 KB is the stack slack the
 		// nanokernel dips into below KERNEL_DATA_BASE. Platforms that map the

@@ -20,12 +20,10 @@
  */
 
 // 7.12.9.8  The trunc functions
-// MSVC CRT already provides trunc; do not redefine.
-#if !defined(HAVE_TRUNC) && !defined(_MSC_VER)
+#ifndef HAVE_TRUNC
 #define HAVE_TRUNC
 double trunc(double x)
 {
-#if defined(__GNUC__) || defined(__clang__)
 	volatile unsigned short int cw;
 	volatile unsigned short int cwtmp;
 	double value;
@@ -36,8 +34,5 @@ double trunc(double x)
 	__asm__ __volatile__("frndint" : "=t" (value) : "0" (x));
 	__asm__ __volatile__("fldcw %0" : : "m" (cw));
 	return value;
-#else
-	return (x < 0.0) ? ceil(x) : floor(x);
-#endif
 }
 #endif

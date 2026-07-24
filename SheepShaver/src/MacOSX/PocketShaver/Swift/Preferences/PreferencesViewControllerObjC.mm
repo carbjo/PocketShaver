@@ -14,7 +14,7 @@
 // (defined above that block), so forward-declare it here.
 static void catalyst_detect_fullscreen_change(void);
 static void catalyst_resize_window_for_guest(int guest_w, int guest_h);
-// Defined in metal_compositor.mm - re-pins the compositor view (full-bounds vs title-bar-safe)
+// Defined in metal_compositor.mm — re-pins the compositor view (full-bounds vs title-bar-safe)
 // on a full-screen change, and reports the windowed drawable's top inset (safe-area top).
 extern "C" void MetalCompositorReapplyWindowPinning(void);
 extern "C" double MetalCompositorWindowedContentInsetTop(void);
@@ -55,13 +55,13 @@ extern "C" void catalyst_pump_appkit_events(void) {
 #endif
 }
 
-// Only the emulation runs full screen by default on Mac - the startup settings
+// Only the emulation runs full screen by default on Mac — the startup settings
 // menu stays a normal window (see objc_displayPreferencesStartup, which enters
 // full screen after the menu is dismissed). The Info.plist keys that would request
 // launch-full-screen (UILaunchToFullScreenByDefaultOnMac / UISupportsTrueScreenSizeOnMac)
 // are honored by the "Designed for iPad" runtime but are unreliable for a real Mac
 // Catalyst binary on macOS 12+, so drive it programmatically. AppKit is reached
-// through the ObjC runtime because Catalyst ships no AppKit headers - the same
+// through the ObjC runtime because Catalyst ships no AppKit headers — the same
 // technique as catalyst_pump_appkit_events above. All of this is Catalyst-only
 // (iOS/iPadOS are always full screen).
 #if TARGET_OS_MACCATALYST
@@ -126,8 +126,8 @@ static void catalyst_set_fullscreen(bool enable) {
 // applying a change. Firing only on a real transition avoids that race and any feedback loop
 // (the detector never toggles the window; it only records state and refreshes the UI).
 // Two-way sync only runs DURING EMULATION (green button / View menu / ⌃⌘F). It stays off
-// through the startup settings menu so that forcing the menu windowed - and applying the
-// launch full-screen choice - is never mistaken for a user action that rewrites the pref.
+// through the startup settings menu so that forcing the menu windowed — and applying the
+// launch full-screen choice — is never mistaken for a user action that rewrites the pref.
 static bool s_fullscreen_sync_active = false;
 
 static void catalyst_detect_fullscreen_change(void) {
@@ -155,7 +155,7 @@ static void catalyst_detect_fullscreen_change(void) {
 // Resize the emulation window to the guest resolution (windowed only). Runs the AppKit work
 // on the main thread. One guest pixel maps to one point (an 800x600 guest -> an 800x600-point
 // window, drawn crisply at the backing scale); if that would exceed the usable screen it scales
-// down uniformly to fit. Full screen is left alone - the compositor already fits the guest there.
+// down uniformly to fit. Full screen is left alone — the compositor already fits the guest there.
 static void catalyst_resize_window_for_guest(int guest_w, int guest_h) {
 	if (guest_w <= 0 || guest_h <= 0) return;
 	s_last_guest_w = guest_w;   // remember for re-sizing on a return to windowed
@@ -171,7 +171,7 @@ static void catalyst_resize_window_for_guest(int guest_w, int guest_h) {
 		// The compositor view is pinned BELOW the title bar in windowed mode, so its drawable
 		// area is the content height minus that top inset. Size the window so the DRAWABLE
 		// matches the guest (1 guest px = 1 pt) by adding the inset back into the content
-		// height - otherwise the guest aspect-fits the too-short area and shows thin left/right
+		// height — otherwise the guest aspect-fits the too-short area and shows thin left/right
 		// letterbox bars. Prefer the compositor's exact safe-area top; fall back to the window's
 		// title-bar height, then 28 pt.
 		CGFloat titleBar = MetalCompositorWindowedContentInsetTop();
@@ -201,7 +201,7 @@ static void catalyst_resize_window_for_guest(int guest_w, int guest_h) {
 		// Fit into the usable screen area (excludes menu bar + Dock), leaving room for the
 		// title bar. NSScreen.visibleFrame is an HFA of 4 CGFloats, returned in registers on
 		// arm64 (plain objc_msgSend) but via hidden sret pointer on x86-64
-		// (objc_msgSend_stret required - see catalyst_screen_top_inset).
+		// (objc_msgSend_stret required — see catalyst_screen_top_inset).
 		id screen = ((id (*)(id, SEL))objc_msgSend)(window, sel_registerName("screen"));
 		if (!screen) {
 			Class NSScreenClass = NSClassFromString(@"NSScreen");
@@ -291,9 +291,9 @@ void objc_displayPreferencesStartup(void) {
 		while (!vc.isDone) {
 #if TARGET_OS_MACCATALYST
 			// UIKit clicks aren't CFRunLoop sources on Catalyst, so a distantFuture
-			// wait would never wake to pump AppKit. Pump each iteration at 60Hz -
+			// wait would never wake to pump AppKit. Pump each iteration at 60Hz —
 			// matching the emulator's interrupt-path pump so the whole app runs at a
-			// single cadence - with the run loop free to return earlier if one of
+			// single cadence — with the run loop free to return earlier if one of
 			// its own sources/timers fires.
 			catalyst_pump_appkit_events();
 			[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
@@ -311,7 +311,7 @@ void objc_displayPreferencesStartup(void) {
 		// and the emulator is about to boot, take the app full screen for emulation.
 		// Pump a live run loop until the transition lands (bounded to ~2s so a stuck
 		// transition can't hang launch), because right after this returns the
-		// emulator claims the main thread and only NSEvent-pumps AppKit afterward -
+		// emulator claims the main thread and only NSEvent-pumps AppKit afterward —
 		// too coarse to drive the full-screen animation to completion.
 		// Honor the user's Windowed/Full Screen choice on launch (windowed skips the wait).
 		bool wantFullscreen = objc_findBool(@"catalystfullscreen");

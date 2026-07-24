@@ -103,7 +103,7 @@ static NSString *pocketshaver_bundle_identifier()
 	return bid.length ? bid : @"com.carbjo.pocketshaver";
 }
 
-// <real home>/Library/Containers/<bundle-id>/Data - the container Data dir the
+// <real home>/Library/Containers/<bundle-id>/Data — the container Data dir the
 // OS would manage if we were sandboxed. We are not, so NSHomeDirectory() is the
 // real user home; we store here anyway to keep data out of the visible home.
 static NSString *pocketshaver_container_data_path()

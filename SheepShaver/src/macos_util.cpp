@@ -29,13 +29,14 @@
 #include "macos_util.h"
 #include "thunks.h"
 #include "prefs.h"
-#if defined(ENABLE_GFXACCEL)
-#include "cinepak_hooks.h"
+#if TARGET_OS_IPHONE
+#include "gfxaccel/include/gl_synthetic_symbol_policy.h"
 #endif
 #include <algorithm>
 
 #define DEBUG 0
 #include "debug.h"
+
 
 // Function pointers
 typedef long (*cu_ptr)(void *, uint32);
@@ -77,29 +78,32 @@ static inline void DisposePtr(uint32 arg1)
 	CallMacOS1(d_ptr, d_tvect, arg1);
 }
 
-#if defined(ENABLE_GFXACCEL)
-#include "gl_synthetic_symbol_policy.h"
-#endif
-
+#if TARGET_OS_IPHONE
 static uint32 FindSyntheticLibSymbol(const char *lib_str, const char *sym_str)
 {
-#if defined(ENABLE_GFXACCEL) && TARGET_OS_IPHONE
 	uint16_t sub_opcode = 0;
-	if (GLSyntheticFindLibSymbolSubOpcode(lib_str, sym_str, &sub_opcode) &&
-	    sub_opcode < GL_MAX_SUBOPCODE) {
-		const uint32 tvect = gl_method_tvects[sub_opcode];
-		if (tvect != 0) {
-			D(bug("FindLibSymbol: GL synthetic '%s' in '%s' -> 0x%08lx\n",
-			      sym_str + 1, lib_str + 1, (unsigned long)tvect));
-			return tvect;
-		}
-	}
+	if (!GLSyntheticFindLibSymbolSubOpcode(lib_str, sym_str, &sub_opcode))
+		return 0;
+	if (sub_opcode >= GL_MAX_SUBOPCODE)
+		return 0;
+
+	const uint32 tvect = gl_method_tvects[sub_opcode];
+	if (tvect == 0)
+		return 0;
+
+	D(bug("FindLibSymbol: synthetic symbol '%s' in '%s' -> 0x%08lx\n",
+	      sym_str + 1, lib_str + 1, (unsigned long)tvect));
+	return tvect;
+}
 #else
+static uint32 FindSyntheticLibSymbol(const char *lib_str, const char *sym_str)
+{
 	(void)lib_str;
 	(void)sym_str;
-#endif
 	return 0;
 }
+#endif
+
 
 /*
  *  Reset MacOS utilities
@@ -304,7 +308,7 @@ uint32 FindLibSymbol(const char *lib_str, const char *sym_str)
 		}
 		D(bug(" GetSharedLibrary: ret %d, connection ID %ld, main %p\n", (int16)r.d[0], conn_id.value(), main_addr.value()));
 		if (r.d[0])
-			return FindSyntheticLibSymbol(lib_str, sym_str);
+			return 0;
 	
 		// Find symbol
 		static const uint8 proc2_template[] = {
@@ -346,7 +350,7 @@ uint32 FindLibSymbol(const char *lib_str, const char *sym_str)
 			   res, (long)conn_id.value(), (unsigned long)main_addr.value()));
 		D(bug(" GetSharedLibrary: ret %d, connection ID %ld, main %p\n", res, conn_id.value(), main_addr.value()));
 		if (res)
-			return FindSyntheticLibSymbol(lib_str, sym_str);
+			return 0;
 		res = FindSymbol(conn_id.value(), sym.addr(), sym_addr.addr(), sym_class.addr());
 		D(bug("FindLibSymbol: FindSymbol returned %d (addr=0x%lx, class=%ld)\n",
 			   res, (unsigned long)sym_addr.value(), (long)sym_class.value()));
@@ -409,16 +413,6 @@ void InitCallUniversalProc()
 		printf("FATAL: Can't find DisposePtr()\n");
 		QuitEmulator();
 	}
-
-#if defined(ENABLE_GFXACCEL) && defined(ENABLE_NATIVE_CINEPAK_PATCH) \
-		&& ENABLE_NATIVE_CINEPAK_PATCH
-	/* Hook Component Manager searches (OpenDefaultComponent AND
-	   FindNextComponent). On the first request for an image decompressor
-	   ('imdc'), we register our native Cinepak component just-in-time -
-	   newest registration is found first - then both hooks restore
-	   themselves. */
-	CinepakInstallHooks();
-#endif
 }
 
 

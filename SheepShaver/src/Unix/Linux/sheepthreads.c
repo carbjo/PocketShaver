@@ -35,11 +35,6 @@
 #include <signal.h>
 #include <pthread.h>
 
-#include "config.h"
-
-#ifdef HAVE_LINUX_SCHED_H
-	#include <linux/sched.h>
-#endif
 
 /* Thread stack size */
 #define STACK_SIZE 65536

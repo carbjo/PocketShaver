@@ -103,7 +103,7 @@
 
 	if (! foundBestMatch) {
 		//At this point, it might be tempting to look in sibling nodes.
-		//But we've already been selected by searchSiblingsForBestMatchingNodeWithComparator:. This *is* the node to descend from. If we've gotten to this point, every single record in *this* node is viable, but the first record in the *next* node-if there is one-is not (because if it were, searchSiblings would have returned that node).
+		//But we've already been selected by searchSiblingsForBestMatchingNodeWithComparator:. This *is* the node to descend from. If we've gotten to this point, every single record in *this* node is viable, but the first record in the *next* node—if there is one—is not (because if it were, searchSiblings would have returned that node).
 		//So, stay in this node and descend through our last record.
 		NSAssert(result != nil, @"Expected to have found a viable match here (was the catalog file empty?); node contains %u records", self.numberOfRecords);
 	}

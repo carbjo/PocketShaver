@@ -77,7 +77,7 @@ cmd_on(){ # remaining args: subsystem tokens and/or -v   (string accumulator = b
 }
 
 cmd_set(){ # change subsystems only (no flag change)
-  [ "$(flag_get)" = 1 ] || echo "note: compile flag is 0 (stripped) - run 'gfxlog on' + rebuild first." >&2
+  [ "$(flag_get)" = 1 ] || echo "note: compile flag is 0 (stripped) — run 'gfxlog on' + rebuild first." >&2
   local subs="" a
   for a in "$@"; do case "$a" in gl|rave|dsp|nqd|comp) subs="${subs:+$subs,}$a";; all) subs="all";; *) die "unknown subsystem '$a'";; esac; done
   [ -n "$subs" ] || die "usage: gfxlog set <gl|rave|dsp|nqd|comp|all> ..."

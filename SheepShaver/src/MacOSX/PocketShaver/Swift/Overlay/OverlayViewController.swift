@@ -53,7 +53,7 @@ public class OverlayViewController: UIViewController {
 	}()
 
 	/// Whether the on-screen gamepad should be suppressed entirely.
-	/// True on any Mac (Designed-for-iPad or Mac Catalyst) - the user has a
+	/// True on any Mac (Designed-for-iPad or Mac Catalyst) — the user has a
 	/// physical keyboard and mouse, so touch gamepad controls are useless.
 	private static let hideGamepad: Bool = UIDevice.deviceType == .mac
 
@@ -315,7 +315,7 @@ public class OverlayViewController: UIViewController {
 		to state: OverlayState,
 		allowHiddenInputFieldResponserResignation: Bool = true
 	) {
-		// On Mac ("Designed for iPad"), only allow normal and keyboard states -
+		// On Mac ("Designed for iPad"), only allow normal and keyboard states —
 		// the on-screen gamepad is hidden because the user has real input devices.
 		if Self.hideGamepad && (state == .showingGamepad || state == .editingGamepad) {
 			return
@@ -738,7 +738,7 @@ extension OverlayViewController {
 		// keystroke still reaches the guest via SDL's input path (video_sdl2.cpp), so a
 		// classic Mac app's own Cmd+Q still works.
 		// On a physical iPad, Cmd-Q is system-reserved (handled above the responder
-		// chain) and never reaches here - this is a no-op there. See terminate(_:) below.
+		// chain) and never reaches here — this is a no-op there. See terminate(_:) below.
 		if action == #selector(OverlayViewController.terminate(_:)) { return true }
 		if #available(iOS 26.0, *) {
 			#if compiler(>=6.2)
@@ -757,7 +757,7 @@ extension OverlayViewController {
 
 	// No-op so the Cmd+Q action claimed in canPerformAction is swallowed instead of
 	// quitting the app. terminate: is AppKit's quit selector (not a formal UIResponder
-	// API on iOS), so this is a plain @objc method - no availability guard and no
+	// API on iOS), so this is a plain @objc method — no availability guard and no
 	// 'override' (there is no superclass terminate(_:) on UIKit to override).
 	@objc public func terminate(_ sender: Any?) {}
 
@@ -788,7 +788,7 @@ extension OverlayViewController {
 	/// the OS. On iPad/iPhone `sizeRestrictions` is best-effort or nil and cannot
 	/// block system resizing anyway, so there is nothing to do on any platform.
 	private static func lockWindowSize() {
-		// No size restriction - see doc comment above.
+		// No size restriction — see doc comment above.
 	}
 
 	// No-op implementation so that key strokes on macOS does not result in "alert sound"

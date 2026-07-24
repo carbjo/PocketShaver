@@ -28,7 +28,7 @@ enum GamepadThumbnailCacheKey {
 	}
 
 	// Whether `name` was written by the old cache, which named thumbnails
-	// "\(config.hashValue)" - the decimal string of a Swift `Int`: an optional
+	// "\(config.hashValue)" — the decimal string of a Swift `Int`: an optional
 	// leading "-" followed by ASCII digits. No other file PocketShaver stores in
 	// Application Support has that shape (Storage's names are all alphabetic), so
 	// a purely numeric name uniquely identifies a legacy orphan to clean up.

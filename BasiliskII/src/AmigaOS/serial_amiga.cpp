@@ -633,7 +633,7 @@ __saveds void ASERDPort::serial_func(void)
 	bool opened = false;
 	ULONG io_mask = 0, proc_port_mask = 0;
 
-	// Default: error occurred
+	// Default: error occured
 	obj->proc_error = true;
 
 	// Create message port for communication with main task

@@ -125,7 +125,7 @@ static bool open_sdl_audio(void)
 		fprintf(stderr, "WARNING: Cannot open audio: %s\n", SDL_GetError());
 		return false;
 	}
-	
+
 #if SDL_VERSION_ATLEAST(2,0,0)
 	// HACK: workaround a bug in SDL pre-2.0.6 (reported via https://bugzilla.libsdl.org/show_bug.cgi?id=3710 )
 	// whereby SDL does not update audio_spec.size
@@ -444,7 +444,7 @@ static void stream_func(void *arg, uint8 *stream, int stream_len)
 		if (copied > 0 && !main_mute && !speaker_mute)
 			SDL_MixAudio(stream, audio_mix_buf, copied, get_audio_volume());
 	}
-	
+
 #if defined(BINCUE)
 #if QD3D_AUDIO_LOGGING_ENABLED
 	const uint64 cd_mix_counter = SDL_GetPerformanceCounter();
@@ -459,7 +459,7 @@ static void stream_func(void *arg, uint8 *stream, int stream_len)
 		                (unsigned long long)cd_mix_usec, stream_len);
 #endif
 #endif
-	
+
 }
 
 

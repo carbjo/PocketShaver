@@ -62,7 +62,7 @@ typedef unsigned long long loff_t;
 // Time data type for Time Manager emulation
 typedef struct timeval tm_time_t;
 
-// Endianness conversion (not needed)
+// Endianess conversion (not needed)
 #define ntohs(x) (x)
 #define ntohl(x) (x)
 #define htons(x) (x)

@@ -52,7 +52,7 @@ enum {
 /*
  *  DYNGEN_FAST_DISPATCH arms direct block chaining in the translator
  *  (direct_chaining_possible, ppc-translate.cpp). On arm64 only its
- *  definedness is consumed - the dyngen op template sources that expand
+ *  definedness is consumed — the dyngen op template sources that expand
  *  the macro body are never compiled here (gen_op_branch_chain_1/2 are
  *  hand-emitted in ppc-dyngen-ops-arm64.hpp instead).
  */

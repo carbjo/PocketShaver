@@ -444,7 +444,7 @@ end_loop:
 #else /* !CAM */
 	/*
 	 * FreeBSD 2.x SCSI management is quiet different and 
-	 * unfortunately not flexible as CAM library in FreeBSD 3.x...
+	 * unfortunatly not flexible as CAM library in FreeBSD 3.x...
 	 * I probe only the first bus, LUN 0, and the 
 	 * first 8 devices only.
 	 */

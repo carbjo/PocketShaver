@@ -112,7 +112,7 @@
 
 ///Returns a mutable data that wraps the range of the node containing this record.
 ///Note: If multiple mutable datas exist for the same record in the same node, changing the bytes of any one of them changes all of them.
-///Note: You cannot change the length of the data-it is not possible to resize a record in-place.
+///Note: You cannot change the length of the data—it is not possible to resize a record in-place.
 ///Note: This method may throw if you send it to a node that isn't part of a mutable tree.
 - (NSMutableData *_Nonnull) mutableRecordDataAtIndex:(u_int16_t)idx;
 

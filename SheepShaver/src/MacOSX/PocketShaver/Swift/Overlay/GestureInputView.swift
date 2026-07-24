@@ -103,7 +103,7 @@ class GestureInputView: UIView {
 #if !targetEnvironment(macCatalyst)
 		// iOS: snap the guest cursor to the steering finger the instant it lands
 		// (draggingMode is set above so the three-finger guard applies here too).
-		// Inert outside hover mode - VideoMapWindowPointToGuestAndMove no-ops.
+		// Inert outside hover mode — VideoMapWindowPointToGuestAndMove no-ops.
 		forwardSteeringTouchPosition(from: touches)
 #endif
 	}
@@ -112,7 +112,7 @@ class GestureInputView: UIView {
 	// Forwards the steering finger's absolute window position to the guest cursor
 	// so it tracks that finger. The steering finger is the tracked finger that is
 	// not the second (click) finger, chosen with a STABLE ordering (min hashValue)
-	// so the pick never alternates between fingers within a gesture - otherwise a
+	// so the pick never alternates between fingers within a gesture — otherwise a
 	// simultaneous two-finger landing (which never populates secondFingerTouch)
 	// would flip between fingers and reintroduce the bounce. Only the steering
 	// finger drives the cursor, so a resting/clicking second finger never moves

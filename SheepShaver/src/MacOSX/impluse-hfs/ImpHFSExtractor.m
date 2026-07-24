@@ -50,7 +50,7 @@
 		NSString *_Nonnull const trimmedString = [hfsPathString hasSuffix:@":"] ? [hfsPathString substringToIndex:hfsPathString.length - 1] : hfsPathString;
 
 		NSScanner *_Nonnull const scanner = [NSScanner scannerWithString:trimmedString];
-		//Don't skip any characters-we want 'em all.
+		//Don't skip any characters—we want 'em all.
 		scanner.charactersToBeSkipped = [NSCharacterSet characterSetWithRange:(NSRange){ 0, 0 }];
 
 		bool const isRelativePath = [scanner scanString:@":" intoString:NULL];
@@ -63,7 +63,7 @@
 			if (gotAFilename) {
 				[path addObject:filename];
 			} else {
-				//Empty string. If we have any path components, pop one off-consecutive colons is the equivalent of “..” in POSIX paths. If we've run out of path components, this pathname is invalid.
+				//Empty string. If we have any path components, pop one off—consecutive colons is the equivalent of “..” in POSIX paths. If we've run out of path components, this pathname is invalid.
 				if (path.count > 0) {
 					[path removeLastObject];
 				} else {

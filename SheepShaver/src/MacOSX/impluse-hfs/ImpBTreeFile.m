@@ -312,8 +312,8 @@
 		keepIterating = block(node);
 		++numNodesVisited;
 	}
-	//An older, slower version of this method would at this point loop through the whole row again, and then each node's children, calling _walkNodeAndBlahBlah::: on each child. Guess what-that visits every node an incredibly excessive number of redundant times!
-	//I hadn't yet figured out that HFS B*-trees are organized into rows. We don't need to visit every child of every node-the first child of this node gets us down to the next row.
+	//An older, slower version of this method would at this point loop through the whole row again, and then each node's children, calling _walkNodeAndBlahBlah::: on each child. Guess what—that visits every node an incredibly excessive number of redundant times!
+	//I hadn't yet figured out that HFS B*-trees are organized into rows. We don't need to visit every child of every node—the first child of this node gets us down to the next row.
 	//In theory we should rewind to the start of the row via bLink members, but in practice we are only called by walkBreadthFirst:, so we can assume startNode is always the first node on a row.
 	if (startNode.nodeType == kBTIndexNode) {
 		ImpBTreeIndexNode *_Nonnull const indexNode = (ImpBTreeIndexNode *_Nonnull const)startNode;
@@ -426,7 +426,7 @@
 						case kHFSFileThreadRecord:
 						case kHFSFolderThreadRecord:
 						default:
-							//Not really anything here to do anything-although, if we find a thread record *after* the thread record we should have already found, that seems sus.
+							//Not really anything here to do anything—although, if we find a thread record *after* the thread record we should have already found, that seems sus.
 							break;
 					}
 				}
@@ -503,8 +503,8 @@
 			int16_t const recordIdx = [nextSearchNode indexOfBestMatchingRecord:compareKeys];
 //			ImpPrintf(@"6. Best matching record is #%u", recordIdx);
 
-			//TODO: If outItemRecordData is non-NULL, we need a file or folder record-a thread record will not do.
-			//We'll need to look before or after this record for a non-thread record. It might not be in this node. It might not even be in this catalog (although I'm not sure what it would mean for a catalog to have a thread record but no file or folder record-is that possible when items are deleted?).
+			//TODO: If outItemRecordData is non-NULL, we need a file or folder record—a thread record will not do.
+			//We'll need to look before or after this record for a non-thread record. It might not be in this node. It might not even be in this catalog (although I'm not sure what it would mean for a catalog to have a thread record but no file or folder record—is that possible when items are deleted?).
 
 			NSData *_Nonnull const recordKeyData = [nextSearchNode recordKeyDataAtIndex:recordIdx];
 			ImpBTreeComparisonResult const comparisonResult = compareKeys(recordKeyData.bytes);

@@ -21,6 +21,16 @@
 #ifndef ADB_H
 #define ADB_H
 
+#ifdef __cplusplus
+extern "C"
+#endif
+struct BeginAnimationState {
+    int x;
+    int y;
+
+    BeginAnimationState(int, int);
+};
+
 extern void ADBInit(void);
 extern void ADBExit(void);
 
@@ -33,8 +43,26 @@ extern void ADBMouseUp(int button);
 extern void ADBKeyDown(int code);
 extern void ADBKeyUp(int code);
 
+extern void ADBWriteMouseDown(int button);
+extern void ADBWriteMouseUp(int button);
+extern void ADBMouseClick(int button);
+
 extern void ADBInterrupt(void);
 
+extern void ADBConfigure(int new_screen_width, int new_screen_height, int new_double_click_mouse_move_tolerance);
 extern void ADBSetRelMouseMode(bool relative);
+extern void ADBSetTouchInput(bool is_on);
+extern bool ADBGetTouchInput(void);
+extern bool ADBHoversOnMouseDown();
+extern bool ADBIsHoverModeActive(void);
+extern bool ADBIsRelativeMouseMode(void);
+extern bool ADBHoverGestureStartWasLeftSide();
+extern void ADBEnableHoverModeWith(int offset_x_inp, int offset_y_inp);
+extern void ADBDisableHoverMode();
+
+extern BeginAnimationState ADBStartAnimation();
+extern void ADBAnimateMove(int x, int y);
+extern void ADBEndAnimation();
+extern void ADBSetHoverGestureDragging(bool is_on);
 
 #endif

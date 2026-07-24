@@ -170,7 +170,7 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 				}
 			case .displayModeInfo:
 				return PreferencesInformationCell(
-					text: "Choose whether emulation runs in a window or full screen. You can also use the window's full-screen button or the View menu - this setting stays in sync."
+					text: "Choose whether emulation runs in a window or full screen. You can also use the window's full-screen button or the View menu — this setting stays in sync."
 				)
 			case .renderingFilterMode:
 				return PreferencesGraphicsRenderingFilterCell(
@@ -227,7 +227,7 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 				}
 			case .graphicsAccelerationInfo:
 				return PreferencesInformationCell(
-					text: "Experimental. Each accelerator is independent - mix and match per app to find what runs best. All four default on. Requires Metal; takes effect on restart."
+					text: "Experimental. Each accelerator is independent — mix and match per app to find what runs best. All four default on. Requires Metal; takes effect on restart."
 				)
 			}
 		}

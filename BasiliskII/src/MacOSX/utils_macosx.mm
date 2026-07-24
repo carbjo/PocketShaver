@@ -28,21 +28,9 @@
 #endif
 
 #include <sys/sysctl.h>
-
-#if SDL_VERSION_ATLEAST(2, 0, 0)
 #include <Metal/Metal.h>
 
-bool MetalIsAvailable() {
-	const int EL_CAPITAN = 15; // Darwin major version of El Capitan
-	char s[16];
-	size_t size = sizeof(s);
-	int v;
-	if (sysctlbyname("kern.osrelease", s, &size, NULL, 0) || sscanf(s, "%d", &v) != 1 || v < EL_CAPITAN) return false;
-	id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
-	bool r = dev != nil;
-	[dev release];
-	return r;
-}
+#if SDL_VERSION_ATLEAST(2, 0, 0)
 
 void disable_SDL2_macosx_menu_bar_keyboard_shortcuts() {
 	for (NSMenuItem * menu_item in [NSApp mainMenu].itemArray) {
@@ -132,4 +120,16 @@ void set_current_directory()
 	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
 	chdir([[[[NSBundle mainBundle] bundlePath] stringByDeletingLastPathComponent] UTF8String]);
 	[pool release];
+}
+
+bool MetalIsAvailable() {
+	const int EL_CAPITAN = 15; // Darwin major version of El Capitan
+	char s[16];
+	size_t size = sizeof(s);
+	int v;
+	if (sysctlbyname("kern.osrelease", s, &size, NULL, 0) || sscanf(s, "%d", &v) != 1 || v < EL_CAPITAN) return false;
+	id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+	bool r = dev != nil;
+	[dev release];
+	return r;
 }

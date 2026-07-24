@@ -143,7 +143,7 @@ bool jit_wx_selftest(void)
 	uint8 *code = (uint8 *)jit_wx_map(size);
 	if (code == NULL)
 		return false;
-	// mov w0, #42 ; ret - then rewritten to return 99, proving that
+	// mov w0, #42 ; ret — then rewritten to return 99, proving that
 	// already-executed code can be republished (chain backpatching)
 	static const uint32 fn42[2] = { 0x52800540u, 0xd65f03c0u };
 	static const uint32 fn99[2] = { 0x52800c60u, 0xd65f03c0u };
@@ -162,7 +162,7 @@ bool jit_wx_selftest(void)
 #include <sys/mman.h>
 
 // MEM_BULK's vm_acquire() carves from the guest bulk arena (and needs
-// vm_init() to have run) - host-side code memory must come straight from
+// vm_init() to have run) — host-side code memory must come straight from
 // mmap. MAP_JIT + simultaneous RWX is permitted by the allow-jit
 // entitlement on Intel, Rosetta included; no write-protect toggling
 // exists or is needed on x86_64.
@@ -305,7 +305,7 @@ basic_jit_cache::init_translation_cache(uint32 size)
 	jit_wx_register_shadow(tcode_start, wx_scratch, cache_size);
 #elif defined(__APPLE__)
 	// Intel: RWX MAP_JIT memory is directly writable (no W^X toggling on
-	// x86_64), so the emitters write straight into the cache - no shadow.
+	// x86_64), so the emitters write straight into the cache — no shadow.
 	// Must not come from vm_acquire: under MEM_BULK that carves guest
 	// address space out of the bulk arena.
 	tcode_start = (uint8 *)jit_wx_map(cache_size);

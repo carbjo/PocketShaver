@@ -131,7 +131,7 @@
 		if (outError != NULL) *outError = readError;
 		return false;
 	} else if ((NSUInteger)amtRead < _preamble.length) {
-		NSError *_Nonnull const underrunError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:@{ NSLocalizedDescriptionKey: @"Unexpected end of file reading volume preamble - are you sure this is an HFS+ volume?" }];
+		NSError *_Nonnull const underrunError = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:@{ NSLocalizedDescriptionKey: @"Unexpected end of file reading volume preamble — are you sure this is an HFS+ volume?" }];
 		if (outError != NULL) *outError = underrunError;
 		return false;
 	}
@@ -140,7 +140,7 @@
 }
 
 - (bool) readVolumeHeaderFromFileDescriptor:(int const)readFD error:(NSError *_Nullable *_Nonnull const)outError {
-	//The volume header occupies the third kISOStandardBlockSize bytes of the volume-i.e., the last third of the preamble.
+	//The volume header occupies the third kISOStandardBlockSize bytes of the volume—i.e., the last third of the preamble.
 	_vh = _preamble.mutableBytes + kISOStandardBlockSize * 2;
 
 	if (L(_vh->signature) != kHFSPlusSigWord) {

@@ -156,7 +156,7 @@ bool DecodeROM(uint8 *data, uint32 size)
 		// CHRP compressed ROM image
 		uint32 image_offset, image_size;
 		bool decode_info_ok = false;
-
+		
 		char *s = strstr((char *)data, "constant lzss-offset");
 		if (s != NULL) {
 			// Probably a plain LZSS compressed ROM image
@@ -177,11 +177,11 @@ bool DecodeROM(uint8 *data, uint32 size)
 				}
 			}
 		}
-
+		
 		// No valid information to decode the ROM found?
 		if (!decode_info_ok)
 			return false;
-
+		
 		// Check signature, this could be a parcels-based ROM image
 		uint32 rom_signature = ntohl(*(uint32 *)(data + image_offset));
 		if (rom_signature == FOURCC('p','r','c','l')) {
@@ -204,7 +204,7 @@ bool DecodeROM(uint8 *data, uint32 size)
  *  Search ROM for byte string, return ROM offset (or 0)
  */
 
-static uint32 find_rom_data(uint32 start, uint32 end, const uint8 *data, uint32 data_len)
+uint32 find_rom_data(uint32 start, uint32 end, const uint8 *data, uint32 data_len)
 {
 	uint32 ofs = start;
 	while (ofs < end) {
@@ -273,7 +273,7 @@ static uint32 find_rom_trap(uint16 trap)
  *  there is no such instruction
  */
 
-static uint32 rom_powerpc_branch_target(uint32 addr)
+uint32 rom_powerpc_branch_target(uint32 addr)
 {
 	uint32 opcode = ntohl(*(uint32 *)(ROMBaseHost + addr));
 	uint32 primop = opcode >> 26;
@@ -299,7 +299,7 @@ static uint32 rom_powerpc_branch_target(uint32 addr)
  *  Search ROM for instruction branching to target address, return 0 if none found
  */
 
-static uint32 find_rom_powerpc_branch(uint32 start, uint32 end, uint32 target)
+uint32 find_rom_powerpc_branch(uint32 start, uint32 end, uint32 target)
 {
 	for (uint32 addr = start; addr < end; addr += 4) {
 		if (rom_powerpc_branch_target(addr) == target)
@@ -693,7 +693,7 @@ bool PatchROM(void)
 		ROMType = ROMTYPE_NEWWORLD;
 	else
 		return false;
-
+	
 	// Check that other ROM addresses point to really free regions
 	if (!check_rom_patch_space(CHECK_LOAD_PATCH_SPACE, 0x40))
 		return false;
@@ -961,7 +961,7 @@ static bool patch_nanokernel_boot(void)
 	if ((base = find_rom_data(0x310000, 0x320000, pvr_read4_dat, sizeof(pvr_read4_dat))) != 0) {
 		D(bug("pvr_read4 %08lx\n", base));
 		lp = (uint32 *)(ROMBaseHost + base);
-		*lp = htonl(0x81200000 + XLM_PVR);	// lzw  r9,(theoretical PVR)
+		*lp = htonl(0x81200000 + XLM_PVR);	// lzw  r9,(theoritical PVR)
 	}
 
 	// Don't read SDR1
@@ -1012,7 +1012,7 @@ static bool patch_nanokernel_boot(void)
 	if ((base = find_rom_data(0x310000, 0x320000, pm_check_dat, sizeof(pm_check_dat))) == 0) return false;
 	D(bug("pm_check %08lx\n", base));
 	lp = (uint32 *)(ROMBaseHost + base);
-
+	
 	static const int spr_check_list[] = {
 		952 /* mmcr0 */, 953 /* pmc1 */, 954 /* pmc2 */, 955 /* sia */,
 		956 /* mmcr1 */, 957 /* pmc3 */, 958 /* pmc4 */, 959 /* sda */
@@ -2149,9 +2149,9 @@ static bool patch_68k(void)
 	// before the rts, so the displacement is +2 (0x6602).
 	wp = (uint16 *)(ROMBaseHost + DISPOSE_NIFT_PATCH_SPACE);
 	*wp++ = htons(M68K_EMUL_OP_DISPOSE_NIFT_GUARD);	// -> D1=verdict (1=skip); A1=stock entry on chain
-	*wp++ = htons(0x4a41);							// tst.w	d1
-	*wp++ = htons(0x6602);							// bne.s	.skip   (+2 -> the rts)
-	*wp++ = htons(0x4ed1);							// jmp		(a1)    [chain to stock _DisposHandle]
+	*wp++ = htons(0x4a41);							// tst.w  d1
+	*wp++ = htons(0x6602);							// bne.s  .skip   (+2 -> the rts)
+	*wp++ = htons(0x4ed1);							// jmp    (a1)    [chain to stock _DisposHandle]
 	*wp = htons(M68K_RTS);							// .skip: rts     [keep alive; D0=noErr]
 
 	// Virtual-memory-present Gestalt spoof: _Gestalt (0xA1AD, OS-dispatched) head-
@@ -2166,7 +2166,7 @@ static bool patch_68k(void)
 	// 0x40 region, after DisposeNIFT.
 	wp = (uint16 *)(ROMBaseHost + GESTALT_VM_PATCH_SPACE);
 	*wp++ = htons(M68K_EMUL_OP_GESTALT_VM);			// -> A1 = stock _Gestalt (chain) or the rts below (spoof)
-	*wp++ = htons(0x4ed1);							// jmp		(a1)
+	*wp++ = htons(0x4ed1);							// jmp    (a1)
 	*wp = htons(M68K_RTS);							// rts   [spoof: A1 points here -> return A0/D0]
 
 	// Replace .Sony driver
@@ -2393,7 +2393,7 @@ static bool patch_68k(void)
 			*wp++ = htons(0x4e74); *wp++ = htons(0x0008);	// rtd #8
 		}
 	}
-
+	
 	return true;
 }
 
@@ -2511,5 +2511,4 @@ void InstallDrivers(void)
 	dce = ReadMacInt32(r.a[0]);
 	WriteMacInt32(dce + dCtlDriver, ROMBase + sony_offset + 0x600);
 	WriteMacInt16(dce + dCtlFlags, 0x4e00);
-
 }

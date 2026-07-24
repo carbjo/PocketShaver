@@ -30,11 +30,7 @@
 #include <Cocoa/Cocoa.h>
 #include "VMSettingsController.h"
 
-#ifdef USE_SDL_VIDEO
 #include <SDL.h>
-#else
-#define SDL_VERSION_ATLEAST(a,b,c)	0
-#endif
 
 @interface SheepShaverMain : NSObject
 {

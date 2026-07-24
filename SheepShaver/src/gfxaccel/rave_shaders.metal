@@ -116,7 +116,7 @@ fragment float4 rave_fragment(VertexOut in [[stage_in]],
         // V-axis: The V flip from OpenGL convention (V=0 at bottom) to Metal
         // convention (V=0 at top) is applied at vertex conversion time in
         // ConvertTextureVertex (vOverW = invW - vOverW).  No additional
-        // flip needed here - the interpolated values are already correct.
+        // flip needed here — the interpolated values are already correct.
 
         float4 texPix = tex.sample(samp, uv, bias(uniforms.mipmap_bias));
         // Opaque-texture guard (bit30 set by the engine when the bound texture has

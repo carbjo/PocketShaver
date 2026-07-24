@@ -67,7 +67,7 @@ for name in [n for n in list(REAL) if n.startswith("gen_op_invoke")]:
 
 # Prologue also pins VMBASE (x23) = VMBaseDiff for inline fastmem (the value
 # is baked at emission time: op_execute is generated at CPU construction,
-# after vm_init) and saves d8-d11 - the FP value plan hands those to
+# after vm_init) and saves d8-d11 — the FP value plan hands those to
 # generated code as scratch, but their low halves are AAPCS64 callee-saved
 # toward op_execute's own caller (host frames keeping live doubles in d8-d11
 # across execute() would be silently corrupted otherwise). x24 (A64_VD, the
@@ -491,7 +491,7 @@ def _prep(dec, ctr_cond, cond_cond):
     return "".join("\t" + l + "\n" for l in lines)
 
 PREP_BRANCH = {
-    # suffix: (decrement, ctr condition, cond condition) - cond tests the CR
+    # suffix: (decrement, ctr condition, cond condition) — cond tests the CR
     # bit in T1 (NE = branch-if-true, EQ = branch-if-false); ctr tests the
     # decremented CTR in T2 (NE = branch-if-ctr-nonzero, EQ = if-ctr-zero)
     "0000": (True,  "A64_NE", "A64_EQ"),
@@ -528,7 +528,7 @@ def branches(name):
                     E("a64_str_w(A64_X16, A64_CPU, (uint32)kpx_jit_pc_offset(cpu()))"))
     # Direct block chaining: deposit patchable B slots (retargeted to the
     # resolver trampolines at translate time, then to target entry points at
-    # run time). Slots MUST be B imm26 - run-time retargets span the whole
+    # run time). Slots MUST be B imm26 — run-time retargets span the whole
     # translation cache, beyond CBZ's +/-1MB. The placeholder a64_b(0) is a
     # well-formed branch-to-self so the patcher can classify the site; the
     # translator always retargets it before the block is published.

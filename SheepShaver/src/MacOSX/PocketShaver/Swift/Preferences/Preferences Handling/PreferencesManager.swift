@@ -20,8 +20,8 @@ class PreferencesManager {
 		objc_addString("serialb", "/dev/null")
 		objc_addString("ether", "slirp")
 
-		// Record the boot resolution from MonitorResolutionManager - the same source that
-		// fills the guest's VModes[] list - so the recorded "screen" default always matches
+		// Record the boot resolution from MonitorResolutionManager — the same source that
+		// fills the guest's VModes[] list — so the recorded "screen" default always matches
 		// a detected pixel-aligned mode (orientation/display-correct, recomputed each launch)
 		// rather than the live UIScreen point size, which diverges from the detected list
 		// whenever the launch orientation differs from the current device orientation.

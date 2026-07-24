@@ -33,10 +33,35 @@
 #include <net/if.h>
 #include <sys/time.h>
 #include <sys/ioctl.h>
-#include <net/bpf.h>
 #include <fcntl.h>
 
 #include <strings.h>
+
+#ifdef __APPLE__
+#include "TargetConditionals.h"
+#endif
+
+#if TARGET_OS_IPHONE
+
+FILE * run_tool(const char *if_name, const char *tool_name);
+
+FILE * run_tool(const char *if_name, const char *tool_name)
+{
+	if (!if_name) {
+		fprintf(stderr, "run_tool called, if_name is nil,");
+	}
+	if (!tool_name) {
+		fprintf(stderr, "run_tool called, tool_name is nil,");
+	}
+	if (if_name && tool_name) {
+		fprintf(stderr, "run_tool called, if_name: %s, tool_name: %s", if_name, tool_name);
+	}
+	return NULL;
+}
+
+#else
+
+#include <net/bpf.h>
 
 #include <Carbon/Carbon.h>
 
@@ -133,3 +158,5 @@ FILE * run_tool(const char *if_name, const char *tool_name)
 
 	return fp;
 }
+
+#endif	// TARGET_OS_IPHONE

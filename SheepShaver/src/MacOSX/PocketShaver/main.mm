@@ -41,7 +41,7 @@ int main(int argc, char * argv[]) {
 #endif
 	/* Install background/foreground observer
 	 * so gfxaccel_handle_background_enter / _foreground_enter run on the
-	 * OS lifecycle transitions. Install here - SDL's UIKit delegate is
+	 * OS lifecycle transitions. Install here — SDL's UIKit delegate is
 	 * about to enter its run loop and UIApplication notifications start
 	 * firing from that point forward; installing before SDL_UIKitRunApp
 	 * ensures the first didEnterBackground is never missed. */

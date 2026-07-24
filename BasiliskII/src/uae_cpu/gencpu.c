@@ -93,6 +93,7 @@ static void read_counts (void)
 	    opcode_next_clev[nr] = 4;
 	    opcode_last_postfix[nr] = -1;
 	    opcode_map[nr++] = opcode;
+	    counts[opcode] = count;
 	}
     }
     if (nr != nr_cpuop_funcs)
@@ -865,7 +866,7 @@ static void gen_opcode (unsigned long int opcode)
 	    next_cpu_level = 0;
 
 	/* fall through */
-     case 2: /* privileged */
+     case 2: /* priviledged */
 	printf ("if (!regs.s) { Exception(8,0); goto %s; }\n", endlabelstr);
 	need_endlabel = 1;
 	start_brace ();

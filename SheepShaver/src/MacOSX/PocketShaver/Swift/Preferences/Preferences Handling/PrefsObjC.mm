@@ -99,7 +99,7 @@ void objc_savePrefs(void) {
 double catalyst_screen_top_inset(void) {
 #if TARGET_OS_MACCATALYST
 	// The Mac camera housing (notch) / menu-bar strip is surfaced only by AppKit's
-	// NSScreen.safeAreaInsets - UIKit's view/window safeAreaInsets are 0 in a
+	// NSScreen.safeAreaInsets — UIKit's view/window safeAreaInsets are 0 in a
 	// Catalyst process even on a notched Mac (unlike "Designed for iPad", where the
 	// notch is a UIKit inset). Catalyst ships no AppKit headers, so NSScreen is
 	// reached through the ObjC runtime, the same technique the app already uses for
@@ -114,7 +114,7 @@ double catalyst_screen_top_inset(void) {
 	// small homogeneous-float aggregate is returned in registers, so the plain
 	// objc_msgSend cast is correct there (arm64 has no objc_msgSend_stret at all).
 	// On x86-64 a 32-byte aggregate returns through a hidden sret pointer, so the
-	// stret entry point is REQUIRED - the plain cast crashes.
+	// stret entry point is REQUIRED — the plain cast crashes.
 	struct CatalystNSEdgeInsets { CGFloat top; CGFloat left; CGFloat bottom; CGFloat right; };
 #if defined(__x86_64__)
 	CatalystNSEdgeInsets insets;
