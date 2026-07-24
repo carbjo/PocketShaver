@@ -13,7 +13,7 @@
  * it. Apps hand this id back to the Display Manager
  * (DMGetGDeviceByDisplayID) to recover the GDevice a DSp context lives on,
  * so DSpContext_GetDisplayID must report an id the guest DM can actually
- * resolve - NOT one of the per-mode ids below (those mirror the video
+ * resolve — NOT one of the per-mode ids below (those mirror the video
  * driver's APPLE_* display-MODE ids, a different namespace). 0x100 is the id
  * real titles pass INTO DSp for this screen (The Sims and 4x4 Evolution both
  * send displayID=256 to DSpFindBestContextOnDisplayID), i.e. the value the
@@ -23,6 +23,7 @@
 enum {
 	kDSpGuestDMMainDisplayID = 0x100
 };
+
 enum {
 	kDSpDisplayID640x480   = 0x81,
 	kDSpDisplayIDW640x480  = 0x82,
