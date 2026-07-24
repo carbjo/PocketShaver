@@ -784,8 +784,17 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 		front_presented =
 			DSpEncodeFrontBufferStagingToFramebuffer(active, nullptr, fb);
 	}
-	if (!front_presented)
+	if (!front_presented) {
+		/* This branch is reached only for a client that has NOT taken over
+		 * presentation via DSpContext_SwapBuffers (DSpShouldPublishActive
+		 * ContextOnVBL gates on !explicit_swap_observed here). Such a client
+		 * draws straight into the back buffer and relies on this VBL
+		 * auto-publish, so the back buffer can change with no swap_generation
+		 * bump - it must be re-encoded every tick. Swap-driven clients (Diablo
+		 * II) never reach here: their SwapBuffers handler encodes inline, once
+		 * per swap. */
 		DSpEncodePresentToFramebuffer(active, nullptr, fb);
+	}
 
 	struct CompositeLayer layer;
 	std::memset(&layer, 0, sizeof(layer));

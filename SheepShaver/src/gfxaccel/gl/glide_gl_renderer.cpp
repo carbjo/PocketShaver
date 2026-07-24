@@ -36,8 +36,16 @@ struct GrVertexClassic {
 	float s, t, w;           /* 32 - simplified */
 };
 
+/* Double-buffered overlay. Glide draws directly into glide_color_tex
+ * (glide_overlay_pair[0]); the compositor samples the SEPARATE front texture
+ * glide_front_tex (glide_overlay_pair[1]). The front is only refreshed from a
+ * COMPLETE frame at grBufferSwap / LFB-present, so the free-run VBL present can
+ * never composite a half-drawn or freshly-cleared (black) draw buffer - which
+ * was the source of the black-screen flashes. The draw buffer persists between
+ * frames so incremental (non-full-clear) rendering still accumulates. */
 static GLuint glide_overlay_pair[2] = {0, 0};
-static GLuint glide_color_tex = 0;
+static GLuint glide_color_tex = 0;   /* draw target (pair[0]) */
+static GLuint glide_front_tex = 0;   /* compositor-sampled front (pair[1]) */
 static GLuint glide_fbo = 0;
 static GLuint glide_depth_rb = 0;
 static uint32_t glide_width = 0, glide_height = 0;
@@ -45,6 +53,9 @@ static uint32_t glide_write = 0;
 static bool glide_is_ready = false;
 static bool glide_is_in_frame = false;
 static bool glide_has_context = false;
+/* Set once a complete frame has been copied into glide_front_tex. Until then
+ * there is nothing safe to present, so the overlay submit is suppressed. */
+static bool glide_front_valid = false;
 
 static GLuint glide_gl_texture = 0;
 static float glide_texture_s_extent = 256.f;
@@ -153,6 +164,8 @@ static void GlideReleaseOverlay(void)
 	if (!SharedMetalDevice()) {
 		glide_overlay_pair[0] = glide_overlay_pair[1] = 0;
 		glide_color_tex = 0;
+		glide_front_tex = 0;
+		glide_front_valid = false;
 		glide_width = glide_height = 0;
 		return;
 	}
@@ -174,9 +187,37 @@ static void GlideReleaseOverlay(void)
 		}
 	}
 	glide_color_tex = 0;
+	glide_front_tex = 0;
+	glide_front_valid = false;
 	glide_width = glide_height = 0;
 	glide_has_context = false;
 	MetalCompositorSubmitFrame_ClearCachedOverlay();
+}
+
+/* Publish the completed draw buffer to the front (compositor-sampled) texture.
+ * Copies the whole draw color texture via the draw FBO so the front always
+ * holds a COMPLETE frame - never a half-drawn or freshly-cleared draw buffer.
+ * Must be called with a valid overlay + FBO; leaves GL bound to framebuffer 0. */
+static void GlidePublishFrontFromDraw(void)
+{
+	if (!glide_fbo || !glide_color_tex || !glide_front_tex ||
+		!SharedMetalDevice())
+		return;
+	auto &ext = gfx_gl_ext();
+	if (!ext.fbo)
+		return;
+	/* Read from the draw color texture via the FBO; copy into the front tex. */
+	ext.BindFramebuffer(GL_FRAMEBUFFER, glide_fbo);
+	ext.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+							 GL_TEXTURE_2D, glide_color_tex, 0);
+	glBindTexture(GL_TEXTURE_2D, glide_front_tex);
+	/* glCopyTexSubImage2D is core GL 1.1 - copies the bound read framebuffer's
+	 * color into the bound texture. Front and draw are the same size. */
+	glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0,
+						(GLsizei)glide_width, (GLsizei)glide_height);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	ext.BindFramebuffer(GL_FRAMEBUFFER, 0);
+	glide_front_valid = true;
 }
 
 static bool GlideEnsureOverlay(uint32_t w, uint32_t h)
@@ -199,7 +240,9 @@ static bool GlideEnsureOverlay(uint32_t w, uint32_t h)
 	glide_overlay_pair[0] = (GLuint)(uintptr_t)a;
 	glide_overlay_pair[1] = (GLuint)(uintptr_t)b;
 	glide_write = 0;
-	glide_color_tex = glide_overlay_pair[glide_write];
+	glide_color_tex = glide_overlay_pair[0];   /* draw target */
+	glide_front_tex = glide_overlay_pair[1];   /* compositor-sampled front */
+	glide_front_valid = false;
 	glide_width = w;
 	glide_height = h;
 
@@ -853,6 +896,18 @@ static void GlideSubitOverlay(int do_present)
 		return;
 	}
 
+	/* Every GlideSubitOverlay call sits at a frame boundary (WinOpen clear,
+	 * grBufferSwap, LFB unlock/present, splash), so the draw buffer now holds
+	 * a COMPLETE frame. Copy it to the front texture and present from THAT, so
+	 * the free-run VBL present never samples a half-drawn or freshly-cleared
+	 * (black) draw buffer between the clear and the draw calls. */
+	GlidePublishFrontFromDraw();
+	if (!glide_front_valid) {
+		/* Copy could not run (missing FBO); fall back to the draw texture. */
+		glide_front_tex = glide_color_tex;
+		glide_front_valid = true;
+	}
+
 	const DMCModeSnapshot *snap = dmc_current_snapshot();
 	float dst_w = (float)glide_width;
 	float dst_h = (float)glide_height;
@@ -867,7 +922,7 @@ static void GlideSubitOverlay(int do_present)
 	}
 
 	CompositeLayer layer = {};
-	layer.source = (void *)(uintptr_t)glide_color_tex;
+	layer.source = (void *)(uintptr_t)glide_front_tex;
 	layer.src_origin_x = 0;
 	layer.src_origin_y = 0;
 	layer.src_size_w = glide_width;

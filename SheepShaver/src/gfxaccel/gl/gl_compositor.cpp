@@ -67,6 +67,13 @@ static GLuint s_palette_tex = 0;   /* 256x1 RGB for indexed */
 static GLuint s_prog_32 = 0, s_prog_16 = 0, s_prog_idx = 0, s_prog_overlay = 0;
 static GLuint s_gamma_tex = 0;
 static uint8_t s_palette[256 * 4];
+/* True until a real CLUT has been pushed via MetalCompositorUpdatePalette.
+ * Init only seeds the grayscale placeholder while this is set; once the guest
+ * (DSp SetCLUT or the classic video_set_palette SetEntries) has delivered a
+ * real palette, a later re-init (window recreate on a mode switch, e.g.
+ * returning to the QuickDraw desktop when a game exits) preserves it instead
+ * of wiping the desktop to a grayscale ramp - the "black and white on exit". */
+static bool s_palette_is_placeholder = true;
 static uint8_t s_gamma_lut[768];
 static uint8_t s_gamma_identity[768];
 static bool s_palette_dirty = true;
@@ -288,6 +295,8 @@ static bool classic_framebuffer_needs_upload(void)
 		bytes != s_classic_fb_upload_baseline.size()) {
 		return true;
 	}
+	/* SIMD memcmp with early-exit on first difference - faster than a byte-wise
+	 * hash for both the static (full scan) and changed (early out) cases. */
 	const bool diff = bytes != 0 &&
 		std::memcmp(compositor_buffer, s_classic_fb_upload_baseline.data(), bytes) != 0;
 	return diff;
@@ -536,6 +545,24 @@ static bool framebuffer_layer_occludes_classic_framebuffer(void)
 		   s_framebuffer_cache.dst_origin_y <= 0.f &&
 		   s_framebuffer_cache.dst_size_w >= (float)compositor_pixel_width &&
 		   s_framebuffer_cache.dst_size_h >= (float)compositor_pixel_height;
+}
+
+/* A full-screen opaque ENGINE overlay (RAVE / GL / Glide presenting their whole
+ * frame) completely hides the classic QuickDraw underlay. When it does, the
+ * per-present classic dirty-detect memcmp + CPU expand + texture upload produce
+ * pixels that are never visible - pure waste on the emulation thread every VBL.
+ * Skip that work (and, importantly, its full-screen memcmp) while the overlay
+ * covers the screen. Uses the same geometry test as the framebuffer-slot
+ * occlusion check above. */
+static bool overlay_layer_occludes_classic_framebuffer(void)
+{
+	return s_overlay_valid && s_overlay_cache.source &&
+		   s_overlay_cache.blend == kBlendOpaque &&
+		   s_overlay_cache.alpha >= 1.f &&
+		   s_overlay_cache.dst_origin_x <= 0.f &&
+		   s_overlay_cache.dst_origin_y <= 0.f &&
+		   s_overlay_cache.dst_size_w >= (float)compositor_pixel_width &&
+		   s_overlay_cache.dst_size_h >= (float)compositor_pixel_height;
 }
 
 /* Expand guest framebuffer into tightly packed RGBA8 for upload. */
@@ -874,15 +901,25 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
 	compositor_bits_per_pixel = MetalCompositorDepthToBPPBits(depth);
 
 	MetalCompositorEnsureIdentityGamma();
-	/* Identity-ish CLUT: index 0 black (NOT white - zeroed 8bpp staging
-	 * expands to solid white if palette[0] is white, which is what D2's
-	 * post-movie underlay looked like). */
-	std::memset(s_palette, 0, sizeof(s_palette));
-	for (int i = 0; i < 256; i++) {
-		s_palette[i * 4 + 0] = (uint8_t)i;
-		s_palette[i * 4 + 1] = (uint8_t)i;
-		s_palette[i * 4 + 2] = (uint8_t)i;
-		s_palette[i * 4 + 3] = 255;
+	/* Seed a grayscale placeholder CLUT ONLY before any real palette has been
+	 * delivered. Init runs on every full (re)init, including the window
+	 * recreate that returns to the QuickDraw desktop when a game exits; wiping
+	 * a real, previously-latched palette back to a grayscale ramp there is what
+	 * turned the desktop black-and-white until the next full SetEntries landed.
+	 * Once a real CLUT exists, preserve it across re-init and let the guest's
+	 * next SetEntries update it normally.
+	 *
+	 * Grayscale (index 0 black, NOT white): zeroed 8bpp staging expands to
+	 * solid white if palette[0] is white, which is what D2's post-movie
+	 * underlay looked like. */
+	if (s_palette_is_placeholder) {
+		std::memset(s_palette, 0, sizeof(s_palette));
+		for (int i = 0; i < 256; i++) {
+			s_palette[i * 4 + 0] = (uint8_t)i;
+			s_palette[i * 4 + 1] = (uint8_t)i;
+			s_palette[i * 4 + 2] = (uint8_t)i;
+			s_palette[i * 4 + 3] = 255;
+		}
 	}
 
 	if (buffer != nullptr) {
@@ -947,6 +984,12 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
 	}
 	s_palette_dirty = true;
 	s_classic_fb_texture_valid = false;
+	/* A substantial CLUT (a real indexed-mode palette, not the 2-colour B/W
+	 * startup seed video_sdl2 pushes on every mode init) means the guest has
+	 * delivered real colours - stop reseeding the grayscale placeholder on
+	 * future re-inits so returning to the desktop keeps these colours. */
+	if (num_colors >= 16 && any_nonzero)
+		s_palette_is_placeholder = false;
 	COMPOSITOR_LOG("MetalCompositorUpdatePalette: stored %d colors "
 				   "(compositor depth=%d bpp=%d)",
 				   num_colors, compositor_depth, compositor_bits_per_pixel);
@@ -1034,7 +1077,15 @@ void MetalCompositorPresent(void)
 	const uint64_t now_usec = compositor_now_usec();
 	const uint64_t cadence_usec = GfxFramePacingClampCadenceUsec(
 		vbl_source_get_cadence_usec());
-	const bool classic_dirty = classic_framebuffer_needs_upload();
+	/* When a full-screen opaque overlay (RAVE/GL/Glide) or the framebuffer slot
+	 * (DSp) covers the whole screen, the classic underlay is invisible - skip
+	 * its dirty-detect memcmp + expand + upload entirely. This is the per-VBL,
+	 * emulation-thread cost shared by every accelerated backend. */
+	const bool classic_hidden =
+		framebuffer_layer_occludes_classic_framebuffer() ||
+		overlay_layer_occludes_classic_framebuffer();
+	const bool classic_dirty =
+		!classic_hidden && classic_framebuffer_needs_upload();
 	const bool do_draw = classic_dirty ||
 						 !s_classic_fb_texture_valid ||
 						 s_last_present_usec == 0 ||
@@ -1089,8 +1140,10 @@ void MetalCompositorPresent(void)
 	 * (and VBL publish). Keep sampling it without a host-buffer re-upload -
 	 * OnModeEnter Resize passes buffer=NULL for DSp, and expand-from-null
 	 * would paint solid black over the DSp pixels every present. */
-	const bool classic_occluded =
-		framebuffer_layer_occludes_classic_framebuffer();
+	/* classic_hidden (computed above) also covers a full-screen opaque engine
+	 * overlay, so the classic underlay quad + its expand/upload are skipped
+	 * whenever the visible frame is fully owned by an overlay or the DSp page. */
+	const bool classic_occluded = classic_hidden;
 	bool classic_uploaded = false;
 	if (!classic_occluded) {
 		MetalCompositorEnsureFrameBufferTexture();
