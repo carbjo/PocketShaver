@@ -116,9 +116,6 @@ enum {
 	kGlide_grEnable                    = 203,
 	kGlide_grDisable                   = 204,
 	kGlide_grCoordinateSystem          = 205,
-	kGlide_grGetProcAddress            = 227, /* Glide 3 extension lookup */
-	kGlide_guGammaCorrectionRGB        = 228,
-	kGlide_grDeviceQueryExt            = 229, /* D2 detection extension */
 	kGlide_grVertexLayout              = 206,
 	kGlide_grDrawVertexArray           = 207,
 	kGlide_grDrawVertexArrayContiguous = 208,
@@ -140,6 +137,29 @@ enum {
 	kGlide_grTexNCCTableG3             = 224,
 	kGlide_grSelectContext             = 225,
 	kGlide_grSstWinOpenG3              = 226, /* alias if export differs */
+	kGlide_guEncodeRLE16			= 227,
+	kGlide_guTexCreateColorMipMap	= 228,
+	kGlide_guFogGenerateLinear		= 229,
+	kGlide_guFogGenerateExp2		= 230,
+	kGlide_guFogGenerateExp		= 231,
+	kGlide_guFogTableIndexToW	= 232,
+	kGlide_guEndianSwapBytes	= 233,
+	kGlide_guEndianSwapWords	= 234,
+	kGlide_guAlphaSource		= 235,
+	kGlide_grTexChromaRange		= 236,
+	kGlide_grTexChromaMode		= 237,
+	kGlide_grLoadGammaTable		= 238,
+	kGlide_grChromaRange		= 239,
+	kGlide_grChromaRangeMode	= 240,
+	kGlide_grSstVidMode			= 241,
+	kGlide_grQueryResolutions	= 242,
+	kGlide_gu3dfLoad	= 243,
+	kGlide_gu3dfGetInfo	= 244,
+	kGlide_grErrorSetCallback	= 245,
+	kGlide_grGetProcAddress            = 246, /* Glide 3 extension lookup */
+	kGlide_guGammaCorrectionRGB        = 247,
+	kGlide_grDeviceQueryExt            = 248, /* D2 detection extension */
+	kGlide_grSurfaceSetTextureSurfaceExt = 249, /* 3dfx RAVE teardown */
 
 	/* LFB */
 	kGlide_grLfbLock                   = 400,
@@ -150,16 +170,6 @@ enum {
 	kGlide_grLfbConstantDepth          = 405,
 	kGlide_grLfbWriteColorFormat       = 406,
 	kGlide_grLfbWriteColorSwizzle      = 407,
-
-	/* CFM gate hooks (InterfaceLib) - intercept guest Glide loads.
-	 * Synthetic conn IDs are unknown to the real CFM manager, so we must
-	 * also handle CountSymbols / GetIndSymbol / CloseConnection or the
-	 * guest crashes when it probes the connection after FindSymbol. */
-	kGlide_HookGetSharedLibrary        = 500,
-	kGlide_HookFindSymbol              = 501,
-	kGlide_HookCloseConnection         = 502,
-	kGlide_HookCountSymbols            = 503,
-	kGlide_HookGetIndSymbol            = 504,
 
 	kGlide_SUBOPCODE_MAX               = 510
 };

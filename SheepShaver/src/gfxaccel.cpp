@@ -896,7 +896,7 @@ void VideoInstallAccel(void)
 
 	/* 3dfx Glide 2.x / 3.x - disabled as it crashes on guest exit */
 	if (PrefsFindBool("glideaccel")) {
-		/*GlideInstallHooks();*/
+		GlideInstallHooks();
 	}
 
 	#if defined(ENABLE_NATIVE_CINEPAK_PATCH) \

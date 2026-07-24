@@ -28,7 +28,6 @@ extern uint32_t glide_scratch_addr;
 
 static bool glide_hooks_installed = false;
 static bool glide_hooks_in_progress = false;
-static bool glide_thunks_ready = false;
 static int  glide_hooks_attempts = 0;
 static const int GLIDE_HOOKS_MAX_ATTEMPTS = 3;
 
@@ -40,7 +39,10 @@ struct GlideInstallSymbol {
 
 /* D2 PEF-import surface + common Glide 3 exports (same idea as DSp's 53-row table). */
 static const GlideInstallSymbol glide_symbols[] = {
+#if 1
 	{ "\013grGlideInit",              kGlide_grGlideInit,              "grGlideInit" },
+#endif
+#if 1
 	{ "\017grGlideShutdown",          kGlide_grGlideShutdown,          "grGlideShutdown" },
 	{ "\021grGlideGetVersion",        kGlide_grGlideGetVersion,        "grGlideGetVersion" },
 	{ "\020grSstQueryBoards",         kGlide_grSstQueryBoards,         "grSstQueryBoards" },
@@ -56,8 +58,6 @@ static const GlideInstallSymbol glide_symbols[] = {
 	{ "\021grSstScreenHeight",        kGlide_grSstScreenHeight,        "grSstScreenHeight" },
 	{ "\013grSstStatus",              kGlide_grSstStatus,              "grSstStatus" },
 	{ "\017grSstVRetraceOn",          kGlide_grSstVRetraceOn,          "grSstVRetraceOn" },
-	/* Alternate export spellings seen on some Mac 3Dfx builds.
-	 * grSstVRetrace is 13 chars - was wrongly \016 (14) so FindLibSymbol never hit. */
 	{ "\015grSstVRetrace",            kGlide_grSstVRetraceOn,          "grSstVRetrace" },
 	{ "\016grSstVideoLine",           kGlide_grSstVideoLine,           "grSstVideoLine" },
 	{ "\015grBufferClear",            kGlide_grBufferClear,            "grBufferClear" },
@@ -94,7 +94,9 @@ static const GlideInstallSymbol glide_symbols[] = {
 	{ "\017grTexMinAddress",          kGlide_grTexMinAddress,          "grTexMinAddress" },
 	{ "\017grTexMaxAddress",          kGlide_grTexMaxAddress,          "grTexMaxAddress" },
 	{ "\024grTexCalcMemRequired",     kGlide_grTexCalcMemRequired,     "grTexCalcMemRequired" },
+#endif
 	{ "\005grGet",                    kGlide_grGet,                    "grGet" },
+#if 1
 	{ "\013grGetString",              kGlide_grGetString,              "grGetString" },
 	{ "\020grGetProcAddress",         kGlide_grGetProcAddress,         "grGetProcAddress" },
 	{ "\007grReset",                  kGlide_grReset,                  "grReset" },
@@ -111,11 +113,56 @@ static const GlideInstallSymbol glide_symbols[] = {
 	{ "\013grLfbUnlock",              kGlide_grLfbUnlock,              "grLfbUnlock" },
 	{ "\017grLfbReadRegion",          kGlide_grLfbReadRegion,          "grLfbReadRegion" },
 	{ "\020grLfbWriteRegion",         kGlide_grLfbWriteRegion,         "grLfbWriteRegion" },
-	/* "guGammaCorrectionRGB" is 20 chars; was wrongly \023 (19) - MISMATCH
-	 * meant FindLibSymbol never resolved it and stock PEF could spin on HW. */
 	{ "\024guGammaCorrectionRGB",     kGlide_guGammaCorrectionRGB,     "guGammaCorrectionRGB" },
-	/* Extra wait/status aliases - grSstBusy is 9 chars; was wrongly \014 (12). */
 	{ "\011grSstBusy",                kGlide_grSstIsBusy,              "grSstBusy" },
+
+	{ "\022grQueryResolutions",       kGlide_grQueryResolutions,       "grQueryResolutions" },
+	{ "\017grGlideGetState",          kGlide_grGlideGetState,          "grGlideGetState" },
+	{ "\014grSstVidMode",             kGlide_grSstVidMode,             "grSstVidMode" },
+	{ "\012grViewport",               kGlide_grViewport,               "grViewport" },
+	{ "\014grDepthRange",             kGlide_grDepthRange,             "grDepthRange" },
+	{ "\026grLfbWriteColorSwizzle",    kGlide_grLfbWriteColorSwizzle,    "grLfbWriteColorSwizzle" },
+	{ "\025grLfbWriteColorFormat",     kGlide_grLfbWriteColorFormat,     "grLfbWriteColorFormat" },
+	{ "\017grFogColorValue",          kGlide_grFogColorValue,          "grFogColorValue" },
+	{ "\020grDepthBiasLevel",         kGlide_grDepthBiasLevel,         "grDepthBiasLevel" },
+	{ "\015grChromaRange",            kGlide_grChromaRange,            "grChromaRange" },
+	{ "\021grChromaRangeMode",        kGlide_grChromaRangeMode,        "grChromaRangeMode" },
+	{ "\034grAlphaControlsITRGBLighting", kGlide_grAlphaControlsITRGBLighting, "grAlphaControlsITRGBLighting" },
+	{ "\031grAlphaTestReferenceValue",kGlide_grAlphaTestReferenceValue,"grAlphaTestReferenceValue" },
+	{ "\023grAlphaTestFunction",     kGlide_grAlphaTestFunction,     "grAlphaTestFunction" },
+	{ "\026grGlideSetVertexLayout",   kGlide_grGlideSetVertexLayout,   "grGlideSetVertexLayout" },
+	{ "\026grGlideGetVertexLayout",   kGlide_grGlideGetVertexLayout,   "grGlideGetVertexLayout" },
+	{ "\031grTexDownloadTablePartial", kGlide_grTexDownloadTablePartial, "grTexDownloadTablePartial" },
+	{ "\027grTexTextureMemRequired",  kGlide_grTexTextureMemRequired,  "grTexTextureMemRequired" },
+	{ "\022grTexDetailControl",       kGlide_grTexDetailControl,       "grTexDetailControl" },
+	{ "\011gu3dfLoad",                kGlide_gu3dfLoad,                "gu3dfLoad" },
+	{ "\014gu3dfGetInfo",             kGlide_gu3dfGetInfo,             "gu3dfGetInfo" },
+	{ "\022grErrorSetCallback",       kGlide_grErrorSetCallback,       "grErrorSetCallback" },
+	{ "\017grGlideSetState",          kGlide_grGlideSetState,          "grGlideSetState" },
+	{ "\012grFogTable",               kGlide_grFogTable,               "grFogTable" },
+	{ "\023grDisableAllEffects",      kGlide_grDisableAllEffects,      "grDisableAllEffects" },
+	{ "\022grLfbConstantDepth",       kGlide_grLfbConstantDepth,       "grLfbConstantDepth" },
+	{ "\022grLfbConstantAlpha",       kGlide_grLfbConstantAlpha,       "grLfbConstantAlpha" },
+	{ "\010grSplash",                 kGlide_grSplash,                 "grSplash" },
+	{ "\020grLoadGammaTable",         kGlide_grLoadGammaTable,         "grLoadGammaTable" },
+	{ "\017grSelectContext",          kGlide_grSelectContext,          "grSelectContext" },
+	{ "\020grTexChromaRange",         kGlide_grTexChromaRange,         "grTexChromaRange" },
+	{ "\017grTexChromaMode",          kGlide_grTexChromaMode,          "grTexChromaMode" },
+	{ "\025grTexMultibaseAddress",    kGlide_grTexMultibaseAddress,    "grTexMultibaseAddress" },
+	{ "\016grTexMultibase",           kGlide_grTexMultibase,           "grTexMultibase" },
+	{ "\015grTexNCCTable",            kGlide_grTexNCCTable,            "grTexNCCTable" },
+	{ "\021grTexLodBiasValue",        kGlide_grTexLodBiasValue,        "grTexLodBiasValue" },
+	{ "\037grTexDownloadMipMapLevelPartial", kGlide_grTexDownloadMipMapLevelPartial, "grTexDownloadMipMapLevelPartial" },
+	{ "\015guEncodeRLE16",            kGlide_guEncodeRLE16,            "guEncodeRLE16" },
+	{ "\026guTexCreateColorMipMap",   kGlide_guTexCreateColorMipMap,   "guTexCreateColorMipMap" },
+	{ "\023guFogGenerateLinear",      kGlide_guFogGenerateLinear,      "guFogGenerateLinear" },
+	{ "\021guFogGenerateExp2",        kGlide_guFogGenerateExp2,        "guFogGenerateExp2" },
+	{ "\020guFogGenerateExp",         kGlide_guFogGenerateExp,         "guFogGenerateExp" },
+	{ "\022guFogTableIndexToW",       kGlide_guFogTableIndexToW,       "guFogTableIndexToW" },
+	{ "\021guEndianSwapBytes",        kGlide_guEndianSwapBytes,        "guEndianSwapBytes" },
+	{ "\021guEndianSwapWords",        kGlide_guEndianSwapWords,        "guEndianSwapWords" },
+	{ "\015guAlphaSource",            kGlide_guAlphaSource,            "guAlphaSource" },
+#endif
 };
 static const int num_glide_symbols =
 	(int)(sizeof(glide_symbols) / sizeof(glide_symbols[0]));
@@ -149,30 +196,15 @@ static int glide_install_patch_one(uint32_t orig_tvect, uint32_t hook_tvect, con
 		QD3D_INIT_LOG("Glide: hook TVECT for %s not allocated", name);
 		return 0;
 	}
-	if (orig_tvect == 0) {
-		QD3D_INIT_LOG("Glide: null guest TVECT for %s", name);
-		return 0;
-	}
 
 	uint32_t orig_code = ReadMacInt32(orig_tvect);
 	uint32_t hook_code = ReadMacInt32(hook_tvect);
-	if (hook_code == 0) {
-		QD3D_INIT_LOG("Glide: hook code for %s is zero", name);
-		return 0;
-	}
 	if (orig_code == 0) {
 		QD3D_INIT_LOG("Glide: orig_code for %s is zero (tvect=0x%08x)", name, orig_tvect);
 		return 0;
 	}
 
-	/* Already fully redirected? */
-	if (orig_code == hook_code)
-		return 1;
-
-	/* 1) TVECT code pointer -> our thunk */
-	WriteMacInt32(orig_tvect + 0, hook_code);
-
-	/* 2) DSp-style: branch at original entry so any direct code call hits us */
+	/* DSp-style: branch at original entry so any direct code call hits us */
 	const uint32_t r11 = 11;
 	uint32_t hook_hi = (hook_code >> 16) & 0xFFFF;
 	uint32_t hook_lo = hook_code & 0xFFFF;
@@ -201,11 +233,6 @@ void GlideInstallHooks(void)
 		return;
 	}
 	glide_hooks_in_progress = true;
-
-	if (!glide_thunks_ready) {
-		GlideThunksInit();
-		glide_thunks_ready = true;
-	}
 
 	const int attempt_number = glide_hooks_attempts + 1;
 	QD3D_INIT_LOG("GlideInstallHooks: installing FindLibSymbol hooks for Glide "
@@ -309,8 +336,7 @@ void GlideInstallHooks(void)
 	 * Glide 2/3 PEF exports, so success is "patched everything we resolved"
 	 * with a minimum core surface (grGlideInit + friends), not table size.
 	 */
-	const int kMinCore = 8;
-	if (patched_count >= kMinCore && patched_count == found_count) {
+	if (patched_count == found_count) {
 		glide_hooks_installed = true;
 		QD3D_INIT_LOG("GlideInstallHooks: FULL SUCCESS - %d symbols patched "
 					  "on attempt %d (%d table rows not in this PEF)",
@@ -340,12 +366,6 @@ void GlideInstallHooks(void)
 	}
 }
 
-bool GlideInstallHooksSweepComplete(void)
-{
-	return glide_hooks_installed ||
-		   glide_hooks_attempts >= GLIDE_HOOKS_MAX_ATTEMPTS;
-}
-
 void GlideResetForReboot(void)
 {
 	QD3D_INIT_LOG("GlideResetForReboot: hooksInstalled=%d attempts=%d",
@@ -356,47 +376,78 @@ void GlideResetForReboot(void)
 	glide_hooks_attempts = 0;
 }
 
-/* Allow grGlideInit to force a re-patch without full reboot bookkeeping. */
-void GlideForceReinstallHooks(void)
+
+bool GlideInstallHooksSweepComplete(void)
 {
-	glide_hooks_installed = false;
-	glide_hooks_in_progress = false;
-	glide_hooks_attempts = 0;
-	GlideInstallHooks();
+	return glide_hooks_installed ||
+		   glide_hooks_attempts >= GLIDE_HOOKS_MAX_ATTEMPTS;
 }
 
-/* ---- Stubs: no synthetic CFM ---- */
+uint32_t glide_method_tvects[GLIDE_MAX_SUBOPCODE];
+uint32_t glide_scratch_addr = 0;
 
-uint32_t GlideResolveSyntheticSymbol(const char * /*lib_pascal*/,
-									 const char * /*sym_pascal*/)
+static uint32 AllocateGlideTVECT(int method_id, uint32 glide_opcode)
 {
-	/* Do not fake FindLibSymbol success - that hid real CFM failures. */
-	return 0;
+	uint32 scratch_hi = (glide_scratch_addr >> 16) & 0xFFFF;
+	uint32 scratch_lo = glide_scratch_addr & 0xFFFF;
+
+	uint32 base = SheepMem::ReserveProc(32);
+	uint32 code = base + 8;
+
+	WriteMacInt32(base + 0, code);
+	WriteMacInt32(base + 4, 0);
+
+	const uint32 r11 = 11;
+	const uint32 r12 = 12;
+
+	/* lis r11, scratch_hi */
+	WriteMacInt32(code + 0, 0x3C000000 | (r11 << 21) | (scratch_hi & 0xFFFF));
+	/* ori r11, r11, scratch_lo */
+	WriteMacInt32(code + 4, 0x60000000 | (r11 << 21) | (r11 << 16) | (scratch_lo & 0xFFFF));
+	/* li r12, method_id */
+	WriteMacInt32(code + 8, 0x38000000 | (r12 << 21) | (method_id & 0xFFFF));
+	/* stw r12, 0(r11) */
+	WriteMacInt32(code + 12, 0x90000000 | (r12 << 21) | (r11 << 16));
+	/* NATIVE_GLIDE_DISPATCH */
+	WriteMacInt32(code + 16, glide_opcode);
+	/* blr */
+	WriteMacInt32(code + 20, 0x4E800020);
+
+	return base;
 }
 
-uint32_t NativeGlideHookGetSharedLibrary(uint32_t, uint32_t, uint32_t,
-										 uint32_t, uint32_t, uint32_t)
+void GlideThunksInit(void)
 {
-	return (uint32_t)(int32_t)(-2800);
+	QD3D_INIT_LOG("GlideThunksInit: begin");
+	glide_scratch_addr = SheepMem::Reserve(32);
+	WriteMacInt32(glide_scratch_addr, 0);
+
+#if EMULATED_PPC
+	uint32 glide_opcode = NativeOpcode(NATIVE_GLIDE_DISPATCH);
+#else
+	uint32 glide_opcode = 0;
+#endif
+	memset(glide_method_tvects, 0, sizeof(glide_method_tvects));
+
+	int tvectcount = 0;
+	for (size_t i = 0; i < sizeof(glide_symbols) / sizeof(glide_symbols[0]); i++) {
+		int op = glide_symbols[i].sub_opcode;
+		uint32 tvect = AllocateGlideTVECT(op, glide_opcode);
+		glide_method_tvects[op] = tvect;
+		tvectcount++;
+	}
+
+	/*
+	 * grSurfaceSetTextureSurfaceExt is obtained only through
+	 * grGetProcAddress; it is not a normal PEF export.  The stock 3dfx RAVE
+	 * driver nevertheless calls it unconditionally from rvTerminate after a
+	 * successful board probe, so it still needs a real CFM TVECT.
+	 */
+	glide_method_tvects[kGlide_grSurfaceSetTextureSurfaceExt] =
+		AllocateGlideTVECT(kGlide_grSurfaceSetTextureSurfaceExt, glide_opcode);
+	tvectcount++;
+
+	QD3D_INIT_LOG("GlideThunksInit: allocated %d TVECTs scratch=0x%08x",
+	              tvectcount, glide_scratch_addr);
 }
 
-uint32_t NativeGlideHookFindSymbol(uint32_t, uint32_t, uint32_t, uint32_t)
-{
-	return (uint32_t)(int32_t)(-2804);
-}
-
-uint32_t NativeGlideHookCloseConnection(uint32_t)
-{
-	return 0;
-}
-
-uint32_t NativeGlideHookCountSymbols(uint32_t, uint32_t)
-{
-	return (uint32_t)(int32_t)(-2804);
-}
-
-uint32_t NativeGlideHookGetIndSymbol(uint32_t, uint32_t, uint32_t,
-									 uint32_t, uint32_t)
-{
-	return (uint32_t)(int32_t)(-2804);
-}

@@ -26,6 +26,7 @@
 #include "rave_engine.h"
 #include "gl_engine.h"
 #include "dsp_engine.h"
+#include "glide_engine.h"
 #endif
 #include "xlowmem.h"
 
@@ -317,6 +318,8 @@ bool ThunksInit(void)
 	// Initialize DSp thunks. Allocates real TVECTs for the
 	// public DSp entry points via SheepMem::Reserve, matching RAVE.
 	DSpThunksInit();
+
+	GlideThunksInit();
 #endif
 
 #if POWERPC_GET_RESOURCE_THUNKS

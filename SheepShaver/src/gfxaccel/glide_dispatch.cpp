@@ -263,7 +263,19 @@ static uint32_t handle_grGetString(uint32_t pname)
 	/* Official grGetString tokens are 0xa0-0xa4. */
 	switch (pname) {
 	case GR_EXTENSION:
-		return ensure(s_ext, "DEVICE ");
+		/*
+		 * The Mac 3dfx RAVE driver searches for the space-delimited
+		 * " SURFACE " token. Its RvTerminate then calls
+		 * grSurfaceSetTextureSurfaceExt for TMUs 0 and 1 without checking
+		 * the ProcPtr. Advertise the group so it resolves our safe unbind
+		 * hook; the remaining SURFACE functions stay unresolved, keeping
+		 * the driver's full surface capability disabled.
+		 *
+		 * I.E. Both 3dfx Rave (through RvInitialize/RvTerminate) _AND_
+		 * the game (for example Diablo II) call our glide functions.
+		 * Without these implemented Diablo II crashes on exit.
+		 */
+		return ensure(s_ext, " SURFACE DEVICE ");
 	case GR_HARDWARE:
 		return ensure(s_renderer, "Voodoo 3");
 	case GR_RENDERER:
@@ -281,7 +293,7 @@ static uint32_t handle_grGetString(uint32_t pname)
 /* Ring of recent Glide calls for hang dumps (host-side, no guest pointers kept live). */
 struct GlideCallRec {
 	uint64_t n;
-	uint32_t sub;
+	uint32_t subop;
 	uint32_t r3, r4, r5, r6, r7, r8, r9, r10, stack9;
 };
 static const int kGlideHist = 48;
@@ -310,7 +322,7 @@ void GlideHangDumpState(void)
 			  (unsigned)GlideStateLfbGuestPtr(),
 			  (unsigned)GlideStateLfbStride(),
 			  GlideStateLfbType(), GlideStateLfbBuffer(), GlideStateLfbWriteMode());
-	glide_log("glide: scratch=%08x (sub slot)", (unsigned)glide_scratch_addr);
+	glide_log("glide: scratch=%08x (subop slot)", (unsigned)glide_scratch_addr);
 	if (glide_scratch_addr)
 		glide_log("glide: scratch_sub_now=%u", (unsigned)ReadMacInt32(glide_scratch_addr));
 	/* Dump hist oldest..newest */
@@ -320,8 +332,8 @@ void GlideHangDumpState(void)
 	for (int k = 0; k < n; k++) {
 		const int idx = (s_glide_hist_i - n + k + kGlideHist * 2) % kGlideHist;
 		const GlideCallRec &c = s_glide_hist[idx];
-		glide_log("  hist[%d] #%llu sub=%u r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x sp9=%08x",
-				  k, (unsigned long long)c.n, c.sub,
+		glide_log("  hist[%d] #%llu subop=%u r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x sp9=%08x",
+				  k, (unsigned long long)c.n, c.subop,
 				  c.r3, c.r4, c.r5, c.r6, c.r7, c.r8, c.r9, c.r10, c.stack9);
 	}
 	glide_log("======== GLIDE HANG STATE END ========");
@@ -333,79 +345,74 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 {
 	if (!glide_scratch_addr)
 		return 0;
-	const uint32_t sub = ReadMacInt32(glide_scratch_addr);
+	const uint32_t subop = ReadMacInt32(glide_scratch_addr);
 	/* 9th stack arg (PPC Mac): home area + 8 register slots = SP+56. */
 	const uint32_t stack9 = sp ? ReadMacInt32(sp + 56) : 0;
-
 	static uint64_t s_call_n = 0;
 	static uint32_t s_post_open_n = 0;
 	static uint32_t s_hot_n = 0; /* VRetrace / VideoLine / IsBusy spam */
 	++s_call_n;
 	s_call_n_global = s_call_n;
-	s_last_sub = sub;
+	s_last_sub = subop;
 	/* Record history (including hot paths - hang diagnosis needs them). */
 	{
 		GlideCallRec &c = s_glide_hist[s_glide_hist_i];
-		c.n = s_call_n; c.sub = sub;
+		c.n = s_call_n; c.subop = subop;
 		c.r3 = r3; c.r4 = r4; c.r5 = r5; c.r6 = r6;
 		c.r7 = r7; c.r8 = r8; c.r9 = r9; c.r10 = r10; c.stack9 = stack9;
 		s_glide_hist_i = (s_glide_hist_i + 1) % kGlideHist;
 		s_glide_hist_total++;
 	}
-	if (sub == kGlide_grSstWinOpen)
+	if (subop == kGlide_grSstWinOpen)
 		s_post_open_n = 0;
-	else if (GlideStateWindowOpen() && sub < kGlide_HookGetSharedLibrary)
+	else if (GlideStateWindowOpen())
 		++s_post_open_n;
 
 	const bool hot =
-		sub == kGlide_grSstVRetraceOn || sub == kGlide_grSstVideoLine ||
-		sub == kGlide_grSstIsBusy || sub == kGlide_grSstIdle ||
-		sub == kGlide_grSstStatus || sub == kGlide_grBufferNumPending;
+		subop == kGlide_grSstVRetraceOn || subop == kGlide_grSstVideoLine ||
+		subop == kGlide_grSstIsBusy || subop == kGlide_grSstIdle ||
+		subop == kGlide_grSstStatus || subop == kGlide_grBufferNumPending;
 	const bool always_log =
-		sub < kGlide_HookGetSharedLibrary && !hot &&
+		!hot &&
 		(s_post_open_n <= 400 || s_call_n <= 120 ||
-		 sub == kGlide_grBufferClear || sub == kGlide_grBufferSwap ||
-		 sub == kGlide_grLfbLock || sub == kGlide_grLfbUnlock ||
-		 sub == kGlide_grTexDownloadMipMap ||
-		 sub == kGlide_grTexDownloadMipMapLevel ||
-		 sub == kGlide_grTexSource || sub == kGlide_grTexDownloadTable ||
-		 sub == kGlide_grDrawTriangle || sub == kGlide_grDrawVertexArray ||
-		 sub == kGlide_grDrawVertexArrayContiguous ||
-		 sub == kGlide_grSstWinOpen || sub == kGlide_grSstWinClose ||
-		 (sub >= 200 && sub < 230));
+		 subop == kGlide_grBufferClear || subop == kGlide_grBufferSwap ||
+		 subop == kGlide_grLfbLock || subop == kGlide_grLfbUnlock ||
+		 subop == kGlide_grTexDownloadMipMap ||
+		 subop == kGlide_grTexDownloadMipMapLevel ||
+		 subop == kGlide_grTexSource || subop == kGlide_grTexDownloadTable ||
+		 subop == kGlide_grDrawTriangle || subop == kGlide_grDrawVertexArray ||
+		 subop == kGlide_grDrawVertexArrayContiguous ||
+		 subop == kGlide_grSstWinOpen || subop == kGlide_grSstWinClose ||
+		 (subop >= 200 && subop < 230));
 
 	const bool log_this = true;/*hot ? (++s_hot_n <= 16 || (s_hot_n % 10000u) == 0)
 							  : always_log;*/
 	if (hot && log_this)
-		glide_log("GlideENTER #%llu sub=%u HOT#%u r3=%08x (win=%d)",
-				  (unsigned long long)s_call_n, sub, s_hot_n, r3,
+		glide_log("GlideENTER #%llu subop=%u HOT#%u r3=%08x (win=%d)",
+				  (unsigned long long)s_call_n, subop, s_hot_n, r3,
 				  GlideStateWindowOpen() ? 1 : 0);
 	else if (!hot && log_this)
-		glide_log("GlideENTER #%llu sub=%u r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x",
-				  (unsigned long long)s_call_n, sub, r3, r4, r5, r6, r7, r8, r9, r10);
+		glide_log("GlideENTER #%llu subop=%u r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x",
+				  (unsigned long long)s_call_n, subop, r3, r4, r5, r6, r7, r8, r9, r10);
 
 	/* RAII exit log - if the log freezes mid-call, ENTER was last without EXIT. */
 	struct GlideExitLog {
 		uint64_t n;
-		uint32_t sub;
+		uint32_t subop;
 		bool on;
 		~GlideExitLog()
 		{
 			if (on)
-				glide_log("GlideEXIT  #%llu sub=%u",
-						  (unsigned long long)n, sub);
+				glide_log("GlideEXIT  #%llu subop=%u",
+						  (unsigned long long)n, subop);
 		}
-	} exit_log{s_call_n, sub, log_this && !hot};
+	} exit_log{s_call_n, subop, log_this && !hot};
 
-	switch (sub) {
+	switch (subop) {
 	case kGlide_grGlideInit:
 		GlideStateResetDefaults();
 		GlideStateSetInited(true);
 		GlideMetalInit();
-		/* Re-smash exports - grGlideInit / library reload can restore stock
-		 * TVECTs and leave wait paths spinning in PEF hardware stubs. */
-		extern void GlideForceReinstallHooks(void);
-		GlideForceReinstallHooks();
 		glide_log("grGlideInit (+hooks re-patch)");
 		return 0;
 
@@ -450,10 +457,11 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		return FXTRUE;
 	}
 
-	case kGlide_grSstSelect:
-		/* void grSstSelect(int which_sst); */
+	case kGlide_grSstSelect: {
+		/* void grSstSelect(int whichsst); */
+		const int whichsst = (int)r3;
 		return 0;
-
+	}
 	case kGlide_grSstWinOpen: {
 		/* FxBool grSstWinOpen(FxU32 hWnd, GrScreenResolution_t res,
 		 *   GrScreenRefresh_t ref, GrColorFormat_t cformat,
@@ -901,7 +909,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 				name[i] = 0;
 			}
 		}
-		struct Pair { const char *n; int sub; };
+		struct Pair { const char *n; int subop; };
 		static const Pair kExt[] = {
 			{ "grGet", kGlide_grGet },
 			{ "grGetString", kGlide_grGetString },
@@ -924,6 +932,13 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 			/* D2 board-detect extension (must not return NULL). */
 			{ "grDeviceQueryExt", kGlide_grDeviceQueryExt },
 			{ "grDeviceQuery", kGlide_grDeviceQueryExt },
+			/*
+			 * The stock 3dfx RAVE rvTerminate calls this unconditionally
+			 * for TMUs 0 and 1.  Other SURFACE lookups deliberately remain
+			 * NULL until that extension is implemented in full.
+			 */
+			{ "grSurfaceSetTextureSurfaceExt",
+			  kGlide_grSurfaceSetTextureSurfaceExt },
 		};
 		for (size_t i = 0; i < sizeof(kExt) / sizeof(kExt[0]); i++) {
 			if (std::strcmp(name, kExt[i].n) == 0) {
@@ -933,7 +948,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 				 * that. Raw-code callers that bctr to the TVECT itself hit
 				 * illegal opcodes - execute_illegal now recovers via LR.
 				 */
-				uint32_t tv = glide_method_tvects[kExt[i].sub];
+				uint32_t tv = glide_method_tvects[kExt[i].subop];
 				glide_log("grGetProcAddress('%s') -> tvect=0x%08x code=0x%08x",
 						  name, tv, tv ? ReadMacInt32(tv) : 0);
 				return tv;
@@ -963,6 +978,18 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		glide_log("grDeviceQueryExt buf=%08x size=%u -> TRUE", buf, size);
 		return FXTRUE;
 	}
+	case kGlide_grSurfaceSetTextureSurfaceExt:
+		/*
+		 * FxBool grSurfaceSetTextureSurfaceExt(GrChipID_t tmu,
+		 *                                      GrSurface_t surface).
+		 * A NULL surface is the RAVE driver's teardown-time unbind.  There
+		 * is no host surface object to release in the current renderer, so
+		 * accepting it is the correct minimal behavior.  This hook is not
+		 * enough to claim the complete SURFACE rendering extension.
+		 */
+		glide_log("grSurfaceSetTextureSurfaceExt tmu=%u surface=%08x -> TRUE (no-op)",
+				  (unsigned)r3, (unsigned)r4);
+		return FXTRUE;
 	case kGlide_guGammaCorrectionRGB:
 		/* void guGammaCorrectionRGB(float r, float g, float b);
 		 * PPC Mac: floats in f1-f3 (we don't read FPRs here). No-op is fine -
@@ -1148,19 +1175,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		GlideStateSetLfbWriteColorSwizzle((int)r3);
 		return FXTRUE;
 
-	case kGlide_HookGetSharedLibrary:
-		return NativeGlideHookGetSharedLibrary(r3, r4, r5, r6, r7, r8);
-	case kGlide_HookFindSymbol:
-		return NativeGlideHookFindSymbol(r3, r4, r5, r6);
-	case kGlide_HookCloseConnection:
-		return NativeGlideHookCloseConnection(r3);
-	case kGlide_HookCountSymbols:
-		return NativeGlideHookCountSymbols(r3, r4);
-	case kGlide_HookGetIndSymbol:
-		return NativeGlideHookGetIndSymbol(r3, r4, r5, r6, r7);
-
 	default:
-		glide_log("GlideDispatch: unhandled sub=%u", sub);
+		glide_log("GlideDispatch: unhandled subop=%u", subop);
 		return 0;
 	}
 }

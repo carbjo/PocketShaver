@@ -354,7 +354,6 @@ if(ENABLE_GFXACCEL)
 	"${GA}/rave_draw_context.cpp"
 	"${GA}/rave_engine.cpp"
 	"${GA}/rave_thunks.cpp"
-	"${GA}/glide_thunks.cpp"
 	"${GA}/glide_dispatch.cpp"
 	"${GA}/glide_engine.cpp"
 	"${GA}/glide_state.cpp"
