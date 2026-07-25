@@ -1,6 +1,6 @@
 # PocketShaver
 
-A fork of [SheepShaver](https://github.com/kanjitalk755/macemu) that brings Mac OS 9 emulation to iOS and iPad with Metal GPU acceleration, native Swift UI, LAN networking, and full touchscreen gamepad support.
+A fork of [SheepShaver](https://github.com/kanjitalk755/macemu) that brings Mac OS 8.6 - 9.0.4 emulation to iOS, iPadOS and macOS with Metal GPU acceleration, a UI built in Swift, LAN networking, and full touchscreen gamepad support.
 
 PocketShaver extends the SheepShaver PowerPC emulation core with four Metal-accelerated graphics engines, a customizable on-screen gamepad, Bonjour peer-to-peer networking, a modern preferences system that adapts to the running platform, and (on Mac Catalyst) a PowerPC-to-arm64 JIT compiler. The upstream BasiliskII (68k) and desktop SheepShaver targets are preserved alongside the iOS-specific additions.
 
@@ -29,35 +29,40 @@ A from-scratch PowerPC-to-arm64 dynamic recompiler, built as a native Apple Sili
 
 JIT is only available on the Mac Catalyst build. Apple's JIT entitlements aren't available to iOS apps (including "Designed for iPad" on macOS), so those targets remain interpreter-only.
 
-### On-Screen Gamepad
+### On-Screen Gamepad (iOS / iPadOS)
 
 A fully customizable virtual gamepad overlay for touchscreen play:
 
 - Per-button assignment to keyboard keys, mouse clicks, or joystick types (mouse, WASD, arrows, 8-way)
-- Configurable button grid layout with left/right sides and four corner positions
-- Multiple saved configurations with drag-to-reorder management
-- Visibility options: both orientations, portrait-only, or landscape-only
+- Configurable button grid layout
+- Ordinary Classic Mac OS keyboard keys as well as special keys (Cmd-W, left click, right click, toggle audio etc.)
+- Multiple saved configurations
 - In-game editing mode for remapping buttons without leaving the emulator
 - Example layouts included (arcade, FPS, RPG)
 
-The gamepad is automatically hidden when running as "Designed for iPad" on macOS, where physical input devices are available.
+### Two-finger steering (iOS / iPadOS)
 
-### Touch Input
+A new optional way of steering the mouse cursor on touchscreen that makes fast and accurate mouse control possible:
 
-- **Two-finger steering** -- alternative multi-touch input with configurable second-finger click and swipe behavior
-- **Relative mouse mode** -- manual, automatic, or always-on, with tap-to-click and hover offset options
-- **Right-click** -- configurable via Control or Command key
+- **Accuracy** -- allows precise placement of cursor by not obscuring the cursor by your thumbs
+- **Speed** -- allows quick placement of the cursor and mouse clicking at any place of the screen, by minimal thumb movement
+- **Long drag** -- allows long mouse drag movements, for long click-and-drag actions or rectangular selection of a large area (as needed in real time strategy games)
+
+### Touch Input (iOS / iPadOS)
+- **Relative mouse mode** -- needed for certain game and software titles
+- **Right-click** -- available as gamepad overlay key on touchscreen, as well as hardware support for physical mouse / mousepad
 - **Soft keyboard** -- iOS keyboard bridged to emulated Mac input with configurable screen offset (top, middle, bottom)
 - **Haptic feedback** -- independent toggles for gestures, mouse clicks, and key presses
 
 ### Bonjour LAN Networking
 
-Peer-to-peer networking between devices over local network:
+Peer-to-peer networking between devices over local network, using Bonjour:
 
 - **Host mode** -- provides router functionality, shows connected clients
 - **Client mode** -- discovers hosts via Bonjour, auto-join with persistent device tracking
 - Device naming and renaming within the LAN
 - Automatic reconnection after app suspension
+- Networking between platforms also possible (iPhone to Mac etc.)
 - Alternative Slirp networking also available
 
 ### Preferences
@@ -66,13 +71,12 @@ A tabbed preferences interface with five sections:
 
 | Tab | Contents |
 |---|---|
-| **General** | ROM picker, disk management (create/import/delete), audio toggle, input options, haptic feedback, hints |
+| **General** | Setup, disk management (create/import/delete), audio toggle, input options, haptic feedback, hints |
 | **Graphics** | Monitor resolutions, rendering filter (nearest/bilinear), frame rate (60/75/120 Hz), gamma ramp, NQD/RAVE/GL acceleration toggles |
-| **Gamepad** | Configuration list, layout editor, reordering, example templates |
 | **Network** | Slirp vs. Bonjour selection, host/client role, peer browsing, device naming |
-| **Advanced** | RAM setting, performance metrics (FPS counter), UI options (landscape lock, always-on display), relative mouse settings, bootstrap/ROM info, JIT compiler toggle (Mac Catalyst) |
+| **Advanced** | RAM setting, performance metrics (FPS counter), UI options, relative mouse settings, bootstrap/ROM info, JIT compiler toggle (Mac Catalyst) |
 
-The UI adapts to the platform -- on "Designed for iPad" on macOS, the Gamepad tab is hidden and touch-specific hints are suppressed.
+The UI adapts to the platform -- on macOS, the Gamepad tab is hidden and touch-specific options are suppressed.
 
 ### Disk and ROM Management
 
@@ -83,9 +87,8 @@ The UI adapts to the platform -- on "Designed for iPad" on macOS, the Gamepad ta
 
 ### Performance Monitoring
 
-- Optional FPS counter overlay
-- Network transfer rate display
-- Rendered in the in-game overlay without interrupting emulation
+- FPS counter overlay option
+- Network transfer rate overlay option
 
 ## Benchmarks
 
