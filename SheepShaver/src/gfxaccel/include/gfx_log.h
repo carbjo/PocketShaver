@@ -25,7 +25,7 @@ extern "C" __declspec(dllimport) void __stdcall OutputDebugStringA(
 
 
 #ifndef ACCEL_LOGGING_ENABLED
-#define ACCEL_LOGGING_ENABLED 1   /* ship default OFF */
+#define ACCEL_LOGGING_ENABLED 0   /* ship default OFF */
 #endif
 #if ACCEL_LOGGING_ENABLED
 
@@ -115,11 +115,11 @@ static inline void gfx_log_emit(const char *prefix, const char *format, ...)
 	gfx_log_emit("", "[%s ERROR] " fmt, (tag), ##__VA_ARGS__)
 
 #ifndef QD3D_INIT_LOGGING_ENABLED
-#define QD3D_INIT_LOGGING_ENABLED 1
+#define QD3D_INIT_LOGGING_ENABLED 0
 #endif
 
 #ifndef QD3D_GRAPHICS_LOGGING_ENABLED
-#define QD3D_GRAPHICS_LOGGING_ENABLED 1
+#define QD3D_GRAPHICS_LOGGING_ENABLED 0
 #endif
 
 #ifndef QD3D_AUDIO_LOGGING_ENABLED

@@ -22,6 +22,7 @@
 
 #include "sysdeps.h"
 #include "cpu_emulation.h"
+#include "macos_util.h"            /* FindLibSymbol (InterfaceLib window calls) */
 #include "thunks.h"                /* SheepMem::Reserve (test hook) */
 #include "dsp_engine.h"
 #include "dsp_event_record.h"      /* kDSpEvent_OSEvt + osEvt suspend/resume decode constants */
@@ -53,6 +54,7 @@
 #include "display_mode_controller.h" /* dmc_current_snapshot (FrameDescriptor generation); DMCOwner enum + dmc_set_active_owner */
 #include "dsp_engine_internal.h"   /* DSpMapStateToDMCOwnerTyped (internal-only, NOT in include/) */
 #include "vbl_source.h"
+#include "main.h" /* for M68kRegisters */
 
 #include <cstring>
 #include <cassert>                 /* alignedRB <= 0x3FFF invariant assert */
@@ -226,6 +228,12 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx);
 /* --- Context table (1-based handles; slot 0 reserved) --- */
 
 static DSpContextPrivate *dsp_context_table[DSP_MAX_CONTEXTS] = {};
+
+/* InterfaceLib entry points for the per-context DrawSprocket window.
+ * File-scope so they are shared across contexts; resolved once on first use. */
+static uint32_t dsp_tvect_new_cwindow    = 0;
+static uint32_t dsp_tvect_dispose_window = 0;
+static bool     dsp_window_tvects_resolved = false;
 static int                dsp_context_count                   = 0;
 
 /* File-static atomic VBL tick counter.
@@ -1126,6 +1134,18 @@ extern "C" int32_t DSpContext_GetVBLProcHandler(uint32_t ctxRef,
  *
  * Synchronous, emul-thread - NO ring read, NO atomic.
  */
+/* Defined further down (near the MainDevice redirect helpers); forward-declared
+ * so the mouse-event state dump below can range-check every guest pointer it
+ * dereferences. */
+static inline bool DSpLowMemOrGuestRAMContains(uint32_t mac_addr,
+											   uint32_t byte_count);
+
+/* Defined near DSpContext_SetStateHandler; declared here so the Release
+ * handler can tear the context's window down too. */
+static void DSpRequestContextWindow(DSpContextPrivate *ctx, bool want_window);
+static bool DSpPumpContextWindow(DSpContextPrivate *ctx);
+static void DSpReleaseContextWindowScratch(DSpContextPrivate *ctx);
+
 extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 										  uint32_t outProcessedAddr)
 {
@@ -1142,6 +1162,20 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 	uint32_t message = (uint32_t)ReadMacInt32(inEventAddr + 2);
 
 	bool consumed = false;
+
+	/* Reconcile a pending context-window create/dispose.
+	 *
+	 * Done here rather than inline in SetState because the Window Manager call
+	 * re-enters guest PPC code (call_macos8 -> execute_macos_code), and SetState
+	 * can be reached from the DMC/state machinery mid-transition. Pumping from
+	 * the event path keeps the re-entry at a quiescent point, and it is also
+	 * the entry closest to the guest's FindWindow hit-test - the window is in
+	 * place before the click that needs it is examined. */
+	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
+		DSpContextPrivate *wctx = DSpGetContext(i + 1u);
+		if (wctx == nullptr) continue;
+		if (DSpPumpContextWindow(wctx)) break;
+	}
 
 	/* osEvt suspend/resume is the documented event DSp consumes for
 	 * context suspend/resume: high byte = subtype, bit 0 = resume flag.
@@ -1211,10 +1245,8 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 	/* Pascal Boolean (1 byte: 0 = false, 1 = true). HONEST false for any
 	 * event DSp does not handle. */
 	WriteMacInt8(outProcessedAddr, consumed ? 1 : 0);
-
 	DSP_LOG("DSpProcessEvent: what=%u message=0x%08x -> consumed=%d",
 			(unsigned)what, message, consumed ? 1 : 0);
-
 	return kDSpNoErr;
 }
 
@@ -1664,6 +1696,11 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	ctx->explicit_swap_observed = false;
 	ctx->swap_generation = 0;
 	ctx->front_staging_refresh_swap_generation = 0;
+	/* Seeding the default ramp is NOT an app-supplied CLUT - clear the flag
+	 * first so the indexed expand path falls back to the live display palette
+	 * until the app really sets one. DSpApplyReserveColorTable /
+	 * DSpSetCLUTCore set it when a real table arrives. */
+	ctx->clut_app_supplied = 0;
 	DSpInitDefaultCLUT(ctx->clut_bytes, ctx->clut_bytes_latched,
 					   backBufferBestDepth);
 	DSpApplyReserveColorTable(ctx, ctx->attr.colorTable,
@@ -1795,6 +1832,7 @@ extern "C" uint32_t DSpAllocFirstContextHandle(const DSpContextAttributes *attr,
 	ctx->max_frame_rate = 0;
 	ctx->dirty_grid_w   = 0;
 	ctx->dirty_grid_h   = 0;
+	ctx->clut_app_supplied = 0;   /* default ramp only - see Reserve path */
 	DSpInitDefaultCLUT(ctx->clut_bytes, ctx->clut_bytes_latched,
 					   ctx->attr.backBufferBestDepth);
 
@@ -1854,6 +1892,16 @@ extern "C" int32_t DSpContext_ReleaseHandler(uint32_t ctxRef)
 		DSP_LOG("Release: invalid ctxRef=%u", ctxRef);
 		return kDSpInvalidContextErr;
 	}
+	/* Take the context's Window Manager window down (if any) BEFORE the
+	 * struct is queued for release, so it cannot outlive the context. Safe
+	 * when no window is up - it is a no-op then. */
+	/* Take the window down and free its scratch before the context is queued
+	 * for release, so neither can outlive the context. DSpPumpContextWindow
+	 * frees the scratch as part of the dispose; the extra call covers the case
+	 * where a scratch block was allocated but no window ever came up. */
+	DSpRequestContextWindow(ctx, false);
+	(void)DSpPumpContextWindow(ctx);
+	DSpReleaseContextWindowScratch(ctx);
 	DSpFreeContextHandle(ctxRef);
 	dsp_context_count--;
 	/* Defer to next VBL. Do NOT free synchronously. */
@@ -3199,6 +3247,207 @@ extern "C" void DSpRestoreMainDevicePixMap(DSpContextPrivate *ctx)
 	ctx->saved_pixmap_valid = 0;
 }
 
+/* --- DSpRequestContextWindow ---
+ *
+ *  Put a borderless full-screen window up while a context is Active and take it
+ *  down otherwise, mirroring real DrawSprocket. See the call site in
+ *  DSpContext_SetStateHandler for why this is required (FindWindow /
+ *  WindowList; the sole Software-vs-accelerated difference).
+ *
+ *  This half only RECORDS the desired state (window_wanted); the actual
+ *  Window Manager calls happen in DSpPumpContextWindow, which reaches
+ *  InterfaceLib's NewCWindow / DisposeWindow as PPC routines via call_macos*
+ *  (the sanctioned native->guest entry point, already used by
+ *  DSpVBLServiceCallback in this file). They are NOT invoked as 68k A-traps:
+ *  every DSp entry point arrives through the NATIVE_DSP_DISPATCH native opcode
+ *  with no 68k stack, so Execute68k/Execute68kTrap are illegal here.
+ *
+ *  procID 2 = plainDBox (borderless), behind = (WindowPtr)-1 (frontmost),
+ *  goAwayFlag = false. The window is deliberately NOT drawn into - the DSp
+ *  back buffer and the MainDevice PixMap redirect still own all pixels. It
+ *  exists purely so the Window Manager has something for FindWindow to
+ *  resolve. Failure is non-fatal: a NULL WindowPtr just leaves things exactly
+ *  as they were before this change.
+ */
+/* True only when this context is driving the display through pure
+ * DrawSprocket - i.e. the DMC's active owner is DSp, not RAVE / OpenGL /
+ * Glide. Those backends run on AGL, which already owns a real window. */
+static bool DSpContextIsDrawSprocketOnly(const DSpContextPrivate *ctx)
+{
+	(void)ctx;
+	const struct DMCModeSnapshot *snap = dmc_current_snapshot();
+	if (snap == NULL) return false;
+	return snap->active_owner == (uint32_t)kDMCOwnerDSp;
+}
+
+static void DSpRequestContextWindow(DSpContextPrivate *ctx, bool want_window)
+{
+	if (ctx == NULL) return;
+
+	/* SCOPE: DrawSprocket-only.
+	 *
+	 * The missing-window problem is specific to the pure DSp path. RAVE /
+	 * OpenGL / Glide all go through AGL, which requires a real window, so they
+	 * already have one and WindowList is populated for them. Creating a second
+	 * window underneath an AGL drawable would be wrong (and is what the first
+	 * version of this did - it ran for every backend, which is why both
+	 * backends crashed identically). Only act when this context is actually
+	 * driving the display through DrawSprocket. */
+	if (!DSpContextIsDrawSprocketOnly(ctx)) {
+		if (ctx->window_wanted != 0 || ctx->guest_window != 0) {
+			ctx->window_wanted = 0;
+			ctx->guest_window = 0;
+		}
+		return;
+	}
+
+	const uint8_t wanted = want_window ? 1 : 0;
+	if (ctx->window_wanted == wanted) return;
+	ctx->window_wanted = wanted;
+
+	/* NOTE: the window is deliberately NOT created here.
+	 *
+	 * DSpContext_SetStateHandler runs from the NATIVE_DSP_DISPATCH native
+	 * opcode - i.e. *inside* PPC emulation, with the guest's PPC stack live in
+	 * gpr(1) and no 68k frame set up. Calling Execute68k/Execute68kTrap from
+	 * there re-enters the 68k emulator with no valid 68k stack: the stub
+	 * faulted on its first -(sp) push with SP=0, and the ROM exception handler
+	 * then died on an unimplemented supervisor instruction
+	 * (7c0004a6 = mfspr DSISR). Execute68kTrap's own contract says it is for
+	 * EMUL_OP routine context, which this is not.
+	 *
+	 * So record the intent only. DSpPumpContextWindow() below performs the
+	 * actual Window Manager calls from a context where running 68k code is
+	 * legal. */
+	DSP_LOG("SetState: context window %s requested (ctx=%u) - deferred to a "
+			"68k-safe context", wanted ? "create" : "dispose", ctx->handle);
+}
+
+
+/* --- DSpPumpContextWindow ---
+ *
+ *  Performs the deferred Window Manager work recorded by
+ *  DSpRequestContextWindow. MUST be called only from a context where running
+ *  68k code is legal (a real 68k/EMUL_OP execution context with a valid 68k
+ *  stack) - never from the NATIVE_DSP_DISPATCH native-opcode path.
+ *
+ *  Returns true when it did something.
+ */
+static bool DSpPumpContextWindow(DSpContextPrivate *ctx)
+{
+	if (ctx == NULL) return false;
+
+	const bool want = (ctx->window_wanted != 0);
+	const bool have = (ctx->guest_window != 0);
+	if (want == have) return false;
+
+	/* Resolve InterfaceLib's PPC entry points once.
+	 *
+	 * NewCWindow / DisposeWindow are reached as PPC routines through
+	 * InterfaceLib, NOT as 68k A-traps. That matters: every DSp entry point
+	 * arrives through the NATIVE_DSP_DISPATCH native opcode, i.e. inside PPC
+	 * emulation with no 68k stack, so Execute68k/Execute68kTrap are illegal
+	 * here (their contract is "only from EMUL_OP mode ... runs on the caller's
+	 * stack"). Earlier attempts to hand-roll 68k trap stubs crashed exactly
+	 * that way - SP=0 on the stub's first -(sp) push, then the ROM exception
+	 * handler died on 7c0004a6 (mfspr DSISR).
+	 *
+	 * call_macos* is the sanctioned mechanism for calling guest code from
+	 * native context: execute_macos_code() builds the stack frame, sets the
+	 * TOC from the TVECT, marshals r3.. and trampolines back. It is exactly
+	 * what DSpVBLServiceCallback already uses in this file to invoke guest
+	 * VBLProcs, so it is proven on this path. */
+	if (!dsp_window_tvects_resolved) {
+		dsp_window_tvects_resolved = true;
+		/* Pascal strings: leading byte is the length.
+		 * InterfaceLib=12(\014) NewCWindow=10(\012) DisposeWindow=13(\015) */
+		dsp_tvect_new_cwindow    = FindLibSymbol("\014InterfaceLib", "\012NewCWindow");
+		dsp_tvect_dispose_window = FindLibSymbol("\014InterfaceLib", "\015DisposeWindow");
+		DSP_LOG("context window: InterfaceLib NewCWindow=0x%08x "
+				"DisposeWindow=0x%08x",
+				dsp_tvect_new_cwindow, dsp_tvect_dispose_window);
+	}
+
+	if (want) {
+		if (dsp_tvect_new_cwindow == 0) return false;
+
+		const uint32_t w = ctx->attr.displayWidth  ? ctx->attr.displayWidth  : 640;
+		const uint32_t h = ctx->attr.displayHeight ? ctx->attr.displayHeight : 480;
+
+		/* Scratch for boundsRect + title.
+		 *
+		 * Deliberately NOT SheepMem: that is a stack allocator (Reserve bumps a
+		 * pointer down, Release bumps it back up), so a block held across other
+		 * Reserve/Release pairs breaks its LIFO discipline. This is a real
+		 * system-heap block instead, freed in DSpReleaseContextWindowScratch
+		 * on dispose / context release / guest reboot. */
+		if (ctx->window_scratch == 0) {
+			ctx->window_scratch = Mac_sysalloc(12);
+			if (ctx->window_scratch == 0) {
+				DSP_LOG("context window: Mac_sysalloc(12) failed ctx=%u",
+						ctx->handle);
+				return false;
+			}
+		}
+		const uint32_t rectAddr  = ctx->window_scratch;
+		const uint32_t titleAddr = rectAddr + 8;
+
+		WriteMacInt16(rectAddr + 0, 0);              /* top    */
+		WriteMacInt16(rectAddr + 2, 0);              /* left   */
+		WriteMacInt16(rectAddr + 4, (uint16_t)h);    /* bottom */
+		WriteMacInt16(rectAddr + 6, (uint16_t)w);    /* right  */
+		WriteMacInt8(titleAddr, 0);                  /* empty Pascal title */
+
+		/* WindowPtr NewCWindow(void *wStorage, const Rect *boundsRect,
+		 *                      ConstStr255Param title, Boolean visible,
+		 *                      short procID, WindowPtr behind,
+		 *                      Boolean goAwayFlag, long refCon)
+		 * procID 2 = plainDBox (borderless); behind (WindowPtr)-1 = frontmost.
+		 * Pascal Boolean/short widen to full registers under the PPC ABI. */
+		ctx->guest_window = call_macos8(dsp_tvect_new_cwindow,
+									   0,               /* wStorage  */
+									   rectAddr,        /* boundsRect */
+									   titleAddr,       /* title      */
+									   1,               /* visible    */
+									   2,               /* procID     */
+									   0xFFFFFFFFu,     /* behind     */
+									   0,               /* goAwayFlag */
+									   0);              /* refCon     */
+
+		DSP_LOG("context window %s ctx=%u win=0x%08x %ux%u WindowList=0x%08x",
+				ctx->guest_window ? "created" : "CREATE FAILED",
+				ctx->handle, ctx->guest_window, w, h,
+				(unsigned)ReadMacInt32(0x9d6u));
+		return true;
+	}
+
+	if (dsp_tvect_dispose_window == 0) return false;
+	(void)call_macos1(dsp_tvect_dispose_window, ctx->guest_window);
+
+	DSP_LOG("context window disposed ctx=%u win=0x%08x WindowList=0x%08x",
+			ctx->handle, ctx->guest_window, (unsigned)ReadMacInt32(0x9d6u));
+	ctx->guest_window = 0;
+	/* The Window Manager is done with boundsRect/title once the window is
+	 * gone, so return the scratch block to the system heap. */
+	DSpReleaseContextWindowScratch(ctx);
+	return true;
+}
+
+
+/* Free a context's window scratch block. Safe to call repeatedly and when no
+ * block was ever allocated. */
+static void DSpReleaseContextWindowScratch(DSpContextPrivate *ctx)
+{
+	if (ctx == NULL || ctx->window_scratch == 0) return;
+	Mac_sysfree(ctx->window_scratch);
+	ctx->window_scratch = 0;
+}
+
+
+
+
+
+
 /* --- DSpContext_SetStateHandler ---
  *
  *  Implements the 9-valid / 3-invalid state-transition matrix from
@@ -3383,11 +3632,63 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	 *  actual activation edge.
 	 */
 	if (state == (uint32_t)kDSpContextState_Active) {
-		MetalCompositorUpdatePalette(ctx->clut_bytes, 256);
-		dmc_record_palette_change();
-		DSP_LOG("SetState: %u->Active CLUT replay (ctx=%u) -> OK",
-				prev_state, ctxRef);
+		/* Only replay the CLUT for INDEXED (<= 8bpp) contexts.
+		 *
+		 * A CLUT is meaningless at 16/32bpp, and a freshly Reserved direct-
+		 * colour context still has an all-zero clut_bytes. Pushing that used to
+		 * bump the palette generation and force a recomposite against a bogus
+		 * all-zero palette right in the middle of Diablo II's
+		 * FadeGammaOut -> mode switch -> FadeGammaIn sequence, which is the
+		 * "weird colour transitions before the game" in Software mode. (The
+		 * compositor's own "skip all-zero" guard stopped the palette from being
+		 * stored, but the generation bump and the wrong-palette frame still
+		 * happened.) Indexed contexts still replay exactly as before, which is
+		 * what the Paused->Active CLUT-persistence path needs. */
+		/* Bump the palette generation so the engines re-expand against this
+		 * context's CLUT - but do NOT push it into the compositor.
+		 *
+		 * MetalCompositorUpdatePalette writes the compositor's s_palette, whose
+		 * only consumer is expand_framebuffer_rgba - the CLASSIC QuickDraW
+		 * desktop expand. Pushing a DSp context's CLUT there overwrote the
+		 * desktop's own palette, and nothing restored it on exit (the guest
+		 * never re-issues SetEntries because from its side the desktop CLUT
+		 * never changed), so the 8bpp desktop came back rendered through the
+		 * game's palette - black-and-white after quitting Diablo II.
+		 *
+		 * Nothing in the DSp path needs that push: the DSp expand
+		 * (expand_surface_to_rgba) samples this context's own
+		 * clut_bytes_latched, and only falls back to the compositor palette
+		 * when the app has not supplied a CLUT (clut_app_supplied == 0). The
+		 * per-context CLUT is already correct by the time we get here. */
+		const uint32_t depth = ctx->attr.displayBestDepth;
+		if (depth != 0 && depth <= 8) {
+			dmc_record_palette_change();
+			DSP_LOG("SetState: %u->Active CLUT generation bump (ctx=%u depth=%u)",
+					prev_state, ctxRef, depth);
+		}
 	}
+
+	/* Window Manager backing for the full-screen context.
+	 *
+	 * Real DrawSprocket puts a window up over the display while a context is
+	 * Active. We did not, so lowmem WindowList (0x09D6) stayed NULL for the
+	 * whole session in Software/DrawSprocket mode.
+	 *
+	 * That is THE difference between Software and the accelerated backends:
+	 * dumping full Event Manager / QuickDraw / GDevice state on every mouse
+	 * event in both modes and diffing them leaves exactly one differing field -
+	 * WindowList (0x1a55a7e0 under OpenGL, 0x00000000 under Software), 90/90 vs
+	 * 120/120 events. The accelerated paths go through AGL, which needs a real
+	 * window, so they got one for free.
+	 *
+	 * It breaks clicks because Diablo II's event pump lives in Storm (the
+	 * Win32->Mac shim), which imports FindWindow/FrontWindow/NewCWindow/... and
+	 * hit-tests every mouseDown with FindWindow(where, &whichWindow).
+	 * FindWindow walks WindowList; with WindowList NULL there is nothing to
+	 * hit, so it reports inDesk and Storm drops the click before D2 sees it.
+	 * That also explains why the click was rejected regardless of position -
+	 * even one that only needed to be detected (skipping the intro movie). */
+	DSpRequestContextWindow(ctx, state == (uint32_t)kDSpContextState_Active);
 
 	/*
 	 *  Recompute the

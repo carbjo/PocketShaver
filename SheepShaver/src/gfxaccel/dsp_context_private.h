@@ -185,6 +185,25 @@ struct DSpContextPrivate {
 	 * display's global bounds - the DMGetGDeviceByDisplayID centering
 	 * idiom), restored by DSpRestoreMainDevicePixMap. */
 	uint32_t  saved_gdevice_ptr;        /* GDevice struct pointer the gdRect save came from */
+
+	/* WindowPtr of the borderless full-screen window put up while this context
+	 * is Active, mirroring what real DrawSprocket does. Needed because the
+	 * guest's event code hit-tests mouseDown with FindWindow(), which walks
+	 * lowmem WindowList - with no window at all every click resolves to inDesk
+	 * and is discarded. 0 when no window is currently up. */
+	uint32_t  guest_window;
+
+	/* Desired window state, set from DSpContext_SetStateHandler (which runs in
+	 * the NATIVE_DSP_DISPATCH native-opcode context, where running 68k code is
+	 * illegal). DSpPumpContextWindow reconciles guest_window with this from a
+	 * 68k-safe context. */
+	uint8_t   window_wanted;
+
+	/* SheepMem block holding the window's boundsRect + title. Must outlive the
+	 * NewCWindow call, so it is owned by the context rather than a stack
+	 * temporary. Allocated on first use; never freed (one small block per
+	 * context, reused across create/dispose cycles). */
+	uint32_t  window_scratch;
 	int16_t   saved_gdrect[4];          /* original gdRect: top, left, bottom, right */
 	uint8_t   saved_gdrect_valid;       /* 0 = not cached; 1 = cached (restore pending) */
 	uint8_t   saved_gdrect_reserved[3]; /* alignment padding */
@@ -202,6 +221,12 @@ struct DSpContextPrivate {
 	 * match these writes. */
 	uint8_t               clut_bytes[768];
 	uint8_t               clut_bytes_latched[768];
+
+	/* Set once the APP has supplied a CLUT for this context (via
+	 * DSpContext_SetCLUTEntries, or a Reserve colorTable). Until then
+	 * clut_bytes/clut_bytes_latched only hold the seeded default ramp, and the
+	 * indexed expand path should prefer the live display palette instead. */
+	uint8_t               clut_app_supplied;
 
 	/* Per-context gamma persistence buffer
 	 * for Pause->Resume replay. When the context is Resumed via

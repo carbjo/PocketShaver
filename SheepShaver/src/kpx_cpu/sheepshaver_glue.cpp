@@ -694,8 +694,8 @@ uint32 sheepshaver_cpu::execute_macos_code(uint32 tvect, int nargs, uint32 const
 	uint32 proc = ReadMacInt32(tvect);			// Get routine address
 	uint32 toc = ReadMacInt32(tvect + 4);		// Get TOC pointer
 
-	// Save PowerPC registers
-	uint32 regs[8];
+	// Save PowerPC registers.
+	uint32 regs[9];
 	regs[0] = gpr(2);
 	for (int i = 0; i < nargs; i++)
 		regs[i + 1] = gpr(i + 3);
@@ -1662,5 +1662,11 @@ uint32 call_macos6(uint32 tvect, uint32 arg1, uint32 arg2, uint32 arg3, uint32 a
 uint32 call_macos7(uint32 tvect, uint32 arg1, uint32 arg2, uint32 arg3, uint32 arg4, uint32 arg5, uint32 arg6, uint32 arg7)
 {
 	const uint32 args[] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
+	return ppc_cpu->execute_macos_code(tvect, sizeof(args)/sizeof(args[0]), args);
+}
+
+uint32 call_macos8(uint32 tvect, uint32 arg1, uint32 arg2, uint32 arg3, uint32 arg4, uint32 arg5, uint32 arg6, uint32 arg7, uint32 arg8)
+{
+	const uint32 args[] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 };
 	return ppc_cpu->execute_macos_code(tvect, sizeof(args)/sizeof(args[0]), args);
 }

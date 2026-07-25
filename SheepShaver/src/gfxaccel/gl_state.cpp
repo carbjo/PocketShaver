@@ -2429,8 +2429,14 @@ void NativeGLTexParameteri(GLContext *ctx, uint32_t target, uint32_t pname, int3
 		case GL_TEXTURE_MAG_FILTER: tex.mag_filter = (uint32_t)param; break;
 		case GL_TEXTURE_WRAP_S:     tex.wrap_s     = (uint32_t)param; break;
 		case GL_TEXTURE_WRAP_T:     tex.wrap_t     = (uint32_t)param; break;
-		default: break;
+		default: return;
 	}
+	/* The guest just changed sampler state for this texture, so whatever the
+	 * host GL object holds is stale. Force the next draw that binds it to
+	 * re-push. Diablo II calls glTexImage2D BEFORE glTexParameterf, so without
+	 * this the upload-time values would stick and the guest's later
+	 * NEAREST/CLAMP request would never reach the host. */
+	tex.sampler_applied = false;
 }
 
 void NativeGLTexParameterf(GLContext *ctx, uint32_t target, uint32_t pname, float param)

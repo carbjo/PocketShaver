@@ -788,6 +788,17 @@ struct GLTextureObject {
 		    uint32_t wrap_t;         // GLenum
 			    int      env_mode;       // GL_MODULATE, GL_DECAL, GL_BLEND, GL_REPLACE
 			    bool     has_mipmaps;
+			    /* Sampler state last PUSHED to the host GL object for this
+			     * texture. Sampler state is per texture object, so it cannot be
+			     * tracked in a single global "current" slot: binding B then
+			     * rebinding A must re-push A's filters. Mirrors what was last
+			     * sent for THIS object; sampler_applied=false forces a re-push
+			     * (set on upload, which resets the host filters). */
+			    bool     sampler_applied;
+			    uint32_t applied_min;
+			    uint32_t applied_mag;
+			    uint32_t applied_wrap_s;
+			    uint32_t applied_wrap_t;
 			    bool     legacy_ushort_palette_index_chain; // level-0 duplicated-byte indexed palette applies to mips
 				    bool     legacy_ushort_bgr332_chain; // level-0 duplicated-byte BGR332 fallback may apply to duplicated mips
 			    bool     legacy_ushort_index_gray_chain; // level-0 duplicated-byte index fallback applies to mips

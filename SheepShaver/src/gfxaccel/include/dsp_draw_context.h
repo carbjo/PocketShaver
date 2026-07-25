@@ -363,8 +363,10 @@ extern void     DSpContext_SetStateSwitchHandoff(uint32_t oldCtxRef);
  *
  *  The DSp 1.7 pp.56-57 wire-format —
  *  8-byte ColorSpec / 16-bit big-endian channels, pointer-before-index arg
- *  order (entriesAddr, inStartingEntry, inEntryCount); inEntryCount is a
- *  COUNT, not an inclusive last index. The 16<->8 conversion is confined
+ *  order (entriesAddr, inStartingEntry, inEntryCount); inEntryCount is an
+ *  INCLUSIVE LAST INDEX, not a count - DrawSprocket follows the classic
+ *  Color Manager / SetEntries convention, so a full 256-entry load is
+ *  start=0, inEntryCount=255. The 16<->8 conversion is confined
  *  to the guest-RAM boundary; internal clut_bytes storage stays 8-bit.
  */
 extern int32_t  DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,

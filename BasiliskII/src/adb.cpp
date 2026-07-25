@@ -50,11 +50,8 @@
 #define DEBUG 0
 #include "debug.h"
 
-
 #include <cmath>
 #include <ctime>
-
-
 
 // Global variables
 static int mouse_x = 0, mouse_y = 0;							// Mouse position
@@ -677,7 +674,21 @@ void ADBInterrupt(void)
             r.a[2] = ReadMacInt32(mouse_base + 4);
             r.a[3] = adb_base;
             r.d[0] = (mouse_reg_3[0] << 4) | 0x0c;    // Talk 0
+
+            /* Did this packet carry a button transition? The handler here is
+             * also called for pure movement, and MBTicks must only advance on
+             * an actual button state change. */
+            const bool button_changed =
+                mouse_button[0] != old_mouse_button[0] ||
+                mouse_button[1] != old_mouse_button[1] ||
+                mouse_button[2] != old_mouse_button[2];
+
             Execute68k(r.a[1], &r);
+
+            /* Keep MBTicks live - see the matching comment in the absolute
+             * branch below for why the ROM leaves it stale here. */
+            if (button_changed)
+                WriteMacInt32(0x174, ReadMacInt32(0x16a));
 
             old_mouse_button[0] = mouse_button[0];
             old_mouse_button[1] = mouse_button[1];
@@ -742,7 +753,21 @@ void ADBInterrupt(void)
                 r.a[2] = ReadMacInt32(mouse_base + 4);
                 r.a[3] = adb_base;
                 r.d[0] = (mouse_reg_3[0] << 4) | 0x0c;    // Talk 0
+
                 Execute68k(r.a[1], &r);
+
+                /* Stamp MBTicks (lowmem 0x174) with the current Ticks value.
+                 *
+                 * On real hardware the Event Manager's ADB interrupt path sets
+                 * MBTicks whenever the mouse button changes state; SheepShaver
+                 * bypasses that by calling the mouse driver's Talk-0 handler
+                 * directly, so the ROM updates MBState (0x172) but MBTicks is
+                 * left at whatever it was - in practice 0, forever, while Ticks
+                 * climbs. Classic code computes the age of a click as
+                 * (Ticks - MBTicks), so an MBTicks of 0 makes every click look
+                 * many seconds stale and anything that requires a *recent*
+                 * click silently ignores it. */
+                WriteMacInt32(0x174, ReadMacInt32(0x16a));
 
                 old_mouse_button[0] = mouse_button[0];
                 old_mouse_button[1] = mouse_button[1];

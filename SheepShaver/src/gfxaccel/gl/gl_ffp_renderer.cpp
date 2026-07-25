@@ -27,6 +27,80 @@ static GLuint s_fbo=0,s_depth=0;
 static bool s_frame_active=false;
 static bool s_frame_committed=false;
 
+/* Cache of the host GL state apply_host_ffp_state() last pushed, so a run of
+ * same-state immediate-mode draws (Diablo II's OpenGL menu emits ~150
+ * glBegin/glEnd sprite quads per frame, nearly all sharing blend/depth/alpha/
+ * texenv state) skips the ~20 redundant glEnable/glFunc/glBind calls each
+ * flush. The cache is invalidated at the start of every GL frame
+ * (mark_ffp_state_dirty) because the shared compatibility context can be
+ * mutated by the compositor present or another engine between our frames. */
+struct FFPStateCache {
+  bool valid;
+  GLuint tex0; bool tex0_enabled; GLint tex0_env;
+  /* NOTE: sampler state (filter/wrap) is deliberately NOT cached here. It is
+   * per texture OBJECT, so a single global slot gets it wrong the moment the
+   * guest alternates between two textures with different filters. It lives on
+   * GLTextureObject::applied_* instead. */
+  bool blend; GLenum blend_src, blend_dst;
+  bool depth_test; GLenum depth_func; bool depth_mask;
+  bool cull; GLenum cull_mode, front_face;
+  bool alpha_test; GLenum alpha_func; float alpha_ref;
+  bool scissor; GLint scissor_box[4];
+  bool lighting;
+};
+static FFPStateCache s_ffp_cache = {};
+static void mark_ffp_state_dirty(void){ s_ffp_cache.valid = false; }
+
+/* Guest -> host sampler-state mapping, shared by the uploader and the
+ * per-draw state apply so the two can never disagree.
+ *
+ * Classic GL_CLAMP becomes GL_CLAMP_TO_EDGE: desktop GL_CLAMP blends in the
+ * texture border colour at the edge, which is not what QuickDraw/AGL titles
+ * expect and shows up as a dark fringe. Mip min-filters collapse to their base
+ * because a single-level texture with a mip filter is INCOMPLETE on desktop GL
+ * and samples as black. An explicit GL_NEAREST is honoured; the untouched
+ * creation default (GL_NEAREST_MIPMAP_LINEAR) maps to GL_LINEAR so textures the
+ * guest never configured keep their previous look. */
+static GLint gl_map_guest_wrap(uint32_t w)
+{
+  return (w == 0x2900 /*GL_CLAMP*/ || w == GL_CLAMP_TO_EDGE)
+		 ? GL_CLAMP_TO_EDGE : GL_REPEAT;
+}
+
+static GLint gl_map_guest_mag(uint32_t f)
+{
+  return (f == GL_NEAREST) ? GL_NEAREST : GL_LINEAR;
+}
+
+static GLint gl_map_guest_min(uint32_t f)
+{
+  switch (f) {
+  case GL_NEAREST:
+  case 0x2700 /*GL_NEAREST_MIPMAP_NEAREST*/:
+	return GL_NEAREST;
+  default:
+	return GL_LINEAR;
+  }
+}
+
+/* Invalidate only the cached unit-0 texture binding.
+ *
+ * Several paths in this file bind GL_TEXTURE_2D directly, outside
+ * apply_host_ffp_state(): the uploaders (GLMetalUploadTexture /
+ * GLMetalUploadSubTexture) bind the texture they are about to fill, and
+ * GLMetalDestroyTexture deletes a name. After any of those the real GL binding
+ * no longer matches C.tex0, and - because glDeleteTextures frees the name for
+ * immediate reuse by the next glGenTextures - a *new* texture can even be
+ * handed the id the cache still believes is bound. Either way the next
+ * apply_host_ffp_state() would skip the rebind and sample the wrong texture
+ * (Diablo II churns 794 glGenTextures / 407 glDeleteTextures with one texture
+ * per glyph, which showed up as menu glyphs drawn with another glyph's image).
+ * Dropping just the binding keeps the rest of the cache (blend/depth/alpha/...)
+ * useful, since an upload does not disturb those. */
+static void mark_ffp_texture_binding_dirty(void){
+  s_ffp_cache.tex0 = (GLuint)~0u;
+}
+
 /* The AGL renderer and the SDL compositor share one compatibility-profile
  * context.  A VBL-driven compositor pass must not rebind framebuffer 0 or
  * replace the matrices/viewport while the guest is between its first draw
@@ -123,7 +197,13 @@ void GLMetalBeginFrame(GLContext*ctx){
    * before attaching the GL framebuffer. */
   if(!s_cur&&s_dw>0&&s_dh>0)gl_overlay_bind(s_dl,s_dt,s_dw,s_dh);
   if(!s_cur)return;
-  if(!s_frame_active){bind_ov_fbo();s_frame_active=true;}
+  if(!s_frame_active){
+	bind_ov_fbo();
+	s_frame_active=true;
+	/* New frame on the shared context: whatever the compositor/other engine
+	 * left in GL state is unknown, so the FFP state cache is stale. */
+	mark_ffp_state_dirty();
+  }
   load_ctx_matrices(ctx);
   if(ctx->viewport[2]>0&&ctx->viewport[3]>0)
 	glViewport(ctx->viewport[0],ctx->viewport[1],ctx->viewport[2],ctx->viewport[3]);
@@ -157,8 +237,14 @@ void GLMetalEndFrame(GLContext*ctx){
   s_frame_active=false;
   s_frame_committed=true;
 }
-/* Expand GL_QUADS / fans / strips to triangle lists for host GL. */
-static void emit_gl_vertex(const GLVertex &v,bool force_opaque){
+/* Expand GL_QUADS / fans / strips to triangle lists for host GL.
+ *
+ * `unit1_live` says whether texture unit 1 is actually enabled and bound for
+ * this flush. When it is not (the common single-texture case - Diablo II never
+ * calls glActiveTexture at all), emitting unit-1 coords is both wasted work at
+ * one call per vertex and a source of stale data, since PushVertex snapshots
+ * BOTH units' coords while glTexCoord2f/3f/4f only ever update unit 0. */
+static void emit_gl_vertex(const GLVertex &v,bool force_opaque,bool unit1_live){
   if(force_opaque){
 	const GLfloat color[4]={v.color[0],v.color[1],v.color[2],1.f};
 	glColor4fv(color);
@@ -170,10 +256,12 @@ static void emit_gl_vertex(const GLVertex &v,bool force_opaque){
   if (ext.multitex && ext.MultiTexCoord4f) {
 	/* Perspective-capable multitex: q=1 for FFP current coords */
 	ext.MultiTexCoord4f(GL_TEXTURE0, v.texcoord[0][0], v.texcoord[0][1], v.texcoord[0][2], v.texcoord[0][3] != 0.f ? v.texcoord[0][3] : 1.f);
-	ext.MultiTexCoord4f(GL_TEXTURE1, v.texcoord[1][0], v.texcoord[1][1], v.texcoord[1][2], v.texcoord[1][3] != 0.f ? v.texcoord[1][3] : 1.f);
+	if (unit1_live)
+	  ext.MultiTexCoord4f(GL_TEXTURE1, v.texcoord[1][0], v.texcoord[1][1], v.texcoord[1][2], v.texcoord[1][3] != 0.f ? v.texcoord[1][3] : 1.f);
   } else if (ext.multitex && ext.MultiTexCoord2f) {
 	ext.MultiTexCoord2f(GL_TEXTURE0, v.texcoord[0][0], v.texcoord[0][1]);
-	ext.MultiTexCoord2f(GL_TEXTURE1, v.texcoord[1][0], v.texcoord[1][1]);
+	if (unit1_live)
+	  ext.MultiTexCoord2f(GL_TEXTURE1, v.texcoord[1][0], v.texcoord[1][1]);
   } else {
 	glTexCoord4f(v.texcoord[0][0], v.texcoord[0][1], v.texcoord[0][2],
 				 v.texcoord[0][3] != 0.f ? v.texcoord[0][3] : 1.f);
@@ -181,10 +269,10 @@ static void emit_gl_vertex(const GLVertex &v,bool force_opaque){
   glVertex4fv(v.position);
 }
 static void flush_im_triangles(const std::vector<GLVertex> &tris,
-							   bool force_opaque){
+							   bool force_opaque,bool unit1_live){
   if(tris.empty())return;
   glBegin(GL_TRIANGLES);
-  for(const auto &v: tris) emit_gl_vertex(v,force_opaque);
+  for(const auto &v: tris) emit_gl_vertex(v,force_opaque,unit1_live);
   glEnd();
 }
 static void apply_host_ffp_state(GLContext *ctx)
@@ -192,11 +280,13 @@ static void apply_host_ffp_state(GLContext *ctx)
   if (!ctx) return;
   load_ctx_matrices(ctx);
 
+  FFPStateCache &C = s_ffp_cache;
+  const bool cache_ok = C.valid;
+
   /* Texture unit 0 */
   auto it = ctx->texture_objects.find(ctx->tex_units[0].bound_texture_2d);
   if (ctx->tex_units[0].enabled_2d && it != ctx->texture_objects.end() && it->second.metal_texture) {
-	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)it->second.metal_texture);
+	const GLuint tex = (GLuint)(uintptr_t)it->second.metal_texture;
 	GLint env = GL_MODULATE;
 	switch (ctx->tex_units[0].env_mode) {
 	case 0x1E01: env = GL_REPLACE; break;
@@ -205,9 +295,64 @@ static void apply_host_ffp_state(GLContext *ctx)
 	case 0x0BE2: env = GL_BLEND; break;
 	default: break;
 	}
-	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, env);
+	if (!cache_ok || !C.tex0_enabled) glEnable(GL_TEXTURE_2D);
+
+	const bool rebound = (!cache_ok || C.tex0 != tex);
+	if (rebound) glBindTexture(GL_TEXTURE_2D, tex);
+
+	/* Apply the guest's per-texture filter/wrap. These were stored on the
+	 * texture object by glTexParameteri/f but never pushed to the host GL
+	 * texture, so every texture rendered with the hard-coded LINEAR set at
+	 * upload plus the default REPEAT. Map the classic GL_CLAMP to
+	 * GL_CLAMP_TO_EDGE (desktop GL_CLAMP samples the border colour, which is
+	 * not what QuickDraw/AGL titles expect) and collapse mipmap min-filters to
+	 * their base so a single-level texture is not left incomplete (which
+	 * desktop GL renders as black).
+	 *
+	 * This is re-evaluated on every flush, not only on a rebind: the guest can
+	 * retune parameters on an already-bound texture, and GLMetalUploadTexture
+	 * unconditionally resets both filters to GL_LINEAR when it refills a
+	 * texture. Comparing against the last-pushed values keeps it to zero GL
+	 * calls in the common steady state. */
+	const GLint magf = gl_map_guest_mag(it->second.mag_filter);
+	const GLint minf = gl_map_guest_min(it->second.min_filter);
+	const GLint ws   = gl_map_guest_wrap(it->second.wrap_s);
+	const GLint wt   = gl_map_guest_wrap(it->second.wrap_t);
+
+	/* Sampler state is PER TEXTURE OBJECT, so it cannot be cached in a single
+	 * global slot the way the other FFP state can: after binding texture B and
+	 * pushing its filters, binding A again would compare against B's values and
+	 * skip the push, leaving A sampled with B's filters. Track the values on
+	 * the texture object itself (applied_* mirror what we last pushed to that
+	 * object) and re-push whenever the desired state differs from that
+	 * object's own last-applied state. Still zero GL calls in the steady state,
+	 * but correct across texture switches - which Diablo II does constantly,
+	 * one texture per glyph. */
+	GLTextureObject &TO = it->second;
+	if (!TO.sampler_applied || TO.applied_mag != (uint32_t)magf) {
+	  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magf);
+	  TO.applied_mag = (uint32_t)magf;
+	}
+	if (!TO.sampler_applied || TO.applied_min != (uint32_t)minf) {
+	  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minf);
+	  TO.applied_min = (uint32_t)minf;
+	}
+	if (!TO.sampler_applied || TO.applied_wrap_s != (uint32_t)ws) {
+	  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, ws);
+	  TO.applied_wrap_s = (uint32_t)ws;
+	}
+	if (!TO.sampler_applied || TO.applied_wrap_t != (uint32_t)wt) {
+	  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wt);
+	  TO.applied_wrap_t = (uint32_t)wt;
+	}
+	TO.sampler_applied = true;
+
+	if (!cache_ok || C.tex0_env != env)
+	  glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, env);
+	C.tex0_enabled = true; C.tex0 = tex; C.tex0_env = env;
   } else {
-	glDisable(GL_TEXTURE_2D);
+	if (!cache_ok || C.tex0_enabled) glDisable(GL_TEXTURE_2D);
+	C.tex0_enabled = false;
   }
 
   /* Texture unit 1 (ARB multitexture) when present */
@@ -226,37 +371,76 @@ static void apply_host_ffp_state(GLContext *ctx)
   }
 
   if (ctx->blend) {
-	glEnable(GL_BLEND);
-	glBlendFunc(ctx->blend_src ? ctx->blend_src : GL_SRC_ALPHA,
-				ctx->blend_dst ? ctx->blend_dst : GL_ONE_MINUS_SRC_ALPHA);
+	/* Pass the guest's factors through verbatim.
+	 *
+	 * These used to be `ctx->blend_src ? ctx->blend_src : GL_SRC_ALPHA`, but
+	 * GL_ZERO IS 0 - so a perfectly valid glBlendFunc(GL_ZERO, ...) was read as
+	 * "unset" and silently replaced with GL_SRC_ALPHA. Diablo II's menu text
+	 * uses glBlendFunc(GL_ZERO, GL_SRC_ALPHA) (372 of its 649 blend calls in a
+	 * menu capture): a destination-masking blend that multiplies what is
+	 * already in the framebuffer by the glyph's alpha. Substituting
+	 * GL_SRC_ALPHA turned that into an additive-style blend, so each glyph
+	 * brightened its neighbours instead of masking them - and because the
+	 * glyph quads are 64px wide but advance only 6-10px (~85% overlap), every
+	 * letter smeared across the next one. That is the "extra strokes through
+	 * the middle" artifact (O -> +, G -> G-with-bar, M -> ffl).
+	 *
+	 * No fallback is needed: GLContext is initialised with the GL defaults
+	 * (blend_src = GL_ONE, blend_dst = GL_ZERO), so these are always valid. */
+	const GLenum bs = (GLenum)ctx->blend_src;
+	const GLenum bd = (GLenum)ctx->blend_dst;
+	if (!cache_ok || !C.blend) glEnable(GL_BLEND);
+	if (!cache_ok || C.blend_src != bs || C.blend_dst != bd) glBlendFunc(bs, bd);
+	C.blend = true; C.blend_src = bs; C.blend_dst = bd;
   } else {
-	glDisable(GL_BLEND);
+	if (!cache_ok || C.blend) glDisable(GL_BLEND);
+	C.blend = false;
   }
   if (ctx->depth_test) {
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(ctx->depth_func ? ctx->depth_func : GL_LESS);
-	glDepthMask(ctx->depth_mask ? GL_TRUE : GL_FALSE);
+	const GLenum df = ctx->depth_func ? ctx->depth_func : GL_LESS;
+	const bool dm = ctx->depth_mask != 0;
+	if (!cache_ok || !C.depth_test) glEnable(GL_DEPTH_TEST);
+	if (!cache_ok || C.depth_func != df) glDepthFunc(df);
+	if (!cache_ok || C.depth_mask != dm) glDepthMask(dm ? GL_TRUE : GL_FALSE);
+	C.depth_test = true; C.depth_func = df; C.depth_mask = dm;
   } else {
-	glDisable(GL_DEPTH_TEST);
+	if (!cache_ok || C.depth_test) glDisable(GL_DEPTH_TEST);
+	C.depth_test = false;
   }
   if (ctx->cull_face_enabled) {
-	glEnable(GL_CULL_FACE);
-	glCullFace(ctx->cull_face_mode ? ctx->cull_face_mode : GL_BACK);
-	glFrontFace(ctx->front_face ? ctx->front_face : GL_CCW);
+	const GLenum cm = ctx->cull_face_mode ? ctx->cull_face_mode : GL_BACK;
+	const GLenum ff = ctx->front_face ? ctx->front_face : GL_CCW;
+	if (!cache_ok || !C.cull) glEnable(GL_CULL_FACE);
+	if (!cache_ok || C.cull_mode != cm) glCullFace(cm);
+	if (!cache_ok || C.front_face != ff) glFrontFace(ff);
+	C.cull = true; C.cull_mode = cm; C.front_face = ff;
   } else {
-	glDisable(GL_CULL_FACE);
+	if (!cache_ok || C.cull) glDisable(GL_CULL_FACE);
+	C.cull = false;
   }
   if (ctx->alpha_test) {
-	glEnable(GL_ALPHA_TEST);
-	glAlphaFunc(ctx->alpha_func ? ctx->alpha_func : GL_ALWAYS, ctx->alpha_ref);
+	const GLenum af = ctx->alpha_func ? ctx->alpha_func : GL_ALWAYS;
+	if (!cache_ok || !C.alpha_test) glEnable(GL_ALPHA_TEST);
+	if (!cache_ok || C.alpha_func != af || C.alpha_ref != ctx->alpha_ref)
+	  glAlphaFunc(af, ctx->alpha_ref);
+	C.alpha_test = true; C.alpha_func = af; C.alpha_ref = ctx->alpha_ref;
   } else {
-	glDisable(GL_ALPHA_TEST);
+	if (!cache_ok || C.alpha_test) glDisable(GL_ALPHA_TEST);
+	C.alpha_test = false;
   }
   if (ctx->scissor_test) {
-	glEnable(GL_SCISSOR_TEST);
-	glScissor(ctx->scissor_box[0], ctx->scissor_box[1], ctx->scissor_box[2], ctx->scissor_box[3]);
+	const bool box_same = cache_ok && C.scissor &&
+	  C.scissor_box[0]==ctx->scissor_box[0] && C.scissor_box[1]==ctx->scissor_box[1] &&
+	  C.scissor_box[2]==ctx->scissor_box[2] && C.scissor_box[3]==ctx->scissor_box[3];
+	if (!cache_ok || !C.scissor) glEnable(GL_SCISSOR_TEST);
+	if (!box_same)
+	  glScissor(ctx->scissor_box[0], ctx->scissor_box[1], ctx->scissor_box[2], ctx->scissor_box[3]);
+	C.scissor = true;
+	C.scissor_box[0]=ctx->scissor_box[0]; C.scissor_box[1]=ctx->scissor_box[1];
+	C.scissor_box[2]=ctx->scissor_box[2]; C.scissor_box[3]=ctx->scissor_box[3];
   } else {
-	glDisable(GL_SCISSOR_TEST);
+	if (!cache_ok || C.scissor) glDisable(GL_SCISSOR_TEST);
+	C.scissor = false;
   }
   if (ctx->fog_enabled) {
 	glEnable(GL_FOG);
@@ -270,8 +454,19 @@ static void apply_host_ffp_state(GLContext *ctx)
   }
   if (ctx->normalize) glEnable(GL_NORMALIZE); else glDisable(GL_NORMALIZE);
 
-  /* Fixed-function lighting mirrored to host GL */
-  if (ctx->lighting_enabled) {
+  /* Fixed-function lighting mirrored to host GL. The common 2D-UI case has
+   * lighting disabled every flush; cache that so we skip the redundant
+   * glDisable(GL_LIGHTING) on a run of unlit sprite draws. When lighting IS
+   * on, always re-push the full light/material state (uncached). */
+  if (!ctx->lighting_enabled) {
+	if (!cache_ok || C.lighting) glDisable(GL_LIGHTING);
+	C.lighting = false;
+	C.valid = true;
+	return;
+  }
+  C.lighting = true;
+  C.valid = true;
+  {
 	glEnable(GL_LIGHTING);
 	glLightModelfv(GL_LIGHT_MODEL_AMBIENT, ctx->light_model_ambient);
 	glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, ctx->light_model_two_side ? 1 : 0);
@@ -306,8 +501,6 @@ static void apply_host_ffp_state(GLContext *ctx)
 	} else {
 	  glDisable(GL_COLOR_MATERIAL);
 	}
-  } else {
-	glDisable(GL_LIGHTING);
   }
 }
 
@@ -320,35 +513,43 @@ void GLMetalFlushImmediateMode(GLContext*ctx){
 	GLContextGetOffscreenDrawable(ctx,nullptr,nullptr,nullptr,nullptr)!=0;
   const bool force_opaque=
 	GLMetalForceOpaqueOverlayOutput(is_offscreen,ctx->blend);
+  /* Mirror the unit-1 test apply_host_ffp_state() uses to decide whether it
+   * enables and binds texture unit 1; when that is false the unit is disabled,
+   * so per-vertex unit-1 coords are dead weight. */
+  const auto it1=ctx->texture_objects.find(ctx->tex_units[1].bound_texture_2d);
+  const bool unit1_live=
+	gfx_gl_ext().multitex && ctx->tex_units[1].enabled_2d &&
+	it1!=ctx->texture_objects.end() && it1->second.metal_texture!=nullptr;
 
   const auto &in=ctx->im_vertices;
   const uint32_t mode=ctx->im_mode;
+
   std::vector<GLVertex> out;
   if(mode==0x0007 /*GL_QUADS*/ && in.size()>=4){
 	for(size_t i=0;i+3<in.size();i+=4){
 	  out.push_back(in[i]); out.push_back(in[i+1]); out.push_back(in[i+2]);
 	  out.push_back(in[i]); out.push_back(in[i+2]); out.push_back(in[i+3]);
 	}
-	flush_im_triangles(out,force_opaque);
+	flush_im_triangles(out,force_opaque,unit1_live);
   } else if(mode==0x0006 /*GL_TRIANGLE_FAN*/ && in.size()>=3){
 	for(size_t i=1;i+1<in.size();i++){
 	  out.push_back(in[0]); out.push_back(in[i]); out.push_back(in[i+1]);
 	}
-	flush_im_triangles(out,force_opaque);
+	flush_im_triangles(out,force_opaque,unit1_live);
   } else if(mode==0x0005 /*GL_TRIANGLE_STRIP*/ && in.size()>=3){
 	for(size_t i=0;i+2<in.size();i++){
 	  if(i&1){ out.push_back(in[i+1]); out.push_back(in[i]); out.push_back(in[i+2]); }
 	  else { out.push_back(in[i]); out.push_back(in[i+1]); out.push_back(in[i+2]); }
 	}
-	flush_im_triangles(out,force_opaque);
+	flush_im_triangles(out,force_opaque,unit1_live);
   } else if(mode==0x0001 /*GL_LINES*/ || mode==0x0003 /*GL_LINE_STRIP*/ || mode==0x0002 /*GL_LINE_LOOP*/){
 	GLenum m = (mode==0x0001)?GL_LINES:(mode==0x0002)?GL_LINE_LOOP:GL_LINE_STRIP;
-	glBegin(m); for(const auto&v:in) emit_gl_vertex(v,force_opaque); glEnd();
+	glBegin(m); for(const auto&v:in) emit_gl_vertex(v,force_opaque,unit1_live); glEnd();
   } else if(mode==0x0000 /*GL_POINTS*/){
-	glBegin(GL_POINTS); for(const auto&v:in) emit_gl_vertex(v,force_opaque); glEnd();
+	glBegin(GL_POINTS); for(const auto&v:in) emit_gl_vertex(v,force_opaque,unit1_live); glEnd();
   } else {
 	/* GL_TRIANGLES and default */
-	flush_im_triangles(in,force_opaque);
+	flush_im_triangles(in,force_opaque,unit1_live);
   }
   ctx->im_vertices.clear();
 }
@@ -356,8 +557,38 @@ void GLMetalRelease(GLContext*ctx){(void)ctx;}
 void GLMetalUploadTexture(GLContext*ctx,GLTextureObject*texObj,int level,int width,int height,const uint8_t*pixels,int data_len){
   (void)ctx;(void)data_len; if(!texObj||!SharedMetalDevice())return;
   GLuint id=(GLuint)(uintptr_t)texObj->metal_texture; if(!id){ glGenTextures(1,&id); texObj->metal_texture=(void*)(uintptr_t)id; }
-  glBindTexture(GL_TEXTURE_2D,id); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+
+  glBindTexture(GL_TEXTURE_2D,id);
+  /* Apply the guest's OWN sampler state, not a hard-coded GL_LINEAR.
+   *
+   * This used to force MIN/MAG = GL_LINEAR on every upload. Diablo II asks for
+   * GL_NEAREST + GL_CLAMP on its menu-font glyphs, and it re-uploads those
+   * textures constantly, so the forced LINEAR kept winning: each glyph is drawn
+   * as a 64px quad advancing only 6-10px (letters overlap ~85%), and linear
+   * filtering samples beyond the glyph's few ink columns into the neighbouring
+   * letter's footprint - the "extra strokes through the middle" artifact
+   * (O -> +, G -> G-with-bar). The texture data itself is fine: the padding
+   * around every glyph measures alpha 0x00.
+   *
+   * Mapping matches apply_host_ffp_state(): classic GL_CLAMP -> CLAMP_TO_EDGE
+   * (desktop GL_CLAMP samples the border colour), and mip min-filters collapse
+   * to their base so a single-level texture is not incomplete (-> black). */
+  {
+	const GLint minf = gl_map_guest_min(texObj->min_filter);
+	const GLint magf = gl_map_guest_mag(texObj->mag_filter);
+	const GLint ws   = gl_map_guest_wrap(texObj->wrap_s);
+	const GLint wt   = gl_map_guest_wrap(texObj->wrap_t);
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,minf);
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,magf);
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,ws);
+	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,wt);
+	/* Record what the host object now holds so the per-draw apply agrees. */
+	texObj->applied_min=(uint32_t)minf; texObj->applied_mag=(uint32_t)magf;
+	texObj->applied_wrap_s=(uint32_t)ws; texObj->applied_wrap_t=(uint32_t)wt;
+	texObj->sampler_applied=true;
+  }
   if(pixels) glTexImage2D(GL_TEXTURE_2D,level,GL_RGBA8,width,height,0,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
+  mark_ffp_texture_binding_dirty();
 }
 void GLMetalUploadTexture(GLContext*ctx,GLTextureObject*texObj,int level,int width,int height,int format,int type,const void*pixels){
   (void)format;(void)type; GLMetalUploadTexture(ctx,texObj,level,width,height,(const uint8_t*)pixels,0);
@@ -366,6 +597,7 @@ void GLMetalUploadSubTexture(GLContext*ctx,GLTextureObject*texObj,int level,int 
   (void)ctx;(void)data_len; if(!texObj||!texObj->metal_texture||!pixels||!SharedMetalDevice())return;
   glBindTexture(GL_TEXTURE_2D,(GLuint)(uintptr_t)texObj->metal_texture);
   glTexSubImage2D(GL_TEXTURE_2D,level,xoff,yoff,width,height,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
+  mark_ffp_texture_binding_dirty();
 }
 #ifndef GL_TEXTURE_3D
 #define GL_TEXTURE_3D 0x806F
@@ -397,7 +629,15 @@ void GLMetalUploadSubTexture3D(GLContext*ctx,GLTextureObject*texObj,int level,in
   glBindTexture(GL_TEXTURE_3D,(GLuint)(uintptr_t)texObj->metal_texture);
   pSub(GL_TEXTURE_3D,level,xoff,yoff,zoff,width,height,depth,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
 }
-void GLMetalDestroyTexture(GLTextureObject*texObj){ if(!texObj||!texObj->metal_texture||!SharedMetalDevice())return; GLuint id=(GLuint)(uintptr_t)texObj->metal_texture; glDeleteTextures(1,&id); texObj->metal_texture=nullptr; }
+void GLMetalDestroyTexture(GLTextureObject*texObj){
+  if(!texObj||!texObj->metal_texture||!SharedMetalDevice())return;
+  GLuint id=(GLuint)(uintptr_t)texObj->metal_texture;
+  glDeleteTextures(1,&id); texObj->metal_texture=nullptr;
+  /* The name is now free for reuse by the next glGenTextures, so a later
+   * texture can be handed this same id. Drop the cached binding or the rebind
+   * for that new texture would be skipped as a no-op. */
+  mark_ffp_texture_binding_dirty();
+}
 void GLMetalDrawPixels(GLContext*ctx,int width,int height,const uint8_t*pixels,int data_len){
   (void)data_len; if(!ctx||!pixels||!SharedMetalDevice())return;
   GLMetalBeginFrame(ctx);
@@ -747,7 +987,16 @@ GL_GUEST_VEC3(NativeGLNormal3dv, NativeGLNormal3d, gl_read_f64, 8)
 GL_GUEST_VEC3(NativeGLNormal3bv, NativeGLNormal3b, gl_read_i8, 1)
 GL_GUEST_VEC3(NativeGLNormal3iv, NativeGLNormal3i, gl_read_i32, 4)
 GL_GUEST_VEC3(NativeGLNormal3sv, NativeGLNormal3s, gl_read_i16, 2)
-void NativeGLTexCoord2f(GLContext*c,float s,float t){ if(c){c->current_texcoord[0][0]=s;c->current_texcoord[0][1]=t;c->current_texcoord[0][3]=1.f;} if(SharedMetalDevice()) glTexCoord2f(s,t);}
+void NativeGLTexCoord2f(GLContext*c,float s,float t){
+  /* GL spec: glTexCoord2f(s,t) is defined as (s, t, 0, 1) - r MUST be reset.
+   * Leaving current_texcoord[0][2] alone let an r from an earlier
+   * glTexCoord3f/4f persist into every subsequent 2f vertex, which
+   * emit_gl_vertex then feeds to glTexCoord4f/MultiTexCoord4f. Harmless for a
+   * plain 2D lookup, but wrong the moment a texture matrix is active. */
+  if(c){c->current_texcoord[0][0]=s;c->current_texcoord[0][1]=t;
+		c->current_texcoord[0][2]=0.f;c->current_texcoord[0][3]=1.f;}
+  if(SharedMetalDevice()) glTexCoord2f(s,t);
+}
 void NativeGLTexCoord1f(GLContext*c,float s){NativeGLTexCoord2f(c,s,0);}
 void NativeGLTexCoord4f(GLContext*c,float s,float t,float r,float q){
   if(c){ c->current_texcoord[0][0]=s; c->current_texcoord[0][1]=t;

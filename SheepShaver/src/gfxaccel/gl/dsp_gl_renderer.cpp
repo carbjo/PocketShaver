@@ -277,11 +277,25 @@ static void expand_surface_to_rgba(const DSpContextPrivate *ctx,
 	if (bpp <= 8) {
 		uint8_t display_palette[768];
 		const uint8_t *pal = ctx->clut_bytes_latched;
-		/* Palette Manager/video-driver SetEntries updates the compositor
-		 * directly, not necessarily the DSp context CLUT.  Use the actual
-		 * display palette so a valid 256-color mode is not rendered through
-		 * the context's old grayscale default. */
-		if (GLCompositorCopyCurrentPaletteRGB(display_palette))
+		/* Prefer the context's OWN CLUT once the app has supplied one.
+		 *
+		 * This used to unconditionally override with the compositor's live
+		 * palette, because GLCompositorCopyCurrentPaletteRGB returns true
+		 * whenever the compositor is initialised - so a DSp context's CLUT was
+		 * effectively never used. The compositor palette is whatever
+		 * QuickDraw / the video driver last pushed, which is NOT the palette a
+		 * DrawSprocket app installed for its own context: Diablo II's 8-bit
+		 * loading screen came out with correct geometry but wildly wrong
+		 * colours because its indices were resolved through the desktop's
+		 * table.
+		 *
+		 * The original intent - do not render a valid 256-colour mode through
+		 * a context's untouched default ramp - is preserved by only falling
+		 * back to the display palette when the app has NOT set a CLUT for this
+		 * context (clut_app_supplied == 0, i.e. clut_bytes still holds the
+		 * seeded default). */
+		if (!ctx->clut_app_supplied &&
+			GLCompositorCopyCurrentPaletteRGB(display_palette))
 			pal = display_palette;
 		for (uint32_t i = 0; i < palette_rgba.size(); i++) {
 			palette_rgba[i] = DSpGLPackRGBA(

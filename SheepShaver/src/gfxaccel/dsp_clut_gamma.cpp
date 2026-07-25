@@ -22,7 +22,7 @@
 #include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler delegate target */
 #include "dsp_context_private.h"   /* DSpContextPrivate full struct; shared with dsp_metal_renderer.mm */
 #include "dsp_guest_address.h"
-#include "metal_compositor.h"      /* MetalCompositorUpdatePalette (Active CLUT push) */
+#include "metal_compositor.h"      /* compositor palette/gamma API */
 #include "display_mode_controller.h" /* dmc_current_snapshot + dmc_record_*_change + kDMCNoErr */
 #include "dsp_engine_internal.h"   /* DSpMapStateToDMCOwnerTyped (internal-only, NOT in include/) */
 #include "dsp_clut_gamma.h"
@@ -31,7 +31,7 @@
 /*  CLUT handlers (sub-opcodes 300/301)                            */
 /*                                                                  */
 /*  DSpContext_SetCLUTEntriesHandler: validation + clut_bytes write */
-/*  + MetalCompositorUpdatePalette + dmc_record_palette_change.     */
+/*  + dmc_record_palette_change (generation bump only).            */
 /*  DSpContext_GetCLUTEntriesHandler: validation + read from        */
 /*  ctx->clut_bytes_latched.                                        */
 /* ============================================================== */
@@ -65,21 +65,30 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
 	const uint32_t count = last - first + 1;
 	memcpy(ctx->clut_bytes + first * 3, entries_host_range, count * 3);
 
-	/* When Active, push the FULL 256-entry table so
-	 * entries outside [first..last] set by earlier Set calls survive.
-	 * MetalCompositorUpdatePalette writes into the back palette buffer;
-	 * MetalCompositorPaletteLatch (VBL callback) promotes
-	 * back -> front at the next frame boundary. */
-	if (ctx->state == (uint32_t)kDSpContextState_Active) {
-		MetalCompositorUpdatePalette(ctx->clut_bytes, 256);
-		/* DMC bump: dmc_record_palette_change is the public DMC
-		 * API - a function call, not a direct generation-counter
-		 * assignment. The DMC write-site CI gate
-		 * (testNoDirectDMCWritesInDSpFiles) scans for the bare-word
-		 * DMC-owned identifier set followed by an assignment, which does
-		 * NOT match this function-call syntax. */
+	/* The app has now supplied a real CLUT for this context, so the indexed
+	 * expand path must sample THIS table rather than the live display palette
+	 * (see expand_surface_to_rgba in dsp_gl_renderer.cpp). */
+	ctx->clut_app_supplied = 1;
+
+	/* When Active, bump the palette generation so the DSp expand re-runs
+	 * against the table just written.
+	 *
+	 * Deliberately NOT MetalCompositorUpdatePalette: that writes the
+	 * compositor's s_palette, whose only consumer is the CLASSIC QuickDraw
+	 * desktop expand (expand_framebuffer_rgba). Writing a DSp context's CLUT
+	 * there destroys the desktop's own palette, and nothing restores it when
+	 * the game exits - the desktop returns rendered through the game's colours.
+	 * The DSp expand (expand_surface_to_rgba) samples ctx->clut_bytes_latched
+	 * directly, so the context CLUT reaches the screen without touching the
+	 * desktop's.
+	 *
+	 * DMC bump: dmc_record_palette_change is the public DMC API - a function
+	 * call, not a direct generation-counter assignment. The DMC write-site CI
+	 * gate (testNoDirectDMCWritesInDSpFiles) scans for the bare-word DMC-owned
+	 * identifier set followed by an assignment, which does NOT match this
+	 * function-call syntax. */
+	if (ctx->state == (uint32_t)kDSpContextState_Active)
 		dmc_record_palette_change();
-	}
 	return kDSpNoErr;
 }
 
@@ -94,10 +103,10 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
  *                      with 16-bit big-endian channels: value@+0 (ignored
  *                      for Set), r@+2, g@+4, b@+6 - read via ReadMacInt16
  *    inStartingEntry = first CLUT index to write; must be <= 255
- *    inEntryCount    = number of entries (a COUNT, NOT an inclusive last
- *                      index); must be > 0; inStartingEntry + inEntryCount
- *                      must be <= 256 (a full-CLUT replace is start=0,
- *                      count=256)
+ *    inEntryCount    = INCLUSIVE LAST CLUT index (classic Color Manager /
+ *                      SetEntries convention, which DrawSprocket follows) -
+ *                      NOT a count. Must be <= 255 and >= inStartingEntry.
+ *                      A full 256-entry replace is start=0, inEntryCount=255.
  *
  *  Wire-format boundary: the 16->8 down-convert (>> 8)
  *  happens HERE at the guest-RAM read loop ONLY. Internal clut_bytes
@@ -115,7 +124,7 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
  *                                ctx is Active, deferred otherwise
  *
  *  Compositor contract:
- *    When ctx is Active, MetalCompositorUpdatePalette pushes the full
+ *    When ctx is Active, a DMC palette-generation bump makes the full
  *    256-entry ctx->clut_bytes into the compositor's back palette
  *    buffer; the compositor's VBL-callback MetalCompositorPaletteLatch
  *    promotes back -> front at
@@ -133,7 +142,7 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
  *    When ctx->state != Active, the write lands only in ctx->clut_bytes.
  *    The next transition to Active inside DSpContext_SetStateHandler
  *    replays the stored clut_bytes via the same
- *    MetalCompositorUpdatePalette + dmc_record_palette_change pair.
+ *    dmc_record_palette_change generation bump.
  */
 extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 													 uint32_t entriesAddr,
@@ -157,28 +166,34 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 				ctxRef, inStartingEntry, inEntryCount);
 		return kDSpInvalidAttributesErr;
 	}
-	/* Range-check BEFORE any guest-RAM read (ASVS V5):
-	 * inEntryCount is a COUNT (not an inclusive last index). Reading
-	 * past entry 255 would write beyond the 768-byte clut_bytes buffer.
-	 * inStartingEntry + inEntryCount must be <= 256 (a full-CLUT replace
-	 * is start=0, count=256). Both operands are guest-controlled uint32
-	 * (r5/r6), so the headroom MUST be compared by subtraction rather than
-	 * by summing - `inStartingEntry + inEntryCount` would wrap in 32-bit
-	 * unsigned arithmetic (CWE-190) and defeat the guard (e.g. start=1,
-	 * count=0xFFFFFFFF -> sum=0). The first clause guarantees
-	 * inStartingEntry <= 255, so `256 - inStartingEntry` is in [1..256] and
-	 * never underflows. */
-	if (inStartingEntry > 255 || inEntryCount == 0 ||
-		inEntryCount > 256 - inStartingEntry) {
-		DSP_LOG("SetCLUTEntries: out-of-range (ctxRef=%u start=%u count=%u) "
+	/* Range-check BEFORE any guest-RAM read (ASVS V5).
+	 *
+	 * inEntryCount is an INCLUSIVE LAST INDEX, not a count. DrawSprocket
+	 * mirrors the classic Color Manager convention (SetEntries / Palette
+	 * Manager), where a full 256-entry CLUT load is start=0, "count"=255.
+	 *
+	 * Diablo II proves it: every one of its 16 palette loads in a Software-mode
+	 * capture is start=0 with r6=0xFF. Read as a count that would deliberately
+	 * leave index 255 unwritten on every single load - which no game does, and
+	 * which showed up as the loading screen rendering with correct geometry but
+	 * wrong colours (entry 255 stuck at the default-CLUT value while 0..254
+	 * carried Diablo II's palette).
+	 *
+	 * Guard: inStartingEntry and inEntryCount are guest-controlled uint32
+	 * (r5/r6). Compare by subtraction, never by summing - `start + last` would
+	 * wrap in 32-bit unsigned arithmetic (CWE-190) and defeat the check. Both
+	 * must be <= 255, and last must not precede start. */
+	if (inStartingEntry > 255 || inEntryCount > 255 ||
+		inEntryCount < inStartingEntry) {
+		DSP_LOG("SetCLUTEntries: out-of-range (ctxRef=%u start=%u last=%u) "
 				"-> kDSpInvalidAttributesErr",
 				ctxRef, inStartingEntry, inEntryCount);
 		return kDSpInvalidAttributesErr;
 	}
 
 	const uint32_t start = inStartingEntry;
-	const uint32_t count = inEntryCount;
-	const uint32_t last  = start + count - 1;  /* inclusive, for the core */
+	const uint32_t last  = inEntryCount;            /* inclusive last index */
+	const uint32_t count = last - start + 1;        /* entries to transfer  */
 
 	/* Read guest-RAM entries into a host-local 3-byte/8-bit staging
 	 * range. The guest passes an array of 8-byte ColorSpec structs
@@ -205,9 +220,9 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 	 * + a 3-byte host buffer. */
 	int32_t rv = DSpSetCLUTCore(ctx, start, last, staged);
 	if (rv == kDSpNoErr) {
-		DSP_LOG("SetCLUTEntries: ctx=%u start=%u count=%u range=[%u..%u] "
-				"state=%u -> OK",
-				ctxRef, start, count, start, last, ctx->state);
+		DSP_LOG("SetCLUTEntries: ctx=%u start=%u lastIndex=%u count=%u "
+				"range=[%u..%u] state=%u -> OK",
+				ctxRef, start, last, count, start, last, ctx->state);
 	}
 	return rv;
 }
@@ -287,7 +302,7 @@ int32_t DSpGetCLUTCore(DSpContextPrivate *ctx,
  *    DSpContextPrivate()` (POD default-init). A
  *    GetCLUTEntries before any SetCLUTEntries returns all-zero bytes.
  *
- *  Non-mutating: Get does not call MetalCompositorUpdatePalette and does
+ *  Non-mutating: Get does not bump the palette generation and does
  *  not call dmc_record_palette_change - DMC write-site CI gate stays
  *  zero-match because this handler touches only ctx->clut_bytes_latched
  *  (long-suffix name not in the forbidden-identifier regex).
@@ -314,24 +329,26 @@ extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
 				ctxRef, inStartingEntry, inEntryCount);
 		return kDSpInvalidAttributesErr;
 	}
-	/* Range-check BEFORE the write loop (ASVS V5):
-	 * inEntryCount is a COUNT (not an inclusive last index). Compare the
-	 * headroom by subtraction, never by summing the two guest-controlled
-	 * uint32 operands - `inStartingEntry + inEntryCount` would wrap in
-	 * 32-bit unsigned arithmetic (CWE-190) and defeat the guard. The first
-	 * clause bounds inStartingEntry <= 255, so 256 - inStartingEntry is in
-	 * [1..256] and cannot underflow. */
-	if (inStartingEntry > 255 || inEntryCount == 0 ||
-		inEntryCount > 256 - inStartingEntry) {
-		DSP_LOG("GetCLUTEntries: out-of-range (ctxRef=%u start=%u count=%u) "
+	/* Range-check BEFORE the write loop (ASVS V5).
+	 *
+	 * inEntryCount is an INCLUSIVE LAST INDEX, matching
+	 * DSpContext_SetCLUTEntriesHandler - the two MUST agree or a Set->Get
+	 * round-trip returns a different range than was written. See the Set
+	 * handler for why this is the correct DrawSprocket/Color Manager reading.
+	 *
+	 * Guard by comparison only, never by summing the guest-controlled uint32
+	 * operands (CWE-190 wrap). */
+	if (inStartingEntry > 255 || inEntryCount > 255 ||
+		inEntryCount < inStartingEntry) {
+		DSP_LOG("GetCLUTEntries: out-of-range (ctxRef=%u start=%u last=%u) "
 				"-> kDSpInvalidAttributesErr",
 				ctxRef, inStartingEntry, inEntryCount);
 		return kDSpInvalidAttributesErr;
 	}
 
 	const uint32_t start = inStartingEntry;
-	const uint32_t count = inEntryCount;
-	const uint32_t last  = start + count - 1;  /* inclusive, for the core */
+	const uint32_t last  = inEntryCount;            /* inclusive last index */
+	const uint32_t count = last - start + 1;        /* entries to transfer  */
 
 	/* Read from the latched snapshot into a host-local 3-byte
 	 * staging buffer. DSpGetCLUTCore re-validates as a defensive second
