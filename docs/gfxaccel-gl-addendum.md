@@ -20,8 +20,14 @@
 
 ## Diablo II
 
-- For Glide (Diablo II is Glide 3.0) you need the Glide extensions (`3DfxGlideLib3.x` et al) in extensions from something like "3dfx Voodoo 5", and you need to manually install them from the CD. 
+- All 4 backends are playable. For Glide (Diablo II is Glide 3.0) you need the Glide extensions (`3DfxGlideLib3.x` et al) in extensions from something like "3dfx Voodoo 5", and you need to manually install them from the CD. If you don't do this the glide backend will be grayed out.
 
 - There might be blue screens and/or artifacts in between opening movies
 
 - Rare crashes when doing Rescan Monitors or switching between full screen and windowed when re-running the game
+
+# TODOS
+
+- Only the latest Glide extension version is redirected. It should redirect both 2.x and 3.x.
+
+- Possibly find out and intercept 3dfx Rave ALSO calling our redirects? It isn't a huge issue, just would help prevent future bugs.
