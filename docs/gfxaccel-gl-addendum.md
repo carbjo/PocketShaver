@@ -8,8 +8,6 @@
 
 -- Clarification: All mac versions of Descent and all other mac versions of Descent II use a custom mve file format for the movie, which is why they play ok. The 6500 version of Descent II still loads it from a MVL (HOG variant) file with an "intro.mve" filename, but the file is a cinepak encoded quicktime movie instead of the custom variant used by other versions of descent and is played directly with the QuickTime API with MoviesTask() waiting and such.
 
-- There might be some minor occassional stuttering in game that is barely noticable
-
 - You may notice there is no "suit-like" HUD interface in Descent II 6500. This is not a bug and the way the RAVE backend of Descent II renders - if you want this hud choose a non-RAVE version in the game's settings.
 
 ## MechWarrior II 6500
@@ -22,14 +20,8 @@
 
 ## Diablo II
 
-- GLIDE: Same as RAVE but also has some texture rendering issues and crashes on program exit
+- For Glide (Diablo II is Glide 3.0) you need the Glide extensions (`3DfxGlideLib3.x` et al) in extensions from something like "3dfx Voodoo 5", and you need to manually install them from the CD. 
 
--- For Glide (Diablo II is Glide 3.0) you need the Glide extensions (`3DfxGlideLib3.x` et al) in extensions from something like "3dfx Voodoo 5", and you need to manually install them from the CD. 
+- There might be blue screens and/or artifacts in between opening movies
 
-- RAVE: Currently unplayable due to slow/lagged framerate and frame skips once a character is chosen and is loads the main playable game
-
-- OpenGL: Odd rendering issues once title is hit, slow
-
-- Software: Renders fine but unusable on title as mouse presses aren't registered
-
-- There are brief blue screens with artifacts after each opening movie
+- Rare crashes when doing Rescan Monitors or switching between full screen and windowed when re-running the game
