@@ -2431,6 +2431,22 @@ void NativeGLTexParameteri(GLContext *ctx, uint32_t target, uint32_t pname, int3
 		case GL_TEXTURE_WRAP_T:     tex.wrap_t     = (uint32_t)param; break;
 		default: return;
 	}
+	/* Diagnostic companion to [texdiag]: the sampler state the guest actually
+	 * asked for. A mipmap min-filter on a texture that only ever uploaded
+	 * level 0 leaves the texture INCOMPLETE, which desktop GL samples as
+	 * opaque - the classic "text renders as filled boxes". Capped so it cannot
+	 * flood. */
+	{
+		static int s_paramLogCount = 0;
+		if (s_paramLogCount < 4096) {
+			s_paramLogCount++;
+			GL_LOG("[texparam] tex=%u pname=0x%04x param=0x%04x (%d) "
+				   "min=0x%04x mag=0x%04x wrapS=0x%04x wrapT=0x%04x mips=%d",
+				   tex.name, pname, (uint32_t)param, param,
+				   tex.min_filter, tex.mag_filter, tex.wrap_s, tex.wrap_t,
+				   tex.has_mipmaps ? 1 : 0);
+		}
+	}
 	/* The guest just changed sampler state for this texture, so whatever the
 	 * host GL object holds is stale. Force the next draw that binds it to
 	 * re-push. Diablo II calls glTexImage2D BEFORE glTexParameterf, so without
@@ -2626,6 +2642,110 @@ static bool ConvertPackedPixelToBGRA8(uint32_t pixAddr,
 		default:
 			return false;
 	}
+}
+
+/*
+ *  Does this glTexImage2D internalformat have NO alpha channel?
+ *
+ *  GL 1.1 accepts both the symbolic sized/base formats and the legacy numeric
+ *  component counts (1..4). A texture whose internal format carries no alpha
+ *  MUST sample alpha = 1.0, whatever the supplied pixel data held - so the
+ *  upload has to force the BGRA alpha byte opaque rather than pass the source
+ *  bytes through. Quake 3 uploads GL_RGBA/GL_UNSIGNED_BYTE pixel data into
+ *  internalformat 3 (RGB) textures, which without this kept the source alpha
+ *  and made opaque surfaces blend.
+ */
+static bool GLInternalFormatLacksAlpha(int32_t internalformat)
+{
+	switch (internalformat) {
+	/* Legacy numeric component counts: 1 = LUMINANCE, 2 = LUMINANCE_ALPHA,
+	 * 3 = RGB, 4 = RGBA. Only 1 and 3 lack alpha. */
+	case 1:
+	case 3:
+	/* Base and sized formats without an alpha channel. */
+	case GL_RGB:
+	case 0x2A10: /* GL_R3_G3_B2   */
+	case 0x804F: /* GL_RGB4       */
+	case 0x8050: /* GL_RGB5       */
+	case 0x8051: /* GL_RGB8       */
+	case 0x8052: /* GL_RGB10      */
+	case 0x8053: /* GL_RGB12      */
+	case 0x8054: /* GL_RGB16      */
+	case GL_LUMINANCE:
+	case 0x803F: /* GL_LUMINANCE4  */
+	case 0x8040: /* GL_LUMINANCE8  */
+	case 0x8041: /* GL_LUMINANCE12 */
+	case 0x8042: /* GL_LUMINANCE16 */
+		return true;
+	default:
+		return false;
+	}
+}
+
+/* Force every BGRA texel opaque when the texture's internal format has no
+ * alpha channel. Applied to the converted upload buffer, after any colour-table
+ * remap, so it is the last word on alpha - matching GL, where sampling an
+ * alpha-less internal format always yields 1.0. */
+static void GLForceOpaqueIfInternalFormatLacksAlpha(const GLTextureObject &tex,
+													uint8_t *bgra,
+													int dataLen)
+{
+	if (!tex.internal_format_opaque || bgra == nullptr || dataLen <= 0)
+		return;
+	for (int i = 3; i < dataLen; i += 4)
+		bgra[i] = 0xFF;
+}
+
+/*
+ *  Diagnostic: summarise the alpha channel of a texture we are about to upload.
+ *
+ *  "Text renders as filled boxes" means the glyph quads are geometrically right
+ *  but every texel inside them is opaque - i.e. the transparent surround of each
+ *  glyph did not survive to the GPU. This distinguishes the two possibilities
+ *  the call trace alone cannot: the guest handed us an atlas that is already
+ *  fully opaque (bug is upstream, in how the game builds it or how we read the
+ *  source pixels), versus an atlas with real transparency that something later
+ *  in our pipeline ignores. Also reports the RGB of the first texel, which for
+ *  an all-opaque atlas says whether it is a solid colour block.
+ *
+ *  Logged once per (texture, level) upload and capped, so it cannot flood.
+ */
+static void GLLogUploadedTextureAlphaHistogram(const GLTextureObject &tex,
+											   int32_t level,
+											   int width, int height,
+											   int32_t internalformat,
+											   const uint8_t *bgra,
+											   int dataLen)
+{
+	if (bgra == nullptr || dataLen < 4 || width <= 0 || height <= 0)
+		return;
+	/* Generous cap: the interesting uploads are often LATE (Quake 3 creates its
+	 * quit-screen font atlas thousands of draws in), and a low cap silently
+	 * hides exactly the texture under investigation. One line per upload is
+	 * cheap next to the per-call dispatch logging around it. */
+	static int s_logCount = 0;
+	if (s_logCount >= 4096)
+		return;
+	s_logCount++;
+
+	const int texels = dataLen / 4;
+	int zero = 0, full = 0, partial = 0;
+	uint8_t amin = 0xFF, amax = 0x00;
+	for (int i = 0; i < texels; i++) {
+		const uint8_t a = bgra[i * 4 + 3];
+		if (a == 0x00) zero++;
+		else if (a == 0xFF) full++;
+		else partial++;
+		if (a < amin) amin = a;
+		if (a > amax) amax = a;
+	}
+	GL_LOG("[texdiag] tex=%u level=%d %dx%d ifmt=%d opaqueForced=%d alpha: "
+		   "zero=%d full=%d partial=%d min=0x%02x max=0x%02x  first texel "
+		   "B=0x%02x G=0x%02x R=0x%02x A=0x%02x",
+		   tex.name, level, width, height, internalformat,
+		   tex.internal_format_opaque ? 1 : 0,
+		   zero, full, partial, amin, amax,
+		   bgra[0], bgra[1], bgra[2], bgra[3]);
 }
 
 static bool ConvertScalarPixelToBGRA8(uint32_t pixAddr,
@@ -3215,6 +3335,8 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 		tex.height = height;
 		tex.source_format = format;
 		tex.source_type = type;
+		tex.internal_format_opaque =
+			GLInternalFormatLacksAlpha(internalformat);
 	}
 	const bool ignoreLegacyFallbackClientMip =
 		GLPixelLegacyUnsignedShortShouldIgnoreClientMipForFallback(
@@ -3263,6 +3385,9 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	// 1-channel LUT-remap use). The index is clamped to [0, width-1] and the hard
 	// GLColorTable.data[256][4] ceiling BEFORE any LUT read.
 	GLApplyColorTableLUT(ctx, converted, width, height, dataLen);
+	GLForceOpaqueIfInternalFormatLacksAlpha(tex, converted, dataLen);
+	GLLogUploadedTextureAlphaHistogram(tex, level, width, height,
+									   internalformat, converted, dataLen);
 
 	GLMetalUploadTexture(ctx, &tex, level, width, height, converted, dataLen);
 	free(converted);
@@ -3299,6 +3424,7 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	// NativeGLTexImage2D - the color table applies during pixel transfer for the sub-image
 	// upload too (OpenGL 1.2.1 ?3.6.3). Index clamped before any LUT read.
 	GLApplyColorTableLUT(ctx, converted, width, height, dataLen);
+	GLForceOpaqueIfInternalFormatLacksAlpha(tex, converted, dataLen);
 
 	GLMetalUploadSubTexture(ctx, &tex, level, xoffset, yoffset, width, height,
 							 converted, width * 4);

@@ -20,6 +20,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#ifndef GL_RGB8
+#define GL_RGB8 0x8051
+#endif
 
 static GLuint s_ov[2]={0,0}; static GLuint s_cur=0; static uint32_t s_ow=0,s_oh=0,s_wr=0;
 static int32_t s_dl=0,s_dt=0,s_dw=0,s_dh=0;
@@ -149,14 +152,12 @@ extern "C" void gl_overlay_unbind(void){
 }
 extern "C" void gl_overlay_present(void){
   if(!s_cur||!s_frame_committed)return;
-  /* Ownership transitions can discard the compositor mailbox.  Establish GL
-   * ownership before publishing, matching the RAVE/Metal presentation order. */
   if(dmc_set_active_owner(kDMCOwnerGL)!=kDMCNoErr)return;
   if(!s_cur||!s_frame_committed)return;
   CompositeLayer L={}; L.source=(void*)(uintptr_t)s_cur; L.src_size_w=s_ow;L.src_size_h=s_oh;
   L.dst_origin_x=(float)s_dl;L.dst_origin_y=(float)s_dt;
   L.dst_size_w=(float)(s_dw>0?s_dw:(int)s_ow); L.dst_size_h=(float)(s_dh>0?s_dh:(int)s_oh);
-  L.slot=kLayerSlotOverlay; L.blend=kBlendPremultiplied; L.alpha=1.f;
+  L.slot=kLayerSlotOverlay; L.blend=kBlendStraight; L.alpha=1.f;
   FrameDescriptor d={}; d.layers=&L; d.layer_count=1;
   const DMCModeSnapshot*snap=dmc_current_snapshot(); d.generation=snap?snap->generation:0;
   const int32_t rc=MetalCompositorSubmitFrame(&d);
@@ -275,6 +276,174 @@ static void flush_im_triangles(const std::vector<GLVertex> &tris,
   for(const auto &v: tris) emit_gl_vertex(v,force_opaque,unit1_live);
   glEnd();
 }
+/* ---------------------------------------------------------------------------
+ * [drawdump] - one complete snapshot of everything that decides a draw's colour.
+ *
+ * Emitted from GLMetalFlushImmediateMode, i.e. for a REAL draw with the exact
+ * state that draw will use. Deliberately exhaustive: guest-side state, what we
+ * resolved it to, what we actually pushed to host GL, the host's own readback,
+ * and the first few post-transform vertices with their colours and texcoords.
+ * Everything needed to localise a "geometry right, colour wrong" bug without
+ * another round trip.
+ *
+ * Capped at 40 dumps, and only for draws that have texturing enabled, so the
+ * log stays usable.
+ * ------------------------------------------------------------------------- */
+static void dump_draw_state(GLContext *ctx, const char *tag,
+                            uint32_t mode, size_t nverts,
+                            bool force_opaque, bool unit1_live)
+{
+  if (!ctx) return;
+
+  const int u0tex = (int)ctx->tex_units[0].bound_texture_2d;
+  const int u1tex = (int)ctx->tex_units[1].bound_texture_2d;
+  auto it0 = ctx->texture_objects.find(ctx->tex_units[0].bound_texture_2d);
+  const bool have0 = (it0 != ctx->texture_objects.end());
+
+  /* Dump on CHANGE, not "first N draws".
+   *
+   * A flat first-N cap spends the whole budget on the intro screens and never
+   * reaches the screen actually under investigation (Quake 3's quit menu is
+   * thousands of draws in). Keying on the state that decides a draw's colour -
+   * bound texture, texenv, blend, alpha test - gives one dump per distinct
+   * configuration for the entire run, including late ones, while consecutive
+   * identical glyph draws collapse to a single line.
+   *
+   * The per-signature cap stops a state that oscillates every frame from
+   * flooding, and the global cap is a backstop. */
+  const uint64_t sig =
+      ((uint64_t)(uint32_t)u0tex << 32) ^
+      ((uint64_t)(uint32_t)ctx->tex_units[0].env_mode << 20) ^
+      ((uint64_t)(ctx->blend ? 1u : 0u) << 19) ^
+      ((uint64_t)(uint32_t)(ctx->blend_src & 0xffff) << 3) ^
+      ((uint64_t)(uint32_t)(ctx->blend_dst & 0xffff) << 1) ^
+      (uint64_t)(ctx->alpha_test ? 1u : 0u);
+  static uint64_t s_lastSig = ~0ull;
+  static int s_repeat = 0;
+  static int s_dumpCount = 0;
+  if (sig == s_lastSig) {
+    if (++s_repeat > 2) return;   /* a couple per state, then quiet */
+  } else {
+    s_lastSig = sig;
+    s_repeat = 0;
+  }
+  if (s_dumpCount >= 600) return;
+  s_dumpCount++;
+
+  GL_LOG("[drawdump #%d %s] mode=0x%x nverts=%d forceOpaque=%d unit1Live=%d",
+         s_dumpCount, tag, mode, (int)nverts, force_opaque ? 1 : 0,
+         unit1_live ? 1 : 0);
+
+  /* ---- guest texture-unit state ---- */
+  GL_LOG("  unit0: enabled2d=%d bound=%d envMode=0x%04x hostTex=%u | "
+         "unit1: enabled2d=%d bound=%d envMode=0x%04x",
+         ctx->tex_units[0].enabled_2d ? 1 : 0, u0tex,
+         ctx->tex_units[0].env_mode,
+         have0 ? (unsigned)(uintptr_t)it0->second.metal_texture : 0u,
+         ctx->tex_units[1].enabled_2d ? 1 : 0, u1tex,
+         ctx->tex_units[1].env_mode);
+  if (have0) {
+    const GLTextureObject &T = it0->second;
+    GL_LOG("  unit0 texobj: %dx%d srcFmt=0x%04x srcType=0x%04x mips=%d "
+           "opaqueIfmt=%d min=0x%04x mag=0x%04x wrapS=0x%04x wrapT=0x%04x "
+           "samplerApplied=%d appliedMin=0x%04x appliedMag=0x%04x "
+           "appliedWrapS=0x%04x appliedWrapT=0x%04x",
+           T.width, T.height, T.source_format, T.source_type,
+           T.has_mipmaps ? 1 : 0, T.internal_format_opaque ? 1 : 0,
+           T.min_filter, T.mag_filter, T.wrap_s, T.wrap_t,
+           T.sampler_applied ? 1 : 0, T.applied_min, T.applied_mag,
+           T.applied_wrap_s, T.applied_wrap_t);
+  } else {
+    GL_LOG("  unit0 texobj: <no texture object for name %d>", u0tex);
+  }
+
+  /* ---- guest fragment state ---- */
+  GL_LOG("  guest: blend=%d src=0x%04x dst=0x%04x | alphaTest=%d func=0x%04x "
+         "ref=%.3f | depthTest=%d func=0x%04x mask=%d | cull=%d mode=0x%04x "
+         "front=0x%04x | lighting=%d | scissor=%d",
+         ctx->blend ? 1 : 0, ctx->blend_src, ctx->blend_dst,
+         ctx->alpha_test ? 1 : 0, ctx->alpha_func, ctx->alpha_ref,
+         ctx->depth_test ? 1 : 0, ctx->depth_func, ctx->depth_mask ? 1 : 0,
+         ctx->cull_face_enabled ? 1 : 0, ctx->cull_face_mode, ctx->front_face,
+         ctx->lighting_enabled ? 1 : 0, ctx->scissor_test ? 1 : 0);
+  GL_LOG("  guest currentColor=(%.3f,%.3f,%.3f,%.3f)",
+         ctx->current_color[0], ctx->current_color[1],
+         ctx->current_color[2], ctx->current_color[3]);
+
+  /* ---- client array state (Quake 3 draws exclusively through these) ---- */
+  GL_LOG("  arrays: vert{en=%d sz=%d ty=0x%04x st=%d ptr=0x%08x} "
+         "color{en=%d sz=%d ty=0x%04x st=%d ptr=0x%08x} "
+         "tc0{en=%d sz=%d ty=0x%04x st=%d ptr=0x%08x} "
+         "tc1{en=%d sz=%d ty=0x%04x st=%d ptr=0x%08x}",
+         ctx->vertex_array.enabled ? 1 : 0, ctx->vertex_array.size,
+         ctx->vertex_array.type, ctx->vertex_array.stride,
+         ctx->vertex_array.pointer,
+         ctx->color_array.enabled ? 1 : 0, ctx->color_array.size,
+         ctx->color_array.type, ctx->color_array.stride,
+         ctx->color_array.pointer,
+         ctx->texcoord_array[0].enabled ? 1 : 0, ctx->texcoord_array[0].size,
+         ctx->texcoord_array[0].type, ctx->texcoord_array[0].stride,
+         ctx->texcoord_array[0].pointer,
+         ctx->texcoord_array[1].enabled ? 1 : 0, ctx->texcoord_array[1].size,
+         ctx->texcoord_array[1].type, ctx->texcoord_array[1].stride,
+         ctx->texcoord_array[1].pointer);
+
+  /* ---- what host GL actually holds right now ---- */
+  if (SharedMetalDevice()) {
+    GLint hEnabled2D = 0, hBoundTex = 0, hEnvMode = 0;
+    GLint hBlend = 0, hSrc = 0, hDst = 0, hAlphaTest = 0, hAlphaFunc = 0;
+    GLint hDepthTest = 0, hMinF = 0, hMagF = 0, hWrapS = 0, hWrapT = 0;
+    GLfloat hAlphaRef = 0.f, hColor[4] = {0,0,0,0};
+    hEnabled2D = glIsEnabled(GL_TEXTURE_2D);
+    hBlend     = glIsEnabled(GL_BLEND);
+    hAlphaTest = glIsEnabled(GL_ALPHA_TEST);
+    hDepthTest = glIsEnabled(GL_DEPTH_TEST);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &hBoundTex);
+    glGetTexEnviv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, &hEnvMode);
+    glGetIntegerv(GL_BLEND_SRC, &hSrc);
+    glGetIntegerv(GL_BLEND_DST, &hDst);
+    glGetIntegerv(GL_ALPHA_TEST_FUNC, &hAlphaFunc);
+    glGetFloatv(GL_ALPHA_TEST_REF, &hAlphaRef);
+    glGetFloatv(GL_CURRENT_COLOR, hColor);
+    if (hBoundTex) {
+      glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, &hMinF);
+      glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, &hMagF);
+      glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, &hWrapS);
+      glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, &hWrapT);
+    }
+    GL_LOG("  HOST: tex2d=%d bound=%d env=0x%04x min=0x%04x mag=0x%04x "
+           "wrapS=0x%04x wrapT=0x%04x | blend=%d src=0x%04x dst=0x%04x | "
+           "alphaTest=%d func=0x%04x ref=%.3f | depthTest=%d | "
+           "curColor=(%.3f,%.3f,%.3f,%.3f) glErr=0x%04x",
+           hEnabled2D, hBoundTex, hEnvMode, hMinF, hMagF, hWrapS, hWrapT,
+           hBlend, hSrc, hDst, hAlphaTest, hAlphaFunc, hAlphaRef, hDepthTest,
+           hColor[0], hColor[1], hColor[2], hColor[3], glGetError());
+    /* Host-side confirmation that the bound level-0 image really has alpha,
+     * i.e. that the transparency survived all the way into the GL object. */
+    if (hBoundTex) {
+      GLint iw = 0, ih = 0, ifmt = 0, asize = 0;
+      glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &iw);
+      glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &ih);
+      glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &ifmt);
+      glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_ALPHA_SIZE, &asize);
+      GL_LOG("  HOST level0: %dx%d internalFormat=0x%04x alphaBits=%d",
+             iw, ih, ifmt, asize);
+    }
+  }
+
+  /* ---- the vertices we are about to emit ---- */
+  const size_t show = ctx->im_vertices.size() < 4 ? ctx->im_vertices.size() : 4;
+  for (size_t i = 0; i < show; i++) {
+    const GLVertex &v = ctx->im_vertices[i];
+    GL_LOG("  v[%d] pos=(%.2f,%.2f,%.2f,%.2f) col=(%.3f,%.3f,%.3f,%.3f) "
+           "tc0=(%.4f,%.4f,%.4f,%.4f) tc1=(%.4f,%.4f,%.4f,%.4f)",
+           (int)i, v.position[0], v.position[1], v.position[2], v.position[3],
+           v.color[0], v.color[1], v.color[2], v.color[3],
+           v.texcoord[0][0], v.texcoord[0][1], v.texcoord[0][2], v.texcoord[0][3],
+           v.texcoord[1][0], v.texcoord[1][1], v.texcoord[1][2], v.texcoord[1][3]);
+  }
+}
+
 static void apply_host_ffp_state(GLContext *ctx)
 {
   if (!ctx) return;
@@ -524,6 +693,12 @@ void GLMetalFlushImmediateMode(GLContext*ctx){
   const auto &in=ctx->im_vertices;
   const uint32_t mode=ctx->im_mode;
 
+  /* Full state snapshot for this draw - see dump_draw_state. Runs AFTER
+   * apply_host_ffp_state so the host readback reflects what this draw will
+   * really use. Only textured draws are interesting for the colour bugs. */
+  if (ctx->tex_units[0].enabled_2d)
+    dump_draw_state(ctx, "flush", mode, in.size(), force_opaque, unit1_live);
+
   std::vector<GLVertex> out;
   if(mode==0x0007 /*GL_QUADS*/ && in.size()>=4){
 	for(size_t i=0;i+3<in.size();i+=4){
@@ -587,7 +762,16 @@ void GLMetalUploadTexture(GLContext*ctx,GLTextureObject*texObj,int level,int wid
 	texObj->applied_wrap_s=(uint32_t)ws; texObj->applied_wrap_t=(uint32_t)wt;
 	texObj->sampler_applied=true;
   }
-  if(pixels) glTexImage2D(GL_TEXTURE_2D,level,GL_RGBA8,width,height,0,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
+  /* Honour the guest's requested internal format instead of always allocating
+   * RGBA8. When the guest asked for an alpha-less format (GL_RGB / the legacy
+   * component count 3), allocating RGBA8 means the texture HAS an alpha
+   * channel, and whatever alpha the supplied pixels carried becomes live -
+   * GL guarantees such a texture samples alpha = 1.0. Asking the driver for
+   * GL_RGB8 makes that guarantee structural (host alphaBits = 0) rather than
+   * relying on the upload buffer having been scrubbed. */
+  if(pixels) glTexImage2D(GL_TEXTURE_2D,level,
+                          texObj->internal_format_opaque ? GL_RGB8 : GL_RGBA8,
+                          width,height,0,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
   mark_ffp_texture_binding_dirty();
 }
 void GLMetalUploadTexture(GLContext*ctx,GLTextureObject*texObj,int level,int width,int height,int format,int type,const void*pixels){
@@ -867,6 +1051,10 @@ static void gl_fetch_vertex(GLContext *ctx, int32_t index, GLVertex &out)
 	int n=ctx->vertex_array.size; if(n<1)n=1; if(n>4)n=4;
 	int ts=gl_type_size(ctx->vertex_array.type);
 	for(int i=0;i<n;i++) out.position[i]=gl_read_raw(base+(uint32_t)(i*ts), ctx->vertex_array.type);
+	/* glVertexPointer(2, ...) means z=0, per the GL defaults. `out` is
+	 * memset to 0 at entry so z is already 0 here, but spell it out so the
+	 * rule survives any future change to that seeding. */
+	for(int i=n;i<3;i++) out.position[i]=0.f;
 	if(n<4) out.position[3]=1.f;
   }
   if(ctx->normal_array.enabled && ctx->normal_array.pointer){
@@ -892,6 +1080,7 @@ static void gl_fetch_vertex(GLContext *ctx, int32_t index, GLVertex &out)
 	int n=ctx->texcoord_array[u].size; if(n<1)n=1; if(n>4)n=4;
 	int ts=gl_type_size(ctx->texcoord_array[u].type);
 	for(int i=0;i<n;i++) out.texcoord[u][i]=gl_read_raw(base+(uint32_t)(i*ts), ctx->texcoord_array[u].type);
+	for(int i=n;i<3;i++) out.texcoord[u][i]=0.f;
 	if(n<4) out.texcoord[u][3]=1.f;
   }
 }

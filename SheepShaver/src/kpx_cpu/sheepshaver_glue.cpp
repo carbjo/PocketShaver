@@ -1213,22 +1213,22 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		EtherIRQ();
 		break;
 	case NATIVE_ETHER_INIT:
-		gpr(3) = InitStreamModule((void *)gpr(3));
+		gpr(3) = InitStreamModule((void *)(size_t)gpr(3));
 		break;
 	case NATIVE_ETHER_TERM:
 		TerminateStreamModule();
 		break;
 	case NATIVE_ETHER_OPEN:
-		gpr(3) = ether_open((queue_t *)gpr(3), (void *)gpr(4), gpr(5), gpr(6), (void*)gpr(7));
+		gpr(3) = ether_open((queue_t *)(size_t)gpr(3), (void *)(size_t)gpr(4), gpr(5), gpr(6), (void*)(size_t)gpr(7));
 		break;
 	case NATIVE_ETHER_CLOSE:
-		gpr(3) = ether_close((queue_t *)gpr(3), gpr(4), (void *)gpr(5));
+		gpr(3) = ether_close((queue_t *)(size_t)gpr(3), gpr(4), (void *)(size_t)gpr(5));
 		break;
 	case NATIVE_ETHER_WPUT:
-		gpr(3) = ether_wput((queue_t *)gpr(3), (mblk_t *)gpr(4));
+		gpr(3) = ether_wput((queue_t *)(size_t)gpr(3), (mblk_t *)(size_t)gpr(4));
 		break;
 	case NATIVE_ETHER_RSRV:
-		gpr(3) = ether_rsrv((queue_t *)gpr(3));
+		gpr(3) = ether_rsrv((queue_t *)(size_t)gpr(3));
 		break;
 	case NATIVE_NQD_SYNC_HOOK:
 		gpr(3) = NQD_sync_hook(gpr(3));
@@ -1521,6 +1521,13 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		uint32 saved_r2 = gpr(2);
 		gpr(3) = GlideDispatch(gpr(3), gpr(4), gpr(5), gpr(6), gpr(7), gpr(8),
 		                       gpr(9), gpr(10), gpr(1));
+		/* Float-returning Glide entry points (guFogTableIndexToW) hand their
+		 * result back out-of-band; PPC returns floats in FPR1, not r3. */
+		{
+			float fret;
+			if (GlideDispatchTakeFloatResult(&fret))
+				fpr(1) = (double)fret;
+		}
 		if (lr() != saved_lr) lr() = saved_lr;
 		if (ctr() != saved_ctr) ctr() = saved_ctr;
 		if (gpr(1) != saved_sp) gpr(1) = saved_sp;

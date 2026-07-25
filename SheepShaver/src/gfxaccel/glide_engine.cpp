@@ -1,13 +1,7 @@
 /*
  *  glide_engine.cpp - CFM symbol-table patcher for 3Dfx Glide (DSp twin)
  *
- *  Byte-for-byte the same model as dsp_install_hooks.cpp:
- *    FindLibSymbol the guest library that already exists on the Mac
- *    (Extensions / CFM search path), then overwrite the first 4 PPC
- *  instructions at each export's code to branch into our native TVECT.
- *
- *  We do NOT load host PEF files, GetMemFragment, or install Extensions.
- *  Host 3dfx GlideLib*.bin files are for offline analysis only.
+ *  Same model as dsp_install_hooks.cpp
  *
  * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
@@ -37,7 +31,6 @@ struct GlideInstallSymbol {
 	const char *name;
 };
 
-/* D2 PEF-import surface + common Glide 3 exports (same idea as DSp's 53-row table). */
 static const GlideInstallSymbol glide_symbols[] = {
 #if 1
 	{ "\013grGlideInit",              kGlide_grGlideInit,              "grGlideInit" },
@@ -69,6 +62,10 @@ static const GlideInstallSymbol glide_symbols[] = {
 	{ "\012grDrawLine",               kGlide_grDrawLine,               "grDrawLine" },
 	{ "\016grDrawTriangle",           kGlide_grDrawTriangle,           "grDrawTriangle" },
 	{ "\020grAADrawTriangle",         kGlide_grAADrawTriangle,         "grAADrawTriangle" },
+	{ "\015grDrawPolygon",            kGlide_grDrawPolygon,            "grDrawPolygon" },
+	{ "\027grDrawPolygonVertexList",  kGlide_grDrawPolygonVertexList,  "grDrawPolygonVertexList" },
+	{ "\023grDrawPlanarPolygon",      kGlide_grDrawPlanarPolygon,      "grDrawPlanarPolygon" },
+	{ "\035grDrawPlanarPolygonVertexList", kGlide_grDrawPlanarPolygonVertexList, "grDrawPlanarPolygonVertexList" },
 	{ "\024grAlphaBlendFunction",     kGlide_grAlphaBlendFunction,     "grAlphaBlendFunction" },
 	{ "\016grAlphaCombine",           kGlide_grAlphaCombine,           "grAlphaCombine" },
 	{ "\014grClipWindow",             kGlide_grClipWindow,             "grClipWindow" },
@@ -138,6 +135,10 @@ static const GlideInstallSymbol glide_symbols[] = {
 	{ "\011gu3dfLoad",                kGlide_gu3dfLoad,                "gu3dfLoad" },
 	{ "\014gu3dfGetInfo",             kGlide_gu3dfGetInfo,             "gu3dfGetInfo" },
 	{ "\022grErrorSetCallback",       kGlide_grErrorSetCallback,       "grErrorSetCallback" },
+	{ "\007grHints",                  kGlide_grHints,                  "grHints" },
+	{ "\026grGammaCorrectionValue",   kGlide_grGammaCorrectionValue,   "grGammaCorrectionValue" },
+	{ "\026guColorCombineFunction",   kGlide_guColorCombineFunction,   "guColorCombineFunction" },
+	{ "\024guTexCombineFunction",     kGlide_guTexCombineFunction,     "guTexCombineFunction" },
 	{ "\017grGlideSetState",          kGlide_grGlideSetState,          "grGlideSetState" },
 	{ "\012grFogTable",               kGlide_grFogTable,               "grFogTable" },
 	{ "\023grDisableAllEffects",      kGlide_grDisableAllEffects,      "grDisableAllEffects" },
@@ -239,26 +240,57 @@ void GlideInstallHooks(void)
 				  "(ATTEMPT %d / %d)",
 				  attempt_number, GLIDE_HOOKS_MAX_ATTEMPTS);
 
-	/* ---- Pick library name from known candidates (DSp pattern) ---- */
-	const char *glide_lib = NULL;
-	uint32_t probe_tvect = 0;
+	/*
+	 * ---- Find EVERY installed Glide library, not just the first ----
+	 *
+	 * Glide 2.x and Glide 3.x ship as two separate CFM fragments
+	 * ("3DfxGlideLib2.x" and "3DfxGlideLib3.x") and users routinely have both
+	 * extensions installed at once. Different games bind to different ones:
+	 * Diablo II PEF-imports Glide 3, while Unreal Tournament PEF-imports
+	 * Glide 2.
+	 */
+	const char *glide_libs[kGlideLibCandidateCount];
+	int glide_lib_count = 0;
 	for (int c = 0; c < kGlideLibCandidateCount; c++) {
 		const char *candidate = kGlideLibCandidates[c];
 		QD3D_INIT_LOG("GlideInstallHooks: trying library \"%s\" (%d chars)",
 					  candidate + 1, (int)(unsigned char)candidate[0]);
-		probe_tvect = FindLibSymbol(candidate, glide_symbols[0].pascal_sym);
-		if (probe_tvect != 0) {
-			glide_lib = candidate;
-			QD3D_INIT_LOG("GlideInstallHooks: found library \"%s\" "
-						  "(probe TVECT for %s = 0x%08x)",
-						  glide_lib + 1, glide_symbols[0].name, probe_tvect);
-			break;
+		uint32_t probe_tvect = FindLibSymbol(candidate, glide_symbols[0].pascal_sym);
+		if (probe_tvect == 0)
+			continue;
+
+		/*
+		 * Candidate list holds several aliases for the same fragment (e.g.
+		 * "3DfxGlideLib3.x" and "3dfx GlideLib3.x"). Two names that probe to
+		 * the same TVECT are the same library; patching it twice would smash
+		 * our own already-installed branch stub and corrupt the hook.
+		 */
+		bool duplicate = false;
+		for (int p = 0; p < glide_lib_count; p++) {
+			if (FindLibSymbol(glide_libs[p], glide_symbols[0].pascal_sym) == probe_tvect) {
+				duplicate = true;
+				break;
+			}
 		}
+		if (duplicate) {
+			QD3D_INIT_LOG("GlideInstallHooks: \"%s\" is an alias of an "
+						  "already-selected fragment (probe TVECT 0x%08x) - skipping",
+						  candidate + 1, probe_tvect);
+			continue;
+		}
+
+		glide_libs[glide_lib_count++] = candidate;
+		QD3D_INIT_LOG("GlideInstallHooks: found library \"%s\" "
+					  "(probe TVECT for %s = 0x%08x)",
+					  candidate + 1, glide_symbols[0].name, probe_tvect);
 	}
 
-	if (glide_lib == NULL) {
+	if (glide_lib_count == 0) {
 		QD3D_INIT_LOG("GlideInstallHooks: no Glide library candidate resolved "
 					  "on this attempt (guest extension present?)");
+	} else {
+		QD3D_INIT_LOG("GlideInstallHooks: %d Glide fragment(s) will be hooked",
+					  glide_lib_count);
 	}
 
 	struct CachedTVECT {
@@ -270,8 +302,10 @@ void GlideInstallHooks(void)
 	int found_count = 0;
 	int not_found_count = 0;
 
-	/* ---- Pass 1: resolve all (no WriteMacInt32 yet) ---- */
-	if (glide_lib != NULL) {
+	/* ---- Pass 1: resolve all (no WriteMacInt32 yet), across every fragment ---- */
+	for (int lib = 0; lib < glide_lib_count; lib++) {
+		const char *glide_lib = glide_libs[lib];
+		int lib_found = 0, lib_not_found = 0;
 		QD3D_INIT_LOG("GlideInstallHooks: unresolved-symbol-diagnostic begin - "
 					  "ATTEMPT %d / %d (candidate lib = \"%s\")",
 					  attempt_number, GLIDE_HOOKS_MAX_ATTEMPTS, glide_lib + 1);
@@ -304,16 +338,18 @@ void GlideInstallHooks(void)
 				cached_tvects.push_back({ tvect, glide_symbols[i].sub_opcode,
 										  glide_symbols[i].name });
 				found_count++;
+				lib_found++;
 			} else {
 				not_found_count++;
+				lib_not_found++;
 			}
 		}
 		QD3D_INIT_LOG("GlideInstallHooks: unresolved-symbol-diagnostic end - "
-					  "ATTEMPT %d / %d (%d / %d resolved; %d length mismatches; "
-					  "%d not found)",
-					  attempt_number, GLIDE_HOOKS_MAX_ATTEMPTS,
-					  found_count, num_glide_symbols, length_mismatches,
-					  not_found_count);
+					  "ATTEMPT %d / %d lib \"%s\" (%d / %d resolved; "
+					  "%d length mismatches; %d not found)",
+					  attempt_number, GLIDE_HOOKS_MAX_ATTEMPTS, glide_lib + 1,
+					  lib_found, num_glide_symbols, length_mismatches,
+					  lib_not_found);
 	}
 
 	/* ---- Pass 2: patch all resolved symbols ---- */
@@ -442,10 +478,15 @@ void GlideThunksInit(void)
 	 * grGetProcAddress; it is not a normal PEF export.  The stock 3dfx RAVE
 	 * driver nevertheless calls it unconditionally from rvTerminate after a
 	 * successful board probe, so it still needs a real CFM TVECT.
+	 *
+	 * Try allocating for all the GetProcAddress funcs
 	 */
-	glide_method_tvects[kGlide_grSurfaceSetTextureSurfaceExt] =
-		AllocateGlideTVECT(kGlide_grSurfaceSetTextureSurfaceExt, glide_opcode);
-	tvectcount++;
+	for (size_t i = kGlide_FirstGetProcAddress; i <= kGlide_LastGetProcAddress;
+		i++) {
+		glide_method_tvects[i] =
+			AllocateGlideTVECT(i, glide_opcode);
+		tvectcount++;
+	}
 
 	QD3D_INIT_LOG("GlideThunksInit: allocated %d TVECTs scratch=0x%08x",
 	              tvectcount, glide_scratch_addr);

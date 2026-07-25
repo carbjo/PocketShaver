@@ -782,6 +782,14 @@ struct GLTextureObject {
     int      depth;          // for 3D textures (GL_TEXTURE_3D_EXT)
     uint32_t source_format;
     uint32_t source_type;
+    /* True when the internalformat the guest asked for in glTexImage2D has NO
+     * alpha channel (GL_RGB, GL_LUMINANCE, the numeric 1/2/3 component-count
+     * forms, ...). GL guarantees such a texture samples alpha = 1.0 regardless
+     * of what the supplied pixel data contained, so the BGRA upload has its
+     * alpha forced opaque. Without this, uploading RGBA-typed pixels into an
+     * RGB-requested texture (which Quake 3 does) leaked the source buffer's
+     * alpha bytes into a texture that must be fully opaque. */
+    bool     internal_format_opaque;
     uint32_t min_filter;     // GLenum: GL_NEAREST, GL_LINEAR, etc.
     uint32_t mag_filter;     // GLenum
 	    uint32_t wrap_s;         // GLenum: GL_REPEAT, GL_CLAMP, etc.

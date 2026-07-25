@@ -1754,7 +1754,7 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 	layer.dst_size_w = (float)(s_dst_w > 0 ? s_dst_w : (int32_t)s_ow);
 	layer.dst_size_h = (float)(s_dst_h > 0 ? s_dst_h : (int32_t)s_oh);
 	layer.slot = kLayerSlotOverlay;
-	layer.blend = kBlendPremultiplied;
+	layer.blend = kBlendStraight;
 	layer.alpha = 1.f;
 
 	FrameDescriptor desc = {};

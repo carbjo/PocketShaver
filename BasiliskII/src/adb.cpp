@@ -35,6 +35,7 @@
 #include "adb.h"
 #include "math.h"
 
+
 #if TARGET_OS_IPHONE
 #include "utils_ios.h"
 #import "MouseHapticFeedbackObjCCppHeader.h"
@@ -56,6 +57,11 @@
 // Global variables
 static int mouse_x = 0, mouse_y = 0;							// Mouse position
 static int old_mouse_x = 0, old_mouse_y = 0;
+/* False until old_mouse_x/y hold a real previous position. The absolute path
+ * derives a relative ADB packet from (mx - old_mouse_x); on the very first
+ * motion old_* are still 0, so that difference would be the whole coordinate
+ * (a ~900-pixel jump) rather than a delta. Seed on the first sample instead. */
+static bool old_mouse_valid = false;
 static int last_mouse_down_delta_x = 0, last_mouse_down_delta_y = 0;
 static bool mouse_button[3] = {false, false, false};			// Mouse button states
 static bool old_mouse_button[3] = {false, false, false};
@@ -489,6 +495,10 @@ void ADBSetRelMouseMode(bool relative)
 	if (relative_mouse != relative) {
 		relative_mouse = relative;
 		mouse_x = mouse_y = 0;
+		/* Coordinate space just changed meaning, so the cached previous
+		 * absolute position is stale - the first sample after the switch must
+		 * re-seed rather than be differenced against it. */
+		old_mouse_valid = false;
     }
 	if (!relative){
 		time(&relative_mouse_mode_off_time);
@@ -714,6 +724,54 @@ void ADBInterrupt(void)
 			r.d[0] = mx;
 			r.d[1] = my;
 			Execute68k(proc, &r);
+
+			/* CursorDeviceDispatch(MoveTo) positions the ROM cursor, but it
+			 * completely bypasses the ADB mouse device handler. Anything that
+			 * listens at the DEVICE level therefore never sees that the mouse
+			 * moved. InputSprocket does exactly that: it collects relative
+			 * deltas from the mouse handler, and games that drive the mouse
+			 * through it (Quake 3, Unreal Tournament - neither imports
+			 * GetMouse) poll ISpElement_GetSimpleState, get 0,0 forever, and
+			 * skip their mouse handling entirely (Q3 at 0x23b50: if both axes
+			 * are zero it does not queue an event at all).
+			 *
+			 * That is why the mouse only ever worked while the pointer was
+			 * grabbed - relative mode is the one path that runs this handler.
+			 * Sending the delta here as well makes device-level listeners work
+			 * without capturing the host pointer. MoveTo has already placed the
+			 * cursor, so the Event Manager's own position is unaffected; this
+			 * packet carries motion only (buttons are reported unchanged, and
+			 * the dedicated button loop below still handles transitions). */
+			{
+				int dx = old_mouse_valid ? (mx - old_mouse_x) : 0;
+				int dy = old_mouse_valid ? (my - old_mouse_y) : 0;
+				/* The extended packet carries a 10-bit signed delta; a bigger
+				 * jump (warp across the window, a mode change) would wrap and
+				 * fling the view the wrong way. Clamp instead. */
+				if (dx >  255) dx =  255; else if (dx < -255) dx = -255;
+				if (dy >  255) dy =  255; else if (dy < -255) dy = -255;
+				if (dx != 0 || dy != 0) {
+					if (mouse_reg_3[1] == 4) {
+						// Extended mouse protocol
+						WriteMacInt8(tmp_data, 3);
+						WriteMacInt8(tmp_data + 1, (dy & 0x7f) | (mouse_button[0] ? 0 : 0x80));
+						WriteMacInt8(tmp_data + 2, (dx & 0x7f) | (mouse_button[1] ? 0 : 0x80));
+						WriteMacInt8(tmp_data + 3, ((dy >> 3) & 0x70) | ((dx >> 7) & 0x07) | (mouse_button[2] ? 0x08 : 0x88));
+					} else {
+						// 100/200 dpi mode
+						WriteMacInt8(tmp_data, 2);
+						WriteMacInt8(tmp_data + 1, (dy & 0x7f) | (mouse_button[0] ? 0 : 0x80));
+						WriteMacInt8(tmp_data + 2, (dx & 0x7f) | (mouse_button[1] ? 0 : 0x80));
+					}
+					M68kRegisters mr;
+					mr.a[0] = tmp_data;
+					mr.a[1] = ReadMacInt32(mouse_base);
+					mr.a[2] = ReadMacInt32(mouse_base + 4);
+					mr.a[3] = adb_base;
+					mr.d[0] = (mouse_reg_3[0] << 4) | 0x0c;	// Talk 0
+					Execute68k(mr.a[1], &mr);
+				}
+			}
 #else
 			WriteMacInt16(0x82a, mx);
 			WriteMacInt16(0x828, my);
@@ -723,6 +781,7 @@ void ADBInterrupt(void)
 #endif
 			old_mouse_x = mx;
 			old_mouse_y = my;
+			old_mouse_valid = true;
 		}
 
         // O2S: Process accumulated button events

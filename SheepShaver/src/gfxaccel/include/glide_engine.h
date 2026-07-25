@@ -158,8 +158,27 @@ enum {
 	kGlide_grErrorSetCallback	= 245,
 	kGlide_grGetProcAddress            = 246, /* Glide 3 extension lookup */
 	kGlide_guGammaCorrectionRGB        = 247,
-	kGlide_grDeviceQueryExt            = 248, /* D2 detection extension */
-	kGlide_grSurfaceSetTextureSurfaceExt = 249, /* 3dfx RAVE teardown */
+	/* Glide 2 "gu" convenience wrappers: single-enum shorthands that the stock
+	 * library expands into a grColorCombine / grTexCombine call. Unreal
+	 * Tournament sets up its combine state exclusively through these. */
+	kGlide_guColorCombineFunction      = 248,
+	/* GetProcAddress */
+	kGlide_FirstGetProcAddress = 249,
+	kGlide_grSurfaceCreateContextExt = 249,
+	kGlide_grSurfaceReleaseContextExt = 250,
+	kGlide_grSurfaceSetRenderingSurfaceExt = 251,
+	kGlide_grSurfaceCalcTextureWHDExt = 252,
+	kGlide_grSurfaceSetAuxSurfaceExt = 253,
+	kGlide_grSurfaceSetTextureSurfaceExt = 254, /* 3dfx RAVE teardown */
+	kGlide_grDeviceQueryExt = 255,
+	kGlide_grSurfaceCreateExt = 256,
+	kGlide_grSurfaceReleaseExt = 257,
+	kGlide_grSurfaceGetDescExt = 258,
+	kGlide_LastGetProcAddress = 258,
+
+	/* See kGlide_guColorCombineFunction. Kept outside the GetProcAddress
+	 * range above, which glide_engine.cpp walks to allocate extension TVECTs. */
+	kGlide_guTexCombineFunction        = 259,
 
 	/* LFB */
 	kGlide_grLfbLock                   = 400,
@@ -298,6 +317,15 @@ bool GlideRegisterCfmLibraries(void);
 uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
                        uint32_t r6, uint32_t r7, uint32_t r8,
                        uint32_t r9, uint32_t r10, uint32_t sp);
+
+/* Float-return side channel.
+ *
+ * Almost every Glide entry point returns void or an integer in r3, so the
+ * dispatch returns a single uint32. The few that return a float (PPC returns
+ * those in FPR1, not r3) set this flag plus the value; the glue copies it into
+ * fpr(1) and clears the flag. Checked immediately after every GlideDispatch
+ * call, so there is no cross-call lifetime to worry about. */
+bool GlideDispatchTakeFloatResult(float *out);
 
 /* Comprehensive hang dump of Glide host state + last N guest calls. */
 void GlideHangDumpState(void);

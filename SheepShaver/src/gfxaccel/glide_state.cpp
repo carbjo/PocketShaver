@@ -82,6 +82,7 @@ struct GlideState {
 	GlideVertexAttrib vlayout[256];
 	int      coord_system;
 	int      vertex_stride; /* inferred max(offset)+size, or set by draw */
+	bool     vlayout_is_glide2_seed;
 
 	uint32_t tex_start_address;
 	int      tex_format;
@@ -182,6 +183,7 @@ void GlideStateResetDefaults(void)
 		g_glide.vlayout[i].offset = -1;
 		g_glide.vlayout[i].mode = 0;
 	}
+	g_glide.vlayout_is_glide2_seed = false;
 	g_glide.tex_start_address = 0;
 	g_glide.tex_format = 0;
 	g_glide.tex_even_odd = 0;
@@ -421,6 +423,17 @@ int GlideStateRenderBuffer(void) { return g_glide.render_buffer; }
 void GlideStateSetVertexLayout(int param, int offset, int mode)
 {
 	if (param < 0 || param >= 256) return;
+	if (g_glide.vlayout_is_glide2_seed) {
+		/* First grVertexLayout: this is a Glide 3 client, so drop the Glide 2
+		 * seed entirely (including its 60-byte stride) and let the client
+		 * describe its own vertex from scratch. */
+		g_glide.vlayout_is_glide2_seed = false;
+		for (int i = 0; i < 256; i++) {
+			g_glide.vlayout[i].offset = -1;
+			g_glide.vlayout[i].mode = 0;
+		}
+		g_glide.vertex_stride = 0;
+	}
 	if (mode == 0) {
 		/* GR_PARAM_DISABLE */
 		g_glide.vlayout[param].offset = -1;
@@ -433,6 +446,49 @@ void GlideStateSetVertexLayout(int param, int offset, int mode)
 	int need = offset + 16; /* generous for ST pair / RGB */
 	if (need > g_glide.vertex_stride)
 		g_glide.vertex_stride = need;
+}
+
+/*
+ * Seed the fixed Glide 2 GrVertex layout.
+ *
+ * Glide 2 has no grVertexLayout: the vertex struct is fixed by the header and
+ * every client uses it verbatim. Glide 3 clients call grVertexLayout and
+ * overwrite these entries, so this is only ever the starting point.
+ *
+ *     float x, y, z;        //  0,  4,  8
+ *     float r, g, b;        // 12, 16, 20
+ *     float ooz;            // 24
+ *     float a;              // 28
+ *     float oow;            // 32
+ *     GrTmuVertex tmuvtx[2];// 36 (sow,tow,oow), 48 (sow,tow,oow)
+ *   => sizeof(GrVertex) == 60
+ */
+void GlideStateSetGlide2VertexLayout(void)
+{
+	for (int i = 0; i < 256; i++) {
+		g_glide.vlayout[i].offset = -1;
+		g_glide.vlayout[i].mode = 0;
+	}
+	auto set = [](int param, int offset) {
+		g_glide.vlayout[param].offset = offset;
+		g_glide.vlayout[param].mode = 1; /* GR_PARAM_ENABLE */
+	};
+	set(0x01, 0);   /* GR_PARAM_XY  -> x,y   */
+	set(0x02, 8);   /* GR_PARAM_Z   -> z     */
+	set(0x20, 12);  /* GR_PARAM_RGB -> r,g,b */
+	set(0x10, 28);  /* GR_PARAM_A   -> a     */
+	set(0x40, 36);  /* GR_PARAM_ST0 -> tmuvtx[0].sow,tow */
+	set(0x41, 48);  /* GR_PARAM_ST1 -> tmuvtx[1].sow,tow */
+	/* Q is the VERTEX-level oow at +32, not tmuvtx[].oow (+44/+56).
+	 * Confirmed against Unreal Tournament's vertex builder at 0x12b5d0:
+	 * per vertex it writes x@+0, y@+4, oow@+32, then sow@+36 / tow@+40 scaled
+	 * by the texture extents - and never touches +44 or +56. Pointing Q0 at
+	 * tmuvtx[0].oow read uninitialised stack, so the perspective divide used
+	 * garbage. */
+	set(0x50, 32);  /* GR_PARAM_Q0  -> oow */
+	set(0x51, 32);  /* GR_PARAM_Q1  -> oow (shared) */
+	g_glide.vertex_stride = 60; /* sizeof(GrVertex) */
+	g_glide.vlayout_is_glide2_seed = true;
 }
 
 int GlideStateVertexOffset(int param)

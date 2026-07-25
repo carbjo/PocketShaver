@@ -17,6 +17,7 @@
 #include <cstring>
 #include <cstdarg>
 #include <cstdio>
+#include <cmath>          /* pow (guFogTableIndexToW) */
 #include <vector>
 #include <chrono>
 
@@ -100,6 +101,7 @@ extern void GlideStateSetLfbWriteColorSwizzle(int s);
 extern void GlideStateSetCoordSystem(int c);
 extern void GlideStateDisableAllEffects(void);
 extern void GlideStateSetVertexLayout(int param, int offset, int mode);
+extern void GlideStateSetGlide2VertexLayout(void);
 extern void GlideStateSetTexSource(uint32_t startAddress, int evenOdd, int format);
 extern void GlideStateSetTexSourceEx(uint32_t startAddress, int evenOdd,
 									 int small_lod, int large_lod, int aspect_log2, int format);
@@ -131,7 +133,7 @@ extern int GlideStateLfbBpp(void);
 extern const uint8_t *GlideStateLfbConvertToBGRA(int *out_w, int *out_h, int *out_pitch);
 extern void GlideStateLfbClear(uint16_t color565);
 
-static void glide_log(const char *fmt, ...)
+static void GlideLog(const char *fmt, ...)
 {
 #if ACCEL_LOGGING_ENABLED
 	char buf[512];
@@ -148,22 +150,49 @@ static void glide_log(const char *fmt, ...)
 #endif
 }
 
-/* Guest GrHwConfiguration-ish: report one SST-1 class board. */
+/*
+ * Guest GrHwConfiguration: report one SST-1 (Voodoo) class board.
+ *
+ * Layout must match the caller's struct EXACTLY - it is normally a stack
+ * local, so writing past its end corrupts the caller's frame.
+ *
+ *   struct GrTMUConfig_t   { int tmuRev; int tmuRam; }                    =  8
+ *   struct GrVoodooConfig_t{ int fbRam, fbiRev, nTexelfx; FxBool sliDetect;
+ *                            GrTMUConfig_t tmuConfig[2]; }                = 32
+ *   struct GrHwConfiguration {
+ *     int num_sst;                                             // +0
+ *     struct { GrSstType type;            // +0 within entry
+ *              union SstBoard_u sstBoard; // +4 within entry, 32 bytes
+ *     } SSTs[4];                                               // +4, 36 each
+ *   };                                                         // = 148 bytes
+ */
+#define GLIDE_HWCONFIG_NUM_SST      4   /* MAX_NUM_SST */
+#define GLIDE_HWCONFIG_SST_STRIDE   36  /* type(4) + union sstBoard(32), GLIDE_NUM_TMU=2 */
+#define GLIDE_HWCONFIG_SIZE \
+	(4 + GLIDE_HWCONFIG_NUM_SST * GLIDE_HWCONFIG_SST_STRIDE) /* 148 */
+
 static void write_query_hardware(uint32_t hwConfigPtr)
 {
 	if (!hwConfigPtr) return;
-	/* Minimal structure many ports accept:
-	 *   num_sst (FxI32)
-	 *   SSTs[0].type
-	 *   SSTs[0].sstBoard.VoodooConfig.{fbRam, tmuConfig...}
-	 * We zero a generous block and set num_sst=1, fb/tmu sizes. */
-	for (int i = 0; i < 256; i += 4)
-		WriteMacInt32(hwConfigPtr + i, 0);
-	WriteMacInt32(hwConfigPtr + 0, 1); /* num_sst */
-	/* Leave board type 0 = VOODOO; memory fields at common offsets. */
-	WriteMacInt32(hwConfigPtr + 8, (int32_t)(GlideStateFbMem() / (1024 * 1024)));
-	WriteMacInt32(hwConfigPtr + 12, 1); /* nTmus */
-	WriteMacInt32(hwConfigPtr + 16, (int32_t)(GlideStateTmuMem() / (1024 * 1024)));
+
+	/* Clear exactly the struct, never a byte more. */
+	for (uint32_t off = 0; off < GLIDE_HWCONFIG_SIZE; off += 4)
+		WriteMacInt32(hwConfigPtr + off, 0);
+
+	WriteMacInt32(hwConfigPtr + 0, 1); /* num_sst: one board */
+
+	/* SSTs[0]: type = GR_SSTTYPE_VOODOO (0, already zeroed), then the
+	 * VoodooConfig union member at +4 within the entry. */
+	const uint32_t sst0 = hwConfigPtr + 4;
+	const uint32_t voodoo = sst0 + 4;
+	WriteMacInt32(voodoo + 0,  (int32_t)(GlideStateFbMem() / (1024 * 1024))); /* fbRam MB */
+	WriteMacInt32(voodoo + 4,  2);                        /* fbiRev */
+	WriteMacInt32(voodoo + 8,  1);                        /* nTexelfx */
+	WriteMacInt32(voodoo + 12, 0);                        /* sliDetect = FXFALSE */
+	/* tmuConfig[0]: { tmuRev, tmuRam } at +16; tmuConfig[1] stays zeroed. */
+	WriteMacInt32(voodoo + 16, 1);                        /* tmuRev */
+	WriteMacInt32(voodoo + 20,
+				  (int32_t)(GlideStateTmuMem() / (1024 * 1024))); /* tmuRam MB */
 }
 /*
  * Glide 3: FxU32 grGet(FxU32 pname, FxU32 plength, void *params).
@@ -173,7 +202,7 @@ static void write_query_hardware(uint32_t hwConfigPtr)
 static uint32_t handle_grGet(uint32_t pname, uint32_t plength, uint32_t paramsPtr)
 {
 	if (!paramsPtr) {
-		glide_log("grGet(pname=%u plength=%u params=NULL) -> 0 bytes", pname, plength);
+		GlideLog("grGet(pname=%u plength=%u params=NULL) -> 0 bytes", pname, plength);
 		return 0;
 	}
 
@@ -234,12 +263,12 @@ static uint32_t handle_grGet(uint32_t pname, uint32_t plength, uint32_t paramsPt
 	case GR_VERTEX_PARAMETER:          v0 = 0; break;
 	case GR_BITS_GAMMA:                v0 = 8; break;
 	default:
-		glide_log("grGet(pname=0x%x plength=%u) unknown -> 0 bytes", pname, plength);
+		GlideLog("grGet(pname=0x%x plength=%u) unknown -> 0 bytes", pname, plength);
 		return 0;
 	}
 
 	if (plength < required) {
-		glide_log("grGet(pname=0x%x plength=%u) needs %u -> 0 bytes",
+		GlideLog("grGet(pname=0x%x plength=%u) needs %u -> 0 bytes",
 				  pname, plength, required);
 		return 0;
 	}
@@ -247,7 +276,7 @@ static uint32_t handle_grGet(uint32_t pname, uint32_t plength, uint32_t paramsPt
 	if (required >= 8)  WriteMacInt32(paramsPtr + 4, (int32_t)v1);
 	if (required >= 12) WriteMacInt32(paramsPtr + 8, (int32_t)v2);
 	if (required >= 16) WriteMacInt32(paramsPtr + 12, (int32_t)v3);
-	glide_log("grGet(pname=0x%x plength=%u) -> v0=%u v1=%u bytes=%u",
+	GlideLog("grGet(pname=0x%x plength=%u) -> v0=%u v1=%u bytes=%u",
 			  pname, plength, v0, v1, required);
 	return required;
 }
@@ -289,7 +318,7 @@ static uint32_t handle_grGetString(uint32_t pname)
 	case GR_VERSION:
 		return ensure(s_version, "3.10");
 	default:
-		glide_log("grGetString(pname=0x%x) unknown", pname);
+		GlideLog("grGetString(pname=0x%x) unknown", pname);
 		return ensure(s_version, "3.10");
 	}
 }
@@ -310,43 +339,63 @@ static uint64_t s_call_n_global = 0;
 
 void GlideHangDumpState(void)
 {
-	glide_log("======== GLIDE HANG STATE ========");
-	glide_log("glide: call_n=%llu last_sub=%u hist_total=%llu",
+	GlideLog("======== GLIDE HANG STATE ========");
+	GlideLog("glide: call_n=%llu last_sub=%u hist_total=%llu",
 			  (unsigned long long)s_call_n_global, s_last_sub,
 			  (unsigned long long)s_glide_hist_total);
-	glide_log("glide: inited=%d win_open=%d size=%dx%d originUL=%d chroma_mode=%d chroma_val=%08x",
+	GlideLog("glide: inited=%d win_open=%d size=%dx%d originUL=%d chroma_mode=%d chroma_val=%08x",
 			  GlideStateIsInited() ? 1 : 0,
 			  GlideStateWindowOpen() ? 1 : 0,
 			  GlideStateWidth(), GlideStateHeight(),
 			  GlideStateOriginUpperLeft(),
 			  GlideStateChromaMode(),
 			  (unsigned)GlideStateChromaValue());
-	glide_log("glide: swap=sync lfb_locked=%d lfb_ptr=%08x stride=%u type=%d buf=%d mode=%d",
+	GlideLog("glide: swap=sync lfb_locked=%d lfb_ptr=%08x stride=%u type=%d buf=%d mode=%d",
 			  GlideStateLfbIsLocked() ? 1 : 0,
 			  (unsigned)GlideStateLfbGuestPtr(),
 			  (unsigned)GlideStateLfbStride(),
 			  GlideStateLfbType(), GlideStateLfbBuffer(), GlideStateLfbWriteMode());
-	glide_log("glide: scratch=%08x (subop slot)", (unsigned)glide_scratch_addr);
+	GlideLog("glide: scratch=%08x (subop slot)", (unsigned)glide_scratch_addr);
 	if (glide_scratch_addr)
-		glide_log("glide: scratch_sub_now=%u", (unsigned)ReadMacInt32(glide_scratch_addr));
+		GlideLog("glide: scratch_sub_now=%u", (unsigned)ReadMacInt32(glide_scratch_addr));
 	/* Dump hist oldest..newest */
 	const int n = (s_glide_hist_total < (uint64_t)kGlideHist)
 				  ? (int)s_glide_hist_total : kGlideHist;
-	glide_log("glide: last %d calls (oldest first):", n);
+	GlideLog("glide: last %d calls (oldest first):", n);
 	for (int k = 0; k < n; k++) {
 		const int idx = (s_glide_hist_i - n + k + kGlideHist * 2) % kGlideHist;
 		const GlideCallRec &c = s_glide_hist[idx];
-		glide_log("  hist[%d] #%llu subop=%u r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x sp9=%08x",
+		GlideLog("  hist[%d] #%llu subop=%u r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x sp9=%08x",
 				  k, (unsigned long long)c.n, c.subop,
 				  c.r3, c.r4, c.r5, c.r6, c.r7, c.r8, c.r9, c.r10, c.stack9);
 	}
-	glide_log("======== GLIDE HANG STATE END ========");
+	GlideLog("======== GLIDE HANG STATE END ========");
+}
+
+static bool  s_glide_float_result_pending = false;
+static float s_glide_float_result = 0.f;
+static uint32_t GlideReturnFloat(float v)
+{
+	s_glide_float_result = v;
+	s_glide_float_result_pending = true;
+	return 0;
+}
+
+bool GlideDispatchTakeFloatResult(float *out)
+{
+	if (!s_glide_float_result_pending)
+		return false;
+	s_glide_float_result_pending = false;
+	if (out) *out = s_glide_float_result;
+	return true;
 }
 
 uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 					   uint32_t r6, uint32_t r7, uint32_t r8,
 					   uint32_t r9, uint32_t r10, uint32_t sp)
 {
+	/* Stale flag from a previous call must never leak into this one. */
+	s_glide_float_result_pending = false;
 	if (!glide_scratch_addr)
 		return 0;
 	const uint32_t subop = ReadMacInt32(glide_scratch_addr);
@@ -392,11 +441,11 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	const bool log_this = true;/*hot ? (++s_hot_n <= 16 || (s_hot_n % 10000u) == 0)
 							  : always_log;*/
 	if (hot && log_this)
-		glide_log("GlideENTER #%llu subop=%u HOT#%u r3=%08x (win=%d)",
+		GlideLog("GlideENTER #%llu subop=%u HOT#%u r3=%08x (win=%d)",
 				  (unsigned long long)s_call_n, subop, s_hot_n, r3,
 				  GlideStateWindowOpen() ? 1 : 0);
 	else if (!hot && log_this)
-		glide_log("GlideENTER #%llu subop=%u r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x",
+		GlideLog("GlideENTER #%llu subop=%u r3=%08x r4=%08x r5=%08x r6=%08x r7=%08x r8=%08x r9=%08x r10=%08x",
 				  (unsigned long long)s_call_n, subop, r3, r4, r5, r6, r7, r8, r9, r10);
 
 	/* RAII exit log - if the log freezes mid-call, ENTER was last without EXIT. */
@@ -407,7 +456,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		~GlideExitLog()
 		{
 			if (on)
-				glide_log("GlideEXIT  #%llu subop=%u",
+				GlideLog("GlideEXIT  #%llu subop=%u",
 						  (unsigned long long)n, subop);
 		}
 	} exit_log{s_call_n, subop, log_this && !hot};
@@ -415,9 +464,14 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	switch (subop) {
 	case kGlide_grGlideInit:
 		GlideStateResetDefaults();
+		/* Start from the fixed Glide 2 GrVertex layout. Glide 2 has no
+		 * grVertexLayout, so a Glide 2 client would otherwise leave the whole
+		 * table disabled and draw with a wrong (default 32-byte) stride.
+		 * Glide 3 clients call grVertexLayout and overwrite these. */
+		GlideStateSetGlide2VertexLayout();
 		GlideStateSetInited(true);
 		GlideMetalInit();
-		glide_log("grGlideInit (+hooks re-patch)");
+		GlideLog("grGlideInit");
 		return 0;
 
 	case kGlide_grGlideShutdown:
@@ -429,7 +483,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		GlideStateLfbRelease();
 		GlideMetalShutdown();
 		GlideStateSetInited(false);
-		glide_log("grGlideShutdown");
+		GlideLog("grGlideShutdown");
 		return 0;
 
 	case kGlide_grGlideGetVersion: {
@@ -448,11 +502,9 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	}
 
 	case kGlide_grSstQueryBoards: {
-		/* FxBool grSstQueryBoards(GrHwConfiguration *hw); */
-		if (r3) {
-			WriteMacInt32(r3, 1);
-			write_query_hardware(r3);
-		}
+		/* FxBool grSstQueryBoards(GrHwConfiguration *hw);
+		 * write_query_hardware fills the whole struct including num_sst. */
+		if (r3) write_query_hardware(r3);
 		return FXTRUE;
 	}
 
@@ -483,12 +535,12 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		if (GlideStateLfbIsLocked())
 			(void)GlideStateLfbUnlock(0);
 		if (GlideMetalWinOpen(w, h, origin_ul) != 0) {
-			glide_log("grSstWinOpen FAILED %dx%d", w, h);
+			GlideLog("grSstWinOpen FAILED %dx%d", w, h);
 			return FXFALSE;
 		}
 		GlideStateSetWin(w, h, origin_ul, cfmt, nCol ? nCol : 2, nAux);
 		(void)dmc_set_active_owner(kDMCOwnerGlide);
-		glide_log("grSstWinOpen %dx%d orgUL=%d cfmt=%d nCol=%d",
+		GlideLog("grSstWinOpen %dx%d orgUL=%d cfmt=%d nCol=%d",
 				  w, h, origin_ul, cfmt, nCol);
 		return FXTRUE;
 	}
@@ -506,7 +558,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		/* Keep LFB alloc across close/reopen (mode switch 640->800); free on shutdown.
 		 * Leave DMC owner alone - next DSp SetState / WinOpen owns the handoff. */
 		if (s_close_n <= 4 || (s_close_n & (s_close_n - 1)) == 0)
-			glide_log("grSstWinClose (#%u)", (unsigned)s_close_n);
+			GlideLog("grSstWinClose (#%u)", (unsigned)s_close_n);
 		return 0;
 	}
 
@@ -545,7 +597,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		 * a frame already being rendered. */
 		uint32_t in_retrace = (phase < 3ull) ? FXTRUE : FXFALSE;
 		if (s_vr_calls <= 12 || (s_vr_calls % 50000u) == 0) {
-			glide_log("grSstVRetraceOn #%u -> %u phase=%llu",
+			GlideLog("grSstVRetraceOn #%u -> %u phase=%llu",
 					  s_vr_calls, in_retrace, (unsigned long long)phase);
 		}
 		return in_retrace;
@@ -567,17 +619,17 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 
 	case kGlide_grBufferClear: {
 		/* void grBufferClear(GrColor_t color, GrAlpha_t alpha, FxU32 depth) */
-		glide_log("grBufferClear begin color=%08x", r3);
+		GlideLog("grBufferClear begin color=%08x", r3);
 		/* Clear back buffer only - real Glide does not display on clear. */
 		GlideMetalBufferClear(r3, r4, r5);
 		(void)dmc_set_active_owner(kDMCOwnerGlide);
-		glide_log("grBufferClear done");
+		GlideLog("grBufferClear done");
 		return 0;
 	}
 	case kGlide_grBufferSwap: {
 		/* void grBufferSwap(int swap_interval) */
 		const int interval = (int)r3;
-		glide_log("grBufferSwap begin interval=%d", interval);
+		GlideLog("grBufferSwap begin interval=%d", interval);
 		/*
 		 * Make the back buffer visible (SubmitFrame + Present), same contract
 		 * as LFB unlock which already works for D2 movies. Instant software
@@ -587,7 +639,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		GlideMetalBufferSwap(interval);
 		(void)dmc_set_active_owner(kDMCOwnerGlide);
 		(void)interval; /* hardware would wait ~interval VBLs; we present now */
-		glide_log("grBufferSwap done (pending=0, presented)");
+		GlideLog("grBufferSwap done (pending=0, presented)");
 		return 0;
 	}
 	case kGlide_grBufferNumPending: {
@@ -698,6 +750,102 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	case kGlide_grColorCombine:
 		GlideStateSetColorCombine((int)r3, (int)r4, (int)r5,
 								 (int)r6, (int)r7);
+		return 0;
+	case kGlide_guColorCombineFunction: {
+		/* void guColorCombineFunction(GrColorCombineFnc_t fnc)
+		 *
+		 * Glide 2 shorthand that the stock library expands into one
+		 * grColorCombine(func, factor, local, other, invert).
+		 * Unreal Tournament configures
+		 * all of its colour combining through this entry point, so leaving it
+		 * unhooked left the combine state at whatever the last explicit
+		 * grColorCombine set.
+		 *
+		 * The ITRGB_DELTA0 variants additionally toggle an internal delta0 mode
+		 * that only affects Voodoo iterator setup; the resulting combine is the
+		 * same as the non-DELTA0 form, which is all this backend models.
+		 */
+		int func, factor, local, other, invert = 0;
+		switch ((int)r3) {
+		case 0x0: /* ZERO */
+			func = 0x0; factor = 0x0; local = 0x1; other = 0x2; break;
+		case 0x1: /* CCRGB */
+			func = 0x1; factor = 0x0; local = 0x1; other = 0x2; break;
+		case 0x2: /* ITRGB */
+		case 0x3: /* ITRGB_DELTA0 */
+			func = 0x1; factor = 0x0; local = 0x0; other = 0x2; break;
+		case 0x4: /* DECAL_TEXTURE */
+			func = 0x3; factor = 0x8; local = 0x1; other = 0x1; break;
+		case 0x5: /* TEXTURE_TIMES_CCRGB */
+			func = 0x3; factor = 0x1; local = 0x1; other = 0x1; break;
+		case 0x6: /* TEXTURE_TIMES_ITRGB */
+		case 0x7: /* TEXTURE_TIMES_ITRGB_DELTA0 */
+			func = 0x3; factor = 0x1; local = 0x0; other = 0x1; break;
+		case 0x8: /* TEXTURE_TIMES_ITRGB_ADD_ALPHA */
+			func = 0x5; factor = 0x1; local = 0x0; other = 0x1; break;
+		case 0x9: /* TEXTURE_TIMES_ALPHA */
+			func = 0x3; factor = 0x3; local = 0x1; other = 0x1; break;
+		case 0xa: /* TEXTURE_TIMES_ALPHA_ADD_ITRGB */
+			func = 0x4; factor = 0x3; local = 0x0; other = 0x1; break;
+		case 0xb: /* TEXTURE_ADD_ITRGB */
+			func = 0x4; factor = 0x8; local = 0x0; other = 0x1; break;
+		case 0xc: /* TEXTURE_SUB_ITRGB */
+			func = 0x6; factor = 0x8; local = 0x0; other = 0x1; break;
+		case 0xd: /* CCRGB_BLEND_ITRGB_ON_TEXALPHA */
+			func = 0x7; factor = 0x4; local = 0x1; other = 0x0; break;
+		case 0xe: /* DIFF_SPEC_A */
+			func = 0x4; factor = 0x3; local = 0x0; other = 0x1; break;
+		case 0xf: /* DIFF_SPEC_B */
+			func = 0x5; factor = 0x1; local = 0x0; other = 0x1; break;
+		case 0x10: /* ONE */
+			func = 0x0; factor = 0x0; local = 0x1; other = 0x2; invert = 1; break;
+		default:
+			GlideLog("guColorCombineFunction: unsupported function %u", r3);
+			return 0;
+		}
+		GlideStateSetColorCombine(func, factor, local, other, invert);
+		return 0;
+	}
+	case kGlide_guAlphaSource: {
+		/* void guAlphaSource(GrAlphaSource_t mode)
+		 *
+		 * Glide 2 shorthand expanding into one grAlphaCombine.
+		 * Unreal Tournament selects its
+		 * alpha source exclusively through this (67980 calls in one capture),
+		 * so while it was unhandled the alpha combine never changed. */
+		int func, factor, local, other;
+		switch ((int)r3) {
+		case 0x0: /* CC_ALPHA: LOCAL / NONE / CONSTANT / NONE */
+			func = 0x1; factor = 0x0; local = 0x1; other = 0x2; break;
+		case 0x1: /* ITERATED_ALPHA: LOCAL / NONE / ITERATED / NONE */
+			func = 0x1; factor = 0x0; local = 0x0; other = 0x2; break;
+		case 0x2: /* TEXTURE_ALPHA: SCALE_OTHER / ONE / NONE / TEXTURE */
+			func = 0x3; factor = 0x8; local = 0x1; other = 0x1; break;
+		case 0x3: /* TEXTURE_ALPHA_TIMES_ITERATED_ALPHA:
+				   * SCALE_OTHER / LOCAL / ITERATED / TEXTURE */
+			func = 0x3; factor = 0x1; local = 0x0; other = 0x1; break;
+		default:
+			GlideLog("guAlphaSource: unknown alpha source mode %u", r3);
+			return 0;
+		}
+		GlideStateSetAlphaCombine(func, factor, local, other, 0);
+		return 0;
+	}
+	case kGlide_guFogTableIndexToW: {
+		/* float guFogTableIndexToW(int i)
+		 *   return pow(2.0, 3.0 + (i>>2)) / (8 - (i&3));
+		 * Returns in FPR1 via the float side channel. */
+		const int i = (int)r3;
+		const float w = (float)(pow(2.0, 3.0 + (double)(i >> 2)) /
+								(double)(8 - (i & 3)));
+		return GlideReturnFloat(w);
+	}
+	case kGlide_grErrorSetCallback:
+		/* void grErrorSetCallback(GrErrorCallback_t fnc)
+		 * Records a guest callback invoked on fatal Glide errors. This backend
+		 * never raises one, so accepting and ignoring it is correct - and it
+		 * must not fall through to the "unhandled" default, which would log
+		 * once per call for a routine startup call. */
 		return 0;
 	case kGlide_grColorMask:
 		/* void grColorMask(FxBool rgb, FxBool a) */
@@ -813,6 +961,47 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		GlideStateSetTexCombine((int)r4, (int)r5, (int)r6, (int)r7,
 							  (int)r8, (int)r9);
 		return 0;
+	case kGlide_guTexCombineFunction: {
+		/* void guTexCombineFunction(GrChipID_t tmu, GrTextureCombineFnc_t tc)
+		 *
+		 * Glide 2 shorthand expanding into one grTexCombine with the same
+		 * function/factor applied to both the RGB and alpha halves.
+		 *
+		 * tmu arrives in r3 and tc in r4. Like the kGlide_grTexCombine case
+		 * above, the tmu is dropped: GlideStateSetTexCombine models a single
+		 * TMU and takes no chip id.
+		 */
+		int func, factor, invert = 0;
+		switch ((int)r4) {
+		case 0x0: /* ZERO */
+			func = 0x0; factor = 0x0; break;
+		case 0x1: /* DECAL */
+			func = 0x1; factor = 0x0; break;
+		case 0x2: /* OTHER (passthru) */
+			func = 0x3; factor = 0x8; break;
+		case 0x3: /* ADD */
+			func = 0x4; factor = 0x8; break;
+		case 0x4: /* MULTIPLY */
+			func = 0x3; factor = 0x1; break;
+		case 0x5: /* SUBTRACT */
+			func = 0x6; factor = 0x8; break;
+		case 0x6: /* DETAIL */
+			func = 0x7; factor = 0xc; break;
+		case 0x7: /* DETAIL_OTHER */
+			func = 0x7; factor = 0x4; break;
+		case 0x8: /* TRILINEAR_ODD */
+			func = 0x7; factor = 0xd; break;
+		case 0x9: /* TRILINEAR_EVEN */
+			func = 0x7; factor = 0x5; break;
+		case 0xa: /* ONE */
+			func = 0x0; factor = 0x0; invert = 1; break;
+		default:
+			GlideLog("guTexCombineFunction: unsupported function %u", r4);
+			return 0;
+		}
+		GlideStateSetTexCombine(func, factor, func, factor, invert, invert);
+		return 0;
+	}
 	case kGlide_grTexDetailControl:
 		GlideStateSetTexDetail((int)r4, (int)r5, (int)r6);
 		return 0;
@@ -867,7 +1056,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const uint32_t data_mac = r10 ? r10 : r9; /* tolerate swapped */
 		const uint8_t *data = data_mac ? Mac2HostAddr(data_mac) : nullptr;
 		if (!data) {
-			glide_log("grTexDownloadMipMapLevel NO DATA start=%08x r9=%08x r10=%08x",
+			GlideLog("grTexDownloadMipMapLevel NO DATA start=%08x r9=%08x r10=%08x",
 					  start, r9, r10);
 			return 0;
 		}
@@ -918,34 +1107,22 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		}
 		struct Pair { const char *n; int subop; };
 		static const Pair kExt[] = {
-			{ "grGet", kGlide_grGet },
-			{ "grGetString", kGlide_grGetString },
-			{ "grCoordinateSpace", kGlide_grCoordinateSystem },
-			{ "grCoordinateSystem", kGlide_grCoordinateSystem },
-			{ "guGammaCorrectionRGB", kGlide_guGammaCorrectionRGB },
-			{ "grTexDownloadTable", kGlide_grTexDownloadTable },
-			{ "grChromakeyMode", kGlide_grChromakeyMode },
-			{ "grChromakeyValue", kGlide_grChromakeyValue },
-			{ "grDitherMode", kGlide_grDitherMode },
-			/* Wait/sync - often missing as PEF exports; offer via GetProcAddress. */
-			{ "grSstVRetraceOn", kGlide_grSstVRetraceOn },
-			{ "grSstVideoLine", kGlide_grSstVideoLine },
-			{ "grSstIsBusy", kGlide_grSstIsBusy },
-			{ "grSstIdle", kGlide_grSstIdle },
-			{ "grSstStatus", kGlide_grSstStatus },
-			{ "grBufferNumPending", kGlide_grBufferNumPending },
-			{ "grFinish", kGlide_grFinish },
-			{ "grFlush", kGlide_grFlush },
 			/* D2 board-detect extension (must not return NULL). */
-			{ "grDeviceQueryExt", kGlide_grDeviceQueryExt },
-			{ "grDeviceQuery", kGlide_grDeviceQueryExt },
+			{ "grSurfaceCreateContextExt", kGlide_grSurfaceCreateContextExt },
+			{ "grSurfaceReleaseContextExt", kGlide_grSurfaceReleaseContextExt },
+			{ "grSurfaceSetRenderingSurfaceExt", kGlide_grSurfaceSetRenderingSurfaceExt },
+			{ "grSurfaceCalcTextureWHDExt", kGlide_grSurfaceCalcTextureWHDExt },
+			{ "grSurfaceSetAuxSurfaceExt", kGlide_grSurfaceSetAuxSurfaceExt },
 			/*
 			 * The stock 3dfx RAVE rvTerminate calls this unconditionally
 			 * for TMUs 0 and 1.  Other SURFACE lookups deliberately remain
 			 * NULL until that extension is implemented in full.
 			 */
-			{ "grSurfaceSetTextureSurfaceExt",
-			  kGlide_grSurfaceSetTextureSurfaceExt },
+			{ "grSurfaceSetTextureSurfaceExt", kGlide_grSurfaceSetTextureSurfaceExt },
+			{ "grDeviceQueryExt", kGlide_grDeviceQueryExt },
+			{ "grSurfaceCreateExt", kGlide_grSurfaceCreateExt },
+			{ "grSurfaceReleaseExt", kGlide_grSurfaceReleaseExt },
+			{ "grSurfaceGetDescExt", kGlide_grSurfaceGetDescExt },
 		};
 		for (size_t i = 0; i < sizeof(kExt) / sizeof(kExt[0]); i++) {
 			if (std::strcmp(name, kExt[i].n) == 0) {
@@ -956,52 +1133,19 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 				 * illegal opcodes - execute_illegal now recovers via LR.
 				 */
 				uint32_t tv = glide_method_tvects[kExt[i].subop];
-				glide_log("grGetProcAddress('%s') -> tvect=0x%08x code=0x%08x",
+				GlideLog("grGetProcAddress('%s') -> tvect=0x%08x code=0x%08x",
 						  name, tv, tv ? ReadMacInt32(tv) : 0);
 				return tv;
 			}
 		}
-		glide_log("grGetProcAddress('%s') -> NULL", name);
+		GlideLog("grGetProcAddress('%s') -> NULL", name);
 		return 0;
 	}
-	case kGlide_grDeviceQueryExt: {
-		/*
-		 * D2: grGetProcAddress("grDeviceQueryExt") then call with
-		 * (void *buf, FxU32 size). Log shows r4=0x10 (16-byte query block).
-		 * Fill a Voodoo-like summary so detection does not reject zeros.
-		 */
-		uint32_t buf = r3;
-		uint32_t size = r4 ? r4 : 16;
-		if (buf && size >= 4) {
-			/* Word0: board type GR_SSTTYPE_VOODOO=0 or Voodoo2=3 */
-			WriteMacInt32(buf + 0, 3); /* Voodoo2-class */
-			if (size >= 8)
-				WriteMacInt32(buf + 4, (int32_t)(GlideStateFbMem() / (1024 * 1024)));
-			if (size >= 12)
-				WriteMacInt32(buf + 8, 1); /* nTMU */
-			if (size >= 16)
-				WriteMacInt32(buf + 12, (int32_t)(GlideStateTmuMem() / (1024 * 1024)));
-		}
-		glide_log("grDeviceQueryExt buf=%08x size=%u -> TRUE", buf, size);
-		return FXTRUE;
-	}
-	case kGlide_grSurfaceSetTextureSurfaceExt:
-		/*
-		 * FxBool grSurfaceSetTextureSurfaceExt(GrChipID_t tmu,
-		 *                                      GrSurface_t surface).
-		 * A NULL surface is the RAVE driver's teardown-time unbind.  There
-		 * is no host surface object to release in the current renderer, so
-		 * accepting it is the correct minimal behavior.  This hook is not
-		 * enough to claim the complete SURFACE rendering extension.
-		 */
-		glide_log("grSurfaceSetTextureSurfaceExt tmu=%u surface=%08x -> TRUE (no-op)",
-				  (unsigned)r3, (unsigned)r4);
-		return FXTRUE;
 	case kGlide_guGammaCorrectionRGB:
 		/* void guGammaCorrectionRGB(float r, float g, float b);
 		 * PPC Mac: floats in f1-f3 (we don't read FPRs here). No-op is fine -
 		 * D2 calls this after the first menu BufferSwap; we must not hang. */
-		glide_log("guGammaCorrectionRGB (no-op)");
+		GlideLog("guGammaCorrectionRGB (no-op)");
 		return 0;
 	case kGlide_grReset:
 		return 0;
@@ -1015,7 +1159,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	case kGlide_grVertexLayout:
 		/* void grVertexLayout(FxU32 param, FxI32 offset, FxU32 mode) */
 		GlideStateSetVertexLayout((int)r3, (int)r4, (int)r5);
-		glide_log("grVertexLayout param=0x%x off=%d mode=%u",
+		GlideLog("grVertexLayout param=0x%x off=%d mode=%u",
 				  (unsigned)r3, (int)r4, r5);
 		return 0;
 	case kGlide_grDrawVertexArray: {
@@ -1075,7 +1219,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		uint32_t lfbPtr = 0, stride = 0;
 		int resolvedMode = writeMode;
 		if (!info) {
-			glide_log("grLfbLock FAIL info=NULL type=%d buf=%d mode=%d",
+			GlideLog("grLfbLock FAIL info=NULL type=%d buf=%d mode=%d",
 					  type, buffer, writeMode);
 			return FXFALSE;
 		}
@@ -1083,7 +1227,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 							   &lfbPtr, &stride, &resolvedMode)) {
 			static uint32_t s_lfb_fail = 0;
 			if (++s_lfb_fail <= 8)
-				glide_log("grLfbLock FAIL type=%d buf=%d mode=%d locked=%d win=%d",
+				GlideLog("grLfbLock FAIL type=%d buf=%d mode=%d locked=%d win=%d",
 						  type, buffer, writeMode,
 						  GlideStateLfbIsLocked() ? 1 : 0,
 						  GlideStateWindowOpen() ? 1 : 0);
@@ -1101,7 +1245,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 
 		static uint32_t s_lfb_ok = 0;
 		if (++s_lfb_ok <= 8 || (s_lfb_ok & (s_lfb_ok - 1)) == 0)
-			glide_log("grLfbLock OK #%u type=%d buf=%d mode=%d ptr=%08x stride=%u",
+			GlideLog("grLfbLock OK #%u type=%d buf=%d mode=%d ptr=%08x stride=%u",
 					  (unsigned)s_lfb_ok, type, buffer, resolvedMode,
 					  lfbPtr, stride);
 		return FXTRUE;
@@ -1137,7 +1281,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const uint32_t data_mac = r9 ? r9 : stack9;
 		void *dst = data_mac ? Mac2HostAddr(data_mac) : nullptr;
 		const bool ok = GlideStateLfbReadRegion(buf, x, y, w, h, stride, dst);
-		glide_log("grLfbReadRegion %dx%d @%d,%d -> %s", w, h, x, y, ok ? "OK" : "FAIL");
+		GlideLog("grLfbReadRegion %dx%d @%d,%d -> %s", w, h, x, y, ok ? "OK" : "FAIL");
 		return ok ? FXTRUE : FXFALSE;
 	}
 	case kGlide_grLfbWriteRegion: {
@@ -1165,7 +1309,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 				GlideMetalUploadLfbAndPresent(bgra, uw, uh, upitch, 1);
 			GlideMetalMarkContent();
 		}
-		glide_log("grLfbWriteRegion %dx%d @%d,%d fmt=%d -> %s",
+		GlideLog("grLfbWriteRegion %dx%d @%d,%d fmt=%d -> %s",
 				  w, h, x, y, fmt, ok ? "OK" : "FAIL");
 		return ok ? FXTRUE : FXFALSE;
 	}
@@ -1181,9 +1325,151 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 	case kGlide_grLfbWriteColorSwizzle:
 		GlideStateSetLfbWriteColorSwizzle((int)r3);
 		return FXTRUE;
+	/*
+		GetProcAddress Ext
 
+		typedef void* GrSurface_t;
+		typedef uint32_t GrSurfaceTexType_t;
+		#define GR_SURFACETEXTYPE_FB            0
+		#define GR_SURFACETEXTYPE_AGP           1
+		typedef uint32_t GrSurfaceContextType_t;
+		#define GR_SURFACECONTEXT_WINDOWED      0
+		#define GR_SURFACECONTEXT_FULLSCREEN    1
+		#define GR_SURFACE_EXTENSION            0x1000
+		#define GR_SURFACE_SIZE                 (GR_SURFACE_EXTENSION | 0x1)
+		#define GR_SURFACE_TEXTURE              (GR_SURFACE_EXTENSION | 0x2)
+	*/
+	case kGlide_grSurfaceCreateContextExt: {
+		/*
+		* GrContext_t grSurfaceCreateContextExt(GrSurfaceContextType_t type)
+		*/
+		GlideLog("grSurfaceCreateContextExt type=%u -> 1 (no-op)",
+			(unsigned)r3);
+		return 1;
+	}
+	case kGlide_grSurfaceReleaseContextExt: {
+		/*
+		* void grSurfaceReleaseContextExt(GrContext_t ctx)
+		*/
+		GlideLog("grSurfaceReleaseContextExt sfc=%08x (no-op)",
+			(unsigned)r3);
+		return 0;
+	}
+	case kGlide_grSurfaceSetRenderingSurfaceExt: {
+		/*
+		* void grSurfaceSetRenderingSurfaceExt(
+		*	GrSurface_t sfc, FxBool textureP)
+		*/
+		GlideLog("grSurfaceSetRenderingSurfaceExt sfc=%08x "
+				" textureP=%d (no-op)",
+			(unsigned)r3, (int)r4);
+		return 0;
+	}
+	case kGlide_grSurfaceCalcTextureWHDExt: {
+		/*
+		*  FxBool grSurfaceCalcTextureWHDExt(GrTexInfo *tInfo,
+		*		FxU32 *w, FxU32 *h, FxU32 *d)
+		*/
+		GlideLog("grSurfaceCalcTextureWHDExt tInfo=%08x "
+				" w=%u h=%u d=%u -> FXTRUE (no-op)",
+			(unsigned)r3, (unsigned)r4, (unsigned)r5, (unsigned)r6);
+		return FXTRUE;
+	}
+	case kGlide_grSurfaceSetAuxSurfaceExt: {
+		/*
+		* void grSurfaceSetAuxSurfaceExt(GrSurface_t sfc)
+		*/
+		GlideLog("grSurfaceSetAuxSurfaceExt surface=%08x (no-op)",
+				  (unsigned)r3);
+		return 0;
+	}
+	case kGlide_grSurfaceSetTextureSurfaceExt:
+		/*
+		 * typedef int32_t GrChipID_t;
+		 * void grSurfaceSetTextureSurfaceExt(GrChipID_t tmu,
+		 *                                      GrSurface_t surface)
+		 * A NULL surface is the RAVE driver's teardown-time unbind.  There
+		 * is no host surface object to release in the current renderer, so
+		 * accepting it is the correct minimal behavior.  This hook is not
+		 * enough to claim the complete SURFACE rendering extension.
+		 */
+		GlideLog("grSurfaceSetTextureSurfaceExt tmu=%d surface=%08x (no-op)",
+				  (int)r3, (unsigned)r4);
+		return 0;
+	case kGlide_grDeviceQueryExt: {
+		uint32_t ret;
+		/*
+		 * FxU32 grDeviceQueryExt(GrDeviceInfo_t devList[], FxU32 listCount)
+		 *
+		 * typedef struct {
+		 *	  FxU32 glideDeviceId; void* systemDeviceId; FxU32 reserved;
+		 *	} GrDeviceInfo_t;
+		 *
+		 * D2: grGetProcAddress("grDeviceQueryExt") then call with
+		 * (void *buf, FxU32 size). Log shows r4=0x10 (16-byte query block).
+		 * Fill a Voodoo-like summary so detection does not reject zeros.
+		 */
+		uint32_t buf = r3;
+		uint32_t size = r4 ? r4 : 16;
+		if (buf && size >= 1) {
+			/* Word0: board type GR_SSTTYPE_VOODOO=0 or Voodoo2=3 */
+			WriteMacInt32(buf + 0, 3); /* Voodoo2-class */
+			/*if (size >= 8)*/
+				WriteMacInt32(buf + 4, (int32_t)(GlideStateFbMem() / (1024 * 1024)));
+			/*if (size >= 12)
+				WriteMacInt32(buf + 8, 1);*/ /* nTMU */
+			/*if (size >= 16)
+				WriteMacInt32(buf + 12, (int32_t)(GlideStateTmuMem() / (1024 * 1024)));
+			*/
+			ret = 1;
+		} else {
+			ret = 0;
+		}
+		GlideLog("grDeviceQueryExt buf=%08x size=%u -> TRUE", buf, size);
+		return ret;
+	}
+	/*
+		typedef struct {
+		  FxU32 surface;
+		  FxU32 width;
+		  FxU32 height;
+		  FxU32 pitch;
+		  FxU32 bytesPerPixel;
+		  FxU32 pixelFormat;
+		  void  (*notifyCallback)(GrSurface_t sfc, void *userData, FxU32 code);
+		  void  *userData;
+		  void  *systemPortId;
+		  void  *systemDeviceId;
+		  FxU32 reserved;
+		} GrSurfaceDesc_t;
+	*/
+	case kGlide_grSurfaceCreateExt: {
+		/*
+		* GrSurface_t grSurfaceCreateExt(GrSurfaceDesc_t *sfcDesc)
+		*/
+		GlideLog("grSurfaceGetDescExt sfcDesc=%08x -> 1 (no-op)",
+			(unsigned)r3);
+		return 1;
+	}
+	case kGlide_grSurfaceReleaseExt: {
+		/*
+		* void grSurfaceReleaseExt(GrSurface_t sfc)
+		*/
+		GlideLog("grSurfaceGetDescExt sfc=%08x (no-op)",
+			(unsigned)r3);
+		return 0;
+	}
+	case kGlide_grSurfaceGetDescExt: {
+		/*
+		* void grSurfaceGetDescExt(GrSurface_t sfc, GrSurfaceDesc_t *sfcDesc)
+		*/
+		GlideLog("grSurfaceGetDescExt sfc=%08x "
+				" sfcDesc=%08x (no-op)",
+			(unsigned)r3, (int)r4);
+		return 0;
+	}
 	default:
-		glide_log("GlideDispatch: unhandled subop=%u", subop);
+		GlideLog("GlideDispatch: unhandled subop=%u", subop);
 		return 0;
 	}
 }

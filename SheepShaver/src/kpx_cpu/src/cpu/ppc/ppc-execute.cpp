@@ -57,6 +57,8 @@
 #define DEBUG 0
 #include "debug.h"
 
+#include "gfx_log.h"
+
 /**
  *	Illegal & NOP instructions
  **/
@@ -94,7 +96,7 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 	}
 #endif
 
-	fprintf(stderr, "Illegal instruction at %08x, opcode = %08x\n", pc(), opcode);
+	gfx_log_emit("[crash] ", "Illegal instruction at %08x, opcode = %08x\n", pc(), opcode);
 
 #ifdef SHEEPSHAVER
 	// Dump the locked-'nift' monitor table on the first fault -- host-side
@@ -104,11 +106,11 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 #endif
 
 	// Backtrace: walk PPC stack frames to show call chain
-	fprintf(stderr, "  PPC Backtrace (stack frame walk):\n");
+	gfx_log_emit("[crash] ", "  PPC Backtrace (stack frame walk):\n");
 	{
 		uint32 sp = gpr(1);
 		uint32 ret_lr = lr();
-		fprintf(stderr, "    frame 0: PC=0x%08x LR=0x%08x SP=0x%08x\n", pc(), ret_lr, sp);
+		gfx_log_emit("[crash] ", "    frame 0: PC=0x%08x LR=0x%08x SP=0x%08x\n", pc(), ret_lr, sp);
 		for (int frame = 1; frame < 12 && sp != 0 && sp < 0x50000000; frame++) {
 			uint32 prev_sp = vm_read_memory_4(sp);  // backchain pointer
 			if (prev_sp == 0 || prev_sp <= sp || prev_sp >= 0x50000000) break;
@@ -116,35 +118,35 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 			uint32 call_instr = 0;
 			if (saved_lr >= 4 && saved_lr < 0x50000000)
 				call_instr = vm_read_memory_4(saved_lr - 4);
-			fprintf(stderr, "    frame %d: saved_LR=0x%08x SP=0x%08x call_instr=0x%08x\n",
+			gfx_log_emit("[crash] ", "    frame %d: saved_LR=0x%08x SP=0x%08x call_instr=0x%08x\n",
 					frame, saved_lr, prev_sp, call_instr);
 			sp = prev_sp;
 		}
 	}
 
 	// Dump PPC register state for crash analysis
-	fprintf(stderr, "  LR=0x%08x CTR=0x%08x CR=0x%08x XER=0x%08x\n",
+	gfx_log_emit("[crash] ", "  LR=0x%08x CTR=0x%08x CR=0x%08x XER=0x%08x\n",
 			lr(), ctr(), cr().get(), xer().get());
-	fprintf(stderr, "  R0=0x%08x R1(SP)=0x%08x R2(TOC)=0x%08x R3=0x%08x\n",
+	gfx_log_emit("[crash] ", "  R0=0x%08x R1(SP)=0x%08x R2(TOC)=0x%08x R3=0x%08x\n",
 			gpr(0), gpr(1), gpr(2), gpr(3));
-	fprintf(stderr, "  R4=0x%08x R5=0x%08x R6=0x%08x R7=0x%08x\n",
+	gfx_log_emit("[crash] ", "  R4=0x%08x R5=0x%08x R6=0x%08x R7=0x%08x\n",
 			gpr(4), gpr(5), gpr(6), gpr(7));
-	fprintf(stderr, "  R8=0x%08x R9=0x%08x R10=0x%08x R11=0x%08x\n",
+	gfx_log_emit("[crash] ", "  R8=0x%08x R9=0x%08x R10=0x%08x R11=0x%08x\n",
 			gpr(8), gpr(9), gpr(10), gpr(11));
-	fprintf(stderr, "  R12=0x%08x R13=0x%08x\n", gpr(12), gpr(13));
+	gfx_log_emit("[crash] ", "  R12=0x%08x R13=0x%08x\n", gpr(12), gpr(13));
 	// Dump instructions around the crash address
-	fprintf(stderr, "  Instructions around PC:\n");
+	gfx_log_emit("[crash] ", "  Instructions around PC:\n");
 	for (int di = -4; di <= 4; di++) {
 		uint32 addr = pc() + di * 4;
 		uint32 instr = vm_read_memory_4(addr);
-		fprintf(stderr, "    [0x%08x] %08x%s\n", addr, instr, di == 0 ? " <-- CRASH" : "");
+		gfx_log_emit("[crash] ", "    [0x%08x] %08x%s\n", addr, instr, di == 0 ? " <-- CRASH" : "");
 	}
 	// Dump a few words at LR to help understand call chain
-	fprintf(stderr, "  Instructions at LR 0x%08x:\n", lr());
+	gfx_log_emit("[crash] ", "  Instructions at LR 0x%08x:\n", lr());
 	for (int di = -2; di <= 2; di++) {
 		uint32 addr = lr() + di * 4;
 		uint32 instr = vm_read_memory_4(addr);
-		fprintf(stderr, "    [0x%08x] %08x\n", addr, instr);
+		gfx_log_emit("[crash] ", "    [0x%08x] %08x\n", addr, instr);
 	}
 
 	// Cross-TOC import calls reach here through a TVector held in r12
@@ -154,10 +156,10 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 	{
 		uint32 tv = gpr(12);
 		if (tv >= 0x1000 && tv < 0x50000000) {
-			fprintf(stderr, "  TVector neighborhood (r12=0x%08x):\n", tv);
+			gfx_log_emit("[crash] ", "  TVector neighborhood (r12=0x%08x):\n", tv);
 			for (int di = -2; di <= 5; di++) {
 				uint32 addr = tv + di * 4;
-				fprintf(stderr, "    [0x%08x] %08x%s\n", addr, vm_read_memory_4(addr),
+				gfx_log_emit("[crash] ", "    [0x%08x] %08x%s\n", addr, vm_read_memory_4(addr),
 						di == 0 ? " <-- code ptr" : (di == 1 ? " <-- TOC" : ""));
 			}
 		}
@@ -166,17 +168,17 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 			bool found = false;
 			for (int pages = 0; pages < 8192 && base >= 0x1000; pages++, base -= 0x1000) {
 				if (vm_read_memory_4(base) == 0x4a6f7921) {	// 'Joy!'
-					fprintf(stderr, "  PEF container candidate at 0x%08x (pc offset +0x%x):\n",
+					gfx_log_emit("[crash] ", "  PEF container candidate at 0x%08x (pc offset +0x%x):\n",
 							base, pc() - base);
 					for (int di = 0; di < 8; di++)
-						fprintf(stderr, "    [0x%08x] %08x\n", base + di * 4,
+						gfx_log_emit("[crash] ", "    [0x%08x] %08x\n", base + di * 4,
 								vm_read_memory_4(base + di * 4));
 					found = true;
 					break;
 				}
 			}
 			if (!found)
-				fprintf(stderr, "  no 'Joy!' PEF header within 32 MiB below pc\n");
+				gfx_log_emit("[crash] ", "  no 'Joy!' PEF header within 32 MiB below pc\n");
 		}
 	}
 

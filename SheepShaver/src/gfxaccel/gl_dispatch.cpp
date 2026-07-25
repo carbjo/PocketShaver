@@ -1134,10 +1134,17 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 
 	// Guard: core GL calls (sub_opcode < 600) require an active context.
 	// Games like THPS 2 may call glGetError before aglSetCurrentContext.
+	//
+	// glGetError must report GL_NO_ERROR here. With no current context there is
+	// no error state to read, and every real AGL/OpenGL implementation returns 0.
+	// Synthesising GL_INVALID_OPERATION invents an error the app never caused:
+	// Tomb Raider TLR wraps every GL call in a CHECK_GL_ERROR() macro that runs
+	// glGetError immediately after aglSetDrawable, before aglSetCurrentContext.
+	// A non-zero result there made it log a fatal renderer error and abandon
+	// OpenGL init instead of going on to bind the context.
 	if (sub_opcode < GL_SUB_AGL_CHOOSEPIXELFORMAT && !gl_current_context) {
 		GL_LOG("GLDispatch sub_opcode=%u ignored (no current context)", sub_opcode);
-		// Return GL_INVALID_OPERATION for glGetError, 0 for everything else
-		return (sub_opcode == GL_SUB_GET_ERROR) ? 0x0502 /* GL_INVALID_OPERATION */ : 0;
+		return 0;
 	}
 
 	switch (sub_opcode) {
