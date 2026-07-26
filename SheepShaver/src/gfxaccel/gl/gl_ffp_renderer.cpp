@@ -44,8 +44,13 @@ struct FFPStateCache {
    * per texture OBJECT, so a single global slot gets it wrong the moment the
    * guest alternates between two textures with different filters. It lives on
    * GLTextureObject::applied_* instead. */
-  bool blend; GLenum blend_src, blend_dst;
+  bool blend; GLenum blend_src, blend_dst; bool blend_separate_alpha;
   bool depth_test; GLenum depth_func; bool depth_mask;
+  float depth_range_near, depth_range_far;
+  bool color_mask[4];
+  bool stencil_test; GLenum stencil_func; GLint stencil_ref;
+  GLuint stencil_value_mask, stencil_write_mask;
+  GLenum stencil_sfail, stencil_dpfail, stencil_dppass;
   bool cull; GLenum cull_mode, front_face;
   bool alpha_test; GLenum alpha_func; float alpha_ref;
   bool scissor; GLint scissor_box[4];
@@ -53,6 +58,60 @@ struct FFPStateCache {
 };
 static FFPStateCache s_ffp_cache = {};
 static void mark_ffp_state_dirty(void){ s_ffp_cache.valid = false; }
+
+/* glClear obeys the color/depth/stencil write masks and the scissor test.
+ * Those guest states are deferred until a draw in the normal FFP path, so a
+ * state setter immediately followed by glClear must push this subset first.
+ * Keep the same helpers in the draw path as well: write masks are independent
+ * of whether their corresponding tests are enabled. */
+static void apply_host_write_masks(GLContext *ctx, bool cache_ok)
+{
+  FFPStateCache &C = s_ffp_cache;
+  const bool r = ctx->color_mask[0];
+  const bool g = ctx->color_mask[1];
+  const bool b = ctx->color_mask[2];
+  const bool a = ctx->color_mask[3];
+  const bool dm = ctx->depth_mask != 0;
+  const GLuint sm = (GLuint)ctx->stencil.write_mask;
+
+  if (!cache_ok || C.color_mask[0] != r || C.color_mask[1] != g ||
+	  C.color_mask[2] != b || C.color_mask[3] != a)
+	glColorMask(r ? GL_TRUE : GL_FALSE, g ? GL_TRUE : GL_FALSE,
+				b ? GL_TRUE : GL_FALSE, a ? GL_TRUE : GL_FALSE);
+  if (!cache_ok || C.depth_mask != dm)
+	glDepthMask(dm ? GL_TRUE : GL_FALSE);
+  if (!cache_ok || C.stencil_write_mask != sm)
+	glStencilMask(sm);
+
+  C.color_mask[0] = r; C.color_mask[1] = g;
+  C.color_mask[2] = b; C.color_mask[3] = a;
+  C.depth_mask = dm;
+  C.stencil_write_mask = sm;
+}
+
+static void apply_host_scissor_state(GLContext *ctx, bool cache_ok)
+{
+  FFPStateCache &C = s_ffp_cache;
+  if (ctx->scissor_test) {
+	const bool box_same = cache_ok && C.scissor &&
+	  C.scissor_box[0] == ctx->scissor_box[0] &&
+	  C.scissor_box[1] == ctx->scissor_box[1] &&
+	  C.scissor_box[2] == ctx->scissor_box[2] &&
+	  C.scissor_box[3] == ctx->scissor_box[3];
+	if (!cache_ok || !C.scissor) glEnable(GL_SCISSOR_TEST);
+	if (!box_same)
+	  glScissor(ctx->scissor_box[0], ctx->scissor_box[1],
+				ctx->scissor_box[2], ctx->scissor_box[3]);
+	C.scissor = true;
+	C.scissor_box[0] = ctx->scissor_box[0];
+	C.scissor_box[1] = ctx->scissor_box[1];
+	C.scissor_box[2] = ctx->scissor_box[2];
+	C.scissor_box[3] = ctx->scissor_box[3];
+  } else {
+	if (!cache_ok || C.scissor) glDisable(GL_SCISSOR_TEST);
+	C.scissor = false;
+  }
+}
 
 /* Guest -> host sampler-state mapping, shared by the uploader and the
  * per-draw state apply so the two can never disagree.
@@ -157,7 +216,15 @@ extern "C" void gl_overlay_present(void){
   CompositeLayer L={}; L.source=(void*)(uintptr_t)s_cur; L.src_size_w=s_ow;L.src_size_h=s_oh;
   L.dst_origin_x=(float)s_dl;L.dst_origin_y=(float)s_dt;
   L.dst_size_w=(float)(s_dw>0?s_dw:(int)s_ow); L.dst_size_h=(float)(s_dh>0?s_dh:(int)s_oh);
-  L.slot=kLayerSlotOverlay; L.blend=kBlendStraight; L.alpha=1.f;
+  /*
+   * The render target stores premultiplied coverage: blended guest fragments
+   * use straight source colors with source-alpha RGB blending, while the
+   * alpha channel accumulates source-over coverage. Submitting it as straight
+   * alpha multiplies coverage a second time in the compositor. That darkens
+   * translucent effects and exposes the classic framebuffer color beneath
+   * them (Tomb Raider's blue/purple crescent under its shadow).
+   */
+  L.slot=kLayerSlotOverlay; L.blend=kBlendPremultiplied; L.alpha=1.f;
   FrameDescriptor d={}; d.layers=&L; d.layer_count=1;
   const DMCModeSnapshot*snap=dmc_current_snapshot(); d.generation=snap?snap->generation:0;
   const int32_t rc=MetalCompositorSubmitFrame(&d);
@@ -222,6 +289,14 @@ void GLMetalClear(GLContext*ctx,uint32_t mask){
 	GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[2],alpha),
 	alpha);
   glClearDepth(ctx->clear_depth);
+  glClearStencil(ctx->clear_stencil);
+  /* OpenGL clears are masked operations. In particular, Tomb Raider restores
+   * glDepthMask(GL_TRUE) immediately before its depth-only clear. Without
+   * synchronizing here, the host can retain GL_FALSE from the previous draw
+   * and silently leave stale depth triangles in the next frame. */
+  const bool cache_ok = s_ffp_cache.valid;
+  apply_host_write_masks(ctx, cache_ok);
+  apply_host_scissor_state(ctx, cache_ok);
   GLbitfield m=0;
   if(mask&0x4000)m|=GL_COLOR_BUFFER_BIT;
   if(mask&0x0100)m|=GL_DEPTH_BUFFER_BIT;
@@ -558,23 +633,67 @@ static void apply_host_ffp_state(GLContext *ctx)
 	 * (blend_src = GL_ONE, blend_dst = GL_ZERO), so these are always valid. */
 	const GLenum bs = (GLenum)ctx->blend_src;
 	const GLenum bd = (GLenum)ctx->blend_dst;
+	const bool is_offscreen =
+	  GLContextGetOffscreenDrawable(ctx,nullptr,nullptr,nullptr,nullptr)!=0;
+	const bool separate_alpha = !is_offscreen && ext.BlendFuncSeparate;
 	if (!cache_ok || !C.blend) glEnable(GL_BLEND);
-	if (!cache_ok || C.blend_src != bs || C.blend_dst != bd) glBlendFunc(bs, bd);
+	if (!cache_ok || C.blend_src != bs || C.blend_dst != bd ||
+		C.blend_separate_alpha != separate_alpha) {
+	  /*
+	   * On-screen GL is later composited as a premultiplied overlay. Preserve
+	   * source-over coverage independently from the guest's RGB factors, just
+	   * like the Metal fixed-function path. Offscreen AGL drawables retain
+	   * exact guest alpha blending for readback.
+	   */
+	  if (separate_alpha)
+		ext.BlendFuncSeparate(bs, bd, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+	  else
+		glBlendFunc(bs, bd);
+	}
 	C.blend = true; C.blend_src = bs; C.blend_dst = bd;
+	C.blend_separate_alpha = separate_alpha;
   } else {
 	if (!cache_ok || C.blend) glDisable(GL_BLEND);
 	C.blend = false;
   }
+  apply_host_write_masks(ctx, cache_ok);
+  if (!cache_ok || C.depth_range_near != ctx->depth_range_near ||
+	  C.depth_range_far != ctx->depth_range_far) {
+	glDepthRange((GLclampd)ctx->depth_range_near,
+				 (GLclampd)ctx->depth_range_far);
+	C.depth_range_near = ctx->depth_range_near;
+	C.depth_range_far = ctx->depth_range_far;
+  }
   if (ctx->depth_test) {
 	const GLenum df = ctx->depth_func ? ctx->depth_func : GL_LESS;
-	const bool dm = ctx->depth_mask != 0;
 	if (!cache_ok || !C.depth_test) glEnable(GL_DEPTH_TEST);
 	if (!cache_ok || C.depth_func != df) glDepthFunc(df);
-	if (!cache_ok || C.depth_mask != dm) glDepthMask(dm ? GL_TRUE : GL_FALSE);
-	C.depth_test = true; C.depth_func = df; C.depth_mask = dm;
+	C.depth_test = true; C.depth_func = df;
   } else {
 	if (!cache_ok || C.depth_test) glDisable(GL_DEPTH_TEST);
 	C.depth_test = false;
+  }
+  if (ctx->stencil_test) {
+	const GLenum sf = (GLenum)ctx->stencil.func;
+	const GLint sr = (GLint)ctx->stencil.ref;
+	const GLuint svm = (GLuint)ctx->stencil.value_mask;
+	const GLenum fail = (GLenum)ctx->stencil.sfail;
+	const GLenum zfail = (GLenum)ctx->stencil.dpfail;
+	const GLenum zpass = (GLenum)ctx->stencil.dppass;
+	if (!cache_ok || !C.stencil_test) glEnable(GL_STENCIL_TEST);
+	if (!cache_ok || C.stencil_func != sf || C.stencil_ref != sr ||
+		C.stencil_value_mask != svm)
+	  glStencilFunc(sf, sr, svm);
+	if (!cache_ok || C.stencil_sfail != fail ||
+		C.stencil_dpfail != zfail || C.stencil_dppass != zpass)
+	  glStencilOp(fail, zfail, zpass);
+	C.stencil_test = true;
+	C.stencil_func = sf; C.stencil_ref = sr; C.stencil_value_mask = svm;
+	C.stencil_sfail = fail; C.stencil_dpfail = zfail;
+	C.stencil_dppass = zpass;
+  } else {
+	if (!cache_ok || C.stencil_test) glDisable(GL_STENCIL_TEST);
+	C.stencil_test = false;
   }
   if (ctx->cull_face_enabled) {
 	const GLenum cm = ctx->cull_face_mode ? ctx->cull_face_mode : GL_BACK;
@@ -597,20 +716,7 @@ static void apply_host_ffp_state(GLContext *ctx)
 	if (!cache_ok || C.alpha_test) glDisable(GL_ALPHA_TEST);
 	C.alpha_test = false;
   }
-  if (ctx->scissor_test) {
-	const bool box_same = cache_ok && C.scissor &&
-	  C.scissor_box[0]==ctx->scissor_box[0] && C.scissor_box[1]==ctx->scissor_box[1] &&
-	  C.scissor_box[2]==ctx->scissor_box[2] && C.scissor_box[3]==ctx->scissor_box[3];
-	if (!cache_ok || !C.scissor) glEnable(GL_SCISSOR_TEST);
-	if (!box_same)
-	  glScissor(ctx->scissor_box[0], ctx->scissor_box[1], ctx->scissor_box[2], ctx->scissor_box[3]);
-	C.scissor = true;
-	C.scissor_box[0]=ctx->scissor_box[0]; C.scissor_box[1]=ctx->scissor_box[1];
-	C.scissor_box[2]=ctx->scissor_box[2]; C.scissor_box[3]=ctx->scissor_box[3];
-  } else {
-	if (!cache_ok || C.scissor) glDisable(GL_SCISSOR_TEST);
-	C.scissor = false;
-  }
+  apply_host_scissor_state(ctx, cache_ok);
   if (ctx->fog_enabled) {
 	glEnable(GL_FOG);
 	glFogi(GL_FOG_MODE, (GLint)(ctx->fog_mode ? ctx->fog_mode : GL_LINEAR));

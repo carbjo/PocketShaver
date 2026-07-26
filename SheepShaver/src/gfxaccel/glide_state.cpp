@@ -90,6 +90,9 @@ struct GlideState {
 	int      tex_small_lod;
 	int      tex_large_lod;
 	int      tex_aspect_log2;
+	/* Glide 2 numbers LODs in the opposite direction from Glide 3 and uses
+	 * aspect enum 3 for 1:1. Glide 3 uses literal log2 values for both. */
+	bool     tex_uses_log2_abi;
 	int      tex_clamp_s, tex_clamp_t;
 	int      tex_filter_min, tex_filter_mag;
 	int      tex_mipmap_mode;
@@ -117,6 +120,8 @@ static GlideState g_glide;
 static const uint32_t kTmuBase = 0x00000000;
 static const uint32_t kTmuSize = 4u * 1024u * 1024u;
 static const uint32_t kFbMem   = 4u * 1024u * 1024u;
+
+void GlideTexObserveLodRange(int small_lod, int large_lod);
 
 void GlideStateResetDefaults(void)
 {
@@ -190,6 +195,11 @@ void GlideStateResetDefaults(void)
 	g_glide.tex_small_lod = 0;
 	g_glide.tex_large_lod = 8;
 	g_glide.tex_aspect_log2 = 0;
+	/* grGlideInit seeds a Glide 2 vertex layout immediately after reset.
+	 * Start with Glide 2 texture enums as well so the first single-level
+	 * download is decoded correctly; a Glide 3 client identifies itself by
+	 * calling grVertexLayout below. */
+	g_glide.tex_uses_log2_abi = false;
 	g_glide.tex_clamp_s = 0;
 	g_glide.tex_clamp_t = 0;
 	g_glide.tex_filter_min = 0;
@@ -428,6 +438,7 @@ void GlideStateSetVertexLayout(int param, int offset, int mode)
 		 * seed entirely (including its 60-byte stride) and let the client
 		 * describe its own vertex from scratch. */
 		g_glide.vlayout_is_glide2_seed = false;
+		g_glide.tex_uses_log2_abi = true;
 		for (int i = 0; i < 256; i++) {
 			g_glide.vlayout[i].offset = -1;
 			g_glide.vlayout[i].mode = 0;
@@ -455,7 +466,7 @@ void GlideStateSetVertexLayout(int param, int offset, int mode)
  * every client uses it verbatim. Glide 3 clients call grVertexLayout and
  * overwrite these entries, so this is only ever the starting point.
  *
- *     float x, y, z;        //  0,  4,  8
+ *     float x, y, z;        //  0,  4,  8 (z is ignored by Glide 2)
  *     float r, g, b;        // 12, 16, 20
  *     float ooz;            // 24
  *     float a;              // 28
@@ -474,7 +485,11 @@ void GlideStateSetGlide2VertexLayout(void)
 		g_glide.vlayout[param].mode = 1; /* GR_PARAM_ENABLE */
 	};
 	set(0x01, 0);   /* GR_PARAM_XY  -> x,y   */
-	set(0x02, 8);   /* GR_PARAM_Z   -> z     */
+	/* Glide 2's public GrVertex.z member is explicitly ignored. Its hardware
+	 * Z iterator is ooz at +24, which is what GR_PARAM_Z means to the host
+	 * renderer when emulating the fixed layout. */
+	set(0x02, 24);  /* GR_PARAM_Z   -> ooz   */
+	set(0x04, 32);  /* GR_PARAM_Q   -> oow (FBI W depth/fog) */
 	set(0x20, 12);  /* GR_PARAM_RGB -> r,g,b */
 	set(0x10, 28);  /* GR_PARAM_A   -> a     */
 	set(0x40, 36);  /* GR_PARAM_ST0 -> tmuvtx[0].sow,tow */
@@ -513,6 +528,7 @@ void GlideStateSetTexSource(uint32_t startAddress, int evenOdd, int format)
 void GlideStateSetTexSourceEx(uint32_t startAddress, int evenOdd,
 							  int small_lod, int large_lod, int aspect_log2, int format)
 {
+	GlideTexObserveLodRange(small_lod, large_lod);
 	g_glide.tex_start_address = startAddress;
 	g_glide.tex_even_odd = evenOdd;
 	g_glide.tex_small_lod = small_lod;
@@ -536,6 +552,25 @@ uint32_t GlideStateTmuMem(void) { return kTmuSize; }
 
 /* ---- Texture geometry helpers (Glide LOD / aspect) -------------------- */
 
+void GlideTexObserveLodRange(int small_lod, int large_lod)
+{
+	/* The endpoints are self-identifying whenever the range has more than one
+	 * level:
+	 *   Glide 2: large=GR_LOD_256 (0), small=GR_LOD_1 (8)
+	 *   Glide 3: large=GR_LOD_LOG2_256 (8), small=GR_LOD_LOG2_1 (0)
+	 * Equal endpoints are ambiguous, so retain the last observed ABI. */
+	if (small_lod != large_lod)
+		g_glide.tex_uses_log2_abi = large_lod > small_lod;
+}
+
+int GlideTexDecodeAspectLog2(int aspect)
+{
+	int decoded = g_glide.tex_uses_log2_abi ? aspect : 3 - aspect;
+	if (decoded < -3) decoded = -3;
+	if (decoded > 3) decoded = 3;
+	return decoded;
+}
+
 int GlideTexBpp(int format)
 {
 	/* Common GrTextureFormat_t values (Glide 2/3). */
@@ -548,8 +583,9 @@ int GlideTexBpp(int format)
 	case 0x05: /* P_8 */
 	case 0x06: /* RSVD0 */
 	case 0x07: /* RSVD1 */
-	case 0x08: /* 16-bit base? some headers */
 		return 1;
+	case 0x08: /* ARGB_8332 / first 16-bit format */
+	case 0x09: /* AYIQ_8422 */
 	case 0x0a: /* RGB_565 */
 	case 0x0b: /* ARGB_1555 */
 	case 0x0c: /* ARGB_4444 */
@@ -570,15 +606,20 @@ int GlideTexBpp(int format)
 
 void GlideTexLodDims(int lod, int aspect_log2, int *out_w, int *out_h)
 {
-	/* largeLodLog2=8 -> 256, aspect 0 = 1:1. aspect_log2 >0 wider, <0 taller. */
-	int base = 1 << (lod < 0 ? 0 : (lod > 11 ? 11 : lod));
+	/* Glide 2 encodes 256..1 as 0..8 and 8:1..1:8 as 0..6. Glide
+	 * 3 encodes both values directly as signed/log2 quantities. */
+	int lod_log2 = g_glide.tex_uses_log2_abi ? lod : 8 - lod;
+	int decoded_aspect = GlideTexDecodeAspectLog2(aspect_log2);
+	if (lod_log2 < 0) lod_log2 = 0;
+	if (lod_log2 > 11) lod_log2 = 11;
+	int base = 1 << lod_log2;
 	int w = base, h = base;
-	if (aspect_log2 > 0) {
-		int s = aspect_log2 > 3 ? 3 : aspect_log2;
+	if (decoded_aspect > 0) {
+		int s = decoded_aspect;
 		h = base >> s;
 		if (h < 1) h = 1;
-	} else if (aspect_log2 < 0) {
-		int s = (-aspect_log2) > 3 ? 3 : -aspect_log2;
+	} else if (decoded_aspect < 0) {
+		int s = -decoded_aspect;
 		w = base >> s;
 		if (w < 1) w = 1;
 	}
@@ -594,16 +635,54 @@ uint32_t GlideTexLevelSizeBytes(int lod, int aspect_log2, int format)
 	return (uint32_t)w * (uint32_t)h * (uint32_t)bpp;
 }
 
+static uint32_t GlideTexLevelStorageBytes(int lod, int aspect_log2, int format)
+{
+	uint32_t texels = GlideTexLevelSizeBytes(lod, aspect_log2, 0);
+	/* Voodoo texture RAM reserves at least four texels for every mip level.
+	 * Host upload sizes remain the physical dimensions; only TMU placement and
+	 * grTexCalcMemRequired use this hardware storage granularity. */
+	if (texels < 4u) texels = 4u;
+	return texels * (uint32_t)GlideTexBpp(format);
+}
+
 uint32_t GlideTexCalcMemRequired(int small_lod, int large_lod, int aspect_log2, int format)
 {
-	if (large_lod < small_lod) {
-		int t = large_lod; large_lod = small_lod; small_lod = t;
-	}
+	if (small_lod < 0 || small_lod > 11 ||
+		large_lod < 0 || large_lod > 11)
+		return 0;
+	GlideTexObserveLodRange(small_lod, large_lod);
 	uint32_t total = 0;
-	for (int lod = large_lod; lod >= small_lod; --lod)
-		total += GlideTexLevelSizeBytes(lod, aspect_log2, format);
+	const int step = small_lod >= large_lod ? 1 : -1;
+	for (int lod = large_lod;; lod += step) {
+		const uint32_t level = GlideTexLevelStorageBytes(
+			lod, aspect_log2, format);
+		if (total > 0xffffffffu - level)
+			return 0;
+		total += level;
+		if (lod == small_lod) break;
+	}
 	/* Align up to 8 like hardware. */
 	return (total + 7u) & ~7u;
+}
+
+uint32_t GlideTexLevelOffsetBytes(int lod, int large_lod,
+								  int aspect_log2, int format)
+{
+	GlideTexObserveLodRange(lod, large_lod);
+	if (lod < 0 || lod > 11 || large_lod < 0 || large_lod > 11)
+		return 0xffffffffu;
+	if (lod == large_lod) return 0;
+
+	uint32_t offset = 0;
+	const int step = lod > large_lod ? 1 : -1;
+	for (int level = large_lod; level != lod; level += step) {
+		const uint32_t size = GlideTexLevelStorageBytes(
+			level, aspect_log2, format);
+		if (offset > 0xffffffffu - size)
+			return 0xffffffffu;
+		offset += size;
+	}
+	return offset;
 }
 
 bool GlideStateTmuWrite(uint32_t start, const void *src, uint32_t nbytes)
@@ -612,10 +691,8 @@ bool GlideStateTmuWrite(uint32_t start, const void *src, uint32_t nbytes)
 	if (g_glide.tmu_mem.size() != kTmuSize)
 		g_glide.tmu_mem.assign(kTmuSize, 0);
 	if (start >= kTmuSize) return false;
-	uint32_t n = nbytes;
-	if (start + n > kTmuSize)
-		n = kTmuSize - start;
-	memcpy(g_glide.tmu_mem.data() + start, src, n);
+	if (nbytes > kTmuSize - start) return false;
+	memcpy(g_glide.tmu_mem.data() + start, src, nbytes);
 	return true;
 }
 

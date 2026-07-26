@@ -153,6 +153,14 @@ static void invalidate_draw_state(RaveMetalState *ms)
 	s_draw_state_owner = nullptr;
 }
 
+static void load_rave_screen_projection(uint32_t w, uint32_t h)
+{
+	/* Preserve RAVE's ordinary window-coordinate scale. Inclusive far-edge
+	 * vertices are expanded individually in emit_v(); scaling every primitive
+	 * by w/(w-1) shifts interior geometry and exposes filtered sprite borders. */
+	glOrtho(0.0, (GLdouble)w, (GLdouble)h, 0.0, 0.0, -1.0);
+}
+
 static void flush_draw_batch(void);
 
 /* Resource uploads bind texture objects outside the draw-state path. Mark that
@@ -420,7 +428,7 @@ static bool bind_overlay_fbo(RaveMetalState *ms, uint32_t w, uint32_t h)
 	/* RAVE submits window-space depth in [0,1]. OpenGL clips against [-1,1],
 	 * so near=0/far=-1 produces clipZ=2*z-1 and preserves RAVE depth. The
 	 * old (1,0) pair produced clipZ=2*z+1, clipping every vertex with z>0. */
-	glOrtho(0, (GLdouble)w, (GLdouble)h, 0, 0, -1);
+	load_rave_screen_projection(w, h);
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 	glEnable(GL_DEPTH_TEST);
@@ -455,7 +463,7 @@ static bool restore_overlay_fbo(RaveMetalState *ms)
 	glViewport(0, 0, (GLsizei)ms->w, (GLsizei)ms->h);
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-	glOrtho(0, (GLdouble)ms->w, (GLdouble)ms->h, 0, 0, -1);
+	load_rave_screen_projection(ms->w, ms->h);
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 	invalidate_draw_state(ms);
@@ -870,8 +878,14 @@ static void configure_bound_texture(RaveDrawPrivate *priv,
 		 * incomplete. Desktop OpenGL then returns (0,0,0,1), which presents
 		 * exactly like the all-black world reported by Descent II. */
 		minf = entry->mip_levels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR;
+	} else if (standardFilter == 1) {
+		/* kQATextureFilter_Mid is bilinear within the nearest mip level.
+		 * The Metal backend already uses that definition. Omitting mip
+		 * selection here made MechWarrior 2 minify its 128x128 terrain from
+		 * level zero in every frame, producing pronounced shimmer. */
+		minf = entry->mip_levels > 1 ? GL_LINEAR_MIPMAP_NEAREST : GL_LINEAR;
 	} else {
-		minf = standardFilter >= 1 ? GL_LINEAR : GL_NEAREST;
+		minf = GL_NEAREST;
 	}
 	const bool shrink = (priv->state[12].i & 8) != 0;
 	const uint32_t wrapU = priv->state[101].i;
@@ -1332,6 +1346,7 @@ static void emit_texcoords(const HostV &v)
 static void emit_v(const HostV &v, bool textured, int texture_op)
 {
 	float r = v.r, g = v.g, b = v.b, a = v.a;
+	float x = v.x, y = v.y;
 	const float vertexAlpha = a;
 	if (textured && (texture_op & 16)) {
 		/* GL_BLEND uses the primary color as its incoming object color. */
@@ -1377,9 +1392,22 @@ static void emit_v(const HostV &v, bool textured, int texture_op)
 	}
 	if (textured)
 		emit_texcoords(v);
+	/* Some RAVE clients describe the complete drawable with inclusive pixel
+	 * maxima (511,383 for a 512x384 context). The submitted value can arrive a
+	 * small fixed-point fraction below that integer, so an exact-float test
+	 * still leaves the terminal row/column clear. Use one legacy rasterizer
+	 * subpixel (1/16 pixel) as the boundary tolerance. Interior geometry is not
+	 * rescaled, avoiding the filtered-sprite shift caused by global expansion. */
+	const float edge_tolerance = 1.f / 16.f;
+	if (s_ow > 1 &&
+		std::fabs(x - (float)(s_ow - 1)) <= edge_tolerance)
+		x = (float)s_ow;
+	if (s_oh > 1 &&
+		std::fabs(y - (float)(s_oh - 1)) <= edge_tolerance)
+		y = (float)s_oh;
 	/* Metal clamps submitted RAVE depth into [0,1]. Compatibility GL would
 	 * otherwise clip legacy negative/oversized values before depth testing. */
-	glVertex3f(v.x, v.y, RaveClampMetalDepth(v.z));
+	glVertex3f(x, y, RaveClampMetalDepth(v.z));
 }
 
 /* Diablo submits most of a frame as hundreds of tiny fans and strips. The
@@ -1754,7 +1782,11 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 	layer.dst_size_w = (float)(s_dst_w > 0 ? s_dst_w : (int32_t)s_ow);
 	layer.dst_size_h = (float)(s_dst_h > 0 ? s_dst_h : (int32_t)s_oh);
 	layer.slot = kLayerSlotOverlay;
-	layer.blend = kBlendStraight;
+	/* apply_blend() accumulates RGB into the window overlay and uses separate
+	 * source-over alpha factors to track coverage. The result is therefore a
+	 * premultiplied compositor layer, matching the Metal RAVE backend. Treating
+	 * it as straight alpha attenuates translucent pixels a second time. */
+	layer.blend = kBlendPremultiplied;
 	layer.alpha = 1.f;
 
 	FrameDescriptor desc = {};
@@ -2341,6 +2373,38 @@ int32_t NativeDrawPoint(uint32_t drawContextAddr, uint32_t v0)
 	return kQANoErr;
 }
 
+static void clip_terminal_guard_line(HostV &a, HostV &b,
+									 int32_t width, int32_t height)
+{
+	if (width <= 1 || height <= 1) return;
+	const float tolerance = 1.f / 16.f;
+	const float far_x = (float)(width - 1);
+	const float far_y = (float)(height - 1);
+
+	/*
+	 * A few RAVE clients close their software viewport with full-span lines on
+	 * the inclusive maximum coordinates. Legacy line setup treats these as
+	 * guard edges; desktop OpenGL rasterizes half of a width-one line inward,
+	 * repainting the final visible row/column. Move only those full-span guard
+	 * lines beyond the half-open clip boundary. Short edge-aligned HUD lines
+	 * remain ordinary visible primitives.
+	 */
+	const bool right_guard =
+		std::fabs(a.x - far_x) <= tolerance &&
+		std::fabs(b.x - far_x) <= tolerance &&
+		std::min(a.y, b.y) <= tolerance &&
+		std::max(a.y, b.y) >= far_y - tolerance;
+	const bool bottom_guard =
+		std::fabs(a.y - far_y) <= tolerance &&
+		std::fabs(b.y - far_y) <= tolerance &&
+		std::min(a.x, b.x) <= tolerance &&
+		std::max(a.x, b.x) >= far_x - tolerance;
+	if (right_guard)
+		a.x = b.x = (float)width + 1.f;
+	if (bottom_guard)
+		a.y = b.y = (float)height + 1.f;
+}
+
 int32_t NativeDrawLine(uint32_t drawContextAddr, uint32_t v0, uint32_t v1)
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
@@ -2349,6 +2413,7 @@ int32_t NativeDrawLine(uint32_t drawContextAddr, uint32_t v0, uint32_t v1)
 	apply_draw_state(priv, false);
 	HostV a = read_gouraud_v(v0), b = read_gouraud_v(v1);
 	record_draw(priv, "Line", 2, false, &a);
+	clip_terminal_guard_line(a, b, priv->width, priv->height);
 	float w = priv->state[5].f;
 	if (w < 1.f) w = 1.f;
 	glLineWidth(w);

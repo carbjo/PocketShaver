@@ -3,7 +3,7 @@
  *
  *  Renders into a double-buffered overlay texture (same compositor contract
  *  as RAVE) and publishes via MetalCompositorSubmitFrame each buffer swap.
- * 
+ *
  * (C) 2026 RandoOnSteam (battlemageloveryt@gmail.com)
  */
 
@@ -127,7 +127,9 @@ extern int GlideStateColorCombineLocal(void);
 extern int GlideStateColorCombineOther(void);
 extern int GlideStateColorCombineInvert(void);
 extern int GlideStateAlphaCombineFunction(void);
+extern int GlideStateAlphaCombineFactor(void);
 extern int GlideStateAlphaCombineLocal(void);
+extern int GlideStateAlphaCombineOther(void);
 extern int GlideStateAlphaCombineInvert(void);
 extern int GlideStateCoordSystem(void);
 extern int GlideStateVertexOffset(int param);
@@ -153,6 +155,9 @@ extern bool GlideStateTmuWrite(uint32_t start, const void *src, uint32_t nbytes)
 extern void GlideTexLodDims(int lod, int aspect_log2, int *out_w, int *out_h);
 extern int GlideTexBpp(int format);
 extern uint32_t GlideTexLevelSizeBytes(int lod, int aspect_log2, int format);
+extern uint32_t GlideTexLevelOffsetBytes(int lod, int large_lod,
+										 int aspect_log2, int format);
+extern int GlideTexDecodeAspectLog2(int aspect);
 extern const uint32_t *GlideStateTexPalette(void);
 extern int GlideStateTexClampS(void);
 extern int GlideStateTexClampT(void);
@@ -255,7 +260,10 @@ static bool GlideEnsureOverlay(uint32_t w, uint32_t h)
 	ext.GenFramebuffers(1, &glide_fbo);
 	ext.GenRenderbuffers(1, &glide_depth_rb);
 	ext.BindRenderbuffer(GL_RENDERBUFFER, glide_depth_rb);
-	ext.RenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, (GLsizei)w, (GLsizei)h);
+	/* Voodoo/Glide exposes a 16-bit Z/W buffer. Matching that precision is
+	 * important for equality and depth-bias behavior. */
+	ext.RenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16,
+							(GLsizei)w, (GLsizei)h);
 	ext.BindFramebuffer(GL_FRAMEBUFFER, glide_fbo);
 	ext.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
 							 GL_TEXTURE_2D, glide_color_tex, 0);
@@ -363,6 +371,53 @@ static bool GlideColorCombineUsesTexture(void)
 	}
 }
 
+static bool GlideAlphaCombineUsesTexture(void)
+{
+	if (GlideStateAlphaCombineOther() != kGlideCombineOtherTexture)
+		return false;
+	switch (GlideStateAlphaCombineFunction()) {
+	case kGlideCombineFunctionScaleOther:
+	case kGlideCombineFunctionScaleOtherAddLocal:
+	case kGlideCombineFunctionScaleOtherAddLocalAlpha:
+	case kGlideCombineFunctionScaleOtherMinusLocal:
+	case kGlideCombineFunctionScaleOtherMinusLocalAddLocal:
+	case kGlideCombineFunctionScaleOtherMinusLocalAddLocalAlpha:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static void GlideConfigureTextureEnvironment(bool color_uses_texture,
+											 bool alpha_uses_texture)
+{
+	/*
+	 * Glide has independent RGB and alpha combine units. GL_MODULATE couples
+	 * them and is wrong for combinations such as texture RGB times constant
+	 * RGB with texture alpha, or textured RGB with iterated alpha.
+	 */
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
+	glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB,
+			 color_uses_texture ? GL_MODULATE : GL_REPLACE);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB,
+			 color_uses_texture ? GL_TEXTURE : GL_PRIMARY_COLOR);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_RGB, GL_SRC_COLOR);
+	if (color_uses_texture) {
+		glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB, GL_PRIMARY_COLOR);
+		glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND1_RGB, GL_SRC_COLOR);
+	}
+
+	glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_ALPHA,
+			 alpha_uses_texture ? GL_MODULATE : GL_REPLACE);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_ALPHA,
+			 alpha_uses_texture ? GL_TEXTURE : GL_PRIMARY_COLOR);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_ALPHA, GL_SRC_ALPHA);
+	if (alpha_uses_texture) {
+		glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_ALPHA, GL_PRIMARY_COLOR);
+		glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND1_ALPHA, GL_SRC_ALPHA);
+	}
+}
+
 void GlideMetalApplyState(void)
 {
 	if (!SharedMetalDevice()) return;
@@ -380,7 +435,9 @@ void GlideMetalApplyState(void)
 		const float bias = GlideStateDepthBias();
 		if (bias != 0.f) {
 			glEnable(GL_POLYGON_OFFSET_FILL);
-			glPolygonOffset(bias, bias);
+			/* Glide adds a signed integer bias in 16-bit depth-buffer units.
+			 * The FBO is also 16-bit, and has no slope-scaled component. */
+			glPolygonOffset(0.f, bias);
 		} else {
 			glDisable(GL_POLYGON_OFFSET_FILL);
 		}
@@ -391,11 +448,15 @@ void GlideMetalApplyState(void)
 	glEnable(GL_BLEND);
 	glBlendFunc(GlideMapBlendFactor(GlideStateAlphaBlendSrc(), true),
 				GlideMapBlendFactor(GlideStateAlphaBlendDst(), false));
+	const bool color_uses_texture = GlideColorCombineUsesTexture();
+	const bool alpha_uses_texture =
+		GlideAlphaCombineUsesTexture() || GlideStateChromaMode();
 	if (glide_is_texture_enabled && glide_gl_texture &&
-		GlideColorCombineUsesTexture()) {
+		(color_uses_texture || alpha_uses_texture)) {
 		glEnable(GL_TEXTURE_2D);
 		glBindTexture(GL_TEXTURE_2D, glide_gl_texture);
-		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+		GlideConfigureTextureEnvironment(color_uses_texture,
+										 alpha_uses_texture);
 	} else {
 		glDisable(GL_TEXTURE_2D);
 	}
@@ -631,6 +692,18 @@ static uint32_t GlideLoadU32(const uint8_t *p)
 		   ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 }
 
+/*
+ * Glide's snapped window coordinates carry a large bias which the hardware
+ * removes before rasterization. Unreal Tournament submits the biased values
+ * directly (about 786432 plus the actual screen coordinate); treating them as
+ * literal OpenGL coordinates puts every primitive outside the viewport.
+ */
+static float GlideUnsnapCoord(float value)
+{
+	const float snap_bias = 786432.0f; /* 3 << 18 */
+	return value >= snap_bias * 0.5f ? value - snap_bias : value;
+}
+
 static int GlideLayoutOff(int standard_param, int d2_alias)
 {
 	int o = GlideStateVertexOffset(standard_param);
@@ -638,6 +711,93 @@ static int GlideLayoutOff(int standard_param, int d2_alias)
 	if (d2_alias >= 0)
 		return GlideStateVertexOffset(d2_alias);
 	return -1;
+}
+
+/*
+ * Convert Glide's 16-bit window-depth convention to the object Z expected by
+ * the orthographic projection installed in GlideBindDrawFBO.
+ *
+ * Real Glide does not rasterize the dummy GrVertex.z member. Z buffering uses
+ * ooz directly in the 0..65535 depth range, while W buffering uses
+ * 65535 * (1 - oow). The latter is the path used by Unreal Tournament. With
+ * glOrtho(..., -1, 1), object Z maps to window depth as (1 - z) / 2.
+ */
+static float GlideVertexObjectZ(const uint8_t *base)
+{
+	const int mode = GlideStateDepthMode();
+	float depth = 0.f;
+
+	if (mode == 2 || mode == 4) {
+		/* GR_PARAM_Q is the FBI reciprocal-W. Glide 2 has no layout API, so
+		 * its fixed vertex-level oow is also exposed through Q0 by our seed. */
+		const int q_off = GlideLayoutOff(0x04, 0x50);
+		float oow = q_off >= 0 ? GlideLoadF32(base + q_off) : 1.f;
+		if (!std::isfinite(oow))
+			oow = 1.f;
+		depth = 1.f - oow;
+	} else if (mode == 1 || mode == 3) {
+		/* For the fixed Glide 2 layout GR_PARAM_Z is seeded to ooz, not to
+		 * the documented-but-ignored GrVertex.z member. */
+		const int z_off = GlideLayoutOff(0x02, -1);
+		const float ooz = z_off >= 0 ? GlideLoadF32(base + z_off) : 0.f;
+		depth = std::isfinite(ooz) ? ooz * (1.f / 65535.f) : 0.f;
+	}
+
+	if (depth < 0.f) depth = 0.f;
+	else if (depth > 1.f) depth = 1.f;
+	return 1.f - 2.f * depth;
+}
+
+static void GlideSelectLocalRGB(int local,
+								float iterated_r,
+								float iterated_g,
+								float iterated_b,
+								float *r,
+								float *g,
+								float *b)
+{
+	if (local == kGlideCombineLocalConstant) {
+		*r = GlideStateConstantR();
+		*g = GlideStateConstantG();
+		*b = GlideStateConstantB();
+	} else if (local == kGlideCombineLocalIterated) {
+		*r = iterated_r;
+		*g = iterated_g;
+		*b = iterated_b;
+	} else {
+		*r = *g = *b = 0.f;
+	}
+}
+
+static float GlideSelectLocalAlpha(int local, float iterated_a)
+{
+	return local == kGlideCombineLocalConstant
+		? GlideStateConstantA() : iterated_a;
+}
+
+static float GlideTextureAlphaFactor(float iterated_a)
+{
+	const float local_a =
+		GlideSelectLocalAlpha(GlideStateAlphaCombineLocal(), iterated_a);
+	switch (GlideStateAlphaCombineFactor()) {
+	case 0: /* GR_COMBINE_FACTOR_ZERO */
+		return 0.f;
+	case 1: /* GR_COMBINE_FACTOR_LOCAL */
+	case 3: /* GR_COMBINE_FACTOR_LOCAL_ALPHA */
+		return local_a;
+	case 8: /* GR_COMBINE_FACTOR_ONE */
+		return 1.f;
+	case 9: /* GR_COMBINE_FACTOR_ONE_MINUS_LOCAL */
+	case 11: /* GR_COMBINE_FACTOR_ONE_MINUS_LOCAL_ALPHA */
+		return 1.f - local_a;
+	default:
+		/*
+		 * Texture-derived factors need a richer expression than primary
+		 * alpha modulation. Preserve the texture instead of suppressing it
+		 * with an unrelated vertex alpha.
+		 */
+		return 1.f;
+	}
 }
 
 static void GlideEmitVertex(const uint8_t *base)
@@ -653,6 +813,8 @@ static void GlideEmitVertex(const uint8_t *base)
 		x = GlideLoadF32(base + xy_off);
 		y = GlideLoadF32(base + xy_off + 4);
 	}
+	x = GlideUnsnapCoord(x);
+	y = GlideUnsnapCoord(y);
 
 	/* Glide 3 layout tokens are grouped by attribute: RGB=0x20,
 	 * PARGB=0x30.  Keep the small Glide-2-compatible IDs as fallbacks.
@@ -660,10 +822,13 @@ static void GlideEmitVertex(const uint8_t *base)
 	 * reciprocal-W into an almost-black vertex color. */
 	int rgb_off = GlideLayoutOff(0x20, 0x07);
 	int pargb_off = GlideLayoutOff(0x30, 0x08);
+	bool rgb_is_float = false;
+	bool alpha_is_float = false;
 	if (rgb_off >= 0) {
 		r = GlideLoadF32(base + rgb_off);
 		g = GlideLoadF32(base + rgb_off + 4);
 		b = GlideLoadF32(base + rgb_off + 8);
+		rgb_is_float = true;
 	} else if (pargb_off >= 0) {
 		const uint32_t c = GlideLoadU32(base + pargb_off);
 		a = ((c >> 24) & 0xff) / 255.f;
@@ -673,31 +838,30 @@ static void GlideEmitVertex(const uint8_t *base)
 	}
 
 	int a_off = GlideLayoutOff(0x10, 0x06);
-	if (a_off >= 0 && pargb_off < 0)
+	if (a_off >= 0 && pargb_off < 0) {
 		a = GlideLoadF32(base + a_off);
-
-	if (r > 1.f || g > 1.f || b > 1.f) {
-		r /= 255.f; g /= 255.f; b /= 255.f;
+		alpha_is_float = true;
 	}
-	if (a > 1.f) a /= 255.f;
+
+	/* Float GrVertex color iterators are always in Glide's 0..255 range.
+	 * Conditional scaling misclassifies dark values at or below 1.0 as
+	 * normalized OpenGL colors. Packed PARGB was normalized while unpacking. */
+	if (rgb_is_float) {
+		r *= 1.f / 255.f;
+		g *= 1.f / 255.f;
+		b *= 1.f / 255.f;
+	}
+	if (alpha_is_float)
+		a *= 1.f / 255.f;
+	if (r < 0.f) r = 0.f; else if (r > 1.f) r = 1.f;
+	if (g < 0.f) g = 0.f; else if (g > 1.f) g = 1.f;
+	if (b < 0.f) b = 0.f; else if (b > 1.f) b = 1.f;
+	if (a < 0.f) a = 0.f; else if (a > 1.f) a = 1.f;
 
 	const float iterated_r = r;
 	const float iterated_g = g;
 	const float iterated_b = b;
 	const float iterated_a = a;
-	auto select_local_rgb = [&](int local) {
-		if (local == kGlideCombineLocalConstant) {
-			r = GlideStateConstantR();
-			g = GlideStateConstantG();
-			b = GlideStateConstantB();
-		} else if (local == kGlideCombineLocalIterated) {
-			r = iterated_r;
-			g = iterated_g;
-			b = iterated_b;
-		} else {
-			r = g = b = 0.f;
-		}
-	};
 
 	/* Implement the two color-combine paths used by Diablo II:
 	 *   LOCAL                         -> solid iterated/constant color
@@ -707,7 +871,8 @@ static void GlideEmitVertex(const uint8_t *base)
 	if (color_func == kGlideCombineFunctionZero) {
 		r = g = b = 0.f;
 	} else if (color_func == kGlideCombineFunctionLocal) {
-		select_local_rgb(GlideStateColorCombineLocal());
+		GlideSelectLocalRGB(GlideStateColorCombineLocal(),
+						   iterated_r, iterated_g, iterated_b, &r, &g, &b);
 	} else if (color_func == kGlideCombineFunctionLocalAlpha) {
 		const float local_a = GlideStateColorCombineLocal() ==
 			kGlideCombineLocalConstant ? GlideStateConstantA() : iterated_a;
@@ -716,7 +881,8 @@ static void GlideEmitVertex(const uint8_t *base)
 		if (GlideStateColorCombineFactor() == kGlideCombineFactorOne) {
 			r = g = b = 1.f;
 		} else {
-			select_local_rgb(GlideStateColorCombineLocal());
+			GlideSelectLocalRGB(GlideStateColorCombineLocal(),
+							   iterated_r, iterated_g, iterated_b, &r, &g, &b);
 		}
 	}
 
@@ -733,8 +899,16 @@ static void GlideEmitVertex(const uint8_t *base)
 	if (alpha_func == kGlideCombineFunctionZero) {
 		a = GlideStateChromaMode() && GlideColorCombineUsesTexture() ? 1.f : 0.f;
 	} else if (alpha_func == kGlideCombineFunctionLocal) {
-		a = GlideStateAlphaCombineLocal() == kGlideCombineLocalConstant
-			? GlideStateConstantA() : iterated_a;
+		a = GlideSelectLocalAlpha(GlideStateAlphaCombineLocal(), iterated_a);
+	} else if (GlideAlphaCombineUsesTexture()) {
+		/*
+		 * The texture environment supplies the "other" alpha. The primary
+		 * alpha contains only Glide's scale factor. In particular,
+		 * guAlphaSource(TEXTURE_ALPHA) uses factor ONE; multiplying by the
+		 * unused GrVertex.a field made Unreal Tournament reject every
+		 * fragment in its alpha test.
+		 */
+		a = GlideTextureAlphaFactor(iterated_a);
 	} else {
 		a = iterated_a;
 	}
@@ -763,7 +937,7 @@ static void GlideEmitVertex(const uint8_t *base)
 	}
 
 	glColor4f(r, g, b, a);
-	glVertex3f(x, y, 0.f);
+	glVertex3f(x, y, GlideVertexObjectZ(base));
 }
 
 static GLenum GlideMapGlideToGLPrim(uint32_t mode)
@@ -881,9 +1055,10 @@ void GlideMetalDrawVertexArrayContiguous(uint32_t mode, uint32_t count,
 
 /*
  * Publish the Glide color buffer into the compositor overlay mailbox.
- * do_present=0: SubmitFrame only - VideoVBL/free-run owns Present so we
- * never nest guest VBL (call_macos) inside NATIVE_GLIDE_DISPATCH.
- * do_present=1: also Present (WinOpen first black frame, LFB unlock).
+ * do_present=0: SubmitFrame only - VideoVBL/free-run owns Present.
+ * do_present=1: also present immediately (WinOpen first black frame, LFB
+ * unlock, swap), but without running the guest VBL callback chain inside
+ * NATIVE_GLIDE_DISPATCH.
  */
 static void GlideSubitOverlay(int do_present)
 {
@@ -892,7 +1067,7 @@ static void GlideSubitOverlay(int do_present)
 	if (!glide_has_context) {
 		MetalCompositorSubmitFrame_ClearCachedOverlay();
 		if (do_present)
-			MetalCompositorPresent(); /* VBL chain only */
+			MetalCompositorPresentWithoutVBL();
 		return;
 	}
 
@@ -943,7 +1118,7 @@ static void GlideSubitOverlay(int do_present)
 	desc.vbl_tick_target_usec = 0;
 	(void)MetalCompositorSubmitFrame(&desc);
 	if (do_present)
-		MetalCompositorPresent();
+		MetalCompositorPresentWithoutVBL();
 }
 
 void GlideMetalPublishOverlay(int do_present)
@@ -983,7 +1158,6 @@ void GlideMetalBufferSwap(int swap_interval)
 
 void GlideMetalBufferClear(uint32_t color, uint32_t alpha, uint32_t depth)
 {
-	(void)depth;
 	if (!GlideBindDrawFBO()) return;
 	/* GrColor packing depends on color format; treat as ARGB8888 common case. */
 	const float r = ((color >> 16) & 0xff) / 255.f;
@@ -991,8 +1165,14 @@ void GlideMetalBufferClear(uint32_t color, uint32_t alpha, uint32_t depth)
 	const float b = ((color >> 0) & 0xff) / 255.f;
 	const float a = (alpha & 0xffu) / 255.f;
 	glClearColor(r, g, b, a);
-	glClearDepth(1.0);
+	/* grBufferClear's depth is the exact unsigned 16-bit buffer value for
+	 * both Z and W modes. Do not replace it with a fixed far clear. */
+	glClearDepth((GLclampd)(depth & 0xffffu) * (1.0 / 65535.0));
+	/* OpenGL masks depth clears when depth writes are disabled; Glide's
+	 * explicit buffer clear is independent of the current grDepthMask. */
+	glDepthMask(GL_TRUE);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glDepthMask(GlideStateDepthMask() ? GL_TRUE : GL_FALSE);
 	/*
 	 * Real Glide only clears the back buffer. Display is grBufferSwap /
 	 * LFB unlock. Mark content so the next swap is allowed to present.
@@ -1102,7 +1282,7 @@ static void GlideDecodeTextureLevel(const uint8_t *src, int w, int h, int format
 		uint8_t R = 255, G = 255, B = 255, A = 255;
 		if (bpp == 1) {
 			const uint8_t p = *s++;
-			if (format == 0x05 || format == 0x08) {
+			if (format == 0x05) {
 				/* P_8 expands a palette RGB value with opaque alpha. The
 				 * standard palette word's high byte is not texture alpha. */
 				const uint32_t c = pal ? pal[p] : 0xffffffffu;
@@ -1119,7 +1299,16 @@ static void GlideDecodeTextureLevel(const uint8_t *src, int w, int h, int format
 			/* Guest big-endian 16-bit */
 			const uint16_t p = (uint16_t)((s[0] << 8) | s[1]);
 			s += 2;
-			if (format == 0x0a) {
+			if (format == 0x08) {
+				/* ARGB_8332 */
+				A = (uint8_t)(p >> 8);
+				const int r = (p >> 5) & 0x7;
+				const int g = (p >> 2) & 0x7;
+				const int b = p & 0x3;
+				R = (uint8_t)((r * 255) / 7);
+				G = (uint8_t)((g * 255) / 7);
+				B = (uint8_t)((b * 255) / 3);
+			} else if (format == 0x0a) {
 				/* RGB_565 */
 				const int r = (p >> 11) & 0x1f;
 				const int g = (p >> 5) & 0x3f;
@@ -1213,24 +1402,31 @@ void GlideMetalTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
 							 int aspect_log2, int format, const void *data,
 							 uint32_t nbytes)
 {
-	(void)large_lod;
 	if (!data) return;
+	const uint32_t level_offset =
+		GlideTexLevelOffsetBytes(lod, large_lod, aspect_log2, format);
 	int w = 1, h = 1;
 	GlideTexLodDims(lod, aspect_log2, &w, &h);
 	uint32_t need = GlideTexLevelSizeBytes(lod, aspect_log2, format);
 	if (nbytes && nbytes < need)
 		need = nbytes;
+	if (level_offset > 0xffffffffu - start_addr) {
+		QD3D_INIT_LOG("GlideMetalTexDownloadLevel FAIL base=%08x offset=%u",
+					  start_addr, level_offset);
+		return;
+	}
+	const uint32_t level_addr = start_addr + level_offset;
 	uint32_t old_avail = 0;
-	const uint8_t *old_data = GlideStateTmuPtr(start_addr, &old_avail);
+	const uint8_t *old_data = GlideStateTmuPtr(level_addr, &old_avail);
 	const bool changed = old_data == nullptr || old_avail < need ||
 		std::memcmp(old_data, data, need) != 0;
-	if (changed && !GlideStateTmuWrite(start_addr, data, need)) {
+	if (changed && !GlideStateTmuWrite(level_addr, data, need)) {
 		QD3D_INIT_LOG("GlideMetalTexDownloadLevel FAIL addr=%08x need=%u",
-					  start_addr, need);
+					  level_addr, need);
 		return;
 	}
 	/* Invalidate every resident base whose sampled level overlaps a real write. */
-	const uint64_t write_begin = start_addr;
+	const uint64_t write_begin = level_addr;
 	const uint64_t write_end = write_begin + need;
 	if (changed) {
 		for (GlideMetalTextureCacheEntry &entry : glide_texture_cache) {
@@ -1244,8 +1440,9 @@ void GlideMetalTexDownloadLevel(uint32_t start_addr, int lod, int large_lod,
 	}
 	static uint32_t s_dl_n = 0;
 	if (++s_dl_n <= 12 || (s_dl_n & (s_dl_n - 1)) == 0)
-		QD3D_INIT_LOG("GlideMetalTexDownloadLevel #%u addr=%08x lod=%d %dx%d fmt=%d n=%u",
-					  (unsigned)s_dl_n, start_addr, lod, w, h, format, need);
+		QD3D_INIT_LOG("GlideMetalTexDownloadLevel #%u base=%08x addr=%08x lod=%d %dx%d fmt=%d n=%u",
+					  (unsigned)s_dl_n, start_addr, level_addr,
+					  lod, w, h, format, need);
 }
 
 void GlideMetalTexSource(uint32_t start_addr, int even_odd, int small_lod,
@@ -1331,11 +1528,12 @@ void GlideMetalTexSource(uint32_t start_addr, int even_odd, int small_lod,
 	 * never by the selected LOD's physical pixel dimensions. */
 	glide_texture_s_extent = 256.f;
 	glide_texture_t_extent = 256.f;
-	if (aspect_log2 > 0) {
-		const int shift = aspect_log2 > 3 ? 3 : aspect_log2;
+	const int decoded_aspect = GlideTexDecodeAspectLog2(aspect_log2);
+	if (decoded_aspect > 0) {
+		const int shift = decoded_aspect;
 		glide_texture_t_extent /= (float)(1 << shift);
-	} else if (aspect_log2 < 0) {
-		const int shift = -aspect_log2 > 3 ? 3 : -aspect_log2;
+	} else if (decoded_aspect < 0) {
+		const int shift = -decoded_aspect;
 		glide_texture_s_extent /= (float)(1 << shift);
 	}
 	glide_is_texture_enabled = true;
@@ -1367,9 +1565,37 @@ void GlideMetalTexDownloadTable(int type, const void *data)
 		GlideStateTexSetPalette(pal);
 		if (changed) {
 			/* Palette changes affect every resident paletted texture. */
+			GlideMetalTextureCacheEntry *bound = nullptr;
 			for (GlideMetalTextureCacheEntry &entry : glide_texture_cache) {
-				if (entry.format == 0x05 || entry.format == 0x08)
+				if (entry.format == 0x05) {
 					entry.dirty = true;
+					if (entry.texture == glide_gl_texture)
+						bound = &entry;
+				}
+			}
+
+			/*
+			 * Unreal Tournament orders each UI tile as grTexSource(P8),
+			 * grTexDownloadTable(palette), draw. TexSource therefore decoded
+			 * the selected texture with the preceding tile's palette. Merely
+			 * marking the cache entry dirty is too late because ApplyState
+			 * only binds the already-decoded GL texture. Refresh the selected
+			 * P8 texture now; unbound entries remain dirty until selected.
+			 */
+			if (bound && SharedMetalDevice()) {
+				uint32_t avail = 0;
+				const uint8_t *src =
+					GlideStateTmuPtr(bound->address, &avail);
+				const uint32_t need =
+					(uint32_t)bound->width *
+					(uint32_t)bound->height;
+				if (src && avail >= need) {
+					GlideUploadCachedTexture(
+						*bound, src, GlideStateChromaMode(),
+						GlideStateChromaValue(),
+						GlideStateColorFormat());
+					glBindTexture(GL_TEXTURE_2D, 0);
+				}
 			}
 		}
 		static uint32_t s_pal_n = 0;

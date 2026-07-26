@@ -1006,7 +1006,7 @@ extern "C" bool GLCompositorCopyCurrentPaletteRGB(uint8_t out_rgb[768])
 	return true;
 }
 
-void MetalCompositorPresent(void)
+void MetalCompositorPresent_(bool presentvbltick = true)
 {
 	if (!s_init) return;
 	/* Guest callbacks may pump a nested VideoVBL on the same emulation thread.
@@ -1043,8 +1043,11 @@ void MetalCompositorPresent(void)
 	}
 	ScopedCompositorPresent present_scope;
 
-	/* Drive VBL secondary callbacks (DSp drains etc.) every call. */
-	vbl_source_sdl_tick(0.0);
+	/* Ordinary VBL presents drive DSp drains/callbacks. Synchronous guest 3D
+	 * presents suppress this tick to avoid nested PPC execution inside the
+	 * native dispatch which submitted the frame. */
+	if (presentvbltick)
+		vbl_source_sdl_tick(0.0);
 	MetalCompositorPaletteLatch();
 	detect_implicit_quickdraw_handoff();
 
@@ -1339,6 +1342,15 @@ int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc)
 	}
 #endif
 	return kGfxAccelNoErr;
+}
+
+void MetalCompositorPresent(void)
+{
+	MetalCompositorPresent_();
+}
+void MetalCompositorPresentWithoutVBL(void)
+{
+	MetalCompositorPresent_(false);
 }
 
 int32_t MetalCompositorSync3DFramePacingForEngine(int32_t engine_id)

@@ -185,6 +185,15 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors);
 void MetalCompositorPresent(void);
 
 /*
+ * Desktop OpenGL only: present the cached frame without advancing the
+ * VBL callback chain. Guest 3D entry points use this form so a synchronous
+ * frame presentation cannot re-enter PPC code before the native thunk returns.
+ */
+#if defined(GFXACCEL_USE_OPENGL)
+void MetalCompositorPresentWithoutVBL(void);
+#endif
+
+/*
  * Tear down all Metal compositor resources.
  *
  * Removes the CompositorMetalView from the UIWindow and releases

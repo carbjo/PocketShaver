@@ -118,6 +118,7 @@ extern uint32_t GlideStateFbMem(void);
 extern uint32_t GlideStateTmuMem(void);
 extern uint32_t GlideTexCalcMemRequired(int small_lod, int large_lod, int aspect_log2, int format);
 extern uint32_t GlideTexLevelSizeBytes(int lod, int aspect_log2, int format);
+extern void GlideTexObserveLodRange(int small_lod, int large_lod);
 extern void GlideStateResolveResolution(int res_enum, int *out_w, int *out_h);
 extern void GlideStateLfbRelease(void);
 extern bool GlideStateLfbLock(int type, int buffer, int write_mode, int origin,
@@ -867,11 +868,13 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		GlideStateSetCull((int)r3);
 		return 0;
 	case kGlide_grDepthBiasLevel: {
-		/* FxI32 or float bias */
-		union { uint32_t u; float f; int32_t i; } v;
-		v.u = r3;
-		/* Prefer small int as integer bias, else float bits */
-		const float bias = (v.i > -10000 && v.i < 10000) ? (float)v.i : v.f;
+		/* Glide 2 declares FxI16 and Glide 3 FxI32; neither ABI passes a
+		 * floating-point value. Mac Glide 2 may zero-extend the 16-bit
+		 * argument, so restore its sign when the upper half is clear. */
+		int32_t level = (int32_t)r3;
+		if ((r3 & 0xffff0000u) == 0 && (r3 & 0x00008000u) != 0)
+			level = (int32_t)(int16_t)(r3 & 0xffffu);
+		const float bias = (float)level;
 		GlideStateSetDepthBias(bias);
 		GlideMetalSetDepthBias(bias);
 		return 0;
@@ -1025,19 +1028,27 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const int large_lod = (int)ReadMacInt32(info + 4);
 		const int aspect = (int)ReadMacInt32(info + 8);
 		const int format = (int)ReadMacInt32(info + 12);
+		if (small_lod < 0 || small_lod > 11 ||
+			large_lod < 0 || large_lod > 11) {
+			GlideLog("grTexDownloadMipMap invalid LOD range %d..%d",
+					  large_lod, small_lod);
+			return 0;
+		}
 		const uint32_t data_mac = ReadMacInt32(info + 16);
 		const uint8_t *data = data_mac ? Mac2HostAddr(data_mac) : nullptr;
 		if (!data) return 0;
 		/* Download each LOD from large->small; data packs levels sequentially. */
-		uint32_t addr = start;
+		GlideTexObserveLodRange(small_lod, large_lod);
 		const uint8_t *p = data;
-		const int lo = small_lod < large_lod ? small_lod : large_lod;
-		const int hi = small_lod < large_lod ? large_lod : small_lod;
-		for (int lod = hi; lod >= lo; --lod) {
+		const int step = small_lod >= large_lod ? 1 : -1;
+		for (int lod = large_lod;; lod += step) {
 			const uint32_t n = GlideTexLevelSizeBytes(lod, aspect, format);
-			GlideMetalTexDownloadLevel(addr, lod, hi, aspect, format, p, n);
-			addr += n;
+			/* startAddress is the base of the complete mip chain for every
+			 * level, not the address of this individual level. */
+			GlideMetalTexDownloadLevel(start, lod, large_lod,
+									  aspect, format, p, n);
 			p += n;
+			if (lod == small_lod) break;
 		}
 		return 0;
 	}
@@ -1053,6 +1064,12 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		const int large_lod = (int)r6;
 		const int aspect = (int)r7;
 		const int format = (int)r8;
+		if (this_lod < 0 || this_lod > 11 ||
+			large_lod < 0 || large_lod > 11) {
+			GlideLog("grTexDownloadMipMapLevel invalid LOD %d large=%d",
+					  this_lod, large_lod);
+			return 0;
+		}
 		const uint32_t data_mac = r10 ? r10 : r9; /* tolerate swapped */
 		const uint8_t *data = data_mac ? Mac2HostAddr(data_mac) : nullptr;
 		if (!data) {
@@ -1060,6 +1077,7 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 					  start, r9, r10);
 			return 0;
 		}
+		GlideTexObserveLodRange(this_lod, large_lod);
 		const uint32_t n = GlideTexLevelSizeBytes(this_lod, aspect, format);
 		/* For partial, still use full level size from start of guest buffer. */
 		GlideMetalTexDownloadLevel(start, this_lod, large_lod, aspect, format, data, n);

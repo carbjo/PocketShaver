@@ -216,6 +216,21 @@ static bool DSpApplyDesiredAttributesToChild(DSpContextPrivate *child,
 											 uint32_t inDesiredAttributes)
 {
 	if (child == nullptr || inDesiredAttributes == 0) return false;
+	/* Queue may legally target the same already-Reserved context (Diablo II
+	 * does exactly this while selecting a renderer). Its optional desired
+	 * attributes describe the switch/display request; they must not relabel
+	 * an existing back-buffer allocation. Doing so changed a 640x480x16
+	 * allocation into @32 in the metadata, and the next PixMap redirect read
+	 * 1,228,800 bytes from a 614,400-byte buffer.
+	 *
+	 * Resource-bearing fields therefore remain tied to the allocation until
+	 * a real Reserve/reallocation occurs. Metadata-only children still accept
+	 * the complete desired drawing environment below. */
+	const bool preserve_backing_layout = child->back_buffer != nullptr;
+	const uint32_t backing_width = child->attr.backBufferWidth;
+	const uint32_t backing_height = child->attr.backBufferHeight;
+	const uint32_t backing_depth = child->attr.backBufferBestDepth;
+	const uint32_t backing_depth_mask = child->attr.backBufferDepthMask;
 	/* Validate the whole attribute-struct extent lies in mapped RAM
 	 * before reading any field (ASVS V5; NQDMetalAddrInBuffer idiom). The
 	 * on-wire block matches DSpWriteAttributesCore's layout; the last field
@@ -259,6 +274,15 @@ static bool DSpApplyDesiredAttributesToChild(DSpContextPrivate *child,
 	child->attr.backBufferHeight    = DSpReserveBackBufferDimension(
 										  child->attr.displayHeight,
 										  desiredHeight);
+	if (preserve_backing_layout) {
+		child->attr.backBufferWidth = backing_width;
+		child->attr.backBufferHeight = backing_height;
+		child->attr.backBufferBestDepth = backing_depth;
+		child->attr.backBufferDepthMask = backing_depth_mask;
+		DSP_LOG("Queue: kept allocated back-buffer layout %ux%u@%u "
+				"while applying desired display attributes",
+				backing_width, backing_height, backing_depth);
+	}
 	return true;
 }
 

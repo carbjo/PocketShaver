@@ -663,6 +663,48 @@ static void ConvertRGB32(uint32 srcAddr, uint8_t *dst, uint32_t width, uint32_t 
 
 // ReadMacInt16 returns host-endian. 1-bit A(15), 5-bit R(14:10) G(9:5) B(4:0).
 // 5->8 expansion via (x<<3)|(x>>2) correct. 1-bit alpha: 0->0x00, 1->0xFF. BGRA8 output correct.
+static void BleedARGB16TransparentEdges(uint8_t *dst, uint32_t width,
+										uint32_t height)
+{
+	if (!dst || width == 0 || height == 0) return;
+
+	/*
+	 * RGB below a zero alpha bit is invisible with point sampling, but enters
+	 * bilinear samples along a cutout edge. MechWarrior 2's ARGB1555 sprites
+	 * retain unrelated RGB in most transparent texels, producing a light
+	 * fringe. Replace only transparent texels adjacent to opaque coverage with
+	 * the average visible edge color. Alpha is unchanged, and only original
+	 * opaque neighbors participate, so this cannot grow the visible mask.
+	 */
+	for (uint32_t y = 0; y < height; y++) {
+		for (uint32_t x = 0; x < width; x++) {
+			const uint32_t index = (y * width + x) * 4;
+			if (dst[index + 3] != 0) continue;
+
+			uint32_t sum_b = 0, sum_g = 0, sum_r = 0, count = 0;
+			const uint32_t y0 = y > 0 ? y - 1 : y;
+			const uint32_t y1 = y + 1 < height ? y + 1 : y;
+			const uint32_t x0 = x > 0 ? x - 1 : x;
+			const uint32_t x1 = x + 1 < width ? x + 1 : x;
+			for (uint32_t ny = y0; ny <= y1; ny++) {
+				for (uint32_t nx = x0; nx <= x1; nx++) {
+					const uint32_t neighbor = (ny * width + nx) * 4;
+					if (dst[neighbor + 3] == 0) continue;
+					sum_b += dst[neighbor + 0];
+					sum_g += dst[neighbor + 1];
+					sum_r += dst[neighbor + 2];
+					count++;
+				}
+			}
+			if (count != 0) {
+				dst[index + 0] = (uint8_t)(sum_b / count);
+				dst[index + 1] = (uint8_t)(sum_g / count);
+				dst[index + 2] = (uint8_t)(sum_r / count);
+			}
+		}
+	}
+}
+
 static void ConvertARGB16(uint32 srcAddr, uint8_t *dst, uint32_t width, uint32_t height, uint32_t rowBytes)
 {
 	for (uint32_t y = 0; y < height; y++) {
@@ -684,6 +726,7 @@ static void ConvertARGB16(uint32 srcAddr, uint8_t *dst, uint32_t width, uint32_t
 			dst[idx + 3] = a8;
 		}
 	}
+	BleedARGB16TransparentEdges(dst, width, height);
 }
 
 // Same 5-5-5 layout as ARGB16 but top bit ignored, alpha forced to 0xFF. Correct.

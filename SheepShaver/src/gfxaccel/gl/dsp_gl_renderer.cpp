@@ -73,31 +73,16 @@ static uint32_t DSpGLPackRGBA(uint8_t r, uint8_t g, uint8_t b)
 		   ((uint32_t)b << 16) | 0xff000000u;
 }
 
-static const uint32_t *DSpGLRGB555GammaLut(const uint8_t *gamma)
+static const uint32_t *DSpGLRGB555Lut(void)
 {
 	static std::array<uint32_t, 32768> lut;
-	static std::array<uint8_t, 768> gamma_snapshot;
 	static bool valid = false;
-	bool changed = !valid;
-	if (!changed) {
-		for (uint32_t i = 0; i < gamma_snapshot.size(); i++) {
-			const uint8_t value = gamma ? gamma[i] : (uint8_t)(i & 255u);
-			if (gamma_snapshot[i] != value) {
-				changed = true;
-				break;
-			}
-		}
-	}
-	if (changed) {
-		for (uint32_t i = 0; i < gamma_snapshot.size(); i++)
-			gamma_snapshot[i] = gamma ? gamma[i] : (uint8_t)(i & 255u);
+	if (!valid) {
 		for (uint32_t value = 0; value < lut.size(); value++) {
 			const uint8_t r = (uint8_t)(((value >> 10) & 31u) * 255u / 31u);
 			const uint8_t g = (uint8_t)(((value >> 5) & 31u) * 255u / 31u);
 			const uint8_t b = (uint8_t)((value & 31u) * 255u / 31u);
-			lut[value] = DSpGLPackRGBA(gamma_snapshot[r],
-								   gamma_snapshot[256u + g],
-								   gamma_snapshot[512u + b]);
+			lut[value] = DSpGLPackRGBA(r, g, b);
 		}
 		valid = true;
 	}
@@ -268,11 +253,15 @@ static void expand_surface_to_rgba(const DSpContextPrivate *ctx,
 		std::memset(out.data(), 0, out.size());
 		return;
 	}
-	const uint8_t *gamma = (const uint8_t *)MetalCompositorGetGammaLUTBuffer();
-	auto apply_gamma = [gamma](uint8_t c, uint32_t plane) -> uint8_t {
-		return gamma ? gamma[plane * 256u + c] : c;
-	};
-	const uint32_t *rgb555_lut = bpp == 16 ? DSpGLRGB555GammaLut(gamma) : nullptr;
+	/*
+	 * Desktop GL presents through the compatibility-profile fixed-function
+	 * compositor. Its classic framebuffer and RAVE/OpenGL/Glide overlay paths
+	 * all sample raw display color; there is no LUT shader in that path.
+	 * Applying s_gamma_lut only while CPU-expanding DSp made Software mode
+	 * uniquely brighter. Keep this expansion raw too so every renderer shares
+	 * one color policy at the final compositor boundary.
+	 */
+	const uint32_t *rgb555_lut = bpp == 16 ? DSpGLRGB555Lut() : nullptr;
 	std::array<uint32_t, 256> palette_rgba = {};
 	if (bpp <= 8) {
 		uint8_t display_palette[768];
@@ -299,9 +288,9 @@ static void expand_surface_to_rgba(const DSpContextPrivate *ctx,
 			pal = display_palette;
 		for (uint32_t i = 0; i < palette_rgba.size(); i++) {
 			palette_rgba[i] = DSpGLPackRGBA(
-				apply_gamma(pal[i * 3u + 0u], 0),
-				apply_gamma(pal[i * 3u + 1u], 1),
-				apply_gamma(pal[i * 3u + 2u], 2));
+				pal[i * 3u + 0u],
+				pal[i * 3u + 1u],
+				pal[i * 3u + 2u]);
 		}
 	}
 	for (uint32_t y = 0; y < h; y++) {
@@ -313,9 +302,9 @@ static void expand_surface_to_rgba(const DSpContextPrivate *ctx,
 			if (bpp == 32) {
 				/* Guest BE ARGB */
 				drow[x] = DSpGLPackRGBA(
-					apply_gamma(srow[sx * 4u + 1u], 0),
-					apply_gamma(srow[sx * 4u + 2u], 1),
-					apply_gamma(srow[sx * 4u + 3u], 2));
+					srow[sx * 4u + 1u],
+					srow[sx * 4u + 2u],
+					srow[sx * 4u + 3u]);
 			} else if (bpp == 16) {
 				const uint16_t be = (uint16_t)(
 					((uint16_t)srow[sx * 2u] << 8) | srow[sx * 2u + 1u]);
