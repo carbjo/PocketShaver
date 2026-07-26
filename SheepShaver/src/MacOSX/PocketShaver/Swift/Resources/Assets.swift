@@ -39,4 +39,12 @@ enum Assets {
 	static var arrowRightArrowLeft: UIImage {
 		.init(systemName: "arrow.right.arrow.left")!
 	}
+
+	static var arrowLeftPageOnClipboard: UIImage {
+		.init(named: "arrow.left.page.on.clipboard")!
+	}
+
+	static var arrowRightPageOnClipboard: UIImage {
+		.init(named: "arrow.right.page.on.clipboard")!
+	}
 }

@@ -11,9 +11,9 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 		case display
 		case frameRateSetting
 		case monitorResolutions
+		case graphicsAcceleration
 		case rendering
 		case gammaRampSetting
-		case graphicsAcceleration
 	}
 
 	enum Row: Hashable {
@@ -29,6 +29,13 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 		case monitorResolutions(PreferencesGraphicsModel.MonitorResolutionsState)
 		case monitorResolutionsInformation(Bool)
 
+		// graphicsAcceleration
+		case graphicsAccelerationNqdToggle
+		case graphicsAccelerationRaveToggle
+		case graphicsAccelerationGlToggle
+		case graphicsAccelerationDspToggle
+		case graphicsAccelerationInfo
+
 		// rendering
 		case renderingFilterMode
 		case renderingFilterModeInfo
@@ -36,13 +43,6 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 		// gammaRampSetting
 		case gammaRampSetting
 		case gammaRampSettingInfo
-
-		// graphicsAcceleration
-		case graphicsAccelerationNqdToggle
-		case graphicsAccelerationRaveToggle
-		case graphicsAccelerationGlToggle
-		case graphicsAccelerationDspToggle
-		case graphicsAccelerationInfo
 	}
 
 	private let model: PreferencesGraphicsModel
@@ -160,6 +160,38 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 				return PreferencesInformationCell(
 					text: text
 				)
+			case .graphicsAccelerationNqdToggle:
+				return PreferencesEnabledSettingCell(
+					title: "QuickDraw 2D",
+					isOn: model.nqdAccelEnabled
+				) { [weak self] isOn in
+					self?.model.nqdAccelEnabled = isOn
+				}
+			case .graphicsAccelerationRaveToggle:
+				return PreferencesEnabledSettingCell(
+					title: "QuickDraw 3D + RAVE",
+					isOn: model.raveAccelEnabled
+				) { [weak self] isOn in
+					self?.model.raveAccelEnabled = isOn
+				}
+			case .graphicsAccelerationGlToggle:
+				return PreferencesEnabledSettingCell(
+					title: "OpenGL",
+					isOn: model.glAccelEnabled
+				) { [weak self] isOn in
+					self?.model.glAccelEnabled = isOn
+				}
+			case .graphicsAccelerationDspToggle:
+				return PreferencesEnabledSettingCell(
+					title: "DrawSprocket",
+					isOn: model.dspAccelEnabled
+				) { [weak self] isOn in
+					self?.model.dspAccelEnabled = isOn
+				}
+			case .graphicsAccelerationInfo:
+				return PreferencesCardInformationCell(
+					text: "Each accelerator is independent — mix and match per app to find what runs best."
+				)
 			case .displayMode:
 				return PreferencesGraphicsDisplayModeCell(
 					initialDisplayMode: model.displayMode
@@ -194,40 +226,7 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 				}
 			case .gammaRampSettingInfo:
 				return PreferencesInformationCell(
-					text: "Linear gamma ramp generally produces a darker, but less color distorted image. Higher screen brightness can compensate for the darkness and, in some instances, produce a higher color dynamic. Takes effect on next resolution change or restart."
-				)
-
-			case .graphicsAccelerationNqdToggle:
-				return PreferencesEnabledSettingCell(
-					title: "Quick Draw 2D Acceleration",
-					isOn: model.nqdAccelEnabled
-				) { [weak self] isOn in
-					self?.model.nqdAccelEnabled = isOn
-				}
-			case .graphicsAccelerationRaveToggle:
-				return PreferencesEnabledSettingCell(
-					title: "QuickDraw 3D + RAVE Acceleration",
-					isOn: model.raveAccelEnabled
-				) { [weak self] isOn in
-					self?.model.raveAccelEnabled = isOn
-				}
-			case .graphicsAccelerationGlToggle:
-				return PreferencesEnabledSettingCell(
-					title: "OpenGL Acceleration",
-					isOn: model.glAccelEnabled
-				) { [weak self] isOn in
-					self?.model.glAccelEnabled = isOn
-				}
-			case .graphicsAccelerationDspToggle:
-				return PreferencesEnabledSettingCell(
-					title: "DrawSprocket Acceleration",
-					isOn: model.dspAccelEnabled
-				) { [weak self] isOn in
-					self?.model.dspAccelEnabled = isOn
-				}
-			case .graphicsAccelerationInfo:
-				return PreferencesInformationCell(
-					text: "Experimental. Each accelerator is independent — mix and match per app to find what runs best. All four default on. Requires Metal; takes effect on restart."
+					text: "Linear gamma ramp generally produces a less color distorted image. Higher screen brightness can compensate for a potentially dark picture and, in some instances, produce a higher color dynamic. Takes effect on next resolution change or restart."
 				)
 			}
 		}
@@ -240,12 +239,13 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 				return "Frame rate setting"
 			case .monitorResolutions:
 				return "Monitor resolutions"
+			case .graphicsAcceleration:
+				return "Graphics acceleration (experimental)"
 			case .rendering:
 				return "Rendering filter"
 			case .gammaRampSetting:
 				return "Gamma ramp"
-			case .graphicsAcceleration:
-				return "Graphics acceleration"
+
 			}
 		}
 
@@ -258,13 +258,13 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 	private func reloadData() {
 		var snapshot = NSDiffableDataSourceSnapshot<Section, Row>()
 
-		#if targetEnvironment(macCatalyst)
-		snapshot.appendSections([.display])
-		snapshot.appendItems([
-			.displayMode,
-			.displayModeInfo
-		])
-		#endif
+		if UIDevice.deviceType == .mac {
+			snapshot.appendSections([.display])
+			snapshot.appendItems([
+				.displayMode,
+				.displayModeInfo
+			])
+		}
 
 		if UIScreen.supportsHighRefreshRate {
 			snapshot.appendSections([.frameRateSetting])
@@ -281,6 +281,15 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 			.monitorResolutionsInformation(model.monitorResolutionsState.willBootFromCD)
 		])
 
+		snapshot.appendSections([.graphicsAcceleration])
+		snapshot.appendItems([
+			.graphicsAccelerationNqdToggle,
+			.graphicsAccelerationRaveToggle,
+			.graphicsAccelerationGlToggle,
+			.graphicsAccelerationDspToggle,
+			.graphicsAccelerationInfo
+		])
+
 		snapshot.appendSections([.rendering])
 		snapshot.appendItems([
 			.renderingFilterMode,
@@ -291,15 +300,6 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 		snapshot.appendItems([
 			.gammaRampSetting,
 			.gammaRampSettingInfo
-		])
-
-		snapshot.appendSections([.graphicsAcceleration])
-		snapshot.appendItems([
-			.graphicsAccelerationNqdToggle,
-			.graphicsAccelerationRaveToggle,
-			.graphicsAccelerationGlToggle,
-			.graphicsAccelerationDspToggle,
-			.graphicsAccelerationInfo
 		])
 
 		dataSource.apply(snapshot)

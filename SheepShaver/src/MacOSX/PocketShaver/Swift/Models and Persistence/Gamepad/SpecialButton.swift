@@ -17,18 +17,22 @@ enum SpecialButton: String, Codable, CaseIterable {
 	case hoverFarAboveToggle
 	case audioEnabled
 	case relativeMouseModeEnabled
+	case copyClipboardHostToGuest
+	case copyClipboardGuestToHost
 
 	var label: String {
 		switch self {
-		case .hoverJustAboveToggle: return "Hover just above (toggle)"
-		case .hoverFarAboveToggle: return "Hover far above (toggle)"
-		case .hoverSidewaysToggle: return "Hover sideways (toggle)"
-		case .hoverDiagonallyToggle: return "Hover diagonally (toggle)"
-		case .mouseClick: return "Mouse click"
-		case .cmdW: return "Cmd-W"
-		case .rightClick: return "Right click"
-		case .audioEnabled: return "Audio enabled"
-		case .relativeMouseModeEnabled: return "Relative mouse mode enabled (toggle)"
+		case .hoverJustAboveToggle: "Hover just above (toggle)"
+		case .hoverFarAboveToggle: "Hover far above (toggle)"
+		case .hoverSidewaysToggle: "Hover sideways (toggle)"
+		case .hoverDiagonallyToggle: "Hover diagonally (toggle)"
+		case .mouseClick: "Mouse click"
+		case .cmdW: "Cmd-W"
+		case .rightClick: "Right click"
+		case .audioEnabled: "Audio enabled"
+		case .relativeMouseModeEnabled: "Relative mouse mode enabled (toggle)"
+		case .copyClipboardHostToGuest: "Copy iOS clipboard to Classic Mac OS"
+		case .copyClipboardGuestToHost: "Copy Classic Mac OS clipboard to iOS"
 		}
 	}
 }

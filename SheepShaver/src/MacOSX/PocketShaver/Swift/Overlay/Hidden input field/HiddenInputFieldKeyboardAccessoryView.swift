@@ -6,7 +6,6 @@
 //
 
 import UIKit
-import Combine
 
 class HiddenInputFieldKeyboardAccessoryView: UIView {
 	private lazy var leftStackView: UIStackView = {
@@ -32,14 +31,25 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		createButton(title: "⇧")
 	}()
 
-	private lazy var relativeMouseModeButton: UIButton = {
+	private lazy var copyClipboardHostToGuestButton: UIButton = {
 		let button = UIButton.withoutConstraints()
-		button.setImage(ImageResource.arrowUpAndDownAndArrowLeftAndRight.asSymbolImage(),
+		button.setImage(Assets.arrowRightPageOnClipboard.asSymbolImage(),
 			for: .normal
 		)
 		button.configuration = buttonConfig()
 		button.layer.cornerRadius = 8
-		button.addTarget(self, action: #selector(relativeMouseModeButtonPushed), for: .touchUpInside)
+		button.addTarget(self, action: #selector(copyClipboardHostToGuestButtonPushed), for: .touchUpInside)
+		return button
+	}()
+
+	private lazy var copyClipboardGuestToHostButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		button.setImage(Assets.arrowLeftPageOnClipboard.asSymbolImage(),
+			for: .normal
+		)
+		button.configuration = buttonConfig()
+		button.layer.cornerRadius = 8
+		button.addTarget(self, action: #selector(copyClipboardGuestToHostButtonPushed), for: .touchUpInside)
 		return button
 	}()
 
@@ -77,6 +87,8 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 
 	private let inputInteractionModel: InputInteractionModel
+	private let didTapClipboardHostToGuestButton: (() -> Void)
+	private let didTapClipboardGuestToHostButton: (() -> Void)
 	private let didTapPreferencesButton: (() -> Void)
 	private let didTapDismissKeyboardButton: (() -> Void)
 
@@ -85,14 +97,16 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 	private let deviceScreenSize = UIScreen.deviceScreenSize
 
-	private var anyCancellables = Set<AnyCancellable>()
-
 	init(
 		inputInteractionModel: InputInteractionModel,
+		didTapClipboardHostToGuestButton: @escaping (() -> Void),
+		didTapClipboardGuestToHostButton: @escaping (() -> Void),
 		didTapPreferencesButton: @escaping (() -> Void),
 		didTapDismissKeyboardButton: @escaping (() -> Void)
 	) {
 		self.inputInteractionModel = inputInteractionModel
+		self.didTapClipboardHostToGuestButton = didTapClipboardHostToGuestButton
+		self.didTapClipboardGuestToHostButton = didTapClipboardGuestToHostButton
 		self.didTapPreferencesButton = didTapPreferencesButton
 		self.didTapDismissKeyboardButton = didTapDismissKeyboardButton
 
@@ -113,20 +127,23 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 
 		let spacing: CGFloat
 		let sideMargin: CGFloat
-		switch deviceScreenSize {
-		case .normal:
+		switch (deviceScreenSize, UIScreen.isPortraitMode) {
+		case (.normal, _):
 			spacing = 8
 			sideMargin = 16
-		case .small:
+		case (.small, false):
 			spacing = 4
 			sideMargin = 8
-			relativeMouseModeButton.setTargetWidth(44)
+			copyClipboardHostToGuestButton.setTargetWidth(44)
+			copyClipboardGuestToHostButton.setTargetWidth(44)
 			preferencesButton.setTargetWidth(44)
 			dismissKeyboardButton.setTargetWidth(44)
-		case .tiny:
+		case (.small, true),
+			(.tiny, _):
 			spacing = 3
 			sideMargin = 4
-			relativeMouseModeButton.setTargetWidth(38)
+			copyClipboardHostToGuestButton.setTargetWidth(38)
+			copyClipboardGuestToHostButton.setTargetWidth(38)
 			preferencesButton.setTargetWidth(38)
 			dismissKeyboardButton.setTargetWidth(38)
 		}
@@ -139,7 +156,8 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		leftStackView.addArrangedSubview(ctrlButton)
 		leftStackView.addArrangedSubview(shiftButton)
 
-		rightStackView.addArrangedSubview(relativeMouseModeButton)
+		rightStackView.addArrangedSubview(copyClipboardHostToGuestButton)
+		rightStackView.addArrangedSubview(copyClipboardGuestToHostButton)
 		rightStackView.addArrangedSubview(preferencesButton)
 		if !UIScreen.isPortraitMode || UIDevice.isIPadIdiom {
 			rightStackView.addArrangedSubview(rightCmdButton)
@@ -147,7 +165,6 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		if !UIDevice.isIPadIdiom {
 			rightStackView.addArrangedSubview(dismissKeyboardButton)
 		}
-
 
 		NSLayoutConstraint.activate([
 			leftStackView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: sideMargin),
@@ -193,33 +210,13 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 			)
 		}
 
-		configure(canToggleRelativeMouseMode: inputInteractionModel.canToggleRelativeMouseMode)
-		configure(isRelativeMouseModeEnabled: inputInteractionModel.isRelativeMouseModeEnabled)
-
 		listenToChanges()
 	}
 	
 	required init?(coder: NSCoder) { fatalError() }
 
 	private func listenToChanges() {
-		inputInteractionModel.changeSubject.sink{ [weak self] change in
-			guard let self else { return }
-			switch change {
-			case .relativeMouseModeChanged(let isEnabled):
-				configure(isRelativeMouseModeEnabled: isEnabled)
-			case .canToggleRelativeMouseModeChanged(let isEnabled):
-				configure(canToggleRelativeMouseMode: isEnabled)
-			default: break
-			}
-		}.store(in: &anyCancellables)
-	}
-
-	private func configure(canToggleRelativeMouseMode: Bool) {
-		relativeMouseModeButton.isHidden = !canToggleRelativeMouseMode
-	}
-
-	private func configure(isRelativeMouseModeEnabled: Bool) {
-		relativeMouseModeButton.configuration!.baseBackgroundColor = isRelativeMouseModeEnabled ? .gray : .lightGray
+		LocalNotification.observe(.clipboardSharingSettingChanged, self, #selector(updateClipboardSharingButtonVisiblity))
 	}
 
 	@objc private func cmdPushed() {
@@ -254,8 +251,12 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		releaseKey?(SDLKey.shift)
 	}
 
-	@objc private func relativeMouseModeButtonPushed() {
-		inputInteractionModel.toggleRelativeMouseMode()
+	@objc private func copyClipboardGuestToHostButtonPushed() {
+		didTapClipboardGuestToHostButton();
+	}
+
+	@objc private func copyClipboardHostToGuestButtonPushed() {
+		didTapClipboardHostToGuestButton();
 	}
 
 	@objc private func preferencesButtonPushed() {
@@ -273,6 +274,12 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		button.backgroundColor = .gray
 		button.layer.cornerRadius = 8
 		return button
+	}
+
+	@objc private func updateClipboardSharingButtonVisiblity() {
+		let isHidden = MiscellaneousSettings.current.clipboardSharing == .automatic
+		copyClipboardGuestToHostButton.isHidden = isHidden
+		copyClipboardHostToGuestButton.isHidden = isHidden
 	}
 }
 

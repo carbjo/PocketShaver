@@ -117,7 +117,7 @@ extension GamepadButtonAssignment {
 		case .key:
 			return "The key \(identifier)."
 		case .specialButton(let specialButton):
-			switch specialButton{
+			switch specialButton {
 			case .hoverJustAboveToggle:
 				return "Touch input hovers mouse cursor without clicking, offset slightly above the of the touch point. This makes content easier to interact with, while avoiding to obscure the content itelf with your finger. Recommended to use in combination with Second finger click functionality or a Mouse click gamepad button."
 			case .hoverSidewaysToggle:
@@ -136,6 +136,10 @@ extension GamepadButtonAssignment {
 				return "Toggle audio enabled. Sound from other apps is lowered if audio is enabled."
 			case .relativeMouseModeEnabled:
 				return "Toggle relative mouse mode (more info on this mode in Preferences under Advanced tab)."
+			case .copyClipboardHostToGuest:
+				return "Copies iOS clipboard to Classic Mac OS clipboard, if content is text or image."
+			case .copyClipboardGuestToHost:
+				return "Copy Classic Mac OS clipboard to iOS clipboard, if content is text or image."
 			}
 		case .joystick(let joystickType):
 			switch joystickType {
