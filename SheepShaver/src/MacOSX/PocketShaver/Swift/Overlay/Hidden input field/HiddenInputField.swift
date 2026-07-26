@@ -10,6 +10,8 @@ import UIKit
 class HiddenInputField: UITextField {
 	init(
 		inputInteractionModel: InputInteractionModel,
+		didTapClipboardHostToGuestButton: @escaping (() -> Void),
+		didTapClipboardGuestToHostButton: @escaping (() -> Void),
 		didTapPreferencesButton: @escaping (() -> Void),
 		didTapDismissKeyboardButton: @escaping (() -> Void),
 		hiddenInputFieldDelegate: HiddenInputFieldDelegate
@@ -25,6 +27,8 @@ class HiddenInputField: UITextField {
 		delegate = hiddenInputFieldDelegate
 		let accessoryView = HiddenInputFieldKeyboardAccessoryView(
 			inputInteractionModel: inputInteractionModel,
+			didTapClipboardHostToGuestButton: didTapClipboardHostToGuestButton,
+			didTapClipboardGuestToHostButton: didTapClipboardGuestToHostButton,
 			didTapPreferencesButton: didTapPreferencesButton,
 			didTapDismissKeyboardButton: didTapDismissKeyboardButton
 		)

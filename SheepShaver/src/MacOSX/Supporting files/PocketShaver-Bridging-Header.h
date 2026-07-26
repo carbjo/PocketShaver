@@ -14,6 +14,7 @@
 #import "MouseHapticFeedbackObjC.h"
 #import "BonjourManagerObjC.h"
 #import "ImpHFSExtractor.h"
+#import "ClipboardSharing.h"
 
 // Memory-warning C shim + PSO archive C API +
 // background/foreground lifecycle handlers.

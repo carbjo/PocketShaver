@@ -86,3 +86,7 @@ bool objc_getAltivec(void) {
 int objc_getRamInMb(void) {
 	return (int)MiscellaneousSettingsObjC.getRamInMb;
 }
+
+bool objc_getIsClipboardSharingAutomatic(void) {
+	return MiscellaneousSettingsObjC.isClipboardSharingAutomatic;
+}

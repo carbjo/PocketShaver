@@ -112,7 +112,14 @@
 # define ROM_IS_WRITE_PROTECTED 1
 #endif
 // Configure PowerPC emulator
+#if defined(__aarch64__)
+// The arm64 threaded-code backend routes EmulOps through the generic
+// interpreter invoke; nested execute() must not JIT-compile (and possibly
+// invalidate the cache) while an outer generated block is still running
+#define PPC_REENTRANT_JIT 0
+#else
 #define PPC_REENTRANT_JIT 1
+#endif
 #define PPC_CHECK_INTERRUPTS 1
 #define PPC_DECODE_CACHE 1
 #define PPC_FLIGHT_RECORDER 1

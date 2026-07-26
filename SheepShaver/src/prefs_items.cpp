@@ -120,11 +120,11 @@ void AddPrefsDefaults(void)
 	PrefsAddInt32("frameskip", 8);
 #endif
 	PrefsAddBool("gfxaccel", true);
-	PrefsAddBool("nqdaccel", true);
-	PrefsAddBool("raveaccel", true);
-	PrefsAddBool("glaccel", true);
-	PrefsAddBool("dspaccel", true);
-	PrefsAddBool("glideaccel", true);
+	PrefsAddBool("nqdaccel", false);
+	PrefsAddBool("raveaccel", false);
+	PrefsAddBool("glaccel", false);
+	PrefsAddBool("dspaccel", false);
+	PrefsAddBool("glideaccel", false);
 	PrefsAddBool("nocdrom", false);
 	PrefsAddBool("nonet", false);
 	PrefsAddBool("nosound", false);

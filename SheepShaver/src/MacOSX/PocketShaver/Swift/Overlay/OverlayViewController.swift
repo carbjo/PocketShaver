@@ -92,6 +92,12 @@ public class OverlayViewController: UIViewController {
 		guard let self else { fatalError() }
 		return HiddenInputField(
 			inputInteractionModel: inputInteractionModel,
+			didTapClipboardHostToGuestButton: {
+				objc_copyHostClipboardToGuestScrap();
+			},
+			didTapClipboardGuestToHostButton: {
+				objc_copyGuestScrapToHostClipboard();
+			},
 			didTapPreferencesButton: { [weak self] in
 				self?.presentPreferences()
 			},
@@ -274,7 +280,6 @@ public class OverlayViewController: UIViewController {
 			guard let self else { return }
 			switch change {
 			case .relativeMouseModeChanged(let isEnabled):
-
 				var hint: String
 				if isEnabled {
 					hint = "Relative mouse mode on"
@@ -300,6 +305,8 @@ public class OverlayViewController: UIViewController {
 		LocalNotification.observe(.gotIpAddress, self, #selector(displayGotIpAddress))
 		LocalNotification.observe(.displayPreferencesRequested, self, #selector(presentPreferences))
 		LocalNotification.observe(.enteredKeyboardModeWhileUsingHardwareKeyboard, self, #selector(handleEnteredKeyboardModeWhileUsingHardwareKeyboard))
+		LocalNotification.observe(.clipboardSharingGuestToHost, self, #selector(displayClipboardSharingGuestToHostPerformed))
+		LocalNotification.observe(.clipboardSharingHostToGuest, self, #selector(displayClipboardSharingHostToGuestPerformed))
 		NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillChangePosition), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
 		NotificationCenter.default.addObserver(self, selector: #selector(keyboardDidChangePosition), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
 	}
@@ -487,6 +494,8 @@ public class OverlayViewController: UIViewController {
 		sdlView.transform = transform
 		view.transform = transform.inverted()
 	}
+
+	
 
 	@objc
 	private func presentPreferences() {
@@ -705,6 +714,62 @@ public class OverlayViewController: UIViewController {
 		informationView.show(
 			hint: "Keyboard mode not available while using hardware keyboard",
 			atBottom: true
+		)
+	}
+
+	@objc
+	private func displayClipboardSharingGuestToHostPerformed(notification: Notification) {
+		guard MiscellaneousSettings.current.reportClipboardSharingActivity,
+			let content = notification.object as? ClipboardSharingContent else {
+			return
+		}
+
+		let osLabel = UIDevice.deviceType.osLabel
+		let hint: String
+		switch content {
+		case .text:
+			hint = "Copied text to \(osLabel) clipboard"
+		case .image:
+			hint = "Copied image to \(osLabel) clipboard"
+		case .alreadyCopied:
+			// Will in practive never be executed, since we don't want to ask for host
+			// clipboard read permission just to check if contents were the same
+			hint = "Clipboard contents were already identical"
+		case .empty:
+			hint = "Classic Mac OS clipboard was empty or identical"
+		}
+
+		informationView.show(
+			hintIcon: .arrowLeftPageOnClipboard,
+			hint: hint,
+			atBottom: state != .showingKeyboard
+		)
+	}
+
+	@objc
+	private func displayClipboardSharingHostToGuestPerformed(notification: Notification) {
+		guard MiscellaneousSettings.current.reportClipboardSharingActivity,
+			let content = notification.object as? ClipboardSharingContent else {
+			return
+		}
+
+		let osLabel = UIDevice.deviceType.osLabel
+		let hint: String
+		switch content {
+		case .text:
+			hint = "Copied text to Classic Mac OS clipboard"
+		case .image:
+			hint = "Copied image to Classic Mac OS clipboard"
+		case .alreadyCopied:
+			hint = "Clipboard contents were already identical"
+		case .empty:
+			hint = "\(osLabel) clipboard was empty"
+		}
+
+		informationView.show(
+			hintIcon: .arrowRightPageOnClipboard,
+			hint: hint,
+			atBottom: state != .showingKeyboard
 		)
 	}
 
