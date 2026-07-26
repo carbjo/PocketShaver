@@ -44,7 +44,7 @@ struct FFPStateCache {
    * per texture OBJECT, so a single global slot gets it wrong the moment the
    * guest alternates between two textures with different filters. It lives on
    * GLTextureObject::applied_* instead. */
-  bool blend; GLenum blend_src, blend_dst; bool blend_separate_alpha;
+  bool blend; GLenum blend_src, blend_dst;
   bool depth_test; GLenum depth_func; bool depth_mask;
   float depth_range_near, depth_range_far;
   bool color_mask[4];
@@ -217,14 +217,16 @@ extern "C" void gl_overlay_present(void){
   L.dst_origin_x=(float)s_dl;L.dst_origin_y=(float)s_dt;
   L.dst_size_w=(float)(s_dw>0?s_dw:(int)s_ow); L.dst_size_h=(float)(s_dh>0?s_dh:(int)s_oh);
   /*
-   * The render target stores premultiplied coverage: blended guest fragments
-   * use straight source colors with source-alpha RGB blending, while the
-   * alpha channel accumulates source-over coverage. Submitting it as straight
-   * alpha multiplies coverage a second time in the compositor. That darkens
-   * translucent effects and exposes the classic framebuffer color beneath
-   * them (Tomb Raider's blue/purple crescent under its shadow).
+   * An onscreen AGL drawable is an opaque window surface. Its alpha channel is
+   * guest framebuffer data; classic OpenGL never uses it as window coverage.
+   * The guest has already applied all texture/vertex alpha and blend factors
+   * to RGB before aglSwapBuffers. Blending that completed RGB with QuickDraw
+   * a second time makes framebuffer alpha reinterpret the image as a layer:
+   * Quake 3's UI becomes solid atlas rectangles, while straight-alpha
+   * presentation double-darkens Tomb Raider's shadow. Copy the drawable
+   * opaquely, matching how an AGL back buffer reaches the screen.
    */
-  L.slot=kLayerSlotOverlay; L.blend=kBlendPremultiplied; L.alpha=1.f;
+  L.slot=kLayerSlotOverlay; L.blend=kBlendOpaque; L.alpha=1.f;
   FrameDescriptor d={}; d.layers=&L; d.layer_count=1;
   const DMCModeSnapshot*snap=dmc_current_snapshot(); d.generation=snap?snap->generation:0;
   const int32_t rc=MetalCompositorSubmitFrame(&d);
@@ -280,14 +282,14 @@ void GLMetalClear(GLContext*ctx,uint32_t mask){
   if(!ctx||!SharedMetalDevice())return;
   GLMetalBeginFrame(ctx);
   if(!s_frame_active)return;
-  const bool is_offscreen =
-	GLContextGetOffscreenDrawable(ctx,nullptr,nullptr,nullptr,nullptr)!=0;
-  const float alpha=GLMetalOverlayClearAlpha(is_offscreen,ctx->clear_color[3]);
-  glClearColor(
-	GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[0],alpha),
-	GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[1],alpha),
-	GLMetalOverlayClearColorComponent(is_offscreen,ctx->clear_color[2],alpha),
-	alpha);
+  /*
+   * Keep the guest color buffer exact. Presentation opacity is a property of
+   * the onscreen drawable, not a reason to premultiply or rewrite its stored
+   * RGBA values. Offscreen readback and onscreen glReadPixels therefore see
+   * the same OpenGL clear result.
+   */
+  glClearColor(ctx->clear_color[0],ctx->clear_color[1],
+			   ctx->clear_color[2],ctx->clear_color[3]);
   glClearDepth(ctx->clear_depth);
   glClearStencil(ctx->clear_stencil);
   /* OpenGL clears are masked operations. In particular, Tomb Raider restores
@@ -633,25 +635,10 @@ static void apply_host_ffp_state(GLContext *ctx)
 	 * (blend_src = GL_ONE, blend_dst = GL_ZERO), so these are always valid. */
 	const GLenum bs = (GLenum)ctx->blend_src;
 	const GLenum bd = (GLenum)ctx->blend_dst;
-	const bool is_offscreen =
-	  GLContextGetOffscreenDrawable(ctx,nullptr,nullptr,nullptr,nullptr)!=0;
-	const bool separate_alpha = !is_offscreen && ext.BlendFuncSeparate;
 	if (!cache_ok || !C.blend) glEnable(GL_BLEND);
-	if (!cache_ok || C.blend_src != bs || C.blend_dst != bd ||
-		C.blend_separate_alpha != separate_alpha) {
-	  /*
-	   * On-screen GL is later composited as a premultiplied overlay. Preserve
-	   * source-over coverage independently from the guest's RGB factors, just
-	   * like the Metal fixed-function path. Offscreen AGL drawables retain
-	   * exact guest alpha blending for readback.
-	   */
-	  if (separate_alpha)
-		ext.BlendFuncSeparate(bs, bd, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-	  else
-		glBlendFunc(bs, bd);
-	}
+	if (!cache_ok || C.blend_src != bs || C.blend_dst != bd)
+	  glBlendFunc(bs, bd);
 	C.blend = true; C.blend_src = bs; C.blend_dst = bd;
-	C.blend_separate_alpha = separate_alpha;
   } else {
 	if (!cache_ok || C.blend) glDisable(GL_BLEND);
 	C.blend = false;
@@ -784,10 +771,12 @@ void GLMetalFlushImmediateMode(GLContext*ctx){
   GLMetalBeginFrame(ctx);
   if(!s_frame_active)return;
   apply_host_ffp_state(ctx);
-  const bool is_offscreen =
-	GLContextGetOffscreenDrawable(ctx,nullptr,nullptr,nullptr,nullptr)!=0;
-  const bool force_opaque=
-	GLMetalForceOpaqueOverlayOutput(is_offscreen,ctx->blend);
+  /*
+   * Preserve guest vertex alpha even for unblended draws. The onscreen
+   * drawable is made opaque only when submitted to the compositor; modifying
+   * fragment alpha here corrupts glReadPixels and later guest blending.
+   */
+  const bool force_opaque=false;
   /* Mirror the unit-1 test apply_host_ffp_state() uses to decide whether it
    * enables and binds texture unit 1; when that is false the unit is disabled,
    * so per-vertex unit-1 coords are dead weight. */
