@@ -81,6 +81,7 @@ inline uint32 TrivialBytesPerRow(uint32 width, int mode)
 }
 
 enum {	// viAppleID
+	APPLE_512x384 = 0x80,
 	APPLE_640x480 = 0x81,
 	APPLE_W_640x480,
 	APPLE_800x600,
@@ -91,7 +92,7 @@ enum {	// viAppleID
 	APPLE_1280x1024,
 	APPLE_1600x1200,
 	APPLE_CUSTOM,
-	APPLE_ID_MIN = APPLE_640x480,
+	APPLE_ID_MIN = APPLE_512x384,
 	APPLE_ID_MAX = APPLE_CUSTOM
 };
 

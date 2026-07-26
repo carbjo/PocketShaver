@@ -1566,10 +1566,17 @@ static void DSpApplyReserveColorTable(DSpContextPrivate *ctx,
  *  DSpFindBestContextHandler or DSpGetFirstContextHandler). Per DSp 1.7
  *  PDF p.25:
  *      OSStatus DSpContext_Reserve(DSpContextReference inContext,
- *                                  const DSpContextAttributesPtr inDesiredAttributes);
+ *			const DSpContextAttributesPtr inDesiredAttributes);
  *  The caller ALREADY holds the ctxRef; Reserve's job is to validate +
  *  apply the desired attributes AND allocate the Metal resources that
  *  subsequent GetBackBuffer / SwapBuffers / SetState calls require.
+ *
+ *	MechWarrior 2 6500: It does GetNextContext() until it finds
+ *	512x384@16bpp, then allocates a backbuffer with depth and
+ *	depthflags set to 0. If 512x384@16bpp is not found it never
+ *	allocates a back buffer. The important distinction is that
+ *	it never changes the resolution to 512x384@16bpp, instead it
+ *	expects DrawSprocket to scale the 512x384 backbuffer.
  *
  *  Behavior:
  *    - Validates `attr` (same validation rules as Reserve_Core).
@@ -1620,7 +1627,9 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 				desiredWidth, desiredHeight, pageCount);
 		return kDSpInvalidAttributesErr;
 	}
-	if (backBufferBestDepth != 1 && backBufferBestDepth != 2 &&
+	if(backBufferBestDepth == 0) {
+		backBufferBestDepth = ctx->attr.backBufferBestDepth;
+	} else if (backBufferBestDepth != 1 && backBufferBestDepth != 2 &&
 		backBufferBestDepth != 4 && backBufferBestDepth != 8 &&
 		backBufferBestDepth != 16 && backBufferBestDepth != 32) {
 		DSP_LOG("Reserve_OnHandle: unsupported back-buffer depth %u "
@@ -1629,8 +1638,7 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 		return kDSpInvalidAttributesErr;
 	}
 	if (backBufferDepthMask == 0) {
-		DSP_LOG("Reserve_OnHandle: backBufferDepthMask=0 (must specify a mask)");
-		return kDSpInvalidAttributesErr;
+		backBufferDepthMask = ctx->attr.backBufferDepthMask;
 	}
 	if (desiredWidth > 4096 || desiredHeight > 4096) {
 		DSP_LOG("Reserve_OnHandle: oversize resolution %ux%u clamped to paramErr",

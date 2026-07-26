@@ -156,10 +156,10 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma);
 /*
  *  Tell whether window/screen is activated or not (for mouse/keyboard polling)
  */
- 
+
 bool VideoActivated(void)
 {
-	return video_activated;	
+	return video_activated;
 }
 
 
@@ -171,7 +171,7 @@ bool VideoSnapshot(int xsize, int ysize, uint8 *p)
 {
 	if (display_type == DIS_WINDOW) {
 		uint8 *screen = (uint8 *)private_data->saveBaseAddr;
-		uint32 row_bytes = VModes[cur_mode].viRowBytes;	
+		uint32 row_bytes = VModes[cur_mode].viRowBytes;
 		uint32 y2size = VModes[cur_mode].viYsize;
 		uint32 x2size = VModes[cur_mode].viXsize;
 		for (int j=0;j<ysize;j++) {
@@ -329,7 +329,7 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 
 		// Build the linear ramp
 		uint32 p = csSave->gammaTable + gFormulaData;
-		
+
 		for (int i=0; i<256; i++) {
 #if TARGET_OS_IPHONE
 			/* Real video card ROMs install their 'gama' resource ("Mac
@@ -376,7 +376,7 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 
 		// Copy table
 		Mac2Mac_memcpy(csSave->gammaTable, gamma, size);
-		
+
 		// Save new gamma data for video impl
 		if (data_width != 8) {
 			// FIXME: handle bit-packed data
@@ -386,12 +386,12 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 			uint32 p_red;
 			uint32 p_green;
 			uint32 p_blue;
-			
+
 			// make values increasing as some implementations really don't like it when gamma tables aren't
 			uint8 max_red = 0;
 			uint8 max_green = 0;
 			uint8 max_blue = 0;
-					
+
 			if (chan_cnt == 3) {
 				p_red = p;
 				p_green = p + data_cnt;
@@ -439,7 +439,7 @@ static int16 VideoControl(uint32 pb, VidLocals *csSave)
 			return video_mode_change(csSave, param);
 
 		case cscSetEntries: {							// SetEntries
-			D(bug("SetEntries\n"));					
+			D(bug("SetEntries\n"));
 			if (VModes[cur_mode].viAppleMode > APPLE_8_BIT) return controlErr;
 			uint32 s_pal = ReadMacInt32(param + csTable);
 			uint16 start = ReadMacInt16(param + csStart);
@@ -862,7 +862,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 		}
 
 		case cscGetEntries: {						// GetEntries
-			D(bug("GetEntries\n"));	
+			D(bug("GetEntries\n"));
 			uint32 d_pal = ReadMacInt32(param + csTable);
 			uint16 start = ReadMacInt16(param + csStart);
 			uint16 count = ReadMacInt16(param + csCount);
@@ -943,7 +943,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			WriteMacInt32(param + csData, data);
 			WriteMacInt16(param + csPage, csSave->savePage);
 			WriteMacInt32(param + csBaseAddr, csSave->saveBaseAddr);
-			
+
 			D(bug("return: mode:%04x ID:%08lx page:%04x ", ReadMacInt16(param + csMode),
 				ReadMacInt32(param + csData), ReadMacInt16(param + csPage)));
 			D(bug("base adress %08lx\n", ReadMacInt32(param + csBaseAddr)));
@@ -1026,6 +1026,11 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			WriteMacInt32(param + csRefreshRate, frameRate<<16);
 #else
 			switch (work_id) {
+				case APPLE_512x384:
+					WriteMacInt32(param + csHorizontalPixels, 512);
+					WriteMacInt32(param + csVerticalLines, 384);
+					WriteMacInt32(param + csRefreshRate, 60<<16);
+					break;
 				case APPLE_640x480:
 					WriteMacInt32(param + csHorizontalPixels, 640);
 					WriteMacInt32(param + csVerticalLines, 480);
@@ -1118,7 +1123,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 				requested_mode = (uint16)abs;
 			}
 
-			// find right video mode						
+			// find right video mode
 			for (int i=0; VModes[i].viType!=DIS_INVALID; i++) {
 				if ((requested_mode == VModes[i].viAppleMode) &&
 					(requested_id == VModes[i].viAppleID)) {
@@ -1137,42 +1142,42 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 					WriteMacInt32(vpb + vpVRes, 0x00480000);	// vert res of the device (ppi)
 					switch (VModes[i].viAppleMode) {
 						case APPLE_1_BIT:
-							WriteMacInt16(vpb + vpPixelType, 0); 
+							WriteMacInt16(vpb + vpPixelType, 0);
 							WriteMacInt16(vpb + vpPixelSize, 1);
 							WriteMacInt16(vpb + vpCmpCount, 1);
 							WriteMacInt16(vpb + vpCmpSize, 1);
 							WriteMacInt32(param + csDeviceType, 0); // CLUT
 							break;
 						case APPLE_2_BIT:
-							WriteMacInt16(vpb + vpPixelType, 0); 
+							WriteMacInt16(vpb + vpPixelType, 0);
 							WriteMacInt16(vpb + vpPixelSize, 2);
 							WriteMacInt16(vpb + vpCmpCount, 1);
 							WriteMacInt16(vpb + vpCmpSize, 2);
 							WriteMacInt32(param + csDeviceType, 0); // CLUT
 							break;
 						case APPLE_4_BIT:
-							WriteMacInt16(vpb + vpPixelType, 0); 
+							WriteMacInt16(vpb + vpPixelType, 0);
 							WriteMacInt16(vpb + vpPixelSize, 4);
 							WriteMacInt16(vpb + vpCmpCount, 1);
 							WriteMacInt16(vpb + vpCmpSize, 4);
 							WriteMacInt32(param + csDeviceType, 0); // CLUT
 							break;
 						case APPLE_8_BIT:
-							WriteMacInt16(vpb + vpPixelType, 0); 
+							WriteMacInt16(vpb + vpPixelType, 0);
 							WriteMacInt16(vpb + vpPixelSize, 8);
 							WriteMacInt16(vpb + vpCmpCount, 1);
 							WriteMacInt16(vpb + vpCmpSize, 8);
 							WriteMacInt32(param + csDeviceType, 0); // CLUT
 							break;
 						case APPLE_16_BIT:
-							WriteMacInt16(vpb + vpPixelType, 0x10); 
+							WriteMacInt16(vpb + vpPixelType, 0x10);
 							WriteMacInt16(vpb + vpPixelSize, 16);
 							WriteMacInt16(vpb + vpCmpCount, 3);
 							WriteMacInt16(vpb + vpCmpSize, 5);
 							WriteMacInt32(param + csDeviceType, 2); // DIRECT
 							break;
 						case APPLE_32_BIT:
-							WriteMacInt16(vpb + vpPixelType, 0x10); 
+							WriteMacInt16(vpb + vpPixelType, 0x10);
 							WriteMacInt16(vpb + vpPixelSize, 32);
 							WriteMacInt16(vpb + vpCmpCount, 3);
 							WriteMacInt16(vpb + vpCmpSize, 8);

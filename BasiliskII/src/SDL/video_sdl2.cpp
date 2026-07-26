@@ -416,6 +416,8 @@ static vector<monitor_desc *> VideoMonitors;
 // Find Apple mode matching best specified dimensions
 static int find_apple_resolution(int xsize, int ysize)
 {
+	if (xsize == 512 && ysize == 384)
+		return APPLE_512x384;
 	if (xsize == 640 && ysize == 480)
 		return APPLE_640x480;
 	if (xsize == 800 && ysize == 600)
@@ -1750,9 +1752,14 @@ bool VideoInit(bool classic)
 		int resolution_id;
 	}
 #ifdef SHEEPSHAVER
-	// Omit Classic resolutions
+	// Omit Classic resolutions, except 512x384: it is a real Mac mode (the
+	// built-in video size on every machine with a 12" RGB display), and titles
+	// search DrawSprocket for it by exact size. MechWarrior 2 asks for
+	// 512x384@16; when the search fails it falls back to rendering that size
+	// as a centred inset of the larger screen instead of full-screen.
 	video_modes[] = {
 		{   -1,   -1, 0x80 },
+		{  512,  384, 0x80 },
 		{  640,  480, 0x81 },
 		{  800,  600, 0x82 },
 		{ 1024,  768, 0x83 },
@@ -2321,12 +2328,12 @@ int16 video_mode_change(VidLocals *csSave, uint32 ParamPtr)
 			// (video_close - video_open - driver_base::init reads
 			// VModes[cur_mode] via VIDEO_MODE_INIT_MONITOR). An earlier
 			// change deleted the mirror assuming DMC would subsume the
-			// index, but the controller never writes cur_mode — causing
+			// index, but the controller never writes cur_mode ï¿½ causing
 			// switch_to_current_mode() to resize the Metal compositor
 			// to the OLD mode's dimensions/depth and produce garbled
 			// output (e.g. Nanosaur 640x480@16bpp switch staying at
 			// 1366x1024@APPLE_32_BIT). Restored below as an explicit,
-			// whitelisted seam — the only runtime `cur_mode` writer
+			// whitelisted seam ï¿½ the only runtime `cur_mode` writer
 			// outside VideoInit bootstrap. See
 			// DMCWriteSiteInventoryTests allowedLineRanges rationale.
 			{
