@@ -1,1 +1,1 @@
-../../../BasiliskII/src/CrossPlatform/sigsegv.cpp
+C:/Users/User/Documents/Shared/PocketShaver/BasiliskII/src/CrossPlatform/sigsegv.cpp
