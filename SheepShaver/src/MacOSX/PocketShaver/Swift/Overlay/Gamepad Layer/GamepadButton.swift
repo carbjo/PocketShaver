@@ -270,15 +270,17 @@ extension SpecialButton {
 extension SpecialButton {
 	var gamepadLabel: GamepadButton.Label {
 		switch self {
-		case .mouseClick: return .icon(.leftclick)
-		case .hoverJustAboveToggle: return .twoIcons(.handRaised, .chevronCompactUp)
-		case .hoverFarAboveToggle: return .twoIcons(.handRaised, .arrowUp)
-		case .hoverSidewaysToggle: return .twoIcons(.handRaised, .arrowLeftArrowRight)
-		case .hoverDiagonallyToggle: return .twoIcons(.handRaised, .crossArrow)
-		case .cmdW: return .text("⌘-W")
-		case .rightClick: return .icon(.rightclick)
-		case .audioEnabled: return .icon(.speakerSlash) // placeholder
-		case .relativeMouseModeEnabled: return .thinIcon(.arrowUpAndDownAndArrowLeftAndRight)
+		case .mouseClick: .icon(.leftclick)
+		case .hoverJustAboveToggle: .twoIcons(.handRaised, .chevronCompactUp)
+		case .hoverFarAboveToggle: .twoIcons(.handRaised, .arrowUp)
+		case .hoverSidewaysToggle: .twoIcons(.handRaised, .arrowLeftArrowRight)
+		case .hoverDiagonallyToggle: .twoIcons(.handRaised, .crossArrow)
+		case .cmdW: .text("⌘-W")
+		case .rightClick: .icon(.rightclick)
+		case .audioEnabled: .icon(.speakerSlash) // placeholder
+		case .relativeMouseModeEnabled: .thinIcon(.arrowUpAndDownAndArrowLeftAndRight)
+		case .copyClipboardHostToGuest: .icon(.arrowRightPageOnClipboard)
+		case .copyClipboardGuestToHost: .icon(.arrowLeftPageOnClipboard)
 		}
 	}
 }

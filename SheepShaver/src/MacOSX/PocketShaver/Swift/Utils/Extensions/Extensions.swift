@@ -112,6 +112,14 @@ enum DeviceType {
 	case iPhone
 	case iPad
 	case mac
+
+	var osLabel: String {
+		switch self {
+		case .iPhone: "iOS"
+		case .iPad: "iPadOS"
+		case .mac: "macOS"
+		}
+	}
 }
 
 extension UIDevice {

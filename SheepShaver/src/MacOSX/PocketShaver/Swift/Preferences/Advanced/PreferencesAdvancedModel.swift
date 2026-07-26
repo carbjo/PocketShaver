@@ -32,6 +32,26 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
+	var clipboardSharingSetting: ClipboardSharingSetting {
+		get {
+			miscSettings.clipboardSharing
+		}
+		set {
+			miscSettings.set(clipboardSharing: newValue)
+		}
+	}
+
+	@MainActor
+	var reportClipboardSharingActivity: Bool {
+		get {
+			miscSettings.reportClipboardSharingActivity
+		}
+		set {
+			miscSettings.set(reportClipboardSharingActivity: newValue)
+		}
+	}
+
+	@MainActor
 	var fpsReportingEnabled: Bool {
 		get {
 			miscSettings.fpsReporting

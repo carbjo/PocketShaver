@@ -18,3 +18,4 @@ bool objc_getShouldBootInRelativeMouseMode(void);
 bool objc_getIgnoreIllegalInstructions(void);
 bool objc_getAltivec(void);
 int objc_getRamInMb(void);
+bool objc_getIsClipboardSharingAutomatic(void);

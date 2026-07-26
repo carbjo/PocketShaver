@@ -35,6 +35,10 @@
 #include "autorelease.h"
 #include "pict.h"
 
+#include "utils_ios.h"
+#include "MiscellaneousSettingsObjCCppHeader.h"
+#import "PocketShaver-Swift-ObjCHeader.h"
+
 #define DEBUG 0
 #include "debug.h"
 
@@ -127,6 +131,9 @@ static NSString *g_pending_host_text = nil;								// fallback, plain text
 static NSData *g_pending_host_pict = nil;								// raw PICT from the host, if any
 static UIImage *g_pending_host_image = nil;								// host image to convert to PICT
 static NSDictionary<NSNumber *, NSData *> *g_pending_host_flavors = nil;	// other flavors, keyed by FourCC
+
+// Guest scrap content waiting to be copied to host pasteboard
+static NSMutableDictionary<NSString *, id> *g_pending_guest_scrap;
 
 // UIPasteboard change count at our last read or write. Main thread only.
 // Advisory only: unreliable on Catalyst, so it never gates correctness there.
@@ -1527,14 +1534,42 @@ static NSData *PNGDataFromPICT(NSData *pictData)
 	return (wrote && [pngData length]) ? pngData : nil;
 }
 
+void WritePendingGuestScrapToHostPasteboard(void) {
+	if (!g_pending_guest_scrap) {
+		[LocalNotificationObjCProxy sendClipboardSharingGuestToHostWithContent:ClipboardSharingContentEmpty];
+		return;
+	}
+
+	if ([g_pending_guest_scrap objectForKey:kPasteboardTypePNG]) {
+		[LocalNotificationObjCProxy sendClipboardSharingGuestToHostWithContent:ClipboardSharingContentImage];
+	} else {
+		[LocalNotificationObjCProxy sendClipboardSharingGuestToHostWithContent:ClipboardSharingContentText];
+	}
+
+	UIPasteboard *pb = [UIPasteboard generalPasteboard];
+
+	g_last_stash_signature = nil;
+
+	[pb setItems:@[g_pending_guest_scrap] options:@{}];
+
+	g_host_change_count = [pb changeCount];
+	os_unfair_lock_lock(&g_pending_lock);
+	g_pending_host_attr = nil;
+	g_pending_host_text = nil;
+	g_pending_host_pict = nil;
+	g_pending_host_image = nil;
+	g_pending_host_flavors = nil;
+	os_unfair_lock_unlock(&g_pending_lock);
+}
+
 /*
  *  Convert the guest scrap flavors collected so far to host pasteboard content.
  *  Called on the emulator thread; the pasteboard write happens on the main thread.
  */
 
-static void WriteGuestScrapToHostPasteboard(void)
+static void SyncGuestScrapToPending(void)
 {
-	NSMutableDictionary<NSString *, id> *item = [NSMutableDictionary dictionary];
+	g_pending_guest_scrap = [NSMutableDictionary dictionary];
 
 	// TEXT (+ styl) become plain text and RTF
 	NSData *textData = [g_guest_scrap objectForKey:@(TYPE_TEXT)];
@@ -1571,9 +1606,9 @@ static void WriteGuestScrapToHostPasteboard(void)
 		}
 
 		if ([plain length]) {
-			[item setObject:plain forKey:kPasteboardTypeUTF8];
+			[g_pending_guest_scrap setObject:plain forKey:kPasteboardTypeUTF8];
 			if (rtfData)
-				[item setObject:rtfData forKey:kPasteboardTypeRTF];
+				[g_pending_guest_scrap setObject:rtfData forKey:kPasteboardTypeRTF];
 		}
 	}
 
@@ -1588,8 +1623,9 @@ static void WriteGuestScrapToHostPasteboard(void)
 			pngData = nil;
 		}
 		if (pngData)
-			[item setObject:pngData forKey:kPasteboardTypePNG];
+			[g_pending_guest_scrap setObject:pngData forKey:kPasteboardTypePNG];
 	}
+
 
 	// Everything else (PICT included) passes through under a mapped type string.
 	// utxt/ustl pass through together so Unicode-savvy guest apps keep styles
@@ -1601,18 +1637,18 @@ static void WriteGuestScrapToHostPasteboard(void)
 		if (type == TYPE_TEXT || type == TYPE_STYL)
 			continue;
 
-		[item setObject:[g_guest_scrap objectForKey:key] forKey:UTIForFlavor(type)];
+		[g_pending_guest_scrap setObject:[g_guest_scrap objectForKey:key] forKey:UTIForFlavor(type)];
 	}
 
-	if (![item count]) {
+	if (![g_pending_guest_scrap count]) {
 		CLIP_LOG("publish: nothing to publish yet (guest flavors: %{public}@)", [[g_guest_scrap allKeys] description]);
 		return;
 	}
 
 	NSString *publishUUID = [[NSUUID UUID] UUIDString];
-	[item setObject:publishUUID forKey:kPasteboardTypeMarker];
+	[g_pending_guest_scrap setObject:publishUUID forKey:kPasteboardTypeMarker];
 
-	CLIP_LOG("publish -> host: %{public}@", [[item allKeys] componentsJoinedByString:@", "]);
+	CLIP_LOG("publish -> host: %{public}@", [[g_pending_guest_scrap allKeys] componentsJoinedByString:@", "]);
 
 	// The guest's copy supersedes any host content still waiting to be injected
 	os_unfair_lock_lock(&g_pending_lock);
@@ -1623,25 +1659,15 @@ static void WriteGuestScrapToHostPasteboard(void)
 	g_pending_host_flavors = nil;
 	os_unfair_lock_unlock(&g_pending_lock);
 
-	dispatch_async(dispatch_get_main_queue(), ^{
-		UIPasteboard *pb = [UIPasteboard generalPasteboard];
+	if (objc_getIsClipboardSharingAutomatic()) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			// The marker (not changeCount, which is unreliable on Catalyst) is what
+			// keeps this write from being bounced back into the guest
+			g_last_published_uuid = publishUUID;
 
-		// The marker (not changeCount, which is unreliable on Catalyst) is what
-		// keeps this write from being bounced back into the guest
-		g_last_published_uuid = publishUUID;
-		g_last_stash_signature = nil;
-
-		[pb setItems:@[item] options:@{}];
-
-		g_host_change_count = [pb changeCount];
-		os_unfair_lock_lock(&g_pending_lock);
-		g_pending_host_attr = nil;
-		g_pending_host_text = nil;
-		g_pending_host_pict = nil;
-		g_pending_host_image = nil;
-		g_pending_host_flavors = nil;
-		os_unfair_lock_unlock(&g_pending_lock);
-	});
+			WritePendingGuestScrapToHostPasteboard();
+		});
+	}
 }
 
 /*
@@ -1650,15 +1676,19 @@ static void WriteGuestScrapToHostPasteboard(void)
  *  Main thread only.
  */
 
-static void SyncHostPasteboardToPending(void)
+void SyncHostPasteboardToPending(void)
 {
 	UIPasteboard *pb = [UIPasteboard generalPasteboard];
 
 #if !TARGET_OS_MACCATALYST
 	// changeCount is only trustworthy on iOS; on Catalyst it changes between
 	// reads, so there the marker and content signature below do the gating
-	if ([pb changeCount] == g_host_change_count)
+	if ([pb changeCount] == g_host_change_count) {
+		if (!objc_getIsClipboardSharingAutomatic()) {
+			[LocalNotificationObjCProxy sendClipboardSharingHostToGuestWithContent:ClipboardSharingContentAlreadyCopied];
+		}
 		return;
+	}
 #endif
 	g_host_change_count = [pb changeCount];
 
@@ -1675,6 +1705,9 @@ static void SyncHostPasteboardToPending(void)
 
 		if (markerString && [markerString isEqualToString:g_last_published_uuid]) {
 			CLIP_LOG("sync: own content (marker match), skipping");
+			if (!objc_getIsClipboardSharingAutomatic()) {
+				[LocalNotificationObjCProxy sendClipboardSharingHostToGuestWithContent:ClipboardSharingContentAlreadyCopied];
+			}
 			return;
 		}
 	}
@@ -1795,6 +1828,14 @@ static void SyncHostPasteboardToPending(void)
 	g_pending_host_image = image;
 	g_pending_host_flavors = ([flavors count] ? [flavors copy] : nil);
 	os_unfair_lock_unlock(&g_pending_lock);
+
+	if (g_pending_host_pict || g_pending_host_image) {
+		[LocalNotificationObjCProxy sendClipboardSharingHostToGuestWithContent:ClipboardSharingContentImage];
+	} else if (g_pending_host_attr || g_pending_host_text || g_pending_host_flavors) {
+		[LocalNotificationObjCProxy sendClipboardSharingHostToGuestWithContent:ClipboardSharingContentText];
+	} else {
+		[LocalNotificationObjCProxy sendClipboardSharingHostToGuestWithContent:ClipboardSharingContentEmpty];
+	}
 }
 
 /*
@@ -1817,7 +1858,9 @@ void ClipInit(void)
 	dispatch_async(dispatch_get_main_queue(), ^{
 		NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
 		void (^sync)(NSNotification *) = ^(NSNotification *notification) {
-			RequestHostPasteboardSync();
+			if (objc_getIsClipboardSharingAutomatic()) {
+				RequestHostPasteboardSync();
+			}
 		};
 		g_pasteboard_observers[0] = [nc addObserverForName:UIApplicationDidBecomeActiveNotification
 													object:nil
@@ -1832,7 +1875,9 @@ void ClipInit(void)
 													object:nil
 													 queue:[NSOperationQueue mainQueue]
 												usingBlock:sync];
-		RequestHostPasteboardSync();
+		if (objc_getIsClipboardSharingAutomatic()) {
+			RequestHostPasteboardSync();
+		}
 	});
 }
 
@@ -1884,7 +1929,7 @@ void GetScrap(void **handle, uint32 type, int32 offset)
 	g_pending_host_flavors = nil;
 	os_unfair_lock_unlock(&g_pending_lock);
 
-	if (!attr && !text && !pictData && !image && ![flavors count]) {
+	if (!attr && !text && !pictData && !image && ![flavors count] && objc_getIsClipboardSharingAutomatic()) {
 		// Fallback for missed activation notifications: refresh the pending
 		// slots so the next GetScrap sees current host content
 		static double last_refresh = 0;		// emulator thread only
@@ -2025,7 +2070,7 @@ void PutScrap(uint32 type, void *scrap, int32 length)
 
 		// Never let a conversion failure raise through the EMUL_OP into the emulator
 		@try {
-			WriteGuestScrapToHostPasteboard();
+			SyncGuestScrapToPending();
 		} @catch (NSException *exception) {
 			CLIP_LOG("PutScrap conversion raised: %{public}@", exception);
 		}
