@@ -856,3 +856,9 @@ bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 	rec->height = h;
 	return true;
 }
+void DSpContextPrivateReleaseBackBufferVariables(void** texture,void** buffer)
+{
+}
+void DSpContextPrivateReleaseBackBuffer(DSpContextPrivate* ctx)
+{
+}
