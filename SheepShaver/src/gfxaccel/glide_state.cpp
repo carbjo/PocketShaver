@@ -11,7 +11,9 @@
 #include "cpu_emulation.h"
 #include "macos_util.h"
 #include "glide_engine.h"
+#include "display_mode_controller.h"
 #include "gfx_log.h"
+#include "video.h"
 
 #include <cstring>
 #include <vector>
@@ -31,6 +33,10 @@ struct GlideState {
 	int      color_format;
 	int      num_buffers;
 	int      num_aux;
+	bool     presentation_owner_valid;
+	uint32_t owner_before_presentation;
+	int      mode_before_presentation;
+	int      presentation_mode;
 
 	uint32_t constant_color;
 	float    constant_r, constant_g, constant_b, constant_a;
@@ -133,6 +139,10 @@ void GlideStateResetDefaults(void)
 	g_glide.color_format = GR_COLORFORMAT_ARGB;
 	g_glide.num_buffers = 2;
 	g_glide.num_aux = 1;
+	g_glide.presentation_owner_valid = false;
+	g_glide.owner_before_presentation = kDMCOwnerQuickDraw;
+	g_glide.mode_before_presentation = -1;
+	g_glide.presentation_mode = -1;
 	g_glide.constant_color = 0xffffffffu;
 	g_glide.constant_r = g_glide.constant_g = g_glide.constant_b = g_glide.constant_a = 1.f;
 	g_glide.chroma_value = 0;
@@ -755,6 +765,74 @@ void GlideStateResolveResolution(int res_enum, int *out_w, int *out_h)
 	}
 	if (out_w) *out_w = w;
 	if (out_h) *out_h = h;
+}
+
+bool GlideStateBeginPresentation(int width, int height)
+{
+	const bool opening = !g_glide.presentation_owner_valid;
+	if (opening) {
+		const DMCModeSnapshot *snapshot = dmc_current_snapshot();
+		const uint32_t owner = snapshot
+			? snapshot->active_owner : (uint32)kDMCOwnerQuickDraw;
+		switch (owner) {
+		case kDMCOwnerQuickDraw:
+		case kDMCOwnerRAVE:
+		case kDMCOwnerGL:
+		case kDMCOwnerDSp:
+			g_glide.owner_before_presentation = owner;
+			break;
+		default:
+			g_glide.owner_before_presentation = kDMCOwnerQuickDraw;
+			break;
+		}
+		g_glide.mode_before_presentation = cur_mode;
+		g_glide.presentation_owner_valid = true;
+	}
+
+	/* Glide's screen output is 16-bit even when a surrounding DSp shell chose
+	 * an indexed QuickDraw mode for movies or menus. Change the real driver
+	 * mode through Display Manager so QuickDraw and Glide continue to address
+	 * one canonical surface; never quantize a private true-color overlay into
+	 * an unrelated 8-bit screen. */
+	const int target_mode = video_find_guest_mode(width, height, 16);
+	const int mode_before_switch = cur_mode;
+	if (target_mode < 0 ||
+		(target_mode != cur_mode &&
+		 !video_switch_guest_display(target_mode))) {
+		if (cur_mode != mode_before_switch)
+			(void)video_switch_guest_display(mode_before_switch);
+		if (opening) {
+			g_glide.presentation_owner_valid = false;
+			g_glide.owner_before_presentation = kDMCOwnerQuickDraw;
+			g_glide.mode_before_presentation = -1;
+			g_glide.presentation_mode = -1;
+		}
+		return false;
+	}
+	g_glide.presentation_mode = target_mode;
+	return true;
+}
+
+void GlideStateEndPresentation(void)
+{
+	if (!g_glide.presentation_owner_valid)
+		return;
+	const uint32_t owner = g_glide.owner_before_presentation;
+	const int restore_mode = g_glide.mode_before_presentation;
+	const int installed_mode = g_glide.presentation_mode;
+	g_glide.presentation_owner_valid = false;
+	g_glide.owner_before_presentation = kDMCOwnerQuickDraw;
+	g_glide.mode_before_presentation = -1;
+	g_glide.presentation_mode = -1;
+	const DMCModeSnapshot *snapshot = dmc_current_snapshot();
+	const bool glide_still_current =
+		snapshot && snapshot->active_owner == kDMCOwnerGlide;
+	if (cur_mode == installed_mode && restore_mode >= 0 &&
+		restore_mode != cur_mode) {
+		(void)video_switch_guest_display(restore_mode);
+	}
+	if (glide_still_current)
+		(void)dmc_set_active_owner(owner);
 }
 
 /* ---- Linear frame buffer (grLfbLock) ---------------------------------- */

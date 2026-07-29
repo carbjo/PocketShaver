@@ -531,7 +531,7 @@ static inline uint32_t nqd_read_blend_weight()
 // arbitrary values). EVERY ReadMacInt* in the walk is preceded by an
 // NQD_INRANGE OOB gate so a garbage pointer cannot trigger a host OOB read.
 // The gate + per-step graceful-return idiom is copied verbatim in shape from
-// DSpRedirectMainDevicePixMap (dsp_draw_context.mm:3616). On any gate failure
+// the live MainDevice walk above. On any gate failure
 // or a basic (non-colour) GrafPort, fall back to the lowmem 0x0A28 scalar
 // applied to all 3 channels WITH an NQD_LOG - never silent.
 // ---------------------------------------------------------------------------
@@ -1843,7 +1843,7 @@ void NQDMetalBitblt(uint32 p)
 	}
 	if (dest_packed_main_device_alias) {
 		dest_row_bytes = (int32)main_device.rowBytes;
-		NQD_VLOG("NQDMetalBitblt: redirected packed MainDevice dest alias "
+		NQD_VLOG("NQDMetalBitblt: packed MainDevice dest alias "
 				 "(packet_bits=%u live_bits=%u packet_rb=%d live_rb=%d)",
 				 packet_dest_pixel_size, main_device.pixelSize,
 				 packet_dest_row_bytes, dest_row_bytes);
@@ -1860,12 +1860,12 @@ void NQDMetalBitblt(uint32 p)
 		bpp = nqd_bytes_per_pixel(src_pixel_size);
 		if (src_pixel_size < 8) bpp = 1;
 		width_bytes = nqd_packed_width_bytes(width, src_pixel_size);
-		NQD_VLOG("NQDMetalBitblt: coerced redirected MainDevice source depth "
+		NQD_VLOG("NQDMetalBitblt: coerced MainDevice source depth "
 				 "packet=%u live=%u src_rb=%d",
 				 packet_src_pixel_size, src_pixel_size, src_row_bytes);
 	}
 	if (dest_pixel_size != packet_dest_pixel_size) {
-		NQD_VLOG("NQDMetalBitblt: coerced redirected MainDevice dest depth "
+		NQD_VLOG("NQDMetalBitblt: coerced MainDevice dest depth "
 				 "packet=%u live=%u dst_rb=%d",
 				 packet_dest_pixel_size, dest_pixel_size, dest_row_bytes);
 	}
@@ -2385,7 +2385,7 @@ void NQDMetalFillRect(uint32 p)
 	}
 	if (dest_packed_main_device_alias) {
 		dest_row_bytes = (int32)main_device.rowBytes;
-		NQD_VLOG("NQDMetalFillRect: redirected packed MainDevice dest alias "
+		NQD_VLOG("NQDMetalFillRect: packed MainDevice dest alias "
 				 "(packet_bits=%u live_bits=%u packet_rb=%d live_rb=%d)",
 				 packet_pixel_size, main_device.pixelSize,
 				 packet_dest_row_bytes, dest_row_bytes);
@@ -2395,7 +2395,7 @@ void NQDMetalFillRect(uint32 p)
 	if (pixel_size != packet_pixel_size) {
 		bpp = nqd_bytes_per_pixel(pixel_size);
 		if (pixel_size < 8) bpp = 1;
-		NQD_VLOG("NQDMetalFillRect: coerced redirected MainDevice depth "
+		NQD_VLOG("NQDMetalFillRect: coerced MainDevice depth "
 				 "packet=%u live=%u rb=%d",
 				 packet_pixel_size, pixel_size, dest_row_bytes);
 	}

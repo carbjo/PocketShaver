@@ -8,11 +8,10 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Field offsets and Mac OS lowmem globals used by the
- *  DSpRedirectMainDevicePixMap / DSpRestoreMainDevicePixMap helpers.
  *  DSP_PIXMAP_OFF_* values are the compact PixMap subset used by DSp's
  *  alt-buffer shim. DSP_MAINDEVICE_PIXMAP_OFF_* values are the real QuickDraw
- *  PixMap offsets used by the emulated MainDevice and real DSp CGrafPorts.
+ *  PixMap offsets used to read the live Display Manager-owned MainDevice and
+ *  emit real DSp CGrafPorts.
  */
 #ifndef DSP_PIXMAP_OFFSETS_H
 #define DSP_PIXMAP_OFFSETS_H
@@ -64,7 +63,12 @@
  *   0x10  gdCompProc    Ptr     (4 bytes)
  *   0x14  gdFlags       int16   <- NOTE: 2 bytes, not 4
  *   0x16  gdPMap        Handle  PixMapHandle <- this is what we want
- *   ...
+ *   0x22  gdRect        Rect
+ *   0x2A  gdMode        int32   relative kDepthModeN
+ *   0x2E  gdCCBytes     int16   expanded cursor row bytes
+ *   0x30  gdCCDepth     int16   expanded cursor depth
+ *   0x32  gdCCXData     Handle
+ *   0x36  gdCCXMask     Handle
  *
  * Canonical cross-reference: BasiliskII/src/video.cpp:439 uses
  *   `ReadMacInt32(gdev + 0x16)` with the comment `// gdPMap`.
@@ -83,5 +87,6 @@
  * 800x600 software frame inside a stale 1024x768 gdRect, blitting at
  * (112,84) and cropping the overhang. */
 #define GDEVICE_OFF_GDRECT  0x22    /* GDevice.gdRect (Rect, 8 bytes) */
+#define GDEVICE_OFF_GDMODE  0x2A    /* GDevice.gdMode (int32) */
 
 #endif /* include guard */

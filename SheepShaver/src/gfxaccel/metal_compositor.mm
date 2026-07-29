@@ -274,7 +274,6 @@ static uint64_t                     frame_interval_usec = 0;   // microseconds p
 extern "C" int  MetalCompositorSubmitFrame_BindPresentationContext(
     void *device, void *queue, void *cametal_layer);
 extern "C" void MetalCompositorSubmitFrame_UnbindPresentationContext(void);
-extern "C" void MetalCompositorSubmitFrame_SetFramebufferTexture(void *texture);
 
 static MetalCompositorDrawableSize MetalCompositorCurrentDrawableSize(int framebuffer_width,
                                                                       int framebuffer_height)
@@ -382,57 +381,10 @@ static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incomin
         return 0;
     }
 
-    /* CF-22.3-06 + CF-22.3-07: when DSp owns the framebuffer, resize the
-     * compositor texture to match the Mac mode. Presentation still renders into
-     * the host window-sized drawable; the compositor shader scales the Mac-mode
-     * framebuffer texture across that drawable. Without this, the framebuffer
-     * texture stays at the init-time window dimensions while DSp only writes a
-     * top-left region = the "small corner" UX symptom.
-     *
-     * The compositor texture is forced to BGRA8Unorm (VIDEO_DEPTH_32BIT)
-     * because DSp decodes its source-format back buffer (e.g. R16Uint
-     * xRGB1555 at 16bpp) into BGRA8Unorm during its own render pass before
-     * the compositor sees it. The Mac-side mode depth is preserved in the
-     * snapshot; only the compositor's internal pixel format is normalised.
-     *
-     * RAVE/GL are overlay contributors, not compositor-framebuffer writers.
-     * They still rely on the QuickDraw host framebuffer underlay for classic
-     * 2D UI, so rebuilding compositor_texture with a NULL host buffer here
-     * hides those CPU-side UI writes.
-     *
-     * QuickDraw mode switches normally retain their existing behaviour (no
-     * auto-resize here; the QD-side path manages compositor refresh through
-     * its own mechanism). DSp release is the exception: it publishes a
-     * QuickDraw snapshot with screen_base_host set to the restored MainDevice
-     * framebuffer, so the compositor can rebuild away from the DSp-owned
-     * BGRA render target and present the real desktop surface again.
-     */
-    if (incoming->active_owner == (uint32_t)kDMCOwnerDSp) {
-        int new_w = (int)incoming->width;
-        int new_h = (int)incoming->height;
-        int cur_w = compositor_pixel_width;
-        int cur_h = compositor_pixel_height;
-        if (new_w != cur_w || new_h != cur_h || compositor_depth != VIDEO_DEPTH_32BIT) {
-            uint32_t bgra_row_bytes = (uint32_t)new_w * 4;
-            uint32_t bgra_size      = bgra_row_bytes * (uint32_t)new_h;
-            int rc = MetalCompositorResize(
-                new_w, new_h,
-                VIDEO_DEPTH_32BIT,
-                (int)bgra_row_bytes,
-                (int)bgra_row_bytes,
-                NULL,                    /* engine writes via render pass; no host buffer */
-                bgra_size);
-            if (rc != 0) {
-                COMPOSITOR_ERR("DMC on_mode_enter: MetalCompositorResize failed (rc=%d) for "
-                               "DSp owner %dx%d — drawable will appear small in window",
-                               rc, new_w, new_h);
-                /* Non-fatal: engine writes still land in the existing (mismatched)
-                 * framebuffer texture, which appears in a corner of the window
-                 * (pre-CF-22.3-06 behaviour). */
-            }
-        }
-    } else if (incoming->active_owner == (uint32_t)kDMCOwnerQuickDraw &&
-               incoming->screen_base_host != NULL) {
+    /* Producer ownership never substitutes a private framebuffer. Every real
+     * mode enter binds the compositor to the driver-owned screen_base surface,
+     * independent of which API most recently wrote it. */
+    if (incoming->screen_base_host != NULL) {
         int new_w = (int)incoming->width;
         int new_h = (int)incoming->height;
         int new_pixel_depth = (int)incoming->depth;
@@ -459,7 +411,7 @@ static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incomin
                 buffer_size);
             if (rc != 0) {
                 COMPOSITOR_ERR("DMC on_mode_enter: MetalCompositorResize failed "
-                               "(rc=%d) for QuickDraw restore %dx%d@%d rb=%d host=%p",
+                               "(rc=%d) for canonical screen %dx%d@%d rb=%d host=%p",
                                rc, new_w, new_h, new_pixel_depth, new_row_bytes,
                                incoming->screen_base_host);
             }
@@ -1031,14 +983,6 @@ int MetalCompositorInit(int width, int height, int depth, int row_bytes,
         compositor_use_fallback_texture = true;
     }
 
-    // --- Publish framebuffer texture to SubmitFrame module ---
-    // Exposes compositor_texture so DSpContext_SwapBuffersHandler can blit
-    // the DSp back-buffer into it via MTLBlitCommandEncoder. The setter
-    // lives in metal_compositor_submitframe.mm (test-target-compatible);
-    // DSp calls MetalCompositorGetFramebufferTexture() to retrieve it.
-    MetalCompositorSubmitFrame_SetFramebufferTexture(
-        (__bridge void *)compositor_texture);
-
     // --- Double-buffered palette for indexed depths ---
     if (depth <= VIDEO_DEPTH_8BIT) {
         for (int i = 0; i < 2; i++) {
@@ -1306,25 +1250,6 @@ void MetalCompositorUpdateGammaLUT(const uint8_t *lut)
     COMPOSITOR_LOG("MetalCompositorUpdateGammaLUT: updated 768 bytes");
 }
 
-// Production accessor for the gamma_lut_buffer so the DSp
-// 16bpp unpack render pass can bind the same LUT the present shaders sample
-// (the non-visible-path twin — see dsp_metal_renderer.mm).
-void *MetalCompositorGetGammaLUTBuffer(void)
-{
-    return (__bridge void *)gamma_lut_buffer;
-}
-
-// The permanently-allocated identity-LUT fallback buffer.
-// The DSp 16bpp unpack twin binds this when MetalCompositorGetGammaLUTBuffer()
-// is nil (compositor mid-init) so its gamma-sampling shader never reads an
-// unbound buffer index (UB). Returns NULL only if the compositor is fully
-// uninitialized — the twin then aborts the pass rather than encoding an
-// unbound read.
-void *MetalCompositorGetGammaIdentityBuffer(void)
-{
-    return (__bridge void *)gamma_identity_buffer;
-}
-
 // ---------------------------------------------------------------------------
 // Historical: the legacy engine-specific overlay API was deleted
 // (CreateOverlayTexture / GetOverlayTexture / SetOverlayActive /
@@ -1354,36 +1279,10 @@ void MetalCompositorPresent(void)
 
     @autoreleasepool {
 
-    // If using fallback texture, upload framebuffer data via replaceRegion.
-    //
-    // Skip this CPU upload when the active owner is driving the framebuffer
-    // texture. In that case the owner has already encoded its own render pass
-    // into compositor_texture (e.g. DSp's DSpEncodePresentToFramebuffer), and:
-    //   (a) replaceRegion: here would clobber the owner's render output, and
-    //   (b) Metal validation rejects replaceRegion: on a texture that is
-    //       currently attached as a writeable render target by an in-flight
-    //       command buffer ("_validateReplaceRegion" assertion). The DSp
-    //       publish callback commits its render pass asynchronously, so the
-    //       GPU may still hold compositor_texture as a render-target
-    //       attachment when MetalCompositorPresent runs the next VBL tick.
-    //
-    // RAVE/GL are overlay owners. They submit cached overlay layers, but the
-    // base compositor_texture is still the QuickDraw/NQD CPU framebuffer.
-    // Keep uploading it so post-RAVE classic 2D UI/text remains visible under
-    // or outside the overlay.
-    bool skip_cpu_upload = false;
-    {
-        const DMCModeSnapshot *snap = dmc_current_snapshot();
-        if (snap != NULL) {
-            uint32_t owner = snap->active_owner;
-            if (owner != (uint32_t)kDMCOwnerQuickDraw &&
-                owner != (uint32_t)kDMCOwnerRAVE &&
-                owner != (uint32_t)kDMCOwnerGL) {
-                skip_cpu_upload = true;
-            }
-        }
-    }
-    if (!skip_cpu_upload && compositor_use_fallback_texture && compositor_texture && compositor_buffer) {
+    // A fallback texture is only a presentation cache for the canonical
+    // driver framebuffer. Always refresh it from screen_base; producer
+    // ownership never changes which surface contains the current pixels.
+    if (compositor_use_fallback_texture && compositor_texture && compositor_buffer) {
         MTLRegion region = MTLRegionMake2D(0, 0,
                                            compositor_texture.width,
                                            compositor_texture.height);
@@ -1619,10 +1518,6 @@ int MetalCompositorResize(int width, int height, int depth, int row_bytes,
         if (cs) CGColorSpaceRelease(cs);
     }
 
-    // --- Re-publish framebuffer texture to SubmitFrame module.
-    MetalCompositorSubmitFrame_SetFramebufferTexture(
-        (__bridge void *)compositor_texture);
-
     COMPOSITOR_LOG("MetalCompositorResize: %dx%d depth=%d → framebuffer=%dx%d drawable=%dx%d depth=%d (%dbpp) "
                    "format=%s shader=%s filter=%s%s",
                    old_width, old_height, old_depth,
@@ -1673,15 +1568,6 @@ void *MetalCompositorGetLayer(void)
 }
 
 // ---------------------------------------------------------------------------
-// MetalCompositorGetFramebufferTexture implementation lives in
-// metal_compositor_submitframe.mm so the test target (which does not
-// compile this file due to SDL2 deps) can also resolve the symbol. The
-// production path below publishes compositor_texture via
-// MetalCompositorSubmitFrame_SetFramebufferTexture whenever Init/Resize
-// rebuilds the framebuffer texture view.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // MetalCompositorShutdown — tear down all resources
 // ---------------------------------------------------------------------------
 
@@ -1711,10 +1597,6 @@ void MetalCompositorShutdown(void)
         [compositor_view removeFromSuperview];
         compositor_view = nil;
     }
-
-    // Clear the SubmitFrame module's framebuffer-texture publication
-    // before the compositor_texture is released.
-    MetalCompositorSubmitFrame_SetFramebufferTexture(NULL);
 
     compositor_layer    = nil;
     compositor_pipeline = nil;

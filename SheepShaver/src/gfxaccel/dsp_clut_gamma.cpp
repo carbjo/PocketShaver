@@ -16,22 +16,54 @@
  */
 #include "sysdeps.h"
 #include "cpu_emulation.h"
-#include "thunks.h"                /* SheepMem::Reserve */
 #include "dsp_engine.h"
 #include "dsp_draw_context.h"
 #include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler delegate target */
 #include "dsp_context_private.h"   /* DSpContextPrivate full struct; shared with dsp_metal_renderer.mm */
+#include "dsp_display_mode_policy.h"
 #include "dsp_guest_address.h"
 #include "metal_compositor.h"      /* compositor palette/gamma API */
 #include "display_mode_controller.h" /* dmc_current_snapshot + dmc_record_*_change + kDMCNoErr */
 #include "dsp_engine_internal.h"   /* DSpMapStateToDMCOwnerTyped (internal-only, NOT in include/) */
 #include "dsp_clut_gamma.h"
+#include "video.h"
+
+static int32_t DSpInstallCLUTRangeOnDisplay(const uint8_t clut_rgb[768],
+											uint32_t depth_bits,
+											uint32_t first,
+											uint32_t last)
+{
+	return video_install_guest_clut(
+		clut_rgb, depth_bits, first, last)
+		? kDSpNoErr : kDSpInternalErr;
+}
+
+int32_t DSpInstallCLUTOnDisplay(const uint8_t clut_rgb[768],
+							   uint32_t depth_bits)
+{
+	if (depth_bits != 1 && depth_bits != 2 &&
+		depth_bits != 4 && depth_bits != 8)
+		return kDSpInvalidAttributesErr;
+	return video_install_guest_clut(
+		clut_rgb, depth_bits, 0, (1u << depth_bits) - 1u)
+		? kDSpNoErr : kDSpInternalErr;
+}
+
+int32_t DSpInstallContextCLUTOnDisplay(DSpContextPrivate *ctx)
+{
+	if (ctx == nullptr)
+		return kDSpInvalidContextErr;
+	const uint32_t display_depth = DSpDisplayModeDepth(
+		ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+	return DSpInstallCLUTOnDisplay(
+		ctx->clut_bytes, display_depth);
+}
 
 /* ============================================================== */
 /*  CLUT handlers (sub-opcodes 300/301)                            */
 /*                                                                  */
 /*  DSpContext_SetCLUTEntriesHandler: validation + clut_bytes write */
-/*  + dmc_record_palette_change (generation bump only).            */
+/*  + guest Color QuickDraw display update when Active.            */
 /*  DSpContext_GetCLUTEntriesHandler: validation + read from        */
 /*  ctx->clut_bytes_latched.                                        */
 /* ============================================================== */
@@ -42,7 +74,7 @@
  *  `entries_host_range` points to (last - first + 1) * 3 bytes
  *  of R/G/B data - NOT a 768-byte buffer; the caller's responsibility is
  *  to lay out the partial range starting at offset 0. This core helper
- *  only handles the post-validation write + compositor push + DMC bump.
+ *  only handles the post-validation write plus the active-display update.
  *
  *  Validation here re-checks ctx != null + bounds/ordering as a defensive
  *  second-layer; the callers have already checked the same invariants, so
@@ -65,30 +97,24 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
 	const uint32_t count = last - first + 1;
 	memcpy(ctx->clut_bytes + first * 3, entries_host_range, count * 3);
 
-	/* The app has now supplied a real CLUT for this context, so the indexed
-	 * expand path must sample THIS table rather than the live display palette
-	 * (see expand_surface_to_rgba in dsp_gl_renderer.cpp). */
+	/* The app has now supplied a real CLUT for this context. Back-buffer
+	 * conversion must sample this table rather than the mode's inherited
+	 * QuickDraw palette. */
 	ctx->clut_app_supplied = 1;
 
-	/* When Active, bump the palette generation so the DSp expand re-runs
-	 * against the table just written.
-	 *
-	 * Deliberately NOT MetalCompositorUpdatePalette: that writes the
-	 * compositor's s_palette, whose only consumer is the CLASSIC QuickDraw
-	 * desktop expand (expand_framebuffer_rgba). Writing a DSp context's CLUT
-	 * there destroys the desktop's own palette, and nothing restores it when
-	 * the game exits - the desktop returns rendered through the game's colours.
-	 * The DSp expand (expand_surface_to_rgba) samples ctx->clut_bytes_latched
-	 * directly, so the context CLUT reaches the screen without touching the
-	 * desktop's.
-	 *
-	 * DMC bump: dmc_record_palette_change is the public DMC API - a function
-	 * call, not a direct generation-counter assignment. The DMC write-site CI
-	 * gate (testNoDirectDMCWritesInDSpFiles) scans for the bare-word DMC-owned
-	 * identifier set followed by an assignment, which does NOT match this
-	 * function-call syntax. */
-	if (ctx->state == (uint32_t)kDSpContextState_Active)
-		dmc_record_palette_change();
+	/* An Active indexed context owns the real display CLUT. Route the partial
+	 * update through guest Color QuickDraw instead of maintaining a second
+	 * renderer-only palette: SetEntries updates the GDevice table, calls the
+	 * emulated driver's cscSetEntries, and that driver publishes the same CLUT
+	 * and DMC generation to the compositor. */
+	if (ctx->state == (uint32_t)kDSpContextState_Active) {
+		const uint32_t display_depth = DSpDisplayModeDepth(
+			ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+		const int32_t display_err = DSpInstallCLUTRangeOnDisplay(
+			ctx->clut_bytes, display_depth, first, last);
+		if (display_err != kDSpNoErr)
+			return display_err;
+	}
 	return kDSpNoErr;
 }
 
@@ -123,26 +149,18 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
  *    kDSpNoErr                - success; compositor push if
  *                                ctx is Active, deferred otherwise
  *
- *  Compositor contract:
- *    When ctx is Active, a DMC palette-generation bump makes the full
- *    256-entry ctx->clut_bytes into the compositor's back palette
- *    buffer; the compositor's VBL-callback MetalCompositorPaletteLatch
- *    promotes back -> front at
- *    the next frame boundary. The per-context clut_bytes_latched buffer
- *    is drained by DSpVBLClutLatchCallback (not touched
- *    here); GetCLUTEntries reads clut_bytes_latched.
- *
- *  DMC contract:
- *    dmc_record_palette_change() fires AFTER a successful compositor
- *    push (Active only) to bump persisted_palette_generation - ONLY
- *    through the public DMC API, never a direct generation-counter
- *    assignment.
+ *  Display contract:
+ *    When ctx is Active, the changed range goes through QuickDraw's
+ *    SetEntries. QuickDraw updates MainDevice's ColorTable and calls the
+ *    emulated driver's cscSetEntries; the driver then publishes that same
+ *    table and its DMC palette generation to the host compositor. The
+ *    per-context clut_bytes_latched buffer remains VBL-latched separately
+ *    for GetCLUTEntries semantics.
  *
  *  Inactive/Paused persistence:
  *    When ctx->state != Active, the write lands only in ctx->clut_bytes.
  *    The next transition to Active inside DSpContext_SetStateHandler
- *    replays the stored clut_bytes via the same
- *    dmc_record_palette_change generation bump.
+ *    replays the stored clut_bytes through QuickDraw's SetEntries.
  */
 extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 													 uint32_t entriesAddr,

@@ -111,25 +111,6 @@ static id<MTLRenderPipelineState>     s_pipe_for_blend[3]  = { nil, nil, nil };
 static id<MTLRenderPipelineState>     s_pipe_display_premultiplied = nil;
 
 /*
- * Framebuffer-texture publication.
- *
- * metal_compositor.mm calls MetalCompositorSubmitFrame_SetFramebufferTexture
- * from Init / Resize with its compositor_texture handle, and again from
- * Shutdown with NULL. DSpContext_SwapBuffersHandler retrieves the handle via
- * MetalCompositorGetFramebufferTexture (also defined below) and blits its
- * private back_texture into it before submitting a kLayerSlotFramebuffer
- * CompositeLayer. The setter / getter live in this module (rather than in
- * metal_compositor.mm) so the test target - which does not compile
- * metal_compositor.mm due to SDL2 deps - can still resolve both symbols.
- *
- * Threading: written from emul thread during MetalCompositorInit / Resize /
- * Shutdown (same thread that calls SwapBuffers); read from emul thread
- * during SwapBuffers. No cross-thread access, no lock needed. A single
- * plain id<MTLTexture> retains correctly under ARC.
- */
-static id<MTLTexture>                 s_framebuffer_texture = nil;
-
-/*
  * Target presentation timestamp set by the VBL callback via
  * MetalCompositorSubmitFrame_SetTargetTimestamp().
  *
@@ -144,8 +125,6 @@ static id<MTLTexture>                 s_framebuffer_texture = nil;
  * callers (vbl_source) still invoke.
  */
 static _Atomic double s_target_presentation_ts = 0;
-
-static const uint32_t kMaxLayers = 16;
 
 // ---------------------------------------------------------------------------
 // Overlay cache (rave-overlay-flicker-black fix).
@@ -628,29 +607,6 @@ extern "C" int MetalCompositorSubmitFrame_BindPresentationContext(
 	return 0;
 }
 
-// ---------------------------------------------------------------------------
-// Framebuffer-texture publication API.
-// Companion to MetalCompositorSubmitFrame_BindPresentationContext, kept
-// on a separate setter so iterative Resize rebuilds can retarget the
-// published handle without re-running the full bind flow. The public
-// getter is MetalCompositorGetFramebufferTexture (declared in
-// metal_compositor.h); DSp calls it from SwapBuffers (Case B pre-blit).
-// ---------------------------------------------------------------------------
-
-extern "C" void MetalCompositorSubmitFrame_SetFramebufferTexture(void *texture)
-{
-	if (texture == NULL) {
-		s_framebuffer_texture = nil;
-	} else {
-		s_framebuffer_texture = (__bridge id<MTLTexture>)texture;
-	}
-}
-
-extern "C" void *MetalCompositorGetFramebufferTexture(void)
-{
-	return (__bridge void *)s_framebuffer_texture;
-}
-
 extern "C" void MetalCompositorSubmitFrame_UnbindPresentationContext(void)
 {
 	/* Drain the semaphore (3 waits) to ensure any in-flight GPU completion
@@ -676,9 +632,6 @@ extern "C" void MetalCompositorSubmitFrame_UnbindPresentationContext(void)
 	s_queue   = nil;
 	s_layer   = nil;
 	s_library = nil;
-	/* Drop the framebuffer-texture publication - avoids dangling-texture
-	 * reads from a stray late SwapBuffers on a torn-down compositor. */
-	s_framebuffer_texture = nil;
 	/* Drop any cached overlay whose texture is tied to a now-torn-down
 	 * device / drawable size (rave-overlay-flicker-black fix). */
 	os_unfair_lock_lock(&s_overlay_cache_lock);
@@ -704,7 +657,7 @@ extern "C" int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc
 	if (desc == NULL) {
 		return kGfxAccelErrInvalidDescriptor;
 	}
-	if (desc->layer_count > kMaxLayers) {
+	if (desc->layer_count > kGfxAccelMaxLayers) {
 		return kGfxAccelErrInvalidDescriptor;
 	}
 	if (desc->layer_count > 0 && desc->layers == NULL) {

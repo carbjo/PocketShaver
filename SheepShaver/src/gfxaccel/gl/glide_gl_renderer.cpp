@@ -85,6 +85,9 @@ struct GlideMetalTextureCacheEntry {
 static std::vector<GlideMetalTextureCacheEntry> glide_texture_cache;
 
 static void GlideSubitOverlay(int do_present);
+static void GlideUnpackColorRGB(uint32_t color, int color_format,
+								uint8_t *out_r, uint8_t *out_g,
+								uint8_t *out_b);
 
 static void GlideReleaseTextureCache(void)
 {
@@ -590,52 +593,6 @@ void GlideMetalShutdown(void)
 	glide_is_in_frame = false;
 }
 
-/* Drive DMC to whatever resolution this WinOpen requested. Glide titles
- * (D2 included) legitimately switch 640x480 <-> 800x600 (and others) for
- * movies vs menus vs gameplay - never assume a fixed "intro" size. */
-static void GlideSyncDMCToWindow(int width, int height)
-{
-	if (width <= 0 || height <= 0)
-		return;
-
-	/* Claim Glide first so dmc_request_mode_switch preserves us as owner
-	 * (otherwise a prior DSp owner sticks across the mode change). */
-	(void)dmc_set_active_owner(kDMCOwnerGlide);
-
-	const DMCModeSnapshot *snap = dmc_current_snapshot();
-	if (snap && (int)snap->width == width && (int)snap->height == height) {
-		return;
-	}
-
-	DMCModeDesc mode = {};
-	mode.width = (uint32_t)width;
-	mode.height = (uint32_t)height;
-	/* bpp for DMC validation is {1,2,4,8,16,32}. 16 matches native LFB. */
-	mode.depth = 16;
-	mode.row_bytes = (uint32_t)width * 2u;
-	mode.pitch = mode.row_bytes;
-	mode.vbl_usec = 0;
-	mode.screen_base_mac = 0;
-	mode.screen_base_host = nullptr;
-
-	int32_t rc = dmc_request_mode_switch(&mode);
-	if (rc != kDMCNoErr) {
-		mode.depth = 32;
-		mode.row_bytes = (uint32_t)width * 4u;
-		mode.pitch = mode.row_bytes;
-		rc = dmc_request_mode_switch(&mode);
-	}
-	if (rc != kDMCNoErr) {
-		QD3D_INIT_LOG("GlideMetalWinOpen: DMC mode switch %dx%d failed rc=%d",
-					  width, height, (int)rc);
-	} else {
-		QD3D_INIT_LOG("GlideMetalWinOpen: DMC mode -> %dx%d (from grSstWinOpen)",
-					  width, height);
-	}
-	/* Mode switch can leave owner sticky; reassert. */
-	(void)dmc_set_active_owner(kDMCOwnerGlide);
-}
-
 int GlideMetalWinOpen(int width, int height, int origin_upper_left)
 {
 	(void)origin_upper_left;
@@ -654,13 +611,9 @@ int GlideMetalWinOpen(int width, int height, int origin_upper_left)
 	glide_is_in_frame = false;
 	glide_has_context = false;
 
-	/* Match host display mode to THIS open (movies 640, menu 800, &). */
-	GlideSyncDMCToWindow(width, height);
-	/* Show the cleared Glide buffer immediately (black), owned by Glide -
-	 * leaving DSp underlay with a missing CLUT produced a solid WHITE
-	 * screen. Movies then overwrite via LFB; menu draws via LFB/GL.
-	 * One Present on open is intentional (mode switch); later swaps/clears
-	 * only SubmitFrame and let free-run VideoVBL Present. */
+	/* Glide allocates only a private producer target. The presentation session
+	 * has already selected the canonical 16-bit QuickDraw surface; publication
+	 * below resolves this completed target into that driver-owned screen. */
 	glide_has_context = true;
 	GlideSubitOverlay(/*do_present=*/1);
 
@@ -1083,6 +1036,7 @@ static void GlideSubitOverlay(int do_present)
 		glide_front_valid = true;
 	}
 
+	(void)dmc_set_active_owner(kDMCOwnerGlide);
 	const DMCModeSnapshot *snap = dmc_current_snapshot();
 	float dst_w = (float)glide_width;
 	float dst_h = (float)glide_height;
@@ -1110,7 +1064,6 @@ static void GlideSubitOverlay(int do_present)
 	layer.blend = kBlendOpaque;
 	layer.alpha = 1.f;
 
-	(void)dmc_set_active_owner(kDMCOwnerGlide);
 	FrameDescriptor desc = {};
 	desc.layers = &layer;
 	desc.layer_count = 1;
@@ -1159,10 +1112,14 @@ void GlideMetalBufferSwap(int swap_interval)
 void GlideMetalBufferClear(uint32_t color, uint32_t alpha, uint32_t depth)
 {
 	if (!GlideBindDrawFBO()) return;
-	/* GrColor packing depends on color format; treat as ARGB8888 common case. */
-	const float r = ((color >> 16) & 0xff) / 255.f;
-	const float g = ((color >> 8) & 0xff) / 255.f;
-	const float b = ((color >> 0) & 0xff) / 255.f;
+	/* grSstWinOpen's GrColorFormat controls every GrColor_t argument,
+	 * including BufferClear. Diablo II opens RGBA, not the ARGB default. */
+	uint8_t clear_r = 0, clear_g = 0, clear_b = 0;
+	GlideUnpackColorRGB(color, GlideStateColorFormat(),
+						&clear_r, &clear_g, &clear_b);
+	const float r = clear_r / 255.f;
+	const float g = clear_g / 255.f;
+	const float b = clear_b / 255.f;
 	const float a = (alpha & 0xffu) / 255.f;
 	glClearColor(r, g, b, a);
 	/* grBufferClear's depth is the exact unsigned 16-bit buffer value for
@@ -1232,9 +1189,9 @@ void GlideMetalUploadLfbAndPresent(const uint8_t *bgra, int w, int h, int pitch,
 
 /* ---- Textures ---------------------------------------------------------- */
 
-static void GlideUnpackChromaRGB(uint32_t color, int color_format,
-									uint8_t *out_r, uint8_t *out_g,
-									uint8_t *out_b)
+static void GlideUnpackColorRGB(uint32_t color, int color_format,
+								uint8_t *out_r, uint8_t *out_g,
+								uint8_t *out_b)
 {
 	uint8_t r = 0, g = 0, b = 0;
 	switch (color_format) {
@@ -1274,8 +1231,8 @@ static void GlideDecodeTextureLevel(const uint8_t *src, int w, int h, int format
 	const uint32_t *pal = GlideStateTexPalette();
 	const int bpp = GlideTexBpp(format);
 	uint8_t chroma_r = 0, chroma_g = 0, chroma_b = 0;
-	GlideUnpackChromaRGB(chroma_value, color_format,
-							&chroma_r, &chroma_g, &chroma_b);
+	GlideUnpackColorRGB(chroma_value, color_format,
+						&chroma_r, &chroma_g, &chroma_b);
 	uint8_t *d = rgba.data();
 	const uint8_t *s = src;
 	for (int i = 0; i < w * h; i++) {

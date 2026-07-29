@@ -63,6 +63,8 @@ extern int  GlideStateOriginUpperLeft(void);
 extern void GlideStateSetInited(bool v);
 extern void GlideStateSetWindowOpen(bool v);
 extern void GlideStateSetWin(int w, int h, int origin_ul, int cfmt, int nbuf, int naux);
+extern bool GlideStateBeginPresentation(int width, int height);
+extern void GlideStateEndPresentation(void);
 extern void GlideStateSetClip(int minx, int miny, int maxx, int maxy);
 extern void GlideStateSetConstantColor(uint32_t c);
 extern void GlideStateSetConstantColor4(float r, float g, float b, float a);
@@ -464,6 +466,12 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 
 	switch (subop) {
 	case kGlide_grGlideInit:
+		/* A second init closes the old producer before resetting Glide state. */
+		if (GlideStateWindowOpen()) {
+			GlideMetalWinClose();
+			GlideStateSetWindowOpen(false);
+		}
+		GlideStateEndPresentation();
 		GlideStateResetDefaults();
 		/* Start from the fixed Glide 2 GrVertex layout. Glide 2 has no
 		 * grVertexLayout, so a Glide 2 client would otherwise leave the whole
@@ -479,8 +487,8 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		if (GlideStateWindowOpen()) {
 			GlideMetalWinClose();
 			GlideStateSetWindowOpen(false);
-			(void)dmc_set_active_owner(kDMCOwnerQuickDraw);
 		}
+		GlideStateEndPresentation();
 		GlideStateLfbRelease();
 		GlideMetalShutdown();
 		GlideStateSetInited(false);
@@ -535,12 +543,24 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 		/* Drop any stale lock from a prior mode (movies -> menu). */
 		if (GlideStateLfbIsLocked())
 			(void)GlideStateLfbUnlock(0);
+		/* Close the old private target before the shared display transaction;
+		 * the presentation state retains the original outer mode across a
+		 * direct WinOpen-to-WinOpen resolution change. */
+		if (GlideStateWindowOpen()) {
+			GlideMetalWinClose();
+			GlideStateSetWindowOpen(false);
+		}
+		if (!GlideStateBeginPresentation(w, h)) {
+			GlideStateEndPresentation();
+			GlideLog("grSstWinOpen FAILED canonical 16-bit mode %dx%d", w, h);
+			return FXFALSE;
+		}
 		if (GlideMetalWinOpen(w, h, origin_ul) != 0) {
+			GlideStateEndPresentation();
 			GlideLog("grSstWinOpen FAILED %dx%d", w, h);
 			return FXFALSE;
 		}
 		GlideStateSetWin(w, h, origin_ul, cfmt, nCol ? nCol : 2, nAux);
-		(void)dmc_set_active_owner(kDMCOwnerGlide);
 		GlideLog("grSstWinOpen %dx%d orgUL=%d cfmt=%d nCol=%d",
 				  w, h, origin_ul, cfmt, nCol);
 		return FXTRUE;
@@ -556,8 +576,9 @@ uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 			(void)GlideStateLfbUnlock(0);
 		GlideMetalWinClose();
 		GlideStateSetWindowOpen(false);
-		/* Keep LFB alloc across close/reopen (mode switch 640->800); free on shutdown.
-		 * Leave DMC owner alone - next DSp SetState / WinOpen owns the handoff. */
+		GlideStateEndPresentation();
+		/* Keep LFB alloc across close/reopen (movies -> menu); free on
+		 * shutdown. EndPresentation restored the outer guest mode above. */
 		if (s_close_n <= 4 || (s_close_n & (s_close_n - 1)) == 0)
 			GlideLog("grSstWinClose (#%u)", (unsigned)s_close_n);
 		return 0;

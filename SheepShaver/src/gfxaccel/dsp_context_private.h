@@ -39,8 +39,6 @@
 #include <stdint.h>
 #include <stdatomic.h>
 
-#include "dsp_front_staging_present_policy.h"
-
 #include "dsp_engine.h"       /* DSpContextAttributes + DSpContextState enum */
 
 /* DSP_ENUMERATION_INDEX_NONE is defined in the public dsp_draw_context.h
@@ -100,39 +98,12 @@ struct DSpContextPrivate {
 	uint32_t              front_cgrafptr_mac_addr;
 	uint32_t              front_pixmap_mac_addr;
 	uint32_t              front_pixmap_handle_mac_addr;
-	uint32_t              front_staging_mac_addr;
-	uint32_t              front_staging_size;
-	bool                  front_staging_owned_sysheap;
-	DSpFrontStagingPresentState front_staging_present_state;
 
 	/* Dirty-region accumulator - populated with the real
 	 * InvalBackBufferRect-driven union. */
 	int16_t               dirty_left, dirty_top, dirty_right, dirty_bottom;
 	bool                  dirty_empty;
 	bool                  dirty_cold_start;
-
-	/* Once a client uses DSpContext_SwapBuffers, that context is
-	 * swap-driven. VBL auto-publish is only a compatibility fallback for
-	 * clients that never swap; keeping it enabled after explicit swaps can
-	 * surface partially drawn QuickDraw menu frames between app-owned
-	 * presents. */
-	bool                  explicit_swap_observed;
-
-	/* Swap generation: bumped on every DSpContext_SwapBuffers. The
-	 * front-staging refresh (back staging -> front staging) is gated on
-	 * this so it only runs when a swap actually delivered a new visible
-	 * frame. Front-buffer-direct clients (no swaps) draw straight into
-	 * the front staging; an ungated refresh replays the stale back
-	 * snapshot over their live screen on every GetFrontBuffer (The Sims:
-	 * 2D UI wiped to black hundreds of times per run). */
-	uint32_t              swap_generation;
-	uint32_t              front_staging_refresh_swap_generation;
-	/* Geometry the front staging was last vended with. A mismatch on the
-	 * next ensure means the allocation is being reused across a mode
-	 * switch and its pixels have the wrong pitch - refresh regardless of
-	 * swap generation. */
-	uint32_t              front_staging_row_bytes;
-	uint32_t              front_staging_height;
 
 	/* Staging-region fallback. When Host2MacAddr cannot map the
 	 * MTLBuffer contents pointer back to a usable guest-RAM address (e.g.,
@@ -159,54 +130,11 @@ struct DSpContextPrivate {
 	 * scratch and direct Host2MacAddr paths leave this false. */
 	bool                  staging_owned_sysheap;
 
-	/* MainDevice PixMap restoration state.
-	 * Single-writer emul-thread per DSpContextPrivate convention. Captured on
-	 * SetState(Active); restored on Release / SetState(Paused) / SetState(Inactive)
-	 * / DSpOnBackground. Field names use the saved_pixmap_ prefix so the
-	 * DMC write-site grep gate stays zero-match. */
-	uint32_t  saved_pixmap_addr;        /* PixMap struct pointer captured at SetState(Active) */
-	uint32_t  saved_pixmap_baseAddr;
-	uint16_t  saved_pixmap_rowBytes;
-	int16_t   saved_pixmap_bounds[4];   /* top, left, bottom, right (matches QD Rect layout) */
-	uint16_t  saved_pixmap_pixelType;
-	uint16_t  saved_pixmap_pixelSize;
-	uint16_t  saved_pixmap_cmpCount;
-	uint16_t  saved_pixmap_cmpSize;
-	uint16_t  saved_pixmap_pmVersion;
-	uint16_t  saved_pixmap_packType;
-	uint32_t  saved_pixmap_packSize;
-	uint32_t  saved_pixmap_hRes;
-	uint32_t  saved_pixmap_vRes;
-	uint32_t  saved_pixmap_planeBytes;
-	uint8_t   saved_pixmap_valid;       /* 0 = no redirect installed; 1 = redirect installed */
-	uint8_t   saved_pixmap_reserved[3]; /* alignment padding (preserves uint16 alignment of any trailing fields) */
-	/* Original MainDevice GDevice.gdRect, cached alongside the PixMap
-	 * originals when the redirect installs (apps read gdRect for the
-	 * display's global bounds - the DMGetGDeviceByDisplayID centering
-	 * idiom), restored by DSpRestoreMainDevicePixMap. */
-	uint32_t  saved_gdevice_ptr;        /* GDevice struct pointer the gdRect save came from */
-
-	/* WindowPtr of the borderless full-screen window put up while this context
-	 * is Active, mirroring what real DrawSprocket does. Needed because the
-	 * guest's event code hit-tests mouseDown with FindWindow(), which walks
-	 * lowmem WindowList - with no window at all every click resolves to inDesk
-	 * and is discarded. 0 when no window is currently up. */
+	/* WindowPtr of the full-screen Window Manager backdrop owned while this
+	 * context is Active. It keeps other applications' windows below later DSp
+	 * dialogs and gives FindWindow a full-screen application layer without
+	 * introducing another pixel surface. 0 when no backdrop is live. */
 	uint32_t  guest_window;
-
-	/* Desired window state, set from DSpContext_SetStateHandler (which runs in
-	 * the NATIVE_DSP_DISPATCH native-opcode context, where running 68k code is
-	 * illegal). DSpPumpContextWindow reconciles guest_window with this from a
-	 * 68k-safe context. */
-	uint8_t   window_wanted;
-
-	/* SheepMem block holding the window's boundsRect + title. Must outlive the
-	 * NewCWindow call, so it is owned by the context rather than a stack
-	 * temporary. Allocated on first use; never freed (one small block per
-	 * context, reused across create/dispose cycles). */
-	uint32_t  window_scratch;
-	int16_t   saved_gdrect[4];          /* original gdRect: top, left, bottom, right */
-	uint8_t   saved_gdrect_valid;       /* 0 = not cached; 1 = cached (restore pending) */
-	uint8_t   saved_gdrect_reserved[3]; /* alignment padding */
 
 	/* Per-context CLUT storage.
 	 * clut_bytes is the writer-visible state - DSpContext_SetCLUTEntries

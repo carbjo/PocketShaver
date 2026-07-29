@@ -158,7 +158,7 @@ void     vbl_source_signal_3d_pacing(void);
  * one-shot at DSpInit time before any VBL tick fires, so no cross-thread
  * race is possible under the single-writer model.
  */
-#define VBL_SECONDARY_CALLBACK_MAX 5   /* adds DSpVBLCompositorPublishCallback as the 5th slot. */
+#define VBL_SECONDARY_CALLBACK_MAX 4
 int32_t vbl_source_register_secondary_callback(VBLSourceCallbackFn cb,
                                                 void *ctx);
 void    vbl_source_unregister_secondary_callback(VBLSourceCallbackFn cb);

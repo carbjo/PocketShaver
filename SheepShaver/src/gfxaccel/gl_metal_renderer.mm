@@ -266,6 +266,9 @@ extern "C" void gl_overlay_present(void)
 		return;
 	}
 
+	/* Producer identity is metadata for the frame being published. Publish it
+	 * before sampling the snapshot generation used by the descriptor. */
+	(void)dmc_set_active_owner(kDMCOwnerGL);
 	const struct DMCModeSnapshot *snap = dmc_current_snapshot();
 	const GLOverlayLayerRect rect = GLMakeOverlayLayerRect(
 		s_gl_dst_left,
@@ -295,7 +298,9 @@ extern "C" void gl_overlay_present(void)
 	layer.dst_size_w   = rect.dst_size_w;
 	layer.dst_size_h   = rect.dst_size_h;
 	layer.slot         = kLayerSlotOverlay;
-	layer.blend        = kBlendPremultiplied;
+	/* SwapBuffers publishes the completed drawable as screen pixels. Alpha is
+	 * framebuffer data, not coverage for a retained compositor overlay. */
+	layer.blend        = kBlendOpaque;
 	layer.alpha        = 1.0f;
 
 	struct FrameDescriptor desc;
@@ -312,8 +317,6 @@ extern "C" void gl_overlay_present(void)
 	} else {
 		gl_advance_overlay_texture_after_submit();
 	}
-	/* Declare GL owner - fast no-op when already GL (idempotent). */
-	(void)dmc_set_active_owner(kDMCOwnerGL);
 }
 
 /*

@@ -220,7 +220,7 @@ static bool DSpApplyDesiredAttributesToChild(DSpContextPrivate *child,
 	 * does exactly this while selecting a renderer). Its optional desired
 	 * attributes describe the switch/display request; they must not relabel
 	 * an existing back-buffer allocation. Doing so changed a 640x480x16
-	 * allocation into @32 in the metadata, and the next PixMap redirect read
+	 * allocation into @32 in the metadata, and the next buffer operation read
 	 * 1,228,800 bytes from a 614,400-byte buffer.
 	 *
 	 * Resource-bearing fields therefore remain tied to the allocation until

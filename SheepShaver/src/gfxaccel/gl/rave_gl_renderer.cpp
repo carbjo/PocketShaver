@@ -1782,11 +1782,12 @@ int32_t NativeRenderEnd(uint32_t drawContextAddr, uint32_t modifiedRectAddr)
 	layer.dst_size_w = (float)(s_dst_w > 0 ? s_dst_w : (int32_t)s_ow);
 	layer.dst_size_h = (float)(s_dst_h > 0 ? s_dst_h : (int32_t)s_oh);
 	layer.slot = kLayerSlotOverlay;
-	/* apply_blend() accumulates RGB into the window overlay and uses separate
-	 * source-over alpha factors to track coverage. The result is therefore a
-	 * premultiplied compositor layer, matching the Metal RAVE backend. Treating
-	 * it as straight alpha attenuates translucent pixels a second time. */
-	layer.blend = kBlendPremultiplied;
+	/* RenderEnd publishes a completed screen rectangle. Its alpha channel is
+	 * RAVE draw state, not coverage for a retained host overlay; blending it
+	 * over old QuickDraw pixels creates transparent holes and resurrects the
+	 * pre-game desktop. Later QuickDraw operations compose by writing the same
+	 * framebuffer after this opaque replacement. */
+	layer.blend = kBlendOpaque;
 	layer.alpha = 1.f;
 
 	FrameDescriptor desc = {};
@@ -1891,16 +1892,14 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 	if (!priv || !priv->metal || deviceStructAddr == 0) return kQAError;
 	RaveMetalState *ms = priv->metal;
 
-	/* Validate the active display mode before indexing VModes[]. A stale or
-	 * out-of-range cur_mode would yield a garbage viRowBytes/viYsize, a huge
-	 * backSize, a failed Mac_sysalloc, and a zero back-buffer pointer the guest
-	 * then writes through (the 0x... access violation in vm_write_memory_4). */
-	if (cur_mode < 0 || cur_mode >= 64) /* VModes[] canonical upper bound */
+	GfxAccelScreenSurface screen = {};
+	if (!MetalCompositorGetScreenSurface(&screen) ||
+		screen.mac_base == 0 || screen.host_base == nullptr ||
+		screen.row_bytes <= 0 || screen.width <= 0 || screen.height <= 0) {
 		return kQAError;
-	const VideoInfo &mode = VModes[cur_mode];
-	if (mode.viRowBytes == 0 || mode.viYsize == 0 || mode.viXsize == 0)
-		return kQAError;
-	const bool screen16 = (mode.viAppleMode == APPLE_16_BIT) && screen_base != 0;
+	}
+	const bool screen16 =
+		screen.depth == APPLE_16_BIT && screen.mac_base == screen_base;
 
 	if (!screen16) {
 		/* Screen is not in a 16bpp mode (callers of this ATI extension do
@@ -1930,7 +1929,8 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 	 * framebuffer. The guest composes scene + interface here; the visible
 	 * framebuffer only ever receives completed frames (the present below), so
 	 * no intermediate erase/redraw state can reach the display. */
-	const uint64_t backSize64 = (uint64_t)mode.viRowBytes * mode.viYsize;
+	const uint64_t backSize64 =
+		(uint64_t)(uint32_t)screen.row_bytes * (uint32_t)screen.height;
 	if (backSize64 == 0 || backSize64 > (uint64_t)RAMSize)
 		return kQAError;
 	const uint32_t backSize = (uint32_t)backSize64;
@@ -1946,8 +1946,7 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 	/* Present: everything the guest drew since the previous lock is now a
 	 * completed frame - copy it to the visible framebuffer in one pass. */
 	if (ms->ati_back_buffer_dirty) {
-		uint8_t *fb = Mac2HostAddr(screen_base);
-		if (fb) memcpy(fb, ms->ati_back_buffer_host, backSize);
+		memcpy(screen.host_base, ms->ati_back_buffer_host, backSize);
 	}
 
 	/* Transfer a newly rendered 3D frame into the back buffer, converting
@@ -1987,15 +1986,15 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 				const int32_t dstY = priv->top  > 0 ? priv->top  : 0;
 				int64_t copyW = (int64_t)w;
 				int64_t copyH = (int64_t)h;
-				if (dstX + copyW > mode.viXsize) copyW = (int64_t)mode.viXsize - dstX;
-				if (dstY + copyH > mode.viYsize) copyH = (int64_t)mode.viYsize - dstY;
+				if (dstX + copyW > screen.width) copyW = (int64_t)screen.width - dstX;
+				if (dstY + copyH > screen.height) copyH = (int64_t)screen.height - dstY;
 				/* GL render targets are bottom-up; the framebuffer contract is
 				 * top-down, so flip rows during the copy. */
 				for (int64_t y = 0; y < copyH; y++) {
 					const uint8_t *s = ms->readback_bgra.data() +
 									   (size_t)((uint32_t)(h - 1u - (uint32_t)y) * w) * 4u;
 					uint8_t *d = ms->ati_back_buffer_host +
-								 (size_t)(dstY + y) * mode.viRowBytes +
+								 (size_t)(dstY + y) * screen.row_bytes +
 								 (size_t)dstX * 2;
 					for (int64_t x = 0; x < copyW; x++) {
 						uint16_t v = (uint16_t)(((s[2] >> 3) << 10) |
@@ -2012,11 +2011,9 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 		}
 	}
 
-	/* The framebuffer now owns presentation; stop compositing the (stale)
-	 * overlay on top of it. Submits stay suppressed while cpu_composite_frames
-	 * is armed, so the compositor presents the framebuffer alone. */
-	MetalCompositorSubmitFrame_ClearCachedOverlay();
-
+	/* Subsequent RenderEnd submits stay suppressed while cpu_composite_frames
+	 * is armed. The completed CPU frame above joins the same screen through
+	 * the normal guest-dirty upload path. */
 	ms->ati_back_buffer_dirty = true;
 
 	/* The vendored back buffer MUST be a valid guest pointer. If the
@@ -2033,14 +2030,15 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 	}
 
 	WriteMacInt32(deviceStructAddr + 0,  kQADeviceMemory);
-	WriteMacInt32(deviceStructAddr + 4,  mode.viRowBytes);
+	WriteMacInt32(deviceStructAddr + 4,  (uint32_t)screen.row_bytes);
 	WriteMacInt32(deviceStructAddr + 8,  kQAPixel_RGB16);
-	WriteMacInt32(deviceStructAddr + 12, mode.viXsize);
-	WriteMacInt32(deviceStructAddr + 16, mode.viYsize);
+	WriteMacInt32(deviceStructAddr + 12, (uint32_t)screen.width);
+	WriteMacInt32(deviceStructAddr + 16, (uint32_t)screen.height);
 	WriteMacInt32(deviceStructAddr + 20, ms->ati_back_buffer_mac);
 	RAVE_LOG("ATIGetDrawBuffer: ctx=0x%08x -> back buffer 0x%08x %ux%u rowBytes=%u",
-			 drawContextAddr, ms->ati_back_buffer_mac, mode.viXsize, mode.viYsize,
-			 mode.viRowBytes);
+				 drawContextAddr, ms->ati_back_buffer_mac,
+				 (uint32_t)screen.width, (uint32_t)screen.height,
+				 (uint32_t)screen.row_bytes);
 	return kQANoErr;
 }
 

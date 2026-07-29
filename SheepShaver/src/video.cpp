@@ -46,6 +46,7 @@
 #endif
 #if defined(ENABLE_GFXACCEL)
 #include "display_mode_controller.h"
+#include "dsp_pixmap_offsets.h"
 #include "dsp_video_status_policy.h"
 #include "metal_compositor.h"
 #endif
@@ -83,6 +84,20 @@ VidLocals *private_data = NULL;	// Pointer to driver local variables (there is o
 
 static long save_conf_id = APPLE_W_640x480;
 static long save_conf_mode = APPLE_8_BIT;
+
+#if defined(ENABLE_GFXACCEL)
+/* InterfaceLib entry points for guest display leases and DSp's Window Manager
+ * backdrop. They are resolved once, but all calls remain synchronous on the
+ * emulation thread. */
+static uint32 guest_dm_set_display_mode = 0;
+static uint32 guest_set_entries = 0;
+static uint32 guest_new_cwindow = 0;
+static uint32 guest_dispose_window = 0;
+static uint32 guest_new_rgn = 0;
+static uint32 guest_rect_rgn = 0;
+static uint32 guest_paint_one = 0;
+static uint32 guest_dispose_rgn = 0;
+#endif
 
 static void video_log_palette_summary(const char *op, uint32 start, uint32 count)
 {
@@ -798,6 +813,312 @@ uint16 video_rel_depth_from_abs(uint32 abs)
 		if (depths[i] == abs) return (uint16)(firstVidMode + i);
 	return (uint16)abs;	// unknown: report unchanged
 }
+
+#if defined(ENABLE_GFXACCEL)
+static bool video_guest_address_contains(uint32 addr, uint32 size)
+{
+	if (addr == 0 || size == 0)
+		return false;
+	const uint64 start = (uint64)addr;
+	const uint64 end = start + size;
+	if (end < start)
+		return false;
+	if (end <= 0x3000)
+		return true;
+	const uint64 ram_lo = (uint64)(uint32)RAMBase;
+	const uint64 ram_hi = (uint64)(uint32)(RAMBase + RAMSize);
+	return start >= ram_lo && end <= ram_hi;
+}
+
+static bool video_guest_address_contains(uint32 addr, uint32 offset,
+										 uint32 size)
+{
+	return addr != 0 && addr <= UINT32_MAX - offset &&
+		video_guest_address_contains(addr + offset, size);
+}
+
+bool video_prepare_guest_display(void)
+{
+	if (guest_dm_set_display_mode == 0)
+		guest_dm_set_display_mode =
+			FindLibSymbol("\014InterfaceLib", "\020DMSetDisplayMode");
+	if (guest_set_entries == 0)
+		guest_set_entries =
+			FindLibSymbol("\014InterfaceLib", "\012SetEntries");
+	if (guest_new_cwindow == 0)
+		guest_new_cwindow =
+			FindLibSymbol("\014InterfaceLib", "\012NewCWindow");
+	if (guest_dispose_window == 0)
+		guest_dispose_window =
+			FindLibSymbol("\014InterfaceLib", "\015DisposeWindow");
+	if (guest_new_rgn == 0)
+		guest_new_rgn =
+			FindLibSymbol("\014InterfaceLib", "\006NewRgn");
+	if (guest_rect_rgn == 0)
+		guest_rect_rgn =
+			FindLibSymbol("\014InterfaceLib", "\007RectRgn");
+	if (guest_paint_one == 0)
+		guest_paint_one =
+			FindLibSymbol("\014InterfaceLib", "\010PaintOne");
+	if (guest_dispose_rgn == 0)
+		guest_dispose_rgn =
+			FindLibSymbol("\014InterfaceLib", "\012DisposeRgn");
+	return guest_dm_set_display_mode != 0;
+}
+
+uint32 video_create_guest_fullscreen_window(uint32 width, uint32 height)
+{
+	(void)video_prepare_guest_display();
+	if (guest_new_cwindow == 0 || width == 0 || height == 0 ||
+		width > 0x7fffu || height > 0x7fffu)
+		return 0;
+
+	SheepVar scratch(12);
+	const uint32 rect = scratch.addr();
+	const uint32 title = rect + 8;
+	WriteMacInt16(rect + 0, 0);
+	WriteMacInt16(rect + 2, 0);
+	WriteMacInt16(rect + 4, (uint16)height);
+	WriteMacInt16(rect + 6, (uint16)width);
+	WriteMacInt8(title, 0);
+
+	/* A visible frontmost plainDBox supplies Window Manager ordering only.
+	 * Its pixels still live in the canonical screen and are immediately
+	 * replaced by the accelerated producer. Disposing it after mode restore
+	 * exposes the underlying desktop through the normal guest update path. */
+	return call_macos8(
+		guest_new_cwindow,
+		0, rect, title, 1, 2, 0xffffffffu, 0, 0);
+}
+
+bool video_dispose_guest_window(uint32 window)
+{
+	if (window == 0)
+		return true;
+	(void)video_prepare_guest_display();
+	if (guest_dispose_window == 0)
+		return false;
+	(void)call_macos1(guest_dispose_window, window);
+
+	/* DisposeWindow exposes the pixels, but accelerated rendering bypasses
+	 * the Window Manager's normal damage bookkeeping. Paint the exposed
+	 * desktop through the guest Window Manager so its DeskHook redraws icons
+	 * and ordinary windows receive update regions. This restores guest UI
+	 * state; it is not a saved framebuffer copy. */
+	if (guest_new_rgn != 0 && guest_rect_rgn != 0 &&
+		guest_paint_one != 0 && guest_dispose_rgn != 0 &&
+		cur_mode >= 0 && cur_mode < 64 &&
+		VModes[cur_mode].viType != DIS_INVALID &&
+		VModes[cur_mode].viXsize <= 0x7fffu &&
+		VModes[cur_mode].viYsize <= 0x7fffu) {
+		const uint32 exposed = call_macos(guest_new_rgn);
+		if (exposed != 0) {
+			SheepVar rect_storage(8);
+			const uint32 rect = rect_storage.addr();
+			WriteMacInt16(rect + 0, 0);
+			WriteMacInt16(rect + 2, 0);
+			WriteMacInt16(rect + 4, VModes[cur_mode].viYsize);
+			WriteMacInt16(rect + 6, VModes[cur_mode].viXsize);
+			(void)call_macos2(guest_rect_rgn, exposed, rect);
+			(void)call_macos2(guest_paint_one, 0, exposed);
+			(void)call_macos1(guest_dispose_rgn, exposed);
+		}
+	}
+	return true;
+}
+
+uint32 video_get_live_main_device_pixmap(void)
+{
+	const uint32 main_device_handle = ReadMacInt32(LMADDR_MAIN_DEVICE);
+	if (!video_guest_address_contains(main_device_handle, 4))
+		return 0;
+
+	const uint32 gdevice = ReadMacInt32(main_device_handle);
+	if (!video_guest_address_contains(gdevice, GDEVICE_OFF_PMAP, 4))
+		return 0;
+
+	const uint32 pixmap_handle =
+		ReadMacInt32(gdevice + GDEVICE_OFF_PMAP);
+	if (!video_guest_address_contains(pixmap_handle, 4))
+		return 0;
+
+	const uint32 pixmap = ReadMacInt32(pixmap_handle);
+	return video_guest_address_contains(
+		pixmap, DSP_MAINDEVICE_PIXMAP_OFF_CMPSIZE, 2) ? pixmap : 0;
+}
+
+static uint32 video_mode_pixel_depth(int mode_index)
+{
+	if (mode_index < 0 || mode_index >= 64 ||
+		VModes[mode_index].viType == DIS_INVALID)
+		return 0;
+	const uint32 apple_mode = VModes[mode_index].viAppleMode;
+	if (apple_mode < APPLE_1_BIT || apple_mode > APPLE_32_BIT)
+		return 0;
+	return 1u << (apple_mode - APPLE_1_BIT);
+}
+
+int video_find_guest_mode(uint32 width, uint32 height, uint32 depth)
+{
+	const uint32 apple_mode = (uint32)DepthModeForPixelDepth((int)depth);
+	for (int i = 0; i < 64 && VModes[i].viType != DIS_INVALID; i++) {
+		if (VModes[i].viXsize == width &&
+			VModes[i].viYsize == height &&
+			VModes[i].viAppleMode == apple_mode)
+			return i;
+	}
+	return -1;
+}
+
+bool video_capture_guest_clut(uint8 out_clut[768], uint32 *out_depth)
+{
+	if (out_clut == NULL)
+		return false;
+	const uint32 depth = video_mode_pixel_depth(cur_mode);
+	if (depth == 0 || depth > 8)
+		return false;
+	for (uint32 i = 0; i < 256; i++) {
+		out_clut[i * 3 + 0] = mac_pal[i].red;
+		out_clut[i * 3 + 1] = mac_pal[i].green;
+		out_clut[i * 3 + 2] = mac_pal[i].blue;
+	}
+	if (out_depth != NULL)
+		*out_depth = depth;
+	return true;
+}
+
+static bool video_guest_device_matches_mode(int mode_index)
+{
+	if (mode_index < 0 || mode_index >= 64 ||
+		VModes[mode_index].viType == DIS_INVALID ||
+		cur_mode != mode_index ||
+		screen_base == 0 || Mac2HostAddr(screen_base) == NULL)
+		return false;
+
+	const uint32 main_device = ReadMacInt32(LMADDR_MAIN_DEVICE);
+	if (!video_guest_address_contains(main_device, 4))
+		return false;
+	const uint32 gdevice = ReadMacInt32(main_device);
+	if (!video_guest_address_contains(gdevice, GDEVICE_OFF_GDMODE, 4))
+		return false;
+
+	const uint32 pixmap = video_get_live_main_device_pixmap();
+	if (pixmap == 0)
+		return false;
+
+	const VideoInfo &mode = VModes[mode_index];
+	const uint16 relative_depth =
+		video_rel_depth_from_abs(mode.viAppleMode);
+	const uint32 row_bytes =
+		(uint32)ReadMacInt16(
+			pixmap + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES) & 0x3fff;
+
+	return ReadMacInt32(gdevice + GDEVICE_OFF_GDMODE) == relative_depth &&
+		ReadMacInt16(gdevice + GDEVICE_OFF_GDRECT + 0) == 0 &&
+		ReadMacInt16(gdevice + GDEVICE_OFF_GDRECT + 2) == 0 &&
+		(uint16)ReadMacInt16(gdevice + GDEVICE_OFF_GDRECT + 4) ==
+			mode.viYsize &&
+		(uint16)ReadMacInt16(gdevice + GDEVICE_OFF_GDRECT + 6) ==
+			mode.viXsize &&
+		ReadMacInt32(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR) ==
+			screen_base &&
+		row_bytes == mode.viRowBytes &&
+		ReadMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_TOP) == 0 &&
+		ReadMacInt16(pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_LEFT) == 0 &&
+		(uint16)ReadMacInt16(
+			pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_BOT) ==
+			mode.viYsize &&
+		(uint16)ReadMacInt16(
+			pixmap + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_RIGHT) ==
+			mode.viXsize &&
+		(uint16)ReadMacInt16(
+			pixmap + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE) ==
+			video_mode_pixel_depth(mode_index);
+}
+
+bool video_switch_guest_display(int mode_index)
+{
+	if (mode_index < 0 || mode_index >= 64 ||
+		VModes[mode_index].viType == DIS_INVALID ||
+		!video_prepare_guest_display())
+		return false;
+
+	const uint32 main_device = ReadMacInt32(LMADDR_MAIN_DEVICE);
+	if (!video_guest_address_contains(main_device, 4))
+		return false;
+
+	SheepVar request(16);
+	const uint32 switch_info = request.addr();
+	const uint32 depth_mode = switch_info + 12;
+	const VideoInfo &mode = VModes[mode_index];
+	const uint16 relative_depth =
+		video_rel_depth_from_abs(mode.viAppleMode);
+
+	WriteMacInt16(switch_info + csMode, relative_depth);
+	WriteMacInt32(switch_info + csData, mode.viAppleID);
+	WriteMacInt16(switch_info + csPage, 0);
+	WriteMacInt32(switch_info + csBaseAddr, 0);
+	WriteMacInt32(depth_mode, relative_depth);
+
+	const int32 err = (int32)call_macos5(
+		guest_dm_set_display_mode,
+		main_device,
+		mode.viAppleID,
+		depth_mode,
+		switch_info,
+		0);
+	return err == noErr && video_guest_device_matches_mode(mode_index);
+}
+
+bool video_install_guest_clut(const uint8 clut_rgb[768],
+							  uint32 depth_bits,
+							  uint32 first,
+							  uint32 last)
+{
+	if (clut_rgb == NULL || first > last || last > 255 ||
+		(depth_bits != 1 && depth_bits != 2 &&
+		 depth_bits != 4 && depth_bits != 8))
+		return false;
+
+	const uint32 color_count = 1u << depth_bits;
+	if (first >= color_count)
+		return true;
+	if (last >= color_count)
+		last = color_count - 1;
+
+	(void)video_prepare_guest_display();
+	if (guest_set_entries == 0)
+		return false;
+
+	const uint32 entry_count = last - first + 1;
+	SheepVar color_specs(entry_count * 8);
+	const uint32 specs = color_specs.addr();
+	for (uint32 i = 0; i < entry_count; i++) {
+		const uint32 palette_index = first + i;
+		const uint32 src = palette_index * 3;
+		const uint32 dst = specs + i * 8;
+		WriteMacInt16(dst + 0, (uint16)palette_index);
+		WriteMacInt16(dst + 2, (uint16)(clut_rgb[src + 0] * 0x0101));
+		WriteMacInt16(dst + 4, (uint16)(clut_rgb[src + 1] * 0x0101));
+		WriteMacInt16(dst + 6, (uint16)(clut_rgb[src + 2] * 0x0101));
+	}
+	(void)call_macos3(guest_set_entries, first, entry_count - 1, specs);
+	return true;
+}
+
+#else
+bool video_prepare_guest_display(void) { return false; }
+int video_find_guest_mode(uint32, uint32, uint32) { return -1; }
+bool video_switch_guest_display(int) { return false; }
+bool video_capture_guest_clut(uint8[768], uint32 *) { return false; }
+bool video_install_guest_clut(const uint8[768], uint32, uint32, uint32)
+{
+	return false;
+}
+uint32 video_get_live_main_device_pixmap(void) { return 0; }
+uint32 video_create_guest_fullscreen_window(uint32, uint32) { return 0; }
+bool video_dispose_guest_window(uint32) { return false; }
+#endif
 
 static uint16 video_rel_max_depth_mode(void)
 {

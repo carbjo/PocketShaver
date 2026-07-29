@@ -3526,14 +3526,12 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 		return kQANoErr;
 	}
 
-	// Emit a CompositeLayer for the just-rendered overlay via
-	// MetalCompositorSubmitFrame. The
-	// compositor sees this as a single kLayerSlotOverlay layer with
-	// premultiplied-alpha blend (RAVE always blends; see BuildPipelines)
-	// over whatever the framebuffer currently
-	// shows. dmc_set_active_owner already declared RAVE in
-	// RaveCreateMetalOverlay; the idempotent fast-path handles the
-	// per-frame re-declaration.
+	// Emit the completed RAVE screen rectangle through
+	// MetalCompositorSubmitFrame. RAVE uses alpha internally while drawing
+	// primitives into its work texture, but RenderEnd is a screen publication
+	// boundary: the resolved rectangle replaces those framebuffer pixels.
+	// dmc_set_active_owner already declared RAVE in RaveCreateMetalOverlay;
+	// the idempotent fast-path handles the per-frame re-declaration.
 	id<MTLTexture> submittedOverlay = ms->overlayTexture ?: s_rave_overlay_tex;
 	if (submittedOverlay != nil) {
 		struct CompositeLayer layer;
@@ -3547,9 +3545,15 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 		layer.dst_size_w   = (float)s_rave_dst_width;
 		layer.dst_size_h   = (float)s_rave_dst_height;
 		layer.slot         = kLayerSlotOverlay;
-		layer.blend        = kBlendPremultiplied;
+		/* A completed RAVE draw rectangle replaces that part of the screen.
+		 * Fragment alpha belongs to the game's render state; treating it as
+		 * host-layer coverage leaks stale QuickDraw pixels through the frame. */
+		layer.blend        = kBlendOpaque;
 		layer.alpha        = 1.0f;
 
+		/* Producer identity is metadata for this completed frame, not a
+		 * post-submit resource transition. */
+		(void)dmc_set_active_owner(kDMCOwnerRAVE);
 		const struct DMCModeSnapshot *snap = dmc_current_snapshot();
 		struct FrameDescriptor desc;
 		desc.layers               = &layer;
@@ -3565,8 +3569,6 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 		} else {
 			rave_advance_overlay_texture_after_submit();
 		}
-		/* Re-declare RAVE owner — fast no-op when already RAVE. */
-		(void)dmc_set_active_owner(kDMCOwnerRAVE);
 	}
 
 	// SubmitFrame is cache-only in production; pace RAVE render ends explicitly.

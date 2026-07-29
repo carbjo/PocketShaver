@@ -39,34 +39,14 @@
 
 #include <atomic>                       /* std::atomic for bg/fg pending flag */
 
-/* MainDevice PixMap redirect/restore helpers
- * defined in dsp_draw_context.mm. The forward declarations live here so
- * the dsp_engine.cpp translation unit can call them from the emul-thread
- * bridge sites; the DSp-Active PixMap redirect must be
- * dropped BEFORE the back_buffer goes away and re-applied at foreground
- * resume.
- *
- * Threading note: DSpOnBackground / DSpOnForeground below run from the
+/* Threading note: DSpOnBackground / DSpOnForeground below run from the
  * UIKit lifecycle hook and only flip an atomic. In the current iOS build the
  * hook and emulation share the main==emul thread, so the atomic is primarily
- * a re-entry deferral gate: the actual table walk + PixMap mutation must run
- * later from DSpHandleBackgroundFromEmulThread /
- * DSpHandleForegroundFromEmulThread (in dsp_draw_context.mm), not inside the
- * notification callback. The references below in DSpOnBackground /
- * DSpOnForeground are documentation-only. */
-extern "C" void DSpRedirectMainDevicePixMap(struct DSpContextPrivate *ctx);
-extern "C" void DSpRestoreMainDevicePixMap(struct DSpContextPrivate *ctx);
-
-/* Forward decl for the 5th VBL secondary callback, the
- * VBL-driven auto-publish shim. Defined in dsp_draw_context.mm (next to
- * DSpVBLServiceCallback so the VBL callbacks are co-located). The
- * register/unregister pair below in DSpInit / DSpShutdownHandler is the
- * only call site - secondary-callback fan-out is owned by vbl_source.mm
- * after registration. */
-extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
-												 void *drawable,
-												 double ts);
-
+ * a re-entry deferral gate: the context table walk, resource release and
+ * guest Display Manager state transition run later from
+ * DSpHandleBackgroundFromEmulThread /
+ * DSpHandleForegroundFromEmulThread (in dsp_draw_context.cpp), not inside the
+ * notification callback. */
 #if ACCEL_LOGGING_ENABLED
 #ifdef __APPLE__
 os_log_t dsp_log = OS_LOG_DEFAULT;
@@ -136,7 +116,7 @@ static std::atomic<uint32_t> s_dsp_bg_fg_pending{0};
  *  background edge: gfxaccel_handle_background_enter pauses the VBL
  *  source before this hook runs, so the VBL drain chain that used to be
  *  the sole consumer can never fire while backgrounded - back buffers
- *  were never released and the PixMap redirect never dropped.
+ *  were never released and the guest display state never paused.
  *  DSpDrainLifecycleSync defers to the in-flight tick when called inside
  *  the VBL callback chain, and SwapBuffers' re-entry revalidation
  *  (DSpRevalidateSwapContext) defends the table against drains landing
@@ -359,17 +339,6 @@ void DSpInit(void)
 	 * per-context walk + PPC VBLProc invocation. */
 	vbl_source_register_secondary_callback(DSpVBLServiceCallback, NULL);
 
-	/* Register the DSp VBL
-	 * compositor publish callback - 5th and FINAL VBL secondary callback
-	 * (VBL_SECONDARY_CALLBACK_MAX raised 4 -> 5 in vbl_source.h).
-	 * Fires AFTER DSpVBLServiceCallback so the GetVBLCount
-	 * atomic increment + user-VBLProc dispatch complete BEFORE we publish
-	 * - automatically preserves the "after user-VBLProc dispatch" ordering.
-	 * Slot use is now 5 of 5; future DSp work MUST deprecate an
-	 * existing callback before registering another. Registration is
-	 * idempotent via the DSpInit early-return guard. */
-	vbl_source_register_secondary_callback(DSpVBLCompositorPublishCallback, NULL);
-
 	/* Plug bg/fg hook bodies into the already-wired seam. Swift
 	 * BackgroundLifecycleObserver + gfxaccel_resources.mm C shim handle
 	 * the main-thread observer registration; DSp just plugs in flag-only
@@ -402,6 +371,10 @@ int32_t DSpStartupHandler(void)
 		if (!dsp_registered) {
 			DSpInit();
 		}
+		/* Keep CFM loading out of the first SetState display transaction.
+		 * The resolved PPC routine is what makes the video-driver change and
+		 * QuickDraw GDevice reinitialization one guest-owned operation. */
+		DSpPrepareQuickDrawModeSwitch();
 		DSpRegisterResourceHandlers();
 		/* Mirror dsp_registered for the already-initialized path. A
 		 * post-Shutdown restart takes the DSpInit path above, which also
@@ -434,6 +407,11 @@ int32_t DSpShutdownHandler(void)
 	}
 	dsp_startup_refcount--;
 	if (dsp_startup_refcount == 0) {
+		/* Some applications rely on DSpShutdown to dispose contexts they did
+		 * not explicitly release. Drive those contexts through the normal
+		 * inactive/release path while DSp is still registered, so Display
+		 * Manager restores MainDevice and the desktop CLUT transactionally. */
+		DSpShutdownContexts();
 		if (dsp_resource_handlers_registered) {
 			gfxaccel_resources_unregister_engine(kGfxEngineDSp);
 			dsp_resource_handlers_registered = false;
@@ -442,13 +420,8 @@ int32_t DSpShutdownHandler(void)
 		 * DSpInit's DSpBuildModesFromVModes call. Idempotent: an
 		 * already-empty cache is a no-op. */
 		DSpClearModes();
-		/* Unregister FIRST in reverse registration order - the publish shim
-		 * is the 5th/final callback registered. Idempotent: unregister is a
-		 * search-and-remove that does nothing when the callback isn't in the
-		 * table. */
-		vbl_source_unregister_secondary_callback(DSpVBLCompositorPublishCallback);
 		/* Unregister in reverse registration order - vbl-service is the 4th
-		 * callback registered (now second to remove after the publish shim).
+		 * callback registered and therefore the first to remove.
 		 * Idempotent: unregister is a search-and-remove that does nothing when
 		 * the callback isn't in the table. */
 		vbl_source_unregister_secondary_callback(DSpVBLServiceCallback);

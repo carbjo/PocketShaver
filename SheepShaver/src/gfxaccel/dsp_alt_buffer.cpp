@@ -29,18 +29,14 @@
 #include "dsp_display_id_policy.h"
 #include "dsp_display_mode_policy.h"
 #include "dsp_front_buffer_policy.h"
-#include "dsp_front_staging_seed_policy.h"
 #include "dsp_get_attributes_policy.h"
 #include "dsp_guest_address.h"
-#include "dsp_main_device_redirect_policy.h"
-#include "dsp_quickdraw_restore_policy.h"
-#include "dsp_vbl_publish_policy.h"
 #include "dsp_pixmap_offsets.h"    /* PixMap field offsets + LMADDR_MAIN_DEVICE / GDEVICE_OFF_PMAP */
-#include "dsp_metal_renderer.h"    /* DSpAllocateBackBuffer / DSpEncodeBackBufferBlit / DSpGetBackBufferCGrafPtr */
+#include "dsp_metal_renderer.h"    /* shared DSp buffer allocation/backing access */
 #include "gfxaccel_resources.h"    /* per-buffer owner-tag API */
 #include "gfxaccel_resources_heap.h" /* kHeapEngineDSp + heap_alloc_buffer for AltBuffer backing */
 #include "nqd_accel.h"               /* NQDMetalBitblt1to1 / NQDMetalBitbltScaled / NQDMetalFlush for DSpBlit */
-#include "metal_compositor.h"      /* MetalCompositorSubmitFrame + MetalCompositorGetFramebufferTexture + CompositeLayer */
+#include "metal_compositor.h"      /* canonical screen query and pacing */
 #include "metal_device_shared.h"   /* SharedMetalCommandQueue (SwapBuffers blit path) */
 #include "display_mode_controller.h" /* dmc_current_snapshot (FrameDescriptor generation); DMCOwner enum + dmc_set_active_owner */
 #include "dsp_engine_internal.h"   /* DSpMapStateToDMCOwnerTyped (internal-only, NOT in include/) */
@@ -72,8 +68,8 @@ static void DSpClearAltBufferRecord(DSpAltBufferRecord *rec)
 {
 	/* Release the guest-RAM pixel-staging buffer that backed the CGrafPort
 	 * (if any). It was exposed to the guest as a PixMap baseAddr, so it must
-	 * be quarantined (retained, never freed back to the app heap) - exactly
-	 * like the back/front buffer staging in DSpReleaseFrontBufferStaging. */
+	 * be quarantined (retained, never freed back to the app heap), like the
+	 * guest-visible back-buffer fallback staging. */
 	if (rec->baseaddr_owned_staging && rec->baseaddr_mac != 0) {
 		DSpQuarantineGuestPixelStaging(rec->baseaddr_mac,
 									   rec->baseaddr_size, true);
@@ -246,13 +242,13 @@ extern "C" int32_t DSpAltBuffer_NewHandler(uint32_t ctxRef,
 	 * QuickDraw metadata that is independent of base/stride/bounds. This is
 	 * essential at 8 bpp: a zero pmTable makes indexed QuickDraw dereference
 	 * invalid palette state after Diablo's opening movies. */
+	const uint32_t live_pixmap = DSpGetLiveMainDevicePixMap();
 	rec->seed_pixmap_mac =
-		(ctx->saved_pixmap_valid && ctx->saved_pixmap_addr != 0 &&
-		 DSpGuestRAMContains(ctx->saved_pixmap_addr,
-							   DSpFrontBufferPixMapRecordSize(),
-							   (uint32_t)RAMBase,
-							   (uint32_t)RAMSize))
-			? ctx->saved_pixmap_addr : 0;
+		DSpGuestRAMContains(live_pixmap,
+						   DSpFrontBufferPixMapRecordSize(),
+						   (uint32_t)RAMBase,
+						   (uint32_t)RAMSize)
+			? live_pixmap : 0;
 
 	if (!DSpAllocAltBufferBacking(rec, w, h)) {
 		DSpFreeAltBuffer(handle);

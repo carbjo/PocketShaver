@@ -460,6 +460,10 @@ public:
 	void video_close(void);
 };
 
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
+static void DMCModeDescFromVModesIndex(int idx, DMCModeDesc *out);
+#endif
+
 
 /*
  *  Utility functions
@@ -1098,6 +1102,63 @@ static int present_sdl_video()
     return 0;
 }
 
+#ifdef SHEEPSHAVER
+bool video_get_framebuffer_drawable_rect(int *out_x, int *out_y,
+										 int *out_w, int *out_h)
+{
+	if (!sdl_window || !out_x || !out_y || !out_w || !out_h)
+		return false;
+
+	int drawable_w = 0, drawable_h = 0;
+#if defined(ENABLE_GFXACCEL) && \
+	(!defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE)
+	SDL_GL_GetDrawableSize(sdl_window, &drawable_w, &drawable_h);
+#else
+	SDL_GetWindowSize(sdl_window, &drawable_w, &drawable_h);
+#endif
+	if (drawable_w <= 0 || drawable_h <= 0)
+		return false;
+
+	SDL_Rect viewport = {0, 0, drawable_w, drawable_h};
+	if (sdl_renderer) {
+		int logical_w = 0, logical_h = 0;
+		int window_w = 0, window_h = 0;
+		SDL_RenderGetLogicalSize(sdl_renderer, &logical_w, &logical_h);
+		SDL_GetWindowSize(sdl_window, &window_w, &window_h);
+		if (logical_w > 0 && logical_h > 0 &&
+			window_w > 0 && window_h > 0) {
+			int window_x0 = 0, window_y0 = 0;
+			int window_x1 = 0, window_y1 = 0;
+			SDL_RenderLogicalToWindow(sdl_renderer, 0.0f, 0.0f,
+									 &window_x0, &window_y0);
+			SDL_RenderLogicalToWindow(sdl_renderer,
+									 (float)logical_w, (float)logical_h,
+									 &window_x1, &window_y1);
+
+			const double sx = (double)drawable_w / window_w;
+			const double sy = (double)drawable_h / window_h;
+			viewport.x = (int)lround(window_x0 * sx);
+			viewport.y = (int)lround(window_y0 * sy);
+			viewport.w = (int)lround((window_x1 - window_x0) * sx);
+			viewport.h = (int)lround((window_y1 - window_y0) * sy);
+		}
+	}
+
+	viewport.x = std::max(0, std::min(drawable_w, viewport.x));
+	viewport.y = std::max(0, std::min(drawable_h, viewport.y));
+	viewport.w = std::max(0, std::min(drawable_w - viewport.x, viewport.w));
+	viewport.h = std::max(0, std::min(drawable_h - viewport.y, viewport.h));
+	if (viewport.w <= 0 || viewport.h <= 0)
+		return false;
+
+	*out_x = viewport.x;
+	*out_y = viewport.y;
+	*out_w = viewport.w;
+	*out_h = viewport.h;
+	return true;
+}
+#endif
+
 void update_sdl_video(SDL_Surface *s, int numrects, SDL_Rect *rects)
 {
     // TODO: make sure SDL_Renderer resources get displayed, if and when
@@ -1219,6 +1280,29 @@ void driver_base::init()
 
 #if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
 	{
+		/* The controller must exist before compositor/resource subscribers
+		 * register, but it must not be created before the video driver has
+		 * installed the framebuffer. Creating it at this exact boundary makes
+		 * generation 1 a complete, usable QuickDraw surface rather than a
+		 * geometry-only placeholder with null screen addresses. Subsequent
+		 * driver reopens already have a prepared DMC transition and retain the
+		 * outgoing snapshot until video_switch_to_mode_index commits the newly
+		 * bound surface. */
+		if (dmc_current_snapshot() == NULL) {
+			DMCModeDesc initial;
+			DMCModeDescFromVModesIndex(cur_mode, &initial);
+			initial.screen_base_mac = screen_base;
+			initial.screen_base_host =
+				screen_base != 0 ? Mac2HostAddr(screen_base) : NULL;
+			int32_t dmc_err = dmc_create(&initial);
+			if (dmc_err != kDMCNoErr) {
+				fprintf(stderr, "[DMC] dmc_create FAILED after initial "
+					"framebuffer bind (err=%d, base=0x%08x host=%p)\n",
+					(int)dmc_err, (unsigned)initial.screen_base_mac,
+					initial.screen_base_host);
+			}
+		}
+
 		int fb_width = VIDEO_MODE_X;
 		int fb_height = VIDEO_MODE_Y;
 		if (MetalCompositorIsInitialized()) {
@@ -1290,7 +1374,14 @@ void driver_base::init()
 #endif
 
 #if !defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE
+	/* Keep grab policy tied to the cursor plane the video driver actually
+	 * selected. With gfxaccel, video_can_change_cursor() may enable that plane
+	 * even when the optional hardcursor preference is otherwise disabled. */
+#ifdef SHEEPSHAVER
+	if (PrefsFindBool("init_grab") && !video_can_change_cursor()) grab_mouse();
+#else
 	if (PrefsFindBool("init_grab") && !PrefsFindBool("hardcursor")) grab_mouse();
+#endif
 #endif
 }
 
@@ -1333,8 +1424,13 @@ void driver_base::adapt_to_video_mode() {
 	sdl_update_video_rect.h = VIDEO_MODE_Y;
 	SDL_UnlockMutex(sdl_update_video_mutex);
 
-	// Hide cursor
-	SDL_ShowCursor(hardware_cursor);
+	/* Recreating the host mode must not invent a Cursor Manager transition.
+	 * Preserve the guest's persistent InitCursor/HideCursor state while
+	 * rebinding the hardware plane. This matters for every accelerated mode:
+	 * Bugdom keeps a visible QuickDraw cursor above RAVE, while Diablo can
+	 * hide that plane before Glide draws its own cursor. */
+	SDL_ShowCursor(hardware_cursor &&
+		(private_data == NULL || private_data->cursorVisible));
 
 	// Set window name/class
 	set_window_name();
@@ -1598,8 +1694,9 @@ bool SDL_monitor_desc::video_open(void)
 // ---------------------------------------------------------------------------
 // DMCModeDescFromVModesIndex - build a DMCModeDesc from a VModes[] index
 //
-// Used by the display-mode-controller seam to route dmc_create()
-// at VideoInit end and dmc_request_mode_switch() at the mode-switch point.
+// Used by the display-mode-controller seam to create the initial, already
+// bound QuickDraw snapshot in driver_base::init() and prepare/commit later
+// mode switches at the emulated video-driver boundary.
 // Reads the Apple depth constant from viAppleMode and converts to the DMC
 // bit-count encoding (depth field = raw bit-count: 1, 2, 4, 8, 16, 32).
 // ---------------------------------------------------------------------------
@@ -1624,7 +1721,7 @@ static void DMCModeDescFromVModesIndex(int idx, DMCModeDesc *out)
 	out->row_bytes        = (uint32_t)VModes[idx].viRowBytes;
 	out->pitch            = out->row_bytes;
 	out->vbl_usec         = 0;     // controller/compositor will compute from objc_getFrameRateSetting()
-	out->screen_base_mac  = 0;     // not meaningful pre-Resize
+	out->screen_base_mac  = 0;     // filled only after the driver installs it
 	out->screen_base_host = NULL;
 }
 #endif /* SHEEPSHAVER && TARGET_OS_IPHONE */
@@ -1895,23 +1992,6 @@ bool VideoInit(bool classic)
 	int color_depth = get_customized_color_depth(default_depth);
 
 	D(bug("Return get_customized_color_depth %d\n", color_depth));
-
-	#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
-	  // Initialize the display-mode controller BEFORE the first compositor Init.
-	  // Flow: VideoInit -> monitor->video_open() -> driver_base::init() ->
-	  // MetalCompositorInit() -> dmc_subscribe("compositor"). The controller MUST
-	  // exist before that subscribe lands (compositor subscribes FIRST so
-	  // reverse-order enter makes it LAST).
-	  {
-	    DMCModeDesc initial;
-	    DMCModeDescFromVModesIndex(cur_mode, &initial);
-	    int32_t err = dmc_create(&initial);
-	    if (err != kDMCNoErr) {
-	      fprintf(stderr, "[DMC] dmc_create FAILED at VideoInit (err=%d) - "
-	                      "continuing without DMC routing\n", (int)err);
-	    }
-	  }
-	#endif
 
 	// Create SDL_monitor_desc for this (the only) display
 	SDL_monitor_desc *monitor = new SDL_monitor_desc(VideoModes, (video_depth)color_depth, default_id);
@@ -2289,6 +2369,111 @@ void SDL_monitor_desc::set_gamma(uint8 *gamma, int num_in)
  */
 
 #ifdef SHEEPSHAVER
+static int16 video_switch_to_mode_index(int mode_index)
+{
+	if (mode_index < 0 || mode_index >= 64 ||
+		VModes[mode_index].viType == DIS_INVALID) {
+		return paramErr;
+	}
+
+	if (mode_index == cur_mode) {
+		if (private_data != NULL) {
+			private_data->saveBaseAddr = screen_base;
+			private_data->saveData = VModes[cur_mode].viAppleID;
+			private_data->saveMode = VModes[cur_mode].viAppleMode;
+			private_data->savePage = 0;
+		}
+		return noErr;
+	}
+
+	/* One native transition owns every host-side part of a mode change. It is
+	 * private to the emulated video driver's cscSetMode/cscSwitchMode path;
+	 * guest subsystems such as DrawSprocket reach it through Display Manager
+	 * so QuickDraw's GDevice is updated in the same transaction. */
+	const int previous_mode = cur_mode;
+	DisableInterrupt();
+#ifndef USE_CPU_EMUL_SERVICES
+	thread_stop_ack = false;
+	thread_stop_req = true;
+	while (!thread_stop_ack) ;
+#endif
+
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
+	DMCModeDesc new_mode;
+	DMCModeDescFromVModesIndex(mode_index, &new_mode);
+	int32_t dmc_err = dmc_prepare_mode_switch(&new_mode);
+	if (dmc_err != kDMCNoErr) {
+		fprintf(stderr, "[DMC] dmc_prepare_mode_switch FAILED (err=%d) - "
+			"video-driver mode switch cancelled\n",
+			(int)dmc_err);
+#ifndef USE_CPU_EMUL_SERVICES
+		thread_stop_req = false;
+#endif
+		EnableInterrupt();
+		return paramErr;
+	}
+#endif
+
+	cur_mode = mode_index;
+	VideoMonitors[0]->switch_to_current_mode();
+
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
+	DMCModeDesc bound_mode;
+	DMCModeDescFromVModesIndex(cur_mode, &bound_mode);
+	bound_mode.screen_base_mac = screen_base;
+	bound_mode.screen_base_host =
+		screen_base != 0 ? Mac2HostAddr(screen_base) : NULL;
+	if (bound_mode.screen_base_mac == 0 ||
+		bound_mode.screen_base_host == NULL) {
+		cur_mode = previous_mode;
+		VideoMonitors[0]->switch_to_current_mode();
+		(void)dmc_cancel_prepared_mode_switch();
+#ifndef USE_CPU_EMUL_SERVICES
+		thread_stop_req = false;
+#endif
+		EnableInterrupt();
+		return paramErr;
+	}
+	dmc_err = dmc_request_mode_switch(&bound_mode);
+	if (dmc_err != kDMCNoErr) {
+		fprintf(stderr, "[DMC] dmc_request_mode_switch commit FAILED "
+			"(err=%d) after driver installed %dx%d mode index=%d; "
+			"rolling platform mode back\n",
+			(int)dmc_err, (int)bound_mode.width, (int)bound_mode.height,
+			mode_index);
+		/* The controller has already compensated its subscribers and
+		 * republished the outgoing snapshot. Restore the platform side before
+		 * returning so that snapshot never names a different live surface. */
+		cur_mode = previous_mode;
+		VideoMonitors[0]->switch_to_current_mode();
+		if (private_data != NULL) {
+			private_data->saveBaseAddr = screen_base;
+			private_data->saveData = VModes[cur_mode].viAppleID;
+			private_data->saveMode = VModes[cur_mode].viAppleMode;
+			private_data->savePage = 0;
+		}
+#ifndef USE_CPU_EMUL_SERVICES
+		thread_stop_req = false;
+#endif
+		EnableInterrupt();
+		return paramErr;
+	}
+#endif
+
+	if (private_data != NULL) {
+		private_data->saveBaseAddr = screen_base;
+		private_data->saveData = VModes[cur_mode].viAppleID;
+		private_data->saveMode = VModes[cur_mode].viAppleMode;
+		private_data->savePage = 0;
+	}
+
+#ifndef USE_CPU_EMUL_SERVICES
+	thread_stop_req = false;
+#endif
+	EnableInterrupt();
+	return noErr;
+}
+
 int16 video_mode_change(VidLocals *csSave, uint32 ParamPtr)
 {
 	/* csMode arrives in the RELATIVE kDepthModeN namespace (0x80 = lowest
@@ -2309,58 +2494,16 @@ int16 video_mode_change(VidLocals *csSave, uint32 ParamPtr)
 	for (int i=0; VModes[i].viType != DIS_INVALID; i++) {
 		if ((req_mode == VModes[i].viAppleMode) &&
 		    (ReadMacInt32(ParamPtr + csData) == VModes[i].viAppleID)) {
-			csSave->saveMode = req_mode;
-			csSave->saveData = ReadMacInt32(ParamPtr + csData);
-			csSave->savePage = ReadMacInt16(ParamPtr + csPage);
-
-			// Disable interrupts and pause redraw thread
-			DisableInterrupt();
-			thread_stop_ack = false;
-			thread_stop_req = true;
-			while (!thread_stop_ack) ;
-
-#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
-			// Route the mode switch through the display-mode controller
-			// seam. DMC owns its snapshot-ring state
-			// (active_owner, generation counters, palette/gamma hooks);
-			// the legacy `cur_mode` index into VModes[] is a separate
-			// compat handle consumed by the driver_base path
-			// (video_close - video_open - driver_base::init reads
-			// VModes[cur_mode] via VIDEO_MODE_INIT_MONITOR). An earlier
-			// change deleted the mirror assuming DMC would subsume the
-			// index, but the controller never writes cur_mode � causing
-			// switch_to_current_mode() to resize the Metal compositor
-			// to the OLD mode's dimensions/depth and produce garbled
-			// output (e.g. Nanosaur 640x480@16bpp switch staying at
-			// 1366x1024@APPLE_32_BIT). Restored below as an explicit,
-			// whitelisted seam � the only runtime `cur_mode` writer
-			// outside VideoInit bootstrap. See
-			// DMCWriteSiteInventoryTests allowedLineRanges rationale.
-			{
-		      DMCModeDesc new_mode;
-		      DMCModeDescFromVModesIndex(i, &new_mode);
-		      int32_t err = dmc_request_mode_switch(&new_mode);
-		      if (err != kDMCNoErr) {
-		          fprintf(stderr, "[DMC] dmc_request_mode_switch FAILED (err=%d) - "
-		              "proceeding with legacy mode switch\n", (int)err);
-		      }
-		    }
-			// Sync the legacy VModes[] index so driver_base::init() reads
-			// the NEW mode's width/height/depth via VIDEO_MODE_INIT_MONITOR
-			// when switch_to_current_mode() reopens the display below.
-			cur_mode = i;
-#endif
-			monitor_desc *monitor = VideoMonitors[0];
-			monitor->switch_to_current_mode();
+			int16 switch_err = video_switch_to_mode_index(i);
+			if (switch_err != noErr)
+				return switch_err;
 
 			WriteMacInt32(ParamPtr + csBaseAddr, screen_base);
 			csSave->saveBaseAddr=screen_base;
 			csSave->saveData=VModes[i].viAppleID;/* First mode ... */
 			csSave->saveMode=VModes[i].viAppleMode;
 
-			// Enable interrupts and resume redraw thread
-			thread_stop_req = false;
-			EnableInterrupt();
+			csSave->savePage=ReadMacInt16(ParamPtr + csPage);
 			return noErr;
 		}
 	}
@@ -2483,6 +2626,17 @@ void set_input_disabled(bool is_disabled) {
 #ifdef SHEEPSHAVER
 bool video_can_change_cursor(void)
 {
+	/* Accelerated producers replace screen pixels at their publication
+	 * boundaries, so a software cursor drawn once into VRAM cannot satisfy
+	 * the classic Cursor Manager's persistent-until-HideCursor contract.
+	 * Use the video driver's existing SDL hardware-cursor plane whenever
+	 * gfxaccel is active; it remains above RAVE/AGL/Glide publication while
+	 * mouse coordinates continue through the ordinary raw SDL guest path. */
+#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER) && \
+	(!defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE)
+	if (PrefsFindBool("gfxaccel"))
+		return true;
+#endif
 	return PrefsFindBool("hardcursor");
 }
 #endif
@@ -2959,7 +3113,12 @@ static int SDLCALL on_sdl_event_generated(void *userdata, SDL_Event * event)
 				} break;
 #else
 				case SDLK_F5: {
-					if (is_hotkey_down(ks) && !PrefsFindBool("hardcursor")) {
+#ifdef SHEEPSHAVER
+					const bool can_change_cursor = video_can_change_cursor();
+#else
+					const bool can_change_cursor = PrefsFindBool("hardcursor");
+#endif
+					if (is_hotkey_down(ks) && !can_change_cursor) {
 						drv->toggle_mouse_grab();
 						return EVENT_DROP_FROM_QUEUE;
 					}

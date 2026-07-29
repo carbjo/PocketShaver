@@ -22,12 +22,20 @@
 
 struct DSpContextPrivate;  /* pointer-only use; full def in dsp_context_private.h */
 
-/* Write (last-first+1)*3 RGB bytes into the context CLUT, pushing to the
- * compositor/DMC when the context is Active. Shared with Reserve colorTable
- * application (dsp_draw_context.mm). */
+/* Write (last-first+1)*3 RGB bytes into the context CLUT. An Active context
+ * installs the same range through QuickDraw's SetEntries; the video driver
+ * then publishes QuickDraw's palette to the compositor and DMC. */
 int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
 					   uint32_t first, uint32_t last,
 					   const uint8_t *entries_host_range);
+
+/* Install a context or raw RGB CLUT through QuickDraw's SetEntries entry
+ * point. This is the single display-palette path: Color QuickDraw updates its
+ * GDevice table and the emulated video driver forwards the same table to the
+ * host compositor. `depth_bits` must describe an indexed display mode. */
+int32_t DSpInstallContextCLUTOnDisplay(DSpContextPrivate *ctx);
+int32_t DSpInstallCLUTOnDisplay(const uint8_t clut_rgb[768],
+							   uint32_t depth_bits);
 
 /* Read (last-first+1)*3 RGB bytes of the context's latched CLUT into
  * entries_out_host_range. Used by the GetCLUTEntries handler

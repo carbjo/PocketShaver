@@ -1,5 +1,5 @@
 /*
- *  nqd_main_device_policy.h - NQD policy for DSp-redirected MainDevice writes.
+ *  nqd_main_device_policy.h - NQD policy for live MainDevice writes.
  *
  *  (C) 2026 Sierra Burkhart (sierra760)
  */

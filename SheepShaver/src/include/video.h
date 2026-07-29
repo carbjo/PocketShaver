@@ -150,6 +150,23 @@ extern void video_set_gamma(int n_colors);
 extern void video_set_cursor(void);
 extern bool video_can_change_cursor(void);
 extern int16 video_mode_change(VidLocals *csSave, uint32 ParamPtr);
+extern bool video_prepare_guest_display(void);
+extern int video_find_guest_mode(uint32 width, uint32 height, uint32 depth);
+extern bool video_switch_guest_display(int mode_index);
+extern bool video_capture_guest_clut(uint8 out_clut[768],
+									 uint32 *out_depth);
+extern bool video_install_guest_clut(const uint8 clut_rgb[768],
+									 uint32 depth_bits,
+									 uint32 first,
+									 uint32 last);
+extern uint32 video_get_live_main_device_pixmap(void);
+extern uint32 video_create_guest_fullscreen_window(uint32 width, uint32 height);
+extern bool video_dispose_guest_window(uint32 window);
+// Return the video driver's logical presentation viewport in drawable-pixel
+// coordinates (top-left origin). The GL presenter uses this exact rectangle so
+// its image agrees with SDL's existing QuickDraw mouse-coordinate transform.
+extern bool video_get_framebuffer_drawable_rect(int *out_x, int *out_y,
+												 int *out_w, int *out_h);
 extern void video_set_dirty_area(int x, int y, int w, int h);
 
 // DepthMode translation at the driver ABI (kDepthMode1 = 0x80 = lowest

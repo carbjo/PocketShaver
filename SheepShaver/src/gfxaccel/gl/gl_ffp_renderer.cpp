@@ -253,6 +253,18 @@ static void load_ctx_matrices(GLContext*ctx){
   if(!ctx)return;
   const float *mv=ctx->modelview_stack[ctx->modelview_depth];
   const float *proj=ctx->projection_stack[ctx->projection_depth];
+  auto &ext=gfx_gl_ext();
+  if(ext.multitex&&ext.ActiveTexture){
+	for(int unit=0;unit<2;unit++){
+	  ext.ActiveTexture(GL_TEXTURE0+unit);
+	  glMatrixMode(GL_TEXTURE);
+	  glLoadMatrixf(ctx->texture_stack[unit][ctx->texture_depth[unit]]);
+	}
+	ext.ActiveTexture(GL_TEXTURE0);
+  }else{
+	glMatrixMode(GL_TEXTURE);
+	glLoadMatrixf(ctx->texture_stack[0][ctx->texture_depth[0]]);
+  }
   glMatrixMode(GL_PROJECTION); glLoadMatrixf(proj);
   glMatrixMode(GL_MODELVIEW); glLoadMatrixf(mv);
 }
