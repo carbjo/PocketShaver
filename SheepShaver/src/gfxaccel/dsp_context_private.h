@@ -375,5 +375,15 @@ extern "C" void DSpQuarantineGuestPixelStaging(uint32_t mac_addr,
 extern "C" void DSpDiscardUnusedGuestPixelStaging(uint32_t mac_addr,
 												  bool allocated_from_mac_system_heap);
 void* DSpGetBackingContents(void* backing);
+int32_t DSpRevalidateSwapContext(uint32_t ctxRef,
+										DSpContextPrivate *expected,
+										uint32_t entry_state,
+										DSpContextPrivate **outCtx,
+								 const char *site);
+bool DSpPollBusyProc(uint32_t ctxRef, uint32_t busyProcAddr,
+					 uint32_t userRefCon);
+void DSpSyncSwapFramePacing(uint32_t ctxRef, uint32_t maxFrameRate);
+void DSpContextPrivateReleaseBackBufferVariables(void** texture, void** buffer);
+void DSpContextPrivateReleaseBackBuffer(DSpContextPrivate* ctx);
 
 #endif /* DSP_CONTEXT_PRIVATE_H */

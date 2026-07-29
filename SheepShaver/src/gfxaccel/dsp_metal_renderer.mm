@@ -57,6 +57,8 @@
 #include "dsp_guest_address.h"
 #include "dsp_pixel_staging_lifetime_policy.h"
 #include "dsp_metal_renderer.h"
+#include "dsp_front_buffer_policy.h"
+#include "dsp_vbl_publish_policy.h"
 #include "dsp_context_private.h"
 #include "gfxaccel_resources.h"       /* per-buffer owner tag */
 #include "gfxaccel_resources_heap.h"
@@ -64,6 +66,7 @@
 #include "metal_device_shared.h"     /* SharedMetalDevice() for unpack-PSO lazy init */
 #include "display_mode_controller.h" /* dmc_current_snapshot() for fade_active in the unpack twin */
 #include "dsp_alt_buffer.h"
+#include "nqd_accel.h"
 
 extern uint32 Mac_sysalloc(uint32 size);
 extern void Mac_sysfree(uint32 addr);
@@ -96,7 +99,7 @@ static inline MTLPixelFormat DSpPixelFormatForDepthBits(uint32_t depth_bits)
 		case 4:  return MTLPixelFormatR8Uint;       /* 4 bpp indexed; 2 px/byte */
 		case 8:  return MTLPixelFormatR8Uint;       /* 8 bpp indexed; 1 px/byte */
 		case 16: return MTLPixelFormatR16Uint;      /* xRGB1555; shader unpack */
-		case 32: return MTLPixelFormatBGRA8Unorm;   /* direct 32-bit */
+		case 32: return (MTLPixelFormat)MTLPixelFormatBGRA8Unorm;   /* direct 32-bit */
 		default: return MTLPixelFormatInvalid;
 	}
 }
@@ -172,7 +175,7 @@ extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
 	 * DSp release paths can actually drop the Metal resource before resetting
 	 * the bump offset. */
 	id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buf_raw;
-	ctx->back_buffer = buf;
+	
 
 	/* Rule 1 bug fix: at 1/2/4 bpp we use the R8Uint shader-
 	 * unpack pattern - the Metal texture is a byte-view over
@@ -210,7 +213,8 @@ extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
 		ctx->back_buffer = nil;
 		return false;
 	}
-	ctx->back_texture = tex;
+	ctx->back_buffer = (__bridge_retained void*)buf;
+	ctx->back_texture = (__bridge_retained void*)tex;
 
 	/* Tag the back-buffer with the DSp
 	 * engine id so ownership is explicit per-buffer (NOT DMC-implicit).
@@ -220,7 +224,7 @@ extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
 	 * cross-check. The compositor NEVER queries this tag -
 	 * compositor-blindness is preserved. */
 	gfxaccel_resources_set_buffer_owner(
-		(__bridge void *)ctx->back_buffer, (uint32_t)kGfxEngineDSp);
+		ctx->back_buffer, (uint32_t)kGfxEngineDSp);
 
 	DSP_LOG("DSpAllocateBackBuffer: %ux%u@%ubpp alignedRB=%u size=%u",
 			w, h, bpp, alignedRB, buffer_size);
@@ -230,7 +234,20 @@ extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
 /* ---------------------------------------------------------------------- *
  *  DSpReleaseBackBufferNow - synchronous release, texture-first          *
  * ---------------------------------------------------------------------- */
-
+void DSpContextPrivateReleaseBackBufferVariables(void** texture, void** buffer)
+{
+	id<MTLTexture> mtltexture  = (__bridge_transfer id<MTLTexture>)*texture;
+	id<MTLBuffer> mtlbuffer  = (__bridge_transfer id<MTLBuffer>)*buffer;
+	*texture = nil;
+	*buffer  = nil;
+	mtltexture = nil;
+	mtlbuffer = nil;
+}
+void DSpContextPrivateReleaseBackBuffer(DSpContextPrivate* ctx)
+{
+	DSpContextPrivateReleaseBackBufferVariables(&ctx->back_texture,
+												&ctx->back_buffer);
+}
 extern "C" void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
 {
 	if (ctx == nullptr) return;
@@ -239,7 +256,7 @@ extern "C" void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
 	 * goes away so the owner map does not hold a dangling pointer. */
 	if (ctx->back_buffer != nil) {
 		gfxaccel_resources_clear_buffer_owner(
-			(__bridge void *)ctx->back_buffer);
+			ctx->back_buffer);
 		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 	}
 	/* Texture FIRST (drops the view
@@ -253,8 +270,7 @@ extern "C" void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
 	 * (DSpReleaseNow synchronous, DSpQueueReleaseAtVBL deferred,
 	 * DSpQueueReleaseAtVBLPartial for bg survival, and the VBL drain
 	 * callback). All must clear the owner tag before nil'ing the buffer. */
-	ctx->back_texture = nil;
-	ctx->back_buffer  = nil;
+	DSpContextPrivateReleaseBackBuffer(ctx);
 	DSpReleaseBackBufferStaging(ctx);
 	ctx->cgrafptr_mac_addr = 0;
 	if (gfxaccel_resources_heap_live_allocation_count(kHeapEngineDSp) == 0) {
@@ -311,8 +327,8 @@ extern "C" void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
 	 * blit past either extent; Metal validation asserts on that. */
 	NSUInteger dst_w = framebuffer_texture.width;
 	NSUInteger dst_h = framebuffer_texture.height;
-	NSUInteger back_w = ctx->back_texture.width;
-	NSUInteger back_h = ctx->back_texture.height;
+	NSUInteger back_w = ((__bridge id<MTLTexture>)ctx->back_texture).width;
+	NSUInteger back_h = ((__bridge id<MTLTexture>)ctx->back_texture).height;
 	NSUInteger clamp_w = ((NSUInteger)full_w < dst_w) ? (NSUInteger)full_w : dst_w;
 	NSUInteger clamp_h = ((NSUInteger)full_h < dst_h) ? (NSUInteger)full_h : dst_h;
 	if (clamp_w > back_w) clamp_w = back_w;
@@ -338,7 +354,7 @@ extern "C" void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
 	}
 
 	if (full_upload) {
-		[encoder copyFromTexture:ctx->back_texture
+		[encoder copyFromTexture:(__bridge id<MTLTexture>)ctx->back_texture
 					 sourceSlice:0
 					 sourceLevel:0
 					sourceOrigin:MTLOriginMake(0, 0, 0)
@@ -361,7 +377,7 @@ extern "C" void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
 		if (origin_x + sub_w > clamp_w) sub_w = (origin_x < clamp_w) ? (clamp_w - origin_x) : 0;
 		if (origin_y + sub_h > clamp_h) sub_h = (origin_y < clamp_h) ? (clamp_h - origin_y) : 0;
 		if (sub_w > 0 && sub_h > 0) {
-			[encoder copyFromTexture:ctx->back_texture
+			[encoder copyFromTexture:(__bridge id<MTLTexture>)ctx->back_texture
 						 sourceSlice:0
 						 sourceLevel:0
 						sourceOrigin:MTLOriginMake((NSUInteger)ctx->dirty_left,
@@ -420,7 +436,7 @@ extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 	 * - it's undefined behaviour on arm64 iOS (64-bit host VA truncated
 	 * to 32-bit Mac address). */
 	uint32_t buffer_size = alignedRB * h;
-	uint8_t *back_contents = (uint8_t *)ctx->back_buffer.contents;
+	uint8_t *back_contents = (uint8_t *)((__bridge id<MTLBuffer>)ctx->back_buffer).contents;
 	uint32_t mapped_addr = Host2MacAddr(back_contents);
 	uint8_t *round_trip_host = mapped_addr != 0 ? Mac2HostAddr(mapped_addr) : NULL;
 	uint32_t baseAddr_mac = DSpUsableDirectGuestBaseOrZero(
@@ -855,7 +871,7 @@ static id<MTLRenderPipelineState> DSpBuildUnpackPSO(id<MTLDevice> device,
 	MTLRenderPipelineDescriptor *desc = [[MTLRenderPipelineDescriptor alloc] init];
 	desc.vertexFunction   = vfn;
 	desc.fragmentFunction = ffn;
-	desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+	desc.colorAttachments[0].pixelFormat = (MTLPixelFormat)MTLPixelFormatBGRA8Unorm;
 
 	NSError *psoErr = nil;
 	id<MTLRenderPipelineState> pso = [device newRenderPipelineStateWithDescriptor:desc
@@ -1104,7 +1120,7 @@ static bool DSpEncodeUnpackRenderPass(DSpContextPrivate *ctx,
 	const bool write_compositor32_layout =
 		DSpBackBufferWritesCompositor32Layout();
 	return DSpEncodeUnpackTextureRenderPass(ctx,
-											ctx->back_texture,
+											(__bridge id<MTLTexture>)ctx->back_texture,
 											ctx->attr.backBufferBestDepth,
 											DSpContextBackBufferWidth(ctx),
 											"backBuffer",
@@ -1127,7 +1143,8 @@ extern "C" void DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx,
 	if (ctx == nullptr || cb == nil || framebuffer_texture == nil) return;
 	if (ctx->back_texture == nil) return;
 
-	MTLPixelFormat src_fmt = ctx->back_texture.pixelFormat;
+	MTLPixelFormat src_fmt =
+		((__bridge id<MTLTexture>)ctx->back_texture).pixelFormat;
 	MTLPixelFormat dst_fmt = framebuffer_texture.pixelFormat;
 
 	if (src_fmt == dst_fmt) {
@@ -1393,7 +1410,7 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 	 * lines 710-723 (single-Active-context invariant - first match wins). */
 	DSpContextPrivate *active = nullptr;
 	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
-		DSpContextPrivate *ctx = dsp_context_table[i];
+		DSpContextPrivate *ctx = DSpGetContext(i + 1);
 		if (ctx == nullptr) continue;
 		if (ctx->state != (uint32_t)kDSpContextState_Active) continue;
 		if (ctx->back_buffer == NULL) continue;
@@ -1431,6 +1448,7 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 	 * staging_mac_addr. Drain into back_buffer.contents BEFORE the GPU
 	 * blit so the texture view sees the latest pixels. */
 	if (has_back_buffer_staging) {
+		id<MTLBuffer> back_buffer = ((__bridge id<MTLBuffer>)active->back_buffer);
 		const uint32_t w         = active->attr.displayWidth;
 		const uint32_t h         = active->attr.displayHeight;
 		const uint32_t bpp       = active->attr.backBufferBestDepth;
@@ -1439,7 +1457,7 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 		const uint32_t buffer_size = alignedRB * h;
 
 		uint8_t *staging_host  = Mac2HostAddr(active->staging_mac_addr);
-		void    *back_contents = [active->back_buffer contents];
+		void    *back_contents = [back_buffer contents];
 		if (staging_host != NULL && back_contents != NULL) {
 			memcpy(back_contents, staging_host, buffer_size);
 		}
@@ -1622,7 +1640,8 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 			uint32_t buffer_size = alignedRB * h;
 
 			uint8_t *staging_host = Mac2HostAddr(ctx->staging_mac_addr);
-			void    *back_contents = ctx->back_buffer.contents;
+			void    *back_contents =
+				((__bridge id<MTLBuffer>)ctx->back_buffer).contents;
 			if (staging_host != NULL && back_contents != NULL) {
 				memcpy(back_contents, staging_host, buffer_size);
 			}
@@ -1712,7 +1731,7 @@ static inline MTLPixelFormat DSpAltPixelFormatForDepth(uint32_t depth)
 	switch (depth) {
 		case 8:  return MTLPixelFormatR8Uint;
 		case 16: return MTLPixelFormatR16Uint;
-		default: return MTLPixelFormatBGRA8Unorm;
+		default: return (MTLPixelFormat)MTLPixelFormatBGRA8Unorm;
 	}
 }
 
@@ -1721,7 +1740,7 @@ static inline MTLPixelFormat DSpAltPixelFormatForDepth(uint32_t depth)
  * texture-view idiom at rec->depth (set by New from the owning context;
  * persists across the background/foreground release-restore cycle). Returns
  * true on success; on failure leaves rec->backing/texture nil. */
-static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
+bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 									 uint32_t w, uint32_t h)
 {
 	if (rec == nullptr || w == 0 || h == 0) return false;

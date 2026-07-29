@@ -348,9 +348,7 @@ static void DSpReleaseNow(DSpContextPrivate *ctx)
 		gfxaccel_resources_clear_buffer_owner(ctx->back_buffer);
 		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 	}
-	/* Texture first, buffer second. */
-	ctx->back_texture = NULL;
-	ctx->back_buffer  = NULL;
+	DSpContextPrivateReleaseBackBuffer(ctx);
 	DSpReleaseBackBufferStaging(ctx);
 	ctx->cgrafptr_mac_addr = 0;
 	DSpReleaseFrontBufferStaging(ctx);
@@ -432,8 +430,7 @@ static void DSpQueueReleaseAtVBLPartial(DSpContextPrivate *ctx)
 		if (ctx->back_buffer != NULL) {
 			gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 		}
-		ctx->back_texture = NULL;
-		ctx->back_buffer  = NULL;
+		DSpContextPrivateReleaseBackBuffer(ctx);
 		DSpReleaseBackBufferStaging(ctx);
 		ctx->cgrafptr_mac_addr = 0;
 		DSpReleaseFrontBufferStaging(ctx);
@@ -462,12 +459,11 @@ extern "C" void DSpVBLReleaseCallback(void * /*ctx*/,
 										  memory_order_acquire);
 	while (tail != head) {
 		DSpReleaseEntry *entry = &dsp_release_queue[tail];
-		/* Drop texture reference first, buffer second. */
-		entry->back_texture = NULL;
 		if (entry->back_buffer != NULL) {
 			gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 		}
-		entry->back_buffer  = NULL;
+		DSpContextPrivateReleaseBackBufferVariables(&entry->back_texture,
+													&entry->back_buffer);
 		if (entry->ctx_to_free != nullptr) {
 			delete entry->ctx_to_free;
 			entry->ctx_to_free = nullptr;
@@ -1917,7 +1913,7 @@ static uint32_t DSpMaxFrameRatePacingVBLs(uint32_t maxFrameRate,
 	return (uint32_t)vbls;
 }
 
-static void DSpSyncSwapFramePacing(uint32_t ctxRef, uint32_t maxFrameRate)
+void DSpSyncSwapFramePacing(uint32_t ctxRef, uint32_t maxFrameRate)
 {
 	uint64_t cadenceUsec = vbl_source_get_cadence_usec();
 	uint32_t pacingVBLs = DSpMaxFrameRatePacingVBLs(maxFrameRate,
@@ -1949,7 +1945,7 @@ static void DSpSyncSwapFramePacing(uint32_t ctxRef, uint32_t maxFrameRate)
  * skipped the gate - proceed immediately. Poll cadence is 0.5 ms with a
  * 2-VBL total budget (~33 ms at 60 Hz) so an infinite-loop PPC busyProc
  * cannot hang the emul thread. */
-static bool DSpPollBusyProc(uint32_t ctxRef, uint32_t busyProcAddr,
+bool DSpPollBusyProc(uint32_t ctxRef, uint32_t busyProcAddr,
 							uint32_t userRefCon)
 {
 	if (busyProcAddr == 0) return true;
@@ -1979,7 +1975,7 @@ static bool DSpPollBusyProc(uint32_t ctxRef, uint32_t busyProcAddr,
 	return false;
 }
 
-static int32_t DSpRevalidateSwapContext(uint32_t ctxRef,
+int32_t DSpRevalidateSwapContext(uint32_t ctxRef,
 										DSpContextPrivate *expected,
 										uint32_t entry_state,
 										DSpContextPrivate **outCtx,

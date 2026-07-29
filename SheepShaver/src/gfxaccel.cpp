@@ -29,7 +29,10 @@
 #include "glide_engine.h"
 #include "nqd_accel.h"
 #include "gfx_log.h"
+#if defined(ENABLE_NATIVE_CINEPAK_PATCH) \
+		&& ENABLE_NATIVE_CINEPAK_PATCH
 #include "cinepak_hooks.h"
+#endif
 
 #define DEBUG 0
 #include "debug.h"
