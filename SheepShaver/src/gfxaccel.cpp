@@ -783,8 +783,10 @@ void GfxAccelResetForReboot(void)
 	RaveResetForReboot();
 	GLResetForReboot();
 	DSpResetForReboot();
+#if !defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE
 	if (PrefsFindBool("glideaccel"))
 		GlideResetForReboot();
+#endif
 #if defined(ENABLE_NATIVE_CINEPAK_PATCH) && ENABLE_NATIVE_CINEPAK_PATCH
 	CinepakResetForReboot();
 #endif
@@ -897,11 +899,13 @@ void VideoInstallAccel(void)
 		DSpInstallHooks();
 	}
 
-	/* 3dfx Glide 2.x / 3.x - disabled as it crashes on guest exit */
+	/* 3dfx Glide 2.x / 3.x */
+	#if !defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE
 	if (PrefsFindBool("glideaccel")) {
 		GlideInstallHooks();
 	}
-
+	#endif
+	
 	#if defined(ENABLE_NATIVE_CINEPAK_PATCH) \
 			&& ENABLE_NATIVE_CINEPAK_PATCH
 		// Register the native Cinepak ('imdc'/'cvid') decompressor. This runs in
