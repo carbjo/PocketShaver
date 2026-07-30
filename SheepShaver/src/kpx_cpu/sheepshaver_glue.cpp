@@ -53,7 +53,9 @@ extern "C" void catalyst_pump_appkit_events(void);
 #include "gl_engine.h"
 #include "dsp_engine.h"
 #include "glide_engine.h"
+#if defined(ENABLE_NATIVE_CINEPAK_PATCH) && ENABLE_NATIVE_CINEPAK_PATCH
 #include "cinepak_hooks.h"
+#endif
 #endif
 
 #include <stdio.h>
@@ -1513,7 +1515,7 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 	}
 	case NATIVE_GLIDE_DISPATCH: {
 #if !(defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) \
-		&& (!defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE)
+		|| (TARGET_OS_IPHONE)
 		gpr(3) = (uint32)-1;
 		break;
 #else
