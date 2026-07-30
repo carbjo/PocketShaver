@@ -141,6 +141,9 @@ class PreferencesGeneralSetupInstructionsCell: UITableViewCell {
 	private lazy var readButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .secondaryActionConfig
+		if UIDevice.deviceType == .mac {
+			button.preferredBehavioralStyle = .pad
+		}
 		button.setTitle("Read instructions", for: .normal)
 		button.addTarget(self, action: #selector(readButtonPushed), for: .touchUpInside)
 		return button
@@ -290,6 +293,9 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 	private lazy var selectInstallDiskFileButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .primaryActionConfig
+		if UIDevice.deviceType == .mac {
+			button.preferredBehavioralStyle = .pad
+		}
 		button.setTitle("Select Mac OS install disc file", for: .normal)
 		button.addTarget(self, action: #selector(selectInstallDiskFileButtonPushed), for: .touchUpInside)
 		return button
@@ -298,6 +304,9 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 	private lazy var displayCompatibilityListButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .secondaryActionConfig
+		if UIDevice.deviceType == .mac {
+			button.preferredBehavioralStyle = .pad
+		}
 		button.setTitle("Bootstrap compatibility list", for: .normal)
 		button.addTarget(self, action: #selector(displayCompatibilityListButtonPushed), for: .touchUpInside)
 		return button
@@ -306,6 +315,9 @@ class PreferencesGeneralBootstrapCell: UITableViewCell {
 	private lazy var doneButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .secondaryActionConfig
+		if UIDevice.deviceType == .mac {
+			button.preferredBehavioralStyle = .pad
+		}
 		button.setTitle("Ok", for: .normal)
 		button.isHidden = true
 		button.addTarget(self, action: #selector(doneButtonPushed), for: .touchUpInside)

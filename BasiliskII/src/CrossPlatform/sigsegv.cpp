@@ -50,6 +50,18 @@ using std::list;
 #define RETSIGTYPE void
 #endif
 
+// With HAVE_MACH64_VM, we need the MIG-generated mach_exc_server() stub and
+// the mach_exception_raise*() user stubs.  These are normally generated from
+// /usr/include/mach/mach_exc.defs and are NOT part of libSystem on iOS.
+// Include the pre-generated C sources directly (they are pure C, but we are
+// already inside a .cpp translation unit, so wrap in extern "C").
+#ifdef HAVE_MACH64_VM
+extern "C" {
+#include "mach_excServer.c"
+#include "mach_excUser.c"
+}
+#endif
+
 // Size of an unsigned integer large enough to hold all bits of a pointer
 // NOTE: this can be different than SIGSEGV_REGISTER_TYPE. In
 // particular, on ILP32 systems with a 64-bit kernel (HP-UX/ia64?)
