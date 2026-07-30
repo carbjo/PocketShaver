@@ -354,10 +354,13 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 				}
 			case .rightClickInformation:
 				let text: String
-				if UIDevice.deviceType == .iPad {
-					text = "If using bluetooth mouse, right click has to explicitly be enabled in iOS settings under General > Trackpad and Mouse > Secondary click.\nRight click can also be performed with a gamepad button."
-				} else {
+				switch UIDevice.deviceType {
+				case .iPhone:
 					text = "Right click can be performed with a gamepad button."
+				case .iPad:
+					text = "If using bluetooth mouse, right click has to explicitly be enabled in iOS settings under General > Trackpad and Mouse > Secondary click.\nRight click can also be performed with a gamepad button."
+				case .mac:
+					text = "Controls what a right mouse click does."
 				}
 
 				return PreferencesInformationCell(
@@ -528,13 +531,15 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 					])
 				}
 			}
+		}
 
-			snapshot.appendSections([.rightClick])
-			snapshot.appendItems([
-				.rightClick,
-				.rightClickInformation
-			])
+		snapshot.appendSections([.rightClick])
+		snapshot.appendItems([
+			.rightClick,
+			.rightClickInformation
+		])
 
+		if UIDevice.deviceType != .mac {
 			snapshot.appendSections([.keyboardAutoOffset])
 			snapshot.appendItems([
 				.keyboardAutoOffset,
