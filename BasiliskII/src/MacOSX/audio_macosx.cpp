@@ -57,7 +57,7 @@ static bool speaker_mute = false;
  */
 static int audioInt(void);
 
-static bool open_audio(void)
+bool open_audio(void)
 {
 	AudioStatus.sample_rate = audio_sample_rates[audio_sample_rate_index];
 	AudioStatus.sample_size = audio_sample_sizes[audio_sample_size_index];
@@ -110,7 +110,7 @@ void AudioInit(void)
  *  Deinitialization
  */
 
-static void close_audio(void)
+void close_audio(void)
 {
 	D(bug("Closing Audio\n"));
 

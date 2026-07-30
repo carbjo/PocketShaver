@@ -292,7 +292,7 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 			EtherResetCachedAllocation();
 			ether_reset();
 			AudioReset();
-#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 			GfxAccelResetForReboot();
 #endif
 #ifdef USE_SDL_AUDIO

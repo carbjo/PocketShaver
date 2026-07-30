@@ -22,7 +22,7 @@
 #include "thunks.h"
 #include "emul_op.h"
 #include "cpu_emulation.h"
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 #include "rave_engine.h"
 #include "gl_engine.h"
 #include "dsp_engine.h"
@@ -308,7 +308,7 @@ bool ThunksInit(void)
 		native_op[i].tvect = base;
 		native_op[i].func  = base + 8;
 	}
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 	// Initialize RAVE method TVECTs (must be after SheepMem is available)
 	RaveThunksInit();
 
@@ -319,7 +319,9 @@ bool ThunksInit(void)
 	// public DSp entry points via SheepMem::Reserve, matching RAVE.
 	DSpThunksInit();
 
-	GlideThunksInit();
+	#if !defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE
+		GlideThunksInit();
+	#endif
 #endif
 
 #if POWERPC_GET_RESOURCE_THUNKS

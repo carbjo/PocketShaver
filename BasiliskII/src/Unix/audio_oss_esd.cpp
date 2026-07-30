@@ -237,7 +237,7 @@ static bool open_esd(void)
 #endif
 }
 
-static bool open_audio(void)
+bool open_audio(void)
 {
 #ifdef ENABLE_ESD
 	// If ESPEAKER is set, the user probably wants to use ESD, so try that first
@@ -309,7 +309,7 @@ void AudioInit(void)
  *  Deinitialization
  */
 
-static void close_audio(void)
+void close_audio(void)
 {
 	// Stop stream and delete semaphore
 	if (stream_thread_active) {

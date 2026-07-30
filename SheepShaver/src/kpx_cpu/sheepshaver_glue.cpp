@@ -48,7 +48,7 @@ extern "C" void catalyst_pump_appkit_events(void);
 #include "serial.h"
 #include "ether.h"
 #include "timer.h"
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 #include "rave_engine.h"
 #include "gl_engine.h"
 #include "dsp_engine.h"
@@ -1308,7 +1308,8 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		named_check_load_invoc(gpr(3), gpr(4), gpr(5));
 		break;
 	case NATIVE_RAVE_DISPATCH: {
-#if !defined(ENABLE_GFXACCEL)
+#if !(defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) \
+		&& (!defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE)
 		gpr(3) = (uint32)-1;
 		break;
 #else
@@ -1390,7 +1391,8 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 #endif
 	}
 	case NATIVE_OPENGL_DISPATCH: {
-#if !defined(ENABLE_GFXACCEL)
+#if !(defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) \
+		&& (!defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE)
 		gpr(3) = (uint32)-1;
 		break;
 #else
@@ -1472,7 +1474,8 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 #endif
 	}
 	case NATIVE_DSP_DISPATCH: {
-#if !defined(ENABLE_GFXACCEL)
+#if !(defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) \
+		&& (!defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE)
 		gpr(3) = (uint32)-1;
 		break;
 #else
@@ -1509,7 +1512,8 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 #endif
 	}
 	case NATIVE_GLIDE_DISPATCH: {
-#if !defined(ENABLE_GFXACCEL)
+#if !(defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) \
+		&& (!defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE)
 		gpr(3) = (uint32)-1;
 		break;
 #else
@@ -1532,7 +1536,8 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 			&& ENABLE_NATIVE_CINEPAK_PATCH
 	case NATIVE_OPENDEFAULTCOMPONENT_CINEPAK_HOOK:
 	case NATIVE_FINDNEXTCOMPONENT_CINEPAK_HOOK: {
-	#if !defined(ENABLE_GFXACCEL)
+	#if !(defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) \
+			&& (!defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE)
 			gpr(3) = 0;
 			break;
 	#else
@@ -1558,7 +1563,8 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 	#endif
 	}
 	case NATIVE_CINEPAK_DISPATCH: {
-	#if !defined(ENABLE_GFXACCEL)
+	#if !(defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) \
+			&& (!defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE)
 			gpr(3) = (uint32)-50; /* paramErr */
 			break;
 	#else
