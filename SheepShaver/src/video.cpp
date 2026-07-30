@@ -97,6 +97,12 @@ static uint32 guest_new_rgn = 0;
 static uint32 guest_rect_rgn = 0;
 static uint32 guest_paint_one = 0;
 static uint32 guest_dispose_rgn = 0;
+static uint32 guest_hide_cursor = 0;
+static uint32 guest_show_cursor = 0;
+/* Nest count for publish-time HideCursor (outermost only issues Hide/Show). */
+static int s_screen_publish_cm_depth = 0;
+/* False during driver mode transitions; begin/end are no-ops then. */
+static bool s_screen_publish_cm_enabled = true;
 #endif
 
 static void video_log_palette_summary(const char *op, uint32 start, uint32 count)
@@ -863,7 +869,66 @@ bool video_prepare_guest_display(void)
 	if (guest_dispose_rgn == 0)
 		guest_dispose_rgn =
 			FindLibSymbol("\014InterfaceLib", "\012DisposeRgn");
+	if (guest_hide_cursor == 0)
+		guest_hide_cursor =
+			FindLibSymbol("\014InterfaceLib", "\012HideCursor");
+	if (guest_show_cursor == 0)
+		guest_show_cursor =
+			FindLibSymbol("\014InterfaceLib", "\012ShowCursor");
 	return guest_dm_set_display_mode != 0;
+}
+
+void video_screen_publish_cm_suspend(void)
+{
+	while (s_screen_publish_cm_depth > 0) {
+		s_screen_publish_cm_depth--;
+		if (s_screen_publish_cm_depth == 0) {
+			if (guest_show_cursor == 0)
+				(void)video_prepare_guest_display();
+			if (guest_show_cursor != 0)
+				(void)call_macos(guest_show_cursor);
+		}
+	}
+	s_screen_publish_cm_enabled = false;
+}
+
+void video_screen_publish_cm_resume(void)
+{
+	s_screen_publish_cm_enabled = true;
+}
+
+void video_screen_publish_begin(int left, int top, int right, int bottom)
+{
+	(void)left;
+	(void)top;
+	(void)right;
+	(void)bottom;
+	if (!s_screen_publish_cm_enabled || video_can_change_cursor())
+		return;
+
+	(void)video_prepare_guest_display();
+	if (guest_hide_cursor == 0)
+		return;
+
+	if (s_screen_publish_cm_depth == 0)
+		(void)call_macos(guest_hide_cursor);
+	s_screen_publish_cm_depth++;
+}
+
+void video_screen_publish_end(void)
+{
+	if (s_screen_publish_cm_depth <= 0)
+		return;
+	s_screen_publish_cm_depth--;
+	if (s_screen_publish_cm_depth != 0)
+		return;
+	if (!s_screen_publish_cm_enabled)
+		return;
+
+	if (guest_show_cursor == 0)
+		(void)video_prepare_guest_display();
+	if (guest_show_cursor != 0)
+		(void)call_macos(guest_show_cursor);
 }
 
 uint32 video_create_guest_fullscreen_window(uint32 width, uint32 height)
@@ -1118,6 +1183,10 @@ bool video_install_guest_clut(const uint8[768], uint32, uint32, uint32)
 uint32 video_get_live_main_device_pixmap(void) { return 0; }
 uint32 video_create_guest_fullscreen_window(uint32, uint32) { return 0; }
 bool video_dispose_guest_window(uint32) { return false; }
+void video_screen_publish_cm_suspend(void) {}
+void video_screen_publish_cm_resume(void) {}
+void video_screen_publish_begin(int, int, int, int) {}
+void video_screen_publish_end(void) {}
 #endif
 
 static uint16 video_rel_max_depth_mode(void)
