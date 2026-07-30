@@ -170,7 +170,7 @@ static bool close_sdl_audio() {
 	return false;
 }
 
-static bool open_audio(void)
+bool open_audio(void)
 {
 	// Try to open SDL audio
 	if (!open_sdl_audio()) {
@@ -214,7 +214,7 @@ void AudioInit(void)
  *  Deinitialization
  */
 
-static void close_audio(void)
+void close_audio(void)
 {
 	exit_startup = true;
 	while (playing_startup)

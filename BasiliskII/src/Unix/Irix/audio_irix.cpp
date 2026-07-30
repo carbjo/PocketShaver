@@ -253,7 +253,7 @@ void AudioInit(void)
  *  Deinitialization
  */
 
-static void close_audio(void)
+void close_audio(void)
 {
 	// Stop stream and delete semaphore
 	if (stream_thread_active) {

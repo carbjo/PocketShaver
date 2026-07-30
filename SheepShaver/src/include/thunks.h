@@ -138,7 +138,7 @@ protected:
 	static uintptr base;
 	static uintptr data;
 	static uintptr proc;
-#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 	// 512 KB was enough pre-gfxaccel. OpenGL thunks alone install ~1500+ TVECTs
 	// plus a 64 KiB defer ring (gl_thunks.cpp / gl_defer.h). On Windows that
 	// crowded the 256 KiB proc/data halves and produced guest SIGSEGVs during

@@ -236,6 +236,9 @@ class PreferencesAdvancedBootstrapCell: UITableViewCell {
 	private lazy var selectInstallDiskFileButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.configuration = .primaryActionConfig
+		if UIDevice.deviceType == .mac {
+			button.preferredBehavioralStyle = .pad
+		}
 		button.setTitle("Select Mac OS install disc file", for: .normal)
 		button.addTarget(self, action: #selector(selectInstallDiskFileButtonPushed), for: .touchUpInside)
 		return button

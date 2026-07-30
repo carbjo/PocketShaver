@@ -44,7 +44,7 @@
 #include "MiscellaneousSettingsObjCCppHeader.h"
 #include "gfx_color_policy.h"
 #endif
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 #include "display_mode_controller.h"
 #include "dsp_pixmap_offsets.h"
 #include "dsp_video_status_policy.h"
@@ -282,7 +282,7 @@ static bool allocate_gamma_table(VidLocals *csSave, uint32 size)
 	 return a > b? a : b;
  }
 
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 static void publish_gamma_lut_to_display_controller(VidLocals *csSave)
 {
 	uint8 lut[768];
@@ -370,7 +370,7 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 			mac_gamma[i].red = mac_gamma[i].green = mac_gamma[i].blue = v;
 		}
 		video_set_gamma(256);
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 		publish_gamma_lut_to_display_controller(csSave);
 #endif
 	} else { // User-supplied gamma table
@@ -430,7 +430,7 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 			}
 		}
 		video_set_gamma(data_cnt);
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 		publish_gamma_lut_to_display_controller(csSave);
 #endif
 	}
@@ -477,7 +477,7 @@ static int16 VideoControl(uint32 pb, VidLocals *csSave)
 #ifdef __BEOS__
 				// Windows are gamma-corrected by BeOS
 				const bool can_do_gamma = (display_type == DIS_SCREEN);
-#elif defined(ENABLE_GFXACCEL)
+#elif (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 				/* The compositor gamma LUT is the single owner of driver
 				 * gamma when gfxaccel is enabled: publish_gamma_lut_to_display_controller
 				 * delivers the guest table to the GPU present path, and
@@ -1211,7 +1211,7 @@ static void get_size_of_resolution(int id, uint32 &x, uint32 &y)
 	x = y = 0;
 }
 
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 static bool get_dsp_video_status_override(uint16 &mode, uint32 &data)
 {
 	const DMCModeSnapshot *snap = dmc_current_snapshot();
@@ -1238,7 +1238,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			D(bug("GetMode\n"));
 			uint16 mode = csSave->saveMode;
 			uint32 data = csSave->saveData;
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 			if (get_dsp_video_status_override(mode, data))
 				log_dsp_video_status_override("GetMode", mode, data);
 #endif
@@ -1325,7 +1325,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			D(bug("GetCurMode\n"));
 			uint16 mode = csSave->saveMode;
 			uint32 data = csSave->saveData;
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 			if (get_dsp_video_status_override(mode, data))
 				log_dsp_video_status_override("GetCurMode", mode, data);
 #endif
@@ -1364,7 +1364,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			unsigned int work_id = ReadMacInt32(param + csPreviousDisplayModeID);
 			switch (work_id) {
 				case kDisplayModeIDCurrent:
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 				{
 					uint16 mode = csSave->saveMode;
 					uint32 data = csSave->saveData;
@@ -1487,7 +1487,7 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 			uint32 requested_id = ReadMacInt32(param + csDisplayModeID);
 			uint16 requested_mode = ReadMacInt16(param + csDepthMode);
 			bool mode_is_absolute = false;
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 			if (requested_id == kDisplayModeIDCurrent) {
 				uint16 mode = csSave->saveMode;
 				uint32 data = csSave->saveData;

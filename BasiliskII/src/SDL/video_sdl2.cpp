@@ -87,7 +87,7 @@
 #import "PreferencesViewControllerObjCCppHeader.h"
 #endif
 
-#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 #include "metal_compositor.h"
 #include "display_mode_controller.h"
 #include "gfxaccel_resources.h"
@@ -257,7 +257,7 @@ extern void SysMountFirstFloppy(void);
 /*
  *  Framebuffer allocation routines
  */
-#if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 /* Persistent oversized framebuffer aperture, mirroring PocketShaver's
  * vm_acquire_reserved() region (80 MB, sized for 6K Retina). The RAVE
  * engine advertises a 32 MB VRAM card (kRaveAdvertisedVRAMBytes), and
@@ -274,7 +274,7 @@ static void *vm_acquire_framebuffer(uint32 size)
 #if defined(HAVE_MACH_VM) || defined(HAVE_MMAP_VM) && defined(__aarch64__)
 	return vm_acquire_reserved(size);
 #else
-#if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 	if (size <= fb_aperture_size) {
 		if (fb_aperture == VM_MAP_FAILED)
 			fb_aperture = vm_acquire(fb_aperture_size, VM_MAP_DEFAULT | VM_MAP_32BIT);
@@ -301,7 +301,7 @@ static void *vm_acquire_framebuffer(uint32 size)
 static inline void vm_release_framebuffer(void *fb, uint32 size)
 {
 #ifndef HAVE_MACH_VM
-#if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 	if (fb == fb_aperture)
 		return;		// aperture persists across mode switches
 #endif
@@ -770,7 +770,7 @@ static void delete_sdl_video_window()
 static void shutdown_sdl_video()
 {
 	delete_sdl_video_surfaces();
-#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 	// Reverse-order teardown.
 	// gfxaccel_resources subscribed SECOND, so it shuts down FIRST so
 	// any in-flight DMC dispatch against its detach handler completes
@@ -1277,7 +1277,7 @@ void driver_base::init()
 	// Set frame buffer base
 	set_mac_frame_buffer(monitor, VIDEO_MODE_DEPTH, true);
 
-#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 	{
 		/* The controller must exist before compositor/resource subscribers
 		 * register, but it must not be created before the video driver has
@@ -1362,7 +1362,7 @@ void driver_base::init()
 	SDL_Color black = { 0, 0, 0, 255 };
 	sdl_palette->colors[1] = black;
 	SDL_SetSurfacePalette(s, sdl_palette);
-#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 	// Upload the initial black-and-white palette so indexed modes display correctly from frame 1.
 	{
 		uint8_t bw_pal[6] = {255,255,255, 0,0,0};
@@ -1885,7 +1885,7 @@ bool VideoInit(bool classic)
 			for (int i = 0; video_modes[i].w != 0; i++) {
 				const int w = video_modes[i].w;
 				const int h = video_modes[i].h;
-#if defined(SHEEPSHAVER) && defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 				/* Advertise the standard resolution table up to the desktop
 				 * size instead of capping at the initial window size - games
 				 * switch modes through the Display Manager and the window is
@@ -2033,7 +2033,7 @@ void SDL_monitor_desc::video_close(void)
 
 void VideoExit(void)
 {
-#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 	// Clean up NQD Metal compute resources before tearing down displays.
 	// NQD is init'd once per session; VideoExit is the correct cleanup point.
 	if (nqd_metal_available) {
@@ -2180,7 +2180,7 @@ void VideoVBL(void)
 	if (toggle_fullscreen)
 		do_toggle_fullscreen();
 
-#if defined(ENABLE_GFXACCEL)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 	// Flush any pending batched NQD Metal dispatches before presenting,
 	// so all 2D drawing is visible in the framebuffer texture.
 	if (nqd_metal_available)
@@ -2306,7 +2306,7 @@ void SDL_monitor_desc::set_palette(uint8 *pal, int num_in)
 	// Tell redraw thread to change palette
 	sdl_palette_changed = true;
 
-#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 	// Update the GPU palette buffer so the Metal compositor renders correct colors
 	MetalCompositorUpdatePalette(pal, num_in);
 	// Bump DMC palette_gen so the compositor / engines can detect the CLUT change
@@ -3447,7 +3447,7 @@ static void update_display_static(driver_base *drv)
 static void update_display_static_bbox(driver_base *drv)
 {
 
-#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+#if (defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)) || TARGET_OS_IPHONE
 	/* Compositor presents from the_buffer via GL; the SDL-surface blit here is
 	 * vestigial and its drv->s pitch can mismatch the guest row bytes after an
 	 * in-place depth switch (overrun). Skip it when the compositor is active. */

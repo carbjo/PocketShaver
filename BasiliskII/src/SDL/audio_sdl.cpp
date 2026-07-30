@@ -195,7 +195,7 @@ static bool open_sdl_audio(void)
 	return true;
 }
 
-static bool open_audio(void)
+bool open_audio(void)
 {
 	// Try to open SDL audio
 	if (!open_sdl_audio()) {
@@ -240,7 +240,7 @@ void AudioInit(void)
  *  Deinitialization
  */
 
-static void close_audio(void)
+void close_audio(void)
 {
 	QD3D_AUDIO_LOG("SDL close format=%uHz/%ubit/%uch sources=%d",
 	                AudioStatus.sample_rate >> 16, AudioStatus.sample_size,

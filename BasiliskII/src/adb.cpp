@@ -801,7 +801,7 @@ void ADBInterrupt(void)
                 r.d[0] = (mouse_reg_3[0] << 4) | 0x0c;    // Talk 0
 
                 Execute68k(r.a[1], &r);
-				
+
                 old_mouse_button[0] = mouse_button[0];
                 old_mouse_button[1] = mouse_button[1];
                 old_mouse_button[2] = mouse_button[2];
