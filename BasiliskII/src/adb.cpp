@@ -57,9 +57,6 @@
 // Global variables
 static int mouse_x = 0, mouse_y = 0;							// Mouse position
 static int old_mouse_x = 0, old_mouse_y = 0;
-/* Tracks whether old_mouse_* has a real sample (cleared on relative-mode
- * transitions so the next absolute fixup does not diff against a stale point). */
-static bool old_mouse_valid = false;
 static int last_mouse_down_delta_x = 0, last_mouse_down_delta_y = 0;
 static bool mouse_button[3] = {false, false, false};			// Mouse button states
 static bool old_mouse_button[3] = {false, false, false};
@@ -488,25 +485,15 @@ void ADBConfigure(int new_screen_width, int new_screen_height, int new_double_cl
  *  Set mouse mode (absolute or relative)
  */
 
-/* Absolute sample not yet received after leaving relative mode. */
-static const int kADBNoAbsoluteSample = -100000;
-
 void ADBSetRelMouseMode(bool relative)
 {
 	if (relative_mouse != relative) {
 		relative_mouse = relative;
-		/*
-		 * Relative: accumulate deltas from zero.
-		 * Absolute: do not invent (0,0) — that caused MoveTo(0,0) then a jump
-		 * to the real pointer (Finder glitches on ungrab / mode flip). Wait
-		 * for the next absolute ADBMouseMoved sample instead.
-		 */
-		if (relative)
-			mouse_x = mouse_y = 0;
-		else
-			mouse_x = mouse_y = kADBNoAbsoluteSample;
-		old_mouse_valid = false;
-		old_mouse_x = old_mouse_y = -1;
+		/* Relative mode accumulates from zero. Absolute: keep mouse_* and
+		 * old_mouse_* equal so ADBInterrupt does not MoveTo until the next
+		 * real ADBMouseMoved (avoids a spurious MoveTo(0,0) then jump). */
+		mouse_x = mouse_y = 0;
+		old_mouse_x = old_mouse_y = 0;
 	}
 	if (!relative)
 		time(&relative_mouse_mode_off_time);
@@ -702,10 +689,59 @@ void ADBInterrupt(void)
         }
 
 	} else {
-		// Update mouse position (absolute)
-		if (mx != kADBNoAbsoluteSample && my != kADBNoAbsoluteSample &&
-			(mx != old_mouse_x || my != old_mouse_y)) {
+		/*
+		 * Absolute mouse (host pointer free — Finder, menus, ungrabbed games).
+		 *
+		 * Two Mac APIs touch the pointer, and they are not interchangeable:
+		 *
+		 *   - CursorDevice MoveTo: sets an absolute position. GetMouse / QD
+		 *     use this. InputSprocket does not; it only samples ADB.
+		 *   - ADB mouse Talk-0 relative packets: what a real mouse sends.
+		 *     ISp (Quake 3, UT, …) reads these for look axes. Without them,
+		 *     ungrabbed ISp titles get no motion.
+		 *
+		 * Grabbed / relative mode (Ctrl-F5, init_grab) never enters this
+		 * branch: SDL relative deltas are turned into ADB packets only, and
+		 * the host cursor is hidden/confined by SDL_SetRelativeMouseMode.
+		 * That is the natural path for FPS-style ISp.
+		 *
+		 * Ungrabbed absolute mode must feed both consumers. Do ADB relative
+		 * first (ISp + one driver step), then MoveTo to the host sample so
+		 * the frame ends on the correct absolute position. Doing MoveTo
+		 * first and ADB second made the cursor race (motion applied twice).
+		 * Doing MoveTo alone fixed Finder but starved ISp (cursor/look
+		 * “vanished” in Q3 unless grabbed).
+		 *
+		 * ADBSetRelMouseMode keeps mouse_* and old_mouse_* equal on a mode
+		 * switch so this block is a no-op until the next ADBMouseMoved.
+		 */
+		if (mx != old_mouse_x || my != old_mouse_y) {
 #ifdef POWERPC_ROM
+			int dx = mx - old_mouse_x;
+			int dy = my - old_mouse_y;
+			if (dx > 255) dx = 255;
+			else if (dx < -255) dx = -255;
+			if (dy > 255) dy = 255;
+			else if (dy < -255) dy = -255;
+			if (dx != 0 || dy != 0) {
+				if (mouse_reg_3[1] == 4) {
+					WriteMacInt8(tmp_data, 3);
+					WriteMacInt8(tmp_data + 1, (dy & 0x7f) | (mouse_button[0] ? 0 : 0x80));
+					WriteMacInt8(tmp_data + 2, (dx & 0x7f) | (mouse_button[1] ? 0 : 0x80));
+					WriteMacInt8(tmp_data + 3, ((dy >> 3) & 0x70) | ((dx >> 7) & 0x07) | (mouse_button[2] ? 0x08 : 0x88));
+				} else {
+					WriteMacInt8(tmp_data, 2);
+					WriteMacInt8(tmp_data + 1, (dy & 0x7f) | (mouse_button[0] ? 0 : 0x80));
+					WriteMacInt8(tmp_data + 2, (dx & 0x7f) | (mouse_button[1] ? 0 : 0x80));
+				}
+				r.a[0] = tmp_data;
+				r.a[1] = ReadMacInt32(mouse_base);
+				r.a[2] = ReadMacInt32(mouse_base + 4);
+				r.a[3] = adb_base;
+				r.d[0] = (mouse_reg_3[0] << 4) | 0x0c;	// Talk 0
+				Execute68k(r.a[1], &r);
+			}
+
 			static const uint8 proc_template[] = {
 				0x2f, 0x08,		// move.l a0,-(sp)
 				0x2f, 0x00,		// move.l d0,-(sp)
@@ -719,16 +755,6 @@ void ADBInterrupt(void)
 			r.d[0] = mx;
 			r.d[1] = my;
 			Execute68k(proc, &r);
-
-			/*
-			 * Absolute path: MoveTo only.
-			 *
-			 * Do NOT synthesize an ADB relative Talk-0 packet here.
-			 * ISp titles need the relative path (grab / Ctrl-F5 / init_grab):
-			 * only ADB relative packets, host pointer confined by
-			 * SDL_SetRelativeMouseMode + window grab. Absolute GetMouse
-			 * titles (Diablo UI, Finder) stay on MoveTo alone.
-			 */
 #else
 			WriteMacInt16(0x82a, mx);
 			WriteMacInt16(0x828, my);
@@ -738,7 +764,6 @@ void ADBInterrupt(void)
 #endif
 			old_mouse_x = mx;
 			old_mouse_y = my;
-			old_mouse_valid = true;
 		}
 
         // O2S: Process accumulated button events
