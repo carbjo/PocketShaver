@@ -25,7 +25,7 @@ extern "C" __declspec(dllimport) void __stdcall OutputDebugStringA(
 
 
 #ifndef ACCEL_LOGGING_ENABLED
-#define ACCEL_LOGGING_ENABLED 0   /* ship default OFF */
+#define ACCEL_LOGGING_ENABLED 1  /* ship default OFF */
 #endif
 #if ACCEL_LOGGING_ENABLED
 

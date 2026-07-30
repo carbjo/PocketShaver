@@ -2519,6 +2519,13 @@ extern "C" bool DSpCopyBackBufferToCanonicalScreen(
 	if (source == nullptr || screen == nullptr)
 		return false;
 
+	/*
+	 * Onscreen publication only: same Hide/Show contract as
+	 * MetalCompositorSubmitFrame. Private back buffers are untouched.
+	 * Single begin/end around every write path below.
+	 */
+	video_screen_publish_begin(0, 0, (int)screen_width, (int)screen_height);
+
 	if (source_depth == screen_depth &&
 		source_width == screen_width &&
 		source_height == screen_height) {
@@ -2527,68 +2534,67 @@ extern "C" bool DSpCopyBackBufferToCanonicalScreen(
 				   source + (size_t)y * source_row_bytes,
 				   screen_visible_bytes);
 		}
-		return true;
-	}
-
-	/* Mixed-depth DSp contexts still publish into MainDevice's real storage.
-	 * Conversion is a back-buffer operation, not a second onscreen texture:
-	 * QuickDraw, cursor drawing, dialogs, and accelerated producers all see
-	 * the resulting bytes through screen_base. */
-	const uint32_t destination_color_count =
-		screen_depth <= 8 ? 1u << screen_depth : 0;
-	uint8_t indexed_remap[256] = {};
-	if (source_depth <= 8 && screen_depth <= 8) {
-		const uint32_t source_color_count = 1u << source_depth;
-		for (uint32_t i = 0; i < source_color_count; i++) {
-			indexed_remap[i] = source_depth == screen_depth
-				? (uint8_t)i
-				: DSpNearestScreenPaletteIndex(
-					ctx->clut_bytes[i * 3u + 0u],
-					ctx->clut_bytes[i * 3u + 1u],
-					ctx->clut_bytes[i * 3u + 2u],
-					destination_color_count);
-		}
-	}
-
-	for (uint32_t y = 0; y < screen_height; y++) {
-		const uint32_t source_y =
-			(uint32_t)(((uint64_t)y * source_height) / screen_height);
-		const uint8_t *source_row =
-			source + (size_t)source_y * source_row_bytes;
-		uint8_t *screen_row =
-			screen + (size_t)y * screen_mode.viRowBytes;
-		if (screen_depth <= 8)
-			memset(screen_row, 0, screen_visible_bytes);
-
-		for (uint32_t x = 0; x < screen_width; x++) {
-			const uint32_t source_x =
-				(uint32_t)(((uint64_t)x * source_width) / screen_width);
-			uint8_t r, g, b;
-			DSpReadBackBufferRGB(
-				ctx, source_row, source_x, source_depth, &r, &g, &b);
-			if (screen_depth == 32) {
-				screen_row[x * 4u + 0u] = 0;
-				screen_row[x * 4u + 1u] = r;
-				screen_row[x * 4u + 2u] = g;
-				screen_row[x * 4u + 3u] = b;
-			} else if (screen_depth == 16) {
-				const uint16_t pixel =
-					(uint16_t)(((uint16_t)(r >> 3) << 10) |
-							   ((uint16_t)(g >> 3) << 5) |
-							   (uint16_t)(b >> 3));
-				screen_row[x * 2u + 0u] = (uint8_t)(pixel >> 8);
-				screen_row[x * 2u + 1u] = (uint8_t)pixel;
-			} else {
-				const uint8_t index = source_depth <= 8
-					? indexed_remap[
-						DSpReadIndexedPixel(
-							source_row, source_x, source_depth)]
+	} else {
+		/* Mixed-depth DSp still publishes into MainDevice storage only.
+		 * Conversion is not a second onscreen texture. */
+		const uint32_t destination_color_count =
+			screen_depth <= 8 ? 1u << screen_depth : 0;
+		uint8_t indexed_remap[256] = {};
+		if (source_depth <= 8 && screen_depth <= 8) {
+			const uint32_t source_color_count = 1u << source_depth;
+			for (uint32_t i = 0; i < source_color_count; i++) {
+				indexed_remap[i] = source_depth == screen_depth
+					? (uint8_t)i
 					: DSpNearestScreenPaletteIndex(
-						r, g, b, destination_color_count);
-				DSpWriteIndexedPixel(screen_row, x, screen_depth, index);
+						ctx->clut_bytes[i * 3u + 0u],
+						ctx->clut_bytes[i * 3u + 1u],
+						ctx->clut_bytes[i * 3u + 2u],
+						destination_color_count);
+			}
+		}
+
+		for (uint32_t y = 0; y < screen_height; y++) {
+			const uint32_t source_y =
+				(uint32_t)(((uint64_t)y * source_height) / screen_height);
+			const uint8_t *source_row =
+				source + (size_t)source_y * source_row_bytes;
+			uint8_t *screen_row =
+				screen + (size_t)y * screen_mode.viRowBytes;
+			if (screen_depth <= 8)
+				memset(screen_row, 0, screen_visible_bytes);
+
+			for (uint32_t x = 0; x < screen_width; x++) {
+				const uint32_t source_x =
+					(uint32_t)(((uint64_t)x * source_width) / screen_width);
+				uint8_t r, g, b;
+				DSpReadBackBufferRGB(
+					ctx, source_row, source_x, source_depth, &r, &g, &b);
+				if (screen_depth == 32) {
+					screen_row[x * 4u + 0u] = 0;
+					screen_row[x * 4u + 1u] = r;
+					screen_row[x * 4u + 2u] = g;
+					screen_row[x * 4u + 3u] = b;
+				} else if (screen_depth == 16) {
+					const uint16_t pixel =
+						(uint16_t)(((uint16_t)(r >> 3) << 10) |
+								   ((uint16_t)(g >> 3) << 5) |
+								   (uint16_t)(b >> 3));
+					screen_row[x * 2u + 0u] = (uint8_t)(pixel >> 8);
+					screen_row[x * 2u + 1u] = (uint8_t)pixel;
+				} else {
+					const uint8_t index = source_depth <= 8
+						? indexed_remap[
+							DSpReadIndexedPixel(
+								source_row, source_x, source_depth)]
+						: DSpNearestScreenPaletteIndex(
+							r, g, b, destination_color_count);
+					DSpWriteIndexedPixel(screen_row, x, screen_depth, index);
+				}
 			}
 		}
 	}
+
+	video_screen_publish_end();
 	return true;
 }
 

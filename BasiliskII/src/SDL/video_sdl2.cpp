@@ -1015,7 +1015,8 @@ static SDL_Surface *init_sdl_video(int width, int height, int depth, Uint32 flag
 		return NULL;
 	}
 
-	SDL_RenderSetIntegerScale(sdl_renderer, PrefsFindBool("scale_integer") ? SDL_TRUE : SDL_FALSE);
+	const bool use_integer_scale = PrefsFindBool("scale_integer");
+	SDL_RenderSetIntegerScale(sdl_renderer, use_integer_scale ? SDL_TRUE : SDL_FALSE);
 #endif
 
     return guest_surface;
@@ -1119,42 +1120,40 @@ bool video_get_framebuffer_drawable_rect(int *out_x, int *out_y,
 	if (drawable_w <= 0 || drawable_h <= 0)
 		return false;
 
-	SDL_Rect viewport = {0, 0, drawable_w, drawable_h};
-	if (sdl_renderer) {
-		int logical_w = 0, logical_h = 0;
-		int window_w = 0, window_h = 0;
-		SDL_RenderGetLogicalSize(sdl_renderer, &logical_w, &logical_h);
-		SDL_GetWindowSize(sdl_window, &window_w, &window_h);
-		if (logical_w > 0 && logical_h > 0 &&
-			window_w > 0 && window_h > 0) {
-			int window_x0 = 0, window_y0 = 0;
-			int window_x1 = 0, window_y1 = 0;
-			SDL_RenderLogicalToWindow(sdl_renderer, 0.0f, 0.0f,
-									 &window_x0, &window_y0);
-			SDL_RenderLogicalToWindow(sdl_renderer,
-									 (float)logical_w, (float)logical_h,
-									 &window_x1, &window_y1);
-
-			const double sx = (double)drawable_w / window_w;
-			const double sy = (double)drawable_h / window_h;
-			viewport.x = (int)lround(window_x0 * sx);
-			viewport.y = (int)lround(window_y0 * sy);
-			viewport.w = (int)lround((window_x1 - window_x0) * sx);
-			viewport.h = (int)lround((window_y1 - window_y0) * sy);
-		}
+	/* Guest size: prefer the live driver mode, else VModes[cur_mode]. */
+	int guest_w = 0, guest_h = 0;
+	if (drv != NULL) {
+		const VIDEO_MODE &mode = drv->mode;
+		guest_w = VIDEO_MODE_X;
+		guest_h = VIDEO_MODE_Y;
+	}
+	if ((guest_w <= 0 || guest_h <= 0) &&
+		cur_mode >= 0 && cur_mode < 64 &&
+		VModes[cur_mode].viType != DIS_INVALID) {
+		guest_w = VModes[cur_mode].viXsize;
+		guest_h = VModes[cur_mode].viYsize;
+	}
+	if (guest_w <= 0 || guest_h <= 0) {
+		*out_x = 0;
+		*out_y = 0;
+		*out_w = drawable_w;
+		*out_h = drawable_h;
+		return true;
 	}
 
-	viewport.x = std::max(0, std::min(drawable_w, viewport.x));
-	viewport.y = std::max(0, std::min(drawable_h, viewport.y));
-	viewport.w = std::max(0, std::min(drawable_w - viewport.x, viewport.w));
-	viewport.h = std::max(0, std::min(drawable_h - viewport.y, viewport.h));
-	if (viewport.w <= 0 || viewport.h <= 0)
-		return false;
+	/* Continuous aspect-fit: window is mag_rate * guest, so scale == mag_rate
+	 * for matching aspects (including 1.5). */
+	const double scale = std::min((double)drawable_w / (double)guest_w,
+								  (double)drawable_h / (double)guest_h);
+	int view_w = (int)lround((double)guest_w * scale);
+	int view_h = (int)lround((double)guest_h * scale);
+	view_w = std::max(1, std::min(drawable_w, view_w));
+	view_h = std::max(1, std::min(drawable_h, view_h));
 
-	*out_x = viewport.x;
-	*out_y = viewport.y;
-	*out_w = viewport.w;
-	*out_h = viewport.h;
+	*out_x = (drawable_w - view_w) / 2;
+	*out_y = (drawable_h - view_h) / 2;
+	*out_w = view_w;
+	*out_h = view_h;
 	return true;
 }
 #endif
@@ -1374,9 +1373,6 @@ void driver_base::init()
 #endif
 
 #if !defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE
-	/* Keep grab policy tied to the cursor plane the video driver actually
-	 * selected. With gfxaccel, video_can_change_cursor() may enable that plane
-	 * even when the optional hardcursor preference is otherwise disabled. */
 #ifdef SHEEPSHAVER
 	if (PrefsFindBool("init_grab") && !video_can_change_cursor()) grab_mouse();
 #else
@@ -2391,6 +2387,11 @@ static int16 video_switch_to_mode_index(int mode_index)
 	 * guest subsystems such as DrawSprocket reach it through Display Manager
 	 * so QuickDraw's GDevice is updated in the same transaction. */
 	const int previous_mode = cur_mode;
+#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+	/* Close any open publish Hide/Show pair while CM is still valid, then
+	 * ignore further publish CM until the new mode is bound. */
+	video_screen_publish_cm_suspend();
+#endif
 	DisableInterrupt();
 #ifndef USE_CPU_EMUL_SERVICES
 	thread_stop_ack = false;
@@ -2410,6 +2411,9 @@ static int16 video_switch_to_mode_index(int mode_index)
 		thread_stop_req = false;
 #endif
 		EnableInterrupt();
+#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+		video_screen_publish_cm_resume();
+#endif
 		return paramErr;
 	}
 #endif
@@ -2432,6 +2436,9 @@ static int16 video_switch_to_mode_index(int mode_index)
 		thread_stop_req = false;
 #endif
 		EnableInterrupt();
+#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+		video_screen_publish_cm_resume();
+#endif
 		return paramErr;
 	}
 	dmc_err = dmc_request_mode_switch(&bound_mode);
@@ -2456,6 +2463,9 @@ static int16 video_switch_to_mode_index(int mode_index)
 		thread_stop_req = false;
 #endif
 		EnableInterrupt();
+#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+		video_screen_publish_cm_resume();
+#endif
 		return paramErr;
 	}
 #endif
@@ -2471,6 +2481,9 @@ static int16 video_switch_to_mode_index(int mode_index)
 	thread_stop_req = false;
 #endif
 	EnableInterrupt();
+#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER)
+	video_screen_publish_cm_resume();
+#endif
 	return noErr;
 }
 
@@ -2626,17 +2639,6 @@ void set_input_disabled(bool is_disabled) {
 #ifdef SHEEPSHAVER
 bool video_can_change_cursor(void)
 {
-	/* Accelerated producers replace screen pixels at their publication
-	 * boundaries, so a software cursor drawn once into VRAM cannot satisfy
-	 * the classic Cursor Manager's persistent-until-HideCursor contract.
-	 * Use the video driver's existing SDL hardware-cursor plane whenever
-	 * gfxaccel is active; it remains above RAVE/AGL/Glide publication while
-	 * mouse coordinates continue through the ordinary raw SDL guest path. */
-#if defined(ENABLE_GFXACCEL) && defined(SHEEPSHAVER) && \
-	(!defined(TARGET_OS_IPHONE) || !TARGET_OS_IPHONE)
-	if (PrefsFindBool("gfxaccel"))
-		return true;
-#endif
 	return PrefsFindBool("hardcursor");
 }
 #endif

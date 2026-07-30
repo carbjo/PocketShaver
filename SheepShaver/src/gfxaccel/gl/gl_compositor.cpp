@@ -356,10 +356,17 @@ struct GuestScreenRect {
 	int height;
 };
 
-/* Expand one guest framebuffer rectangle into tightly packed RGBA8. */
+/*
+ * Expand one guest framebuffer rectangle into tightly packed RGBA8.
+ *
+ * Pre-rewrite FFP present uploaded raw guest pixels (gamma shaders were never
+ * enabled). The rewrite's upload_guest_screen_to_texture(true) baked s_gamma_lut
+ * into this texture and washed the image. Keep expand raw so present matches
+ * the pre-changeset look; the shared texture is also the RAVE/Glide resolve
+ * target and must not carry a display-policy bake.
+ */
 static void expand_framebuffer_rect_rgba(const GuestScreenRect &rect,
-										 std::vector<uint8_t> &out,
-										 bool apply_display_gamma)
+										 std::vector<uint8_t> &out)
 {
 	out.resize((size_t)rect.width * (size_t)rect.height * 4);
 	const uint8_t *src = (const uint8_t *)compositor_buffer;
@@ -372,19 +379,14 @@ static void expand_framebuffer_rect_rgba(const GuestScreenRect &rect,
 	const int bpp = compositor_bits_per_pixel;
 
 	if (bpp == 32) {
-		/* Convert guest BE ARGB to the canonical RGBA8 screen texture without
-		 * baking display policy into the shared pixels. */
 		for (int y = 0; y < rect.height; y++) {
 			const uint8_t *row =
 				src + (size_t)(rect.y + y) * rb + (size_t)rect.x * 4;
 			uint8_t *dst = out.data() + (size_t)y * rect.width * 4;
 			for (int x = 0; x < rect.width; x++) {
-				const uint8_t r = row[x * 4 + 1];
-				const uint8_t g = row[x * 4 + 2];
-				const uint8_t b = row[x * 4 + 3];
-				dst[x * 4 + 0] = apply_display_gamma ? s_gamma_lut[r] : r;
-				dst[x * 4 + 1] = apply_display_gamma ? s_gamma_lut[256 + g] : g;
-				dst[x * 4 + 2] = apply_display_gamma ? s_gamma_lut[512 + b] : b;
+				dst[x * 4 + 0] = row[x * 4 + 1];
+				dst[x * 4 + 1] = row[x * 4 + 2];
+				dst[x * 4 + 2] = row[x * 4 + 3];
 				dst[x * 4 + 3] = 255;
 			}
 		}
@@ -397,21 +399,17 @@ static void expand_framebuffer_rect_rgba(const GuestScreenRect &rect,
 				src + (size_t)(rect.y + y) * rb + (size_t)rect.x * 2;
 			uint8_t *dst = out.data() + (size_t)y * rect.width * 4;
 			for (int x = 0; x < rect.width; x++) {
-				uint16_t be = (uint16_t)((row[x * 2] << 8) | row[x * 2 + 1]);
-				uint8_t R = (uint8_t)(((be >> 10) & 0x1f) * 255 / 31);
-				uint8_t G = (uint8_t)(((be >> 5) & 0x1f) * 255 / 31);
-				uint8_t B = (uint8_t)((be & 0x1f) * 255 / 31);
-				/* Raw xRGB1555 unpack into the shared screen texture. */
-				dst[x * 4 + 0] = apply_display_gamma ? s_gamma_lut[R] : R;
-				dst[x * 4 + 1] = apply_display_gamma ? s_gamma_lut[256 + G] : G;
-				dst[x * 4 + 2] = apply_display_gamma ? s_gamma_lut[512 + B] : B;
+				const uint16_t be = (uint16_t)((row[x * 2] << 8) | row[x * 2 + 1]);
+				dst[x * 4 + 0] = (uint8_t)(((be >> 10) & 0x1f) * 255 / 31);
+				dst[x * 4 + 1] = (uint8_t)(((be >> 5) & 0x1f) * 255 / 31);
+				dst[x * 4 + 2] = (uint8_t)((be & 0x1f) * 255 / 31);
 				dst[x * 4 + 3] = 255;
 			}
 		}
 		return;
 	}
 
-	/* Indexed 1/2/4/8 */
+	/* Indexed 1/2/4/8 — resolve CLUT only, no display gamma. */
 	for (int y = 0; y < rect.height; y++) {
 		const uint8_t *row = src + (size_t)(rect.y + y) * (size_t)rb;
 		uint8_t *dst = out.data() + (size_t)y * rect.width * 4;
@@ -421,34 +419,27 @@ static void expand_framebuffer_rect_rgba(const GuestScreenRect &rect,
 			if (bpp == 8) {
 				index = row[x];
 			} else if (bpp == 4) {
-				uint8_t b = row[x / 2];
+				const uint8_t b = row[x / 2];
 				index = (x & 1) ? (b & 0x0f) : (b >> 4);
 			} else if (bpp == 2) {
-				uint8_t b = row[x / 4];
-				int shift = (3 - (x % 4)) * 2;
+				const uint8_t b = row[x / 4];
+				const int shift = (3 - (x % 4)) * 2;
 				index = (b >> shift) & 0x3;
-			} else { /* 1 */
-				uint8_t b = row[x / 8];
+			} else {
+				const uint8_t b = row[x / 8];
 				index = (b >> (7 - (x % 8))) & 0x1;
 			}
-			uint8_t R = s_palette[index * 4 + 0];
-			uint8_t G = s_palette[index * 4 + 1];
-			uint8_t B = s_palette[index * 4 + 2];
-			/* Resolve the guest CLUT into the shared screen texture. */
-			dst[dx * 4 + 0] = apply_display_gamma ? s_gamma_lut[R] : R;
-			dst[dx * 4 + 1] = apply_display_gamma ? s_gamma_lut[256 + G] : G;
-			dst[dx * 4 + 2] = apply_display_gamma ? s_gamma_lut[512 + B] : B;
+			dst[dx * 4 + 0] = s_palette[index * 4 + 0];
+			dst[dx * 4 + 1] = s_palette[index * 4 + 1];
+			dst[dx * 4 + 2] = s_palette[index * 4 + 2];
 			dst[dx * 4 + 3] = 255;
 		}
 	}
 }
 
-/* screen_base is the one authoritative onscreen surface. The GL texture is
- * merely its presentation/work copy, so refresh it from guest VRAM at every
- * presentation or accelerated publication boundary. This deliberately needs
- * no dirty journal: unhooked QuickDraw, the Window Manager and Cursor Manager
- * are all ordinary writers to the same bytes. */
-static bool upload_guest_screen_to_texture(bool apply_display_gamma = false)
+/* Refresh the presentation texture from guest VRAM. No dirty journal: every
+ * writer (QD, WM, engines after resolve) shares screen_base. */
+static bool upload_guest_screen_to_texture(void)
 {
 	if (!compositor_buffer || compositor_pixel_width <= 0 ||
 		compositor_pixel_height <= 0)
@@ -461,7 +452,7 @@ static bool upload_guest_screen_to_texture(bool apply_display_gamma = false)
 	const GuestScreenRect screen = {
 		0, 0, compositor_pixel_width, compositor_pixel_height
 	};
-	expand_framebuffer_rect_rgba(screen, rgba, apply_display_gamma);
+	expand_framebuffer_rect_rgba(screen, rgba);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
 					compositor_pixel_width, compositor_pixel_height,
 					GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
@@ -701,7 +692,7 @@ static int32_t publish_layer_to_guest_screen(const CompositeLayer *layer)
 	/* Load the current guest screen before a partial or translucent engine
 	 * write. The completed result is copied back below, preserving real
 	 * framebuffer last-writer ordering per pixel. */
-	(void)upload_guest_screen_to_texture(false);
+	(void)upload_guest_screen_to_texture();
 	if (!bind_screen_write_target())
 		return kGfxAccelErrPipelineUnavailable;
 
@@ -1103,14 +1094,12 @@ void MetalCompositorPresent_(bool presentvbltick = true)
 		present_w = dw;
 		present_h = dh;
 	}
-	/* SDL's logical renderer already transforms absolute mouse events into
-	 * QuickDraw coordinates. Make the GL image occupy that exact top-left
-	 * drawable rectangle instead of inventing a second input transform. */
+	/* Aspect-fit guest → drawable (mag_rate). GL y is bottom-left. */
 	glViewport(present_x, dh - present_y - present_h,
 			   present_w, present_h);
 
 	MetalCompositorEnsureFrameBufferTexture();
-	(void)upload_guest_screen_to_texture(true);
+	(void)upload_guest_screen_to_texture();
 	glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, s_fb_tex);
 	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
@@ -1119,8 +1108,7 @@ void MetalCompositorPresent_(bool presentvbltick = true)
 	draw_textured_quad();
 	GLCompositorDeviceSwap();
 
-	/* SDL pointer events are in window/logical coordinates, not drawable
-	 * pixels. Keep the cached viewport in that same domain. */
+	/* Cache present rect in window coords for host cursor / input helpers. */
 	int window_w = 0, window_h = 0;
 	if (sdl_window)
 		SDL_GetWindowSize(sdl_window, &window_w, &window_h);
@@ -1230,14 +1218,38 @@ int32_t MetalCompositorSubmitFrame(const struct FrameDescriptor *desc)
 	if (snap && desc->generation != snap->generation)
 		return kGfxAccelErrStaleGeneration;
 
+	/*
+	 * Screen publication boundary only. RAVE/GL/Glide resolve into guest
+	 * VRAM here; private engine surfaces never enter this path. One
+	 * HideCursor/ShowCursor nest so soft-cursor underbits survive the
+	 * opaque replace (Bugdom RAVE + later QuickDraw). hardcursor: no-op.
+	 */
+	const bool publish = desc->layer_count > 0 &&
+		compositor_pixel_width > 0 && compositor_pixel_height > 0;
+	if (publish) {
+		video_screen_publish_begin(0, 0, compositor_pixel_width,
+								   compositor_pixel_height);
+	}
+
+	int32_t first_err = kGfxAccelNoErr;
 	for (uint32_t i = 0; i < desc->layer_count; i++) {
 		const CompositeLayer *L = &desc->layers[i];
-		if ((uint32_t)L->slot >= (uint32_t)kLayerSlotCount)
-			return kGfxAccelErrInvalidSlot;
+		if ((uint32_t)L->slot >= (uint32_t)kLayerSlotCount) {
+			first_err = kGfxAccelErrInvalidSlot;
+			break;
+		}
 		const int32_t rc = publish_layer_to_guest_screen(L);
-		if (rc != kGfxAccelNoErr)
-			return rc;
+		if (rc != kGfxAccelNoErr) {
+			first_err = rc;
+			break;
+		}
 	}
+
+	if (publish)
+		video_screen_publish_end();
+
+	if (first_err != kGfxAccelNoErr)
+		return first_err;
 #if QD3D_GRAPHICS_LOGGING_ENABLED
 	s_screen_submit_count++;
 	if (MetalCompositorShouldTracePresent(s_screen_submit_count)) {
