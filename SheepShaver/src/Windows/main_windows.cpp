@@ -660,7 +660,7 @@ static void nvram_watchdog(void)
 	}
 }
 
-static DWORD nvram_func(void *arg)
+static DWORD WINAPI nvram_func(void *arg)
 {
 	while (!nvram_thread_cancel) {
 		for (int i=0; i<60 && !nvram_thread_cancel; i++)
