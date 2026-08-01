@@ -17,6 +17,7 @@
 
 #include <cstring>
 #include <vector>
+#include <cmath>
 
 struct GlideVertexAttrib {
 	int32_t offset;   /* -1 = disabled */
@@ -37,11 +38,21 @@ struct GlideState {
 	uint32_t owner_before_presentation;
 	int      mode_before_presentation;
 	int      presentation_mode;
+	bool     gamma_saved;
+	uint8_t  saved_gamma_lut[768];
 
 	uint32_t constant_color;
 	float    constant_r, constant_g, constant_b, constant_a;
 	uint32_t chroma_value;
 	int      chroma_mode;
+	uint32_t chroma_range_min;
+	uint32_t chroma_range_max;
+	int      chroma_range_mode;
+	int      chroma_range_match;
+	uint32_t tex_chroma_range_min;
+	uint32_t tex_chroma_range_max;
+	int      tex_chroma_mode;
+	int      tex_chroma_range_match;
 	int      cull_mode;
 	int      depth_mode;
 	int      depth_func;
@@ -57,6 +68,8 @@ struct GlideState {
 	int      color_mask_r, color_mask_g, color_mask_b, color_mask_a;
 	int      fog_mode;
 	uint32_t fog_color;
+	uint8_t  fog_table[64];
+	int      alpha_controls_lighting;
 	int      dither_mode;
 	int      render_buffer;
 	int      color_combine_func;
@@ -83,6 +96,8 @@ struct GlideState {
 	int      lfb_write_color_swizzle;
 
 	int      clip_minx, clip_miny, clip_maxx, clip_maxy;
+	int      viewport_x, viewport_y, viewport_width, viewport_height;
+	float    depth_range_near, depth_range_far;
 
 	/* Official GR_PARAM_* are small, but Mac D2 uses 0x30/0x40/0x50 - need 256. */
 	GlideVertexAttrib vlayout[256];
@@ -143,10 +158,19 @@ void GlideStateResetDefaults(void)
 	g_glide.owner_before_presentation = kDMCOwnerQuickDraw;
 	g_glide.mode_before_presentation = -1;
 	g_glide.presentation_mode = -1;
+	g_glide.gamma_saved = false;
 	g_glide.constant_color = 0xffffffffu;
 	g_glide.constant_r = g_glide.constant_g = g_glide.constant_b = g_glide.constant_a = 1.f;
 	g_glide.chroma_value = 0;
 	g_glide.chroma_mode = 0;
+	g_glide.chroma_range_min = 0;
+	g_glide.chroma_range_max = 0;
+	g_glide.chroma_range_mode = 0;
+	g_glide.chroma_range_match = 0;
+	g_glide.tex_chroma_range_min = 0;
+	g_glide.tex_chroma_range_max = 0;
+	g_glide.tex_chroma_mode = 0;
+	g_glide.tex_chroma_range_match = 0;
 	g_glide.cull_mode = 0;
 	g_glide.depth_mode = 0;
 	g_glide.depth_func = 0;
@@ -163,6 +187,8 @@ void GlideStateResetDefaults(void)
 	g_glide.color_mask_r = g_glide.color_mask_g = g_glide.color_mask_b = g_glide.color_mask_a = 1;
 	g_glide.fog_mode = 0;
 	g_glide.fog_color = 0;
+	memset(g_glide.fog_table, 0, sizeof(g_glide.fog_table));
+	g_glide.alpha_controls_lighting = 0;
 	g_glide.dither_mode = 0;
 	g_glide.render_buffer = 0;
 	/* Glide defaults: pass the iterated local color/alpha through. */
@@ -192,6 +218,12 @@ void GlideStateResetDefaults(void)
 	g_glide.clip_miny = 0;
 	g_glide.clip_maxx = 640;
 	g_glide.clip_maxy = 480;
+	g_glide.viewport_x = 0;
+	g_glide.viewport_y = 0;
+	g_glide.viewport_width = 640;
+	g_glide.viewport_height = 480;
+	g_glide.depth_range_near = 0.0f;
+	g_glide.depth_range_far = 1.0f;
 	g_glide.coord_system = 0;
 	g_glide.vertex_stride = 0;
 	for (int i = 0; i < 256; i++) {
@@ -253,6 +285,12 @@ void GlideStateSetWin(int w, int h, int origin_ul, int cfmt, int nbuf, int naux)
 	g_glide.clip_miny = 0;
 	g_glide.clip_maxx = w;
 	g_glide.clip_maxy = h;
+	g_glide.viewport_x = 0;
+	g_glide.viewport_y = 0;
+	g_glide.viewport_width = w;
+	g_glide.viewport_height = h;
+	g_glide.depth_range_near = 0.0f;
+	g_glide.depth_range_far = 1.0f;
 	g_glide.window_open = true;
 }
 
@@ -352,10 +390,68 @@ void GlideStateSetChromakey(int mode, uint32_t value)
 	if (mode >= 0) g_glide.chroma_mode = mode;
 	g_glide.chroma_value = value;
 }
+void GlideStateSetChromaRange(uint32_t color0, uint32_t color1, int match)
+{
+	g_glide.chroma_range_min = color0;
+	g_glide.chroma_range_max = color1;
+	g_glide.chroma_range_match = match;
+}
+void GlideStateSetChromaRangeMode(int mode) { g_glide.chroma_range_mode = mode; }
+void GlideStateSetTexChromaRange(uint32_t color0, uint32_t color1, int match)
+{
+	g_glide.tex_chroma_range_min = color0;
+	g_glide.tex_chroma_range_max = color1;
+	g_glide.tex_chroma_range_match = match;
+}
+void GlideStateSetTexChromaMode(int mode) { g_glide.tex_chroma_mode = mode; }
 void GlideStateSetFog(int mode, uint32_t color)
 {
 	if (mode >= 0) g_glide.fog_mode = mode;
 	g_glide.fog_color = color;
+}
+void GlideStateSetFogTable(const uint8_t *table)
+{
+	if (table)
+		memcpy(g_glide.fog_table, table, sizeof(g_glide.fog_table));
+}
+
+static float GlideStateFogIndexToW(int index)
+{
+	return std::ldexp(1.0f, 3 + (index >> 2)) /
+		   (float)(8 - (index & 3));
+}
+
+float GlideStateFogFactor(float oow)
+{
+	if (!std::isfinite(oow) || oow <= 0.0f)
+		return g_glide.fog_table[63] / 255.0f;
+
+	const float w = 1.0f / oow;
+	if (w <= GlideStateFogIndexToW(0))
+		return g_glide.fog_table[0] / 255.0f;
+	if (w >= GlideStateFogIndexToW(63))
+		return g_glide.fog_table[63] / 255.0f;
+
+	int lo = 0;
+	int hi = 63;
+	while (hi - lo > 1) {
+		const int mid = (lo + hi) >> 1;
+		if (w < GlideStateFogIndexToW(mid))
+			hi = mid;
+		else
+			lo = mid;
+	}
+	const float w0 = GlideStateFogIndexToW(lo);
+	const float w1 = GlideStateFogIndexToW(hi);
+	const float t = (w - w0) / (w1 - w0);
+	const float f0 = g_glide.fog_table[lo] / 255.0f;
+	const float f1 = g_glide.fog_table[hi] / 255.0f;
+	return f0 + (f1 - f0) * t;
+}
+
+void GlideStateSetAlphaControlsLighting(int enable)
+{
+	g_glide.alpha_controls_lighting = enable ? 1 : 0;
 }
 void GlideStateSetDither(int mode) { g_glide.dither_mode = mode; }
 void GlideStateSetRenderBuffer(int buf) { g_glide.render_buffer = buf; }
@@ -400,10 +496,30 @@ void GlideStateSetLfbWriteColorFormat(int f) { g_glide.lfb_write_color_format = 
 void GlideStateSetLfbWriteColorSwizzle(int s) { g_glide.lfb_write_color_swizzle = s; }
 void GlideStateSetCoordSystem(int c) { g_glide.coord_system = c; }
 int GlideStateCoordSystem(void) { return g_glide.coord_system; }
+void GlideStateSetViewport(int x, int y, int width, int height)
+{
+	g_glide.viewport_x = x;
+	g_glide.viewport_y = y;
+	g_glide.viewport_width = width;
+	g_glide.viewport_height = height;
+}
+void GlideStateSetDepthRange(float near_value, float far_value)
+{
+	if (!std::isfinite(near_value)) near_value = 0.0f;
+	if (!std::isfinite(far_value)) far_value = 1.0f;
+	if (near_value < 0.0f) near_value = 0.0f;
+	if (near_value > 1.0f) near_value = 1.0f;
+	if (far_value < 0.0f) far_value = 0.0f;
+	if (far_value > 1.0f) far_value = 1.0f;
+	g_glide.depth_range_near = near_value;
+	g_glide.depth_range_far = far_value;
+}
 void GlideStateDisableAllEffects(void)
 {
 	g_glide.fog_mode = 0;
 	g_glide.chroma_mode = 0;
+	g_glide.chroma_range_mode = 0;
+	g_glide.tex_chroma_mode = 0;
 	g_glide.alpha_test_enabled = 0;
 	g_glide.depth_mode = 0;
 	g_glide.alpha_blend_src = 4;
@@ -425,8 +541,17 @@ int GlideStateAlphaCombineInvert(void) { return g_glide.alpha_combine_invert; }
 int GlideStateColorFormat(void) { return g_glide.color_format; }
 int GlideStateChromaMode(void) { return g_glide.chroma_mode; }
 uint32_t GlideStateChromaValue(void) { return g_glide.chroma_value; }
+uint32_t GlideStateChromaRangeMin(void) { return g_glide.chroma_range_min; }
+uint32_t GlideStateChromaRangeMax(void) { return g_glide.chroma_range_max; }
+int GlideStateChromaRangeMode(void) { return g_glide.chroma_range_mode; }
+int GlideStateChromaRangeMatch(void) { return g_glide.chroma_range_match; }
+uint32_t GlideStateTexChromaRangeMin(void) { return g_glide.tex_chroma_range_min; }
+uint32_t GlideStateTexChromaRangeMax(void) { return g_glide.tex_chroma_range_max; }
+int GlideStateTexChromaMode(void) { return g_glide.tex_chroma_mode; }
+int GlideStateTexChromaRangeMatch(void) { return g_glide.tex_chroma_range_match; }
 int GlideStateFogMode(void) { return g_glide.fog_mode; }
 uint32_t GlideStateFogColor(void) { return g_glide.fog_color; }
+int GlideStateAlphaControlsLighting(void) { return g_glide.alpha_controls_lighting; }
 int GlideStateColorMaskR(void) { return g_glide.color_mask_r; }
 int GlideStateColorMaskG(void) { return g_glide.color_mask_g; }
 int GlideStateColorMaskB(void) { return g_glide.color_mask_b; }
@@ -438,7 +563,48 @@ int GlideStateClipMinX(void) { return g_glide.clip_minx; }
 int GlideStateClipMinY(void) { return g_glide.clip_miny; }
 int GlideStateClipMaxX(void) { return g_glide.clip_maxx; }
 int GlideStateClipMaxY(void) { return g_glide.clip_maxy; }
+int GlideStateViewportX(void) { return g_glide.viewport_x; }
+int GlideStateViewportY(void) { return g_glide.viewport_y; }
+int GlideStateViewportWidth(void) { return g_glide.viewport_width; }
+int GlideStateViewportHeight(void) { return g_glide.viewport_height; }
+float GlideStateDepthRangeNear(void) { return g_glide.depth_range_near; }
+float GlideStateDepthRangeFar(void) { return g_glide.depth_range_far; }
 int GlideStateRenderBuffer(void) { return g_glide.render_buffer; }
+float GlideStateTexLodBias(void) { return g_glide.tex_lod_bias; }
+int GlideStateTexMipMapMode(void) { return g_glide.tex_mipmap_mode; }
+uint32_t GlideStatePresentationOwnerBefore(void)
+{
+	return g_glide.presentation_owner_valid
+		? g_glide.owner_before_presentation
+		: (uint32_t)kDMCOwnerQuickDraw;
+}
+
+void GlideStateApplyGammaRGB(float red, float green, float blue)
+{
+	float gamma[3] = { red, green, blue };
+	uint8_t lut[768];
+	for (int component = 0; component < 3; component++) {
+		if (!std::isfinite(gamma[component]) || gamma[component] <= 0.0f)
+			gamma[component] = 1.0f;
+		if (gamma[component] > 20.0f)
+			gamma[component] = 20.0f;
+		const float exponent = 1.0f / gamma[component];
+		for (int i = 0; i < 256; i++) {
+			const float x = i / 255.0f;
+			float y = std::pow(x, exponent) * 255.0f + 0.5f;
+			if (y < 0.0f) y = 0.0f;
+			if (y > 255.0f) y = 255.0f;
+			lut[component * 256 + i] = (uint8_t)y;
+		}
+	}
+	(void)dmc_record_gamma_change_with_lut(lut);
+}
+
+void GlideStateApplyGammaTable(const uint8_t *lut)
+{
+	if (lut)
+		(void)dmc_record_gamma_change_with_lut(lut);
+}
 
 void GlideStateSetVertexLayout(int param, int offset, int mode)
 {
@@ -772,6 +938,10 @@ bool GlideStateBeginPresentation(int width, int height)
 	const bool opening = !g_glide.presentation_owner_valid;
 	if (opening) {
 		const DMCModeSnapshot *snapshot = dmc_current_snapshot();
+		g_glide.gamma_saved = snapshot != NULL;
+		if (snapshot)
+			memcpy(g_glide.saved_gamma_lut, snapshot->gamma_lut,
+				   sizeof(g_glide.saved_gamma_lut));
 		const uint32_t owner = snapshot
 			? snapshot->active_owner : (uint32)kDMCOwnerQuickDraw;
 		switch (owner) {
@@ -806,6 +976,7 @@ bool GlideStateBeginPresentation(int width, int height)
 			g_glide.owner_before_presentation = kDMCOwnerQuickDraw;
 			g_glide.mode_before_presentation = -1;
 			g_glide.presentation_mode = -1;
+			g_glide.gamma_saved = false;
 		}
 		return false;
 	}
@@ -820,10 +991,15 @@ void GlideStateEndPresentation(void)
 	const uint32_t owner = g_glide.owner_before_presentation;
 	const int restore_mode = g_glide.mode_before_presentation;
 	const int installed_mode = g_glide.presentation_mode;
+	const bool restore_gamma = g_glide.gamma_saved;
+	uint8_t saved_gamma_lut[768];
+	if (restore_gamma)
+		memcpy(saved_gamma_lut, g_glide.saved_gamma_lut, sizeof(saved_gamma_lut));
 	g_glide.presentation_owner_valid = false;
 	g_glide.owner_before_presentation = kDMCOwnerQuickDraw;
 	g_glide.mode_before_presentation = -1;
 	g_glide.presentation_mode = -1;
+	g_glide.gamma_saved = false;
 	const DMCModeSnapshot *snapshot = dmc_current_snapshot();
 	const bool glide_still_current =
 		snapshot && snapshot->active_owner == kDMCOwnerGlide;
@@ -833,6 +1009,8 @@ void GlideStateEndPresentation(void)
 	}
 	if (glide_still_current)
 		(void)dmc_set_active_owner(owner);
+	if (restore_gamma)
+		(void)dmc_record_gamma_change_with_lut(saved_gamma_lut);
 }
 
 /* ---- Linear frame buffer (grLfbLock) ---------------------------------- */

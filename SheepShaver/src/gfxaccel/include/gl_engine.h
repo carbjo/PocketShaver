@@ -1241,8 +1241,8 @@ struct GLContext {
     uint32_t current_list_mode;        // GL_COMPILE or GL_COMPILE_AND_EXECUTE
     uint32_t list_base;
 
-    // ---- Metal state ----
-    void    *metal;                    // opaque Metal resources pointer
+    // ---- Renderer backend state ----
+    void    *metal;                    // opaque Metal or desktop-GL context state
 
     // ---- Pixel store ----
     GLPixelStore pixel_store;

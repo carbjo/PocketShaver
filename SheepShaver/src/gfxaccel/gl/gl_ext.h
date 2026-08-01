@@ -38,6 +38,8 @@ typedef void (APIENTRY *PFNGLMULTITEXCOORD2FPROC)(GLenum, GLfloat, GLfloat);
 typedef void (APIENTRY *PFNGLMULTITEXCOORD4FPROC)(GLenum, GLfloat, GLfloat, GLfloat, GLfloat);
 typedef void (APIENTRY *PFNGLSECONDARYCOLOR3FPROC)(GLfloat, GLfloat, GLfloat);
 typedef void (APIENTRY *PFNGLBLENDFUNCSEPARATEPROC)(GLenum, GLenum, GLenum, GLenum);
+typedef void (APIENTRY *GFXPFNGLBLENDCOLORPROC)(GLclampf, GLclampf, GLclampf, GLclampf);
+typedef void (APIENTRY *GFXPFNGLBLENDEQUATIONPROC)(GLenum);
 typedef void (APIENTRY *PFNGLFOGCOORDFPROC)(GLfloat);
 
 #ifndef GL_TEXTURE0
@@ -50,10 +52,12 @@ typedef void (APIENTRY *PFNGLFOGCOORDFPROC)(GLfloat);
 #define GL_COMBINE_ALPHA 0x8572
 #define GL_SOURCE0_RGB 0x8580
 #define GL_SOURCE1_RGB 0x8581
+#define GL_SOURCE2_RGB 0x8582
 #define GL_SOURCE0_ALPHA 0x8588
 #define GL_SOURCE1_ALPHA 0x8589
 #define GL_OPERAND0_RGB 0x8590
 #define GL_OPERAND1_RGB 0x8591
+#define GL_OPERAND2_RGB 0x8592
 #define GL_OPERAND0_ALPHA 0x8598
 #define GL_OPERAND1_ALPHA 0x8599
 #define GL_PRIMARY_COLOR 0x8577
@@ -61,6 +65,9 @@ typedef void (APIENTRY *PFNGLFOGCOORDFPROC)(GLfloat);
 #define GL_INTERPOLATE 0x8575
 #define GL_CONSTANT 0x8576
 #define GL_RGB_SCALE 0x8573
+#endif
+#ifndef GL_TEXTURE_MAX_LEVEL
+#define GL_TEXTURE_MAX_LEVEL 0x813D
 #endif
 #ifndef GL_COLOR_SUM
 #define GL_COLOR_SUM 0x8458
@@ -89,6 +96,8 @@ struct GfxGLExt {
 	PFNGLMULTITEXCOORD4FPROC MultiTexCoord4f = nullptr;
 	PFNGLSECONDARYCOLOR3FPROC SecondaryColor3f = nullptr;
 	PFNGLBLENDFUNCSEPARATEPROC BlendFuncSeparate = nullptr;
+	GFXPFNGLBLENDCOLORPROC BlendColor = nullptr;
+	GFXPFNGLBLENDEQUATIONPROC BlendEquation = nullptr;
 	PFNGLFOGCOORDFPROC FogCoordf = nullptr;
 	bool fbo = false;
 	bool multitex = false;
@@ -151,6 +160,12 @@ inline GfxGLExt &gfx_gl_ext()
 		e.BlendFuncSeparate = (PFNGLBLENDFUNCSEPARATEPROC)SDL_GL_GetProcAddress("glBlendFuncSeparate");
 		if (!e.BlendFuncSeparate)
 			e.BlendFuncSeparate = (PFNGLBLENDFUNCSEPARATEPROC)SDL_GL_GetProcAddress("glBlendFuncSeparateEXT");
+		e.BlendColor = (GFXPFNGLBLENDCOLORPROC)SDL_GL_GetProcAddress("glBlendColor");
+		if (!e.BlendColor)
+			e.BlendColor = (GFXPFNGLBLENDCOLORPROC)SDL_GL_GetProcAddress("glBlendColorEXT");
+		e.BlendEquation = (GFXPFNGLBLENDEQUATIONPROC)SDL_GL_GetProcAddress("glBlendEquation");
+		if (!e.BlendEquation)
+			e.BlendEquation = (GFXPFNGLBLENDEQUATIONPROC)SDL_GL_GetProcAddress("glBlendEquationEXT");
 		e.FogCoordf = (PFNGLFOGCOORDFPROC)SDL_GL_GetProcAddress("glFogCoordf");
 		if (!e.FogCoordf)
 			e.FogCoordf = (PFNGLFOGCOORDFPROC)SDL_GL_GetProcAddress("glFogCoordfEXT");

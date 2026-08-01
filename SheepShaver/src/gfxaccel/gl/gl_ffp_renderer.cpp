@@ -14,7 +14,6 @@
 #include "gfxaccel_backend.h"
 #include "gl_metal_draw_state.h"
 #include <SDL_opengl.h>
-#include "gl_ext.h"
 #include <vector>
 #include <cstring>
 #include <cstdio>
@@ -23,6 +22,9 @@
 #ifndef GL_RGB8
 #define GL_RGB8 0x8051
 #endif
+#ifndef GL_TEXTURE_3D
+#define GL_TEXTURE_3D 0x806F
+#endif
 
 static GLuint s_ov[2]={0,0}; static GLuint s_cur=0; static uint32_t s_ow=0,s_oh=0,s_wr=0;
 static int32_t s_dl=0,s_dt=0,s_dw=0,s_dh=0;
@@ -30,43 +32,158 @@ static GLuint s_fbo=0,s_depth=0;
 static bool s_frame_active=false;
 static bool s_frame_committed=false;
 
-/* Cache of the host GL state apply_host_ffp_state() last pushed, so a run of
+/* Latest offscreen readback cache for the NQD/GL bridge.  It follows the
+ * lifetime of the single compositor-facing GL drawable, not an AGL context. */
+struct GLMetalOffscreenCache {
+  bool valid;
+  uint32_t baseaddr;
+  uint32_t rowbytes;
+  uint32_t width;
+  uint32_t height;
+  uint32_t bpp;
+  std::vector<uint8_t> pixels; /* tightly packed BGRA host copy */
+};
+static GLMetalOffscreenCache s_off_latest;
+
+/* Cache of the host GL state GLMetalApplyState() last pushed, so a run of
  * same-state immediate-mode draws (Diablo II's OpenGL menu emits ~150
  * glBegin/glEnd sprite quads per frame, nearly all sharing blend/depth/alpha/
  * texenv state) skips the ~20 redundant glEnable/glFunc/glBind calls each
  * flush. The cache is invalidated at the start of every GL frame
- * (mark_ffp_state_dirty) because the shared compatibility context can be
+ * (GLMetalInvalidateStateCache) because the shared compatibility context can be
  * mutated by the compositor present or another engine between our frames. */
-struct FFPStateCache {
+struct GLMetalStateCache {
   bool valid;
-  GLuint tex0; bool tex0_enabled; GLint tex0_env;
+  GLuint tex[4];
+  bool tex_enabled[4];
+  GLint tex_env[4];
+  float tex_env_color[4][4];
+  bool texgen_enabled[4][4];
+  GLint texgen_mode[4][4];
   /* NOTE: sampler state (filter/wrap) is deliberately NOT cached here. It is
    * per texture OBJECT, so a single global slot gets it wrong the moment the
    * guest alternates between two textures with different filters. It lives on
-   * GLTextureObject::applied_* instead. */
-  bool blend; GLenum blend_src, blend_dst;
-  bool depth_test; GLenum depth_func; bool depth_mask;
-  float depth_range_near, depth_range_far;
+   * the GLTextureObject applied_* fields instead. */
+  bool blend;
+  GLenum blend_src;
+  GLenum blend_dst;
+  GLenum blend_equation;
+  float blend_color[4];
+  bool depth_test;
+  GLenum depth_func;
+  bool depth_mask;
+  float depth_range_near;
+  float depth_range_far;
   bool color_mask[4];
-  bool stencil_test; GLenum stencil_func; GLint stencil_ref;
-  GLuint stencil_value_mask, stencil_write_mask;
-  GLenum stencil_sfail, stencil_dpfail, stencil_dppass;
-  bool cull; GLenum cull_mode, front_face;
-  bool alpha_test; GLenum alpha_func; float alpha_ref;
-  bool scissor; GLint scissor_box[4];
+  bool stencil_test;
+  GLenum stencil_func;
+  GLint stencil_ref;
+  GLuint stencil_value_mask;
+  GLuint stencil_write_mask;
+  GLenum stencil_sfail;
+  GLenum stencil_dpfail;
+  GLenum stencil_dppass;
+  bool cull;
+  GLenum cull_mode;
+  GLenum front_face;
+  bool alpha_test;
+  GLenum alpha_func;
+  float alpha_ref;
+  bool scissor;
+  GLint scissor_box[4];
   bool lighting;
+  GLenum polygon_mode_front;
+  GLenum polygon_mode_back;
+  GLenum shade_model;
+  float line_width;
+  float point_size;
+  bool polygon_offset_fill;
+  bool polygon_offset_line;
+  bool polygon_offset_point;
+  float polygon_offset_factor;
+  float polygon_offset_units;
+  bool point_smooth;
+  bool line_smooth;
+  bool polygon_smooth;
+  bool dither;
+  bool auto_normal;
+  bool multisample;
+  bool sample_alpha_to_coverage;
+  bool sample_alpha_to_one;
+  bool sample_coverage;
+  bool color_logic_op;
+  GLenum logic_op_mode;
+  bool color_sum;
+  bool clip_plane_enabled[6];
+  double clip_plane[6][4];
 };
-static FFPStateCache s_ffp_cache = {};
-static void mark_ffp_state_dirty(void){ s_ffp_cache.valid = false; }
+
+/* Host-side bookkeeping belongs to the emulated AGL context.  The desktop
+ * backend borrows one real compatibility context for every guest AGL context,
+ * Glide, RAVE and the compositor; keeping this cache file-global made it claim
+ * that context B's state was still installed after context A (or Glide) had
+ * changed the real GL state.  The existing ctx->metal slot holds this
+ * backend-private state. */
+struct GLMetalState {
+  GLMetalStateCache stateCache;
+  uint64_t lastDumpSignature;
+  int dumpSignatureRepeat;
+  int dumpCount;
+  int textureUnitCount;
+};
+
+/* The real GL context can contain only one guest context's state at a time.
+ * This is a selector, not guest-owned state: switching it always invalidates
+ * the newly selected context's cache. */
+static GLContext *s_state_owner = nullptr;
+
+static GLMetalState *GLMetalGetState(GLContext *ctx)
+{
+  return ctx ? (GLMetalState *)ctx->metal : nullptr;
+}
+
+static GLMetalStateCache *GLMetalGetStateCache(GLContext *ctx)
+{
+  GLMetalState *ms = GLMetalGetState(ctx);
+  return ms ? &ms->stateCache : nullptr;
+}
+
+static int GLMetalGetTextureUnitCount(GLContext *ctx)
+{
+  GLMetalState *ms = GLMetalGetState(ctx);
+  return ms ? ms->textureUnitCount : 1;
+}
+
+static void GLMetalInvalidateStateCache(GLContext *ctx)
+{
+  GLMetalStateCache *cache = GLMetalGetStateCache(ctx);
+  if (cache) cache->valid = false;
+}
+
+static void GLMetalSelectStateOwner(GLContext *ctx)
+{
+  if (!ctx) return;
+  if (!ctx->metal) GLMetalInit(ctx);
+  if (s_state_owner != ctx) {
+    s_state_owner = ctx;
+    GLMetalInvalidateStateCache(ctx);
+  }
+}
+
+static void GLMetalSelectTextureUnitZero(void)
+{
+  GfxGLExt &ext=gfx_gl_ext();
+  if(ext.ActiveTexture)ext.ActiveTexture(GL_TEXTURE0);
+}
 
 /* glClear obeys the color/depth/stencil write masks and the scissor test.
  * Those guest states are deferred until a draw in the normal FFP path, so a
  * state setter immediately followed by glClear must push this subset first.
  * Keep the same helpers in the draw path as well: write masks are independent
  * of whether their corresponding tests are enabled. */
-static void apply_host_write_masks(GLContext *ctx, bool cache_ok)
+static void GLMetalApplyWriteMasks(GLContext *ctx, GLMetalStateCache &C,
+                                   bool cache_ok)
 {
-  FFPStateCache &C = s_ffp_cache;
   const bool r = ctx->color_mask[0];
   const bool g = ctx->color_mask[1];
   const bool b = ctx->color_mask[2];
@@ -89,9 +206,9 @@ static void apply_host_write_masks(GLContext *ctx, bool cache_ok)
   C.stencil_write_mask = sm;
 }
 
-static void apply_host_scissor_state(GLContext *ctx, bool cache_ok)
+static void GLMetalApplyScissorState(GLContext *ctx, GLMetalStateCache &C,
+                                     bool cache_ok)
 {
-  FFPStateCache &C = s_ffp_cache;
   if (ctx->scissor_test) {
 	const bool box_same = cache_ok && C.scissor &&
 	  C.scissor_box[0] == ctx->scissor_box[0] &&
@@ -123,18 +240,18 @@ static void apply_host_scissor_state(GLContext *ctx, bool cache_ok)
  * and samples as black. An explicit GL_NEAREST is honoured; the untouched
  * creation default (GL_NEAREST_MIPMAP_LINEAR) maps to GL_LINEAR so textures the
  * guest never configured keep their previous look. */
-static GLint gl_map_guest_wrap(uint32_t w)
+static GLint GLMetalMapTextureWrap(uint32_t w)
 {
   return (w == 0x2900 /*GL_CLAMP*/ || w == GL_CLAMP_TO_EDGE)
 		 ? GL_CLAMP_TO_EDGE : GL_REPEAT;
 }
 
-static GLint gl_map_guest_mag(uint32_t f)
+static GLint GLMetalMapTextureMagFilter(uint32_t f)
 {
   return (f == GL_NEAREST) ? GL_NEAREST : GL_LINEAR;
 }
 
-static GLint gl_map_guest_min(uint32_t f)
+static GLint GLMetalMapTextureMinFilter(uint32_t f)
 {
   switch (f) {
   case GL_NEAREST:
@@ -145,22 +262,145 @@ static GLint gl_map_guest_min(uint32_t f)
   }
 }
 
-/* Invalidate only the cached unit-0 texture binding.
+/* Invalidate the cached texture bindings for all host units.
  *
  * Several paths in this file bind GL_TEXTURE_2D directly, outside
- * apply_host_ffp_state(): the uploaders (GLMetalUploadTexture /
+ * GLMetalApplyState(): the uploaders (GLMetalUploadTexture /
  * GLMetalUploadSubTexture) bind the texture they are about to fill, and
  * GLMetalDestroyTexture deletes a name. After any of those the real GL binding
- * no longer matches C.tex0, and - because glDeleteTextures frees the name for
+ * no longer matches the cached binding, and - because glDeleteTextures frees the name for
  * immediate reuse by the next glGenTextures - a *new* texture can even be
  * handed the id the cache still believes is bound. Either way the next
- * apply_host_ffp_state() would skip the rebind and sample the wrong texture
+ * GLMetalApplyState() would skip the rebind and sample the wrong texture
  * (Diablo II churns 794 glGenTextures / 407 glDeleteTextures with one texture
  * per glyph, which showed up as menu glyphs drawn with another glyph's image).
  * Dropping just the binding keeps the rest of the cache (blend/depth/alpha/...)
  * useful, since an upload does not disturb those. */
-static void mark_ffp_texture_binding_dirty(void){
-  s_ffp_cache.tex0 = (GLuint)~0u;
+static void GLMetalInvalidateTextureBindings(GLContext *ctx)
+{
+  GLMetalStateCache *cache = GLMetalGetStateCache(ctx);
+  if (cache) {
+    for (int unit = 0; unit < 4; ++unit)
+      cache->tex[unit] = (GLuint)~0u;
+  }
+}
+
+static GLint GLMetalMapTextureEnvMode(int env_mode)
+{
+  switch (env_mode) {
+  case 0x1E01: return GL_REPLACE;
+  case 0x2100: return GL_MODULATE;
+  case 0x2101: return GL_DECAL;
+  case 0x0BE2: return GL_BLEND;
+  default:     return GL_MODULATE;
+  }
+}
+
+/* Install one emulated texture unit into the shared host context.  The old
+ * path special-cased unit zero and hard-coded unit one to MODULATE, while
+ * units two and three were never touched at all despite being advertised to
+ * the guest.  Apart from incomplete multitexture rendering, that allowed an
+ * enabled unit from a previous AGL context to keep modifying a later app's
+ * fragments. */
+static bool GLMetalApplyTextureUnit(GLContext *ctx, int unit,
+                                    GLMetalStateCache &C, bool cache_ok)
+{
+  GfxGLExt &ext = gfx_gl_ext();
+  if (unit != 0) {
+    if (!ext.multitex || !ext.ActiveTexture) return false;
+    ext.ActiveTexture(GL_TEXTURE0 + unit);
+  }
+
+  /* These targets are not consumed by the current 2D FFP bridge.  Clear
+   * anything an earlier engine left enabled so fixed-function texture-target
+   * priority cannot silently select it instead of the guest's 2D texture. */
+  if (!cache_ok) {
+    glDisable(GL_TEXTURE_1D);
+#ifdef GL_TEXTURE_3D
+    glDisable(GL_TEXTURE_3D);
+#endif
+  }
+
+  {
+    const GLenum coord[4] = {
+      GL_TEXTURE_GEN_S, GL_TEXTURE_GEN_T, GL_TEXTURE_GEN_R, GL_TEXTURE_GEN_Q
+    };
+    const GLenum pname[4] = { GL_S, GL_T, GL_R, GL_Q };
+    const bool enabled[4] = {
+      ctx->tex_units[unit].texgen_s_enabled,
+      ctx->tex_units[unit].texgen_t_enabled,
+      ctx->tex_units[unit].texgen_r_enabled,
+      ctx->tex_units[unit].texgen_q_enabled
+    };
+    const GLint mode[4] = {
+      ctx->tex_units[unit].texgen_s_mode,
+      ctx->tex_units[unit].texgen_t_mode,
+      ctx->tex_units[unit].texgen_r_mode,
+      ctx->tex_units[unit].texgen_q_mode
+    };
+    for (int i = 0; i < 4; ++i) {
+      if (enabled[i]) {
+        if (!cache_ok || !C.texgen_enabled[unit][i]) glEnable(coord[i]);
+        const GLint resolved = mode[i] ? mode[i] : GL_EYE_LINEAR;
+        if (!cache_ok || C.texgen_mode[unit][i] != resolved)
+          glTexGeni(pname[i], GL_TEXTURE_GEN_MODE, resolved);
+        C.texgen_mode[unit][i] = resolved;
+      } else if (!cache_ok || C.texgen_enabled[unit][i]) {
+        glDisable(coord[i]);
+      }
+      C.texgen_enabled[unit][i] = enabled[i];
+    }
+  }
+
+  GLTextureUnit &TU = ctx->tex_units[unit];
+  std::unordered_map<uint32_t, GLTextureObject>::iterator it =
+    ctx->texture_objects.find(TU.bound_texture_2d);
+  if (TU.enabled_2d && it != ctx->texture_objects.end() &&
+      it->second.metal_texture) {
+    const GLuint tex = (GLuint)(uintptr_t)it->second.metal_texture;
+    const GLint env = GLMetalMapTextureEnvMode(TU.env_mode);
+    if (!cache_ok || !C.tex_enabled[unit]) glEnable(GL_TEXTURE_2D);
+    if (!cache_ok || C.tex[unit] != tex) glBindTexture(GL_TEXTURE_2D, tex);
+
+    GLTextureObject &TO = it->second;
+    const GLint magf = GLMetalMapTextureMagFilter(TO.mag_filter);
+    const GLint minf = GLMetalMapTextureMinFilter(TO.min_filter);
+    const GLint ws = GLMetalMapTextureWrap(TO.wrap_s);
+    const GLint wt = GLMetalMapTextureWrap(TO.wrap_t);
+    if (!TO.sampler_applied || TO.applied_mag != (uint32_t)magf) {
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magf);
+      TO.applied_mag = (uint32_t)magf;
+    }
+    if (!TO.sampler_applied || TO.applied_min != (uint32_t)minf) {
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minf);
+      TO.applied_min = (uint32_t)minf;
+    }
+    if (!TO.sampler_applied || TO.applied_wrap_s != (uint32_t)ws) {
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, ws);
+      TO.applied_wrap_s = (uint32_t)ws;
+    }
+    if (!TO.sampler_applied || TO.applied_wrap_t != (uint32_t)wt) {
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wt);
+      TO.applied_wrap_t = (uint32_t)wt;
+    }
+    TO.sampler_applied = true;
+
+    if (!cache_ok || C.tex_env[unit] != env)
+      glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, env);
+    if (!cache_ok || memcmp(C.tex_env_color[unit], TU.env_color,
+                            sizeof(C.tex_env_color[unit])) != 0)
+      glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, TU.env_color);
+    C.tex_enabled[unit] = true;
+    C.tex[unit] = tex;
+    C.tex_env[unit] = env;
+    memcpy(C.tex_env_color[unit], TU.env_color,
+           sizeof(C.tex_env_color[unit]));
+    return true;
+  }
+
+  if (!cache_ok || C.tex_enabled[unit]) glDisable(GL_TEXTURE_2D);
+  C.tex_enabled[unit] = false;
+  return false;
 }
 
 /* The AGL renderer and the SDL compositor share one compatibility-profile
@@ -172,17 +412,34 @@ extern "C" int GLFFPRenderPassActive(void)
   return s_frame_active ? 1 : 0;
 }
 
-static void release_overlay_textures(bool clear_drawable)
+static void GLMetalReleaseOverlayTextures(bool clear_drawable)
 {
-  auto&e=gfx_gl_ext();
-  if(s_frame_active&&e.fbo)e.BindFramebuffer(GL_FRAMEBUFFER,0);
+  const bool have_host=SharedMetalDevice()!=nullptr;
+  GfxGLExt *ext=have_host?&gfx_gl_ext():nullptr;
+  if(s_frame_active&&ext&&ext->fbo)ext->BindFramebuffer(GL_FRAMEBUFFER,0);
+
+  /* FBO and renderbuffer names belong to the real SDL GL context, not to the
+   * process.  DMC mode changes recreate that context; retaining the old
+   * nonzero names made the next AGL app bind objects from a dead namespace.
+   * Retire them together with the drawable textures while the outgoing
+   * context is still current, and always zero the names for lazy recreation. */
+  if(ext){
+	if(s_fbo&&ext->DeleteFramebuffers)ext->DeleteFramebuffers(1,&s_fbo);
+	if(s_depth&&ext->DeleteRenderbuffers)ext->DeleteRenderbuffers(1,&s_depth);
+  }
+  s_fbo=0;
+  s_depth=0;
   for(int i=0;i<2;i++){
 	if(s_ov[i]){
 	  gfxaccel_resources_release_overlay_texture(kGfxEngineGL,(void*)(uintptr_t)s_ov[i]);
 	  s_ov[i]=0;
 	}
   }
-  s_cur=0;s_ow=s_oh=0;s_frame_active=false;s_frame_committed=false;
+  s_cur=0;s_ow=s_oh=0;s_wr=0;s_frame_active=false;s_frame_committed=false;
+  s_off_latest.valid=false;
+  s_off_latest.baseaddr=s_off_latest.rowbytes=0;
+  s_off_latest.width=s_off_latest.height=0;
+  GLMetalInvalidateStateCache(s_state_owner);
   if(clear_drawable){s_dl=s_dt=s_dw=s_dh=0;}
 }
 
@@ -191,7 +448,7 @@ extern "C" void gl_overlay_bind(int32_t left,int32_t top,int32_t width,int32_t h
   if(width<=0||height<=0)return;
   uint32_t w=(uint32_t)width,h=(uint32_t)height;
   if((s_ov[0]||s_ov[1])&&(s_ow!=w||s_oh!=h)){
-	release_overlay_textures(false);
+	GLMetalReleaseOverlayTextures(false);
   }
   if(!s_ov[0]){
 	void*a=gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL,0,w,h,MTLPixelFormatBGRA8Unorm);
@@ -207,7 +464,7 @@ extern "C" void gl_overlay_bind(int32_t left,int32_t top,int32_t width,int32_t h
   s_frame_committed=false;
 }
 extern "C" void gl_overlay_unbind(void){
-  release_overlay_textures(true);
+  GLMetalReleaseOverlayTextures(true);
 }
 extern "C" void gl_overlay_present(void){
   if(!s_cur||!s_frame_committed)return;
@@ -234,42 +491,108 @@ extern "C" void gl_overlay_present(void){
 }
 extern "C" int gl_has_active_overlay(void){return s_dw>0&&s_dh>0;}
 extern "C" int gl_get_overlay_dims(uint32_t*w,uint32_t*h){if(w)*w=s_ow?s_ow:(uint32_t)s_dw;if(h)*h=s_oh?s_oh:(uint32_t)s_dh;return gl_has_active_overlay();}
-extern "C" void gl_release_overlay_for_detach(void){release_overlay_textures(false);}
-static void bind_ov_fbo(){
-  auto&e=gfx_gl_ext(); if(!e.fbo||!s_cur)return;
-  if(!s_fbo){e.GenFramebuffers(1,&s_fbo);e.GenRenderbuffers(1,&s_depth);}
-  e.BindFramebuffer(GL_FRAMEBUFFER,s_fbo);
-  e.FramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,s_cur,0);
-  e.BindRenderbuffer(GL_RENDERBUFFER,s_depth);
-  e.RenderbufferStorage(GL_RENDERBUFFER,GL_DEPTH_COMPONENT24,(GLsizei)s_ow,(GLsizei)s_oh);
-  e.FramebufferRenderbuffer(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,GL_RENDERBUFFER,s_depth);
-  glViewport(0,0,(GLsizei)s_ow,(GLsizei)s_oh);
+extern "C" void gl_release_overlay_for_detach(void){GLMetalReleaseOverlayTextures(false);}
+static bool GLMetalBindOverlayFBO(void)
+{
+  GfxGLExt &ext = gfx_gl_ext();
+  if (!ext.fbo || !s_cur) return false;
+
+  for (int attempt = 0; attempt < 2; ++attempt) {
+	if (!s_fbo || !s_depth) {
+	  if (s_fbo && ext.DeleteFramebuffers)
+		ext.DeleteFramebuffers(1, &s_fbo);
+	  if (s_depth && ext.DeleteRenderbuffers)
+		ext.DeleteRenderbuffers(1, &s_depth);
+	  s_fbo = 0;
+	  s_depth = 0;
+	  ext.GenFramebuffers(1, &s_fbo);
+	  ext.GenRenderbuffers(1, &s_depth);
+	}
+	if (!s_fbo || !s_depth) break;
+
+	/* A nonzero name from a deleted SDL GL context is not an object in the
+	 * replacement namespace.  Some drivers leave framebuffer 0 bound after
+	 * rejecting such a name, whose status is nevertheless COMPLETE, so the
+	 * GL error is part of the validation too. */
+	while (glGetError() != GL_NO_ERROR) {}
+	ext.BindFramebuffer(GL_FRAMEBUFFER, s_fbo);
+	ext.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+							 GL_TEXTURE_2D, s_cur, 0);
+	ext.BindRenderbuffer(GL_RENDERBUFFER, s_depth);
+	ext.RenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24,
+						  (GLsizei)s_ow, (GLsizei)s_oh);
+	ext.FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+							GL_RENDERBUFFER, s_depth);
+	const GLenum status = ext.CheckFramebufferStatus(GL_FRAMEBUFFER);
+	const GLenum error = glGetError();
+	if (error == GL_NO_ERROR && status == GL_FRAMEBUFFER_COMPLETE) {
+	  glViewport(0, 0, (GLsizei)s_ow, (GLsizei)s_oh);
+	  return true;
+	}
+	ext.BindFramebuffer(GL_FRAMEBUFFER, 0);
+	GL_LOG("GL drawable FBO rejected (attempt=%d status=0x%x error=0x%x)",
+		   attempt + 1, (unsigned)status, (unsigned)error);
+	if (s_fbo && ext.DeleteFramebuffers)
+	  ext.DeleteFramebuffers(1, &s_fbo);
+	if (s_depth && ext.DeleteRenderbuffers)
+	  ext.DeleteRenderbuffers(1, &s_depth);
+	s_fbo = 0;
+	s_depth = 0;
+  }
+  return false;
 }
-void GLMetalInit(GLContext*ctx){
-  if(!ctx)return;
+
+void GLMetalInit(GLContext *ctx)
+{
+  if (!ctx) return;
+  if (!ctx->metal) {
+	/* Keep this as plain backend storage, matching gl_metal_renderer.mm.
+	 * Value initialization clears the POD cache and counters. */
+	GLMetalState *ms = new GLMetalState();
+	ms->lastDumpSignature = ~(uint64_t)0;
+	ms->dumpSignatureRepeat = 0;
+	ms->dumpCount = 0;
+	ms->textureUnitCount = 1;
+	if (gfx_gl_ext().multitex) {
+	  GLint units = 1;
+	  glGetIntegerv(0x84E2 /*GL_MAX_TEXTURE_UNITS_ARB*/, &units);
+	  if (units < 1) units = 1;
+	  if (units > 4) units = 4;
+	  ms->textureUnitCount = (int)units;
+	}
+	ctx->metal = ms;
+  }
   /* Host GL draws accumulate in im_vertices and flush on glEnd. */
 }
-static void load_ctx_matrices(GLContext*ctx){
-  if(!ctx)return;
-  const float *mv=ctx->modelview_stack[ctx->modelview_depth];
-  const float *proj=ctx->projection_stack[ctx->projection_depth];
-  auto &ext=gfx_gl_ext();
-  if(ext.multitex&&ext.ActiveTexture){
-	for(int unit=0;unit<2;unit++){
-	  ext.ActiveTexture(GL_TEXTURE0+unit);
+
+static void GLMetalLoadMatrices(GLContext *ctx)
+{
+  if (!ctx) return;
+  const float *mv = ctx->modelview_stack[ctx->modelview_depth];
+  const float *proj = ctx->projection_stack[ctx->projection_depth];
+  GfxGLExt &ext = gfx_gl_ext();
+  if (ext.multitex && ext.ActiveTexture) {
+	for (int unit = 0; unit < GLMetalGetTextureUnitCount(ctx); ++unit) {
+	  ext.ActiveTexture(GL_TEXTURE0 + unit);
 	  glMatrixMode(GL_TEXTURE);
 	  glLoadMatrixf(ctx->texture_stack[unit][ctx->texture_depth[unit]]);
 	}
 	ext.ActiveTexture(GL_TEXTURE0);
-  }else{
+  } else {
 	glMatrixMode(GL_TEXTURE);
 	glLoadMatrixf(ctx->texture_stack[0][ctx->texture_depth[0]]);
   }
-  glMatrixMode(GL_PROJECTION); glLoadMatrixf(proj);
-  glMatrixMode(GL_MODELVIEW); glLoadMatrixf(mv);
+  glMatrixMode(GL_PROJECTION);
+  glLoadMatrixf(proj);
+  glMatrixMode(GL_MODELVIEW);
+  glLoadMatrixf(mv);
 }
+
 void GLMetalBeginFrame(GLContext*ctx){
   if(!ctx||!SharedMetalDevice())return;
+  if(!ctx->metal)GLMetalInit(ctx);
+  if(!ctx->metal)return;
+  GLMetalSelectStateOwner(ctx);
   const DMCModeSnapshot*snap=dmc_current_snapshot();
   if(!snap||snap->active_owner!=(uint32_t)kDMCOwnerGL){
 	if(dmc_set_active_owner(kDMCOwnerGL)!=kDMCNoErr)return;
@@ -280,13 +603,13 @@ void GLMetalBeginFrame(GLContext*ctx){
   if(!s_cur&&s_dw>0&&s_dh>0)gl_overlay_bind(s_dl,s_dt,s_dw,s_dh);
   if(!s_cur)return;
   if(!s_frame_active){
-	bind_ov_fbo();
+	if(!GLMetalBindOverlayFBO())return;
 	s_frame_active=true;
 	/* New frame on the shared context: whatever the compositor/other engine
 	 * left in GL state is unknown, so the FFP state cache is stale. */
-	mark_ffp_state_dirty();
+	GLMetalInvalidateStateCache(ctx);
   }
-  load_ctx_matrices(ctx);
+  GLMetalLoadMatrices(ctx);
   if(ctx->viewport[2]>0&&ctx->viewport[3]>0)
 	glViewport(ctx->viewport[0],ctx->viewport[1],ctx->viewport[2],ctx->viewport[3]);
 }
@@ -308,9 +631,11 @@ void GLMetalClear(GLContext*ctx,uint32_t mask){
    * glDepthMask(GL_TRUE) immediately before its depth-only clear. Without
    * synchronizing here, the host can retain GL_FALSE from the previous draw
    * and silently leave stale depth triangles in the next frame. */
-  const bool cache_ok = s_ffp_cache.valid;
-  apply_host_write_masks(ctx, cache_ok);
-  apply_host_scissor_state(ctx, cache_ok);
+  GLMetalStateCache *cache=GLMetalGetStateCache(ctx);
+  if(!cache)return;
+  const bool cache_ok = cache->valid;
+  GLMetalApplyWriteMasks(ctx, *cache, cache_ok);
+  GLMetalApplyScissorState(ctx, *cache, cache_ok);
   GLbitfield m=0;
   if(mask&0x4000)m|=GL_COLOR_BUFFER_BIT;
   if(mask&0x0100)m|=GL_DEPTH_BUFFER_BIT;
@@ -322,19 +647,16 @@ void GLMetalEndFrame(GLContext*ctx){
   (void)ctx;
   if(!SharedMetalDevice()||!s_frame_active)return;
   glFlush();
-  auto&e=gfx_gl_ext();
-  if(e.fbo)e.BindFramebuffer(GL_FRAMEBUFFER,0);
+  GfxGLExt &ext=gfx_gl_ext();
+  if(ext.fbo)ext.BindFramebuffer(GL_FRAMEBUFFER,0);
   s_frame_active=false;
   s_frame_committed=true;
 }
-/* Expand GL_QUADS / fans / strips to triangle lists for host GL.
- *
- * `unit1_live` says whether texture unit 1 is actually enabled and bound for
- * this flush. When it is not (the common single-texture case - Diablo II never
- * calls glActiveTexture at all), emitting unit-1 coords is both wasted work at
- * one call per vertex and a source of stale data, since PushVertex snapshots
- * BOTH units' coords while glTexCoord2f/3f/4f only ever update unit 0. */
-static void emit_gl_vertex(const GLVertex &v,bool force_opaque,bool unit1_live){
+/* Expand GL_QUADS / fans / strips / polygons to triangle lists for host GL.
+ * texture_unit_mask identifies the enabled, resident units for this flush;
+ * inactive-unit coordinates are neither useful nor safe to replay. */
+static void GLMetalEmitVertex(const GLVertex &v,bool force_opaque,
+                              unsigned texture_unit_mask){
   if(force_opaque){
 	const GLfloat color[4]={v.color[0],v.color[1],v.color[2],1.f};
 	glColor4fv(color);
@@ -342,27 +664,92 @@ static void emit_gl_vertex(const GLVertex &v,bool force_opaque,bool unit1_live){
 	glColor4fv(v.color);
   }
   glNormal3fv(v.normal);
-  auto &ext = gfx_gl_ext();
+  GfxGLExt &ext = gfx_gl_ext();
+  if (ext.SecondaryColor3f)
+    ext.SecondaryColor3f(v.secondary_color[0], v.secondary_color[1],
+                         v.secondary_color[2]);
   if (ext.multitex && ext.MultiTexCoord4f) {
 	/* Perspective-capable multitex: q=1 for FFP current coords */
-	ext.MultiTexCoord4f(GL_TEXTURE0, v.texcoord[0][0], v.texcoord[0][1], v.texcoord[0][2], v.texcoord[0][3] != 0.f ? v.texcoord[0][3] : 1.f);
-	if (unit1_live)
-	  ext.MultiTexCoord4f(GL_TEXTURE1, v.texcoord[1][0], v.texcoord[1][1], v.texcoord[1][2], v.texcoord[1][3] != 0.f ? v.texcoord[1][3] : 1.f);
+	for (int unit = 0; unit < 4; ++unit) {
+	  if ((texture_unit_mask & (1u << unit)) == 0) continue;
+	  ext.MultiTexCoord4f(GL_TEXTURE0 + unit, v.texcoord[unit][0],
+		v.texcoord[unit][1], v.texcoord[unit][2],
+		v.texcoord[unit][3] != 0.f ? v.texcoord[unit][3] : 1.f);
+	}
   } else if (ext.multitex && ext.MultiTexCoord2f) {
-	ext.MultiTexCoord2f(GL_TEXTURE0, v.texcoord[0][0], v.texcoord[0][1]);
-	if (unit1_live)
-	  ext.MultiTexCoord2f(GL_TEXTURE1, v.texcoord[1][0], v.texcoord[1][1]);
+	for (int unit = 0; unit < 4; ++unit) {
+	  if ((texture_unit_mask & (1u << unit)) == 0) continue;
+	  ext.MultiTexCoord2f(GL_TEXTURE0 + unit, v.texcoord[unit][0],
+		v.texcoord[unit][1]);
+	}
   } else {
 	glTexCoord4f(v.texcoord[0][0], v.texcoord[0][1], v.texcoord[0][2],
 				 v.texcoord[0][3] != 0.f ? v.texcoord[0][3] : 1.f);
   }
   glVertex4fv(v.position);
 }
-static void flush_im_triangles(const std::vector<GLVertex> &tris,
-							   bool force_opaque,bool unit1_live){
-  if(tris.empty())return;
+static void GLMetalEmitTriangle(const GLVertex &a,const GLVertex &b,
+								const GLVertex &c,bool force_opaque,
+								unsigned texture_unit_mask){
+  GLMetalEmitVertex(a,force_opaque,texture_unit_mask);
+  GLMetalEmitVertex(b,force_opaque,texture_unit_mask);
+  GLMetalEmitVertex(c,force_opaque,texture_unit_mask);
+}
+static void GLMetalFlushQuads(const std::vector<GLVertex> &vertices,
+							  bool force_opaque,unsigned texture_unit_mask){
+  if(vertices.size()<4)return;
   glBegin(GL_TRIANGLES);
-  for(const auto &v: tris) emit_gl_vertex(v,force_opaque,unit1_live);
+  for(size_t i=0;i+3<vertices.size();i+=4){
+	GLMetalEmitTriangle(vertices[i],vertices[i+1],vertices[i+2],
+						force_opaque,texture_unit_mask);
+	GLMetalEmitTriangle(vertices[i],vertices[i+2],vertices[i+3],
+						force_opaque,texture_unit_mask);
+  }
+  glEnd();
+}
+static void GLMetalFlushTriangleFan(const std::vector<GLVertex> &vertices,
+								 bool force_opaque,unsigned texture_unit_mask){
+  if(vertices.size()<3)return;
+  glBegin(GL_TRIANGLES);
+  for(size_t i=1;i+1<vertices.size();i++)
+	GLMetalEmitTriangle(vertices[0],vertices[i],vertices[i+1],
+						force_opaque,texture_unit_mask);
+  glEnd();
+}
+static void GLMetalFlushTriangleStrip(const std::vector<GLVertex> &vertices,
+								   bool force_opaque,unsigned texture_unit_mask){
+  if(vertices.size()<3)return;
+  glBegin(GL_TRIANGLES);
+  for(size_t i=0;i+2<vertices.size();i++){
+	if(i&1)
+	  GLMetalEmitTriangle(vertices[i+1],vertices[i],vertices[i+2],
+						  force_opaque,texture_unit_mask);
+	else
+	  GLMetalEmitTriangle(vertices[i],vertices[i+1],vertices[i+2],
+						  force_opaque,texture_unit_mask);
+  }
+  glEnd();
+}
+static void GLMetalFlushQuadStrip(const std::vector<GLVertex> &vertices,
+								 bool force_opaque,unsigned texture_unit_mask){
+  if(vertices.size()<4)return;
+  glBegin(GL_TRIANGLES);
+  for(size_t i=0;i+3<vertices.size();i+=2){
+	/* One GL_QUAD_STRIP quad is ordered i, i+1, i+3, i+2. */
+	GLMetalEmitTriangle(vertices[i],vertices[i+1],vertices[i+3],
+						force_opaque,texture_unit_mask);
+	GLMetalEmitTriangle(vertices[i],vertices[i+3],vertices[i+2],
+						force_opaque,texture_unit_mask);
+  }
+  glEnd();
+}
+static void GLMetalFlushPrimitive(const std::vector<GLVertex> &vertices,
+							  GLenum mode,bool force_opaque,
+							  unsigned texture_unit_mask){
+  if(vertices.empty())return;
+  glBegin(mode);
+  for(size_t i=0;i<vertices.size();i++)
+	GLMetalEmitVertex(vertices[i],force_opaque,texture_unit_mask);
   glEnd();
 }
 /* ---------------------------------------------------------------------------
@@ -375,18 +762,21 @@ static void flush_im_triangles(const std::vector<GLVertex> &tris,
  * Everything needed to localise a "geometry right, colour wrong" bug without
  * another round trip.
  *
- * Capped at 40 dumps, and only for draws that have texturing enabled, so the
- * log stays usable.
+ * Capped per AGL context, and only called for textured draws, so a prior app
+ * cannot consume the diagnostic budget needed by the context under test.
  * ------------------------------------------------------------------------- */
-static void dump_draw_state(GLContext *ctx, const char *tag,
-                            uint32_t mode, size_t nverts,
-                            bool force_opaque, bool unit1_live)
+static void GLMetalDumpDrawState(GLContext *ctx, const char *tag,
+                                 uint32_t mode, size_t nverts,
+                                 bool force_opaque, bool unit1_live)
 {
   if (!ctx) return;
+  GLMetalState *ms = GLMetalGetState(ctx);
+  if (!ms) return;
 
   const int u0tex = (int)ctx->tex_units[0].bound_texture_2d;
   const int u1tex = (int)ctx->tex_units[1].bound_texture_2d;
-  auto it0 = ctx->texture_objects.find(ctx->tex_units[0].bound_texture_2d);
+  std::unordered_map<uint32_t, GLTextureObject>::iterator it0 =
+    ctx->texture_objects.find(ctx->tex_units[0].bound_texture_2d);
   const bool have0 = (it0 != ctx->texture_objects.end());
 
   /* Dump on CHANGE, not "first N draws".
@@ -399,7 +789,7 @@ static void dump_draw_state(GLContext *ctx, const char *tag,
    * identical glyph draws collapse to a single line.
    *
    * The per-signature cap stops a state that oscillates every frame from
-   * flooding, and the global cap is a backstop. */
+   * flooding, and the per-context cap is a backstop. */
   const uint64_t sig =
       ((uint64_t)(uint32_t)u0tex << 32) ^
       ((uint64_t)(uint32_t)ctx->tex_units[0].env_mode << 20) ^
@@ -407,20 +797,17 @@ static void dump_draw_state(GLContext *ctx, const char *tag,
       ((uint64_t)(uint32_t)(ctx->blend_src & 0xffff) << 3) ^
       ((uint64_t)(uint32_t)(ctx->blend_dst & 0xffff) << 1) ^
       (uint64_t)(ctx->alpha_test ? 1u : 0u);
-  static uint64_t s_lastSig = ~0ull;
-  static int s_repeat = 0;
-  static int s_dumpCount = 0;
-  if (sig == s_lastSig) {
-    if (++s_repeat > 2) return;   /* a couple per state, then quiet */
+  if (sig == ms->lastDumpSignature) {
+    if (++ms->dumpSignatureRepeat > 2) return;
   } else {
-    s_lastSig = sig;
-    s_repeat = 0;
+    ms->lastDumpSignature = sig;
+    ms->dumpSignatureRepeat = 0;
   }
-  if (s_dumpCount >= 600) return;
-  s_dumpCount++;
+  if (ms->dumpCount >= 600) return;
+  ms->dumpCount++;
 
   GL_LOG("[drawdump #%d %s] mode=0x%x nverts=%d forceOpaque=%d unit1Live=%d",
-         s_dumpCount, tag, mode, (int)nverts, force_opaque ? 1 : 0,
+         ms->dumpCount, tag, mode, (int)nverts, force_opaque ? 1 : 0,
          unit1_live ? 1 : 0);
 
   /* ---- guest texture-unit state ---- */
@@ -533,99 +920,41 @@ static void dump_draw_state(GLContext *ctx, const char *tag,
   }
 }
 
-static void apply_host_ffp_state(GLContext *ctx)
+static void GLMetalApplyState(GLContext *ctx)
 {
   if (!ctx) return;
-  load_ctx_matrices(ctx);
+  GLMetalLoadMatrices(ctx);
 
-  FFPStateCache &C = s_ffp_cache;
+  GLMetalStateCache *cache = GLMetalGetStateCache(ctx);
+  if (!cache) return;
+  GLMetalStateCache &C = *cache;
   const bool cache_ok = C.valid;
 
-  /* Texture unit 0 */
-  auto it = ctx->texture_objects.find(ctx->tex_units[0].bound_texture_2d);
-  if (ctx->tex_units[0].enabled_2d && it != ctx->texture_objects.end() && it->second.metal_texture) {
-	const GLuint tex = (GLuint)(uintptr_t)it->second.metal_texture;
-	GLint env = GL_MODULATE;
-	switch (ctx->tex_units[0].env_mode) {
-	case 0x1E01: env = GL_REPLACE; break;
-	case 0x2100: env = GL_MODULATE; break;
-	case 0x2101: env = GL_DECAL; break;
-	case 0x0BE2: env = GL_BLEND; break;
-	default: break;
-	}
-	if (!cache_ok || !C.tex0_enabled) glEnable(GL_TEXTURE_2D);
-
-	const bool rebound = (!cache_ok || C.tex0 != tex);
-	if (rebound) glBindTexture(GL_TEXTURE_2D, tex);
-
-	/* Apply the guest's per-texture filter/wrap. These were stored on the
-	 * texture object by glTexParameteri/f but never pushed to the host GL
-	 * texture, so every texture rendered with the hard-coded LINEAR set at
-	 * upload plus the default REPEAT. Map the classic GL_CLAMP to
-	 * GL_CLAMP_TO_EDGE (desktop GL_CLAMP samples the border colour, which is
-	 * not what QuickDraw/AGL titles expect) and collapse mipmap min-filters to
-	 * their base so a single-level texture is not left incomplete (which
-	 * desktop GL renders as black).
-	 *
-	 * This is re-evaluated on every flush, not only on a rebind: the guest can
-	 * retune parameters on an already-bound texture, and GLMetalUploadTexture
-	 * unconditionally resets both filters to GL_LINEAR when it refills a
-	 * texture. Comparing against the last-pushed values keeps it to zero GL
-	 * calls in the common steady state. */
-	const GLint magf = gl_map_guest_mag(it->second.mag_filter);
-	const GLint minf = gl_map_guest_min(it->second.min_filter);
-	const GLint ws   = gl_map_guest_wrap(it->second.wrap_s);
-	const GLint wt   = gl_map_guest_wrap(it->second.wrap_t);
-
-	/* Sampler state is PER TEXTURE OBJECT, so it cannot be cached in a single
-	 * global slot the way the other FFP state can: after binding texture B and
-	 * pushing its filters, binding A again would compare against B's values and
-	 * skip the push, leaving A sampled with B's filters. Track the values on
-	 * the texture object itself (applied_* mirror what we last pushed to that
-	 * object) and re-push whenever the desired state differs from that
-	 * object's own last-applied state. Still zero GL calls in the steady state,
-	 * but correct across texture switches - which Diablo II does constantly,
-	 * one texture per glyph. */
-	GLTextureObject &TO = it->second;
-	if (!TO.sampler_applied || TO.applied_mag != (uint32_t)magf) {
-	  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magf);
-	  TO.applied_mag = (uint32_t)magf;
-	}
-	if (!TO.sampler_applied || TO.applied_min != (uint32_t)minf) {
-	  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minf);
-	  TO.applied_min = (uint32_t)minf;
-	}
-	if (!TO.sampler_applied || TO.applied_wrap_s != (uint32_t)ws) {
-	  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, ws);
-	  TO.applied_wrap_s = (uint32_t)ws;
-	}
-	if (!TO.sampler_applied || TO.applied_wrap_t != (uint32_t)wt) {
-	  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wt);
-	  TO.applied_wrap_t = (uint32_t)wt;
-	}
-	TO.sampler_applied = true;
-
-	if (!cache_ok || C.tex0_env != env)
-	  glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, env);
-	C.tex0_enabled = true; C.tex0 = tex; C.tex0_env = env;
-  } else {
-	if (!cache_ok || C.tex0_enabled) glDisable(GL_TEXTURE_2D);
-	C.tex0_enabled = false;
+  /* The guest exposes four ARB texture units.  Apply all of them and always
+   * return the host selector to unit zero for the non-multitexture calls below. */
+  GfxGLExt &ext = gfx_gl_ext();
+  GLMetalApplyTextureUnit(ctx, 0, C, cache_ok);
+  if (ext.multitex && ext.ActiveTexture) {
+    for (int unit = 1; unit < GLMetalGetTextureUnitCount(ctx); ++unit)
+      GLMetalApplyTextureUnit(ctx, unit, C, cache_ok);
+    ext.ActiveTexture(GL_TEXTURE0);
   }
 
-  /* Texture unit 1 (ARB multitexture) when present */
-  auto &ext = gfx_gl_ext();
-  if (ext.multitex && ext.ActiveTexture) {
-	ext.ActiveTexture(GL_TEXTURE1);
-	auto it1 = ctx->texture_objects.find(ctx->tex_units[1].bound_texture_2d);
-	if (ctx->tex_units[1].enabled_2d && it1 != ctx->texture_objects.end() && it1->second.metal_texture) {
-	  glEnable(GL_TEXTURE_2D);
-	  glBindTexture(GL_TEXTURE_2D, (GLuint)(uintptr_t)it1->second.metal_texture);
-	  glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	} else {
-	  glDisable(GL_TEXTURE_2D);
-	}
-	ext.ActiveTexture(GL_TEXTURE0);
+  /* EXT_blend_color/equation are exposed to the guest and therefore must be
+   * part of context restoration, even while blending is disabled. */
+  if (ext.BlendEquation) {
+    const GLenum equation = ctx->blend_equation
+      ? (GLenum)ctx->blend_equation : (GLenum)0x8006 /*GL_FUNC_ADD*/;
+    if (!cache_ok || C.blend_equation != equation)
+      ext.BlendEquation(equation);
+    C.blend_equation = equation;
+  }
+  if (ext.BlendColor) {
+    if (!cache_ok || memcmp(C.blend_color, ctx->blend_color,
+                            sizeof(C.blend_color)) != 0)
+      ext.BlendColor(ctx->blend_color[0], ctx->blend_color[1],
+                     ctx->blend_color[2], ctx->blend_color[3]);
+    memcpy(C.blend_color, ctx->blend_color, sizeof(C.blend_color));
   }
 
   if (ctx->blend) {
@@ -655,7 +984,7 @@ static void apply_host_ffp_state(GLContext *ctx)
 	if (!cache_ok || C.blend) glDisable(GL_BLEND);
 	C.blend = false;
   }
-  apply_host_write_masks(ctx, cache_ok);
+  GLMetalApplyWriteMasks(ctx, C, cache_ok);
   if (!cache_ok || C.depth_range_near != ctx->depth_range_near ||
 	  C.depth_range_far != ctx->depth_range_far) {
 	glDepthRange((GLclampd)ctx->depth_range_near,
@@ -715,7 +1044,121 @@ static void apply_host_ffp_state(GLContext *ctx)
 	if (!cache_ok || C.alpha_test) glDisable(GL_ALPHA_TEST);
 	C.alpha_test = false;
   }
-  apply_host_scissor_state(ctx, cache_ok);
+  GLMetalApplyScissorState(ctx, C, cache_ok);
+
+  /* Rasterization state is context state too.  These fields were tracked for
+   * queries and glPushAttrib but never installed in the real GL context, which made
+   * the result depend on whichever AGL/Glide/RAVE client ran previously. */
+  if (!cache_ok || C.polygon_mode_front != ctx->polygon_mode_front) {
+    glPolygonMode(GL_FRONT, (GLenum)ctx->polygon_mode_front);
+    C.polygon_mode_front = (GLenum)ctx->polygon_mode_front;
+  }
+  if (!cache_ok || C.polygon_mode_back != ctx->polygon_mode_back) {
+    glPolygonMode(GL_BACK, (GLenum)ctx->polygon_mode_back);
+    C.polygon_mode_back = (GLenum)ctx->polygon_mode_back;
+  }
+  if (!cache_ok || C.shade_model != ctx->shade_model) {
+    glShadeModel((GLenum)ctx->shade_model);
+    C.shade_model = (GLenum)ctx->shade_model;
+  }
+  if (!cache_ok || C.line_width != ctx->line_width) {
+    glLineWidth(ctx->line_width);
+    C.line_width = ctx->line_width;
+  }
+  if (!cache_ok || C.point_size != ctx->point_size) {
+    glPointSize(ctx->point_size);
+    C.point_size = ctx->point_size;
+  }
+
+#define APPLY_HOST_CAP(field, cap) \
+  do { \
+    if (!cache_ok || C.field != ctx->field) { \
+      if (ctx->field) glEnable(cap); else glDisable(cap); \
+      C.field = ctx->field; \
+    } \
+  } while (0)
+
+  APPLY_HOST_CAP(polygon_offset_fill, GL_POLYGON_OFFSET_FILL);
+  APPLY_HOST_CAP(polygon_offset_line, GL_POLYGON_OFFSET_LINE);
+  APPLY_HOST_CAP(polygon_offset_point, GL_POLYGON_OFFSET_POINT);
+  if (!cache_ok || C.polygon_offset_factor != ctx->polygon_offset_factor ||
+      C.polygon_offset_units != ctx->polygon_offset_units) {
+    glPolygonOffset(ctx->polygon_offset_factor, ctx->polygon_offset_units);
+    C.polygon_offset_factor = ctx->polygon_offset_factor;
+    C.polygon_offset_units = ctx->polygon_offset_units;
+  }
+  APPLY_HOST_CAP(point_smooth, GL_POINT_SMOOTH);
+  APPLY_HOST_CAP(line_smooth, GL_LINE_SMOOTH);
+  APPLY_HOST_CAP(polygon_smooth, GL_POLYGON_SMOOTH);
+  APPLY_HOST_CAP(dither, GL_DITHER);
+  APPLY_HOST_CAP(auto_normal, GL_AUTO_NORMAL);
+#ifdef GL_MULTISAMPLE
+  APPLY_HOST_CAP(multisample, GL_MULTISAMPLE);
+#endif
+#ifdef GL_SAMPLE_ALPHA_TO_COVERAGE
+  APPLY_HOST_CAP(sample_alpha_to_coverage, GL_SAMPLE_ALPHA_TO_COVERAGE);
+#endif
+#ifdef GL_SAMPLE_ALPHA_TO_ONE
+  APPLY_HOST_CAP(sample_alpha_to_one, GL_SAMPLE_ALPHA_TO_ONE);
+#endif
+#ifdef GL_SAMPLE_COVERAGE
+  APPLY_HOST_CAP(sample_coverage, GL_SAMPLE_COVERAGE);
+#endif
+  APPLY_HOST_CAP(color_logic_op, GL_COLOR_LOGIC_OP);
+  if (!cache_ok || C.logic_op_mode != ctx->logic_op_mode) {
+    glLogicOp((GLenum)ctx->logic_op_mode);
+    C.logic_op_mode = (GLenum)ctx->logic_op_mode;
+  }
+  if (ext.SecondaryColor3f)
+    APPLY_HOST_CAP(color_sum, GL_COLOR_SUM);
+
+  /* NativeGLClipPlane stores the already transformed eye-space equation.
+   * glClipPlane transforms its input by the current modelview, so install the
+   * stored equation under identity to avoid applying that transform twice. */
+  {
+    bool need_clip_matrix = false;
+    for (int plane = 0; plane < 6; ++plane) {
+      if (ctx->clip_plane_enabled[plane] &&
+          (!cache_ok || memcmp(C.clip_plane[plane], ctx->clip_planes[plane],
+                               sizeof(C.clip_plane[plane])) != 0)) {
+        need_clip_matrix = true;
+        break;
+      }
+    }
+    if (need_clip_matrix) {
+      glMatrixMode(GL_MODELVIEW);
+      glPushMatrix();
+      glLoadIdentity();
+      for (int plane = 0; plane < 6; ++plane) {
+        if (ctx->clip_plane_enabled[plane] &&
+            (!cache_ok || memcmp(C.clip_plane[plane], ctx->clip_planes[plane],
+                                 sizeof(C.clip_plane[plane])) != 0)) {
+          glClipPlane(GL_CLIP_PLANE0 + plane, ctx->clip_planes[plane]);
+          memcpy(C.clip_plane[plane], ctx->clip_planes[plane],
+                 sizeof(C.clip_plane[plane]));
+        }
+      }
+      glPopMatrix();
+    }
+    for (int plane = 0; plane < 6; ++plane) {
+      if (!cache_ok || C.clip_plane_enabled[plane] !=
+                       ctx->clip_plane_enabled[plane]) {
+        if (ctx->clip_plane_enabled[plane])
+          glEnable(GL_CLIP_PLANE0 + plane);
+        else
+          glDisable(GL_CLIP_PLANE0 + plane);
+        C.clip_plane_enabled[plane] = ctx->clip_plane_enabled[plane];
+      }
+    }
+  }
+
+#undef APPLY_HOST_CAP
+
+  /* Glide uses explicit fog coordinates. Classic AGL exposes no such state,
+   * so restore the fixed-function fragment-depth source on every ownership
+   * boundary, even if fog is enabled only later in the same guest frame. */
+  if (!cache_ok && ext.FogCoordf)
+    glFogi(GL_FOG_COORDINATE_SOURCE, GL_FRAGMENT_DEPTH);
   if (ctx->fog_enabled) {
 	glEnable(GL_FOG);
 	glFogi(GL_FOG_MODE, (GLint)(ctx->fog_mode ? ctx->fog_mode : GL_LINEAR));
@@ -745,6 +1188,12 @@ static void apply_host_ffp_state(GLContext *ctx)
 	glLightModelfv(GL_LIGHT_MODEL_AMBIENT, ctx->light_model_ambient);
 	glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, ctx->light_model_two_side ? 1 : 0);
 	glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, ctx->light_model_local_viewer ? 1 : 0);
+	/* Light positions and spot directions are transformed to eye space by the
+	 * guest setter.  Host glLightfv transforms them again, so replay these
+	 * stored eye-space values under identity. */
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
 	for (int i = 0; i < 8; i++) {
 	  GLenum L = GL_LIGHT0 + i;
 	  if (ctx->lights[i].enabled) {
@@ -763,11 +1212,17 @@ static void apply_host_ffp_state(GLContext *ctx)
 		glDisable(L);
 	  }
 	}
-	glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ctx->materials[0].ambient);
-	glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, ctx->materials[0].diffuse);
-	glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, ctx->materials[0].specular);
-	glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, ctx->materials[0].emission);
-	glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, ctx->materials[0].shininess);
+	glPopMatrix();
+	glMaterialfv(GL_FRONT, GL_AMBIENT, ctx->materials[0].ambient);
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, ctx->materials[0].diffuse);
+	glMaterialfv(GL_FRONT, GL_SPECULAR, ctx->materials[0].specular);
+	glMaterialfv(GL_FRONT, GL_EMISSION, ctx->materials[0].emission);
+	glMaterialf(GL_FRONT, GL_SHININESS, ctx->materials[0].shininess);
+	glMaterialfv(GL_BACK, GL_AMBIENT, ctx->materials[1].ambient);
+	glMaterialfv(GL_BACK, GL_DIFFUSE, ctx->materials[1].diffuse);
+	glMaterialfv(GL_BACK, GL_SPECULAR, ctx->materials[1].specular);
+	glMaterialfv(GL_BACK, GL_EMISSION, ctx->materials[1].emission);
+	glMaterialf(GL_BACK, GL_SHININESS, ctx->materials[1].shininess);
 	if (ctx->color_material_enabled) {
 	  glEnable(GL_COLOR_MATERIAL);
 	  glColorMaterial(ctx->color_material_face ? ctx->color_material_face : GL_FRONT_AND_BACK,
@@ -782,62 +1237,94 @@ void GLMetalFlushImmediateMode(GLContext*ctx){
   if(!ctx||!SharedMetalDevice()||ctx->im_vertices.empty())return;
   GLMetalBeginFrame(ctx);
   if(!s_frame_active)return;
-  apply_host_ffp_state(ctx);
+  GLMetalApplyState(ctx);
   /*
    * Preserve guest vertex alpha even for unblended draws. The onscreen
    * drawable is made opaque only when submitted to the compositor; modifying
    * fragment alpha here corrupts glReadPixels and later guest blending.
    */
   const bool force_opaque=false;
-  /* Mirror the unit-1 test apply_host_ffp_state() uses to decide whether it
-   * enables and binds texture unit 1; when that is false the unit is disabled,
-   * so per-vertex unit-1 coords are dead weight. */
-  const auto it1=ctx->texture_objects.find(ctx->tex_units[1].bound_texture_2d);
-  const bool unit1_live=
-	gfx_gl_ext().multitex && ctx->tex_units[1].enabled_2d &&
-	it1!=ctx->texture_objects.end() && it1->second.metal_texture!=nullptr;
+  unsigned texture_unit_mask=0;
+  const int texture_unit_count=GLMetalGetTextureUnitCount(ctx);
+  for(int unit=0;unit<texture_unit_count;++unit){
+	std::unordered_map<uint32_t,GLTextureObject>::const_iterator it=
+	  ctx->texture_objects.find(ctx->tex_units[unit].bound_texture_2d);
+	if(ctx->tex_units[unit].enabled_2d && it!=ctx->texture_objects.end() &&
+	   it->second.metal_texture)
+	  texture_unit_mask|=1u<<unit;
+  }
+  const bool unit1_live=(texture_unit_mask&(1u<<1))!=0;
 
-  const auto &in=ctx->im_vertices;
+  const std::vector<GLVertex> &in=ctx->im_vertices;
   const uint32_t mode=ctx->im_mode;
 
-  /* Full state snapshot for this draw - see dump_draw_state. Runs AFTER
-   * apply_host_ffp_state so the host readback reflects what this draw will
+  /* Full state snapshot for this draw - see GLMetalDumpDrawState. Runs AFTER
+   * GLMetalApplyState so the host readback reflects what this draw will
    * really use. Only textured draws are interesting for the colour bugs. */
   if (ctx->tex_units[0].enabled_2d)
-    dump_draw_state(ctx, "flush", mode, in.size(), force_opaque, unit1_live);
+    GLMetalDumpDrawState(ctx, "flush", mode, in.size(), force_opaque, unit1_live);
 
-  std::vector<GLVertex> out;
-  if(mode==0x0007 /*GL_QUADS*/ && in.size()>=4){
-	for(size_t i=0;i+3<in.size();i+=4){
-	  out.push_back(in[i]); out.push_back(in[i+1]); out.push_back(in[i+2]);
-	  out.push_back(in[i]); out.push_back(in[i+2]); out.push_back(in[i+3]);
-	}
-	flush_im_triangles(out,force_opaque,unit1_live);
-  } else if(mode==0x0006 /*GL_TRIANGLE_FAN*/ && in.size()>=3){
-	for(size_t i=1;i+1<in.size();i++){
-	  out.push_back(in[0]); out.push_back(in[i]); out.push_back(in[i+1]);
-	}
-	flush_im_triangles(out,force_opaque,unit1_live);
-  } else if(mode==0x0005 /*GL_TRIANGLE_STRIP*/ && in.size()>=3){
-	for(size_t i=0;i+2<in.size();i++){
-	  if(i&1){ out.push_back(in[i+1]); out.push_back(in[i]); out.push_back(in[i+2]); }
-	  else { out.push_back(in[i]); out.push_back(in[i+1]); out.push_back(in[i+2]); }
-	}
-	flush_im_triangles(out,force_opaque,unit1_live);
-  } else if(mode==0x0001 /*GL_LINES*/ || mode==0x0003 /*GL_LINE_STRIP*/ || mode==0x0002 /*GL_LINE_LOOP*/){
-	GLenum m = (mode==0x0001)?GL_LINES:(mode==0x0002)?GL_LINE_LOOP:GL_LINE_STRIP;
-	glBegin(m); for(const auto&v:in) emit_gl_vertex(v,force_opaque,unit1_live); glEnd();
-  } else if(mode==0x0000 /*GL_POINTS*/){
-	glBegin(GL_POINTS); for(const auto&v:in) emit_gl_vertex(v,force_opaque,unit1_live); glEnd();
-  } else {
-	/* GL_TRIANGLES and default */
-	flush_im_triangles(in,force_opaque,unit1_live);
+  switch(mode){
+  case GL_QUADS:
+	GLMetalFlushQuads(in,force_opaque,texture_unit_mask);
+	break;
+  case GL_TRIANGLE_FAN:
+  case GL_POLYGON:
+	/* A filled convex polygon is the same fan rooted at vertex zero.
+	 * Summoner uses four vertices here for its fullscreen texture pass. */
+	GLMetalFlushTriangleFan(in,force_opaque,texture_unit_mask);
+	break;
+  case GL_TRIANGLE_STRIP:
+	GLMetalFlushTriangleStrip(in,force_opaque,texture_unit_mask);
+	break;
+  case GL_QUAD_STRIP:
+	GLMetalFlushQuadStrip(in,force_opaque,texture_unit_mask);
+	break;
+  case GL_POINTS:
+  case GL_LINES:
+  case GL_LINE_LOOP:
+  case GL_LINE_STRIP:
+  case GL_TRIANGLES:
+	GLMetalFlushPrimitive(in,(GLenum)mode,force_opaque,texture_unit_mask);
+	break;
+  default:
+	/* Do not turn an invalid primitive into triangles as the former catch-all
+	 * did. */
+	break;
   }
   ctx->im_vertices.clear();
 }
-void GLMetalRelease(GLContext*ctx){(void)ctx;}
+void GLMetalRelease(GLContext*ctx){
+  if(!ctx)return;
+  const bool have_host=SharedMetalDevice()!=nullptr;
+  if(s_state_owner==ctx){
+	if(s_frame_active){
+	  if(have_host){
+		glFlush();
+		GfxGLExt &ext=gfx_gl_ext();
+		if(ext.fbo)ext.BindFramebuffer(GL_FRAMEBUFFER,0);
+	  }
+	  s_frame_active=false;
+	  s_frame_committed=false;
+	}
+	s_state_owner=nullptr;
+  }
+  for(std::unordered_map<uint32_t,GLTextureObject>::iterator it=
+		ctx->texture_objects.begin();it!=ctx->texture_objects.end();++it){
+	if(it->second.metal_texture){
+	  GLuint id=(GLuint)(uintptr_t)it->second.metal_texture;
+	  if(have_host)glDeleteTextures(1,&id);
+	  it->second.metal_texture=nullptr;
+	}
+	it->second.sampler_applied=false;
+  }
+  delete GLMetalGetState(ctx);
+  ctx->metal=nullptr;
+}
 void GLMetalUploadTexture(GLContext*ctx,GLTextureObject*texObj,int level,int width,int height,const uint8_t*pixels,int data_len){
-  (void)ctx;(void)data_len; if(!texObj||!SharedMetalDevice())return;
+	(void)data_len; if(!ctx||!texObj||!SharedMetalDevice())return;
+	GLMetalSelectStateOwner(ctx);
+  GLMetalSelectTextureUnitZero();
   GLuint id=(GLuint)(uintptr_t)texObj->metal_texture; if(!id){ glGenTextures(1,&id); texObj->metal_texture=(void*)(uintptr_t)id; }
 
   glBindTexture(GL_TEXTURE_2D,id);
@@ -852,14 +1339,14 @@ void GLMetalUploadTexture(GLContext*ctx,GLTextureObject*texObj,int level,int wid
    * (O -> +, G -> G-with-bar). The texture data itself is fine: the padding
    * around every glyph measures alpha 0x00.
    *
-   * Mapping matches apply_host_ffp_state(): classic GL_CLAMP -> CLAMP_TO_EDGE
+   * Mapping matches GLMetalApplyState(): classic GL_CLAMP -> CLAMP_TO_EDGE
    * (desktop GL_CLAMP samples the border colour), and mip min-filters collapse
    * to their base so a single-level texture is not incomplete (-> black). */
   {
-	const GLint minf = gl_map_guest_min(texObj->min_filter);
-	const GLint magf = gl_map_guest_mag(texObj->mag_filter);
-	const GLint ws   = gl_map_guest_wrap(texObj->wrap_s);
-	const GLint wt   = gl_map_guest_wrap(texObj->wrap_t);
+	const GLint minf = GLMetalMapTextureMinFilter(texObj->min_filter);
+	const GLint magf = GLMetalMapTextureMagFilter(texObj->mag_filter);
+	const GLint ws   = GLMetalMapTextureWrap(texObj->wrap_s);
+	const GLint wt   = GLMetalMapTextureWrap(texObj->wrap_t);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,minf);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,magf);
 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,ws);
@@ -879,23 +1366,24 @@ void GLMetalUploadTexture(GLContext*ctx,GLTextureObject*texObj,int level,int wid
   if(pixels) glTexImage2D(GL_TEXTURE_2D,level,
                           texObj->internal_format_opaque ? GL_RGB8 : GL_RGBA8,
                           width,height,0,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
-  mark_ffp_texture_binding_dirty();
+  GLMetalInvalidateTextureBindings(ctx);
 }
 void GLMetalUploadTexture(GLContext*ctx,GLTextureObject*texObj,int level,int width,int height,int format,int type,const void*pixels){
   (void)format;(void)type; GLMetalUploadTexture(ctx,texObj,level,width,height,(const uint8_t*)pixels,0);
 }
 void GLMetalUploadSubTexture(GLContext*ctx,GLTextureObject*texObj,int level,int xoff,int yoff,int width,int height,const uint8_t*pixels,int data_len){
-  (void)ctx;(void)data_len; if(!texObj||!texObj->metal_texture||!pixels||!SharedMetalDevice())return;
+	(void)data_len; if(!texObj||!texObj->metal_texture||!pixels||!SharedMetalDevice())return;
+	GLMetalSelectStateOwner(ctx);
+  GLMetalSelectTextureUnitZero();
   glBindTexture(GL_TEXTURE_2D,(GLuint)(uintptr_t)texObj->metal_texture);
   glTexSubImage2D(GL_TEXTURE_2D,level,xoff,yoff,width,height,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
-  mark_ffp_texture_binding_dirty();
+  GLMetalInvalidateTextureBindings(ctx);
 }
-#ifndef GL_TEXTURE_3D
-#define GL_TEXTURE_3D 0x806F
-#endif
 void GLMetalUpload3DTexture(GLContext*ctx,GLTextureObject*texObj,int level,int width,int height,int depth,const uint8_t*pixels,int data_len){
-  (void)ctx;(void)data_len;
-  if(!texObj||!SharedMetalDevice())return;
+	(void)data_len;
+	if(!ctx||!texObj||!SharedMetalDevice())return;
+	GLMetalSelectStateOwner(ctx);
+  GLMetalSelectTextureUnitZero();
   GLuint id=(GLuint)(uintptr_t)texObj->metal_texture;
   if(!id){ glGenTextures(1,&id); texObj->metal_texture=(void*)(uintptr_t)id; }
   glBindTexture(GL_TEXTURE_3D,id);
@@ -910,8 +1398,10 @@ void GLMetalUpload3DTexture(GLContext*ctx,GLTextureObject*texObj,int level,int w
   texObj->width=width; texObj->height=height;
 }
 void GLMetalUploadSubTexture3D(GLContext*ctx,GLTextureObject*texObj,int level,int xoff,int yoff,int zoff,int width,int height,int depth,const uint8_t*pixels,int data_len,int){
-  (void)ctx;(void)data_len;
-  if(!texObj||!texObj->metal_texture||!pixels||!SharedMetalDevice())return;
+	(void)data_len;
+	if(!ctx||!texObj||!texObj->metal_texture||!pixels||!SharedMetalDevice())return;
+	GLMetalSelectStateOwner(ctx);
+  GLMetalSelectTextureUnitZero();
   typedef void (APIENTRY *PFNGLTEXSUBIMAGE3DPROC)(GLenum,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei,GLenum,GLenum,const void*);
   static PFNGLTEXSUBIMAGE3DPROC pSub=nullptr; static bool tried=false;
   if(!tried){ tried=true; pSub=(PFNGLTEXSUBIMAGE3DPROC)SDL_GL_GetProcAddress("glTexSubImage3D");
@@ -927,13 +1417,13 @@ void GLMetalDestroyTexture(GLTextureObject*texObj){
   /* The name is now free for reuse by the next glGenTextures, so a later
    * texture can be handed this same id. Drop the cached binding or the rebind
    * for that new texture would be skipped as a no-op. */
-  mark_ffp_texture_binding_dirty();
+  GLMetalInvalidateTextureBindings(s_state_owner);
 }
 void GLMetalDrawPixels(GLContext*ctx,int width,int height,const uint8_t*pixels,int data_len){
   (void)data_len; if(!ctx||!pixels||!SharedMetalDevice())return;
   GLMetalBeginFrame(ctx);
   if(!s_frame_active)return;
-  apply_host_ffp_state(ctx);
+  GLMetalApplyState(ctx);
   glRasterPos2i(0,0);
   glDrawPixels(width,height,GL_BGRA,GL_UNSIGNED_BYTE,pixels);
 }
@@ -941,13 +1431,16 @@ void GLMetalBitmap(GLContext*ctx,int width,int height,const uint8_t*bits,int dat
   (void)data_len; if(!ctx||!bits||!SharedMetalDevice())return;
   GLMetalBeginFrame(ctx);
   if(!s_frame_active)return;
-  apply_host_ffp_state(ctx);
+  GLMetalApplyState(ctx);
   glRasterPos2i(0,0);
   glBitmap(width,height,0,0,0,0,bits);
 }
 uint8_t* GLMetalReadFramebufferRect(GLContext*ctx,int x,int y,int w,int h,int*out_len){
   if(out_len)*out_len=0;
   if(!ctx||x<0||y<0||w<=0||h<=0)return nullptr;
+  if(!SharedMetalDevice())return nullptr;
+  GLMetalBeginFrame(ctx);
+  if(!s_frame_active)return nullptr;
   const int fbw=s_ow?(int)s_ow:ctx->viewport[2];
   const int fbh=s_oh?(int)s_oh:ctx->viewport[3];
   if(fbw<=0||fbh<=0||x>fbw-w||y>fbh-h)return nullptr;
@@ -955,7 +1448,6 @@ uint8_t* GLMetalReadFramebufferRect(GLContext*ctx,int x,int y,int w,int h,int*ou
   if(sw>std::numeric_limits<size_t>::max()/4/sh)return nullptr;
   const size_t bytes=sw*sh*4;
   if(bytes>(size_t)std::numeric_limits<int>::max())return nullptr;
-  if(!SharedMetalDevice())return nullptr;
   uint8_t*p=(uint8_t*)std::malloc(bytes);
   if(!p)return nullptr;
   glReadPixels(x,y,w,h,GL_BGRA,GL_UNSIGNED_BYTE,p);
@@ -963,29 +1455,22 @@ uint8_t* GLMetalReadFramebufferRect(GLContext*ctx,int x,int y,int w,int h,int*ou
   return p;
 }
 
-/* Latest offscreen readback cache for NQD/GL bridge */
-struct GLOffscreenLatest {
-  bool valid=false;
-  uint32_t baseaddr=0, rowbytes=0, width=0, height=0, bpp=4;
-  std::vector<uint8_t> pixels; /* tightly packed BGRA host copy */
-};
-static GLOffscreenLatest s_off_latest;
-
-static void gl_capture_offscreen_to_cache(void)
+static void GLMetalCaptureOffscreen(void)
 {
   if(!s_cur||!s_ow||!s_oh||!SharedMetalDevice())return;
-  auto&e=gfx_gl_ext();
-  if(e.fbo&&s_fbo) e.BindFramebuffer(GL_FRAMEBUFFER,s_fbo);
+  GfxGLExt &ext=gfx_gl_ext();
+  const bool keep_draw_target_bound=s_frame_active;
+  if(ext.fbo&&s_fbo) ext.BindFramebuffer(GL_FRAMEBUFFER,s_fbo);
   s_off_latest.pixels.resize((size_t)s_ow*s_oh*4);
   glReadPixels(0,0,(GLsizei)s_ow,(GLsizei)s_oh,GL_BGRA,GL_UNSIGNED_BYTE,s_off_latest.pixels.data());
-  if(e.fbo) e.BindFramebuffer(GL_FRAMEBUFFER,0);
+  if(ext.fbo&&!keep_draw_target_bound)ext.BindFramebuffer(GL_FRAMEBUFFER,0);
   s_off_latest.valid=true;
   s_off_latest.width=s_ow; s_off_latest.height=s_oh; s_off_latest.bpp=4;
   s_off_latest.rowbytes=s_ow*4;
 }
 
-static uint64_t gl_composite_offscreen_to_guest(uint32_t dstBase, uint32_t dstRowBytes, uint32_t dstDepthBits,
-												int32_t dx, int32_t dy, int32_t dw, int32_t dh)
+static uint64_t GLMetalCompositeOffscreenToGuest(uint32_t dstBase, uint32_t dstRowBytes, uint32_t dstDepthBits,
+                                                int32_t dx, int32_t dy, int32_t dw, int32_t dh)
 {
   if(!s_off_latest.valid || s_off_latest.pixels.empty() || !dstBase || !dstRowBytes) return 0;
   uint8_t *dst = Mac2HostAddr(dstBase);
@@ -1027,14 +1512,14 @@ extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentDir
   uint32_t dstBase, uint32_t dstRowBytes, uint32_t dstDepthBits,
   int32_t dirtyX, int32_t dirtyY, int32_t dirtyW, int32_t dirtyH)
 {
-  gl_capture_offscreen_to_cache();
-  return gl_composite_offscreen_to_guest(dstBase,dstRowBytes,dstDepthBits,dirtyX,dirtyY,dirtyW,dirtyH);
+  GLMetalCaptureOffscreen();
+  return GLMetalCompositeOffscreenToGuest(dstBase,dstRowBytes,dstDepthBits,dirtyX,dirtyY,dirtyW,dirtyH);
 }
 extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentIfNotSuppressed(
   uint32_t dstBase, uint32_t dstRowBytes, uint32_t dstDepthBits)
 {
-  gl_capture_offscreen_to_cache();
-  return gl_composite_offscreen_to_guest(dstBase,dstRowBytes,dstDepthBits,0,0,(int32_t)s_off_latest.width,(int32_t)s_off_latest.height);
+  GLMetalCaptureOffscreen();
+  return GLMetalCompositeOffscreenToGuest(dstBase,dstRowBytes,dstDepthBits,0,0,(int32_t)s_off_latest.width,(int32_t)s_off_latest.height);
 }
 extern "C" bool NQDReadMainDevicePixMapForGLBridge(uint32_t *base, int32_t *rb, int32_t *l, int32_t *t, int32_t *r, uint32_t *ps)
 {
@@ -1062,6 +1547,9 @@ static void PushVertex(GLContext*ctx,float x,float y,float z,float w){
   memcpy(v.color,ctx->current_color,sizeof(v.color));
   memcpy(v.normal,ctx->current_normal,sizeof(v.normal));
   memcpy(v.texcoord,ctx->current_texcoord,sizeof(v.texcoord));
+  memcpy(v.secondary_color,ctx->current_secondary_color,
+         sizeof(v.secondary_color));
+  v.fog_coord=ctx->current_fog_coord;
   ctx->im_vertices.push_back(v);
 }
 void NativeGLBegin(GLContext*ctx,uint32_t mode){
@@ -1151,6 +1639,9 @@ static void gl_fetch_vertex(GLContext *ctx, int32_t index, GLVertex &out)
   out.color[2]=ctx->current_color[2]; out.color[3]=ctx->current_color[3];
   out.normal[0]=ctx->current_normal[0]; out.normal[1]=ctx->current_normal[1]; out.normal[2]=ctx->current_normal[2];
   std::memcpy(out.texcoord, ctx->current_texcoord, sizeof(out.texcoord));
+  std::memcpy(out.secondary_color,ctx->current_secondary_color,
+              sizeof(out.secondary_color));
+  out.fog_coord=ctx->current_fog_coord;
 
   if(ctx->vertex_array.enabled && ctx->vertex_array.pointer){
 	uint32_t str=gl_array_stride(ctx->vertex_array);
@@ -1179,6 +1670,14 @@ static void gl_fetch_vertex(GLContext *ctx, int32_t index, GLVertex &out)
 	int ts=gl_type_size(ctx->color_array.type);
 	for(int i=0;i<n;i++) out.color[i]=gl_read_comp(base+(uint32_t)(i*ts), ctx->color_array.type);
 	if(n<4) out.color[3]=1.f;
+  }
+  if(ctx->secondary_color_array.enabled && ctx->secondary_color_array.pointer){
+	uint32_t str=gl_array_stride(ctx->secondary_color_array);
+	uint32_t base=ctx->secondary_color_array.pointer+(uint32_t)index*str;
+	int ts=gl_type_size(ctx->secondary_color_array.type);
+	for(int i=0;i<3;i++)
+	  out.secondary_color[i]=gl_read_comp(base+(uint32_t)(i*ts),
+		ctx->secondary_color_array.type);
   }
   for(int u=0;u<4;u++){
 	if(!ctx->texcoord_array[u].enabled || !ctx->texcoord_array[u].pointer) continue;
@@ -1287,7 +1786,7 @@ void NativeGLTexCoord2f(GLContext*c,float s,float t){
   /* GL spec: glTexCoord2f(s,t) is defined as (s, t, 0, 1) - r MUST be reset.
    * Leaving current_texcoord[0][2] alone let an r from an earlier
    * glTexCoord3f/4f persist into every subsequent 2f vertex, which
-   * emit_gl_vertex then feeds to glTexCoord4f/MultiTexCoord4f. Harmless for a
+   * GLMetalEmitVertex then feeds to glTexCoord4f/MultiTexCoord4f. Harmless for a
    * plain 2D lookup, but wrong the moment a texture matrix is active. */
   if(c){c->current_texcoord[0][0]=s;c->current_texcoord[0][1]=t;
 		c->current_texcoord[0][2]=0.f;c->current_texcoord[0][3]=1.f;}

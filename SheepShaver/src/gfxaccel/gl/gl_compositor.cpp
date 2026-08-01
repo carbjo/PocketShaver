@@ -892,9 +892,13 @@ static int32_t MetalCompositor_OnModeEnter(const struct DMCModeSnapshot *incomin
 
 void *SharedMetalDevice(void)
 {
-	assert(s_ready);
-	assert(s_gl_ctx);
-	assert(gl_device_sdl_window == sdl_window);
+	/* The public interface promises NULL while the backend is unavailable.
+	 * Teardown callbacks can legitimately arrive after the SDL GL context was
+	 * deleted, so asserting here made it impossible for callers to discard
+	 * stale object names safely in debug builds. */
+	if (!s_ready || !s_gl_ctx || !gl_device_sdl_window ||
+		gl_device_sdl_window != sdl_window)
+		return NULL;
 	if (SDL_GL_GetCurrentContext() != s_gl_ctx) {
 		if (SDL_GL_MakeCurrent(gl_device_sdl_window, s_gl_ctx) != 0) {
 			QD3D_INIT_LOG("SDL_GL_MakeCurrent failed: %s", SDL_GetError());

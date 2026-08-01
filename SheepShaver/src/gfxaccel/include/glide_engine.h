@@ -179,6 +179,10 @@ enum {
 	/* See kGlide_guColorCombineFunction. Kept outside the GetProcAddress
 	 * range above, which glide_engine.cpp walks to allocate extension TVECTs. */
 	kGlide_guTexCombineFunction        = 259,
+	/* Glide 2-only exports used by Summoner.  The Mac library exports both
+	 * grTexCombineFunction and guTexCombineFunction as distinct TVECTs. */
+	kGlide_guTexMemQueryAvail          = 260,
+	kGlide_grTexCombineFunction        = 261,
 
 	/* LFB */
 	kGlide_grLfbLock                   = 400,
@@ -313,10 +317,12 @@ void GlideForceReinstallHooks(void);
 bool GlideRegisterCfmLibraries(void);
 
 /* Dispatch: called from sheepshaver_glue NATIVE_GLIDE_DISPATCH.
- * r3-r10 = first 8 integer args; sp = guest r1 for 9th+ stack args. */
+ * r3-r10 = first 8 integer args; sp = guest r1 for 9th+ stack args.
+ * f1-f4 are the first four PPC floating-point argument registers. */
 uint32_t GlideDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
                        uint32_t r6, uint32_t r7, uint32_t r8,
-                       uint32_t r9, uint32_t r10, uint32_t sp);
+                       uint32_t r9, uint32_t r10, uint32_t sp,
+                       double f1, double f2, double f3, double f4);
 
 /* Float-return side channel.
  *
@@ -361,6 +367,8 @@ void GlideMetalDrawPoint(const void *a);
 void GlideMetalDrawLine(const void *a, const void *b);
 void GlideMetalDrawTriangle(const void *a, const void *b, const void *c);
 void GlideMetalDrawPolygon(int nverts, const void *const *ptrs);
+void GlideMetalDrawPolygonIndexed(int nverts, const void *indices,
+                                  const void *verts, uint32_t stride);
 void GlideMetalDrawPolygonContiguous(int nverts, const void *verts, uint32_t stride);
 void GlideMetalDrawVertexArray(uint32_t mode, uint32_t count, const void *const *ptrs);
 void GlideMetalDrawVertexArrayContiguous(uint32_t mode, uint32_t count,
@@ -375,6 +383,7 @@ void GlideMetalSetDepthBias(float bias);
 /* Mark that the overlay has real pixels (LFB / draws) - enables present. */
 void GlideMetalMarkContent(void);
 void GlideMetalSplash(void);
+void GlideMetalFlush(void);
 void GlideMetalFinish(void);
 /* Upload guest LFB (already converted to BGRA8) into overlay and present. */
 void GlideMetalUploadLfbAndPresent(const uint8_t *bgra, int w, int h, int pitch,

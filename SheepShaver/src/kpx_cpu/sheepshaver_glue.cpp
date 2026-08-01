@@ -1520,13 +1520,16 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		break;
 #else
 		/* Pass r3-r10: grTexDownloadMipMapLevel needs evenOdd/data in r9/r10.
-		 * r1=SP for 9th+ stack args (e.g. grLfbWriteRegion src_data). */
+		 * r1=SP for 9th+ stack args (e.g. grLfbWriteRegion src_data).
+		 * Glide 2 utilities and state setters also use the normal PPC f1-f4
+		 * argument registers for float parameters. */
 		uint32 saved_lr = lr();
 		uint32 saved_ctr = ctr();
 		uint32 saved_sp = gpr(1);
 		uint32 saved_r2 = gpr(2);
 		gpr(3) = GlideDispatch(gpr(3), gpr(4), gpr(5), gpr(6), gpr(7), gpr(8),
-		                       gpr(9), gpr(10), gpr(1));
+		                       gpr(9), gpr(10), gpr(1),
+		                       fpr(1), fpr(2), fpr(3), fpr(4));
 		/* Float-returning Glide entry points (guFogTableIndexToW) hand their
 		 * result back out-of-band; PPC returns floats in FPR1, not r3. */
 		{

@@ -726,6 +726,11 @@ static GLContext *GLContextNew(int width, int height)
 	//   These match the GL 1.2 spec ?4.1.7 initial values.
 	ctx->blend_src = GL_ONE;
 	ctx->blend_dst = GL_ZERO;
+	ctx->blend_equation = 0x8006;  // GL_FUNC_ADD
+	ctx->blend_color[0] = 0.0f;
+	ctx->blend_color[1] = 0.0f;
+	ctx->blend_color[2] = 0.0f;
+	ctx->blend_color[3] = 0.0f;
 
 	// ---- Vertex arrays ----
 	// All zero-initialized (disabled, null pointers)
@@ -1286,13 +1291,13 @@ uint32_t NativeAGLSwapBuffers(uint32_t ctx)
  *  Clean up GLContext, free resources, remove from table.
  *
  *  Destroy path cleanup:
- *  (1) GLMetalRelease: commits pending GPU work, releases Metal textures (CFRelease),
- *      clears pipeline/depth-stencil/sampler caches, deletes GLMetalState
+ *  (1) GLMetalRelease: completes pending backend work, releases host textures,
+ *      clears per-context backend caches, and deletes the backend state
  *  (2) Shared-overlay refcount release deleted; GL uses the per-engine
  *      overlay path.
  *  (3) Accum buffer: freed here (raw malloc'd by gl_accum_ensure_allocated)
  *  (4) delete context: releases std::unordered_map/std::vector members via dtors
- *      (texture_objects already cleared in GLMetalRelease, display_lists are CPU-only)
+ *      (host texture handles were released above; display lists are CPU-only)
  */
 uint32_t NativeAGLDestroyContext(uint32_t ctx)
 {
@@ -1312,7 +1317,7 @@ uint32_t NativeAGLDestroyContext(uint32_t ctx)
 		gl_current_context_idx = -1;
 	}
 
-	// Release Metal resources for this context (textures, caches, GPU sync)
+	// Release backend resources for this context (textures and host-state caches)
 	GLMetalRelease(context);
 
 	// Release the per-engine overlay texture on the last live context

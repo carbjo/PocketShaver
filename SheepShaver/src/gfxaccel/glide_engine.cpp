@@ -132,13 +132,13 @@ static const GlideInstallSymbol glide_symbols[] = {
 	{ "\031grTexDownloadTablePartial", kGlide_grTexDownloadTablePartial, "grTexDownloadTablePartial" },
 	{ "\027grTexTextureMemRequired",  kGlide_grTexTextureMemRequired,  "grTexTextureMemRequired" },
 	{ "\022grTexDetailControl",       kGlide_grTexDetailControl,       "grTexDetailControl" },
-	{ "\011gu3dfLoad",                kGlide_gu3dfLoad,                "gu3dfLoad" },
-	{ "\014gu3dfGetInfo",             kGlide_gu3dfGetInfo,             "gu3dfGetInfo" },
 	{ "\022grErrorSetCallback",       kGlide_grErrorSetCallback,       "grErrorSetCallback" },
 	{ "\007grHints",                  kGlide_grHints,                  "grHints" },
 	{ "\026grGammaCorrectionValue",   kGlide_grGammaCorrectionValue,   "grGammaCorrectionValue" },
 	{ "\026guColorCombineFunction",   kGlide_guColorCombineFunction,   "guColorCombineFunction" },
 	{ "\024guTexCombineFunction",     kGlide_guTexCombineFunction,     "guTexCombineFunction" },
+	{ "\024grTexCombineFunction",     kGlide_grTexCombineFunction,     "grTexCombineFunction" },
+	{ "\022guTexMemQueryAvail",       kGlide_guTexMemQueryAvail,       "guTexMemQueryAvail" },
 	{ "\017grGlideSetState",          kGlide_grGlideSetState,          "grGlideSetState" },
 	{ "\012grFogTable",               kGlide_grFogTable,               "grFogTable" },
 	{ "\023grDisableAllEffects",      kGlide_grDisableAllEffects,      "grDisableAllEffects" },
@@ -154,15 +154,17 @@ static const GlideInstallSymbol glide_symbols[] = {
 	{ "\015grTexNCCTable",            kGlide_grTexNCCTable,            "grTexNCCTable" },
 	{ "\021grTexLodBiasValue",        kGlide_grTexLodBiasValue,        "grTexLodBiasValue" },
 	{ "\037grTexDownloadMipMapLevelPartial", kGlide_grTexDownloadMipMapLevelPartial, "grTexDownloadMipMapLevelPartial" },
-	{ "\015guEncodeRLE16",            kGlide_guEncodeRLE16,            "guEncodeRLE16" },
-	{ "\026guTexCreateColorMipMap",   kGlide_guTexCreateColorMipMap,   "guTexCreateColorMipMap" },
 	{ "\023guFogGenerateLinear",      kGlide_guFogGenerateLinear,      "guFogGenerateLinear" },
 	{ "\021guFogGenerateExp2",        kGlide_guFogGenerateExp2,        "guFogGenerateExp2" },
 	{ "\020guFogGenerateExp",         kGlide_guFogGenerateExp,         "guFogGenerateExp" },
 	{ "\022guFogTableIndexToW",       kGlide_guFogTableIndexToW,       "guFogTableIndexToW" },
-	{ "\021guEndianSwapBytes",        kGlide_guEndianSwapBytes,        "guEndianSwapBytes" },
-	{ "\021guEndianSwapWords",        kGlide_guEndianSwapWords,        "guEndianSwapWords" },
 	{ "\015guAlphaSource",            kGlide_guAlphaSource,            "guAlphaSource" },
+	/* Do not intercept gu3dfGetInfo/gu3dfLoad, guEncodeRLE16,
+	 * guTexCreateColorMipMap, or the guEndianSwap* helpers.  They are pure
+	 * guest CPU/file utilities and the stock PEF implementations remain valid;
+	 * those implementations call back through the rendering exports above.
+	 * Replacing them with an incomplete host dispatcher would only turn valid
+	 * Mac file paths and buffers into false failures. */
 #endif
 };
 static const int num_glide_symbols =
