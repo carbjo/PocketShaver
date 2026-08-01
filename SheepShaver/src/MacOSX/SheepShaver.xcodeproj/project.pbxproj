@@ -48,6 +48,7 @@
 		0856CFE614A99EF0000B1711 /* disk.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD7D14A99EEF000B1711 /* disk.cpp */; };
 		0856CFEC14A99EF0000B1711 /* scsi_dummy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8414A99EEF000B1711 /* scsi_dummy.cpp */; };
 		0856CFEE14A99EF0000B1711 /* emul_op.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8614A99EEF000B1711 /* emul_op.cpp */; };
+		D1B000010000000000000001 /* joymanager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D1B000020000000000000002 /* joymanager.cpp */; };
 		0856CFF014A99EF0000B1711 /* ether.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8914A99EEF000B1711 /* ether.cpp */; };
 		0856CFF314A99EF0000B1711 /* extfs.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8C14A99EEF000B1711 /* extfs.cpp */; };
 		0856CFF414A99EF0000B1711 /* gfxaccel.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8D14A99EEF000B1711 /* gfxaccel.cpp */; };
@@ -233,6 +234,7 @@
 		0856CD7D14A99EEF000B1711 /* disk.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = disk.cpp; path = ../disk.cpp; sourceTree = SOURCE_ROOT; };
 		0856CD8414A99EEF000B1711 /* scsi_dummy.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = scsi_dummy.cpp; sourceTree = "<group>"; };
 		0856CD8614A99EEF000B1711 /* emul_op.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = emul_op.cpp; path = ../emul_op.cpp; sourceTree = SOURCE_ROOT; };
+		D1B000020000000000000002 /* joymanager.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = joymanager.cpp; path = ../joymanager.cpp; sourceTree = SOURCE_ROOT; };
 		0856CD8914A99EEF000B1711 /* ether.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ether.cpp; path = ../ether.cpp; sourceTree = SOURCE_ROOT; };
 		0856CD8C14A99EEF000B1711 /* extfs.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = extfs.cpp; path = ../extfs.cpp; sourceTree = SOURCE_ROOT; };
 		0856CD8D14A99EEF000B1711 /* gfxaccel.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gfxaccel.cpp; path = ../gfxaccel.cpp; sourceTree = SOURCE_ROOT; };
@@ -568,6 +570,7 @@
 				0856CD7D14A99EEF000B1711 /* disk.cpp */,
 				0856CD7E14A99EEF000B1711 /* dummy */,
 				0856CD8614A99EEF000B1711 /* emul_op.cpp */,
+				D1B000020000000000000002 /* joymanager.cpp */,
 				0856CD8914A99EEF000B1711 /* ether.cpp */,
 				0856CD8C14A99EEF000B1711 /* extfs.cpp */,
 				0856CD8D14A99EEF000B1711 /* gfxaccel.cpp */,
@@ -1404,6 +1407,7 @@
 				0856CFE614A99EF0000B1711 /* disk.cpp in Sources */,
 				0856CFEC14A99EF0000B1711 /* scsi_dummy.cpp in Sources */,
 				0856CFEE14A99EF0000B1711 /* emul_op.cpp in Sources */,
+				D1B000010000000000000001 /* joymanager.cpp in Sources */,
 				0856CFF014A99EF0000B1711 /* ether.cpp in Sources */,
 				0856CFF314A99EF0000B1711 /* extfs.cpp in Sources */,
 				0856CFF414A99EF0000B1711 /* gfxaccel.cpp in Sources */,

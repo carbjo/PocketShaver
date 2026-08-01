@@ -31,6 +31,7 @@
 		0856CFE614A99EF0000B1711 /* disk.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD7D14A99EEF000B1711 /* disk.cpp */; };
 		0856CFEC14A99EF0000B1711 /* scsi_dummy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8414A99EEF000B1711 /* scsi_dummy.cpp */; };
 		0856CFEE14A99EF0000B1711 /* emul_op.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8614A99EEF000B1711 /* emul_op.cpp */; };
+		D1A000010000000000000001 /* joymanager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D1A000030000000000000003 /* joymanager.cpp */; };
 		0856CFF014A99EF0000B1711 /* ether.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8914A99EEF000B1711 /* ether.cpp */; };
 		0856CFF314A99EF0000B1711 /* extfs.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8C14A99EEF000B1711 /* extfs.cpp */; };
 		0856CFF414A99EF0000B1711 /* gfxaccel.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8D14A99EEF000B1711 /* gfxaccel.cpp */; };
@@ -267,6 +268,7 @@
 		E204B93928BC3EBE0081FDCA /* scsi_dummy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8414A99EEF000B1711 /* scsi_dummy.cpp */; };
 		E204B93A28BC3EBE0081FDCA /* sbuf.c in Sources */ = {isa = PBXBuildFile; fileRef = E44C45ED20D262AE000583AE /* sbuf.c */; };
 		E204B93B28BC3EBE0081FDCA /* emul_op.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8614A99EEF000B1711 /* emul_op.cpp */; };
+		D1A000020000000000000002 /* joymanager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D1A000030000000000000003 /* joymanager.cpp */; };
 		E204B93C28BC3EBE0081FDCA /* ether.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8914A99EEF000B1711 /* ether.cpp */; };
 		E204B93D28BC3EBE0081FDCA /* audio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4CB7E22B5BD5D00512A86 /* audio.cpp */; };
 		E204B93E28BC3EBE0081FDCA /* extfs.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0856CD8C14A99EEF000B1711 /* extfs.cpp */; };
@@ -503,6 +505,7 @@
 		0856CD7D14A99EEF000B1711 /* disk.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = disk.cpp; path = ../disk.cpp; sourceTree = SOURCE_ROOT; };
 		0856CD8414A99EEF000B1711 /* scsi_dummy.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = scsi_dummy.cpp; sourceTree = "<group>"; };
 		0856CD8614A99EEF000B1711 /* emul_op.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = emul_op.cpp; path = ../emul_op.cpp; sourceTree = SOURCE_ROOT; };
+		D1A000030000000000000003 /* joymanager.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = joymanager.cpp; path = ../joymanager.cpp; sourceTree = SOURCE_ROOT; };
 		0856CD8914A99EEF000B1711 /* ether.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ether.cpp; path = ../ether.cpp; sourceTree = SOURCE_ROOT; };
 		0856CD8C14A99EEF000B1711 /* extfs.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = extfs.cpp; path = ../extfs.cpp; sourceTree = SOURCE_ROOT; };
 		0856CD8D14A99EEF000B1711 /* gfxaccel.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gfxaccel.cpp; path = ../gfxaccel.cpp; sourceTree = SOURCE_ROOT; };
@@ -1120,6 +1123,7 @@
 				0856CD7D14A99EEF000B1711 /* disk.cpp */,
 				0856CD7E14A99EEF000B1711 /* dummy */,
 				0856CD8614A99EEF000B1711 /* emul_op.cpp */,
+				D1A000030000000000000003 /* joymanager.cpp */,
 				0856CD8914A99EEF000B1711 /* ether.cpp */,
 				0856CD8C14A99EEF000B1711 /* extfs.cpp */,
 				0856CD8D14A99EEF000B1711 /* gfxaccel.cpp */,
@@ -2510,6 +2514,7 @@
 				0856CFEC14A99EF0000B1711 /* scsi_dummy.cpp in Sources */,
 				E44C460E20D262B0000583AE /* sbuf.c in Sources */,
 				0856CFEE14A99EF0000B1711 /* emul_op.cpp in Sources */,
+				D1A000010000000000000001 /* joymanager.cpp in Sources */,
 				0856CFF014A99EF0000B1711 /* ether.cpp in Sources */,
 				5DF4CB7F22B5BD5D00512A86 /* audio.cpp in Sources */,
 				0856CFF314A99EF0000B1711 /* extfs.cpp in Sources */,
@@ -2656,6 +2661,7 @@
 				C7C3D2772E781C270018DB8B /* PreferencesAdvancedModel.swift in Sources */,
 				C7699F172EC4663F0083B3B3 /* PreferencesCompatibilityListModel.swift in Sources */,
 				E204B93B28BC3EBE0081FDCA /* emul_op.cpp in Sources */,
+				D1A000020000000000000002 /* joymanager.cpp in Sources */,
 				C72FA6C42F0808AD0071889C /* SpecialButton.swift in Sources */,
 				C7C3D2682E7557940018DB8B /* PreferencesGamepadManageCells.swift in Sources */,
 				C72FA6BF2F06B6C50071889C /* DragInteractionModel.swift in Sources */,

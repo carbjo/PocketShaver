@@ -146,6 +146,7 @@ set(SS_CORE
 	"${SS_SRC}/rom_patches.cpp"
 	"${SS_SRC}/rsrc_patches.cpp"
 	"${SS_SRC}/emul_op.cpp"
+	"${SS_SRC}/joymanager.cpp"
 	"${SS_SRC}/name_registry.cpp"
 	"${SS_SRC}/macos_util.cpp"
 	"${SS_SRC}/gfxaccel.cpp"

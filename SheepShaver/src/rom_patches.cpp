@@ -39,6 +39,7 @@
 #include "audio.h"
 #include "audio_defs.h"
 #include "serial.h"
+#include "joymanager.h"
 #include "macos_util.h"
 #include "thunks.h"
 
@@ -502,6 +503,54 @@ static const uint8 cdrom_driver[] = {	// CD-ROM driver
 	// Close()
 	0x70, 0xe8,							//  moveq	#-24,d0
 	0x4e, 0x75							//  rts
+};
+
+static const uint8 joy_manager_driver[] = {	// Replacement .JoyManager driver
+	// Driver header
+	JoyManagerDriverFlags >> 8, JoyManagerDriverFlags & 0xff, 0, 0, 0, 0, 0, 0,
+	0x00, 0x1e,							// Open() offset
+	0x00, 0x22,							// Prime() offset
+	0x00, 0x26,							// Control() offset
+	0x00, 0x2a,							// Status() offset
+	0x00, 0x2e,							// Close() offset
+	0x0b, 0x2e, 0x4a, 0x6f, 0x79, 0x4d,	// ".JoyManager"
+	0x61, 0x6e, 0x61, 0x67, 0x65, 0x72,
+
+	// Open()
+	M68K_EMUL_OP_JOY_OPEN >> 8, M68K_EMUL_OP_JOY_OPEN & 0xff,
+	0x4e, 0x75,							// rts
+
+	// Prime()
+	0x70, 0xed,							// moveq #readErr,d0
+	0x60, 0x0c,							// bra IOReturn
+
+	// Control()
+	M68K_EMUL_OP_JOY_CONTROL >> 8, M68K_EMUL_OP_JOY_CONTROL & 0xff,
+	0x60, 0x08,							// bra IOReturn
+
+	// Status()
+	M68K_EMUL_OP_JOY_STATUS >> 8, M68K_EMUL_OP_JOY_STATUS & 0xff,
+	0x60, 0x04,							// bra IOReturn
+
+	// Close()
+	M68K_EMUL_OP_JOY_CLOSE >> 8, M68K_EMUL_OP_JOY_CLOSE & 0xff,
+	0x4e, 0x75,							// rts
+
+	// IOReturn
+	0x32, 0x28, 0x00, 0x06,				// move.w 6(a0),d1
+	0x08, 0x01, 0x00, 0x09,				// btst #9,d1
+	0x67, 0x0c,							// beq 1
+	0x4a, 0x40,							// tst.w d0
+	0x6f, 0x02,							// ble 2
+	0x42, 0x40,							// clr.w d0
+	0x31, 0x40, 0x00, 0x10,				// 2: move.w d0,$10(a0)
+	0x4e, 0x75,							// rts
+	0x4a, 0x40,							// 1: tst.w d0
+	0x6f, 0x04,							// ble 3
+	0x42, 0x40,							// clr.w d0
+	0x4e, 0x75,							// rts
+	0x2f, 0x38, 0x08, 0xfc,				// 3: move.l $8fc,-(sp)
+	0x4e, 0x75							// rts
 };
 
 static uint32 long_ptr;
@@ -2194,6 +2243,8 @@ static bool patch_68k(void)
 	gen_aout_driver(ROMBase + sony_offset + 0x400);
 	gen_bin_driver( ROMBase + sony_offset + 0x500);
 	gen_bout_driver(ROMBase + sony_offset + 0x600);
+	memcpy((void *)(ROMBaseHost + sony_offset + 0x700),
+		joy_manager_driver, sizeof(joy_manager_driver));
 
 	// Copy icons to ROM
 	SonyDiskIconAddr = ROMBase + sony_offset + 0x800;
@@ -2473,6 +2524,58 @@ void InstallDrivers(void)
 		WriteMacInt32(pb + ioNamePtr, apple_cd.addr());
 		r.a[0] = pb;
 		Execute68kTrap(0xa000, &r);		// Open()
+	}
+
+	// Install the SDL-backed .JoyManager driver
+	if (!PrefsFindBool("nojoystick") && JoyManagerPrepare()) {
+		int16 joy_ref_num;
+		uint32 unit_table;
+		uint32 joy_storage;
+		uint32 joy_handle;
+		int unit_count;
+		int unit;
+
+		joy_ref_num = 0;
+		unit_table = ReadMacInt32(0x011c);
+		unit_count = (int16)ReadMacInt16(0x01d2);
+		for (unit = unit_count - 1; unit >= 0; unit--) {
+			if (ReadMacInt32(unit_table + unit * 4) == 0) {
+				joy_ref_num = (int16)(-1 - unit);
+				break;
+			}
+		}
+
+		if (joy_ref_num != 0) {
+			r.d[0] = JoyManagerGuestStorageSize();
+			Execute68kTrap(0xa71e, &r);		// NewPtrSysClear()
+			joy_storage = r.a[0];
+			if (JoyManagerSetGuestStorage(joy_storage,
+					JoyManagerGuestStorageSize())) {
+				r.a[0] = ROMBase + sony_offset + 0x700;
+				r.d[0] = (uint32)(int32)joy_ref_num;
+				Execute68kTrap(0xa43d, &r);	// DrvrInstallRsrvMem()
+				joy_handle = ReadMacInt32(unit_table + ~joy_ref_num * 4);
+				if ((int16)r.d[0] == noErr && joy_handle != 0) {
+					r.a[0] = joy_handle;
+					Execute68kTrap(0xa029, &r);	// HLock()
+					dce = ReadMacInt32(r.a[0]);
+					WriteMacInt32(dce + dCtlDriver,
+						ROMBase + sony_offset + 0x700);
+					WriteMacInt16(dce + dCtlFlags, JoyManagerDriverFlags);
+
+					SheepString joymanager_str("\013.JoyManager");
+					WriteMacInt32(pb + ioNamePtr, joymanager_str.addr());
+					r.a[0] = pb;
+					Execute68kTrap(0xa000, &r);	// Open()
+				} else {
+					JoyManagerReset();
+				}
+			} else {
+				JoyManagerReset();
+			}
+		} else {
+			JoyManagerReset();
+		}
 	}
 
 	// Install serial drivers

@@ -52,6 +52,7 @@ prefs_desc common_prefs_items[] = {
 	{"frameskip", TYPE_INT32, false,    "number of frames to skip in refreshed video modes"},
 	{"gfxaccel", TYPE_BOOLEAN, false,   "turn on QuickDraw acceleration"},
 	{"nocdrom", TYPE_BOOLEAN, false,    "don't install CD-ROM driver"},
+	{"nojoystick", TYPE_BOOLEAN, false, "don't install Joy Manager driver"},
 	{"nonet", TYPE_BOOLEAN, false,      "don't use Ethernet"},
 	{"nosound", TYPE_BOOLEAN, false,    "don't enable sound output"},
 	{"nogui", TYPE_BOOLEAN, false,      "disable GUI"},
@@ -126,6 +127,7 @@ void AddPrefsDefaults(void)
 	PrefsAddBool("dspaccel",true);
 	PrefsAddBool("glideaccel",true);
 	PrefsAddBool("nocdrom", false);
+	PrefsAddBool("nojoystick", false);
 	PrefsAddBool("nonet", false);
 	PrefsAddBool("nosound", false);
 	PrefsAddBool("nogui", false);

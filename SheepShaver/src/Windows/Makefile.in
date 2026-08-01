@@ -67,7 +67,7 @@ ROUTERSRCS =  router/arp.cpp router/dump.cpp router/dynsockets.cpp router/ftp.cp
 
 SRCS = ../main.cpp main_windows.cpp ../prefs.cpp ../prefs_items.cpp prefs_windows.cpp \
 	sys_windows.cpp cdenable/cache.cpp cdenable/eject_nt.cpp cdenable/ntcd.cpp \
-    ../rom_patches.cpp ../rsrc_patches.cpp ../emul_op.cpp ../name_registry.cpp \
+    ../rom_patches.cpp ../rsrc_patches.cpp ../emul_op.cpp ../joymanager.cpp ../name_registry.cpp \
     ../macos_util.cpp ../timer.cpp timer_windows.cpp ../xpram.cpp xpram_windows.cpp \
     ../adb.cpp ../sony.cpp ../disk.cpp ../cdrom.cpp ../scsi.cpp ../dummy/scsi_dummy.cpp \
     ../gfxaccel.cpp ../video.cpp \
