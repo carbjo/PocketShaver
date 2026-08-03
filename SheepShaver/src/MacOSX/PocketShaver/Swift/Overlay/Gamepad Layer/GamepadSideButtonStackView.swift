@@ -69,14 +69,14 @@ class GamepadSideButtonStackView: UIStackView {
 				self?.inputInteractionModel?.handle(
 					key,
 					isDown: true,
-					hapticAllowed: true
+					hapticFeedback: .key
 				)
 			},
 			releaseKey: { [weak self] in
 				self?.inputInteractionModel?.handle(
 					key,
 					isDown: false,
-					hapticAllowed: true
+					hapticFeedback: .key
 				)
 			},
 			didRequestAssignment:  { [weak self] in

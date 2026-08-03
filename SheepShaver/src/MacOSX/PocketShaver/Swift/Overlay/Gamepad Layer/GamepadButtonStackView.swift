@@ -93,14 +93,14 @@ class GamepadButtonStackView: UIStackView {
 				self?.inputInteractionModel?.handle(
 					key,
 					isDown: true,
-					hapticAllowed: true
+					hapticFeedback: .key
 				)
 			},
 			releaseKey: { [weak self] in
 				self?.inputInteractionModel?.handle(
 					key,
 					isDown: false,
-					hapticAllowed: true
+					hapticFeedback: .key
 				)
 			},
 			didRequestAssignment:  { [weak self] in
@@ -150,7 +150,7 @@ class GamepadButtonStackView: UIStackView {
 		)
 	}
 
-	func set(_ joystickType: JoystickType ,at index: Int) {
+	func set(_ joystickConfig: JoystickConfig ,at index: Int) {
 		guard let sideCorrectedIndex = getSideCorrectedIndex(for: index) else {
 			return
 		}
@@ -158,33 +158,19 @@ class GamepadButtonStackView: UIStackView {
 		removeViewAt(index)
 
 		let mode: GamepadJoystick.Mode
-		switch joystickType {
+		switch joystickConfig {
 		case .mouse:
 			mode = .mouse({ [weak self] delta in
 				self?.inputInteractionModel?.handleFireMouseJoystick(with: delta)
 			})
-		case .wasd4way:
-			mode = .wasd(
-				.fourWay,
-				{ [weak self] sdlKey, isDown in
-					self?.inputInteractionModel?.handle(
-						sdlKey,
-						isDown: isDown,
-						hapticAllowed: false
-					)
-				}
-			)
-		case .wasd8way:
-			mode = .wasd(
-				.eightWay,
-				{ [weak self] sdlKey, isDown in
-					self?.inputInteractionModel?.handle(
-						sdlKey,
-						isDown: isDown,
-						hapticAllowed: false
-					)
-				}
-			)
+		case .keys(let keysConfig):
+			mode = .keys(keysConfig) { [weak self] sdlKey, isDown in
+				self?.inputInteractionModel?.handle(
+					sdlKey,
+					isDown: isDown,
+					hapticFeedback: .keysJoystick
+				)
+			}
 		}
 
 		let joystick = GamepadJoystick(

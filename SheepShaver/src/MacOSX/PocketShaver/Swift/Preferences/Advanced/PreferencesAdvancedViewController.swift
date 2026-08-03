@@ -55,6 +55,7 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		case hapticFeedbackSwipeGesturesToggle
 		case hapticFeedbackMouseClicksToggle
 		case hapticFeedbackGamepadKeyStrokesToggle
+		case hapticFeedbackKeysJoystickToggle
 
 		// cpuEmulation
 		case ignoreIllegalInstructions
@@ -296,6 +297,13 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 				) { [weak self] isOn in
 					self?.model.isKeyHapticFeedbackOn = isOn
 				}
+			case .hapticFeedbackKeysJoystickToggle:
+				return PreferencesEnabledSettingCell(
+					title: "Joystick (keys) activity",
+					isOn: model.isKeysJoystickHapticFeedbackOn
+				) { [weak self] isOn in
+					self?.model.isKeysJoystickHapticFeedbackOn = isOn
+				}
 			case .ignoreIllegalInstructions:
 				return PreferencesEnabledSettingCell(
 					title: "Ignore illegal CPU instructions",
@@ -456,7 +464,8 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 			snapshot.appendItems([
 				.hapticFeedbackSwipeGesturesToggle,
 				.hapticFeedbackMouseClicksToggle,
-				.hapticFeedbackGamepadKeyStrokesToggle
+				.hapticFeedbackGamepadKeyStrokesToggle,
+				.hapticFeedbackKeysJoystickToggle
 			])
 		}
 

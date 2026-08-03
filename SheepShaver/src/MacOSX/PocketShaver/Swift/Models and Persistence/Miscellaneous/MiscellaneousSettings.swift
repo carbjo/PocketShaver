@@ -103,6 +103,7 @@ class MiscellaneousSettings: Codable {
 		}
 	}
 	private(set) var reportClipboardSharingActivity: Bool
+	private(set) var keysJoystickHapticFeedback: Bool
 
 	var secondFingerClick: Bool {
 		twoFingerSteeringSetting != .off
@@ -179,6 +180,7 @@ class MiscellaneousSettings: Codable {
 		clipboardSharing = .manual
 		reportClipboardSharingActivity = true
 		#endif
+		keysJoystickHapticFeedback = true
 	}
 
 	@MainActor
@@ -416,6 +418,13 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(reportClipboardSharingActivity: Bool) {
 		self.reportClipboardSharingActivity = reportClipboardSharingActivity
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(keysJoystickHapticFeedback: Bool) {
+		self.keysJoystickHapticFeedback = keysJoystickHapticFeedback
 
 		saveAsCurrent()
 	}

@@ -198,6 +198,16 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
+	var isKeysJoystickHapticFeedbackOn: Bool {
+		get {
+			miscSettings.keysJoystickHapticFeedback
+		}
+		set {
+			miscSettings.set(keysJoystickHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
 	var ignoreIllegalInstructions: Bool {
 		get {
 			miscSettings.ignoreIllegalInstructions

@@ -38,7 +38,15 @@ class InputInteractionModel {
 		case high
 	}
 
-	private let keyDownFeedbackGenerator = UIImpactFeedbackGenerator(style: .soft)
+	enum HapticFeedback {
+		case key
+		case keysJoystick
+		case none
+	}
+
+	private let keyFeedbackGenerator = UIImpactFeedbackGenerator(style: .soft)
+	private let keysJoystickFeedbackGenerator = UIImpactFeedbackGenerator(style: .light)
+
 	private(set) var isRelativeMouseModeEnabled = false
 	private var silenceRelativeMouseModeChanges = false
 
@@ -124,7 +132,11 @@ class InputInteractionModel {
 		updateADBHoverOffset()
 	}
 
-	func handle(_ key: SDLKey, isDown: Bool, hapticAllowed: Bool) {
+	func handle(
+		_ key: SDLKey,
+		isDown: Bool,
+		hapticFeedback: HapticFeedback = .none
+	) {
 		// TODO: Which value is dependent on keyboard layout is chosen in simlated OS.
 		// Should not assume EN layout, specifically
 		if isDown {
@@ -133,10 +145,19 @@ class InputInteractionModel {
 			objc_ADBKeyUp(key.enValue)
 		}
 
-		if isDown,
-		   hapticAllowed,
-		   miscSettings.keyHapticFeedback {
-			keyDownFeedbackGenerator.impactOccurred()
+		if isDown {
+			switch hapticFeedback {
+			case .key:
+				if miscSettings.keyHapticFeedback {
+					keyFeedbackGenerator.impactOccurred()
+				}
+			case .keysJoystick:
+				if miscSettings.keysJoystickHapticFeedback {
+					keysJoystickFeedbackGenerator.impactOccurred()
+				}
+			default:
+				break
+			}
 		}
 	}
 
@@ -217,18 +238,18 @@ class InputInteractionModel {
 
 	func handle(_ hiddenInputFieldOutput: HiddenInputFieldOutput) {
 		if hiddenInputFieldOutput.withShift {
-			handle(SDLKey.shift, isDown: true, hapticAllowed: false)
+			handle(SDLKey.shift, isDown: true)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
-				self?.handle(hiddenInputFieldOutput.key, isDown: true, hapticAllowed: false)
+				self?.handle(hiddenInputFieldOutput.key, isDown: true)
 			}
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
-				self?.handle(SDLKey.shift, isDown: false, hapticAllowed: false)
-				self?.handle(hiddenInputFieldOutput.key, isDown: false, hapticAllowed: false)
+				self?.handle(SDLKey.shift, isDown: false)
+				self?.handle(hiddenInputFieldOutput.key, isDown: false)
 			}
 		} else {
-			handle(hiddenInputFieldOutput.key, isDown: true, hapticAllowed: false)
+			handle(hiddenInputFieldOutput.key, isDown: true)
 			DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) { [weak self] in
-				self?.handle(hiddenInputFieldOutput.key, isDown: false, hapticAllowed: false)
+				self?.handle(hiddenInputFieldOutput.key, isDown: false)
 			}
 		}
 	}
