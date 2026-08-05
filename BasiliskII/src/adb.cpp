@@ -35,7 +35,6 @@
 #include "adb.h"
 #include "math.h"
 
-
 #if TARGET_OS_IPHONE
 #include "utils_ios.h"
 #import "MouseHapticFeedbackObjCCppHeader.h"
@@ -90,7 +89,6 @@ static uint8 mouse_reg_3[2] = {0x63, 0x01};	// Mouse ADB register 3
 
 static uint8 key_reg_2[2] = {0xff, 0xff};	// Keyboard ADB register 2
 static uint8 key_reg_3[2] = {0x62, 0x05};	// Keyboard ADB register 3
-
 static uint8 m_keyboard_type = 0x05;
 
 // ADB mouse motion lock (for platforms that use separate input thread)
@@ -107,6 +105,412 @@ BeginAnimationState::BeginAnimationState(int inp_x, int inp_y) {
 	y = inp_y;
 }
 
+/*
+	Joystick stuff. The confusing thing here is that Thrustmaster is enumerated
+	via GetADBInfo(XXX, 1-15) while other joysticks are enumerated via
+	GetADBInfo(XXX, GetIndADB(i)). This is problematic for Thrustmaster
+	because ADB addresses are assigned dynamically.
+*/
+#ifdef USE_SDL
+#include "joymanager.h"
+/* Have to copy this block because ether_defs.h is SheepShaver-only
+* and slirp.h brings in too much */
+#if __MWERKS__ && __POWERPC__
+#define PRAGMA_ALIGN_SUPPORTED 1
+#define PACKED__
+#elif defined __GNUC__
+#define PACKED__ __attribute__ ((packed))
+#elif defined _MSC_VER
+#define PRAGMA_PACK_SUPPORTED 1
+#define PACKED__
+#elif defined __sgi
+#define PRAGMA_PACK_SUPPORTED 1
+#define PACKED__
+#else
+#error "Packed attribute or pragma shall be supported"
+#endif
+
+/*
+ * Gravis Firebird / MouseStick II -- ADB driver private data area.
+ */
+#define ADBGRAVISFIREBIRD_SIGNATURE  0x6D464244   /* 'mFBD' */
+#ifdef PRAGMA_ALIGN_SUPPORTED
+#pragma options align=mac68k
+#endif
+#ifdef PRAGMA_PACK_SUPPORTED
+#pragma pack(2)
+#endif
+typedef struct ADBGRAVISFIREBIRD {
+	/* 0x000 */ char   mUnknown1[0xE6];    /* 230 bytes                  */
+	/* 0x0E6 */ long   mSignature;         /* 'mFBD' (0x6D464244)        */
+	/* 0x0EA */ char   mUnknown2[0xDA];    /* 218 bytes                  */
+	/* 0x1C4 */ short  mXIn;
+		/* Absolute stick position, left/right. Signed. This is the physical
+		 * stick angle, not a cursor coordinate. Descent II stores it verbatim 
+		 * and works out the usable range from the player's calibration pass, 
+		 * so the driver's units never have to be known. */
+
+	/* 0x1C6 */ short  mYIn;
+		/* Absolute stick position, fore/aft. Signed. Not negated by Descent II
+		 * -- whichever way this grows, the calibration pass absorbs it. */
+
+	/* 0x1C8 */ short  mUnusedAxis;
+		/* Sits exactly where a third axis belongs, between Y and the throttle.
+		 * Descent II skips it: it publishes no rudder channel for this device. 
+		 * Most likely an axis the Firebird has and Descent 
+		 * chose not to use. */
+
+	/* 0x1CA */ short  mThrottle;
+		/* Throttle / slider. Signed, read the same way as the two stick axes
+		 * and, like them, left completely unscaled. */
+
+	/* 0x1CC */ short  mUnknown3;          /* never read */
+
+	/* 0x1CE */ long   mButtons;
+		/* All 17 controls in one word, one bit each, bit N = control N in the
+		 * table in section 6.5.
+		 *
+		 * THE BITS ARE INVERTED: a bit reading 0 means that control is 
+		 * currently HELD DOWN; 1 means it is up. With nothing pressed the
+		 * low 17 bits are all set, i.e. the word reads 0x0001FFFF. Pressing
+		 * the trigger (bit 0) makes it 0x0001FFFE.
+		 *
+		 * Not 4-byte aligned -- read it with a byte-safe load or a memcpy on 
+		 * architectures that care.
+		 *
+		 * Descent II consumes bits 0..16 and ignores 17..31. */
+
+	/* 0x1D2 */ char   mUnknown4[0x0E];    /* 14 bytes, never touched */
+
+	/* 0x1E0 */ char   mEmulationEnable[3];
+		/* Three on/off switches controlling whether the Gravis driver
+		 * keeps doing its normal desktop job -- translating this stick 
+		 * into mouse pointer movement, mouse clicks and keystrokes.
+		 *
+		 * write 0 to all three : hands off. The driver stops generating 
+		 *	events; the application reads 
+		 *	mXIn / mYIn / mThrottle / mButtons
+		 *	itself. Descent II does this the moment it adopts the device.
+		 * write 1 to all three : normal behaviour resumes. Descent II 
+		 *	does this when
+		 *	the player picks a different joystick, and on quit.
+		 *
+		 * Descent II always writes all three together with the same value 
+		 * and never reads them, so which switch covers which group 
+		 * (stick / buttons / hat) is not determined here. These are the 
+		 * Firebird's equivalent of mStick1_cursorCouple in
+		 * the older 'Jeff' layout. */
+
+	/* 0x1E3 */ char   mUnknown5[0x1E5];   /* 485 bytes, never touched */
+} PACKED__ ADBGRAVISFIREBIRD;
+typedef struct ADBTHRUSTMASTER {
+	/* 0x00 */ char           roll; /* extsb, -127 (left) +127 (right) */
+	/* 0x01 */ char           pitch; /* extsb, -127 (fwd/down) +127 (back)  */
+	/* 0x02 */ unsigned char  thrust; /* lbz,   0 (back) 255 (fwd)    */
+	/* 0x03 */ char           yaw;     /* extsb, -127 (left) +127 (right) */
+
+	/* 0x04  ONE 16-bit storage unit, read with lhz, MSB-first: */
+	union 
+	{
+		struct 
+		{
+			short rockerDown :1;   /* bit 15 -> Descent II button 15 "Rkr D" */
+			short rockerUp   :1;   /* bit 14 -> 14 "Rkr U" */
+			short button1    :1;   /* bit 13 -> 13 "Btn 1" */
+			short button2    :1;   /* bit 12 -> 12 "Btn 2" */
+			short button3    :1;   /* bit 11 -> 11 "Btn 3" */
+			short button5    :1;   /* bit 10 -> 10 "Btn 5" */
+			short button6    :1;   /* bit  9 ->  9 "Btn 6" */
+			short button4    :1;   /* bit  8 ->  8 "Btn 4" */
+			short pinkey     :1;   /* bit  7 ->  7 "Pinky" */
+			short thumbLow   :1;   /* bit  6 ->  6 "Thb L" */
+			short trigger    :1;   /* bit  5 ->  5 "Trig"  */
+			short thumbHigh  :1;   /* bit  4 ->  4 "Thb H" */
+			short hatLeft    :1;   /* bit  3 ->  3 "Hat L" */
+			short hatRight   :1;   /* bit  2 ->  2 "Hat R" */
+			short hatDown    :1;   /* bit  1 ->  1 "Hat D" */
+			short hatUp      :1;   /* bit  0 ->  0 "Hat U" */
+		} bitmasks;
+		short fullvalue;
+	} buttons;
+		/* Bit sense is the NORMAL one here: 1 means the control is 
+		 * currently held down, 0 means it is up, so an untouched stick 
+		 * reads 0x0000. Descent II uses each bit directly with no inversion.
+		 * This is the opposite of both Gravis devices, whose drivers publish
+		 * button bits inverted (0 = held) and which Descent II therefore
+		 * has to flip on the way in. */
+
+	/* 0x06 */ char  reserveByte1;      /* never touched */
+	/* 0x07 */ char  reserveByte2;      /* never touched */
+	/* 0x08 */ char  version;           /* never read */
+	/* 0x09 */ char  notNew;            /* never touched */
+	/* 0x0A */ char  throttleAttached;  /* gates axis[3] */
+	/* 0x0B */ char  rudderAttached;    /* gates axis[2] */
+	/* 0x0C */ char  mouseDefeated;     /* never touched */
+	/* 0x0D */                          /* 1 byte pad */
+	/* 0x0E */ long  dontTouch;         /* never touched */
+	/* 0x12 */ long  fini;              /* never touched */
+} PACKED__ ADBTHRUSTMASTER;                   /* sizeof == 0x16 == 22 */
+#ifdef PRAGMA_PACK_SUPPORTED
+#pragma pack()
+#endif
+#ifdef PRAGMA_ALIGN_SUPPORTED
+#pragma options align=reset
+#endif
+#define JOY_ADB_MAX 8 /* 4 * 2 == one gravis and thrustmaster for each
+	real joystick */
+#define JOY_ADB_FIRST 4
+/* Gravis MouseStick II first appears as origADBAddr/devType 0x3/0x1
+* then the GetIndADB addr for origADBAddr and 0x23 for devType. */
+#define JOY_GRAVISMOUSESTICKII_ORIGADBADDR 0x3
+#define JOY_GRAVISMOUSESTICKII_ORIGDEVTYPE 0x1
+#define JOY_GRAVISMOUSESTICKII_DEVTYPE 0x23
+#define JOY_THRUSTMASTER_VERSION 11 /* "version" member of struct */
+#define JOY_THRUSTMASTER_ADBADDR 7 /* ADB address issued by Apple */
+#define JOY_THRUSTMASTER_DEVTYPE 0x5F /* ADB handler ID issued by Apple */
+#define JOY_THRUSTMASTER_MAXCOUNT 15 /* Max ADB database ID possible */
+
+struct joy_adb_dev {
+	uint8 reg_3[2]; /* [0] flags|CURRENT addr. [1] devType - handler ID. */
+	uint8 orig_addr; /* origADBAddr */
+	uint8 real_devtype; /* client can rewrite reg_3[1]; store real type */
+	JoyManagerDevice* dev; 
+	uint32 data_area; /* GetADBInfo() first param fill */
+};
+static joy_adb_dev joy_adb_devs[JOY_ADB_MAX];
+static int joy_adb_count = 0; 
+static bool joy_adb_installed = false;
+static uint32 joy_adb_sib = 0; /* 8-byte ADBSetInfoBlock, allocated once */
+static uint32 joy_adb_service_rt = 0; /* non-NULL */
+void joy_adb_init(void)
+{
+	int i, idevindex;
+	JoyManagerInit();
+	joy_adb_count = JoyManagerNumDevices() * 2;
+	if (joy_adb_count > JOY_ADB_MAX)
+			joy_adb_count = JOY_ADB_MAX;
+	for (i = 0, idevindex = 0; i < joy_adb_count; ++idevindex) {
+		JoyManagerDevice* dev = JoyManagerOpenDevice(idevindex);
+		if(dev == NULL) {
+			joy_adb_count -= 2;
+			continue;
+		}
+		joy_adb_devs[i].orig_addr = JOY_GRAVISMOUSESTICKII_ORIGADBADDR;
+		joy_adb_devs[i].reg_3[0] = 0x60 | joy_adb_devs[i].orig_addr;
+		joy_adb_devs[i].dev = dev;
+		joy_adb_devs[i].real_devtype = JOY_GRAVISMOUSESTICKII_DEVTYPE;
+		joy_adb_devs[i].reg_3[1] = JOY_GRAVISMOUSESTICKII_DEVTYPE;
+		joy_adb_devs[i].data_area = 0;
+		++i;
+		joy_adb_devs[i].orig_addr = JOY_THRUSTMASTER_ADBADDR;
+		joy_adb_devs[i].reg_3[0] = 0x60 | joy_adb_devs[i].orig_addr;
+		joy_adb_devs[i].dev = dev;
+		joy_adb_devs[i].real_devtype = JOY_THRUSTMASTER_DEVTYPE;
+		joy_adb_devs[i].reg_3[1] = JOY_THRUSTMASTER_DEVTYPE;
+		joy_adb_devs[i].data_area = 0;
+		++i;
+	}
+}
+void joy_adb_exit(void)
+{
+	int i, numdevs;
+	numdevs = joy_adb_count; 
+	joy_adb_count = 0;
+	for (i = 0; i < numdevs; i += 2)
+		JoyManagerCloseDevice(joy_adb_devs[i].dev);
+	joy_adb_installed = false;
+}
+void joy_adb_reset_addr(void)
+{
+	int i;
+	for (i = 0; i < joy_adb_count; ++i) {
+		joy_adb_devs[i].reg_3[0] = 0x60 | joy_adb_devs[i].orig_addr;
+	}
+}
+bool joy_adb_scan_done(void)
+{
+	M68kRegisters r;
+	Execute68kTrap(0xa077, &r); /* CountADBs() */
+	return (bool)(int16)r.d[0] >= 2 + joy_adb_count;
+}
+int joy_adb_find(uint8 adr)
+{
+	int i;
+	for (i = 0; i < joy_adb_count; i++) { 
+		if (adr == (joy_adb_devs[i].reg_3[0] & 0x0f)) {
+			return i;
+		}
+	}
+	return -1;
+}
+uint8 joy_adb_pack(int i, uint8 *buf)
+{ /* fill up to 8 bytes of buf, return filled # of bytes */
+	return 0;
+}
+void joy_adb_install(void)
+{
+	M68kRegisters r;
+	int i;
+
+	if (joy_adb_service_rt == 0) {
+		r.d[0] = 2;
+		Execute68kTrap(0xa71e, &r); /* NewPtrSysClear() */
+		if (r.a[0] == 0) {
+			joy_adb_installed = false;
+			return;
+		}
+		joy_adb_service_rt = r.a[0];
+		WriteMacInt16(joy_adb_service_rt, M68K_RTS);
+	}
+	if (joy_adb_sib == 0) {
+		r.d[0] = 8;
+		Execute68kTrap(0xa71e, &r); /* NewPtrSysClear() */
+		if (r.a[0] == 0) {
+			joy_adb_installed = false;
+			return;
+		}
+		joy_adb_sib = r.a[0];
+	}
+
+	for (i = 0; i < joy_adb_count; i++) {
+		if (joy_adb_devs[i].data_area == 0) {
+			if(joy_adb_devs[i].real_devtype == JOY_THRUSTMASTER_DEVTYPE)
+				r.d[0] = sizeof(ADBTHRUSTMASTER);
+			else
+				r.d[0] = sizeof(ADBGRAVISFIREBIRD);
+			Execute68kTrap(0xa71e, &r); /* NewPtrSysClear() */
+			if (r.a[0] == 0) {
+				joy_adb_installed = false;
+				return;
+			}
+			joy_adb_devs[i].data_area = r.a[0];
+			if(joy_adb_devs[i].real_devtype == JOY_THRUSTMASTER_DEVTYPE)
+				WriteMacInt8(joy_adb_devs[i].data_area +
+					offsetof(ADBTHRUSTMASTER, version),
+					JOY_THRUSTMASTER_VERSION);
+			else
+				WriteMacInt32(joy_adb_devs[i].data_area +
+					offsetof(ADBGRAVISFIREBIRD, mSignature),
+					ADBGRAVISFIREBIRD_SIGNATURE);
+		}
+		/* dbServiceRtPtr */
+		WriteMacInt32(joy_adb_sib + 0, joy_adb_service_rt);     
+		/* dbDataAreaAddr */
+		WriteMacInt32(joy_adb_sib + 4, joy_adb_devs[i].data_area);   
+		r.a[0] = joy_adb_sib;
+		r.d[0] = joy_adb_devs[i].reg_3[0] & 0x0f; /* current ADB address */
+		Execute68kTrap(0xa07a, &r); /* SetADBInfo() */
+	}
+	joy_adb_installed = true;
+}
+static int8 joy_adb_axis_s8(JoyManagerDevice *dev, int axis)
+{
+	int v = (JoyManagerAxis(dev, axis) * 127) / 32767;
+	if (v > 127)
+		v = 127;
+	else if (v < -127)
+		v = -127;
+	return (int8)v;
+}
+static uint8 joy_adb_axis_u8(JoyManagerDevice *dev, int axis)
+{
+	int v = (JoyManagerAxis(dev, axis) + 32768) >> 8;
+	if (v > 255)
+		v = 255;
+	return (uint8)v;
+}
+static const uint8 joy_adb_thrustmaster_button_bit[16] = {
+	5, /* trigger   */ 4, /* thumbHigh */ 6, /* thumbLow */ 7, /* pinkey */
+	13, 12, 11, 8, 10, 9,   /* button 1,2,3,4,5,6 */
+	14, 15, /* rockerUp, rockerDown */
+	0, 1, 2, 3 /* hatUp, hatDown, hatRight, hatLeft */
+};
+void joy_adb_update(void)
+{
+	int i, ibutton;
+	/* JoyManagerUpdate(); -> Called from emul_op.cpp */
+	for (i = 0; i < joy_adb_count; i++) {
+		uint32 macval;
+		int numaxes, numbuttons;
+		uint32 p = joy_adb_devs[i].data_area;
+		numaxes = JoyManagerNumAxes(joy_adb_devs[i].dev);
+		numbuttons = JoyManagerNumButtons(joy_adb_devs[i].dev);
+		if(joy_adb_devs[i].real_devtype == JOY_THRUSTMASTER_DEVTYPE) {
+			macval = 0;
+			if(numbuttons > 16)
+				numbuttons = 16;
+			for(ibutton = 0; ibutton < numbuttons; ++ibutton) {
+				if(JoyManagerButton(joy_adb_devs[i].dev, ibutton)) {
+					macval |= (uint16)(1u 
+						<< joy_adb_thrustmaster_button_bit[ibutton]);
+				}
+			}
+			WriteMacInt16(p + offsetof(ADBTHRUSTMASTER, buttons), 
+				macval);
+			if(numaxes >= 4)
+				macval = 1;
+			else
+				macval = 0;
+			WriteMacInt8(p + offsetof(ADBTHRUSTMASTER, throttleAttached), 
+				macval);
+			if(numaxes >= 3)
+				macval = 1;
+			else
+				macval = 0;
+			WriteMacInt8(p + offsetof(ADBTHRUSTMASTER, rudderAttached), 
+				macval);
+			if(numaxes >= 1) {
+				macval = joy_adb_axis_s8(joy_adb_devs[i].dev, 0);
+				WriteMacInt8(p + offsetof(ADBTHRUSTMASTER, roll), macval);
+			}
+			if(numaxes >= 2) {
+				macval =  joy_adb_axis_s8(joy_adb_devs[i].dev, 1);
+				WriteMacInt8(p + offsetof(ADBTHRUSTMASTER, pitch), macval);
+			}
+			if(numaxes >= 3) {
+				macval = joy_adb_axis_s8(joy_adb_devs[i].dev, 2);
+				WriteMacInt8(p + offsetof(ADBTHRUSTMASTER, yaw), macval);
+			}
+			if(numaxes >= 4) {
+				macval = joy_adb_axis_u8(joy_adb_devs[i].dev, 3);
+				WriteMacInt8(p + offsetof(ADBTHRUSTMASTER, thrust), macval);
+			}
+		} else {
+			if(numbuttons > 17)
+				numbuttons = 17;
+			macval = 0x0001FFFFU; /* set all 17 to 1, i.e. not pressed */
+			for(ibutton = 0; ibutton < numbuttons; ++ibutton) {
+				if(JoyManagerButton(joy_adb_devs[i].dev, ibutton)) {
+					macval &= ~(1u << ibutton);  /* 0 = held */
+				}
+			}
+			WriteMacInt32(p + offsetof(ADBGRAVISFIREBIRD, mButtons), macval);
+			if(numaxes >= 1) {
+				macval = (uint16)JoyManagerAxis(joy_adb_devs[i].dev, 0);
+				WriteMacInt16(p + offsetof(ADBGRAVISFIREBIRD, mXIn), macval);
+			}
+			if(numaxes >= 2) {
+				macval = (uint16)JoyManagerAxis(joy_adb_devs[i].dev, 1);
+				WriteMacInt16(p + offsetof(ADBGRAVISFIREBIRD, mYIn), macval);
+			}
+			if(numaxes >= 3) {
+				macval = (uint16)JoyManagerAxis(joy_adb_devs[i].dev, 2);
+				WriteMacInt16(p + offsetof(ADBGRAVISFIREBIRD, mThrottle), 
+					macval);
+			}
+		}
+	}
+}
+#else /* !USE_SDL */
+static void joy_adb_init(void) {}
+static void joy_adb_exit(void) {}
+static void joy_adb_update(void) {}
+static void joy_adb_install(void) {}
+static void joy_adb_reset_addr(void) {}
+static bool joy_adb_scan_done(void) { return false; }
+static int  joy_adb_find(uint8 adr) { (void)adr; return -1; }
+static bool joy_adb_installed = true;
+#endif /* #ifdef USE_SDL */
 
 /*
  *  Initialize ADB emulation
@@ -117,6 +521,7 @@ void ADBInit(void)
 	mouse_lock = B2_create_mutex();
 	m_keyboard_type = (uint8)PrefsFindInt32("keyboardtype");
 	key_reg_3[1] = m_keyboard_type;
+	joy_adb_init();
 }
 
 
@@ -130,6 +535,7 @@ void ADBExit(void)
 		B2_delete_mutex(mouse_lock);
 		mouse_lock = NULL;
 	}
+	joy_adb_exit();
 }
 
 
@@ -149,6 +555,8 @@ void ADBOp(uint8 op, uint8 *data)
 		key_reg_2[1] = 0xff;
 		key_reg_3[0] = 0x62;
 		key_reg_3[1] = m_keyboard_type;
+		joy_adb_reset_addr();
+		joy_adb_installed = false;
 		return;
 	}
 
@@ -270,9 +678,46 @@ void ADBOp(uint8 op, uint8 *data)
 		}
 		D(bug(" keyboard reg 3 %02x%02x\n", key_reg_3[0], key_reg_3[1]));
 
-	} else												// Unknown address
-		if (cmd == 3)
-			data[0] = 0;								// Talk: 0 bytes of data
+	} else {
+		#ifdef USE_SDL 
+		int i = joy_adb_find(adr);
+
+		if (i < 0) {
+		#endif /* #ifdef USE_SDL */
+			if (cmd == 3)
+				data[0] = 0; /* nothing at this address */
+		#ifdef USE_SDL
+		} else if (cmd == 2) { /* Write */
+			if (reg == 3) {
+				if (data[2] == 0xfe)
+					joy_adb_devs[i].reg_3[0] =
+						(joy_adb_devs[i].reg_3[0] & 0xf0) | (data[1] & 0x0f);
+				else if (data[2] == 0x00)
+					joy_adb_devs[i].reg_3[0] =
+						(joy_adb_devs[i].reg_3[0] & 0xd0) | (data[1] & 0x2f);
+				else if (data[2] == JOY_GRAVISMOUSESTICKII_ORIGDEVTYPE
+						|| data[2] == JOY_GRAVISMOUSESTICKII_DEVTYPE
+						|| data[2] == JOY_THRUSTMASTER_DEVTYPE)
+					joy_adb_devs[i].reg_3[1] = data[2];
+			}
+		} else if (cmd == 3) { /* Read */
+			switch (reg) {
+				case 3: /* direct read */                
+					data[0] = 2;
+					data[1] = (joy_adb_devs[i].reg_3[0] 
+						& 0xf0) | (rand() & 0x0f);
+					data[2] = joy_adb_devs[i].reg_3[1];
+					break;
+				case 0: /* poll */
+					data[0] = joy_adb_pack(i, data + 1);
+					break;
+				default:
+					data[0] = 0;
+					break;
+			}
+		}
+		#endif /* #ifdef USE_SDL */
+	}
 }
 
 int getXOffset(int x) {
@@ -376,6 +821,7 @@ void ADBWriteMouseDown(int button) {
 	SetInterruptFlag(INTFLAG_ADB);
 	TriggerInterrupt();
 }
+
 
 
 /*
@@ -630,7 +1076,13 @@ void ADBInterrupt(void)
 	if (!adb_base || adb_base == 0xffffffff)
 		return;
 	uint32 tmp_data = adb_base + 0x163;	// Temporary storage for faked ADB data
-
+	
+	// Update Joystick state
+	if (!joy_adb_installed && joy_adb_scan_done())
+		joy_adb_install();
+	if(joy_adb_installed)
+		joy_adb_update();
+	  
 	// Get mouse state
 	B2_lock_mutex(mouse_lock);
 	int mx = mouse_x;
@@ -653,40 +1105,40 @@ void ADBInterrupt(void)
 	}
 
 	if (relative_mouse || relate_mouse_mode_off_safeguard) {
-        while (mx != 0 || my != 0 || button_read_ptr != button_write_ptr) {
-            if (button_read_ptr != button_write_ptr) {
-                // Read button event
-                uint8 button = button_buffer[button_read_ptr];
-                button_read_ptr = (button_read_ptr + 1) % BUTTON_BUFFER_SIZE;
-                mouse_button[button & 0x3] = (button & 0x80) ? false : true;
-            }
-            // Call mouse ADB handler
-            if (mouse_reg_3[1] == 4) {
-                // Extended mouse protocol
-                WriteMacInt8(tmp_data, 3);
-                WriteMacInt8(tmp_data + 1, (my & 0x7f) | (mouse_button[0] ? 0 : 0x80));
-                WriteMacInt8(tmp_data + 2, (mx & 0x7f) | (mouse_button[1] ? 0 : 0x80));
-                WriteMacInt8(tmp_data + 3, ((my >> 3) & 0x70) | ((mx >> 7) & 0x07) | (mouse_button[2] ? 0x08 : 0x88));
-            } else {
-                // 100/200 dpi mode
-                WriteMacInt8(tmp_data, 2);
-                WriteMacInt8(tmp_data + 1, (my & 0x7f) | (mouse_button[0] ? 0 : 0x80));
-                WriteMacInt8(tmp_data + 2, (mx & 0x7f) | (mouse_button[1] ? 0 : 0x80));
-            }
-            r.a[0] = tmp_data;
-            r.a[1] = ReadMacInt32(mouse_base);
-            r.a[2] = ReadMacInt32(mouse_base + 4);
-            r.a[3] = adb_base;
-            r.d[0] = (mouse_reg_3[0] << 4) | 0x0c;    // Talk 0
+		while (mx != 0 || my != 0 || button_read_ptr != button_write_ptr) {
+			if (button_read_ptr != button_write_ptr) {
+				// Read button event
+				uint8 button = button_buffer[button_read_ptr];
+				button_read_ptr = (button_read_ptr + 1) % BUTTON_BUFFER_SIZE;
+				mouse_button[button & 0x3] = (button & 0x80) ? false : true;
+			}
+			// Call mouse ADB handler
+			if (mouse_reg_3[1] == 4) {
+				// Extended mouse protocol
+				WriteMacInt8(tmp_data, 3);
+				WriteMacInt8(tmp_data + 1, (my & 0x7f) | (mouse_button[0] ? 0 : 0x80));
+				WriteMacInt8(tmp_data + 2, (mx & 0x7f) | (mouse_button[1] ? 0 : 0x80));
+				WriteMacInt8(tmp_data + 3, ((my >> 3) & 0x70) | ((mx >> 7) & 0x07) | (mouse_button[2] ? 0x08 : 0x88));
+			} else {
+				// 100/200 dpi mode
+				WriteMacInt8(tmp_data, 2);
+				WriteMacInt8(tmp_data + 1, (my & 0x7f) | (mouse_button[0] ? 0 : 0x80));
+				WriteMacInt8(tmp_data + 2, (mx & 0x7f) | (mouse_button[1] ? 0 : 0x80));
+			}
+			r.a[0] = tmp_data;
+			r.a[1] = ReadMacInt32(mouse_base);
+			r.a[2] = ReadMacInt32(mouse_base + 4);
+			r.a[3] = adb_base;
+			r.d[0] = (mouse_reg_3[0] << 4) | 0x0c;    // Talk 0
 
-            Execute68k(r.a[1], &r);
+			Execute68k(r.a[1], &r);
 
-            old_mouse_button[0] = mouse_button[0];
-            old_mouse_button[1] = mouse_button[1];
-            old_mouse_button[2] = mouse_button[2];
-            mx = 0;
-            my = 0;
-        }
+			old_mouse_button[0] = mouse_button[0];
+			old_mouse_button[1] = mouse_button[1];
+			old_mouse_button[2] = mouse_button[2];
+			mx = 0;
+			my = 0;
+		}
 
 	} else {
 		/*
@@ -710,7 +1162,7 @@ void ADBInterrupt(void)
 		 * the frame ends on the correct absolute position. Doing MoveTo
 		 * first and ADB second made the cursor race (motion applied twice).
 		 * Doing MoveTo alone fixed Finder but starved ISp (cursor/look
-		 * “vanished” in Q3 unless grabbed).
+		 * "vanished" in Q3 unless grabbed).
 		 *
 		 * ADBSetRelMouseMode keeps mouse_* and old_mouse_* equal on a mode
 		 * switch so this block is a no-op until the next ADBMouseMoved.
@@ -766,42 +1218,42 @@ void ADBInterrupt(void)
 			old_mouse_y = my;
 		}
 
-        // O2S: Process accumulated button events
-        while (button_read_ptr != button_write_ptr) {
-            // Read button event
-            uint8 button = button_buffer[button_read_ptr];
-            button_read_ptr = (button_read_ptr + 1) % BUTTON_BUFFER_SIZE;
-            mouse_button[button & 0x3] = (button & 0x80) ? false : true;
+		// O2S: Process accumulated button events
+		while (button_read_ptr != button_write_ptr) {
+			// Read button event
+			uint8 button = button_buffer[button_read_ptr];
+			button_read_ptr = (button_read_ptr + 1) % BUTTON_BUFFER_SIZE;
+			mouse_button[button & 0x3] = (button & 0x80) ? false : true;
 
-            if (mouse_button[0] != old_mouse_button[0] || mouse_button[1] != old_mouse_button[1] || mouse_button[2] != old_mouse_button[2]) {
-                uint32 mouse_base = adb_base + 16;
+			if (mouse_button[0] != old_mouse_button[0] || mouse_button[1] != old_mouse_button[1] || mouse_button[2] != old_mouse_button[2]) {
+				uint32 mouse_base = adb_base + 16;
 
-                // Call mouse ADB handler
-                if (mouse_reg_3[1] == 4) {
-                    // Extended mouse protocol
-                    WriteMacInt8(tmp_data, 3);
-                    WriteMacInt8(tmp_data + 1, mouse_button[0] ? 0 : 0x80);
-                    WriteMacInt8(tmp_data + 2, mouse_button[1] ? 0 : 0x80);
-                    WriteMacInt8(tmp_data + 3, mouse_button[2] ? 0x08 : 0x88);
-                } else {
-                    // 100/200 dpi mode
-                    WriteMacInt8(tmp_data, 2);
-                    WriteMacInt8(tmp_data + 1, mouse_button[0] ? 0 : 0x80);
-                    WriteMacInt8(tmp_data + 2, mouse_button[1] ? 0 : 0x80);
-                }
-                r.a[0] = tmp_data;
-                r.a[1] = ReadMacInt32(mouse_base);
-                r.a[2] = ReadMacInt32(mouse_base + 4);
-                r.a[3] = adb_base;
-                r.d[0] = (mouse_reg_3[0] << 4) | 0x0c;    // Talk 0
+				// Call mouse ADB handler
+				if (mouse_reg_3[1] == 4) {
+					// Extended mouse protocol
+					WriteMacInt8(tmp_data, 3);
+					WriteMacInt8(tmp_data + 1, mouse_button[0] ? 0 : 0x80);
+					WriteMacInt8(tmp_data + 2, mouse_button[1] ? 0 : 0x80);
+					WriteMacInt8(tmp_data + 3, mouse_button[2] ? 0x08 : 0x88);
+				} else {
+					// 100/200 dpi mode
+					WriteMacInt8(tmp_data, 2);
+					WriteMacInt8(tmp_data + 1, mouse_button[0] ? 0 : 0x80);
+					WriteMacInt8(tmp_data + 2, mouse_button[1] ? 0 : 0x80);
+				}
+				r.a[0] = tmp_data;
+				r.a[1] = ReadMacInt32(mouse_base);
+				r.a[2] = ReadMacInt32(mouse_base + 4);
+				r.a[3] = adb_base;
+				r.d[0] = (mouse_reg_3[0] << 4) | 0x0c;    // Talk 0
 
-                Execute68k(r.a[1], &r);
+				Execute68k(r.a[1], &r);
 
-                old_mouse_button[0] = mouse_button[0];
-                old_mouse_button[1] = mouse_button[1];
-                old_mouse_button[2] = mouse_button[2];
-            }
-        }
+				old_mouse_button[0] = mouse_button[0];
+				old_mouse_button[1] = mouse_button[1];
+				old_mouse_button[2] = mouse_button[2];
+			}
+		}
 
 	}
 

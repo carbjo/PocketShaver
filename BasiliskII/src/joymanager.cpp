@@ -132,7 +132,7 @@ static bool joy_prepared;
 static JoyHostDevice joy_devices[JOY_MAX_DEVICES];
 #endif
 
-static uint32 JoyManagerAlignFour(uint32 addr)
+uint32 JoyManagerAlignFour(uint32 addr)
 {
 	return (addr + 3) & ~3U;
 }
@@ -143,7 +143,7 @@ uint32 JoyManagerGuestStorageSize(void)
 }
 
 #ifdef USE_SDL
-static int JoyManagerSDLNumDevices(void)
+int JoyManagerSDLNumDevices(void)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	int count;
@@ -159,7 +159,7 @@ static int JoyManagerSDLNumDevices(void)
 #endif
 }
 
-static SDL_Joystick *JoyManagerSDLOpenDevice(int index)
+SDL_Joystick *JoyManagerSDLOpenDevice(int index)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	int count;
@@ -179,7 +179,7 @@ static SDL_Joystick *JoyManagerSDLOpenDevice(int index)
 #endif
 }
 
-static void JoyManagerSDLCloseDevice(SDL_Joystick *joystick)
+void JoyManagerSDLCloseDevice(SDL_Joystick *joystick)
 {
 	if (joystick == NULL)
 		return;
@@ -190,7 +190,7 @@ static void JoyManagerSDLCloseDevice(SDL_Joystick *joystick)
 #endif
 }
 
-static bool JoyManagerSDLDeviceAttached(SDL_Joystick *joystick)
+bool JoyManagerSDLDeviceAttached(SDL_Joystick *joystick)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	return SDL_JoystickConnected(joystick);
@@ -201,7 +201,7 @@ static bool JoyManagerSDLDeviceAttached(SDL_Joystick *joystick)
 #endif
 }
 
-static bool JoyManagerSDLHasRudderThrottle(SDL_Joystick *joystick)
+bool JoyManagerSDLHasRudderThrottle(SDL_Joystick *joystick)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	return SDL_GetJoystickType(joystick) == SDL_JOYSTICK_TYPE_FLIGHT_STICK;
@@ -213,7 +213,7 @@ static bool JoyManagerSDLHasRudderThrottle(SDL_Joystick *joystick)
 #endif
 }
 
-static const char *JoyManagerSDLDeviceName(SDL_Joystick *joystick, int index)
+const char *JoyManagerSDLDeviceName(SDL_Joystick *joystick, int index)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	(void)index;
@@ -227,7 +227,7 @@ static const char *JoyManagerSDLDeviceName(SDL_Joystick *joystick, int index)
 #endif
 }
 
-static int JoyManagerSDLNumAxes(SDL_Joystick *joystick)
+int JoyManagerSDLNumAxes(SDL_Joystick *joystick)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	return SDL_GetNumJoystickAxes(joystick);
@@ -236,7 +236,7 @@ static int JoyManagerSDLNumAxes(SDL_Joystick *joystick)
 #endif
 }
 
-static int JoyManagerSDLNumButtons(SDL_Joystick *joystick)
+int JoyManagerSDLNumButtons(SDL_Joystick *joystick)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	return SDL_GetNumJoystickButtons(joystick);
@@ -245,7 +245,7 @@ static int JoyManagerSDLNumButtons(SDL_Joystick *joystick)
 #endif
 }
 
-static int JoyManagerSDLNumHats(SDL_Joystick *joystick)
+int JoyManagerSDLNumHats(SDL_Joystick *joystick)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	return SDL_GetNumJoystickHats(joystick);
@@ -254,7 +254,7 @@ static int JoyManagerSDLNumHats(SDL_Joystick *joystick)
 #endif
 }
 
-static int16 JoyManagerSDLAxis(SDL_Joystick *joystick, int axis)
+int16 JoyManagerSDLAxis(SDL_Joystick *joystick, int axis)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	return (int16)SDL_GetJoystickAxis(joystick, axis);
@@ -263,16 +263,16 @@ static int16 JoyManagerSDLAxis(SDL_Joystick *joystick, int axis)
 #endif
 }
 
-static uint8 JoyManagerSDLButton(SDL_Joystick *joystick, int button)
+uint8 JoyManagerSDLButton(SDL_Joystick *joystick, int button)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
-	return SDL_GetJoystickButton(joystick, button) ? 1 : 0;
+	return (uint8)SDL_GetJoystickButton(joystick, button);
 #else
-	return SDL_JoystickGetButton(joystick, button) ? 1 : 0;
+	return SDL_JoystickGetButton(joystick, button);
 #endif
 }
 
-static uint8 JoyManagerSDLHat(SDL_Joystick *joystick, int hat)
+uint8 JoyManagerSDLHat(SDL_Joystick *joystick, int hat)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	return (uint8)SDL_GetJoystickHat(joystick, hat);
@@ -281,7 +281,7 @@ static uint8 JoyManagerSDLHat(SDL_Joystick *joystick, int hat)
 #endif
 }
 
-static void JoyManagerSDLUpdate(void)
+void JoyManagerSDLUpdate(void)
 {
 #if SDL_VERSION_ATLEAST(3, 0, 0)
 	SDL_UpdateJoysticks();
@@ -290,7 +290,7 @@ static void JoyManagerSDLUpdate(void)
 #endif
 }
 
-static bool JoyManagerSDLInit(void)
+bool JoyManagerSDLInit(void)
 {
 	bool initialized;
 
@@ -313,7 +313,7 @@ static bool JoyManagerSDLInit(void)
 }
 #endif
 
-static uint32 JoyManagerFeaturesForAxes(int axes, int hats)
+uint32 JoyManagerFeaturesForAxes(int axes, int hats)
 {
 	uint32 features;
 	int i;
@@ -326,7 +326,7 @@ static uint32 JoyManagerFeaturesForAxes(int axes, int hats)
 	return features;
 }
 
-static int JoyManagerAxisLabel(int axis, bool rudder_throttle)
+int JoyManagerAxisLabel(int axis, bool rudder_throttle)
 {
 	switch (axis) {
 		case 0: return kJoyLabelXAxis;
@@ -337,13 +337,13 @@ static int JoyManagerAxisLabel(int axis, bool rudder_throttle)
 	return kJoyUnknownLabel;
 }
 
-static int32 JoyManagerAxisNeutralValue(int axis, bool rudder_throttle)
+int32 JoyManagerAxisNeutralValue(int axis, bool rudder_throttle)
 {
 	return JoyManagerAxisLabel(axis, rudder_throttle) ==
 		kJoyLabelThrottle ? 8192 : 0;
 }
 
-static void JoyManagerWriteElement(uint32 addr, int kind, int label,
+void JoyManagerWriteElement(uint32 addr, int kind, int label,
 	int32 min_value, int32 max_value, int32 value)
 {
 	WriteMacInt16(addr + joyElementKind, kind);
@@ -354,7 +354,7 @@ static void JoyManagerWriteElement(uint32 addr, int kind, int label,
 }
 
 #ifdef USE_SDL
-static void JoyManagerWriteDeviceInfo(JoyHostDevice *device)
+void JoyManagerWriteDeviceInfo(JoyHostDevice *device)
 {
 	uint32 element;
 	uint32 features;
@@ -504,7 +504,7 @@ bool JoyManagerPrepare(void)
 #endif
 }
 
-static void JoyManagerResetQueue(void)
+void JoyManagerResetQueue(void)
 {
 	if (joy_queue_addr == 0)
 		return;
@@ -577,7 +577,7 @@ bool JoyManagerSetGuestStorage(uint32 addr, uint32 size)
 }
 
 #ifdef USE_SDL
-static int JoyManagerHatPosition(uint8 hat)
+int JoyManagerSDLHatPosition(uint8 hat)
 {
 	bool up;
 	bool down;
@@ -599,7 +599,7 @@ static int JoyManagerHatPosition(uint8 hat)
 	return 0;
 }
 
-static void JoyManagerPutEvent(int device_index, int element_index, int what, int value)
+void JoyManagerPutEvent(int device_index, int element_index, int what, int value)
 {
 	uint16 write_count;
 	uint16 read_count;
@@ -625,7 +625,7 @@ static void JoyManagerPutEvent(int device_index, int element_index, int what, in
 	WriteMacInt16(joy_queue_addr + joyQueueWriteCount, write_count + 1);
 }
 
-static void JoyManagerApplyButtonState(int device_index, int button,
+void JoyManagerApplyButtonState(int device_index, int button,
 	uint8 value)
 {
 	JoyHostDevice *device;
@@ -643,7 +643,7 @@ static void JoyManagerApplyButtonState(int device_index, int button,
 	device->buttons[button] = value;
 }
 
-static void JoyManagerApplyHatState(int device_index, int hat, uint8 value)
+void JoyManagerApplyHatState(int device_index, int hat, uint8 value)
 {
 	JoyHostDevice *device;
 
@@ -655,11 +655,11 @@ static void JoyManagerApplyHatState(int device_index, int hat, uint8 value)
 	if (value == device->hats[hat])
 		return;
 	JoyManagerPutEvent(device_index, device->hat_element + hat,
-		kJoyEvtPosition, JoyManagerHatPosition(value));
+		kJoyEvtPosition, JoyManagerSDLHatPosition(value));
 	device->hats[hat] = value;
 }
 
-static void JoyManagerSnapshotDevice(JoyHostDevice *device)
+void JoyManagerSnapshotDevice(JoyHostDevice *device)
 {
 	int i;
 
@@ -674,7 +674,7 @@ static void JoyManagerSnapshotDevice(JoyHostDevice *device)
 		device->hats[i] = JoyManagerSDLHat(device->joystick, i);
 }
 
-static int32 JoyManagerAxisValue(JoyHostDevice *device, int axis)
+int32 JoyManagerAxisValue(JoyHostDevice *device, int axis)
 {
 	int32 value;
 
@@ -685,7 +685,7 @@ static int32 JoyManagerAxisValue(JoyHostDevice *device, int axis)
 	return value;
 }
 
-static bool JoyManagerWriteDeviceState(JoyHostDevice *device)
+bool JoyManagerWriteDeviceState(JoyHostDevice *device)
 {
 	bool active;
 	uint32 features;
@@ -712,11 +712,11 @@ static bool JoyManagerWriteDeviceState(JoyHostDevice *device)
 	}
 	if (active && device->hat_count > 0)
 		WriteMacInt16(device->simple_addr + joySimpleHat,
-			JoyManagerHatPosition(JoyManagerSDLHat(device->joystick, 0)));
+			JoyManagerSDLHatPosition(JoyManagerSDLHat(device->joystick, 0)));
 	return active;
 }
 
-static bool JoyManagerWriteElementName(uint32 addr, int device_index,
+bool JoyManagerWriteElementName(uint32 addr, int device_index,
 	int element_index)
 {
 	JoyHostDevice *device;
@@ -752,7 +752,7 @@ static bool JoyManagerWriteElementName(uint32 addr, int device_index,
 	return true;
 }
 
-static void JoyManagerUpdateState(void)
+void JoyManagerUpdateState(void)
 {
 	JoyHostDevice *shared_device;
 	JoyHostDevice *fallback_device;
@@ -821,7 +821,7 @@ void JoyManagerVBL(void)
 #endif
 }
 
-static bool JoyManagerWriteOutWord(uint32 pb, int value)
+bool JoyManagerWriteOutWord(uint32 pb, int value)
 {
 	uint32 result;
 
@@ -832,7 +832,7 @@ static bool JoyManagerWriteOutWord(uint32 pb, int value)
 	return true;
 }
 
-static bool JoyManagerWriteOutPtr(uint32 pb, uint32 value)
+bool JoyManagerWriteOutPtr(uint32 pb, uint32 value)
 {
 	uint32 result;
 
@@ -994,3 +994,127 @@ int16 JoyManagerClose(uint32 pb, uint32 dce)
 	JoyManagerResetQueue();
 	return noErr;
 }
+
+#ifdef USE_SDL
+JoyManagerDevice *JoyManagerOpenDevice(int index)
+{
+	return JoyManagerSDLOpenDevice(index);
+}
+void JoyManagerCloseDevice(JoyManagerDevice *joystick)
+{
+	JoyManagerSDLCloseDevice(joystick);
+}
+int JoyManagerNumDevices(void)
+{
+	return JoyManagerSDLNumDevices();
+}
+int JoyManagerNumButtons(JoyManagerDevice *joystick)
+{
+	return JoyManagerSDLNumButtons(joystick);
+}
+int JoyManagerNumAxes(JoyManagerDevice *joystick)
+{
+	return JoyManagerSDLNumAxes(joystick);
+}
+int JoyManagerNumHats(JoyManagerDevice *joystick)
+{
+	return JoyManagerSDLNumHats(joystick);
+}
+bool JoyManagerInit(void)
+{
+	return JoyManagerSDLInit();
+}
+bool JoyManagerHasRudderThrottle(JoyManagerDevice *joystick)
+{
+	return JoyManagerSDLHasRudderThrottle(joystick);
+}
+bool JoyManagerDeviceAttached(JoyManagerDevice *joystick)
+{
+	return JoyManagerSDLDeviceAttached(joystick);
+}
+const char *JoyManagerDeviceName(JoyManagerDevice *joystick,
+	int index)
+{
+	return JoyManagerSDLDeviceName(joystick, index);
+}
+int16 JoyManagerAxis(JoyManagerDevice *joystick, int axis)
+{
+	return JoyManagerSDLAxis(joystick, axis);
+}
+uint8 JoyManagerButton(JoyManagerDevice *joystick, int button)
+{
+	return JoyManagerSDLButton(joystick, button);
+}
+uint8 JoyManagerHat(JoyManagerDevice *joystick, int hat)
+{
+	return JoyManagerSDLHat(joystick, hat);
+}
+void JoyManagerUpdate(void)
+{
+	JoyManagerSDLUpdate();
+}
+int JoyManagerHatPosition(uint8 hat)
+{
+	return JoyManagerSDLHatPosition(hat);
+}
+#else
+JoyManagerDevice *JoyManagerOpenDevice(int index)
+{
+	return NULL;
+}
+void JoyManagerCloseDevice(JoyManagerDevice *joystick)
+{
+}
+int JoyManagerNumDevices(void)
+{
+	return 0;
+}
+int JoyManagerNumButtons(JoyManagerDevice *joystick)
+{
+	return 0;
+}
+int JoyManagerNumAxes(JoyManagerDevice *joystick)
+{
+	return 0;
+}
+int JoyManagerNumHats(JoyManagerDevice *joystick)
+{
+	return 0;
+}
+bool JoyManagerInit(void)
+{
+	return false;
+}
+bool JoyManagerHasRudderThrottle(JoyManagerDevice *joystick)
+{
+	return false;
+}
+bool JoyManagerDeviceAttached(JoyManagerDevice *joystick)
+{
+	return false;
+}
+const char *JoyManagerDeviceName(JoyManagerDevice *joystick,
+	int index)
+{
+	return NULL;
+}
+int16 JoyManagerAxis(JoyManagerDevice *joystick, int axis)
+{
+	return 0;
+}
+uint8 JoyManagerButton(JoyManagerDevice *joystick, int button)
+{
+	return 0;
+}
+uint8 JoyManagerHat(JoyManagerDevice *joystick, int hat)
+{
+	return 0;
+}
+void JoyManagerUpdate(void)
+{
+}
+int JoyManagerHatPosition(uint8 hat)
+{
+	return 0;
+}
+#endif /* #ifdef USE_SDL */
