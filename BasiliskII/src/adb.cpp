@@ -495,7 +495,7 @@ static uint8 joy_thrustmaster_axis(JoyManagerDevice *dev, int axis)
 /* signed axes: -128..127, centred on 0 */
 static uint8 joy_thrustmaster_axis_signed(JoyManagerDevice *dev, int axis)
 {
-      return (uint8)(JoyManagerAxis(dev, axis) >> 8);
+	return (uint8)(JoyManagerAxis(dev, axis) >> 8);
 }
 static const uint8 joy_adb_thrustmaster_button_bit[16] = {
 	5, /* trigger   */ 4, /* thumbHigh */ 6, /* thumbLow */ 7, /* pinkey */
