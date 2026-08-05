@@ -463,9 +463,6 @@ quit:
 
 static void Quit(void)
 {
-	// Exit PowerPC emulation
-	exit_emul_ppc();
-
 	// Stop 60Hz thread
 	if (tick_thread_active) {
 		tick_thread_cancel = true;
@@ -477,6 +474,9 @@ static void Quit(void)
 		nvram_thread_cancel = true;
 		wait_thread(nvram_thread);
 	}
+
+	// Exit PowerPC emulation
+	exit_emul_ppc();
 
 	// Deinitialize everything
 	ExitAll();
