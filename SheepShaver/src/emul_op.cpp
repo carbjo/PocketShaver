@@ -342,6 +342,7 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 #endif
 					ExecuteNative(NATIVE_VIDEO_VBL);
 					JoyManagerVBL();
+					ADBVBL();
 
 					DrainPendingResourceLocks();	// DII fix: lock queued sound-component PEF handles (safe VBL context)
 

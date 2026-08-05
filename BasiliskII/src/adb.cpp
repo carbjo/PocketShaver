@@ -295,7 +295,9 @@ struct joy_adb_dev {
 	uint8 enabled; /* Enabled via extension/control panel. Not thrustmaster */
 	uint16 cmd_param; /* last R2 write, echoed on the next R2 read */
 	uint16 cmd_status; /* returned when armed */
-	uint8  cmd_armed; /* next R2 read is status and not echo */	  
+	uint8 cmd_armed; /* next R2 read is status and not echo */	  
+	uint8 last_packet_len;
+	uint8 last_packet[8];
 	uint32 entry_base; /* ADB address for ADBInterrupt() */
 	JoyManagerDevice* dev; 
 	uint32 data_area; /* GetADBInfo() first param fill */
@@ -328,6 +330,7 @@ void joy_adb_init(void)
 		joy_adb_devs[i].cmd_status = 0xff00;
 		joy_adb_devs[i].cmd_param = 0;
 		joy_adb_devs[i].cmd_armed = 0;
+		joy_adb_devs[i].last_packet_len = 0;
 		++i;
 		joy_adb_devs[i].orig_addr = JOY_THRUSTMASTER_ADBADDR;
 		joy_adb_devs[i].reg_3[0] = 0x60 | joy_adb_devs[i].orig_addr;
@@ -339,6 +342,7 @@ void joy_adb_init(void)
 		joy_adb_devs[i].cmd_status = 0xff00;
 		joy_adb_devs[i].cmd_param = 0;
 		joy_adb_devs[i].cmd_armed = 0;
+		joy_adb_devs[i].last_packet_len = 0;
 		++i;
 	}
 }
@@ -365,6 +369,7 @@ void joy_adb_reset_addr(void)
 		joy_adb_devs[i].cmd_status = 0xff00;
 		joy_adb_devs[i].cmd_param = 0;
 		joy_adb_devs[i].cmd_armed = 0;
+		joy_adb_devs[i].last_packet_len = 0;
 	}
 }
 bool joy_adb_scan_done(void)
@@ -747,6 +752,17 @@ void joy_adb_op(int i, uint8 cmd, uint8 reg, uint8* data) {
 		}
 	}
 }
+static bool joy_adb_owns_cursor(void)
+{
+	int i;
+
+	for (i = 0; i < joy_adb_count; i++) {
+		if (joy_adb_devs[i].enabled
+				&& joy_adb_devs[i].real_devtype != JOY_THRUSTMASTER_DEVTYPE)
+			return true;
+	}
+	return false;
+}
 #else /* !USE_SDL */
 static void joy_adb_init(void) {}
 static void joy_adb_exit(void) {}
@@ -755,6 +771,7 @@ static void joy_adb_install(void) {}
 static void joy_adb_reset_addr(void) {}
 static bool joy_adb_scan_done(void) { return false; }
 static int  joy_adb_find(uint8 adr) { (void)adr; return -1; }
+static bool joy_adb_owns_cursor(void) { return false; }
 static bool joy_adb_installed = true;
 #endif /* #ifdef USE_SDL */
 
@@ -1350,6 +1367,58 @@ static void adb_update_bases(uint32 adb_base)
 	adb_bases_valid = true;
 }
 
+void ADBVBL(void)
+{
+	M68kRegisters r;
+	uint32 adb_base, tmp_data;
+	int i;
+
+	adb_base = ReadMacInt32(0xcf8);
+	if (!adb_base || adb_base == 0xffffffff)
+		return;
+	if (!adb_bases_valid || adb_bases_for != adb_base)
+		adb_update_bases(adb_base);
+	tmp_data = adb_base + 0x163;
+
+	#if defined(USE_SDL)
+	for (int i = 0; i < joy_adb_count; i++) {
+		uint8 pkt[8];
+		uint8 n, j;
+
+		if (joy_adb_devs[i].entry_base == 0)
+			continue;
+		if (!joy_adb_devs[i].enabled){
+			joy_adb_enable_gravis(i);
+			if (!joy_adb_devs[i].enabled)
+				continue;
+		}
+
+		n = joy_adb_pack(i, 0, pkt);
+		if (n == 0)
+			continue;
+		if (n == joy_adb_devs[i].last_packet_len
+				&& memcmp(pkt, joy_adb_devs[i].last_packet, n) == 0)
+			continue;
+		memcpy(joy_adb_devs[i].last_packet, pkt, n);
+		joy_adb_devs[i].last_packet_len = n;
+
+		WriteMacInt8(tmp_data, n);
+		for (j = 0; j < n; j++)
+			WriteMacInt8(tmp_data + 1 + j, pkt[j]);
+
+		r.a[0] = tmp_data; /* packet - length byte first */
+		r.a[1] = ReadMacInt32(joy_adb_devs[i].entry_base); /* routine */
+		r.a[2] = ReadMacInt32(joy_adb_devs[i].entry_base + 4); /* con */
+		r.a[3] = adb_base; /* ADBBase */
+		r.d[0] = (joy_adb_devs[i].reg_3[0] << 4) | 0x0c; /* Talk 0 */
+		Execute68k(r.a[1], &r); /* call ADB service routine */
+	}
+	#endif /* #if defined(USE_SDL) */
+
+	WriteMacInt32(tmp_data, 0);
+	WriteMacInt32(tmp_data + 4, 0);
+}
+
 void ADBInterrupt(void)
 {
 	M68kRegisters r;
@@ -1374,10 +1443,8 @@ void ADBInterrupt(void)
 		mouse_x = mouse_y = 0;
 	B2_unlock_mutex(mouse_lock);
 
-	  if (!adb_bases_valid || adb_bases_for != adb_base)
-			  adb_update_bases(adb_base);
-	  uint32 key_base = adb_key_base;
-	  uint32 mouse_base = adb_mouse_base;
+	uint32 key_base = adb_key_base;
+	uint32 mouse_base = adb_mouse_base;
 
 	bool relate_mouse_mode_off_safeguard = false;
 	if (mx == 0 &&
@@ -1479,19 +1546,21 @@ void ADBInterrupt(void)
 				Execute68k(r.a[1], &r);
 			}
 
-			static const uint8 proc_template[] = {
-				0x2f, 0x08,		// move.l a0,-(sp)
-				0x2f, 0x00,		// move.l d0,-(sp)
-				0x2f, 0x01,		// move.l d1,-(sp)
-				0x70, 0x01,		// moveq #1,d0 (MoveTo)
-				0xaa, 0xdb,		// CursorDeviceDispatch
-				M68K_RTS >> 8, M68K_RTS & 0xff
-			};
-			BUILD_SHEEPSHAVER_PROCEDURE(proc);
-			r.a[0] = ReadMacInt32(mouse_base + 4);
-			r.d[0] = mx;
-			r.d[1] = my;
-			Execute68k(proc, &r);
+			if (true) {
+				static const uint8 proc_template[] = {
+					0x2f, 0x08,		// move.l a0,-(sp)
+					0x2f, 0x00,		// move.l d0,-(sp)
+					0x2f, 0x01,		// move.l d1,-(sp)
+					0x70, 0x01,		// moveq #1,d0 (MoveTo)
+					0xaa, 0xdb,		// CursorDeviceDispatch
+					M68K_RTS >> 8, M68K_RTS & 0xff
+				};
+				BUILD_SHEEPSHAVER_PROCEDURE(proc);
+				r.a[0] = ReadMacInt32(mouse_base + 4);
+				r.d[0] = mx;
+				r.d[1] = my;
+				Execute68k(proc, &r);
+			}
 #else
 			WriteMacInt16(0x82a, mx);
 			WriteMacInt16(0x828, my);
@@ -1558,33 +1627,6 @@ void ADBInterrupt(void)
 		r.d[0] = (key_reg_3[0] << 4) | 0x0c;	// Talk 0
 		Execute68k(r.a[1], &r);
 	}
-
-	#if defined(USE_SDL)
-	for (int i = 0; i < joy_adb_count; i++) {
-		uint8 pkt[8];
-		uint8 n, j;
-
-		if (joy_adb_devs[i].entry_base == 0)
-			continue;
-		if (!joy_adb_devs[i].enabled)
-			joy_adb_enable_gravis(i);
-
-		n = joy_adb_pack(i, 0, pkt);
-		if (n == 0)
-			continue;
-
-		WriteMacInt8(tmp_data, n);
-		for (j = 0; j < n; j++)
-			WriteMacInt8(tmp_data + 1 + j, pkt[j]);
-
-		r.a[0] = tmp_data; /* packet - length byte first */
-		r.a[1] = ReadMacInt32(joy_adb_devs[i].entry_base); /* routine */
-		r.a[2] = ReadMacInt32(joy_adb_devs[i].entry_base + 4); /* con */
-		r.a[3] = adb_base; /* ADBBase */
-		r.d[0] = (joy_adb_devs[i].reg_3[0] << 4) | 0x0c; /* Talk 0 */
-		Execute68k(r.a[1], &r); /* call ADB service routine */
-	}
-	#endif /* #if defined(USE_SDL) */
 	
 	// Clear temporary data
 	WriteMacInt32(tmp_data, 0);

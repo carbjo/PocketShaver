@@ -48,6 +48,7 @@ extern void ADBWriteMouseUp(int button);
 extern void ADBMouseClick(int button);
 
 extern void ADBInterrupt(void);
+extern void ADBVBL(void);
 
 extern void ADBConfigure(int new_screen_width, int new_screen_height, int new_double_click_mouse_move_tolerance);
 extern void ADBSetRelMouseMode(bool relative);
