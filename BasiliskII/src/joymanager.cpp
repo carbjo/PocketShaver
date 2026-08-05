@@ -679,9 +679,14 @@ int32 JoyManagerAxisValue(JoyHostDevice *device, int axis)
 	int32 value;
 
 	value = JoyManagerSDLAxis(device->joystick, axis);
-	if (JoyManagerAxisLabel(axis, device->rudder_throttle) ==
-		kJoyLabelThrottle)
-		value = (value + 32770) >> 2;
+	switch (JoyManagerAxisLabel(axis, device->rudder_throttle)) {
+		case kJoyLabelThrottle:
+			value = (value + 32770) >> 2;
+			break;
+		case kJoyLabelYAxis:
+			value = -value; /* API reports up as positive */
+			break;
+	}
 	return value;
 }
 
