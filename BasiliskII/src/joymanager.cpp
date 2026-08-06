@@ -32,8 +32,10 @@ enum {
 enum {
 	kJoyXAxisAvailable = 0x0001,
 	kJoyYAxisAvailable = 0x0002,
-	kJoyRudderAvailable = 0x0004,
 	kJoyThrottleAvailable = 0x0008,
+	kJoyRudderAvailable = 0x0010,
+	kJoyGasAvailable = 0x0020,
+	kJoyBrakeAvailable = 0x0040,
 	kJoyHatAvailable = 0x0100
 };
 
@@ -313,6 +315,22 @@ bool JoyManagerSDLInit(void)
 }
 #endif
 
+/* The feature bits are not a packed run: 0x0004 is unused and rudder is
+ * 0x0010, above throttle's 0x0008.  "features |= 1 << i" therefore reports
+ * axis 2 as a bit nothing reads, and never sets rudder at all. */
+uint32 JoyManagerAxisFeature(int axis)
+{
+	switch (axis) {
+		case 0: return kJoyXAxisAvailable;
+		case 1: return kJoyYAxisAvailable;
+		case 2: return kJoyRudderAvailable;
+		case 3: return kJoyThrottleAvailable;
+		case 4: return kJoyGasAvailable;
+		case 5: return kJoyBrakeAvailable;
+	}
+	return 0;
+}
+
 uint32 JoyManagerFeaturesForAxes(int axes, int hats)
 {
 	uint32 features;
@@ -320,7 +338,7 @@ uint32 JoyManagerFeaturesForAxes(int axes, int hats)
 
 	features = 0;
 	for (i = 0; i < axes && i < JOY_MAX_AXES; i++)
-		features |= 1U << i;
+		features |= JoyManagerAxisFeature(i);
 	if (hats > 0)
 		features |= kJoyHatAvailable;
 	return features;
@@ -328,11 +346,12 @@ uint32 JoyManagerFeaturesForAxes(int axes, int hats)
 
 int JoyManagerAxisLabel(int axis, bool rudder_throttle)
 {
+	(void)rudder_throttle;
 	switch (axis) {
 		case 0: return kJoyLabelXAxis;
 		case 1: return kJoyLabelYAxis;
-		case 2: return rudder_throttle ? kJoyLabelRudder : kJoyUnknownLabel;
-		case 3: return rudder_throttle ? kJoyLabelThrottle : kJoyUnknownLabel;
+		case 2: return kJoyLabelRudder; /* right stick on twin sticks */
+		case 3: return kJoyLabelThrottle; /* right stick on twin sticks */
 	}
 	return kJoyUnknownLabel;
 }
@@ -475,11 +494,12 @@ bool JoyManagerPrepare(void)
 			count = 0;
 		device->axis_count = count > JOY_MAX_AXES ? JOY_MAX_AXES : count;
 		device->simple_axis_count = device->axis_count;
-		/* Only a positively identified flight stick gives axes 2 and 3 the
-		 * classic rudder/throttle meanings.  Other devices keep those raw
-		 * axes as general JoyElements without false standard-axis labels. */
-		if (!device->rudder_throttle && device->simple_axis_count > 2)
-			device->simple_axis_count = 2;
+		/* InputSprocket Joy publishes exactly six axis elements, so that is
+		 * the most the simple record can carry.  Axes past the second are
+		 * still worth exporting: without them a twin-stick pad only ever
+		 * reaches InputSprocket as its left stick. */
+		if (device->simple_axis_count > 6)
+			device->simple_axis_count = 6;
 
 		count = JoyManagerSDLNumButtons(joystick);
 		if (count < 0)
@@ -681,7 +701,10 @@ int32 JoyManagerAxisValue(JoyHostDevice *device, int axis)
 	value = JoyManagerSDLAxis(device->joystick, axis);
 	switch (JoyManagerAxisLabel(axis, device->rudder_throttle)) {
 		case kJoyLabelThrottle:
-			value = (value + 32770) >> 2;
+			value = (-value + 32770) >> 2;
+			break;
+		case kJoyLabelRudder: /* (0xffff - (v + 0x8000)). */
+			value = -value;
 			break;
 		case kJoyLabelYAxis:
 			value = -value; /* API reports up as positive */
