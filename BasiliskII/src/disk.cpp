@@ -702,6 +702,8 @@ int16 DiskStatus(uint32 pb, uint32 dce)
 			// Disk Init probes this on secondary volumes; statusErr looked foreign.
 			if (ReadMacInt16(pb + csParam) > 0) {
 				uint32 adr = ReadMacInt32(pb + csParam + 2);
+				if (adr == 0 || adr >= RAMSize || RAMSize - adr < 8)
+					return paramErr; /* called-supplied address is bad */
 				WriteMacInt16(pb + csParam, 1);
 				WriteMacInt32(adr, info->num_blocks ? info->num_blocks : 1);
 				WriteMacInt32(adr + 4, 0xc0010001);

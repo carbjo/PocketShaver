@@ -100,8 +100,8 @@ static time_t latest_mouse_down_time;
 static int double_click_mouse_move_tolerance = 10;
 
 
-#define ADB_MOUSE_LOG 1
-#define ADB_MOUSE_LOG_CURSOR_DEVICES 1
+#define ADB_MOUSE_LOG 0
+#define ADB_MOUSE_LOG_CURSOR_DEVICES 0
 #define ADB_LOG_MAX 200000
 #define ADB_SNAPSHOT_REGIONS 7
 #define ADB_SNAPSHOT_BYTES 1024	// Firebird per-stick settings span 0x104 * sticks
