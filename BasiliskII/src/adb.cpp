@@ -735,7 +735,83 @@ uint8 joy_adb_pack_thrustmaster(int i, uint8 reg, uint8 *buf)
 	buf[7] = 0; /* reserveByte2 - same */
 	return 8;
 }
+#if 0 /* CH Flightstick Pro reference; handled with JoyManager API */
+#define JOY_CH_FLIGHTSTICKPRO_ORIGADBADDR 0x3
+#define JOY_CH_FLIGHTSTICKPRO_ORIGDEVTYPE 0x1
+#define JOY_CH_FLIGHTSTICKPRO_DEVTYPE     0x1  /* never changes */
 
+/* SDL int16 -> the stick's 10-bit field, 512 centred.  invert 
+	matches the wire: Y and throttle are sent inverted, X is not. */
+static uint16 joy_ch_flightstickpro_axis(JoyManagerDevice *dev, 
+	int axis, bool invert)
+{
+	int v;
+
+	v = (JoyManagerAxis(dev, axis) + 32768) >> 6;
+	if (v > 1023)
+		v = 1023;
+	return (uint16)(invert ? (1023 - v) : v);
+}
+/* SDL button index -> bit in the packed state byte, active low */
+static const uint8 joy_ch_flightstickpro_button_bit[4] = {
+	0, /* trigger */ 1, /* left */ 2, /* right */ 3 /* center */
+};
+/* SDL hat bit (UP 0x1, RIGHT 0x2, DOWN 0x4, LEFT 0x8) 
+	-> bit in the packed state byte, active low */
+static const uint8 joy_ch_flightstickpro_hat_bit[4] = {
+	4, /* up */ 6, /* right */ 7, /* down */ 5 /* left */
+};
+uint8 joy_adb_pack_flightstick_pro(int i, uint8 reg, uint8 *buf)
+{
+	JoyManagerDevice *dev;
+	uint16 x, y, thr;
+	uint8 state;
+	int nb, c;
+
+	dev = joy_adb_devs[i].dev;
+
+	if (reg == 1) { /* identification: 'M' 'F' ? '3' */
+		buf[0] = 'M';
+		buf[1] = 'F';
+		buf[2] = 0;   /* read and discarded by the control panel */
+		buf[3] = '3';
+		return 4;
+	}
+	if (reg != 0)
+		return 0;
+
+	state = 0xff;
+	nb = JoyManagerNumButtons(dev);
+	if (nb > 4)
+		nb = 4;
+	for (c = 0; c < nb; ++c) {
+		if (JoyManagerButton(dev, c))
+			state &= ~(1u << joy_ch_flightstickpro_button_bit[c]);
+	}
+	if (JoyManagerNumHats(dev) > 0) {
+		uint8 h = JoyManagerHat(dev, 0);
+
+		for (c = 0; c < 4; ++c) {
+			if (h & (1u << c))
+				state &= ~(1u << joy_ch_flightstickpro_hat_bit[c]);
+		}
+	}
+
+	x = joy_ch_flightstickpro_axis(dev, 0, false);
+	y = joy_ch_flightstickpro_axis(dev, 1, true);
+	thr = joy_ch_flightstickpro_axis(dev, 3, true);
+
+	buf[0] = 0;
+	buf[1] = state;
+	buf[2] = (uint8)(thr >> 8);
+	buf[3] = (uint8)thr;
+	buf[4] = (uint8)((state & 0xf0) | (y >> 8));
+	buf[5] = (uint8)y;
+	buf[6] = (uint8)(((state & 0x0f) << 4) | (x >> 8));
+	buf[7] = (uint8)x;
+	return 8;
+}
+#endif /* CH Flightstick Pro reference */
 uint8 joy_adb_pack(int i, uint8 reg, uint8 *buf)
 {
 	if (joy_adb_devs[i].real_devtype == JOY_GRAVIS_DEVTYPE)
