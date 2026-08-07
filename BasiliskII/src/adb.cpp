@@ -100,8 +100,8 @@ static time_t latest_mouse_down_time;
 static int double_click_mouse_move_tolerance = 10;
 
 
-#define ADB_MOUSE_LOG 0
-#define ADB_MOUSE_LOG_CURSOR_DEVICES 0
+#define ADB_MOUSE_LOG 1
+#define ADB_MOUSE_LOG_CURSOR_DEVICES 1
 #define ADB_LOG_MAX 200000
 #define ADB_SNAPSHOT_REGIONS 7
 #define ADB_SNAPSHOT_BYTES 1024	// Firebird per-stick settings span 0x104 * sticks
@@ -1169,7 +1169,7 @@ void ADBOp(uint8 op, uint8 *data)
 #if ADB_MOUSE_LOG
 			if (cmd == 3)
 				ALOG("joy reply r%d out[%d: %02x %02x %02x %02x] armed=%d param=%04x status=%04x",
-					reg, data[0], data[1], data[2], d3, d4,
+					reg, data[0], data[1], data[2], data[3], data[4],
 					joy_adb_devs[i].cmd_armed, joy_adb_devs[i].cmd_param,
 					joy_adb_devs[i].cmd_status);
 #endif
@@ -1704,20 +1704,6 @@ static void mouse_adb_deliver(uint32 adb_base, uint32 mouse_base, uint32 tmp_dat
 		return;
 	}
 
-#ifdef POWERPC_ROM
-	/* Send at most one movement packet until the guest has read the last
-	   one, because it only has room to hold one; button presses always go. */
-	static int held_ticks = 0;
-	uint32 area = ReadMacInt32(mouse_base + 4);
-
-	if (area != 0 && ReadMacInt8(area + 0x84) != 0
-			&& mouse_button[0] == old_mouse_button[0]
-			&& mouse_button[1] == old_mouse_button[1]
-			&& mouse_button[2] == old_mouse_button[2]
-			&& ++held_ticks < 30)	/* if the task stopped consuming, don't starve */
-		return;
-	held_ticks = 0;
-#endif
 
 	if ((n = mouse_adb_pack(0, pkt)) != 0) {
 #if ADB_MOUSE_LOG
@@ -1773,26 +1759,11 @@ static void mouse_adb_place(uint32 mouse_base, int h, int v)
 	WriteMacInt16(0x82e, h);
 	WriteMacInt16(0x82c, v);
 	WriteMacInt8(0x8ce, ReadMacInt8(0x8cf));	// CrsrCouple -> CrsrNew
-#ifdef POWERPC_ROM
-	uint32 area;
-
-	if (mouse_base != 0 && (area = ReadMacInt32(mouse_base + 4)) != 0) {
-		/* The ROM used to discard accumulated motion after an absolute
-		   position, which is patched out because games re-centring every
-		   frame starved the cursor of all relative motion.  Placement still
-		   needs that discard -- the counts this tick's packet carried are
-		   the same motion the placement just applied, and the service
-		   routine has already shown them to anyone hooking the bus -- so
-		   reproduce the ROM's wipe here, scoped to our own driver record. */
-		WriteMacInt32(area + 0x70, 0);
-		WriteMacInt32(area + 0x74, 0);
-		WriteMacInt32(area + 0x78, 0);
-		WriteMacInt32(area + 0x7c, 0);
-		WriteMacInt16(area + 0x80, 0xff98);
-		WriteMacInt8(area + 0x84, 0);
-		ALOG("place: WE WIPED mouse driver accumulators at %08x", area);
-	}
-#endif
+	/* Do not clear the driver's counts here.  The offsets that would be used
+	   are the ROM cursor task's own record, not this one, and the two are only
+	   the same address until the real mouse driver loads; afterwards the write
+	   lands on a live pointer.  Counts sent this tick are meant to survive:
+	   the position written above is what the pointer ends up at either way. */
 #if ADB_MOUSE_LOG
 	uint32 logarea = 0;
 
@@ -1810,36 +1781,14 @@ static bool mouse_adb_pointer_hidden(void)
 	return (int16)ReadMacInt16(0x8d0) < 0;
 }
 
+/* A guest that has hidden the pointer is reading the mouse itself, and there is
+   no way to tell whether it wants movement counts or a position, so once the
+   pointer is hidden it gets both: counts in the packet and the position in low
+   memory.  Nothing on screen can jitter from the two disagreeing, because the
+   pointer the ROM draws is hidden. */
 static bool mouse_adb_relative_wanted(void)
 {
-	static uint16 seen;
-	static bool primed = false, latched = false;
-	bool hidden = mouse_adb_pointer_hidden();
-	bool repositioned = false;
-#ifdef POWERPC_ROM
-	uint32 buf = ReadMacInt32(0x2ae);		/* lowmem ROMBase */
-
-	/* Read every tick, so that hiding the pointer does not compare against
-	   an old count and act on somebody else's moves. */
-	if (buf != 0) {
-		uint16 total = ReadMacInt16(buf + CURSOR_LOG_BUFFER + 2);
-
-		if (!primed) {
-			primed = true;
-			seen = total;
-		} else if (total != seen) {
-			seen = total;
-			repositioned = true;
-		}
-	}
-#endif
-	if (!hidden) {
-		latched = false;
-		return false;
-	}
-	if (repositioned)
-		latched = true;
-	return latched;
+	return mouse_adb_pointer_hidden();
 }
 
 /* Run one tick of the mouse: report movement, then place the pointer. */
@@ -1885,7 +1834,7 @@ static void mouse_adb_tick(uint32 adb_base, uint32 mouse_base, uint32 tmp_data)
 			mouse_dx = mouse_dy = 0;
 		last_mode = now_mode;
 	}
-	/* No pointer on screen to place under: send motion, not a position. */
+	/* Pointer hidden: the guest may be reading motion, so send it as well. */
 	if (!grabbed && relative && moved) {
 		mouse_dx += host_h - last_h;
 		mouse_dy += host_v - last_v;
@@ -1933,7 +1882,9 @@ static void mouse_adb_tick(uint32 adb_base, uint32 mouse_base, uint32 tmp_data)
 	}
 	mouse_adb_deliver(adb_base, mouse_base, tmp_data);
 
-	if (!grabbed && moved && !relative)
+	/* Place after delivering, so the position is what the guest ends up
+	   reading even though the packet just moved the pointer as well. */
+	if (!grabbed && moved)
 		mouse_adb_place(mouse_base, host_h, host_v);
 }
 
