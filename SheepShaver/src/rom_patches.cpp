@@ -65,6 +65,13 @@ const uint32 ZERO_SCRAP_PATCH_SPACE = 0x2fcf80;
 const uint32 PUT_SCRAP_PATCH_SPACE = 0x2fcfc0;
 const uint32 GET_SCRAP_PATCH_SPACE = 0x2fd100;
 const uint32 ADDR_MAP_PATCH_SPACE = 0x2fd140;
+const uint32 CURSOR_LOG_SPACE = 0x2fd240;	// MoveTo trace ring + stub
+const uint32 CURSOR_LOG_SIZE = 0x180;
+
+// Set either to 0 to bisect the cursor patches; the wipe patch must stay on
+// for the stub below to be installed at all.
+#define CURSOR_WIPE_PATCH 1
+#define CURSOR_SYNC_PUBLISH 1
 
 // Global variables
 int ROMType;				// ROM type
@@ -2424,6 +2431,79 @@ static bool patch_68k(void)
 				AddSifter(ReadMacInt32(thing + componentPFResType), ReadMacInt16(thing + componentPFResID));
 		}
 		thing = find_rom_resource(FOURCC('t','h','n','g'), 4711, true);
+	}
+
+	// Stop the cursor task throwing away pending mouse movement whenever
+	// something repositions the pointer, by turning its beq into a bra.
+	static const uint8 cursor_wipe_data[] = {0x28, 0x6a, 0x00, 0x04, 0x4a, 0x2c, 0x00, 0x14, 0x67, 0x1e, 0x42, 0xaa, 0x00, 0x70};
+	uint32 wipe_base = 0;
+#if CURSOR_WIPE_PATCH
+	wipe_base = find_rom_data(0xc000, 0x10000, cursor_wipe_data, sizeof(cursor_wipe_data));
+#endif
+	if (wipe_base != 0) {
+		D(bug("cursor_wipe %08lx\n", (unsigned long)wipe_base));
+		wp = (uint16 *)(ROMBaseHost + wipe_base + 8);
+		*wp = htons(0x601e);			// bra.b (was beq.b: skip the accumulator wipe)
+	}
+
+	// Record every CursorDeviceMoveTo call and its caller in a ring buffer.
+	static const uint8 cursor_dispatch_data[] = {0xd0, 0x40, 0x41, 0xfa, 0x00, 0x08, 0xd0, 0xf0, 0x00, 0x00, 0x4e, 0xd0};
+	static const uint8 cursor_moveto_data[] = {0x24, 0x6e, 0x00, 0x10, 0x22, 0x6a, 0x00, 0x04, 0x70, 0x00, 0x20, 0x2e};
+	uint32 disp = find_rom_data(0xc000, 0x10000, cursor_dispatch_data, sizeof(cursor_dispatch_data));
+	uint32 mvto = find_rom_data(0xc000, 0x10000, cursor_moveto_data, sizeof(cursor_moveto_data));
+	if (disp != 0 && mvto != 0
+			&& wipe_base != 0
+			&& check_rom_patch_space(CURSOR_LOG_SPACE, CURSOR_LOG_SIZE)) {
+		uint32 table = disp + 12;		// selector offset table
+		uint32 stub = CURSOR_LOG_SPACE + 0x110;
+
+		D(bug("cursor_movelog buf %08lx stub %08lx handler %08lx",
+			(unsigned long)CURSOR_LOG_SPACE, (unsigned long)stub,
+			(unsigned long)mvto));
+		memset(ROMBaseHost + CURSOR_LOG_SPACE, 0, 0x110);
+		wp = (uint16 *)(ROMBaseHost + stub);
+		*wp++ = htons(0x2f00);				// move.l d0,-(a7)
+		*wp++ = htons(0x2f08);				// move.l a0,-(a7)
+		*wp++ = htons(0x41f9);				// lea buf,a0
+		*wp++ = htons((ROMBase + CURSOR_LOG_SPACE) >> 16);
+		*wp++ = htons((ROMBase + CURSOR_LOG_SPACE) & 0xffff);
+		*wp++ = htons(0x3028); *wp++ = htons(0x0002);	// move.w 2(a0),d0
+		*wp++ = htons(0x5240);				// addq.w #1,d0
+		*wp++ = htons(0x3140); *wp++ = htons(0x0002);	// move.w d0,2(a0)
+		*wp++ = htons(0x0240); *wp++ = htons(0x001f);	// andi.w #31,d0
+		*wp++ = htons(0xe748);				// lsl.w #3,d0
+		*wp++ = htons(0x41f0); *wp++ = htons(0x0008);	// lea 8(a0,d0.w),a0
+		*wp++ = htons(0x30ae); *wp++ = htons(0x000a);	// move.w $a(a6),(a0)  v
+		*wp++ = htons(0x316e); *wp++ = htons(0x000e);	// move.w $e(a6),2(a0)
+		*wp++ = htons(0x0002);
+		*wp++ = htons(0x216e); *wp++ = htons(0x0004);	// move.l $4(a6),4(a0)
+		*wp++ = htons(0x0004);
+		*wp++ = htons(0x205f);				// movea.l (a7)+,a0
+		*wp++ = htons(0x201f);				// move.l (a7)+,d0
+#if CURSOR_SYNC_PUBLISH
+		// Write Mouse before the real handler runs, but only when the guest
+		// has hidden the pointer, because doing it with the pointer visible
+		// stops the ROM redrawing and pinning the cursor (4080df6e).
+		*wp++ = htons(0x4a78); *wp++ = htons(0x08d0);	// tst.w CrsrState
+		*wp++ = htons(0x6c0c);				// bge.b +12 (visible: skip)
+		*wp++ = htons(0x31ee); *wp++ = htons(0x000a); *wp++ = htons(0x0830);
+		*wp++ = htons(0x31ee); *wp++ = htons(0x000e); *wp++ = htons(0x0832);
+		*wp++ = htons(0x4ef9);				// jmp handler
+		*wp++ = htons((ROMBase + mvto) >> 16);
+		*wp = htons((ROMBase + mvto) & 0xffff);
+#else
+		*wp++ = htons(0x4ef9);				// jmp handler
+		*wp++ = htons((ROMBase + mvto) >> 16);
+		*wp = htons((ROMBase + mvto) & 0xffff);
+#endif
+		// The selector table holds 16-bit offsets, so point it at the wipe
+		// branch the patch above made unreachable and jump on from there.
+		wp = (uint16 *)(ROMBaseHost + wipe_base + 10);
+		*wp++ = htons(0x4ef9);				// jmp stub
+		*wp++ = htons((ROMBase + stub) >> 16);
+		*wp = htons((ROMBase + stub) & 0xffff);
+		wp = (uint16 *)(ROMBaseHost + table + 2);	// selector 1 = MoveTo
+		*wp = htons((uint16)(wipe_base + 10 - table));
 	}
 
 	// Patch component code

@@ -26,6 +26,7 @@ enum {
 	JOY_MAX_BUTTONS = 64,
 	JOY_MAX_HATS = 4,
 	JOY_EVENT_COUNT = 64,
+	JOY_AXIS_REST = 4000,
 	JOY_GUEST_STORAGE_SIZE = 0x4000
 };
 
@@ -694,11 +695,24 @@ void JoyManagerSnapshotDevice(JoyHostDevice *device)
 		device->hats[i] = JoyManagerSDLHat(device->joystick, i);
 }
 
+/* Treat a stick resting slightly off centre as centred, then stretch what is
+   left so full deflection still reaches the ends. */
+int32 JoyManagerAxisRest(int32 v)
+{
+	if (v > -JOY_AXIS_REST && v < JOY_AXIS_REST)
+		return 0;
+	if (v > 0)
+		v -= JOY_AXIS_REST;
+	else
+		v += JOY_AXIS_REST;
+	return v * 32768 / (32768 - JOY_AXIS_REST);
+}
+
 int32 JoyManagerAxisValue(JoyHostDevice *device, int axis)
 {
 	int32 value;
 
-	value = JoyManagerSDLAxis(device->joystick, axis);
+	value = JoyManagerAxisRest(JoyManagerSDLAxis(device->joystick, axis));
 	switch (JoyManagerAxisLabel(axis, device->rudder_throttle)) {
 		case kJoyLabelThrottle:
 			value = (-value + 32770) >> 2;
