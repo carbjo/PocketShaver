@@ -72,8 +72,14 @@ const uint8 DiskIcon[258] = {
 
 // Struct for each drive
 struct disk_drive_info {
-	disk_drive_info() : num(0), fh(NULL), start_byte(0), read_only(false), status(0) {}
-	disk_drive_info(void *fh_, bool ro) : num(0), fh(fh_), read_only(ro), status(0) {}
+	disk_drive_info()
+		: num(0), fh(NULL), start_byte(0), num_blocks(0), head_pos(0),
+		  to_be_mounted(false), read_only(false), status(0),
+		  hfs_meta_ok(false), hfs_xt_pos(0), hfs_ct_pos(0) {}
+	disk_drive_info(void *fh_, bool ro)
+		: num(0), fh(fh_), start_byte(0), num_blocks(0), head_pos(0),
+		  to_be_mounted(false), read_only(ro), status(0),
+		  hfs_meta_ok(false), hfs_xt_pos(0), hfs_ct_pos(0) {}
 
 	void close_fh(void) { Sys_close(fh); }
 
@@ -81,9 +87,14 @@ struct disk_drive_info {
 	void *fh;			// File handle
 	loff_t start_byte;	// Start of HFS partition on disk
 	uint32 num_blocks;	// Size in 512-byte blocks
+	loff_t head_pos;	// Per-drive byte pos (.Disk dCtlPosition is shared)
 	bool to_be_mounted;	// Flag: drive must be mounted in accRun
 	bool read_only;		// Flag: force write protection
 	uint32 status;		// Mac address of drive status record
+	// Cached classic-HFS B-tree header positions (partition-relative)
+	bool hfs_meta_ok;
+	loff_t hfs_xt_pos;
+	loff_t hfs_ct_pos;
 };
 
 // List of drives handled by this driver
@@ -146,6 +157,137 @@ static void find_hfs_partition(disk_drive_info &info)
 
 
 /*
+ *	Classic HFS mount fixes as mac can semi-corrupt it leading to an issue
+ *	where HFV Explorer can mount it but mac will say cannot initialize. 
+ *
+ *	1) Shared .Disk DCE: dCtlPosition is one field for all drives — fixed via
+ *		per-drive head_pos + full ioPosMode handling in DiskPrime.
+ *
+ *	2) Some images have B-tree header free-space offset 0 instead of
+ *		nodeSize-2*(nRec+1) (0x01F8 for 512-byte/3-record headers). MountVol
+ *		aborts after reading the extents header.
+ *
+ *	3) Dirty MDB (kHFSVolumeUnmountedBit clear) takes the scavenger path, which
+ *		fails on pathological huge B-trees even when a clean mount would work.
+ *		Force the clean bit on MDB *reads* and at open; do not rewrite maps.
+ */
+static const uint16 kHFSVolumeUnmountedBit = 0x0100;
+
+static uint16 hfs_be16(const uint8 *p)
+{
+	return (uint16)((p[0] << 8) | p[1]);
+}
+
+static uint32 hfs_be32(const uint8 *p)
+{
+	return ((uint32)p[0] << 24) | ((uint32)p[1] << 16) | ((uint32)p[2] << 8) | p[3];
+}
+
+static void hfs_put_be16(uint8 *p, uint16 v)
+{
+	p[0] = (uint8)(v >> 8);
+	p[1] = (uint8)v;
+}
+
+static bool hfs_fix_node_offsets(uint8 *node, int node_size)
+{
+	if (!node || node_size < 64 || node_size > 8192)
+		return false;
+	uint16 nrec = hfs_be16(node + 10);
+	if (nrec == 0 || nrec > 100)
+		return false;
+	int free_off_pos = node_size - 2 * (nrec + 1);
+	if (free_off_pos < 14)
+		return false;
+	uint16 free_off = hfs_be16(node + free_off_pos);
+	uint16 last_rec = hfs_be16(node + free_off_pos + 2);
+	uint16 expect_free = (uint16)(node_size - 2 * (nrec + 1));
+	if (free_off > last_rec && free_off <= expect_free && free_off >= 14)
+		return false;
+	hfs_put_be16(node + free_off_pos, expect_free);
+	return true;
+}
+
+static bool hfs_force_mdb_clean(uint8 *mdb, size_t len)
+{
+	if (!mdb || len < 12)
+		return false;
+	if (mdb[0] != 0x42 || mdb[1] != 0x44)
+		return false;
+	uint16 atrb = hfs_be16(mdb + 10);
+	if (atrb & kHFSVolumeUnmountedBit)
+		return false;
+	hfs_put_be16(mdb + 10, (uint16)(atrb | kHFSVolumeUnmountedBit));
+	return true;
+}
+
+// Only touch known metadata positions — never arbitrary file data.
+static void hfs_sanitize_io(disk_drive_info &info, uint8 *buf, size_t len,
+							loff_t position, bool is_read)
+{
+	if (!buf || len < 12)
+		return;
+
+	if (is_read && position == 1024 && len >= 512)
+		hfs_force_mdb_clean(buf, 512);
+
+	if (info.hfs_meta_ok && len >= 512
+		&& (position == info.hfs_xt_pos || position == info.hfs_ct_pos)
+		&& buf[8] == 1 && hfs_be16(buf + 32) == 512)
+		hfs_fix_node_offsets(buf, 512);
+}
+
+static void hfs_prepare_volume(disk_drive_info &info)
+{
+	if (!info.fh)
+		return;
+
+	info.hfs_meta_ok = false;
+	info.hfs_xt_pos = 0;
+	info.hfs_ct_pos = 0;
+
+	uint8 mdb[512];
+	if (Sys_read(info.fh, mdb, info.start_byte + 1024, 512) != 512)
+		return;
+	if (mdb[0] != 0x42 || mdb[1] != 0x44)
+		return;
+
+	bool mdb_dirty = hfs_force_mdb_clean(mdb, 512);
+
+	uint16 alBlSt = hfs_be16(mdb + 28);
+	uint32 alBlkSiz = hfs_be32(mdb + 20);
+	if (alBlkSiz != 0 && (alBlkSiz & 0x1ff) == 0) {
+		struct { int size_off; int ext_off; loff_t *pos_out; } forks[2] = {
+			{ 130, 134, &info.hfs_xt_pos },
+			{ 146, 150, &info.hfs_ct_pos },
+		};
+		for (int f = 0; f < 2; f++) {
+			uint32 fl_size = hfs_be32(mdb + forks[f].size_off);
+			uint16 abn = hfs_be16(mdb + forks[f].ext_off);
+			uint16 abc = hfs_be16(mdb + forks[f].ext_off + 2);
+			if (fl_size == 0 || abc == 0)
+				continue;
+			loff_t tree_pos = (loff_t)alBlSt * 512 + (loff_t)abn * alBlkSiz;
+			*forks[f].pos_out = tree_pos;
+			info.hfs_meta_ok = true;
+
+			uint8 hdr[512];
+			loff_t file_off = info.start_byte + tree_pos;
+			if (Sys_read(info.fh, hdr, file_off, 512) != 512)
+				continue;
+			if (hdr[8] != 1)
+				continue;
+			if (hfs_fix_node_offsets(hdr, 512) && !info.read_only)
+				Sys_write(info.fh, hdr, file_off, 512);
+		}
+	}
+
+	if (mdb_dirty && !info.read_only)
+		Sys_write(info.fh, mdb, info.start_byte + 1024, 512);
+}
+
+
+/*
  *  Initialization
  */
 
@@ -201,6 +343,8 @@ bool DiskMountVolume(void *fh)
 			find_hfs_partition(*info);
 			if (info->start_byte == 0)
 				info->num_blocks = uint32(SysGetFileSize(info->fh) / 512);
+			info->head_pos = 0;
+			hfs_prepare_volume(*info);
 			WriteMacInt16(info->status + dsDriveSize, info->num_blocks & 0xffff);
 			WriteMacInt16(info->status + dsDriveS1, info->num_blocks >> 16);
 			info->to_be_mounted = true;
@@ -289,6 +433,8 @@ int16 DiskOpen(uint32 pb, uint32 dce)
 				find_hfs_partition(*info);
 				if (info->start_byte == 0)
 					info->num_blocks = uint32(SysGetFileSize(info->fh) / 512);
+				info->head_pos = 0;
+				hfs_prepare_volume(*info);
 				info->to_be_mounted = true;
 			}
 			D(bug(" %d blocks\n", info->num_blocks));
@@ -308,6 +454,10 @@ int16 DiskOpen(uint32 pb, uint32 dce)
 
 /*
  *  Driver Prime() routine
+ *
+ *  One .Disk DCE is shared by every hardfile, so dCtlPosition is shared.
+ *  Always derive the byte position from ioPosMode + ioPosOffset + per-drive
+ *  head_pos (never trust a stale shared dCtlPosition for absolute seeks).
  */
 
 int16 DiskPrime(uint32 pb, uint32 dce)
@@ -321,13 +471,50 @@ int16 DiskPrime(uint32 pb, uint32 dce)
 	if (!ReadMacInt8(info->status + dsDiskInPlace))
 		return offLinErr;
 
+	// Geometry (needed for fsFromLEOF)
+	if (info->num_blocks == 0) {
+		find_hfs_partition(*info);
+		if (info->start_byte == 0)
+			info->num_blocks = uint32(SysGetFileSize(info->fh) / 512);
+	}
+
 	// Get parameters
 	void *buffer = Mac2HostAddr(ReadMacInt32(pb + ioBuffer));
 	size_t length = ReadMacInt32(pb + ioReqCount);
-	loff_t position = ReadMacInt32(dce + dCtlPosition);
-	if (ReadMacInt16(pb + ioPosMode) & 0x100)	// 64 bit positioning
-		position = ((loff_t)ReadMacInt32(pb + ioWPosOffset) << 32) | ReadMacInt32(pb + ioWPosOffset + 4);
-	if ((length & 0x1ff) || (position & 0x1ff))
+	uint16 pos_mode = (uint16)ReadMacInt16(pb + ioPosMode);
+	uint32 dctl_pos = ReadMacInt32(dce + dCtlPosition);
+	int32 io_off = (int32)ReadMacInt32(pb + ioPosOffset);
+
+	loff_t position;
+	if (pos_mode & 0x100) {	// 64-bit positioning
+		position = ((loff_t)ReadMacInt32(pb + ioWPosOffset) << 32)
+				 | ReadMacInt32(pb + ioWPosOffset + 4);
+	} else {
+		switch (pos_mode & 3) {
+		case 1:	// fsFromStart
+			position = (uint32)io_off;
+			break;
+		case 2:	// fsFromLEOF
+			position = (loff_t)info->num_blocks * 512 + io_off;
+			break;
+		case 3:	// fsFromMark
+			position = info->head_pos + io_off;
+			break;
+		case 0:	// fsAtMark
+		default:
+			// Prefer per-drive head. On first I/O (head at 0) accept a
+			// sector-aligned dCtlPosition left by Device Manager.
+			if (info->head_pos == 0 && dctl_pos != 0 && (dctl_pos & 0x1ff) == 0
+				&& (info->num_blocks == 0
+					|| dctl_pos < info->num_blocks * 512u))
+				position = dctl_pos;
+			else
+				position = info->head_pos;
+			break;
+		}
+	}
+
+	if ((length & 0x1ff) || (position & 0x1ff) || position < 0)
 		return paramErr;
 
 	size_t actual = 0;
@@ -337,20 +524,25 @@ int16 DiskPrime(uint32 pb, uint32 dce)
 		actual = Sys_read(info->fh, buffer, position + info->start_byte, length);
 		if (actual != length)
 			return readErr;
+		if (buffer)
+			hfs_sanitize_io(*info, (uint8 *)buffer, actual, position, true);
 
 	} else {
 
 		// Write
 		if (info->read_only)
 			return wPrErr;
+		if (buffer)
+			hfs_sanitize_io(*info, (uint8 *)buffer, length, position, false);
 		actual = Sys_write(info->fh, buffer, position + info->start_byte, length);
 		if (actual != length)
 			return writErr;
 	}
 
-	// Update ParamBlock and DCE
+	// Per-drive head; mirror into DCE for Device Manager
+	info->head_pos = position + (loff_t)actual;
 	WriteMacInt32(pb + ioActCount, actual);
-	WriteMacInt32(dce + dCtlPosition, ReadMacInt32(dce + dCtlPosition) + actual);
+	WriteMacInt32(dce + dCtlPosition, (uint32)info->head_pos);
 	return noErr;
 }
 
@@ -506,6 +698,18 @@ int16 DiskStatus(uint32 pb, uint32 dce)
 
 	// Drive-specific codes
 	switch (code) {
+		case 6: {	// Return list of supported disk formats (same csCode as .Sony)
+			// Disk Init probes this on secondary volumes; statusErr looked foreign.
+			if (ReadMacInt16(pb + csParam) > 0) {
+				uint32 adr = ReadMacInt32(pb + csParam + 2);
+				WriteMacInt16(pb + csParam, 1);
+				WriteMacInt32(adr, info->num_blocks ? info->num_blocks : 1);
+				WriteMacInt32(adr + 4, 0xc0010001);
+				return noErr;
+			}
+			return paramErr;
+		}
+
 		case 8:		// Get drive status
 			Mac2Mac_memcpy(pb + csParam, info->status, 22);
 			return noErr;
