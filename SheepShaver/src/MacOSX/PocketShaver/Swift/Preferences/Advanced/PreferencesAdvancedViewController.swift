@@ -50,6 +50,7 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		case uiOptionsAlwaysBootInLandscapeMode
 		case uiOptionsReportIpAddressAssignment
 		case uiOptionsReportClipboardSharingActivity
+		case uiOptionsKeysJoystickDeadZone
 
 		// hapticFeedback
 		case hapticFeedbackSwipeGesturesToggle
@@ -81,8 +82,8 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 
 	private var dataSource: TableViewDiffableDataSource<Section, Row>!
 
-	private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
-	private let hoverJustAboveOffsetFeedbackGenerator = UISelectionFeedbackGenerator()
+	private let stepFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
+	private let percentageSliderFeedbackGenerator = UISelectionFeedbackGenerator()
 
 	init(
 		mode: PreferencesLaunchMode,
@@ -133,7 +134,7 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 					) { [weak self] newValue in
 						guard let self else { return }
 						model.ramSetting = newValue
-						feedbackGenerator.impactOccurred()
+						stepFeedbackGenerator.impactOccurred()
 					}
 				} else {
 					return PreferencesAdvancedRamStepperCell(
@@ -141,7 +142,7 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 					) { [weak self] newValue in
 						guard let self else { return }
 						model.ramSetting = newValue
-						feedbackGenerator.impactOccurred()
+						stepFeedbackGenerator.impactOccurred()
 					}
 				}
 			case .clipboardSharingOption(let setting):
@@ -174,7 +175,7 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 				) { [weak self] newFrameRateSetting in
 					guard let self else { return }
 					model.relativeMouseModeSetting = newFrameRateSetting
-					feedbackGenerator.impactOccurred()
+					stepFeedbackGenerator.impactOccurred()
 					reloadData()
 				}
 			case .relateiveMouseModeInfo(let relativeMouseModeSetting):
@@ -247,10 +248,13 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 					self?.model.networkTransferRateReportingEnabled = isOn
 				}
 			case .uiOptionsHoverJustAbove:
-				return PreferencesAdvancedJustAboveOffsetSettingCell(
+				return PreferencesPercentageSliderCell(
+					title: "Hover just above offset",
+					minimumValue: 0.5,
+					maximumValue: 1.5,
 					initialOffsetSetting: model.hoverJustAboveOffsetModifier,
 					isChangingValue: { [weak self] in
-						self?.hoverJustAboveOffsetFeedbackGenerator.selectionChanged()
+						self?.percentageSliderFeedbackGenerator.selectionChanged()
 					}
 				) { [weak self] value in
 					self?.model.hoverJustAboveOffsetModifier = value
@@ -275,6 +279,18 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 					isOn: model.reportClipboardSharingActivity
 				) { [weak self] isOn in
 					self?.model.reportClipboardSharingActivity = isOn
+				}
+			case .uiOptionsKeysJoystickDeadZone:
+				return PreferencesPercentageSliderCell(
+					title: "Joystick (keys) dead zone",
+					minimumValue: 0,
+					maximumValue: 0.75,
+					initialOffsetSetting: model.keysJoystickDeadZone,
+					isChangingValue: { [weak self] in
+						self?.percentageSliderFeedbackGenerator.selectionChanged()
+					}
+				) { [weak self] value in
+					self?.model.keysJoystickDeadZone = value
 				}
 			case .hapticFeedbackSwipeGesturesToggle:
 				return PreferencesEnabledSettingCell(
@@ -458,6 +474,9 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		}
 		snapshot.appendItems([.uiOptionsReportIpAddressAssignment])
 		snapshot.appendItems([.uiOptionsReportClipboardSharingActivity])
+		if UIDevice.deviceType != .mac {
+			snapshot.appendItems([.uiOptionsKeysJoystickDeadZone])
+		}
 
 		if model.supportsHaptics {
 			snapshot.appendSections([.hapticFeedback])

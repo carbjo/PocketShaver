@@ -362,6 +362,111 @@ class PreferencesRadioButtonChoiceCell: UITableViewCell {
 	}
 }
 
+class PreferencesPercentageSliderCell: UITableViewCell {
+	private lazy var titleLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.numberOfLines = 0
+		label.lineBreakMode = .byWordWrapping
+		return label
+	}()
+
+	private lazy var slider: UISlider = {
+		let slider = UISlider.withoutConstraints()
+		slider.tintColor = .lightGray
+		return slider
+	}()
+
+	private lazy var valueLabel: UILabel = {
+		UILabel.withoutConstraints()
+	}()
+
+	private lazy var hiddenValueLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.text = "188%" // Widest case
+		label.isHidden = true
+		return label
+	}()
+
+	private var previousValue: CGFloat
+	private var deltaSinceLastIsChangingValueCall: Float = 0
+
+	private let isChangingValue: (() -> Void)
+	private let didChangeValue: ((CGFloat) -> Void)
+
+	init(
+		title: String,
+		minimumValue: Float,
+		maximumValue: Float,
+		initialOffsetSetting: CGFloat,
+		isChangingValue: @escaping (() -> Void),
+		didChangeValue: @escaping ((CGFloat) -> Void)
+	) {
+		self.previousValue = initialOffsetSetting
+		self.isChangingValue = isChangingValue
+		self.didChangeValue = didChangeValue
+
+		super.init(style: .default, reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
+
+		titleLabel.text = title
+		slider.minimumValue = minimumValue
+		slider.maximumValue = maximumValue
+
+		contentView.addSubview(titleLabel)
+		contentView.addSubview(slider)
+		contentView.addSubview(hiddenValueLabel)
+		contentView.addSubview(valueLabel)
+
+		NSLayoutConstraint.activate([
+			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+
+			slider.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			slider.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
+
+			slider.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+			slider.widthAnchor.constraint(lessThanOrEqualToConstant: 350),
+
+			hiddenValueLabel.centerYAnchor.constraint(equalTo: slider.centerYAnchor),
+			hiddenValueLabel.leadingAnchor.constraint(equalTo: slider.trailingAnchor, constant: 8),
+			hiddenValueLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16).withPriority(.defaultHigh),
+
+			valueLabel.centerYAnchor.constraint(equalTo: hiddenValueLabel.centerYAnchor),
+			valueLabel.trailingAnchor.constraint(equalTo: hiddenValueLabel.trailingAnchor)
+		])
+
+		slider.value = Float(initialOffsetSetting)
+
+		slider.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
+		slider.addTarget(self, action: #selector(didRelease), for: .touchUpInside)
+		slider.addTarget(self, action: #selector(didRelease), for: .touchUpOutside)
+		slider.addTarget(self, action: #selector(didRelease), for: .touchCancel)
+
+		valueChanged()
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	@objc
+	private func valueChanged() {
+		let percent = Int(slider.value * 100)
+		valueLabel.text = "\(percent)%"
+
+		let delta = CGFloat(slider.value) - previousValue
+		previousValue = CGFloat(slider.value)
+		deltaSinceLastIsChangingValueCall += Float(delta)
+		if abs(deltaSinceLastIsChangingValueCall) > 0.01 {
+			deltaSinceLastIsChangingValueCall = 0
+			isChangingValue()
+		}
+	}
+
+	@objc func didRelease() {
+		didChangeValue(CGFloat(slider.value))
+	}
+}
+
 extension PreferencesInformationCell.Margin {
 	var value: CGFloat {
 		switch self {

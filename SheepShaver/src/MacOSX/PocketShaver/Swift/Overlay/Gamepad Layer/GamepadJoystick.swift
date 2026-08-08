@@ -99,6 +99,10 @@ class GamepadJoystick: UIControl {
 		}
 	}
 
+	private lazy var stickDragLimit: CGFloat = {
+		mode.isSmallSize ? 23 : 46
+	}()
+
 	private var currentPoint: CGPoint?
 
 	// Mouse mode variables
@@ -294,9 +298,9 @@ class GamepadJoystick: UIControl {
 			didFire(.init(dx: dx * scale, dy: dy * scale))
 
 		case .keys(let keysConfig, let keyDownCallback):
-			let angle = atan2(dy, dx)
-			let newKeysDown = keysForAngle(
-				angle,
+			let vector = CGVector(dx: dx, dy: dy)
+			let newKeysDown = keysForVector(
+				vector,
 				config: keysConfig
 			)
 
@@ -319,18 +323,16 @@ class GamepadJoystick: UIControl {
 	private func updateCurrentPoint(with touch: UITouch) {
 		let point = touch.location(in: self)
 
-		let limit: CGFloat = 46
-
 		let x = point.x - backgroundCircleView.center.x
 		let y = point.y - backgroundCircleView.center.y
 
 		let dist = sqrt(x * x + y * y)
 
-		if dist < limit {
+		if dist < stickDragLimit {
 			currentPoint = point
 		} else {
 			let normalizedVector = limitNormalizedVector(
-				limit: 46,
+				limit: stickDragLimit,
 				vector: .init(dx: x, dy: y)
 			)
 			currentPoint = .init(
@@ -422,11 +424,18 @@ private extension GamepadJoystick.Mode {
 }
 
 private extension GamepadJoystick {
-	func keysForAngle(
-		_ angle: CGFloat,
+	func keysForVector(
+		_ vector: CGVector,
 		config: KeysJoystickConfig
 	) -> [SDLKey] {
+		let angle = atan2(vector.dy, vector.dx)
 		let twoPi = CGFloat.pi * 2
+
+		let length = vector.abs / stickDragLimit
+		let keysJoystickDeadZone = MiscellaneousSettings.current.keysJoystickDeadZone
+		if length < keysJoystickDeadZone {
+			return []
+		}
 
 		let directionKeys: [SDLKey]
 		switch config.keys {
