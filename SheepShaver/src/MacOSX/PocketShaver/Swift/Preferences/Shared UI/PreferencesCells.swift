@@ -302,6 +302,11 @@ class PreferencesEmptyStateCell: UITableViewCell {
 }
 
 class PreferencesRadioButtonChoiceCell: UITableViewCell {
+	enum MarginSize {
+		case regular
+		case small
+	}
+
 	private lazy var checkboxImageView: UIImageView = {
 		let view = UIImageView.withoutConstraints()
 		NSLayoutConstraint.activate([
@@ -323,25 +328,28 @@ class PreferencesRadioButtonChoiceCell: UITableViewCell {
 
 	init(
 		title: String,
-		isSelected: Bool
+		isSelected: Bool,
+		marginSize: MarginSize = .regular
 	) {
 		super.init(style: .default, reuseIdentifier: nil)
 
-		backgroundColor = Colors.primaryBackground
+		backgroundColor = .clear
 
 		titleLabel.text = title
 
 		contentView.addSubview(checkboxImageView)
 		contentView.addSubview(titleLabel)
 
+		let margin: CGFloat = marginSize == .regular ? 16 : 8
+
 		NSLayoutConstraint.activate([
 			checkboxImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
 			checkboxImageView.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
 
 			titleLabel.leadingAnchor.constraint(equalTo: checkboxImageView.trailingAnchor, constant: 8),
-			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: margin),
 			titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
-			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
+			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -margin)
 		])
 
 		configure(isSelected: isSelected)

@@ -8,34 +8,49 @@
 import UIKit
 import Combine
 
-enum JoystickType: Codable, Equatable {
+enum JoystickConfig: Codable, Equatable, Hashable {
 	case mouse
-	case wasd4way
-	case wasd8way
+	case keys(KeysJoystickConfig)
+}
+
+struct KeysJoystickConfig: Codable, Equatable, Hashable {
+	enum Keys: Codable, Equatable, Hashable {
+		case wasd
+		case arrows
+	}
+
+	enum Directions: Codable, Equatable, Hashable {
+		case fourWay
+		case eightWay
+	}
+
+	enum Size: Codable, Equatable, Hashable {
+		case regular // 2x2 slots
+		case small // 1x1 slot
+	}
+
+	let keys: Keys
+	let directions: Directions
+	let size: Size
 }
 
 class GamepadJoystick: UIControl {
 	enum Mode {
 		case mouse((CGVector) -> Void)
-		case wasd(WasdJoystickType, (SDLKey, Bool) -> Void)
-	}
-
-	enum WasdJoystickType {
-		case fourWay
-		case eightWay
+		case keys(KeysJoystickConfig, (SDLKey, Bool) -> Void)
 	}
 
 	private lazy var backgroundCircleView: UIView = {
 		BackgroundCircleView(
 			mode: mode,
-			radius: length
+			radius: radius
 		)
 	}()
 
 	private lazy var stickCircleView: UIView = {
 		let view = UIView.withoutConstraints()
 		view.backgroundColor = .lightGray.withAlphaComponent(0.5)
-		view.layer.cornerRadius = length / 2
+		view.layer.cornerRadius = radius / 2
 		return view
 	}()
 
@@ -65,18 +80,23 @@ class GamepadJoystick: UIControl {
 	private var anyCancellables = Set<AnyCancellable>()
 
 	private var augmentedBounds: CGRect {
-		bounds.inset(
+		let offset: CGFloat = radius // mode.isSmallSize ? 0 : radius
+		return bounds.inset(
 			by: .init(
 				top: -4,
 				left: -2,
-				bottom: -4 - length,
-				right: -2 - length
+				bottom: -4 - offset,
+				right: -2 - offset
 			)
 		)
 	}
 
-	private var length: CGFloat {
-		GamepadButtonSize.regular.length
+	private var radius: CGFloat {
+		if mode.isSmallSize {
+			GamepadButtonSize.regular.length / 2
+		} else {
+			GamepadButtonSize.regular.length
+		}
 	}
 
 	private var currentPoint: CGPoint?
@@ -119,11 +139,11 @@ class GamepadJoystick: UIControl {
 		addSubview(labelContainer)
 		labelContainer.addSubview(relativeMouseOffWarningLabel)
 
-		let stackViewSlotLength = length
-		let joystickDiameter = length * 2
-		let stickDiameter = length
+		let stackViewSlotLength = GamepadButtonSize.regular.length
+		let joystickDiameter = radius * 2
+		let stickDiameter = radius
 
-		let labelContainerSideLength = floor(sqrt(2) * length)
+		let labelContainerSideLength = floor(sqrt(2) * radius)
 
 		NSLayoutConstraint.activate([
 			backgroundCircleView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -273,9 +293,12 @@ class GamepadJoystick: UIControl {
 			let scale: CGFloat = 0.1
 			didFire(.init(dx: dx * scale, dy: dy * scale))
 
-		case .wasd(let wasdType, let keyDownCallback):
+		case .keys(let keysConfig, let keyDownCallback):
 			let angle = atan2(dy, dx)
-			let newKeysDown = keysForAngle(angle, type: wasdType)
+			let newKeysDown = keysForAngle(
+				angle,
+				config: keysConfig
+			)
 
 			for key in newKeysDown {
 				if !keysDown.contains(key) {
@@ -332,7 +355,7 @@ class GamepadJoystick: UIControl {
 	}
 
 	private func resetKeysDown() {
-		guard case Mode.wasd(_, let keyDown) = mode else {
+		guard case Mode.keys(_, let keyDown) = mode else {
 			return
 		}
 
@@ -376,46 +399,79 @@ class GamepadJoystick: UIControl {
 	}
 }
 
+extension JoystickConfig {
+	var isSmallSize: Bool {
+		switch self {
+		case .mouse:
+			return false
+		case .keys(let keysJoystickConfig):
+			return keysJoystickConfig.size == .small
+		}
+	}
+}
+
+private extension GamepadJoystick.Mode {
+	var isSmallSize: Bool {
+		switch self {
+		case .mouse:
+			return false
+		case .keys(let keysJoystickConfig, _):
+			return keysJoystickConfig.size == .small
+		}
+	}
+}
+
 private extension GamepadJoystick {
-	func keysForAngle(_ angle: CGFloat, type: WasdJoystickType) -> [SDLKey] {
+	func keysForAngle(
+		_ angle: CGFloat,
+		config: KeysJoystickConfig
+	) -> [SDLKey] {
 		let twoPi = CGFloat.pi * 2
+
+		let directionKeys: [SDLKey]
+		switch config.keys {
+		case .wasd:
+			directionKeys = [.d, .s, .a, .w]
+		case .arrows:
+			directionKeys = [.right, .down, .left, .up]
+		}
 
 		var array = [SDLKey]()
 
-		switch type {
+		switch config.directions {
 		case .fourWay:
 			if angle > twoPi * (-2/16),
 			   angle < twoPi * (2/16){
-				array.append(.d)
+				array.append(directionKeys[0])
 			}
 			if angle > twoPi * (2/16),
 				angle < twoPi * (6/16) {
-				array.append(.s)
+				array.append(directionKeys[1])
 			}
 			if angle > twoPi * (6/16) ||
 				angle < twoPi * (-6/16) {
-				array.append(.a)
+				array.append(directionKeys[2])
 			}
 			if angle > twoPi * (-6/16) &&
 				angle < twoPi * (-2/16) {
-				array.append(.w)
+				array.append(directionKeys[3])
 			}
 		case .eightWay:
 			if angle > twoPi * (-3/16),
 			   angle < twoPi * (3/16){
-				array.append(.d)
+				array.append(directionKeys[0])
 			}
 			if angle > twoPi * (1/16),
 				angle < twoPi * (7/16) {
-				array.append(.s)
+				array.append(directionKeys[1])
 			}
 			if angle > twoPi * (5/16) ||
 				angle < twoPi * (-5/16) {
-				array.append(.a)
+				array.append(directionKeys[2])
 			}
 			if angle > twoPi * (-7/16) &&
 				angle < twoPi * (-1/16) {
-				array.append(.w)
+				array.append(directionKeys[3])
 			}
 		}
 
@@ -443,20 +499,20 @@ private class BackgroundCircleView: UIView {
 
 		layer.addSublayer(linesLayer)
 
-		if case GamepadJoystick.Mode.wasd(let wasdType, _) = mode {
-			drawSegmentLines(type: wasdType)
+		if case GamepadJoystick.Mode.keys(let config, _) = mode {
+			drawSegmentLines(config: config)
 			addMaskAndInnerCircle()
-			addWasdLabels()
+			addLabels(config.keys, isSmallSize: mode.isSmallSize)
 		}
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
-	private func drawSegmentLines(type: GamepadJoystick.WasdJoystickType) {
+	private func drawSegmentLines(config: KeysJoystickConfig) {
 		let twoPi = CGFloat.pi * 2
 
 		let layers: [CALayer]
-		switch type {
+		switch config.directions {
 		case .fourWay:
 			layers = [
 			   lineLayer(startAngle: twoPi * (-2 / 16), endAngle: twoPi * (6 / 16)),
@@ -518,31 +574,55 @@ private class BackgroundCircleView: UIView {
 		layer.addSublayer(innerCircleLayer)
 	}
 
-	private func addWasdLabels() {
-		let wLabel = createLabel("W")
-		let aLabel = createLabel("A")
-		let sLabel = createLabel("S")
-		let dLabel = createLabel("D")
+	private func addLabels(
+		_ keys: KeysJoystickConfig.Keys,
+		isSmallSize: Bool
+	) {
+		let topLabel: UILabel
+		let leftLabel: UILabel
+		let bottomLabel: UILabel
+		let rightLabel: UILabel
 
-		addSubview(wLabel)
-		addSubview(aLabel)
-		addSubview(sLabel)
-		addSubview(dLabel)
+		switch keys {
+		case .wasd:
+			topLabel = createLabel("W")
+			leftLabel = createLabel("A")
+			bottomLabel = createLabel("S")
+			rightLabel = createLabel("D")
+		case .arrows:
+			topLabel = createLabel("↑")
+			leftLabel = createLabel("←")
+			bottomLabel = createLabel("↓")
+			rightLabel = createLabel("→")
+		}
 
-		let margin: CGFloat = UIScreen.isSESize ? 2 : 4
+		addSubview(topLabel)
+		addSubview(leftLabel)
+		addSubview(bottomLabel)
+		addSubview(rightLabel)
+
+		let horizontalMargin: CGFloat
+		let verticalMargin: CGFloat
+		if isSmallSize {
+			horizontalMargin = 0
+			verticalMargin = -2
+		} else {
+			horizontalMargin = UIScreen.isSESize ? 4 : 8
+			verticalMargin = UIScreen.isSESize ? 2 : 4
+		}
 
 		NSLayoutConstraint.activate([
-			wLabel.topAnchor.constraint(equalTo: topAnchor, constant: margin),
-			wLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+			topLabel.topAnchor.constraint(equalTo: topAnchor, constant: verticalMargin),
+			topLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
 
-			aLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: margin * 2),
-			aLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+			leftLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: horizontalMargin),
+			leftLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-			sLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -margin),
-			sLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+			bottomLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -verticalMargin),
+			bottomLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
 
-			dLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -margin * 2),
-			dLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+			rightLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -horizontalMargin),
+			rightLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
 		])
 	}
 
@@ -585,28 +665,4 @@ private func limitNormalizedVector(limit: CGFloat, angle: CGFloat) -> CGVector {
 private func limitNormalizedVector(limit: CGFloat, vector: CGVector) -> CGVector {
 	let angle = atan2(vector.dy, vector.dx)
 	return limitNormalizedVector(limit: limit, angle: angle)
-}
-
-extension JoystickType { // Temporary, to avoid breaking change when migrating from build 8
-	enum Key: String, CodingKey {
-		case mouse
-		case wasd4way
-		case wasd8way
-		case wasd
-	}
-
-	init(from decoder: any Decoder) throws {
-		let container = try decoder.container(keyedBy: Key.self)
-		if container.contains(.mouse) {
-			self = .mouse
-		} else if container.contains(.wasd4way) {
-			self = .wasd4way
-		} else if container.contains(.wasd8way) {
-			self = .wasd8way
-		} else if container.contains(.wasd) {
-			self = .wasd8way
-		} else {
-			throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: decoder.codingPath.debugDescription))
-		}
-	}
 }

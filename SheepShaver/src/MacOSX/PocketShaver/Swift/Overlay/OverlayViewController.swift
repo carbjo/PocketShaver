@@ -530,13 +530,13 @@ public class OverlayViewController: UIViewController {
 					do {
 						try gamepadConfig.replace(with: joystickType, at: position)
 					} catch GamepadConfigError.joystickAtBottomRow {
-						let alertVc = UIAlertController.withMessage("Joystick must be placed above bottom row")
+						let alertVc = UIAlertController.withMessage("Regular size joystick must be placed above bottom row")
 						present(alertVc, animated: true)
 					} catch GamepadConfigError.joystickAtRightEdge {
-						let alertVc = UIAlertController.withMessage("Joystick must be placed at least one column left of rightmost column")
+						let alertVc = UIAlertController.withMessage("Regular size joystick must be placed at least one column left of rightmost column")
 						present(alertVc, animated: true)
 					} catch GamepadConfigError.joystickHasNoLayoutSpace {
-						let alertVc = UIAlertController.withMessage("The slot to the right, below and diagnoally right and below must all be vacant for a joystick to be placed. A joystick needs 2x2 slots.")
+						let alertVc = UIAlertController.withMessage("The slot to the right, below and diagnoally right and below must all be vacant for a joystick to be placed. A regular sized joystick needs 2x2 slots.")
 						present(alertVc, animated: true)
 					} catch {}
 				}

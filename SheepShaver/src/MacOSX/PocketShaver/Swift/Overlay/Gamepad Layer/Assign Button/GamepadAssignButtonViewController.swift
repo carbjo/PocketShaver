@@ -14,6 +14,11 @@ class GamepadAssignButtonViewController: UIViewController {
 		case tiny
 	}
 
+	private enum Content {
+		case buttonBrowser
+		case keysJoystickCreation
+	}
+
 	private lazy var containerView: UIView = {
 		UIView.withoutConstraints()
 	}()
@@ -46,40 +51,39 @@ class GamepadAssignButtonViewController: UIViewController {
 		return view
 	}()
 
-	private lazy var searchTextFieldContainer: UIView = {
-		let view = UIView.withoutConstraints()
-		view.layer.borderWidth = 1
-		view.layer.borderColor = UIColor.darkGray.cgColor
-		view.layer.cornerRadius = 8
-		view.backgroundColor = Colors.primaryBackground
-		return view
+	private lazy var buttonBrowserVc: GamepadButtonBrowserViewController = {
+		GamepadButtonBrowserViewController(
+			for: gamepadButtonSize,
+			reportKeyboardHeightCallback: { [weak self] keyboardHeight in
+				self?.reportKeyboardHeight(keyboardHeight)
+			},
+			keysJoystickCreationRequest: { [weak self] in
+				self?.displayKeysJoystickCreation()
+			},
+			dismissRequestCallback: { [weak self] result in
+				self?.dismiss(with: result)
+			}
+		)
 	}()
 
-	private(set) lazy var searchTextField: UITextField = {
-		let textField = UITextField.withoutConstraints()
-		textField.returnKeyType = .done
-		textField.placeholder = "Search"
-		textField.autocapitalizationType = .none
-		textField.autocorrectionType = .no
-		textField.delegate = self
-		return textField
+	private lazy var keysJoystickCreationVc: GamepadKeysJoystickCreationViewController = {
+		let vc = GamepadKeysJoystickCreationViewController()
+		vc.view.alpha = 0
+		return vc
 	}()
 
-	private lazy var searchTextFieldAccessoryView: GamepadAssignKeyboardAccessoryView = {
-		let view = GamepadAssignKeyboardAccessoryView()
-		view.configure(didTapDismissKeyboardButton: { [weak self] in
-			self?.searchTextField.resignFirstResponder()
-		})
-		return view
+	private lazy var secondaryButton: UIButton = {
+		let button = UIButton(type: .system)
+		button.translatesAutoresizingMaskIntoConstraints = false
+		button.addTarget(self, action: #selector(sencondaryButtonPushed), for: .touchUpInside)
+		return button
 	}()
 
-	private lazy var tableView: UITableView = {
-		let tableView = UITableView.withoutConstraints()
-		tableView.rowHeight = UITableView.automaticDimension
-		tableView.estimatedRowHeight = 50
-		tableView.backgroundColor = .clear
-		GamepadAssignButtonEntryCell.register(in: tableView)
-		return tableView
+	private lazy var primaryButton: UIButton = {
+		let button = UIButton(type: .system)
+		button.translatesAutoresizingMaskIntoConstraints = false
+		button.addTarget(self, action: #selector(primaryButtonPushed), for: .touchUpInside)
+		return button
 	}()
 
 	private lazy var bottomButtonStack: UIStackView = {
@@ -88,30 +92,20 @@ class GamepadAssignButtonViewController: UIViewController {
 		stackView.distribution = .fillEqually
 		stackView.alignment = .fill
 
-		let cancelButton = UIButton(type: .system)
-		cancelButton.translatesAutoresizingMaskIntoConstraints = false
-		cancelButton.setTitle("Cancel", for: .normal)
-		cancelButton.addTarget(self, action: #selector(cancelButtonPushed), for: .touchUpInside)
-		stackView.addArrangedSubview(cancelButton)
+		stackView.addArrangedSubview(secondaryButton)
 
 		let cancelButtonSeparator = UIView.withoutConstraints()
 		cancelButtonSeparator.backgroundColor = UIColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
-		cancelButton.addSubview(cancelButtonSeparator)
+		secondaryButton.addSubview(cancelButtonSeparator)
 
 		NSLayoutConstraint.activate([
 			cancelButtonSeparator.widthAnchor.constraint(equalToConstant: 0.5),
-			cancelButtonSeparator.topAnchor.constraint(equalTo: cancelButton.topAnchor, constant: 10),
-			cancelButtonSeparator.bottomAnchor.constraint(equalTo: cancelButton.bottomAnchor),
-			cancelButtonSeparator.trailingAnchor.constraint(equalTo: cancelButton.trailingAnchor)
+			cancelButtonSeparator.topAnchor.constraint(equalTo: secondaryButton.topAnchor, constant: 10),
+			cancelButtonSeparator.bottomAnchor.constraint(equalTo: secondaryButton.bottomAnchor),
+			cancelButtonSeparator.trailingAnchor.constraint(equalTo: secondaryButton.trailingAnchor)
 		])
 
-		let unassignButton = UIButton(type: .system)
-		unassignButton.translatesAutoresizingMaskIntoConstraints = false
-		unassignButton.setTitle("Unassign", for: .normal)
-		let originalFont = unassignButton.titleLabel!.font!
-		unassignButton.setTitleColor(.red, for: .normal)
-		unassignButton.addTarget(self, action: #selector(unassignButtonPushed), for: .touchUpInside)
-		stackView.addArrangedSubview(unassignButton)
+		stackView.addArrangedSubview(primaryButton)
 
 		return stackView
 	}()
@@ -120,16 +114,17 @@ class GamepadAssignButtonViewController: UIViewController {
 		containerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
 	}()
 
-	private let model: GamepadAssignButtonModel
 	private let dismissRequestCallback: ((GamepadAssignButtonViewController, GamepadAssignResult) -> Void)
 
+	private let gamepadButtonSize: GamepadButtonSize
 	private let sizeMode: SizeMode
+	private var content: Content = .buttonBrowser
 
 	init(
 		for gamepadButtonSize: GamepadButtonSize,
 		dismissRequestCallback: @escaping ((GamepadAssignButtonViewController, GamepadAssignResult) -> Void)
 	) {
-		self.model = .init(gamepadButtonSize: gamepadButtonSize)
+		self.gamepadButtonSize = gamepadButtonSize
 		self.dismissRequestCallback = dismissRequestCallback
 
 		if UIScreen.isSESize,
@@ -143,21 +138,21 @@ class GamepadAssignButtonViewController: UIViewController {
 		}
 
 		super.init(nibName: nil, bundle: nil)
-
-		if !UIDevice.isIPadIdiom {
-			searchTextField.inputAccessoryView = searchTextFieldAccessoryView
-		}
 	}
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
 
+
 		view.addSubview(containerView)
-		searchTextFieldContainer.addSubview(searchTextField)
-		cardView.addSubview(searchTextFieldContainer)
-		cardView.addSubview(tableView)
+		cardView.addSubview(buttonBrowserVc.view)
+		cardView.addSubview(keysJoystickCreationVc.view)
 		cardView.addSubview(bottomButtonStack)
 		containerView.addSubview(cardView)
+
+		buttonBrowserVc.willMove(toParent: self)
+		addChild(buttonBrowserVc)
+		buttonBrowserVc.didMove(toParent: self)
 
 		NSLayoutConstraint.activate([
 			containerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -165,24 +160,20 @@ class GamepadAssignButtonViewController: UIViewController {
 			containerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 			containerViewBottomConstraint,
 
-			searchTextField.leadingAnchor.constraint(equalTo: searchTextFieldContainer.leadingAnchor, constant: 8),
-			searchTextField.centerYAnchor.constraint(equalTo: searchTextFieldContainer.centerYAnchor),
-			searchTextField.trailingAnchor.constraint(equalTo: searchTextFieldContainer.trailingAnchor, constant: -8),
-
-			searchTextFieldContainer.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
-			searchTextFieldContainer.topAnchor.constraint(equalTo: cardView.topAnchor, constant: sizeMode.convert(16)),
-			searchTextFieldContainer.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
-			searchTextFieldContainer.heightAnchor.constraint(equalToConstant: sizeMode.convert(44)),
-
-			tableView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
-			tableView.topAnchor.constraint(equalTo: searchTextFieldContainer.bottomAnchor, constant: sizeMode.convert(16)),
-			tableView.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
-
 			bottomButtonStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
-			bottomButtonStack.topAnchor.constraint(equalTo: tableView.bottomAnchor),
 			bottomButtonStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
 			bottomButtonStack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor).withPriority(.required - 1),
 			bottomButtonStack.heightAnchor.constraint(equalToConstant: sizeMode.convert(60)),
+
+			buttonBrowserVc.view.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
+			buttonBrowserVc.view.topAnchor.constraint(equalTo: cardView.topAnchor),
+			buttonBrowserVc.view.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
+			buttonBrowserVc.view.bottomAnchor.constraint(equalTo: bottomButtonStack.topAnchor),
+
+			keysJoystickCreationVc.view.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
+			keysJoystickCreationVc.view.topAnchor.constraint(equalTo: cardView.topAnchor),
+			keysJoystickCreationVc.view.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
+			keysJoystickCreationVc.view.bottomAnchor.constraint(equalTo: bottomButtonStack.topAnchor),
 
 			cardView.widthAnchor.constraint(equalToConstant: 280),
 			cardView.heightAnchor.constraint(equalToConstant: 400).withPriority(.defaultHigh),
@@ -193,20 +184,27 @@ class GamepadAssignButtonViewController: UIViewController {
 			cardView.bottomAnchor.constraint(lessThanOrEqualTo: containerView.bottomAnchor, constant: sizeMode.convert(-8))
 		])
 
-		tableView.dataSource = self
-		tableView.delegate = self
-		tableView.reloadData()
+		configureBottomButtonsForCurrentContent()
 
-		NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow), name: UIResponder.keyboardWillShowNotification, object: nil)
-		NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide), name: UIResponder.keyboardWillHideNotification, object: nil)
+		NotificationCenter.default.addObserver(
+			self,
+			selector: #selector(keyboardWillShow),
+			name: UIResponder.keyboardWillShowNotification,
+			object: nil
+		)
+		NotificationCenter.default.addObserver(
+			self,
+			selector: #selector(keyboardWillHide),
+			name: UIResponder.keyboardWillHideNotification,
+			object: nil
+		)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
 
-
 	func animatePresent() {
-		searchTextField.becomeFirstResponder()
-		
+		buttonBrowserVc.animatePresent()
+
 		UIView.animate(
 			withDuration: 0.28,
 			delay: 0.0,
@@ -227,6 +225,20 @@ class GamepadAssignButtonViewController: UIViewController {
 		}
 	}
 
+	private func configureBottomButtonsForCurrentContent() {
+		switch content {
+		case .buttonBrowser:
+			secondaryButton.setTitle("Cancel", for: .normal)
+			primaryButton.setTitle("Unassign", for: .normal)
+			primaryButton.setTitleColor(.red, for: .normal)
+		case .keysJoystickCreation:
+			secondaryButton.setTitle("Back", for: .normal)
+			primaryButton.setTitle("Assign", for: .normal)
+			let normalTitleColor = secondaryButton.titleColor(for: .normal)
+			primaryButton.setTitleColor(normalTitleColor, for: .normal)
+		}
+	}
+
 	@objc
 	private func keyboardWillShow(notification: NSNotification) {
 		if let keyboardFrame: NSValue = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
@@ -240,112 +252,70 @@ class GamepadAssignButtonViewController: UIViewController {
 	}
 
 	@objc
-	private func cancelButtonPushed() {
-		dismiss(with: .cancel)
+	private func sencondaryButtonPushed() {
+		switch content {
+		case .buttonBrowser:
+			dismiss(with: .cancel)
+		case .keysJoystickCreation:
+			displayButtonBrowser()
+		}
 	}
 
 	@objc
-	private func unassignButtonPushed() {
-		dismiss(with: .unassign)
-	}
-
-	private func returnKeyPressed() {
-		guard !model.searchString.isEmpty,
-		let result = model.results.first else {
-			return
+	private func primaryButtonPushed() {
+		switch content {
+		case .buttonBrowser:
+			dismiss(with: .unassign)
+		case .keysJoystickCreation:
+			createPendingKeysJoystickButtonPressed()
 		}
-
-		dismiss(with: .assignment(result.assignment))
 	}
 
-	func dismiss(with result: GamepadAssignResult) {
-		searchTextField.resignFirstResponder()
+	private func createPendingKeysJoystickButtonPressed() {
+		let keysJoystickConfig = keysJoystickCreationVc.model.compileConfig()
+		dismiss(
+			with: .assignment(
+				.joystick(
+					.keys(keysJoystickConfig)
+				)
+			)
+		)
+	}
 
+	private func displayButtonBrowser() {
+		content = .buttonBrowser
+		UIView.animate(withDuration: 0.2) {
+			self.keysJoystickCreationVc.view.alpha = 0
+			self.configureBottomButtonsForCurrentContent()
+		} completion: { [weak self] _ in
+			UIView.animate(withDuration: 0.2) {
+				self?.buttonBrowserVc.view.alpha = 1
+			} completion: { [weak self] _ in
+				self?.buttonBrowserVc.searchTextField.becomeFirstResponder()
+			}
+		}
+	}
+
+	private func displayKeysJoystickCreation() {
+		content = .keysJoystickCreation
+		UIView.animate(withDuration: 0.2) {
+			self.buttonBrowserVc.view.alpha = 0
+			self.configureBottomButtonsForCurrentContent()
+		} completion: { [weak self] _ in
+			UIView.animate(withDuration: 0.2) {
+				self?.keysJoystickCreationVc.view.alpha = 1
+			}
+		}
+	}
+
+	private func dismiss(with result: GamepadAssignResult) {
 		UIView.animate(withDuration: 0.2) {
 			self.view.backgroundColor = UIColor(red: 0, green: 0, blue: 0, alpha: 0)
 			self.cardView.alpha = 0
 		} completion: { [weak self] _ in
 			guard let self else { return }
-
 			dismissRequestCallback(self, result)
 		}
-	}
-}
-
-extension GamepadAssignButtonViewController: UITableViewDataSource {
-	func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-		model.results.count
-	}
-	
-	func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-		guard let cell = tableView.dequeueReusableCell(withIdentifier: GamepadAssignButtonEntryCell.reuseIdentifier, for: indexPath) as? GamepadAssignButtonEntryCell else {
-			return UITableViewCell()
-		}
-
-		let entry = model.results[indexPath.row]
-
-		let isPrimarySelection = !model.searchString.isEmpty && indexPath.row == 0
-
-		cell.config(
-			identifier: entry.identifier,
-			isPrimarySelection: isPrimarySelection,
-			sizeMode: sizeMode,
-			didTapInfoButton: { [weak self] in
-				let alertVc = UIAlertController.with(
-					title: entry.identifier,
-					message: entry.assignment.description
-				)
-				self?.present(alertVc, animated: true)
-			}
-		)
-
-		return cell
-	}
-}
-
-extension GamepadAssignButtonViewController: UITableViewDelegate {
-	func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-		tableView.deselectRow(at: indexPath, animated: true)
-
-		let result = model.results[indexPath.row].assignment
-
-		dismiss(with: .assignment(result))
-	}
-}
-
-extension GamepadAssignButtonViewController: UITextFieldDelegate {
-	func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool {
-		UIView.animate(withDuration: 0.2) {
-			self.searchTextFieldAccessoryView.fadeInDismissKeyboardButton()
-		}
-
-		return true
-	}
-
-	func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-		if string == "\n" {
-			returnKeyPressed()
-			return false
-		}
-
-		var text = textField.text ?? ""
-		if let range = Range(range, in: text) {
-			text.replaceSubrange(range, with: string)
-		}
-
-		model.input(searchString: text)
-
-		tableView.reloadData()
-
-		return true
-	}
-
-	func textFieldShouldEndEditing(_ textField: UITextField) -> Bool {
-		UIView.animate(withDuration: 0.2) {
-			self.searchTextFieldAccessoryView.fadeOutDismissKeyboardButton()
-		}
-
-		return true
 	}
 }
 

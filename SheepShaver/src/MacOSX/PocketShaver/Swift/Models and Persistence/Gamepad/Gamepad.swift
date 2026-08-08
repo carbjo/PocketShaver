@@ -21,7 +21,7 @@ struct GamepadButtonPosition: Codable, Equatable, Hashable {
 enum GamepadButtonAssignment: Codable, Equatable, Hashable {
 	case key(SDLKey)
 	case specialButton(SpecialButton)
-	case joystick(JoystickType)
+	case joystick(JoystickConfig)
 }
 
 struct GamepadButtonMapping: Codable, Equatable, Hashable {
@@ -77,10 +77,7 @@ extension GamepadConfig {
 		GamepadConfig(
 			name: "Example arcade game layout",
 			mappings: [
-				.init(position: .init(side: .left, row: 0, index: 0), assignment: .key(.left)),
-				.init(position: .init(side: .left, row: 0, index: 1), assignment: .key(.down)),
-				.init(position: .init(side: .left, row: 0, index: 2), assignment: .key(.right)),
-				.init(position: .init(side: .left, row: 1, index: 1), assignment: .key(.up)),
+				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.keys(.init(keys: .arrows, directions: .eightWay, size: .regular)))),
 				.init(position: .init(side: .left, row: 3, index: 0), assignment: .key(.escape)),
 				.init(position: .init(side: .right, row: 0, index: 1), assignment: .key(.a)),
 				.init(position: .init(side: .right, row: 0, index: 0), assignment: .key(.b)),
@@ -94,10 +91,7 @@ extension GamepadConfig {
 		GamepadConfig(
 			name: "Example arcade game layout",
 			mappings: [
-				.init(position: .init(side: .left, row: 0, index: 0), assignment: .key(.left)),
-				.init(position: .init(side: .left, row: 0, index: 1), assignment: .key(.down)),
-				.init(position: .init(side: .left, row: 0, index: 2), assignment: .key(.right)),
-				.init(position: .init(side: .left, row: 1, index: 1), assignment: .key(.up)),
+				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.keys(.init(keys: .arrows, directions: .eightWay, size: .regular)))),
 				.init(position: .init(side: .right, row: 0, index: 1), assignment: .key(.a)),
 				.init(position: .init(side: .right, row: 0, index: 0), assignment: .key(.b))
 			],
@@ -113,7 +107,7 @@ extension GamepadConfig {
 		GamepadConfig(
 			name: "Example FPS game layout",
 			mappings: [
-				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.wasd8way)),
+				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.keys(.init(keys: .arrows, directions: .eightWay, size: .regular)))),
 				.init(position: .init(side: .left, row: 2, index: 0), assignment: .specialButton(.mouseClick)),
 				.init(position: .init(side: .left, row: 3, index: 0), assignment: .key(.escape)),
 				.init(position: .init(side: .right, row: 1, index: 1), assignment: .joystick(.mouse)),
@@ -129,7 +123,7 @@ extension GamepadConfig {
 		GamepadConfig(
 			name: "Example FPS game layout",
 			mappings: [
-				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.wasd8way)),
+				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.keys(.init(keys: .arrows, directions: .eightWay, size: .regular)))),
 				.init(position: .init(side: .left, row: 2, index: 0), assignment: .specialButton(.mouseClick)),
 				.init(position: .init(side: .right, row: 1, index: 1), assignment: .joystick(.mouse)),
 				.init(position: .init(side: .right, row: 2, index: 0), assignment: .key(.space))
@@ -148,7 +142,7 @@ extension GamepadConfig {
 		GamepadConfig(
 			name: "Example FPS game layout",
 			mappings: [
-				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.wasd8way)),
+				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.keys(.init(keys: .arrows, directions: .eightWay, size: .regular)))),
 				.init(position: .init(side: .left, row: 2, index: 0), assignment: .specialButton(.mouseClick)),
 				.init(position: .init(side: .right, row: 1, index: 1), assignment: .joystick(.mouse)),
 				.init(position: .init(side: .right, row: 2, index: 0), assignment: .key(.space))
@@ -199,6 +193,28 @@ extension GamepadConfig {
 				.init(position: .init(layout: .topRight, index: 0), assignment: .key(.n2)),
 				.init(position: .init(layout: .bottomLeft, index: 0), assignment: .key(.n3)),
 				.init(position: .init(layout: .bottomRight, index: 0), assignment: .key(.n4))
+			],
+			visibilitySetting: .landscapeOnly
+		)
+	}
+
+	static var exampleRtsGameDoubleSideButtonLayout: GamepadConfig {
+		GamepadConfig(
+			name: "Example RTS game layout",
+			mappings: [
+				.init(position: .init(side: .left, row: 0, index: 0), assignment: .specialButton(.rightClick)),
+				.init(position: .init(side: .right, row: 0, index: 0), assignment: .specialButton(.rightClick)),
+				.init(position: .init(side: .left, row: 3, index: 0), assignment: .joystick(.keys(.init(keys: .arrows, directions: .eightWay, size: .small)))),
+				.init(position: .init(side: .right, row: 3, index: 0), assignment: .joystick(.keys(.init(keys: .arrows, directions: .eightWay, size: .small))))
+			],
+			sideButtonMappings: [
+				.init(position: .init(layout: .topLeft, index: 0), assignment: .key(.n1)),
+				.init(position: .init(layout: .topLeft, index: 1), assignment: .key(.n2)),
+				.init(position: .init(layout: .topRight, index: 0), assignment: .key(.n3)),
+				.init(position: .init(layout: .topRight, index: 1), assignment: .key(.n4)),
+				.init(position: .init(layout: .bottomLeft, index: 0), assignment: .key(.escape)),
+				.init(position: .init(layout: .bottomLeft, index: 1), assignment: .key(.F10)),
+				.init(position: .init(layout: .bottomRight, index: 0), assignment: .key(.ctrl))
 			],
 			visibilitySetting: .landscapeOnly
 		)
