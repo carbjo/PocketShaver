@@ -720,6 +720,13 @@ void powerpc_cpu::execute_loadstore(uint32 opcode)
 		extern void ppc_report_bad_ea(uint32 pc, uint32 ea, int is_load);
 		ppc_report_bad_ea(pc(), ea, LD);
 	}
+	/* The first 256 bytes of guest memory are the 68k exception vectors.
+	   The ROM fills them in during boot and nothing writes them afterwards,
+	   so name whoever stores there: a bad vector kills the next A-trap. */
+	if (!LD && ea < 0x100) {
+		extern void ppc_report_vector_store(uint32 pc, uint32 ea);
+		ppc_report_vector_store(pc(), ea);
+	}
 #endif
 
 

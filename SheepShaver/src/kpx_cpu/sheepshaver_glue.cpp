@@ -837,34 +837,34 @@ static bool guest_addr_ok(uint32 a, uint32 len)
 }
 
 /*
- *  Report a load or store to an address that is in none of the guest's memory
- *  areas.  execute_loadstore() calls this before performing the access, which
+ *  Report an access execute_loadstore() flagged, before it performs it.  That
  *  is the only place the state can be recorded when the access itself takes
  *  the process down and no fault handler ever runs.
  */
 
-void ppc_report_bad_ea(uint32 pc, uint32 ea, int is_load)
+/* True the first time this pc is reported, so a routine looping over a bad
+   pointer cannot bury the log and stall the emulation. */
+
+static bool ppc_report_is_new(uint32 pc, uint32 *seen, int seen_max,
+	int *seen_count)
 {
-	/* One report per instruction, and a hard cap: a routine looping over a
-	   bad pointer would otherwise bury the log and stall the emulation. */
-	enum { REPORT_MAX = 64, SEEN_MAX = 64 };
-	static uint32 seen[SEEN_MAX];
-	static int seen_count = 0;
-	sheepshaver_cpu *cpu = ppc_cpu;
-	char msg[512];
-	const char *what = "store";
 	int i;
 
-	if (cpu == NULL || guest_addr_ok(ea, 1))
-		return;
-	for (i = 0; i < seen_count; i++)
+	for (i = 0; i < *seen_count; i++)
 		if (seen[i] == pc)
-			return;
-	if (seen_count >= REPORT_MAX)
-		return;
-	seen[seen_count++] = pc;
-	if (is_load)
-		what = "load";
+			return false;
+	if (*seen_count >= seen_max)
+		return false;
+	seen[(*seen_count)++] = pc;
+	return true;
+}
+
+static void ppc_report_context(const char *what, uint32 pc, uint32 ea)
+{
+	sheepshaver_cpu *cpu = ppc_cpu;
+	char msg[512];
+	int i;
+
 	snprintf(msg, sizeof(msg),
 		"[bad-ea] %s ea=%08x pc=%08x 68k-pc=%08x lr=%08x ctr=%08x\n"
 		"  r0-r7   %08x %08x %08x %08x %08x %08x %08x %08x\n"
@@ -887,6 +887,29 @@ void ppc_report_bad_ea(uint32 pc, uint32 ea, int is_load)
 #if defined(_WIN32)
 	OutputDebugStringA(msg);
 #endif
+	/* The 68k stack.  r1 is the emulator's a7, so when the emulator itself
+	   faults this holds the exception frame it just pushed -- status word,
+	   then the 68k pc that took the exception, then the vector offset --
+	   followed by the return addresses of whatever called into that code. */
+	{
+		uint32 sp = cpu->gpr(1);
+		int o = 0, k;
+
+		if (guest_addr_ok(sp, 0x60)) {
+			for (k = 0; k < 0x60; k += 16) {
+				o = snprintf(msg, sizeof(msg), "[bad-ea] a7+%03x:", k);
+				for (i = 0; i < 16; i += 2)
+					o += snprintf(msg + o, sizeof(msg) - o, " %04x",
+						ReadMacInt16(sp + k + i));
+				snprintf(msg + o, sizeof(msg) - o, "\n");
+				fputs(msg, stderr);
+#if defined(_WIN32)
+				OutputDebugStringA(msg);
+#endif
+			}
+			fflush(stderr);
+		}
+	}
 	/* The structure a3 points at.  If its first 108 bytes look like a
 	   GrafPort but the window fields past them do not, the block is not the
 	   WindowRecord the program thinks it is. */
@@ -910,22 +933,96 @@ void ppc_report_bad_ea(uint32 pc, uint32 ea, int is_load)
 		}
 	}
 	/* The PowerPC instructions around the fault.  A fault in native code has
-	   no meaningful 68k program counter, so this is what names the routine. */
+	   no meaningful 68k program counter, so this is what names the routine.
+	   The window reaches well back so the call that produced the bad pointer
+	   is in it, not just the instruction that used it. */
 	{
-		uint32 base = pc - 32;
-		int o = 0, k;
+		uint32 base = pc - 128;
+		int o = 0, k, j;
 
-		if (pc >= 32 && guest_addr_ok(base, 80)) {
-			o = snprintf(msg, sizeof(msg), "[bad-ea] ppc code %08x:", base);
-			for (k = 0; k < 80 && o < (int)sizeof(msg) - 10; k += 4)
-				o += snprintf(msg + o, sizeof(msg) - o, " %08x",
-					ReadMacInt32(base + k));
-			snprintf(msg + o, sizeof(msg) - o, "\n");
-			fputs(msg, stderr);
+		if (pc >= 128 && guest_addr_ok(base, 192)) {
+			for (k = 0; k < 192; k += 32) {
+				o = snprintf(msg, sizeof(msg), "[bad-ea] ppc code %08x:",
+					base + k);
+				for (j = 0; j < 32; j += 4)
+					o += snprintf(msg + o, sizeof(msg) - o, " %08x",
+						ReadMacInt32(base + k + j));
+				snprintf(msg + o, sizeof(msg) - o, "\n");
+				fputs(msg, stderr);
+#if defined(_WIN32)
+				OutputDebugStringA(msg);
+#endif
+			}
 			fflush(stderr);
+		}
+	}
+	/* The call chain.  PowerOpen keeps the caller's stack pointer at 0(sp)
+	   and the return address at 8(sp), so walking that names every routine
+	   between here and whatever asked for the work. */
+	{
+		uint32 sp = cpu->gpr(1);
+		int depth;
+
+		for (depth = 0; depth < 16; depth++) {
+			uint32 back, saved_lr;
+
+			if (!guest_addr_ok(sp, 12))
+				break;
+			back = ReadMacInt32(sp);
+			saved_lr = ReadMacInt32(sp + 8);
+			snprintf(msg, sizeof(msg),
+				"[bad-ea] frame %2d sp=%08x back=%08x lr=%08x\n",
+				depth, sp, back, saved_lr);
+			fputs(msg, stderr);
 #if defined(_WIN32)
 			OutputDebugStringA(msg);
 #endif
+			if (back <= sp || back - sp > 0x100000)
+				break;
+			sp = back;
+		}
+		fflush(stderr);
+	}
+	/* The low memory globals this class of bug tramples or reads: the 68k
+	   exception vectors live below 0x100, the unit table pointer is at 0x11c
+	   and the SCC register base addresses are at 0x1d8 and 0x1dc. */
+	{
+		int o = 0, k, j;
+
+		for (k = 0; k < 0x200; k += 32) {
+			o = snprintf(msg, sizeof(msg), "[bad-ea] lomem %03x:", k);
+			for (j = 0; j < 32; j += 4)
+				o += snprintf(msg + o, sizeof(msg) - o, " %08x",
+					ReadMacInt32(k + j));
+			snprintf(msg + o, sizeof(msg) - o, "\n");
+			fputs(msg, stderr);
+#if defined(_WIN32)
+			OutputDebugStringA(msg);
+#endif
+		}
+		fflush(stderr);
+	}
+	/* The table of contents the faulting fragment runs with.  Its first
+	   entries name the fragment's own data, which is what tells one native
+	   code fragment apart from another. */
+	{
+		uint32 toc = cpu->gpr(2);
+		int o = 0, k, j;
+
+		if (toc >= 64 && guest_addr_ok(toc - 64, 128)) {
+			for (k = 0; k < 128; k += 32) {
+				o = snprintf(msg, sizeof(msg), "[bad-ea] toc %08x:",
+					toc - 64 + k);
+				for (j = 0; j < 32; j += 4)
+					o += snprintf(msg + o, sizeof(msg) - o, " %08x",
+						ReadMacInt32(toc - 64 + k + j));
+				snprintf(msg + o, sizeof(msg) - o, "\n");
+				fputs(msg, stderr);
+#if defined(_WIN32)
+				OutputDebugStringA(msg);
+#endif
+			}
+			fflush(stderr);
 		}
 	}
 	/* The 68k instruction stream around the faulting instruction, so it can
@@ -948,6 +1045,37 @@ void ppc_report_bad_ea(uint32 pc, uint32 ea, int is_load)
 #endif
 		}
 	}
+}
+
+void ppc_report_bad_ea(uint32 pc, uint32 ea, int is_load)
+{
+	static uint32 seen[64];
+	static int seen_count = 0;
+	const char *what = "store";
+
+	if (ppc_cpu == NULL || guest_addr_ok(ea, 1))
+		return;
+	if (!ppc_report_is_new(pc, seen, 64, &seen_count))
+		return;
+	if (is_load)
+		what = "load";
+	ppc_report_context(what, pc, ea);
+}
+
+/* A store into the 68k exception vectors.  The address is mapped, so the
+   access itself is harmless; what matters is that the vector it lands on is
+   used by every A-trap the guest executes from then on. */
+
+void ppc_report_vector_store(uint32 pc, uint32 ea)
+{
+	static uint32 seen[64];
+	static int seen_count = 0;
+
+	if (ppc_cpu == NULL)
+		return;
+	if (!ppc_report_is_new(pc, seen, 64, &seen_count))
+		return;
+	ppc_report_context("vector store", pc, ea);
 }
 
 static void dump_crash_context(sheepshaver_cpu *cpu)

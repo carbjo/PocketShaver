@@ -66,68 +66,38 @@ endif()
 
 
 # ---------------------------------------------------------------------------
-# No staging: every source/header is compiled directly from its real path in
-# the source tree. Include precedence is set by the order of
-# target_include_directories below (SS paths before shared BasiliskII paths),
-# so SS headers override B2 twins without copying anything into the build
-# tree. Editing any file just recompiles the affected TUs.
+# Sources shared with Basilisk II are named by their real path in the
+# BasiliskII tree, never through the matching symlink in SheepShaver/src.
+# "make links" puts those symlinks there for the autoconf build, which
+# compiles bare file names, but a symlink carries its own timestamp and Ninja
+# reads that rather than the file it points at, so a build driven through one
+# never notices an edit. Include precedence still comes from the order of
+# target_include_directories below, SS paths before B2 paths, so SheepShaver
+# headers win over their Basilisk II twins.
 # ---------------------------------------------------------------------------
-set(SS_IDE_HEADERS)
-function(ss_is_text_stub FPATH OUT_VAR)
-	set(_stub FALSE)
-	if(EXISTS "${FPATH}" AND NOT IS_DIRECTORY "${FPATH}")
-	file(SIZE "${FPATH}" _sz)
-	if(_sz LESS 200)
-		file(READ "${FPATH}" _content LIMIT 200)
-		string(STRIP "${_content}" _content)
-		if(_content MATCHES "\\.\\./")
-		set(_stub TRUE)
-		endif()
-	endif()
-	endif()
-	set(${OUT_VAR} "${_stub}" PARENT_SCOPE)
-endfunction()
+set(SS_SHARED
+	"${B2_SRC}/adb.cpp"
+	"${B2_SRC}/audio.cpp"
+	"${B2_SRC}/cdrom.cpp"
+	"${B2_SRC}/disk.cpp"
+	"${B2_SRC}/extfs.cpp"
+	"${B2_SRC}/prefs.cpp"
+	"${B2_SRC}/scsi.cpp"
+	"${B2_SRC}/sony.cpp"
+	"${B2_SRC}/timer.cpp"
+	"${B2_SRC}/xpram.cpp"
+)
+if(ENABLE_BINCUE)
+	list(APPEND SS_SHARED "${B2_SRC}/bincue.cpp")
+endif()
 
-# ---------------------------------------------------------------------------
-# Include resolution: SS headers are exposed directly from ${SS_SRC}/include
-# (added to target_include_directories below, before ${B2_SRC}/include, so SS
-# headers override B2 twins). No staging/copying. Text-stub headers surface the
-# B2 twin in the IDE.
-# ---------------------------------------------------------------------------
-file(GLOB _ss_hdrs "${SS_SRC}/include/*")
-# NOTE: intentionally NOT registering _ss_hdrs in CMAKE_CONFIGURE_DEPENDS.
-# Watching every include/ header made CMake re-run configure on any header
-# edit; now edits just recompile. Adding a *new* header still needs a manual
-# reconfigure.
-# SS real headers are exposed via target_include_directories(${SS_SRC}/include)
-# below (before ${B2_SRC}/include) so they override B2 twins with no copy.
-# For text-stub headers we just surface the BasiliskII twin in the IDE.
-foreach(_h IN LISTS _ss_hdrs)
-	if(IS_DIRECTORY "${_h}")
-	continue()
-	endif()
-	ss_is_text_stub("${_h}" _is_stub)
-	get_filename_component(_name "${_h}" NAME)
-	if(_is_stub)
-	list(APPEND SS_IDE_HEADERS "${B2_SRC}/include/${_name}")
-	endif()
-endforeach()
-message(STATUS "SheepShaver: include/ headers compiled directly from source (no staging)")
-
-# ---------------------------------------------------------------------------
-# Shared sources (prefer BasiliskII tree; resolve text-symlink stubs)
-# ---------------------------------------------------------------------------
 macemu_slirp_sources("${B2_SRC}" SS_SLIRP)
 macemu_sdl_sources("${B2_SRC}" SS_SDL)
-# Resolve CrossPlatform sources (sigsegv/vm_alloc/video_blit) via text stubs or
-# real SS overrides - never hardcode only BasiliskII while a full SS copy sits
-# in the tree for the IDE to open (that made "Build" look like it ignored edits).
-macemu_xplat_sources_resolved("${SS_SRC}" "${B2_SRC}" SS_XPLAT)
-macemu_check_shared_source_traps("${SS_SRC}" "${B2_SRC}")
-# Log the exact paths that will be compiled (visible in VS CMake output).
-foreach(_xp IN LISTS SS_XPLAT)
-	message(STATUS "SheepShaver xplat: ${_xp}")
-endforeach()
+set(SS_XPLAT
+	"${B2_SRC}/CrossPlatform/vm_alloc.cpp"
+	"${B2_SRC}/CrossPlatform/sigsegv.cpp"
+	"${B2_SRC}/CrossPlatform/video_blit.cpp"
+)
 
 set(SS_CORE
 	"${SS_SRC}/main.cpp"
@@ -135,7 +105,7 @@ set(SS_CORE
 	"${SS_SRC}/rom_patches.cpp"
 	"${SS_SRC}/rsrc_patches.cpp"
 	"${SS_SRC}/emul_op.cpp"
-	"${SS_SRC}/joymanager.cpp"
+	"${B2_SRC}/joymanager.cpp"
 	"${SS_SRC}/name_registry.cpp"
 	"${SS_SRC}/macos_util.cpp"
 	"${SS_SRC}/gfxaccel.cpp"
@@ -144,17 +114,7 @@ set(SS_CORE
 	"${SS_SRC}/thunks.cpp"
 	"${SS_SRC}/serial.cpp"
 	"${SS_SRC}/user_strings.cpp"
-	"${B2_SRC}/adb.cpp"
-	"${B2_SRC}/audio.cpp"
-	"${B2_SRC}/cdrom.cpp" 
-	"${B2_SRC}/disk.cpp" 
-	"${B2_SRC}/extfs.cpp" 
-	"${B2_SRC}/prefs.cpp" 
-	"${B2_SRC}/scsi.cpp"
-	"${B2_SRC}/sony.cpp"
-	"${B2_SRC}/timer.cpp"
-	"${B2_SRC}/xpram.cpp"
-	"${B2_SRC}/bincue.cpp"
+	${SS_SHARED}
 	${SS_XPLAT}
 	${SS_SDL}
 	${SS_SLIRP}
@@ -208,58 +168,44 @@ endif()
 if(WIN32)
 	macemu_windows_net_sources("${B2_SRC}" SS_NET)
 
-	# Windows headers: text-stub headers surface the B2 twin in the IDE; real
-	# SS Windows headers are exposed via target_include_directories
-	# (${SS_SRC}/Windows) below. No staging/copying.
-	file(GLOB _ss_win_hdrs "${SS_SRC}/Windows/*.h")
-	# NOTE: intentionally NOT registering _ss_win_hdrs in CMAKE_CONFIGURE_DEPENDS.
-	# Watching every Windows header made CMake re-run configure on any header
-	# edit; now edits just recompile. Adding a *new* Windows header still needs
-	# a manual reconfigure.
-	foreach(_h IN LISTS _ss_win_hdrs)
-	ss_is_text_stub("${_h}" _is_stub)
-	get_filename_component(_name "${_h}" NAME)
-	if(_is_stub)
-		list(APPEND SS_IDE_HEADERS "${B2_SRC}/Windows/${_name}")
-	endif()
-	endforeach()
+	# Windows sources SheepShaver owns outright.
+	set(SS_PLATFORM
+		"${SS_SRC}/Windows/main_windows.cpp"
+		"${SS_SRC}/Windows/prefs_windows.cpp"
+		"${SS_SRC}/Windows/user_strings_windows.cpp"
+		"${SS_SRC}/Windows/about_window_windows.cpp"
+		"${SS_SRC}/dummy/prefs_dummy.cpp"
+	)
 
-	# Compile Windows .cpp from their *real* source paths (no staging).
-	# Shared BasiliskII Windows sources (clip_windows.cpp, posix_emu.cpp, &)
-	# still need SheepShaver's sysdeps.h: MSVC searches the .cpp's directory
-	# first for #include "sysdeps.h". Force-include SS sysdeps first (/FI);
-	# both headers use the SYSDEPS_H guard so the later include is a no-op.
-	# SheepShaver-owned Windows sources already sit next to the right sysdeps.
-	set(SS_PLATFORM)
+	# Windows sources shared with Basilisk II, compiled from the BasiliskII
+	# tree. Each one includes "sysdeps.h" and MSVC looks in the file's own
+	# directory first, which there holds Basilisk II's copy, so force-include
+	# SheepShaver's ahead of it. Both use the SYSDEPS_H guard, so the include
+	# in the file itself then does nothing.
+	set(SS_SHARED_PLATFORM
+		"${B2_SRC}/Windows/sys_windows.cpp"
+		"${B2_SRC}/Windows/xpram_windows.cpp"
+		"${B2_SRC}/Windows/timer_windows.cpp"
+		"${B2_SRC}/Windows/serial_windows.cpp"
+		"${B2_SRC}/Windows/ether_windows.cpp"
+		"${B2_SRC}/Windows/clip_windows.cpp"
+		"${B2_SRC}/Windows/extfs_windows.cpp"
+		"${B2_SRC}/Windows/util_windows.cpp"
+		"${B2_SRC}/Windows/posix_emu.cpp"
+		"${B2_SRC}/dummy/scsi_dummy.cpp"
+		"${B2_SRC}/dummy/prefs_editor_dummy.cpp"
+	)
 	set(_ss_sysdeps_fi "${SS_SRC}/Windows/sysdeps.h")
-	# Normalize for string(FIND) (forward slashes)
-	file(TO_CMAKE_PATH "${B2_SRC}" _b2_norm)
-	foreach(f
-		main_windows.cpp prefs_windows.cpp sys_windows.cpp xpram_windows.cpp
-		timer_windows.cpp serial_windows.cpp ether_windows.cpp clip_windows.cpp
-		extfs_windows.cpp user_strings_windows.cpp util_windows.cpp posix_emu.cpp
-		about_window_windows.cpp)
-	macemu_resolve_path("${SS_SRC}/Windows/${f}" "${B2_SRC}/Windows/${f}" _p)
-	list(APPEND SS_PLATFORM "${_p}")
-	file(TO_CMAKE_PATH "${_p}" _p_norm)
-	string(FIND "${_p_norm}" "${_b2_norm}/Windows" _from_b2)
-	if(NOT _from_b2 EQUAL -1)
-		if(MSVC)
-		set_source_files_properties("${_p}" PROPERTIES
+	if(MSVC)
+		set_source_files_properties(${SS_SHARED_PLATFORM} PROPERTIES
 			COMPILE_OPTIONS "/FI${_ss_sysdeps_fi}")
-		else()
-		set_source_files_properties("${_p}" PROPERTIES
+	else()
+		set_source_files_properties(${SS_SHARED_PLATFORM} PROPERTIES
 			COMPILE_OPTIONS "-include;${_ss_sysdeps_fi}")
-		endif()
-		set_source_files_properties("${_p}" PROPERTIES
-		OBJECT_DEPENDS "${_ss_sysdeps_fi}")
 	endif()
-	endforeach()
-
-	foreach(f scsi_dummy.cpp prefs_editor_dummy.cpp prefs_dummy.cpp)
-	macemu_resolve_path("${SS_SRC}/dummy/${f}" "${B2_SRC}/dummy/${f}" _p)
-	list(APPEND SS_PLATFORM "${_p}")
-	endforeach()
+	set_source_files_properties(${SS_SHARED_PLATFORM} PROPERTIES
+		OBJECT_DEPENDS "${_ss_sysdeps_fi}")
+	list(APPEND SS_PLATFORM ${SS_SHARED_PLATFORM})
 	list(APPEND SS_PLATFORM ${SS_NET})
 
 	if(EXISTS "${SS_SRC}/Windows/SheepShaver.rc")
@@ -275,39 +221,40 @@ if(WIN32)
 	"${B2_SRC}/Windows/router"
 	"${B2_SRC}/Windows/b2ether")
 else()
+	# Unix sources SheepShaver owns outright, then the ones shared with
+	# Basilisk II named by their real path there. clip_dummy.cpp used to be
+	# added inside the loop below, so it went in once per shared source.
 	set(SS_PLATFORM
 	"${SS_SRC}/Unix/main_unix.cpp"
 	"${SS_SRC}/Unix/about_window_unix.cpp"
+	"${SS_SRC}/Unix/prefs_unix.cpp"
+	"${SS_SRC}/Unix/user_strings_unix.cpp"
+	"${B2_SRC}/Unix/sys_unix.cpp"
+	"${B2_SRC}/Unix/xpram_unix.cpp"
+	"${B2_SRC}/Unix/timer_unix.cpp"
+	"${B2_SRC}/Unix/serial_unix.cpp"
+	"${B2_SRC}/Unix/ether_unix.cpp"
+	"${B2_SRC}/Unix/extfs_unix.cpp"
+	"${B2_SRC}/Unix/rpc_unix.cpp"
+	"${B2_SRC}/Unix/sshpty.c"
+	"${B2_SRC}/Unix/strlcpy.c"
+	"${B2_SRC}/Unix/tinyxml2.cpp"
+	"${B2_SRC}/Unix/disk_sparsebundle.cpp"
+	"${B2_SRC}/Unix/posix_sem.cpp"
+	"${B2_SRC}/dummy/clip_dummy.cpp"
+	"${B2_SRC}/dummy/prefs_dummy.cpp"
 	)
-	foreach(f prefs_unix.cpp sys_unix.cpp xpram_unix.cpp timer_unix.cpp
-			serial_unix.cpp ether_unix.cpp extfs_unix.cpp
-			user_strings_unix.cpp rpc_unix.cpp
-			sshpty.c strlcpy.c tinyxml2.cpp disk_sparsebundle.cpp posix_sem.cpp)
-	macemu_resolve_path("${SS_SRC}/Unix/${f}" "${B2_SRC}/Unix/${f}" _p)
-	list(APPEND SS_PLATFORM "${_p}")
-	macemu_resolve_path("${SS_SRC}/dummy/clip_dummy.cpp"
-		"${B2_SRC}/dummy/clip_dummy.cpp" _p)
-	list(APPEND SS_PLATFORM "${_p}")
-	endforeach()
 	if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-		macemu_resolve_path(
-			"${SS_SRC}/Unix/Linux/scsi_linux.cpp"
-			"${B2_SRC}/Unix/Linux/scsi_linux.cpp" _p)
-		list(APPEND SS_PLATFORM "${_p}")
+		list(APPEND SS_PLATFORM "${B2_SRC}/Unix/Linux/scsi_linux.cpp")
 	else()
-		macemu_resolve_path("${SS_SRC}/dummy/scsi_dummy.cpp"
-			"${B2_SRC}/dummy/scsi_dummy.cpp" _p)
-		list(APPEND SS_PLATFORM "${_p}")
+		list(APPEND SS_PLATFORM "${B2_SRC}/dummy/scsi_dummy.cpp")
 	endif()
-	macemu_resolve_path("${SS_SRC}/dummy/prefs_dummy.cpp"
-		"${B2_SRC}/dummy/prefs_dummy.cpp" _p)
-	list(APPEND SS_PLATFORM "${_p}")
 	if(ENABLE_GTK)
 	find_package(PkgConfig REQUIRED)
 	pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
-	list(APPEND SS_PLATFORM "${SS_SRC}/Unix/prefs_editor_gtk3.cpp")
+	list(APPEND SS_PLATFORM "${B2_SRC}/Unix/prefs_editor_gtk3.cpp")
 	else()
-	list(APPEND SS_PLATFORM "${SS_SRC}/dummy/prefs_editor_dummy.cpp")
+	list(APPEND SS_PLATFORM "${B2_SRC}/dummy/prefs_editor_dummy.cpp")
 	endif()
 	set(SS_PLATFORM_INC "${SS_SRC}/Unix")
 endif()
@@ -442,13 +389,6 @@ elseif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin|OSX")
 else()
 	find_package(X11 REQUIRED)
 	target_link_libraries(SheepShaver PRIVATE X11::X11 X11::Xext)
-endif()
-
-# Show tracked headers, rather than generated overlay paths, in IDE projects.
-if(SS_IDE_HEADERS)
-	list(REMOVE_DUPLICATES SS_IDE_HEADERS)
-	set_source_files_properties(${SS_IDE_HEADERS} PROPERTIES HEADER_FILE_ONLY TRUE)
-	target_sources(SheepShaver PRIVATE ${SS_IDE_HEADERS})
 endif()
 
 # Force staging before any compile/link (required for VS/CMake IDE + Ninja).
