@@ -25,6 +25,7 @@
 
 #include <ctype.h>
 #include <process.h>
+#include <mmsystem.h>
 
 #include "main.h"
 #include "util_windows.h"
@@ -199,8 +200,301 @@ private:
 };
 
 /*
+ *  A serial port that plays what the guest writes to it on a Windows
+ *  synthesiser.  Programs that drive MIDI gear open a serial port, set it to
+ *  31250 baud and write raw MIDI bytes, so the bytes only have to be gathered
+ *  back into messages and handed to the synthesiser.  There is no MIDI input.
+ */
+
+// Number of data bytes that follow a MIDI status byte.
+static int midi_data_wanted(uint8 status_byte)
+{
+	if (status_byte >= 0xf4)
+		return 0;
+	if (status_byte == 0xf1 || status_byte == 0xf3)
+		return 1;
+	if (status_byte == 0xf2)
+		return 2;
+	if (status_byte >= 0xc0 && status_byte <= 0xdf)
+		return 1;
+	return 2;
+}
+
+class MIDISERDPort : public SERDPort {
+public:
+	MIDISERDPort()
+	{
+		D(bug("MIDISERDPort constructor\r\n"));
+		read_pending = write_pending = false;
+		cum_errors = 0;
+		midi_handle = NULL;
+		reset_parser();
+	}
+
+	virtual ~MIDISERDPort()
+	{
+		D(bug("MIDISERDPort destructor\r\n"));
+		close();
+	}
+
+	virtual int16 open(uint16 config);
+	virtual int16 prime_in(uint32 pb, uint32 dce);
+	virtual int16 prime_out(uint32 pb, uint32 dce);
+	virtual int16 control(uint32 pb, uint32 dce, uint16 code);
+	virtual int16 status(uint32 pb, uint32 dce, uint16 code);
+	virtual int16 close(void);
+
+private:
+	void reset_parser(void);
+	void feed(uint8 byte);
+	void send_short(void);
+	void send_system_exclusive(void);
+
+	HMIDIOUT midi_handle;
+	uint8 running_status;		// Status byte the data bytes below belong to
+	uint8 message[2];			// Data bytes gathered for it so far
+	int message_length;
+	int message_wanted;			// Data bytes this status byte still needs
+	bool in_system_exclusive;
+	uint8 system_exclusive[512];
+	int system_exclusive_length;
+};
+
+void MIDISERDPort::reset_parser(void)
+{
+	running_status = 0;
+	message_length = 0;
+	message_wanted = 0;
+	in_system_exclusive = false;
+	system_exclusive_length = 0;
+}
+
+void MIDISERDPort::send_short(void)
+{
+	DWORD msg = running_status;
+
+	if (message_length > 0)
+		msg |= (DWORD)message[0] << 8;
+	if (message_length > 1)
+		msg |= (DWORD)message[1] << 16;
+	midiOutShortMsg(midi_handle, msg);
+}
+
+void MIDISERDPort::send_system_exclusive(void)
+{
+	MIDIHDR header;
+	int wait;
+
+	// Drop a block that did not fit rather than send half of one.
+	if (system_exclusive_length >= (int)sizeof(system_exclusive)) {
+		system_exclusive_length = 0;
+		return;
+	}
+	system_exclusive[system_exclusive_length++] = 0xf7;
+	memset(&header, 0, sizeof(header));
+	header.lpData = (LPSTR)system_exclusive;
+	header.dwBufferLength = system_exclusive_length;
+	header.dwBytesRecorded = system_exclusive_length;
+	if (midiOutPrepareHeader(midi_handle, &header, sizeof(header)) == MMSYSERR_NOERROR) {
+		if (midiOutLongMsg(midi_handle, &header, sizeof(header)) == MMSYSERR_NOERROR) {
+			// The buffer has to stay put until the device is done with it,
+			// but never hold the guest up for more than a moment.
+			for (wait = 0; wait < 100; wait++) {
+				if (header.dwFlags & MHDR_DONE)
+					break;
+				Sleep(1);
+			}
+		}
+		midiOutUnprepareHeader(midi_handle, &header, sizeof(header));
+	}
+	system_exclusive_length = 0;
+}
+
+void MIDISERDPort::feed(uint8 byte)
+{
+	// A real time byte may turn up in the middle of another message and
+	// leaves that message alone.
+	if (byte >= 0xf8) {
+		midiOutShortMsg(midi_handle, byte);
+		return;
+	}
+	if (in_system_exclusive) {
+		if (byte < 0x80) {
+			if (system_exclusive_length < (int)sizeof(system_exclusive))
+				system_exclusive[system_exclusive_length++] = byte;
+			return;
+		}
+		in_system_exclusive = false;
+		// The proper end marker is not passed on to the next stage.
+		if (byte == 0xf7) {
+			send_system_exclusive();
+			return;
+		}
+		// Any other status byte ends the block without an end marker.
+		send_system_exclusive();
+	}
+	if (byte >= 0x80) {
+		if (byte == 0xf0) {
+			in_system_exclusive = true;
+			system_exclusive_length = 0;
+			system_exclusive[system_exclusive_length++] = byte;
+			return;
+		}
+		running_status = byte;
+		message_length = 0;
+		message_wanted = midi_data_wanted(byte);
+		if (message_wanted == 0) {
+			send_short();
+			running_status = 0;
+		}
+		return;
+	}
+	// A data byte with no status byte of its own belongs to the message
+	// before it, which is what MIDI calls running status.
+	if (running_status == 0)
+		return;
+	message[message_length++] = byte;
+	if (message_length < message_wanted)
+		return;
+	send_short();
+	message_length = 0;
+	// Only channel messages stay selected for the bytes that follow.
+	if (running_status >= 0xf0)
+		running_status = 0;
+}
+
+int16 MIDISERDPort::open(uint16 config)
+{
+	D(bug("MIDISERDPort::open config=0x%X\r\n", (int)config));
+	if (midi_handle != NULL)
+		return noErr;
+	reset_parser();
+	if (midiOutOpen(&midi_handle, MIDI_MAPPER, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR) {
+		D(bug("MIDISERDPort::open failed to open the synthesiser\r\n"));
+		midi_handle = NULL;
+		return openErr;
+	}
+	return noErr;
+}
+
+int16 MIDISERDPort::prime_in(uint32 pb, uint32 dce)
+{
+	// Nothing plays back into the guest, so report that no bytes arrived.
+	WriteMacInt32(pb + ioActCount, 0);
+	return noErr;
+}
+
+int16 MIDISERDPort::prime_out(uint32 pb, uint32 dce)
+{
+	uint32 length = ReadMacInt32(pb + ioReqCount) & 0xffff;
+	uint32 address = ReadMacInt32(pb + ioBuffer);
+	uint32 i;
+
+	if (midi_handle == NULL)
+		return notOpenErr;
+	for (i = 0; i < length; i++)
+		feed(ReadMacInt8(address + i));
+	WriteMacInt32(pb + ioActCount, length);
+	// Playing a note does not block, so the write is finished already and
+	// there is no thread or deferred task to wait for.
+	return noErr;
+}
+
+int16 MIDISERDPort::control(uint32 pb, uint32 dce, uint16 code)
+{
+	D(bug("MIDISERDPort::control code=%d\r\n", (int)code));
+	switch (code) {
+		case 1:				// KillIO
+			return noErr;
+
+		// A synthesiser has no line to configure, so accept the settings a
+		// program expects to be able to make and carry on.
+		case kSERDConfiguration:
+		case kSERDInputBuffer:
+		case kSERDSerHShake:
+		case kSERDClearBreak:
+		case kSERDSetBreak:
+		case kSERDBaudRate:
+		case kSERDHandshake:
+		case kSERDClockMIDI:
+		case kSERDMiscOptions:
+		case kSERDAssertDTR:
+		case kSERDNegateDTR:
+		case kSERDSetPEChar:
+		case kSERDSetPEAltChar:
+		case kSERDSetXOffFlag:
+		case kSERDClearXOffFlag:
+		case kSERDSendXOn:
+		case kSERDSendXOff:
+		case kSERDHandshakeRS232:
+		case kSERDAssertRTS:
+		case kSERDNegateRTS:
+			return noErr;
+
+		case kSERDResetChannel:
+			midiOutReset(midi_handle);
+			reset_parser();
+			return noErr;
+
+		default:
+			D(bug("WARNING: MIDISERDPort::control unimplemented code %d\r\n", code));
+			return controlErr;
+	}
+}
+
+int16 MIDISERDPort::status(uint32 pb, uint32 dce, uint16 code)
+{
+	switch (code) {
+		case kSERDInputCount:
+			WriteMacInt32(pb + csParam, 0);
+			return noErr;
+
+		case kSERDStatus: {
+			uint32 p = pb + csParam;
+
+			WriteMacInt8(p + staCumErrs, cum_errors);
+			cum_errors = 0;
+			WriteMacInt8(p + staXOffSent, 0);
+			WriteMacInt8(p + staXOffHold, 0);
+			WriteMacInt8(p + staRdPend, read_pending);
+			WriteMacInt8(p + staWrPend, write_pending);
+			WriteMacInt8(p + staCtsHold, 0);
+			WriteMacInt8(p + staDsrHold, 0);
+			// A synthesiser is always attached and always ready.
+			WriteMacInt8(p + staModemStatus, dsrEvent | dcdEvent | ctsEvent);
+			return noErr;
+		}
+
+		default:
+			D(bug("WARNING: MIDISERDPort::status unimplemented code %d\r\n", code));
+			return statusErr;
+	}
+}
+
+int16 MIDISERDPort::close(void)
+{
+	D(bug("MIDISERDPort::close\r\n"));
+	if (midi_handle != NULL) {
+		midiOutReset(midi_handle);
+		midiOutClose(midi_handle);
+		midi_handle = NULL;
+	}
+	read_pending = write_pending = false;
+	return noErr;
+}
+
+
+/*
  *  Initialization
  */
+
+// True when a port preference asks for the synthesiser rather than a device.
+bool SerialWantsMidi(const char *port)
+{
+	if (port == NULL)
+		return false;
+	return _stricmp(port, "midi") == 0;
+}
 
 void SerialInit(void)
 {
@@ -216,13 +510,19 @@ void SerialInit(void)
 	if(port) {
 		D(bug("SerialInit seriala=%s\r\n",port));
 	}
-  the_serd_port[0] = new XSERDPort(tstr(port).get(), TEXT("0"));
+	if (SerialWantsMidi(port))
+		the_serd_port[0] = new MIDISERDPort();
+	else
+		the_serd_port[0] = new XSERDPort(tstr(port).get(), TEXT("0"));
 
 	port = PrefsFindString("serialb");
 	if(port) {
 		D(bug("SerialInit serialb=%s\r\n",port));
 	}
-  the_serd_port[1] = new XSERDPort(tstr(port).get(), TEXT("1"));
+	if (SerialWantsMidi(port))
+		the_serd_port[1] = new MIDISERDPort();
+	else
+		the_serd_port[1] = new XSERDPort(tstr(port).get(), TEXT("1"));
 }
 
 
@@ -233,8 +533,10 @@ void SerialInit(void)
 void SerialExit(void)
 {
 	D(bug("SerialExit\r\n"));
-  if(the_serd_port[0]) delete (XSERDPort *)the_serd_port[0];
-  if(the_serd_port[1]) delete (XSERDPort *)the_serd_port[1];
+	// Deleted through the base class so whichever kind of port was made gets
+	// its own destructor run.
+	if(the_serd_port[0]) delete the_serd_port[0];
+	if(the_serd_port[1]) delete the_serd_port[1];
 	D(bug("SerialExit done\r\n"));
 
 	serial_log_close();
