@@ -903,6 +903,35 @@ void CheckLoad(uint32 type, int16 id, uint16 *p, uint32 size)
 			p[(0x374 + 0x510) >> 1] = htons(0x4e80);		// blr
 			p[(0x376 + 0x510) >> 1] = htons(0x0020);
 			D(bug(" patch 4 applied\n"));
+		} else {
+			// The SerialDMA extension holds this same routine at an offset
+			// none of the four above name, so find it instead of guessing.
+			// It is the only routine that loads four table of contents
+			// relative pointers into r4 to r7 one after another, those being
+			// the ".AIn", ".AOut", ".BIn" and ".BOut" driver names, and it
+			// opens with the same "mflr r0" a short way above them.
+			// Without this the real driver installs itself over ours, runs on
+			// globals nothing filled in, and writes through a null pointer
+			// into the 68k exception vectors at 0x24 and 0x28, which kills
+			// the next A-Trap the machine executes.
+			uint32 words = size >> 1;
+			uint32 i, j;
+
+			for (i = 0; i + 8 <= words; i += 2) {
+				if (p[i] != htons(0x3882) || p[i + 2] != htons(0x38a2))
+					continue;
+				if (p[i + 4] != htons(0x38c2) || p[i + 6] != htons(0x38e2))
+					continue;
+				for (j = i; j > 0 && i - j <= 32; j -= 2) {
+					if (p[j] != htons(0x7c08) || p[j + 1] != htons(0x02a6))
+						continue;
+					p[j] = htons(0x4e80);		// blr
+					p[j + 1] = htons(0x0020);
+					D(bug(" patch 5 applied at %04x\n", j * 2));
+					break;
+				}
+				break;
+			}
 		}
 
 	} else if (type == FOURCC('c','i','t','t') && id == 45) {
