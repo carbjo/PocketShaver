@@ -117,17 +117,6 @@ message(STATUS "SheepShaver: include/ headers compiled directly from source (no 
 # ---------------------------------------------------------------------------
 # Shared sources (prefer BasiliskII tree; resolve text-symlink stubs)
 # ---------------------------------------------------------------------------
-set(SS_SHARED)
-foreach(f adb.cpp audio.cpp cdrom.cpp disk.cpp extfs.cpp prefs.cpp scsi.cpp
-			sony.cpp timer.cpp xpram.cpp)
-	macemu_resolve_path("${SS_SRC}/${f}" "${B2_SRC}/${f}" _p)
-	list(APPEND SS_SHARED "${_p}")
-endforeach()
-if(ENABLE_BINCUE)
-	macemu_resolve_path("${SS_SRC}/bincue.cpp" "${B2_SRC}/bincue.cpp" _p)
-	list(APPEND SS_SHARED "${_p}")
-endif()
-
 macemu_slirp_sources("${B2_SRC}" SS_SLIRP)
 macemu_sdl_sources("${B2_SRC}" SS_SDL)
 # Resolve CrossPlatform sources (sigsegv/vm_alloc/video_blit) via text stubs or
@@ -155,7 +144,17 @@ set(SS_CORE
 	"${SS_SRC}/thunks.cpp"
 	"${SS_SRC}/serial.cpp"
 	"${SS_SRC}/user_strings.cpp"
-	${SS_SHARED}
+	"${B2_SRC}/adb.cpp"
+	"${B2_SRC}/audio.cpp"
+	"${B2_SRC}/cdrom.cpp" 
+	"${B2_SRC}/disk.cpp" 
+	"${B2_SRC}/extfs.cpp" 
+	"${B2_SRC}/prefs.cpp" 
+	"${B2_SRC}/scsi.cpp"
+	"${B2_SRC}/sony.cpp"
+	"${B2_SRC}/timer.cpp"
+	"${B2_SRC}/xpram.cpp"
+	"${B2_SRC}/bincue.cpp"
 	${SS_XPLAT}
 	${SS_SDL}
 	${SS_SLIRP}

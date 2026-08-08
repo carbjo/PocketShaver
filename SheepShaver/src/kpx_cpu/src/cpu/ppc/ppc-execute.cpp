@@ -26,6 +26,9 @@
 #if defined(__MINGW64__) || defined(_MSC_VER) || defined(__GLIBC__) || defined(__APPLE__)
 #include <fenv.h>
 #endif
+/* Set to 0 to drop the out-of-range address report in execute_loadstore. */
+#define PPC_REPORT_BAD_EA 0
+
 #include "cpu/vm.hpp"
 #include "cpu/ppc/ppc-cpu.hpp"
 #include "cpu/ppc/ppc-bitfields.hpp"
@@ -704,6 +707,21 @@ void powerpc_cpu::execute_loadstore(uint32 opcode)
 	const uint32 a = RA::get(this, opcode);
 	const uint32 b = RB::get(this, opcode);
 	const uint32 ea = a + b;
+
+#if PPC_REPORT_BAD_EA
+	/* The guest can only reach RAM and the frame buffer (top nibble 0, 1, 2),
+	   the ROM just above 0x40800000, SheepMem at 5 and the kernel area at 6.
+	   Flag the nibbles none of those use, plus the gap between the end of the
+	   ROM and SheepMem, which is where an address built out of text lands.
+	   Reporting here happens before the access faults, which is the only
+	   chance to record anything when the fault takes the process down. */
+	if (((0xff88u >> (ea >> 28)) & 1)
+			|| (ea >= 0x41000000u && ea < 0x50000000u)) {
+		extern void ppc_report_bad_ea(uint32 pc, uint32 ea, int is_load);
+		ppc_report_bad_ea(pc(), ea, LD);
+	}
+#endif
+
 
 	if (LD)
 		operand_RD::set(this, opcode, OP::apply(memory_helper<SZ, RX>::load(ea)));

@@ -836,6 +836,120 @@ static bool guest_addr_ok(uint32 a, uint32 len)
 	return false;
 }
 
+/*
+ *  Report a load or store to an address that is in none of the guest's memory
+ *  areas.  execute_loadstore() calls this before performing the access, which
+ *  is the only place the state can be recorded when the access itself takes
+ *  the process down and no fault handler ever runs.
+ */
+
+void ppc_report_bad_ea(uint32 pc, uint32 ea, int is_load)
+{
+	/* One report per instruction, and a hard cap: a routine looping over a
+	   bad pointer would otherwise bury the log and stall the emulation. */
+	enum { REPORT_MAX = 64, SEEN_MAX = 64 };
+	static uint32 seen[SEEN_MAX];
+	static int seen_count = 0;
+	sheepshaver_cpu *cpu = ppc_cpu;
+	char msg[512];
+	const char *what = "store";
+	int i;
+
+	if (cpu == NULL || guest_addr_ok(ea, 1))
+		return;
+	for (i = 0; i < seen_count; i++)
+		if (seen[i] == pc)
+			return;
+	if (seen_count >= REPORT_MAX)
+		return;
+	seen[seen_count++] = pc;
+	if (is_load)
+		what = "load";
+	snprintf(msg, sizeof(msg),
+		"[bad-ea] %s ea=%08x pc=%08x 68k-pc=%08x lr=%08x ctr=%08x\n"
+		"  r0-r7   %08x %08x %08x %08x %08x %08x %08x %08x\n"
+		"  r8-r15  %08x %08x %08x %08x %08x %08x %08x %08x\n"
+		"  r16-r23 %08x %08x %08x %08x %08x %08x %08x %08x\n"
+		"  r24-r31 %08x %08x %08x %08x %08x %08x %08x %08x\n",
+		what, ea, pc, cpu->gpr(24),
+		cpu->get_register(powerpc_registers::LR).i,
+		cpu->get_register(powerpc_registers::CTR).i,
+		cpu->gpr(0), cpu->gpr(1), cpu->gpr(2), cpu->gpr(3),
+		cpu->gpr(4), cpu->gpr(5), cpu->gpr(6), cpu->gpr(7),
+		cpu->gpr(8), cpu->gpr(9), cpu->gpr(10), cpu->gpr(11),
+		cpu->gpr(12), cpu->gpr(13), cpu->gpr(14), cpu->gpr(15),
+		cpu->gpr(16), cpu->gpr(17), cpu->gpr(18), cpu->gpr(19),
+		cpu->gpr(20), cpu->gpr(21), cpu->gpr(22), cpu->gpr(23),
+		cpu->gpr(24), cpu->gpr(25), cpu->gpr(26), cpu->gpr(27),
+		cpu->gpr(28), cpu->gpr(29), cpu->gpr(30), cpu->gpr(31));
+	fputs(msg, stderr);
+	fflush(stderr);
+#if defined(_WIN32)
+	OutputDebugStringA(msg);
+#endif
+	/* The structure a3 points at.  If its first 108 bytes look like a
+	   GrafPort but the window fields past them do not, the block is not the
+	   WindowRecord the program thinks it is. */
+	{
+		uint32 rec = cpu->gpr(19);
+		int o = 0, k;
+
+		if (guest_addr_ok(rec, 0x90)) {
+			for (k = 0; k < 0x90; k += 16) {
+				o = snprintf(msg, sizeof(msg), "[bad-ea] a3+%03x:", k);
+				for (i = 0; i < 16; i += 2)
+					o += snprintf(msg + o, sizeof(msg) - o, " %04x",
+						ReadMacInt16(rec + k + i));
+				snprintf(msg + o, sizeof(msg) - o, "\n");
+				fputs(msg, stderr);
+#if defined(_WIN32)
+				OutputDebugStringA(msg);
+#endif
+			}
+			fflush(stderr);
+		}
+	}
+	/* The PowerPC instructions around the fault.  A fault in native code has
+	   no meaningful 68k program counter, so this is what names the routine. */
+	{
+		uint32 base = pc - 32;
+		int o = 0, k;
+
+		if (pc >= 32 && guest_addr_ok(base, 80)) {
+			o = snprintf(msg, sizeof(msg), "[bad-ea] ppc code %08x:", base);
+			for (k = 0; k < 80 && o < (int)sizeof(msg) - 10; k += 4)
+				o += snprintf(msg + o, sizeof(msg) - o, " %08x",
+					ReadMacInt32(base + k));
+			snprintf(msg + o, sizeof(msg) - o, "\n");
+			fputs(msg, stderr);
+			fflush(stderr);
+#if defined(_WIN32)
+			OutputDebugStringA(msg);
+#endif
+		}
+	}
+	/* The 68k instruction stream around the faulting instruction, so it can
+	   be disassembled afterwards and matched against the program's CODE. */
+	{
+		uint32 p68 = cpu->gpr(24);
+		uint32 base = p68 - 32;
+		int o = 0, k;
+
+		if (p68 >= 32 && guest_addr_ok(base, 80)) {
+			o = snprintf(msg, sizeof(msg), "[bad-ea] 68k code %08x:", base);
+			for (k = 0; k < 80 && o < (int)sizeof(msg) - 4; k += 2)
+				o += snprintf(msg + o, sizeof(msg) - o, " %04x",
+					ReadMacInt16(base + k));
+			snprintf(msg + o, sizeof(msg) - o, "\n");
+			fputs(msg, stderr);
+			fflush(stderr);
+#if defined(_WIN32)
+			OutputDebugStringA(msg);
+#endif
+		}
+	}
+}
+
 static void dump_crash_context(sheepshaver_cpu *cpu)
 {
 	// Guest stack crawl. PowerOpen ABI: back chain at [sp], saved LR at [sp+8].

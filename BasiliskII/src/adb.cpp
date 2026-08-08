@@ -253,6 +253,18 @@ static void adb_log_hex(const char *what, uint32 addr, int length)
 	}
 }
 
+/* Every 68k register on one line, so a call into the guest can be compared
+   before and after it runs. */
+static void adb_log_regs(const char *what, M68kRegisters *r)
+{
+	ALOG("%s d=%08x %08x %08x %08x %08x %08x %08x %08x | "
+		"a=%08x %08x %08x %08x %08x %08x %08x %08x", what,
+		r->d[0], r->d[1], r->d[2], r->d[3],
+		r->d[4], r->d[5], r->d[6], r->d[7],
+		r->a[0], r->a[1], r->a[2], r->a[3],
+		r->a[4], r->a[5], r->a[6], r->a[7]);
+}
+
 static void adb_log_firebird(const char *why)
 {
 	uint32 globals, firebird_sticks;
@@ -848,6 +860,8 @@ static void joy_adb_enable_gravis_firebird(int i)
 		return;
 
 	n = (int16)ReadMacInt16(area + 0x110);
+	if (n < 0 || n > 16)
+		return; /* outside driver range */
 	for (k = 0; k < n; k++) {
 		if (ReadMacInt8(area + 0x120 + 10 * k)
 				!= (joy_adb_devs[i].reg_3[0] & 0x0f))
@@ -914,11 +928,53 @@ void joy_adb_op(int i, uint8 cmd, uint8 reg, uint8* data) {
 	}
 }
 
+#if ADB_MOUSE_LOG
+/* Point the Firebird diagnostics at whichever driver is loaded right now.  An
+   address kept from before a restart names memory that now belongs to
+   something else, and every value reported through it is that other thing. */
+static void adb_log_firebird_track(uint32 adb_base)
+{
+	static uint32 firebird_sticks_watched = 0;
+	int k;
+
+	adb_firebird_area = 0;
+	adb_firebird_service = 0;
+	for (k = 0; k < 16; k++) {
+		uint32 area, globals, sticks;
+
+		if (ReadMacInt8(adb_base + 12 * k + 2) == 0)
+			break;			/* end of the table */
+		area = ReadMacInt32(adb_base + 12 * k + 8);
+		if (area == 0 || ReadMacInt32(area + 0xe6) != 0x6d464244) /* 'mFBD' */
+			continue;
+		adb_firebird_area = area;
+		adb_firebird_service = ReadMacInt32(adb_base + 12 * k + 4);
+		/* Watch the per-stick settings, where the control panel writes the
+		   mode the stick is in, but only when the driver moves them. */
+		globals = ReadMacInt32(area + 0x11a);
+		if (globals == 0)
+			return;
+		sticks = ReadMacInt32(globals + 0xe);
+		if (sticks != 0 && sticks != firebird_sticks_watched) {
+			firebird_sticks_watched = sticks;
+			adb_snapshot_region(5, "fbset", sticks, ADB_SNAPSHOT_BYTES);
+			adb_log_firebird("found");
+		}
+		return;
+	}
+}
+#else
+#define adb_log_firebird_track(b) do { } while (0)
+#endif
+
 static void joy_adb_sync_table(uint32 adb_base)
 { /* The ADB Manager's table only learns a handler ID at (re)enumeration, but
    this conflicts with Gravis Firebird. */
 	int i, k;
 	uint8 adr;
+
+	for (i = 0; i < joy_adb_count; i++) /* clear device bases on restart */
+		joy_adb_devs[i].entry_base = 0;
 
 	for (k = 0; k < 16; k++) {
 		adr = ReadMacInt8(adb_base + 12 * k + 2);
@@ -929,29 +985,13 @@ static void joy_adb_sync_table(uint32 adb_base)
 		i = joy_adb_find(adr);
 		if (i < 0)
 			continue;
+		/* The service routine field, which is what the rest of the file
+		   means by entry_base. */
+		joy_adb_devs[i].entry_base = adb_base + 12 * k + 4;
 		if (ReadMacInt8(adb_base + 12 * k) != joy_adb_devs[i].reg_3[1])
 			WriteMacInt8(adb_base + 12 * k, joy_adb_devs[i].reg_3[1]);
-#if ADB_MOUSE_LOG
-		/* Watch the Firebird driver's settings for this stick, which is
-		   where its control panel writes the mode the stick is in. */
-		if (i >= 0 && joy_adb_devs[i].reg_3[1] == JOY_GRAVIS_DEVTYPE) {
-			static uint32 firebird_sticks_watched = 0;
-			uint32 firebird_area = ReadMacInt32(adb_base + 12 * k + 8);
-			uint32 firebird_globals, firebird_sticks;
-
-			if (firebird_area != 0 && ReadMacInt32(firebird_area + 0xe6) == 0x6d464244
-					&& (firebird_globals = ReadMacInt32(firebird_area + 0x11a)) != 0
-					&& (firebird_sticks = ReadMacInt32(firebird_globals + 0xe)) != 0
-					&& firebird_sticks != firebird_sticks_watched) {
-				firebird_sticks_watched = firebird_sticks;
-				adb_firebird_area = firebird_area;
-				adb_firebird_service = ReadMacInt32(adb_base + 12 * k + 4);
-				adb_snapshot_region(5, "fbset", firebird_sticks, ADB_SNAPSHOT_BYTES);
-				adb_log_firebird("found");
-			}
-		}
-#endif
 	}
+	adb_log_firebird_track(adb_base);
 }
 static bool joy_adb_owns_cursor(void)
 {
@@ -1241,11 +1281,20 @@ void ADBOp(uint8 op, uint8 *data)
 			if (cmd == 3)
 				data[0] = 0; /* nothing at this address */
 		} else {
+#if ADB_MOUSE_LOG
+			/* Log the command before running it, so a write that makes the
+			   guest fault is still in the log when it does. */
+			if (cmd == 2)
+				ALOG("joy write adr=%d r%d in[%d: %02x %02x] armed=%d param=%04x status=%04x",
+					adr, reg, data[0], data[1], data[2],
+					joy_adb_devs[i].cmd_armed, joy_adb_devs[i].cmd_param,
+					joy_adb_devs[i].cmd_status);
+#endif
 			joy_adb_op(i, cmd, reg, data);
 #if ADB_MOUSE_LOG
 			if (cmd == 3)
-				ALOG("joy reply r%d out[%d: %02x %02x %02x %02x] armed=%d param=%04x status=%04x",
-					reg, data[0], data[1], data[2], data[3], data[4],
+				ALOG("joy reply adr=%d r%d out[%d: %02x %02x %02x %02x] armed=%d param=%04x status=%04x",
+					adr, reg, data[0], data[1], data[2], data[3], data[4],
 					joy_adb_devs[i].cmd_armed, joy_adb_devs[i].cmd_param,
 					joy_adb_devs[i].cmd_status);
 #endif
@@ -1789,6 +1838,12 @@ static void mouse_adb_deliver(uint32 adb_base, uint32 mouse_base, uint32 tmp_dat
 		WriteMacInt8(tmp_data, n);
 		for (i = 0; i < n; i++)
 			WriteMacInt8(tmp_data + 1 + i, pkt[i]);
+		/* execute_68k() copies d0-d7 and a0-a6 into the 68k emulator, so
+		   the registers this call does not set would otherwise arrive
+		   holding whatever the host left on the stack. */
+		r.d[1] = r.d[2] = r.d[3] = r.d[4] = 0;
+		r.d[5] = r.d[6] = r.d[7] = 0;
+		r.a[4] = r.a[5] = r.a[6] = 0;
 		r.a[0] = tmp_data;
 		r.a[1] = ReadMacInt32(mouse_base);
 		r.a[2] = ReadMacInt32(mouse_base + 4);
@@ -1796,9 +1851,11 @@ static void mouse_adb_deliver(uint32 adb_base, uint32 mouse_base, uint32 tmp_dat
 		r.d[0] = (mouse_reg_3[0] << 4) | 0x0c;	// Talk 0
 #if ADB_MOUSE_LOG
 		cmd = (uint8)r.d[0];	/* Execute68k clobbers d0 */
+		adb_log_regs("tx: in ", &r);
 #endif
 		Execute68k(r.a[1], &r);
 #if ADB_MOUSE_LOG
+		adb_log_regs("tx: out", &r);
 		ALOG("tx: cmd=%02x [%s] svc=%08x area=%08x left=%d,%d", cmd,
 			adb_hex(hex, sizeof(hex), pkt, n),
 			ReadMacInt32(mouse_base), ReadMacInt32(mouse_base + 4),
@@ -2372,10 +2429,7 @@ void ADBVBL(void)
 		uint8 pkt[8];
 		uint8 n, j, reg, cmdlow;
 
-		/* 1. has any driver claimed this device's table entry yet? */
-		if (joy_adb_devs[i].entry_base == 0)
-			joy_adb_devs[i].entry_base = adb_resolve_entry(adb_base,
-				joy_adb_devs[i].reg_3[0] & 0x0f);
+		/* 1. did this tick's table walk find a driver for this device? */
 		if (joy_adb_devs[i].entry_base == 0)
 				continue;
 
@@ -2424,12 +2478,24 @@ void ADBVBL(void)
 		for (j = 0; j < n; j++)
 			WriteMacInt8(tmp_data + 1 + j, pkt[j]);
 
+		/* execute_68k() copies d0-d7 and a0-a6 into the 68k emulator, so
+		   the registers this call does not set would otherwise arrive
+		   holding whatever the host left on the stack. */
+		r.d[1] = r.d[2] = r.d[3] = r.d[4] = 0;
+		r.d[5] = r.d[6] = r.d[7] = 0;
+		r.a[4] = r.a[5] = r.a[6] = 0;
 		r.a[0] = tmp_data;
 		r.a[1] = ReadMacInt32(joy_adb_devs[i].entry_base);
 		r.a[2] = ReadMacInt32(joy_adb_devs[i].entry_base + 4);
 		r.a[3] = adb_base;
 		r.d[0] = (joy_adb_devs[i].reg_3[0] << 4) | cmdlow; /* Talk reg */
+#if ADB_MOUSE_LOG
+		adb_log_regs("joy: in ", &r);
+#endif
 		Execute68k(r.a[1], &r);
+#if ADB_MOUSE_LOG
+		adb_log_regs("joy: out", &r);
+#endif
 	}
 	#endif /* #if defined(USE_SDL) */
 }
@@ -2459,12 +2525,24 @@ void ADBInterrupt(void)
 		WriteMacInt8(tmp_data, 2);
 		WriteMacInt8(tmp_data + 1, mac_code);
 		WriteMacInt8(tmp_data + 2, mac_code == 0x7f ? 0x7f : 0xff);	// Power key is special
+		/* execute_68k() copies d0-d7 and a0-a6 into the 68k emulator, so
+		   the registers this call does not set would otherwise arrive
+		   holding whatever the host left on the stack. */
+		r.d[1] = r.d[2] = r.d[3] = r.d[4] = 0;
+		r.d[5] = r.d[6] = r.d[7] = 0;
+		r.a[4] = r.a[5] = r.a[6] = 0;
 		r.a[0] = tmp_data;
 		r.a[1] = ReadMacInt32(key_base);
 		r.a[2] = ReadMacInt32(key_base + 4);
 		r.a[3] = adb_base;
 		r.d[0] = (key_reg_3[0] << 4) | 0x0c;	// Talk 0
+#if ADB_MOUSE_LOG
+		adb_log_regs("key: in ", &r);
+#endif
 		Execute68k(r.a[1], &r);
+#if ADB_MOUSE_LOG
+		adb_log_regs("key: out", &r);
+#endif
 	}
 	
 	// Clear temporary data
