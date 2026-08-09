@@ -3,7 +3,7 @@
 //  (C) 2026 Sierra Burkhart (sierra760)
 //
 
-import Foundation
+import UIKit
 import Combine
 
 enum RenderingFilterMode: String, Codable, CaseIterable {
@@ -124,6 +124,16 @@ class PreferencesGraphicsModel {
 			objc_replaceBool("dspaccel", newValue)
 			changeSubject.send(.changeRequiringRestartAfterBootMade)
 		}
+	}
+
+	@MainActor
+	var shouldShowDspAccelWarning: Bool {
+		guard UIDevice.deviceType != .mac,
+			  !MiscellaneousSettings.current.iPadMousePassthrough else {
+			return false // Only affects touch input
+		}
+
+		return dspAccelEnabled
 	}
 
 	// MARK: - Rendering Filter Mode
