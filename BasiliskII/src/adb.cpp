@@ -443,9 +443,6 @@ typedef struct ADBTHRUSTMASTER {
 #ifdef PRAGMA_ALIGN_SUPPORTED
 #pragma options align=reset
 #endif
-#define JOY_ADB_MAX 8 /* 4 * 2 == one gravis and thrustmaster for each
-	real joystick */
-#define JOY_ADB_FIRST 4
 /* Gravis MouseStick II first appears as origADBAddr/devType 0x3/0x1
 * then the GetIndADB addr for origADBAddr and 0x23 for devType. */
 #define JOY_GRAVISMOUSESTICKII_ORIGADBADDR 0x3
@@ -460,6 +457,9 @@ typedef struct ADBTHRUSTMASTER {
 #define JOY_FIREBIRD_DEVTYPE      0x4E
 #define JOY_FIREBIRD_CLASS        0x0A  /* R1 data[0] */
 #define JOY_FIREBIRD_VERSION      0x00  /* R1 data[1] */
+#define JOY_CH_FLIGHTSTICKPRO_ORIGADBADDR 0x3
+#define JOY_CH_FLIGHTSTICKPRO_ORIGDEVTYPE 0x1
+#define JOY_CH_FLIGHTSTICKPRO_DEVTYPE     0x1  /* never changes */
 #if 1 /* Gravis Firebird */
 #define JOY_GRAVIS_ORIGADBADDR  JOY_FIREBIRD_ORIGADBADDR
 #define JOY_GRAVIS_ORIGDEVTYPE  JOY_FIREBIRD_ORIGDEVTYPE
@@ -473,7 +473,14 @@ typedef struct ADBTHRUSTMASTER {
 #define joy_adb_enable_gravis   joy_adb_enable_gravis_mousestick_ii
 #define joy_adb_pack_gravis joy_adb_pack_gravis_mousestick_ii
 #endif
-#define JOY_DEVSPERDEVICE 2
+#define JOY_ADB_FIRST 4
+#define JOY_HARDWARE_CH_FLIGHTSTICKPRO 0 /* Joymanager API handles instead */
+#if JOY_HARDWARE_CH_FLIGHTSTICKPRO 
+#define JOY_DEVSPERDEVICE 3 /* Firebird + Thrustmaster + Flightstick */
+#else
+#define JOY_DEVSPERDEVICE 2 /* Firebird + Thrustmaster */
+#endif
+#define JOY_ADB_MAX (4 * JOY_DEVSPERDEVICE)
 
 struct joy_adb_dev {
 	uint8 reg_3[2]; /* [0] flags|CURRENT addr. [1] devType - handler ID. */
@@ -525,6 +532,19 @@ void joy_adb_init(void)
 		joy_adb_devs[i].cmd_armed = 0;
 		joy_adb_devs[i].last_packet_len = 0;
 		++i;
+	#if JOY_HARDWARE_CH_FLIGHTSTICKPRO
+		joy_adb_devs[i].orig_addr = JOY_CH_FLIGHTSTICKPRO_ORIGADBADDR;
+		joy_adb_devs[i].reg_3[0] = 0x60 | joy_adb_devs[i].orig_addr;
+		joy_adb_devs[i].dev = dev;
+		joy_adb_devs[i].real_devtype = JOY_CH_FLIGHTSTICKPRO_DEVTYPE;
+		joy_adb_devs[i].reg_3[1] = JOY_CH_FLIGHTSTICKPRO_ORIGDEVTYPE;
+		joy_adb_devs[i].enabled = false;
+		joy_adb_devs[i].cmd_status = 0xff00;
+		joy_adb_devs[i].cmd_param = 0;
+		joy_adb_devs[i].cmd_armed = 0;
+		joy_adb_devs[i].last_packet_len = 0;
+		++i;
+	#endif
 	}
 }
 void joy_adb_exit(void)
@@ -542,6 +562,12 @@ void joy_adb_reset_addr(void)
 		joy_adb_devs[i].reg_3[0] = 0x60 | joy_adb_devs[i].orig_addr;
 		if (joy_adb_devs[i].real_devtype == JOY_THRUSTMASTER_DEVTYPE) {
 			joy_adb_devs[i].reg_3[1] = JOY_THRUSTMASTER_DEVTYPE;
+		#if JOY_HARDWARE_CH_FLIGHTSTICKPRO
+		} else if (joy_adb_devs[i].real_devtype
+				== JOY_CH_FLIGHTSTICKPRO_DEVTYPE) {
+			joy_adb_devs[i].reg_3[1] = JOY_CH_FLIGHTSTICKPRO_ORIGDEVTYPE;
+			joy_adb_devs[i].enabled = false;
+		#endif
 		} else {
 			joy_adb_devs[i].reg_3[1] = JOY_GRAVIS_ORIGDEVTYPE;
 			joy_adb_devs[i].enabled = false;
@@ -747,11 +773,7 @@ uint8 joy_adb_pack_thrustmaster(int i, uint8 reg, uint8 *buf)
 	buf[7] = 0; /* reserveByte2 - same */
 	return 8;
 }
-#if 0 /* CH Flightstick Pro reference; handled with JoyManager API */
-#define JOY_CH_FLIGHTSTICKPRO_ORIGADBADDR 0x3
-#define JOY_CH_FLIGHTSTICKPRO_ORIGDEVTYPE 0x1
-#define JOY_CH_FLIGHTSTICKPRO_DEVTYPE     0x1  /* never changes */
-
+#if JOY_HARDWARE_CH_FLIGHTSTICKPRO
 /* SDL int16 -> the stick's 10-bit field, 512 centred.  invert 
 	matches the wire: Y and throttle are sent inverted, X is not. */
 static uint16 joy_ch_flightstickpro_axis(JoyManagerDevice *dev, 
@@ -764,15 +786,10 @@ static uint16 joy_ch_flightstickpro_axis(JoyManagerDevice *dev,
 		v = 1023;
 	return (uint16)(invert ? (1023 - v) : v);
 }
-/* SDL button index -> bit in the packed state byte, active low */
 static const uint8 joy_ch_flightstickpro_button_bit[4] = {
-	0, /* trigger */ 1, /* left */ 2, /* right */ 3 /* center */
-};
-/* SDL hat bit (UP 0x1, RIGHT 0x2, DOWN 0x4, LEFT 0x8) 
-	-> bit in the packed state byte, active low */
+	0, /* trigger */ 1, /* left */ 2, /* right */ 3 /* center */ };
 static const uint8 joy_ch_flightstickpro_hat_bit[4] = {
-	4, /* up */ 6, /* right */ 7, /* down */ 5 /* left */
-};
+	4, /* up */ 6, /* right */ 7, /* down */ 5 /* left */ };
 uint8 joy_adb_pack_flightstick_pro(int i, uint8 reg, uint8 *buf)
 {
 	JoyManagerDevice *dev;
@@ -789,7 +806,7 @@ uint8 joy_adb_pack_flightstick_pro(int i, uint8 reg, uint8 *buf)
 		buf[3] = '3';
 		return 4;
 	}
-	if (reg != 0)
+	if (reg != 0) /* the panel polls R0; R2 and R3 are config only */
 		return 0;
 
 	state = 0xff;
@@ -813,8 +830,8 @@ uint8 joy_adb_pack_flightstick_pro(int i, uint8 reg, uint8 *buf)
 	y = joy_ch_flightstickpro_axis(dev, 1, true);
 	thr = joy_ch_flightstickpro_axis(dev, 3, true);
 
-	buf[0] = 0;
-	buf[1] = state;
+	buf[0] = 0; /* never read */
+	buf[1] = state; /* read in relative mouse mode only */
 	buf[2] = (uint8)(thr >> 8);
 	buf[3] = (uint8)thr;
 	buf[4] = (uint8)((state & 0xf0) | (y >> 8));
@@ -823,9 +840,13 @@ uint8 joy_adb_pack_flightstick_pro(int i, uint8 reg, uint8 *buf)
 	buf[7] = (uint8)x;
 	return 8;
 }
-#endif /* CH Flightstick Pro reference */
+#endif /* #if JOY_HARDWARE_CH_FLIGHTSTICKPRO */
 uint8 joy_adb_pack(int i, uint8 reg, uint8 *buf)
 {
+	#if JOY_HARDWARE_CH_FLIGHTSTICKPRO
+	if (joy_adb_devs[i].real_devtype == JOY_CH_FLIGHTSTICKPRO_DEVTYPE)
+		return joy_adb_pack_flightstick_pro(i, reg, buf);
+	#endif /* #if JOY_HARDWARE_CH_FLIGHTSTICKPRO */
 	if (joy_adb_devs[i].real_devtype == JOY_GRAVIS_DEVTYPE)
 		return joy_adb_pack_gravis(i, reg, buf);
 	return joy_adb_pack_thrustmaster(i, reg, buf);
@@ -880,10 +901,15 @@ void joy_adb_op(int i, uint8 cmd, uint8 reg, uint8* data) {
 				if (data[2] == 0xfe)
 					joy_adb_devs[i].reg_3[0] =
 						(joy_adb_devs[i].reg_3[0] & 0xf0) | (data[1] & 0x0f);
-				else if (data[2] == 0x00)
+				else if (data[2] == 0x00) {
 					joy_adb_devs[i].reg_3[0] =
 						(joy_adb_devs[i].reg_3[0] & 0xd0) | (data[1] & 0x2f);
-				else if (data[2] == JOY_GRAVIS_ORIGDEVTYPE
+					#if JOY_HARDWARE_CH_FLIGHTSTICKPRO
+					if (joy_adb_devs[i].real_devtype
+							== JOY_CH_FLIGHTSTICKPRO_DEVTYPE) /* on/off switch */
+						joy_adb_devs[i].enabled = (data[1] & 0x20) != 0;
+					#endif /* #if JOY_HARDWARE_CH_FLIGHTSTICKPRO */
+				} else if (data[2] == JOY_GRAVIS_ORIGDEVTYPE
 						|| data[2] == JOY_GRAVIS_DEVTYPE
 						|| data[2] == JOY_THRUSTMASTER_DEVTYPE)
 					joy_adb_devs[i].reg_3[1] = data[2];
@@ -2436,6 +2462,11 @@ void ADBVBL(void)
 		/* 2. Gravis only: has its INIT adopted the device and have we
 			switched on the driver's cursor stage? */
 		if (!joy_adb_devs[i].enabled) {
+			#if JOY_HARDWARE_CH_FLIGHTSTICKPRO
+			if (joy_adb_devs[i].real_devtype
+					== JOY_CH_FLIGHTSTICKPRO_DEVTYPE)
+				continue; /* handled by R3, not driver data flag */
+			#endif /* JOY_HARDWARE_CH_FLIGHTSTICKPRO */
 			joy_adb_enable_gravis(i);
 			if (!joy_adb_devs[i].enabled)
 				continue;
