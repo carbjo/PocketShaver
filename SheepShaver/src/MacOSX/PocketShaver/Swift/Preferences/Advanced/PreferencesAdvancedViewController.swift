@@ -19,7 +19,6 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		case hapticFeedback
 		case cpuEmulation
 		case bootstrap
-		case resources
 	}
 
 	enum Row: Hashable {
@@ -67,13 +66,6 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 
 		//bootstrap
 		case bootstrap
-
-		//resources
-		case resourcesSetupInstuctions
-		case resourcesBootstrapCompatiblityList
-		case resourcesTwoFingerSteeringOnboarding
-		case resourcesRelativeMouseModeOnboarding
-		case resourcesLicenses
 	}
 
 	private let model: PreferencesAdvancedModel
@@ -356,26 +348,6 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 						self?.displayRomPicker()
 					}
 				)
-			case .resourcesSetupInstuctions:
-				return PreferencesAdvancedMiscellaneousCell(
-					title: "Setup instructions"
-				)
-			case .resourcesBootstrapCompatiblityList:
-				return PreferencesAdvancedMiscellaneousCell(
-					title: "Bootstrap compatibility list"
-				)
-			case .resourcesTwoFingerSteeringOnboarding:
-				return PreferencesAdvancedMiscellaneousCell(
-					title: "Two finger steering onboarding"
-				)
-			case .resourcesRelativeMouseModeOnboarding:
-				return PreferencesAdvancedMiscellaneousCell(
-					title: "Relative mouse mode onboarding"
-				)
-			case .resourcesLicenses:
-				return PreferencesAdvancedMiscellaneousCell(
-					title: "Licenses"
-				)
 			}
 		}
 
@@ -399,8 +371,6 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 				return "CPU emulation"
 			case .bootstrap:
 				return "Bootstrap"
-			case .resources:
-				return "Resources"
 			}
 		}
 
@@ -508,19 +478,6 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 			])
 		}
 
-		snapshot.appendSections([.resources])
-		snapshot.appendItems([
-			.resourcesSetupInstuctions,
-			.resourcesBootstrapCompatiblityList
-		])
-		if UIDevice.deviceType != .mac {
-			snapshot.appendItems([.resourcesTwoFingerSteeringOnboarding])
-		}
-		snapshot.appendItems([
-			.resourcesRelativeMouseModeOnboarding,
-			.resourcesLicenses
-		])
-
 		dataSource.apply(snapshot)
 	}
 
@@ -614,8 +571,7 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		let itemIdentifier = dataSource.itemIdentifier(for: indexPath)
 
 		switch (sectionType, itemIdentifier) {
-		case (.resources, _),
-			(.relateiveMouseModeClickGesture, .relativeMouseModeClickGestureOption),
+		case (.relateiveMouseModeClickGesture, .relativeMouseModeClickGestureOption),
 			(.clipboardSharing, .clipboardSharingOption):
 			return true
 		default:
@@ -629,58 +585,13 @@ extension PreferencesAdvancedViewController { // UITableViewDataSource, UITableV
 		let sectionType = dataSource.sectionIdentifier(for: indexPath.section)
 		let itemIdentifier = dataSource.itemIdentifier(for: indexPath)
 
-		switch sectionType {
-		case .clipboardSharing:
-			switch itemIdentifier {
-			case .clipboardSharingOption(let setting):
-				model.clipboardSharingSetting = setting
-				updateClipboardSharingOptionsCells()
-			default:
-				fatalError()
-			}
-		case .relateiveMouseModeClickGesture:
-			switch itemIdentifier {
-			case .relativeMouseModeClickGestureOption(let setting):
-				model.relativeMouseModeClickGestureSetting = setting
-				updateRelativeMouseModeClickGestureOptionsCells()
-			default:
-				fatalError()
-			}
-		case .resources:
-			switch itemIdentifier {
-			case .resourcesSetupInstuctions:
-				let vc = PreferencesSetupInstructionsViewController()
-				let navVC = UINavigationController()
-				navVC.viewControllers = [vc]
-
-				present(navVC, animated: true)
-			case .resourcesBootstrapCompatiblityList:
-				let vc = PreferencesCompatibilityListViewController()
-				let navVC = UINavigationController()
-				navVC.viewControllers = [vc]
-
-				present(navVC, animated: true)
-			case .resourcesTwoFingerSteeringOnboarding:
-				let vc = PreferencesTwoFingerSteeringOnboardingViewController()
-				let navVC = UINavigationController()
-				navVC.viewControllers = [vc]
-
-				present(navVC, animated: true)
-			case .resourcesRelativeMouseModeOnboarding:
-				let vc = PreferencesRelativeMouseModeOnboardingViewController()
-				let navVC = UINavigationController()
-				navVC.viewControllers = [vc]
-
-				present(navVC, animated: true)
-			case .resourcesLicenses:
-				let vc = PreferencesLicensesViewController()
-				let navVC = UINavigationController()
-				navVC.viewControllers = [vc]
-
-				present(navVC, animated: true)
-			default:
-				fatalError()
-			}
+		switch (sectionType, itemIdentifier) {
+		case (.clipboardSharing, .clipboardSharingOption(let setting)):
+			model.clipboardSharingSetting = setting
+			updateClipboardSharingOptionsCells()
+		case (.relateiveMouseModeClickGesture, .relativeMouseModeClickGestureOption(let setting)):
+			model.relativeMouseModeClickGestureSetting = setting
+			updateRelativeMouseModeClickGestureOptionsCells()
 		default:
 			fatalError()
 		}
