@@ -1,7 +1,7 @@
 /*
  *  adb.cpp - ADB emulation (mouse/keyboard)
  *
- *  Basilisk II (C) Christian Bauer
+ *	(C) 2026 Ryan Norton (battlemageloveryt@gmail.com)
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by

@@ -1,13 +1,27 @@
 /*
  *  glide_engine.h - 3dfx Glide 2.x / 3.x guest API (CFM hooks + dispatch)
  *
- *  (C) 2026 Sierra Burkhart (sierra760)
- *
  *  Peer to rave_engine.h / gl_engine.h / dsp_engine.h. Guest Glide library
  *  exports are patched to TVECTs that land in NATIVE_GLIDE_DISPATCH.
  *
  *  Diablo II (Mac) is the first acceptance title and uses Glide 3.0.
  *  Glide 2.x shares the same raster path with a separate symbol table.
+ *
+ *	(C) 2026 Ryan Norton (battlemageloveryt@gmail.com)
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #ifndef GLIDE_ENGINE_H
