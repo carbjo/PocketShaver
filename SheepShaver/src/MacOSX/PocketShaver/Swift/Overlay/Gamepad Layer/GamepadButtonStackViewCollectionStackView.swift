@@ -93,13 +93,15 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 		case .joystick(let joystickType):
 			stackView.set(joystickType, at: index)
 
-			stackView.setKeyToRightObscured(true, rightOfIndex: index)
-			guard let orientationCorrectedRowPlusOne = getOrientationCorrectedRow(for: row - 1),
-				  let stackViewPlusOne = arrangedSubviews[orientationCorrectedRowPlusOne] as? GamepadButtonStackView else {
-				return
+			if !joystickType.isSmallSize {
+				stackView.setKeyToRightObscured(true, rightOfIndex: index)
+				guard let orientationCorrectedRowPlusOne = getOrientationCorrectedRow(for: row - 1),
+					  let stackViewPlusOne = arrangedSubviews[orientationCorrectedRowPlusOne] as? GamepadButtonStackView else {
+					return
+				}
+				stackViewPlusOne.setKeyObscured(true, at: index)
+				stackViewPlusOne.setKeyToRightObscured(true, rightOfIndex: index)
 			}
-			stackViewPlusOne.setKeyObscured(true, at: index)
-			stackViewPlusOne.setKeyToRightObscured(true, rightOfIndex: index)
 		}
 	}
 

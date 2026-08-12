@@ -196,18 +196,10 @@ class HiddenInputFieldKeyboardAccessoryView: UIView {
 		rightCmdButton.addTarget(self, action: #selector(cmdReleased), for: .touchUpOutside)
 
 		pushKey = { [weak self] key in
-			self?.inputInteractionModel.handle(
-				key,
-				isDown: true,
-				hapticAllowed: false
-			)
+			self?.inputInteractionModel.handle(key, isDown: true)
 		}
 		releaseKey = { [weak self] key in
-			self?.inputInteractionModel.handle(
-				key,
-				isDown: false,
-				hapticAllowed: false
-			)
+			self?.inputInteractionModel.handle(key, isDown: false)
 		}
 
 		listenToChanges()

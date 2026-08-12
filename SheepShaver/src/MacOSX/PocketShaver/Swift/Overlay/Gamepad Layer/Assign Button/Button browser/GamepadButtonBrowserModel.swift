@@ -1,8 +1,8 @@
 //
-//  GamepadAssignButtonModel.swift
-//  SheepShaver_Xcode8
+//  GamepadButtonBrowserModel.swift
+//  PocketShaver
 //
-//  Created by Carl Björkman on 2025-09-14.
+//  Created by Carl Björkman on 2026-08-03.
 //
 
 import Foundation
@@ -18,29 +18,33 @@ struct GamepadAssignEntry {
 	let assignment: GamepadButtonAssignment
 }
 
-class GamepadAssignButtonModel {
-	private let originalList: [GamepadAssignEntry]
-	private(set) var results: [GamepadAssignEntry]
+enum GamepadButtonBrowserOption {
+	case assignEntry(GamepadAssignEntry)
+	case keysJoystick
+}
+
+class GamepadButtonBrowserModel {
+	private let originalList: [GamepadButtonBrowserOption]
+	private(set) var results: [GamepadButtonBrowserOption]
 	private(set) var searchString = ""
 
 	init(
 		gamepadButtonSize: GamepadButtonSize
 	) {
-		let joystick: [GamepadButtonAssignment]
+		let joystick: [GamepadButtonBrowserOption]
 		switch gamepadButtonSize {
 		case .regular:
 			joystick = [
-				GamepadButtonAssignment.joystick(.mouse),
-				GamepadButtonAssignment.joystick(.wasd4way),
-				GamepadButtonAssignment.joystick(.wasd8way)
+				GamepadButtonBrowserOption(GamepadButtonAssignment.joystick(.mouse)),
+				.keysJoystick
 			]
 		case .small:
 			joystick = []
 		}
 
-		let specialKeys = SpecialButton.allCases.map({ GamepadButtonAssignment.specialButton($0) })
-		let sdlKeys = SDLKey.allCases.map({ GamepadButtonAssignment.key($0) })
-		originalList = (joystick + specialKeys + sdlKeys).map(GamepadAssignEntry.init) + alternativeNames
+		let specialKeys = SpecialButton.allCases.map({ GamepadButtonAssignment.specialButton($0) }).map(GamepadButtonBrowserOption.init)
+		let sdlKeys = SDLKey.allCases.map({ GamepadButtonAssignment.key($0) }).map(GamepadButtonBrowserOption.init)
+		originalList = (joystick + specialKeys + sdlKeys) + alternativeNames
 		results = originalList
 	}
 
@@ -57,6 +61,34 @@ class GamepadAssignButtonModel {
 			.sorted(by: { lhs, rhs in
 				lhs.identifier.count < rhs.identifier.count
 			})
+	}
+}
+
+extension GamepadButtonBrowserOption {
+	init(_ assignEntry: GamepadAssignEntry) {
+		self = .assignEntry(assignEntry)
+	}
+
+	init(_ buttonAssignment: GamepadButtonAssignment) {
+		self = .assignEntry(.init(buttonAssignment))
+	}
+
+	var identifier: String {
+		switch self {
+		case .assignEntry(let gamepadAssignEntry):
+			gamepadAssignEntry.identifier
+		case .keysJoystick:
+			"Joystick (keys)"
+		}
+	}
+
+	var description: String {
+		switch self {
+		case .assignEntry(let gamepadAssignEntry):
+			gamepadAssignEntry.assignment.description
+		case .keysJoystick:
+			"Joystick emulating pressing keys. Configurable in next step."
+		}
 	}
 }
 
@@ -104,10 +136,8 @@ extension GamepadButtonAssignment {
 			switch joystickType {
 			case .mouse:
 				return "Joystick (mouse)"
-			case .wasd4way:
-				return "Joystick (WASD, 4-way)"
-			case .wasd8way:
-				return "Joystick (WASD, 8-way)"
+			case .keys:
+				fatalError("Should never happen")
 			}
 		}
 	}
@@ -145,10 +175,8 @@ extension GamepadButtonAssignment {
 			switch joystickType {
 			case .mouse:
 				return "Joystick emulating moving mouse. Only works in relative mouse mode (and games and apps that use that mode)."
-			case .wasd4way:
-				return "Joystick emulating pressing keys WASD. 4-directional (W, A, S, D)."
-			case .wasd8way:
-				return "Joystick emulating pressing keys WASD. 8-directional (W, WA, A, AS, S, SD, D, WD)."
+			case .keys:
+				fatalError("Should never happen")
 			}
 		}
 	}
@@ -161,7 +189,7 @@ extension GamepadAssignEntry {
 	}
 }
 
-private let alternativeNames: [GamepadAssignEntry] = [
+private let alternativeNames: [GamepadButtonBrowserOption] = [
 	.init(identifier: "Return", assignment: .key(.enter)),
 	.init(identifier: "Blankspace", assignment: .key(.space)),
 	.init(identifier: "Command", assignment: .key(.cmd)),
@@ -184,4 +212,4 @@ private let alternativeNames: [GamepadAssignEntry] = [
 	.init(identifier: "Click", assignment: .specialButton(.mouseClick)),
 	.init(identifier: "Left click", assignment: .specialButton(.mouseClick)),
 	.init(identifier: "Right mouse click", assignment: .specialButton(.rightClick))
-]
+].map(GamepadButtonBrowserOption.init)

@@ -90,7 +90,7 @@ class MiscellaneousSettings: Codable {
 	private(set) var relativeMouseModeClickGestureSetting: RelativeMouseModeClickGestureSetting
 	private(set) var rightClickSetting: RightClickSetting
 	private(set) var keyboardAutoOffsetSetting: KeyboardAutoOffsetSetting
-	private(set) var hoverJustAboveOffsetModifier: Float
+	private(set) var hoverJustAboveOffsetModifier: CGFloat
 	private(set) var gammaRampSetting: GammaRampSetting
 	private(set) var bootInRelativeMouseMode: Bool
 	private(set) var ignoreIllegalInstructions: Bool
@@ -103,6 +103,8 @@ class MiscellaneousSettings: Codable {
 		}
 	}
 	private(set) var reportClipboardSharingActivity: Bool
+	private(set) var keysJoystickHapticFeedback: Bool
+	private(set) var keysJoystickDeadZone: CGFloat
 
 	var secondFingerClick: Bool {
 		twoFingerSteeringSetting != .off
@@ -179,6 +181,8 @@ class MiscellaneousSettings: Codable {
 		clipboardSharing = .manual
 		reportClipboardSharingActivity = true
 		#endif
+		keysJoystickHapticFeedback = true
+		keysJoystickDeadZone = 0.25
 	}
 
 	@MainActor
@@ -358,7 +362,7 @@ class MiscellaneousSettings: Codable {
 	}
 
 	@MainActor
-	func set(hoverJustAboveOffsetModifier: Float) {
+	func set(hoverJustAboveOffsetModifier: CGFloat) {
 		self.hoverJustAboveOffsetModifier = hoverJustAboveOffsetModifier
 
 		saveAsCurrent()
@@ -416,6 +420,20 @@ class MiscellaneousSettings: Codable {
 	@MainActor
 	func set(reportClipboardSharingActivity: Bool) {
 		self.reportClipboardSharingActivity = reportClipboardSharingActivity
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(keysJoystickHapticFeedback: Bool) {
+		self.keysJoystickHapticFeedback = keysJoystickHapticFeedback
+
+		saveAsCurrent()
+	}
+
+	@MainActor
+	func set(keysJoystickDeadZone: CGFloat) {
+		self.keysJoystickDeadZone = keysJoystickDeadZone
 
 		saveAsCurrent()
 	}

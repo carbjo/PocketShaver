@@ -34,24 +34,26 @@ class GamepadConfig: Codable {
 	}
 
 	@MainActor
-	func replace(with joystickType: JoystickType, at position: GamepadButtonPosition) throws {
-		guard position.row != 0 else {
-			throw GamepadConfigError.joystickAtBottomRow
-		}
-		if position.side == .right {
-			guard position.index > 0 else {
-				throw GamepadConfigError.joystickAtRightEdge
+	func replace(with joystickConfig: JoystickConfig, at position: GamepadButtonPosition) throws {
+		if !joystickConfig.isSmallSize {
+			guard position.row != 0 else {
+				throw GamepadConfigError.joystickAtBottomRow
 			}
-		}
-		let indexToTheRight = position.side == .left ? 1 : -1
-		guard mappings.firstIndex(where: { $0.position == .init(side: position.side, row: position.row - 1, index: position.index) }) == nil,
-		mappings.firstIndex(where: { $0.position == .init(side: position.side, row: position.row, index: position.index + indexToTheRight) }) == nil,
-		mappings.firstIndex(where: { $0.position == .init(side: position.side, row: position.row - 1, index: position.index + indexToTheRight) }) == nil else {
-			throw GamepadConfigError.joystickHasNoLayoutSpace
+			if position.side == .right {
+				guard position.index > 0 else {
+					throw GamepadConfigError.joystickAtRightEdge
+				}
+			}
+			let indexToTheRight = position.side == .left ? 1 : -1
+			guard mappings.firstIndex(where: { $0.position == .init(side: position.side, row: position.row - 1, index: position.index) }) == nil,
+				  mappings.firstIndex(where: { $0.position == .init(side: position.side, row: position.row, index: position.index + indexToTheRight) }) == nil,
+				  mappings.firstIndex(where: { $0.position == .init(side: position.side, row: position.row - 1, index: position.index + indexToTheRight) }) == nil else {
+				throw GamepadConfigError.joystickHasNoLayoutSpace
+			}
 		}
 
 		removeAssignment(at: position)
-		mappings.append(.init(position: position, assignment: .joystick(joystickType)))
+		mappings.append(.init(position: position, assignment: .joystick(joystickConfig)))
 
 		saveChanges()
 	}
@@ -206,7 +208,8 @@ private class GamepadSettings: Codable {
 			configurations = [
 				.exampleArcadeGameSideButtonLayout,
 				.exampleRpgGameDoubleSideButtonLayout,
-				.exampleFpsGameDoubleSideButtonLayout
+				.exampleFpsGameDoubleSideButtonLayout,
+				.exampleRtsGameDoubleSideButtonLayout
 			]
 		}
 	}

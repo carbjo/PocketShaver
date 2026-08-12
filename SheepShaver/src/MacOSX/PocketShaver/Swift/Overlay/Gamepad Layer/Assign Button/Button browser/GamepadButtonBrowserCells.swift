@@ -1,13 +1,13 @@
 //
-//  GamepadAssignButtonCells.swift
-//  SheepShaver_Xcode8
+//  GamepadButtonBrowserCells.swift
+//  PocketShaver
 //
-//  Created by Carl Björkman on 2025-09-14.
+//  Created by Carl Björkman on 2026-08-03.
 //
 
 import UIKit
 
-class GamepadAssignButtonEntryCell: UITableViewCell {
+class GamepadButtonBrowserEntryCell: UITableViewCell {
 	private lazy var titleLabel: UILabel = {
 		let label = UILabel.withoutConstraints()
 		label.numberOfLines = 0

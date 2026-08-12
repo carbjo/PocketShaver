@@ -52,6 +52,16 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
+	var keysJoystickDeadZone: CGFloat {
+		get {
+			miscSettings.keysJoystickDeadZone
+		}
+		set {
+			miscSettings.set(keysJoystickDeadZone: newValue)
+		}
+	}
+
+	@MainActor
 	var fpsReportingEnabled: Bool {
 		get {
 			miscSettings.fpsReporting
@@ -84,7 +94,7 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
-	var hoverJustAboveOffsetModifier: Float {
+	var hoverJustAboveOffsetModifier: CGFloat {
 		get {
 			miscSettings.hoverJustAboveOffsetModifier
 		}
@@ -194,6 +204,16 @@ class PreferencesAdvancedModel {
 		}
 		set {
 			miscSettings.set(keyHapticFeedback: newValue)
+		}
+	}
+
+	@MainActor
+	var isKeysJoystickHapticFeedbackOn: Bool {
+		get {
+			miscSettings.keysJoystickHapticFeedback
+		}
+		set {
+			miscSettings.set(keysJoystickHapticFeedback: newValue)
 		}
 	}
 
