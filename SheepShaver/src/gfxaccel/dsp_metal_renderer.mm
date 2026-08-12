@@ -53,7 +53,6 @@
 #include "dsp_pixel_staging_lifetime_policy.h"
 #include "dsp_metal_renderer.h"
 #include "dsp_front_buffer_policy.h"
-#include "dsp_vbl_publish_policy.h"
 #include "dsp_context_private.h"
 #include "gfxaccel_resources.h"       /* per-buffer owner tag */
 #include "gfxaccel_resources_heap.h"
@@ -524,7 +523,7 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 			(row_bytes + 255u) & ~255u;
 		const uint32_t buffer_size = aligned_row_bytes * h;
 		uint8_t *staging_host = Mac2HostAddr(ctx->staging_mac_addr);
-		void *back_contents = ctx->back_buffer.contents;
+		void *back_contents = ((__bridge id<MTLBuffer>)ctx->back_buffer).contents;
 		if (staging_host != NULL && back_contents != NULL) {
 			memcpy(back_contents, staging_host, buffer_size);
 		}
