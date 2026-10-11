@@ -102,6 +102,8 @@ class GamepadButtonStackViewCollectionStackView: UIStackView {
 				stackViewPlusOne.setKeyObscured(true, at: index)
 				stackViewPlusOne.setKeyToRightObscured(true, rightOfIndex: index)
 			}
+		case .selectionWheelButton(let selectionWheelButtonConfig):
+			stackView.set(selectionWheelButtonConfig, at: index)
 		}
 	}
 

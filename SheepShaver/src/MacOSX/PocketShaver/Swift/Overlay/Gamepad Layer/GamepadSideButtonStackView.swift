@@ -50,7 +50,8 @@ class GamepadSideButtonStackView: UIStackView {
 			set(key, at: index)
 		case .specialButton(let specialButton):
 			set(specialButton, at: index)
-		case .joystick:
+		case .joystick,
+				.selectionWheelButton:
 			fatalError()
 		}
 	}

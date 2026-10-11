@@ -481,3 +481,78 @@ extension PreferencesInformationCell.Margin {
 		}
 	}
 }
+
+class PreferencesEditableSectionHeaderCell: UITableViewHeaderFooterView {
+	private lazy var titleLabel: UILabel = {
+		let label = UILabel.withoutConstraints()
+		label.font = .systemFont(ofSize: 15, weight: .semibold)
+		label.textColor = Colors.sectionHeaderText
+		label.numberOfLines = 0
+		label.lineBreakMode = .byWordWrapping
+		return label
+	}()
+
+	private lazy var editButton: UIButton = {
+		let button = UIButton(type: .system)
+		button.translatesAutoresizingMaskIntoConstraints = false
+		button.tintColor = Colors.primaryText
+		button.titleLabel?.font = .boldSystemFont(ofSize: 15)
+		button.addTarget(self, action: #selector(editButtonPushed), for: .touchUpInside)
+		return button
+	}()
+
+	private let didTapEditButton: (() -> Void)
+	private var isEditing: Bool
+
+	init(
+		title: String,
+		shouldShowEdit: Bool,
+		isEditing: Bool = false,
+		didTapEditButton: @escaping (() -> Void)
+	) {
+		self.isEditing = isEditing
+		self.didTapEditButton = didTapEditButton
+
+		super.init(reuseIdentifier: nil)
+
+		backgroundColor = Colors.primaryBackground
+
+		titleLabel.text = title
+
+		editButton.setContentHuggingPriority(.required, for: .horizontal)
+		editButton.setContentHuggingPriority(.required, for: .vertical)
+
+		contentView.addSubview(titleLabel)
+		contentView.addSubview(editButton)
+
+		NSLayoutConstraint.activate([
+			titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+			titleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8).withPriority(.required - 1),
+
+			editButton.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 16),
+			editButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+			editButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+			editButton.heightAnchor.constraint(equalToConstant: 44)
+		])
+
+		config(shouldShowEdit: shouldShowEdit)
+		updateEditButtonTitle()
+	}
+
+	required init?(coder: NSCoder) { fatalError() }
+
+	func config(shouldShowEdit: Bool) {
+		editButton.isHidden = !shouldShowEdit
+	}
+
+	private func updateEditButtonTitle() {
+		editButton.setTitle(isEditing ? "Done" : "Edit", for: .normal)
+	}
+
+	@objc private func editButtonPushed() {
+		isEditing = !isEditing
+		updateEditButtonTitle()
+		didTapEditButton()
+	}
+}

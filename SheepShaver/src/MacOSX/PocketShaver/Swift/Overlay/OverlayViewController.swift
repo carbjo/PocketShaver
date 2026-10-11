@@ -61,10 +61,10 @@ public class OverlayViewController: UIViewController {
 		let view = GamepadLayerView(
 			inputInteractionModel: inputInteractionModel,
 			didRequestAssignmentForButton: { [weak self] position in
-				self?.presentAlertForEditingButtonMapping(at: position)
+				self?.presentGamepadButtonAssignment(for: position)
 			},
 			didRequestAssignmentForSideButton: { [weak self] position in
-				self?.presentAlertForEditingButtonMapping(at: position)
+				self?.presentGamepadSideButtonAssignment(for: position)
 			},
 			didRequestLayoutSettings: { [weak self] in
 				self?.presentLayoutSettings()
@@ -506,13 +506,14 @@ public class OverlayViewController: UIViewController {
 		present(vc, animated: true)
 	}
 
-	private func presentAlertForEditingButtonMapping(at position: GamepadButtonPosition) {
+	private func presentGamepadButtonAssignment(for position: GamepadButtonPosition) {
 		guard !gestureInputView.isDragging else {
 			return
 		}
 
 		let vc = GamepadAssignButtonViewController(
-			for: .regular
+			for: .regular,
+			editing: gamepadConfig.getAssignment(for: position)
 		){ [weak self] vc, result in
 			guard let self else { return }
 
@@ -539,6 +540,8 @@ public class OverlayViewController: UIViewController {
 						let alertVc = UIAlertController.withMessage("The slot to the right, below and diagnoally right and below must all be vacant for a joystick to be placed. A regular sized joystick needs 2x2 slots.")
 						present(alertVc, animated: true)
 					} catch {}
+				case .selectionWheelButton(let selectionWheelButtonConfig):
+					gamepadConfig.replace(with: selectionWheelButtonConfig, at: position)
 				}
 			case .unassign:
 				gamepadConfig.removeAssignment(at: position)
@@ -553,13 +556,14 @@ public class OverlayViewController: UIViewController {
 		vc.animatePresent()
 	}
 
-	private func presentAlertForEditingButtonMapping(at position: GamepadSideButtonPosition) {
+	private func presentGamepadSideButtonAssignment(for position: GamepadSideButtonPosition) {
 		guard !gestureInputView.isDragging else {
 			return
 		}
 
 		let vc = GamepadAssignButtonViewController(
-			for: .small
+			for: .small,
+			editing: gamepadConfig.getAssignment(for: position)
 		) { [weak self] vc, result in
 			guard let self else { return }
 
@@ -573,7 +577,8 @@ public class OverlayViewController: UIViewController {
 					gamepadConfig.replace(with: specialButton, at: position)
 				case .key(let key):
 					gamepadConfig.replace(with: key, at: position)
-				case .joystick:
+				case .joystick,
+						.selectionWheelButton:
 					fatalError()
 				}
 			case .unassign:

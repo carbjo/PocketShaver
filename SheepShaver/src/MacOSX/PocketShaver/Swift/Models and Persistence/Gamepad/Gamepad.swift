@@ -22,6 +22,7 @@ enum GamepadButtonAssignment: Codable, Equatable, Hashable {
 	case key(SDLKey)
 	case specialButton(SpecialButton)
 	case joystick(JoystickConfig)
+	case selectionWheelButton(SelectionWheelButtonConfig)
 }
 
 struct GamepadButtonMapping: Codable, Equatable, Hashable {
@@ -125,6 +126,20 @@ extension GamepadConfig {
 			mappings: [
 				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.keys(.init(keys: .arrows, directions: .eightWay, size: .regular)))),
 				.init(position: .init(side: .left, row: 2, index: 0), assignment: .specialButton(.mouseClick)),
+				.init(position: .init(side: .left, row: 3, index: 0), assignment: .selectionWheelButton(
+					.init(buttonName: "Wep", assignments: [
+						.sdlKey(.n1),
+						.sdlKey(.n2),
+						.sdlKey(.n3),
+						.sdlKey(.n4),
+						.sdlKey(.n5),
+						.sdlKey(.n6),
+						.sdlKey(.n7),
+						.sdlKey(.n8),
+						.sdlKey(.n9),
+						.sdlKey(.n0)
+					])
+				)),
 				.init(position: .init(side: .right, row: 1, index: 1), assignment: .joystick(.mouse)),
 				.init(position: .init(side: .right, row: 2, index: 0), assignment: .key(.space))
 			],
@@ -144,6 +159,20 @@ extension GamepadConfig {
 			mappings: [
 				.init(position: .init(side: .left, row: 1, index: 0), assignment: .joystick(.keys(.init(keys: .arrows, directions: .eightWay, size: .regular)))),
 				.init(position: .init(side: .left, row: 2, index: 0), assignment: .specialButton(.mouseClick)),
+				.init(position: .init(side: .left, row: 3, index: 0), assignment: .selectionWheelButton(
+					.init(buttonName: "Wep", assignments: [
+						.sdlKey(.n1),
+						.sdlKey(.n2),
+						.sdlKey(.n3),
+						.sdlKey(.n4),
+						.sdlKey(.n5),
+						.sdlKey(.n6),
+						.sdlKey(.n7),
+						.sdlKey(.n8),
+						.sdlKey(.n9),
+						.sdlKey(.n0)
+					])
+				)),
 				.init(position: .init(side: .right, row: 1, index: 1), assignment: .joystick(.mouse)),
 				.init(position: .init(side: .right, row: 2, index: 0), assignment: .key(.space))
 			],

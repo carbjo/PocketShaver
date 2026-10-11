@@ -188,7 +188,8 @@ class GamepadLayerView: UIView, ImageDerivable {
 					stackView.set(sdlKey, at: sideButtonMapping.position.index)
 				case .specialButton(let specialButton):
 					stackView.set(specialButton, at: sideButtonMapping.position.index)
-				case .joystick:
+				case .joystick,
+						.selectionWheelButton:
 					fatalError()
 				}
 			}

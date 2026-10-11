@@ -47,6 +47,7 @@ class GamepadButtonBrowserViewController: UIViewController {
 	private let model: GamepadButtonBrowserModel
 	private let reportKeyboardHeightCallback: ((CGFloat) -> Void)
 	private let keysJoystickCreationRequest: (() -> Void)
+	private let selectionWheelButtonCreationRequest: ((SelectionWheelButtonCreationPresentationType) -> Void)
 	private let dismissRequestCallback: ((GamepadAssignResult) -> Void)
 
 	private let sizeMode: GamepadAssignButtonViewController.SizeMode
@@ -55,12 +56,14 @@ class GamepadButtonBrowserViewController: UIViewController {
 		for gamepadButtonSize: GamepadButtonSize,
 		reportKeyboardHeightCallback: @escaping ((CGFloat) -> Void),
 		keysJoystickCreationRequest: @escaping (() -> Void),
+		selectionWheelButtonCreationRequest: @escaping ((SelectionWheelButtonCreationPresentationType) -> Void),
 		dismissRequestCallback: @escaping ((GamepadAssignResult) -> Void)
 	)
 	{
 		self.model = .init(gamepadButtonSize: gamepadButtonSize)
 		self.reportKeyboardHeightCallback = reportKeyboardHeightCallback
 		self.keysJoystickCreationRequest = keysJoystickCreationRequest
+		self.selectionWheelButtonCreationRequest = selectionWheelButtonCreationRequest
 		self.dismissRequestCallback = dismissRequestCallback
 
 		if UIScreen.isSESize,
@@ -153,6 +156,10 @@ class GamepadButtonBrowserViewController: UIViewController {
 			dismiss(with: .assignment(gamepadAssignEntry.assignment))
 		case .keysJoystick:
 			keysJoystickCreationRequest()
+		case .selectionWheelButton:
+			selectionWheelButtonCreationRequest(.default)
+		case .selectionWheelButtonWithNumbersTemplate:
+			selectionWheelButtonCreationRequest(.prePopulateWithNumbers)
 		}
 	}
 
@@ -206,6 +213,12 @@ extension GamepadButtonBrowserViewController: UITableViewDelegate {
 		case .keysJoystick:
 			searchTextField.resignFirstResponder()
 			keysJoystickCreationRequest()
+		case .selectionWheelButton:
+			searchTextField.resignFirstResponder()
+			selectionWheelButtonCreationRequest(.default)
+		case .selectionWheelButtonWithNumbersTemplate:
+			searchTextField.resignFirstResponder()
+			selectionWheelButtonCreationRequest(.prePopulateWithNumbers)
 		}
 	}
 }

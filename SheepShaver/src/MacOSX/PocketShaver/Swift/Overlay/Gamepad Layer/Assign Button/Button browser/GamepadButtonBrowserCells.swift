@@ -43,6 +43,7 @@ class GamepadButtonBrowserEntryCell: UITableViewCell {
 
 		titleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 		infoButton.setContentHuggingPriority(.required, for: .horizontal)
+		infoButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
 		contentView.addSubview(titleLabel)
 		contentView.addSubview(infoButton)

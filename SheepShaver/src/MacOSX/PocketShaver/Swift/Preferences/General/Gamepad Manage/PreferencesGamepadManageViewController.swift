@@ -100,7 +100,8 @@ extension PreferencesGamepadManageViewController { // UITableViewDataSource, UIT
 		case .information:
 			return UIView.withoutConstraints()
 		case .gamepadLayouts:
-			return PreferencesGamepadManageConfigHeaderCell(
+			return PreferencesEditableSectionHeaderCell(
+				title: "Gamepad overlays",
 				shouldShowEdit: !gamepadConfigs.isEmpty,
 				didTapEditButton: {
 					tableView.setEditing(!tableView.isEditing, animated: true)
@@ -174,7 +175,7 @@ extension PreferencesGamepadManageViewController { // UITableViewDataSource, UIT
 		GamepadManager.shared.remove(at: indexPath.row)
 
 		if gamepadConfigs.isEmpty {
-			if let gamepadConfigHeaderCell = tableView.headerView(forSection: SectionType.gamepadLayouts.rawValue) as? PreferencesGamepadManageConfigHeaderCell {
+			if let gamepadConfigHeaderCell = tableView.headerView(forSection: SectionType.gamepadLayouts.rawValue) as? PreferencesEditableSectionHeaderCell {
 				gamepadConfigHeaderCell.config(shouldShowEdit: false)
 			}
 

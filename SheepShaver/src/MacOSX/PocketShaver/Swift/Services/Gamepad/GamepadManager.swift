@@ -15,6 +15,14 @@ class GamepadConfig: Codable {
 	private(set) var visibilitySetting: GamepadVisibilitySetting
 
 
+	func getAssignment(for position: GamepadButtonPosition) -> GamepadButtonAssignment? {
+		mappings.first(where: { $0.position == position })?.assignment
+	}
+
+	func getAssignment(for position: GamepadSideButtonPosition) -> GamepadButtonAssignment? {
+		sideButtonMappings?.first(where: { $0.position == position })?.assignment
+	}
+
 	// MARK: Main buttons
 
 	@MainActor
@@ -54,6 +62,14 @@ class GamepadConfig: Codable {
 
 		removeAssignment(at: position)
 		mappings.append(.init(position: position, assignment: .joystick(joystickConfig)))
+
+		saveChanges()
+	}
+
+	@MainActor
+	func replace(with selectionWheelButtonConfig: SelectionWheelButtonConfig, at position: GamepadButtonPosition) {
+		removeAssignment(at: position)
+		mappings.append(.init(position: position, assignment: .selectionWheelButton(selectionWheelButtonConfig)))
 
 		saveChanges()
 	}
