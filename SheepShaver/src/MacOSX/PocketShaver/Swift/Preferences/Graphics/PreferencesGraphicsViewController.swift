@@ -112,6 +112,12 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 		dataSource.apply(snapshot)
 	}
 
+	private func reloadRows(_ rows: [Row]) {
+		var snapshot = dataSource.snapshot()
+		snapshot.reloadItems(rows)
+		dataSource.apply(snapshot)
+	}
+
 	private func setupDataSource() {
 		dataSource = .init(tableView: tableView) { [weak self] tableView, indexPath, itemIdentifier in
 			guard let self else { return UITableViewCell() }
@@ -186,11 +192,14 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 					title: "DrawSprocket",
 					isOn: model.dspAccelEnabled
 				) { [weak self] isOn in
-					self?.model.dspAccelEnabled = isOn
+					guard let self else { return }
+					model.dspAccelEnabled = isOn
+					reloadRows([.graphicsAccelerationInfo])
 				}
 			case .graphicsAccelerationInfo:
+				let dspWarningPrefix = model.shouldShowDspAccelWarning ? "DrawSprocket acceleration can cause touch input misalignment in certain game titles. Try disabling if experiencing cursor misalignment issues.\n\n" : ""
 				return PreferencesCardInformationCell(
-					text: "Each accelerator is independent — mix and match per app to find what runs best."
+					text: dspWarningPrefix + "Each accelerator is independent — mix and match per app to find what runs best."
 				)
 			case .displayMode:
 				return PreferencesGraphicsDisplayModeCell(

@@ -70,6 +70,8 @@ class TableViewDiffableDataSource<T: Hashable, S: Hashable> : UITableViewDiffabl
 	var sectionTitleProvider: ((T) -> String?)?
 	var canEditProvider: ((S) -> Bool)?
 	var commitEditProvider: ((S, UITableViewCell.EditingStyle) -> Void)?
+	var canMoveProvider: ((S) -> Bool)?
+	var commitMoveRow: ((IndexPath, IndexPath) -> Void)?
 
 	override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
 		if let sectionTitleProvider,
@@ -96,6 +98,19 @@ class TableViewDiffableDataSource<T: Hashable, S: Hashable> : UITableViewDiffabl
 		}
 
 		commitEditProvider(identifier, editingStyle)
+	}
+
+	override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+		guard let canMoveProvider,
+			  let identifier = itemIdentifier(for: indexPath) else {
+			return false
+		}
+
+		return canMoveProvider(identifier)
+	}
+
+	override func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
+		commitMoveRow?(sourceIndexPath, destinationIndexPath)
 	}
 
 	func reloadSection(_ section: T) {

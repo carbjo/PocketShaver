@@ -21,6 +21,7 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 		case keyboardAutoOffset
 		case audio
 		case hints
+		case resources
 	}
 
 	enum Row: Hashable {
@@ -66,6 +67,13 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 		// hints
 		case hintsToggle
 		case hintsInformation
+
+		// resources
+		case resourcesSetupInstuctions
+		case resourcesBootstrapCompatiblityList
+		case resourcesTwoFingerSteeringOnboarding
+		case resourcesRelativeMouseModeOnboarding
+		case resourcesLicenses
 	}
 
 	enum FilePickerSource: Int {
@@ -405,6 +413,26 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 				return PreferencesInformationCell(
 					text: "Gamepad overlay names are shown even when hints are turned off."
 				)
+			case .resourcesSetupInstuctions:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Setup instructions"
+				)
+			case .resourcesBootstrapCompatiblityList:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Bootstrap compatibility list"
+				)
+			case .resourcesTwoFingerSteeringOnboarding:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Two finger steering onboarding"
+				)
+			case .resourcesRelativeMouseModeOnboarding:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Relative mouse mode onboarding"
+				)
+			case .resourcesLicenses:
+				return PreferencesAdvancedMiscellaneousCell(
+					title: "Licenses"
+				)
 			}
 		}
 
@@ -433,6 +461,8 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 				return "Audio"
 			case .hints:
 				return "Hints"
+			case .resources:
+				return "Resources"
 			}
 		}
 
@@ -560,6 +590,19 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 				snapshot.appendItems([.hintsInformation])
 			}
 		}
+
+		snapshot.appendSections([.resources])
+		snapshot.appendItems([
+			.resourcesSetupInstuctions,
+			.resourcesBootstrapCompatiblityList
+		])
+		if UIDevice.deviceType != .mac {
+			snapshot.appendItems([.resourcesTwoFingerSteeringOnboarding])
+		}
+		snapshot.appendItems([
+			.resourcesRelativeMouseModeOnboarding,
+			.resourcesLicenses
+		])
 
 		dataSource.apply(
 			snapshot,
@@ -706,7 +749,7 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 		if InformationConsumption.current.hasReadSetupInstructions {
 			let alertVC = UIAlertController(
 				title: "Information",
-				message: "Setup instructions will still be accessible from the bottom of Advanced tab.",
+				message: "Setup instructions will still be accessible from the Resources section at the bottom of this tab.",
 				preferredStyle: .alert
 			)
 
@@ -720,7 +763,7 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 		} else {
 			let alertVC = UIAlertController(
 				title: "Warning",
-				message: "Step 5 & 8 of setup instructions are non-trivial and must be follwed for succesful setup.\nIf setup instructions is dismissed from here, it can still be accessed from the bottom of Advanced tab.",
+				message: "Step 5 & 8 of setup instructions are non-trivial and must be follwed for succesful setup.\nIf setup instructions is dismissed from here, it can still be accessed from the Resources section at the bottom of this tab.",
 				preferredStyle: .alert
 			)
 
@@ -767,7 +810,56 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 
 extension PreferencesGeneralViewController {
 	override func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
-		false
+		let sectionType = dataSource.sectionIdentifier(for: indexPath.section)
+
+		switch sectionType {
+		case .resources:
+			return true
+		default:
+			return false
+		}
+	}
+
+	override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+		tableView.deselectRow(at: indexPath, animated: true)
+
+		let sectionType = dataSource.sectionIdentifier(for: indexPath.section)
+		let itemIdentifier = dataSource.itemIdentifier(for: indexPath)
+
+		switch (sectionType, itemIdentifier) {
+		case (.resources, .resourcesSetupInstuctions):
+			let vc = PreferencesSetupInstructionsViewController()
+			let navVC = UINavigationController()
+			navVC.viewControllers = [vc]
+
+			present(navVC, animated: true)
+		case (.resources, .resourcesBootstrapCompatiblityList):
+			let vc = PreferencesCompatibilityListViewController()
+			let navVC = UINavigationController()
+			navVC.viewControllers = [vc]
+
+			present(navVC, animated: true)
+		case (.resources, .resourcesTwoFingerSteeringOnboarding):
+			let vc = PreferencesTwoFingerSteeringOnboardingViewController()
+			let navVC = UINavigationController()
+			navVC.viewControllers = [vc]
+
+			present(navVC, animated: true)
+		case (.resources, .resourcesRelativeMouseModeOnboarding):
+			let vc = PreferencesRelativeMouseModeOnboardingViewController()
+			let navVC = UINavigationController()
+			navVC.viewControllers = [vc]
+
+			present(navVC, animated: true)
+		case (.resources, .resourcesLicenses):
+			let vc = PreferencesLicensesViewController()
+			let navVC = UINavigationController()
+			navVC.viewControllers = [vc]
+
+			present(navVC, animated: true)
+		default:
+			fatalError()
+		}
 	}
 }
 

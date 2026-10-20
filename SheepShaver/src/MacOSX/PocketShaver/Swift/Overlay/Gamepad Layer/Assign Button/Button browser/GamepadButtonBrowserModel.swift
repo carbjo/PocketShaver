@@ -21,6 +21,8 @@ struct GamepadAssignEntry {
 enum GamepadButtonBrowserOption {
 	case assignEntry(GamepadAssignEntry)
 	case keysJoystick
+	case selectionWheelButton
+	case selectionWheelButtonWithNumbersTemplate
 }
 
 class GamepadButtonBrowserModel {
@@ -32,19 +34,25 @@ class GamepadButtonBrowserModel {
 		gamepadButtonSize: GamepadButtonSize
 	) {
 		let joystick: [GamepadButtonBrowserOption]
+		let selectionWheelButton: [GamepadButtonBrowserOption]
 		switch gamepadButtonSize {
 		case .regular:
 			joystick = [
 				GamepadButtonBrowserOption(GamepadButtonAssignment.joystick(.mouse)),
 				.keysJoystick
 			]
+			selectionWheelButton = [
+				.selectionWheelButtonWithNumbersTemplate,
+				.selectionWheelButton
+			]
 		case .small:
 			joystick = []
+			selectionWheelButton = []
 		}
 
 		let specialKeys = SpecialButton.allCases.map({ GamepadButtonAssignment.specialButton($0) }).map(GamepadButtonBrowserOption.init)
 		let sdlKeys = SDLKey.allCases.map({ GamepadButtonAssignment.key($0) }).map(GamepadButtonBrowserOption.init)
-		originalList = (joystick + specialKeys + sdlKeys) + alternativeNames
+		originalList = (joystick + selectionWheelButton + specialKeys + sdlKeys) + alternativeNames
 		results = originalList
 	}
 
@@ -61,6 +69,10 @@ class GamepadButtonBrowserModel {
 			.sorted(by: { lhs, rhs in
 				lhs.identifier.count < rhs.identifier.count
 			})
+	}
+
+	func reset() {
+		input(searchString: "")
 	}
 }
 
@@ -79,6 +91,10 @@ extension GamepadButtonBrowserOption {
 			gamepadAssignEntry.identifier
 		case .keysJoystick:
 			"Joystick (keys)"
+		case .selectionWheelButton:
+			"Selection wheel (custom)"
+		case .selectionWheelButtonWithNumbersTemplate:
+			"Selection wheel (numbers)"
 		}
 	}
 
@@ -88,6 +104,10 @@ extension GamepadButtonBrowserOption {
 			gamepadAssignEntry.assignment.description
 		case .keysJoystick:
 			"Joystick emulating pressing keys. Configurable in next step."
+		case .selectionWheelButton:
+			"Selection wheel (multiple choice) button. Configurable in next step."
+		case .selectionWheelButtonWithNumbersTemplate:
+			"Selection wheel (multiple choice) button. Configurable in next step and pre-populated with numbers 0-9."
 		}
 	}
 }
@@ -139,6 +159,8 @@ extension GamepadButtonAssignment {
 			case .keys:
 				fatalError("Should never happen")
 			}
+		case .selectionWheelButton(let selectionWheelButtonConfig):
+			return selectionWheelButtonConfig.buttonName
 		}
 	}
 
@@ -178,6 +200,8 @@ extension GamepadButtonAssignment {
 			case .keys:
 				fatalError("Should never happen")
 			}
+		case .selectionWheelButton:
+			fatalError("Should never happen")
 		}
 	}
 }

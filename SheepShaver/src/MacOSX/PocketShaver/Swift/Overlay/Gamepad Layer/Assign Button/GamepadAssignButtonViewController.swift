@@ -17,6 +17,8 @@ class GamepadAssignButtonViewController: UIViewController {
 	private enum Content {
 		case buttonBrowser
 		case keysJoystickCreation
+		case selectionWheelButtonCreation
+		case selectionWheelButtonAssigmentBrowser
 	}
 
 	private lazy var containerView: UIView = {
@@ -52,7 +54,7 @@ class GamepadAssignButtonViewController: UIViewController {
 	}()
 
 	private lazy var buttonBrowserVc: GamepadButtonBrowserViewController = {
-		GamepadButtonBrowserViewController(
+		let vc = GamepadButtonBrowserViewController(
 			for: gamepadButtonSize,
 			reportKeyboardHeightCallback: { [weak self] keyboardHeight in
 				self?.reportKeyboardHeight(keyboardHeight)
@@ -60,14 +62,51 @@ class GamepadAssignButtonViewController: UIViewController {
 			keysJoystickCreationRequest: { [weak self] in
 				self?.displayKeysJoystickCreation()
 			},
+			selectionWheelButtonCreationRequest: { [weak self] type in
+				self?.displaySelectionWheelButtonCreation(type: type)
+			},
 			dismissRequestCallback: { [weak self] result in
 				self?.dismiss(with: result)
 			}
 		)
+		vc.view.alpha = content == .buttonBrowser ? 1 : 0
+		return vc
 	}()
 
 	private lazy var keysJoystickCreationVc: GamepadKeysJoystickCreationViewController = {
 		let vc = GamepadKeysJoystickCreationViewController()
+		vc.view.alpha = content == .keysJoystickCreation ? 1 : 0
+		if case .joystick(let joystickConfig) = editingInitalAssignment,
+		   case .keys(let keysJoystickConfig) = joystickConfig {
+			vc.load(config: keysJoystickConfig)
+		}
+		return vc
+	}()
+
+	private lazy var selectionWheelButtonCreationVc: SelectionWheelButtonCreationViewController = {
+		let vc = SelectionWheelButtonCreationViewController(
+			addAssignmentRequested: { [weak self] in
+				self?.displaySelectionWheelButtonAssigmentBrowser()
+			}
+		)
+		if case .selectionWheelButton(let selectionWheelButtonConfig) = editingInitalAssignment {
+			vc.load(config: selectionWheelButtonConfig)
+		}
+		vc.view.alpha = content == .selectionWheelButtonCreation ? 1 : 0
+		return vc
+	}()
+
+	private lazy var selectionWheelButtonAssigmentBrowserVc: SelectionWheelButtonAssigmentBrowserViewController = {
+		let vc = SelectionWheelButtonAssigmentBrowserViewController(
+			reportKeyboardHeightCallback: { [weak self] keyboardHeight in
+				self?.reportKeyboardHeight(keyboardHeight)
+			},
+			dismissRequestCallback: { [weak self] result in
+				guard let self else { return }
+				selectionWheelButtonCreationVc.addAssignment(result)
+				displaySelectionWheelButtonCreation(type: .default)
+			}
+		)
 		vc.view.alpha = 0
 		return vc
 	}()
@@ -114,18 +153,35 @@ class GamepadAssignButtonViewController: UIViewController {
 		containerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
 	}()
 
+	private let editingInitalAssignment: GamepadButtonAssignment?
 	private let dismissRequestCallback: ((GamepadAssignButtonViewController, GamepadAssignResult) -> Void)
 
 	private let gamepadButtonSize: GamepadButtonSize
 	private let sizeMode: SizeMode
-	private var content: Content = .buttonBrowser
+	private var content: Content
 
 	init(
 		for gamepadButtonSize: GamepadButtonSize,
+		editing editingInitalAssignment: GamepadButtonAssignment? = nil,
 		dismissRequestCallback: @escaping ((GamepadAssignButtonViewController, GamepadAssignResult) -> Void)
 	) {
 		self.gamepadButtonSize = gamepadButtonSize
+		self.editingInitalAssignment = editingInitalAssignment
 		self.dismissRequestCallback = dismissRequestCallback
+
+		switch editingInitalAssignment {
+		case .joystick(let joystickConfig):
+			switch joystickConfig {
+			case .keys:
+				content = .keysJoystickCreation
+			case .mouse:
+				content = .buttonBrowser
+			}
+		case .selectionWheelButton:
+			content = .selectionWheelButtonCreation
+		default:
+			content = .buttonBrowser
+		}
 
 		if UIScreen.isSESize,
 		   !UIScreen.isPortraitMode {
@@ -143,16 +199,29 @@ class GamepadAssignButtonViewController: UIViewController {
 	override func viewDidLoad() {
 		super.viewDidLoad()
 
-
 		view.addSubview(containerView)
 		cardView.addSubview(buttonBrowserVc.view)
 		cardView.addSubview(keysJoystickCreationVc.view)
+		cardView.addSubview(selectionWheelButtonCreationVc.view)
+		cardView.addSubview(selectionWheelButtonAssigmentBrowserVc.view)
 		cardView.addSubview(bottomButtonStack)
 		containerView.addSubview(cardView)
 
 		buttonBrowserVc.willMove(toParent: self)
 		addChild(buttonBrowserVc)
 		buttonBrowserVc.didMove(toParent: self)
+
+		keysJoystickCreationVc.willMove(toParent: self)
+		addChild(keysJoystickCreationVc)
+		keysJoystickCreationVc.didMove(toParent: self)
+
+		selectionWheelButtonCreationVc.willMove(toParent: self)
+		addChild(selectionWheelButtonCreationVc)
+		selectionWheelButtonCreationVc.didMove(toParent: self)
+
+		selectionWheelButtonAssigmentBrowserVc.willMove(toParent: self)
+		addChild(selectionWheelButtonAssigmentBrowserVc)
+		selectionWheelButtonAssigmentBrowserVc.didMove(toParent: self)
 
 		NSLayoutConstraint.activate([
 			containerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -174,6 +243,16 @@ class GamepadAssignButtonViewController: UIViewController {
 			keysJoystickCreationVc.view.topAnchor.constraint(equalTo: cardView.topAnchor),
 			keysJoystickCreationVc.view.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
 			keysJoystickCreationVc.view.bottomAnchor.constraint(equalTo: bottomButtonStack.topAnchor),
+
+			selectionWheelButtonCreationVc.view.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
+			selectionWheelButtonCreationVc.view.topAnchor.constraint(equalTo: cardView.topAnchor),
+			selectionWheelButtonCreationVc.view.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
+			selectionWheelButtonCreationVc.view.bottomAnchor.constraint(equalTo: bottomButtonStack.topAnchor),
+
+			selectionWheelButtonAssigmentBrowserVc.view.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
+			selectionWheelButtonAssigmentBrowserVc.view.topAnchor.constraint(equalTo: cardView.topAnchor),
+			selectionWheelButtonAssigmentBrowserVc.view.trailingAnchor.constraint(equalTo: cardView.trailingAnchor),
+			selectionWheelButtonAssigmentBrowserVc.view.bottomAnchor.constraint(equalTo: bottomButtonStack.topAnchor),
 
 			cardView.widthAnchor.constraint(equalToConstant: 280),
 			cardView.heightAnchor.constraint(equalToConstant: 400).withPriority(.defaultHigh),
@@ -203,7 +282,9 @@ class GamepadAssignButtonViewController: UIViewController {
 	required init?(coder: NSCoder) { fatalError() }
 
 	func animatePresent() {
-		buttonBrowserVc.animatePresent()
+		if content == .buttonBrowser {
+			buttonBrowserVc.animatePresent()
+		}
 
 		UIView.animate(
 			withDuration: 0.28,
@@ -228,14 +309,27 @@ class GamepadAssignButtonViewController: UIViewController {
 	private func configureBottomButtonsForCurrentContent() {
 		switch content {
 		case .buttonBrowser:
-			secondaryButton.setTitle("Cancel", for: .normal)
-			primaryButton.setTitle("Unassign", for: .normal)
-			primaryButton.setTitleColor(.red, for: .normal)
-		case .keysJoystickCreation:
+			if editingInitalAssignment != nil {
+				secondaryButton.setTitle("Cancel", for: .normal)
+				primaryButton.setTitle("Unassign", for: .normal)
+				primaryButton.setTitleColor(.red, for: .normal)
+				primaryButton.isHidden = false
+			} else {
+				secondaryButton.setTitle("Cancel", for: .normal)
+				primaryButton.isHidden = true
+			}
+
+
+		case .keysJoystickCreation,
+				.selectionWheelButtonCreation:
 			secondaryButton.setTitle("Back", for: .normal)
 			primaryButton.setTitle("Assign", for: .normal)
 			let normalTitleColor = secondaryButton.titleColor(for: .normal)
 			primaryButton.setTitleColor(normalTitleColor, for: .normal)
+			primaryButton.isHidden = false
+		case .selectionWheelButtonAssigmentBrowser:
+			secondaryButton.setTitle("Back", for: .normal)
+			primaryButton.isHidden = true
 		}
 	}
 
@@ -256,8 +350,12 @@ class GamepadAssignButtonViewController: UIViewController {
 		switch content {
 		case .buttonBrowser:
 			dismiss(with: .cancel)
-		case .keysJoystickCreation:
+		case .keysJoystickCreation,
+				.selectionWheelButtonCreation:
 			displayButtonBrowser()
+		case .selectionWheelButtonAssigmentBrowser:
+			selectionWheelButtonAssigmentBrowserVc.searchTextField.resignFirstResponder()
+			displaySelectionWheelButtonCreation(type: .default)
 		}
 	}
 
@@ -268,6 +366,10 @@ class GamepadAssignButtonViewController: UIViewController {
 			dismiss(with: .unassign)
 		case .keysJoystickCreation:
 			createPendingKeysJoystickButtonPressed()
+		case .selectionWheelButtonCreation:
+			createPendingSelectionWheelButtonButtonPressed()
+		case .selectionWheelButtonAssigmentBrowser:
+			fatalError()
 		}
 	}
 
@@ -282,10 +384,26 @@ class GamepadAssignButtonViewController: UIViewController {
 		)
 	}
 
+	private func createPendingSelectionWheelButtonButtonPressed() {
+		do {
+			let selectionWheelButtonConfig = try selectionWheelButtonCreationVc.model.compileConfig()
+			dismiss(
+				with: .assignment(
+					.selectionWheelButton(selectionWheelButtonConfig)
+				)
+			)
+		} catch SelectionWheelButtonCreationError.tooFewAssignments {
+			let alertVc = UIAlertController.withMessage("Selection wheels needs at least two assignments")
+			present(alertVc, animated: true)
+		} catch {}
+	}
+
 	private func displayButtonBrowser() {
 		content = .buttonBrowser
 		UIView.animate(withDuration: 0.2) {
 			self.keysJoystickCreationVc.view.alpha = 0
+			self.selectionWheelButtonCreationVc.view.alpha = 0
+			self.selectionWheelButtonAssigmentBrowserVc.view.alpha = 0
 			self.configureBottomButtonsForCurrentContent()
 		} completion: { [weak self] _ in
 			UIView.animate(withDuration: 0.2) {
@@ -293,6 +411,7 @@ class GamepadAssignButtonViewController: UIViewController {
 			} completion: { [weak self] _ in
 				self?.buttonBrowserVc.searchTextField.becomeFirstResponder()
 			}
+			self?.selectionWheelButtonCreationVc.resetIfNeeded()
 		}
 	}
 
@@ -300,10 +419,49 @@ class GamepadAssignButtonViewController: UIViewController {
 		content = .keysJoystickCreation
 		UIView.animate(withDuration: 0.2) {
 			self.buttonBrowserVc.view.alpha = 0
+			self.selectionWheelButtonCreationVc.view.alpha = 0
+			self.selectionWheelButtonAssigmentBrowserVc.view.alpha = 0
 			self.configureBottomButtonsForCurrentContent()
 		} completion: { [weak self] _ in
 			UIView.animate(withDuration: 0.2) {
 				self?.keysJoystickCreationVc.view.alpha = 1
+			}
+		}
+	}
+
+	private func displaySelectionWheelButtonCreation(
+		type: SelectionWheelButtonCreationPresentationType
+	) {
+		content = .selectionWheelButtonCreation
+
+		if type == .prePopulateWithNumbers {
+			selectionWheelButtonCreationVc.setupWithNumbersTemplate()
+		}
+
+		UIView.animate(withDuration: 0.2) {
+			self.buttonBrowserVc.view.alpha = 0
+			self.keysJoystickCreationVc.view.alpha = 0
+			self.selectionWheelButtonAssigmentBrowserVc.view.alpha = 0
+			self.configureBottomButtonsForCurrentContent()
+		} completion: { [weak self] _ in
+			UIView.animate(withDuration: 0.2) {
+				self?.selectionWheelButtonCreationVc.view.alpha = 1
+			}
+		}
+	}
+
+	private func displaySelectionWheelButtonAssigmentBrowser() {
+		content = .selectionWheelButtonAssigmentBrowser
+		UIView.animate(withDuration: 0.2) {
+			self.buttonBrowserVc.view.alpha = 0
+			self.keysJoystickCreationVc.view.alpha = 0
+			self.selectionWheelButtonCreationVc.view.alpha = 0
+			self.configureBottomButtonsForCurrentContent()
+		} completion: { [weak self] _ in
+			UIView.animate(withDuration: 0.2) {
+				self?.selectionWheelButtonAssigmentBrowserVc.view.alpha = 1
+			} completion: { [weak self] _ in
+				self?.selectionWheelButtonAssigmentBrowserVc.searchTextField.becomeFirstResponder()
 			}
 		}
 	}

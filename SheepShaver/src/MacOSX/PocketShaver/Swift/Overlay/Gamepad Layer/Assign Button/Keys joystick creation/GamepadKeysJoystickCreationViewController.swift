@@ -131,6 +131,12 @@ class GamepadKeysJoystickCreationViewController: UITableViewController {
 		dataSource.apply(snapshot)
 	}
 
+	func load(config: KeysJoystickConfig) {
+		model.directions = config.directions
+		model.keys = config.keys
+		model.size = config.size
+	}
+
 	private func updateKeysTypeCells() {
 		let wasdIndexPath = dataSource.indexPath(for: .keysTypeWasd)!
 		if let wasdCell = tableView.cellForRow(at: wasdIndexPath) as? PreferencesRadioButtonChoiceCell {

@@ -213,6 +213,12 @@
 		C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFB82E16C55500CF50D4 /* OverlayViewControllerObjC.mm */; };
 		C7E2AFBC2E16CAAD00CF50D4 /* OverlayViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */; };
 		C7E2AFC02E1962B000CF50D4 /* SDLKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */; };
+		C7E3066E307A4BB7002E4A28 /* MultipleChoiceButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E3066D307A4BAF002E4A28 /* MultipleChoiceButton.swift */; };
+		C7E30671307A538C002E4A28 /* SelectionWheelButtonCreationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E30670307A537D002E4A28 /* SelectionWheelButtonCreationViewController.swift */; };
+		C7E30673307A5404002E4A28 /* SelectionWheelButtonCreationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E30672307A5402002E4A28 /* SelectionWheelButtonCreationModel.swift */; };
+		C7E30675307A5619002E4A28 /* SelectionWheelButtonCreationCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E30674307A5617002E4A28 /* SelectionWheelButtonCreationCells.swift */; };
+		C7E30677307A6EAD002E4A28 /* SelectionWheelButtonAssigmentBrowserViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E30676307A6E9D002E4A28 /* SelectionWheelButtonAssigmentBrowserViewController.swift */; };
+		C7E30679307B82A8002E4A28 /* GamepadSelectionWheelButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E30678307B829C002E4A28 /* GamepadSelectionWheelButton.swift */; };
 		C7E39D6C300CFC0000830438 /* ClipboardSharing.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7E39D6B300CFBFA00830438 /* ClipboardSharing.mm */; };
 		C7E7B4A62EB7BFF6005844C2 /* PreferencesLicensesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E7B4A52EB7BFEA005844C2 /* PreferencesLicensesViewController.swift */; };
 		C7F0F0FD302250AC00690372 /* GamepadKeysJoystickCreationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F0F0FC3022509E00690372 /* GamepadKeysJoystickCreationViewController.swift */; };
@@ -862,6 +868,12 @@
 		C7E2AFBA2E16C57900CF50D4 /* OverlayViewControllerObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OverlayViewControllerObjC.h; sourceTree = "<group>"; };
 		C7E2AFBB2E16CAAA00CF50D4 /* OverlayViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewController.swift; sourceTree = "<group>"; };
 		C7E2AFBF2E19629A00CF50D4 /* SDLKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDLKey.swift; sourceTree = "<group>"; };
+		C7E3066D307A4BAF002E4A28 /* MultipleChoiceButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultipleChoiceButton.swift; sourceTree = "<group>"; };
+		C7E30670307A537D002E4A28 /* SelectionWheelButtonCreationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionWheelButtonCreationViewController.swift; sourceTree = "<group>"; };
+		C7E30672307A5402002E4A28 /* SelectionWheelButtonCreationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionWheelButtonCreationModel.swift; sourceTree = "<group>"; };
+		C7E30674307A5617002E4A28 /* SelectionWheelButtonCreationCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionWheelButtonCreationCells.swift; sourceTree = "<group>"; };
+		C7E30676307A6E9D002E4A28 /* SelectionWheelButtonAssigmentBrowserViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionWheelButtonAssigmentBrowserViewController.swift; sourceTree = "<group>"; };
+		C7E30678307B829C002E4A28 /* GamepadSelectionWheelButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadSelectionWheelButton.swift; sourceTree = "<group>"; };
 		C7E39D6B300CFBFA00830438 /* ClipboardSharing.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ClipboardSharing.mm; sourceTree = "<group>"; };
 		C7E39D6D300CFC6200830438 /* ClipboardSharing.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ClipboardSharing.h; sourceTree = "<group>"; };
 		C7E7B4A52EB7BFEA005844C2 /* PreferencesLicensesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesLicensesViewController.swift; sourceTree = "<group>"; };
@@ -1712,6 +1724,7 @@
 				C73660E92E3643430055AA91 /* GamepadButtonStackView.swift */,
 				C73660E12E34C9170055AA91 /* GamepadButton.swift */,
 				C75CBADD2EF2E10C00F576ED /* GamepadJoystick.swift */,
+				C7E30678307B829C002E4A28 /* GamepadSelectionWheelButton.swift */,
 				C791FA352F2CD70D00F52B02 /* GamepadSideButtonStackView.swift */,
 				C701C1AA2F29127200CC26E5 /* GamepadButtonSize.swift */,
 				C79469762F2BBEB000DFD2D3 /* GamepadSideButtonConfiguration.swift */,
@@ -1994,6 +2007,7 @@
 			children = (
 				C752E17830206D9F00CE3EC1 /* Button browser */,
 				C752E17930206DB300CE3EC1 /* Keys joystick creation */,
+				C7E3066F307A519C002E4A28 /* Selection wheel button creation */,
 				C7C3D26D2E76F3B20018DB8B /* GamepadAssignButtonViewController.swift */,
 				C73C7A012F002FE700FC0467 /* GamepadAssignKeyboardAccessoryView.swift */,
 			);
@@ -2141,6 +2155,17 @@
 			path = Swift;
 			sourceTree = "<group>";
 		};
+		C7E3066F307A519C002E4A28 /* Selection wheel button creation */ = {
+			isa = PBXGroup;
+			children = (
+				C7E30670307A537D002E4A28 /* SelectionWheelButtonCreationViewController.swift */,
+				C7E30674307A5617002E4A28 /* SelectionWheelButtonCreationCells.swift */,
+				C7E30672307A5402002E4A28 /* SelectionWheelButtonCreationModel.swift */,
+				C7E30676307A6E9D002E4A28 /* SelectionWheelButtonAssigmentBrowserViewController.swift */,
+			);
+			path = "Selection wheel button creation";
+			sourceTree = "<group>";
+		};
 		C7E39D6A300CFBCD00830438 /* Clipboard Sharing */ = {
 			isa = PBXGroup;
 			children = (
@@ -2163,6 +2188,7 @@
 			isa = PBXGroup;
 			children = (
 				C73660F32E37B5C50055AA91 /* Gamepad.swift */,
+				C7E3066D307A4BAF002E4A28 /* MultipleChoiceButton.swift */,
 				C72FA6C32F0808AA0071889C /* SpecialButton.swift */,
 			);
 			path = Gamepad;
@@ -2679,6 +2705,7 @@
 				E204B93928BC3EBE0081FDCA /* scsi_dummy.cpp in Sources */,
 				E204B93A28BC3EBE0081FDCA /* sbuf.c in Sources */,
 				C7C3D2772E781C270018DB8B /* PreferencesAdvancedModel.swift in Sources */,
+				C7E30673307A5404002E4A28 /* SelectionWheelButtonCreationModel.swift in Sources */,
 				C7699F172EC4663F0083B3B3 /* PreferencesCompatibilityListModel.swift in Sources */,
 				E204B93B28BC3EBE0081FDCA /* emul_op.cpp in Sources */,
 				C72FA6C42F0808AD0071889C /* SpecialButton.swift in Sources */,
@@ -2698,6 +2725,7 @@
 				E204B9EC28BC7CF20081FDCA /* prefs_ios.mm in Sources */,
 				C7F42CE72E5B4E9200FA7169 /* PreferencesROMValidatorObjC.mm in Sources */,
 				C73660E02E34C85D0055AA91 /* GamepadLayerView.swift in Sources */,
+				C7E30679307B82A8002E4A28 /* GamepadSelectionWheelButton.swift in Sources */,
 				E204B94328BC3EBE0081FDCA /* if.c in Sources */,
 				E204B94528BC3EBE0081FDCA /* tftp.c in Sources */,
 				C7E7B4A62EB7BFF6005844C2 /* PreferencesLicensesViewController.swift in Sources */,
@@ -2718,6 +2746,7 @@
 				C75A604F2E62D04600253CA3 /* PreferencesManager.swift in Sources */,
 				E204B94A28BC3EBE0081FDCA /* pict.c in Sources */,
 				C7F42CE12E5B3C7700FA7169 /* PreferencesAdvancedViewController.swift in Sources */,
+				C7E30671307A538C002E4A28 /* SelectionWheelButtonCreationViewController.swift in Sources */,
 				E204B94B28BC3EBE0081FDCA /* prefs_items.cpp in Sources */,
 				E204B94C28BC3EBE0081FDCA /* udp.c in Sources */,
 				E204B94D28BC3EBE0081FDCA /* ip_input.c in Sources */,
@@ -2778,6 +2807,7 @@
 				GFXH10A1B2C3D4E5F60201 /* gfxaccel_resources_heap.cpp in Sources */,
 				GFXH10A1B2C3D4E5F60211 /* gfxaccel_resources_heap.mm in Sources */,
 				C7F0F0FF3022562800690372 /* GamepadKeysJoystickCreationModel.swift in Sources */,
+				C7E30675307A5619002E4A28 /* SelectionWheelButtonCreationCells.swift in Sources */,
 				PST1501DSPBF0100000201 /* dsp_engine.cpp in Sources */,
 				PST1501DSPBF0200000201 /* dsp_dispatch.cpp in Sources */,
 				PST1501DSPBF0300000201 /* dsp_thunks.cpp in Sources */,
@@ -2804,6 +2834,7 @@
 				E204B95C28BC3EBE0081FDCA /* ip_icmp.c in Sources */,
 				C77F122D2F39D8FD0033BE25 /* BonjourManagerObjC.mm in Sources */,
 				E204B9E828BC7CE80081FDCA /* clip_ios.mm in Sources */,
+				C7E3066E307A4BB7002E4A28 /* MultipleChoiceButton.swift in Sources */,
 				E204B95D28BC3EBE0081FDCA /* video_sdl.cpp in Sources */,
 				C79469752F2BBB7A00DFD2D3 /* DeviceModel.swift in Sources */,
 				C70F32732ECB76920079A3D4 /* LinkLabel.swift in Sources */,
@@ -2904,6 +2935,7 @@
 				E204B97728BC3EBE0081FDCA /* disk_sparsebundle.cpp in Sources */,
 				E204B97828BC3EBE0081FDCA /* tinyxml2.cpp in Sources */,
 				C7E2AFB92E16C55C00CF50D4 /* OverlayViewControllerObjC.mm in Sources */,
+				C7E30677307A6EAD002E4A28 /* SelectionWheelButtonAssigmentBrowserViewController.swift in Sources */,
 				C791A9AA2F41C3BF001F7E2E /* DiskFileExtractor.swift in Sources */,
 				C73C7A022F002FF400FC0467 /* GamepadAssignKeyboardAccessoryView.swift in Sources */,
 				C79A69282E62041B00F582A6 /* RomPathObjC.mm in Sources */,
