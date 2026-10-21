@@ -32,9 +32,14 @@ class PreferencesManager {
 		objc_replaceString("sdlrender", "metal")
 		objc_replaceString("extfs", FileManager.documentUrl.path)
 
-		// PowerPC-to-native JIT (Mac Catalyst only; the core ignores the pref
-		// on hosts built without the compiler)
-		objc_replaceBool("jit", MiscellaneousSettings.current.jitCompilerEnabled)
+		// PowerPC-to-native JIT (Mac Catalyst, and iOS devices once StikDebug
+		// has provided code memory; the core falls back to the interpreter
+		// on hosts built without the compiler or without that memory)
+		if UIDevice.deviceType == .mac {
+			objc_replaceBool("jit", MiscellaneousSettings.current.jitCompilerEnabled)
+		} else {
+			objc_replaceBool("jit", objc_isDebugConfiguration())
+		}
 
 		objc_savePrefs()
 	}

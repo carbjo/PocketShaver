@@ -19,10 +19,15 @@
 
 /* Define to enable dyngen engine.
  * Mac Catalyst processes may create MAP_JIT mappings (allow-jit
- * entitlement), so the arm64 backend is compiled in there; iOS proper
- * cannot JIT and keeps the engine compiled out. TargetConditionals.h is
- * in scope: config.h includes it before selecting this header. */
+ * entitlement), so the arm64 backend is compiled in there. iOS devices
+ * compile it in too: code memory is obtained at runtime through a
+ * debugger (StikDebug, see jit-cache.cpp), and without one the
+ * interpreter stays in charge. The simulator keeps the engine compiled
+ * out. TargetConditionals.h is in scope: config.h includes it before
+ * selecting this header. */
 #if defined(TARGET_OS_MACCATALYST) && TARGET_OS_MACCATALYST
+#define ENABLE_DYNGEN 1
+#elif defined(TARGET_OS_SIMULATOR) && !TARGET_OS_SIMULATOR
 #define ENABLE_DYNGEN 1
 #else
 #define ENABLE_DYNGEN 0

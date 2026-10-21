@@ -632,6 +632,14 @@ bool powerpc_cpu::check_spcflags()
 	return true;
 }
 
+#if PPC_ENABLE_JIT
+// Translation-cache churn counters, reported and reset with each full
+// flush (note_translation_cache_flush in ppc-translate.cpp)
+unsigned long kpx_jit_range_invalidations;		// invalidate_cache_range calls
+unsigned long kpx_jit_range_blocks_removed;		// blocks those calls dropped
+unsigned long kpx_jit_exec_return_reuses;		// exec-returns resuming a cached block
+#endif
+
 #if DYNGEN_DIRECT_BLOCK_CHAINING
 void * powerpc_cpu::call_compile_chain_block(powerpc_cpu * the_cpu, block_info *sbi)
 {
@@ -700,6 +708,7 @@ void powerpc_cpu::execute(uint32 entry)
 			if (bi == NULL)
 				bi = compile_block(pc());
 			for (;;) {
+				bool exec_returned = false;
 				// Execute all cached blocks
 				for (;;) {
 					codegen.execute(bi->entry_point);
@@ -712,6 +721,7 @@ void powerpc_cpu::execute(uint32 entry)
 						if (spcflags().test(SPCFLAG_JIT_EXEC_RETURN)) {
 							spcflags().clear(SPCFLAG_JIT_EXEC_RETURN);
 							invalidated_cache = true;
+							exec_returned = true;
 							break;
 						}
 					}
@@ -723,8 +733,16 @@ void powerpc_cpu::execute(uint32 entry)
 						break;
 				}
 
-				// Compile new block
-				bi = compile_block(pc());
+				// Compile new block. An exec-return (a range invalidation
+				// from icbi/isync or MakeDataExecutable, trap unwinding)
+				// may leave pc()'s block cached: invalidated blocks are
+				// already gone from the cache, so reuse a surviving one
+				// rather than translate a duplicate that occupies cache
+				// space until the next full flush
+				if (exec_returned && (bi = my_block_cache.find(pc())) != NULL)
+					kpx_jit_exec_return_reuses++;
+				else
+					bi = compile_block(pc());
 			}
 		}
 #endif
@@ -970,6 +988,14 @@ void powerpc_cpu::invalidate_cache_range(uintptr start, uintptr end)
 	}
 #endif
 	spcflags().set(SPCFLAG_JIT_EXEC_RETURN);
-	my_block_cache.clear_range(start, end);
+	const int removed = my_block_cache.clear_range(start, end);
+#if PPC_ENABLE_JIT
+	if (use_jit) {
+		kpx_jit_range_invalidations++;
+		kpx_jit_range_blocks_removed += removed;
+	}
+#else
+	(void)removed;
+#endif
 #endif
 }

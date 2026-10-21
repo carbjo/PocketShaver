@@ -107,6 +107,24 @@
 
 
 /**
+ *	PPC_JIT_CACHE_DIAGNOSTICS
+ *
+ *		Define to 1 to add per-entry-point tracking to the translation
+ *		cache flush log line (blocks re-translated within a fill, and
+ *		entry points repeated from the previous fill). Costs two hash
+ *		sets of every translated entry point (megabytes at a 32 MB cache)
+ *		plus lookups per compiled block, so it stays off in every build
+ *		configuration: StikDebug users run development-signed builds, so
+ *		DEBUG is no signal of a developer session. Enable by hand when
+ *		measuring cache headroom.
+ **/
+
+#ifndef PPC_JIT_CACHE_DIAGNOSTICS
+#define PPC_JIT_CACHE_DIAGNOSTICS 0
+#endif
+
+
+/**
  *	PPC_REENTRANT_JIT
  *
  *		Define to 1 if we are guaranteed to be able to invoke the JIT

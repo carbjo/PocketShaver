@@ -80,6 +80,14 @@ void objc_replaceBool(NSString * _Nonnull name, BOOL value) {
 	PrefsReplaceBool(nameCString, value);
 }
 
+BOOL objc_isDebugConfiguration(void) {
+#if DEBUG
+	return YES;
+#else
+	return NO;
+#endif
+}
+
 void objc_update_sdl_ipad_mouse_setting(BOOL isOn) {
 	SDL_SetHint(SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH, (isOn ? "1" : "0"));
 }

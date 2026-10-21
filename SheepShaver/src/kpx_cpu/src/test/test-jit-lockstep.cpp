@@ -60,6 +60,8 @@ unsigned long kpx_jit_trap_chain_count = 0;
 unsigned long kpx_jit_vector_native_count = 0;
 // Bumped by the kpx_fp_* arithmetic helpers; proves native FP executed
 unsigned long kpx_jit_fp_helper_count = 0;
+// Bumped at translate time per inline fcmp/fsel emitted (no helper call)
+unsigned long kpx_jit_fp_inline_count = 0;
 // Bumped at translate time per inline-fastmem access emitted; proves the
 // memory whitelist still routes loads/stores to the inline path
 unsigned long kpx_jit_inline_mem_emitted = 0;
@@ -380,6 +382,12 @@ static uint32 fmr(int d,int b,int rc){return X(63,d,0,b,72,rc);}
 static uint32 fabs_(int d,int b,int rc){return X(63,d,0,b,264,rc);}
 static uint32 fneg_(int d,int b,int rc){return X(63,d,0,b,40,rc);}
 static uint32 fnabs_(int d,int b,int rc){return X(63,d,0,b,136,rc);}
+static uint32 fcmpu_(int crf,int a,int b){return X(63,crf<<2,a,b,0,0);}
+static uint32 fcmpo_(int crf,int a,int b){return X(63,crf<<2,a,b,32,0);}
+static uint32 frsp_(int d,int b,int rc){return X(63,d,0,b,12,rc);}
+static uint32 fctiw_(int d,int b,int rc){return X(63,d,0,b,14,rc);}
+static uint32 fctiwz_(int d,int b,int rc){return X(63,d,0,b,15,rc);}
+static uint32 fsel_(int d,int a,int b,int c,int rc){return A(63,d,a,b,c,23,rc);}
 // FP loads/stores
 static uint32 lfs(int d,int a,int i){return D(48,d,a,i);}
 static uint32 lfsu(int d,int a,int i){return D(49,d,a,i);}
@@ -1226,6 +1234,66 @@ int main(int argc, char **argv)
 		if (diff(nm, ai, aj)) failed++;
 	}
 
+	// --- suite 8b: FP compare / round / convert / select ---
+	// Operands mix the random patterns with conversion edge cases: exact
+	// halves (round() is half-away-from-zero, unlike FCVTNS), values at
+	// and just past the int32 bounds, SNaN, and doubles outside float
+	// range (frsp overflow/underflow)
+	static const double conv_edges[] = {
+		0.5, -0.5, 1.5, -1.5, 2.5, -2.5, 0.49999999999999994,
+		2147483647.0, 2147483647.4, 2147483647.5, 2147483646.5,
+		-2147483648.0, -2147483648.4, -2147483648.5, -2147483649.0,
+		2147483648.0, 4294967296.0, 1e10, -1e10, 1e-300, -1e-300,
+		3.4028235677973366e38, 3.5e38, -3.5e38, 1.0e-46, 1.401298464324817e-45,
+	};
+	const int n_edges = sizeof(conv_edges) / sizeof(conv_edges[0]);
+	for (int t = 0; t < 800; t++) {
+		uint32 ops[32]; int n = 0;
+		int len = 3 + (rnd() % 12);
+		for (int k = 0; k < len && n < 28; k++) {
+			int d = 3 + (rnd() % 7), a = 3 + (rnd() % 7), b = 3 + (rnd() % 7), c = 3 + (rnd() % 7);
+			int rc = rnd() & 1;
+			switch (rnd() % 10) {
+			case 0: ops[n++] = fcmpu_(rnd() % 8, a, b); break;
+			case 1: ops[n++] = fcmpo_(rnd() % 8, a, b); break;
+			case 2: ops[n++] = frsp_(d,b,rc); break;
+			case 3: ops[n++] = fctiw_(d,b,rc); break;
+			case 4: ops[n++] = fctiwz_(d,b,rc); break;
+			case 5: ops[n++] = fsel_(d,a,b,c,rc); break;
+			case 6: ops[n++] = fadd(d,a,b,rc); break;
+			case 7: ops[n++] = fmul(d,a,c,rc); break;
+			case 8: ops[n++] = fcmpu_(rnd() % 8, a, b); ops[n++] = mfcr(3 + (rnd() % 7)); break;
+			case 9: ops[n++] = fmr(d,b,rc); break;
+			}
+		}
+		ops[n++] = POWERPC_BLR;
+
+		regfile in;
+		for (int i = 0; i < 32; i++) in.gpr[i] = rnd();
+		for (int i = 0; i < 32; i++) {
+			if (rnd() % 3) { in.fpr[i] = rnd_fp(); continue; }
+			union { double d; uint64 j; } e;
+			switch (rnd() % 4) {
+			case 0: e.d = conv_edges[rnd() % n_edges]; break;
+			case 1: e.d = -conv_edges[rnd() % n_edges]; break;
+			case 2: e.d = (double)((int)(rnd() % 2001) - 1000) + 0.5; break;
+			default: e.j = (rnd() & 1 ? 0xfff0000000000000ull : 0x7ff0000000000000ull) | 1 | ((uint64)(rnd() & 0x7ffff) << 32); break;	// SNaN
+			}
+			in.fpr[i] = e.j;
+		}
+		in.lr = 0; in.ctr = 0; in.cr = rnd(); in.xer = rnd() & 0xe000007f;
+		// Stale FPCC/FPRF bits must be replaced; low byte covers RN and VE
+		in.fpscr = rnd() & 0x0001f0ff;
+
+		load_snippet(ops, n);
+		regfile ai, aj;
+		seed(interp, in); run(interp); snapshot(interp, ai);
+		seed(jit, in);    run(jit);    snapshot(jit, aj);
+		total++;
+		char nm[32]; snprintf(nm, sizeof nm, "fpcvt#%d", t);
+		if (diff(nm, ai, aj)) failed++;
+	}
+
 	// --- suite 9: FP loads/stores (single conversion + data compare) ---
 	for (int t = 0; t < 500; t++) {
 		uint32 ops[32]; int n = 0;
@@ -1523,6 +1591,54 @@ int main(int argc, char **argv)
 		}
 	}
 
+	// --- icbi churn: invalidating an unrelated (data) page from inside a
+	// loop must not re-translate the running block on every exec-return.
+	// Each isync flushes the pending icbi range, which forces the JIT back
+	// to the driver; the driver must resume the still-cached block instead
+	// of translating a duplicate that fills the cache until a full flush
+	{
+		const int iters = 200;
+		uint32 ops[8]; int n = 0;
+		ops[n++] = addi(5, 0, iters);
+		ops[n++] = mtspr(9, 5);						// mtctr r5
+		ops[n++] = X(31, 0, 0, 10, 982, 0);			// loop: icbi 0,r10
+		ops[n++] = (19u << 26) | (150 << 1);		// isync
+		ops[n++] = addi(3, 3, 1);
+		ops[n++] = bc(16, 0, -12, 0);				// bdnz loop
+		ops[n++] = POWERPC_BLR;
+
+		regfile in;
+		for (int i = 0; i < 32; i++) in.gpr[i] = rnd();
+		in.gpr[3] = 0;
+		in.gpr[10] = guest_data + 0x100;			// never holds code
+		in.lr = 0; in.ctr = 0; in.cr = rnd(); in.xer = rnd() & 0xe000007f;
+
+		load_snippet(ops, n);
+		regfile ai, aj;
+		seed(interp, in); run(interp); snapshot(interp, ai);
+		const unsigned long compiles_before = kpx_jit_compile_count;
+		seed(jit, in);    run(jit);    snapshot(jit, aj);
+		const unsigned long compiles = kpx_jit_compile_count - compiles_before;
+		total++;
+		int bad = diff("icbi-churn", ai, aj);
+		if (aj.gpr[3] != (uint32)iters) {
+			printf("  [icbi-churn] r3=%u, expected %d\n", aj.gpr[3], iters);
+			bad++;
+		}
+#ifdef KPX_JIT_INSTRUMENT
+		// A handful of distinct blocks; re-translating per isync would
+		// compile at least one block per iteration
+		if (compiles > 16) {
+			printf("  [icbi-churn] %lu blocks compiled for a %d-iteration loop "
+				   "(running block re-translated after each invalidation)\n", compiles, iters);
+			bad++;
+		}
+#else
+		(void)compiles;
+#endif
+		if (bad) failed++;
+	}
+
 	printf("\n%d/%d programs matched, %d diverged\n", total - failed, total, failed);
 	printf("JIT blocks compiled: %lu (0 would mean the JIT never ran)\n",
 		   kpx_jit_compile_count);
@@ -1535,6 +1651,8 @@ int main(int argc, char **argv)
 #ifdef KPX_JIT_INSTRUMENT
 	printf("Native FP helper calls: %lu (0 would mean FP stayed generic)\n",
 		   kpx_jit_fp_helper_count);
+	printf("Inline fcmp/fsel emitted: %lu (0 would mean they stayed generic)\n",
+		   kpx_jit_fp_inline_count);
 	printf("Inline fastmem accesses emitted: %lu (0 would mean memory ops fell back to helpers)\n",
 		   kpx_jit_inline_mem_emitted);
 	printf("Fastmem cold-path helper calls: %lu (expected: kernel-window suite traffic only)\n",
@@ -1562,6 +1680,10 @@ int main(int argc, char **argv)
 	}
 	if (kpx_jit_fp_helper_count == 0) {
 		printf("FAIL: native FP path was never exercised\n");
+		return 2;
+	}
+	if (kpx_jit_fp_inline_count == 0) {
+		printf("FAIL: inline fcmp/fsel were never emitted\n");
 		return 2;
 	}
 	if (kpx_jit_inline_mem_emitted == 0) {

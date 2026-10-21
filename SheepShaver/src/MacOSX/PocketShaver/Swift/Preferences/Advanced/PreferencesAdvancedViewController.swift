@@ -333,9 +333,9 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 			case .jitCompiler:
 				return PreferencesEnabledSettingCell(
 					title: "JIT compiler",
-					isOn: model.jitCompilerEnabled
+					isOn: model.macJitCompilerEnabled
 				) { [weak self] isOn in
-					self?.model.jitCompilerEnabled = isOn
+					self?.model.macJitCompilerEnabled = isOn
 				}
 			case .jitCompilerInfo:
 				return PreferencesInformationCell(

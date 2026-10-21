@@ -32,6 +32,12 @@
  *  each block into plain scratch memory and publish it with one
  *  jit_wx_publish call; chain backpatches are small publishes.
  *
+ *  On iOS devices MAP_JIT needs an entitlement sideloaded apps lack.
+ *  Instead, once a debugger has marked the process CS_DEBUGGED, one
+ *  code arena is reserved up front as an RX view plus an RW alias of the
+ *  same pages (see jit_ios_acquire); jit_wx_map hands that arena out and
+ *  jit_wx_publish writes through the alias.
+ *
  *  On other hosts these degrade to a plain RWX mapping and memcpy.
  */
 
@@ -65,5 +71,38 @@ extern uint8 *jit_wx_writable(void *exec_addr);
 // Publish [start, stop) from the shadow into the executable region;
 // no-op for directly-writable caches
 extern void jit_wx_publish_range(uintptr start, uintptr stop);
+
+/*
+ *  iOS code-arena acquisition through StikDebug. Declared with plain C
+ *  types for the Swift bridge (PrefsObjC.h); all of them report false on
+ *  hosts other than iOS devices.
+ */
+extern "C" {
+
+// True when this build can JIT on an iOS device given a debugger
+extern bool jit_ios_supported(void);
+
+// True once a debugger has attached (CS_DEBUGGED); stays set after detach
+extern bool jit_ios_debugger_attached(void);
+
+// True when the code arena must be prepared through StikDebug's
+// universal.js brk protocol (TXM devices). The app must then request
+// that script when attaching, or the brk calls crash the process.
+extern bool jit_ios_needs_prepare_script(void);
+
+// Reserve, verify and (on TXM devices) detach. Requires
+// jit_ios_debugger_attached(); may block while the debugger services the
+// request, so call it off the main thread and never concurrently.
+// Idempotent once it succeeds; on TXM devices it makes one attempt only,
+// since the script has detached by the time it returns.
+extern bool jit_ios_acquire(void);
+
+// True once jit_ios_acquire has succeeded
+extern bool jit_ios_ready(void);
+
+// Append a line to the JIT setup log (unified log + Documents/jit-log.txt)
+extern void jit_ios_note(const char *message);
+
+}
 
 #endif /* JIT_WX_H */

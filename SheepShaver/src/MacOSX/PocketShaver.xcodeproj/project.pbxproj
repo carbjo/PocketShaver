@@ -181,6 +181,7 @@
 		C79D23022F3F7CC100D54A4C /* NetworkSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79D23012F3F7CBA00D54A4C /* NetworkSettings.swift */; };
 		C79D23042F3F82C500D54A4C /* NetworkSettingsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C79D23032F3F82BB00D54A4C /* NetworkSettingsObjC.mm */; };
 		C7A0EC162F4307BA0016533F /* Assets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A0EC152F4307B40016533F /* Assets.swift */; };
+		C7A1D3E52F9B10A000C0FFEE /* StikDebugJitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A1D3E42F9B10A000C0FFEE /* StikDebugJitManager.swift */; };
 		C7A9AB9A2EED61F2001EC4DB /* LocalNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A9AB992EED61F0001EC4DB /* LocalNotification.swift */; };
 		C7B04B8D2F77B66100A36842 /* MemoryDump.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C7B04B8C2F77B65A00A36842 /* MemoryDump.cpp */; };
 		C7B04B902F77B6F900A36842 /* MemoryDumpObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7B04B8F2F77B6EF00A36842 /* MemoryDumpObjC.mm */; };
@@ -191,6 +192,7 @@
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
 		C7BC1A642E2A84B2006F95CB /* MonitorResolutionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */; };
 		C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */; };
+		C7BD07C1308DE30F00906875 /* StikDebugSetupInstructions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BD07C0308DE30A00906875 /* StikDebugSetupInstructions.swift */; };
 		C7C3837B2E7862080051C5A4 /* PreferencesSetupInstructions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3837A2E7861FC0051C5A4 /* PreferencesSetupInstructions.swift */; };
 		C7C3D2682E7557940018DB8B /* PreferencesGamepadManageCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2672E7557930018DB8B /* PreferencesGamepadManageCells.swift */; };
 		C7C3D26A2E75B9F80018DB8B /* PreferencesGamepadEditConfigViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C3D2692E75B9EC0018DB8B /* PreferencesGamepadEditConfigViewController.swift */; };
@@ -826,6 +828,7 @@
 		C79D23032F3F82BB00D54A4C /* NetworkSettingsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = NetworkSettingsObjC.mm; sourceTree = "<group>"; };
 		C79D23052F3F833B00D54A4C /* NetworkSettingsObjCCppHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NetworkSettingsObjCCppHeader.h; sourceTree = "<group>"; };
 		C7A0EC152F4307B40016533F /* Assets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Assets.swift; sourceTree = "<group>"; };
+		C7A1D3E42F9B10A000C0FFEE /* StikDebugJitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StikDebugJitManager.swift; sourceTree = "<group>"; };
 		C7A9AB992EED61F0001EC4DB /* LocalNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotification.swift; sourceTree = "<group>"; };
 		C7B04B8C2F77B65A00A36842 /* MemoryDump.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = MemoryDump.cpp; sourceTree = "<group>"; };
 		C7B04B8E2F77B68200A36842 /* MemoryDump.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MemoryDump.h; sourceTree = "<group>"; };
@@ -841,6 +844,7 @@
 		C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorResolutionManager.swift; sourceTree = "<group>"; };
 		C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MonitorResolutionsObjC.mm; sourceTree = "<group>"; };
 		C7BC1A682E2A879C006F95CB /* MonitorResolutionsObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MonitorResolutionsObjC.h; sourceTree = "<group>"; };
+		C7BD07C0308DE30A00906875 /* StikDebugSetupInstructions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StikDebugSetupInstructions.swift; sourceTree = "<group>"; };
 		C7C3837A2E7861FC0051C5A4 /* PreferencesSetupInstructions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesSetupInstructions.swift; sourceTree = "<group>"; };
 		C7C3D2672E7557930018DB8B /* PreferencesGamepadManageCells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGamepadManageCells.swift; sourceTree = "<group>"; };
 		C7C3D2692E75B9EC0018DB8B /* PreferencesGamepadEditConfigViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesGamepadEditConfigViewController.swift; sourceTree = "<group>"; };
@@ -1659,6 +1663,7 @@
 		C707D0452F265798007BFE66 /* Onboardings */ = {
 			isa = PBXGroup;
 			children = (
+				C7BD07BF308DE2F300906875 /* StikDebug setup nstructions */,
 				C7C383792E7861EF0051C5A4 /* Setup Instructions */,
 				C7699F102EC45D540083B3B3 /* Bootstrap compatibility list */,
 				C707D0482F2657F9007BFE66 /* Relative mouse mode */,
@@ -1806,6 +1811,7 @@
 			isa = PBXGroup;
 			children = (
 				C75A604E2E62D04000253CA3 /* PreferencesManager.swift */,
+				C7A1D3E42F9B10A000C0FFEE /* StikDebugJitManager.swift */,
 				C7C64B2C2E617FAC00163200 /* PrefsObjC.mm */,
 				C7C64B2E2E617FC200163200 /* PrefsObjC.h */,
 			);
@@ -1992,6 +1998,14 @@
 				C7B23CC52F5C771C00B784E7 /* PreferencesTwoFingerSteeringDetailsViewController.swift */,
 			);
 			path = "Two Finger Steering Details";
+			sourceTree = "<group>";
+		};
+		C7BD07BF308DE2F300906875 /* StikDebug setup nstructions */ = {
+			isa = PBXGroup;
+			children = (
+				C7BD07C0308DE30A00906875 /* StikDebugSetupInstructions.swift */,
+			);
+			path = "StikDebug setup nstructions";
 			sourceTree = "<group>";
 		};
 		C7C383792E7861EF0051C5A4 /* Setup Instructions */ = {
@@ -2736,6 +2750,7 @@
 				C7F42CDD2E5B3C5F00FA7169 /* PreferencesResolutionsViewController.swift in Sources */,
 				E204B94728BC3EBE0081FDCA /* misc.c in Sources */,
 				C7CF605E2F8AA54400D39886 /* PreferencesGraphicsCells.swift in Sources */,
+				C7BD07C1308DE30F00906875 /* StikDebugSetupInstructions.swift in Sources */,
 				C7CF605F2F8AA54400D39886 /* PreferencesGraphicsViewController.swift in Sources */,
 				C7CF60602F8AA54400D39886 /* PreferencesGraphicsModel.swift in Sources */,
 				C79469772F2BBEC400DFD2D3 /* GamepadSideButtonConfiguration.swift in Sources */,
@@ -2744,6 +2759,7 @@
 				E204B94828BC3EBE0081FDCA /* tcp_timer.c in Sources */,
 				E204B94928BC3EBE0081FDCA /* name_registry.cpp in Sources */,
 				C75A604F2E62D04600253CA3 /* PreferencesManager.swift in Sources */,
+				C7A1D3E52F9B10A000C0FFEE /* StikDebugJitManager.swift in Sources */,
 				E204B94A28BC3EBE0081FDCA /* pict.c in Sources */,
 				C7F42CE12E5B3C7700FA7169 /* PreferencesAdvancedViewController.swift in Sources */,
 				C7E30671307A538C002E4A28 /* SelectionWheelButtonCreationViewController.swift in Sources */,
@@ -3368,7 +3384,7 @@
 				GCC_ENABLE_PASCAL_STRINGS = YES;
 				GCC_ENABLE_TRIGRAPHS = NO;
 				GCC_INLINES_ARE_PRIVATE_EXTERN = YES;
-				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_OPTIMIZATION_LEVEL = 3;
 				GCC_PRECOMPILE_PREFIX_HEADER = NO;
 				GCC_PREFIX_HEADER = "";
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -3427,7 +3443,7 @@
 				SKIP_INSTALL = NO;
 				SUPPORTS_MACCATALYST = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "Supporting files/PocketShaver-Bridging-Header.h";
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

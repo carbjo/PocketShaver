@@ -89,6 +89,8 @@ double kpx_fp_fmadd(powerpc_cpu*,double,double,double);   double kpx_fp_fmadds(p
 double kpx_fp_fmsub(powerpc_cpu*,double,double,double);   double kpx_fp_fmsubs(powerpc_cpu*,double,double,double);
 double kpx_fp_fnmadd(powerpc_cpu*,double,double,double);  double kpx_fp_fnmadds(powerpc_cpu*,double,double,double);
 double kpx_fp_fnmsub(powerpc_cpu*,double,double,double);  double kpx_fp_fnmsubs(powerpc_cpu*,double,double,double);
+double kpx_fp_frsp(powerpc_cpu*,double);
+uint64 kpx_fp_fctiw(powerpc_cpu*,double);         uint64 kpx_fp_fctiwz(powerpc_cpu*,double);
 unsigned long kpx_jit_fpr_offset(void *cpu, int i);
 unsigned long kpx_jit_fpscr_offset(void *cpu);
 unsigned long kpx_jit_vr_offset(void *cpu, int i);
@@ -111,7 +113,7 @@ enum {
 };
 
 // arm64 condition codes
-enum { A64_EQ=0, A64_NE=1, A64_HS=2, A64_LO=3, A64_HI=8, A64_LS=9, A64_GE=10, A64_LT=11, A64_GT=12, A64_LE=13 };
+enum { A64_EQ=0, A64_NE=1, A64_HS=2, A64_LO=3, A64_MI=4, A64_VS=6, A64_HI=8, A64_LS=9, A64_GE=10, A64_LT=11, A64_GT=12, A64_LE=13 };
 
 // ---- bare encoders -------------------------------------------------------
 
@@ -216,6 +218,10 @@ static inline uint32 a64_fmov_s_w(int sd,int wn){ return 0x1e270000|(wn<<5)|sd; 
 static inline uint32 a64_fcvt_d_s(int dd,int sn){ return 0x1e22c000|(sn<<5)|dd; }   // FCVT Dd, Sn
 static inline uint32 a64_fabs_d(int rd,int rn){ return 0x1e60c000|(rn<<5)|rd; }
 static inline uint32 a64_fneg_d(int rd,int rn){ return 0x1e614000|(rn<<5)|rd; }
+// FCMP sets NZCV: equal 0110, less 1000 (MI), greater 0010 (GT), unordered 0011 (VS)
+static inline uint32 a64_fcmp_d(int n,int m){ return 0x1e602000|(m<<16)|(n<<5); }   // FCMP Dn, Dm
+static inline uint32 a64_fcmp_d_zero(int n){ return 0x1e602008|(n<<5); }          // FCMP Dn, #0.0
+static inline uint32 a64_fcsel_d(int d,int n,int m,int cond){ return 0x1e600c00|(m<<16)|(cond<<12)|(n<<5)|d; }
 
 // ---- NEON (AltiVec value plan: q0-q3 intra-op scratch; pointers to the
 // guest VRs live in x20/x21/x22 (V0/V1/V2, aliasing T0-T2) and x24 (VD)) --

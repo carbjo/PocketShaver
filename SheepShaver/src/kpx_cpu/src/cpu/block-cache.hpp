@@ -59,7 +59,8 @@ public:
 
 	void initialize();
 	void clear();
-	void clear_range(uintptr start, uintptr end);
+	// Returns the number of blocks invalidated
+	int clear_range(uintptr start, uintptr end);
 	block_info *fast_find(uintptr pc);
 	block_info *find(uintptr pc);
 
@@ -117,16 +118,17 @@ void block_cache< block_info, block_allocator >::clear()
 }
 
 template< class block_info, template<class T> class block_allocator >
-void block_cache< block_info, block_allocator >::clear_range(uintptr start, uintptr end)
+int block_cache< block_info, block_allocator >::clear_range(uintptr start, uintptr end)
 {
 	if (!active)
-		return;
+		return 0;
 
 	// Walk the full active list. Blocks are registered in cache_tags[]
 	// under their entry pc only, so a bucket scan over the words in
 	// [start, end) cannot see a block that spans into the range from a
 	// lower entry pc -- it would miss e.g. an icbi flush of a cache line
 	// strictly interior to an already-decoded block.
+	int removed = 0;
 	entry *p = active, *q;
 	while (p) {
 		q = p;
@@ -136,8 +138,10 @@ void block_cache< block_info, block_allocator >::clear_range(uintptr start, uint
 			remove_from_cl_list(q);
 			remove_from_list(q);
 			delete_blockinfo(q);
+			removed++;
 		}
 	}
+	return removed;
 }
 
 template< class block_info, template<class T> class block_allocator >

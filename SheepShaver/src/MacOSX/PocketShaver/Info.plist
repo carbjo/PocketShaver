@@ -63,5 +63,9 @@
 	</array>
 	<key>UISupportsTrueScreenSizeOnMac</key>
 	<true/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>stikdebug</string>
+	</array>
 </dict>
 </plist>

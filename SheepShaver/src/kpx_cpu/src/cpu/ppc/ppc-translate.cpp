@@ -25,6 +25,11 @@
 
 #if PPC_ENABLE_JIT
 #include "cpu/jit/dyngen-exec.h"
+#include "cpu/jit/jit-wx.hpp"
+#include <time.h>
+#if PPC_JIT_CACHE_DIAGNOSTICS
+#include <unordered_set>
+#endif
 #endif
 
 #ifdef SHEEPSHAVER
@@ -212,8 +217,8 @@ static inline bool ppc_jit_native_mnemo(int mnemo)
 	case PPC_I(DCBA): case PPC_I(DCBF): case PPC_I(DCBI): case PPC_I(DCBST):
 	case PPC_I(DCBT): case PPC_I(DCBTST): case PPC_I(ECIWX): case PPC_I(ECOWX):
 	case PPC_I(EIEIO): case PPC_I(SYNC): case PPC_I(ISYNC):
-	// FP loads/stores and arithmetic (P4; fcmp/fctiw/frsp/fsel and the
-	// FPSCR moves stay generic, matching the old x86 JIT's coverage)
+	// FP loads/stores and arithmetic (P4), plus compare/round/convert/select
+	// through arm64-only ops; the FPSCR moves stay generic
 	case PPC_I(LFD): case PPC_I(LFDU): case PPC_I(LFDUX): case PPC_I(LFDX):
 	case PPC_I(LFS): case PPC_I(LFSU): case PPC_I(LFSUX): case PPC_I(LFSX):
 	case PPC_I(STFD): case PPC_I(STFDU): case PPC_I(STFDUX): case PPC_I(STFDX):
@@ -223,6 +228,8 @@ static inline bool ppc_jit_native_mnemo(int mnemo)
 	case PPC_I(FMUL): case PPC_I(FMULS): case PPC_I(FDIV): case PPC_I(FDIVS):
 	case PPC_I(FMADD): case PPC_I(FMADDS): case PPC_I(FMSUB): case PPC_I(FMSUBS):
 	case PPC_I(FNMADD): case PPC_I(FNMADDS): case PPC_I(FNMSUB): case PPC_I(FNMSUBS):
+	case PPC_I(FCMPU): case PPC_I(FCMPO): case PPC_I(FRSP):
+	case PPC_I(FCTIW): case PPC_I(FCTIWZ): case PPC_I(FSEL):
 	// AltiVec via NEON (P5): element-wise arith/logic/minmax/compare,
 	// splats, vsel/vperm, and the 128-bit + word-element loads/stores.
 	// Everything else (saturating arith, packs/merges, shifts, VSCR moves,
@@ -248,6 +255,92 @@ static inline bool ppc_jit_native_mnemo(int mnemo)
 }
 #endif
 
+/*
+ *  Full translation-cache flushes are reported (Documents/jit-log.txt on
+ *  iOS devices via jit_ios_note, stderr everywhere) so the cache's
+ *  headroom can be measured in real use: how many blocks fit, how long
+ *  the cache lasts between flushes, and how often invalidations forced
+ *  code out. PPC_JIT_CACHE_DIAGNOSTICS adds how much of the fill is churn
+ *  -- entry points translated again -- rather than distinct code.
+ */
+static unsigned long translation_cache_blocks;	// compiled since the last flush
+static double translation_cache_epoch;			// when the first of them compiled
+#if PPC_JIT_CACHE_DIAGNOSTICS
+static std::unordered_set<uint32> translation_cache_entries;	// distinct entry pcs since then
+static unsigned long translation_cache_retranslations;			// repeats among the blocks
+// Entry pcs of the previous fill, and how many of this fill's distinct
+// entries repeat one: near the block count means the same hot code keeps
+// cycling through a cache too small to hold it
+static std::unordered_set<uint32> translation_cache_previous_entries;
+static unsigned long translation_cache_carried_over;
+#endif
+
+// Counted in ppc-cpu.cpp and reset here at each flush
+extern unsigned long kpx_jit_range_invalidations;
+extern unsigned long kpx_jit_range_blocks_removed;
+extern unsigned long kpx_jit_exec_return_reuses;
+
+static double translation_cache_now(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+
+static inline void note_translation_cache_block(uint32 entry_point)
+{
+	if (translation_cache_blocks++ == 0)
+		translation_cache_epoch = translation_cache_now();
+#if PPC_JIT_CACHE_DIAGNOSTICS
+	if (!translation_cache_entries.insert(entry_point).second)
+		translation_cache_retranslations++;
+	else if (translation_cache_previous_entries.count(entry_point))
+		translation_cache_carried_over++;
+#else
+	(void)entry_point;
+#endif
+}
+
+static void note_translation_cache_flush(uint32 entry_point)
+{
+	static unsigned long flushes;
+	// Every flush up to 1000, then every 1000th: a thrashing cache must
+	// not grow the log file without bound
+	if (++flushes <= 1000 || flushes % 1000 == 0) {
+		char churn[96] = "";
+#if PPC_JIT_CACHE_DIAGNOSTICS
+		snprintf(churn, sizeof(churn), " (%lu re-translated, %lu also in the previous fill)",
+				 translation_cache_retranslations, translation_cache_carried_over);
+#endif
+		char message[320];
+		snprintf(message, sizeof(message),
+				 "translation cache full: flush #%lu after %lu blocks%s, filled in %.1f s; "
+				 "%lu range invalidations removed %lu blocks, "
+				 "%lu exec-returns reused a cached block",
+				 flushes, translation_cache_blocks, churn,
+				 translation_cache_now() - translation_cache_epoch,
+				 kpx_jit_range_invalidations, kpx_jit_range_blocks_removed,
+				 kpx_jit_exec_return_reuses);
+		fprintf(stderr, "JIT: %s\n", message);
+		jit_ios_note(message);
+	}
+	// The block being compiled restarts in the empty cache
+	translation_cache_blocks = 1;
+	translation_cache_epoch = translation_cache_now();
+#if PPC_JIT_CACHE_DIAGNOSTICS
+	translation_cache_previous_entries.swap(translation_cache_entries);
+	translation_cache_entries.clear();
+	translation_cache_entries.insert(entry_point);
+	translation_cache_retranslations = 0;
+	translation_cache_carried_over = translation_cache_previous_entries.count(entry_point);
+#else
+	(void)entry_point;
+#endif
+	kpx_jit_range_invalidations = 0;
+	kpx_jit_range_blocks_removed = 0;
+	kpx_jit_exec_return_reuses = 0;
+}
+
 powerpc_cpu::block_info *
 powerpc_cpu::compile_block(uint32 entry_point)
 {
@@ -268,6 +361,7 @@ powerpc_cpu::compile_block(uint32 entry_point)
 	extern unsigned long kpx_jit_compile_count;
 	kpx_jit_compile_count++;
 #endif
+	note_translation_cache_block(entry_point);
 
 	powerpc_jit & dg = codegen;
 	codegen_context_t cg_context(dg);
@@ -1515,6 +1609,51 @@ powerpc_cpu::compile_block(uint32 entry_point)
 				dg.gen_record_cr1();
 			break;
 		}
+#if defined(__aarch64__)
+		case PPC_I(FCMPU):		// Floating Compare Unordered
+		case PPC_I(FCMPO):		// Floating Compare Ordered
+		{
+			// Identical while FPU exceptions are off (no VXSNAN/VXVC)
+			dg.gen_load_F0_FPR(frA_field::extract(opcode));
+			dg.gen_load_F1_FPR(frB_field::extract(opcode));
+			dg.gen_fcmp_F0_F1_im(crfD_field::extract(opcode));
+#ifdef KPX_JIT_INSTRUMENT
+			extern unsigned long kpx_jit_fp_inline_count;
+			kpx_jit_fp_inline_count++;
+#endif
+			break;
+		}
+		case PPC_I(FRSP):		// Floating Round to Single
+		case PPC_I(FCTIW):		// Floating Convert to Integer Word
+		case PPC_I(FCTIWZ):		// Floating Convert to Integer Word with Round toward Zero
+		{
+			dg.gen_load_F0_FPR(frB_field::extract(opcode));
+			switch (ii->mnemo) {
+			case PPC_I(FRSP):   dg.gen_frsp_FD_F0();   break;
+			case PPC_I(FCTIW):  dg.gen_fctiw_FD_F0();  break;
+			case PPC_I(FCTIWZ): dg.gen_fctiwz_FD_F0(); break;
+			}
+			dg.gen_store_FD_FPR(frD_field::extract(opcode));
+			if (Rc_field::test(opcode))
+				dg.gen_record_cr1();
+			break;
+		}
+		case PPC_I(FSEL):		// Floating Select
+		{
+			dg.gen_load_F0_FPR(frA_field::extract(opcode));
+			dg.gen_load_F1_FPR(frC_field::extract(opcode));
+			dg.gen_load_F2_FPR(frB_field::extract(opcode));
+			dg.gen_fsel_FD_F0_F1_F2();
+#ifdef KPX_JIT_INSTRUMENT
+			extern unsigned long kpx_jit_fp_inline_count;
+			kpx_jit_fp_inline_count++;
+#endif
+			dg.gen_store_FD_FPR(frD_field::extract(opcode));
+			if (Rc_field::test(opcode))
+				dg.gen_record_cr1();
+			break;
+		}
+#endif
 #endif
 		case PPC_I(LVEWX):
 		case PPC_I(LVX):
@@ -1708,6 +1847,7 @@ powerpc_cpu::compile_block(uint32 entry_point)
 		}
 		if (dg.full_translation_cache()) {
 			// Invalidate cache and start again
+			note_translation_cache_flush(entry_point);
 			invalidate_cache();
 			goto again;
 		}

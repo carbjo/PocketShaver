@@ -129,6 +129,13 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 
 		}.store(in: &anyCancellables)
 
+		StikDebugJitManager.shared.changeSubject.sink { [weak self] change in
+			switch change {
+			case .statusChanged(let status):
+				self?.updateJitEnabledStatus(status)
+			}
+		}.store(in: &anyCancellables)
+
 		NotificationCenter.default.addObserver(self, selector: #selector(appDidResume), name: UIScene.didActivateNotification, object: nil)
 	}
 
@@ -174,6 +181,7 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 				return PreferencesGeneralWelcomeCell()
 			case .diskActionBar:
 				return PreferencesGeneralDiskActionBarCell(
+					stikDebugJitStatus: StikDebugJitManager.shared.status,
 					didTapOpenShareFolderButton: { [weak self] in
 						self?.openDocumentsFolder()
 					},
@@ -187,6 +195,17 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 					},
 					didTapImportAction: { [weak self] in
 						self?.displayFileImport()
+					},
+					didTapJitEnabledAction: { [weak self] in
+						self?.displayJitEnabledDialogue()
+					},
+					didTapJitDisabledAction: { [weak self] in
+						guard let self else { return }
+						if model.isStikDebugInstalled {
+							model.changeSubject.send(.quitAndRelaunchFromStikDebugRequested)
+						} else {
+							displayStikDebugSetupInstructions()
+						}
 					}
 				)
 			case .disksEmptyState:
@@ -638,6 +657,36 @@ class PreferencesGeneralViewController: PreferencesTableViewController {
 		navVC.viewControllers = [vc]
 
 		present(navVC, animated: true)
+	}
+
+	// MARK: - JIT
+
+	private func updateJitEnabledStatus(_ status: StikDebugJitStatus) {
+		guard let indexPath = dataSource.indexPath(for: .diskActionBar),
+			  let cell = tableView.cellForRow(at: indexPath) as? PreferencesGeneralDiskActionBarCell else {
+			return
+		}
+
+		cell.configure(stikDebugJitStatus: status)
+	}
+
+	private func displayJitEnabledDialogue() {
+		let alertVC = UIAlertController(
+			title: "Congratulations",
+			message: "PocketShaver \(model.mode == .startup ? "will boot" : "has booted") with JIT. Enjoy!",
+			preferredStyle: .alert
+		)
+
+		alertVC.addAction(.init(title: "Ok", style: .default))
+
+		present(alertVC, animated: true)
+	}
+
+	private func displayStikDebugSetupInstructions() {
+		let vc = StikDebugSetupInstructionsViewController()
+		let navVc = UINavigationController()
+		navVc.viewControllers = [vc]
+		present(navVc, animated: true)
 	}
 
 	// MARK: - Bootstrapping

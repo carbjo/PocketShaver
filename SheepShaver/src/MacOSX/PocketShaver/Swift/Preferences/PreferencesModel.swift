@@ -23,6 +23,7 @@ enum PreferencesChange {
 	case frameRateSettingChanged
 	case iPadMouseEnabledChanged
 	case gamepadLayoutsDidUpdate
+	case quitAndRelaunchFromStikDebugRequested
 }
 
 class PreferencesModel {

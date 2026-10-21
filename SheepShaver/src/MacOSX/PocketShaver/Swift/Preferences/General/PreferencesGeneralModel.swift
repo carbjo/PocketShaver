@@ -5,7 +5,7 @@
 //  Created by Carl Björkman on 2025-08-24.
 //
 
-import Foundation
+import UIKit
 import Combine
 
 enum PreferencesGeneralError: Error {
@@ -36,7 +36,6 @@ class PreferencesGeneralModel {
 		let filename: String
 		let type: DiskType
 	}
-
 
 	// MARK: - Variables
 
@@ -159,6 +158,14 @@ class PreferencesGeneralModel {
 		set {
 			miscSettings.set(showHints: newValue)
 		}
+	}
+
+	@MainActor
+	var isStikDebugInstalled: Bool {
+		var components = URLComponents()
+		components.scheme = "stikdebug"
+		let url = components.url!
+		return UIApplication.shared.canOpenURL(url)
 	}
 
 

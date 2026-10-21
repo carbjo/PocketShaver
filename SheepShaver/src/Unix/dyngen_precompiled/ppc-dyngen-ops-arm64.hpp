@@ -7967,6 +7967,71 @@ DEFINE_GEN(gen_op_sheep_guard_im,void,(long param1))
 }
 #endif
 
+DEFINE_GEN(gen_op_fcmp_F0_F1_im,void,(long param1))
+#ifdef DYNGEN_IMPL
+{
+	const int sh = 28 - 4 * (int)param1;
+	emit_32(a64_fcmp_d(8, 9));
+	emit_32(a64_movz_w(A64_X16, 2, 0));
+	emit_32(a64_movz_w(A64_X17, 4, 0));
+	emit_32(a64_csel(A64_X16, A64_X17, A64_X16, A64_GT));
+	emit_32(a64_movz_w(A64_X17, 8, 0));
+	emit_32(a64_csel(A64_X16, A64_X17, A64_X16, A64_MI));
+	emit_32(a64_movz_w(A64_X17, 1, 0));
+	emit_32(a64_csel(A64_X16, A64_X17, A64_X16, A64_VS));
+	emit_32(a64_ldr_w(A64_X9, A64_CPU, (uint32)kpx_jit_fpscr_offset(cpu())));
+	emit_32(a64_movz_w(A64_X10, 0xf000, 0));
+	emit_32(a64_bic_reg(A64_X9, A64_X9, A64_X10));
+	emit_32(a64_lsl_imm(A64_X10, A64_X16, 12));
+	emit_32(a64_orr_reg(A64_X9, A64_X9, A64_X10));
+	emit_32(a64_str_w(A64_X9, A64_CPU, (uint32)kpx_jit_fpscr_offset(cpu())));
+	emit_32(a64_ldr_w(A64_X9, A64_CPU, (uint32)kpx_jit_cr_offset(cpu())));
+	a64_emit_mov_imm32(*this, A64_X10, 0xfu << sh);
+	emit_32(a64_bic_reg(A64_X9, A64_X9, A64_X10));
+	emit_32(a64_lsl_imm(A64_X10, A64_X16, sh));
+	emit_32(a64_orr_reg(A64_X9, A64_X9, A64_X10));
+	emit_32(a64_str_w(A64_X9, A64_CPU, (uint32)kpx_jit_cr_offset(cpu())));
+}
+#endif
+
+DEFINE_GEN(gen_op_fsel_FD_F0_F1_F2,void,(void))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_fcmp_d_zero(8));
+	emit_32(a64_fcsel_d(11, 9, 10, A64_GE));
+}
+#endif
+
+DEFINE_GEN(gen_op_frsp_FD_F0,void,(void))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_mov_x(0, A64_CPU));
+	emit_32(a64_fmov_d(0, 8));
+	a64_emit_call(*this, (uintptr)&kpx_fp_frsp);
+	emit_32(a64_fmov_d(11, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_fctiw_FD_F0,void,(void))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_mov_x(0, A64_CPU));
+	emit_32(a64_fmov_d(0, 8));
+	a64_emit_call(*this, (uintptr)&kpx_fp_fctiw);
+	emit_32(a64_fmov_d_x(11, 0));
+}
+#endif
+
+DEFINE_GEN(gen_op_fctiwz_FD_F0,void,(void))
+#ifdef DYNGEN_IMPL
+{
+	emit_32(a64_mov_x(0, A64_CPU));
+	emit_32(a64_fmov_d(0, 8));
+	a64_emit_call(*this, (uintptr)&kpx_fp_fctiwz);
+	emit_32(a64_fmov_d_x(11, 0));
+}
+#endif
+
 DEFINE_GEN(gen_op_neon_vavgub,void,(void))
 #ifdef DYNGEN_IMPL
 {

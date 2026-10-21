@@ -840,7 +840,8 @@ int main(int argc, char *argv[])
 #ifdef __APPLE__
 	// Probe the W^X code-memory path (MAP_JIT + write callback); passes
 	// on macOS / Mac Catalyst with the allow-jit entitlement or a
-	// non-hardened signature, and is expected to fail on iOS devices
+	// non-hardened signature. iOS devices report unavailable here: their
+	// code arena only appears after the StikDebug handshake at boot.
 	printf("JIT W^X self-test: %s\n", jit_wx_selftest() ? "pass" : "unavailable");
 	fflush(stdout);
 #endif

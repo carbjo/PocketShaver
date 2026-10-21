@@ -151,6 +151,13 @@ public:
 #if defined(__aarch64__)
 	// Trap-chaining resume guard (arm64-only op, no x86 counterpart)
 	DEFINE_ALIAS(sheep_guard_im,1);
+
+	// FP compare/select/convert (arm64-only ops; generic on x86)
+	DEFINE_ALIAS(fcmp_F0_F1_im,1);
+	DEFINE_ALIAS(fsel_FD_F0_F1_F2,0);
+	DEFINE_ALIAS(frsp_FD_F0,0);
+	DEFINE_ALIAS(fctiw_FD_F0,0);
+	DEFINE_ALIAS(fctiwz_FD_F0,0);
 #endif
 
 	// Compare & Record instructions

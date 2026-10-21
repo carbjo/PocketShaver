@@ -23,6 +23,7 @@
 
 #include <math.h>
 #include "cpu/ppc/ppc-cpu.hpp"
+#include "cpu/ppc/ppc-operations.hpp"
 #include "cpu/vm.hpp"
 #include "mathlib/mathlib.hpp"
 
@@ -348,6 +349,43 @@ double kpx_fp_fmadds (powerpc_cpu *c, double a, double b, double x) { return kpx
 double kpx_fp_fmsubs (powerpc_cpu *c, double a, double b, double x) { return kpx_fp_ret_f(c, (float)mathlib_fmsub(a, b, x)); }
 double kpx_fp_fnmadds(powerpc_cpu *c, double a, double b, double x) { return kpx_fp_ret_d(c, -(float)mathlib_fmadd(a, b, x)); }
 double kpx_fp_fnmsubs(powerpc_cpu *c, double a, double b, double x) { return kpx_fp_ret_d(c, -(float)mathlib_fmsub(a, b, x)); }
+
+// frsp: execute_fp_round. Float-typed: classify the single result, commit
+// it widened back to double
+double kpx_fp_frsp(powerpc_cpu *c, double b) { return kpx_fp_ret_f(c, (float)b); }
+
+// fctiw/fctiwz: execute_fp_int_convert (no FPSCR or FPRF update). The FPR
+// receives the 64-bit any_register image the interpreter builds: an
+// in-range result is the int32 sign-extended into .j, while the saturated
+// results are the plain constants (0x80000000 zero-extended)
+static inline uint64 kpx_fp_int_convert(double b, uint32 r)
+{
+	kpx_fp_instrument();
+	uint64 j;
+	if (b >= -(double)0x80000000 && b <= (double)0x7fffffff) {
+#if defined mathlib_lrint
+		int old_round = fegetround();
+		fesetround(ppc_to_native_rounding_mode(r));
+		j = (int32)mathlib_lrint(b);
+		fesetround(old_round);
+#else
+		switch (r) {
+		case 0: j = (int32)op_frin::apply(b); break; // near
+		case 1: j = (int32)op_friz::apply(b); break; // zero
+		case 2: j = (int32)op_frip::apply(b); break; // +inf
+		default: j = (int32)op_frim::apply(b); break; // -inf
+		}
+#endif
+	}
+	// NOTE: this catches infinity and NaN operands
+	else if (b > 0)
+		j = 0x7fffffff;
+	else
+		j = 0x80000000;
+	return j;
+}
+uint64 kpx_fp_fctiw (powerpc_cpu *c, double b) { return kpx_fp_int_convert(b, FPSCR_RN_field::extract(c->jit_regs().fpscr)); }
+uint64 kpx_fp_fctiwz(powerpc_cpu *c, double b) { return kpx_fp_int_convert(b, 1); }
 
 // FP loads/stores: 64-bit vm access plus the single-precision converters
 // transcribed from ppc-execute.hpp (fp_load_single_convert /

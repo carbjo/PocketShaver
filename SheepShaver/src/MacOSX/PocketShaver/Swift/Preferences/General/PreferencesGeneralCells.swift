@@ -437,6 +437,56 @@ class PreferencesGeneralErrorCell: UITableViewCell {
 }
 
 class PreferencesGeneralDiskActionBarCell: UITableViewCell {
+	private lazy var jitEnabledButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		let attributedString = "<b>JIT enabled</b> <img/>".withTagsReplaced(
+			by: .init(
+				boldAppearance: .init(font: .systemFont(ofSize: 14), color: Colors.secondaryText),
+				images: [
+					ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor)
+				]
+			)
+		)
+		button.setAttributedTitle(attributedString, for: .normal)
+		let selectedAttributedString = "<b>JIT enabled</b> <img/>".withTagsReplaced(
+			by: .init(
+				boldAppearance: .init(font: .systemFont(ofSize: 14), color: Colors.secondaryText.withAlphaComponent(0.3)),
+				images: [
+					ImageResource.checkmarkCircleFill.asSymbolImage().withTintColor(Colors.okColor.withAlphaComponent(0.3))
+				]
+			)
+		)
+		button.setAttributedTitle(selectedAttributedString, for: .highlighted)
+		button.alpha = 0
+		button.addTarget(self, action: #selector(jitEnabledButtonPressed), for: .touchUpInside)
+		return button
+	}()
+
+	private lazy var jitDisabledButton: UIButton = {
+		let button = UIButton.withoutConstraints()
+		let attributedString = "<b>JIT not enabled</b> <img/>".withTagsReplaced(
+			by: .init(
+				boldAppearance: .init(font: .systemFont(ofSize: 14), color: Colors.secondaryText),
+				images: [
+					ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.thinWarningBackground)
+				]
+			)
+		)
+		button.setAttributedTitle(attributedString, for: .normal)
+		let selectedAttributedString = "<b>JIT not enabled</b> <img/>".withTagsReplaced(
+			by: .init(
+				boldAppearance: .init(font: .systemFont(ofSize: 14), color: Colors.secondaryText.withAlphaComponent(0.3)),
+				images: [
+					ImageResource.xmarkCircleFill.asSymbolImage().withTintColor(Colors.thinWarningBackground.withAlphaComponent(0.3))
+				]
+			)
+		)
+		button.setAttributedTitle(selectedAttributedString, for: .highlighted)
+		button.alpha = 0
+		button.addTarget(self, action: #selector(jitDisabledButtonPressed), for: .touchUpInside)
+		return button
+	}()
+
 	private lazy var openShareFolderButton: UIButton = {
 		let button = UIButton.withoutConstraints()
 		button.tintColor = Colors.secondaryText
@@ -477,12 +527,23 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 		return button
 	}()
 
+	private var stikDebugJitStatus: StikDebugJitStatus
+	private let didTapJitEnabledAction: (() -> Void)
+	private let didTapJitDisabledAction: (() -> Void)
+
 	init(
+		stikDebugJitStatus: StikDebugJitStatus,
 		didTapOpenShareFolderButton: @escaping (() -> Void),
 		didTapReloadButton: @escaping (() -> Void),
 		didTapCreateAction: @escaping (() -> Void),
-		didTapImportAction: @escaping (() -> Void)
+		didTapImportAction: @escaping (() -> Void),
+		didTapJitEnabledAction: @escaping (() -> Void),
+		didTapJitDisabledAction: @escaping (() -> Void)
 	) {
+		self.stikDebugJitStatus = stikDebugJitStatus
+		self.didTapJitEnabledAction = didTapJitEnabledAction
+		self.didTapJitDisabledAction = didTapJitDisabledAction
+
 		super.init(style: .default, reuseIdentifier: nil)
 
 		backgroundColor = Colors.primaryBackground
@@ -515,6 +576,8 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 		let addMenu = UIMenu(title: "", children: [createAction, importAction])
 		addButton.menu = addMenu
 
+		contentView.addSubview(jitEnabledButton)
+		contentView.addSubview(jitDisabledButton)
 		contentView.addSubview(reloadButton)
 		contentView.addSubview(addButton)
 
@@ -528,15 +591,57 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 		}
 
 		NSLayoutConstraint.activate([
+			jitEnabledButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			jitEnabledButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+
+			jitDisabledButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+			jitDisabledButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+
 			reloadButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
 			addButton.leadingAnchor.constraint(equalTo: reloadButton.trailingAnchor),
 			addButton.topAnchor.constraint(equalTo: contentView.topAnchor),
 			addButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
 			addButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor).withPriority(.required - 1)
 		])
+
+		updateJitLabel(animated: false)
 	}
 
 	required init?(coder: NSCoder) { fatalError() }
+
+	func configure(stikDebugJitStatus: StikDebugJitStatus) {
+		self.stikDebugJitStatus = stikDebugJitStatus
+
+		updateJitLabel(animated: true)
+	}
+
+	private func updateJitLabel(animated: Bool) {
+		guard UIDevice.deviceType != .mac else {
+			return
+		}
+		
+		let updateBlock = { [weak self] in
+			guard let self else { return }
+			switch stikDebugJitStatus {
+			case .enabled:
+				jitEnabledButton.alpha = 1
+				jitDisabledButton.alpha = 0
+			case .notEnabled:
+				jitEnabledButton.alpha = 0
+				jitDisabledButton.alpha = 1
+			case .unknown:
+				jitEnabledButton.alpha = 0
+				jitDisabledButton.alpha = 0
+			}
+		}
+		if animated {
+			UIView.animate(withDuration: 0.2) {
+				updateBlock()
+			}
+		} else {
+			updateBlock()
+		}
+	}
 
 	private func rotateReloadButton() {
 		// Split in to parts to force it to make the rotation counter clockwise
@@ -551,6 +656,16 @@ class PreferencesGeneralDiskActionBarCell: UITableViewCell {
 				})
 			}
 		}
+	}
+
+	@objc
+	private func jitEnabledButtonPressed() {
+		didTapJitEnabledAction()
+	}
+
+	@objc
+	private func jitDisabledButtonPressed() {
+		didTapJitDisabledAction()
 	}
 }
 

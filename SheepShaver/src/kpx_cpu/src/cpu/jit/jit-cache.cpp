@@ -35,6 +35,158 @@
 #include <sys/mman.h>
 #include <libkern/OSCacheControl.h>
 
+#if TARGET_OS_IPHONE && !TARGET_OS_MACCATALYST && !TARGET_OS_SIMULATOR
+#define JIT_WX_IOS_DUAL_MAP 1
+#else
+#define JIT_WX_IOS_DUAL_MAP 0
+#endif
+
+#if JIT_WX_IOS_DUAL_MAP
+
+#include <dlfcn.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <time.h>
+#include <unistd.h>
+#include <os/log.h>
+#include <mach/mach.h>
+#include <CoreFoundation/CoreFoundation.h>
+
+/*
+ *  The handshake usually runs with no Xcode console attached (StikDebug
+ *  launches the app), so every step goes to the unified log and to
+ *  Documents/jit-log.txt, which the Files app can read back.
+ */
+static void jit_ios_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static void jit_ios_log(const char *fmt, ...)
+{
+	// Called from the main thread and the acquisition thread
+	static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+	static os_log_t handle;
+	static FILE *file;
+	static bool file_opened;
+
+	char message[512];
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(message, sizeof(message), fmt, args);
+	va_end(args);
+
+	pthread_mutex_lock(&lock);
+	if (handle == NULL)
+		handle = os_log_create("com.pocketshaver.jit", "ios");
+	os_log_error(handle, "JIT: %{public}s", message);
+
+	if (!file_opened) {
+		file_opened = true;
+		const char *home = getenv("HOME");
+		if (home != NULL) {
+			char path[1024];
+			snprintf(path, sizeof(path), "%s/Documents/jit-log.txt", home);
+			file = fopen(path, "a");
+			if (file != NULL)
+				fprintf(file, "---- pid %d\n", getpid());
+		}
+	}
+	if (file != NULL) {
+		time_t now = time(NULL);
+		struct tm local;
+		localtime_r(&now, &local);
+		fprintf(file, "%02d:%02d:%02d %s\n", local.tm_hour, local.tm_min, local.tm_sec, message);
+		// The next step may crash the process
+		fflush(file);
+	}
+	pthread_mutex_unlock(&lock);
+}
+#define JIT_IOS_LOG(...) jit_ios_log(__VA_ARGS__)
+
+void jit_ios_note(const char *message)
+{
+	JIT_IOS_LOG("%s", message);
+}
+
+/*
+ *  iOS devices: one code arena, reserved once by jit_ios_acquire and never
+ *  released, since a TXM device cannot prepare a new region after the
+ *  debugger detaches. The translation cache borrows it via jit_wx_map.
+ *  Two ways to write into it:
+ *
+ *  - iOS 26 TXM devices: StikDebug prepares an RX region and an RW alias
+ *    of the same pages is written while the RX view runs.
+ *  - Earlier iOS: the process maps the arena itself, and code signing
+ *    rejects executing a page that also has a writable alias, even when
+ *    debugged. Each publish flips the touched pages RW, copies, and flips
+ *    them back to RX instead. Only the CPU thread publishes and runs
+ *    translated code, so no other thread can execute from a page while
+ *    it is writable.
+ */
+
+// Covers the default translation cache (32 MB + guard, 16 KB rounded;
+// see the static_assert by JIT_CACHE_SIZE). StikDebug touches every page
+// while preparing it, so keep the slack small.
+static const uint32 JIT_IOS_ARENA_SIZE = 33 * 1024 * 1024;
+
+static uint8 *g_ios_rx;
+static uint8 *g_ios_rw;
+static bool g_ios_arena_in_use;
+
+static bool jit_ios_in_arena(void *exec_addr, uint32 len)
+{
+	uint8 *p = (uint8 *)exec_addr;
+	return g_ios_rx != NULL && p >= g_ios_rx && p + len <= g_ios_rx + JIT_IOS_ARENA_SIZE;
+}
+
+void *jit_wx_map(uint32 size)
+{
+	if (g_ios_rx == NULL || g_ios_arena_in_use || size > JIT_IOS_ARENA_SIZE) {
+		JIT_IOS_LOG("map(%u) refused: arena=%p in_use=%d", size, g_ios_rx, g_ios_arena_in_use);
+		return NULL;
+	}
+	g_ios_arena_in_use = true;
+	JIT_IOS_LOG("map(%u) -> %p", size, g_ios_rx);
+	return g_ios_rx;
+}
+
+void jit_wx_unmap(void *base, uint32 size)
+{
+	// The arena outlives every translation cache built on it
+	if (base != NULL && base == g_ios_rx)
+		g_ios_arena_in_use = false;
+}
+
+bool jit_wx_publish(void *dst, const void *src, uint32 len)
+{
+	if (!jit_ios_in_arena(dst, len))
+		return false;
+
+	if (g_ios_rw != NULL)
+		memcpy(g_ios_rw + ((uint8 *)dst - g_ios_rx), src, len);
+	else {
+		const uintptr page_mask = vm_page_size - 1;
+		uintptr start = (uintptr)dst & ~page_mask;
+		size_t span = (((uintptr)dst + len + page_mask) & ~page_mask) - start;
+		if (mprotect((void *)start, span, PROT_READ | PROT_WRITE) != 0) {
+			JIT_IOS_LOG("publish: mprotect(rw) failed: errno=%d", errno);
+			return false;
+		}
+		memcpy(dst, src, len);
+		if (mprotect((void *)start, span, PROT_READ | PROT_EXEC) != 0) {
+			JIT_IOS_LOG("publish: mprotect(rx) failed: errno=%d", errno);
+			return false;
+		}
+	}
+	sys_icache_invalidate(dst, len);
+	return true;
+}
+
+bool jit_wx_available(void)
+{
+	// Not cached: the arena appears only after the StikDebug handshake
+	return g_ios_rx != NULL;
+}
+
+#else
+
 struct jit_wx_write_ctx {
 	void *dst;
 	const void *src;
@@ -99,6 +251,8 @@ bool jit_wx_available(void)
 	return cached != 0;
 }
 
+#endif /* JIT_WX_IOS_DUAL_MAP */
+
 // Single registered shadow region (one translation cache per process)
 static uint8 *g_wx_exec_base;
 static uint8 *g_wx_write_base;
@@ -155,6 +309,265 @@ bool jit_wx_selftest(void)
 	jit_wx_unmap(code, size);
 	return ok;
 }
+
+#if JIT_WX_IOS_DUAL_MAP
+
+// csops(2) is exported by libsystem_kernel but has no public header
+extern "C" int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
+#define JIT_CS_OPS_STATUS	0
+#define JIT_CS_DEBUGGED		0x10000000
+
+/*
+ *  StikDebug universal.js "syscalls": brk #0xf00d with the command in
+ *  x16 and arguments in x0/x1, result in x0. Executing one without that
+ *  script attached raises an unhandled SIGTRAP and kills the process, so
+ *  they only run when jit_ios_needs_prepare_script() told the app to
+ *  request the script.
+ */
+__attribute__((noinline, optnone, naked))
+static void jit26_detach(void)
+{
+	asm volatile("mov x16, #0\n\tbrk #0xf00d\n\tret");
+}
+
+__attribute__((noinline, optnone, naked))
+static void *jit26_prepare_region(void *addr, size_t len)
+{
+	asm volatile("mov x16, #1\n\tbrk #0xf00d\n\tret");
+}
+
+static bool g_ios_ready;
+
+bool jit_ios_supported(void)
+{
+	return ENABLE_DYNGEN != 0;
+}
+
+bool jit_ios_debugger_attached(void)
+{
+	uint32_t flags = 0;
+	if (csops(getpid(), JIT_CS_OPS_STATUS, &flags, sizeof(flags)) != 0)
+		return false;
+	return (flags & JIT_CS_DEBUGGED) != 0;
+}
+
+// Mirrors StikJIT's ProcessInfo.txmPresence: the device tree's
+// chosen/memory-map node lists a "TXM" entry on devices running the
+// Trusted Execution Monitor. IOKit has no public iOS headers, so it is
+// resolved at runtime. Returns 1 present, 0 absent, -1 unknown.
+static int jit_ios_txm_presence(void)
+{
+	typedef mach_port_t io_registry_entry_t;
+	typedef io_registry_entry_t (*from_path_t)(mach_port_t, const char *);
+	typedef CFTypeRef (*create_property_t)(io_registry_entry_t, CFStringRef, CFAllocatorRef, uint32_t);
+	typedef kern_return_t (*release_t)(mach_port_t);
+
+	void *iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_LAZY);
+	if (iokit == NULL)
+		return -1;
+	from_path_t from_path = (from_path_t)dlsym(iokit, "IORegistryEntryFromPath");
+	create_property_t create_property = (create_property_t)dlsym(iokit, "IORegistryEntryCreateCFProperty");
+	release_t release = (release_t)dlsym(iokit, "IOObjectRelease");
+	if (from_path == NULL || create_property == NULL || release == NULL)
+		return -1;
+
+	io_registry_entry_t node = from_path(MACH_PORT_NULL, "IODeviceTree:/chosen/memory-map");
+	if (node == MACH_PORT_NULL)
+		return -1;
+	CFTypeRef keys = create_property(node, CFSTR("IORegistryEntryPropertyKeys"), kCFAllocatorDefault, 0);
+	release(node);
+	if (keys == NULL)
+		return -1;
+
+	int presence = -1;
+	if (CFGetTypeID(keys) == CFArrayGetTypeID()) {
+		CFArrayRef array = (CFArrayRef)keys;
+		presence = CFArrayContainsValue(array, CFRangeMake(0, CFArrayGetCount(array)), CFSTR("TXM")) ? 1 : 0;
+	}
+	CFRelease(keys);
+	return presence;
+}
+
+bool jit_ios_needs_prepare_script(void)
+{
+	static int cached = -1;
+	if (cached < 0) {
+		// TXM hardware (A15 and later) is present on earlier iOS releases
+		// too, but only iOS 26 stops a debugged process from mapping its
+		// own code. StikDebug likewise runs no script before iOS 26, so a
+		// brk there would go unserviced.
+		if (__builtin_available(iOS 26.0, *))
+			cached = (jit_ios_txm_presence() != 0) ? 1 : 0;
+		else
+			cached = 0;
+	}
+	return cached == 1;
+}
+
+static bool jit_ios_region_is_executable(void *addr)
+{
+	vm_address_t region = (vm_address_t)addr;
+	vm_size_t region_size = 0;
+	vm_region_basic_info_data_64_t info;
+	mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+	mach_port_t object = MACH_PORT_NULL;
+	kern_return_t kr = vm_region_64(mach_task_self(), &region, &region_size, VM_REGION_BASIC_INFO_64,
+									(vm_region_info_t)&info, &count, &object);
+	if (kr != KERN_SUCCESS) {
+		JIT_IOS_LOG("vm_region(%p) failed: kr=%d", addr, kr);
+		return false;
+	}
+	JIT_IOS_LOG("vm_region(%p): start=%p prot=%d max=%d",
+				addr, (void *)region, info.protection, info.max_protection);
+	// vm_region reports the next mapping when addr itself is unmapped
+	if (region > (vm_address_t)addr)
+		return false;
+	return (info.protection & VM_PROT_EXECUTE) != 0;
+}
+
+// Map a writable view of the arena's physical pages
+static uint8 *jit_ios_make_rw_alias(uint8 *rx)
+{
+	vm_address_t rw = 0;
+	vm_prot_t cur_prot, max_prot;
+	kern_return_t kr = vm_remap(mach_task_self(), &rw, JIT_IOS_ARENA_SIZE, 0, VM_FLAGS_ANYWHERE,
+								mach_task_self(), (vm_address_t)rx, FALSE, &cur_prot, &max_prot,
+								VM_INHERIT_NONE);
+	if (kr != KERN_SUCCESS) {
+		JIT_IOS_LOG("vm_remap failed: kr=%d", kr);
+		return NULL;
+	}
+	JIT_IOS_LOG("vm_remap -> %p (cur=%d max=%d)", (void *)rw, cur_prot, max_prot);
+	kr = vm_protect(mach_task_self(), rw, JIT_IOS_ARENA_SIZE, FALSE, VM_PROT_READ | VM_PROT_WRITE);
+	if (kr != KERN_SUCCESS) {
+		JIT_IOS_LOG("vm_protect(alias, rw) failed: kr=%d", kr);
+		vm_deallocate(mach_task_self(), rw, JIT_IOS_ARENA_SIZE);
+		return NULL;
+	}
+	return (uint8 *)rw;
+}
+
+// Before iOS 26: once CS_DEBUGGED is set, the process may flip its own
+// pages between RW and RX (see jit_wx_publish). Whether the execute bit
+// sticks is checked by the probe before anything runs there.
+static uint8 *jit_ios_map_debugged(void)
+{
+	void *p = mmap(NULL, JIT_IOS_ARENA_SIZE, PROT_READ | PROT_WRITE,
+				   MAP_PRIVATE | MAP_ANON, -1, 0);
+	if (p == MAP_FAILED) {
+		JIT_IOS_LOG("mmap(rw) failed: errno=%d", errno);
+		return NULL;
+	}
+	JIT_IOS_LOG("mmap(rw) -> %p", p);
+	return (uint8 *)p;
+}
+
+// TXM devices: the debugger allocates and prepares the RX region. A NULL
+// address selects its allocation branch; preparing a region this process
+// mapped itself returns the same pointer but never makes it executable.
+static uint8 *jit_ios_map_rx_prepared(void)
+{
+	JIT_IOS_LOG("requesting prepared region from StikDebug (brk #0xf00d)");
+	void *rx = jit26_prepare_region(NULL, JIT_IOS_ARENA_SIZE);
+	JIT_IOS_LOG("prepare_region -> %p", rx);
+	// A request the script did not service can leave junk in x0
+	if (rx == NULL || ((uintptr)rx & (vm_page_size - 1)) != 0
+		|| !jit_ios_region_is_executable(rx))
+		return NULL;
+	return (uint8 *)rx;
+}
+
+// jit_wx_selftest with a log line ahead of every step, so a crash while
+// executing from the arena is pinned to the step that faulted
+static bool jit_ios_probe(void)
+{
+	static const uint32 fn42[2] = { 0x52800540u, 0xd65f03c0u };
+	static const uint32 fn99[2] = { 0x52800c60u, 0xd65f03c0u };
+	typedef int (*fn_t)(void);
+
+	JIT_IOS_LOG("probe: publishing (%s)", g_ios_rw ? "through RW alias" : "RW/RX toggle");
+	if (!jit_wx_publish(g_ios_rx, fn42, sizeof(fn42)))
+		return false;
+	if (!jit_ios_region_is_executable(g_ios_rx)) {
+		JIT_IOS_LOG("probe: published page is not executable");
+		return false;
+	}
+	JIT_IOS_LOG("probe: executing at %p", g_ios_rx);
+	int r = ((fn_t)g_ios_rx)();
+	JIT_IOS_LOG("probe: returned %d (expected 42)", r);
+	if (r != 42)
+		return false;
+	if (!jit_wx_publish(g_ios_rx, fn99, sizeof(fn99)))
+		return false;
+	JIT_IOS_LOG("probe: executing rewritten code");
+	r = ((fn_t)g_ios_rx)();
+	JIT_IOS_LOG("probe: returned %d (expected 99)", r);
+	return r == 99;
+}
+
+bool jit_ios_acquire(void)
+{
+	// The script detaches after the first round, so a second prepare
+	// request would hit a brk nobody services
+	static bool prepare_script_used;
+
+	if (g_ios_ready)
+		return true;
+
+	uint32_t cs_flags = 0;
+	int cs_result = csops(getpid(), JIT_CS_OPS_STATUS, &cs_flags, sizeof(cs_flags));
+	const bool prepare_script = jit_ios_needs_prepare_script();
+	JIT_IOS_LOG("acquire: csops=%d flags=0x%08x debugged=%d txm=%d prepare_script=%d",
+				cs_result, cs_flags, (cs_flags & JIT_CS_DEBUGGED) != 0,
+				jit_ios_txm_presence(), prepare_script);
+
+	if (!jit_ios_debugger_attached())
+		return false;
+	if (prepare_script) {
+		if (prepare_script_used) {
+			JIT_IOS_LOG("acquire: prepare request already used; not retrying");
+			return false;
+		}
+		prepare_script_used = true;
+	}
+	uint8 *rx = prepare_script ? jit_ios_map_rx_prepared() : jit_ios_map_debugged();
+	uint8 *rw = (rx && prepare_script) ? jit_ios_make_rw_alias(rx) : NULL;
+
+	bool ok = false;
+	if (rx != NULL && (rw != NULL || !prepare_script)) {
+		g_ios_rx = rx;
+		g_ios_rw = rw;
+		ok = jit_ios_probe();
+	}
+	if (!ok) {
+		g_ios_rx = NULL;
+		g_ios_rw = NULL;
+		if (rw)
+			vm_deallocate(mach_task_self(), (vm_address_t)rw, JIT_IOS_ARENA_SIZE);
+		if (rx)
+			vm_deallocate(mach_task_self(), (vm_address_t)rx, JIT_IOS_ARENA_SIZE);
+	}
+
+	// The script services brk calls until told to detach; release the
+	// process whether or not preparation worked. Prepared pages stay
+	// executable afterwards.
+	if (prepare_script) {
+		JIT_IOS_LOG("detaching StikDebug");
+		jit26_detach();
+	}
+
+	g_ios_ready = ok;
+	JIT_IOS_LOG("iOS code arena %s (%s)", ok ? "ready" : "unavailable",
+				prepare_script ? "TXM, prepared by StikDebug" : "debugger-enabled RW/RX toggle");
+	return ok;
+}
+
+bool jit_ios_ready(void)
+{
+	return g_ios_ready;
+}
+
+#endif /* JIT_WX_IOS_DUAL_MAP */
 
 #else
 
@@ -236,6 +649,15 @@ bool jit_wx_selftest(void)
 
 #endif
 
+#if !defined(JIT_WX_IOS_DUAL_MAP) || !JIT_WX_IOS_DUAL_MAP
+bool jit_ios_supported(void)			{ return false; }
+bool jit_ios_debugger_attached(void)	{ return false; }
+bool jit_ios_needs_prepare_script(void)	{ return false; }
+bool jit_ios_acquire(void)				{ return false; }
+bool jit_ios_ready(void)				{ return false; }
+void jit_ios_note(const char *message)	{ }
+#endif
+
 #if ENABLE_DYNGEN
 
 #include "cpu/jit/jit-cache.hpp"
@@ -248,10 +670,24 @@ bool jit_wx_selftest(void)
 const int JIT_CACHE_SIZE = 2 * 1024;
 #elif defined(__powerpc__) || defined(__ppc__)
 const int JIT_CACHE_SIZE = 4 * 1024;
+#elif defined(__aarch64__)
+// Large native games thrash smaller caches: at 8 MB their
+// hot code refilled it several times a second, at 15 MB every ~2 s with
+// most of each fill repeating the previous one. Bounded on iOS devices by
+// the code arena, and by the +/-128 MB reach of direct block chaining.
+const int JIT_CACHE_SIZE = 32 * 1024;
 #else
 const int JIT_CACHE_SIZE = 8 * 1024;
 #endif
 const int JIT_CACHE_SIZE_GUARD = 4096;
+
+#if defined(JIT_WX_IOS_DUAL_MAP) && JIT_WX_IOS_DUAL_MAP
+// init_translation_cache rounds the default size plus guard up to 16 KB,
+// and jit_wx_map refuses anything larger than the arena, which would
+// silently leave the interpreter in charge
+static_assert(((JIT_CACHE_SIZE * 1024 + JIT_CACHE_SIZE_GUARD + 16 * 1024 - 1) & -(16 * 1024))
+			  <= (int)JIT_IOS_ARENA_SIZE, "default JIT cache exceeds the iOS code arena");
+#endif
 
 basic_jit_cache::basic_jit_cache()
 	: cache_size(0), tcode_start(NULL), code_start(NULL), code_p(NULL), code_end(NULL),

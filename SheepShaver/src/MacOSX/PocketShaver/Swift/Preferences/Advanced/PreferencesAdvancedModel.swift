@@ -243,7 +243,7 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
-	var jitCompilerEnabled: Bool {
+	var macJitCompilerEnabled: Bool {
 		get {
 			miscSettings.jitCompilerEnabled
 		}

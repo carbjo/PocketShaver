@@ -84,3 +84,26 @@ void objc_set_catalyst_fullscreen(BOOL enable);
 extern "C"
 #endif
 double catalyst_screen_top_inset(void);
+
+// iOS devices: PowerPC JIT code memory obtained through StikDebug.
+// Implemented in jit-cache.cpp (see jit-wx.hpp); all report false on
+// Mac Catalyst and the simulator.
+#ifdef __cplusplus
+extern "C" {
+#endif
+bool jit_ios_supported(void);
+bool jit_ios_debugger_attached(void);
+bool jit_ios_needs_prepare_script(void);
+bool jit_ios_acquire(void);
+bool jit_ios_ready(void);
+void jit_ios_note(const char * _Nonnull message);
+#ifdef __cplusplus
+}
+#endif
+
+// True when this file was compiled in the Debug configuration (Swift has no equivalent
+// of the DEBUG macro here, since SWIFT_ACTIVE_COMPILATION_CONDITIONS is not set).
+#ifdef __cplusplus
+extern "C"
+#endif
+BOOL objc_isDebugConfiguration(void);
