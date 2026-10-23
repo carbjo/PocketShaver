@@ -378,6 +378,10 @@ public class PreferencesViewController: UIViewController {
 
 		prefsWindow.rootViewController = vc
 
+		#if targetEnvironment(macCatalyst)
+		prefsWindow.windowScene?.fixStaleInactiveAppearanceAtLaunch()
+		#endif
+
 		return vc
 	}
 
@@ -387,3 +391,35 @@ public class PreferencesViewController: UIViewController {
 		prefsWindow.isHidden = true
 	}
 }
+
+#if targetEnvironment(macCatalyst)
+@MainActor private var staleInactiveAppearanceObserver: NSObjectProtocol?
+
+private extension UIWindowScene {
+	// Workaround for getting right tint color on UISwitch directly after app launch
+	func fixStaleInactiveAppearanceAtLaunch() {
+		guard #available(macCatalyst 17.0, *),
+			  traitCollection.activeAppearance == .inactive,
+			  let app = (NSClassFromString("NSApplication") as? NSObject.Type)?
+				.value(forKey: "sharedApplication") as? NSObject,
+			  (app.value(forKey: "active") as? Bool) == true
+		else { return }
+
+		traitOverrides.activeAppearance = .active
+
+		staleInactiveAppearanceObserver = NotificationCenter.default.addObserver(
+			forName: Notification.Name("NSApplicationDidResignActiveNotification"),
+			object: nil,
+			queue: .main
+		) { [weak self] _ in
+			MainActor.assumeIsolated {
+				self?.traitOverrides.remove(UITraitActiveAppearance.self)
+				if let observer = staleInactiveAppearanceObserver {
+					NotificationCenter.default.removeObserver(observer)
+					staleInactiveAppearanceObserver = nil
+				}
+			}
+		}
+	}
+}
+#endif
