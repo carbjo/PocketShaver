@@ -59,6 +59,33 @@ static uint32 MakeExecutableTvec;
 
 
 /*
+ *  SynchIdleTime sleep. Games yield through SynchIdleTime between frames
+ *  and between streamed file reads; a sleep until the next 60Hz tick turns
+ *  each yield into up to 16.7 ms of dead time. While a 3D or DrawSprocket
+ *  context owns the screen the sleep is capped so the guest resumes almost
+ *  immediately; the desktop keeps the full power-saving sleep.
+ */
+
+#ifdef __APPLE__
+// Overridden by the gfxaccel display mode controller where it is linked in
+extern "C" __attribute__((weak)) int gfx_idle_latency_sensitive(void) { return 0; }
+#endif
+
+static const uint32 IDLE_WAIT_3D_USEC = 1000;
+
+static void synch_idle_wait(void)
+{
+#ifdef __APPLE__
+	if (gfx_idle_latency_sensitive()) {
+		idle_wait_usec(IDLE_WAIT_3D_USEC);
+		return;
+	}
+#endif
+	idle_wait();
+}
+
+
+/*
  *  Execute EMUL_OP opcode (called by 68k emulator)
  */
 
@@ -530,14 +557,14 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 		case OP_IDLE_TIME:
 			// Sleep if no events pending
 			if (ReadMacInt32(0x14c) == 0)
-				idle_wait();
+				synch_idle_wait();
 			r->a[0] = ReadMacInt32(0x2b6);
 			break;
 
 		case OP_IDLE_TIME_2:
 			// Sleep if no events pending
 			if (ReadMacInt32(0x14c) == 0)
-				idle_wait();
+				synch_idle_wait();
 			r->d[0] = (uint32)-2;
 			break;
 

@@ -587,6 +587,17 @@ const struct DMCModeSnapshot *dmc_current_snapshot(void) {
 	return s_current.load(std::memory_order_acquire);
 }
 
+// True while a 3D or DrawSprocket context owns the screen. SynchIdleTime
+// (emul_op.cpp) caps its host sleep then, so per-frame and per-read guest
+// yields do not each wait for the next 60Hz tick.
+extern "C" int gfx_idle_latency_sensitive(void) {
+	const DMCModeSnapshot *snap = dmc_current_snapshot();
+	if (!snap) return 0;
+	return snap->active_owner == kDMCOwnerRAVE ||
+	       snap->active_owner == kDMCOwnerGL ||
+	       snap->active_owner == kDMCOwnerDSp;
+}
+
 int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 	DMCReentryScope reentry;
 	if (!reentry.installed) {

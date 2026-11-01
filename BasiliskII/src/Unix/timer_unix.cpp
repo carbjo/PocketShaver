@@ -392,6 +392,28 @@ void idle_wait(void)
 
 
 /*
+ *  Suspend emulator thread for at most "usec" microseconds, or until
+ *  idle_resume() is called
+ */
+
+void idle_wait_usec(uint32 usec)
+{
+#ifdef IDLE_USES_COND_WAIT
+	struct timespec deadline;
+	clock_gettime(CLOCK_REALTIME, &deadline);
+	deadline.tv_nsec += (long)usec * 1000;
+	deadline.tv_sec += deadline.tv_nsec / 1000000000;
+	deadline.tv_nsec %= 1000000000;
+	pthread_mutex_lock(&idle_lock);
+	pthread_cond_timedwait(&idle_cond, &idle_lock, &deadline);
+	pthread_mutex_unlock(&idle_lock);
+#else
+	Delay_usec(usec);
+#endif
+}
+
+
+/*
  *  Resume execution of emulator thread, events just arrived
  */
 

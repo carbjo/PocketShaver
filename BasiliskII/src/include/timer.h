@@ -44,6 +44,7 @@ extern int32 timer_host2mac_time(tm_time_t hosttime);
 
 // Suspend execution of emulator thread and resume it on events
 extern void idle_wait(void);
+extern void idle_wait_usec(uint32 usec);
 extern void idle_resume(void);
 
 #endif
