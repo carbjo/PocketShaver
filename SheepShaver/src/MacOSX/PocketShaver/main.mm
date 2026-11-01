@@ -48,12 +48,13 @@ static bool is_app_window(UIWindow *window)
 
 static void adopt_window(UIWindow *window)
 {
-	if (!is_app_window(window) || window.windowScene == g_window_scene)
+	if (!is_app_window(window))
 		return;
-	if (g_window_scene)
-		window.windowScene = g_window_scene;
-	else
+	// Queue first: two nil scenes do not mean the window is attached.
+	if (!g_window_scene)
 		[g_sceneless_windows addObject:window];
+	else if (window.windowScene != g_window_scene)
+		window.windowScene = g_window_scene;
 }
 
 @implementation UIWindow (PocketShaverSceneAdoption)
