@@ -601,6 +601,9 @@ static inline bool RaveTextureNeedsLivePixmapRefresh(const RaveResourceEntry *en
 #define RAVE_MAX_RESOURCES 4096
 
 extern RaveResourceEntry rave_resource_table[RAVE_MAX_RESOURCES];
+// Guest-visible handle words, one per table slot (slot i owns base + i*4).
+// Reserved once from SheepMem in RaveThunksInit.
+extern uint32_t rave_resource_addr_base;
 
 // Allocate a slot in the resource table. Returns 1-based handle, or 0 on failure.
 extern uint32_t RaveResourceAlloc(RaveResourceType type);
@@ -608,7 +611,8 @@ extern uint32_t RaveResourceAlloc(RaveResourceType type);
 extern bool RaveResourceFree(uint32_t handle);
 // Lookup by handle. Returns nullptr if invalid/free.
 extern RaveResourceEntry *RaveResourceGet(uint32_t handle);
-// Lookup by Mac address. Returns 1-based handle, or 0 if not found.
+// Lookup by Mac address (O(1): addresses map straight to slots). Returns
+// 1-based handle, or 0 if not found.
 extern uint32_t RaveResourceFindByAddr(uint32_t mac_addr);
 // Remove a render-to-texture handle token from live draw contexts.
 extern void RaveForgetRTTResourceHandle(uint32_t handle, uint32_t generation);

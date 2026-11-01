@@ -1749,7 +1749,9 @@ void NativeGLGetBooleanv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 	case GL_DEPTH_WRITEMASK:val = ctx->depth_mask; break;
 	default: break;
 	}
-	WriteMacInt32(mac_ptr, val ? GL_TRUE : GL_FALSE);
+	// GLboolean is one byte; a 32-bit store would clobber the caller's
+	// neighbouring bytes and leave the low-order byte (the value) at 0.
+	WriteMacInt8(mac_ptr, val ? GL_TRUE : GL_FALSE);
 }
 
 uint32_t NativeGLGetError(GLContext *ctx)
@@ -4366,9 +4368,11 @@ void NativeGLGetPolygonStipple(GLContext *ctx, uint32_t mask_ptr)
 }
 
 // --- Texture residency ---
-void NativeGLAreTexturesResident(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t residences_ptr)
+uint32_t NativeGLAreTexturesResident(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t residences_ptr)
 {
-	for (int32_t i = 0; i < n; i++) WriteMacInt32(residences_ptr + i * 4, GL_TRUE);
+	// Every texture is resident under Metal. Per the GL spec, when all are
+	// resident the call returns GL_TRUE and leaves the GLboolean array untouched.
+	return GL_TRUE;
 }
 
 void NativeGLPrioritizeTextures(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t priorities_ptr)

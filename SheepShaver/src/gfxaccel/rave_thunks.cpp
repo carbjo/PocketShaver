@@ -121,6 +121,10 @@ void RaveThunksInit(void)
 	rave_scratch_addr = SheepMem::Reserve(32);
 	WriteMacInt32(rave_scratch_addr, 0);
 
+	// One guest handle word per resource-table slot, reserved up front so
+	// texture/bitmap/color-table creation never touches the SheepMem stack.
+	rave_resource_addr_base = SheepMem::Reserve(RAVE_MAX_RESOURCES * 4);
+
 	// Get the native opcode for RAVE dispatch
 	uint32 rave_opcode = NativeOpcode(NATIVE_RAVE_DISPATCH);
 

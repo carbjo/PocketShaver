@@ -551,7 +551,8 @@ struct GLMetalMaterial {
     float specular[4];
     float emission[4];
     float shininess;
-    float _pad0, _pad1, _pad2;
+    int32_t color_material;          // GLColorMaterialToShader: 0=off, 1=ambient, 2=diffuse, 3=specular, 4=emission, 5=ambient+diffuse
+    float _pad1, _pad2;
 };
 
 // Must match GLLightingData in gl_shaders.metal
@@ -3050,6 +3051,26 @@ static int32_t GLTexEnvModeToShader(uint32_t gl_mode) {
 
 
 /*
+ *  Which front-material term tracks the vertex color under GL_COLOR_MATERIAL.
+ *  Shader expects: 0=off, 1=ambient, 2=diffuse, 3=specular, 4=emission,
+ *  5=ambient+diffuse. Only the front material is uploaded, so a GL_BACK-only
+ *  glColorMaterial leaves it untouched.
+ */
+static int32_t GLColorMaterialToShader(const GLContext *ctx) {
+    if (!ctx->lighting_enabled || !ctx->color_material_enabled) return 0;
+    if (ctx->color_material_face == 0x0405) return 0;  // GL_BACK
+    switch (ctx->color_material_mode) {
+        case 0x1200: return 1;  // GL_AMBIENT
+        case 0x1201: return 2;  // GL_DIFFUSE
+        case 0x1202: return 3;  // GL_SPECULAR
+        case 0x1600: return 4;  // GL_EMISSION
+        case 0x1602: return 5;  // GL_AMBIENT_AND_DIFFUSE
+        default:     return 0;
+    }
+}
+
+
+/*
  *  Convert GL alpha comparison func enum (0x0200-0x0207) to shader integer 0-7
  */
 static int32_t GLAlphaFuncToShader(uint32_t gl_func) {
@@ -3396,6 +3417,7 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     memcpy(ld->material.specular, ctx->materials[0].specular, sizeof(float) * 4);
     memcpy(ld->material.emission, ctx->materials[0].emission, sizeof(float) * 4);
     ld->material.shininess = ctx->materials[0].shininess;
+    ld->material.color_material = GLColorMaterialToShader(ctx);
     memcpy(ld->global_ambient, ctx->light_model_ambient, sizeof(float) * 4);
 
     // ---- Get/create pipeline state ----

@@ -108,7 +108,7 @@ struct GLMaterialData {
     float4 specular;
     float4 emission;
     float  shininess;
-    float  _pad0;
+    int    color_material;      // GL_COLOR_MATERIAL: 0=off, 1=ambient, 2=diffuse, 3=specular, 4=emission, 5=ambient+diffuse
     float  _pad1;
     float  _pad2;
 };
@@ -166,9 +166,19 @@ vertex GLVertexOut gl_vertex_main(
 
     // 5. Lighting or pass-through color
     if (uniforms.lighting_enabled) {
+        // GL_COLOR_MATERIAL: the selected material term follows the vertex color.
+        float4 mat_ambient  = lighting.material.ambient;
+        float4 mat_diffuse  = lighting.material.diffuse;
+        float4 mat_specular = lighting.material.specular;
+        float4 mat_emission = lighting.material.emission;
+        int cm = lighting.material.color_material;
+        if (cm == 1 || cm == 5) mat_ambient  = in.color;
+        if (cm == 2 || cm == 5) mat_diffuse  = in.color;
+        if (cm == 3)            mat_specular = in.color;
+        if (cm == 4)            mat_emission = in.color;
+
         // Initialize with emission + global_ambient * material.ambient
-        float4 color = lighting.material.emission +
-                       lighting.global_ambient * lighting.material.ambient;
+        float4 color = mat_emission + lighting.global_ambient * mat_ambient;
 
         for (int i = 0; i < 8; i++) {
             if (lighting.lights[i].enabled == 0) continue;
@@ -204,11 +214,11 @@ vertex GLVertexOut gl_vertex_main(
             }
 
             // Ambient contribution
-            float4 ambient_contrib = light.ambient * lighting.material.ambient;
+            float4 ambient_contrib = light.ambient * mat_ambient;
 
             // Diffuse contribution
             float NdotL = max(dot(eye_normal, L), 0.0);
-            float4 diffuse_contrib = NdotL * light.diffuse * lighting.material.diffuse;
+            float4 diffuse_contrib = NdotL * light.diffuse * mat_diffuse;
 
             // Specular contribution
             float4 specular_contrib = float4(0.0);
@@ -217,13 +227,16 @@ vertex GLVertexOut gl_vertex_main(
                 float3 H = normalize(L + V);           // half vector
                 float NdotH = max(dot(eye_normal, H), 0.0);
                 float spec = pow(NdotH, lighting.material.shininess);
-                specular_contrib = spec * light.specular * lighting.material.specular;
+                specular_contrib = spec * light.specular * mat_specular;
             }
 
             color += attenuation * spotEffect *
                      (ambient_contrib + diffuse_contrib + specular_contrib);
         }
 
+        // GL takes lit alpha from the diffuse material alpha alone; summing it
+        // across terms saturates to 1 and makes lit translucency opaque.
+        color.a = mat_diffuse.a;
         out.color = clamp(color, 0.0, 1.0);
     } else {
         out.color = in.color;

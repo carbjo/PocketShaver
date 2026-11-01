@@ -455,6 +455,23 @@ void GLDrainDeferred(void) {
     g_defer_drain_calls++;
     gl_defer_draining = true;
 
+    // The drain runs from inside GLDispatch for the call that triggered it, after
+    // the glue has already published that call's stack pointer and sub-opcode.
+    // Replayed records clear the stack-arg globals, so put them back on every exit
+    // or the triggering call (glTexImage2D and other 9+ arg calls) reads zeros.
+    struct GLDeferCallerArgs {
+        uint32_t sp, scratch;
+        int      stack_arg_offset;
+        GLDeferCallerArgs()
+            : sp(gl_ppc_sp), scratch(ReadMacInt32(gl_scratch_addr)),
+              stack_arg_offset(gl_ppc_stack_arg_offset) {}
+        ~GLDeferCallerArgs() {
+            gl_ppc_sp = sp;
+            gl_ppc_stack_arg_offset = stack_arg_offset;
+            WriteMacInt32(gl_scratch_addr, scratch);
+        }
+    } caller_args;
+
     uint32_t total = ReadMacInt32(gl_defer_head_addr);   // bytes written
     WriteMacInt32(gl_defer_count_addr, 0);               // reset BEFORE replay so replayed calls see an empty ring
     WriteMacInt32(gl_defer_head_addr, 0);

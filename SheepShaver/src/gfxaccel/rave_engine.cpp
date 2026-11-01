@@ -350,11 +350,11 @@ static const uint32 kAllFastFeatures =
 
 // Resource handle table -- 64 slots, 1-based handles (same pattern as draw context table)
 RaveResourceEntry rave_resource_table[RAVE_MAX_RESOURCES] = {};
+uint32_t rave_resource_addr_base = 0;
 
-// Highest-ever-allocated slot+1. RaveResourceFindByAddr is on the per-draw texture-bind
-// hot path; bounding its scan to the high-water mark keeps lookups ~O(working set)
-// instead of O(RAVE_MAX_RESOURCES) now that the table is 4096. Monotonic (never lowered
-// on free) so it can never under-scan a live entry.
+// Highest-ever-allocated slot+1. Table scans (e.g. the pixmap-address lookups) stop
+// here so they cost ~O(working set) instead of O(RAVE_MAX_RESOURCES). Monotonic (never
+// lowered on free) so it can never under-scan a live entry.
 static uint32_t g_rave_resource_high_water = 0;
 static uint32_t g_rave_resource_next_generation = 1;
 
@@ -433,6 +433,7 @@ uint32_t RaveChainToOriginal(int hook_index, int nargs, uint32_t const *args)
 }
 
 uint32_t RaveResourceAlloc(RaveResourceType type) {
+	if (rave_resource_addr_base == 0) return 0;  // RaveThunksInit not run yet
 	for (int i = 0; i < RAVE_MAX_RESOURCES; i++) {
 		if (rave_resource_table[i].type == kRaveResourceFree) {
 			// Zero entire entry before populating
@@ -442,8 +443,10 @@ uint32_t RaveResourceAlloc(RaveResourceType type) {
 			rave_resource_table[i].generation = g_rave_resource_next_generation++;
 			if (g_rave_resource_next_generation == 0)
 				g_rave_resource_next_generation = 1;
-			// Allocate a 4-byte Mac-visible address for the PPC side
-			uint32_t mac_addr = SheepMem::Reserve(4);
+			// Each slot owns a fixed 4-byte Mac-visible word. Reserving one
+			// per resource from SheepMem never gave it back, and that region
+			// is a LIFO stack shared with SheepVar.
+			uint32_t mac_addr = rave_resource_addr_base + (uint32_t)i * 4;
 			rave_resource_table[i].mac_addr = mac_addr;
 			// Write a magic value so delete hooks can identify our resources
 			uint32_t magic = 0;
@@ -519,15 +522,15 @@ static bool RaveForgetRTTAndFreeResource(uint32_t handle)
 }
 
 uint32_t RaveResourceFindByAddr(uint32_t mac_addr) {
-	if (mac_addr == 0) return 0;
-	// Only scan up to the high-water mark — all live entries are below it.
-	for (uint32_t i = 0; i < g_rave_resource_high_water; i++) {
-		if (rave_resource_table[i].type != kRaveResourceFree &&
-			rave_resource_table[i].mac_addr == mac_addr) {
-			return i + 1;
-		}
+	if (mac_addr < rave_resource_addr_base || rave_resource_addr_base == 0) return 0;
+	const uint32_t offset = mac_addr - rave_resource_addr_base;
+	if ((offset & 3u) != 0 || offset / 4 >= RAVE_MAX_RESOURCES) return 0;
+	const uint32_t i = offset / 4;
+	if (rave_resource_table[i].type == kRaveResourceFree ||
+	    rave_resource_table[i].mac_addr != mac_addr) {
+		return 0;
 	}
-	return 0;
+	return i + 1;
 }
 
 /*

@@ -288,9 +288,17 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
 		if (aligned + sa.size > g_heap_sizes[heap_id]) {
 			// Fall through to eviction below.
 		} else {
-			buf = [heap newBufferWithLength:(NSUInteger)length
-			                        options:allocOptions
-			                         offset:aligned];
+			// The :offset: variant is only valid on Placement heaps; the
+			// iOS 13.4-16.x Automatic heaps place the buffer themselves, and
+			// the bump offset then serves as size accounting only.
+			if (heap.type == MTLHeapTypePlacement) {
+				buf = [heap newBufferWithLength:(NSUInteger)length
+				                        options:allocOptions
+				                         offset:aligned];
+			} else {
+				buf = [heap newBufferWithLength:(NSUInteger)length
+				                        options:allocOptions];
+			}
 			if (buf != nil) {
 				g_next_offset[heap_id] = aligned + sa.size;
 				g_live_allocations[heap_id]++;

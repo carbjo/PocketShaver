@@ -43,6 +43,7 @@
 #include "dsp_quickdraw_restore_policy.h"
 #include "dsp_vbl_publish_policy.h"
 #include "dsp_pixmap_offsets.h"    /* PixMap field offsets + LMADDR_MAIN_DEVICE / GDEVICE_OFF_PMAP */
+#include "dsp_back_buffer_range.h" /* DSpBackBufferAlignedRowBytes */
 #include "dsp_metal_renderer.h"    /* DSpAllocateBackBuffer / DSpEncodeBackBufferBlit / DSpGetBackBufferCGrafPtr */
 #include "gfxaccel_threading_policy.h"
 #include "gfxaccel_resources.h"    /* per-buffer owner-tag API */
@@ -1013,6 +1014,24 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
  *  Invariant: zero new threading primitives. Runs on main RunLoop
  *  thread (vbl_source.mm:23) — same threading shape as DSpVBLServiceCallback.
  */
+
+/* Bytes to copy from the guest-RAM staging region into back_buffer.contents.
+ * Both were allocated at the back-buffer size, which Reserve keeps separate
+ * from the selected display mode (a 512x384 back buffer inside a 640x480
+ * mode is legal), so size from the back buffer and clamp to both
+ * allocations. */
+static uint32_t DSpStagingDrainBytes(const DSpContextPrivate *ctx)
+{
+	uint32_t bytes =
+	    DSpBackBufferAlignedRowBytes(DSpContextBackBufferWidth(ctx),
+	                                 ctx->attr.backBufferBestDepth) *
+	    DSpContextBackBufferHeight(ctx);
+	if (bytes > ctx->staging_size) bytes = ctx->staging_size;
+	const NSUInteger buffer_len = ctx->back_buffer.length;
+	if ((NSUInteger)bytes > buffer_len) bytes = (uint32_t)buffer_len;
+	return bytes;
+}
+
 extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
                                                  void *drawable,
                                                  double ts)
@@ -1072,12 +1091,7 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 	 * staging_mac_addr. Drain into back_buffer.contents BEFORE the GPU
 	 * blit so the texture view sees the latest pixels. */
 	if (has_back_buffer_staging) {
-		const uint32_t w         = active->attr.displayWidth;
-		const uint32_t h         = active->attr.displayHeight;
-		const uint32_t bpp       = active->attr.backBufferBestDepth;
-		const uint32_t row_bytes = (w * bpp + 7) / 8;
-		const uint32_t alignedRB = (row_bytes + 255) & ~255u;
-		const uint32_t buffer_size = alignedRB * h;
+		const uint32_t buffer_size = DSpStagingDrainBytes(active);
 
 		uint8_t *staging_host  = Mac2HostAddr(active->staging_mac_addr);
 		void    *back_contents = [active->back_buffer contents];
@@ -1492,11 +1506,17 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 		if (ctx->state != (uint32_t)kDSpContextState_Paused) continue;
 		if (ctx->persisted.invalidated_full == 0u) continue;
 
-		/* Re-allocate Metal back-buffer from persisted attributes. */
+		/* Re-allocate Metal back-buffer from persisted attributes, at the
+		 * back-buffer size Reserve used (not the display mode size). */
+		const DSpContextAttributes &pattr = ctx->persisted.attr;
 		if (!DSpAllocateBackBuffer(ctx,
-		                           ctx->persisted.attr.displayWidth,
-		                           ctx->persisted.attr.displayHeight,
-		                           ctx->persisted.attr.backBufferBestDepth)) {
+		                           pattr.backBufferWidth != 0
+		                               ? pattr.backBufferWidth
+		                               : pattr.displayWidth,
+		                           pattr.backBufferHeight != 0
+		                               ? pattr.backBufferHeight
+		                               : pattr.displayHeight,
+		                           pattr.backBufferBestDepth)) {
 			DSP_LOG("Foreground: ctx=%u back-buffer re-alloc FAILED; "
 			        "context remains Paused (retry on next fg)",
 			        ctx->handle);
@@ -2283,12 +2303,7 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 		 * texture view sees the latest pixels. This preserves guest-
 		 * writable CGrafPtr semantics. */
 		if (has_back_buffer_staging) {
-			uint32_t w         = ctx->attr.displayWidth;
-			uint32_t h         = ctx->attr.displayHeight;
-			uint32_t bpp       = ctx->attr.backBufferBestDepth;
-			uint32_t row_bytes = (w * bpp + 7) / 8;
-			uint32_t alignedRB = (row_bytes + 255) & ~255u;
-			uint32_t buffer_size = alignedRB * h;
+			uint32_t buffer_size = DSpStagingDrainBytes(ctx);
 
 			uint8_t *staging_host = Mac2HostAddr(ctx->staging_mac_addr);
 			void    *back_contents = ctx->back_buffer.contents;

@@ -369,7 +369,7 @@ extern void NativeGLEdgeFlagPointer(GLContext *ctx, int32_t stride, uint32_t poi
 extern void NativeGLLineStipple(GLContext *ctx, int32_t factor, uint32_t pattern);
 extern void NativeGLPolygonStipple(GLContext *ctx, uint32_t mask_ptr);
 extern void NativeGLGetPolygonStipple(GLContext *ctx, uint32_t mask_ptr);
-extern void NativeGLAreTexturesResident(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t residences_ptr);
+extern uint32_t NativeGLAreTexturesResident(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t residences_ptr);
 extern void NativeGLPrioritizeTextures(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t priorities_ptr);
 extern void NativeGLNewList(GLContext *ctx, uint32_t list, uint32_t mode);
 extern void NativeGLEndList(GLContext *ctx);
@@ -1147,7 +1147,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_ALPHA_FUNC:
 			NativeGLAlphaFunc(gl_current_context, r3, float_arg(float_bits, 0));
 			return 0;
-		case GL_SUB_ARE_TEXTURES_RESIDENT: NativeGLAreTexturesResident(gl_current_context, (int32_t)r3, r4, r5); return 0;
+		case GL_SUB_ARE_TEXTURES_RESIDENT: return NativeGLAreTexturesResident(gl_current_context, (int32_t)r3, r4, r5);
 		case GL_SUB_ARRAY_ELEMENT: NativeGLArrayElement(gl_current_context, (int32_t)r3); return 0;
 		case GL_SUB_BEGIN:
 			NativeGLBegin(gl_current_context, r3);
