@@ -485,6 +485,18 @@ extern "C" void MetalCompositorSubmitFrame_ClearCachedOverlay(void)
     os_unfair_lock_unlock(&s_overlay_cache_lock);
 }
 
+extern "C" void MetalCompositorSubmitFrame_ClearCachedOverlayForSource(void *source)
+{
+    if (source == NULL) return;
+    id<MTLTexture> texture = (__bridge id<MTLTexture>)source;
+    os_unfair_lock_lock(&s_overlay_cache_lock);
+    if (s_overlay_cache_tex == texture) {
+        s_overlay_cache_tex = nil;
+        s_overlay_cache_valid = false;
+    }
+    os_unfair_lock_unlock(&s_overlay_cache_lock);
+}
+
 // ---------------------------------------------------------------------------
 // VBL-paced present + 3D pacing API
 // ---------------------------------------------------------------------------

@@ -84,21 +84,15 @@ static bool gl_overlay_drawable_bound(void)
         s_gl_dst_height);
 }
 
-static bool gl_overlay_has_cached_texture(void)
-{
-    return s_gl_overlay_pair[0] != nil ||
-           s_gl_overlay_pair[1] != nil ||
-           s_gl_overlay_tex != nil;
-}
-
 static void gl_clear_compositor_cached_overlay(const char *reason)
 {
-    const DMCModeSnapshot *snap = dmc_current_snapshot();
-    const bool gl_owner = snap && snap->active_owner == (uint32_t)kDMCOwnerGL;
-    if (!gl_overlay_has_cached_texture() && !gl_owner) return;
-
-    GL_METAL_VLOG("clearing compositor cached overlay on GL %s", reason);
-    MetalCompositorSubmitFrame_ClearCachedOverlay();
+    GL_METAL_VLOG("clearing GL-owned compositor cached overlay on %s", reason);
+    MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
+        (__bridge void *)s_gl_overlay_pair[0]);
+    MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
+        (__bridge void *)s_gl_overlay_pair[1]);
+    MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
+        (__bridge void *)s_gl_overlay_tex);
 }
 
 /*
@@ -108,6 +102,16 @@ static void gl_clear_compositor_cached_overlay(const char *reason)
  *  return NULL during early startup or if SharedMetalDevice() is nil).
  */
 static void gl_release_overlay_texture(void);
+
+static bool gl_claim_display_for_overlay(void)
+{
+    const int32_t err = dmc_set_active_owner(kDMCOwnerGL);
+    if (err != kDMCNoErr) {
+        GL_METAL_LOG("GL display ownership request failed (%d)", err);
+        return false;
+    }
+    return true;
+}
 
 static id<MTLTexture> gl_acquire_overlay_texture(uint32_t width, uint32_t height)
 {
@@ -163,6 +167,9 @@ static void gl_advance_overlay_texture_after_submit(void)
  */
 static void gl_release_overlay_texture(void)
 {
+    // Invalidate while the old handles are still available, including when
+    // a resize replaces the pair before another frame has been submitted.
+    gl_clear_compositor_cached_overlay("release");
     if (s_gl_overlay_pair[0] != nil) {
         gfxaccel_resources_release_overlay_texture(
             kGfxEngineGL, (__bridge void *)s_gl_overlay_pair[0]);
@@ -191,6 +198,9 @@ extern "C" void gl_overlay_bind(int32_t left, int32_t top, int32_t width, int32_
         GL_METAL_LOG("gl_overlay_bind: invalid dims %dx%d — ignoring", width, height);
         return;
     }
+    // Ownership changes detach overlays. Finish that handoff before vending
+    // the texture that GL will render and submit as its first frame.
+    if (!gl_claim_display_for_overlay()) return;
     s_gl_dst_left   = left;
     s_gl_dst_top    = top;
     s_gl_dst_width  = width;
@@ -217,7 +227,6 @@ extern "C" void gl_overlay_bind(int32_t left, int32_t top, int32_t width, int32_
 extern "C" void gl_overlay_unbind(void)
 {
     GL_METAL_LOG("gl_overlay_unbind: releasing per-engine overlay");
-    gl_clear_compositor_cached_overlay("unbind");
     gl_release_overlay_texture();
     s_gl_dst_left = 0;
     s_gl_dst_top = 0;
@@ -313,8 +322,6 @@ extern "C" void gl_overlay_present(void)
     } else {
         gl_advance_overlay_texture_after_submit();
     }
-    /* Declare GL owner — fast no-op when already GL (idempotent). */
-    (void)dmc_set_active_owner(kDMCOwnerGL);
 }
 
 /*
@@ -356,7 +363,6 @@ extern "C" int gl_get_overlay_dims(uint32_t *outW, uint32_t *outH)
 extern "C" void gl_release_overlay_for_detach(void)
 {
     const bool preserve_binding = gl_overlay_drawable_bound();
-    gl_clear_compositor_cached_overlay("detach");
     gl_release_overlay_texture();
     if (!preserve_binding) {
         s_gl_dst_left = 0;
@@ -2706,6 +2712,10 @@ void GLMetalBeginFrame(GLContext *ctx)
     const int w = (int)targetSize.width;
     const int h = (int)targetSize.height;
 
+    // Another engine may have taken over since the drawable was bound.
+    // Reclaim before acquiring a target; offscreen GL must leave its display
+    // owner (for example RAVE) alone.
+    if (!isOffscreen && !gl_claim_display_for_overlay()) return;
     ms->overlayTexture = gl_acquire_overlay_texture((uint32_t)w, (uint32_t)h);
     if (!ms->overlayTexture) {
         GL_METAL_LOG("GLMetalBeginFrame: failed to acquire per-engine overlay %dx%d", w, h);

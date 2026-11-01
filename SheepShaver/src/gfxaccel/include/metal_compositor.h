@@ -305,6 +305,9 @@ void MetalCompositorSubmitFrame_EncodeCachedOverlay(void *render_encoder,
                                                     const struct CompositeLayer *layer,
                                                     void *display_gamma_lut);
 void MetalCompositorSubmitFrame_ClearCachedOverlay(void);
+/* Engine cleanup invalidates only its own source; a newer producer's cached
+ * overlay survives. NULL is a no-op. Matching and clearing share the cache lock. */
+void MetalCompositorSubmitFrame_ClearCachedOverlayForSource(void *source);
 
 
 /*

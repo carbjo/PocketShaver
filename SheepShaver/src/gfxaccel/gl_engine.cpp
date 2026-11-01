@@ -506,6 +506,16 @@ static void GLCaptureOwnerBeforeDrawableBind(int idx)
 
 	const DMCModeSnapshot *snap = dmc_current_snapshot();
 	uint32_t owner = snap ? snap->active_owner : kDMCOwnerQuickDraw;
+	// All bound drawables share one GL display claim. Inherit the original
+	// owner so it survives regardless of which drawable is closed last.
+	for (int i = 0; i < GL_MAX_CONTEXTS; ++i) {
+		if (i != idx && gl_contexts[i] != nullptr &&
+		    agl_ctx_state[i].agl_drawable != 0 &&
+		    agl_ctx_state[i].agl_owner_before_drawable_valid) {
+			owner = agl_ctx_state[i].agl_owner_before_drawable;
+			break;
+		}
+	}
 	agl_ctx_state[idx].agl_owner_before_drawable = owner;
 	agl_ctx_state[idx].agl_owner_before_drawable_valid = true;
 	GL_LOG("aglSetDrawable: captured display owner %s before binding context %d",
@@ -530,6 +540,12 @@ static void GLFinishDrawableUnbind(int idx)
 		return;
 	}
 
+	// Cleanup of an inactive GL context must not take the display back from
+	// a newer producer or trigger its mode-exit/cache invalidation callbacks.
+	const DMCModeSnapshot *snap = dmc_current_snapshot();
+	if (snap == nullptr || snap->active_owner != (uint32_t)kDMCOwnerGL) {
+		return;
+	}
 	(void)dmc_set_active_owner(restore_owner);
 	GL_LOG("aglSetDrawable: restored display owner %s after context %d unbind (captured %s)",
 	       GLDMCOwnerName(restore_owner), idx + 1, GLDMCOwnerName(captured_owner));
@@ -1267,9 +1283,8 @@ uint32_t NativeAGLSwapBuffers(uint32_t ctx)
 	// gl_overlay_present emits a single kLayerSlotOverlay CompositeLayer via
 	// MetalCompositorSubmitFrame — the layer's presence IS the "active"
 	// signal. SubmitFrame is cache-only in production; Step 3 restores real
-	// pacing. gl_overlay_present also declares GL as the active DMC owner
-	// internally (an idempotent early-return makes it a fast no-op when owner
-	// already matches).
+	// pacing. GL claims DMC ownership before rendering, so the ownership
+	// handoff cannot detach the texture after this frame is submitted.
 	gl_overlay_present();
 
 	// Throttle to GL's own VBL cadence lane.
