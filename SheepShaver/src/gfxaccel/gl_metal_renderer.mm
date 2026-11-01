@@ -13,6 +13,7 @@
  *    - Triple-buffered vertex ring buffer (4MB per frame)
  *    - Immediate mode vertex submission (glBegin/glEnd -> Metal draw)
  *    - Primitive conversion: quads/polygon/fan -> triangle lists on CPU
+ *    - Indexed array draws with shared vertices and retained overflow storage
  *    - Uniform upload for MVP, lighting, fog, texenv, alpha test
  *    - Frame begin/end via compositor's offscreen overlay texture
  */
@@ -590,6 +591,8 @@ struct GLMetalState {
     id<MTLCommandQueue>         commandQueue;
     id<MTLLibrary>              shaderLibrary;
     MTLVertexDescriptor        *vertexDescriptor;
+    id<MTLComputePipelineState> textureCopyPipeline;
+    bool textureCopyPending; // includes copies already committed but not CPU-synchronized
 
     // Pipeline state cache: key = hash of (blend_enabled, blend_src, blend_dst,
     // depth_write, color_mask, has_texture)
@@ -3172,7 +3175,9 @@ static bool GLMetalFlushAndResetRingBuffer(GLContext *ctx)
  *  Called at glEnd(). Converts accumulated vertices, uploads uniforms,
  *  and encodes a draw command.
  */
-void GLMetalFlushImmediateMode(GLContext *ctx)
+static void GLMetalSubmitVertices(GLContext *ctx,
+    const std::vector<uint32_t> *indices = nullptr,
+    MTLPrimitiveType indexedPrimitive = MTLPrimitiveTypeTriangle)
 {
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized) return;
@@ -3193,7 +3198,8 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     MTLPrimitiveType mtlPrim;
     std::vector<GLMetalVertex> &expandedVerts = ms->imExpandScratch;
     expandedVerts.clear();
-    bool expanded = ExpandPrimitives(ctx->im_mode, ctx->im_vertices, expandedVerts, mtlPrim);
+    mtlPrim = indexedPrimitive;
+    bool expanded = !indices && ExpandPrimitives(ctx->im_mode, ctx->im_vertices, expandedVerts, mtlPrim);
 
     const GLMetalVertex *vertData;
     size_t vertCount;
@@ -3213,7 +3219,7 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     // ---- Flat shading: copy provoking vertex color to all vertices in each primitive ----
     // GL spec: for GL_FLAT, the last vertex of each primitive (except line: first vertex)
     // determines the color for the entire primitive.
-    if (ctx->shade_model == 0x1D00 /* GL_FLAT */ && vertCount > 0) {
+    if (!indices && ctx->shade_model == 0x1D00 /* GL_FLAT */ && vertCount > 0) {
         // After expansion, all primitives are triangles, lines, or points.
         // For triangles: provoking vertex is the LAST of each group of 3.
         // For lines: provoking vertex is the LAST of each group of 2.
@@ -3294,33 +3300,37 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
 #endif
     }
 
-    size_t vertBytes = vertCount * sizeof(GLMetalVertex);
-
-    // ---- Check ring buffer space ----
-    if ((int)vertBytes > GL_RING_BUFFER_SIZE) {
-        GL_METAL_VLOG("GLMetalFlushImmediateMode: single draw exceeds ring buffer (%zu > %d)",
-                     vertBytes, GL_RING_BUFFER_SIZE);
-        return;
-    }
-    if (!GLMetalEnsureRingSlot(ms)) {
-        GL_METAL_VLOG("GLMetalFlushImmediateMode: ring buffer slot unavailable");
-        return;
-    }
-    if (ms->bufferOffset + (int)vertBytes > GL_RING_BUFFER_SIZE) {
-        // Mid-frame flush: commit current work, reset ring buffer, restart encoder
-        if (!GLMetalFlushAndResetRingBuffer(ctx)) {
-            GL_METAL_VLOG("GLMetalFlushImmediateMode: ring buffer flush failed, dropping draw");
+    const size_t vertBytes = vertCount * sizeof(GLMetalVertex);
+    const size_t indexRelativeOffset = (vertBytes + 255u) & ~size_t(255u);
+    const size_t indexBytes = indices ? indices->size() * sizeof(uint32_t) : 0;
+    const size_t stagingBytes = indices ? indexRelativeOffset + indexBytes : vertBytes;
+    const bool overflow = stagingBytes > GL_RING_BUFFER_SIZE;
+    id<MTLBuffer> vb;
+    NSUInteger vertexOffset = 0;
+    if (overflow) {
+        // Command buffers retain their resources. An oversized draw therefore
+        // owns this allocation until completion, without changing strip/fan
+        // boundaries or silently discarding geometry at the ring-size limit.
+        if (stagingBytes > ms->device.maxBufferLength) {
+            if (!ctx->last_error) ctx->last_error = 0x0505; // OUT_OF_MEMORY
             return;
         }
-        if (!GLMetalEnsureRingSlot(ms)) {
-            GL_METAL_VLOG("GLMetalFlushImmediateMode: ring buffer slot unavailable after flush");
-            return;
+        vb = [ms->device newBufferWithLength:stagingBytes options:MTLResourceStorageModeShared];
+    } else {
+        if (!GLMetalEnsureRingSlot(ms)) return;
+        if (size_t(ms->bufferOffset) + stagingBytes > GL_RING_BUFFER_SIZE) {
+            if (!GLMetalFlushAndResetRingBuffer(ctx) || !GLMetalEnsureRingSlot(ms)) return;
         }
+        vb = ms->vertexBuffers[ms->currentBufferIndex];
+        vertexOffset = (NSUInteger)ms->bufferOffset;
     }
-
-    // Copy vertices into ring buffer
-    id<MTLBuffer> vb = ms->vertexBuffers[ms->currentBufferIndex];
-    memcpy((uint8_t *)[vb contents] + ms->bufferOffset, vertData, vertBytes);
+    if (!vb) {
+        if (!ctx->last_error) ctx->last_error = 0x0505;
+        return;
+    }
+    memcpy((uint8_t *)vb.contents + vertexOffset, vertData, vertBytes);
+    const NSUInteger indexOffset = vertexOffset + indexRelativeOffset;
+    if (indices) memcpy((uint8_t *)vb.contents + indexOffset, indices->data(), indexBytes);
 
     // ---- Upload vertex uniforms ----
     const bool fogActiveForDraw = ctx->fog_enabled && !screenSpaceRemap;
@@ -3475,7 +3485,7 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
     // command encoder.  This avoids GPU race conditions: each draw call gets its
     // own snapshot of the uniform state instead of all draws sharing a single
     // buffer that the CPU overwrites between draws within the same frame.
-    [ms->currentEncoder setVertexBuffer:vb offset:ms->bufferOffset atIndex:0];
+    [ms->currentEncoder setVertexBuffer:vb offset:vertexOffset atIndex:0];
     [ms->currentEncoder setVertexBytes:&vu length:sizeof(GLMetalVertexUniforms) atIndex:1];
     [ms->currentEncoder setVertexBytes:ld length:sizeof(GLMetalLightingData) atIndex:2];
 
@@ -3548,12 +3558,17 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
         [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:1];
     }
 
-    [ms->currentEncoder drawPrimitives:mtlPrim vertexStart:0 vertexCount:vertCount];
+    if (indices) {
+        [ms->currentEncoder drawIndexedPrimitives:mtlPrim indexCount:indices->size()
+            indexType:MTLIndexTypeUInt32 indexBuffer:vb indexBufferOffset:indexOffset];
+    } else {
+        [ms->currentEncoder drawPrimitives:mtlPrim vertexStart:0 vertexCount:vertCount];
+    }
 
-    // Advance ring buffer offset
-    ms->bufferOffset += (int)vertBytes;
-    // Align to 256 bytes for Metal buffer offset requirements
-    ms->bufferOffset = (ms->bufferOffset + 255) & ~255;
+    if (!overflow) {
+        ms->bufferOffset += (int)stagingBytes;
+        ms->bufferOffset = (ms->bufferOffset + 255) & ~255;
+    }
 
 #if ACCEL_LOGGING_ENABLED
     GLMetalLogDrawState(ctx, vertData, vertCount, (int)mtlPrim, vu, fu, texUnit, ms->bufferOffset);
@@ -3563,6 +3578,12 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
 	                 vertCount, (int)mtlPrim, ms->bufferOffset);
 	    GLMetalMarkDrawCompleted(ctx);
 	}
+
+
+void GLMetalFlushImmediateMode(GLContext *ctx)
+{
+    GLMetalSubmitVertices(ctx);
+}
 
 
 /*
@@ -4054,11 +4075,28 @@ void GLMetalRelease(GLContext *ctx)
 /*
  *  GLMetalUploadTexture -- create/replace Metal texture from converted pixel data
  */
+static void GLMetalEndAndCommitForReadback(GLMetalState *ms);
+static bool GLMetalRestartRenderPassForReadback(GLContext *ctx);
+
+// Texture uploads still use CPU-visible shared storage. Drain earlier copies
+// only at that CPU access boundary; copy -> draw remains asynchronous.
+static void GLMetalSynchronizeTextureCopies(GLContext *ctx)
+{
+    GLMetalState *ms = ctx ? (GLMetalState *)ctx->metal : nullptr;
+    if (!ms || !ms->textureCopyPending) return;
+    const bool resume = ms->renderPassActive;
+    GLMetalEndAndCommitForReadback(ms);
+    ms->textureCopyPending = false;
+    if (resume) GLMetalRestartRenderPassForReadback(ctx);
+}
+
 void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
                            int width, int height, const uint8_t *data, int dataLen)
 {
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->device) return;
+
+    GLMetalSynchronizeTextureCopies(ctx);
 
     id<MTLTexture> existing = texObj->metal_texture ?
         (__bridge id<MTLTexture>)(texObj->metal_texture) : nil;
@@ -4224,6 +4262,7 @@ void GLMetalUploadSubTexture(GLContext *ctx, GLTextureObject *texObj, int level,
                               int xoff, int yoff, int w, int h,
                               const uint8_t *data, int bytesPerRow)
 {
+    GLMetalSynchronizeTextureCopies(ctx);
     if (!texObj->metal_texture) return;
 
     id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)(texObj->metal_texture);
@@ -4451,7 +4490,8 @@ static bool GLMetalRestartRenderPassForReadback(GLContext *ctx)
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->overlayTexture) return false;
 
-    ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
+    if (!ms->currentCommandBuffer)
+        ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
     if (!ms->currentCommandBuffer) {
         GL_METAL_LOG("GLMetalRestartRenderPassForReadback: failed to create command buffer");
         return false;
@@ -4544,6 +4584,150 @@ static id<MTLTexture> GLMetalGetDepthReadbackTexture(GLMetalState *ms,
     desc.usage = MTLTextureUsageShaderRead;
     ms->depthReadbackTexture = [ms->device newTextureWithDescriptor:desc];
     return ms->depthReadbackTexture;
+}
+
+// Copy through a private scratch texture so destination textures need no
+// shader-write usage and even source/destination aliasing remains ordered.
+// Texture row zero is GL's bottom row; render-target row zero is Metal's top.
+bool GLMetalCopyFramebufferToTexture(GLContext *ctx, GLTextureObject *texObj,
+    int level, int xoffset, int yoffset, int x, int y, int width, int height, bool redefine)
+{
+    if (!ctx || !texObj) return false;
+    auto fail = [&](uint32_t error) {
+        if (!ctx->last_error) ctx->last_error = error;
+        return false;
+    };
+    GLMetalState *ms = (GLMetalState *)ctx->metal;
+    id<MTLTexture> dst = (__bridge id<MTLTexture>)texObj->metal_texture;
+    id<MTLTexture> preserveSource = nil;
+    if (!ms || !ms->initialized) return fail(0x0502); // INVALID_OPERATION
+    if (redefine) {
+        // Match the 1024 maximum advertised by GL_MAX_TEXTURE_SIZE. Replacing
+        // level zero uses a fresh resource, so earlier queued draws keep their
+        // original texture even when the dimensions have not changed.
+        if (level < 0 || level > 10 || width < 0 || height < 0 ||
+            width > (1024 >> level) || height > (1024 >> level)) return fail(0x0501);
+        if (width == 0 || height == 0) return true;
+        const NSUInteger baseW = level > 0 && dst ? dst.width : NSUInteger(width) << level;
+        const NSUInteger baseH = level > 0 && dst ? dst.height : NSUInteger(height) << level;
+        if (std::max(NSUInteger(1), baseW >> level) != (NSUInteger)width ||
+            std::max(NSUInteger(1), baseH >> level) != (NSUInteger)height) return fail(0x0501);
+        if (level == 0 || !dst || (NSUInteger)level >= dst.mipmapLevelCount) {
+            auto d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                width:baseW height:baseH mipmapped:(level > 0 || texObj->has_mipmaps)];
+            d.storageMode = MTLStorageModeShared;
+            d.usage = MTLTextureUsageShaderRead;
+            id<MTLTexture> replacement = [ms->device newTextureWithDescriptor:d];
+            if (!replacement) return fail(0x0505);
+            if (dst && dst.width == baseW && dst.height == baseH)
+                preserveSource = dst;
+            if (texObj->metal_texture) CFRelease(texObj->metal_texture);
+            texObj->metal_texture = (void *)CFBridgingRetain(replacement);
+            texObj->width = (int)baseW; texObj->height = (int)baseH;
+            texObj->has_mipmaps = replacement.mipmapLevelCount > 1;
+            dst = replacement;
+        }
+    }
+    if (!dst) return fail(0x0502);
+    if (level < 0 || (NSUInteger)level >= dst.mipmapLevelCount ||
+        xoffset < 0 || yoffset < 0 || width < 0 || height < 0)
+        return fail(0x0501); // INVALID_VALUE
+    const NSUInteger mipW = std::max(NSUInteger(1), dst.width >> level);
+    const NSUInteger mipH = std::max(NSUInteger(1), dst.height >> level);
+    if (uint64_t(xoffset) + uint64_t(width) > mipW ||
+        uint64_t(yoffset) + uint64_t(height) > mipH) return fail(0x0501);
+    if (width == 0 || height == 0) return true;
+    if (!ms->overlayTexture) GLMetalBeginFrame(ctx);
+    id<MTLTexture> src = ms->overlayTexture;
+    if (!src) return fail(0x0502);
+
+    // Source pixels outside the framebuffer are undefined in GL. Preserve the
+    // corresponding destination texels and copy only the in-bounds intersection.
+    const int64_t left = std::max<int64_t>(0, -int64_t(x));
+    const int64_t bottom = std::max<int64_t>(0, -int64_t(y));
+    const int64_t w = std::min<int64_t>(width, int64_t(src.width) - x) - left;
+    const int64_t h = std::min<int64_t>(height, int64_t(src.height) - y) - bottom;
+    const bool hasPixels = w > 0 && h > 0;
+    if (!hasPixels && !preserveSource) return true;
+
+    if (hasPixels && !ms->textureCopyPipeline) {
+        NSError *error = nil;
+        id<MTLFunction> fn = [ms->shaderLibrary newFunctionWithName:@"gl_copy_texture_region"];
+        if (fn) ms->textureCopyPipeline = [ms->device newComputePipelineStateWithFunction:fn error:&error];
+        if (!ms->textureCopyPipeline) return fail(0x0505); // OUT_OF_MEMORY
+    }
+    id<MTLTexture> scratch = nil;
+    if (hasPixels) {
+        auto desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+            width:(NSUInteger)w height:(NSUInteger)h mipmapped:NO];
+        desc.storageMode = MTLStorageModePrivate;
+        desc.usage = MTLTextureUsageShaderWrite;
+        scratch = [ms->device newTextureWithDescriptor:desc];
+        if (!scratch) return fail(0x0505);
+    }
+
+    struct CopyUniforms {
+        uint32_t sourceX, sourceBottom, width, height;
+        float scale[4], bias[4];
+    } u = {uint32_t(int64_t(x) + left), uint32_t(int64_t(src.height) - 1 - (int64_t(y) + bottom)),
+        uint32_t(w), uint32_t(h),
+        {ctx->pixel_transfer_red_scale, ctx->pixel_transfer_green_scale,
+         ctx->pixel_transfer_blue_scale, ctx->pixel_transfer_alpha_scale},
+        {ctx->pixel_transfer_red_bias, ctx->pixel_transfer_green_bias,
+         ctx->pixel_transfer_blue_bias, ctx->pixel_transfer_alpha_bias}};
+    const bool resume = ms->renderPassActive;
+    if (ms->currentEncoder) {
+        [ms->currentEncoder endEncoding];
+        ms->currentEncoder = nil;
+    }
+    ms->renderPassActive = false;
+    if (!ms->currentCommandBuffer) ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
+    ms->textureCopyPending = true;
+    if (preserveSource) {
+        id<MTLBlitCommandEncoder> preserve = [ms->currentCommandBuffer blitCommandEncoder];
+        if (!preserve) {
+            if (resume) GLMetalRestartRenderPassForReadback(ctx);
+            return fail(0x0505);
+        }
+        for (NSUInteger mip = 0; mip < preserveSource.mipmapLevelCount; ++mip) {
+            [preserve copyFromTexture:preserveSource sourceSlice:0 sourceLevel:mip sourceOrigin:MTLOriginMake(0,0,0)
+                sourceSize:MTLSizeMake(std::max(NSUInteger(1),dst.width >> mip),std::max(NSUInteger(1),dst.height >> mip),1)
+                toTexture:dst destinationSlice:0 destinationLevel:mip destinationOrigin:MTLOriginMake(0,0,0)];
+        }
+        [preserve endEncoding];
+    }
+    id<MTLBlitCommandEncoder> blit = nil;
+    if (hasPixels) {
+        id<MTLComputeCommandEncoder> compute = [ms->currentCommandBuffer computeCommandEncoder];
+        if (!compute) {
+            if (resume) GLMetalRestartRenderPassForReadback(ctx);
+            return fail(0x0505);
+        }
+        [compute setComputePipelineState:ms->textureCopyPipeline];
+        [compute setTexture:src atIndex:0];
+        [compute setTexture:scratch atIndex:1];
+        [compute setBytes:&u length:sizeof(u) atIndex:0];
+        const NSUInteger tw = ms->textureCopyPipeline.threadExecutionWidth;
+        [compute dispatchThreads:MTLSizeMake(w, h, 1) threadsPerThreadgroup:MTLSizeMake(tw, 1, 1)];
+        [compute endEncoding];
+        blit = [ms->currentCommandBuffer blitCommandEncoder];
+        if (blit) {
+            [blit copyFromTexture:scratch sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)
+                sourceSize:MTLSizeMake(w,h,1) toTexture:dst destinationSlice:0 destinationLevel:level
+                destinationOrigin:MTLOriginMake(xoffset + left,yoffset + bottom,0)];
+            [blit endEncoding];
+        }
+    }
+    // Resuming on the SAME command buffer preserves draw/copy/draw ordering and
+    // retains all ring slots and scratch resources until GPU completion.
+    if (resume) {
+        if (!GLMetalRestartRenderPassForReadback(ctx)) return fail(0x0505);
+    } else {
+        GLMetalCommitCommandBuffer(ms, ms->currentCommandBuffer);
+        ms->lastCommittedBuffer = ms->currentCommandBuffer;
+        ms->currentCommandBuffer = nil;
+    }
+    return !hasPixels || blit ? true : fail(0x0505);
 }
 
 uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int height, int *out_len)
@@ -5495,7 +5679,7 @@ static inline int EffectiveStride(const GLVertexArrayPointer &arr) {
 /*
  *  FetchArrayVertex -- read one vertex from enabled client arrays at index i
  */
-static void FetchArrayVertex(GLContext *ctx, int32_t i, GLVertex &v) {
+static void FetchArrayVertex(GLContext *ctx, uint32_t i, GLVertex &v) {
     // Position from vertex array
     if (ctx->vertex_array.enabled && ctx->vertex_array.pointer) {
         int es = EffectiveStride(ctx->vertex_array);
@@ -5566,32 +5750,88 @@ static void FetchArrayVertex(GLContext *ctx, int32_t i, GLVertex &v) {
 /*
  *  GLMetalDrawVertexArray -- shared draw path for vertex arrays
  *
- *  Builds im_vertices from array data, then flushes through the same
- *  Metal draw path used by immediate mode (GLMetalFlushImmediateMode).
+ *  Smooth indexed draws fetch distinct vertices once; topology conversion
+ *  expands only indices. Flat draws keep the existing expanded color path.
  */
-static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode, const int32_t *indices, int32_t count)
+static bool GLMetalIndexTopology(uint32_t mode, const std::vector<uint32_t> &in,
+    std::vector<uint32_t> &out, MTLPrimitiveType &primitive)
+{
+    const size_t n = in.size();
+    switch (mode) {
+    case GL_POINTS: primitive = MTLPrimitiveTypePoint; out = in; break;
+    case GL_LINES:
+        primitive = MTLPrimitiveTypeLine;
+        out.assign(in.begin(), in.begin() + (n / 2) * 2); break;
+    case GL_LINE_STRIP:
+        primitive = MTLPrimitiveTypeLineStrip; if (n >= 2) out = in; break;
+    case GL_LINE_LOOP:
+        primitive = MTLPrimitiveTypeLineStrip;
+        if (n >= 2) { out = in; out.push_back(in.front()); } break;
+    case GL_TRIANGLES:
+        primitive = MTLPrimitiveTypeTriangle;
+        out.assign(in.begin(), in.begin() + (n / 3) * 3); break;
+    case GL_TRIANGLE_STRIP:
+        primitive = MTLPrimitiveTypeTriangleStrip; if (n >= 3) out = in; break;
+    case GL_TRIANGLE_FAN: case GL_POLYGON:
+        primitive = MTLPrimitiveTypeTriangle;
+        if (n >= 3) out.reserve((n - 2) * 3);
+        for (size_t i = 1; i + 1 < n; ++i) out.insert(out.end(), {in[0], in[i], in[i+1]});
+        break;
+    case GL_QUADS:
+        primitive = MTLPrimitiveTypeTriangle; out.reserve((n / 4) * 6);
+        for (size_t i = 0; i + 3 < n; i += 4)
+            out.insert(out.end(), {in[i], in[i+1], in[i+2], in[i], in[i+2], in[i+3]});
+        break;
+    case GL_QUAD_STRIP:
+        primitive = MTLPrimitiveTypeTriangle;
+        if (n >= 4) out.reserve(((n - 2) / 2) * 6);
+        for (size_t i = 0; i + 3 < n; i += 2)
+            out.insert(out.end(), {in[i], in[i+1], in[i+3], in[i], in[i+3], in[i+2]});
+        break;
+    default: return false;
+    }
+    return !out.empty();
+}
+
+static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode,
+    const uint32_t *indices, int32_t count, bool preserveIndices)
 {
     if (count <= 0) return;
-
-    // Early out if Metal state not initialized. Don't check overlayTexture here:
-    // it's populated lazily by GLMetalBeginFrame (called from GLMetalFlushImmediateMode).
-    // Checking it here would prevent the first frame from ever starting.
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized) return;
-
-    ctx->in_begin = true;
     ctx->im_mode = mode;
     ctx->im_vertices.clear();
-    ctx->im_vertices.reserve(count);
 
-    for (int32_t j = 0; j < count; j++) {
-        GLVertex v;
-        FetchArrayVertex(ctx, indices[j], v);
-        ctx->im_vertices.push_back(v);
+    // Flat shading currently rewrites per-primitive colors. Keep that path
+    // isolated from shared vertices until provoking-vertex lighting is fixed.
+    if (!preserveIndices || ctx->shade_model == 0x1D00 /* GL_FLAT */) {
+        ctx->im_vertices.reserve(count);
+        for (int32_t j = 0; j < count; ++j) {
+            GLVertex v;
+            FetchArrayVertex(ctx, indices[j], v);
+            ctx->im_vertices.push_back(v);
+        }
+        GLMetalFlushImmediateMode(ctx);
+        return;
     }
 
-    ctx->in_begin = false;
-    GLMetalFlushImmediateMode(ctx);
+    std::unordered_map<uint32_t, uint32_t> remap;
+    std::vector<uint32_t> compactIndices;
+    compactIndices.reserve(count);
+    for (int32_t j = 0; j < count; ++j) {
+        const uint32_t index = indices[j];
+        auto entry = remap.emplace(index, uint32_t(ctx->im_vertices.size()));
+        if (entry.second) {
+            GLVertex v;
+            FetchArrayVertex(ctx, index, v);
+            ctx->im_vertices.push_back(v);
+        }
+        compactIndices.push_back(entry.first->second);
+    }
+    std::vector<uint32_t> drawIndices;
+    MTLPrimitiveType primitive;
+    if (!GLMetalIndexTopology(mode, compactIndices, drawIndices, primitive)) return;
+    GLMetalSubmitVertices(ctx, &drawIndices, primitive);
 }
 
 
@@ -5601,13 +5841,19 @@ static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode, const int32_t 
 void NativeGLDrawArrays(GLContext *ctx, uint32_t mode, int32_t first, int32_t count)
 {
     GL_METAL_VLOG("glDrawArrays(0x%04x, %d, %d)", mode, first, count);
-    if (count <= 0) return;
+    if (!ctx) return;
+    if (ctx->in_begin) { if (!ctx->last_error) ctx->last_error = 0x0502; return; }
+    if (mode > GL_POLYGON) { if (!ctx->last_error) ctx->last_error = 0x0500; return; }
+    if (count < 0 || first < 0 || int64_t(first) + count > INT32_MAX) {
+        if (!ctx->last_error) ctx->last_error = 0x0501; return;
+    }
+    if (count == 0) return;
 
     // Build sequential index array
-    std::vector<int32_t> indices(count);
+    std::vector<uint32_t> indices(count);
     for (int32_t i = 0; i < count; i++) indices[i] = first + i;
 
-    GLMetalDrawVertexArray(ctx, mode, indices.data(), count);
+    GLMetalDrawVertexArray(ctx, mode, indices.data(), count, false);
 }
 
 
@@ -5617,28 +5863,32 @@ void NativeGLDrawArrays(GLContext *ctx, uint32_t mode, int32_t first, int32_t co
 void NativeGLDrawElements(GLContext *ctx, uint32_t mode, int32_t count, uint32_t type, uint32_t indices_ptr)
 {
     GL_METAL_VLOG("glDrawElements(0x%04x, %d, 0x%04x, 0x%08x)", mode, count, type, indices_ptr);
-    if (count <= 0) return;
+    if (!ctx) return;
+    if (ctx->in_begin) { if (!ctx->last_error) ctx->last_error = 0x0502; return; }
+    if (mode > GL_POLYGON || (type != GL_UNSIGNED_INT && type != GL_UNSIGNED_SHORT && type != GL_UNSIGNED_BYTE)) {
+        if (!ctx->last_error) ctx->last_error = 0x0500; return;
+    }
+    if (count < 0) { if (!ctx->last_error) ctx->last_error = 0x0501; return; }
+    if (count == 0) return;
 
     // Read index array from PPC memory
-    std::vector<int32_t> indices(count);
+    std::vector<uint32_t> indices(count);
     for (int32_t i = 0; i < count; i++) {
         switch (type) {
         case GL_UNSIGNED_INT:
-            indices[i] = (int32_t)ReadMacInt32(indices_ptr + i * 4);
+            indices[i] = ReadMacInt32(indices_ptr + uint32_t(i) * 4);
             break;
         case GL_UNSIGNED_SHORT:
-            indices[i] = (int32_t)ReadMacInt16(indices_ptr + i * 2);
+            indices[i] = ReadMacInt16(indices_ptr + uint32_t(i) * 2);
             break;
         case GL_UNSIGNED_BYTE:
-            indices[i] = (int32_t)ReadMacInt8(indices_ptr + i);
+            indices[i] = ReadMacInt8(indices_ptr + i);
             break;
-        default:
-            indices[i] = i;
-            break;
+        default: return; // validated above
         }
     }
 
-    GLMetalDrawVertexArray(ctx, mode, indices.data(), count);
+    GLMetalDrawVertexArray(ctx, mode, indices.data(), count, true);
 }
 
 

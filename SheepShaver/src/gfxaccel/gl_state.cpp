@@ -3333,29 +3333,18 @@ void NativeGLCopyTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
                              uint32_t internalformat, int32_t x, int32_t y,
                              int32_t width, int32_t height, int32_t border)
 {
-	if (!ctx || width <= 0 || height <= 0) return;
-
-	int bufLen = 0;
-	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, width, height, &bufLen);
-	if (!bgra) return;
-
-	uint32_t texName = (target == GL_TEXTURE_2D)
-		? ctx->tex_units[ctx->active_texture].bound_texture_2d
-		: ctx->tex_units[ctx->active_texture].bound_texture_1d;
-	if (texName == 0) { free(bgra); return; }
-
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) { free(bgra); return; }
-
-	GLTextureObject &tex = it->second;
-	if (level == 0) { tex.width = width; tex.height = height; }
-	if (level > 0) tex.has_mipmaps = true;
-
-	GLMetalUploadTexture(ctx, &tex, level, width, height, bgra, bufLen);
-	free(bgra);
-
-	GL_LOG("glCopyTexImage2D: %dx%d from (%d,%d) -> tex %u level %d",
-		        width, height, x, y, texName, level);
+	if (!ctx) return;
+	auto fail = [&](uint32_t error) { if (!ctx->last_error) ctx->last_error = error; };
+	if (ctx->in_begin) { fail(GL_INVALID_OPERATION); return; }
+	if (target != GL_TEXTURE_2D) { fail(GL_INVALID_ENUM); return; }
+	if (level < 0 || width < 0 || height < 0 || border != 0) {
+		fail(GL_INVALID_VALUE); return;
+	}
+	const uint32_t name = ctx->tex_units[ctx->active_texture].bound_texture_2d;
+	auto it = ctx->texture_objects.find(name);
+	if (it == ctx->texture_objects.end()) { fail(GL_INVALID_OPERATION); return; }
+	GLMetalCopyFramebufferToTexture(ctx, &it->second, level, 0, 0,
+	                                x, y, width, height, true);
 }
 
 /*
@@ -3365,36 +3354,20 @@ void NativeGLCopyTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
                                 int32_t xoffset, int32_t yoffset,
                                 int32_t x, int32_t y, int32_t width, int32_t height)
 {
-	if (!ctx || width <= 0 || height <= 0) return;
-
-	int bufLen = 0;
-	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, width, height, &bufLen);
-	if (!bgra) return;
-
-	uint32_t texName = (target == GL_TEXTURE_2D)
-		? ctx->tex_units[ctx->active_texture].bound_texture_2d
-		: ctx->tex_units[ctx->active_texture].bound_texture_1d;
-	if (texName == 0) { free(bgra); return; }
-
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) { free(bgra); return; }
-
-	GLTextureObject &tex = it->second;
-	// Use sub-image upload: upload as full image at the given level, offset by xoffset/yoffset
-	// For simplicity, upload the full level and let Metal handle the sub-region
-	// TODO: Use a dedicated sub-image upload for better efficiency
-	if (xoffset == 0 && yoffset == 0 && level == 0 &&
-	    width == tex.width && height == tex.height) {
-		GLMetalUploadTexture(ctx, &tex, level, width, height, bgra, bufLen);
-	} else {
-		// For sub-region copies, re-upload the full texture with the modified region
-		// This is a simplification -- a proper implementation would use replaceRegion
-		GLMetalUploadTexture(ctx, &tex, level, width, height, bgra, bufLen);
+	if (!ctx) return;
+	auto fail = [&](uint32_t error) { if (!ctx->last_error) ctx->last_error = error; };
+	if (ctx->in_begin) { fail(GL_INVALID_OPERATION); return; }
+	if (target != GL_TEXTURE_2D) { fail(GL_INVALID_ENUM); return; }
+	if (level < 0 || xoffset < 0 || yoffset < 0 || width < 0 || height < 0) {
+		fail(GL_INVALID_VALUE); return;
 	}
-	free(bgra);
-
-	GL_LOG("glCopyTexSubImage2D: %dx%d from (%d,%d) -> tex %u level %d offset (%d,%d)",
-	        width, height, x, y, texName, level, xoffset, yoffset);
+	const uint32_t name = ctx->tex_units[ctx->active_texture].bound_texture_2d;
+	auto it = ctx->texture_objects.find(name);
+	if (it == ctx->texture_objects.end() || !it->second.metal_texture) {
+		fail(GL_INVALID_OPERATION); return;
+	}
+	GLMetalCopyFramebufferToTexture(ctx, &it->second, level, xoffset, yoffset,
+	                                x, y, width, height);
 }
 
 

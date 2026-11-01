@@ -401,3 +401,18 @@ fragment float4 gl_fragment_main(
 
     return color;
 }
+
+// Framebuffer-to-texture transfer. OpenGL texture row zero is the bottom
+// framebuffer row. Reads/writes use logical RGBA even for BGRA8 storage.
+struct GLCopyTextureUniforms {
+    uint source_x, source_bottom, width, height;
+    float4 scale, bias;
+};
+kernel void gl_copy_texture_region(texture2d<float, access::read> source [[texture(0)]],
+                                   texture2d<float, access::write> destination [[texture(1)]],
+                                   constant GLCopyTextureUniforms &u [[buffer(0)]],
+                                   uint2 p [[thread_position_in_grid]]) {
+    if (p.x >= u.width || p.y >= u.height) return;
+    float4 color = source.read(uint2(u.source_x + p.x, u.source_bottom - p.y));
+    destination.write(clamp(color * u.scale + u.bias, 0.0f, 1.0f), p);
+}

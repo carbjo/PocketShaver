@@ -1480,6 +1480,10 @@ extern void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8
 extern void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len);
 // Read a rectangle from the framebuffer into a malloc'd BGRA8 buffer. Caller must free().
 // Returns NULL on failure. Output length written to *out_len.
+// Ordered framebuffer copy in GL texture row order; preserves other texels.
+extern bool GLMetalCopyFramebufferToTexture(GLContext *ctx, GLTextureObject *texObj,
+    int level, int xoffset, int yoffset, int x, int y, int width, int height,
+    bool redefine = false);
 extern uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int height, int *out_len);
 
 /*
