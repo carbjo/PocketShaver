@@ -37,6 +37,7 @@
 #include "rave_mipmap_bias_policy.h"
 #include "rave_texture_alpha_policy.h"
 #include "rave_depth_policy.h"
+#include "rave_vertex_color_policy.h"
 #include "gfxaccel_resources.h"
 #include "gfxaccel_resources_heap.h"
 
@@ -1493,6 +1494,50 @@ static inline float ReadMacFloat(uint32 addr) {
 	return f;
 }
 
+static void ReadMacVertexColor(uint32 srcAddr, float *color)
+{
+	bool invalid = false;
+	uint32 bits[4];
+	for (int i = 0; i < 4; ++i) {
+		bits[i] = ReadMacInt32(srcAddr + 16 + i * 4);
+		invalid |= !RaveVertexColorBitsAreFinite(bits[i]);
+		color[i] = RaveFiniteVertexColor(bits[i]);
+	}
+	// Bound console output even if a guest repeatedly submits invalid colors.
+	static unsigned reports = 0;
+	if (invalid && reports < 8) {
+		++reports;
+		fprintf(stderr, "[RAVE] non-finite guest vertex color at %08x: "
+		        "rgba=%08x,%08x,%08x,%08x; invalid channels replaced with 1 "
+		        "(report %u/8)\n", srcAddr, bits[0], bits[1], bits[2], bits[3], reports);
+	}
+}
+
+static void ReadMacVertexLighting(uint32 srcAddr, RaveVertex *dst)
+{
+	uint32 bits[6];
+	bool invalid = false;
+	for (int i = 0; i < 6; ++i) {
+		bits[i] = ReadMacInt32(srcAddr + 40 + i * 4);
+		invalid |= !RaveVertexColorBitsAreFinite(bits[i]);
+	}
+	// Even unused lighting attributes are declared shader interpolants and
+	// must be finite. Modulation defaults to white, additive highlights to black.
+	for (int i = 0; i < 3; ++i) {
+		dst->diffuse[i] = RaveFiniteVertexComponent(bits[i], 1.0f);
+		dst->specular[i] = RaveFiniteVertexComponent(bits[i + 3], 0.0f);
+	}
+	dst->diffuse[3] = dst->specular[3] = 0.0f;
+	static unsigned reports = 0;
+	if (invalid && reports < 8) {
+		++reports;
+		fprintf(stderr, "[RAVE] non-finite guest vertex lighting at %08x: "
+		        "diffuse=%08x,%08x,%08x specular=%08x,%08x,%08x; "
+		        "invalid channels replaced with neutral factors (report %u/8)\n",
+		        srcAddr, bits[0], bits[1], bits[2], bits[3], bits[4], bits[5], reports);
+	}
+}
+
 static uint32_t RaveVertexPrimitiveCount(uint32_t nVertices, uint32_t vertexMode)
 {
 	switch (vertexMode) {
@@ -1533,10 +1578,7 @@ static void ConvertGouraudVertex(uint32 srcAddr, RaveVertex *dst, bool perspZ) {
 	dst->pos[2] = RaveClampMetalDepth(z);
 	dst->pos[3] = 1.0f;
 
-	dst->color[0] = ReadMacFloat(srcAddr + 16); // r
-	dst->color[1] = ReadMacFloat(srcAddr + 20); // g
-	dst->color[2] = ReadMacFloat(srcAddr + 24); // b
-	dst->color[3] = ReadMacFloat(srcAddr + 28); // a
+	ReadMacVertexColor(srcAddr, dst->color);
 
 	dst->uv[0] = 0.0f;
 	dst->uv[1] = 0.0f;
@@ -1866,13 +1908,8 @@ static void ConvertTextureVertex(uint32 srcAddr, RaveVertex *dst, bool perspZ) {
 	dst->pos[2] = RaveClampMetalDepth(z);
 	dst->pos[3] = 1.0f;
 
-	dst->color[0] = ReadMacFloat(srcAddr + 16);  // r
-	dst->color[1] = ReadMacFloat(srcAddr + 20);  // g
-	dst->color[2] = ReadMacFloat(srcAddr + 24);  // b
-	dst->color[3] = ReadMacFloat(srcAddr + 28);  // alpha (always needed)
-	SetTextureFactors(dst,
-	                  ReadMacFloat(srcAddr + 40), ReadMacFloat(srcAddr + 44), ReadMacFloat(srcAddr + 48),
-	                  ReadMacFloat(srcAddr + 52), ReadMacFloat(srcAddr + 56), ReadMacFloat(srcAddr + 60));
+	ReadMacVertexColor(srcAddr, dst->color);
+	ReadMacVertexLighting(srcAddr, dst);
 
 	// Perspective-correct UV data
 	// RAVE/QD3D V=0 maps to the first row of the TQAImage pixel buffer.

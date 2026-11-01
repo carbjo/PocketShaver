@@ -76,7 +76,9 @@ vertex VertexOut rave_vertex(VertexIn in [[stage_in]],
                               constant VertexUniforms &vertUniforms [[buffer(2)]],
                               constant float4 *multiTexUVs [[buffer(3), function_constant(has_multi_texture)]],
                               uint vid [[vertex_id]]) {
-    VertexOut out;
+    // Metal validates all declared interpolants, including UVs unused by a
+    // specialized fragment function. Keep disabled texture channels finite.
+    VertexOut out = {};
     // RAVE provides pre-transformed screen-space coordinates.
     // Convert pixel coords to Metal NDC [-1, 1]:
     out.position.x = (in.position.x / viewport.width) * 2.0 - 1.0;
