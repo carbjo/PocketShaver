@@ -606,6 +606,8 @@ struct GLMetalState {
 
     // Depth stencil state cache
     std::unordered_map<uint64_t, id<MTLDepthStencilState>> depthStencilCache;
+    std::unordered_map<unsigned, id<MTLRenderPipelineState>> clearPipelineCache;
+    std::unordered_map<unsigned, id<MTLDepthStencilState>> clearDepthStencilCache;
 
     // Immediate-mode flush scratch: reused across glBegin/glEnd flushes so
     // capacity persists (one flush per quad batch adds up to thousands of
@@ -2638,11 +2640,11 @@ static void compute_normal_matrix(float *out12, const float *mv) {
     inv[7] = (b * g - a * h) * inv_det;
     inv[8] = (a * e - b * d) * inv_det;
 
-    // Transpose of inverse -> normal matrix
-    // Metal float3x3: column-major, packed as 3x float4 (col0.xyz, pad, col1.xyz, pad, col2.xyz, pad)
-    out12[0] = inv[0]; out12[1] = inv[3]; out12[2] = inv[6]; out12[3] = 0.0f;
-    out12[4] = inv[1]; out12[5] = inv[4]; out12[6] = inv[7]; out12[7] = 0.0f;
-    out12[8] = inv[2]; out12[9] = inv[5]; out12[10] = inv[8]; out12[11] = 0.0f;
+    // inv is row-major. Each row becomes a column of inverse-transpose;
+    // Metal pads each float3 column to four floats.
+    out12[0] = inv[0]; out12[1] = inv[1]; out12[2] = inv[2]; out12[3] = 0.0f;
+    out12[4] = inv[3]; out12[5] = inv[4]; out12[6] = inv[5]; out12[7] = 0.0f;
+    out12[8] = inv[6]; out12[9] = inv[7]; out12[10] = inv[8]; out12[11] = 0.0f;
 }
 
 
@@ -2716,19 +2718,25 @@ void GLMetalBeginFrame(GLContext *ctx)
     // Reclaim before acquiring a target; offscreen GL must leave its display
     // owner (for example RAVE) alone.
     if (!isOffscreen && !gl_claim_display_for_overlay()) return;
-    ms->overlayTexture = gl_acquire_overlay_texture((uint32_t)w, (uint32_t)h);
-    if (!ms->overlayTexture) {
+    id<MTLTexture> nextOverlay = gl_acquire_overlay_texture((uint32_t)w, (uint32_t)h);
+    if (!nextOverlay) {
         GL_METAL_LOG("GLMetalBeginFrame: failed to acquire per-engine overlay %dx%d", w, h);
         return;
     }
 
+    // Flush/Finish submit work without swapping the drawable. Resuming that
+    // same color target must retain the pixels already drawn into it.
+    const bool loadColor = ms->overlayTexture == nextOverlay;
+    ms->overlayTexture = nextOverlay;
+    const bool loadDepthStencil = ms->depthBuffer &&
+        (int)ms->depthBuffer.width == w && (int)ms->depthBuffer.height == h;
     EnsureDepthBuffer(ms, w, h);
 
     ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
 
     MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
     rpd.colorAttachments[0].texture = ms->overlayTexture;
-    rpd.colorAttachments[0].loadAction = MTLLoadActionClear;
+    rpd.colorAttachments[0].loadAction = loadColor ? MTLLoadActionLoad : MTLLoadActionClear;
     rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
     const float clearAlpha =
         GLMetalOverlayClearAlpha(isOffscreen, ctx->clear_color[3]);
@@ -2743,7 +2751,7 @@ void GLMetalBeginFrame(GLContext *ctx)
     );
 
     rpd.depthAttachment.texture = ms->depthBuffer;
-    rpd.depthAttachment.loadAction = MTLLoadActionClear;
+    rpd.depthAttachment.loadAction = loadDepthStencil ? MTLLoadActionLoad : MTLLoadActionClear;
     rpd.depthAttachment.storeAction =
         GLMetalDepthAttachmentShouldStoreForReadback()
             ? MTLStoreActionStore
@@ -2751,8 +2759,8 @@ void GLMetalBeginFrame(GLContext *ctx)
     rpd.depthAttachment.clearDepth = ctx->clear_depth;
 
     rpd.stencilAttachment.texture = ms->depthBuffer;
-    rpd.stencilAttachment.loadAction = MTLLoadActionClear;
-    rpd.stencilAttachment.storeAction = MTLStoreActionDontCare;
+    rpd.stencilAttachment.loadAction = loadDepthStencil ? MTLLoadActionLoad : MTLLoadActionClear;
+    rpd.stencilAttachment.storeAction = MTLStoreActionStore;
     rpd.stencilAttachment.clearStencil = ctx->clear_stencil;
 
 	ms->currentEncoder = [ms->currentCommandBuffer renderCommandEncoderWithDescriptor:rpd];
@@ -2770,17 +2778,123 @@ void GLMetalBeginFrame(GLContext *ctx)
 	                 isOffscreen ? 1 : 0, offscreenW, offscreenH);
 }
 
+static id<MTLRenderPipelineState> GLMetalGetClearPipeline(GLMetalState *ms,
+                                                        unsigned colorMask)
+{
+    auto found = ms->clearPipelineCache.find(colorMask);
+    if (found != ms->clearPipelineCache.end()) return found->second;
+
+    MTLRenderPipelineDescriptor *desc = [[MTLRenderPipelineDescriptor alloc] init];
+    desc.vertexFunction = [ms->shaderLibrary newFunctionWithName:@"gl_clear_vertex"];
+    desc.fragmentFunction = [ms->shaderLibrary newFunctionWithName:@"gl_clear_fragment"];
+    if (!desc.vertexFunction || !desc.fragmentFunction) return nil;
+    desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+    desc.colorAttachments[0].writeMask =
+        ((colorMask & 1) ? MTLColorWriteMaskRed : MTLColorWriteMaskNone) |
+        ((colorMask & 2) ? MTLColorWriteMaskGreen : MTLColorWriteMaskNone) |
+        ((colorMask & 4) ? MTLColorWriteMaskBlue : MTLColorWriteMaskNone) |
+        ((colorMask & 8) ? MTLColorWriteMaskAlpha : MTLColorWriteMaskNone);
+    desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+    desc.stencilAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
+    NSError *error = nil;
+    id<MTLRenderPipelineState> pipeline =
+        [ms->device newRenderPipelineStateWithDescriptor:desc error:&error];
+    if (!pipeline) {
+        GL_METAL_LOG("GL clear pipeline failed: %s", error.localizedDescription.UTF8String);
+        return nil;
+    }
+    ms->clearPipelineCache[colorMask] = pipeline;
+    return pipeline;
+}
+
+// Attachment load-action clears ignore the scissor and all write masks.
+// A fullscreen triangle supplies those semantics without disturbing pixels
+// or stencil bits outside the requested clear.
+static bool GLMetalDrawMaskedClear(GLContext *ctx, uint32_t mask)
+{
+    GLMetalState *ms = (GLMetalState *)ctx->metal;
+    const uint32_t width = (uint32_t)ms->overlayTexture.width;
+    const uint32_t height = (uint32_t)ms->overlayTexture.height;
+    GLMetalScissorRect rect = {0, 0, width, height, true};
+    if (ctx->scissor_test) {
+        rect = GLMetalMakeScissorRect(ctx->scissor_box[0], ctx->scissor_box[1],
+                                     ctx->scissor_box[2], ctx->scissor_box[3],
+                                     width, height);
+    }
+    if (!rect.valid) return true;
+
+    const unsigned colorMask = GLShouldClearColorAttachment(mask)
+        ? GLMetalGuestColorWriteMask(ctx->color_mask[0], ctx->color_mask[1],
+                                    ctx->color_mask[2], ctx->color_mask[3]) : 0;
+    const bool depthWrite = GLShouldClearDepthAttachment(mask);
+    const unsigned stencilMask = GLShouldClearStencilAttachment(mask)
+        ? (ctx->stencil.write_mask & 0xffu) : 0;
+    id<MTLRenderPipelineState> pipeline = GLMetalGetClearPipeline(ms, colorMask);
+    if (!pipeline) return false;
+
+    const unsigned key = (depthWrite ? 1u : 0u) | (stencilMask << 1);
+    id<MTLDepthStencilState> depthState;
+    auto found = ms->clearDepthStencilCache.find(key);
+    if (found != ms->clearDepthStencilCache.end()) {
+        depthState = found->second;
+    } else {
+        MTLDepthStencilDescriptor *desc = [[MTLDepthStencilDescriptor alloc] init];
+        desc.depthCompareFunction = MTLCompareFunctionAlways;
+        desc.depthWriteEnabled = depthWrite;
+        if (stencilMask) {
+            MTLStencilDescriptor *stencil = [[MTLStencilDescriptor alloc] init];
+            stencil.stencilCompareFunction = MTLCompareFunctionAlways;
+            stencil.depthStencilPassOperation = MTLStencilOperationReplace;
+            stencil.readMask = 0xff;
+            stencil.writeMask = stencilMask;
+            desc.frontFaceStencil = stencil;
+            desc.backFaceStencil = stencil;
+        }
+        depthState = [ms->device newDepthStencilStateWithDescriptor:desc];
+        if (!depthState) return false;
+        ms->clearDepthStencilCache[key] = depthState;
+    }
+
+    const bool offscreen = GLContextGetOffscreenDrawable(ctx, NULL, NULL, NULL, NULL);
+    const float alpha = GLMetalOverlayClearAlpha(offscreen, ctx->clear_color[3]);
+    const float values[8] = {
+        GLMetalOverlayClearColorComponent(offscreen, ctx->clear_color[0], alpha),
+        GLMetalOverlayClearColorComponent(offscreen, ctx->clear_color[1], alpha),
+        GLMetalOverlayClearColorComponent(offscreen, ctx->clear_color[2], alpha), alpha,
+        std::max(0.0f, std::min(1.0f, ctx->clear_depth)), 0, 0, 0
+    };
+    const MTLViewport viewport = {0, 0, (double)width, (double)height, 0, 1};
+    const MTLScissorRect scissor = {rect.x, rect.y, rect.width, rect.height};
+    [ms->currentEncoder setRenderPipelineState:pipeline];
+    [ms->currentEncoder setDepthStencilState:depthState];
+    [ms->currentEncoder setStencilReferenceValue:(uint32_t)ctx->clear_stencil & 0xffu];
+    [ms->currentEncoder setViewport:viewport];
+    [ms->currentEncoder setScissorRect:scissor];
+    [ms->currentEncoder setCullMode:MTLCullModeNone];
+    [ms->currentEncoder setDepthBias:0 slopeScale:0 clamp:0];
+    [ms->currentEncoder setVertexBytes:values length:sizeof(values) atIndex:0];
+    [ms->currentEncoder setFragmentBytes:values length:sizeof(values) atIndex:0];
+    [ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    // The next ordinary draw must restore the guest viewport and scissor.
+    ms->viewportScissorCacheValid = false;
+    return true;
+}
+
 void GLMetalClear(GLContext *ctx, uint32_t mask)
 {
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized) return;
+    if (!ctx->depth_mask) mask &= ~0x00000100u;
+    if (!(ctx->stencil.write_mask & 0xffu)) mask &= ~0x00000400u;
+    const unsigned colorMask = GLMetalGuestColorWriteMask(
+        ctx->color_mask[0], ctx->color_mask[1], ctx->color_mask[2], ctx->color_mask[3]);
+    if (!colorMask) mask &= ~0x00004000u;
     if (!GLShouldApplyAttachmentClear(mask)) return;
+    if (ctx->scissor_test && (ctx->scissor_box[2] <= 0 || ctx->scissor_box[3] <= 0)) return;
 
     if (!ms->renderPassActive) {
-        if (GLShouldBeginRenderPassForClear(mask)) {
-            GLMetalBeginFrame(ctx);
-        }
-        return;
+        GLMetalBeginFrame(ctx);
+        if (!ms->renderPassActive) return;
     }
 
     if (!ms->overlayTexture || !ms->currentCommandBuffer) {
@@ -2791,6 +2905,12 @@ void GLMetalClear(GLContext *ctx, uint32_t mask)
     const bool clearColor = GLShouldClearColorAttachment(mask);
     const bool clearDepth = GLShouldClearDepthAttachment(mask);
     const bool clearStencil = GLShouldClearStencilAttachment(mask);
+    if (ctx->scissor_test || (clearColor && colorMask != 0xfu) ||
+        (clearStencil && (ctx->stencil.write_mask & 0xffu) != 0xffu)) {
+        if (!GLMetalDrawMaskedClear(ctx, mask) && !ctx->last_error)
+            ctx->last_error = 0x0505; // GL_OUT_OF_MEMORY
+        return;
+    }
     const uint32_t targetW = (uint32_t)[ms->overlayTexture width];
     const uint32_t targetH = (uint32_t)[ms->overlayTexture height];
 
@@ -4041,6 +4161,8 @@ void GLMetalRelease(GLContext *ctx)
     ms->pipelineCache.clear();
     size_t ds_count = ms->depthStencilCache.size();
     ms->depthStencilCache.clear();
+    ms->clearPipelineCache.clear();
+    ms->clearDepthStencilCache.clear();
 
     // (4) Clear global sampler cache (rebuilt on demand by next context)
     size_t sampler_count = gl_sampler_cache.size();

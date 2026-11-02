@@ -333,6 +333,10 @@ static void CommitRaveCommandBufferWithRing(id<MTLCommandBuffer> commandBuffer)
  */
 static id<MTLTexture> s_rave_overlay_pair[2] = { nil, nil };
 static id<MTLTexture> s_rave_overlay_tex = nil;     /* current render target */
+// Contexts share the texture pair. Texture identity alone cannot distinguish
+// an old context's frame from a later submission that reused the same slot.
+static RaveDrawPrivate *s_rave_overlay_submitter = nullptr;
+static id<MTLTexture> s_rave_submitted_overlay = nil;
 static uint32_t       s_rave_overlay_w   = 0;
 static uint32_t       s_rave_overlay_h   = 0;
 static uint32_t       s_rave_overlay_write_index = 0;
@@ -364,6 +368,13 @@ static void rave_release_overlay_texture(void);
 
 static id<MTLTexture> rave_acquire_overlay_texture(uint32_t width, uint32_t height)
 {
+	// Mode-exit callbacks release overlays and clear the compositor cache.
+	// Finish an ownership handoff before acquiring the next render target.
+	const int32_t ownerErr = dmc_set_active_owner(kDMCOwnerRAVE);
+	if (ownerErr != kDMCNoErr) {
+		RAVE_LOG("RAVE display ownership request failed (%d)", ownerErr);
+		return nil;
+	}
 	if ((s_rave_overlay_pair[0] != nil || s_rave_overlay_pair[1] != nil) &&
 	    (s_rave_overlay_w != width || s_rave_overlay_h != height)) {
 		rave_release_overlay_texture();
@@ -414,6 +425,12 @@ static void rave_advance_overlay_texture_after_submit(void)
  */
 static void rave_release_overlay_texture(void)
 {
+	MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
+	    (__bridge void *)s_rave_overlay_pair[0]);
+	MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
+	    (__bridge void *)s_rave_overlay_pair[1]);
+	s_rave_overlay_submitter = nullptr;
+	s_rave_submitted_overlay = nil;
 	if (s_rave_overlay_pair[0] != nil) {
 		gfxaccel_resources_release_overlay_texture(
 		    kGfxEngineRAVE, (__bridge void *)s_rave_overlay_pair[0]);
@@ -503,10 +520,6 @@ void RaveCreateMetalOverlay(int32_t left, int32_t top, int32_t width, int32_t he
 	}
 	s_rave_overlay_binding_preserved = true;
 	RaveSetCompositorDestinationRect(left, top, width, height);
-	/* Declare RAVE as the active owner so DMC subscribers / snapshot
-	 * readers know which engine drives mode semantics. The idempotent
-	 * early-return makes this a fast no-op when owner already matches. */
-	(void)dmc_set_active_owner(kDMCOwnerRAVE);
 	RAVE_LOG("RaveCreateMetalOverlay: vended overlay %dx%d draw=(%d,%d) dst=(%d,%d)",
 	         width, height, left, top, s_rave_dst_left, s_rave_dst_top);
 }
@@ -967,10 +980,36 @@ void RaveInitMetalResources(RaveDrawPrivate *priv)
 }
 
 
+static int32_t RaveSubmitOverlayFrame(RaveDrawPrivate *priv,
+                                     const struct FrameDescriptor *desc)
+{
+	const int32_t err = MetalCompositorSubmitFrame(desc);
+	if (err == kGfxAccelNoErr) {
+		s_rave_overlay_submitter = priv;
+		s_rave_submitted_overlay = (__bridge id<MTLTexture>)desc->layers[0].source;
+	}
+	return err;
+}
+
+void RaveInvalidateContextOverlay(RaveDrawPrivate *priv)
+{
+	if (!priv || s_rave_overlay_submitter != priv) return;
+	MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
+	    (__bridge void *)s_rave_submitted_overlay);
+	s_rave_overlay_submitter = nullptr;
+	s_rave_submitted_overlay = nil;
+}
+
 void RaveReleaseMetalResources(RaveDrawPrivate *priv)
 {
 	RaveMetalState *ms = priv->metal;
 	if (!ms) return;
+	// Direct native deletes preserve the displayed frame, but must not leave
+	// a dangling producer pointer that could match a recycled context address.
+	if (s_rave_overlay_submitter == priv) {
+		s_rave_overlay_submitter = nullptr;
+		s_rave_submitted_overlay = nil;
+	}
 	const bool releaseGlobalRing = (rave_context_count <= 1);
 
 	// Metal resource cleanup:
@@ -3568,9 +3607,7 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 	// compositor sees this as a single kLayerSlotOverlay layer with
 	// premultiplied-alpha blend (RAVE always blends; see BuildPipelines)
 	// over whatever the framebuffer currently
-	// shows. dmc_set_active_owner already declared RAVE in
-	// RaveCreateMetalOverlay; the idempotent fast-path handles the
-	// per-frame re-declaration.
+	// shows. Ownership was claimed before acquiring the render target.
 	id<MTLTexture> submittedOverlay = ms->overlayTexture ?: s_rave_overlay_tex;
 	if (submittedOverlay != nil) {
 		struct CompositeLayer layer;
@@ -3594,7 +3631,7 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 		desc.generation           = snap ? snap->generation : 0;
 		desc.vbl_tick_target_usec = 0;
 
-		int32_t err = MetalCompositorSubmitFrame(&desc);
+		int32_t err = RaveSubmitOverlayFrame(priv, &desc);
 		if (err == kGfxAccelErrStaleGeneration) {
 			RAVE_LOG("RenderEnd: SubmitFrame stale generation; dropping frame");
 		} else if (err != kGfxAccelNoErr) {
@@ -3602,8 +3639,6 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 		} else {
 			rave_advance_overlay_texture_after_submit();
 		}
-		/* Re-declare RAVE owner — fast no-op when already RAVE. */
-		(void)dmc_set_active_owner(kDMCOwnerRAVE);
 	}
 
 	// SubmitFrame is cache-only in production; pace RAVE render ends explicitly.
@@ -4847,7 +4882,7 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 	// The framebuffer now owns presentation; stop compositing the (stale)
 	// overlay on top of it. Submits stay suppressed while cpuCompositeFrames
 	// is armed, so the compositor presents the framebuffer alone.
-	MetalCompositorSubmitFrame_ClearCachedOverlay();
+	RaveInvalidateContextOverlay(priv);
 
 	ms->atiBackBufferDirty = true;
 

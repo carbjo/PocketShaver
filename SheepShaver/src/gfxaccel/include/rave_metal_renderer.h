@@ -41,6 +41,8 @@ void rave_release_overlay_for_detach(void);
 // Per-context Metal resource management
 extern void RaveInitMetalResources(struct RaveDrawPrivate *priv);
 extern void RaveReleaseMetalResources(struct RaveDrawPrivate *priv);
+// Clear only a cached frame sourced from this context's render target.
+extern void RaveInvalidateContextOverlay(struct RaveDrawPrivate *priv);
 
 // Render method implementations (called from rave_dispatch.cpp)
 extern int32_t NativeRenderStart(uint32_t drawContextAddr, uint32_t dirtyRectAddr, uint32_t initialContextAddr);

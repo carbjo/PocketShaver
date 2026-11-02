@@ -402,6 +402,22 @@ fragment float4 gl_fragment_main(
     return color;
 }
 
+// Clear draws bypass the ordinary GL pipeline: only scissor and attachment
+// write masks apply. values[0] is color, values[1].x is window-space depth.
+struct GLClearVertexOut {
+    float4 position [[position]];
+};
+
+vertex GLClearVertexOut gl_clear_vertex(uint vertexID [[vertex_id]],
+                                       constant float4 *values [[buffer(0)]]) {
+    const float2 positions[3] = {float2(-1, -1), float2(3, -1), float2(-1, 3)};
+    return {float4(positions[vertexID], values[1].x, 1)};
+}
+
+fragment float4 gl_clear_fragment(constant float4 *values [[buffer(0)]]) {
+    return values[0];
+}
+
 // Framebuffer-to-texture transfer. OpenGL texture row zero is the bottom
 // framebuffer row. Reads/writes use logical RGBA even for BGRA8 storage.
 struct GLCopyTextureUniforms {

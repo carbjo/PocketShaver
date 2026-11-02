@@ -2344,6 +2344,9 @@ uint32 NativeHookDrawContextDelete(uint32 drawContextPtr) {
 	if (ctx) {
 		RAVE_LOG("HOOK: QADrawContextDelete(0x%08x) handle=%d -> native delete",
 		       drawContextPtr, handle);
+		// Invalidate while the context still owns its source texture. A newer
+		// GL/RAVE frame must survive cleanup of this inactive context.
+		RaveInvalidateContextOverlay(ctx);
 		NativeDrawPrivateDelete(handle);
 
 		// Invalidate the Mac-side handle so stale references via this
@@ -2354,24 +2357,6 @@ uint32 NativeHookDrawContextDelete(uint32 drawContextPtr) {
 		// Recycle the Mac-side context address so the next QADrawContextNew
 		// can reuse it instead of permanently allocating from SheepMem.
 		rave_ctx_free_list.push_back(drawContextPtr);
-
-		// Clear the compositor's cached overlay on
-		// QADrawContextDestroy.  The cache holds a strong reference to the
-		// source MTLTexture that may outlive this engine's draw context;
-		// Nanosaur destroys and recreates its QADrawContext at scene
-		// transitions (menu <-> level 1 <-> level 2), and when a new
-		// context is created the overlay's shape / size / sampler state may
-		// differ.  Without this invalidation surface the prior scene's
-		// overlay content can bleed through the first frames of the new
-		// scene ("intermittent 3D stale pixel residue").
-		//
-		// Call sites for ClearCachedOverlay:
-		//   1. MetalCompositor_OnModeExit  (DMC mode change; metal_compositor.mm:198)
-		//   2. Compositor shutdown         (metal_compositor.mm tear-down)
-		//   3. QADrawContextDelete         (this call)
-		//
-		// Regression test: NanosaurSceneTransitionTests.
-		MetalCompositorSubmitFrame_ClearCachedOverlay();
 
 		return kQANoErr;
 	}
