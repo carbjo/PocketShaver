@@ -24,6 +24,7 @@
 #include "dsp_mode_enumerate.h"    /* DSpFindBestContextHandler delegate target */
 #include "dsp_context_private.h"   /* DSpContextPrivate full struct; shared with dsp_metal_renderer.mm */
 #include "dsp_guest_address.h"
+#include "dsp_display_mode_policy.h"
 #include "metal_compositor.h"      /* MetalCompositorUpdatePalette (Active CLUT push) */
 #include "display_mode_controller.h" /* dmc_current_snapshot + dmc_record_*_change + kDMCNoErr */
 #include "dsp_engine_internal.h"   /* DSpMapStateToDMCOwnerTyped (internal-only, NOT in include/) */
@@ -66,6 +67,13 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
 	 * boundary semantics. */
 	const uint32_t count = last - first + 1;
 	memcpy(ctx->clut_bytes + first * 3, entries_host_range, count * 3);
+	// Indexed front pixels are expanded through this CLUT into a 32-bit
+	// compositor surface. Their indices can stay unchanged across a palette
+	// animation, so the byte hash alone cannot validate the converted pixels.
+	const uint32_t front_depth =
+	    DSpDisplayModeDepth(ctx->attr.backBufferBestDepth, ctx->attr.displayBestDepth);
+	if (front_depth <= 8)
+		ctx->front_staging_present_state.encoded = false;
 
 	/* When Active, push the FULL 256-entry table so
 	 * entries outside [first..last] set by earlier Set calls survive.

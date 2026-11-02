@@ -1187,10 +1187,8 @@ uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 	}
 
 	if (drawable == 0) {
-		// Unbind drawable -- release the per-engine overlay so no further
-		// compositing occurs. gl_overlay_unbind releases via
-		// gfxaccel_resources_release_overlay_texture(kGfxEngineGL, ...).
-		gl_overlay_unbind();
+		// Retire only this context's visible frame and drawable binding.
+		gl_overlay_unbind(context);
 		GLFinishDrawableUnbind(idx);
 		agl_ctx_state[idx].agl_offscreen = false;
 		agl_ctx_state[idx].agl_offscreen_width = 0;
@@ -1223,12 +1221,8 @@ uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 
 	GLCaptureOwnerBeforeDrawableBind(idx);
 
-	// Vend a per-engine overlay texture via
-	// gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL, ...).
-	// gl_overlay_bind caches the destination rect for SubmitFrame emission
-	// in NativeAGLSwapBuffers (gl_overlay_present). Cache-hit: same dims
-	// returns the cached handle; different dims re-vends.
-	gl_overlay_bind(port_left, port_top, width, height);
+	// Keep the render targets and destination rect with this drawable.
+	gl_overlay_bind(context, port_left, port_top, width, height);
 
 	// Initialize Metal resources for this context if not yet done
 	if (!context->metal) {
@@ -1285,7 +1279,7 @@ uint32_t NativeAGLSwapBuffers(uint32_t ctx)
 	// signal. SubmitFrame is cache-only in production; Step 3 restores real
 	// pacing. GL claims DMC ownership before rendering, so the ownership
 	// handoff cannot detach the texture after this frame is submitted.
-	gl_overlay_present();
+	gl_overlay_present(context);
 
 	// Throttle to GL's own VBL cadence lane.
 	MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineGL);
@@ -1330,23 +1324,6 @@ uint32_t NativeAGLDestroyContext(uint32_t ctx)
 	// Release Metal resources for this context (textures, caches, GPU sync)
 	GLMetalRelease(context);
 
-	// Release the per-engine overlay texture on the last live context
-	// destruction. NativeAGLSetDrawable(ctx, 0) typically fires
-	// first and already unbound; if the caller destroyed the context
-	// without unbinding, gl_overlay_unbind is idempotent — no-op if no
-	// overlay cached. Checking gl_current_context suffices as a
-	// lightweight "is any context still active" probe: if we just
-	// nulled it out above and no other contexts exist, we unbind.
-	bool any_remaining = false;
-	for (int i = 0; i < GL_MAX_CONTEXTS; ++i) {
-		if (gl_contexts[i] != nullptr && gl_contexts[i] != context) {
-			any_remaining = true;
-			break;
-		}
-	}
-	if (!any_remaining) {
-		gl_overlay_unbind();
-	}
 	if (agl_ctx_state[idx].agl_drawable != 0) {
 		GLFinishDrawableUnbind(idx);
 	}
@@ -1715,6 +1692,7 @@ uint32_t NativeAGLUpdateContext(uint32_t ctx)
 			height = 480;
 		}
 
+		gl_overlay_bind(context, port_left, port_top, width, height);
 		context->viewport[0] = 0;
 		context->viewport[1] = 0;
 		context->viewport[2] = width;
@@ -1759,7 +1737,7 @@ uint32_t NativeAGLSetOffScreen(uint32_t ctx, uint32_t width, uint32_t height,
 	}
 
 	if (agl_ctx_state[idx].agl_drawable != 0) {
-		gl_overlay_unbind();
+		gl_overlay_unbind(context);
 		GLFinishDrawableUnbind(idx);
 	}
 
@@ -2285,67 +2263,23 @@ uint32_t NativeAGLDevicesOfPixelFormat(uint32_t pix, uint32_t ndevsPtr)
 // engine init (GLInstallHooks, below). Mirrors RAVE's pattern in
 // rave_engine.cpp.
 //
-// Lifecycle:
-//   - on_mode_enter (LIFO) -> GLOnAttach: pre-vend overlay texture pair for
-//     the new mode's resolution IF GL has an active overlay. Otherwise
-//     skip; the next gl_overlay_bind will vend lazily.
-//   - on_mode_exit  (FIFO) -> GLOnDetach: release the cached overlay
-//     handle back to the resource manager.
-//
-// The handlers must NOT call back into DMC (the resource manager fan-out
-// runs on the DMC writer's thread while holding the writer mutex —
-// recursive subscribe/unsubscribe would deadlock).
-//
-// Cross the .cpp/.mm boundary via the small extern "C" probes declared in
-// gl_engine.h (gl_has_active_overlay / gl_get_overlay_dims /
-// gl_release_overlay_for_detach).
+// DMC exit commits pending visible-target work and releases texture pairs;
+// enter re-creates them at each preserved drawable's dimensions. These hooks
+// do not call back into DMC while its subscriber fan-out is running.
 static int32_t GLOnAttach(uint32_t /* engine_id */,
                           const struct DMCModeSnapshot *incoming,
                           void * /* ctx */)
 {
-	/* If GL has no active overlay at attach time, skip pre-vending — the
-	 * next gl_overlay_bind (driven by an actual AGL drawable bind) will
-	 * vend lazily. Common case for non-GL workloads. */
-	if (!gl_has_active_overlay()) {
-		return 0;  /* kGfxAccelResNoErr — accept the transition */
-	}
-	if (incoming == NULL) {
-		return 0;  /* defensive */
-	}
-
-	/* GL was active in the outgoing mode; pre-vend the pair at the incoming mode's
-	 * resolution so the compositor sees an overlay on its first present
-	 * after the mode switch. Vend format is
-	 * BGRA8Unorm (= MTLPixelFormatBGRA8Unorm = 80). */
-	void *tex0 = gfxaccel_resources_vend_overlay_texture_indexed(
-	                kGfxEngineGL,
-	                0,
-	                incoming->width,
-	                incoming->height,
-	                80 /* MTLPixelFormatBGRA8Unorm */);
-	void *tex1 = gfxaccel_resources_vend_overlay_texture_indexed(
-	                kGfxEngineGL,
-	                1,
-	                incoming->width,
-	                incoming->height,
-	                80 /* MTLPixelFormatBGRA8Unorm */);
-	if (tex0 == NULL || tex1 == NULL) {
-		if (tex0 != NULL) gfxaccel_resources_release_overlay_texture(kGfxEngineGL, tex0);
-		if (tex1 != NULL) gfxaccel_resources_release_overlay_texture(kGfxEngineGL, tex1);
-		/* Vend failed — reject the transition. The rollback path is safe
-		 * under concurrent DMC readers. */
-		return -3009;  /* kDMCErrSubscriberRejected */
-	}
-	return 0;
+	// Pre-vend each bound drawable at its own size. This callback must not
+	// claim ownership recursively while DMC is dispatching subscribers.
+	return incoming ? gl_prepare_overlays_for_attach() : 0;
 }
 
 static int32_t GLOnDetach(uint32_t /* engine_id */,
                           const struct DMCModeSnapshot * /* outgoing */,
                           void * /* ctx */)
 {
-	/* Release the cached overlay (idempotent — no-op if GL has none).
-	 * The next gl_overlay_bind after the mode switch will re-vend at the
-	 * appropriate resolution. */
+	// Preserve drawable bindings, but retire their outgoing GPU targets.
 	gl_release_overlay_for_detach();
 	return 0;
 }

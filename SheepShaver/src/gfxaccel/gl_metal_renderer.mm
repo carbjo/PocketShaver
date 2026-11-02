@@ -32,9 +32,7 @@
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "gl_engine.h"
-#include "rave_metal_renderer.h"  // for RaveCreateMetalOverlay (shared-refcount API deleted)
 #include "metal_compositor.h"    // for MetalCompositorSubmitFrame, CompositeLayer, FrameDescriptor
-#include "gfxaccel_resources.h"  // per-engine overlay vending for kGfxEngineGL
 #include "display_mode_controller.h"  // dmc_current_snapshot() for FrameDescriptor generation
 #include "accel_logging.h"
 #include "metal_device_shared.h"
@@ -47,61 +45,29 @@
 // Forward declare Mac_sysalloc (from macos_util.h) to avoid UIKit header conflicts
 extern uint32 Mac_sysalloc(uint32 size);
 
-/*
- *  GL per-engine overlay state (mirrors RAVE).
- *
- *  Replaces the legacy compositor-owned overlay texture + SetOverlayActive +
- *  Sync3DFramePacing cluster with per-engine ownership. GL owns a
- *  two-texture overlay pair, vended by
- *  gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL, ...) and
- *  released via gfxaccel_resources_release_overlay_texture. Same-resolution
- *  rebind = cache-hit recycle; resolution change = re-vend. Display-mode
- *  handoff may release the vended textures while keeping the drawable binding
- *  and dimensions intact; the next present/render pass can lazily re-vend for
- *  the still-bound drawable.
- *
- *  NativeAGLSwapBuffers emits a kLayerSlotOverlay CompositeLayer via
- *  MetalCompositorSubmitFrame — the "active" signal is the presence of the
- *  layer in the descriptor, not a separate enable call. SubmitFrame is
- *  cache-only in production; Step 3 restores real per-frame pacing.
- */
-static id<MTLTexture> s_gl_overlay_pair[2] = { nil, nil };
-static id<MTLTexture> s_gl_overlay_tex = nil;     /* current render target */
-static uint32_t       s_gl_overlay_w   = 0;
-static uint32_t       s_gl_overlay_h   = 0;
-static uint32_t       s_gl_overlay_write_index = 0;
-static int32_t        s_gl_dst_left    = 0;
-static int32_t        s_gl_dst_top     = 0;
-static int32_t        s_gl_dst_width   = 0;
-static int32_t        s_gl_dst_height  = 0;
-static bool           s_gl_overlay_committed_frame = false;
+/* Each drawable owns its visible texture pair. Offscreen targets live in
+ * GLMetalState and never enter this registry or the compositor mailbox. DMC
+ * detach releases GPU targets while retaining the logical drawable binding. */
+struct GLOverlayState {
+    id<MTLTexture> pair[2] = { nil, nil };
+    uint32_t write_index = 0;
+    int32_t left = 0, top = 0, width = 0, height = 0;
+    bool committed = false;
+};
+static std::unordered_map<GLContext *, GLOverlayState> s_gl_overlays;
 
-static bool gl_overlay_drawable_bound(void)
+static void gl_end_render_target_for_detach(GLContext *ctx);
+
+static void gl_release_overlay_texture(GLOverlayState &overlay)
 {
-    return GLShouldPreserveOverlayBindingAfterResourceDetach(
-        s_gl_dst_width > 0 && s_gl_dst_height > 0,
-        s_gl_dst_width,
-        s_gl_dst_height);
+    for (int i = 0; i < 2; ++i) {
+        MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
+            (__bridge void *)overlay.pair[i]);
+        overlay.pair[i] = nil;
+    }
+    overlay.write_index = 0;
+    overlay.committed = false;
 }
-
-static void gl_clear_compositor_cached_overlay(const char *reason)
-{
-    GL_METAL_VLOG("clearing GL-owned compositor cached overlay on %s", reason);
-    MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
-        (__bridge void *)s_gl_overlay_pair[0]);
-    MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
-        (__bridge void *)s_gl_overlay_pair[1]);
-    MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
-        (__bridge void *)s_gl_overlay_tex);
-}
-
-/*
- *  gl_acquire_overlay_texture - vend (or cache-hit) the per-engine overlay.
- *
- *  Returns the MTLTexture handle on success or nil on failure (vend may
- *  return NULL during early startup or if SharedMetalDevice() is nil).
- */
-static void gl_release_overlay_texture(void);
 
 static bool gl_claim_display_for_overlay(void)
 {
@@ -113,264 +79,106 @@ static bool gl_claim_display_for_overlay(void)
     return true;
 }
 
-static id<MTLTexture> gl_acquire_overlay_texture(uint32_t width, uint32_t height)
+static id<MTLTexture> gl_new_render_target(uint32_t width, uint32_t height)
 {
-    if ((s_gl_overlay_pair[0] != nil || s_gl_overlay_pair[1] != nil) &&
-        (s_gl_overlay_w != width || s_gl_overlay_h != height)) {
-        gl_release_overlay_texture();
-    }
-
-    if (s_gl_overlay_pair[0] == nil || s_gl_overlay_pair[1] == nil) {
-        void *raw0 = gfxaccel_resources_vend_overlay_texture_indexed(
-                        kGfxEngineGL, 0, width, height,
-                        MTLPixelFormatBGRA8Unorm);
-        void *raw1 = gfxaccel_resources_vend_overlay_texture_indexed(
-                        kGfxEngineGL, 1, width, height,
-                        MTLPixelFormatBGRA8Unorm);
-        if (raw0 == NULL || raw1 == NULL) {
-            GL_METAL_LOG("gl_acquire_overlay_texture: vend pair(%ux%u) returned NULL", width, height);
-            if (raw0 != NULL) {
-                gfxaccel_resources_release_overlay_texture(kGfxEngineGL, raw0);
-            }
-            if (raw1 != NULL) {
-                gfxaccel_resources_release_overlay_texture(kGfxEngineGL, raw1);
-            }
-            s_gl_overlay_pair[0] = nil;
-            s_gl_overlay_pair[1] = nil;
-            s_gl_overlay_tex = nil;
-            s_gl_overlay_write_index = 0;
-            s_gl_overlay_committed_frame = false;
-            return nil;
-        }
-        s_gl_overlay_pair[0] = (__bridge id<MTLTexture>)raw0;
-        s_gl_overlay_pair[1] = (__bridge id<MTLTexture>)raw1;
-        s_gl_overlay_w = width;
-        s_gl_overlay_h = height;
-        s_gl_overlay_committed_frame = false;
-    }
-
-    s_gl_overlay_tex = s_gl_overlay_pair[s_gl_overlay_write_index];
-    return s_gl_overlay_tex;
+    if (width == 0 || height == 0) return nil;
+    id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
+    MTLTextureDescriptor *desc = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                    width:width height:height mipmapped:NO];
+    desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    desc.storageMode = MTLStorageModePrivate;
+    return [device newTextureWithDescriptor:desc];
 }
 
-static void gl_advance_overlay_texture_after_submit(void)
+static id<MTLTexture> gl_acquire_overlay_texture(GLOverlayState &overlay)
 {
-    if (s_gl_overlay_pair[0] == nil || s_gl_overlay_pair[1] == nil) return;
-    s_gl_overlay_write_index ^= 1u;
-    s_gl_overlay_tex = s_gl_overlay_pair[s_gl_overlay_write_index];
-    s_gl_overlay_committed_frame = false;
+    if (!overlay.pair[0] || !overlay.pair[1]) {
+        id<MTLTexture> first = gl_new_render_target(overlay.width, overlay.height);
+        id<MTLTexture> second = gl_new_render_target(overlay.width, overlay.height);
+        if (!first || !second) return nil;
+        overlay.pair[0] = first;
+        overlay.pair[1] = second;
+        overlay.committed = false;
+    }
+    return overlay.pair[overlay.write_index];
 }
 
-/*
- *  gl_release_overlay_texture - release the per-engine overlay back to
- *  the resource manager and clear GL's cached handle. Idempotent.
- */
-static void gl_release_overlay_texture(void)
+extern "C" void gl_overlay_bind(GLContext *ctx, int32_t left, int32_t top,
+                                 int32_t width, int32_t height)
 {
-    // Invalidate while the old handles are still available, including when
-    // a resize replaces the pair before another frame has been submitted.
-    gl_clear_compositor_cached_overlay("release");
-    if (s_gl_overlay_pair[0] != nil) {
-        gfxaccel_resources_release_overlay_texture(
-            kGfxEngineGL, (__bridge void *)s_gl_overlay_pair[0]);
-    }
-    if (s_gl_overlay_pair[1] != nil) {
-        gfxaccel_resources_release_overlay_texture(
-            kGfxEngineGL, (__bridge void *)s_gl_overlay_pair[1]);
-    }
-    s_gl_overlay_pair[0] = nil;
-    s_gl_overlay_pair[1] = nil;
-    s_gl_overlay_tex = nil;
-    s_gl_overlay_write_index = 0;
-    s_gl_overlay_committed_frame = false;
-}
-
-/*
- *  gl_overlay_bind - called from NativeAGLSetDrawable bind branch.
- *
- *  Vends an overlay at the drawable's port dimensions (cache-hit on
- *  matching dims). Stores the destination rect for later SubmitFrame
- *  layer emission in gl_overlay_present.
- */
-extern "C" void gl_overlay_bind(int32_t left, int32_t top, int32_t width, int32_t height)
-{
-    if (width <= 0 || height <= 0) {
-        GL_METAL_LOG("gl_overlay_bind: invalid dims %dx%d — ignoring", width, height);
-        return;
-    }
-    // Ownership changes detach overlays. Finish that handoff before vending
-    // the texture that GL will render and submit as its first frame.
+    if (!ctx || width <= 0 || height <= 0) return;
+    auto existing = s_gl_overlays.find(ctx);
+    if (existing == s_gl_overlays.end() ||
+        existing->second.width != width || existing->second.height != height)
+        gl_end_render_target_for_detach(ctx);
+    // A claim can detach every overlay. Acquire only after that handoff.
     if (!gl_claim_display_for_overlay()) return;
-    s_gl_dst_left   = left;
-    s_gl_dst_top    = top;
-    s_gl_dst_width  = width;
-    s_gl_dst_height = height;
-    if (s_gl_overlay_w == 0 || s_gl_overlay_h == 0) {
-        s_gl_overlay_w = (uint32_t)width;
-        s_gl_overlay_h = (uint32_t)height;
-    }
-    id<MTLTexture> tex = gl_acquire_overlay_texture((uint32_t)width, (uint32_t)height);
-    if (tex == nil) {
-        GL_METAL_LOG("gl_overlay_bind: vend(%dx%d) FAILED", width, height);
-        return;
-    }
-    GL_METAL_LOG("gl_overlay_bind: vended overlay %dx%d at (%d,%d)", width, height, left, top);
+    GLOverlayState &overlay = s_gl_overlays[ctx];
+    if (overlay.width != width || overlay.height != height)
+        gl_release_overlay_texture(overlay);
+    overlay.left = left; overlay.top = top;
+    overlay.width = width; overlay.height = height;
+    (void)gl_acquire_overlay_texture(overlay);
 }
 
-/*
- *  gl_overlay_unbind - called from NativeAGLSetDrawable unbind branch
- *  (and on GL shutdown / context destroy paths that used to deactivate
- *  the shared compositor overlay).
- *
- *  Releases the per-engine overlay. The next bind re-vends lazily.
- */
-extern "C" void gl_overlay_unbind(void)
+extern "C" void gl_overlay_unbind(GLContext *ctx)
 {
-    GL_METAL_LOG("gl_overlay_unbind: releasing per-engine overlay");
-    gl_release_overlay_texture();
-    s_gl_dst_left = 0;
-    s_gl_dst_top = 0;
-    s_gl_dst_width = 0;
-    s_gl_dst_height = 0;
-    s_gl_overlay_w = 0;
-    s_gl_overlay_h = 0;
+    auto it = s_gl_overlays.find(ctx);
+    if (it == s_gl_overlays.end()) return;
+    gl_end_render_target_for_detach(ctx);
+    gl_release_overlay_texture(it->second);
+    s_gl_overlays.erase(it);
 }
 
-/*
- *  gl_overlay_present - called from NativeAGLSwapBuffers.
- *
- *  Emits a single kLayerSlotOverlay CompositeLayer for GL's cached overlay
- *  via MetalCompositorSubmitFrame. Replaces the legacy overlay-activate path;
- *  the layer presence is the "active" signal. SubmitFrame is cache-only in
- *  production; Step 3 restores real pacing.
- *
- *  A bind-only texture is not a frame. If the app swaps before issuing any
- *  GL draw/clear that commits a command buffer, skip SubmitFrame so the
- *  compositor cache is not replaced with an uninitialized overlay.
- */
-extern "C" void gl_overlay_present(void)
+static void gl_note_overlay_committed(GLContext *ctx, id<MTLTexture> texture)
 {
-    if (!s_gl_overlay_committed_frame) {
-        GL_METAL_VLOG("gl_overlay_present: overlay has no committed frame — skipping SubmitFrame");
-        return;
-    }
-    if (GLShouldReacquireBoundOverlayForPresent(
-            s_gl_overlay_tex != nil,
-            gl_overlay_drawable_bound(),
-            s_gl_dst_width,
-            s_gl_dst_height)) {
-        const uint32_t w = s_gl_overlay_w != 0 ? s_gl_overlay_w : (uint32_t)s_gl_dst_width;
-        const uint32_t h = s_gl_overlay_h != 0 ? s_gl_overlay_h : (uint32_t)s_gl_dst_height;
-        if (gl_acquire_overlay_texture(w, h) != nil) {
-            GL_METAL_VLOG("gl_overlay_present: reacquired overlay %ux%u for bound drawable",
-                         w, h);
-        }
-    }
-    if (s_gl_overlay_tex == nil) {
-        GL_METAL_VLOG("gl_overlay_present: no cached overlay — skipping SubmitFrame");
-        return;
-    }
-    if (!GLShouldSubmitOverlayFrame(s_gl_overlay_tex != nil,
-                                    s_gl_overlay_committed_frame)) {
-        GL_METAL_VLOG("gl_overlay_present: overlay has no committed frame — skipping SubmitFrame");
-        return;
-    }
-
-    const struct DMCModeSnapshot *snap = dmc_current_snapshot();
-    const GLOverlayLayerRect rect = GLMakeOverlayLayerRect(
-        s_gl_dst_left,
-        s_gl_dst_top,
-        s_gl_dst_width,
-        s_gl_dst_height,
-        s_gl_overlay_w,
-        s_gl_overlay_h,
-        snap ? snap->width : 0,
-        snap ? snap->height : 0);
-    if (rect.framebuffer_space) {
-        GL_METAL_VLOG("gl_overlay_present: using framebuffer-space overlay rect %ux%u for drawable rect %dx%d",
-                     snap ? snap->width : 0,
-                     snap ? snap->height : 0,
-                     s_gl_dst_width,
-                     s_gl_dst_height);
-    }
-
-    struct CompositeLayer layer;
-    layer.source       = (__bridge void *)s_gl_overlay_tex;
-    layer.src_origin_x = 0;
-    layer.src_origin_y = 0;
-    layer.src_size_w   = s_gl_overlay_w;
-    layer.src_size_h   = s_gl_overlay_h;
-    layer.dst_origin_x = rect.dst_origin_x;
-    layer.dst_origin_y = rect.dst_origin_y;
-    layer.dst_size_w   = rect.dst_size_w;
-    layer.dst_size_h   = rect.dst_size_h;
-    layer.slot         = kLayerSlotOverlay;
-    layer.blend        = kBlendPremultiplied;
-    layer.alpha        = 1.0f;
-
-    struct FrameDescriptor desc;
-    desc.layers               = &layer;
-    desc.layer_count          = 1;
-    desc.generation           = snap ? snap->generation : 0;
-    desc.vbl_tick_target_usec = 0;
-
-    int32_t err = MetalCompositorSubmitFrame(&desc);
-    if (err == kGfxAccelErrStaleGeneration) {
-        GL_METAL_VLOG("gl_overlay_present: SubmitFrame stale generation; dropping frame");
-    } else if (err != kGfxAccelNoErr) {
-        GL_METAL_VLOG("gl_overlay_present: SubmitFrame returned %d", err);
-    } else {
-        gl_advance_overlay_texture_after_submit();
-    }
+    auto it = s_gl_overlays.find(ctx);
+    if (it != s_gl_overlays.end() && texture != nil &&
+        texture == it->second.pair[it->second.write_index])
+        it->second.committed = true;
 }
 
-/*
- *  gl_has_active_overlay - true iff GL currently holds a vended overlay or
- *  still has a drawable binding whose texture can be lazily re-vended.
- *  Used by the gfxaccel_resources fan-out attach/detach handlers (in
- *  gl_engine.cpp) to decide whether to pre-vend on mode-enter / release
- *  on mode-exit.
- */
-extern "C" int gl_has_active_overlay(void)
+extern "C" void gl_overlay_present(GLContext *ctx)
 {
-    return (s_gl_overlay_pair[0] != nil ||
-            s_gl_overlay_pair[1] != nil ||
-            s_gl_overlay_tex != nil ||
-            gl_overlay_drawable_bound()) ? 1 : 0;
+    auto it = s_gl_overlays.find(ctx);
+    if (it == s_gl_overlays.end()) return;
+    GLOverlayState &overlay = it->second;
+    id<MTLTexture> texture = overlay.pair[overlay.write_index];
+    if (!overlay.committed || texture == nil) return;
+
+    const DMCModeSnapshot *snap = dmc_current_snapshot();
+    CompositeLayer layer = {};
+    layer.source = (__bridge void *)texture;
+    layer.src_size_w = (uint32_t)texture.width;
+    layer.src_size_h = (uint32_t)texture.height;
+    layer.dst_origin_x = (float)overlay.left;
+    layer.dst_origin_y = (float)overlay.top;
+    layer.dst_size_w = (float)overlay.width;
+    layer.dst_size_h = (float)overlay.height;
+    layer.slot = kLayerSlotOverlay;
+    layer.blend = kBlendPremultiplied;
+    layer.alpha = 1.0f;
+    FrameDescriptor desc = { &layer, 1, snap ? snap->generation : 0, 0 };
+    if (MetalCompositorSubmitFrame(&desc) == kGfxAccelNoErr) {
+        overlay.write_index ^= 1u;
+        overlay.committed = false;
+    }
 }
 
-/*
- *  gl_get_overlay_dims - export current source overlay dimensions for the
- *  fan-out attach handler. Returns 0 if GL has no cached or preserved dims.
- */
-extern "C" int gl_get_overlay_dims(uint32_t *outW, uint32_t *outH)
+extern "C" int gl_prepare_overlays_for_attach(void)
 {
-    if (s_gl_overlay_pair[0] == nil &&
-        s_gl_overlay_pair[1] == nil &&
-        s_gl_overlay_tex == nil &&
-        (s_gl_overlay_w == 0 || s_gl_overlay_h == 0)) return 0;
-    if (outW) *outW = s_gl_overlay_w;
-    if (outH) *outH = s_gl_overlay_h;
-    return 1;
+    for (auto &entry : s_gl_overlays) {
+        if (!gl_acquire_overlay_texture(entry.second)) return -1;
+    }
+    return 0;
 }
 
-/*
- *  gl_release_overlay_for_detach - external entry called from the
- *  gfxaccel_resources fan-out detach handler. Releases the cached Metal
- *  texture but preserves the logical AGL binding when the drawable is still
- *  attached, so the next present can re-vend instead of dropping the frame.
- */
 extern "C" void gl_release_overlay_for_detach(void)
 {
-    const bool preserve_binding = gl_overlay_drawable_bound();
-    gl_release_overlay_texture();
-    if (!preserve_binding) {
-        s_gl_dst_left = 0;
-        s_gl_dst_top = 0;
-        s_gl_dst_width = 0;
-        s_gl_dst_height = 0;
-        s_gl_overlay_w = 0;
-        s_gl_overlay_h = 0;
+    for (auto &entry : s_gl_overlays) {
+        gl_end_render_target_for_detach(entry.first);
+        gl_release_overlay_texture(entry.second);
     }
 }
 
@@ -631,7 +439,8 @@ struct GLMetalState {
     // Current frame state
     id<MTLCommandBuffer>        currentCommandBuffer;
     id<MTLRenderCommandEncoder> currentEncoder;
-    id<MTLTexture>              overlayTexture;  // offscreen texture from compositor (replaces layer/drawable)
+    id<MTLTexture>              overlayTexture;  // current visible/offscreen render target
+    id<MTLTexture>              offscreenTexture; // private to this context, never published
     id<MTLTexture>              depthBuffer;
     id<MTLTexture>              depthReadbackTexture;
     id<MTLTexture>              fallbackWhiteTexture;  // 1x1 white for missing textures
@@ -724,6 +533,25 @@ static void GLMetalCommitCommandBuffer(GLMetalState *ms,
     [commandBuffer commit];
 }
 
+
+// Mode handoffs must not leave an encoder writing an outgoing target.
+// Avoid readback/guest work inside the DMC subscriber fan-out.
+static void gl_end_render_target_for_detach(GLContext *ctx)
+{
+    GLMetalState *ms = ctx ? (GLMetalState *)ctx->metal : nullptr;
+    if (!ms) return;
+    if (ms->currentEncoder) {
+        [ms->currentEncoder endEncoding];
+        ms->currentEncoder = nil;
+    }
+    if (ms->currentCommandBuffer) {
+        GLMetalCommitCommandBuffer(ms, ms->currentCommandBuffer);
+        ms->lastCommittedBuffer = ms->currentCommandBuffer;
+        ms->currentCommandBuffer = nil;
+    }
+    ms->renderPassActive = false;
+    ms->overlayTexture = nil;
+}
 
 // Forward declarations
 static id<MTLSamplerState> GLMetalGetSampler(GLMetalState *ms, GLTextureObject *texObj);
@@ -2682,49 +2510,33 @@ void GLMetalBeginFrame(GLContext *ctx)
     if (!ms || !ms->initialized) return;
     if (ms->renderPassActive) return;
 
-    // GL renders into its per-engine overlay texture (vended
-    // via gfxaccel_resources_vend_overlay_texture_indexed(kGfxEngineGL, ...) in
-    // NativeAGLSetDrawable's gl_overlay_bind path). The compositor picks
-    // this up when NativeAGLSwapBuffers fires gl_overlay_present and
-    // emits a kLayerSlotOverlay CompositeLayer via SubmitFrame.
-    //
-    // If bind happened before the context's viewport was set (unusual but
-    // possible), the cached overlay dims and the context's dims might
-    // differ. Window overlays keep the historical viewport-sized target, but
-    // AGL offscreen drawables must render into the full guest drawable so
-    // non-zero viewport origins map correctly during readback.
+    // Render over the full drawable. The GL viewport/scissor restrict draws
+    // inside that surface; they never resize the presentation layer. Offscreen
+    // targets are context-private and cannot replace an onscreen cached frame.
     uint32_t offscreenW = 0;
     uint32_t offscreenH = 0;
     const bool isOffscreen =
         GLContextGetOffscreenDrawable(ctx, &offscreenW, &offscreenH, NULL, NULL);
-    int viewportW = ctx->viewport[2];
-    int viewportH = ctx->viewport[3];
-    if (viewportW <= 0 || viewportH <= 0) {
-        // No viewport yet — fall back to the last bound overlay dims.
-        if (s_gl_overlay_w != 0 && s_gl_overlay_h != 0) {
-            viewportW = (int)s_gl_overlay_w;
-            viewportH = (int)s_gl_overlay_h;
-        } else {
-            GL_METAL_LOG("GLMetalBeginFrame: no viewport and no cached overlay");
-            return;
-        }
-    }
-
+    auto binding = s_gl_overlays.find(ctx);
+    if (!isOffscreen && binding == s_gl_overlays.end()) return;
+    uint32_t drawableW = isOffscreen ? offscreenW : (uint32_t)binding->second.width;
+    uint32_t drawableH = isOffscreen ? offscreenH : (uint32_t)binding->second.height;
     const GLMetalRenderTargetSize targetSize = GLMetalChooseRenderTargetSize(
-        isOffscreen, offscreenW, offscreenH,
-        (uint32_t)viewportW, (uint32_t)viewportH);
+        isOffscreen, drawableW, drawableH,
+        (uint32_t)ctx->viewport[2], (uint32_t)ctx->viewport[3]);
     const int w = (int)targetSize.width;
     const int h = (int)targetSize.height;
-
-    // Another engine may have taken over since the drawable was bound.
-    // Reclaim before acquiring a target; offscreen GL must leave its display
-    // owner (for example RAVE) alone.
-    if (!isOffscreen && !gl_claim_display_for_overlay()) return;
-    id<MTLTexture> nextOverlay = gl_acquire_overlay_texture((uint32_t)w, (uint32_t)h);
-    if (!nextOverlay) {
-        GL_METAL_LOG("GLMetalBeginFrame: failed to acquire per-engine overlay %dx%d", w, h);
-        return;
+    id<MTLTexture> nextOverlay = nil;
+    if (isOffscreen) {
+        if (!ms->offscreenTexture || ms->offscreenTexture.width != drawableW ||
+            ms->offscreenTexture.height != drawableH)
+            ms->offscreenTexture = gl_new_render_target(drawableW, drawableH);
+        nextOverlay = ms->offscreenTexture;
+    } else {
+        if (!gl_claim_display_for_overlay()) return;
+        nextOverlay = gl_acquire_overlay_texture(binding->second);
     }
+    if (!nextOverlay) return;
 
     // Flush/Finish submit work without swapping the drawable. Resuming that
     // same color target must retain the pixels already drawn into it.
@@ -4020,7 +3832,7 @@ void GLMetalEndFrame(GLContext *ctx)
     ms->currentCommandBuffer = nil;
 
     ms->renderPassActive = false;
-    s_gl_overlay_committed_frame = true;
+    gl_note_overlay_committed(ctx, ms->overlayTexture);
     const bool didReadback =
         GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
     if (didReadback) {
@@ -4053,7 +3865,7 @@ void NativeGLFinish(GLContext *ctx)
         ms->lastCommittedBuffer = committedBuffer;
         ms->currentCommandBuffer = nil;
         ms->renderPassActive = false;
-        s_gl_overlay_committed_frame = true;
+        gl_note_overlay_committed(ctx, ms->overlayTexture);
         const bool didReadback =
             GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
         if (didReadback) {
@@ -4090,7 +3902,7 @@ void NativeGLFlush(GLContext *ctx)
         ms->lastCommittedBuffer = committedBuffer;
         ms->currentCommandBuffer = nil;
         ms->renderPassActive = false;
-        s_gl_overlay_committed_frame = true;
+        gl_note_overlay_committed(ctx, ms->overlayTexture);
         const bool didReadback =
             GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
         if (didReadback) {
@@ -4127,6 +3939,7 @@ void NativeGLFlush(GLContext *ctx)
  */
 void GLMetalRelease(GLContext *ctx)
 {
+    gl_overlay_unbind(ctx);
     if (!ctx->metal) return;
 
     GLMetalState *ms = (GLMetalState *)ctx->metal;

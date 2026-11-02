@@ -78,7 +78,8 @@ static inline GLMetalRenderTargetSize GLMetalChooseRenderTargetSize(
 	bool is_offscreen, uint32_t drawable_w, uint32_t drawable_h,
 	uint32_t viewport_w, uint32_t viewport_h)
 {
-	if (is_offscreen && drawable_w != 0 && drawable_h != 0)
+	(void)is_offscreen;
+	if (drawable_w != 0 && drawable_h != 0)
 		return {drawable_w, drawable_h};
 	return {viewport_w, viewport_h};
 }

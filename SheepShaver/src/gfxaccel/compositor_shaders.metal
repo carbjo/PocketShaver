@@ -182,11 +182,9 @@ fragment float4 compositor_fragment_16bpp(CompositorVertexOut in [[stage_in]],
  *  Vertex + fragment siblings used by MetalCompositorSubmitFrame to encode
  *  CompositeLayer entries into the drawable.
  *
- *  Simplification: each layer emits a fullscreen triangle
- *  with the source texture sampled across its full bounds. Per-rect
- *  clipping (dst_origin/dst_size) is deferred; for z-order verification
- *  the fullscreen emission is sufficient (each layer occupies the full
- *  screen in its blend mode, slot order determines final visible).
+ *  Each layer emits a triangle over its destination viewport and samples
+ *  its source pixel rectangle. Clamp to that rectangle's texel centers so
+ *  linear filtering cannot bleed adjacent texels into an enlarged crop.
  *
  *  The three blend modes (Opaque / Premultiplied / Straight) share this
  *  shader pair; the pipeline object differs only in its color-attachment
@@ -206,6 +204,16 @@ struct SubmitFrameUniform {
     float  alpha;
     float  _pad[3];
 };
+
+static inline float2 submitframe_source_uv(float2 uv,
+                                           constant SubmitFrameUniform &u,
+                                           uint width, uint height)
+{
+    float2 pixel = u.src_origin + uv * u.src_size;
+    pixel = clamp(pixel, u.src_origin + 0.5,
+                         u.src_origin + max(u.src_size - 0.5, float2(0.5)));
+    return pixel / float2(width, height);
+}
 
 vertex SubmitFrameVOut submitframe_vertex(uint vid [[vertex_id]],
                                          constant SubmitFrameUniform &u [[buffer(0)]])
@@ -228,7 +236,8 @@ fragment float4 submitframe_fragment(SubmitFrameVOut in [[stage_in]],
                                     constant SubmitFrameUniform &u [[buffer(0)]])
 {
     constexpr sampler samp(filter::linear, address::clamp_to_edge);
-    float4 c = tex.sample(samp, in.uv);
+    float2 uv = submitframe_source_uv(in.uv, u, tex.get_width(), tex.get_height());
+    float4 c = tex.sample(samp, uv);
     /* Apply per-layer alpha for non-Opaque blend modes. kBlendOpaque
      * pipelines disable blending entirely so the alpha multiplier is
      * ignored even though we compute it. */
@@ -242,7 +251,8 @@ fragment float4 submitframe_fragment_display_premultiplied(SubmitFrameVOut in [[
                                     constant uchar *gamma_lut [[buffer(1)]])
 {
     constexpr sampler samp(filter::linear, address::clamp_to_edge);
-    float4 c = tex.sample(samp, in.uv);
+    float2 uv = submitframe_source_uv(in.uv, u, tex.get_width(), tex.get_height());
+    float4 c = tex.sample(samp, uv);
     if (c.a > 0.0) {
         float3 straight_rgb = c.rgb / c.a;
         c.rgb = apply_display_gamma_lut(straight_rgb, gamma_lut) * c.a;

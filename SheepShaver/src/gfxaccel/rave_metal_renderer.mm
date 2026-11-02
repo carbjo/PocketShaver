@@ -833,7 +833,9 @@ void RaveInitMetalResources(RaveDrawPrivate *priv)
 	// May be nil here at first init - NativeRenderStart re-fetches per frame.
 	ms->overlayTexture = s_rave_overlay_tex;
 
-	ms->commandQueue = [ms->device newCommandQueue];
+	// The compositor samples and later releases/reuses these same textures.
+	// One queue orders production, presentation, and the next write to a pair.
+	ms->commandQueue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
 
 	// Load pre-compiled shader library (.metallib)
 	id<MTLLibrary> lib = nil;

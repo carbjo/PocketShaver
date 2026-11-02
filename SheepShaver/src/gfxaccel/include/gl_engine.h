@@ -1486,28 +1486,15 @@ extern bool GLMetalCopyFramebufferToTexture(GLContext *ctx, GLTextureObject *tex
     bool redefine = false);
 extern uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int height, int *out_len);
 
-/*
- *  Per-engine overlay lifecycle + gfxaccel_resources fan-out
- *  hooks for GL (mirrors RAVE's overlay pattern).
- *
- *  gl_overlay_bind / gl_overlay_unbind / gl_overlay_present are called from
- *  gl_engine.cpp's NativeAGLSetDrawable / NativeAGLSwapBuffers. They own
- *  the kGfxEngineGL fleet slot's overlay texture lifetime and emit a
- *  kLayerSlotOverlay CompositeLayer via MetalCompositorSubmitFrame on
- *  present.
- *
- *  gl_has_active_overlay / gl_get_overlay_dims / gl_release_overlay_for_detach
- *  are the C-linkage probes consumed by gl_engine.cpp's GLOnAttach / GLOnDetach
- *  fan-out handlers (registered with gfxaccel_resources at GLInstallHooks).
- */
+/* Per-context visible overlays. Offscreen targets never enter the compositor
+ * mailbox. DMC fan-out preserves each drawable binding across resource detach. */
 #ifdef __cplusplus
 extern "C" {
 #endif
-void gl_overlay_bind(int32_t left, int32_t top, int32_t width, int32_t height);
-void gl_overlay_unbind(void);
-void gl_overlay_present(void);
-int  gl_has_active_overlay(void);
-int  gl_get_overlay_dims(uint32_t *outW, uint32_t *outH);
+void gl_overlay_bind(GLContext *ctx, int32_t left, int32_t top, int32_t width, int32_t height);
+void gl_overlay_unbind(GLContext *ctx);
+void gl_overlay_present(GLContext *ctx);
+int  gl_prepare_overlays_for_attach(void);
 void gl_release_overlay_for_detach(void);
 int  GLContextGetOffscreenDrawable(GLContext *ctx,
                                    uint32_t *outW,
