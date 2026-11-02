@@ -2285,9 +2285,11 @@ static uint64_t MakeDepthStencilKey(GLContext *ctx) {
     key |= ((uint64_t)(ctx->stencil.ref & 0xFF) << 19);
     key |= ((uint64_t)(ctx->stencil.value_mask & 0xFF) << 27);
     key |= ((uint64_t)(ctx->stencil.write_mask & 0xFF) << 35);
-    key |= ((uint64_t)(ctx->stencil.sfail & 0xF) << 43);
-    key |= ((uint64_t)(ctx->stencil.dpfail & 0xF) << 47);
-    key |= ((uint64_t)(ctx->stencil.dppass & 0xF) << 51);
+    // Raw GL tokens share low bits (GL_KEEP=0x1e00, GL_ZERO=0).
+    // Metal's compact operation values uniquely identify all eight operations.
+    key |= ((uint64_t)GLStencilOpToMetal(ctx->stencil.sfail) << 43);
+    key |= ((uint64_t)GLStencilOpToMetal(ctx->stencil.dpfail) << 47);
+    key |= ((uint64_t)GLStencilOpToMetal(ctx->stencil.dppass) << 51);
     // blend participates in the effective depth-write decision (opaque geometry
     // is forced to write depth -- see GLMetalCreateDepthStencilState), so it must
     // be part of the cache key or a write-on/write-off variant could be reused.
@@ -4210,12 +4212,13 @@ void GLMetalRelease(GLContext *ctx)
 static void GLMetalEndAndCommitForReadback(GLMetalState *ms);
 static bool GLMetalRestartRenderPassForReadback(GLContext *ctx);
 
-// Texture uploads still use CPU-visible shared storage. Drain earlier copies
-// only at that CPU access boundary; copy -> draw remains asynchronous.
-static void GLMetalSynchronizeTextureCopies(GLContext *ctx)
+// replaceRegion writes shared storage immediately. Submit and finish earlier
+// draws as well as copies before changing pixels they may still be reading.
+// GPU-only copy -> draw sequences remain asynchronous.
+static void GLMetalSynchronizeTextureAccess(GLContext *ctx)
 {
     GLMetalState *ms = ctx ? (GLMetalState *)ctx->metal : nullptr;
-    if (!ms || !ms->textureCopyPending) return;
+    if (!ms || (!ms->currentCommandBuffer && !ms->lastCommittedBuffer)) return;
     const bool resume = ms->renderPassActive;
     GLMetalEndAndCommitForReadback(ms);
     ms->textureCopyPending = false;
@@ -4228,10 +4231,9 @@ void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->device) return;
 
-    GLMetalSynchronizeTextureCopies(ctx);
-
     id<MTLTexture> existing = texObj->metal_texture ?
         (__bridge id<MTLTexture>)(texObj->metal_texture) : nil;
+    if (existing) GLMetalSynchronizeTextureAccess(ctx);
 
     // Need new texture if: no existing, or base level dimensions changed.
     // Compare against the actual Metal texture dimensions, not texObj fields,
@@ -4394,8 +4396,8 @@ void GLMetalUploadSubTexture(GLContext *ctx, GLTextureObject *texObj, int level,
                               int xoff, int yoff, int w, int h,
                               const uint8_t *data, int bytesPerRow)
 {
-    GLMetalSynchronizeTextureCopies(ctx);
     if (!texObj->metal_texture) return;
+    GLMetalSynchronizeTextureAccess(ctx);
 
     id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)(texObj->metal_texture);
     MTLRegion region = MTLRegionMake2D(xoff, yoff, w, h);
@@ -4438,23 +4440,35 @@ void GLMetalUpload3DTexture(GLContext *ctx, GLTextureObject *texObj, int level,
 
     id<MTLTexture> existing = texObj->metal_texture ?
         (__bridge id<MTLTexture>)(texObj->metal_texture) : nil;
+    if (existing) GLMetalSynchronizeTextureAccess(ctx);
 
+    // TexImage3D has already updated the guest metadata. Inspect the backing
+    // texture itself, just as the 2D upload path does.
     bool needNew = !existing ||
-                   (level == 0 && (texObj->width != width || texObj->height != height || texObj->depth != depth));
+                   (level == 0 && (existing.textureType != MTLTextureType3D ||
+                    (int)existing.width != width || (int)existing.height != height ||
+                    (int)existing.depth != depth));
 
-    if (needNew && level == 0) {
-        if (texObj->metal_texture) {
-            CFRelease(texObj->metal_texture);
-            texObj->metal_texture = nullptr;
-        }
-
+    const bool addMipStorage = existing && level > 0 &&
+        (NSUInteger)level >= existing.mipmapLevelCount;
+    if ((needNew && level == 0) || addMipStorage) {
+        const NSUInteger baseW = level == 0 ? width : existing.width;
+        const NSUInteger baseH = level == 0 ? height : existing.height;
+        const NSUInteger baseD = level == 0 ? depth : existing.depth;
         MTLTextureDescriptor *desc = [[MTLTextureDescriptor alloc] init];
         desc.textureType = MTLTextureType3D;
         desc.pixelFormat = MTLPixelFormatBGRA8Unorm;
-        desc.width = width;
-        desc.height = height;
-        desc.depth = depth;
-        desc.mipmapLevelCount = 1;
+        desc.width = baseW;
+        desc.height = baseH;
+        desc.depth = baseD;
+        NSUInteger mipCount = 1;
+        for (NSUInteger size = std::max(baseW, std::max(baseH, baseD)); size > 1; size >>= 1)
+            ++mipCount;
+        if (level < 0 || (NSUInteger)level >= mipCount) {
+            if (!ctx->last_error) ctx->last_error = 0x0501;
+            return;
+        }
+        desc.mipmapLevelCount = (texObj->has_mipmaps || level > 0) ? mipCount : 1;
         desc.usage = MTLTextureUsageShaderRead;
         desc.storageMode = MTLStorageModeShared;
 
@@ -4464,14 +4478,46 @@ void GLMetalUpload3DTexture(GLContext *ctx, GLTextureObject *texObj, int level,
             return;
         }
 
+        // Promoting a base-only texture must retain every previously uploaded
+        // level. Shared storage is CPU-safe after the synchronization above.
+        if (addMipStorage) {
+            for (NSUInteger mip = 0; mip < existing.mipmapLevelCount; ++mip) {
+                const NSUInteger mw = std::max(baseW >> mip, (NSUInteger)1);
+                const NSUInteger mh = std::max(baseH >> mip, (NSUInteger)1);
+                const NSUInteger md = std::max(baseD >> mip, (NSUInteger)1);
+                uint8_t *pixels = (uint8_t *)malloc(mw * mh * md * 4);
+                if (!pixels) {
+                    if (!ctx->last_error) ctx->last_error = 0x0505;
+                    return;
+                }
+                const MTLRegion region = MTLRegionMake3D(0, 0, 0, mw, mh, md);
+                [existing getBytes:pixels bytesPerRow:mw * 4 bytesPerImage:mw * mh * 4
+                        fromRegion:region mipmapLevel:mip slice:0];
+                [newTex replaceRegion:region mipmapLevel:mip slice:0 withBytes:pixels
+                          bytesPerRow:mw * 4 bytesPerImage:mw * mh * 4];
+                free(pixels);
+            }
+        }
+        if (texObj->metal_texture) CFRelease(texObj->metal_texture);
         texObj->metal_texture = (void *)CFBridgingRetain(newTex);
-        texObj->width = width;
-        texObj->height = height;
-        texObj->depth = depth;
         existing = newTex;
     }
 
     if (!existing) return;
+
+    if (level < 0 || (NSUInteger)level >= existing.mipmapLevelCount ||
+        width <= 0 || height <= 0 || depth <= 0 ||
+        (NSUInteger)width > std::max(existing.width >> level, (NSUInteger)1) ||
+        (NSUInteger)height > std::max(existing.height >> level, (NSUInteger)1) ||
+        (NSUInteger)depth > std::max(existing.depth >> level, (NSUInteger)1)) {
+        if (!ctx->last_error) ctx->last_error = 0x0501; // GL_INVALID_VALUE
+        return;
+    }
+    // Higher-level uploads must not replace base-level metadata with mip sizes.
+    texObj->width = (int)existing.width;
+    texObj->height = (int)existing.height;
+    texObj->depth = (int)existing.depth;
+    if (level > 0) texObj->has_mipmaps = true;
 
     // Upload all slices at once
     MTLRegion region = MTLRegionMake3D(0, 0, 0, width, height, depth);
@@ -4490,12 +4536,13 @@ void GLMetalUpload3DTexture(GLContext *ctx, GLTextureObject *texObj, int level,
 /*
  *  GLMetalUploadSubTexture3D -- partial update of an existing Metal 3D texture
  */
-void GLMetalUploadSubTexture3D(GLContext * /*ctx*/, GLTextureObject *texObj, int level,
+void GLMetalUploadSubTexture3D(GLContext *ctx, GLTextureObject *texObj, int level,
                                int xoff, int yoff, int zoff,
                                int w, int h, int d,
                                const uint8_t *data, int bytesPerRow, int bytesPerImage)
 {
     if (!texObj->metal_texture) return;
+    GLMetalSynchronizeTextureAccess(ctx);
 
     id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)(texObj->metal_texture);
     MTLRegion region = MTLRegionMake3D(xoff, yoff, zoff, w, h, d);
@@ -5145,146 +5192,113 @@ static void gl_accum_ensure_allocated(GLContext *ctx, int width, int height)
     }
 }
 
-// Read framebuffer into a temporary float array (BGRA8 -> float RGBA)
+// Accumulator rows use the same top-to-bottom order as Metal readback.
+static GLMetalScissorRect gl_accum_rect(GLContext *ctx, uint32_t width, uint32_t height)
+{
+    if (ctx->scissor_test)
+        return GLMetalMakeScissorRect(ctx->scissor_box[0], ctx->scissor_box[1],
+                                      ctx->scissor_box[2], ctx->scissor_box[3],
+                                      width, height);
+    return {0, 0, width, height, width != 0 && height != 0};
+}
+
+// ReadFramebufferRect submits pending rendering and waits for the GPU before
+// reading shared staging storage. It also preserves depth and stencil on resume.
 static float *gl_accum_read_framebuffer(GLContext *ctx, int *out_w, int *out_h)
 {
     GLMetalState *ms = (GLMetalState *)ctx->metal;
-    if (!ms || !ms->initialized) return nullptr;
-
-    // End current encoder to access framebuffer
-    if (ms->renderPassActive && ms->currentEncoder) {
-        [ms->currentEncoder endEncoding];
-        ms->currentEncoder = nil;
-    }
-
-    id<MTLTexture> srcTex = nil;
-    if (ms->overlayTexture) srcTex = ms->overlayTexture;
-    if (!srcTex) return nullptr;
-
-    int width = (int)[srcTex width];
-    int height = (int)[srcTex height];
-
-    // Create staging texture for readback
-    MTLTextureDescriptor *stagingDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                                                                          width:width
-                                                                                         height:height
-                                                                                      mipmapped:NO];
-    stagingDesc.usage = MTLTextureUsageShaderRead;
-    stagingDesc.storageMode = MTLStorageModeShared;
-    id<MTLTexture> staging = [ms->device newTextureWithDescriptor:stagingDesc];
-    if (!staging) return nullptr;
-
-    // Blit from drawable to staging
-    id<MTLCommandBuffer> blitBuf = [ms->commandQueue commandBuffer];
-    id<MTLBlitCommandEncoder> blit = [blitBuf blitCommandEncoder];
-    [blit copyFromTexture:srcTex sourceSlice:0 sourceLevel:0
-             sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(width, height, 1)
-                toTexture:staging destinationSlice:0 destinationLevel:0
-        destinationOrigin:MTLOriginMake(0, 0, 0)];
-    [blit endEncoding];
-    [blitBuf commit];
-    [blitBuf waitUntilCompleted];
-
-    // Read bytes and convert BGRA8 -> float RGBA
-    uint8_t *raw = (uint8_t *)malloc(width * height * 4);
+    if (!ms || !ms->initialized || !ms->overlayTexture) return nullptr;
+    const int width = (int)ms->overlayTexture.width;
+    const int height = (int)ms->overlayTexture.height;
+    int byteCount = 0;
+    uint8_t *raw = GLMetalReadFramebufferRect(ctx, 0, 0, width, height, &byteCount);
     if (!raw) return nullptr;
-    MTLRegion region = MTLRegionMake2D(0, 0, width, height);
-    [staging getBytes:raw bytesPerRow:width * 4 fromRegion:region mipmapLevel:0];
 
-    float *result = (float *)malloc(width * height * 4 * sizeof(float));
+    float *result = (float *)malloc((size_t)byteCount * sizeof(float));
     if (!result) { free(raw); return nullptr; }
-
     for (int i = 0; i < width * height; i++) {
-        result[i * 4 + 0] = raw[i * 4 + 2] / 255.0f; // R (from BGRA offset 2)
-        result[i * 4 + 1] = raw[i * 4 + 1] / 255.0f; // G
-        result[i * 4 + 2] = raw[i * 4 + 0] / 255.0f; // B (from BGRA offset 0)
-        result[i * 4 + 3] = raw[i * 4 + 3] / 255.0f; // A
+        result[i * 4 + 0] = raw[i * 4 + 2] / 255.0f;
+        result[i * 4 + 1] = raw[i * 4 + 1] / 255.0f;
+        result[i * 4 + 2] = raw[i * 4 + 0] / 255.0f;
+        result[i * 4 + 3] = raw[i * 4 + 3] / 255.0f;
     }
     free(raw);
-
     *out_w = width;
     *out_h = height;
     return result;
 }
 
-// Restart render encoder after framebuffer access (reused pattern from ReadPixels)
 static void gl_accum_restart_encoder(GLContext *ctx)
 {
     GLMetalState *ms = (GLMetalState *)ctx->metal;
-    if (!ms || !ms->renderPassActive || !ms->overlayTexture) return;
-
-    MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
-    rpd.colorAttachments[0].texture = ms->overlayTexture;
-    rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
-    rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
-    if (ms->depthBuffer) {
-        rpd.depthAttachment.texture = ms->depthBuffer;
-        rpd.depthAttachment.loadAction = MTLLoadActionLoad;
-        rpd.depthAttachment.storeAction = MTLStoreActionStore;
-        rpd.stencilAttachment.texture = ms->depthBuffer;
-        rpd.stencilAttachment.loadAction = MTLLoadActionLoad;
-        rpd.stencilAttachment.storeAction = MTLStoreActionStore;
-    }
-    if (!ms->currentCommandBuffer) {
-        ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
-    }
-	ms->currentEncoder = [ms->currentCommandBuffer renderCommandEncoderWithDescriptor:rpd];
-	ms->viewportScissorCacheValid = false;
+    if (ms && ms->initialized && ms->overlayTexture && !ms->currentEncoder)
+        GLMetalRestartRenderPassForReadback(ctx);
 }
 
-// Write accum buffer contents back to framebuffer (float RGBA -> BGRA8)
+// GL_RETURN bypasses blending, depth and stencil, but honors the scissor and
+// color write masks. Read/merge masked channels in shared staging storage and
+// blit the result into the private overlay, preserving the other attachments.
 static void gl_accum_write_framebuffer(GLContext *ctx, float scale)
 {
     GLMetalState *ms = (GLMetalState *)ctx->metal;
-    if (!ms || !ms->initialized || !ctx->accum_allocated) return;
+    if (!ms || !ms->initialized || !ctx->accum_allocated || !ms->overlayTexture) return;
+    if (!ctx->color_mask[0] && !ctx->color_mask[1] &&
+        !ctx->color_mask[2] && !ctx->color_mask[3]) return;
 
-    // End current encoder
-    if (ms->renderPassActive && ms->currentEncoder) {
+    const uint32_t dstW = (uint32_t)ms->overlayTexture.width;
+    const uint32_t dstH = (uint32_t)ms->overlayTexture.height;
+    GLMetalScissorRect rect = gl_accum_rect(ctx, dstW, dstH);
+    if (!rect.valid) return;
+    const uint32_t width = std::min(dstW, (uint32_t)ctx->accum_width);
+    const uint32_t height = std::min(dstH, (uint32_t)ctx->accum_height);
+    if (rect.x >= width || rect.y >= height) return;
+    rect.width = std::min(rect.width, width - rect.x);
+    rect.height = std::min(rect.height, height - rect.y);
+
+    int byteCount = 0;
+    uint8_t *pixels = GLMetalReadFramebufferRect(ctx, 0, 0, dstW, dstH, &byteCount);
+    if (!pixels) return;
+    for (uint32_t y = rect.y; y < rect.y + rect.height; ++y) {
+        for (uint32_t x = rect.x; x < rect.x + rect.width; ++x) {
+            const size_t source = ((size_t)y * ctx->accum_width + x) * 4;
+            const size_t dest = ((size_t)y * dstW + x) * 4;
+            for (unsigned channel = 0; channel < 4; ++channel) {
+                if (!ctx->color_mask[channel]) continue;
+                const float value = std::max(0.0f, std::min(1.0f,
+                    ctx->accum_buffer[source + channel] * scale));
+                const unsigned bgraChannel = channel == 0 ? 2 : channel == 2 ? 0 : channel;
+                pixels[dest + bgraChannel] = (uint8_t)(value * 255.0f + 0.5f);
+            }
+        }
+    }
+
+    auto desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                 width:dstW height:dstH mipmapped:NO];
+    desc.storageMode = MTLStorageModeShared;
+    id<MTLTexture> staging = [ms->device newTextureWithDescriptor:desc];
+    if (!staging) {
+        free(pixels);
+        if (!ctx->last_error) ctx->last_error = 0x0505;
+        return;
+    }
+    [staging replaceRegion:MTLRegionMake2D(0, 0, dstW, dstH) mipmapLevel:0
+                withBytes:pixels bytesPerRow:dstW * 4];
+    free(pixels);
+
+    if (ms->currentEncoder) {
         [ms->currentEncoder endEncoding];
         ms->currentEncoder = nil;
     }
-
-    id<MTLTexture> dstTex = nil;
-    if (ms->overlayTexture) dstTex = ms->overlayTexture;
-    if (!dstTex) return;
-
-    int width = ctx->accum_width;
-    int height = ctx->accum_height;
-    int dstW = (int)[dstTex width];
-    int dstH = (int)[dstTex height];
-    int w = (width < dstW) ? width : dstW;
-    int h = (height < dstH) ? height : dstH;
-
-    // Convert float RGBA -> BGRA8
-    uint8_t *pixels = (uint8_t *)malloc(w * h * 4);
-    if (!pixels) return;
-
-    for (int i = 0; i < w * h; i++) {
-        float r = ctx->accum_buffer[i * 4 + 0] * scale;
-        float g = ctx->accum_buffer[i * 4 + 1] * scale;
-        float b = ctx->accum_buffer[i * 4 + 2] * scale;
-        float a = ctx->accum_buffer[i * 4 + 3] * scale;
-        // Clamp to [0, 1]
-        r = r < 0.0f ? 0.0f : (r > 1.0f ? 1.0f : r);
-        g = g < 0.0f ? 0.0f : (g > 1.0f ? 1.0f : g);
-        b = b < 0.0f ? 0.0f : (b > 1.0f ? 1.0f : b);
-        a = a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
-        pixels[i * 4 + 0] = (uint8_t)(b * 255.0f + 0.5f); // B
-        pixels[i * 4 + 1] = (uint8_t)(g * 255.0f + 0.5f); // G
-        pixels[i * 4 + 2] = (uint8_t)(r * 255.0f + 0.5f); // R
-        pixels[i * 4 + 3] = (uint8_t)(a * 255.0f + 0.5f); // A
-    }
-
-    // Write to drawable texture via replaceRegion
-    MTLRegion region = MTLRegionMake2D(0, 0, w, h);
-    [dstTex replaceRegion:region mipmapLevel:0 withBytes:pixels bytesPerRow:w * 4];
-
-    free(pixels);
-
-    // Restart encoder
+    if (!ms->currentCommandBuffer)
+        ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [ms->currentCommandBuffer blitCommandEncoder];
+    [blit copyFromTexture:staging sourceSlice:0 sourceLevel:0
+            sourceOrigin:MTLOriginMake(rect.x, rect.y, 0)
+              sourceSize:MTLSizeMake(rect.width, rect.height, 1)
+               toTexture:ms->overlayTexture destinationSlice:0 destinationLevel:0
+       destinationOrigin:MTLOriginMake(rect.x, rect.y, 0)];
+    [blit endEncoding];
     gl_accum_restart_encoder(ctx);
-
-    GL_METAL_VLOG("Accum RETURN: scale=%.3f, %dx%d written to framebuffer", scale, w, h);
 }
 
 void NativeGLAccum(GLContext *ctx, uint32_t op, float value)
@@ -5292,60 +5306,48 @@ void NativeGLAccum(GLContext *ctx, uint32_t op, float value)
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized) return;
 
-    int fb_w = 0, fb_h = 0;
-
     switch (op) {
-    case GL_ACCUM_OP: {
-        // Read framebuffer, multiply by value, add to accum buffer
-        float *fb = gl_accum_read_framebuffer(ctx, &fb_w, &fb_h);
-        if (!fb) { gl_accum_restart_encoder(ctx); return; }
-        gl_accum_ensure_allocated(ctx, fb_w, fb_h);
-        if (!ctx->accum_allocated) { free(fb); gl_accum_restart_encoder(ctx); return; }
-        int n = fb_w * fb_h * 4;
-        for (int i = 0; i < n; i++)
-            ctx->accum_buffer[i] += fb[i] * value;
-        free(fb);
-        gl_accum_restart_encoder(ctx);
-        GL_METAL_VLOG("Accum ACCUM: value=%.3f, %dx%d", value, fb_w, fb_h);
-        break;
-    }
+    case GL_ACCUM_OP:
     case GL_LOAD_OP: {
-        // Read framebuffer, multiply by value, store into accum buffer
-        float *fb = gl_accum_read_framebuffer(ctx, &fb_w, &fb_h);
+        int width = 0, height = 0;
+        float *fb = gl_accum_read_framebuffer(ctx, &width, &height);
         if (!fb) { gl_accum_restart_encoder(ctx); return; }
-        gl_accum_ensure_allocated(ctx, fb_w, fb_h);
-        if (!ctx->accum_allocated) { free(fb); gl_accum_restart_encoder(ctx); return; }
-        int n = fb_w * fb_h * 4;
-        for (int i = 0; i < n; i++)
-            ctx->accum_buffer[i] = fb[i] * value;
+        gl_accum_ensure_allocated(ctx, width, height);
+        if (ctx->accum_allocated) {
+            const GLMetalScissorRect rect = gl_accum_rect(ctx, width, height);
+            for (uint32_t y = rect.y; y < rect.y + rect.height; ++y) {
+                for (uint32_t x = rect.x; x < rect.x + rect.width; ++x) {
+                    const size_t pixel = ((size_t)y * width + x) * 4;
+                    for (unsigned c = 0; c < 4; ++c) {
+                        const float scaled = fb[pixel + c] * value;
+                        if (op == GL_LOAD_OP) ctx->accum_buffer[pixel + c] = scaled;
+                        else ctx->accum_buffer[pixel + c] += scaled;
+                    }
+                }
+            }
+        }
         free(fb);
         gl_accum_restart_encoder(ctx);
-        GL_METAL_VLOG("Accum LOAD: value=%.3f, %dx%d", value, fb_w, fb_h);
         break;
     }
-    case GL_MULT_OP: {
-        // Multiply each accum channel by value (no readback needed)
-        if (!ctx->accum_allocated) return;
-        int n = ctx->accum_width * ctx->accum_height * 4;
-        for (int i = 0; i < n; i++)
-            ctx->accum_buffer[i] *= value;
-        GL_METAL_VLOG("Accum MULT: value=%.3f", value);
-        break;
-    }
+    case GL_MULT_OP:
     case GL_ADD_OP: {
-        // Add value to each accum channel (no readback needed)
         if (!ctx->accum_allocated) return;
-        int n = ctx->accum_width * ctx->accum_height * 4;
-        for (int i = 0; i < n; i++)
-            ctx->accum_buffer[i] += value;
-        GL_METAL_VLOG("Accum ADD: value=%.3f", value);
+        const GLMetalScissorRect rect = gl_accum_rect(ctx, ctx->accum_width, ctx->accum_height);
+        for (uint32_t y = rect.y; y < rect.y + rect.height; ++y) {
+            for (uint32_t x = rect.x; x < rect.x + rect.width; ++x) {
+                const size_t pixel = ((size_t)y * ctx->accum_width + x) * 4;
+                for (unsigned c = 0; c < 4; ++c) {
+                    if (op == GL_MULT_OP) ctx->accum_buffer[pixel + c] *= value;
+                    else ctx->accum_buffer[pixel + c] += value;
+                }
+            }
+        }
         break;
     }
-    case GL_RETURN_OP: {
-        // Multiply accum buffer by value, write to framebuffer
+    case GL_RETURN_OP:
         gl_accum_write_framebuffer(ctx, value);
         break;
-    }
     default:
         GL_METAL_LOG("WARNING: glAccum unknown op 0x%04x", op);
         break;
