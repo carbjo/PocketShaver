@@ -77,7 +77,8 @@ extern void NQDMetalFillMask(uint32 p);
 extern bool NQDMetalAddrInBuffer(uint32 mac_addr);
 
 // Hook-side probe: true when the bitblt accl_params at p describe src/dest
-// rects that overlap on the same surface. NQD_bitblt_hook uses this to
+// rects that overlap in backing memory, including distinct PixMap aliases.
+// Negative strides are interpreted as backward-traversal hints. NQD_bitblt_hook uses this to
 // decline overlap families the flat GPU dispatch cannot order (packed-depth
 // Boolean, arithmetic/hilite) to software QuickDraw; standard-depth Boolean
 // overlaps stay accepted (NQDMetalBitblt diverts them to an ordered CPU

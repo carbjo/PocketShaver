@@ -699,16 +699,46 @@ static inline bool nqd_same_surface_rects_overlap(uint32_t src_base,
                                                   int width,
                                                   int height)
 {
-    if (src_base != dest_base) return false;
-    if (src_row_bytes != dest_row_bytes) return false;
-    if (src_row_bytes <= 0) return false;
+    if (width <= 0 || height <= 0) return false;
+    // Negative rowBytes selects backward traversal, not a different surface.
+    // Widen before negation so even malformed INT_MIN cannot overflow.
+    const int64_t src_stride = src_row_bytes < 0 ? -(int64_t)src_row_bytes : src_row_bytes;
+    const int64_t dest_stride = dest_row_bytes < 0 ? -(int64_t)dest_row_bytes : dest_row_bytes;
+    if (src_stride == 0 || dest_stride == 0) return false;
     if (src_pixel_size != dest_pixel_size) return false;
-    if (src_X == dest_X && src_Y == dest_Y) return false;
+    if (src_base == dest_base && src_stride == dest_stride) {
+        if (src_X == dest_X && src_Y == dest_Y) return false;
+        return (int64_t)dest_X < (int64_t)src_X + width &&
+               (int64_t)src_X < (int64_t)dest_X + width &&
+               (int64_t)dest_Y < (int64_t)src_Y + height &&
+               (int64_t)src_Y < (int64_t)dest_Y + height;
+    }
 
-    return dest_X < src_X + width &&
-           src_X < dest_X + width &&
-           dest_Y < src_Y + height &&
-           src_Y < dest_Y + height;
+    // Different PixMap base addresses/strides can alias the same RAM. Merge
+    // their ordered scanline byte intervals, rather than treating distinct
+    // descriptors as distinct storage. Exactly in-place operations are safe.
+    const int64_t row_width = nqd_packed_width_bytes(width, src_pixel_size);
+    int64_t src_start = (int64_t)src_base + (int64_t)src_Y * src_stride +
+                        nqd_packed_byte_offset(src_X, src_pixel_size);
+    int64_t dest_start = (int64_t)dest_base + (int64_t)dest_Y * dest_stride +
+                         nqd_packed_byte_offset(dest_X, dest_pixel_size);
+    if (src_start == dest_start && src_stride == dest_stride) return false;
+    if (src_start + (height - 1) * src_stride + row_width <= dest_start ||
+        dest_start + (height - 1) * dest_stride + row_width <= src_start)
+        return false;
+    int src_row = 0, dest_row = 0;
+    while (src_row < height && dest_row < height) {
+        if (src_start < dest_start + row_width && dest_start < src_start + row_width)
+            return true;
+        if (src_start + row_width <= dest_start) {
+            src_start += src_stride;
+            ++src_row;
+        } else {
+            dest_start += dest_stride;
+            ++dest_row;
+        }
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------------------

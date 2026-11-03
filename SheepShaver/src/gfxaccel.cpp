@@ -506,6 +506,17 @@ bool NQD_bitblt_hook(uint32 p)
 		ReadMacInt32(p + 0x130) != 0 || (int32)ReadMacInt32(p + 0x15c) <= 0)
 		return NQD_decline_with_flush(p);
 
+	// A negative stride is QuickDraw's backward-traversal hint. Our backward
+	// CPU path implements srcCopy only; other transfer modes must run in
+	// software QuickDraw instead of silently becoming a copy. INT_MIN cannot
+	// be negated by that path even for srcCopy.
+	const int32 src_row_bytes = (int32)ReadMacInt32(p + acclSrcRowBytes);
+	const int32 dest_row_bytes = (int32)ReadMacInt32(p + acclDestRowBytes);
+	if (src_row_bytes == INT32_MIN || dest_row_bytes == INT32_MIN ||
+		((src_row_bytes < 0 || dest_row_bytes < 0) &&
+		 ReadMacInt32(p + acclTransferMode) != 0))
+		return NQD_decline_with_flush(p);
+
 	// Metal path: accept all valid transfer modes when src and dest are in Metal-mapped RAM
 	if (nqd_metal_available &&
 		NQDMetalAddrInBuffer(ReadMacInt32(p + acclSrcBaseAddr)) &&
@@ -587,6 +598,14 @@ bool NQD_bltmask_hook(uint32 arg)
 	// Check src and dest are in Metal-mapped RAM
 	if (!NQDMetalAddrInBuffer(ReadMacInt32(arg + acclSrcBaseAddr)) ||
 		!NQDMetalAddrInBuffer(ReadMacInt32(arg + acclDestBaseAddr)))
+		return NQD_decline_with_flush(arg);
+
+	// Masked GPU threads read and write the same RAM buffer without an
+	// ordering guarantee. QuickDraw handles backward traversal and overlapping
+	// rectangles; flushing before declining makes prior GPU writes visible.
+	if ((int32)ReadMacInt32(arg + acclSrcRowBytes) <= 0 ||
+		(int32)ReadMacInt32(arg + acclDestRowBytes) <= 0 ||
+		NQDMetalBitbltSameSurfaceOverlap(arg))
 		return NQD_decline_with_flush(arg);
 
 	// Validate mask data: check that mask region address is non-zero
