@@ -20,6 +20,7 @@
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "rave_engine.h"
+#include "rave_guest_buffer.h"
 #include "rave_metal_renderer.h"
 
 #include <cstring>
@@ -53,7 +54,7 @@ uint32_t rave_current_draw_context_addr = 0;
 
 RaveDrawPrivate *RaveGetContext(uint32 handle)
 {
-	if (handle == 0 || handle > RAVE_MAX_CONTEXTS)
+	if (RaveGuestMemoryCallActive() || handle == 0 || handle > RAVE_MAX_CONTEXTS)
 		return nullptr;
 	return context_table[handle - 1];
 }
@@ -229,6 +230,7 @@ static const int struct_field_to_subopcode[35] = {
 int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
                            uint32 rectAddr, uint32 clipAddr, uint32 flags)
 {
+	if (RaveGuestMemoryCallActive()) return kQAError;
 	if (rave_logging_enabled) {
 		printf("RAVE DrawPrivateNew ENTER: ctx=0x%08x dev=0x%08x rect=0x%08x clip=0x%08x flags=0x%x\n",
 		       drawContextAddr, deviceAddr, rectAddr, clipAddr, flags);
@@ -377,6 +379,9 @@ int32 NativeDrawPrivateDelete(uint32 drawPrivateHandle)
 		return kQANoErr;
 	}
 
+	// Hide the dying context before guest DisposePtr can invoke callbacks.
+	FreeContextHandle(drawPrivateHandle);
+
 	// Free vertex staging buffer
 	delete[] ctx->vertexStagingBuffer;
 	ctx->vertexStagingBuffer = nullptr;
@@ -403,7 +408,6 @@ int32 NativeDrawPrivateDelete(uint32 drawPrivateHandle)
 	// Release Metal resources before freeing context
 	RaveReleaseMetalResources(ctx);
 
-	FreeContextHandle(drawPrivateHandle);
 	delete ctx;
 	rave_context_count--;
 

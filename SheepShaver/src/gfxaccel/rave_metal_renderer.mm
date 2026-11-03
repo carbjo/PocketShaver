@@ -38,11 +38,26 @@
 #include "rave_texture_alpha_policy.h"
 #include "rave_depth_policy.h"
 #include "rave_vertex_color_policy.h"
+#include "rave_guest_buffer.h"
 #include "gfxaccel_resources.h"
 #include "gfxaccel_resources_heap.h"
 
 // Forward declare Mac_sysalloc (from macos_util.h) to avoid UIKit header conflicts
 extern uint32 Mac_sysalloc(uint32 size);
+extern void Mac_sysfree(uint32 addr);
+
+static uint32_t RaveAllocateGuestBuffer(uint32_t size)
+{
+	RaveGuestMemoryScope guard;
+	return Mac_sysalloc(size);
+}
+
+static bool RaveEnsureGuestBuffer(uint32_t &address, uint8_t *&host, uint32_t &size, uint32_t required)
+{
+	return RaveReplaceGuestBuffer(address, host, size, required,
+		RaveAllocateGuestBuffer, [](uint32_t addr) { return Mac2HostAddr(addr); }, Mac_sysfree);
+}
+
 
 // RAVE error codes
 #define kQANoErr           0
@@ -1006,6 +1021,7 @@ void RaveReleaseMetalResources(RaveDrawPrivate *priv)
 {
 	RaveMetalState *ms = priv->metal;
 	if (!ms) return;
+	priv->metal = nullptr; // Re-entrant teardown cannot see this resource owner.
 	// Direct native deletes preserve the displayed frame, but must not leave
 	// a dangling producer pointer that could match a recycled context address.
 	if (s_rave_overlay_submitter == priv) {
@@ -1073,8 +1089,14 @@ void RaveReleaseMetalResources(RaveDrawPrivate *priv)
 	ms->stagingDrawBuffer = nil;
 	ms->stagingZBuffer = nil;
 	ms->depthAlwaysWriteState = nil;
-	// Note: drawBufferCPU/zBufferCPU/notice structs are Mac_sysalloc'd -- no explicit free needed
-	// (Mac heap is reclaimed on emulator shutdown)
+	// Detach each owned address before DisposePtr can re-enter guest code.
+	RaveReleaseGuestBuffer(ms->drawBufferCPUMac, ms->drawBufferCPU, ms->drawBufferCPUSize, Mac_sysfree);
+	RaveReleaseGuestBuffer(ms->zBufferCPUMac, ms->zBufferCPU, ms->zBufferCPUSize, Mac_sysfree);
+	RaveReleaseGuestBuffer(ms->atiBackBufferMac, ms->atiBackBufferHost, ms->atiBackBufferSize, Mac_sysfree);
+	uint8_t *unusedHost = nullptr;
+	uint32_t unusedSize = 0;
+	RaveReleaseGuestBuffer(ms->noticeDeviceMac, unusedHost, unusedSize, Mac_sysfree);
+	RaveReleaseGuestBuffer(ms->noticeDirtyRectMac, unusedHost, unusedSize, Mac_sysfree);
 
 	ms->maskedPipelines.clear();
 	ms->glBlendPipelines.clear();
@@ -3071,11 +3093,8 @@ static bool EnsureDrawBufferCPU(RaveDrawPrivate *priv)
 	uint32_t rowBytes = (uint32_t)(w * 4);
 	uint32_t bufSize = rowBytes * (uint32_t)h;
 	if (!ms->drawBufferCPU || ms->drawBufferCPUSize != bufSize) {
-		uint32_t macAddr = Mac_sysalloc(bufSize);
-		if (macAddr == 0) return false;
-		ms->drawBufferCPU = Mac2HostAddr(macAddr);
-		ms->drawBufferCPUMac = macAddr;
-		ms->drawBufferCPUSize = bufSize;
+		if (!RaveEnsureGuestBuffer(ms->drawBufferCPUMac, ms->drawBufferCPU,
+		                          ms->drawBufferCPUSize, bufSize)) return false;
 	}
 
 	return ms->stagingDrawBuffer != nil && ms->drawBufferCPU != nullptr;
@@ -3219,10 +3238,10 @@ static void FireBufferNoticeMethod(RaveDrawPrivate *priv, int selector,
 	}
 
 	if (ms->noticeDeviceMac == 0) {
-		ms->noticeDeviceMac = Mac_sysalloc(24);
+		ms->noticeDeviceMac = RaveAllocateGuestBuffer(24);
 	}
 	if (ms->noticeDirtyRectMac == 0) {
-		ms->noticeDirtyRectMac = Mac_sysalloc(16);
+		ms->noticeDirtyRectMac = RaveAllocateGuestBuffer(16);
 	}
 	if (ms->noticeDeviceMac == 0 || ms->noticeDirtyRectMac == 0) {
 		if (restartRenderPass) RestartRenderPassWithLoad(priv);
@@ -3763,7 +3782,7 @@ int32 NativeTextureNewFromDrawContext(uint32 drawContextAddr, uint32 flags, uint
 
 	// Allocate CPU pixel buffer for AccessTexture support
 	uint32_t cpuBufSize = w * h * 4;
-	uint32_t cpuMacAddr = Mac_sysalloc(cpuBufSize);
+	uint32_t cpuMacAddr = RaveAllocateGuestBuffer(cpuBufSize);
 	if (cpuMacAddr != 0) {
 		entry->cpu_pixel_mac_addr = cpuMacAddr;
 		entry->cpu_pixel_data = Mac2HostAddr(cpuMacAddr);
@@ -3832,7 +3851,7 @@ int32 NativeBitmapNewFromDrawContext(uint32 drawContextAddr, uint32 flags, uint3
 
 	// Allocate CPU pixel buffer for AccessBitmap support
 	uint32_t cpuBufSize = w * h * 4;
-	uint32_t cpuMacAddr = Mac_sysalloc(cpuBufSize);
+	uint32_t cpuMacAddr = RaveAllocateGuestBuffer(cpuBufSize);
 	if (cpuMacAddr != 0) {
 		entry->cpu_pixel_mac_addr = cpuMacAddr;
 		entry->cpu_pixel_data = Mac2HostAddr(cpuMacAddr);
@@ -4170,11 +4189,8 @@ int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 	uint32_t rowBytes = (uint32_t)(w * 4);
 	uint32_t bufSize = rowBytes * (uint32_t)h;
 	if (!ms->zBufferCPU || ms->zBufferCPUSize != bufSize) {
-		uint32_t macAddr = Mac_sysalloc(bufSize);
-		if (macAddr == 0) return kQAError;
-		ms->zBufferCPU = Mac2HostAddr(macAddr);
-		ms->zBufferCPUMac = macAddr;
-		ms->zBufferCPUSize = bufSize;
+		if (!RaveEnsureGuestBuffer(ms->zBufferCPUMac, ms->zBufferCPU,
+		                          ms->zBufferCPUSize, bufSize)) return kQAError;
 	}
 	id<MTLCommandBuffer> blitCmdBuf = [ms->commandQueue commandBuffer];
 	if (ms->msaaActive && ms->msaaDepthTexture) {
@@ -4816,11 +4832,8 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 	// was the residual in-game-menu flicker.
 	const uint32_t backSize = mode.viRowBytes * mode.viYsize;
 	if (ms->atiBackBufferMac == 0 || ms->atiBackBufferSize != backSize) {
-		uint32_t macAddr = Mac_sysalloc(backSize);
-		if (macAddr == 0) return kQAError;
-		ms->atiBackBufferMac = macAddr;
-		ms->atiBackBufferHost = Mac2HostAddr(macAddr);
-		ms->atiBackBufferSize = backSize;
+		if (!RaveEnsureGuestBuffer(ms->atiBackBufferMac, ms->atiBackBufferHost,
+		                          ms->atiBackBufferSize, backSize)) return kQAError;
 		ms->atiBackBufferDirty = false;
 	}
 
