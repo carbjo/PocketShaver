@@ -33,6 +33,7 @@
 #include "gl_texture_format_policy.h"
 #include "gl_color_index_policy.h"
 #include "gl_engine.h"
+#include "gl_state_query.h"
 #include "gl_metal_draw_state.h"
 #include "gl_offscreen_policy.h"
 #include "gl_pixel_unpack_policy.h"
@@ -961,40 +962,12 @@ void NativeGLDisable(GLContext *ctx, uint32_t cap)
 
 uint32_t NativeGLIsEnabled(GLContext *ctx, uint32_t cap)
 {
-	bool result = false;
-	switch (cap) {
-	case GL_DEPTH_TEST:           result = ctx->depth_test; break;
-	case GL_BLEND:                result = ctx->blend; break;
-	case GL_LIGHTING:             result = ctx->lighting_enabled; break;
-	case GL_FOG:                  result = ctx->fog_enabled; break;
-	case GL_SCISSOR_TEST:         result = ctx->scissor_test; break;
-	case GL_CULL_FACE:            result = ctx->cull_face_enabled; break;
-	case GL_ALPHA_TEST:           result = ctx->alpha_test; break;
-	case GL_COLOR_SUM:            result = ctx->color_sum; break;
-	case GL_NORMALIZE:            result = ctx->normalize; break;
-	case GL_COLOR_MATERIAL:       result = ctx->color_material_enabled; break;
-	case GL_STENCIL_TEST:         result = ctx->stencil_test; break;
-	case GL_TEXTURE_2D:           result = ctx->tex_units[ctx->active_texture].enabled_2d; break;
-	default:
-        if (cap >= GL_TEXTURE_GEN_S && cap <= GL_TEXTURE_GEN_Q) {
-            const auto &unit = ctx->tex_units[ctx->active_texture];
-            const bool enabled[] = {unit.texgen_s_enabled, unit.texgen_t_enabled,
-                                     unit.texgen_r_enabled, unit.texgen_q_enabled};
-            result = enabled[cap-GL_TEXTURE_GEN_S];
-        }
-        else if (cap >= GL_LIGHT0 && cap < GL_LIGHT0 + 8)
-            result = ctx->lights[cap - GL_LIGHT0].enabled;
-		else if (cap >= GL_MAP1_COLOR_4 && cap <= GL_MAP1_VERTEX_4) {
-			int idx = gl_eval_target_index(cap);
-			if (idx >= 0) result = ctx->eval_map1_enabled[idx];
-		}
-		else if (cap >= GL_MAP2_COLOR_4 && cap <= GL_MAP2_VERTEX_4) {
-			int idx = gl_eval_target_index(cap);
-			if (idx >= 0) result = ctx->eval_map2_enabled[idx];
-		}
-		break;
-	}
-	return result ? GL_TRUE : GL_FALSE;
+    bool enabled;
+    if (ctx->in_begin || !GLQueryCapability(*ctx, cap, enabled)) {
+        if (!ctx->last_error) ctx->last_error = ctx->in_begin ? GL_INVALID_OPERATION : GL_INVALID_ENUM;
+        return GL_FALSE;
+    }
+    return enabled ? GL_TRUE : GL_FALSE;
 }
 
 
@@ -1620,174 +1593,26 @@ void NativeGLPixelStoref(GLContext *ctx, uint32_t pname, float param)
 
 void NativeGLGetIntegerv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
-    if (pname==0x0d00) {WriteMacInt32(mac_ptr,ctx->pixel_store.pack_swap_bytes);return;}
-    if (pname==0x0d01) {WriteMacInt32(mac_ptr,ctx->pixel_store.pack_lsb_first);return;}
-	switch (pname) {
-	case GL_MAX_TEXTURE_SIZE:
-		WriteMacInt32(mac_ptr, 1024); break;
-	case GL_MAX_LIGHTS:
-		WriteMacInt32(mac_ptr, 8); break;
-	case GL_MAX_MODELVIEW_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, 32); break;
-	case GL_MAX_PROJECTION_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, 32); break;   // match gl_get_max_stack_depth()
-	case GL_MAX_TEXTURE_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, 32); break;
-	case GL_MAX_CLIP_PLANES:
-		WriteMacInt32(mac_ptr, 6); break;
-	case GL_MAX_ATTRIB_STACK_DEPTH_QUERY:
-		WriteMacInt32(mac_ptr, GL_MAX_ATTRIB_STACK_DEPTH); break;
-	case GL_MAX_NAME_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, 64); break;
-	case GL_MAX_TEXTURE_UNITS_ARB:
-		WriteMacInt32(mac_ptr, GL_RENDER_TEXTURE_UNITS); break;
-	case GL_VIEWPORT:
-		for (int i = 0; i < 4; i++)
-			WriteMacInt32(mac_ptr + i * 4, (uint32_t)ctx->viewport[i]);
-		break;
-	case GL_SCISSOR_BOX:
-		for (int i = 0; i < 4; i++)
-			WriteMacInt32(mac_ptr + i * 4, (uint32_t)ctx->scissor_box[i]);
-		break;
-	case GL_MODELVIEW_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, ctx->modelview_depth + 1); break;
-	case GL_PROJECTION_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, ctx->projection_depth + 1); break;
-	case GL_TEXTURE_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, ctx->texture_depth[ctx->active_texture] + 1); break;
-	case GL_DEPTH_FUNC_QUERY:
-		WriteMacInt32(mac_ptr, ctx->depth_func); break;
-	case GL_DEPTH_WRITEMASK:
-		WriteMacInt32(mac_ptr, ctx->depth_mask ? GL_TRUE : GL_FALSE); break;
-	case GL_SHADE_MODEL_QUERY:
-		WriteMacInt32(mac_ptr, ctx->shade_model); break;
-	case GL_BLEND_SRC:
-		WriteMacInt32(mac_ptr, ctx->blend_src); break;
-	case GL_BLEND_DST:
-		WriteMacInt32(mac_ptr, ctx->blend_dst); break;
-	case GL_STENCIL_FUNC_QUERY:
-		WriteMacInt32(mac_ptr, ctx->stencil.func); break;
-	case GL_STENCIL_VALUE_MASK:
-		WriteMacInt32(mac_ptr, ctx->stencil.value_mask); break;
-	case GL_STENCIL_REF:
-		WriteMacInt32(mac_ptr, (uint32_t)ctx->stencil.ref); break;
-	case GL_STENCIL_FAIL:
-		WriteMacInt32(mac_ptr, ctx->stencil.sfail); break;
-	case GL_STENCIL_PASS_DEPTH_FAIL:
-		WriteMacInt32(mac_ptr, ctx->stencil.dpfail); break;
-	case GL_STENCIL_PASS_DEPTH_PASS:
-		WriteMacInt32(mac_ptr, ctx->stencil.dppass); break;
-	case GL_STENCIL_WRITEMASK:
-		WriteMacInt32(mac_ptr, ctx->stencil.write_mask); break;
-	case GL_STENCIL_CLEAR_VALUE:
-		WriteMacInt32(mac_ptr, (uint32_t)ctx->clear_stencil); break;
-	case GL_ALPHA_TEST_FUNC:
-		WriteMacInt32(mac_ptr, ctx->alpha_func); break;
-	case GL_CULL_FACE_MODE_QUERY:
-		WriteMacInt32(mac_ptr, ctx->cull_face_mode); break;
-	case GL_FRONT_FACE_QUERY:
-		WriteMacInt32(mac_ptr, ctx->front_face); break;
-	case GL_LOGIC_OP_MODE:
-		WriteMacInt32(mac_ptr, ctx->logic_op_mode); break;
-	case GL_ACTIVE_TEXTURE_ARB:
-		WriteMacInt32(mac_ptr, GL_TEXTURE0_ARB + ctx->active_texture); break;
-	case GL_TEXTURE_BINDING_2D:
-		WriteMacInt32(mac_ptr, ctx->tex_units[ctx->active_texture].bound_texture_2d); break;
-	case GL_RENDER:
-		WriteMacInt32(mac_ptr, ctx->render_mode); break;
-	default:
-		// Return 0 for unknown queries (better than crashing)
-		WriteMacInt32(mac_ptr, 0);
-		break;
-	}
+    GLStateQuery query;
+    if (!GLGetStateQuery(ctx, pname, query)) return;
+    for (unsigned i = 0; i < query.count; ++i)
+        WriteMacInt32(mac_ptr + i * 4, uint32_t(query.integer(i)));
 }
 
 void NativeGLGetFloatv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
-	switch (pname) {
-	case GL_VIEWPORT:
-	case GL_SCISSOR_BOX: {
-		const int32_t *rect = pname == GL_VIEWPORT ? ctx->viewport : ctx->scissor_box;
-		for (int i = 0; i < 4; i++) WriteMacFloat(mac_ptr + i * 4, (float)rect[i]);
-		break;
-	}
-	case GL_MODELVIEW_MATRIX: {
-		float *m = ctx->modelview_stack[ctx->modelview_depth];
-		for (int i = 0; i < 16; i++) WriteMacFloat(mac_ptr + i * 4, m[i]);
-		break;
-	}
-	case GL_PROJECTION_MATRIX: {
-		float *m = ctx->projection_stack[ctx->projection_depth];
-		for (int i = 0; i < 16; i++) WriteMacFloat(mac_ptr + i * 4, m[i]);
-		break;
-	}
-	case GL_TEXTURE_MATRIX: {
-		float *m = ctx->texture_stack[ctx->active_texture][ctx->texture_depth[ctx->active_texture]];
-		for (int i = 0; i < 16; i++) WriteMacFloat(mac_ptr + i * 4, m[i]);
-		break;
-	}
-	case GL_DEPTH_RANGE:
-		WriteMacFloat(mac_ptr,     ctx->depth_range_near);
-		WriteMacFloat(mac_ptr + 4, ctx->depth_range_far);
-		break;
-	case GL_DEPTH_CLEAR_VALUE:
-		WriteMacFloat(mac_ptr, ctx->clear_depth); break;
-	case GL_COLOR_CLEAR_VALUE:
-		for (int i = 0; i < 4; i++) WriteMacFloat(mac_ptr + i * 4, ctx->clear_color[i]);
-		break;
-	case GL_CURRENT_COLOR:
-		for (int i = 0; i < 4; i++) WriteMacFloat(mac_ptr + i * 4, ctx->current_color[i]);
-		break;
-	case GL_CURRENT_NORMAL:
-		for (int i = 0; i < 3; i++) WriteMacFloat(mac_ptr + i * 4, ctx->current_normal[i]);
-		break;
-	case GL_CURRENT_TEXTURE_COORDS:
-		for (int i = 0; i < 4; i++) WriteMacFloat(mac_ptr + i * 4, ctx->current_texcoord[ctx->active_texture][i]);
-		break;
-	case GL_ALPHA_TEST_REF:
-		WriteMacFloat(mac_ptr, ctx->alpha_ref); break;
-	case GL_POINT_SIZE_QUERY:
-		WriteMacFloat(mac_ptr, ctx->point_size); break;
-	case GL_LINE_WIDTH_QUERY:
-		WriteMacFloat(mac_ptr, ctx->line_width); break;
-	case GL_FOG_COLOR:
-		for (int i = 0; i < 4; i++) WriteMacFloat(mac_ptr + i * 4, ctx->fog_color[i]);
-		break;
-	case GL_FOG_DENSITY:
-		WriteMacFloat(mac_ptr, ctx->fog_density); break;
-	case GL_FOG_START:
-		WriteMacFloat(mac_ptr, ctx->fog_start); break;
-	case GL_FOG_END:
-		WriteMacFloat(mac_ptr, ctx->fog_end); break;
-	case GL_POLYGON_OFFSET_FACTOR_QUERY:
-		WriteMacFloat(mac_ptr, ctx->polygon_offset_factor); break;
-	case GL_POLYGON_OFFSET_UNITS_QUERY:
-		WriteMacFloat(mac_ptr, ctx->polygon_offset_units); break;
-	default:
-		WriteMacFloat(mac_ptr, 0.0f);
-		break;
-	}
+    GLStateQuery query;
+    if (!GLGetStateQuery(ctx, pname, query)) return;
+    for (unsigned i = 0; i < query.count; ++i)
+        WriteMacFloat(mac_ptr + i * 4, float(query.values[i]));
 }
 
 void NativeGLGetBooleanv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
-	// Most boolean queries map to isEnabled -- handle a few common ones
-	bool val = false;
-	switch (pname) {
-	case GL_DEPTH_TEST:     val = ctx->depth_test; break;
-	case GL_BLEND:          val = ctx->blend; break;
-	case GL_LIGHTING:       val = ctx->lighting_enabled; break;
-	case GL_FOG:            val = ctx->fog_enabled; break;
-	case GL_SCISSOR_TEST:   val = ctx->scissor_test; break;
-	case GL_CULL_FACE:      val = ctx->cull_face_enabled; break;
-	case GL_ALPHA_TEST:     val = ctx->alpha_test; break;
-	case GL_STENCIL_TEST:   val = ctx->stencil_test; break;
-	case GL_DEPTH_WRITEMASK:val = ctx->depth_mask; break;
-	default: break;
-	}
-	// GLboolean is one byte; a 32-bit store would clobber the caller's
-	// neighbouring bytes and leave the low-order byte (the value) at 0.
-	WriteMacInt8(mac_ptr, val ? GL_TRUE : GL_FALSE);
+    GLStateQuery query;
+    if (!GLGetStateQuery(ctx, pname, query)) return;
+    for (unsigned i = 0; i < query.count; ++i)
+        WriteMacInt8(mac_ptr + i, query.values[i] != 0 ? GL_TRUE : GL_FALSE);
 }
 
 uint32_t NativeGLGetError(GLContext *ctx)
@@ -2353,54 +2178,63 @@ void NativeGLPopAttrib(GLContext *ctx)
 	}
 }
 
-// Client attrib stacks -- simplified, stores vertex array pointers
-static GLVertexArrayPointer gl_saved_vertex_array;
-static GLVertexArrayPointer gl_saved_normal_array;
-static GLVertexArrayPointer gl_saved_color_array;
-static GLVertexArrayPointer gl_saved_texcoord_array[4];
-static GLPixelStore gl_saved_pixel_store;
-static int gl_client_attrib_depth = 0;
-static uint32_t gl_client_attrib_mask = 0;
-
 void NativeGLPushClientAttrib(GLContext *ctx, uint32_t mask)
 {
-	if (gl_client_attrib_depth >= 1) {
-		ctx->last_error = GL_STACK_OVERFLOW;
+	if (ctx->in_begin) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_OPERATION;
 		return;
 	}
-	gl_client_attrib_mask = mask;
+	if (ctx->client_attrib_stack_depth >= GL_MAX_CLIENT_ATTRIB_STACK_DEPTH) {
+		if (!ctx->last_error) ctx->last_error = GL_STACK_OVERFLOW;
+		return;
+	}
+	auto &entry = ctx->client_attrib_stack[ctx->client_attrib_stack_depth++];
+	entry.mask = mask;
 	if (mask & GL_CLIENT_VERTEX_ARRAY_BIT) {
-		gl_saved_vertex_array = ctx->vertex_array;
-		gl_saved_normal_array = ctx->normal_array;
-		gl_saved_color_array  = ctx->color_array;
-		memcpy(gl_saved_texcoord_array, ctx->texcoord_array, sizeof(gl_saved_texcoord_array));
+		entry.vertex_array = ctx->vertex_array;
+		entry.normal_array = ctx->normal_array;
+		entry.color_array = ctx->color_array;
+		memcpy(entry.texcoord_array, ctx->texcoord_array, sizeof(entry.texcoord_array));
+		entry.secondary_color_array = ctx->secondary_color_array;
+		entry.edge_flag_array = ctx->edge_flag_array;
+		entry.index_array = ctx->index_array;
+		entry.client_active_texture = ctx->client_active_texture;
+		entry.arrays_locked = ctx->arrays_locked;
+		entry.lock_first = ctx->lock_first;
+		entry.lock_count = ctx->lock_count;
 	}
-	if (mask & GL_CLIENT_PIXEL_STORE_BIT) {
-		gl_saved_pixel_store = ctx->pixel_store;
-	}
-	gl_client_attrib_depth++;
+	if (mask & GL_CLIENT_PIXEL_STORE_BIT) entry.pixel_store = ctx->pixel_store;
 }
 
 void NativeGLPopClientAttrib(GLContext *ctx)
 {
-	if (gl_client_attrib_depth <= 0) {
-		ctx->last_error = GL_STACK_UNDERFLOW;
+	if (ctx->in_begin) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_OPERATION;
 		return;
 	}
-	gl_client_attrib_depth--;
-	if (gl_client_attrib_mask & GL_CLIENT_VERTEX_ARRAY_BIT) {
-		ctx->vertex_array = gl_saved_vertex_array;
-		ctx->normal_array = gl_saved_normal_array;
-		ctx->color_array  = gl_saved_color_array;
-		memcpy(ctx->texcoord_array, gl_saved_texcoord_array, sizeof(gl_saved_texcoord_array));
+	if (ctx->client_attrib_stack_depth <= 0) {
+		if (!ctx->last_error) ctx->last_error = GL_STACK_UNDERFLOW;
+		return;
+	}
+	const auto &entry = ctx->client_attrib_stack[--ctx->client_attrib_stack_depth];
+	if (entry.mask & GL_CLIENT_VERTEX_ARRAY_BIT) {
+		ctx->vertex_array = entry.vertex_array;
+		ctx->normal_array = entry.normal_array;
+		ctx->color_array = entry.color_array;
+		memcpy(ctx->texcoord_array, entry.texcoord_array, sizeof(ctx->texcoord_array));
+		ctx->secondary_color_array = entry.secondary_color_array;
+		ctx->edge_flag_array = entry.edge_flag_array;
+		ctx->index_array = entry.index_array;
+		ctx->client_active_texture = entry.client_active_texture;
+		ctx->arrays_locked = entry.arrays_locked;
+		ctx->lock_first = entry.lock_first;
+		ctx->lock_count = entry.lock_count;
 		for (int u = 0; u < 4; u++) {
 			ctx->texcoord_array_enable_draw_serial[u] = ctx->completed_draw_serial;
 			ctx->prepared_texcoord_array_for_draw[u] = false;
 		}
 	}
-	if (gl_client_attrib_mask & GL_CLIENT_PIXEL_STORE_BIT) {
-		ctx->pixel_store = gl_saved_pixel_store;
-	}
+	if (entry.mask & GL_CLIENT_PIXEL_STORE_BIT) ctx->pixel_store = entry.pixel_store;
 }
 
 
@@ -3979,18 +3813,7 @@ void NativeGLRectsv(GLContext *ctx, uint32_t v1, uint32_t v2) { NativeGLRectf(ct
 // Map GL evaluator target to internal index 0-8
 static int gl_eval_target_index(uint32_t target)
 {
-	switch (target) {
-	case GL_MAP1_VERTEX_3:        case GL_MAP2_VERTEX_3:        return 0;
-	case GL_MAP1_VERTEX_4:        case GL_MAP2_VERTEX_4:        return 1;
-	case GL_MAP1_INDEX:           case GL_MAP2_INDEX:           return 2;
-	case GL_MAP1_COLOR_4:         case GL_MAP2_COLOR_4:         return 3;
-	case GL_MAP1_NORMAL:          case GL_MAP2_NORMAL:          return 4;
-	case GL_MAP1_TEXTURE_COORD_1: case GL_MAP2_TEXTURE_COORD_1: return 5;
-	case GL_MAP1_TEXTURE_COORD_2: case GL_MAP2_TEXTURE_COORD_2: return 6;
-	case GL_MAP1_TEXTURE_COORD_3: case GL_MAP2_TEXTURE_COORD_3: return 7;
-	case GL_MAP1_TEXTURE_COORD_4: case GL_MAP2_TEXTURE_COORD_4: return 8;
-	default: return -1;
-	}
+	return GLStateEvaluatorIndex(target);
 }
 
 // Return number of components for a given evaluator target
@@ -5276,26 +5099,14 @@ void NativeGLGetMapiv(GLContext *ctx, uint32_t target, uint32_t query, uint32_t 
 
 void NativeGLGetDoublev(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
-	// Rectangle state is queryable in every numeric representation, just as
-	// matrices are. Preserve all four components and the requested element size.
-	const int32_t *rect = nullptr;
-	if (pname == GL_VIEWPORT) rect = ctx->viewport;
-	else if (pname == GL_SCISSOR_BOX) rect = ctx->scissor_box;
-	float *m = nullptr;
-	if (pname == GL_MODELVIEW_MATRIX) m = ctx->modelview_stack[ctx->modelview_depth];
-	else if (pname == GL_PROJECTION_MATRIX) m = ctx->projection_stack[ctx->projection_depth];
-	else if (pname == GL_TEXTURE_MATRIX) m = ctx->texture_stack[ctx->active_texture][ctx->texture_depth[ctx->active_texture]];
-	if (m || rect) {
-		for (int i = 0; i < (m ? 16 : 4); i++) {
-			double d = m ? (double)m[i] : (double)rect[i];
-			uint64_t bits; memcpy(&bits, &d, sizeof(double));
-			WriteMacInt32(mac_ptr + i*8, (uint32_t)(bits >> 32));
-			WriteMacInt32(mac_ptr + i*8+4, (uint32_t)(bits & 0xFFFFFFFF));
-		}
-		return;
-	}
-	// Default: write 0.0
-	WriteMacInt32(mac_ptr, 0); WriteMacInt32(mac_ptr+4, 0);
+    GLStateQuery query;
+    if (!GLGetStateQuery(ctx, pname, query)) return;
+    for (unsigned i = 0; i < query.count; ++i) {
+        uint64_t bits;
+        memcpy(&bits, &query.values[i], sizeof(bits));
+        WriteMacInt32(mac_ptr + i * 8, uint32_t(bits >> 32));
+        WriteMacInt32(mac_ptr + i * 8 + 4, uint32_t(bits));
+    }
 }
 
 void NativeGLGetPointerv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr) { (void)pname; WriteMacInt32(mac_ptr, 0); }
@@ -5554,18 +5365,6 @@ void NativeGLLoadTransposeMatrixfARB(GLContext *ctx, uint32_t mac_ptr)
 	memcpy(m, transposed, sizeof(float)*16);
 }
 
-static void gl_mult_matrix_4x4(float *dst, const float *a, const float *b)
-{
-	float tmp[16];
-	for (int r = 0; r < 4; r++)
-		for (int c = 0; c < 4; c++) {
-			tmp[r*4+c] = 0;
-			for (int k = 0; k < 4; k++)
-				tmp[r*4+c] += a[r*4+k] * b[k*4+c];
-		}
-	memcpy(dst, tmp, sizeof(float)*16);
-}
-
 void NativeGLMultTransposeMatrixdARB(GLContext *ctx, uint32_t mac_ptr)
 {
 	if (!ctx) return;
@@ -5578,7 +5377,7 @@ void NativeGLMultTransposeMatrixdARB(GLContext *ctx, uint32_t mac_ptr)
 	float transposed[16];
 	gl_transpose_4x4(transposed, src);
 	float *m = gl_get_current_matrix(ctx);
-	gl_mult_matrix_4x4(m, m, transposed);
+	mat4_multiply(m, m, transposed);
 }
 
 void NativeGLMultTransposeMatrixfARB(GLContext *ctx, uint32_t mac_ptr)
@@ -5592,7 +5391,7 @@ void NativeGLMultTransposeMatrixfARB(GLContext *ctx, uint32_t mac_ptr)
 	float transposed[16];
 	gl_transpose_4x4(transposed, src);
 	float *m = gl_get_current_matrix(ctx);
-	gl_mult_matrix_4x4(m, m, transposed);
+	mat4_multiply(m, m, transposed);
 }
 
 

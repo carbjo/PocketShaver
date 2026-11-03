@@ -939,6 +939,18 @@ struct GLPixelStore {
     int  unpack_skip_rows;
 };
 
+constexpr int GL_MAX_CLIENT_ATTRIB_STACK_DEPTH = 16;
+struct GLClientAttribStackEntry {
+    uint32_t mask;
+    GLPixelStore pixel_store;
+    GLVertexArrayPointer vertex_array, normal_array, color_array;
+    GLVertexArrayPointer texcoord_array[4];
+    GLVertexArrayPointer secondary_color_array, edge_flag_array, index_array;
+    int client_active_texture;
+    bool arrays_locked;
+    int32_t lock_first, lock_count;
+};
+
 
 /*
  *  GLStencilState
@@ -1385,6 +1397,9 @@ struct GLContext {
 
     // ---- Pixel store ----
     GLPixelStore pixel_store;
+
+    GLClientAttribStackEntry client_attrib_stack[GL_MAX_CLIENT_ATTRIB_STACK_DEPTH];
+    int client_attrib_stack_depth = 0;
 
     // ---- Color material ----
     // (state tracked in color_material_* fields above)

@@ -1639,9 +1639,19 @@ int32_t NativeEngineAccessTextureEnd(uint32_t textureAddr, uint32_t dirtyRectAdd
 	// Re-convert from original Mac format to BGRA8Unorm and re-upload
 	uint32_t w = entry->width;
 	uint32_t h = entry->height;
-	uint8_t *expanded = new uint8_t[w * h * 4];
-
 	bool isIndexed = (entry->pixel_type == kQAPixel_CL8 || entry->pixel_type == kQAPixel_CL4 || entry->pixel_type == kQAPixel_ACL16_88);
+	if (isIndexed) {
+		const uint64_t bytes = uint64_t(entry->row_bytes) * h;
+		if (!entry->original_pixels || bytes > entry->original_size || bytes > entry->cpu_pixel_data_size)
+			return kQAParamErr;
+		// Palette binds regenerate from original_pixels. Commit edited indices
+		// there even when no palette has been bound yet.
+		memcpy(entry->original_pixels, entry->cpu_pixel_data, size_t(bytes));
+		RaveResourceEntry *clut = RaveResourceGet(entry->bound_clut);
+		if (!clut || clut->type != kRaveResourceColorTable || !clut->clut_data)
+			return kQANoErr;
+	}
+	uint8_t *expanded = new uint8_t[size_t(w) * h * 4]();
 
 	if (isIndexed && entry->bound_clut != 0) {
 		RaveResourceEntry *clutEntry = RaveResourceGet(entry->bound_clut);
@@ -1749,9 +1759,17 @@ int32_t NativeEngineAccessBitmapEnd(uint32_t bitmapAddr, uint32_t dirtyRectAddr)
 
 	uint32_t w = entry->width;
 	uint32_t h = entry->height;
-	uint8_t *expanded = new uint8_t[w * h * 4];
-
 	bool isIndexed = (entry->pixel_type == kQAPixel_CL8 || entry->pixel_type == kQAPixel_CL4 || entry->pixel_type == kQAPixel_ACL16_88);
+	if (isIndexed) {
+		const uint64_t bytes = uint64_t(entry->row_bytes) * h;
+		if (!entry->original_pixels || bytes > entry->original_size || bytes > entry->cpu_pixel_data_size)
+			return kQAParamErr;
+		memcpy(entry->original_pixels, entry->cpu_pixel_data, size_t(bytes));
+		RaveResourceEntry *clut = RaveResourceGet(entry->bound_clut);
+		if (!clut || clut->type != kRaveResourceColorTable || !clut->clut_data)
+			return kQANoErr;
+	}
+	uint8_t *expanded = new uint8_t[size_t(w) * h * 4]();
 
 	if (isIndexed && entry->bound_clut != 0) {
 		RaveResourceEntry *clutEntry = RaveResourceGet(entry->bound_clut);
@@ -3158,6 +3176,8 @@ int32_t NativeATITextureUpdate(uint32_t flags, uint32_t pixelType, uint32_t imag
 		RAVE_LOG("ATITextureUpdate: texture not found at 0x%08x", textureAddr);
 		return kQAError;
 	}
+	if (!imagesAddr || uint64_t(imagesAddr) + 16 > uint64_t(UINT32_MAX) + 1)
+		return kQAParamErr;
 
 	// Read TQAImage from Mac memory (same layout as NativeEngineTextureNew)
 	uint32_t width      = ReadMacInt32(imagesAddr + 0);
@@ -3188,9 +3208,14 @@ int32_t NativeATITextureUpdate(uint32_t flags, uint32_t pixelType, uint32_t imag
 			break;
 	}
 
-	// Convert pixels to BGRA32 using existing infrastructure
-	uint32_t bgra_row_bytes = width * 4;
-	uint8_t *bgra_data = new uint8_t[bgra_row_bytes * height];
+	// This updates an existing complete image, including its generated mips.
+	// Validate before allocating or reading pixels, just as TextureNew does.
+	if (!RaveImageLayoutIsValid(effectivePixelType, width, height, rowBytes, pixelBuffer) ||
+	    width != entry->width || height != entry->height)
+		return kQAParamErr;
+	const uint32_t bgra_row_bytes = width * 4;
+	uint8_t *bgra_data = new (std::nothrow) uint8_t[size_t(bgra_row_bytes) * height];
+	if (!bgra_data) return kQAOutOfMemory;
 
 	bool converted = ConvertPixels(effectivePixelType, pixelBuffer, bgra_data, width, height, rowBytes);
 	if (!converted) {
