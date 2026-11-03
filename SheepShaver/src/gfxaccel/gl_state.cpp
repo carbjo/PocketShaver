@@ -28,6 +28,7 @@
 #include "video.h"
 #include "dsp_draw_context.h"
 #include "gl_clip_plane_policy.h"
+#include "gl_texture_coordinates.h"
 #include "gl_color_index_policy.h"
 #include "gl_engine.h"
 #include "gl_metal_draw_state.h"
@@ -972,8 +973,14 @@ uint32_t NativeGLIsEnabled(GLContext *ctx, uint32_t cap)
 	case GL_STENCIL_TEST:         result = ctx->stencil_test; break;
 	case GL_TEXTURE_2D:           result = ctx->tex_units[ctx->active_texture].enabled_2d; break;
 	default:
-		if (cap >= GL_LIGHT0 && cap < GL_LIGHT0 + 8)
-			result = ctx->lights[cap - GL_LIGHT0].enabled;
+        if (cap >= GL_TEXTURE_GEN_S && cap <= GL_TEXTURE_GEN_Q) {
+            const auto &unit = ctx->tex_units[ctx->active_texture];
+            const bool enabled[] = {unit.texgen_s_enabled, unit.texgen_t_enabled,
+                                     unit.texgen_r_enabled, unit.texgen_q_enabled};
+            result = enabled[cap-GL_TEXTURE_GEN_S];
+        }
+        else if (cap >= GL_LIGHT0 && cap < GL_LIGHT0 + 8)
+            result = ctx->lights[cap - GL_LIGHT0].enabled;
 		else if (cap >= GL_MAP1_COLOR_4 && cap <= GL_MAP1_VERTEX_4) {
 			int idx = gl_eval_target_index(cap);
 			if (idx >= 0) result = ctx->eval_map1_enabled[idx];
@@ -1510,56 +1517,70 @@ static int gl_texgen_coord_index(uint32_t coord)
 	}
 }
 
+static int *gl_texgen_mode(GLTextureUnit &unit, int coord)
+{
+    int *modes[] = {&unit.texgen_s_mode, &unit.texgen_t_mode,
+                    &unit.texgen_r_mode, &unit.texgen_q_mode};
+    return modes[coord];
+}
+
+static void gl_set_texgen(GLContext *ctx, uint32_t coord, uint32_t pname,
+                           const double *params, bool vector)
+{
+    if (!ctx) return;
+    auto fail = [&](uint32_t error) { if (!ctx->last_error) ctx->last_error = error; };
+    if (ctx->in_begin) { fail(GL_INVALID_OPERATION); return; }
+    const int c = gl_texgen_coord_index(coord);
+    if (c < 0) { fail(GL_INVALID_ENUM); return; }
+    auto &unit = ctx->tex_units[ctx->active_texture];
+    if (pname == GL_TEXTURE_GEN_MODE) {
+        const double mode = params[0];
+        if ((mode != GL_OBJECT_LINEAR && mode != GL_EYE_LINEAR && mode != GL_SPHERE_MAP) ||
+            (mode == GL_SPHERE_MAP && c >= 2)) { fail(GL_INVALID_ENUM); return; }
+        *gl_texgen_mode(unit,c) = (int)mode;
+    } else if (vector && (pname == GL_OBJECT_PLANE || pname == GL_EYE_PLANE)) {
+        double plane[4];
+        if (pname == GL_EYE_PLANE) {
+            if (!GLTextureTransformPlane(plane, params, ctx->modelview_stack[ctx->modelview_depth]))
+                std::memcpy(plane, params, sizeof(plane)); // singular matrices are undefined
+        } else std::memcpy(plane, params, sizeof(plane));
+        std::memcpy(pname == GL_EYE_PLANE ? unit.texgen_eye_plane[c] : unit.texgen_object_plane[c],
+                    plane, sizeof(plane));
+    } else fail(GL_INVALID_ENUM);
+}
+
 void NativeGLTexGeni(GLContext *ctx, uint32_t coord, uint32_t pname, int32_t param)
 {
-	int ci = gl_texgen_coord_index(coord);
-	if (ci < 0) { ctx->last_error = GL_INVALID_ENUM; return; }
-	if (pname == GL_TEXTURE_GEN_MODE) {
-		int *modes[] = {
-			&ctx->tex_units[ctx->active_texture].texgen_s_mode,
-			&ctx->tex_units[ctx->active_texture].texgen_t_mode,
-			&ctx->tex_units[ctx->active_texture].texgen_r_mode,
-			&ctx->tex_units[ctx->active_texture].texgen_q_mode,
-		};
-		*modes[ci] = param;
-	}
+    const double p = param; gl_set_texgen(ctx,coord,pname,&p,false);
 }
-
 void NativeGLTexGenf(GLContext *ctx, uint32_t coord, uint32_t pname, float param)
 {
-	NativeGLTexGeni(ctx, coord, pname, (int32_t)param);
+    const double p = param; gl_set_texgen(ctx,coord,pname,&p,false);
 }
-
 void NativeGLTexGend(GLContext *ctx, uint32_t coord, uint32_t pname, double param)
 {
-	NativeGLTexGeni(ctx, coord, pname, (int32_t)param);
+    gl_set_texgen(ctx,coord,pname,&param,false);
 }
-
 void NativeGLTexGenfv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t mac_ptr)
 {
-	if (pname == GL_TEXTURE_GEN_MODE) {
-		NativeGLTexGenf(ctx, coord, pname, ReadMacFloat(mac_ptr));
-	}
-	// GL_OBJECT_PLANE and GL_EYE_PLANE store 4 coefficients -- tracked in context but minimal impl
+    double p[4] = {}; const int count = pname == GL_TEXTURE_GEN_MODE ? 1 : 4;
+    for (int i=0;i<count;++i) p[i] = ReadMacFloat(mac_ptr+i*4);
+    gl_set_texgen(ctx,coord,pname,p,true);
 }
-
 void NativeGLTexGeniv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t mac_ptr)
 {
-	if (pname == GL_TEXTURE_GEN_MODE) {
-		NativeGLTexGeni(ctx, coord, pname, (int32_t)ReadMacInt32(mac_ptr));
-	}
+    double p[4] = {}; const int count = pname == GL_TEXTURE_GEN_MODE ? 1 : 4;
+    for (int i=0;i<count;++i) p[i] = (int32_t)ReadMacInt32(mac_ptr+i*4);
+    gl_set_texgen(ctx,coord,pname,p,true);
 }
-
 void NativeGLTexGendv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t mac_ptr)
 {
-	if (pname == GL_TEXTURE_GEN_MODE) {
-		uint32 hi = ReadMacInt32(mac_ptr);
-		uint32 lo = ReadMacInt32(mac_ptr + 4);
-		uint64_t bits = ((uint64_t)hi << 32) | lo;
-		double d;
-		memcpy(&d, &bits, sizeof(double));
-		NativeGLTexGend(ctx, coord, pname, d);
-	}
+    double p[4] = {}; const int count = pname == GL_TEXTURE_GEN_MODE ? 1 : 4;
+    for (int i=0;i<count;++i) {
+        const uint64_t bits = ((uint64_t)ReadMacInt32(mac_ptr+i*8)<<32) | ReadMacInt32(mac_ptr+i*8+4);
+        std::memcpy(&p[i],&bits,sizeof(double));
+    }
+    gl_set_texgen(ctx,coord,pname,p,true);
 }
 
 
@@ -1616,7 +1637,7 @@ void NativeGLGetIntegerv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 	case GL_MAX_NAME_STACK_DEPTH:
 		WriteMacInt32(mac_ptr, 64); break;
 	case GL_MAX_TEXTURE_UNITS_ARB:
-		WriteMacInt32(mac_ptr, 4); break;
+		WriteMacInt32(mac_ptr, GL_RENDER_TEXTURE_UNITS); break;
 	case GL_VIEWPORT:
 		for (int i = 0; i < 4; i++)
 			WriteMacInt32(mac_ptr + i * 4, (uint32_t)ctx->viewport[i]);
@@ -2479,6 +2500,7 @@ void GLContextInit(GLContext *ctx)
 
 	// Texture units
 	for (int u = 0; u < 4; u++) {
+		GLInitTextureGeneration(ctx->tex_units[u]);
 		ctx->tex_units[u].env_mode = GL_MODULATE;
 		ctx->tex_units[u].env_color[3] = 1.0f;
 		ctx->tex_units[u].current_texcoord[3] = 1.0f;
@@ -2717,7 +2739,10 @@ void NativeGLActiveTextureARB(GLContext *ctx, uint32_t texture)
 {
 	if (!ctx) return;
 	int unit = (int)(texture - GL_TEXTURE0_ARB);
-	if (unit < 0 || unit >= 4) return;
+	if (unit < 0 || unit >= GL_RENDER_TEXTURE_UNITS) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM;
+		return;
+	}
 	ctx->active_texture = unit;
 }
 
@@ -2729,7 +2754,10 @@ void NativeGLClientActiveTextureARB(GLContext *ctx, uint32_t texture)
 {
 	if (!ctx) return;
 	int unit = (int)(texture - GL_TEXTURE0_ARB);
-	if (unit < 0 || unit >= 4) return;
+	if (unit < 0 || unit >= GL_RENDER_TEXTURE_UNITS) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM;
+		return;
+	}
 	ctx->client_active_texture = unit;
 }
 
@@ -4810,9 +4838,37 @@ void NativeGLGetTexEnviv(GLContext *ctx, uint32_t target, uint32_t pname, uint32
 	if (pname == GL_TEXTURE_ENV_MODE) WriteMacInt32(mac_ptr, ctx->tex_units[ctx->active_texture].env_mode);
 }
 
-void NativeGLGetTexGendv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p) { (void)coord; (void)pname; WriteMacInt32(p, 0); WriteMacInt32(p+4, 0); }
-void NativeGLGetTexGenfv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p) { (void)coord; (void)pname; WriteMacFloat(p, 0.0f); }
-void NativeGLGetTexGeniv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p) { (void)coord; (void)pname; WriteMacInt32(p, 0); }
+static int gl_get_texgen(GLContext *ctx, uint32_t coord, uint32_t pname, double out[4])
+{
+    if (!ctx) return 0;
+    auto fail = [&]() { if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM; };
+    if (ctx->in_begin) { if (!ctx->last_error) ctx->last_error=GL_INVALID_OPERATION; return 0; }
+    const int c = gl_texgen_coord_index(coord);
+    if (c < 0) { fail(); return 0; }
+    auto &unit = ctx->tex_units[ctx->active_texture];
+    if (pname == GL_TEXTURE_GEN_MODE) { out[0] = *gl_texgen_mode(unit,c); return 1; }
+    if (pname != GL_OBJECT_PLANE && pname != GL_EYE_PLANE) { fail(); return 0; }
+    std::memcpy(out,pname == GL_EYE_PLANE ? unit.texgen_eye_plane[c] : unit.texgen_object_plane[c],4*sizeof(double));
+    return 4;
+}
+void NativeGLGetTexGendv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p)
+{
+    double values[4]; const int count = gl_get_texgen(ctx,coord,pname,values);
+    for (int i=0;i<count;++i) {
+        uint64_t bits; std::memcpy(&bits,&values[i],sizeof(bits));
+        WriteMacInt32(p+i*8,(uint32_t)(bits>>32)); WriteMacInt32(p+i*8+4,(uint32_t)bits);
+    }
+}
+void NativeGLGetTexGenfv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p)
+{
+    double values[4]; const int count = gl_get_texgen(ctx,coord,pname,values);
+    for (int i=0;i<count;++i) WriteMacFloat(p+i*4,(float)values[i]);
+}
+void NativeGLGetTexGeniv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p)
+{
+    double values[4]; const int count = gl_get_texgen(ctx,coord,pname,values);
+    for (int i=0;i<count;++i) WriteMacInt32(p+i*4,(uint32_t)(int32_t)values[i]);
+}
 void NativeGLGetTexImage(GLContext *ctx, uint32_t target, int32_t level, uint32_t fmt, uint32_t type, uint32_t p)
 {
     auto fail=[&](uint32_t e){if(!ctx->last_error) ctx->last_error=e;};
@@ -5203,7 +5259,10 @@ void NativeGLUnlockArraysEXT(GLContext *ctx)
 static inline void gl_set_texcoord(GLContext *ctx, uint32_t target, float s, float t, float r, float q)
 {
 	int unit = (int)(target - GL_TEXTURE0_ARB);
-	if (unit < 0 || unit >= 4) unit = 0;
+	if (unit < 0 || unit >= GL_RENDER_TEXTURE_UNITS) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM;
+		return;
+	}
 	ctx->current_texcoord[unit][0] = s;
 	ctx->current_texcoord[unit][1] = t;
 	ctx->current_texcoord[unit][2] = r;

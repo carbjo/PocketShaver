@@ -860,8 +860,10 @@ struct GLMaterial {
 
 
 /*
- *  GLTextureUnit -- per-unit texture state (GL 1.2 supports up to 4 units)
+ *  GLTextureUnit -- per-unit texture state. Storage retains four legacy slots;
+ *  the Metal backend exposes only the two units it can sample.
  */
+enum { GL_RENDER_TEXTURE_UNITS = 2 };
 struct GLTextureUnit {
     uint32_t bound_texture_1d;   // name of bound GL_TEXTURE_1D
     uint32_t bound_texture_2d;   // name of bound GL_TEXTURE_2D
@@ -882,6 +884,8 @@ struct GLTextureUnit {
     int      texgen_t_mode;
     int      texgen_r_mode;
     int      texgen_q_mode;
+    double   texgen_object_plane[4][4];
+    double   texgen_eye_plane[4][4];
 };
 
 

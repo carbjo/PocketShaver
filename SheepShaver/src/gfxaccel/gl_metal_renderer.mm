@@ -38,6 +38,8 @@
 #include "metal_device_shared.h"
 #include "gl_metal_coordinates.h"
 #include "gl_metal_draw_state.h"
+#include "gl_vertex_pipeline.h"
+#include "gl_texture_environment.h"
 #include "gl_offscreen_policy.h"
 #include "gl_pixel_unpack_policy.h"
 #include "gl_pixel_pack_policy.h"
@@ -289,18 +291,6 @@ extern "C" void gl_release_overlay_for_detach(void)
 #define GL_T4F_C4F_N3F_V4F         0x2A2D
 
 
-// ---- Vertex layout for Metal buffer submission ----
-// Must match GLVertexIn in gl_shaders.metal
-struct GLMetalVertex {
-    float position[4];        // float4, offset 0
-    float color[4];           // float4, offset 16
-    float normal[3];          // float3, offset 32
-    float texcoord[3];        // float3 (s, t, q), offset 44 — q enables projective texturing (unit 0)
-    float texcoord1[3];       // float3 (s, t, q), offset 56 — unit 1 for multitexture
-    float secondary_color[3]; // float3 (r, g, b), offset 68 — EXT_secondary_color / GL_COLOR_SUM (attribute 5)
-    // Total stride = 80 bytes
-};
-
 // Must match GLVertexUniforms in gl_shaders.metal
 struct GLMetalVertexUniforms {
     float mvp_matrix[16];       // float4x4
@@ -322,26 +312,6 @@ struct GLMetalVertexUniforms {
                                 // to offset 224 = 14 * 16, the float4 alignment boundary.
                                 // (only 4 bytes are needed here, not 12 — see static_assert below)
     float   clip_planes[6][4];  // offset 224, 16-byte aligned: 6 clip plane equations (float4 each)
-};
-
-// Must match GLFragmentUniforms in gl_shaders.metal
-// Metal float4 has 16-byte alignment, so padding is needed after int fields
-struct GLMetalFragmentUniforms {
-    int32_t texenv_mode;
-    int32_t _pad0, _pad1, _pad2;    // align texenv_color to 16 bytes
-    float   texenv_color[4];         // offset 16 (Metal float4 alignment)
-    float   fog_color[4];            // offset 32
-    int32_t alpha_test_enabled;      // offset 48
-    int32_t alpha_func;              // offset 52
-    float   alpha_ref;               // offset 56
-    int32_t has_texture;             // offset 60
-    int32_t has_texture_3d;          // offset 64
-    int32_t shade_model;             // offset 68
-    int32_t color_sum_enabled;       // offset 72 — EXT_secondary_color / GL_COLOR_SUM (consumes former _pad3)
-    int32_t has_texture_unit1;       // offset 76 — ARB_multitexture: unit 1 has a bound+enabled 2D texture (consumes former _pad4)
-    int32_t texenv1_mode;            // offset 80 — unit-1 texenv mode (GLTexEnvModeToShader: 0=modulate..4=add)
-    int32_t force_opaque_output;     // offset 84 — window overlay with GL blending disabled stores coverage alpha
-    int32_t _pad6, _pad7;            // offset 88-92 (pad to 96, 16-byte struct alignment)
 };
 
 // Must match GLLight in gl_shaders.metal
@@ -389,7 +359,7 @@ static_assert(sizeof(GLMetalVertexUniforms) == 320, "GLMetalVertexUniforms size 
 // Metal float4[6] array without tripping a compile error.
 static_assert(offsetof(GLMetalVertexUniforms, clip_planes) % 16 == 0,
               "GLMetalVertexUniforms.clip_planes must be 16-byte aligned to match Metal float4[6]");
-static_assert(sizeof(GLMetalFragmentUniforms) == 96, "GLMetalFragmentUniforms size must match Metal GLFragmentUniforms (96 bytes)");
+static_assert(sizeof(GLMetalFragmentUniforms) == 112, "GLMetalFragmentUniforms size must match Metal GLFragmentUniforms (112 bytes)");
 static_assert(sizeof(GLMetalLight) == 128, "GLMetalLight size must match Metal GLLight (128 bytes)");
 static_assert(sizeof(GLMetalMaterial) == 80, "GLMetalMaterial size must match Metal GLMaterialData (80 bytes)");
 static_assert(sizeof(GLMetalLightingData) == 1120, "GLMetalLightingData size must match Metal GLLightingData (1120 bytes)");
@@ -425,6 +395,7 @@ struct GLMetalState {
     // vector construct/destroy cycles per frame in immediate-mode titles).
     // Contents are per-flush; cleared at the top of each flush.
     std::vector<GLMetalVertex> imExpandScratch;
+    std::vector<GLMetalVertex> imConvertScratch;
 
     // Triple-buffered vertex ring buffer
     id<MTLBuffer>               vertexBuffers[GL_RING_BUFFER_COUNT];
@@ -1499,9 +1470,11 @@ void GLMetalInit(GLContext *ctx)
     ms->vertexDescriptor.attributes[5].offset = 68;                     // immediately after texcoord1 (float3 @ 68 is 4-byte aligned)
     ms->vertexDescriptor.attributes[5].bufferIndex = 0;
 
-    // Stride desync: GLMetalVertex (C++), the attribute offsets above,
-    // and GLVertexIn in gl_shaders.metal must stay in exact lockstep — a desync
-    // corrupts position too. stride auto-grows to sizeof(GLMetalVertex) == 80.
+    ms->vertexDescriptor.attributes[6].format = MTLVertexFormatFloat4;
+    ms->vertexDescriptor.attributes[6].offset = offsetof(GLMetalVertex, lighting_position);
+    ms->vertexDescriptor.attributes[6].bufferIndex = 0;
+
+    // The portable vertex helper and shader attribute descriptor share this layout.
     ms->vertexDescriptor.layouts[0].stride = sizeof(GLMetalVertex);
 
     // Allocate long-lived GL staging buffers directly from the device. They
@@ -2133,181 +2106,6 @@ void GLMetalClear(GLContext *ctx, uint32_t mask)
 
 
 /*
- *  Expand non-native primitives to triangle lists on CPU
- *
- *  Returns the expanded vertices in out_vertices. If no expansion is needed
- *  (already triangles/lines/points), returns false and caller should use original.
- */
-static bool ExpandPrimitives(uint32_t gl_mode, const std::vector<GLVertex> &in,
-                              std::vector<GLMetalVertex> &out,
-                              MTLPrimitiveType &mtl_prim)
-{
-    auto copyVertex = [](GLMetalVertex &dst, const GLVertex &src) {
-        memcpy(dst.position, src.position, sizeof(float) * 4);
-        memcpy(dst.color, src.color, sizeof(float) * 4);
-        memcpy(dst.normal, src.normal, sizeof(float) * 3);
-        // Use texcoord from unit 0
-        dst.texcoord[0] = src.texcoord[0][0];
-        dst.texcoord[1] = src.texcoord[0][1];
-        dst.texcoord[2] = src.texcoord[0][3];  // q for projective texturing
-        dst.texcoord1[0] = src.texcoord[1][0];  // unit 1
-        dst.texcoord1[1] = src.texcoord[1][1];
-        dst.texcoord1[2] = src.texcoord[1][3];
-        // EXT_secondary_color / GL_COLOR_SUM: carry the already-stored secondary
-        // color through to attribute 5 (was silently dropped).
-        memcpy(dst.secondary_color, src.secondary_color, sizeof(float) * 3);
-    };
-
-    size_t n = in.size();
-
-    switch (gl_mode) {
-        case GL_TRIANGLES:
-            mtl_prim = MTLPrimitiveTypeTriangle;
-            return false;  // direct, no expansion
-
-        case GL_TRIANGLE_STRIP:
-            mtl_prim = MTLPrimitiveTypeTriangleStrip;
-            return false;
-
-        case GL_TRIANGLE_FAN: {
-            // Fan: vertex 0 is hub, triangle i = (0, i, i+1)
-            mtl_prim = MTLPrimitiveTypeTriangle;
-            if (n < 3) return true;  // empty output
-            out.reserve((n - 2) * 3);
-            for (size_t i = 1; i + 1 < n; i++) {
-                GLMetalVertex v0, v1, v2;
-                copyVertex(v0, in[0]);
-                copyVertex(v1, in[i]);
-                copyVertex(v2, in[i + 1]);
-                out.push_back(v0);
-                out.push_back(v1);
-                out.push_back(v2);
-            }
-            return true;
-        }
-
-        case GL_QUADS: {
-            // Each quad (4 verts) -> 2 triangles
-            mtl_prim = MTLPrimitiveTypeTriangle;
-            size_t numQuads = n / 4;
-            out.reserve(numQuads * 6);
-            for (size_t i = 0; i < numQuads; i++) {
-                size_t base = i * 4;
-                GLMetalVertex v0, v1, v2, v3;
-                copyVertex(v0, in[base + 0]);
-                copyVertex(v1, in[base + 1]);
-                copyVertex(v2, in[base + 2]);
-                copyVertex(v3, in[base + 3]);
-                // Triangle 1: 0,1,2
-                out.push_back(v0); out.push_back(v1); out.push_back(v2);
-                // Triangle 2: 0,2,3
-                out.push_back(v0); out.push_back(v2); out.push_back(v3);
-            }
-            return true;
-        }
-
-        case GL_QUAD_STRIP: {
-            // Pairs of quads from consecutive vert pairs
-            mtl_prim = MTLPrimitiveTypeTriangle;
-            if (n < 4) return true;
-            size_t numQuads = (n - 2) / 2;
-            out.reserve(numQuads * 6);
-            for (size_t i = 0; i < numQuads; i++) {
-                size_t base = i * 2;
-                GLMetalVertex v0, v1, v2, v3;
-                copyVertex(v0, in[base + 0]);
-                copyVertex(v1, in[base + 1]);
-                copyVertex(v2, in[base + 3]);
-                copyVertex(v3, in[base + 2]);
-                out.push_back(v0); out.push_back(v1); out.push_back(v2);
-                out.push_back(v0); out.push_back(v2); out.push_back(v3);
-            }
-            return true;
-        }
-
-        case GL_POLYGON: {
-            // Same as triangle fan: vertex 0 is hub
-            mtl_prim = MTLPrimitiveTypeTriangle;
-            if (n < 3) return true;
-            out.reserve((n - 2) * 3);
-            for (size_t i = 1; i + 1 < n; i++) {
-                GLMetalVertex v0, v1, v2;
-                copyVertex(v0, in[0]);
-                copyVertex(v1, in[i]);
-                copyVertex(v2, in[i + 1]);
-                out.push_back(v0);
-                out.push_back(v1);
-                out.push_back(v2);
-            }
-            return true;
-        }
-
-        case GL_LINES:
-            mtl_prim = MTLPrimitiveTypeLine;
-            return false;
-
-        case GL_LINE_STRIP:
-            mtl_prim = MTLPrimitiveTypeLineStrip;
-            return false;
-
-        case GL_LINE_LOOP: {
-            // Line strip + closing edge
-            mtl_prim = MTLPrimitiveTypeLine;
-            if (n < 2) return true;
-            out.reserve(n * 2);
-            for (size_t i = 0; i + 1 < n; i++) {
-                GLMetalVertex v0, v1;
-                copyVertex(v0, in[i]);
-                copyVertex(v1, in[i + 1]);
-                out.push_back(v0);
-                out.push_back(v1);
-            }
-            // Close the loop
-            GLMetalVertex vLast, vFirst;
-            copyVertex(vLast, in[n - 1]);
-            copyVertex(vFirst, in[0]);
-            out.push_back(vLast);
-            out.push_back(vFirst);
-            return true;
-        }
-
-        case GL_POINTS:
-            mtl_prim = MTLPrimitiveTypePoint;
-            return false;
-
-        default:
-            mtl_prim = MTLPrimitiveTypeTriangle;
-            return false;
-    }
-}
-
-
-/*
- *  Convert im_vertices to GLMetalVertex format (no expansion needed)
- */
-static void ConvertVertices(const std::vector<GLVertex> &in, std::vector<GLMetalVertex> &out) {
-    out.resize(in.size());
-    for (size_t i = 0; i < in.size(); i++) {
-        memcpy(out[i].position, in[i].position, sizeof(float) * 4);
-        memcpy(out[i].color, in[i].color, sizeof(float) * 4);
-        memcpy(out[i].normal, in[i].normal, sizeof(float) * 3);
-        out[i].texcoord[0] = in[i].texcoord[0][0];
-        out[i].texcoord[1] = in[i].texcoord[0][1];
-        out[i].texcoord[2] = in[i].texcoord[0][3];  // q for projective texturing
-        out[i].texcoord1[0] = in[i].texcoord[1][0];  // unit 1
-        out[i].texcoord1[1] = in[i].texcoord[1][1];
-        out[i].texcoord1[2] = in[i].texcoord[1][3];
-        // EXT_secondary_color / GL_COLOR_SUM: carry the already-stored secondary
-        // color through to attribute 5. This non-expansion path (used for
-        // GL_TRIANGLES/STRIP, GL_LINES/STRIP, GL_POINTS — the dominant primitive
-        // types) was silently dropping it, so GL_COLOR_SUM had no effect for most
-        // real draws (mirrors copyVertex in ExpandPrimitives).
-        memcpy(out[i].secondary_color, in[i].secondary_color, sizeof(float) * 3);
-    }
-}
-
-
-/*
  *  Upload fog mode as integer constant for the shader
  */
 static int32_t GLFogModeToShader(uint32_t gl_mode) {
@@ -2316,29 +2114,6 @@ static int32_t GLFogModeToShader(uint32_t gl_mode) {
         case GL_EXP:    return 2;
         case GL_EXP2:   return 3;
         default:        return 0;
-    }
-}
-
-
-// GL texenv mode constants
-#define GL_MODULATE_TEX    0x2100
-#define GL_DECAL_TEX       0x2101
-#define GL_BLEND_TEXENV    0x0BE2
-#define GL_REPLACE_TEX     0x1E01
-#define GL_ADD_TEX         0x0104
-
-/*
- *  Convert GL texenv mode enum to shader integer constant
- *  Shader expects: 0=modulate, 1=decal, 2=blend, 3=replace, 4=add
- */
-static int32_t GLTexEnvModeToShader(uint32_t gl_mode) {
-    switch (gl_mode) {
-        case GL_MODULATE_TEX:  return 0;
-        case GL_DECAL_TEX:     return 1;
-        case GL_BLEND_TEXENV:  return 2;
-        case GL_REPLACE_TEX:   return 3;
-        case GL_ADD_TEX:       return 4;
-        default:               return 0;  // default to modulate
     }
 }
 
@@ -2484,59 +2259,28 @@ static void GLMetalSubmitVertices(GLContext *ctx,
 		                               (uint32_t)[ms->overlayTexture height]);
 	}
 
-	// ---- Determine primitive type and expand if needed ----
-    MTLPrimitiveType mtlPrim;
-    std::vector<GLMetalVertex> &expandedVerts = ms->imExpandScratch;
-    expandedVerts.clear();
-    mtlPrim = indexedPrimitive;
-    bool expanded = !indices && ExpandPrimitives(ctx->im_mode, ctx->im_vertices, expandedVerts, mtlPrim);
-
-    const GLMetalVertex *vertData;
-    size_t vertCount;
-
-    if (expanded) {
-        vertData = expandedVerts.data();
-        vertCount = expandedVerts.size();
-    } else {
-        // Convert directly (no primitive expansion needed)
-        ConvertVertices(ctx->im_vertices, expandedVerts);
-        vertData = expandedVerts.data();
-        vertCount = expandedVerts.size();
-    }
-
-    if (vertCount == 0) return;
-
-    // ---- Flat shading: copy provoking vertex color to all vertices in each primitive ----
-    // GL spec: for GL_FLAT, the last vertex of each primitive (except line: first vertex)
-    // determines the color for the entire primitive.
-    if (!indices && ctx->shade_model == 0x1D00 /* GL_FLAT */ && vertCount > 0) {
-        // After expansion, all primitives are triangles, lines, or points.
-        // For triangles: provoking vertex is the LAST of each group of 3.
-        // For lines: provoking vertex is the LAST of each group of 2.
-        // For points: each vertex is its own primitive, no change needed.
-        if (mtlPrim == MTLPrimitiveTypeTriangle) {
-            for (size_t i = 0; i + 2 < vertCount; i += 3) {
-                // Last vertex (i+2) is the provoking vertex
-                memcpy(expandedVerts[i].color, expandedVerts[i + 2].color, sizeof(float) * 4);
-                memcpy(expandedVerts[i + 1].color, expandedVerts[i + 2].color, sizeof(float) * 4);
-            }
-        } else if (mtlPrim == MTLPrimitiveTypeLine) {
-            for (size_t i = 0; i + 1 < vertCount; i += 2) {
-                memcpy(expandedVerts[i].color, expandedVerts[i + 1].color, sizeof(float) * 4);
-            }
-        } else if (mtlPrim == MTLPrimitiveTypeTriangleStrip) {
-            // For strips, provoking vertex is the last vertex of each triangle
-            // Triangle i uses vertices i, i+1, i+2 — provoking is i+2
-            for (size_t i = 0; i + 2 < vertCount; i++) {
-                expandedVerts[i].color[0] = expandedVerts[i + 2].color[0];
-                expandedVerts[i].color[1] = expandedVerts[i + 2].color[1];
-                expandedVerts[i].color[2] = expandedVerts[i + 2].color[2];
-                expandedVerts[i].color[3] = expandedVerts[i + 2].color[3];
-            }
+    // Convert texture generation/matrices once per draw, before topology
+    // expansion. Indexed smooth draws retain their shared vertex storage.
+    auto &converted = ms->imConvertScratch;
+    auto &expandedVerts = ms->imExpandScratch;
+    GLConvertDrawVertices(*ctx, ctx->im_vertices, converted);
+    GLDrawPrimitive primitive;
+    const bool expanded = !indices && GLExpandDrawPrimitives(ctx->im_mode,
+        ctx->shade_model == GL_FLAT, converted, expandedVerts, primitive);
+    MTLPrimitiveType mtlPrim = indexedPrimitive;
+    if (!indices) {
+        switch (primitive) {
+        case GLDrawPrimitive::Point: mtlPrim=MTLPrimitiveTypePoint; break;
+        case GLDrawPrimitive::Line: mtlPrim=MTLPrimitiveTypeLine; break;
+        case GLDrawPrimitive::LineStrip: mtlPrim=MTLPrimitiveTypeLineStrip; break;
+        case GLDrawPrimitive::Triangle: mtlPrim=MTLPrimitiveTypeTriangle; break;
+        case GLDrawPrimitive::TriangleStrip: mtlPrim=MTLPrimitiveTypeTriangleStrip; break;
         }
-        // Update vertData pointer in case expansion reallocated
-        vertData = expandedVerts.data();
     }
+    auto &drawVertices = expanded ? expandedVerts : converted;
+    const GLMetalVertex *vertData = drawVertices.data();
+    const size_t vertCount = drawVertices.size();
+    if (vertCount == 0) return;
 
     // Hornet Korea renders its 2D/HUD surface as textured GL quads in
     // viewport pixel coordinates after loading an identity projection.
@@ -2574,12 +2318,12 @@ static void GLMetalSubmitVertices(GLContext *ctx,
         viewportW, viewportH, minX, maxX, minY, maxY, minZ, maxZ);
 
     if (screenSpaceRemap) {
-        for (GLMetalVertex &v : expandedVerts) {
+        for (GLMetalVertex &v : drawVertices) {
             v.position[0] = GLMetalPixelToClipX(v.position[0], viewportW);
             v.position[1] = GLMetalPixelToClipY(v.position[1], viewportH);
             v.position[3] = 1.0f;
         }
-        vertData = expandedVerts.data();
+        vertData = drawVertices.data();
 #if ACCEL_LOGGING_ENABLED
         static uint32_t s_screen_space_remap_log_count = 0;
         if (s_screen_space_remap_log_count < 16) {
@@ -2656,8 +2400,7 @@ static void GLMetalSubmitVertices(GLContext *ctx,
 
     // ---- Upload fragment uniforms ----
     GLMetalFragmentUniforms fu;
-    fu.texenv_mode = GLTexEnvModeToShader(ctx->tex_units[texUnit].env_mode);
-    memcpy(fu.texenv_color, ctx->tex_units[texUnit].env_color, sizeof(float) * 4);
+    GLMetalSetTextureEnvironments(fu, *ctx);
     if (fogActiveForDraw) {
         memcpy(fu.fog_color, ctx->fog_color, sizeof(float) * 4);
     } else {
@@ -2682,7 +2425,6 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     // and GL_EXT_texture_env_combine is de-advertised — only modes 0-4 are honored.
     fu.has_texture_unit1 = (GLMetalTexture2DEnabledForDraw(ctx, 1) &&
                             ctx->tex_units[1].bound_texture_2d != 0) ? 1 : 0;
-    fu.texenv1_mode = GLTexEnvModeToShader(ctx->tex_units[1].env_mode);
     {
         const bool isOffscreen =
             GLContextGetOffscreenDrawable(ctx, NULL, NULL, NULL, NULL);
@@ -5095,7 +4837,7 @@ static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode,
     ctx->im_vertices.clear();
 
     // Flat shading currently rewrites per-primitive colors. Keep that path
-    // isolated from shared vertices until provoking-vertex lighting is fixed.
+    // isolated from shared vertices so each primitive retains its own provoking-vertex lighting inputs.
     if (!preserveIndices || ctx->shade_model == 0x1D00 /* GL_FLAT */) {
         ctx->im_vertices.reserve(count);
         for (int32_t j = 0; j < count; ++j) {

@@ -25,6 +25,7 @@ struct GLVertexIn {
     float3 normal          [[attribute(2)]];
     float3 texcoord        [[attribute(3)]];   // (s, t, q) unit 0 — q enables projective texturing
     float3 texcoord1       [[attribute(4)]];   // (s, t, q) unit 1 — for multitexture
+    float4 lighting_position [[attribute(6)]]; // provoking position for flat lighting
     float3 secondary_color [[attribute(5)]];   // (r, g, b) EXT_secondary_color / GL_COLOR_SUM
 };
 
@@ -83,6 +84,7 @@ struct GLFragmentUniforms {
     int    has_texture_unit1;   // ARB_multitexture: unit 1 has a bound+enabled 2D texture (sample tex1 with texcoord1)
     int    texenv1_mode;        // unit-1 texenv mode (0=modulate,1=decal,2=blend,3=replace,4=add)
     int    force_opaque_output; // window overlay, GL blending disabled: store coverage alpha
+    float4 texenv1_color;       // independent unit-1 GL_TEXTURE_ENV_COLOR
 };
 
 struct GLLight {
@@ -141,6 +143,7 @@ vertex GLVertexOut gl_vertex_main(
     // 2. Eye-space position (for fog distance and lighting)
     float4 eye_pos = uniforms.modelview_matrix * in.position;
     out.eye_position = eye_pos.xyz;
+    float3 lighting_eye_pos = (uniforms.modelview_matrix * in.lighting_position).xyz;
 
     // 3. Transform and optionally normalize the normal
     float3 eye_normal = uniforms.normal_matrix * in.normal;
@@ -151,7 +154,7 @@ vertex GLVertexOut gl_vertex_main(
     // Two-sided lighting: flip normal for back-facing vertices
     // A vertex is back-facing if the normal points away from the eye (dot(N, -V) < 0)
     if (uniforms.two_side_lighting && uniforms.lighting_enabled) {
-        float3 V = normalize(-eye_pos.xyz);
+        float3 V = normalize(-lighting_eye_pos);
         if (dot(eye_normal, V) < 0.0) {
             eye_normal = -eye_normal;
         }
@@ -193,7 +196,7 @@ vertex GLVertexOut gl_vertex_main(
                 L = normalize(light.position.xyz);
             } else {
                 // Positional light
-                float3 lightVec = light.position.xyz - eye_pos.xyz;
+                float3 lightVec = light.position.xyz - lighting_eye_pos;
                 float dist = length(lightVec);
                 L = lightVec / max(dist, 0.0001);
                 attenuation = 1.0 / (light.constant_atten +
@@ -223,7 +226,7 @@ vertex GLVertexOut gl_vertex_main(
             // Specular contribution
             float4 specular_contrib = float4(0.0);
             if (NdotL > 0.0 && lighting.material.shininess > 0.0) {
-                float3 V = normalize(-eye_pos.xyz);   // view direction (eye at origin)
+                float3 V = normalize(-lighting_eye_pos);   // view direction (eye at origin)
                 float3 H = normalize(L + V);           // half vector
                 float NdotH = max(dot(eye_normal, H), 0.0);
                 float spec = pow(NdotH, lighting.material.shininess);
@@ -345,7 +348,7 @@ fragment float4 gl_fragment_main(
             color.rgb = mix(color.rgb, t1.rgb, t1.a);
         } else if (uniforms.texenv1_mode == 2) {
             // GL_BLEND: Cf.rgb = mix(Cf.rgb, Cc.rgb, Ct1.rgb), Cf.a = Cf.a * Ct1.a
-            color.rgb = mix(color.rgb, uniforms.texenv_color.rgb, t1.rgb);
+            color.rgb = mix(color.rgb, uniforms.texenv1_color.rgb, t1.rgb);
             color.a *= t1.a;
         } else if (uniforms.texenv1_mode == 3) {
             // GL_REPLACE: Cf = Ct1

@@ -22,6 +22,7 @@
 #include "cpu_emulation.h"
 #include "macos_util.h"
 #include "gl_engine.h"
+#include "gl_texture_coordinates.h"
 #include "gl_agl_renderer_policy.h"
 #include "rave_metal_renderer.h"
 #include "metal_compositor.h"
@@ -667,8 +668,7 @@ static GLContext *GLContextNew(int width, int height)
 		T.current_texcoord[1] = 0.0f;
 		T.current_texcoord[2] = 0.0f;
 		T.current_texcoord[3] = 1.0f;
-		T.texgen_s_enabled = T.texgen_t_enabled = T.texgen_r_enabled = T.texgen_q_enabled = false;
-		T.texgen_s_mode = T.texgen_t_mode = T.texgen_r_mode = T.texgen_q_mode = 0;
+		GLInitTextureGeneration(T);
 	}
 	ctx->active_texture = 0;
 	ctx->client_active_texture = 0;
