@@ -890,6 +890,8 @@ struct GLVertexArrayPointer {
  *  GLPixelStore -- pixel pack/unpack state
  */
 struct GLPixelStore {
+    bool pack_swap_bytes;
+    bool pack_lsb_first; // Relevant only for bitmap output; color/depth output is scalar.
     int  pack_alignment;
     int  pack_row_length;
     int  pack_skip_pixels;

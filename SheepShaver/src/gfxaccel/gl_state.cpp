@@ -33,6 +33,8 @@
 #include "gl_metal_draw_state.h"
 #include "gl_offscreen_policy.h"
 #include "gl_pixel_unpack_policy.h"
+#include "gl_pixel_readback.h"
+#include <algorithm>
 
 extern bool RaveGetLastCL8ColorTableRGBSnapshot(uint8_t outRGB[768]);
 
@@ -1567,6 +1569,8 @@ void NativeGLTexGendv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t m
 
 void NativeGLPixelStorei(GLContext *ctx, uint32_t pname, int32_t param)
 {
+    if (pname==0x0d00) {ctx->pixel_store.pack_swap_bytes=param!=0;return;}
+    if (pname==0x0d01) {ctx->pixel_store.pack_lsb_first=param!=0;return;}
 	switch (pname) {
 	case GL_PACK_ALIGNMENT:    ctx->pixel_store.pack_alignment    = param; break;
 	case GL_PACK_ROW_LENGTH:   ctx->pixel_store.pack_row_length   = param; break;
@@ -1592,6 +1596,8 @@ void NativeGLPixelStoref(GLContext *ctx, uint32_t pname, float param)
 
 void NativeGLGetIntegerv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
+    if (pname==0x0d00) {WriteMacInt32(mac_ptr,ctx->pixel_store.pack_swap_bytes);return;}
+    if (pname==0x0d01) {WriteMacInt32(mac_ptr,ctx->pixel_store.pack_lsb_first);return;}
 	switch (pname) {
 	case GL_MAX_TEXTURE_SIZE:
 		WriteMacInt32(mac_ptr, 1024); break;
@@ -3121,7 +3127,9 @@ uint8_t *GLConvertMacPixelsToBGRA8(GLContext *ctx,
 		return ConvertPixelsToBGRA8(mac_pixels, width, height, format, type,
 		                            ctx->pixel_store, ctx, outLen);
 
-	GLPixelStore ps = {4, 0, 0, 0, 4, 0, 0, 0};
+	GLPixelStore ps{};
+	ps.pack_alignment=4;
+	ps.unpack_alignment=4;
 	return ConvertPixelsToBGRA8(mac_pixels, width, height, format, type,
 	                            ps, nullptr, outLen);
 }
@@ -4550,16 +4558,28 @@ void NativeGLGetTexGenfv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_
 void NativeGLGetTexGeniv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p) { (void)coord; (void)pname; WriteMacInt32(p, 0); }
 void NativeGLGetTexImage(GLContext *ctx, uint32_t target, int32_t level, uint32_t fmt, uint32_t type, uint32_t p)
 {
-	// Return zeroed data with warning — full Metal texture readback not yet implemented
-	GL_LOG("WARNING: glGetTexImage returning zeroes (known limitation)");
-	uint32_t tex = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(tex);
-	if (it != ctx->texture_objects.end() && p != 0) {
-		int w = it->second.width;
-		int h = it->second.height;
-		int bytes = w * h * 4;
-		for (int i = 0; i < bytes; i++) WriteMacInt8(p + i, 0);
-	}
+    auto fail=[&](uint32_t e){if(!ctx->last_error) ctx->last_error=e;};
+    // The current pixel-store model has no 3D image stride/skip state. Reject
+    // 3D readback explicitly instead of returning one slice or overrunning it.
+    if (target == 0x806f) { fail(0x0502); return; }
+    if (target != 0x0de0 && target != 0x0de1) { fail(0x0500); return; }
+    if (level < 0 || level > 30) { fail(0x0501); return; }
+    const uint32_t error=GLPixelPackError(fmt,type);
+    if(error) {fail(error);return;}
+    const auto &unit=ctx->tex_units[ctx->active_texture];
+    const uint32_t name=target==0x0de0 ? unit.bound_texture_1d : unit.bound_texture_2d;
+    auto it=ctx->texture_objects.find(name);
+    if(it==ctx->texture_objects.end() || !p) return;
+    const int32_t width=it->second.width > 0 ? std::max(1,it->second.width >> level) : 0;
+    const int32_t height=it->second.height > 0 ? std::max(1,it->second.height >> level) : 0;
+    if (!width || !height) return;
+    GLMetalPackLayout layout;
+    if(!GLMetalGetPackLayout(ctx,width,height,GLPixelPackBytesPerPixel(fmt,type),p,layout)) return;
+    std::vector<uint8_t> pixels;
+    extern bool GLMetalReadTexture(GLContext*,GLTextureObject*,int32_t,int32_t,int32_t,std::vector<uint8_t>&);
+    if(!GLMetalReadTexture(ctx,&it->second,level,width,height,pixels)) return;
+    GLStoreReadbackPixels(ctx,pixels.data(),width,height,fmt,type,p,false,
+        [](uint32_t a,uint8_t b){WriteMacInt8(a,b);});
 }
 void NativeGLGetTexLevelParameterfv(GLContext *ctx, uint32_t target, int32_t level, uint32_t pname, uint32_t p)
 {

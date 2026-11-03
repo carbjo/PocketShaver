@@ -41,6 +41,7 @@
 #include "gl_offscreen_policy.h"
 #include "gl_pixel_unpack_policy.h"
 #include "gl_pixel_pack_policy.h"
+#include "gl_pixel_readback.h"
 #include "nqd_accel.h"
 
 
@@ -3860,43 +3861,6 @@ static bool GLMetalReadRectIsInTexture(id<MTLTexture> tex,
     return x1 <= [tex width] && y1 <= [tex height];
 }
 
-struct GLMetalPackLayout {
-    uint64_t rowStride;
-    uint64_t start;
-};
-
-// Color and depth readbacks share exactly the same guest address bounds.
-// Validate the whole range before writing any pixels, using wide arithmetic.
-static bool GLMetalGetPackLayout(GLContext *ctx, int32_t width, int32_t height,
-                                 uint32_t bytesPerPixel, uint32_t base,
-                                 GLMetalPackLayout &layout)
-{
-    const GLPixelStore &ps = ctx->pixel_store;
-    auto invalid = [&]() {
-        if (!ctx->last_error) ctx->last_error = 0x0501; // GL_INVALID_VALUE
-        return false;
-    };
-    if (width <= 0 || height <= 0 || !bytesPerPixel ||
-        ps.pack_row_length < 0 || ps.pack_skip_rows < 0 || ps.pack_skip_pixels < 0)
-        return invalid();
-    int32_t alignment = ps.pack_alignment;
-    if (alignment != 1 && alignment != 2 && alignment != 4 && alignment != 8) {
-        alignment = 4;
-    }
-    // A row length shorter than width is legal and produces overlapping rows.
-    const uint64_t rowPixels = ps.pack_row_length > 0 ? ps.pack_row_length : width;
-    layout.rowStride = (rowPixels * bytesPerPixel + alignment - 1u) &
-                       ~(uint64_t)(alignment - 1u);
-    if (layout.rowStride > 0xffffffffull) return invalid();
-    layout.start = (uint64_t)ps.pack_skip_rows * layout.rowStride +
-                   (uint64_t)ps.pack_skip_pixels * bytesPerPixel;
-    const uint64_t available = 0x100000000ull - base;
-    if (layout.start > available) return invalid();
-    const uint64_t tail = (uint64_t)(height - 1) * layout.rowStride +
-                          (uint64_t)width * bytesPerPixel;
-    return tail <= available - layout.start ? true : invalid();
-}
-
 static id<MTLBuffer> GLMetalGetDepthReadbackBuffer(GLMetalState *ms,
                                                    int32_t width, int32_t height,
                                                    NSUInteger *bytesPerRow)
@@ -4115,34 +4079,47 @@ uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int
 }
 
 
-static bool GLMetalStoreReadPixelsToGuest(GLContext *ctx, const uint8_t *stagingBytes,
-                                           int32_t width, int32_t height,
-                                           uint32_t format, uint32_t type, uint32_t mac_pixels)
+static bool GLMetalStoreReadPixelsToGuest(GLContext *ctx, const uint8_t *pixels,
+    int32_t width, int32_t height, uint32_t format, uint32_t type, uint32_t address)
 {
-    const uint32_t error = GLPixelPackError(format, type);
-    if (error) {
-        if (!ctx->last_error) ctx->last_error = error;
+    return GLStoreReadbackPixels(ctx,pixels,width,height,format,type,address,true,
+        [](uint32_t p,uint8_t v){WriteMacInt8(p,v);});
+}
+
+// Texture uploads store GL row zero as Metal row zero, unlike the framebuffer.
+bool GLMetalReadTexture(GLContext *ctx, GLTextureObject *obj, int32_t level,
+    int32_t width, int32_t height, std::vector<uint8_t> &pixels)
+{
+    GLMetalState *ms=(GLMetalState *)ctx->metal;
+    id<MTLTexture> src=(__bridge id<MTLTexture>)obj->metal_texture;
+    if (!ms || !ms->initialized || !src || level >= (int32_t)src.mipmapLevelCount ||
+        src.textureType != MTLTextureType2D || src.pixelFormat != MTLPixelFormatBGRA8Unorm ||
+        std::max(NSUInteger(1),src.width >> level) != NSUInteger(width) ||
+        std::max(NSUInteger(1),src.height >> level) != NSUInteger(height)) {
+        if (!ctx->last_error) ctx->last_error=0x0502;
         return false;
     }
-    const uint32_t bytesPerPixel = (uint32_t)GLPixelPackBytesPerPixel(format, type);
-    if (width <= 0 || height <= 0 || !stagingBytes) {
-        if (!ctx->last_error) ctx->last_error = 0x0501; // GL_INVALID_VALUE
-        return false;
+    const bool restart=ms->renderPassActive;
+    if (restart) GLMetalEndAndCommitForReadback(ms);
+    else GLMetalWaitForCommittedReadbackWork(ms);
+    const NSUInteger pitch=(NSUInteger(width)*4+255)&~NSUInteger(255);
+    id<MTLBuffer> staging=[ms->device newBufferWithLength:pitch*height options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> cb=[ms->commandQueue commandBuffer];
+    id<MTLBlitCommandEncoder> blit=staging ? [cb blitCommandEncoder] : nil;
+    if (blit) {
+        [blit copyFromTexture:src sourceSlice:0 sourceLevel:level sourceOrigin:MTLOriginMake(0,0,0)
+            sourceSize:MTLSizeMake(width,height,1) toBuffer:staging destinationOffset:0
+            destinationBytesPerRow:pitch destinationBytesPerImage:pitch*height];
+        [blit endEncoding]; [cb commit]; [cb waitUntilCompleted];
     }
-    GLMetalPackLayout layout;
-    if (!GLMetalGetPackLayout(ctx, width, height, bytesPerPixel, mac_pixels, layout)) return false;
-    for (int32_t row = 0; row < height; ++row) {
-        for (int32_t col = 0; col < width; ++col) {
-            const uint8_t *src = stagingBytes + ((size_t)(height - 1 - row) * width + col) * 4u;
-            uint8_t packed[16];
-            GLPixelPackBGRA8(src, format, type, packed);
-            const uint32_t dstAddr = (uint32_t)(mac_pixels + layout.start + (uint64_t)row * layout.rowStride +
-                                               (uint64_t)col * bytesPerPixel);
-            for (uint32_t byte = 0; byte < bytesPerPixel; ++byte)
-                WriteMacInt8(dstAddr + byte, packed[byte]);
-        }
-    }
-    return true;
+    const bool ok=blit && cb.status==MTLCommandBufferStatusCompleted;
+    if (ok) {
+        pixels.resize(size_t(width)*height*4);
+        for(int32_t row=0;row<height;++row)
+            memcpy(pixels.data()+size_t(row)*width*4,(const uint8_t *)staging.contents+row*pitch,size_t(width)*4);
+    } else if (!ctx->last_error) ctx->last_error=0x0505;
+    if (restart) GLMetalRestartRenderPassForReadback(ctx);
+    return ok;
 }
 
 /*
@@ -4245,7 +4222,9 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
                 }
                 const uint32_t dstAddr = (uint32_t)(mac_pixels + layout.start +
                     (uint64_t)row * layout.rowStride + (uint64_t)col * bytesPerPixel);
-                WriteMacInt16(dstAddr, packed);
+                uint8_t output[2]={uint8_t(packed>>8),uint8_t(packed)};
+                GLReadbackApplyByteOrder(ctx->pixel_store.pack_swap_bytes,GL_UNSIGNED_SHORT,2,output);
+                WriteMacInt8(dstAddr,output[0]);WriteMacInt8(dstAddr+1,output[1]);
             }
         }
 
