@@ -40,6 +40,8 @@
 #include "gl_metal_draw_state.h"
 #include "gl_offscreen_policy.h"
 #include "gl_pixel_unpack_policy.h"
+#include "gl_pixel_pack_policy.h"
+#include "nqd_accel.h"
 
 
 // Forward declare Mac_sysalloc (from macos_util.h) to avoid UIKit header conflicts
@@ -441,8 +443,10 @@ struct GLMetalState {
     id<MTLRenderCommandEncoder> currentEncoder;
     id<MTLTexture>              overlayTexture;  // current visible/offscreen render target
     id<MTLTexture>              offscreenTexture; // private to this context, never published
+    id<MTLTexture>              offscreenUploadTexture;
+    std::vector<uint8_t>        offscreenUploadPixels;
     id<MTLTexture>              depthBuffer;
-    id<MTLTexture>              depthReadbackTexture;
+    id<MTLBuffer>               depthReadbackBuffer;
     id<MTLTexture>              fallbackWhiteTexture;  // 1x1 white for missing textures
 	id<MTLCommandBuffer>        lastCommittedBuffer;
 	bool                        renderPassActive;
@@ -606,669 +610,10 @@ static void GLMetalMarkDrawCompleted(GLContext *ctx)
     GLMetalClearPreparedDrawState(ctx);
 }
 
-typedef struct GLMetalLatestOffscreenReadback {
-    bool valid;
-    uint32_t width;
-    uint32_t height;
-    uint32_t rowbytes;
-    uint32_t baseaddr;
-    uint32_t bytes_per_pixel;
-    uint64_t composite_count;
-    GLOffscreenBGRAStats stats;
-} GLMetalLatestOffscreenReadback;
-
-static GLMetalLatestOffscreenReadback s_gl_latest_offscreen_readback = {};
-
-typedef struct GLMetalGuestCompositeBackup {
-    bool valid;
-    uint32_t dst_baseaddr;
-    uint32_t dst_rowbytes;
-    uint32_t dst_depth_bits;
-    uint32_t dst_width;
-    uint32_t dst_height;
-    uint32_t rect_x;
-    uint32_t rect_y;
-    uint32_t rect_w;
-    uint32_t rect_h;
-    /* pixels: the world content BENEATH the stamp (never includes guest
-     * content drawn over it — denied pixels propagate the world value from
-     * the prior backup so occluders can't leak into the background).
-     * composed_pixels: destination content after the stamp.
-     * stamped: 1 byte per rect pixel — 1 where the stamp actually wrote. */
-    std::vector<uint8_t> pixels;
-    std::vector<uint8_t> composed_pixels;
-    std::vector<uint8_t> stamped;
-} GLMetalGuestCompositeBackup;
-
-static GLMetalGuestCompositeBackup s_gl_previous_guest_composite = {};
-
-static void GLMetalInvalidateLatestOffscreenReadback(const char *reason)
-{
-    if (!s_gl_latest_offscreen_readback.valid) return;
-
-    const uint32_t baseaddr = s_gl_latest_offscreen_readback.baseaddr;
-    memset(&s_gl_latest_offscreen_readback, 0,
-           sizeof(s_gl_latest_offscreen_readback));
-    GL_METAL_LOG("GLMetalReadbackOffscreen: invalidated cached readback from 0x%08x (%s)",
-                 baseaddr, reason ? reason : "unknown");
-}
-
-static bool GLMetalGuestCompositeSameSurface(
-    const GLMetalGuestCompositeBackup &backup,
-    uint32_t dstBaseaddr,
-    uint32_t dstRowbytes,
-    uint32_t dstDepthBits,
-    uint32_t dstWidth,
-    uint32_t dstHeight)
-{
-    return backup.valid &&
-           backup.dst_baseaddr == dstBaseaddr &&
-           backup.dst_rowbytes == dstRowbytes &&
-           backup.dst_depth_bits == dstDepthBits &&
-           backup.dst_width == dstWidth &&
-           backup.dst_height == dstHeight;
-}
-
-static void GLMetalInvalidatePreviousGuestComposite()
-{
-    s_gl_previous_guest_composite.valid = false;
-    s_gl_previous_guest_composite.pixels.clear();
-    s_gl_previous_guest_composite.composed_pixels.clear();
-    s_gl_previous_guest_composite.stamped.clear();
-}
-
-/* Erase the tracked stamp (pixel-tested) and drop its tracking. The
- * tracking invariant: at most one live stamp exists in the destination and
- * the backup always describes it. A stamp must never lose its tracking
- * without being erased first — an untracked stamp is a permanent remnant
- * (The Sims: one leaked model fragment per animation tick reads as a trail
- * of ghost copies behind every walking Sim). */
-static void GLMetalRestorePreviousGuestCompositeNow(
-    uint8_t *dst,
-    uint32_t dstBaseaddr,
-    uint32_t dstRowbytes,
-    uint32_t dstDepthBits,
-    uint32_t dstWidth,
-    uint32_t dstHeight)
-{
-    GLMetalGuestCompositeBackup &backup = s_gl_previous_guest_composite;
-    if (!backup.valid) return;
-
-    const bool sameSurface =
-        GLMetalGuestCompositeSameSurface(backup,
-                                         dstBaseaddr,
-                                         dstRowbytes,
-                                         dstDepthBits,
-                                         dstWidth,
-                                         dstHeight);
-    if (!sameSurface) {
-        GLMetalInvalidatePreviousGuestComposite();
-        return;
-    }
-
-    const GLOffscreenCompositeRect restoreRect = {
-        true, backup.rect_x, backup.rect_y, backup.rect_w, backup.rect_h};
-
-    const size_t bytesPerPixel = 2u;
-    /* Pixel-tested restore: only put the captured background back where WE
-     * wrote (stamped mask) and the destination still holds OUR stamped
-     * output. Pixels the guest repainted since the stamp (world tile
-     * redraws, occluding sprites) must survive — a blind memcpy resurrects
-     * the stale pre-stamp background over them (visible as old world
-     * fragments around a moving model). Without composed_pixels there is
-     * nothing to test against, so fall back to the full restore. */
-    const size_t rectPixels = (size_t)backup.rect_w * backup.rect_h;
-    const bool haveComposedOutput =
-        backup.composed_pixels.size() == rectPixels * bytesPerPixel;
-    const bool haveStampedMask = backup.stamped.size() == rectPixels;
-    uint64_t restoredPixels = 0;
-    for (uint32_t row = 0; row < restoreRect.height; row++) {
-        uint8_t *dstRow =
-            dst + (uint64_t)(restoreRect.y + row) * dstRowbytes +
-            (uint64_t)restoreRect.x * bytesPerPixel;
-        const uint64_t backupRowOffset =
-            (uint64_t)row * backup.rect_w * bytesPerPixel;
-        const uint8_t *srcRow = backup.pixels.data() + backupRowOffset;
-        if (!haveComposedOutput) {
-            memcpy(dstRow, srcRow, (size_t)restoreRect.width * bytesPerPixel);
-            restoredPixels += restoreRect.width;
-            continue;
-        }
-        const uint8_t *composedRow =
-            backup.composed_pixels.data() + backupRowOffset;
-        const uint8_t *stampedRow =
-            haveStampedMask
-                ? backup.stamped.data() + (uint64_t)row * backup.rect_w
-                : NULL;
-        for (uint32_t col = 0; col < restoreRect.width; col++) {
-            if (stampedRow != NULL && stampedRow[col] == 0) continue;
-            uint8_t *dstPx = dstRow + (size_t)col * bytesPerPixel;
-            const uint8_t *composedPx =
-                composedRow + (size_t)col * bytesPerPixel;
-            if (dstPx[0] == composedPx[0] && dstPx[1] == composedPx[1]) {
-                const uint8_t *srcPx =
-                    srcRow + (size_t)col * bytesPerPixel;
-                dstPx[0] = srcPx[0];
-                dstPx[1] = srcPx[1];
-                restoredPixels++;
-            }
-        }
-    }
-    if (restoredPixels != 0) {
-        GL_METAL_VLOG("GLCompositeLatestOffscreenToGuestSurface: restored previous rect=(%u,%u %ux%u) pixels=%llu in 0x%08x",
-                     restoreRect.x,
-                     restoreRect.y,
-                     restoreRect.width,
-                     restoreRect.height,
-                     (unsigned long long)restoredPixels,
-                     backup.dst_baseaddr);
-    }
-
-    GLMetalInvalidatePreviousGuestComposite();
-}
-
-static bool GLMetalPreviousGuestCompositeMatches(
-    uint32_t dstBaseaddr,
-    uint32_t dstRowbytes,
-    uint32_t dstDepthBits,
-    uint32_t dstWidth,
-    uint32_t dstHeight)
-{
-    return GLMetalGuestCompositeSameSurface(s_gl_previous_guest_composite,
-                                            dstBaseaddr,
-                                            dstRowbytes,
-                                            dstDepthBits,
-                                            dstWidth,
-                                            dstHeight);
-}
-
-static bool GLMetalCaptureGuestCompositeBackground(
-    uint8_t *dst,
-    uint32_t dstBaseaddr,
-    uint32_t dstRowbytes,
-    uint32_t dstDepthBits,
-    uint32_t dstWidth,
-    uint32_t dstHeight,
-    uint32_t rectX,
-    uint32_t rectY,
-    uint32_t rectW,
-    uint32_t rectH)
-{
-    GLMetalInvalidatePreviousGuestComposite();
-    if (dst == NULL ||
-        dstDepthBits != 16 ||
-        rectW == 0 ||
-        rectH == 0 ||
-        rectX >= dstWidth ||
-        rectY >= dstHeight ||
-        rectW > dstWidth - rectX ||
-        rectH > dstHeight - rectY) {
-        return false;
-    }
-
-    const size_t bytesPerPixel = 2u;
-    GLMetalGuestCompositeBackup &backup = s_gl_previous_guest_composite;
-    backup.pixels.resize((size_t)rectW * rectH * bytesPerPixel);
-    backup.composed_pixels.clear();
-    backup.stamped.assign((size_t)rectW * rectH, 0);
-    for (uint32_t row = 0; row < rectH; row++) {
-        const uint8_t *srcRow =
-            dst + (uint64_t)(rectY + row) * dstRowbytes +
-            (uint64_t)rectX * bytesPerPixel;
-        uint8_t *dstRow =
-            backup.pixels.data() + (uint64_t)row * rectW * bytesPerPixel;
-        memcpy(dstRow, srcRow, (size_t)rectW * bytesPerPixel);
-    }
-
-    backup.valid = true;
-    backup.dst_baseaddr = dstBaseaddr;
-    backup.dst_rowbytes = dstRowbytes;
-    backup.dst_depth_bits = dstDepthBits;
-    backup.dst_width = dstWidth;
-    backup.dst_height = dstHeight;
-    backup.rect_x = rectX;
-    backup.rect_y = rectY;
-    backup.rect_w = rectW;
-    backup.rect_h = rectH;
-    return true;
-}
-
-static void GLMetalCaptureGuestCompositeOutput(
-    const uint8_t *dst,
-    uint32_t dstRowbytes,
-    uint32_t rectX,
-    uint32_t rectY,
-    uint32_t rectW,
-    uint32_t rectH)
-{
-    GLMetalGuestCompositeBackup &backup = s_gl_previous_guest_composite;
-    if (!backup.valid ||
-        backup.rect_x != rectX ||
-        backup.rect_y != rectY ||
-        backup.rect_w != rectW ||
-        backup.rect_h != rectH ||
-        dst == NULL) {
-        return;
-    }
-
-    const size_t bytesPerPixel = 2u;
-    backup.composed_pixels.resize((size_t)rectW * rectH * bytesPerPixel);
-    for (uint32_t row = 0; row < rectH; row++) {
-        const uint8_t *srcRow =
-            dst + (uint64_t)(rectY + row) * dstRowbytes +
-            (uint64_t)rectX * bytesPerPixel;
-        uint8_t *dstRow =
-            backup.composed_pixels.data() +
-            (uint64_t)row * rectW * bytesPerPixel;
-        memcpy(dstRow, srcRow, (size_t)rectW * bytesPerPixel);
-    }
-}
-
-/* Stamp the latest readback's opaque pixels into dst, recording the
- * stamped mask in the freshly captured backup and cleansing its background
- * of guest content drawn ABOVE the model.
- *
- * gateWrites=false (fresh stamp at readback time, guest-ordered): every
- * opaque pixel is written — real hardware rasterizes the GL frame over
- * whatever is in the framebuffer, and the game redraws its occluding
- * sprites afterwards.
- *
- * gateWrites=true (asynchronous gap-filling re-stamp): a pixel is written
- * ONLY where the destination still shows the world background the previous
- * stamp sat on (reference). Anywhere the guest has since drawn something
- * else — occluding sprites, changed world — keeps its content; that is
- * what lets 2D elements sit IN FRONT of the 3D model.
- *
- * In both modes, wherever the destination differs from the reference world
- * value, the new backup's background is set to the reference value instead
- * of the observed content, so occluders never masquerade as "background"
- * and the denial stays stable across re-stamps. */
-static uint64_t GLMetalStampLatestReadbackRect(
-    const uint8_t *src,
-    uint32_t srcWidth,
-    uint32_t srcHeight,
-    uint32_t srcRowbytes,
-    uint8_t *dst,
-    uint32_t dstWidth,
-    uint32_t dstHeight,
-    uint32_t dstRowbytes,
-    uint32_t rectX,
-    uint32_t rectY,
-    uint32_t rectW,
-    uint32_t rectH,
-    bool gateWrites,
-    const GLMetalGuestCompositeBackup *reference)
-{
-    if (src == NULL || dst == NULL) return 0;
-    if (srcWidth == 0 || srcHeight == 0 || dstWidth == 0 || dstHeight == 0) {
-        return 0;
-    }
-    if (srcRowbytes < srcWidth * 2u || dstRowbytes < dstWidth * 2u) return 0;
-    if (rectX >= srcWidth || rectY >= srcHeight ||
-        rectX >= dstWidth || rectY >= dstHeight) {
-        return 0;
-    }
-
-    uint32_t copyW = rectW;
-    uint32_t copyH = rectH;
-    if (copyW > srcWidth - rectX) copyW = srcWidth - rectX;
-    if (copyW > dstWidth - rectX) copyW = dstWidth - rectX;
-    if (copyH > srcHeight - rectY) copyH = srcHeight - rectY;
-    if (copyH > dstHeight - rectY) copyH = dstHeight - rectY;
-    if (copyW == 0 || copyH == 0) return 0;
-
-    const size_t bytesPerPixel = 2u;
-    GLMetalGuestCompositeBackup &backup = s_gl_previous_guest_composite;
-    const bool trackBackup =
-        backup.valid &&
-        backup.rect_x == rectX && backup.rect_y == rectY &&
-        backup.rect_w == rectW && backup.rect_h == rectH &&
-        backup.pixels.size() == (size_t)rectW * rectH * bytesPerPixel &&
-        backup.stamped.size() == (size_t)rectW * rectH;
-    const bool haveReference =
-        reference != NULL &&
-        reference->valid &&
-        reference->rect_w != 0 && reference->rect_h != 0 &&
-        reference->pixels.size() ==
-            (size_t)reference->rect_w * reference->rect_h * bytesPerPixel;
-    if (gateWrites && !haveReference) {
-        /* Nothing safe to compare against — refuse rather than trample. */
-        return 0;
-    }
-
-    uint64_t copied = 0;
-    for (uint32_t y = 0; y < copyH; y++) {
-        const uint8_t *srcRow =
-            src + (uint64_t)(rectY + y) * srcRowbytes +
-            (uint64_t)rectX * bytesPerPixel;
-        uint8_t *dstRow =
-            dst + (uint64_t)(rectY + y) * dstRowbytes +
-            (uint64_t)rectX * bytesPerPixel;
-        for (uint32_t x = 0; x < copyW; x++) {
-            const uint16_t srcPixel =
-                GLOffscreenLoadRGB555Bytes(srcRow + (uint64_t)x * 2u);
-            if (!GLOffscreenARGB1555PixelHasAlpha(srcPixel)) continue;
-
-            uint8_t *dstPx = dstRow + (uint64_t)x * 2u;
-            const uint8_t *refBg = NULL;
-            if (haveReference) {
-                const uint32_t ax = rectX + x;
-                const uint32_t ay = rectY + y;
-                if (ax >= reference->rect_x && ay >= reference->rect_y &&
-                    ax < reference->rect_x + reference->rect_w &&
-                    ay < reference->rect_y + reference->rect_h) {
-                    refBg = reference->pixels.data() +
-                        ((uint64_t)(ay - reference->rect_y) *
-                             reference->rect_w +
-                         (ax - reference->rect_x)) * bytesPerPixel;
-                }
-            }
-            const bool dstIsWorld =
-                refBg != NULL &&
-                dstPx[0] == refBg[0] && dstPx[1] == refBg[1];
-
-            if (trackBackup && refBg != NULL && !dstIsWorld) {
-                /* Guest content above the world here — keep the WORLD
-                 * value as this pixel's background so it never gets
-                 * "restored" onto, or compared as, guest content. */
-                uint8_t *bgPx = backup.pixels.data() +
-                    ((uint64_t)y * rectW + x) * bytesPerPixel;
-                bgPx[0] = refBg[0];
-                bgPx[1] = refBg[1];
-            }
-
-            if (gateWrites && !dstIsWorld) continue;
-
-            uint8_t outBytes[2];
-            GLOffscreenStoreRGB555Bytes(
-                GLOffscreenRGB555WithoutAlpha(srcPixel), outBytes);
-            dstPx[0] = outBytes[0];
-            dstPx[1] = outBytes[1];
-            if (trackBackup) {
-                backup.stamped[(size_t)y * rectW + x] = 1;
-            }
-            copied++;
-        }
-    }
-    return copied;
-}
-
-static uint64_t GLCompositeLatestOffscreenToGuestSurfaceInternal(uint32_t dstBaseaddr,
-                                                                 uint32_t dstRowbytes,
-                                                                 uint32_t dstWidth,
-                                                                 uint32_t dstHeight,
-                                                                 uint32_t dstDepthBits,
-                                                                 bool useLatestExtent,
-                                                                 bool useDirtyRect,
-                                                                 int32_t dirtyX,
-                                                                 int32_t dirtyY,
-                                                                 int32_t dirtyWidth,
-                                                                 int32_t dirtyHeight,
-                                                                 bool freshStampAtReadback)
-{
-    GLMetalLatestOffscreenReadback &latest =
-        s_gl_latest_offscreen_readback;
-    if (!GLShouldCompositeOffscreenIntoGuestSurface(
-            latest.valid,
-            latest.stats.alpha_bounds_valid,
-            latest.baseaddr,
-            latest.width,
-            latest.height,
-            latest.bytes_per_pixel,
-            dstBaseaddr,
-            dstRowbytes,
-            dstDepthBits)) {
-        return 0;
-    }
-
-    if (!useLatestExtent &&
-        (dstWidth != latest.width || dstHeight != latest.height)) {
-        return 0;
-    }
-
-    const uint32_t compositeWidth =
-        useLatestExtent ? latest.width : dstWidth;
-    const uint32_t compositeHeight =
-        useLatestExtent ? latest.height : dstHeight;
-
-    uint8_t *src = Mac2HostAddr(latest.baseaddr);
-    uint8_t *dst = Mac2HostAddr(dstBaseaddr);
-    if (src == NULL || dst == NULL) return 0;
-
-    const GLOffscreenBGRAStats &stats = latest.stats;
-    const bool previousCompositeMatches =
-        GLMetalPreviousGuestCompositeMatches(dstBaseaddr,
-                                             dstRowbytes,
-                                             dstDepthBits,
-                                             compositeWidth,
-                                             compositeHeight);
-    const bool dirtyIntersectsCurrentComposite =
-        stats.alpha_bounds_valid &&
-        GLShouldCompositeCurrentOffscreenDirtyRect(
-            useDirtyRect,
-            stats.alpha_min_x,
-            stats.alpha_min_y,
-            stats.alpha_max_x,
-            stats.alpha_max_y,
-            dirtyX,
-            dirtyY,
-            dirtyWidth,
-            dirtyHeight,
-            compositeWidth,
-            compositeHeight);
-    const GLOffscreenCompositeRect compositeRect =
-        dirtyIntersectsCurrentComposite
-            ? GLOffscreenCurrentCompositeRectForDirty(useDirtyRect,
-                                                      stats.alpha_min_x,
-                                                      stats.alpha_min_y,
-                                                      stats.alpha_max_x,
-                                                      stats.alpha_max_y,
-                                                      dirtyX,
-                                                      dirtyY,
-                                                      dirtyWidth,
-                                                      dirtyHeight,
-                                                      compositeWidth,
-                                                      compositeHeight)
-            : GLOffscreenCompositeRect{false, 0, 0, 0, 0};
-    if (!dirtyIntersectsCurrentComposite && !previousCompositeMatches) {
-        return 0;
-    }
-
-    if (!compositeRect.valid) {
-        /* Nothing stampable. NEVER erase here — on real hardware nothing
-         * removes the GL frame's pixels from the framebuffer except the
-         * guest drawing over them, and an erase with no follow-up stamp
-         * blanks the model until the next readback (visible flicker at
-         * every present in between). Stale tracking is harmless: the
-         * pixel-tested force-restore before the next stamp cleans up any
-         * survivors. Only when the incoming blit provably rewrote the
-         * whole stamp region is the (now dead) tracking dropped. */
-        GLMetalGuestCompositeBackup &backup = s_gl_previous_guest_composite;
-        if (backup.valid && useDirtyRect &&
-            GLMetalGuestCompositeSameSurface(backup,
-                                             dstBaseaddr,
-                                             dstRowbytes,
-                                             dstDepthBits,
-                                             compositeWidth,
-                                             compositeHeight) &&
-            GLDirtyRectFullyCoversOffscreenComposite(dirtyX,
-                                                     dirtyY,
-                                                     dirtyWidth,
-                                                     dirtyHeight,
-                                                     backup.rect_x,
-                                                     backup.rect_y,
-                                                     backup.rect_w,
-                                                     backup.rect_h)) {
-            GLMetalInvalidatePreviousGuestComposite();
-        }
-        return 0;
-    }
-
-    /* Snapshot the tracked stamp as the gating/cleansing reference BEFORE
-     * the restore below drops it. Its `pixels` hold the propagated world
-     * background the previous stamp sat on. */
-    GLMetalGuestCompositeBackup reference;
-    reference.valid = false;
-    if (GLMetalGuestCompositeSameSurface(s_gl_previous_guest_composite,
-                                         dstBaseaddr,
-                                         dstRowbytes,
-                                         dstDepthBits,
-                                         compositeWidth,
-                                         compositeHeight)) {
-        reference = s_gl_previous_guest_composite;
-    }
-    /* Asynchronous callers (blit bridge, present publish) re-stamp with
-     * per-pixel gating so guest content drawn over the model since the
-     * last guest-ordered stamp stays on top. Only the flush-time stamp —
-     * which runs in guest order right after the readback — writes
-     * unconditionally, like real hardware rasterizing the GL frame. */
-    const bool gateWrites = !freshStampAtReadback;
-
-    /* About to stamp: the old stamp must be erased and untracked first,
-     * regardless of what the dirty region touched — the capture below
-     * replaces the tracking, and any stamp that loses tracking without
-     * being restored becomes a permanent ghost. */
-    GLMetalRestorePreviousGuestCompositeNow(dst,
-                                            dstBaseaddr,
-                                            dstRowbytes,
-                                            dstDepthBits,
-                                            compositeWidth,
-                                            compositeHeight);
-
-    const uint32_t rectX = compositeRect.x;
-    const uint32_t rectY = compositeRect.y;
-    const uint32_t rectW = compositeRect.width;
-    const uint32_t rectH = compositeRect.height;
-    /* Capture unconditionally: every stamp must be tracked by the backup
-     * (background + output) or it can never be erased later. Untracked
-     * stamps are how the walking-Sim ghost trails formed — a dirty-path
-     * stamp replaced the backup without covering the old stamp region. */
-    const bool captured =
-        GLMetalCaptureGuestCompositeBackground(dst,
-                                               dstBaseaddr,
-                                               dstRowbytes,
-                                               dstDepthBits,
-                                               compositeWidth,
-                                               compositeHeight,
-                                               rectX,
-                                               rectY,
-                                               rectW,
-                                               rectH);
-    const uint64_t copied =
-        GLMetalStampLatestReadbackRect(
-            src,
-            latest.width,
-            latest.height,
-            latest.rowbytes,
-            dst,
-            compositeWidth,
-            compositeHeight,
-            dstRowbytes,
-            rectX,
-            rectY,
-            rectW,
-            rectH,
-            gateWrites,
-            reference.valid ? &reference : NULL);
-    if (captured) {
-        /* Keep composed_pixels coherent with the destination even when the
-         * gate denied every pixel — a stale composed snapshot would make
-         * the next restore misfire. */
-        GLMetalCaptureGuestCompositeOutput(dst,
-                                           dstRowbytes,
-                                           rectX,
-                                           rectY,
-                                           rectW,
-                                           rectH);
-    }
-    if (copied != 0) {
-        s_gl_latest_offscreen_readback.composite_count++;
-        GL_METAL_VLOG("GLCompositeLatestOffscreenToGuestSurface: composited %llu pixels from 0x%08x to 0x%08x rect=(%u,%u %ux%u)%s",
-                     (unsigned long long)copied,
-                     latest.baseaddr,
-                     dstBaseaddr, rectX, rectY, rectW, rectH,
-                     gateWrites ? " (gated)" : " (fresh)");
-    } else if (!captured) {
-        GLMetalInvalidatePreviousGuestComposite();
-    }
-    return copied;
-}
-
-extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentDirtyRect(
-    uint32_t dstBaseaddr,
-    uint32_t dstRowbytes,
-    uint32_t dstDepthBits,
-    int32_t dirtyX,
-    int32_t dirtyY,
-    int32_t dirtyWidth,
-    int32_t dirtyHeight)
-{
-    return GLCompositeLatestOffscreenToGuestSurfaceInternal(dstBaseaddr,
-                                                           dstRowbytes,
-                                                           0,
-                                                           0,
-                                                           dstDepthBits,
-                                                           true,
-                                                           true,
-                                                           dirtyX,
-                                                           dirtyY,
-                                                           dirtyWidth,
-                                                           dirtyHeight,
-                                                           false);
-}
-
-extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentIfNotSuppressed(
-    uint32_t dstBaseaddr,
-    uint32_t dstRowbytes,
-    uint32_t dstDepthBits)
-{
-    return GLCompositeLatestOffscreenToGuestSurfaceInternal(dstBaseaddr,
-                                                           dstRowbytes,
-                                                           0,
-                                                           0,
-                                                           dstDepthBits,
-                                                           true,
-                                                           false,
-                                                           0,
-                                                           0,
-                                                           0,
-                                                           0,
-                                                           false);
-}
-
-/* Guest-ordered fresh stamp, called on the emulation thread right after a
- * successful offscreen readback (glFlush / glFinish / end-frame). This is
- * the moment real hardware would have rasterized the GL frame into the
- * framebuffer: the game's world repaint has already landed and its
- * occluding sprites have NOT been drawn yet, so an ungated stamp here is
- * exactly correct — and it is the only ungated stamp; every asynchronous
- * re-stamp after it is per-pixel gated. */
-extern "C" bool NQDReadMainDevicePixMapForGLBridge(uint32_t *baseAddr,
-                                                   uint32_t *rowBytes,
-                                                   uint32_t *pixelSize);
-
-static void GLCompositeLatestOffscreenFreshAtReadback(void)
-{
-    uint32_t baseAddr = 0;
-    uint32_t rowBytes = 0;
-    uint32_t pixelSize = 0;
-    if (!NQDReadMainDevicePixMapForGLBridge(&baseAddr, &rowBytes, &pixelSize)) {
-        return;
-    }
-    GLCompositeLatestOffscreenToGuestSurfaceInternal(baseAddr,
-                                                     rowBytes,
-                                                     0,
-                                                     0,
-                                                     pixelSize,
-                                                     true,
-                                                     false,
-                                                     0,
-                                                     0,
-                                                     0,
-                                                     0,
-                                                     true);
-}
-
+// Offscreen rendering owns only the buffer supplied to aglSetOffScreen.
+// QuickDraw and DrawSprocket must present guest pixels without injecting a
+// cached GL frame into unrelated surfaces. The guest controls the ordering
+// of 2D backgrounds, offscreen 3D copies, and foreground sprites.
 static void GLMetalStoreBGRA8PixelsToGuestOffscreen(const uint8_t *bgra,
                                                     uint32_t width,
                                                     uint32_t height,
@@ -1412,51 +757,12 @@ static bool GLMetalReadbackOffscreenDrawable(GLContext *ctx,
            fromRegion:region
           mipmapLevel:0];
 
-    const GLOffscreenBGRAStats stats =
-        GLOffscreenAnalyzeBGRA8Pixels(bgra.data(), readW, readH, readW * 4u);
-
     GLMetalStoreBGRA8PixelsToGuestOffscreen(
         bgra.data(), readW, readH, dstRowbytes, dstBaseaddr,
         dstBytesPerPixel);
 
-    s_gl_latest_offscreen_readback.valid = true;
-    s_gl_latest_offscreen_readback.width = readW;
-    s_gl_latest_offscreen_readback.height = readH;
-    s_gl_latest_offscreen_readback.rowbytes = dstRowbytes;
-    s_gl_latest_offscreen_readback.baseaddr = dstBaseaddr;
-    s_gl_latest_offscreen_readback.bytes_per_pixel = dstBytesPerPixel;
-    s_gl_latest_offscreen_readback.composite_count = 0;
-    s_gl_latest_offscreen_readback.stats = stats;
-
-    if (stats.rgb_bounds_valid) {
-        GL_METAL_VLOG("GLMetalReadbackOffscreen: copied %ux%u to 0x%08x rowbytes=%u bpp=%u rgb=%llu alpha=%llu opaque=%llu rgb_bbox=(%u,%u)-(%u,%u) alpha_bbox=%s",
-                     readW, readH, dstBaseaddr, dstRowbytes,
-                     dstBytesPerPixel * 8u,
-                     (unsigned long long)stats.rgb_nonzero_pixels,
-                     (unsigned long long)stats.alpha_nonzero_pixels,
-                     (unsigned long long)stats.alpha_opaque_pixels,
-                     stats.rgb_min_x, stats.rgb_min_y,
-                     stats.rgb_max_x, stats.rgb_max_y,
-                     stats.alpha_bounds_valid ? "valid" : "none");
-        if (stats.alpha_bounds_valid) {
-            GL_METAL_VLOG("GLMetalReadbackOffscreen: alpha_bbox=(%u,%u)-(%u,%u)",
-                         stats.alpha_min_x, stats.alpha_min_y,
-                         stats.alpha_max_x, stats.alpha_max_y);
-        }
-    } else {
-        GL_METAL_VLOG("GLMetalReadbackOffscreen: copied %ux%u to 0x%08x rowbytes=%u bpp=%u rgb=%llu alpha=%llu opaque=%llu rgb_bbox=none alpha_bbox=%s",
-                     readW, readH, dstBaseaddr, dstRowbytes,
-                     dstBytesPerPixel * 8u,
-                     (unsigned long long)stats.rgb_nonzero_pixels,
-                     (unsigned long long)stats.alpha_nonzero_pixels,
-                     (unsigned long long)stats.alpha_opaque_pixels,
-                     stats.alpha_bounds_valid ? "valid" : "none");
-        if (stats.alpha_bounds_valid) {
-            GL_METAL_VLOG("GLMetalReadbackOffscreen: alpha_bbox=(%u,%u)-(%u,%u)",
-                         stats.alpha_min_x, stats.alpha_min_y,
-                         stats.alpha_max_x, stats.alpha_max_y);
-        }
-    }
+    GL_METAL_VLOG("GLMetalReadbackOffscreen: copied %ux%u to 0x%08x rowbytes=%u bpp=%u",
+                 readW, readH, dstBaseaddr, dstRowbytes, dstBytesPerPixel * 8u);
     return true;
 }
 
@@ -2092,15 +1398,6 @@ static uint64_t MakePipelineKey(bool blend_enabled, uint32_t blend_src, uint32_t
 }
 
 
-// True when the active projection has no perspective term (ortho/identity), i.e.
-// the draw is a 2D screen-space overlay (HUD, menu, title art) rather than 3D
-// world geometry. glFrustum/gluPerspective put -1 in the projection's w/z term
-// (column-major proj[11]); ortho and identity leave the whole w-row [0,0,0,k].
-static inline bool GLMetalProjectionIsAffine(GLContext *ctx) {
-    const float *p = ctx->projection_stack[ctx->projection_depth];
-    return fabsf(p[3]) < 1e-5f && fabsf(p[7]) < 1e-5f && fabsf(p[11]) < 1e-5f;
-}
-
 // ---- Depth stencil state key ----
 static uint64_t MakeDepthStencilKey(GLContext *ctx) {
     // Hash depth + stencil state into a 64-bit key
@@ -2118,13 +1415,6 @@ static uint64_t MakeDepthStencilKey(GLContext *ctx) {
     key |= ((uint64_t)GLStencilOpToMetal(ctx->stencil.sfail) << 43);
     key |= ((uint64_t)GLStencilOpToMetal(ctx->stencil.dpfail) << 47);
     key |= ((uint64_t)GLStencilOpToMetal(ctx->stencil.dppass) << 51);
-    // blend participates in the effective depth-write decision (opaque geometry
-    // is forced to write depth -- see GLMetalCreateDepthStencilState), so it must
-    // be part of the cache key or a write-on/write-off variant could be reused.
-    key |= ((ctx->blend ? 1ULL : 0) << 55);
-    // affine (2D overlay) draws get an always-pass/no-write state, so it must also
-    // distinguish cache entries.
-    key |= ((GLMetalProjectionIsAffine(ctx) ? 1ULL : 0) << 56);
     return key;
 }
 
@@ -2373,30 +1663,12 @@ static id<MTLDepthStencilState> GLMetalCreateDepthStencilState(GLMetalState *ms,
     if (it != ms->depthStencilCache.end()) return it->second;
 
     MTLDepthStencilDescriptor *desc = [[MTLDepthStencilDescriptor alloc] init];
-    if (ctx->depth_test && GLMetalProjectionIsAffine(ctx)) {
-        // 2D screen-space overlay (HUD, menu, title art) drawn under an ortho/
-        // identity projection. These coplanar quads sit at a single far-plane
-        // depth and must layer purely by draw order, but the app's fragile depth
-        // cascade can leave GL_DEPTH_TEST enabled -- so under GL_LESS they reject/
-        // z-fight each other per pixel (the title-menu blue-dither corruption).
-        // Treat the overlay as it's meant to render: always pass, never write.
-        // 3D (perspective) geometry below keeps the real z-buffer.
-        desc.depthCompareFunction = MTLCompareFunctionAlways;
-        desc.depthWriteEnabled = NO;
-    } else if (ctx->depth_test) {
+    // Orthographic projections also render depth-tested 3D scenes. Projection
+    // and blending cannot override the guest's depth function or write mask;
+    // offscreen clients can consume that depth to composite into their 2D world.
+    if (ctx->depth_test) {
         desc.depthCompareFunction = GLDepthFuncToMetal(ctx->depth_func);
-        // Force depth-writes for OPAQUE (non-blended) depth-tested geometry.
-        // Pangea's z-buffer engine (Cro-Mag Rally) relies on opaque objects --
-        // terrain, karts, scenery -- writing depth so the z-buffer orders them,
-        // but its fragile per-frame glDepthMask cascade can leave the mask FALSE
-        // for opaque draws in our environment (the app never re-enables it,
-        // relying on the GL default). Without writes those solids don't occlude
-        // and render in submission order (vehicles "in the wrong sequence",
-        // model rears showing through fronts). Transparent passes (blend on)
-        // still honor the app's depth_mask, so glow/particle/shadow effects that
-        // deliberately disable z-writes are unaffected.
-        const bool writeDepth = ctx->depth_mask || !ctx->blend;
-        desc.depthWriteEnabled = writeDepth ? YES : NO;
+        desc.depthWriteEnabled = ctx->depth_mask ? YES : NO;
     } else {
         desc.depthCompareFunction = MTLCompareFunctionAlways;
         desc.depthWriteEnabled = NO;
@@ -2501,6 +1773,47 @@ static void EnsureDepthBuffer(GLMetalState *ms, int width, int height) {
 }
 
 
+// AGL offscreen drawables are caller-owned memory, not persistent GPU pbuffers.
+// Import their current pixels at each CPU/GPU handoff, including same-size
+// rebindings. Flush/Finish read them back before returning to the guest.
+static bool GLMetalUploadGuestOffscreenDrawable(GLMetalState *ms,
+                                                uint32_t width, uint32_t height,
+                                                uint32_t rowbytes, uint32_t baseaddr)
+{
+    const uint32_t bytesPerPixel = GLOffscreenDrawableBytesPerPixel(width, rowbytes);
+    NQDMetalFlush(); // Complete earlier QuickDraw writes before reading shared guest memory.
+    if (ms->lastCommittedBuffer) [ms->lastCommittedBuffer waitUntilCompleted];
+
+    ms->offscreenUploadPixels.resize((size_t)width * height * 4u);
+    if (!GLOffscreenLoadGuestPixelsToBGRA8(Mac2HostAddr(baseaddr), width, height,
+                                          rowbytes, bytesPerPixel,
+                                          ms->offscreenUploadPixels.data()))
+        return false;
+
+    if (!ms->offscreenUploadTexture || ms->offscreenUploadTexture.width != width ||
+        ms->offscreenUploadTexture.height != height) {
+        MTLTextureDescriptor *desc = [MTLTextureDescriptor
+            texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                         width:width height:height mipmapped:NO];
+        desc.storageMode = MTLStorageModeShared;
+        desc.usage = MTLTextureUsageShaderRead;
+        ms->offscreenUploadTexture = [ms->device newTextureWithDescriptor:desc];
+    }
+    if (!ms->offscreenUploadTexture) return false;
+    [ms->offscreenUploadTexture replaceRegion:MTLRegionMake2D(0, 0, width, height)
+                                  mipmapLevel:0
+                                    withBytes:ms->offscreenUploadPixels.data()
+                                  bytesPerRow:(NSUInteger)width * 4u];
+    id<MTLBlitCommandEncoder> blit = [ms->currentCommandBuffer blitCommandEncoder];
+    if (!blit) return false;
+    [blit copyFromTexture:ms->offscreenUploadTexture sourceSlice:0 sourceLevel:0
+             sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(width, height, 1)
+                toTexture:ms->overlayTexture destinationSlice:0 destinationLevel:0
+        destinationOrigin:MTLOriginMake(0, 0, 0)];
+    [blit endEncoding];
+    return true;
+}
+
 /*
  *  GLMetalBeginFrame - start a new render pass for the current frame
  */
@@ -2515,8 +1828,11 @@ void GLMetalBeginFrame(GLContext *ctx)
     // targets are context-private and cannot replace an onscreen cached frame.
     uint32_t offscreenW = 0;
     uint32_t offscreenH = 0;
+    uint32_t offscreenRowbytes = 0;
+    uint32_t offscreenBaseaddr = 0;
     const bool isOffscreen =
-        GLContextGetOffscreenDrawable(ctx, &offscreenW, &offscreenH, NULL, NULL);
+        GLContextGetOffscreenDrawable(ctx, &offscreenW, &offscreenH,
+                                     &offscreenRowbytes, &offscreenBaseaddr);
     auto binding = s_gl_overlays.find(ctx);
     if (!isOffscreen && binding == s_gl_overlays.end()) return;
     uint32_t drawableW = isOffscreen ? offscreenW : (uint32_t)binding->second.width;
@@ -2540,13 +1856,20 @@ void GLMetalBeginFrame(GLContext *ctx)
 
     // Flush/Finish submit work without swapping the drawable. Resuming that
     // same color target must retain the pixels already drawn into it.
-    const bool loadColor = ms->overlayTexture == nextOverlay;
+    const bool loadColor = isOffscreen || ms->overlayTexture == nextOverlay;
     ms->overlayTexture = nextOverlay;
     const bool loadDepthStencil = ms->depthBuffer &&
         (int)ms->depthBuffer.width == w && (int)ms->depthBuffer.height == h;
     EnsureDepthBuffer(ms, w, h);
 
     ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
+    if (!ms->currentCommandBuffer ||
+        (isOffscreen && !GLMetalUploadGuestOffscreenDrawable(
+            ms, offscreenW, offscreenH, offscreenRowbytes, offscreenBaseaddr))) {
+        ms->currentCommandBuffer = nil;
+        if (!ctx->last_error) ctx->last_error = 0x0505; // GL_OUT_OF_MEMORY
+        return;
+    }
 
     MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
     rpd.colorAttachments[0].texture = ms->overlayTexture;
@@ -3833,14 +3156,7 @@ void GLMetalEndFrame(GLContext *ctx)
 
     ms->renderPassActive = false;
     gl_note_overlay_committed(ctx, ms->overlayTexture);
-    const bool didReadback =
-        GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
-    if (didReadback) {
-        GLCompositeLatestOffscreenFreshAtReadback();
-    }
-    if (GLShouldInvalidateOffscreenReadbackAfterGLFlush(true, didReadback)) {
-        GLMetalInvalidateLatestOffscreenReadback("end frame without offscreen readback");
-    }
+    GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
 
     GL_METAL_VLOG("GLMetalEndFrame: frame committed, buffer index now %d", ms->currentBufferIndex);
 }
@@ -3866,20 +3182,9 @@ void NativeGLFinish(GLContext *ctx)
         ms->currentCommandBuffer = nil;
         ms->renderPassActive = false;
         gl_note_overlay_committed(ctx, ms->overlayTexture);
-        const bool didReadback =
-            GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
-        if (didReadback) {
-            GLCompositeLatestOffscreenFreshAtReadback();
-        }
-        if (GLShouldInvalidateOffscreenReadbackAfterGLFlush(true, didReadback)) {
-            GLMetalInvalidateLatestOffscreenReadback("finish without offscreen readback");
-        }
-    } else if (GLShouldInvalidateOffscreenReadbackAfterNoCommandBufferFlush(
-                   s_gl_latest_offscreen_readback.valid,
-                   s_gl_latest_offscreen_readback.composite_count)) {
-        GLMetalInvalidateLatestOffscreenReadback(
-            "finish without command buffer after bridge composite");
+        GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
     }
+
     GL_METAL_VLOG("NativeGLFinish: completed");
 }
 
@@ -3903,20 +3208,9 @@ void NativeGLFlush(GLContext *ctx)
         ms->currentCommandBuffer = nil;
         ms->renderPassActive = false;
         gl_note_overlay_committed(ctx, ms->overlayTexture);
-        const bool didReadback =
-            GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
-        if (didReadback) {
-            GLCompositeLatestOffscreenFreshAtReadback();
-        }
-        if (GLShouldInvalidateOffscreenReadbackAfterGLFlush(true, didReadback)) {
-            GLMetalInvalidateLatestOffscreenReadback("flush without offscreen readback");
-        }
-    } else if (GLShouldInvalidateOffscreenReadbackAfterNoCommandBufferFlush(
-                   s_gl_latest_offscreen_readback.valid,
-                   s_gl_latest_offscreen_readback.composite_count)) {
-        GLMetalInvalidateLatestOffscreenReadback(
-            "flush without command buffer after bridge composite");
+        GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
     }
+
     GL_METAL_VLOG("NativeGLFlush: committed");
 }
 
@@ -4557,25 +3851,20 @@ static uint32_t GLMetalPackPixelAddress(uint32_t base,
            (uint32_t)(skipPixels + col) * (uint32_t)bytesPerPixel;
 }
 
-static id<MTLTexture> GLMetalGetDepthReadbackTexture(GLMetalState *ms,
-                                                     int32_t width,
-                                                     int32_t height)
+static id<MTLBuffer> GLMetalGetDepthReadbackBuffer(GLMetalState *ms,
+                                                   int32_t width, int32_t height,
+                                                   NSUInteger *bytesPerRow)
 {
-    if (ms->depthReadbackTexture &&
-        (int32_t)[ms->depthReadbackTexture width] == width &&
-        (int32_t)[ms->depthReadbackTexture height] == height) {
-        return ms->depthReadbackTexture;
+    // A combined depth/stencil texture cannot be blitted to R32Float. Extract
+    // the depth aspect into shared buffer memory, with a Metal-aligned pitch.
+    const NSUInteger rowBytes = ((NSUInteger)width * sizeof(float) + 255u) & ~NSUInteger(255u);
+    const NSUInteger bufferBytes = rowBytes * (NSUInteger)height;
+    *bytesPerRow = rowBytes;
+    if (!ms->depthReadbackBuffer || ms->depthReadbackBuffer.length < bufferBytes) {
+        ms->depthReadbackBuffer = [ms->device newBufferWithLength:bufferBytes
+                                                       options:MTLResourceStorageModeShared];
     }
-
-    MTLTextureDescriptor *desc = [MTLTextureDescriptor
-        texture2DDescriptorWithPixelFormat:MTLPixelFormatR32Float
-                                     width:(NSUInteger)width
-                                    height:(NSUInteger)height
-                                 mipmapped:NO];
-    desc.storageMode = MTLStorageModeShared;
-    desc.usage = MTLTextureUsageShaderRead;
-    ms->depthReadbackTexture = [ms->device newTextureWithDescriptor:desc];
-    return ms->depthReadbackTexture;
+    return ms->depthReadbackBuffer;
 }
 
 // Copy through a private scratch texture so destination textures need no
@@ -4779,14 +4068,76 @@ uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int
 }
 
 
+static bool GLMetalStoreReadPixelsToGuest(GLContext *ctx, const uint8_t *stagingBytes,
+                                           int32_t width, int32_t height,
+                                           uint32_t format, uint32_t type, uint32_t mac_pixels)
+{
+    const uint32_t error = GLPixelPackError(format, type);
+    if (error) {
+        if (!ctx->last_error) ctx->last_error = error;
+        return false;
+    }
+    const uint32_t bytesPerPixel = (uint32_t)GLPixelPackBytesPerPixel(format, type);
+    if (width <= 0 || height <= 0 || !stagingBytes) {
+        if (!ctx->last_error) ctx->last_error = 0x0501; // GL_INVALID_VALUE
+        return false;
+    }
+    const GLPixelStore &ps = ctx->pixel_store;
+    uint32_t alignment = (uint32_t)ps.pack_alignment;
+    if (alignment != 1 && alignment != 2 && alignment != 4 && alignment != 8) alignment = 4;
+    const uint64_t rowPixels = ps.pack_row_length > 0 ? ps.pack_row_length : width;
+    const uint64_t stride = (rowPixels * bytesPerPixel + alignment - 1) & ~(uint64_t)(alignment - 1);
+    // Reject oversized strides before multiplying by the skip count. A valid
+    // GLint pair can overflow even uint64_t and wrap back into guest memory.
+    if (stride > 0xffffffffull) {
+        if (!ctx->last_error) ctx->last_error = 0x0501;
+        return false;
+    }
+    const uint64_t start = (uint64_t)std::max(0, ps.pack_skip_rows) * stride +
+                          (uint64_t)std::max(0, ps.pack_skip_pixels) * bytesPerPixel;
+    if (start > 0x100000000ull - mac_pixels) {
+        if (!ctx->last_error) ctx->last_error = 0x0501;
+        return false;
+    }
+    const uint64_t end = start + (uint64_t)(height - 1) * stride + (uint64_t)width * bytesPerPixel;
+    if (end > 0x100000000ull - mac_pixels) {
+        if (!ctx->last_error) ctx->last_error = 0x0501; // GL_INVALID_VALUE
+        return false;
+    }
+    for (int32_t row = 0; row < height; ++row) {
+        for (int32_t col = 0; col < width; ++col) {
+            const uint8_t *src = stagingBytes + ((size_t)(height - 1 - row) * width + col) * 4u;
+            uint8_t packed[16];
+            GLPixelPackBGRA8(src, format, type, packed);
+            const uint32_t dstAddr = (uint32_t)(mac_pixels + start + (uint64_t)row * stride +
+                                               (uint64_t)col * bytesPerPixel);
+            for (uint32_t byte = 0; byte < bytesPerPixel; ++byte)
+                WriteMacInt8(dstAddr + byte, packed[byte]);
+        }
+    }
+    return true;
+}
+
 /*
  *  NativeGLReadPixels -- read pixels from framebuffer to PPC memory
  */
 void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int32_t height,
                          uint32_t format, uint32_t type, uint32_t mac_pixels)
 {
+    GL_METAL_VLOG("ReadPixels request: rect=(%d,%d %dx%d) format=0x%x type=0x%x dst=0x%08x pack=(align=%d row=%d skip=%d,%d)",
+                 x, y, width, height, format, type, mac_pixels,
+                 ctx->pixel_store.pack_alignment, ctx->pixel_store.pack_row_length,
+                 ctx->pixel_store.pack_skip_pixels, ctx->pixel_store.pack_skip_rows);
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized || mac_pixels == 0 || width <= 0 || height <= 0) return;
+
+    if (format != GL_DEPTH_COMPONENT) {
+        const uint32_t error = GLPixelPackError(format, type);
+        if (error) {
+            if (!ctx->last_error) ctx->last_error = error;
+            return;
+        }
+    }
 
     const bool restartRenderPass = ms->renderPassActive;
     if (restartRenderPass) {
@@ -4806,15 +4157,21 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
             return;
         }
 
-        id<MTLTexture> staging =
-            GLMetalGetDepthReadbackTexture(ms, width, height);
+        NSUInteger depthRowBytes = 0;
+        id<MTLBuffer> staging = GLMetalGetDepthReadbackBuffer(ms, width, height, &depthRowBytes);
         if (!staging) {
+            if (!ctx->last_error) ctx->last_error = 0x0505; // GL_OUT_OF_MEMORY
             restartIfNeeded();
             return;
         }
 
         id<MTLCommandBuffer> blitCmdBuf = [ms->commandQueue commandBuffer];
         id<MTLBlitCommandEncoder> blit = [blitCmdBuf blitCommandEncoder];
+        if (!blit) {
+            if (!ctx->last_error) ctx->last_error = 0x0505;
+            restartIfNeeded();
+            return;
+        }
         const uint32_t sourceY =
             GLMetalTextureYForGLRead(y, height, (uint32_t)[depthTex height]);
         [blit copyFromTexture:depthTex
@@ -4822,25 +4179,20 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
                   sourceLevel:0
                  sourceOrigin:MTLOriginMake((NSUInteger)x, sourceY, 0)
                    sourceSize:MTLSizeMake((NSUInteger)width, (NSUInteger)height, 1)
-                    toTexture:staging
-             destinationSlice:0
-             destinationLevel:0
-            destinationOrigin:MTLOriginMake(0, 0, 0)];
+                     toBuffer:staging
+            destinationOffset:0
+       destinationBytesPerRow:depthRowBytes
+     destinationBytesPerImage:depthRowBytes * (NSUInteger)height
+                      options:MTLBlitOptionDepthFromDepthStencil];
         [blit endEncoding];
         [blitCmdBuf commit];
         [blitCmdBuf waitUntilCompleted];
-
-        const size_t depthCount = (size_t)width * (size_t)height;
-        float *depthValues = (float *)malloc(depthCount * sizeof(float));
-        if (!depthValues) {
+        if (blitCmdBuf.status != MTLCommandBufferStatusCompleted) {
+            if (!ctx->last_error) ctx->last_error = 0x0502; // GL_INVALID_OPERATION
             restartIfNeeded();
             return;
         }
-
-        [staging getBytes:depthValues
-              bytesPerRow:(NSUInteger)width * sizeof(float)
-               fromRegion:MTLRegionMake2D(0, 0, width, height)
-              mipmapLevel:0];
+        const uint8_t *depthBytes = (const uint8_t *)[staging contents];
 
         const int32_t bytesPerPixel = 2;
         const uint32_t rowStride =
@@ -4851,7 +4203,8 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
         for (int32_t row = 0; row < height; row++) {
             const int32_t srcRow = height - 1 - row;
             for (int32_t col = 0; col < width; col++) {
-                const float depth = depthValues[srcRow * width + col];
+                const float *depthRow = (const float *)(depthBytes + (NSUInteger)srcRow * depthRowBytes);
+                const float depth = depthRow[col];
                 const uint16_t packed =
                     GLMetalDepthFloatToUnsignedShort(depth);
                 if (!haveSampleDepth) {
@@ -4866,7 +4219,6 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
             }
         }
 
-        free(depthValues);
         restartIfNeeded();
         GL_METAL_VLOG("NativeGLReadPixels: depth read %dx%d at (%d,%d) sample=%.6f packed=0x%04x -> mac addr 0x%08x",
                      width, height, x, y, sampleDepth, samplePacked, mac_pixels);
@@ -4925,7 +4277,7 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
     [blitCmdBuf waitUntilCompleted];
 
     // Read pixels from staging texture and write to PPC memory
-    uint8_t *stagingBytes = (uint8_t *)malloc(width * height * 4);
+    uint8_t *stagingBytes = (uint8_t *)malloc((size_t)width * height * 4u);
     if (!stagingBytes) {
         restartIfNeeded();
         return;
@@ -4934,33 +4286,7 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
     MTLRegion region = MTLRegionMake2D(0, 0, width, height);
     [staging getBytes:stagingBytes bytesPerRow:width * 4 fromRegion:region mipmapLevel:0];
 
-    // Convert from BGRA8 to requested format and write to PPC memory
-    const int32_t bytesPerPixel = 4;
-    const uint32_t rowStride =
-        GLMetalPackRowStride(width, bytesPerPixel, ctx->pixel_store);
-    for (int row = 0; row < height; row++) {
-        for (int col = 0; col < width; col++) {
-            const int srcRow = height - 1 - row;
-            uint8_t *src = stagingBytes + (srcRow * width + col) * 4;
-            uint8_t b = src[0], g = src[1], r = src[2], a = src[3];
-            const uint32_t dstAddr =
-                GLMetalPackPixelAddress(mac_pixels, row, col, bytesPerPixel,
-                                        rowStride, ctx->pixel_store);
-
-            if (format == GL_RGBA && type == GL_UNSIGNED_BYTE) {
-                WriteMacInt8(dstAddr + 0, r);
-                WriteMacInt8(dstAddr + 1, g);
-                WriteMacInt8(dstAddr + 2, b);
-                WriteMacInt8(dstAddr + 3, a);
-            } else {
-                // Minimal fallback: write RGBA
-                WriteMacInt8(dstAddr + 0, r);
-                WriteMacInt8(dstAddr + 1, g);
-                WriteMacInt8(dstAddr + 2, b);
-                WriteMacInt8(dstAddr + 3, a);
-            }
-        }
-    }
+    GLMetalStoreReadPixelsToGuest(ctx, stagingBytes, width, height, format, type, mac_pixels);
 
     free(stagingBytes);
 

@@ -499,6 +499,13 @@ bool NQD_bitblt_hook(uint32 p)
 	D(bug("accl_draw_hook %08x\n", p));
 	NQD_set_dirty_area(p);
 
+	// This renderer copies rectangles, not arbitrary clipped regions. The
+	// separate BLTMASK hook decodes masks; accepting these packets here would
+	// erase pixels that QuickDraw's clip excludes (including foreground 3D).
+	if (ReadMacInt32(p + 0x018) != 0 || ReadMacInt32(p + 0x128) != 0 ||
+		ReadMacInt32(p + 0x130) != 0 || (int32)ReadMacInt32(p + 0x15c) <= 0)
+		return NQD_decline_with_flush(p);
+
 	// Metal path: accept all valid transfer modes when src and dest are in Metal-mapped RAM
 	if (nqd_metal_available &&
 		NQDMetalAddrInBuffer(ReadMacInt32(p + acclSrcBaseAddr)) &&
@@ -535,8 +542,7 @@ bool NQD_bitblt_hook(uint32 p)
 				NQDMetalBitbltSameSurfaceOverlap(p)) {
 				// Fall through to the CPU fallback / software QuickDraw.
 			} else {
-				// All accelerated transfer modes via Metal — no pre-check on
-				// 0x018, 0x128, 0x130, 0x15c.
+				// Unclipped accelerated transfer modes via Metal.
 				WriteMacInt32(p + acclDrawProc, NativeTVECT(NATIVE_NQD_BITBLT));
 				return true;
 			}

@@ -66,11 +66,6 @@
 
 extern uint32 Mac_sysalloc(uint32 size);
 extern void Mac_sysfree(uint32 addr);
-extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentIfNotSuppressed(
-	uint32_t dstBaseaddr,
-	uint32_t dstRowbytes,
-	uint32_t dstDepthBits);
-
 /* Forward decl of the lowmem PixMap restore
  * helper defined in dsp_draw_context.mm. Called at the START of
  * DSpReleaseBackBufferNow so the redirected PixMap.baseAddr is rewound
@@ -1450,11 +1445,6 @@ extern "C" bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx,
 		        "failed for 0x%08x", baseAddr_mac);
 		return false;
 	}
-
-	GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentIfNotSuppressed(
-		baseAddr_mac,
-		row_bytes,
-		front_depth);
 
 	/* Re-encode is keyed on CONTENT hash only — never on gamma_gen /
 	 * fade_active. The encoded bytes are gamma-independent (the front path

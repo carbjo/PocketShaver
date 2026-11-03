@@ -997,7 +997,7 @@ void NativeGLDepthFunc(GLContext *ctx, uint32_t func)
 
 void NativeGLDepthMask(GLContext *ctx, uint32_t flag)
 {
-	ctx->depth_mask = (flag == GL_TRUE);
+	ctx->depth_mask = (flag != 0);
 }
 
 void NativeGLDepthRange(GLContext *ctx, double near_val, double far_val)
@@ -1675,6 +1675,12 @@ void NativeGLGetIntegerv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 void NativeGLGetFloatv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
 	switch (pname) {
+	case GL_VIEWPORT:
+	case GL_SCISSOR_BOX: {
+		const int32_t *rect = pname == GL_VIEWPORT ? ctx->viewport : ctx->scissor_box;
+		for (int i = 0; i < 4; i++) WriteMacFloat(mac_ptr + i * 4, (float)rect[i]);
+		break;
+	}
 	case GL_MODELVIEW_MATRIX: {
 		float *m = ctx->modelview_stack[ctx->modelview_depth];
 		for (int i = 0; i < 16; i++) WriteMacFloat(mac_ptr + i * 4, m[i]);
@@ -4849,14 +4855,18 @@ void NativeGLGetMapiv(GLContext *ctx, uint32_t target, uint32_t query, uint32_t 
 
 void NativeGLGetDoublev(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
-	// Matrix queries
+	// Rectangle state is queryable in every numeric representation, just as
+	// matrices are. Preserve all four components and the requested element size.
+	const int32_t *rect = nullptr;
+	if (pname == GL_VIEWPORT) rect = ctx->viewport;
+	else if (pname == GL_SCISSOR_BOX) rect = ctx->scissor_box;
 	float *m = nullptr;
 	if (pname == GL_MODELVIEW_MATRIX) m = ctx->modelview_stack[ctx->modelview_depth];
 	else if (pname == GL_PROJECTION_MATRIX) m = ctx->projection_stack[ctx->projection_depth];
 	else if (pname == GL_TEXTURE_MATRIX) m = ctx->texture_stack[ctx->active_texture][ctx->texture_depth[ctx->active_texture]];
-	if (m) {
-		for (int i = 0; i < 16; i++) {
-			double d = (double)m[i];
+	if (m || rect) {
+		for (int i = 0; i < (m ? 16 : 4); i++) {
+			double d = m ? (double)m[i] : (double)rect[i];
 			uint64_t bits; memcpy(&bits, &d, sizeof(double));
 			WriteMacInt32(mac_ptr + i*8, (uint32_t)(bits >> 32));
 			WriteMacInt32(mac_ptr + i*8+4, (uint32_t)(bits & 0xFFFFFFFF));

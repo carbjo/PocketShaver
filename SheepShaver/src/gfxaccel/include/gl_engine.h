@@ -1501,21 +1501,9 @@ int  GLContextGetOffscreenDrawable(GLContext *ctx,
                                    uint32_t *outH,
                                    uint32_t *outRowbytes,
                                    uint32_t *outBaseaddr);
-uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentDirtyRect(
-	uint32_t dstBaseaddr,
-	uint32_t dstRowbytes,
-	uint32_t dstDepthBits,
-	int32_t dirtyX,
-	int32_t dirtyY,
-	int32_t dirtyWidth,
-	int32_t dirtyHeight);
-uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentIfNotSuppressed(
-	uint32_t dstBaseaddr,
-	uint32_t dstRowbytes,
-	uint32_t dstDepthBits);
+
 #ifdef __cplusplus
 }
 #endif
-
 
 #endif /* GL_ENGINE_H */

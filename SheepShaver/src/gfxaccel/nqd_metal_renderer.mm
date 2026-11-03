@@ -21,7 +21,6 @@
 #include "nqd_accel.h"
 #include "accel_logging.h"
 #include "dsp_pixmap_offsets.h"
-#include "gl_offscreen_policy.h"
 #include "nqd_main_device_policy.h"
 #include "nqd_packed_fill_policy.h"
 #include "metal_device_shared.h"
@@ -94,15 +93,6 @@ static struct NQDLogInit {
 // Compositor-blindness preserved: the compositor
 // still never reads the owner map.
 // ---------------------------------------------------------------------------
-
-extern "C" uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentDirtyRect(
-    uint32_t dstBaseaddr,
-    uint32_t dstRowbytes,
-    uint32_t dstDepthBits,
-    int32_t dirtyX,
-    int32_t dirtyY,
-    int32_t dirtyWidth,
-    int32_t dirtyHeight);
 
 // ---------------------------------------------------------------------------
 // Metal state (file-static)
@@ -390,25 +380,6 @@ static inline NQDMainDevicePixMapSnapshot nqd_read_main_device_pixmap_snapshot()
     return snap;
 }
 
-/* Main-device destination for the GL flush-time composite. The GL renderer
- * stamps a freshly read-back offscreen frame into the visible surface at
- * glFlush time (guest-ordered, like real hardware rasterizing into the
- * framebuffer) and needs the current MainDevice PixMap to know where. */
-extern "C" bool NQDReadMainDevicePixMapForGLBridge(uint32_t *baseAddr,
-                                                   uint32_t *rowBytes,
-                                                   uint32_t *pixelSize)
-{
-    NQDMainDevicePixMapSnapshot snap = nqd_read_main_device_pixmap_snapshot();
-    if (!snap.valid || baseAddr == NULL || rowBytes == NULL ||
-        pixelSize == NULL) {
-        return false;
-    }
-    *baseAddr = snap.baseAddr;
-    *rowBytes = snap.rowBytes;
-    *pixelSize = snap.pixelSize;
-    return true;
-}
-
 static inline bool nqd_should_drop_stale_main_device_params(NQDMainDevicePixMapSnapshot snap,
                                                              uint32_t dest_base,
                                                              int32_t dest_row_bytes,
@@ -457,55 +428,6 @@ static inline uint32_t nqd_effective_main_device_pixel_size(NQDMainDevicePixMapS
 {
     return NQDEffectiveMainDevicePixelSize(snap, dest_base, dest_row_bytes,
                                            pixel_size);
-}
-
-static inline bool nqd_should_bridge_gl_offscreen_after_bitblt(
-    NQDMainDevicePixMapSnapshot main_device,
-    uint32_t src_base,
-    int32_t src_row_bytes,
-    uint32_t src_pixel_size,
-    uint32_t dest_base,
-    int32_t dest_row_bytes,
-    uint32_t dest_pixel_size,
-    uint32_t transfer_mode)
-{
-    return GLShouldBridgeOffscreenAfterNQDFrontBlt(
-        main_device.valid,
-        main_device.baseAddr,
-        (int32_t)main_device.rowBytes,
-        src_base,
-        src_row_bytes,
-        src_pixel_size,
-        dest_base,
-        dest_row_bytes,
-        dest_pixel_size,
-        transfer_mode);
-}
-
-static inline void nqd_bridge_gl_offscreen_after_bitblt(uint32_t dest_base,
-                                                        int32_t dest_row_bytes,
-                                                        uint32_t dest_pixel_size,
-                                                        int16_t dest_X,
-                                                        int16_t dest_Y,
-                                                        int16_t width,
-                                                        int16_t height)
-{
-    if (dest_row_bytes <= 0) return;
-
-    const uint64_t gl_composited =
-        GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentDirtyRect(
-            dest_base,
-            (uint32_t)dest_row_bytes,
-            dest_pixel_size,
-            dest_X,
-            dest_Y,
-            width,
-            height);
-    if (gl_composited != 0) {
-        NQD_VLOG("NQDMetalBitblt: composited %llu GL offscreen pixels "
-                 "after world blit into 0x%08x",
-                 (unsigned long long)gl_composited, dest_base);
-    }
 }
 
 static inline uint32_t nqd_read_blend_weight()
@@ -1918,16 +1840,6 @@ void NQDMetalBitblt(uint32 p)
         }
     }
 
-    const bool bridge_gl_after_bitblt =
-        nqd_should_bridge_gl_offscreen_after_bitblt(main_device,
-                                                    src_base,
-                                                    src_row_bytes,
-                                                    src_pixel_size,
-                                                    dest_base,
-                                                    dest_row_bytes,
-                                                    dest_pixel_size,
-                                                    transfer_mode);
-
     // -----------------------------------------------------------------------
     // CPU fast path for small operations and simple modes
     //
@@ -1955,15 +1867,6 @@ void NQDMetalBitblt(uint32 p)
             memmove(dst_start, src_start, width_bytes);
             src_start -= abs_src_rb;
             dst_start -= abs_dst_rb;
-        }
-        if (bridge_gl_after_bitblt) {
-            nqd_bridge_gl_offscreen_after_bitblt(dest_base,
-                                                 dest_row_bytes,
-                                                 dest_pixel_size,
-                                                 dest_X,
-                                                 dest_Y,
-                                                 width,
-                                                 height);
         }
         return;
     }
@@ -2037,15 +1940,6 @@ void NQDMetalBitblt(uint32 p)
                 src_ptr += cpu_src_row_bytes;
                 dst_ptr += dest_row_bytes;
             }
-        }
-        if (bridge_gl_after_bitblt) {
-            nqd_bridge_gl_offscreen_after_bitblt(dest_base,
-                                                 dest_row_bytes,
-                                                 dest_pixel_size,
-                                                 dest_X,
-                                                 dest_Y,
-                                                 width,
-                                                 height);
         }
         return;
     }
@@ -2128,16 +2022,6 @@ void NQDMetalBitblt(uint32 p)
     [encoder dispatchThreads:grid threadsPerThreadgroup:group];
 
     nqd_batch_did_dispatch();
-    if (bridge_gl_after_bitblt) {
-        NQDMetalFlush();
-        nqd_bridge_gl_offscreen_after_bitblt(dest_base,
-                                             dest_row_bytes,
-                                             dest_pixel_size,
-                                             dest_X,
-                                             dest_Y,
-                                             width,
-                                             height);
-    }
 }
 
 // ---------------------------------------------------------------------------
