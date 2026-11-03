@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cfloat>
+#include <new>
 
 #include "sysdeps.h"
 #include "cpu_emulation.h"
@@ -29,6 +30,7 @@
 #include "dsp_draw_context.h"
 #include "gl_clip_plane_policy.h"
 #include "gl_texture_coordinates.h"
+#include "gl_texture_format_policy.h"
 #include "gl_color_index_policy.h"
 #include "gl_engine.h"
 #include "gl_metal_draw_state.h"
@@ -1956,7 +1958,7 @@ void NativeGLPushAttrib(GLContext *ctx, uint32_t mask)
 	}
 	if (mask & GL_TEXTURE_BIT) {
 		entry.saved_active_texture = ctx->active_texture;
-		memcpy(entry.saved_tex_units, ctx->tex_units, sizeof(ctx->tex_units));
+		std::copy(ctx->tex_units, ctx->tex_units + 4, entry.saved_tex_units);
 	}
 	if (mask & GL_VIEWPORT_BIT) {
 		memcpy(entry.saved_viewport, ctx->viewport, 4 * sizeof(int32_t));
@@ -2068,7 +2070,7 @@ void NativeGLPushAttrib(GLContext *ctx, uint32_t mask)
 		entry.extra_separable_2d_enabled=ctx->separable_2d_enabled;
 		entry.extra_histogram_enabled=ctx->histogram_enabled;
 		entry.extra_minmax_enabled=ctx->minmax_enabled;
-		memcpy(entry.extra_tex_units, ctx->tex_units, sizeof(ctx->tex_units));
+		std::copy(ctx->tex_units, ctx->tex_units + 4, entry.extra_tex_units);
 		memcpy(entry.extra_lights, ctx->lights, sizeof(ctx->lights));
 	}
 	if(mask & 0x00000020u /* GL_PIXEL_MODE_BIT */) {
@@ -2181,7 +2183,7 @@ void NativeGLPopAttrib(GLContext *ctx)
 	}
 	if (mask & GL_TEXTURE_BIT) {
 		ctx->active_texture = entry.saved_active_texture;
-		memcpy(ctx->tex_units, entry.saved_tex_units, sizeof(ctx->tex_units));
+		std::copy(entry.saved_tex_units, entry.saved_tex_units + 4, ctx->tex_units);
 	}
 	if (mask & GL_VIEWPORT_BIT) {
 		memcpy(ctx->viewport, entry.saved_viewport, 4 * sizeof(int32_t));
@@ -2339,7 +2341,14 @@ void NativeGLPopAttrib(GLContext *ctx)
             ctx->texture_2d_enable_draw_serial[unit]=ctx->completed_draw_serial;
         }
     }
-
+	// A popped stack slot no longer owns texture references. The restored
+	// bindings retain their copies; stale slots must not delay destruction.
+	for (auto &unit : entry.saved_tex_units) {
+		unit.retired_texture_1d.reset(); unit.retired_texture_2d.reset(); unit.retired_texture_3d.reset();
+	}
+	for (auto &unit : entry.extra_tex_units) {
+		unit.retired_texture_1d.reset(); unit.retired_texture_2d.reset(); unit.retired_texture_3d.reset();
+	}
 }
 
 // Client attrib stacks -- simplified, stores vertex array pointers
@@ -2399,7 +2408,22 @@ void NativeGLPopClientAttrib(GLContext *ctx)
 
 void GLContextInit(GLContext *ctx)
 {
-	*ctx = GLContext{};
+	// Reconstruct resettable state without rebinding the reference members to
+	// another namespace or expiring replay's identity token. Context-owned
+	// renderer/accumulation allocations remain owned across a state reset.
+	auto objects = ctx->shared_objects;
+	auto lifetime = ctx->lifetime;
+	void *metal = ctx->metal;
+	float *accum = ctx->accum_buffer;
+	const int accumWidth = ctx->accum_width, accumHeight = ctx->accum_height;
+	const bool accumAllocated = ctx->accum_allocated;
+	ctx->~GLContext();
+	new (ctx) GLContext { std::move(objects) };
+	ctx->lifetime = std::move(lifetime);
+	ctx->metal = metal;
+	ctx->accum_buffer = accum;
+	ctx->accum_width = accumWidth; ctx->accum_height = accumHeight;
+	ctx->accum_allocated = accumAllocated;
 
 	// Matrix stacks: load identity
 	mat4_identity(ctx->modelview_stack[0]);
@@ -2548,8 +2572,7 @@ void GLContextInit(GLContext *ctx)
 	ctx->pixel_zoom_y = 1.0f;
 
 	// Texture name
-	ctx->next_texture_name = 1;
-	ctx->next_list_name = 1;
+	// Object names belong to the share group, rather than resettable state.
 
 	// Evaluator defaults
 	for (int i = 0; i < GL_EVAL_MAX_TARGETS; i++) {
@@ -2590,6 +2613,9 @@ void NativeGLGenTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 	if (!ctx || n == 0 || mac_ptr == 0) return;
 
 	for (uint32_t i = 0; i < n; i++) {
+		while (ctx->next_texture_name && ctx->texture_objects.count(ctx->next_texture_name))
+			++ctx->next_texture_name;
+		if (!ctx->next_texture_name) { if (!ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY; return; }
 		uint32_t name = ctx->next_texture_name++;
 		WriteMacInt32(mac_ptr + i * 4, name);
 	}
@@ -2599,6 +2625,30 @@ void NativeGLGenTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 /*
  *  glDeleteTextures -- free texture objects and Metal resources
  */
+static void GLRetainDeletedTextureBindings(GLContext *ctx, uint32_t name,
+                                            const std::shared_ptr<GLTextureObject> &object)
+{
+	GLContext *contexts[4] = {};
+	unsigned count = GLContextGetSharedContexts(ctx, contexts, 4);
+	if (!count) { contexts[0] = ctx; count = 1; }
+	auto retain = [&](GLTextureUnit &unit) {
+		for (uint32_t target : {uint32_t(0x0de0), uint32_t(0x0de1), uint32_t(0x806f)}) {
+			auto &retired = GLRetiredTextureBinding(unit, target);
+			if (GLTextureUnitBoundName(unit, target) == name && !retired) retired = object;
+		}
+	};
+	for (unsigned c = 0; c < count; ++c) {
+		GLContext *other = contexts[c];
+		if (other != ctx) for (auto &unit : other->tex_units) retain(unit);
+		// Saved texture bindings are references to objects too. Restoring a
+		// stack entry must not attach a newly-created object with a reused name.
+		for (int i = 0; i < other->attrib_stack_depth; ++i) {
+			if (other->attrib_stack[i].mask & GL_TEXTURE_BIT)
+				for (auto &unit : other->attrib_stack[i].saved_tex_units) retain(unit);
+		}
+	}
+}
+
 void NativeGLDeleteTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 {
 	if (!ctx || n == 0 || mac_ptr == 0) return;
@@ -2614,18 +2664,26 @@ void NativeGLDeleteTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 			GL_LOG("glDeleteTextures: deleting tex %u (had_metal=%d, %dx%d)",
 			       name, had_metal, it->second.width, it->second.height);
 
-			// Destroy Metal texture
-			GLMetalDestroyTexture(&it->second);
+			// The numeric name disappears immediately. Other contexts and saved
+			// attribute bindings retain the old object until they stop using it.
+			if (!ctx->shared_objects->destroy_texture)
+				ctx->shared_objects->destroy_texture = GLMetalDestroyTexture;
+			auto destroy = ctx->shared_objects->destroy_texture;
+			std::shared_ptr<GLTextureObject> object(new GLTextureObject(it->second),
+			    [destroy](GLTextureObject *texture) { destroy(texture); delete texture; });
+			GLRetainDeletedTextureBindings(ctx, name, object);
 
 			// Unbind from any texture unit if bound
 			for (int u = 0; u < 4; u++) {
-				if (ctx->tex_units[u].bound_texture_2d == name) {
+				if (ctx->tex_units[u].bound_texture_2d == name && !ctx->tex_units[u].retired_texture_2d) {
 					ctx->tex_units[u].bound_texture_2d = 0;
 					gl_clear_prepared_texture_2d_for_draw(ctx, u);
 					gl_clear_latched_texture_2d_for_array_draw(ctx, u);
 				}
-				if (ctx->tex_units[u].bound_texture_1d == name)
+				if (ctx->tex_units[u].bound_texture_1d == name && !ctx->tex_units[u].retired_texture_1d)
 					ctx->tex_units[u].bound_texture_1d = 0;
+				if (ctx->tex_units[u].bound_texture_3d == name && !ctx->tex_units[u].retired_texture_3d)
+					ctx->tex_units[u].bound_texture_3d = 0;
 			}
 
 			ctx->texture_objects.erase(it);
@@ -2640,6 +2698,17 @@ void NativeGLDeleteTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 {
 	if (!ctx) return;
+    if (target != GL_TEXTURE_1D && target != GL_TEXTURE_2D && target != 0x806f) {
+        if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM;
+        return;
+    }
+    auto found = ctx->texture_objects.find(texture);
+    if (texture && found != ctx->texture_objects.end() && found->second.target && found->second.target != target) {
+        if (!ctx->last_error) ctx->last_error = GL_INVALID_OPERATION;
+        return;
+    }
+	const bool wasRetired = bool(GLRetiredTextureBinding(ctx->tex_units[ctx->active_texture], target));
+	GLRetiredTextureBinding(ctx->tex_units[ctx->active_texture], target).reset();
 
 	if (texture == 0) {
 		// Unbind: use default (no texture)
@@ -2649,6 +2718,8 @@ void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 			gl_clear_latched_texture_2d_for_array_draw(ctx, ctx->active_texture);
 		} else if (target == GL_TEXTURE_1D) {
 			ctx->tex_units[ctx->active_texture].bound_texture_1d = 0;
+        } else if (target == 0x806f) {
+            ctx->tex_units[ctx->active_texture].bound_texture_3d = 0;
 		}
 		return;
 	}
@@ -2666,8 +2737,9 @@ void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 		ctx->texture_objects[texture] = obj;
 	}
 
+    ctx->texture_objects[texture].target = target;
 	if (target == GL_TEXTURE_2D) {
-		if (ctx->tex_units[ctx->active_texture].bound_texture_2d != texture) {
+		if (ctx->tex_units[ctx->active_texture].bound_texture_2d != texture || wasRetired) {
 			gl_clear_prepared_texture_2d_for_draw(ctx, ctx->active_texture);
 			if (!GLMetalLatchedTexture2DSurvivesTextureRebind(
 					ctx->latched_texture_2d_for_array_draw[ctx->active_texture],
@@ -2678,6 +2750,8 @@ void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 		ctx->tex_units[ctx->active_texture].bound_texture_2d = texture;
 	} else if (target == GL_TEXTURE_1D) {
 		ctx->tex_units[ctx->active_texture].bound_texture_1d = texture;
+    } else if (target == 0x806f) {
+        ctx->tex_units[ctx->active_texture].bound_texture_3d = texture;
 	}
 }
 
@@ -2690,18 +2764,14 @@ void NativeGLTexParameteri(GLContext *ctx, uint32_t target, uint32_t pname, int3
 	if (!ctx) return;
 
 	// Get currently bound texture for this target
-	uint32_t texName = 0;
-	if (target == GL_TEXTURE_2D)
-		texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	else if (target == GL_TEXTURE_1D)
-		texName = ctx->tex_units[ctx->active_texture].bound_texture_1d;
+	uint32_t texName = GLTextureUnitBoundName(ctx->tex_units[ctx->active_texture], target);
 
 	if (texName == 0) return;
 
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
 
-	GLTextureObject &tex = it->second;
+	GLTextureObject &tex = *object;
 	switch (pname) {
 		case GL_TEXTURE_MIN_FILTER: tex.min_filter = (uint32_t)param; break;
 		case GL_TEXTURE_MAG_FILTER: tex.mag_filter = (uint32_t)param; break;
@@ -3486,10 +3556,15 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 
 	if (texName == 0) return;
 
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) { GL_LOG("NativeGLTexImage2D: texture %u not found in map", texName); return; }
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) { GL_LOG("NativeGLTexImage2D: texture %u not found in map", texName); return; }
 
-	GLTextureObject &tex = it->second;
+	GLTextureObject &tex = *object;
+    if (!GLTextureDefineImage(tex, target, level, internalformat, width, height)) {
+        if (!ctx->last_error) ctx->last_error = GL_INVALID_VALUE;
+        return;
+    }
+    if (width == 0 || height == 0) return;
 	if (level == 0) {
 		tex.width = width;
 		tex.height = height;
@@ -3518,6 +3593,7 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 		int emptyLen = width * height * 4;
 		uint8_t *emptyData = (uint8_t *)calloc(1, emptyLen);
 		if (emptyData) {
+            GLTextureApplyInternalFormatBGRA(emptyData, emptyLen, GLTextureLevelBaseFormat(tex, level));
 			GLMetalUploadTexture(ctx, &tex, level, width, height, emptyData, emptyLen);
 			free(emptyData);
 		}
@@ -3544,6 +3620,7 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	// GLColorTable.data[256][4] ceiling BEFORE any LUT read.
 	GLApplyColorTableLUT(ctx, converted, width, height, dataLen);
 
+    GLTextureApplyInternalFormatBGRA(converted, dataLen, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUploadTexture(ctx, &tex, level, width, height, converted, dataLen);
 	free(converted);
 }
@@ -3560,14 +3637,13 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	if (!ctx || mac_pixels == 0) return;
 
 	uint32_t texName = 0;
-	if (target == GL_TEXTURE_2D)
-		texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
+	texName = GLTextureUnitBoundName(ctx->tex_units[ctx->active_texture], target);
 	if (texName == 0) return;
 
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
 
-	GLTextureObject &tex = it->second;
+	GLTextureObject &tex = *object;
 
 	int dataLen = 0;
 	uint8_t *converted = ConvertPixelsToBGRA8(mac_pixels, width, height,
@@ -3580,6 +3656,7 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	// upload too (OpenGL 1.2.1 §3.6.3). Index clamped before any LUT read.
 	GLApplyColorTableLUT(ctx, converted, width, height, dataLen);
 
+    GLTextureApplyInternalFormatBGRA(converted, dataLen, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUploadSubTexture(ctx, &tex, level, xoffset, yoffset, width, height,
 	                         converted, width * 4);
 	free(converted);
@@ -3593,7 +3670,7 @@ void NativeGLTexImage1D(GLContext *ctx, uint32_t target, int32_t level,
                          int32_t internalformat, int32_t width, int32_t border,
                          uint32_t format, uint32_t type, uint32_t mac_pixels)
 {
-	NativeGLTexImage2D(ctx, GL_TEXTURE_2D, level, internalformat, width, 1,
+	NativeGLTexImage2D(ctx, GL_TEXTURE_1D, level, internalformat, width, 1,
 	                    border, format, type, mac_pixels);
 }
 
@@ -3605,7 +3682,7 @@ void NativeGLTexSubImage1D(GLContext *ctx, uint32_t target, int32_t level,
                             int32_t xoffset, int32_t width,
                             uint32_t format, uint32_t type, uint32_t mac_pixels)
 {
-	NativeGLTexSubImage2D(ctx, GL_TEXTURE_2D, level, xoffset, 0, width, 1,
+	NativeGLTexSubImage2D(ctx, GL_TEXTURE_1D, level, xoffset, 0, width, 1,
 	                       format, type, mac_pixels);
 }
 
@@ -3620,14 +3697,16 @@ void NativeGLCopyTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	if (!ctx) return;
 	auto fail = [&](uint32_t error) { if (!ctx->last_error) ctx->last_error = error; };
 	if (ctx->in_begin) { fail(GL_INVALID_OPERATION); return; }
-	if (target != GL_TEXTURE_2D) { fail(GL_INVALID_ENUM); return; }
+	if (target != GL_TEXTURE_2D && target != GL_TEXTURE_1D) { fail(GL_INVALID_ENUM); return; }
 	if (level < 0 || width < 0 || height < 0 || border != 0) {
 		fail(GL_INVALID_VALUE); return;
 	}
-	const uint32_t name = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(name);
-	if (it == ctx->texture_objects.end()) { fail(GL_INVALID_OPERATION); return; }
-	GLMetalCopyFramebufferToTexture(ctx, &it->second, level, 0, 0,
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) { fail(GL_INVALID_OPERATION); return; }
+    if (!GLTextureDefineImage(*object, target, level, internalformat, width, height)) {
+        fail(GL_INVALID_VALUE); return;
+    }
+	GLMetalCopyFramebufferToTexture(ctx, object, level, 0, 0,
 	                                x, y, width, height, true);
 }
 
@@ -3641,16 +3720,15 @@ void NativeGLCopyTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	if (!ctx) return;
 	auto fail = [&](uint32_t error) { if (!ctx->last_error) ctx->last_error = error; };
 	if (ctx->in_begin) { fail(GL_INVALID_OPERATION); return; }
-	if (target != GL_TEXTURE_2D) { fail(GL_INVALID_ENUM); return; }
+	if (target != GL_TEXTURE_2D && target != GL_TEXTURE_1D) { fail(GL_INVALID_ENUM); return; }
 	if (level < 0 || xoffset < 0 || yoffset < 0 || width < 0 || height < 0) {
 		fail(GL_INVALID_VALUE); return;
 	}
-	const uint32_t name = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(name);
-	if (it == ctx->texture_objects.end() || !it->second.metal_texture) {
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object || !object->metal_texture) {
 		fail(GL_INVALID_OPERATION); return;
 	}
-	GLMetalCopyFramebufferToTexture(ctx, &it->second, level, xoffset, yoffset,
+	GLMetalCopyFramebufferToTexture(ctx, object, level, xoffset, yoffset,
 	                                x, y, width, height);
 }
 
@@ -4738,9 +4816,25 @@ void NativeGLCallLists(GLContext *ctx, int32_t n, uint32_t type, uint32_t lists_
 
 uint32_t NativeGLGenLists(GLContext *ctx, int32_t range)
 {
-	uint32_t base = ctx->next_list_name;
-	ctx->next_list_name += range;
-	return base;
+	if (range <= 0) {
+		if (range < 0 && !ctx->last_error) ctx->last_error = GL_INVALID_VALUE;
+		return 0;
+	}
+	uint64_t base = ctx->next_list_name;
+	for (;;) {
+		if (!base || base + uint32_t(range) - 1 > UINT32_MAX) return 0;
+		bool collision = false;
+		for (const auto &entry : ctx->display_lists) {
+			if (entry.first >= base && entry.first < base + uint32_t(range)) {
+				base = uint64_t(entry.first) + 1;
+				collision = true;
+				break;
+			}
+		}
+		if (!collision) break;
+	}
+	ctx->next_list_name = uint32_t(base + uint32_t(range));
+	return uint32_t(base);
 }
 
 void NativeGLDeleteLists(GLContext *ctx, uint32_t list, int32_t range) { for (int32_t i = 0; i < range; i++) ctx->display_lists.erase(list + i); }
@@ -4749,7 +4843,7 @@ void NativeGLListBase(GLContext *ctx, uint32_t base) { ctx->list_base = base; }
 
 // --- Vertex arrays ---
 void NativeGLVertexPointer(GLContext *ctx, int32_t size, uint32_t type, int32_t stride, uint32_t pointer) { ctx->vertex_array.size = size; ctx->vertex_array.type = type; ctx->vertex_array.stride = stride; ctx->vertex_array.pointer = pointer; }
-void NativeGLNormalPointer(GLContext *ctx, uint32_t type, int32_t stride, uint32_t pointer) { ctx->normal_array.type = type; ctx->normal_array.stride = stride; ctx->normal_array.pointer = pointer; }
+void NativeGLNormalPointer(GLContext *ctx, uint32_t type, int32_t stride, uint32_t pointer) { ctx->normal_array.size = 3; ctx->normal_array.type = type; ctx->normal_array.stride = stride; ctx->normal_array.pointer = pointer; }
 void NativeGLColorPointer(GLContext *ctx, int32_t size, uint32_t type, int32_t stride, uint32_t pointer) { ctx->color_array.size = size; ctx->color_array.type = type; ctx->color_array.stride = stride; ctx->color_array.pointer = pointer; }
 void NativeGLTexCoordPointer(GLContext *ctx, int32_t size, uint32_t type,
                              int32_t stride, uint32_t pointer)
@@ -4879,57 +4973,59 @@ void NativeGLGetTexImage(GLContext *ctx, uint32_t target, int32_t level, uint32_
     if (level < 0 || level > 30) { fail(0x0501); return; }
     const uint32_t error=GLPixelPackError(fmt,type);
     if(error) {fail(error);return;}
-    const auto &unit=ctx->tex_units[ctx->active_texture];
-    const uint32_t name=target==0x0de0 ? unit.bound_texture_1d : unit.bound_texture_2d;
-    auto it=ctx->texture_objects.find(name);
-    if(it==ctx->texture_objects.end() || !p) return;
-    const int32_t width=it->second.width > 0 ? std::max(1,it->second.width >> level) : 0;
-    const int32_t height=it->second.height > 0 ? std::max(1,it->second.height >> level) : 0;
+    GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+    if(!object || !p) return;
+    const int32_t width=object->level_internal_format[level] ? object->level_width[level] :
+        (object->width > 0 ? std::max(1,object->width >> level) : 0);
+    const int32_t height=object->level_internal_format[level] ? object->level_height[level] :
+        (object->height > 0 ? std::max(1,object->height >> level) : 0);
     if (!width || !height) return;
     GLMetalPackLayout layout;
     if(!GLMetalGetPackLayout(ctx,width,height,GLPixelPackBytesPerPixel(fmt,type),p,layout)) return;
     std::vector<uint8_t> pixels;
     extern bool GLMetalReadTexture(GLContext*,GLTextureObject*,int32_t,int32_t,int32_t,std::vector<uint8_t>&);
-    if(!GLMetalReadTexture(ctx,&it->second,level,width,height,pixels)) return;
+    if(!GLMetalReadTexture(ctx,object,level,width,height,pixels)) return;
     GLStoreReadbackPixels(ctx,pixels.data(),width,height,fmt,type,p,false,
         [](uint32_t a,uint8_t b){WriteMacInt8(a,b);});
 }
 void NativeGLGetTexLevelParameterfv(GLContext *ctx, uint32_t target, int32_t level, uint32_t pname, uint32_t p)
 {
-	uint32_t tex = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(tex);
-	if (it == ctx->texture_objects.end()) { WriteMacFloat(p, 0.0f); return; }
-	GLTextureObject &obj = it->second;
-	switch (pname) {
-	case GL_TEXTURE_WIDTH:           WriteMacFloat(p, (float)obj.width); break;
-	case GL_TEXTURE_HEIGHT:          WriteMacFloat(p, (float)obj.height); break;
-	case GL_TEXTURE_INTERNAL_FORMAT: WriteMacFloat(p, (float)GL_RGBA); break;
-	case GL_TEXTURE_BORDER:          WriteMacFloat(p, 0.0f); break;
-	default: WriteMacFloat(p, 0.0f); break;
-	}
+    uint32_t result = 0;
+    GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+    if (object && level >= 0 && level < 32) {
+        const GLTextureObject &obj = *object;
+        switch (pname) {
+        case GL_TEXTURE_WIDTH: result = obj.level_width[level]; break;
+        case GL_TEXTURE_HEIGHT: result = obj.level_height[level]; break;
+        case GL_TEXTURE_INTERNAL_FORMAT: result = obj.level_internal_format[level]; break;
+        case GL_TEXTURE_BORDER: break;
+        default: break;
+        }
+    }
+    WriteMacFloat(p, (float)result);
 }
 void NativeGLGetTexLevelParameteriv(GLContext *ctx, uint32_t target, int32_t level, uint32_t pname, uint32_t p)
 {
-	uint32_t tex = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(tex);
-	if (it == ctx->texture_objects.end()) { WriteMacInt32(p, 0); return; }
-	GLTextureObject &obj = it->second;
-	switch (pname) {
-	case GL_TEXTURE_WIDTH:           WriteMacInt32(p, obj.width); break;
-	case GL_TEXTURE_HEIGHT:          WriteMacInt32(p, obj.height); break;
-	case GL_TEXTURE_INTERNAL_FORMAT: WriteMacInt32(p, GL_RGBA); break;
-	case GL_TEXTURE_BORDER:          WriteMacInt32(p, 0); break;
-	default: WriteMacInt32(p, 0); break;
-	}
+    uint32_t result = 0;
+    GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+    if (object && level >= 0 && level < 32) {
+        const GLTextureObject &obj = *object;
+        switch (pname) {
+        case GL_TEXTURE_WIDTH: result = obj.level_width[level]; break;
+        case GL_TEXTURE_HEIGHT: result = obj.level_height[level]; break;
+        case GL_TEXTURE_INTERNAL_FORMAT: result = obj.level_internal_format[level]; break;
+        case GL_TEXTURE_BORDER: break;
+        default: break;
+        }
+    }
+    WriteMacInt32(p, result);
 }
 
 void NativeGLGetTexParameterfv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t mac_ptr)
 {
-	(void)target;
-	uint32_t tex = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(tex);
-	if (it == ctx->texture_objects.end()) { WriteMacFloat(mac_ptr, 0.0f); return; }
-	GLTextureObject &obj = it->second;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) { WriteMacFloat(mac_ptr, 0.0f); return; }
+	GLTextureObject &obj = *object;
 	switch (pname) {
 	case GL_TEXTURE_MIN_FILTER: WriteMacFloat(mac_ptr, (float)obj.min_filter); break;
 	case GL_TEXTURE_MAG_FILTER: WriteMacFloat(mac_ptr, (float)obj.mag_filter); break;
@@ -4941,11 +5037,9 @@ void NativeGLGetTexParameterfv(GLContext *ctx, uint32_t target, uint32_t pname, 
 
 void NativeGLGetTexParameteriv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t mac_ptr)
 {
-	(void)target;
-	uint32_t tex = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(tex);
-	if (it == ctx->texture_objects.end()) { WriteMacInt32(mac_ptr, 0); return; }
-	GLTextureObject &obj = it->second;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) { WriteMacInt32(mac_ptr, 0); return; }
+	GLTextureObject &obj = *object;
 	switch (pname) {
 	case GL_TEXTURE_MIN_FILTER: WriteMacInt32(mac_ptr, obj.min_filter); break;
 	case GL_TEXTURE_MAG_FILTER: WriteMacInt32(mac_ptr, obj.mag_filter); break;
@@ -5683,9 +5777,9 @@ void NativeGLCompressedTexImage2DARB(GLContext *ctx, uint32_t target, int32_t le
 
 	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
 	if (texName == 0) return;
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
-	GLTextureObject &tex = it->second;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
+	GLTextureObject &tex = *object;
 
 	// Read compressed data from Mac memory
 	const uint8_t *mac_data = (const uint8_t *)Mac2HostAddr(data_ptr);
@@ -5694,8 +5788,8 @@ void NativeGLCompressedTexImage2DARB(GLContext *ctx, uint32_t target, int32_t le
 	uint8_t *decompressed = dxt_decompress_image(mac_data, w, h, ifmt, &outLen);
 	if (!decompressed) return;
 
-	tex.width = w;
-	tex.height = h;
+    if (!GLTextureDefineImage(tex, target, level, ifmt, w, h)) { free(decompressed); return; }
+    GLTextureApplyInternalFormatBGRA(decompressed, outLen, GLTextureLevelBaseFormat(tex, level));
 	if (level > 0) tex.has_mipmaps = true;
 	GLMetalUploadTexture(ctx, &tex, level, w, h, decompressed, outLen);
 	free(decompressed);
@@ -5729,15 +5823,16 @@ void NativeGLCompressedTexSubImage2DARB(GLContext *ctx, uint32_t target, int32_t
 
 	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
 	if (texName == 0) return;
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
-	GLTextureObject &tex = it->second;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
+	GLTextureObject &tex = *object;
 
 	const uint8_t *mac_data = (const uint8_t *)Mac2HostAddr(data_ptr);
 	int outLen = 0;
 	uint8_t *decompressed = dxt_decompress_image(mac_data, w, h, fmt, &outLen);
 	if (!decompressed) return;
 
+    GLTextureApplyInternalFormatBGRA(decompressed, outLen, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUploadSubTexture(ctx, &tex, level, xoff, yoff, w, h, decompressed, w * 4);
 	free(decompressed);
 }
@@ -6511,13 +6606,14 @@ void NativeGLTexImage3DEXT(GLContext *ctx, uint32_t target, int32_t level, int32
 
 	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_3d;
 	if (texName == 0) return;
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
-	GLTextureObject &tex = it->second;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
+	GLTextureObject &tex = *object;
 
-	tex.width = w;
-	tex.height = h;
-	tex.depth = d;
+    if (!GLTextureDefineImage(tex, target, level, ifmt, w, h, d)) {
+        if (!ctx->last_error) ctx->last_error = GL_INVALID_VALUE;
+        return;
+    }
 	if (level > 0) tex.has_mipmaps = true;
 
 	if (data == 0) {
@@ -6525,6 +6621,7 @@ void NativeGLTexImage3DEXT(GLContext *ctx, uint32_t target, int32_t level, int32
 		int emptyLen = w * h * d * 4;
 		uint8_t *emptyData = (uint8_t *)calloc(1, emptyLen);
 		if (emptyData) {
+            GLTextureApplyInternalFormatBGRA(emptyData, emptyLen, GLTextureLevelBaseFormat(tex, level));
 			GLMetalUpload3DTexture(ctx, &tex, level, w, h, d, emptyData, emptyLen);
 			free(emptyData);
 		}
@@ -6560,6 +6657,7 @@ void NativeGLTexImage3DEXT(GLContext *ctx, uint32_t target, int32_t level, int32
 		}
 	}
 
+    GLTextureApplyInternalFormatBGRA(converted, totalSize, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUpload3DTexture(ctx, &tex, level, w, h, d, converted, totalSize);
 	free(converted);
 }
@@ -6573,9 +6671,9 @@ void NativeGLTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level,
 
 	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_3d;
 	if (texName == 0) return;
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
-	GLTextureObject &tex = it->second;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
+	GLTextureObject &tex = *object;
 	if (!tex.metal_texture) return;
 
 	// Convert source pixels slice by slice
@@ -6605,6 +6703,7 @@ void NativeGLTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level,
 		}
 	}
 
+    GLTextureApplyInternalFormatBGRA(converted, totalSize, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUploadSubTexture3D(ctx, &tex, level, xoff, yoff, zoff, w, h, d,
 	                          converted, w * 4, sliceSize);
 	free(converted);
@@ -6621,9 +6720,10 @@ void NativeGLCopyTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level
 
 	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_3d;
 	if (texName != 0) {
-		auto it = ctx->texture_objects.find(texName);
-		if (it != ctx->texture_objects.end()) {
-			GLMetalUploadSubTexture3D(ctx, &it->second, level, xoff, yoff, zoff, w, h, 1, bgra, w * 4, w * h * 4);
+		GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+		if (object) {
+            GLTextureApplyInternalFormatBGRA(bgra, bufLen, GLTextureLevelBaseFormat(*object, level));
+			GLMetalUploadSubTexture3D(ctx, object, level, xoff, yoff, zoff, w, h, 1, bgra, w * 4, w * h * 4);
 		}
 	}
 	free(bgra);

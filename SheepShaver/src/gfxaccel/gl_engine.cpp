@@ -23,6 +23,7 @@
 #include "macos_util.h"
 #include "gl_engine.h"
 #include "gl_texture_coordinates.h"
+#include "gl_texture_format_policy.h"
 #include "gl_agl_renderer_policy.h"
 #include "rave_metal_renderer.h"
 #include "metal_compositor.h"
@@ -36,6 +37,7 @@
 #include <cstdio>
 #include <cmath>
 #include <vector>
+#include <algorithm>
 
 #define DEBUG 0
 #include "debug.h"
@@ -558,9 +560,9 @@ static void GLFinishDrawableUnbind(int idx)
  *
  *  All initial values match the OpenGL 1.2 specification defaults.
  */
-static GLContext *GLContextNew(int width, int height)
+static GLContext *GLContextNew(int width, int height, GLContext *share = nullptr)
 {
-	GLContext *ctx = new GLContext();
+	GLContext *ctx = new GLContext { share ? share->shared_objects : std::make_shared<GLSharedObjects>() };
 	// Note: Do NOT memset here. GLContext contains std::unordered_map and
 	// std::vector members whose internal state would be destroyed by memset.
 	// Value-initialization via new GLContext() already zero-inits POD members,
@@ -672,7 +674,6 @@ static GLContext *GLContextNew(int width, int height)
 	}
 	ctx->active_texture = 0;
 	ctx->client_active_texture = 0;
-	ctx->next_texture_name = 1;
 	ctx->completed_draw_serial = 0;
 	for (int u = 0; u < 4; u++) {
 		ctx->texture_2d_enable_draw_serial[u] = 0;
@@ -749,7 +750,6 @@ static GLContext *GLContextNew(int width, int height)
 	// All zero-initialized (disabled, null pointers)
 
 	// ---- Display lists ----
-	ctx->next_list_name = 1;
 	ctx->in_display_list = false;
 	ctx->current_list_name = 0;
 	ctx->current_list_mode = 0;
@@ -1033,6 +1033,8 @@ static void GLPopulateDispatchTable(uint32_t mac_handle)
  *
  *  Allocate a new GLContext, store in context table, return Mac-side handle.
  */
+static GLContext *GLContextFromHandle(uint32_t mac_handle, int *out_idx = nullptr);
+
 uint32_t NativeAGLCreateContext(uint32_t pixelFormat, uint32_t shareContext)
 {
 	GL_LOG("aglCreateContext: pixelFormat=0x%08x shareContext=0x%08x", pixelFormat, shareContext);
@@ -1046,6 +1048,11 @@ uint32_t NativeAGLCreateContext(uint32_t pixelFormat, uint32_t shareContext)
 	}
 	if (!format) {
 		gl_agl_last_error = AGL_BAD_PIXELFMT;
+		return 0;
+	}
+	GLContext *share = shareContext ? GLContextFromHandle(shareContext) : nullptr;
+	if (shareContext && !share) {
+		gl_agl_last_error = AGL_BAD_CONTEXT;
 		return 0;
 	}
 
@@ -1065,7 +1072,7 @@ uint32_t NativeAGLCreateContext(uint32_t pixelFormat, uint32_t shareContext)
 	}
 
 	// Create the context with default dimensions (will be set by aglSetDrawable)
-	GLContext *ctx = GLContextNew(640, 480);
+	GLContext *ctx = GLContextNew(640, 480, share);
 	ctx->double_buffered = format->has_double_buffer;
 	ctx->draw_buffer = ctx->read_buffer = ctx->double_buffered ? GL_BACK : GL_FRONT;
 	gl_contexts[slot] = ctx;
@@ -1109,16 +1116,29 @@ uint32_t NativeAGLCreateContext(uint32_t pixelFormat, uint32_t shareContext)
  *  Helper: look up GLContext from Mac-side handle
  *  Returns context pointer and sets out_idx to 0-based index, or nullptr on error.
  */
-static GLContext *GLContextFromHandle(uint32_t mac_handle, int *out_idx = nullptr)
+static GLContext *GLContextFromHandle(uint32_t mac_handle, int *out_idx)
 {
 	if (mac_handle == 0) return nullptr;
+	// Validate identity before reading guest storage. A forged/stale pointer
+	// containing a live slot number is not an AGL context handle.
+	for (int idx = 0; idx < GL_MAX_CONTEXTS; ++idx) {
+		if (gl_context_mac_handles[idx] != mac_handle || !gl_contexts[idx]) continue;
+		if (ReadMacInt32(mac_handle) != uint32_t(idx + 1)) return nullptr;
+		if (out_idx) *out_idx = idx;
+		return gl_contexts[idx];
+	}
+	return nullptr;
+}
 
-	uint32_t one_based = ReadMacInt32(mac_handle);
-	if (one_based == 0 || one_based > GL_MAX_CONTEXTS) return nullptr;
-
-	int idx = one_based - 1;
-	if (out_idx) *out_idx = idx;
-	return gl_contexts[idx];
+unsigned GLContextGetSharedContexts(const GLContext *ctx, GLContext **out, unsigned capacity)
+{
+	unsigned count = 0;
+	if (!ctx || !out) return 0;
+	for (GLContext *candidate : gl_contexts) {
+		if (candidate && candidate->shared_objects == ctx->shared_objects && count < capacity)
+			out[count++] = candidate;
+	}
+	return count;
 }
 
 extern "C" int GLContextGetOffscreenDrawable(GLContext *context,
@@ -1178,6 +1198,7 @@ uint32_t NativeAGLSetCurrentContext(uint32_t ctx)
 		return GL_FALSE;
 	}
 
+	if (gl_current_context != context) GLMetalSynchronizeSharedContexts(context);
 	gl_current_context = context;
 	gl_current_context_idx = idx;
 
@@ -1321,13 +1342,13 @@ uint32_t NativeAGLSwapBuffers(uint32_t ctx)
  *  Clean up GLContext, free resources, remove from table.
  *
  *  Destroy path cleanup:
- *  (1) GLMetalRelease: commits pending GPU work, releases Metal textures (CFRelease),
- *      clears pipeline/depth-stencil/sampler caches, deletes GLMetalState
+ *  (1) GLMetalRelease: commits pending GPU work, clears context-local
+ *      pipeline/depth-stencil/sampler caches, and deletes GLMetalState
  *  (2) Shared-overlay refcount release deleted; GL uses the per-engine
  *      overlay path.
  *  (3) Accum buffer: freed here (raw malloc'd by gl_accum_ensure_allocated)
- *  (4) delete context: releases std::unordered_map/std::vector members via dtors
- *      (texture_objects already cleared in GLMetalRelease, display_lists are CPU-only)
+ *  (4) delete context: releases state and its share-group reference; the final
+ *      group owner releases texture resources and CPU-only display lists
  */
 uint32_t NativeAGLDestroyContext(uint32_t ctx)
 {
@@ -1347,7 +1368,7 @@ uint32_t NativeAGLDestroyContext(uint32_t ctx)
 		gl_current_context_idx = -1;
 	}
 
-	// Release Metal resources for this context (textures, caches, GPU sync)
+	// Release this context's Metal state; shared objects survive other contexts.
 	GLMetalRelease(context);
 
 	if (agl_ctx_state[idx].agl_drawable != 0) {
@@ -1647,7 +1668,7 @@ uint32_t NativeAGLCopyContext(uint32_t src, uint32_t dst, uint32_t mask)
 		d->polygon_offset_units = s->polygon_offset_units;
 	}
 	if (mask & GL_TEXTURE_BIT) {
-		memcpy(d->tex_units, s->tex_units, sizeof(s->tex_units));
+		std::copy(s->tex_units, s->tex_units + 4, d->tex_units);
 		d->active_texture = s->active_texture;
 		d->client_active_texture = s->client_active_texture;
 	}
@@ -3654,7 +3675,7 @@ void NativeGLTexImage2D_Direct(GLContext *ctx, uint32_t target, int32_t level,
                                 int32_t border, uint32_t format, uint32_t type,
                                 const uint8_t *pixels, int32_t pixel_data_size)
 {
-	(void)internalFormat; (void)border; (void)type; (void)pixel_data_size;
+	(void)border; (void)type; (void)pixel_data_size;
 
 	// Input validation (ASVS V5 — mirror gl_engine.cpp NativeGLUBuild2DMipmaps guards).
 	if (!ctx || pixels == 0 || width <= 0 || height <= 0) return;
@@ -3668,10 +3689,14 @@ void NativeGLTexImage2D_Direct(GLContext *ctx, uint32_t target, int32_t level,
 
 	if (texName == 0) return;
 
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
 
-	GLTextureObject &tex = it->second;
+	GLTextureObject &tex = *object;
+	if (!GLTextureDefineImage(tex, target, level, internalFormat, width, height)) {
+		if (!ctx->last_error) ctx->last_error = 0x0501;
+		return;
+	}
 
 	// Critical ordering (RESEARCH Pattern 1, gl_metal_renderer.mm:2217): mark the texture
 	// as mipmapped BEFORE the level-0 upload so the base Metal texture is born mipmapped:YES
@@ -3680,6 +3705,8 @@ void NativeGLTexImage2D_Direct(GLContext *ctx, uint32_t target, int32_t level,
 	if (level == 0) {
 		tex.width = width;
 		tex.height = height;
+		tex.source_format = format;
+		tex.source_type = type;
 	}
 
 	// Convert the host source pixels to a BGRA8 host buffer. Mirror the 5 UNSIGNED_BYTE
@@ -3731,6 +3758,7 @@ void NativeGLTexImage2D_Direct(GLContext *ctx, uint32_t target, int32_t level,
 		}
 	}
 
+	GLTextureApplyInternalFormatBGRA(bgra, dstBytes, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUploadTexture(ctx, &tex, level, width, height, bgra, dstBytes);
 	free(bgra);
 }
@@ -3753,9 +3781,12 @@ uint32_t NativeGLUBuild2DMipmaps(GLContext *ctx,
 
 	if (texName == 0) return 0;
 
-	auto texIt = ctx->texture_objects.find(texName);
-	if (texIt == ctx->texture_objects.end()) return 0;
-	GLTextureObject &tex = texIt->second;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return 0;
+	GLTextureObject &tex = *object;
+	if (!GLTextureDefineImage(tex, target, 0, internalFormat, width, height)) return GLU_INVALID_VALUE;
+	tex.source_format = format;
+	tex.source_type = type;
 	tex.has_mipmaps = true;
 	tex.width = width;
 	tex.height = height;
@@ -3771,6 +3802,7 @@ uint32_t NativeGLUBuild2DMipmaps(GLContext *ctx,
 
 	std::vector<uint8_t> current(baseBGRA, baseBGRA + expectedBaseBGRABytes);
 	free(baseBGRA);
+	GLTextureApplyInternalFormatBGRA(current.data(), current.size(), tex.base_internal_format);
 
 	GLMetalUploadTexture(ctx, &tex, 0, width, height,
 	                     current.data(), (int)current.size());
@@ -3803,6 +3835,7 @@ uint32_t NativeGLUBuild2DMipmaps(GLContext *ctx,
 			}
 		}
 
+		GLTextureDefineImage(tex, target, level, internalFormat, nw, nh);
 		GLMetalUploadTexture(ctx, &tex, level, nw, nh,
 		                     next.data(), (int)next.size());
 

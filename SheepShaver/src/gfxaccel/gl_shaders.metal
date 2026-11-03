@@ -33,6 +33,7 @@ struct GLVertexOut {
     float4 position     [[position]];
     float  point_size   [[point_size]];
     float4 color;
+    float4 back_color;
     float3 eye_normal;
     float3 texcoord;    // (s, t, q) unit 0 — interpolated, then divided per-fragment
     float3 texcoord1;   // (s, t, q) unit 1 — for multitexture
@@ -84,7 +85,11 @@ struct GLFragmentUniforms {
     int    has_texture_unit1;   // ARB_multitexture: unit 1 has a bound+enabled 2D texture (sample tex1 with texcoord1)
     int    texenv1_mode;        // unit-1 texenv mode (0=modulate,1=decal,2=blend,3=replace,4=add)
     int    force_opaque_output; // window overlay, GL blending disabled: store coverage alpha
+    int    tex_format;          // primary base internal format
+    int    tex1_format;
     float4 texenv1_color;       // independent unit-1 GL_TEXTURE_ENV_COLOR
+    int    has_texture_1d;
+    int    has_texture_unit1_1d;
 };
 
 struct GLLight {
@@ -119,10 +124,92 @@ struct GLLightingData {
     GLLight    lights[8];
     GLMaterialData material;
     float4     global_ambient;
+    GLMaterialData back_material;
+    int        local_viewer;
 };
 
 
 // ---- Vertex shader ----
+
+// Compute both vertex colors before clipping/interpolation. Polygon winding,
+// not the direction of an interpolated normal, selects the visible material.
+static float4 gl_light_vertex(float4 vertexColor, float3 eyeNormal, float3 eyePosition,
+                             constant GLMaterialData &material,
+                             constant GLLightingData &lighting)
+{
+    // GL_COLOR_MATERIAL: the selected material term follows the vertex color.
+    float4 mat_ambient  = material.ambient;
+    float4 mat_diffuse  = material.diffuse;
+    float4 mat_specular = material.specular;
+    float4 mat_emission = material.emission;
+    int cm = material.color_material;
+    if (cm == 1 || cm == 5) mat_ambient  = vertexColor;
+    if (cm == 2 || cm == 5) mat_diffuse  = vertexColor;
+    if (cm == 3)            mat_specular = vertexColor;
+    if (cm == 4)            mat_emission = vertexColor;
+
+    // Initialize with emission + global_ambient * material.ambient
+    float4 color = mat_emission + lighting.global_ambient * mat_ambient;
+
+    for (int i = 0; i < 8; i++) {
+        if (lighting.lights[i].enabled == 0) continue;
+
+        constant GLLight &light = lighting.lights[i];
+
+        // Light direction and attenuation
+        float3 L;
+        float attenuation = 1.0;
+        if (light.position.w == 0.0) {
+            // Directional light
+            L = normalize(light.position.xyz);
+        } else {
+            // Positional light
+            float3 lightVec = light.position.xyz - eyePosition;
+            float dist = length(lightVec);
+            L = lightVec / max(dist, 0.0001);
+            attenuation = 1.0 / (light.constant_atten +
+                                 light.linear_atten * dist +
+                                 light.quadratic_atten * dist * dist);
+        }
+
+        // Spotlight effect
+        float spotEffect = 1.0;
+        if (light.spot_cutoff >= 0.0) {
+            // spot_cutoff stores cos(cutoff angle)
+            float spotCos = dot(-L, normalize(light.spot_direction));
+            if (spotCos < light.spot_cutoff) {
+                spotEffect = 0.0;
+            } else {
+                spotEffect = pow(spotCos, light.spot_exponent);
+            }
+        }
+
+        // Ambient contribution
+        float4 ambient_contrib = light.ambient * mat_ambient;
+
+        // Diffuse contribution
+        float NdotL = max(dot(eyeNormal, L), 0.0);
+        float4 diffuse_contrib = NdotL * light.diffuse * mat_diffuse;
+
+        // Specular contribution
+        float4 specular_contrib = float4(0.0);
+        if (NdotL > 0.0) {
+            float3 V = lighting.local_viewer ? normalize(-eyePosition) : float3(0.0, 0.0, 1.0);
+            float3 H = normalize(L + V);           // half vector
+            float NdotH = max(dot(eyeNormal, H), 0.0);
+            float spec = material.shininess == 0.0 ? 1.0 : pow(NdotH, material.shininess);
+            specular_contrib = spec * light.specular * mat_specular;
+        }
+
+        color += attenuation * spotEffect *
+                 (ambient_contrib + diffuse_contrib + specular_contrib);
+    }
+
+    // GL takes lit alpha from the diffuse material alpha alone; summing it
+    // across terms saturates to 1 and makes lit translucency opaque.
+    color.a = mat_diffuse.a;
+    return clamp(color, 0.0, 1.0);
+}
 
 vertex GLVertexOut gl_vertex_main(
     GLVertexIn in [[stage_in]],
@@ -151,14 +238,6 @@ vertex GLVertexOut gl_vertex_main(
         float len = length(eye_normal);
         if (len > 0.0) eye_normal /= len;
     }
-    // Two-sided lighting: flip normal for back-facing vertices
-    // A vertex is back-facing if the normal points away from the eye (dot(N, -V) < 0)
-    if (uniforms.two_side_lighting && uniforms.lighting_enabled) {
-        float3 V = normalize(-lighting_eye_pos);
-        if (dot(eye_normal, V) < 0.0) {
-            eye_normal = -eye_normal;
-        }
-    }
     out.eye_normal = eye_normal;
 
     // 4. Pass through texcoords (s, t, q) for projective texturing
@@ -167,82 +246,18 @@ vertex GLVertexOut gl_vertex_main(
     // Pass through the secondary color (added after texturing, gated on GL_COLOR_SUM)
     out.secondary_color = in.secondary_color;
 
-    // 5. Lighting or pass-through color
+    // 5. Lighting or pass-through color. Points/lines and one-sided polygons
+    // receive identical front/back outputs, so fragment facing cannot affect them.
     if (uniforms.lighting_enabled) {
-        // GL_COLOR_MATERIAL: the selected material term follows the vertex color.
-        float4 mat_ambient  = lighting.material.ambient;
-        float4 mat_diffuse  = lighting.material.diffuse;
-        float4 mat_specular = lighting.material.specular;
-        float4 mat_emission = lighting.material.emission;
-        int cm = lighting.material.color_material;
-        if (cm == 1 || cm == 5) mat_ambient  = in.color;
-        if (cm == 2 || cm == 5) mat_diffuse  = in.color;
-        if (cm == 3)            mat_specular = in.color;
-        if (cm == 4)            mat_emission = in.color;
-
-        // Initialize with emission + global_ambient * material.ambient
-        float4 color = mat_emission + lighting.global_ambient * mat_ambient;
-
-        for (int i = 0; i < 8; i++) {
-            if (lighting.lights[i].enabled == 0) continue;
-
-            constant GLLight &light = lighting.lights[i];
-
-            // Light direction and attenuation
-            float3 L;
-            float attenuation = 1.0;
-            if (light.position.w == 0.0) {
-                // Directional light
-                L = normalize(light.position.xyz);
-            } else {
-                // Positional light
-                float3 lightVec = light.position.xyz - lighting_eye_pos;
-                float dist = length(lightVec);
-                L = lightVec / max(dist, 0.0001);
-                attenuation = 1.0 / (light.constant_atten +
-                                     light.linear_atten * dist +
-                                     light.quadratic_atten * dist * dist);
-            }
-
-            // Spotlight effect
-            float spotEffect = 1.0;
-            if (light.spot_cutoff >= 0.0) {
-                // spot_cutoff stores cos(cutoff angle)
-                float spotCos = dot(-L, normalize(light.spot_direction));
-                if (spotCos < light.spot_cutoff) {
-                    spotEffect = 0.0;
-                } else {
-                    spotEffect = pow(spotCos, light.spot_exponent);
-                }
-            }
-
-            // Ambient contribution
-            float4 ambient_contrib = light.ambient * mat_ambient;
-
-            // Diffuse contribution
-            float NdotL = max(dot(eye_normal, L), 0.0);
-            float4 diffuse_contrib = NdotL * light.diffuse * mat_diffuse;
-
-            // Specular contribution
-            float4 specular_contrib = float4(0.0);
-            if (NdotL > 0.0 && lighting.material.shininess > 0.0) {
-                float3 V = normalize(-lighting_eye_pos);   // view direction (eye at origin)
-                float3 H = normalize(L + V);           // half vector
-                float NdotH = max(dot(eye_normal, H), 0.0);
-                float spec = pow(NdotH, lighting.material.shininess);
-                specular_contrib = spec * light.specular * mat_specular;
-            }
-
-            color += attenuation * spotEffect *
-                     (ambient_contrib + diffuse_contrib + specular_contrib);
-        }
-
-        // GL takes lit alpha from the diffuse material alpha alone; summing it
-        // across terms saturates to 1 and makes lit translucency opaque.
-        color.a = mat_diffuse.a;
-        out.color = clamp(color, 0.0, 1.0);
+        out.color = gl_light_vertex(in.color, eye_normal, lighting_eye_pos,
+                                   lighting.material, lighting);
+        out.back_color = uniforms.two_side_lighting
+            ? gl_light_vertex(in.color, -eye_normal, lighting_eye_pos,
+                              lighting.back_material, lighting)
+            : out.color;
     } else {
         out.color = in.color;
+        out.back_color = in.color;
     }
 
     // 6. Fog factor computation
@@ -278,6 +293,36 @@ vertex GLVertexOut gl_vertex_main(
 }
 
 
+// The texture's base internal format controls which fragment components each
+// environment operation replaces. Storage swizzles alone cannot express these
+// rules (for example, an ALPHA texture must leave primary RGB unchanged).
+static float4 gl_texture_environment(float4 color, float4 texel, int mode,
+                                      float4 environment, int baseFormat)
+{
+    const bool alphaOnly = baseFormat == 0x1906;
+    const bool intensity = baseFormat == 0x8049;
+    const bool hasAlpha = alphaOnly || intensity || baseFormat == 0x190a ||
+                          baseFormat == 0x1908 || baseFormat == 0;
+    if (mode == 0) { // MODULATE
+        if (!alphaOnly) color.rgb *= texel.rgb;
+        if (hasAlpha) color.a *= texel.a;
+    } else if (mode == 1) { // DECAL (defined for RGB and RGBA)
+        if (!alphaOnly) color.rgb = hasAlpha ? mix(color.rgb, texel.rgb, texel.a) : texel.rgb;
+    } else if (mode == 2) { // BLEND
+        if (!alphaOnly) color.rgb = mix(color.rgb, environment.rgb, texel.rgb);
+        if (intensity) color.a = mix(color.a, environment.a, texel.a);
+        else if (hasAlpha) color.a *= texel.a;
+    } else if (mode == 3) { // REPLACE
+        if (!alphaOnly) color.rgb = texel.rgb;
+        if (hasAlpha) color.a = texel.a;
+    } else if (mode == 4) { // ADD
+        if (!alphaOnly) color.rgb = saturate(color.rgb + texel.rgb);
+        if (intensity) color.a = saturate(color.a + texel.a);
+        else if (hasAlpha) color.a *= texel.a;
+    }
+    return color;
+}
+
 // ---- Fragment shader ----
 
 fragment float4 gl_fragment_main(
@@ -287,7 +332,8 @@ fragment float4 gl_fragment_main(
     texture3d<float> tex3d [[texture(1)]],
     texture2d<float> tex1 [[texture(2)]],
     sampler samp [[sampler(0)]],
-    sampler samp1 [[sampler(1)]])
+    sampler samp1 [[sampler(1)]],
+    bool frontFacing [[front_facing]])
 {
     // User clip planes: discard if any clip distance is negative
     if (in.num_clip_planes > 0 && in.clip_dist0 < 0.0) discard_fragment();
@@ -297,12 +343,13 @@ fragment float4 gl_fragment_main(
     if (in.num_clip_planes > 4 && in.clip_dist4 < 0.0) discard_fragment();
     if (in.num_clip_planes > 5 && in.clip_dist5 < 0.0) discard_fragment();
 
-    float4 color = in.color;
+    float4 color = frontFacing ? in.color : in.back_color;
 
     // Texture application
     if (uniforms.has_texture) {
         // Projective texturing: divide s,t by q for perspective-correct mapping
         float2 uv = (in.texcoord.z != 0.0) ? in.texcoord.xy / in.texcoord.z : in.texcoord.xy;
+        if (uniforms.has_texture_1d) uv.y = 0.5;
         float4 tex_color;
         if (uniforms.has_texture_3d) {
             float3 uvw = float3(uv, in.texcoord1.x);  // use unit 1's s as the r (depth) coordinate
@@ -311,53 +358,16 @@ fragment float4 gl_fragment_main(
             tex_color = tex.sample(samp, uv);
         }
 
-        if (uniforms.texenv_mode == 0) {
-            // GL_MODULATE: Cf = Ct * Cf
-            color = float4(color.rgb * tex_color.rgb, color.a * tex_color.a);
-        } else if (uniforms.texenv_mode == 1) {
-            // GL_DECAL: Cf.rgb = mix(Cf.rgb, Ct.rgb, Ct.a), Cf.a unchanged
-            color.rgb = mix(color.rgb, tex_color.rgb, tex_color.a);
-        } else if (uniforms.texenv_mode == 2) {
-            // GL_BLEND: Cf.rgb = mix(Cf.rgb, Cc.rgb, Ct.rgb), Cf.a = Cf.a * Ct.a
-            color.rgb = mix(color.rgb, uniforms.texenv_color.rgb, tex_color.rgb);
-            color.a *= tex_color.a;
-        } else if (uniforms.texenv_mode == 3) {
-            // GL_REPLACE: Cf = Ct
-            color = tex_color;
-        } else if (uniforms.texenv_mode == 4) {
-            // GL_ADD: Cf.rgb = Cf.rgb + Ct.rgb, Cf.a = Cf.a * Ct.a
-            color.rgb = clamp(color.rgb + tex_color.rgb, 0.0, 1.0);
-            color.a *= tex_color.a;
-        }
+        color = gl_texture_environment(color, tex_color, uniforms.texenv_mode,
+                                       uniforms.texenv_color, uniforms.tex_format);
     }
 
-    // ARB_multitexture unit 1 (glMultiTexCoord*ARB): sample the second 2D
-    // texture with texcoord1 and combine it onto the running color per unit 1's texenv
-    // mode (same modes 0-4 template as unit 0). Scope: 2-unit modulate/add (the standard
-    // texenv modes). The GL_COMBINE crossbar is store-only and
-    // GL_EXT_texture_env_combine is de-advertised — texenv1_mode is one of 0-4 only.
     if (uniforms.has_texture_unit1) {
         float2 uv1 = (in.texcoord1.z != 0.0) ? in.texcoord1.xy / in.texcoord1.z : in.texcoord1.xy;
-        float4 t1 = tex1.sample(samp1, uv1);
-
-        if (uniforms.texenv1_mode == 0) {
-            // GL_MODULATE: Cf = Ct1 * Cf
-            color = float4(color.rgb * t1.rgb, color.a * t1.a);
-        } else if (uniforms.texenv1_mode == 1) {
-            // GL_DECAL: Cf.rgb = mix(Cf.rgb, Ct1.rgb, Ct1.a), Cf.a unchanged
-            color.rgb = mix(color.rgb, t1.rgb, t1.a);
-        } else if (uniforms.texenv1_mode == 2) {
-            // GL_BLEND: Cf.rgb = mix(Cf.rgb, Cc.rgb, Ct1.rgb), Cf.a = Cf.a * Ct1.a
-            color.rgb = mix(color.rgb, uniforms.texenv1_color.rgb, t1.rgb);
-            color.a *= t1.a;
-        } else if (uniforms.texenv1_mode == 3) {
-            // GL_REPLACE: Cf = Ct1
-            color = t1;
-        } else if (uniforms.texenv1_mode == 4) {
-            // GL_ADD: Cf.rgb = Cf.rgb + Ct1.rgb, Cf.a = Cf.a * Ct1.a
-            color.rgb = clamp(color.rgb + t1.rgb, 0.0, 1.0);
-            color.a *= t1.a;
-        }
+        if (uniforms.has_texture_unit1_1d) uv1.y = 0.5;
+        float4 texel = tex1.sample(samp1, uv1);
+        color = gl_texture_environment(color, texel, uniforms.texenv1_mode,
+                                       uniforms.texenv1_color, uniforms.tex1_format);
     }
 
     // Color sum (GL_COLOR_SUM / EXT_secondary_color): per OpenGL 1.2.1 §3.9 the
@@ -426,6 +436,7 @@ fragment float4 gl_clear_fragment(constant float4 *values [[buffer(0)]]) {
 struct GLCopyTextureUniforms {
     uint source_x, source_bottom, width, height;
     float4 scale, bias;
+    uint base_internal_format;
 };
 kernel void gl_copy_texture_region(texture2d<float, access::read> source [[texture(0)]],
                                    texture2d<float, access::write> destination [[texture(1)]],
@@ -433,5 +444,12 @@ kernel void gl_copy_texture_region(texture2d<float, access::read> source [[textu
                                    uint2 p [[thread_position_in_grid]]) {
     if (p.x >= u.width || p.y >= u.height) return;
     float4 color = source.read(uint2(u.source_x + p.x, u.source_bottom - p.y));
-    destination.write(clamp(color * u.scale + u.bias, 0.0f, 1.0f), p);
+    color = clamp(color * u.scale + u.bias, 0.0f, 1.0f);
+    if (u.base_internal_format == 0x1906) color.rgb = float3(1.0);
+    else if (u.base_internal_format == 0x1909 || u.base_internal_format == 0x190a || u.base_internal_format == 0x8049) {
+        color.rgb = float3(color.r);
+        if (u.base_internal_format == 0x8049) color.a = color.r;
+        else if (u.base_internal_format == 0x1909) color.a = 1.0;
+    } else if (u.base_internal_format == 0x1907) color.a = 1.0;
+    destination.write(color, p);
 }

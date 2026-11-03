@@ -40,6 +40,7 @@
 #include "gl_metal_draw_state.h"
 #include "gl_vertex_pipeline.h"
 #include "gl_texture_environment.h"
+#include "gl_texture_format_policy.h"
 #include "gl_offscreen_policy.h"
 #include "gl_pixel_unpack_policy.h"
 #include "gl_pixel_pack_policy.h"
@@ -348,6 +349,9 @@ struct GLMetalLightingData {
     GLMetalLight lights[8];
     GLMetalMaterial material;
     float global_ambient[4];
+    GLMetalMaterial back_material;
+    int32_t local_viewer;
+    int32_t _pad[3];
 };
 
 // Compile-time verification that C++ struct sizes match Metal shader expectations.
@@ -359,10 +363,12 @@ static_assert(sizeof(GLMetalVertexUniforms) == 320, "GLMetalVertexUniforms size 
 // Metal float4[6] array without tripping a compile error.
 static_assert(offsetof(GLMetalVertexUniforms, clip_planes) % 16 == 0,
               "GLMetalVertexUniforms.clip_planes must be 16-byte aligned to match Metal float4[6]");
-static_assert(sizeof(GLMetalFragmentUniforms) == 112, "GLMetalFragmentUniforms size must match Metal GLFragmentUniforms (112 bytes)");
+static_assert(sizeof(GLMetalFragmentUniforms) == 128, "GLMetalFragmentUniforms size must match Metal GLFragmentUniforms (128 bytes)");
 static_assert(sizeof(GLMetalLight) == 128, "GLMetalLight size must match Metal GLLight (128 bytes)");
 static_assert(sizeof(GLMetalMaterial) == 80, "GLMetalMaterial size must match Metal GLMaterialData (80 bytes)");
-static_assert(sizeof(GLMetalLightingData) == 1120, "GLMetalLightingData size must match Metal GLLightingData (1120 bytes)");
+static_assert(sizeof(GLMetalLightingData) == 1216, "GLMetalLightingData size must match Metal GLLightingData (1216 bytes)");
+static_assert(offsetof(GLMetalLightingData, back_material) == 1120, "Metal back material offset");
+static_assert(offsetof(GLMetalLightingData, local_viewer) == 1200, "Metal local viewer offset");
 
 
 // Ring buffer constants
@@ -1538,6 +1544,7 @@ void GLMetalInit(GLContext *ctx)
     }
 
     ms->initialized = true;
+    ctx->shared_objects->destroy_texture = GLMetalDestroyTexture;
     ctx->metal = (void *)ms;
 
     GL_METAL_LOG("GLMetalInit: success (device=%p queue=%p lib=%p)",
@@ -1560,10 +1567,9 @@ static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext
                                                              ctx->color_mask[2],
                                                              ctx->color_mask[3]);
     int texUnit = GLMetalPrimaryTextureUnitForDraw(ctx->active_texture);
-    bool has_texture = (GLMetalTexture2DEnabledForDraw(ctx, texUnit) &&
-                        ctx->tex_units[texUnit].bound_texture_2d != 0) ||
-                       (ctx->tex_units[texUnit].enabled_3d &&
-                        ctx->tex_units[texUnit].bound_texture_3d != 0);
+    const uint32_t target = GLTextureUnitTarget(ctx->tex_units[texUnit],
+        GLMetalTexture2DEnabledForDraw(ctx, texUnit));
+    bool has_texture = GLTextureUnitBoundName(ctx->tex_units[texUnit], target) != 0;
 
     uint64_t key = MakePipelineKey(blend_enabled, blend_src, blend_dst,
                                     depth_write, color_mask_bits, has_texture,
@@ -2119,14 +2125,14 @@ static int32_t GLFogModeToShader(uint32_t gl_mode) {
 
 
 /*
- *  Which front-material term tracks the vertex color under GL_COLOR_MATERIAL.
+ *  Which material term tracks the vertex color under GL_COLOR_MATERIAL.
  *  Shader expects: 0=off, 1=ambient, 2=diffuse, 3=specular, 4=emission,
- *  5=ambient+diffuse. Only the front material is uploaded, so a GL_BACK-only
- *  glColorMaterial leaves it untouched.
+ *  5=ambient+diffuse. The face selector applies independently to front/back.
  */
-static int32_t GLColorMaterialToShader(const GLContext *ctx) {
+static int32_t GLColorMaterialToShader(const GLContext *ctx, int face) {
     if (!ctx->lighting_enabled || !ctx->color_material_enabled) return 0;
-    if (ctx->color_material_face == 0x0405) return 0;  // GL_BACK
+    const uint32_t materialFace = face == 0 ? 0x0404 : 0x0405;
+    if (ctx->color_material_face != 0x0408 && ctx->color_material_face != materialFace) return 0;
     switch (ctx->color_material_mode) {
         case 0x1200: return 1;  // GL_AMBIENT
         case 0x1201: return 2;  // GL_DIFFUSE
@@ -2135,6 +2141,46 @@ static int32_t GLColorMaterialToShader(const GLContext *ctx) {
         case 0x1602: return 5;  // GL_AMBIENT_AND_DIFFUSE
         default:     return 0;
     }
+}
+
+static bool GLMetalTwoSideLightingForDraw(const GLContext *ctx)
+{
+    // GL uses front lighting for points and lines, regardless of TWO_SIDE.
+    return ctx->lighting_enabled && ctx->light_model_two_side &&
+           ctx->im_mode >= 0x0004 && ctx->im_mode <= 0x0009;
+}
+
+static void GLMetalFillLightingData(GLMetalLightingData &data, const GLContext *ctx)
+{
+    data = {};
+    for (int i = 0; i < 8; ++i) {
+        auto &out = data.lights[i];
+        const auto &in = ctx->lights[i];
+        memcpy(out.ambient, in.ambient, sizeof(out.ambient));
+        memcpy(out.diffuse, in.diffuse, sizeof(out.diffuse));
+        memcpy(out.specular, in.specular, sizeof(out.specular));
+        memcpy(out.position, in.position, sizeof(out.position));
+        memcpy(out.spot_direction, in.spot_direction, sizeof(in.spot_direction));
+        out.spot_exponent = in.spot_exponent;
+        out.spot_cutoff = in.spot_cutoff >= 180.0f ? -1.0f :
+            cosf(in.spot_cutoff * float(M_PI / 180.0));
+        out.constant_atten = in.constant_attenuation;
+        out.linear_atten = in.linear_attenuation;
+        out.quadratic_atten = in.quadratic_attenuation;
+        out.enabled = in.enabled ? 1 : 0;
+    }
+    for (int face = 0; face < 2; ++face) {
+        auto &out = face == 0 ? data.material : data.back_material;
+        const auto &in = ctx->materials[face];
+        memcpy(out.ambient, in.ambient, sizeof(out.ambient));
+        memcpy(out.diffuse, in.diffuse, sizeof(out.diffuse));
+        memcpy(out.specular, in.specular, sizeof(out.specular));
+        memcpy(out.emission, in.emission, sizeof(out.emission));
+        out.shininess = in.shininess;
+        out.color_material = GLColorMaterialToShader(ctx, face);
+    }
+    memcpy(data.global_ambient, ctx->light_model_ambient, sizeof(data.global_ambient));
+    data.local_viewer = ctx->light_model_local_viewer ? 1 : 0;
 }
 
 
@@ -2291,11 +2337,14 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     float mvp[16];
     mat4_multiply(mvp, proj, mv);
     const int texUnit = GLMetalPrimaryTextureUnitForDraw(ctx->active_texture);
+    const uint32_t primaryTarget = GLTextureUnitTarget(ctx->tex_units[texUnit],
+        GLMetalTexture2DEnabledForDraw(ctx, texUnit));
     const bool hasPrimaryTexture =
-        ((GLMetalTexture2DEnabledForDraw(ctx, texUnit) &&
-          ctx->tex_units[texUnit].bound_texture_2d != 0) ||
-         (ctx->tex_units[texUnit].enabled_3d &&
-          ctx->tex_units[texUnit].bound_texture_3d != 0));
+        GLTextureUnitBoundName(ctx->tex_units[texUnit], primaryTarget) != 0;
+    GLTextureObject *primaryTexture = GLBoundTextureObject(ctx, texUnit, primaryTarget);
+    const uint32_t secondaryTarget = GLTextureUnitTarget(ctx->tex_units[1],
+        GLMetalTexture2DEnabledForDraw(ctx, 1));
+    GLTextureObject *secondaryTexture = GLBoundTextureObject(ctx, 1, secondaryTarget);
     const uint32_t viewportW =
         ctx->viewport[2] > 0 ? (uint32_t)ctx->viewport[2] : 0u;
     const uint32_t viewportH =
@@ -2384,7 +2433,7 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     vu.fog_end = ctx->fog_end;
     vu.fog_density = ctx->fog_density;
     vu.point_size = ctx->point_size;
-    vu.two_side_lighting = ctx->light_model_two_side ? 1 : 0;
+    vu.two_side_lighting = GLMetalTwoSideLightingForDraw(ctx) ? 1 : 0;
 
     // ---- User clip planes ----
     int nClipPlanes = 0;
@@ -2411,20 +2460,20 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     fu.alpha_func = GLAlphaFuncToShader(ctx->alpha_func);
     fu.alpha_ref = ctx->alpha_ref;
     fu.has_texture = hasPrimaryTexture ? 1 : 0;
-    fu.has_texture_3d = (ctx->tex_units[texUnit].enabled_3d &&
-                         ctx->tex_units[texUnit].bound_texture_3d != 0) ? 1 : 0;
+    fu.has_texture_3d = primaryTarget == 0x806f ? 1 : 0;
+    fu.has_texture_1d = primaryTarget == 0x0de0 ? 1 : 0;
+    fu.tex_format = primaryTexture ? GLTextureLevelBaseFormat(*primaryTexture, 0) : 0x1908;
+    fu.tex1_format = secondaryTexture ? GLTextureLevelBaseFormat(*secondaryTexture, 0) : 0x1908;
     fu.shade_model = (ctx->shade_model == GL_SMOOTH) ? 1 : 0;
     // EXT_secondary_color / GL_COLOR_SUM: honestly gated on the tracked enable bit
     // (NOT silently always-on) — secondary color is added after texturing only
     // when glEnable(GL_COLOR_SUM) is active.
     fu.color_sum_enabled = ctx->color_sum ? 1 : 0;
-    // ARB_multitexture (glMultiTexCoord*ARB, 406-437): unit 1 contributes a second
-    // 2D texture sampled with texcoord1 and combined per its texenv mode (2-unit
-    // modulate/add scope). Gated honestly on unit 1 being enabled with a bound 2D
-    // texture (NOT silently always-on). The GL_COMBINE crossbar is store-only
-    // and GL_EXT_texture_env_combine is de-advertised — only modes 0-4 are honored.
-    fu.has_texture_unit1 = (GLMetalTexture2DEnabledForDraw(ctx, 1) &&
-                            ctx->tex_units[1].bound_texture_2d != 0) ? 1 : 0;
+    // Each unit chooses its enabled target independently. 1D images use a
+    // height-one Metal texture, with T ignored in the fragment shader.
+    fu.has_texture_unit1 = (secondaryTarget == 0x0de0 || secondaryTarget == 0x0de1) &&
+        GLTextureUnitBoundName(ctx->tex_units[1], secondaryTarget) != 0;
+    fu.has_texture_unit1_1d = secondaryTarget == 0x0de0;
     {
         const bool isOffscreen =
             GLContextGetOffscreenDrawable(ctx, NULL, NULL, NULL, NULL);
@@ -2434,33 +2483,8 @@ static void GLMetalSubmitVertices(GLContext *ctx,
 
     // ---- Upload lighting data ----
     GLMetalLightingData ld_val;
+    GLMetalFillLightingData(ld_val, ctx);
     GLMetalLightingData *ld = &ld_val;
-    for (int i = 0; i < 8; i++) {
-        memcpy(ld->lights[i].ambient, ctx->lights[i].ambient, sizeof(float) * 4);
-        memcpy(ld->lights[i].diffuse, ctx->lights[i].diffuse, sizeof(float) * 4);
-        memcpy(ld->lights[i].specular, ctx->lights[i].specular, sizeof(float) * 4);
-        memcpy(ld->lights[i].position, ctx->lights[i].position, sizeof(float) * 4);
-        memcpy(ld->lights[i].spot_direction, ctx->lights[i].spot_direction, sizeof(float) * 3);
-        ld->lights[i].spot_exponent = ctx->lights[i].spot_exponent;
-        // Convert cutoff angle: if 180 degrees, store -1.0 as sentinel (no spotlight)
-        if (ctx->lights[i].spot_cutoff >= 180.0f) {
-            ld->lights[i].spot_cutoff = -1.0f;
-        } else {
-            ld->lights[i].spot_cutoff = cosf(ctx->lights[i].spot_cutoff * M_PI / 180.0f);
-        }
-        ld->lights[i].constant_atten = ctx->lights[i].constant_attenuation;
-        ld->lights[i].linear_atten = ctx->lights[i].linear_attenuation;
-        ld->lights[i].quadratic_atten = ctx->lights[i].quadratic_attenuation;
-        ld->lights[i].enabled = ctx->lights[i].enabled ? 1 : 0;
-    }
-    // Material (front face)
-    memcpy(ld->material.ambient, ctx->materials[0].ambient, sizeof(float) * 4);
-    memcpy(ld->material.diffuse, ctx->materials[0].diffuse, sizeof(float) * 4);
-    memcpy(ld->material.specular, ctx->materials[0].specular, sizeof(float) * 4);
-    memcpy(ld->material.emission, ctx->materials[0].emission, sizeof(float) * 4);
-    ld->material.shininess = ctx->materials[0].shininess;
-    ld->material.color_material = GLColorMaterialToShader(ctx);
-    memcpy(ld->global_ambient, ctx->light_model_ambient, sizeof(float) * 4);
 
     // ---- Get/create pipeline state ----
     id<MTLRenderPipelineState> pipeline = GLMetalGetPipeline(ms, ctx);
@@ -2489,16 +2513,15 @@ static void GLMetalSubmitVertices(GLContext *ctx,
                                       alpha:ctx->blend_color[3]];
     }
 
-    // Cull face
+    // Facing also selects two-sided lighting when culling is disabled.
+    const MTLWinding winding =
+        GLMetalFrontFacingWindingIsCounterClockwise(ctx->front_face)
+            ? MTLWindingCounterClockwise : MTLWindingClockwise;
+    [ms->currentEncoder setFrontFacingWinding:winding];
     if (ctx->cull_face_enabled) {
-        // GL_BACK (0x0405) = cull back faces = MTLCullModeBack; GL_FRONT (0x0404) = cull front faces = MTLCullModeFront
-        MTLCullMode cm = (ctx->cull_face_mode == 0x0405) ? MTLCullModeBack : MTLCullModeFront;
-        [ms->currentEncoder setCullMode:cm];
-        MTLWinding winding =
-            GLMetalFrontFacingWindingIsCounterClockwise(ctx->front_face)
-                ? MTLWindingCounterClockwise
-                : MTLWindingClockwise;
-        [ms->currentEncoder setFrontFacingWinding:winding];
+        const MTLCullMode mode = ctx->cull_face_mode == 0x0405
+            ? MTLCullModeBack : MTLCullModeFront;
+        [ms->currentEncoder setCullMode:mode];
     } else {
         [ms->currentEncoder setCullMode:MTLCullModeNone];
     }
@@ -2527,16 +2550,13 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     // texture(0) and sampler(0) as parameters, so we must bind them even
     // when has_texture is false to satisfy Metal validation.
     if (fu.has_texture) {
-        uint32_t texName = fu.has_texture_3d
-            ? ctx->tex_units[texUnit].bound_texture_3d
-            : ctx->tex_units[texUnit].bound_texture_2d;
-        auto texIt = ctx->texture_objects.find(texName);
-        if (texIt != ctx->texture_objects.end() && texIt->second.metal_texture) {
-            id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)(texIt->second.metal_texture);
+        const uint32_t texName = GLTextureUnitBoundName(ctx->tex_units[texUnit], primaryTarget);
+        if (primaryTexture && primaryTexture->metal_texture) {
+            id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)(primaryTexture->metal_texture);
             int texIdx = fu.has_texture_3d ? 1 : 0;  // 3D textures at index 1
             [ms->currentEncoder setFragmentTexture:mtlTex atIndex:texIdx];
             // Use sampler derived from texture's filter/wrap parameters
-            id<MTLSamplerState> sampler = GLMetalGetSampler(ms, &texIt->second);
+            id<MTLSamplerState> sampler = GLMetalGetSampler(ms, primaryTexture);
             [ms->currentEncoder setFragmentSamplerState:sampler atIndex:0];
         } else if (ms->fallbackWhiteTexture) {
             // Texture was deleted or never uploaded -- bind 1x1 white so vertex
@@ -2546,7 +2566,7 @@ static void GLMetalSubmitVertices(GLContext *ctx,
             [ms->currentEncoder setFragmentTexture:ms->fallbackWhiteTexture atIndex:0];
             [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:0];
             GL_METAL_VLOG("WARNING: has_texture=1 but tex %u has no Metal backing (found=%d) -- using white fallback",
-                         texName, (texIt != ctx->texture_objects.end()) ? 1 : 0);
+                         texName, primaryTexture ? 1 : 0);
         } else {
             // No fallback texture available -- bind nearest sampler to avoid validation error
             [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:0];
@@ -2569,11 +2589,10 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     // texture_objects.find + metal_texture null-check shape as unit 0; a deleted unit-1
     // texture falls back to white rather than binding a dangling MTLTexture.
     if (fu.has_texture_unit1) {
-        auto tex1It = ctx->texture_objects.find(ctx->tex_units[1].bound_texture_2d);
-        if (tex1It != ctx->texture_objects.end() && tex1It->second.metal_texture) {
-            id<MTLTexture> mtlTex1 = (__bridge id<MTLTexture>)(tex1It->second.metal_texture);
+        if (secondaryTexture && secondaryTexture->metal_texture) {
+            id<MTLTexture> mtlTex1 = (__bridge id<MTLTexture>)(secondaryTexture->metal_texture);
             [ms->currentEncoder setFragmentTexture:mtlTex1 atIndex:2];
-            id<MTLSamplerState> sampler1 = GLMetalGetSampler(ms, &tex1It->second);
+            id<MTLSamplerState> sampler1 = GLMetalGetSampler(ms, secondaryTexture);
             [ms->currentEncoder setFragmentSamplerState:sampler1 atIndex:1];
         } else {
             if (ms->fallbackWhiteTexture) {
@@ -3000,7 +3019,7 @@ void NativeGLFlush(GLContext *ctx)
  *
  *  Metal resource cleanup:
  *  - Pending command buffers: committed + waited before teardown
- *  - GL texture objects: CFRelease on each metal_texture (CFBridgingRetain'd)
+ *  - GL texture objects: retained by the share group until its final owner
  *  - Pipeline state cache: cleared (ARC releases id<MTLRenderPipelineState>)
  *  - Depth-stencil cache: cleared (ARC releases id<MTLDepthStencilState>)
  *  - Global sampler cache: cleared (shared across contexts, safe since GL is
@@ -3008,7 +3027,7 @@ void NativeGLFlush(GLContext *ctx)
  *  - Ring buffers (3x 4MB MTLBuffer): ARC releases when ms is deleted
  *  - Uniform buffers: ARC releases when ms is deleted
  *  - Depth buffer texture: ARC releases when ms is deleted
- *  - Display lists: no Metal resources (CPU-only command recording)
+ *  - Display lists: share-group-owned CPU-only command recording
  *  - Accum buffer: freed separately in gl_engine.cpp with delete context
  */
 void GLMetalRelease(GLContext *ctx)
@@ -3034,16 +3053,11 @@ void GLMetalRelease(GLContext *ctx)
         ms->lastCommittedBuffer = nil;
     }
 
-    // (2) Release all GL texture objects' Metal textures (CFBridgingRetain'd)
-    size_t tex_count = 0;
-    for (auto &pair : ctx->texture_objects) {
-        if (pair.second.metal_texture) {
-            CFRelease(pair.second.metal_texture);
-            pair.second.metal_texture = nullptr;
-            tex_count++;
-        }
-    }
-    ctx->texture_objects.clear();
+    // Texture ownership belongs to the share group, not this Metal state.
+    // Its destructor releases the namespace after the final context (including
+    // contexts which never initialized Metal), while retired bindings retain
+    // deleted objects independently until their last use ends.
+    size_t tex_count = ctx->texture_objects.size();
 
     // (3) Clear pipeline state caches (ARC releases each id<>)
     size_t pipe_count = ms->pipelineCache.size();
@@ -3057,7 +3071,7 @@ void GLMetalRelease(GLContext *ctx)
     size_t sampler_count = gl_sampler_cache.size();
     gl_sampler_cache.clear();
 
-    GL_METAL_LOG("GLMetalRelease: released %zu textures, %zu pipelines, %zu depth-stencil states, %zu samplers",
+    GL_METAL_LOG("GLMetalRelease: retained %zu shared textures; released %zu pipelines, %zu depth-stencil states, %zu samplers",
                  tex_count, pipe_count, ds_count, sampler_count);
 
     // (5) Delete the Metal state container (ARC releases all remaining id<> members:
@@ -3104,12 +3118,31 @@ static bool GLMetalRestartRenderPassForReadback(GLContext *ctx);
 // GPU-only copy -> draw sequences remain asynchronous.
 static void GLMetalSynchronizeTextureAccess(GLContext *ctx)
 {
-    GLMetalState *ms = ctx ? (GLMetalState *)ctx->metal : nullptr;
-    if (!ms || (!ms->currentCommandBuffer && !ms->lastCommittedBuffer)) return;
-    const bool resume = ms->renderPassActive;
-    GLMetalEndAndCommitForReadback(ms);
-    ms->textureCopyPending = false;
-    if (resume) GLMetalRestartRenderPassForReadback(ctx);
+    if (!ctx) return;
+    GLContext *contexts[4] = {};
+    bool resume[4] = {};
+    unsigned count = GLContextGetSharedContexts(ctx, contexts, 4);
+    if (!count) { contexts[0] = ctx; count = 1; }
+    for (unsigned i = 0; i < count; ++i) {
+        GLContext *owner = contexts[i];
+        GLMetalState *ms = (GLMetalState *)owner->metal;
+        if (!ms || (!ms->currentCommandBuffer && !ms->lastCommittedBuffer)) continue;
+        resume[i] = ms->renderPassActive;
+        GLMetalEndAndCommitForReadback(ms);
+        ms->textureCopyPending = false;
+    }
+    // Preserve every logical pass, including inactive peers. A lazy BeginFrame
+    // on an offscreen peer would reimport stale guest RAM over its GPU pixels.
+    // Commit all producers first, then resume attachment loads so pending
+    // shared-resource work cannot be held behind a newly opened encoder.
+    for (unsigned i = 0; i < count; ++i) {
+        if (resume[i]) GLMetalRestartRenderPassForReadback(contexts[i]);
+    }
+}
+
+void GLMetalSynchronizeSharedContexts(GLContext *ctx)
+{
+    GLMetalSynchronizeTextureAccess(ctx);
 }
 
 void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
@@ -3634,6 +3667,9 @@ bool GLMetalCopyFramebufferToTexture(GLContext *ctx, GLTextureObject *texObj,
     id<MTLTexture> dst = (__bridge id<MTLTexture>)texObj->metal_texture;
     id<MTLTexture> preserveSource = nil;
     if (!ms || !ms->initialized) return fail(0x0502); // INVALID_OPERATION
+    // Other contexts in the share group can still have unsubmitted draws
+    // referencing this texture. Order them before this context replaces it.
+    GLMetalSynchronizeTextureAccess(ctx);
     if (redefine) {
         // Match the 1024 maximum advertised by GL_MAX_TEXTURE_SIZE. Replacing
         // level zero uses a fresh resource, so earlier queued draws keep their
@@ -3702,12 +3738,14 @@ bool GLMetalCopyFramebufferToTexture(GLContext *ctx, GLTextureObject *texObj,
     struct CopyUniforms {
         uint32_t sourceX, sourceBottom, width, height;
         float scale[4], bias[4];
+        uint32_t base_internal_format, _pad[3];
     } u = {uint32_t(int64_t(x) + left), uint32_t(int64_t(src.height) - 1 - (int64_t(y) + bottom)),
         uint32_t(w), uint32_t(h),
         {ctx->pixel_transfer_red_scale, ctx->pixel_transfer_green_scale,
          ctx->pixel_transfer_blue_scale, ctx->pixel_transfer_alpha_scale},
         {ctx->pixel_transfer_red_bias, ctx->pixel_transfer_green_bias,
-         ctx->pixel_transfer_blue_bias, ctx->pixel_transfer_alpha_bias}};
+         ctx->pixel_transfer_blue_bias, ctx->pixel_transfer_alpha_bias},
+        GLTextureLevelBaseFormat(*texObj, level), {0, 0, 0}};
     const bool resume = ms->renderPassActive;
     if (ms->currentEncoder) {
         [ms->currentEncoder endEncoding];
@@ -3832,6 +3870,7 @@ static bool GLMetalStoreReadPixelsToGuest(GLContext *ctx, const uint8_t *pixels,
 bool GLMetalReadTexture(GLContext *ctx, GLTextureObject *obj, int32_t level,
     int32_t width, int32_t height, std::vector<uint8_t> &pixels)
 {
+    GLMetalSynchronizeTextureAccess(ctx);
     GLMetalState *ms=(GLMetalState *)ctx->metal;
     id<MTLTexture> src=(__bridge id<MTLTexture>)obj->metal_texture;
     if (!ms || !ms->initialized || !src || level >= (int32_t)src.mipmapLevelCount ||
@@ -3859,6 +3898,7 @@ bool GLMetalReadTexture(GLContext *ctx, GLTextureObject *obj, int32_t level,
         pixels.resize(size_t(width)*height*4);
         for(int32_t row=0;row<height;++row)
             memcpy(pixels.data()+size_t(row)*width*4,(const uint8_t *)staging.contents+row*pitch,size_t(width)*4);
+        GLTexturePrepareReadbackBGRA(pixels.data(), pixels.size(), GLTextureLevelBaseFormat(*obj, level));
     } else if (!ctx->last_error) ctx->last_error=0x0505;
     if (restart) GLMetalRestartRenderPassForReadback(ctx);
     return ok;
@@ -4710,6 +4750,20 @@ static inline int EffectiveStride(const GLVertexArrayPointer &arr) {
     return arr.size * TypeSize(arr.type);
 }
 
+// GL 1.1 table 2.6: color and normal integer components are fixed point.
+// Vertex positions and texture coordinates keep their ordinary numeric values.
+static inline float ReadArrayNormalizedComponent(uint32_t addr, uint32_t type) {
+    switch (type) {
+    case GL_BYTE: return float((2.0 * (int8_t)ReadMacInt8(addr) + 1.0) / 255.0);
+    case GL_SHORT: return float((2.0 * (int16_t)ReadMacInt16(addr) + 1.0) / 65535.0);
+    case GL_INT: return float((2.0 * (int32_t)ReadMacInt32(addr) + 1.0) / 4294967295.0);
+    case GL_UNSIGNED_BYTE: return float(ReadMacInt8(addr) / 255.0);
+    case GL_UNSIGNED_SHORT: return float(ReadMacInt16(addr) / 65535.0);
+    case GL_UNSIGNED_INT: return float(ReadMacInt32(addr) / 4294967295.0);
+    default: return ReadArrayComponent(addr, type);
+    }
+}
+
 /*
  *  FetchArrayVertex -- read one vertex from enabled client arrays at index i
  */
@@ -4733,18 +4787,10 @@ static void FetchArrayVertex(GLContext *ctx, uint32_t i, GLVertex &v) {
         uint32_t base = ctx->color_array.pointer + i * es;
         int sz = ctx->color_array.size;
         uint32_t ct = ctx->color_array.type;
-        if (ct == GL_UNSIGNED_BYTE) {
-            // Special: normalize to 0..1 range
-            v.color[0] = (sz >= 1) ? ReadMacInt8(base) / 255.0f : 0.0f;
-            v.color[1] = (sz >= 2) ? ReadMacInt8(base + 1) / 255.0f : 0.0f;
-            v.color[2] = (sz >= 3) ? ReadMacInt8(base + 2) / 255.0f : 0.0f;
-            v.color[3] = (sz >= 4) ? ReadMacInt8(base + 3) / 255.0f : 1.0f;
-        } else {
-            v.color[0] = (sz >= 1) ? ReadArrayComponent(base + 0 * TypeSize(ct), ct) : 0.0f;
-            v.color[1] = (sz >= 2) ? ReadArrayComponent(base + 1 * TypeSize(ct), ct) : 0.0f;
-            v.color[2] = (sz >= 3) ? ReadArrayComponent(base + 2 * TypeSize(ct), ct) : 0.0f;
-            v.color[3] = (sz >= 4) ? ReadArrayComponent(base + 3 * TypeSize(ct), ct) : 1.0f;
-        }
+        v.color[0] = (sz >= 1) ? ReadArrayNormalizedComponent(base + 0 * TypeSize(ct), ct) : 0.0f;
+        v.color[1] = (sz >= 2) ? ReadArrayNormalizedComponent(base + 1 * TypeSize(ct), ct) : 0.0f;
+        v.color[2] = (sz >= 3) ? ReadArrayNormalizedComponent(base + 2 * TypeSize(ct), ct) : 0.0f;
+        v.color[3] = (sz >= 4) ? ReadArrayNormalizedComponent(base + 3 * TypeSize(ct), ct) : 1.0f;
     } else {
         memcpy(v.color, ctx->current_color, sizeof(float) * 4);
     }
@@ -4754,7 +4800,7 @@ static void FetchArrayVertex(GLContext *ctx, uint32_t i, GLVertex &v) {
         int es = EffectiveStride(ctx->normal_array);
         uint32_t base = ctx->normal_array.pointer + i * es;
         for (int c = 0; c < 3; c++)
-            v.normal[c] = ReadArrayComponent(base + c * TypeSize(ctx->normal_array.type), ctx->normal_array.type);
+            v.normal[c] = ReadArrayNormalizedComponent(base + c * TypeSize(ctx->normal_array.type), ctx->normal_array.type);
     } else {
         memcpy(v.normal, ctx->current_normal, sizeof(float) * 3);
     }

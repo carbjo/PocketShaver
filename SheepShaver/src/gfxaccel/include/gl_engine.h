@@ -783,6 +783,11 @@ struct GLTextureObject {
     int      depth;          // for 3D textures (GL_TEXTURE_3D_EXT)
     uint32_t source_format;
     uint32_t source_type;
+    uint32_t target;         // first bound GL target; storage remains target-specific
+    uint32_t internal_format; // original level-zero token (including legacy 1..4)
+    uint32_t base_internal_format; // canonical GL_ALPHA/LUMINANCE/.../RGBA
+    uint32_t level_internal_format[32];
+    int      level_width[32], level_height[32], level_depth[32];
     uint32_t min_filter;     // GLenum: GL_NEAREST, GL_LINEAR, etc.
     uint32_t mag_filter;     // GLenum
 	    uint32_t wrap_s;         // GLenum: GL_REPEAT, GL_CLAMP, etc.
@@ -868,6 +873,11 @@ struct GLTextureUnit {
     uint32_t bound_texture_1d;   // name of bound GL_TEXTURE_1D
     uint32_t bound_texture_2d;   // name of bound GL_TEXTURE_2D
     uint32_t bound_texture_3d;   // name of bound GL_TEXTURE_3D_EXT
+    // A deleted name leaves the object alive in other contexts which still
+    // bind it. These identities remain distinct if the numeric name is reused.
+    std::shared_ptr<GLTextureObject> retired_texture_1d;
+    std::shared_ptr<GLTextureObject> retired_texture_2d;
+    std::shared_ptr<GLTextureObject> retired_texture_3d;
     bool     enabled_1d;
     bool     enabled_2d;
     bool     enabled_3d;
@@ -1197,7 +1207,25 @@ struct GLMinmaxState {
  *  This is the native-side representation of an OpenGL context.
  *  Metal types use void* bridges to keep this header C++ compatible.
  */
+struct GLSharedObjects {
+    std::unordered_map<uint32_t, GLTextureObject> texture_objects;
+    std::unordered_map<uint32_t, GLDisplayList> display_lists;
+    uint32_t next_texture_name = 1;
+    uint32_t next_list_name = 1;
+    // Installed by the Metal backend. Keeping this optional lets portable
+    // users construct contexts without linking an Apple-platform renderer.
+    void (*destroy_texture)(GLTextureObject *) = nullptr;
+
+    ~GLSharedObjects() {
+        if (destroy_texture)
+            for (auto &entry : texture_objects) destroy_texture(&entry.second);
+    }
+};
+
 struct GLContext {
+    // Keep this first: GLContextNew can aggregate-initialize a shared group
+    // without a user-provided constructor suppressing POD value-initialization.
+    std::shared_ptr<GLSharedObjects> shared_objects = std::make_shared<GLSharedObjects>();
     // Guest Memory Manager calls can reenter AGL and destroy this context.
     // Replay retains a weak token, never a raw pointer across that boundary.
     std::shared_ptr<char> lifetime = std::make_shared<char>(0);
@@ -1244,8 +1272,8 @@ struct GLContext {
     int      client_active_texture;    // for client state
 
     // ---- Texture objects ----
-    std::unordered_map<uint32_t, GLTextureObject> texture_objects;
-    uint32_t next_texture_name;
+    std::unordered_map<uint32_t, GLTextureObject> &texture_objects = shared_objects->texture_objects;
+    uint32_t &next_texture_name = shared_objects->next_texture_name;
 
     // ---- Enable/disable caps ----
     bool     depth_test;
@@ -1326,8 +1354,8 @@ struct GLContext {
     GLVertexArrayPointer prepared_texcoord_array[4];
 
     // ---- Display lists ----
-    std::unordered_map<uint32_t, GLDisplayList> display_lists;
-    uint32_t next_list_name;
+    std::unordered_map<uint32_t, GLDisplayList> &display_lists = shared_objects->display_lists;
+    uint32_t &next_list_name = shared_objects->next_list_name;
     bool     in_display_list;
     uint32_t current_list_name;
     uint32_t current_list_mode;        // GL_COMPILE or GL_COMPILE_AND_EXECUTE
@@ -1493,6 +1521,26 @@ struct GLContext {
     uint32_t last_error;               // GLenum: GL_NO_ERROR, etc.
 };
 
+static inline std::shared_ptr<GLTextureObject> &GLRetiredTextureBinding(GLTextureUnit &unit,
+                                                                     uint32_t target)
+{
+    return target == 0x0de0 ? unit.retired_texture_1d :
+           target == 0x806f ? unit.retired_texture_3d : unit.retired_texture_2d;
+}
+
+static inline GLTextureObject *GLBoundTextureObject(const GLContext *ctx, int unit, uint32_t target)
+{
+    if (!ctx || unit < 0 || unit >= 4) return nullptr;
+    const GLTextureUnit &binding = ctx->tex_units[unit];
+    const auto &retired = target == 0x0de0 ? binding.retired_texture_1d :
+                          target == 0x806f ? binding.retired_texture_3d : binding.retired_texture_2d;
+    if (retired) return retired.get();
+    const uint32_t name = target == 0x0de0 ? binding.bound_texture_1d :
+                          target == 0x806f ? binding.bound_texture_3d : binding.bound_texture_2d;
+    auto entry = ctx->texture_objects.find(name);
+    return entry == ctx->texture_objects.end() ? nullptr : &entry->second;
+}
+
 
 /*
  *  Public API declarations
@@ -1500,6 +1548,10 @@ struct GLContext {
 
 // Current GL context (singleton for now)
 extern GLContext *gl_current_context;
+// Return registered contexts sharing this object's namespace, including ctx.
+extern unsigned GLContextGetSharedContexts(const GLContext *ctx, GLContext **out,
+                                           unsigned capacity);
+extern void GLMetalSynchronizeSharedContexts(GLContext *ctx);
 
 // Initialize GL context to default state
 extern void GLContextInit(GLContext *ctx);
