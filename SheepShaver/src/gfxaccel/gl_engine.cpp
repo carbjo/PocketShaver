@@ -38,6 +38,7 @@
 #include <cstdio>
 #include <cmath>
 #include <vector>
+#include <new>
 #include <algorithm>
 
 #define DEBUG 0
@@ -3947,19 +3948,22 @@ uint32_t NativeGLUNewQuadric()
 
 static GLUQuadricState *GLUQuadricFromHandle(uint32_t mac_handle)
 {
-	if (mac_handle == 0) return nullptr;
-	uint32_t one_based = ReadMacInt32(mac_handle);
-	if (one_based == 0 || one_based > GLU_MAX_QUADRICS) return nullptr;
-	int idx = one_based - 1;
-	if (!glu_quadrics[idx].in_use) return nullptr;
-	return &glu_quadrics[idx];
+    if(!mac_handle)return nullptr;
+    for(int i=0;i<GLU_MAX_QUADRICS;++i)
+        if(glu_quadric_mac_handles[i]==mac_handle && glu_quadrics[i].in_use)return &glu_quadrics[i];
+    return nullptr;
 }
 
-void NativeGLUDeleteQuadric(uint32_t quad_handle)
+void NativeGLUDeleteQuadric(uint32_t handle)
 {
-	GL_LOG("gluDeleteQuadric: handle=0x%08x", quad_handle);
-	GLUQuadricState *q = GLUQuadricFromHandle(quad_handle);
-	if (q) q->in_use = false;
+    GLUQuadricState *state=GLUQuadricFromHandle(handle);
+    if(!state)return;
+    const size_t index=size_t(state-glu_quadrics);
+    glu_quadric_mac_handles[index]=0;
+
+    state->in_use=false;
+    // Guest free may reenter GLU and reuse this slot: complete every native mutation first.
+    Mac_sysfree(handle);
 }
 
 void NativeGLUQuadricNormals(uint32_t quad_handle, uint32_t normal)
@@ -4285,12 +4289,10 @@ void NativeGLUPartialDisk(GLContext *ctx, uint32_t quad_handle,
 
 static GLUTessState *GLUTessFromHandle(uint32_t mac_handle)
 {
-	if (mac_handle == 0) return nullptr;
-	uint32_t one_based = ReadMacInt32(mac_handle);
-	if (one_based == 0 || one_based > GLU_MAX_TESS) return nullptr;
-	int idx = one_based - 1;
-	if (!glu_tess[idx].in_use) return nullptr;
-	return &glu_tess[idx];
+    if(!mac_handle)return nullptr;
+    for(int i=0;i<GLU_MAX_TESS;++i)
+        if(glu_tess_mac_handles[i]==mac_handle && glu_tess[i].in_use)return &glu_tess[i];
+    return nullptr;
 }
 
 uint32_t NativeGLUNewTess()
@@ -4321,14 +4323,16 @@ uint32_t NativeGLUNewTess()
 	return 0;
 }
 
-void NativeGLUDeleteTess(uint32_t tess_handle)
+void NativeGLUDeleteTess(uint32_t handle)
 {
-	GL_LOG("gluDeleteTess: handle=0x%08x", tess_handle);
-	GLUTessState *t = GLUTessFromHandle(tess_handle);
-	if (t) {
-		t->contours.clear();
-		t->in_use = false;
-	}
+    GLUTessState *state=GLUTessFromHandle(handle);
+    if(!state)return;
+    const size_t index=size_t(state-glu_tess);
+    glu_tess_mac_handles[index]=0;
+    state->contours.clear();
+    state->in_use=false;
+    // Guest free may reenter GLU and reuse this slot: complete every native mutation first.
+    Mac_sysfree(handle);
 }
 
 void NativeGLUTessCallback(uint32_t tess, uint32_t which, uint32_t callback)
@@ -4845,12 +4849,10 @@ void NativeGLUNextContour(uint32_t tess, uint32_t type)
 
 static GLUNurbsState *GLUNurbsFromHandle(uint32_t mac_handle)
 {
-	if (mac_handle == 0) return nullptr;
-	uint32_t one_based = ReadMacInt32(mac_handle);
-	if (one_based == 0 || one_based > GLU_MAX_NURBS) return nullptr;
-	int idx = one_based - 1;
-	if (!glu_nurbs[idx].in_use) return nullptr;
-	return &glu_nurbs[idx];
+    if(!mac_handle)return nullptr;
+    for(int i=0;i<GLU_MAX_NURBS;++i)
+        if(glu_nurbs_mac_handles[i]==mac_handle && glu_nurbs[i].in_use)return &glu_nurbs[i];
+    return nullptr;
 }
 
 static void GLUNurbsInitState(GLUNurbsState &ns)
@@ -4907,15 +4909,17 @@ uint32_t NativeGLUNewNurbsTessellatorEXT()
 	return NativeGLUNewNurbsRenderer();
 }
 
-void NativeGLUDeleteNurbsRenderer(uint32_t nurb)
+void NativeGLUDeleteNurbsRenderer(uint32_t handle)
 {
-	GL_LOG("gluDeleteNurbsRenderer: handle=0x%08x", nurb);
-	GLUNurbsState *ns = GLUNurbsFromHandle(nurb);
-	if (ns) {
-		ns->s_knots.clear(); ns->t_knots.clear(); ns->control_points.clear();
-		ns->curve_knots.clear(); ns->curve_control.clear();
-		ns->in_use = false;
-	}
+    GLUNurbsState *state=GLUNurbsFromHandle(handle);
+    if(!state)return;
+    const size_t index=size_t(state-glu_nurbs);
+    glu_nurbs_mac_handles[index]=0;
+    state->s_knots.clear(); state->t_knots.clear(); state->control_points.clear();
+    state->curve_knots.clear(); state->curve_control.clear();
+    state->in_use=false;
+    // Guest free may reenter GLU and reuse this slot: complete every native mutation first.
+    Mac_sysfree(handle);
 }
 
 void NativeGLUDeleteNurbsTessellatorEXT(uint32_t nurb) { NativeGLUDeleteNurbsRenderer(nurb); }
@@ -5021,61 +5025,75 @@ void NativeGLUBeginSurface(uint32_t nurb)
 	ns->control_points.clear();
 }
 
-void NativeGLUNurbsSurface(uint32_t nurb, int32_t sKnots, uint32_t sKnotsPtr,
-                           int32_t tKnots, uint32_t tKnotsPtr,
-                           int32_t sStride, int32_t tStride, uint32_t control,
-                           int32_t sOrder, int32_t tOrder, uint32_t type)
+static int glu_nurbs_dimension(uint32_t type, bool surface)
 {
-	GL_LOG("gluNurbsSurface: nurb=0x%08x sKnots=%d tKnots=%d sStride=%d tStride=%d sOrder=%d tOrder=%d type=0x%x",
-	       nurb, sKnots, tKnots, sStride, tStride, sOrder, tOrder, type);
-	GLUNurbsState *ns = GLUNurbsFromHandle(nurb);
-	if (!ns || !ns->in_surface) return;
+    const uint32_t base=surface?0x0db0:0x0d90;
+    if(type<base || type>base+8)return 0;
+    const int dimensions[9]={4,1,3,1,2,3,4,3,4};
+    return dimensions[type-base];
+}
 
-	// Read knot vectors from PPC memory
-	ns->s_knots.resize(sKnots);
-	for (int i = 0; i < sKnots; i++) ns->s_knots[i] = ReadMacFloat_GLU(sKnotsPtr + i * 4);
+static bool glu_nurbs_definition_valid(int count, int order, int stride, int dim,
+    uint32_t knots, uint32_t control, int count2=0, int order2=0, int stride2=0)
+{
+    if(!dim || !knots || !control || count<1 || order<1 || order>30 ||
+        int64_t(count)<int64_t(order)*2 || stride<dim) return false;
+    const uint64_t n=uint64_t(count-order);
+    uint64_t n2=1;
+    if(count2 || order2){
+        if(count2<1 || order2<1 || order2>30 || int64_t(count2)<int64_t(order2)*2 || stride2<dim)return false;
+        n2=uint64_t(count2-order2);
+    }
+    // Bound the int-indexed output and practical native allocations, before multiplying.
+    if(n>INT32_MAX/4 || n2>INT32_MAX/4 || n*n2>uint64_t(INT32_MAX)/dim)return false;
+    auto fits=[](uint32_t p,uint64_t extent){
+        auto inRange=[&](uint32_t base,uint32_t size){return p>=base && uint64_t(p-base)+extent<=size;};
+        return extent<=0x100000000ull-p && (inRange(RAMBase,RAMSize) || inRange(ROMBase,ROM_SIZE));
+    };
+    if(!fits(knots,uint64_t(count)*4))return false;
+    const uint64_t elements=(n-1)*stride+(n2-1)*stride2+dim;
+    return fits(control,elements*4);
+}
 
-	ns->t_knots.resize(tKnots);
-	for (int i = 0; i < tKnots; i++) ns->t_knots[i] = ReadMacFloat_GLU(tKnotsPtr + i * 4);
+static bool glu_nurbs_knots_valid(const std::vector<float> &knots, int order)
+{
+    for(size_t i=0;i<knots.size();++i)
+        if(!std::isfinite(knots[i]) || (i && knots[i]<knots[i-1]))return false;
+    if(knots[order-1]>=knots[knots.size()-order])return false;
+    int repeated=1;
+    for(size_t i=1;i<knots.size();++i){
+        repeated=knots[i]==knots[i-1]?repeated+1:1;
+        if(repeated>order)return false;
+    }
+    return true;
+}
 
-	ns->s_stride = sStride;
-	ns->t_stride = tStride;
-	ns->s_order = sOrder;
-	ns->t_order = tOrder;
-	ns->surface_type = type;
-
-	// Number of control points: (sKnots - sOrder) * (tKnots - tOrder)
-	int s_cp = sKnots - sOrder;
-	int t_cp = tKnots - tOrder;
-	if (s_cp <= 0 || t_cp <= 0) {
-		GL_LOG("gluNurbsSurface: invalid control point count s=%d t=%d", s_cp, t_cp);
-		// Report the malformed surface to the guest GLU_ERROR nurbs
-		// callback (NULL-guarded). glu.h GLU_NURBS_ERROR1=100251 (knot/order).
-		FireNurbsError(ns, 100251 /* GLU_NURBS_ERROR1 */);
-		return;
-	}
-
-	// Determine dimension from type
-	int dim = 3; // GL_MAP2_VERTEX_3
-	if (type == 0x0DB6 || type == 0x0DB8) dim = 4; // GL_MAP2_VERTEX_4 or with texture
-
-	// Read control points — sStride and tStride are in floats
-	// Total floats to read: we need s_cp * t_cp control points, each dim floats
-	// Layout: control[i * tStride + j * (dim)] for typical usage, but we use strides
-	int total_floats = s_cp * t_cp * dim;
-	ns->control_points.resize(total_floats);
-
-	int cp_idx = 0;
-	for (int i = 0; i < s_cp; i++) {
-		for (int j = 0; j < t_cp; j++) {
-			uint32_t addr = control + (i * sStride + j * tStride) * 4;
-			for (int d = 0; d < dim; d++) {
-				ns->control_points[cp_idx++] = ReadMacFloat_GLU(addr + d * 4);
-			}
-		}
-	}
-
-	ns->surface_defined = true;
+void NativeGLUNurbsSurface(uint32_t nurb, int32_t sKnots, uint32_t sKnotsPtr,
+    int32_t tKnots, uint32_t tKnotsPtr, int32_t sStride, int32_t tStride, uint32_t control,
+    int32_t sOrder, int32_t tOrder, uint32_t type)
+{
+    GLUNurbsState *ns=GLUNurbsFromHandle(nurb);
+    if(!ns)return;
+    if(!ns->in_surface){FireNurbsError(ns,GLU_INVALID_OPERATION);return;}
+    const int dim=glu_nurbs_dimension(type,true);
+    if(!dim){FireNurbsError(ns,GLU_INVALID_ENUM);return;}
+    if(!glu_nurbs_definition_valid(sKnots,sOrder,sStride,dim,sKnotsPtr,control,tKnots,tOrder,tStride) ||
+        !glu_nurbs_definition_valid(tKnots,tOrder,tStride,dim,tKnotsPtr,control,sKnots,sOrder,sStride)){
+        FireNurbsError(ns,GLU_INVALID_VALUE);return;
+    }
+    try{
+        std::vector<float> sk(sKnots),tk(tKnots);
+        for(int i=0;i<sKnots;++i)sk[i]=ReadMacFloat_GLU(sKnotsPtr+uint32_t(uint64_t(i)*4));
+        for(int i=0;i<tKnots;++i)tk[i]=ReadMacFloat_GLU(tKnotsPtr+uint32_t(uint64_t(i)*4));
+        if(!glu_nurbs_knots_valid(sk,sOrder) || !glu_nurbs_knots_valid(tk,tOrder)){FireNurbsError(ns,100252);return;}
+        const int sn=sKnots-sOrder,tn=tKnots-tOrder;
+        std::vector<float> points(size_t(sn)*tn*dim);
+        for(int i=0;i<sn;++i)for(int j=0;j<tn;++j)for(int d=0;d<dim;++d)
+            points[(size_t(i)*tn+j)*dim+d]=ReadMacFloat_GLU(control+uint32_t((uint64_t(i)*sStride+uint64_t(j)*tStride+d)*4));
+        ns->s_knots=std::move(sk);ns->t_knots=std::move(tk);ns->control_points=std::move(points);
+        ns->s_order=sOrder;ns->t_order=tOrder;ns->s_stride=sStride;ns->t_stride=tStride;
+        ns->surface_type=type;ns->surface_defined=true;
+    }catch(const std::bad_alloc &){FireNurbsError(ns,GLU_OUT_OF_MEMORY);}
 }
 
 // ---- de Boor's algorithm for B-spline basis evaluation ----
@@ -5159,8 +5177,8 @@ void NativeGLUEndSurface(uint32_t nurb)
 		return;
 	}
 
-	int dim = 3;
-	if (ns->surface_type == 0x0DB6 || ns->surface_type == 0x0DB8) dim = 4;
+	int dim = glu_nurbs_dimension(ns->surface_type,true);
+    if(ns->surface_type!=0x0db7 && ns->surface_type!=0x0db8)return;
 
 	// Determine sampling resolution
 	int u_steps = ns->u_step;
@@ -5276,42 +5294,27 @@ void NativeGLUBeginCurve(uint32_t nurb)
 }
 
 void NativeGLUNurbsCurve(uint32_t nurb, int32_t knotCount, uint32_t knots,
-                         int32_t stride, uint32_t control, int32_t order, uint32_t type)
+    int32_t stride, uint32_t control, int32_t order, uint32_t type)
 {
-	GL_LOG("gluNurbsCurve: nurb=0x%08x knotCount=%d stride=%d order=%d type=0x%x",
-	       nurb, knotCount, stride, order, type);
-	GLUNurbsState *ns = GLUNurbsFromHandle(nurb);
-	if (!ns || !ns->in_curve) return;
-
-	// Read knot vector
-	ns->curve_knots.resize(knotCount);
-	for (int i = 0; i < knotCount; i++) {
-		ns->curve_knots[i] = ReadMacFloat_GLU(knots + i * 4);
-	}
-
-	ns->curve_order = order;
-	ns->curve_stride = stride;
-	ns->curve_type = type;
-
-	// Number of control points
-	int n_cp = knotCount - order;
-	if (n_cp <= 0) {
-		GL_LOG("gluNurbsCurve: invalid control point count %d", n_cp);
-		return;
-	}
-
-	int dim = 3; // GL_MAP1_VERTEX_3
-	if (type == 0x0D97 || type == 0x0D99) dim = 4; // GL_MAP1_VERTEX_4
-
-	ns->curve_control.resize(n_cp * dim);
-	for (int i = 0; i < n_cp; i++) {
-		uint32_t addr = control + i * stride * 4;
-		for (int d = 0; d < dim; d++) {
-			ns->curve_control[i * dim + d] = ReadMacFloat_GLU(addr + d * 4);
-		}
-	}
-
-	ns->curve_defined = true;
+    GLUNurbsState *ns=GLUNurbsFromHandle(nurb);
+    if(!ns)return;
+    if(!ns->in_curve){FireNurbsError(ns,GLU_INVALID_OPERATION);return;}
+    const int dim=glu_nurbs_dimension(type,false);
+    if(!dim){FireNurbsError(ns,GLU_INVALID_ENUM);return;}
+    if(!glu_nurbs_definition_valid(knotCount,order,stride,dim,knots,control)){
+        FireNurbsError(ns,GLU_INVALID_VALUE);return;
+    }
+    try{
+        std::vector<float> newKnots(knotCount);
+        for(int i=0;i<knotCount;++i)newKnots[i]=ReadMacFloat_GLU(knots+uint32_t(uint64_t(i)*4));
+        if(!glu_nurbs_knots_valid(newKnots,order)){FireNurbsError(ns,100252);return;}
+        const int n=knotCount-order;
+        std::vector<float> points(size_t(n)*dim);
+        for(int i=0;i<n;++i)for(int d=0;d<dim;++d)
+            points[size_t(i)*dim+d]=ReadMacFloat_GLU(control+uint32_t((uint64_t(i)*stride+d)*4));
+        ns->curve_knots=std::move(newKnots);ns->curve_control=std::move(points);
+        ns->curve_order=order;ns->curve_stride=stride;ns->curve_type=type;ns->curve_defined=true;
+    }catch(const std::bad_alloc &){FireNurbsError(ns,GLU_OUT_OF_MEMORY);}
 }
 
 void NativeGLUEndCurve(uint32_t nurb)
@@ -5329,8 +5332,8 @@ void NativeGLUEndCurve(uint32_t nurb)
 	int n_cp = (int)ns->curve_knots.size() - ns->curve_order;
 	if (n_cp <= 0) return;
 
-	int dim = 3;
-	if (ns->curve_type == 0x0D97 || ns->curve_type == 0x0D99) dim = 4;
+	int dim = glu_nurbs_dimension(ns->curve_type,false);
+    if(ns->curve_type!=0x0d97 && ns->curve_type!=0x0d98)return;
 
 	int steps = ns->u_step;
 	if (steps < 2) steps = 2;

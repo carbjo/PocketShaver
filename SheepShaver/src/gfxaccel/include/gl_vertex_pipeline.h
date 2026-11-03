@@ -17,15 +17,33 @@ struct GLMetalVertex {
     float position[4];
     float color[4];
     float normal[3];
-    float texcoord[3]; // s, t, q
-    float texcoord1[3];
+    float texcoord[4]; // s, t, r, q
+    float texcoord1[4];
     float secondary_color[3];
     // Flat lighting must use the provoking vertex's eye position, while
     // clipping, fog and rasterization continue to use each original position.
     float lighting_position[4];
+    GLMaterial material[2];
+    float stipple_distance = 0;
 };
 
 enum class GLDrawPrimitive { Point, Line, LineStrip, Triangle, TriangleStrip };
+
+// Capture materials when the vertex is specified, including array color tracking.
+static inline void GLSnapshotVertexMaterial(const GLContext &ctx, GLVertex &vertex)
+{
+    std::memcpy(vertex.material, ctx.materials, sizeof(vertex.material));
+    if (!ctx.color_material_enabled) return;
+    for (int face=0;face<2;++face) {
+        if (ctx.color_material_face != 0x0408 && ctx.color_material_face != uint32_t(0x0404+face)) continue;
+        auto &m=vertex.material[face];
+        const auto mode=ctx.color_material_mode;
+        if (mode==0x1200 || mode==0x1602) std::memcpy(m.ambient,vertex.color,16);
+        if (mode==0x1201 || mode==0x1602) std::memcpy(m.diffuse,vertex.color,16);
+        if (mode==0x1202) std::memcpy(m.specular,vertex.color,16);
+        if (mode==0x1600) std::memcpy(m.emission,vertex.color,16);
+    }
+}
 
 static inline void GLConvertDrawVertices(const GLContext &ctx,
     const std::vector<GLVertex> &input, std::vector<GLMetalVertex> &out)
@@ -61,6 +79,7 @@ static inline void GLConvertDrawVertices(const GLContext &ctx,
         std::memcpy(dst.lighting_position, src.position, sizeof(dst.lighting_position));
         std::memcpy(dst.normal, src.normal, sizeof(dst.normal));
         std::memcpy(dst.color, src.color, sizeof(dst.color));
+        std::memcpy(dst.material, src.material, sizeof(dst.material));
         std::memcpy(dst.secondary_color, src.secondary_color, sizeof(dst.secondary_color));
         float eye[4] = {};
         if (needsEye) GLTextureTransformVector(eye, mv, src.position);
@@ -79,7 +98,7 @@ static inline void GLConvertDrawVertices(const GLContext &ctx,
             else GLGenerateTextureCoordinates(coords, ctx.tex_units[u], src.texcoord[u],
                 src.position, eye, normal, ctx.texture_stack[u][ctx.texture_depth[u]]);
             float *packed = u == 0 ? dst.texcoord : dst.texcoord1;
-            packed[0] = coords[0]; packed[1] = coords[1]; packed[2] = coords[3];
+            std::memcpy(packed, coords, sizeof(coords));
         }
     }
 }
@@ -97,6 +116,7 @@ static inline bool GLExpandDrawPrimitives(uint32_t mode, bool flat,
         if (flat) {
             const auto &p = in[provoking];
             std::memcpy(v.color, p.color, sizeof(v.color));
+            std::memcpy(v.material, p.material, sizeof(v.material));
             std::memcpy(v.secondary_color, p.secondary_color, sizeof(v.secondary_color));
             std::memcpy(v.normal, p.normal, sizeof(v.normal));
             std::memcpy(v.lighting_position, p.lighting_position, sizeof(v.lighting_position));

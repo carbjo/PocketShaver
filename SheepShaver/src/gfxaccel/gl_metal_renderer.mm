@@ -40,6 +40,7 @@
 #include "gl_metal_coordinates.h"
 #include "gl_metal_draw_state.h"
 #include "gl_vertex_pipeline.h"
+#include "gl_render_contract.h"
 #include "gl_texture_environment.h"
 #include "gl_texture_format_policy.h"
 #include "gl_offscreen_policy.h"
@@ -58,6 +59,7 @@ extern uint32 Mac_sysalloc(uint32 size);
  * replaces it in the compositor mailbox; all GPU work shares the same queue. */
 struct GLOverlayState {
     id<MTLTexture> pair[2] = { nil, nil };
+    id<MTLTexture> presentation[2] = { nil, nil };
     id<MTLTexture> published[2] = { nil, nil };
     uint32_t publication_index = 0;
     bool needs_clear = true;
@@ -75,6 +77,7 @@ static void gl_release_overlay_texture(GLOverlayState &overlay)
             (__bridge void *)overlay.published[i]);
         overlay.published[i] = nil;
         overlay.pair[i] = nil;
+        overlay.presentation[i] = nil;
     }
     overlay.publication_index = 0;
     overlay.needs_clear = true;
@@ -105,10 +108,14 @@ static id<MTLTexture> gl_new_render_target(uint32_t width, uint32_t height)
 
 static id<MTLTexture> gl_acquire_overlay_texture(GLOverlayState &overlay)
 {
-    if (!overlay.pair[0] || !overlay.pair[1]) {
+    if (!overlay.pair[0] || !overlay.pair[1] || !overlay.presentation[0] || !overlay.presentation[1]) {
         id<MTLTexture> first = gl_new_render_target(overlay.width, overlay.height);
         id<MTLTexture> second = gl_new_render_target(overlay.width, overlay.height);
-        if (!first || !second) return nil;
+        id<MTLTexture> presentFront = gl_new_render_target(overlay.width, overlay.height);
+        id<MTLTexture> presentBack = gl_new_render_target(overlay.width, overlay.height);
+        if (!first || !second || !presentFront || !presentBack) return nil;
+        overlay.presentation[0] = presentFront;
+        overlay.presentation[1] = presentBack;
         overlay.pair[0] = first;
         overlay.pair[1] = second;
         overlay.committed = false;
@@ -159,7 +166,7 @@ static void gl_publish_front(GLContext *ctx)
     auto it = s_gl_overlays.find(ctx);
     if (it == s_gl_overlays.end()) return;
     GLOverlayState &overlay = it->second;
-    id<MTLTexture> front = overlay.pair[0];
+    id<MTLTexture> front = overlay.presentation[0];
     if (!overlay.committed || !front) return;
     id<MTLTexture> __strong &texture = overlay.published[overlay.publication_index];
     if (!texture) texture = gl_new_render_target(overlay.width, overlay.height);
@@ -199,6 +206,7 @@ extern "C" void gl_overlay_present(GLContext *ctx)
     if (it == s_gl_overlays.end()) return;
     if (ctx->double_buffered) {
         std::swap(it->second.pair[0], it->second.pair[1]);
+        std::swap(it->second.presentation[0], it->second.presentation[1]);
         it->second.committed = true;
     }
     gl_publish_front(ctx);
@@ -398,7 +406,7 @@ static_assert(sizeof(GLMetalVertexUniforms) == 320, "GLMetalVertexUniforms size 
 // Metal float4[6] array without tripping a compile error.
 static_assert(offsetof(GLMetalVertexUniforms, clip_planes) % 16 == 0,
               "GLMetalVertexUniforms.clip_planes must be 16-byte aligned to match Metal float4[6]");
-static_assert(sizeof(GLMetalFragmentUniforms) == 128, "GLMetalFragmentUniforms size must match Metal GLFragmentUniforms (128 bytes)");
+static_assert(sizeof(GLMetalFragmentUniforms) == 288, "GLMetalFragmentUniforms size must match Metal GLFragmentUniforms (288 bytes)");
 static_assert(sizeof(GLMetalLight) == 128, "GLMetalLight size must match Metal GLLight (128 bytes)");
 static_assert(sizeof(GLMetalMaterial) == 80, "GLMetalMaterial size must match Metal GLMaterialData (80 bytes)");
 static_assert(sizeof(GLMetalLightingData) == 1216, "GLMetalLightingData size must match Metal GLLightingData (1216 bytes)");
@@ -415,11 +423,13 @@ static_assert(offsetof(GLMetalLightingData, local_viewer) == 1200, "Metal local 
  *  GLMetalState - Opaque Metal resource container for GL contexts
  */
 struct GLMetalState {
+    id<MTLTexture> destinationSnapshots[4] = {nil,nil,nil,nil};
     id<MTLDevice>               device;
     id<MTLCommandQueue>         commandQueue;
     id<MTLLibrary>              shaderLibrary;
     MTLVertexDescriptor        *vertexDescriptor;
     id<MTLComputePipelineState> textureCopyPipeline;
+    bool framebufferFetch;
     bool textureCopyPending; // includes copies already committed but not CPU-synchronized
 
     // Pipeline state cache: key = hash of (blend_enabled, blend_src, blend_dst,
@@ -456,6 +466,8 @@ struct GLMetalState {
     id<MTLRenderCommandEncoder> currentEncoder;
     id<MTLTexture>              overlayTexture;  // logical front color target
     id<MTLTexture>              backTexture;     // logical back (unused sink for offscreen)
+    id<MTLTexture>              presentationTexture;
+    id<MTLTexture>              presentationBackTexture;
     id<MTLTexture>              offscreenTexture; // private to this context, never published
     id<MTLTexture>              offscreenUploadTexture;
     std::vector<uint8_t>        offscreenUploadPixels;
@@ -498,7 +510,9 @@ static void GLMetalSetColorAttachments(MTLRenderPassDescriptor *pass, GLMetalSta
 {
     pass.colorAttachments[0].texture = ms->overlayTexture;
     pass.colorAttachments[1].texture = ms->backTexture;
-    for (int i = 0; i < 2; ++i) {
+    pass.colorAttachments[2].texture = ms->presentationTexture;
+    pass.colorAttachments[3].texture = ms->presentationBackTexture;
+    for (int i = 0; i < (ms->presentationTexture ? 4 : 2); ++i) {
         pass.colorAttachments[i].loadAction = MTLLoadActionLoad;
         pass.colorAttachments[i].storeAction = MTLStoreActionStore;
     }
@@ -594,6 +608,8 @@ static void gl_end_render_target_for_detach(GLContext *ctx)
     }
     ms->renderPassActive = false;
     ms->overlayTexture = nil;
+    ms->presentationTexture = nil;
+    ms->presentationBackTexture = nil;
 }
 
 // Forward declarations
@@ -626,10 +642,6 @@ static const GLVertexArrayPointer *GLMetalTexCoordArrayForDraw(const GLContext *
     if (!ctx || unit < 0 || unit >= 4) return nullptr;
     if (ctx->texcoord_array[unit].enabled && ctx->texcoord_array[unit].pointer)
         return &ctx->texcoord_array[unit];
-    if ((ctx->prepared_texcoord_array_for_draw[unit] ||
-         ctx->latched_texture_2d_for_array_draw[unit]) &&
-        ctx->prepared_texcoord_array[unit].pointer)
-        return &ctx->prepared_texcoord_array[unit];
     return nullptr;
 }
 
@@ -907,8 +919,8 @@ static void GLMetalLogDrawState(GLContext *ctx, const GLMetalVertex *verts,
     float max_uv0[2] = {0.0f, 0.0f};
     float min_uv1[2] = {0.0f, 0.0f};
     float max_uv1[2] = {0.0f, 0.0f};
-    auto texUV = [](const float texcoord[3], int c) -> float {
-        const float q = texcoord[2];
+    auto texUV = [](const float texcoord[4], int c) -> float {
+        const float q = texcoord[3];
         return (q != 0.0f) ? texcoord[c] / q : texcoord[c];
     };
 
@@ -1328,7 +1340,7 @@ static void GLMetalFillPixelQuadVertices(GLMetalVertex verts[4],
         verts[i].color[3] = 1.0f;
         verts[i].texcoord[0] = quad[i].u;
         verts[i].texcoord[1] = quad[i].v;
-        verts[i].texcoord[2] = 1.0f;
+        verts[i].texcoord[3] = 1.0f;
     }
 }
 
@@ -1486,6 +1498,8 @@ void GLMetalInit(GLContext *ctx)
         return;
     }
 
+    ms->framebufferFetch = [ms->device supportsFamily:MTLGPUFamilyApple1];
+
     // Create command queue (shared when using the shared device)
     if (ms->device == (__bridge id<MTLDevice>)SharedMetalDevice()) {
         ms->commandQueue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
@@ -1514,27 +1528,27 @@ void GLMetalInit(GLContext *ctx)
     ms->vertexDescriptor = [MTLVertexDescriptor vertexDescriptor];
     // position: float4 at offset 0
     ms->vertexDescriptor.attributes[0].format = MTLVertexFormatFloat4;
-    ms->vertexDescriptor.attributes[0].offset = 0;
+    ms->vertexDescriptor.attributes[0].offset = offsetof(GLMetalVertex, position);
     ms->vertexDescriptor.attributes[0].bufferIndex = 0;
     // color: float4 at offset 16
     ms->vertexDescriptor.attributes[1].format = MTLVertexFormatFloat4;
-    ms->vertexDescriptor.attributes[1].offset = 16;
+    ms->vertexDescriptor.attributes[1].offset = offsetof(GLMetalVertex, color);
     ms->vertexDescriptor.attributes[1].bufferIndex = 0;
     // normal: float3 at offset 32
     ms->vertexDescriptor.attributes[2].format = MTLVertexFormatFloat3;
-    ms->vertexDescriptor.attributes[2].offset = 32;
+    ms->vertexDescriptor.attributes[2].offset = offsetof(GLMetalVertex, normal);
     ms->vertexDescriptor.attributes[2].bufferIndex = 0;
     // texcoord: float3 (s, t, q) at offset 44
-    ms->vertexDescriptor.attributes[3].format = MTLVertexFormatFloat3;
-    ms->vertexDescriptor.attributes[3].offset = 44;
+    ms->vertexDescriptor.attributes[3].format = MTLVertexFormatFloat4;
+    ms->vertexDescriptor.attributes[3].offset = offsetof(GLMetalVertex, texcoord);
     ms->vertexDescriptor.attributes[3].bufferIndex = 0;
 
-    ms->vertexDescriptor.attributes[4].format = MTLVertexFormatFloat3;  // texcoord unit 1
-    ms->vertexDescriptor.attributes[4].offset = 56;
+    ms->vertexDescriptor.attributes[4].format = MTLVertexFormatFloat4;  // texcoord unit 1
+    ms->vertexDescriptor.attributes[4].offset = offsetof(GLMetalVertex, texcoord1);
     ms->vertexDescriptor.attributes[4].bufferIndex = 0;
 
     ms->vertexDescriptor.attributes[5].format = MTLVertexFormatFloat3;  // secondary color (EXT_secondary_color / GL_COLOR_SUM)
-    ms->vertexDescriptor.attributes[5].offset = 68;                     // immediately after texcoord1 (float3 @ 68 is 4-byte aligned)
+    ms->vertexDescriptor.attributes[5].offset = offsetof(GLMetalVertex, secondary_color);                     // immediately after texcoord1 (float3 @ 68 is 4-byte aligned)
     ms->vertexDescriptor.attributes[5].bufferIndex = 0;
 
     ms->vertexDescriptor.attributes[6].format = MTLVertexFormatFloat4;
@@ -1542,6 +1556,17 @@ void GLMetalInit(GLContext *ctx)
     ms->vertexDescriptor.attributes[6].bufferIndex = 0;
 
     // The portable vertex helper and shader attribute descriptor share this layout.
+    // Materials are ordinary vertex attributes: changes inside Begin/End
+    // and the provoking material for flat shading survive batching.
+    for (int face=0;face<2;++face) for(int term=0;term<5;++term) {
+        const int attribute=7+face*5+term;
+        ms->vertexDescriptor.attributes[attribute].format = term==4 ? MTLVertexFormatFloat : MTLVertexFormatFloat4;
+        ms->vertexDescriptor.attributes[attribute].offset = offsetof(GLMetalVertex,material)+face*sizeof(GLMaterial)+term*16;
+        ms->vertexDescriptor.attributes[attribute].bufferIndex = 0;
+    }
+    ms->vertexDescriptor.attributes[17].format=MTLVertexFormatFloat;
+    ms->vertexDescriptor.attributes[17].offset=offsetof(GLMetalVertex,stipple_distance);
+    ms->vertexDescriptor.attributes[17].bufferIndex=0;
     ms->vertexDescriptor.layouts[0].stride = sizeof(GLMetalVertex);
 
     // Allocate long-lived GL staging buffers directly from the device. They
@@ -1616,6 +1641,50 @@ void GLMetalInit(GLContext *ctx)
 /*
  *  GLMetalGetPipeline - get or create cached pipeline state
  */
+static void GLMetalConfigurePresentationDraw(GLMetalState *ms, GLContext *ctx)
+{
+    struct { uint32_t values[8]; float blendColor[4]; } state = {
+        {ctx->blend ? 1u : 0u, ctx->blend_src, ctx->blend_dst, ctx->blend_equation,
+         ctx->color_logic_op ? 1u : 0u, ctx->logic_op_mode, 0, 0}, {0,0,0,0}};
+    memcpy(state.blendColor, ctx->blend_color, sizeof(state.blendColor));
+    [ms->currentEncoder setFragmentBytes:&state length:sizeof(state) atIndex:4];
+}
+
+// Native color attachments retain GL RGBA. Presentation attachments have their
+// own coverage alpha and are manually blended against retained snapshots.
+static void GLMetalConfigureColorPipelineAttachments(MTLRenderPipelineDescriptor *desc,
+    GLContext *ctx, bool offscreen, unsigned colorMask, unsigned targets)
+{
+    MTLColorWriteMask mask =
+        ((colorMask & 1u) ? MTLColorWriteMaskRed : MTLColorWriteMaskNone) |
+        ((colorMask & 2u) ? MTLColorWriteMaskGreen : MTLColorWriteMaskNone) |
+        ((colorMask & 4u) ? MTLColorWriteMaskBlue : MTLColorWriteMaskNone) |
+        ((colorMask & 8u) ? MTLColorWriteMaskAlpha : MTLColorWriteMaskNone);
+    for (int i = 0; i < 2; ++i) {
+        auto attachment = desc.colorAttachments[i];
+        attachment.pixelFormat = MTLPixelFormatBGRA8Unorm;
+        attachment.writeMask = targets & (1u << i) ? mask : MTLColorWriteMaskNone;
+        attachment.blendingEnabled = ctx->blend && !ctx->color_logic_op;
+        if (attachment.blendingEnabled) {
+            attachment.rgbBlendOperation = GLBlendEquationToMetal(ctx->blend_equation);
+            attachment.alphaBlendOperation = attachment.rgbBlendOperation;
+            attachment.sourceRGBBlendFactor = GLBlendToMetal(ctx->blend_src);
+            attachment.destinationRGBBlendFactor = GLBlendToMetal(ctx->blend_dst);
+            attachment.sourceAlphaBlendFactor = GLBlendToMetal(ctx->blend_src);
+            attachment.destinationAlphaBlendFactor = GLBlendToMetal(ctx->blend_dst);
+        }
+        if (!offscreen) {
+            auto presentation = desc.colorAttachments[i + 2];
+            presentation.pixelFormat = MTLPixelFormatBGRA8Unorm;
+            // Alpha-only GL writes cannot change visible coverage.
+            presentation.writeMask = targets & (1u << i)
+                ? (MTLColorWriteMask)((mask & ~MTLColorWriteMaskAlpha) | ((colorMask & 7u) ? MTLColorWriteMaskAlpha : MTLColorWriteMaskNone))
+                : MTLColorWriteMaskNone;
+            presentation.blendingEnabled = NO;
+        }
+    }
+}
+
 static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext *ctx) {
     bool blend_enabled = ctx->blend;
     uint32_t blend_src = ctx->blend_src;
@@ -1634,7 +1703,7 @@ static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext
 
     uint64_t key = MakePipelineKey(blend_enabled, blend_src, blend_dst,
                                     depth_write, color_mask_bits, has_texture,
-                                    ctx->blend_equation, isOffscreen) | (uint64_t(GLMetalDrawTargets(ctx)) << 56);
+                                    ctx->blend_equation, isOffscreen) | (uint64_t(GLMetalDrawTargets(ctx)) << 56) | (uint64_t(ctx->color_logic_op) << 58);
 
     auto it = ms->pipelineCache.find(key);
     if (it != ms->pipelineCache.end()) return it->second;
@@ -1642,7 +1711,10 @@ static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext
     // Create new pipeline
     NSError *err = nil;
     id<MTLFunction> vertexFunc = [ms->shaderLibrary newFunctionWithName:@"gl_vertex_main"];
-    id<MTLFunction> fragmentFunc = [ms->shaderLibrary newFunctionWithName:@"gl_fragment_main"];
+    NSString *fragmentName = isOffscreen
+        ? (ms->framebufferFetch ? @"gl_fragment_main_fetch" : @"gl_fragment_main")
+        : (ms->framebufferFetch ? @"gl_fragment_present_fetch" : @"gl_fragment_present");
+    id<MTLFunction> fragmentFunc = [ms->shaderLibrary newFunctionWithName:fragmentName];
     if (!vertexFunc || !fragmentFunc) {
         GL_METAL_LOG("GLMetalGetPipeline: shader function lookup failed");
         return nil;
@@ -1656,35 +1728,8 @@ static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext
     pipeDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
     pipeDesc.stencilAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
 
-    // Blend state
-    if (blend_enabled) {
-        MTLBlendOperation blendOp = GLBlendEquationToMetal(ctx->blend_equation);
-        pipeDesc.colorAttachments[0].blendingEnabled = YES;
-        pipeDesc.colorAttachments[0].rgbBlendOperation = blendOp;
-        pipeDesc.colorAttachments[0].alphaBlendOperation = blendOp;
-        pipeDesc.colorAttachments[0].sourceRGBBlendFactor = GLBlendToMetal(blend_src);
-        pipeDesc.colorAttachments[0].destinationRGBBlendFactor = GLBlendToMetal(blend_dst);
-        // Only visible overlays need coverage alpha for the compositor.
-        // Caller-owned offscreen pixels retain GL's actual alpha equation.
-        pipeDesc.colorAttachments[0].sourceAlphaBlendFactor =
-            isOffscreen ? GLBlendToMetal(blend_src) : MTLBlendFactorOne;
-        pipeDesc.colorAttachments[0].destinationAlphaBlendFactor =
-            isOffscreen ? GLBlendToMetal(blend_dst) : MTLBlendFactorOneMinusSourceAlpha;
-    } else {
-        pipeDesc.colorAttachments[0].blendingEnabled = NO;
-    }
-
-    // Normal GL overlays keep alpha writable for compositor coverage. AGL
-    // offscreen drawables keep the guest alpha mask for ARGB1555 readback.
-    MTLColorWriteMask mask = MTLColorWriteMaskNone;
-    if (color_mask_bits & 1) mask |= MTLColorWriteMaskRed;
-    if (color_mask_bits & 2) mask |= MTLColorWriteMaskGreen;
-    if (color_mask_bits & 4) mask |= MTLColorWriteMaskBlue;
-    if (color_mask_bits & 8) mask |= MTLColorWriteMaskAlpha;
-    const unsigned targets = GLMetalDrawTargets(ctx);
-    pipeDesc.colorAttachments[0].writeMask = targets & 1 ? mask : MTLColorWriteMaskNone;
-    pipeDesc.colorAttachments[1] = [pipeDesc.colorAttachments[0] copy];
-    pipeDesc.colorAttachments[1].writeMask = targets & 2 ? mask : MTLColorWriteMaskNone;
+    GLMetalConfigureColorPipelineAttachments(pipeDesc, ctx, isOffscreen,
+        color_mask_bits, GLMetalDrawTargets(ctx));
 
     id<MTLRenderPipelineState> pipeline = [ms->device newRenderPipelineStateWithDescriptor:pipeDesc error:&err];
     if (!pipeline) {
@@ -1896,12 +1941,16 @@ void GLMetalBeginFrame(GLContext *ctx)
             ms->offscreenTexture.height != drawableH)
             ms->offscreenTexture = gl_new_render_target(drawableW, drawableH);
         nextOverlay = ms->offscreenTexture;
+        ms->presentationTexture = nil;
+        ms->presentationBackTexture = nil;
         if (!ms->backTexture || ms->backTexture.width != drawableW || ms->backTexture.height != drawableH)
             ms->backTexture = gl_new_render_target(drawableW, drawableH);
     } else {
         if (!gl_claim_display_for_overlay()) return;
         nextOverlay = gl_acquire_overlay_texture(binding->second);
         ms->backTexture = binding->second.pair[1];
+        ms->presentationTexture = binding->second.presentation[0];
+        ms->presentationBackTexture = binding->second.presentation[1];
     }
     if (!nextOverlay) return;
 
@@ -1924,6 +1973,7 @@ void GLMetalBeginFrame(GLContext *ctx)
     MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
     GLMetalSetColorAttachments(rpd, ms);
     const float clearAlpha = GLMetalOverlayClearAlpha(isOffscreen, ctx->clear_color[3]);
+    const float coverageAlpha = OverlayClearEffectiveAlpha(isOffscreen, ctx->clear_color[3]);
     const MTLClearColor clearColor = MTLClearColorMake(
         GLMetalOverlayClearColorComponent(isOffscreen, ctx->clear_color[0], clearAlpha),
         GLMetalOverlayClearColorComponent(isOffscreen, ctx->clear_color[1], clearAlpha),
@@ -1933,6 +1983,14 @@ void GLMetalBeginFrame(GLContext *ctx)
         rpd.colorAttachments[i].clearColor = clearColor;
     }
 
+    if (ms->presentationTexture) {
+        for (int i = 2; i < 4; ++i) {
+            rpd.colorAttachments[i].loadAction = loadColor ? MTLLoadActionLoad : MTLLoadActionClear;
+            rpd.colorAttachments[i].clearColor = MTLClearColorMake(
+                ctx->clear_color[0] * coverageAlpha, ctx->clear_color[1] * coverageAlpha,
+                ctx->clear_color[2] * coverageAlpha, coverageAlpha);
+        }
+    }
     rpd.depthAttachment.texture = ms->depthBuffer;
     rpd.depthAttachment.loadAction = loadDepthStencil ? MTLLoadActionLoad : MTLLoadActionClear;
     rpd.depthAttachment.storeAction =
@@ -1962,15 +2020,15 @@ void GLMetalBeginFrame(GLContext *ctx)
 }
 
 static id<MTLRenderPipelineState> GLMetalGetClearPipeline(GLMetalState *ms,
-                                                        unsigned colorMask, unsigned targets)
+                                                        unsigned colorMask, unsigned targets, bool presentation)
 {
-    const unsigned key = colorMask | (targets << 4);
+    const unsigned key = colorMask | (targets << 4) | (presentation ? 64u : 0u);
     auto found = ms->clearPipelineCache.find(key);
     if (found != ms->clearPipelineCache.end()) return found->second;
 
     MTLRenderPipelineDescriptor *desc = [[MTLRenderPipelineDescriptor alloc] init];
     desc.vertexFunction = [ms->shaderLibrary newFunctionWithName:@"gl_clear_vertex"];
-    desc.fragmentFunction = [ms->shaderLibrary newFunctionWithName:@"gl_clear_fragment"];
+    desc.fragmentFunction = [ms->shaderLibrary newFunctionWithName:presentation ? @"gl_clear_present_fragment" : @"gl_clear_fragment"];
     if (!desc.vertexFunction || !desc.fragmentFunction) return nil;
     desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     desc.colorAttachments[0].writeMask =
@@ -1981,6 +2039,16 @@ static id<MTLRenderPipelineState> GLMetalGetClearPipeline(GLMetalState *ms,
     desc.colorAttachments[1] = [desc.colorAttachments[0] copy];
     if (!(targets & 1)) desc.colorAttachments[0].writeMask = MTLColorWriteMaskNone;
     if (!(targets & 2)) desc.colorAttachments[1].writeMask = MTLColorWriteMaskNone;
+    if (presentation) {
+        for (int i = 0; i < 2; ++i) {
+            desc.colorAttachments[i + 2] = [desc.colorAttachments[i] copy];
+            if (targets & (1u << i)) {
+                auto attachment = desc.colorAttachments[i + 2];
+                attachment.writeMask &= ~MTLColorWriteMaskAlpha;
+                if (colorMask & 7u) attachment.writeMask |= MTLColorWriteMaskAlpha;
+            }
+        }
+    }
     desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
     desc.stencilAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
     NSError *error = nil;
@@ -2016,7 +2084,7 @@ static bool GLMetalDrawMaskedClear(GLContext *ctx, uint32_t mask)
     const bool depthWrite = GLShouldClearDepthAttachment(mask);
     const unsigned stencilMask = GLShouldClearStencilAttachment(mask)
         ? (ctx->stencil.write_mask & 0xffu) : 0;
-    id<MTLRenderPipelineState> pipeline = GLMetalGetClearPipeline(ms, colorMask, GLMetalDrawTargets(ctx));
+    id<MTLRenderPipelineState> pipeline = GLMetalGetClearPipeline(ms, colorMask, GLMetalDrawTargets(ctx), ms->presentationTexture != nil);
     if (!pipeline) return false;
 
     const unsigned key = (depthWrite ? 1u : 0u) | (stencilMask << 1);
@@ -2044,11 +2112,14 @@ static bool GLMetalDrawMaskedClear(GLContext *ctx, uint32_t mask)
 
     const bool offscreen = GLContextGetOffscreenDrawable(ctx, NULL, NULL, NULL, NULL);
     const float alpha = GLMetalOverlayClearAlpha(offscreen, ctx->clear_color[3]);
-    const float values[8] = {
+    const float coverageAlpha = OverlayClearEffectiveAlpha(offscreen, ctx->clear_color[3]);
+    const float values[12] = {
         GLMetalOverlayClearColorComponent(offscreen, ctx->clear_color[0], alpha),
         GLMetalOverlayClearColorComponent(offscreen, ctx->clear_color[1], alpha),
         GLMetalOverlayClearColorComponent(offscreen, ctx->clear_color[2], alpha), alpha,
-        std::max(0.0f, std::min(1.0f, ctx->clear_depth)), 0, 0, 0
+        std::max(0.0f, std::min(1.0f, ctx->clear_depth)), 0, 0, 0,
+        ctx->clear_color[0] * coverageAlpha, ctx->clear_color[1] * coverageAlpha,
+        ctx->clear_color[2] * coverageAlpha, coverageAlpha
     };
     const MTLViewport viewport = {0, 0, (double)width, (double)height, 0, 1};
     const MTLScissorRect scissor = {rect.x, rect.y, rect.width, rect.height};
@@ -2124,6 +2195,7 @@ void GLMetalClear(GLContext *ctx, uint32_t mask)
         GLContextGetOffscreenDrawable(ctx, &offscreenW, &offscreenH, NULL, NULL);
     const float clearAlpha =
         GLMetalOverlayClearAlpha(isOffscreen, ctx->clear_color[3]);
+    const float coverageAlpha = OverlayClearEffectiveAlpha(isOffscreen, ctx->clear_color[3]);
     rpd.colorAttachments[0].clearColor = MTLClearColorMake(
         GLMetalOverlayClearColorComponent(isOffscreen,
                                           ctx->clear_color[0], clearAlpha),
@@ -2135,6 +2207,15 @@ void GLMetalClear(GLContext *ctx, uint32_t mask)
     );
 
     rpd.colorAttachments[1].clearColor = rpd.colorAttachments[0].clearColor;
+    if (ms->presentationTexture) {
+        for (int i = 0; i < 2; ++i) {
+            rpd.colorAttachments[i + 2].loadAction = clearColor && (targets & (1u << i))
+                ? MTLLoadActionClear : MTLLoadActionLoad;
+            rpd.colorAttachments[i + 2].clearColor = MTLClearColorMake(
+                ctx->clear_color[0] * coverageAlpha, ctx->clear_color[1] * coverageAlpha,
+                ctx->clear_color[2] * coverageAlpha, coverageAlpha);
+        }
+    }
 
     if (ms->depthBuffer) {
         rpd.depthAttachment.texture = ms->depthBuffer;
@@ -2338,10 +2419,40 @@ static bool GLMetalFlushAndResetRingBuffer(GLContext *ctx)
  *  Called at glEnd(). Converts accumulated vertices, uploads uniforms,
  *  and encodes a draw command.
  */
+// Destination-dependent operations read a snapshot from immediately before
+// this primitive. Separate encoders impose GPU ordering without a CPU wait.
+struct GLMetalDestinationSnapshot { id<MTLTexture> texture[4] = {nil,nil,nil,nil}; };
+static bool GLMetalSnapshotLogicDestinations(GLMetalState *ms,GLContext *ctx,GLMetalDestinationSnapshot &snapshot)
+{
+    id<MTLTexture> sources[4]={ms->overlayTexture,ms->backTexture,ms->presentationTexture,ms->presentationBackTexture};
+    for(int i=0;i<4;++i)if(sources[i]) {
+        MTLTextureDescriptor *descriptor=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:sources[i].pixelFormat width:sources[i].width height:sources[i].height mipmapped:NO];
+        descriptor.storageMode=MTLStorageModePrivate;descriptor.usage=MTLTextureUsageShaderRead;
+        if(!ms->destinationSnapshots[i] || ms->destinationSnapshots[i].width!=sources[i].width ||
+           ms->destinationSnapshots[i].height!=sources[i].height || ms->destinationSnapshots[i].pixelFormat!=sources[i].pixelFormat)
+            ms->destinationSnapshots[i]=[ms->device newTextureWithDescriptor:descriptor];
+        snapshot.texture[i]=ms->destinationSnapshots[i];
+        if(!snapshot.texture[i]) {if(!ctx->last_error)ctx->last_error=0x0505;return false;}
+    }
+    [ms->currentEncoder endEncoding];ms->currentEncoder=nil;
+    id<MTLBlitCommandEncoder> blit=[ms->currentCommandBuffer blitCommandEncoder];
+    for(int i=0;i<4;++i)if(sources[i]) [blit copyFromTexture:sources[i] sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(sources[i].width,sources[i].height,1) toTexture:snapshot.texture[i] destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+    [blit endEncoding];
+    MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];GLMetalSetColorAttachments(pass,ms);
+    pass.depthAttachment.texture=ms->depthBuffer;pass.depthAttachment.loadAction=MTLLoadActionLoad;pass.depthAttachment.storeAction=MTLStoreActionStore;
+    pass.stencilAttachment.texture=ms->depthBuffer;pass.stencilAttachment.loadAction=MTLLoadActionLoad;pass.stencilAttachment.storeAction=MTLStoreActionStore;
+    ms->currentEncoder=[ms->currentCommandBuffer renderCommandEncoderWithDescriptor:pass];ms->viewportScissorCacheValid=false;
+    GLMetalApplyViewportAndScissor(ms,ctx,(uint32_t)ms->overlayTexture.width,(uint32_t)ms->overlayTexture.height);
+    return ms->currentEncoder!=nil;
+}
+
 static void GLMetalSubmitVertices(GLContext *ctx,
     const std::vector<uint32_t> *indices = nullptr,
-    MTLPrimitiveType indexedPrimitive = MTLPrimitiveTypeTriangle)
+    MTLPrimitiveType indexedPrimitive = MTLPrimitiveTypeTriangle,
+    bool primitiveBoundary = false, float stippleBase = 0, uint32_t polygonRasterMode = 0)
 {
+    if (GLProcessRenderMode(ctx)) return;
+    if (ctx->im_mode>=4 && ctx->cull_face_enabled && ctx->cull_face_mode==0x0408) return;
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized) return;
     if (ctx->im_vertices.empty()) return;
@@ -2357,11 +2468,79 @@ static void GLMetalSubmitVertices(GLContext *ctx,
 		                               (uint32_t)[ms->overlayTexture height]);
 	}
 
+    if(ctx->im_mode>=4 && (ctx->polygon_mode_front!=0x1b02 || ctx->polygon_mode_back!=0x1b02)) {
+        auto original=std::move(ctx->im_vertices);const auto originalMode=ctx->im_mode;
+        std::vector<GLMetalVertex> converted;GLConvertDrawVertices(*ctx,original,converted);
+        const bool lighting=ctx->lighting_enabled,culling=ctx->cull_face_enabled;
+        const auto shade=ctx->shade_model;
+        GLTextureUnit units[2]={ctx->tex_units[0],ctx->tex_units[1]};
+        float textureMatrices[2][16];
+        for(int u=0;u<2;++u)memcpy(textureMatrices[u],ctx->texture_stack[u][ctx->texture_depth[u]],64);
+        GLVisitPrimitiveIndices(originalMode,original.size(),[&](const std::vector<size_t> &order,bool,bool) {
+            std::vector<GLContractVertex> polygon;for(size_t index:order){auto v=GLContractTransform(*ctx,converted[index]);v.edge=original[index].edge_flag;polygon.push_back(v);}
+            GLContractClip(*ctx,polygon,true);if(polygon.size()<3)return;
+            bool front=GLContractFrontFacing(*ctx,polygon);if(GLContractCulled(*ctx,front))return;
+            uint32_t mode=front?ctx->polygon_mode_front:ctx->polygon_mode_back;
+            if(mode==0x1b02) {
+                auto fillOrder=order;
+                if(originalMode==8)std::rotate(fillOrder.begin(),fillOrder.begin()+3,fillOrder.end());
+                ctx->im_vertices.clear();for(size_t index:fillOrder)ctx->im_vertices.push_back(original[index]);
+                auto frontMode=ctx->polygon_mode_front,backMode=ctx->polygon_mode_back;
+                ctx->polygon_mode_front=ctx->polygon_mode_back=0x1b02;ctx->im_mode=originalMode==9?9:order.size()==3?4:7;
+                GLMetalSubmitVertices(ctx,nullptr,MTLPrimitiveTypeTriangle,true);
+                ctx->polygon_mode_front=frontMode;ctx->polygon_mode_back=backMode;return;
+            }
+            // Light original vertices before clipping; generated boundary
+            // vertices interpolate those colors, as fixed-function GL does.
+            polygon.clear();size_t provoking=originalMode==9?order.front():originalMode==8?order[order.size()-2]:order.back();
+            for(size_t index:order) {
+                auto raster=converted[index];
+                if(shade==GL_FLAT){memcpy(raster.color,converted[provoking].color,16);memcpy(raster.material,converted[provoking].material,sizeof(raster.material));memcpy(raster.normal,converted[provoking].normal,sizeof(raster.normal));memcpy(raster.lighting_position,converted[provoking].lighting_position,16);}
+                GLContractLight(*ctx,raster,(!front && ctx->light_model_two_side)?1:0,raster.color);
+                auto v=GLContractTransform(*ctx,raster);v.edge=original[index].edge_flag;polygon.push_back(v);
+            }
+            GLContractClip(*ctx,polygon,true);if(polygon.empty())return;
+            ctx->lighting_enabled=false;ctx->cull_face_enabled=false;ctx->shade_model=GL_SMOOTH;
+            for(int u=0;u<2;++u){auto &unit=ctx->tex_units[u];unit.texgen_s_enabled=unit.texgen_t_enabled=unit.texgen_r_enabled=unit.texgen_q_enabled=false;
+                auto matrix=ctx->texture_stack[u][ctx->texture_depth[u]];for(int k=0;k<16;++k)matrix[k]=(k%5==0)?1:0;}
+            auto vertex=[](const GLContractVertex &v){GLVertex out{};memcpy(out.position,v.raster.position,16);memcpy(out.color,v.raster.color,16);memcpy(out.normal,v.raster.normal,12);memcpy(out.texcoord[0],v.raster.texcoord,16);memcpy(out.texcoord[1],v.raster.texcoord1,16);memcpy(out.secondary_color,v.raster.secondary_color,12);return out;};
+            ctx->im_mode=mode==0x1b00?0:1;
+            float polygonPhase=0;
+            for(size_t i=0;i<polygon.size();++i)if(polygon[i].edge) {
+                ctx->im_vertices={vertex(polygon[i])};if(mode==0x1b01)ctx->im_vertices.push_back(vertex(polygon[(i+1)%polygon.size()]));
+                GLMetalSubmitVertices(ctx,nullptr,MTLPrimitiveTypeTriangle,true,polygonPhase,mode);
+                if(mode==0x1b01)polygonPhase+=GLLineRasterLength(*ctx,polygon[i].raster,polygon[(i+1)%polygon.size()].raster);
+            }
+            ctx->lighting_enabled=lighting;ctx->cull_face_enabled=culling;ctx->shade_model=shade;
+            for(int u=0;u<2;++u){ctx->tex_units[u]=units[u];memcpy(ctx->texture_stack[u][ctx->texture_depth[u]],textureMatrices[u],64);}
+        });
+        ctx->im_vertices=std::move(original);ctx->im_mode=originalMode;return;
+    }
+
+    const bool snapshotRequired=!ms->framebufferFetch && (ctx->color_logic_op || (ms->presentationTexture && ctx->blend));
+    if(snapshotRequired && !primitiveBoundary) {
+        // Keep original primitive order: overlapping primitives must observe
+        // previous writes, including when they arrived in a single Begin/End.
+        auto saved=std::move(ctx->im_vertices);const auto mode=ctx->im_mode;
+        std::vector<GLMetalVertex> lineVertices;GLConvertDrawVertices(*ctx,saved,lineVertices);float linePhase=stippleBase;
+        GLVisitPrimitiveIndices(mode,saved.size(),[&](const std::vector<size_t> &original,bool polygon,bool reset) {
+            if(reset)linePhase=stippleBase;
+            auto order=original;
+            if(polygon && mode!=9) {size_t provoking=mode==8?order[order.size()-2]:order.back();auto at=std::find(order.begin(),order.end(),provoking);std::rotate(order.begin(),at,order.end());}
+            ctx->im_vertices.clear();for(size_t index:order)ctx->im_vertices.push_back(saved[index]);
+            ctx->im_mode=polygon?9:order.size()==1?0:1;
+            GLMetalSubmitVertices(ctx,nullptr,MTLPrimitiveTypeTriangle,true,linePhase);
+            if(!polygon && original.size()==2)linePhase+=GLLineRasterLength(*ctx,lineVertices[original[0]],lineVertices[original[1]]);
+        });
+        ctx->im_mode=mode;ctx->im_vertices=std::move(saved);return;
+    }
+
     // Convert texture generation/matrices once per draw, before topology
     // expansion. Indexed smooth draws retain their shared vertex storage.
     auto &converted = ms->imConvertScratch;
     auto &expandedVerts = ms->imExpandScratch;
     GLConvertDrawVertices(*ctx, ctx->im_vertices, converted);
+    GLPrepareLineStipple(*ctx,converted,stippleBase);
     GLDrawPrimitive primitive;
     const bool expanded = !indices && GLExpandDrawPrimitives(ctx->im_mode,
         ctx->shade_model == GL_FLAT, converted, expandedVerts, primitive);
@@ -2375,15 +2554,13 @@ static void GLMetalSubmitVertices(GLContext *ctx,
         case GLDrawPrimitive::TriangleStrip: mtlPrim=MTLPrimitiveTypeTriangleStrip; break;
         }
     }
+    if(expanded && ctx->im_mode==2 && expandedVerts.size()>=2)
+        expandedVerts.back().stipple_distance=converted.back().stipple_distance+GLLineRasterLength(*ctx,converted.back(),converted.front());
     auto &drawVertices = expanded ? expandedVerts : converted;
     const GLMetalVertex *vertData = drawVertices.data();
     const size_t vertCount = drawVertices.size();
     if (vertCount == 0) return;
 
-    // Hornet Korea renders its 2D/HUD surface as textured GL quads in
-    // viewport pixel coordinates after loading an identity projection.
-    // Classic GL drivers accepted that compatibility pattern; Metal clip
-    // space does not, so remap only this tightly-scoped screen-space case.
     const float *mv = ctx->modelview_stack[ctx->modelview_depth];
     const float *proj = ctx->projection_stack[ctx->projection_depth];
     float mvp[16];
@@ -2396,44 +2573,6 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     const uint32_t secondaryTarget = GLTextureUnitTarget(ctx->tex_units[1],
         GLMetalTexture2DEnabledForDraw(ctx, 1));
     GLTextureObject *secondaryTexture = GLBoundTextureObject(ctx, 1, secondaryTarget);
-    const uint32_t viewportW =
-        ctx->viewport[2] > 0 ? (uint32_t)ctx->viewport[2] : 0u;
-    const uint32_t viewportH =
-        ctx->viewport[3] > 0 ? (uint32_t)ctx->viewport[3] : 0u;
-
-    float minX = vertData[0].position[0], maxX = vertData[0].position[0];
-    float minY = vertData[0].position[1], maxY = vertData[0].position[1];
-    float minZ = vertData[0].position[2], maxZ = vertData[0].position[2];
-    for (size_t i = 1; i < vertCount; i++) {
-        minX = std::min(minX, vertData[i].position[0]);
-        maxX = std::max(maxX, vertData[i].position[0]);
-        minY = std::min(minY, vertData[i].position[1]);
-        maxY = std::max(maxY, vertData[i].position[1]);
-        minZ = std::min(minZ, vertData[i].position[2]);
-        maxZ = std::max(maxZ, vertData[i].position[2]);
-    }
-
-    const bool screenSpaceRemap = GLMetalIdentityPixelProjectionApplies(
-        mvp, hasPrimaryTexture, ctx->depth_test, ctx->lighting_enabled,
-        viewportW, viewportH, minX, maxX, minY, maxY, minZ, maxZ);
-
-    if (screenSpaceRemap) {
-        for (GLMetalVertex &v : drawVertices) {
-            v.position[0] = GLMetalPixelToClipX(v.position[0], viewportW);
-            v.position[1] = GLMetalPixelToClipY(v.position[1], viewportH);
-            v.position[3] = 1.0f;
-        }
-        vertData = drawVertices.data();
-#if ACCEL_LOGGING_ENABLED
-        static uint32_t s_screen_space_remap_log_count = 0;
-        if (s_screen_space_remap_log_count < 16) {
-            GL_METAL_VLOG("GLMetalFlushImmediateMode: remapped identity pixel projection draw viewport=%ux%u bounds=(%.1f..%.1f, %.1f..%.1f)",
-                         viewportW, viewportH, minX, maxX, minY, maxY);
-            s_screen_space_remap_log_count++;
-        }
-#endif
-    }
-
     const size_t vertBytes = vertCount * sizeof(GLMetalVertex);
     const size_t indexRelativeOffset = (vertBytes + 255u) & ~size_t(255u);
     const size_t indexBytes = indices ? indices->size() * sizeof(uint32_t) : 0;
@@ -2467,7 +2606,7 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     if (indices) memcpy((uint8_t *)vb.contents + indexOffset, indices->data(), indexBytes);
 
     // ---- Upload vertex uniforms ----
-    const bool fogActiveForDraw = ctx->fog_enabled && !screenSpaceRemap;
+    const bool fogActiveForDraw = ctx->fog_enabled;
     GLMetalVertexUniforms vu;
     memcpy(vu.mvp_matrix, mvp, sizeof(float) * 16);
     memcpy(vu.modelview_matrix, mv, sizeof(float) * 16);
@@ -2516,15 +2655,19 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     fu.tex_format = primaryTexture ? GLTextureLevelBaseFormat(*primaryTexture, 0) : 0x1908;
     fu.tex1_format = secondaryTexture ? GLTextureLevelBaseFormat(*secondaryTexture, 0) : 0x1908;
     fu.shade_model = (ctx->shade_model == GL_SMOOTH) ? 1 : 0;
+    fu.framebuffer_height=(int32_t)ms->overlayTexture.height;
+    fu.polygon_stipple_enabled=ctx->polygon_stipple_enabled && ctx->im_mode>=4;
+    fu.line_stipple_enabled=ctx->line_stipple_enabled && ctx->im_mode>=1 && ctx->im_mode<=3;
     // EXT_secondary_color / GL_COLOR_SUM: honestly gated on the tracked enable bit
     // (NOT silently always-on) — secondary color is added after texturing only
     // when glEnable(GL_COLOR_SUM) is active.
     fu.color_sum_enabled = ctx->color_sum ? 1 : 0;
     // Each unit chooses its enabled target independently. 1D images use a
     // height-one Metal texture, with T ignored in the fragment shader.
-    fu.has_texture_unit1 = (secondaryTarget == 0x0de0 || secondaryTarget == 0x0de1) &&
+    fu.has_texture_unit1 = (secondaryTarget == 0x0de0 || secondaryTarget == 0x0de1 || secondaryTarget == 0x806f) &&
         secondaryTexture != nullptr;
     fu.has_texture_unit1_1d = secondaryTarget == 0x0de0;
+    fu.has_texture_unit1_3d = secondaryTarget == 0x806f;
     {
         const bool isOffscreen =
             GLContextGetOffscreenDrawable(ctx, NULL, NULL, NULL, NULL);
@@ -2543,6 +2686,11 @@ static void GLMetalSubmitVertices(GLContext *ctx,
 
     // ---- Get/create depth stencil state ----
     id<MTLDepthStencilState> dsState = GLMetalCreateDepthStencilState(ms, ctx);
+
+    GLMetalDestinationSnapshot snapshot;
+    if(snapshotRequired && !GLMetalSnapshotLogicDestinations(ms,ctx,snapshot))return;
+    for(int i=0;i<4;++i)[ms->currentEncoder setFragmentTexture:snapshot.texture[i] ?: ms->fallbackWhiteTexture atIndex:3+i];
+    GLMetalConfigurePresentationDraw(ms,ctx);
 
     // ---- Encode draw call ----
     [ms->currentEncoder setRenderPipelineState:pipeline];
@@ -2578,7 +2726,9 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     }
 
     // Polygon offset (depth bias)
-    if (ctx->polygon_offset_fill || ctx->polygon_offset_line || ctx->polygon_offset_point) {
+    if ((ctx->im_mode>=4 && ctx->polygon_offset_fill) ||
+        (polygonRasterMode==0x1b01 && ctx->polygon_offset_line) ||
+        (polygonRasterMode==0x1b00 && ctx->polygon_offset_point)) {
         [ms->currentEncoder setDepthBias:ctx->polygon_offset_units
                               slopeScale:ctx->polygon_offset_factor
                                    clamp:0.0f];
@@ -2642,7 +2792,7 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     if (fu.has_texture_unit1) {
         if (secondaryTexture && secondaryTexture->metal_texture) {
             id<MTLTexture> mtlTex1 = (__bridge id<MTLTexture>)(secondaryTexture->metal_texture);
-            [ms->currentEncoder setFragmentTexture:mtlTex1 atIndex:2];
+            [ms->currentEncoder setFragmentTexture:mtlTex1 atIndex:fu.has_texture_unit1_3d ? 7 : 2];
             id<MTLSamplerState> sampler1 = GLMetalGetSampler(ms, secondaryTexture);
             [ms->currentEncoder setFragmentSamplerState:sampler1 atIndex:1];
         } else {
@@ -2764,14 +2914,6 @@ static void GLMetalDrawPixelQuad(GLContext *ctx, int width, int height,
         v.position[2] = ctx->raster_pos[2] * 2.0f - 1.0f;
         if (bitmap) memcpy(v.color, ctx->raster_color, sizeof(v.color));
     }
-    // RasterPos has already applied the depth range. Use window depth directly,
-    // including when DepthRange changed after RasterPos was established.
-    GLMetalViewportRect rect = GLMetalMakeViewportRect(vp_x, vp_y, vp_w, vp_h,
-                                                       ms->overlayTexture.height, 0, 1);
-    MTLViewport viewport = {rect.origin_x, rect.origin_y, rect.width, rect.height, 0, 1};
-    [ms->currentEncoder setViewport:viewport];
-    ms->viewportScissorCacheValid = false;
-
     // Set up identity MVP (NDC pass-through)
     GLMetalVertexUniforms vu_local;
     memset(&vu_local, 0, sizeof(vu_local));
@@ -2814,6 +2956,19 @@ static void GLMetalDrawPixelQuad(GLContext *ctx, int width, int height,
     id<MTLDepthStencilState> dsState = GLMetalCreateDepthStencilState(ms, ctx);
 
     // Encode draw
+    GLMetalDestinationSnapshot pixelSnapshot;
+    if(!ms->framebufferFetch && (ctx->color_logic_op || (ms->presentationTexture && ctx->blend)) &&
+       !GLMetalSnapshotLogicDestinations(ms,ctx,pixelSnapshot))return;
+    // RasterPos has already applied the depth range. Use window depth directly,
+    // including when DepthRange changed after RasterPos was established.
+    GLMetalViewportRect rect = GLMetalMakeViewportRect(vp_x, vp_y, vp_w, vp_h,
+                                                       ms->overlayTexture.height, 0, 1);
+    MTLViewport viewport = {rect.origin_x, rect.origin_y, rect.width, rect.height, 0, 1};
+    [ms->currentEncoder setViewport:viewport];
+    ms->viewportScissorCacheValid = false;
+
+    for(int i=0;i<4;++i)[ms->currentEncoder setFragmentTexture:pixelSnapshot.texture[i] ?: ms->fallbackWhiteTexture atIndex:3+i];
+    GLMetalConfigurePresentationDraw(ms,ctx);
     [ms->currentEncoder setRenderPipelineState:pipeline];
     [ms->currentEncoder setDepthStencilState:dsState];
     [ms->currentEncoder setStencilReferenceValue:(uint32_t)(ctx->stencil.ref & 0xff)];
@@ -4159,7 +4314,8 @@ static void gl_accum_restart_encoder(GLContext *ctx)
 // GL_RETURN bypasses blending, depth and stencil, but honors the scissor and
 // color write masks. Read/merge masked channels in shared staging storage and
 // blit the result into the private overlay, preserving the other attachments.
-static void gl_accum_write_color_target(GLContext *ctx, float scale, id<MTLTexture> target)
+static void gl_accum_write_color_target(GLContext *ctx, float scale, id<MTLTexture> target,
+    id<MTLTexture> presentationTarget)
 {
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized || !ctx->accum_allocated || !ms->overlayTexture) return;
@@ -4179,6 +4335,10 @@ static void gl_accum_write_color_target(GLContext *ctx, float scale, id<MTLTextu
     int byteCount = 0;
     uint8_t *pixels = GLMetalReadFramebufferRectFromTexture(ctx, 0, 0, dstW, dstH, &byteCount, target);
     if (!pixels) return;
+    uint8_t *visible = presentationTarget
+        ? GLMetalReadFramebufferRectFromTexture(ctx, 0, 0, dstW, dstH, &byteCount, presentationTarget)
+        : nullptr;
+    if (presentationTarget && !visible) { free(pixels); return; }
     for (uint32_t y = rect.y; y < rect.y + rect.height; ++y) {
         for (uint32_t x = rect.x; x < rect.x + rect.width; ++x) {
             const size_t source = ((size_t)y * ctx->accum_width + x) * 4;
@@ -4189,6 +4349,10 @@ static void gl_accum_write_color_target(GLContext *ctx, float scale, id<MTLTextu
                     ctx->accum_buffer[source + channel] * scale));
                 const unsigned bgraChannel = channel == 0 ? 2 : channel == 2 ? 0 : channel;
                 pixels[dest + bgraChannel] = (uint8_t)(value * 255.0f + 0.5f);
+                if (visible && channel < 3) {
+                    visible[dest + bgraChannel] = pixels[dest + bgraChannel];
+                    visible[dest + 3] = 255;
+                }
             }
         }
     }
@@ -4197,7 +4361,9 @@ static void gl_accum_write_color_target(GLContext *ctx, float scale, id<MTLTextu
                                                                  width:dstW height:dstH mipmapped:NO];
     desc.storageMode = MTLStorageModeShared;
     id<MTLTexture> staging = [ms->device newTextureWithDescriptor:desc];
-    if (!staging) {
+    id<MTLTexture> visibleStaging = visible ? [ms->device newTextureWithDescriptor:desc] : nil;
+    if (!staging || (visible && !visibleStaging)) {
+        free(visible);
         free(pixels);
         if (!ctx->last_error) ctx->last_error = 0x0505;
         return;
@@ -4205,6 +4371,11 @@ static void gl_accum_write_color_target(GLContext *ctx, float scale, id<MTLTextu
     [staging replaceRegion:MTLRegionMake2D(0, 0, dstW, dstH) mipmapLevel:0
                 withBytes:pixels bytesPerRow:dstW * 4];
     free(pixels);
+    if (visible) {
+        [visibleStaging replaceRegion:MTLRegionMake2D(0, 0, dstW, dstH) mipmapLevel:0
+                            withBytes:visible bytesPerRow:dstW * 4];
+        free(visible);
+    }
 
     if (ms->currentEncoder) {
         [ms->currentEncoder endEncoding];
@@ -4218,6 +4389,13 @@ static void gl_accum_write_color_target(GLContext *ctx, float scale, id<MTLTextu
               sourceSize:MTLSizeMake(rect.width, rect.height, 1)
                toTexture:target destinationSlice:0 destinationLevel:0
        destinationOrigin:MTLOriginMake(rect.x, rect.y, 0)];
+    if (visibleStaging) {
+        [blit copyFromTexture:visibleStaging sourceSlice:0 sourceLevel:0
+                sourceOrigin:MTLOriginMake(rect.x, rect.y, 0)
+                  sourceSize:MTLSizeMake(rect.width, rect.height, 1)
+                   toTexture:presentationTarget destinationSlice:0 destinationLevel:0
+           destinationOrigin:MTLOriginMake(rect.x, rect.y, 0)];
+    }
     [blit endEncoding];
     gl_accum_restart_encoder(ctx);
 }
@@ -4227,10 +4405,10 @@ static void gl_accum_write_framebuffer(GLContext *ctx, float scale)
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     const unsigned targets = GLMetalDrawTargets(ctx);
     if (targets & 1) {
-        gl_accum_write_color_target(ctx, scale, ms->overlayTexture);
+        gl_accum_write_color_target(ctx, scale, ms->overlayTexture, ms->presentationTexture);
         gl_note_front_modified(ctx, ms->overlayTexture);
     }
-    if (targets & 2) gl_accum_write_color_target(ctx, scale, ms->backTexture);
+    if (targets & 2) gl_accum_write_color_target(ctx, scale, ms->backTexture, ms->presentationBackTexture);
 }
 
 void NativeGLAccum(GLContext *ctx, uint32_t op, float value)
@@ -4308,18 +4486,12 @@ void NativeGLBegin(GLContext *ctx, uint32_t mode)
 }
 
 // Forward declaration from gl_state.cpp (selection hit recording)
-extern void GLSelectionRecordPrimitive(GLContext *ctx);
+
 
 void NativeGLEnd(GLContext *ctx)
 {
     ctx->in_begin = false;
-    if (ctx->render_mode == 0x1C02 /* GL_SELECT */) {
-        // In selection mode, don't render -- just record hits from vertex Z values
-        GLSelectionRecordPrimitive(ctx);
-        ctx->im_vertices.clear();
-    } else {
-        GLMetalFlushImmediateMode(ctx);
-    }
+    GLMetalFlushImmediateMode(ctx);
 	GL_METAL_VLOG("glEnd: %s %zu vertices",
 	             ctx->render_mode == 0x1C02 ? "selection" : "flushed",
 	             ctx->im_vertices.size());
@@ -4339,6 +4511,8 @@ static inline void PushVertex(GLContext *ctx, float x, float y, float z, float w
     }
     memcpy(v.secondary_color, ctx->current_secondary_color, sizeof(float) * 3);
     v.fog_coord = ctx->current_fog_coord;
+    GLSnapshotVertexMaterial(*ctx, v);
+    v.edge_flag=ctx->current_edge_flag;
     ctx->im_vertices.push_back(v);
 }
 
@@ -4436,10 +4610,12 @@ void NativeGLVertex4sv(GLContext *ctx, uint32_t mac_ptr) {
 void NativeGLColor3f(GLContext *ctx, float r, float g, float b) {
     ctx->current_color[0] = r; ctx->current_color[1] = g;
     ctx->current_color[2] = b; ctx->current_color[3] = 1.0f;
+    GLApplyColorMaterial(ctx);
 }
 void NativeGLColor4f(GLContext *ctx, float r, float g, float b, float a) {
     ctx->current_color[0] = r; ctx->current_color[1] = g;
     ctx->current_color[2] = b; ctx->current_color[3] = a;
+    GLApplyColorMaterial(ctx);
 }
 void NativeGLColor3d(GLContext *ctx, double r, double g, double b) {
     NativeGLColor3f(ctx, (float)r, (float)g, (float)b);
@@ -4448,10 +4624,10 @@ void NativeGLColor4d(GLContext *ctx, double r, double g, double b, double a) {
     NativeGLColor4f(ctx, (float)r, (float)g, (float)b, (float)a);
 }
 void NativeGLColor3b(GLContext *ctx, int8_t r, int8_t g, int8_t b) {
-    NativeGLColor3f(ctx, (r + 128) / 255.0f, (g + 128) / 255.0f, (b + 128) / 255.0f);
+    NativeGLColor3f(ctx, (2.0f*r+1)/255.0f, (2.0f*g+1)/255.0f, (2.0f*b+1)/255.0f);
 }
 void NativeGLColor4b(GLContext *ctx, int8_t r, int8_t g, int8_t b, int8_t a) {
-    NativeGLColor4f(ctx, (r + 128) / 255.0f, (g + 128) / 255.0f, (b + 128) / 255.0f, (a + 128) / 255.0f);
+    NativeGLColor4f(ctx, (2.0f*r+1)/255.0f, (2.0f*g+1)/255.0f, (2.0f*b+1)/255.0f, (2.0f*a+1)/255.0f);
 }
 void NativeGLColor3ub(GLContext *ctx, uint8_t r, uint8_t g, uint8_t b) {
     NativeGLColor3f(ctx, r / 255.0f, g / 255.0f, b / 255.0f);
@@ -4460,21 +4636,21 @@ void NativeGLColor4ub(GLContext *ctx, uint8_t r, uint8_t g, uint8_t b, uint8_t a
     NativeGLColor4f(ctx, r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f);
 }
 void NativeGLColor3i(GLContext *ctx, int32_t r, int32_t g, int32_t b) {
-    NativeGLColor3f(ctx, (float)((double)(r - INT32_MIN) / (double)UINT32_MAX),
-                         (float)((double)(g - INT32_MIN) / (double)UINT32_MAX),
-                         (float)((double)(b - INT32_MIN) / (double)UINT32_MAX));
+    NativeGLColor3f(ctx, (float)((2.0*double(r)+1.0)/double(UINT32_MAX)),
+                         (float)((2.0*double(g)+1.0)/double(UINT32_MAX)),
+                         (float)((2.0*double(b)+1.0)/double(UINT32_MAX)));
 }
 void NativeGLColor4i(GLContext *ctx, int32_t r, int32_t g, int32_t b, int32_t a) {
-    NativeGLColor4f(ctx, (float)((double)(r - INT32_MIN) / (double)UINT32_MAX),
-                         (float)((double)(g - INT32_MIN) / (double)UINT32_MAX),
-                         (float)((double)(b - INT32_MIN) / (double)UINT32_MAX),
-                         (float)((double)(a - INT32_MIN) / (double)UINT32_MAX));
+    NativeGLColor4f(ctx, (float)((2.0*double(r)+1.0)/double(UINT32_MAX)),
+                         (float)((2.0*double(g)+1.0)/double(UINT32_MAX)),
+                         (float)((2.0*double(b)+1.0)/double(UINT32_MAX)),
+                         (float)((2.0*double(a)+1.0)/double(UINT32_MAX)));
 }
 void NativeGLColor3s(GLContext *ctx, int16_t r, int16_t g, int16_t b) {
-    NativeGLColor3f(ctx, (r + 32768) / 65535.0f, (g + 32768) / 65535.0f, (b + 32768) / 65535.0f);
+    NativeGLColor3f(ctx, (2.0f*r+1)/65535.0f, (2.0f*g+1)/65535.0f, (2.0f*b+1)/65535.0f);
 }
 void NativeGLColor4s(GLContext *ctx, int16_t r, int16_t g, int16_t b, int16_t a) {
-    NativeGLColor4f(ctx, (r + 32768) / 65535.0f, (g + 32768) / 65535.0f, (b + 32768) / 65535.0f, (a + 32768) / 65535.0f);
+    NativeGLColor4f(ctx, (2.0f*r+1)/65535.0f, (2.0f*g+1)/65535.0f, (2.0f*b+1)/65535.0f, (2.0f*a+1)/65535.0f);
 }
 void NativeGLColor3ui(GLContext *ctx, uint32_t r, uint32_t g, uint32_t b) {
     NativeGLColor3f(ctx, r / (float)UINT32_MAX, g / (float)UINT32_MAX, b / (float)UINT32_MAX);
@@ -4831,6 +5007,9 @@ static void FetchArrayVertex(GLContext *ctx, uint32_t i, GLVertex &v) {
         memcpy(v.secondary_color, ctx->current_secondary_color, sizeof(float) * 3);
     }
     v.fog_coord = ctx->current_fog_coord;
+    GLSnapshotVertexMaterial(*ctx, v);
+    v.edge_flag=ctx->edge_flag_array.enabled && ctx->edge_flag_array.pointer ?
+        ReadMacInt8(ctx->edge_flag_array.pointer+i*EffectiveStride(ctx->edge_flag_array))!=0 : ctx->current_edge_flag;
 }
 
 
@@ -4885,13 +5064,13 @@ static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode,
 {
     if (count <= 0) return;
     GLMetalState *ms = (GLMetalState *)ctx->metal;
-    if (!ms || !ms->initialized) return;
+    if (ctx->render_mode==0x1c00 && (!ms || !ms->initialized)) return;
     ctx->im_mode = mode;
     ctx->im_vertices.clear();
 
     // Flat shading currently rewrites per-primitive colors. Keep that path
     // isolated from shared vertices so each primitive retains its own provoking-vertex lighting inputs.
-    if (!preserveIndices || ctx->shade_model == 0x1D00 /* GL_FLAT */) {
+    if (ctx->render_mode!=0x1c00 || (!ms->framebufferFetch && (ctx->color_logic_op || ctx->blend)) || ctx->line_stipple_enabled || ctx->polygon_mode_front!=0x1b02 || ctx->polygon_mode_back!=0x1b02 || !preserveIndices || ctx->shade_model == 0x1D00 /* GL_FLAT */) {
         ctx->im_vertices.reserve(count);
         for (int32_t j = 0; j < count; ++j) {
             GLVertex v;
@@ -4997,7 +5176,13 @@ void NativeGLArrayElement(GLContext *ctx, int32_t i)
 {
     GLVertex v;
     FetchArrayVertex(ctx, i, v);
-    ctx->im_vertices.push_back(v);
+    if (ctx->color_array.enabled) { memcpy(ctx->current_color,v.color,sizeof(v.color)); GLApplyColorMaterial(ctx); }
+    if (ctx->normal_array.enabled) memcpy(ctx->current_normal,v.normal,sizeof(v.normal));
+    for(int unit=0;unit<4;++unit) if(ctx->texcoord_array[unit].enabled)
+        memcpy(ctx->current_texcoord[unit],v.texcoord[unit],sizeof(v.texcoord[unit]));
+    if(ctx->edge_flag_array.enabled)ctx->current_edge_flag=v.edge_flag;
+    if(ctx->secondary_color_array.enabled)memcpy(ctx->current_secondary_color,v.secondary_color,sizeof(v.secondary_color));
+    if(ctx->vertex_array.enabled) ctx->im_vertices.push_back(v);
 }
 
 

@@ -23,20 +23,32 @@ struct GLVertexIn {
     float4 position        [[attribute(0)]];
     float4 color           [[attribute(1)]];
     float3 normal          [[attribute(2)]];
-    float3 texcoord        [[attribute(3)]];   // (s, t, q) unit 0 — q enables projective texturing
-    float3 texcoord1       [[attribute(4)]];   // (s, t, q) unit 1 — for multitexture
+    float4 texcoord        [[attribute(3)]];   // (s, t, q) unit 0 — q enables projective texturing
+    float4 texcoord1       [[attribute(4)]];   // (s, t, q) unit 1 — for multitexture
+    float stipple_distance [[attribute(17)]];
     float4 lighting_position [[attribute(6)]]; // provoking position for flat lighting
     float3 secondary_color [[attribute(5)]];   // (r, g, b) EXT_secondary_color / GL_COLOR_SUM
+    float4 material0_ambient [[attribute(7)]];
+    float4 material0_diffuse [[attribute(8)]];
+    float4 material0_specular [[attribute(9)]];
+    float4 material0_emission [[attribute(10)]];
+    float material0_shininess [[attribute(11)]];
+    float4 material1_ambient [[attribute(12)]];
+    float4 material1_diffuse [[attribute(13)]];
+    float4 material1_specular [[attribute(14)]];
+    float4 material1_emission [[attribute(15)]];
+    float material1_shininess [[attribute(16)]];
 };
 
 struct GLVertexOut {
     float4 position     [[position]];
     float  point_size   [[point_size]];
+    float stipple_distance [[center_no_perspective]];
     float4 color;
     float4 back_color;
     float3 eye_normal;
-    float3 texcoord;    // (s, t, q) unit 0 — interpolated, then divided per-fragment
-    float3 texcoord1;   // (s, t, q) unit 1 — for multitexture
+    float4 texcoord;    // (s, t, q) unit 0 — interpolated, then divided per-fragment
+    float4 texcoord1;   // (s, t, q) unit 1 — for multitexture
     float3 secondary_color; // (r, g, b) EXT_secondary_color / GL_COLOR_SUM — added after texturing
     float3 eye_position;
     float  fog_factor;
@@ -91,6 +103,14 @@ struct GLFragmentUniforms {
     int    has_texture_1d;
     int    has_texture_unit1_1d;
     int    bitmap_mask;
+    int    _pad9;
+    int    polygon_stipple_enabled;
+    int    line_stipple_enabled;
+    int    line_stipple_factor;
+    int    framebuffer_height;
+    uint   polygon_stipple[32];
+    int    has_texture_unit1_3d;
+    int _raster_pad0, _raster_pad1, _raster_pad2;
 };
 
 struct GLLight {
@@ -135,7 +155,7 @@ struct GLLightingData {
 // Compute both vertex colors before clipping/interpolation. Polygon winding,
 // not the direction of an interpolated normal, selects the visible material.
 static float4 gl_light_vertex(float4 vertexColor, float3 eyeNormal, float3 eyePosition,
-                             constant GLMaterialData &material,
+                             GLMaterialData material,
                              constant GLLightingData &lighting)
 {
     // GL_COLOR_MATERIAL: the selected material term follows the vertex color.
@@ -227,6 +247,7 @@ vertex GLVertexOut gl_vertex_main(
 
     // Point size for GL_POINTS primitives
     out.point_size = uniforms.point_size;
+    out.stipple_distance = in.stipple_distance;
 
     // 2. Eye-space position (for fog distance and lighting)
     float4 eye_pos = uniforms.modelview_matrix * in.position;
@@ -249,12 +270,26 @@ vertex GLVertexOut gl_vertex_main(
 
     // 5. Lighting or pass-through color. Points/lines and one-sided polygons
     // receive identical front/back outputs, so fragment facing cannot affect them.
+    GLMaterialData material0;
+    material0.ambient=in.material0_ambient;
+    material0.diffuse=in.material0_diffuse;
+    material0.specular=in.material0_specular;
+    material0.emission=in.material0_emission;
+    material0.shininess=in.material0_shininess;
+    material0.color_material=0;
+    GLMaterialData material1;
+    material1.ambient=in.material1_ambient;
+    material1.diffuse=in.material1_diffuse;
+    material1.specular=in.material1_specular;
+    material1.emission=in.material1_emission;
+    material1.shininess=in.material1_shininess;
+    material1.color_material=0;
     if (uniforms.lighting_enabled) {
         out.color = gl_light_vertex(in.color, eye_normal, lighting_eye_pos,
-                                   lighting.material, lighting);
+                                   material0, lighting);
         out.back_color = uniforms.two_side_lighting
             ? gl_light_vertex(in.color, -eye_normal, lighting_eye_pos,
-                              lighting.back_material, lighting)
+                              material1, lighting)
             : out.color;
     } else {
         out.color = in.color;
@@ -331,16 +366,27 @@ static float4 gl_texture_environment(float4 color, float4 texel, int mode,
 // execute once, including GL_FRONT_AND_BACK.
 struct GLFragmentOutput { float4 front [[color(0)]]; float4 back [[color(1)]]; };
 
-fragment GLFragmentOutput gl_fragment_main(
-    GLVertexOut in [[stage_in]],
-    constant GLFragmentUniforms &uniforms [[buffer(1)]],
-    texture2d<float> tex [[texture(0)]],
-    texture3d<float> tex3d [[texture(1)]],
-    texture2d<float> tex1 [[texture(2)]],
-    sampler samp [[sampler(0)]],
-    sampler samp1 [[sampler(1)]],
-    bool frontFacing [[front_facing]])
+static float4 gl_shade_fragment(
+    GLVertexOut in,
+    constant GLFragmentUniforms &uniforms,
+    texture2d<float> tex,
+    texture3d<float> tex3d,
+    texture2d<float> tex1,
+    texture3d<float> tex1_3d,
+    sampler samp,
+    sampler samp1,
+    bool frontFacing)
 {
+    if (uniforms.polygon_stipple_enabled) {
+        uint x=uint(in.position.x)&31u;
+        uint y=uint(uniforms.framebuffer_height-1-int(in.position.y))&31u;
+        if ((uniforms.polygon_stipple[y] & (1u<<x))==0) discard_fragment();
+    }
+    if (uniforms.line_stipple_enabled) {
+        uint bit=(uint(max(0.0f,floor(in.stipple_distance)))/uint(uniforms.line_stipple_factor))&15u;
+        // Line pattern is carried separately in the last padding word.
+        if ((uint(uniforms._raster_pad0)&(1u<<bit))==0) discard_fragment();
+    }
     // User clip planes: discard if any clip distance is negative
     if (in.num_clip_planes > 0 && in.clip_dist0 < 0.0) discard_fragment();
     if (in.num_clip_planes > 1 && in.clip_dist1 < 0.0) discard_fragment();
@@ -354,11 +400,11 @@ fragment GLFragmentOutput gl_fragment_main(
     // Texture application
     if (uniforms.has_texture) {
         // Projective texturing: divide s,t by q for perspective-correct mapping
-        float2 uv = (in.texcoord.z != 0.0) ? in.texcoord.xy / in.texcoord.z : in.texcoord.xy;
+        float2 uv = (in.texcoord.w != 0.0) ? in.texcoord.xy / in.texcoord.w : in.texcoord.xy;
         if (uniforms.has_texture_1d) uv.y = 0.5;
         float4 tex_color;
         if (uniforms.has_texture_3d) {
-            float3 uvw = float3(uv, in.texcoord1.x);  // use unit 1's s as the r (depth) coordinate
+            float3 uvw = in.texcoord.w != 0.0 ? in.texcoord.xyz / in.texcoord.w : in.texcoord.xyz;
             tex_color = tex3d.sample(samp, uvw);
         } else {
             tex_color = tex.sample(samp, uv);
@@ -375,9 +421,10 @@ fragment GLFragmentOutput gl_fragment_main(
     }
 
     if (uniforms.has_texture_unit1) {
-        float2 uv1 = (in.texcoord1.z != 0.0) ? in.texcoord1.xy / in.texcoord1.z : in.texcoord1.xy;
+        float2 uv1 = (in.texcoord1.w != 0.0) ? in.texcoord1.xy / in.texcoord1.w : in.texcoord1.xy;
         if (uniforms.has_texture_unit1_1d) uv1.y = 0.5;
-        float4 texel = tex1.sample(samp1, uv1);
+        float3 uvw1=in.texcoord1.w != 0.0 ? in.texcoord1.xyz/in.texcoord1.w : in.texcoord1.xyz;
+        float4 texel = uniforms.has_texture_unit1_3d ? tex1_3d.sample(samp1,uvw1) : tex1.sample(samp1, uv1);
         color = gl_texture_environment(color, texel, uniforms.texenv1_mode,
                                        uniforms.texenv1_color, uniforms.tex1_format);
     }
@@ -424,7 +471,124 @@ fragment GLFragmentOutput gl_fragment_main(
         color.a = 1.0;
     }
 
-    return {color, color};
+    return color;
+}
+
+// Guest RGBA and presentation coverage are distinct render targets.
+struct GLPresentationUniforms {
+    uint blend_enabled, blend_src, blend_dst, blend_equation;
+    uint logic_enabled, logic_op, pad0, pad1;
+    float4 blend_color;
+};
+struct GLPresentationOutput {
+    float4 front [[color(0)]];
+    float4 back [[color(1)]];
+    float4 presentation_front [[color(2)]];
+    float4 presentation_back [[color(3)]];
+};
+static float4 gl_logic_color(float4 source, float4 destination, uint operation) {
+    uint4 s=uint4(round(saturate(source)*255.0f));
+    uint4 d=uint4(round(saturate(destination)*255.0f));
+    uint4 value;
+    switch(operation) {
+        case 0x1500: value=uint4(0); break;
+        case 0x1501: value=s&d; break;
+        case 0x1502: value=s&~d; break;
+        case 0x1503: value=s; break;
+        case 0x1504: value=~s&d; break;
+        case 0x1505: value=d; break;
+        case 0x1506: value=s^d; break;
+        case 0x1507: value=s|d; break;
+        case 0x1508: value=~(s|d); break;
+        case 0x1509: value=~(s^d); break;
+        case 0x150a: value=~d; break;
+        case 0x150b: value=s|~d; break;
+        case 0x150c: value=~s; break;
+        case 0x150d: value=~s|d; break;
+        case 0x150e: value=~(s&d); break;
+        case 0x150f: value=uint4(255); break;
+        default: value=s; break;
+    }
+    return float4(value&uint4(255))/255.0f;
+}
+static float4 gl_blend_factor(uint factor, float4 source, float4 destination, float4 constantColor) {
+    switch(factor) {
+        case 0: return float4(0);
+        case 1: return float4(1);
+        case 0x0300: return source;
+        case 0x0301: return 1.0f-source;
+        case 0x0302: return float4(source.a);
+        case 0x0303: return float4(1.0f-source.a);
+        case 0x0304: return float4(destination.a);
+        case 0x0305: return float4(1.0f-destination.a);
+        case 0x0306: return destination;
+        case 0x0307: return 1.0f-destination;
+        case 0x0308: return float4(float3(min(source.a,1.0f-destination.a)),1);
+        case 0x8001: return constantColor;
+        case 0x8002: return 1.0f-constantColor;
+        case 0x8003: return float4(constantColor.a);
+        case 0x8004: return float4(1.0f-constantColor.a);
+        default: return float4(1);
+    }
+}
+static float4 gl_presentation_color(float4 source, float4 nativeDestination,
+    float4 visibleDestination, constant GLPresentationUniforms &u) {
+    source=saturate(source);
+    if (u.logic_enabled) {
+        if (u.logic_op==0x1505) return visibleDestination; // GL_NOOP
+        return float4(gl_logic_color(source,nativeDestination,u.logic_op).rgb,1);
+    }
+    if (!u.blend_enabled) return float4(source.rgb,1);
+    float3 sourceFactor=gl_blend_factor(u.blend_src,source,nativeDestination,u.blend_color).rgb;
+    float3 destinationFactor=gl_blend_factor(u.blend_dst,source,nativeDestination,u.blend_color).rgb;
+    float3 s=source.rgb*sourceFactor;
+    float3 d=visibleDestination.rgb*destinationFactor;
+    float3 result=s+d;
+    if(u.blend_equation==0x8007) result=min(source.rgb,visibleDestination.rgb);
+    else if(u.blend_equation==0x8008) result=max(source.rgb,visibleDestination.rgb);
+    else if(u.blend_equation==0x800a) result=s-d;
+    else if(u.blend_equation==0x800b) result=d-s;
+    // Coverage follows RGB contribution weights, independently of guest alpha.
+    // For channel-dependent factors use the largest weight conservatively;
+    // a single compositor coverage channel cannot encode three transmittances.
+    float coverage=max(sourceFactor.r,max(sourceFactor.g,sourceFactor.b)) +
+        visibleDestination.a*max(destinationFactor.r,max(destinationFactor.g,destinationFactor.b));
+    if(u.blend_equation==0x8007 || u.blend_equation==0x8008) coverage=1;
+    return saturate(float4(result,coverage));
+}
+fragment GLFragmentOutput gl_fragment_main(
+    GLVertexOut in [[stage_in]], constant GLFragmentUniforms &uniforms [[buffer(1)]],
+    constant GLPresentationUniforms &presentation [[buffer(4)]],
+    texture2d<float> tex [[texture(0)]], texture3d<float> tex3d [[texture(1)]],
+    texture2d<float> tex1 [[texture(2)]], texture2d<float> front [[texture(3)]],
+    texture2d<float> back [[texture(4)]], texture3d<float> tex1_3d [[texture(7)]],
+    sampler samp [[sampler(0)]], sampler samp1 [[sampler(1)]], bool facing [[front_facing]]) {
+    float4 color=gl_shade_fragment(in,uniforms,tex,tex3d,tex1,tex1_3d,samp,samp1,facing);
+    if(presentation.logic_enabled) {
+        uint2 p=uint2(in.position.xy);
+        return {gl_logic_color(color,front.read(p),presentation.logic_op),
+                gl_logic_color(color,back.read(p),presentation.logic_op)};
+    }
+    return {color,color};
+}
+fragment GLPresentationOutput gl_fragment_present(
+    GLVertexOut in [[stage_in]], constant GLFragmentUniforms &uniforms [[buffer(1)]],
+    constant GLPresentationUniforms &presentation [[buffer(4)]],
+    texture2d<float> tex [[texture(0)]], texture3d<float> tex3d [[texture(1)]],
+    texture2d<float> tex1 [[texture(2)]], texture2d<float> front [[texture(3)]],
+    texture2d<float> back [[texture(4)]], texture2d<float> visibleFront [[texture(5)]],
+    texture2d<float> visibleBack [[texture(6)]], texture3d<float> tex1_3d [[texture(7)]],
+    sampler samp [[sampler(0)]], sampler samp1 [[sampler(1)]], bool facing [[front_facing]]) {
+    float4 color=gl_shade_fragment(in,uniforms,tex,tex3d,tex1,tex1_3d,samp,samp1,facing);
+    if(!presentation.blend_enabled && !presentation.logic_enabled)
+        return {color,color,float4(color.rgb,1),float4(color.rgb,1)};
+    uint2 p=uint2(in.position.xy);
+    float4 nativeFront=front.read(p),nativeBack=back.read(p);
+    float4 resultFront=presentation.logic_enabled?gl_logic_color(color,nativeFront,presentation.logic_op):color;
+    float4 resultBack=presentation.logic_enabled?gl_logic_color(color,nativeBack,presentation.logic_op):color;
+    return {resultFront,resultBack,
+        gl_presentation_color(color,nativeFront,visibleFront.read(p),presentation),
+        gl_presentation_color(color,nativeBack,visibleBack.read(p),presentation)};
 }
 
 // Clear draws bypass the ordinary GL pipeline: only scissor and attachment
@@ -464,4 +628,47 @@ kernel void gl_copy_texture_region(texture2d<float, access::read> source [[textu
         else if (u.base_internal_format == 0x1909) color.a = 1.0;
     } else if (u.base_internal_format == 0x1907) color.a = 1.0;
     destination.write(color, p);
+}
+
+fragment GLPresentationOutput gl_clear_present_fragment(constant float4 *values [[buffer(0)]]) {
+    return {values[0],values[0],values[2],values[2]};
+}
+
+// Apple GPUs read color attachments coherently in primitive order. This
+// keeps destination-dependent operations in tile memory, avoiding a copy per
+// primitive. Other GPUs use the snapshot variants above.
+fragment GLFragmentOutput gl_fragment_main_fetch(
+    GLVertexOut in [[stage_in]], constant GLFragmentUniforms &uniforms [[buffer(1)]],
+    constant GLPresentationUniforms &presentation [[buffer(4)]],
+    texture2d<float> tex [[texture(0)]], texture3d<float> tex3d [[texture(1)]],
+    texture2d<float> tex1 [[texture(2)]], texture2d<float> front [[texture(3)]],
+    texture2d<float> back [[texture(4)]], texture3d<float> tex1_3d [[texture(7)]],
+    sampler samp [[sampler(0)]], sampler samp1 [[sampler(1)]], bool facing [[front_facing]],
+    float4 nativeFront [[color(0)]], float4 nativeBack [[color(1)]]) {
+    float4 color=gl_shade_fragment(in,uniforms,tex,tex3d,tex1,tex1_3d,samp,samp1,facing);
+    if(presentation.logic_enabled) {
+        return {gl_logic_color(color,nativeFront,presentation.logic_op),
+                gl_logic_color(color,nativeBack,presentation.logic_op)};
+    }
+    return {color,color};
+}
+fragment GLPresentationOutput gl_fragment_present_fetch(
+    GLVertexOut in [[stage_in]], constant GLFragmentUniforms &uniforms [[buffer(1)]],
+    constant GLPresentationUniforms &presentation [[buffer(4)]],
+    texture2d<float> tex [[texture(0)]], texture3d<float> tex3d [[texture(1)]],
+    texture2d<float> tex1 [[texture(2)]], texture2d<float> front [[texture(3)]],
+    texture2d<float> back [[texture(4)]], texture2d<float> visibleFront [[texture(5)]],
+    texture2d<float> visibleBack [[texture(6)]], texture3d<float> tex1_3d [[texture(7)]],
+    sampler samp [[sampler(0)]], sampler samp1 [[sampler(1)]], bool facing [[front_facing]],
+    float4 nativeFront [[color(0)]], float4 nativeBack [[color(1)]],
+    float4 priorVisibleFront [[color(2)]], float4 priorVisibleBack [[color(3)]]) {
+    float4 color=gl_shade_fragment(in,uniforms,tex,tex3d,tex1,tex1_3d,samp,samp1,facing);
+    if(!presentation.blend_enabled && !presentation.logic_enabled)
+        return {color,color,float4(color.rgb,1),float4(color.rgb,1)};
+
+    float4 resultFront=presentation.logic_enabled?gl_logic_color(color,nativeFront,presentation.logic_op):color;
+    float4 resultBack=presentation.logic_enabled?gl_logic_color(color,nativeBack,presentation.logic_op):color;
+    return {resultFront,resultBack,
+        gl_presentation_color(color,nativeFront,priorVisibleFront,presentation),
+        gl_presentation_color(color,nativeBack,priorVisibleBack,presentation)};
 }

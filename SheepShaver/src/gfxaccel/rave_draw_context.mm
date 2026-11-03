@@ -17,6 +17,8 @@
  *  ObjC++ (.mm) for future Metal integration.
  */
 
+#include <memory>
+#include <new>
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "rave_engine.h"
@@ -49,6 +51,7 @@ extern void Mac_sysfree(uint32 addr);
 #endif
 
 static RaveDrawPrivate *context_table[RAVE_MAX_CONTEXTS] = {};
+static uint64_t context_generation = 0;
 
 int rave_context_count = 0;
 uint32_t rave_current_draw_context_addr = 0;
@@ -65,6 +68,8 @@ static uint32_t AllocContextHandle(RaveDrawPrivate *ctx)
 	// Find a free slot
 	for (int i = 0; i < RAVE_MAX_CONTEXTS; i++) {
 		if (context_table[i] == nullptr) {
+			ctx->generation = ++context_generation;
+			if (!ctx->generation) ctx->generation = ++context_generation;
 			context_table[i] = ctx;
 			return (uint32_t)(i + 1);
 		}
@@ -256,7 +261,8 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 		       left, top, right, bottom, right - left, bottom - top);
 
 	// Allocate RaveDrawPrivate on native heap
-	RaveDrawPrivate *ctx = new RaveDrawPrivate();
+	std::unique_ptr<RaveDrawPrivate> owner(new (std::nothrow) RaveDrawPrivate());
+	RaveDrawPrivate *ctx = owner.get();
 	if (!ctx) {
 		if (rave_logging_enabled)
 			printf("RAVE DrawPrivateNew: FAIL - native allocation returned null\n");
@@ -280,11 +286,13 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	// Allocate vertex staging buffer
 	ctx->vertexStagingCapacity = 65536;
 	ctx->vertexStagingCount = 0;
-	ctx->vertexStagingBuffer = new uint8_t[ctx->vertexStagingCapacity * RAVE_VERTEX_BYTES];
+	std::unique_ptr<uint8_t[]> vertices(new (std::nothrow) uint8_t[ctx->vertexStagingCapacity * RAVE_VERTEX_BYTES]);
+	ctx->vertexStagingBuffer = vertices.get();
 
 	// Allocate multi-texture UV staging buffer (parallel to vertexStagingBuffer)
 	// 16 bytes per vertex: uOverW2(4) + vOverW2(4) + invW2(4) + pad(4)
-	ctx->multiTexStagingBuffer = new uint8_t[ctx->vertexStagingCapacity * 16];
+	std::unique_ptr<uint8_t[]> multiTex(new (std::nothrow) uint8_t[ctx->vertexStagingCapacity * 16]);
+	ctx->multiTexStagingBuffer = multiTex.get();
 	ctx->multiTexStagingCount = 0;
 	ctx->multiTextureActive = false;
 	ctx->multiTextureHandle = 0;
@@ -292,7 +300,9 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	ctx->multiTextureFactor = 0.0f;
 
 	// Allocate Z-sort transparency buffer
-	ctx->zsortBuffer = new ZSortTriangle[RAVE_ZSORT_MAX_TRIANGLES];
+	std::unique_ptr<ZSortTriangle[]> zsort(new (std::nothrow) ZSortTriangle[RAVE_ZSORT_MAX_TRIANGLES]);
+	ctx->zsortBuffer = zsort.get();
+	if (!vertices || !multiTex || !zsort) return kQAError;
 	ctx->zsortCount = 0;
 
 	// Diagnostic frame counter
@@ -303,9 +313,13 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	if (handle == 0) {
 		if (rave_logging_enabled)
 			printf("RAVE DrawPrivateNew: FAIL - no free context slots (all %d occupied)\n", RAVE_MAX_CONTEXTS);
-		delete ctx;
 		return kQAError;
 	}
+	// Ownership transfers only after all staging allocations and registration succeed.
+	vertices.release();
+	multiTex.release();
+	zsort.release();
+	owner.release();
 	if (rave_logging_enabled)
 		printf("RAVE DrawPrivateNew: got handle=%d\n", handle);
 

@@ -297,6 +297,7 @@ struct ZSortTriangle {
 #define RAVE_ZSORT_MAX_TRIANGLES 16384
 
 struct RaveDrawPrivate {
+	uint64_t       generation;      // unique lifetime, including reused slots/storage
 	RaveStateValue state[RAVE_MAX_TAG];
 	uint32_t       dirty_flags;
 	uint32_t       flags;           // kQAContext_xxx from creation

@@ -694,6 +694,15 @@ void DSpReleaseAltBufferBackingsForBackground(void)
 	}
 }
 
+bool DSpAltBufferRestorePending(void)
+{
+	for (uint32_t i = 0; i < DSP_MAX_ALT_BUFFERS; ++i) {
+		const DSpAltBufferRecord *rec = &dsp_alt_buffer_table[i];
+		if (rec->in_use && rec->backing == nil) return true;
+	}
+	return false;
+}
+
 void DSpRestoreAltBufferBackingsForForeground(void)
 {
 	for (int i = 0; i < DSP_MAX_ALT_BUFFERS; i++) {
@@ -702,9 +711,9 @@ void DSpRestoreAltBufferBackingsForForeground(void)
 		if (rec->width == 0 || rec->height == 0) continue;
 		if (!DSpAllocAltBufferBacking(rec, rec->width, rec->height)) {
 			/* Leave backing nil — sync/blit paths nil-check it; the next
-			 * foreground retries, matching the back-buffer policy. */
+			 * VBL retries, matching the back-buffer policy. */
 			DSP_LOG("Foreground: alt-buffer %d backing re-alloc FAILED "
-			        "(retry on next fg)", i + 1);
+			        "(retry on next VBL)", i + 1);
 			continue;
 		}
 		/* Repopulate from the guest-RAM staging (source of truth). */

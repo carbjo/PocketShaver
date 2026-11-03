@@ -20,9 +20,11 @@
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "gl_engine.h"
+#include "gl_input_validation.h"
 #include "gl_pixel_unpack_policy.h"
 #include <algorithm>
 #include <limits>
+#include <new>
 #include "accel_logging.h"
 #include "gl_defer.h"
 
@@ -910,7 +912,9 @@ static int PointerDataSize(uint32_t op,uint32_t a,uint32_t b,uint32_t c,int &arg
 {
     arg_index=-1;
     switch(op){
+    case GL_SUB_LOAD_TRANSPOSE_MATRIXF_ARB:case GL_SUB_MULT_TRANSPOSE_MATRIXF_ARB:
     case GL_SUB_LOAD_MATRIXF:case GL_SUB_MULT_MATRIXF:arg_index=0;return 64;
+    case GL_SUB_LOAD_TRANSPOSE_MATRIXD_ARB:case GL_SUB_MULT_TRANSPOSE_MATRIXD_ARB:
     case GL_SUB_LOAD_MATRIXD:case GL_SUB_MULT_MATRIXD:arg_index=0;return 128;
     case GL_SUB_COLOR3BV: arg_index=0;return 3;
     case GL_SUB_COLOR3DV: arg_index=0;return 24;
@@ -1035,6 +1039,9 @@ static void GLRecordCommand(GLContext *ctx, uint32_t op,
     const uint32_t *floats,int numFloats)
 {
     GLCommand cmd{};
+    cmd.unpack_lsb_first=ctx->pixel_store.unpack_lsb_first;
+    cmd.unpack_image_height=ctx->pixel_store.unpack_image_height;
+    cmd.unpack_skip_images=ctx->pixel_store.unpack_skip_images;
     cmd.opcode=uint16_t(op);
     const uint32_t args[8]={a,b,c,d,e,f,g,h};
     memcpy(cmd.args.u,args,sizeof(args));
@@ -1062,29 +1069,43 @@ static void GLRecordCommand(GLContext *ctx, uint32_t op,
     auto capture=[&](int n,uint64_t bytes) {
         const uint32_t address=argument(n);
         if(!address || !bytes) return;
-        if(bytes > 0xffffffffull || bytes > 0x100000000ull-address) {valid=false;return;}
-        GLCommand::Payload payload;payload.argument=n;payload.bytes.resize(size_t(bytes));
-        for(size_t i=0;i<bytes;++i) payload.bytes[i]=ReadMacInt8(address+uint32_t(i));
-        cmd.payloads.push_back(std::move(payload));
+        if(bytes > 0xffffffffull || !GLGuestMappedRange(address,bytes,RAMBase,RAMSize,ROMBase,ROM_SIZE)) {valid=false;return;}
+        try {
+            GLCommand::Payload payload;payload.argument=n;payload.bytes.resize(size_t(bytes));
+            for(size_t i=0;i<bytes;++i) payload.bytes[i]=ReadMacInt8(address+uint32_t(i));
+            cmd.payloads.push_back(std::move(payload));
+        } catch(const std::bad_alloc &) {if(!ctx->last_error)ctx->last_error=0x0505;valid=false;}
     };
     int pointer=-1;
     const int bytes=PointerDataSize(op,a,b,c,pointer);
     if(bytes>0 && pointer>=0) capture(pointer,bytes);
-    auto pixelData=[&](int pointer,int32_t w,int32_t height,uint32_t format,uint32_t type,int32_t depth=1) {
+    auto pixelData=[&](int pointer,int32_t w,int32_t height,uint32_t format,uint32_t type,int32_t depth=1,bool image3D=false) {
         const int bpp=GLPixelSourceBytesPerPixel(format,type);
         const auto &ps=ctx->pixel_store;
-        if(w<0 || height<0 || depth<0 || !bpp || ps.unpack_row_length<0 || ps.unpack_skip_rows<0 || ps.unpack_skip_pixels<0) {valid=false;return;}
+        if(w<0 || height<0 || depth<0 || !bpp || ps.unpack_row_length<0 || ps.unpack_skip_rows<0 || ps.unpack_skip_pixels<0 || ps.unpack_image_height<0 || ps.unpack_skip_images<0) {valid=false;return;}
         if(!w || !height || !depth) return;
         int align=ps.unpack_alignment;
         if(align!=1 && align!=2 && align!=4 && align!=8) align=4;
         const uint64_t pitch=(uint64_t(ps.unpack_row_length ? ps.unpack_row_length : w)*bpp+align-1)&~uint64_t(align-1);
-        const uint64_t rows=uint64_t(height)*depth;
+        const uint64_t imageRows=ps.unpack_image_height ? uint64_t(ps.unpack_image_height) : uint64_t(height);
+        const uint64_t rows=image3D ? (uint64_t(ps.unpack_skip_images)+depth-1)*imageRows+height : uint64_t(height);
         if(pitch>0xffffffffull || rows>0xffffffffull) {valid=false;return;}
         const uint64_t rowCount=uint64_t(ps.unpack_skip_rows)+rows-1;
         if(pitch && rowCount>0xffffffffull/pitch) {valid=false;return;}
         const uint64_t length=rowCount*pitch+(uint64_t(ps.unpack_skip_pixels)+w)*bpp;
         capture(pointer,length);
         cmd.has_unpack=true;cmd.unpack[0]=align;cmd.unpack[1]=ps.unpack_row_length;
+        cmd.unpack[2]=ps.unpack_skip_pixels;cmd.unpack[3]=ps.unpack_skip_rows;
+    };
+    auto bitmapData=[&](int pointer,int32_t width,int32_t height) {
+        const auto &ps=ctx->pixel_store;
+        if(width<0 || height<0 || ps.unpack_row_length<0 || ps.unpack_skip_rows<0 || ps.unpack_skip_pixels<0) {valid=false;return;}
+        const int align=ps.unpack_alignment==1 || ps.unpack_alignment==2 || ps.unpack_alignment==8 ? ps.unpack_alignment : 4;
+        const uint64_t rowBits=ps.unpack_row_length ? uint64_t(ps.unpack_row_length) : uint64_t(width);
+        const uint64_t pitch=(((rowBits+7)/8)+align-1)&~uint64_t(align-1);
+        const uint64_t length=width && height ? (uint64_t(ps.unpack_skip_rows)+height-1)*pitch+(uint64_t(ps.unpack_skip_pixels)+width+7)/8 : 0;
+        capture(pointer,length);cmd.has_unpack=true;
+        cmd.unpack[0]=align;cmd.unpack[1]=ps.unpack_row_length;
         cmd.unpack[2]=ps.unpack_skip_pixels;cmd.unpack[3]=ps.unpack_skip_rows;
     };
     switch(op) {
@@ -1098,28 +1119,20 @@ static void GLRecordCommand(GLContext *ctx, uint32_t op,
     case GL_SUB_TEX_IMAGE2D: pixelData(8,d,e,g,cmd.args.u[7]);break;
     case GL_SUB_TEX_SUB_IMAGE1D: pixelData(6,d,1,e,f);break;
     case GL_SUB_TEX_SUB_IMAGE2D: pixelData(8,e,f,g,cmd.args.u[7]);break;
-    case GL_SUB_TEX_IMAGE3D_EXT: pixelData(9,d,e,h,cmd.stack_args[0],f);break;
-    case GL_SUB_TEX_SUB_IMAGE3D_EXT: pixelData(10,f,g,cmd.stack_args[0],cmd.stack_args[1],h);break;
+    case GL_SUB_TEX_IMAGE3D_EXT: pixelData(9,d,e,h,cmd.stack_args[0],f,true);break;
+    case GL_SUB_TEX_SUB_IMAGE3D_EXT: pixelData(10,f,g,cmd.stack_args[0],cmd.stack_args[1],h,true);break;
     case GL_SUB_DRAW_PIXELS: pixelData(4,a,b,c,d);break;
     case GL_SUB_COLOR_TABLE: case GL_SUB_COLOR_SUB_TABLE: pixelData(5,c,1,d,e);break;
     case GL_SUB_CONVOLUTION_FILTER1D: pixelData(5,c,1,d,e);break;
     case GL_SUB_CONVOLUTION_FILTER2D: pixelData(6,c,d,e,f);break;
     case GL_SUB_SEPARABLE_FILTER2D: pixelData(6,c,1,e,f);pixelData(7,d,1,e,f);break;
-    case GL_SUB_BITMAP: {
-        const auto &ps=ctx->pixel_store;
-        if(int32_t(a)<0 || int32_t(b)<0) {valid=false;break;}
-        const int align=ps.unpack_alignment==1 || ps.unpack_alignment==2 || ps.unpack_alignment==8 ? ps.unpack_alignment : 4;
-        const uint64_t pitch=(((uint64_t(a)+7)/8)+align-1)&~uint64_t(align-1);
-        capture(6,pitch*b);cmd.has_unpack=true;
-        cmd.unpack[0]=ps.unpack_alignment;cmd.unpack[1]=ps.unpack_row_length;
-        cmd.unpack[2]=ps.unpack_skip_pixels;cmd.unpack[3]=ps.unpack_skip_rows;break;
-    }
+    case GL_SUB_BITMAP: bitmapData(6,a,b);break;
     case GL_SUB_GLU_PICKMATRIX: capture(8,16);break;
     case GL_SUB_GLU_BUILD1DMIPMAPS: pixelData(5,c,1,d,e);break;
     case GL_SUB_GLU_BUILD2DMIPMAPS: pixelData(6,c,d,e,f);break;
     case GL_SUB_PIXEL_MAPFV: case GL_SUB_PIXEL_MAPUIV: capture(2,uint64_t(b)*4);break;
     case GL_SUB_PIXEL_MAPUSV: capture(2,uint64_t(b)*2);break;
-    case GL_SUB_POLYGON_STIPPLE: capture(0,128);break;
+    case GL_SUB_POLYGON_STIPPLE: bitmapData(0,32,32);break;
     case GL_SUB_RECTDV: capture(0,16);capture(1,16);break;
     case GL_SUB_RECTFV: case GL_SUB_RECTIV: capture(0,8);capture(1,8);break;
     case GL_SUB_RECTSV: capture(0,4);capture(1,4);break;
@@ -1130,18 +1143,19 @@ static void GLRecordCommand(GLContext *ctx, uint32_t op,
     case GL_SUB_COMPRESSED_TEX_SUB_IMAGE2D_ARB: capture(8,h);break;
     case GL_SUB_COMPRESSED_TEX_SUB_IMAGE3D_ARB: capture(10,cmd.stack_args[1]);break;
     case GL_SUB_MAP1F: case GL_SUB_MAP1D: case GL_SUB_MAP2F: case GL_SUB_MAP2D: {
-        // Control-point strides count scalar values, not bytes. Preserve gaps
-        // so handlers see the same layout as at compilation.
         const bool two=op==GL_SUB_MAP2F || op==GL_SUB_MAP2D;
         const bool dbl=op==GL_SUB_MAP1D || op==GL_SUB_MAP2D;
-        const int target=int(a)-(two ? 0x0db0 : 0x0d90);
-        const int components[9]={4,1,3,1,2,3,4,3,4};
         const int32_t us=int32_t(dbl ? f : d),un=int32_t(dbl ? g : e);
         const int32_t vs=two ? int32_t(dbl ? cmd.stack_args[3] : h) : 0;
         const int32_t vn=two ? int32_t(dbl ? cmd.stack_args[4] : cmd.stack_args[0]) : 1;
-        if(target<0 || target>=9 || un<=0 || vn<=0 || us<0 || vs<0) {valid=false;break;}
-        const uint64_t scalars=uint64_t(un-1)*us+uint64_t(vn-1)*vs+components[target];
-        capture(two ? (dbl ? 13 : 9) : (dbl ? 7 : 5),scalars*(dbl ? 8 : 4));break;
+        const int pointer=two ? (dbl ? 13 : 9) : (dbl ? 7 : 5);
+        auto domain=[&](int index) {float value=0;if(floats && index<numFloats)std::memcpy(&value,floats+index,4);return double(value);};
+        GLEvaluatorDefinitionLayout layout;
+        const uint32_t error=GLValidateEvaluatorDefinition(ctx->in_begin,a,two,argument(pointer),dbl?8:4,
+            un,us,domain(0),domain(1),vn,vs,two?domain(2):0,two?domain(3):1,
+            RAMBase,RAMSize,ROMBase,ROM_SIZE,layout);
+        if(error) {if(!ctx->last_error)ctx->last_error=error;valid=false;break;}
+        capture(pointer,layout.bytes);break;
     }
     case GL_SUB_PRIORITIZE_TEXTURES: capture(1,uint64_t(a)*4);capture(2,uint64_t(a)*4);break;
     default:break;
@@ -1189,11 +1203,13 @@ static void GLRecordCommand(GLContext *ctx, uint32_t op,
             if(!scalar || element<=0 || stride<0) {valid=false;continue;}
             // Array payload arguments use a separate namespace (16..25).
             const uint64_t bytes=uint64_t(maximum)*stride+element;
-            if(bytes>0xffffffffull || bytes>0x100000000ull-v.pointer) {valid=false;continue;}
+            if(bytes>0xffffffffull || !GLGuestMappedRange(v.pointer,bytes,RAMBase,RAMSize,ROMBase,ROM_SIZE)) {valid=false;continue;}
             if(v.pointer) {
-                GLCommand::Payload data;data.argument=16+i;data.bytes.resize(size_t(bytes));
-                for(size_t b=0;b<bytes;++b)data.bytes[b]=ReadMacInt8(v.pointer+uint32_t(b));
-                cmd.payloads.push_back(std::move(data));
+                try {
+                    GLCommand::Payload data;data.argument=16+i;data.bytes.resize(size_t(bytes));
+                    for(size_t b=0;b<bytes;++b)data.bytes[b]=ReadMacInt8(v.pointer+uint32_t(b));
+                    cmd.payloads.push_back(std::move(data));
+                } catch(const std::bad_alloc &) {if(!ctx->last_error)ctx->last_error=0x0505;valid=false;}
             }
         }
     }
@@ -1269,7 +1285,7 @@ void GLReplayCommand(GLContext *ctx, const GLCommand &cmd)
         *arrays[i]={arrayAddress[i] ? arrayAddress[i] : v.pointer,v.size,v.stride,v.type,v.enabled};
     }
     const GLPixelStore savedStore=ctx->pixel_store;
-    if(cmd.has_unpack){ctx->pixel_store.unpack_alignment=cmd.unpack[0];ctx->pixel_store.unpack_row_length=cmd.unpack[1];
+    if(cmd.has_unpack){ctx->pixel_store.unpack_image_height=cmd.unpack_image_height;ctx->pixel_store.unpack_skip_images=cmd.unpack_skip_images;ctx->pixel_store.unpack_lsb_first=cmd.unpack_lsb_first;ctx->pixel_store.unpack_alignment=cmd.unpack[0];ctx->pixel_store.unpack_row_length=cmd.unpack[1];
         ctx->pixel_store.unpack_skip_pixels=cmd.unpack[2];ctx->pixel_store.unpack_skip_rows=cmd.unpack[3];}
     const bool compiling=ctx->in_display_list;
     if(scratch)gl_ppc_sp=scratch;

@@ -36,6 +36,13 @@ struct GLMetalFragmentUniforms {
     int32_t has_texture_unit1_1d;
     int32_t bitmap_mask;            // offset 120, sampled alpha is coverage only
     int32_t _pad9;                  // pad to 128, matching Metal struct alignment
+    int32_t polygon_stipple_enabled;
+    int32_t line_stipple_enabled;
+    int32_t line_stipple_factor;
+    int32_t framebuffer_height;
+    uint32_t polygon_stipple[32];
+    int32_t has_texture_unit1_3d;
+    int32_t _raster_pad[3];
 };
 
 static inline int32_t GLTexEnvModeToShader(uint32_t gl_mode) {
@@ -53,6 +60,13 @@ static inline void GLMetalSetTextureEnvironments(GLMetalFragmentUniforms &unifor
                                                  const GLContext &ctx)
 {
     uniforms.bitmap_mask = 0;
+    uniforms.polygon_stipple_enabled=0;
+    uniforms.line_stipple_enabled=0;
+    uniforms.line_stipple_factor=std::max(1,std::min(256,ctx.line_stipple_factor));
+    uniforms.framebuffer_height=0;
+    uniforms.has_texture_unit1_3d=0;
+    uniforms._raster_pad[0]=ctx.line_stipple_pattern;
+    std::memcpy(uniforms.polygon_stipple,ctx.polygon_stipple,sizeof(uniforms.polygon_stipple));
     uniforms.texenv_mode = GLTexEnvModeToShader(ctx.tex_units[0].env_mode);
     uniforms.texenv1_mode = GLTexEnvModeToShader(ctx.tex_units[1].env_mode);
     std::memcpy(uniforms.texenv_color, ctx.tex_units[0].env_color, sizeof(uniforms.texenv_color));

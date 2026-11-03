@@ -198,7 +198,7 @@ extern "C" void MetalCompositorGetPresentRect(int *out_x, int *out_y,
     if (out_h) *out_h = (int)(uint32_t)(s & 0xffffffffu);
 }
 
-// Double-buffered palette. Two 256x4-byte MTLBuffers allocated directly from
+// VBL-latched palette revisions. Two 256x4-byte MTLBuffers allocated directly from
 // the device. Writers on the current main==emul thread apply complete/partial
 // updates to the back buffer. The VBL callback, also on main==emul today,
 // promotes the back buffer only when dirty. Reader (compositor encode) binds
@@ -737,10 +737,14 @@ static void compositor_vbl_callback(void *ctx, void *drawable, double target_ts)
 	const DMCModeSnapshot *snap = dmc_current_snapshot();
 	if (snap != NULL && gamma_lut_buffer != nil) {
 		if (snap->gamma_gen != s_last_gamma_gen) {
+			id<MTLBuffer> revision = [compositor_device newBufferWithLength:768
+			                                        options:MTLResourceStorageModeShared];
+			if (!revision) return; // preserve the coherent (LUT, fade) pair; retry next VBL
 			GfxColorBuildDisplayGammaLUT(snap->gamma_lut,
 			                             snap->fade_active != 0,
 			                             !objc_getIsLinearGammaEnabled(),
-			                             (uint8_t *)gamma_lut_buffer.contents);
+			                             (uint8_t *)revision.contents);
+			gamma_lut_buffer = revision;
 			s_latched_fade_active = snap->fade_active ? 1u : 0u;
 			s_last_gamma_gen = snap->gamma_gen;
 			COMPOSITOR_LOG("VBL callback: updated gamma LUT (gen=%u fade_active=%u)",
@@ -1252,23 +1256,23 @@ void MetalCompositorUpdatePalette(const uint8_t *pal, int num_colors)
     if (num_colors > 256) num_colors = 256;
     if (num_colors <= 0 || !pal) return;
 
-    // Write to back buffer. Palette updates may be partial, so after a latch
-    // the old front buffer must be copied into the new back buffer before
-    // applying the next update.
+    // A latched palette may still be read by any number of queued frames.
+    // Publish a new immutable revision, preserving partial updates in CPU order.
     uint8_t back = 1 - atomic_load_explicit(&s_palette_front_idx, memory_order_relaxed);
-    if (!atomic_load_explicit(&s_palette_back_in_sync, memory_order_acquire)) {
-        uint8_t front = 1 - back;
-        memcpy(s_palette_buffers[back].contents,
-               s_palette_buffers[front].contents,
-               256 * 4);
-    }
-    uint8_t *dst = (uint8_t *)s_palette_buffers[back].contents;
+    uint8_t source = atomic_load_explicit(&s_palette_back_in_sync, memory_order_acquire)
+        ? back : 1 - back;
+    id<MTLBuffer> revision = [compositor_device newBufferWithLength:256 * 4
+                                            options:MTLResourceStorageModeShared];
+    if (!revision) return;
+    memcpy(revision.contents, s_palette_buffers[source].contents, 256 * 4);
+    uint8_t *dst = (uint8_t *)revision.contents;
     for (int i = 0; i < num_colors; i++) {
         dst[i * 4 + 0] = pal[i * 3 + 0];  // R
         dst[i * 4 + 1] = pal[i * 3 + 1];  // G
         dst[i * 4 + 2] = pal[i * 3 + 2];  // B
         dst[i * 4 + 3] = 255;              // A
     }
+    s_palette_buffers[back] = revision;
     atomic_store_explicit(&s_palette_back_in_sync, 1, memory_order_release);
     atomic_store_explicit(&s_palette_dirty, 1, memory_order_release);
 
@@ -1301,8 +1305,12 @@ void MetalCompositorPaletteLatch(void)
 void MetalCompositorUpdateGammaLUT(const uint8_t *lut)
 {
     if (!gamma_lut_buffer || !lut) return;
+    id<MTLBuffer> revision = [compositor_device newBufferWithLength:768
+                                            options:MTLResourceStorageModeShared];
+    if (!revision) return;
     GfxColorBuildDisplayGammaLUT(lut, false, !objc_getIsLinearGammaEnabled(),
-                                 (uint8_t *)gamma_lut_buffer.contents);
+                                 (uint8_t *)revision.contents);
+    gamma_lut_buffer = revision;
     COMPOSITOR_LOG("MetalCompositorUpdateGammaLUT: updated 768 bytes");
 }
 

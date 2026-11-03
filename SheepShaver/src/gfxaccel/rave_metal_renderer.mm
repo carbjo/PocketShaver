@@ -3192,9 +3192,21 @@ static bool UploadDrawBufferCPUToOverlay(RaveDrawPrivate *priv, uint32_t dirtyRe
 	return true;
 }
 
+// Do not dereference the old pointer after guest code: a callback can delete
+// and recreate a context at the same guest handle and native allocation.
+static bool RaveContextStillCurrent(uint32_t drawContextAddr,
+                                    const RaveDrawPrivate *expected,
+                                    uint64_t generation)
+{
+	RaveDrawPrivate *current = GetContextFromDrawAddr(drawContextAddr);
+	return current == expected && current && current->generation == generation;
+}
+
 static void FireBufferNoticeMethod(RaveDrawPrivate *priv, int selector,
                                    uint32_t callback, uint32_t refCon)
 {
+	const uint32_t drawContextAddr = priv->drawContextAddr;
+	const uint64_t generation = priv->generation;
 	RaveMetalState *ms = priv->metal;
 	if (!ms || !ms->overlayTexture) return;
 
@@ -3237,6 +3249,8 @@ static void FireBufferNoticeMethod(RaveDrawPrivate *priv, int selector,
 
 	call_macos4(callback, priv->drawContextAddr, ms->noticeDeviceMac,
 	            ms->noticeDirtyRectMac, refCon);
+
+	if (!RaveContextStillCurrent(drawContextAddr, priv, generation)) return;
 
 	if (!UploadDrawBufferCPUToOverlay(priv, ms->noticeDirtyRectMac)) {
 		RAVE_LOG("FireNoticeMethod: selector=%d failed to upload draw buffer", selector);
@@ -3568,7 +3582,9 @@ int32 NativeRenderStart(uint32 drawContextAddr, uint32 dirtyRectAddr, uint32 ini
 	priv->frameCount++;
 
 	// Fire kQAMethod_ImageBufferInitialize (selector 3) callback
+	const uint64_t noticeGeneration = priv->generation;
 	FireNoticeMethod(priv, 3);
+	if (!RaveContextStillCurrent(drawContextAddr, priv, noticeGeneration)) return kQAError;
 
 	// SetOverlayRect is gone — destination rect now travels with
 	// each SubmitFrame's CompositeLayer (encoded in NativeRenderEnd from
@@ -3608,7 +3624,9 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 	// Fire kQAMethod_ImageBuffer2DComposite (selector 4) before ending the render pass.
 	// This fires while the encoder is still active so the app can submit 2D overlay
 	// draw commands (menus, HUD) if it uses Metal.
+	const uint64_t noticeGeneration = priv->generation;
 	FireNoticeMethod(priv, 4);
+	if (!RaveContextStillCurrent(drawContextAddr, priv, noticeGeneration)) return kQAError;
 
 	if (ms->currentEncoder) {
 		[ms->currentEncoder endEncoding];

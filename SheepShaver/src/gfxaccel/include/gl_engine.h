@@ -762,13 +762,24 @@ struct GLFuncSignature {
 /*
  *  GLVertex -- immediate mode vertex with full attribute state
  */
+struct GLMaterial {
+    float ambient[4];
+    float diffuse[4];
+    float specular[4];
+    float emission[4];
+    float shininess;
+    float color_indexes[3] = {0,1,1};
+};
+
 struct GLVertex {
     float position[4];       // x, y, z, w
     float color[4];          // r, g, b, a
     float normal[3];         // nx, ny, nz
     float texcoord[4][4];    // per texture unit: s, t, r, q
     float secondary_color[3]; // r, g, b (EXT_secondary_color)
+    bool edge_flag = true;
     float fog_coord;          // EXT_fog_coord
+    GLMaterial material[2]; // fixed-function material at vertex submission
 };
 
 
@@ -822,6 +833,8 @@ struct GLCommand {
     std::vector<uint32_t> float_args;
     uint32_t stack_args[6] = {};
     int unpack[4] = {};
+    bool unpack_lsb_first = false;
+    int unpack_image_height = 0, unpack_skip_images = 0;
     bool has_unpack = false;
     bool has_arrays = false;
     // Array descriptors are copied by value without depending on declaration order.
@@ -867,13 +880,7 @@ struct GLLight {
 /*
  *  GLMaterial -- front/back material state
  */
-struct GLMaterial {
-    float ambient[4];
-    float diffuse[4];
-    float specular[4];
-    float emission[4];
-    float shininess;
-};
+
 
 
 /*
@@ -927,12 +934,15 @@ struct GLVertexArrayPointer {
  *  GLPixelStore -- pixel pack/unpack state
  */
 struct GLPixelStore {
+    bool unpack_lsb_first = false;
     bool pack_swap_bytes;
     bool pack_lsb_first; // Relevant only for bitmap output; color/depth output is scalar.
     int  pack_alignment;
     int  pack_row_length;
     int  pack_skip_pixels;
     int  pack_skip_rows;
+    int  unpack_image_height = 0;
+    int  unpack_skip_images = 0;
     int  unpack_alignment;
     int  unpack_row_length;
     int  unpack_skip_pixels;
@@ -976,6 +986,10 @@ struct GLAttribStackEntry {
     bool extra_auto_normal;
     bool extra_point_smooth;
     bool extra_line_smooth;
+    bool extra_line_stipple_enabled;
+    bool extra_polygon_stipple_enabled;
+    bool saved_line_stipple_enabled;
+    bool full_polygon_stipple_enabled;
     bool extra_polygon_smooth;
     bool extra_dither;
     bool extra_color_logic_op;
@@ -1055,6 +1069,7 @@ struct GLAttribStackEntry {
     float full_current_index;
     float full_raster_pos[4];
     float full_raster_color[4];
+    float full_raster_texcoord[4];
     bool full_current_edge_flag;
     bool full_raster_pos_valid;
     GLLight full_lights[8];
@@ -1322,6 +1337,8 @@ struct GLContext {
     bool     auto_normal;
     bool     point_smooth;
     bool     line_smooth;
+    bool line_stipple_enabled = false;
+    bool polygon_stipple_enabled = false;
     bool     polygon_smooth;
     bool     dither;
     bool     color_logic_op;
@@ -1370,11 +1387,9 @@ struct GLContext {
     GLVertexArrayPointer edge_flag_array;
     GLVertexArrayPointer index_array;
 
-    // ---- Immediate draw-state latches ----
-    // ATI-era clients such as Warcraft III prepare texture state and client
-    // texcoords, then disable them immediately before glDrawElements. Track
-    // same-draw cleanup plus a bounded texture latch for subsequent array
-    // draws that keep binding textures and texcoords in the same batch.
+    // ---- Legacy draw-state bookkeeping ----
+    // Retained for state-stack compatibility. These fields never override a
+    // guest texture/client-array disable; strict GL state controls submission.
     uint32_t completed_draw_serial;
     uint32_t texture_2d_enable_draw_serial[4];
     uint32_t texcoord_array_enable_draw_serial[4];
@@ -1434,6 +1449,9 @@ struct GLContext {
     uint32_t feedback_buffer_mac_ptr;
     int32_t  feedback_buffer_size;
     uint32_t feedback_type;
+    int32_t feedback_buffer_offset = 0;
+    bool feedback_overflow = false;
+    bool selection_overflow = false;
     int32_t  name_stack_depth;
     uint32_t name_stack[64];
 
@@ -1459,6 +1477,7 @@ struct GLContext {
 
     // ---- Raster position ----
     float    raster_pos[4];
+    float raster_texcoord[4] = {0,0,0,1};
     float    raster_color[4] = {1, 1, 1, 1}; // captured when RasterPos is set
     bool     raster_pos_valid;
 
@@ -1719,5 +1738,10 @@ int  GLContextGetOffscreenDrawable(GLContext *ctx,
 #ifdef __cplusplus
 }
 #endif
+
+// Material updates persist independently of the GL_COLOR_MATERIAL enable.
+void GLApplyColorMaterial(GLContext *ctx);
+void GLSelectionRecordDepthRange(GLContext *ctx, double zmin, double zmax);
+void GLFeedbackWrite(GLContext *ctx, float value);
 
 #endif /* GL_ENGINE_H */

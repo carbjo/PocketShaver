@@ -74,5 +74,6 @@ void DSpResetAltBufferTable(void);
  * Safe to call from non-ObjC TUs. */
 void DSpReleaseAltBufferBackingsForBackground(void);
 void DSpRestoreAltBufferBackingsForForeground(void);
+bool DSpAltBufferRestorePending(void);
 
 #endif /* DSP_ALT_BUFFER_H */

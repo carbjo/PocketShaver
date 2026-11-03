@@ -27,6 +27,7 @@
 #include "gl_engine.h"
 #include "dsp_engine.h"
 #include "nqd_accel.h"
+#include "nqd_region_range.h"
 
 #define DEBUG 0
 #include "debug.h"
@@ -96,14 +97,59 @@ static inline bool NQD_bitblt_rects_byte_aligned_for_depth(uint32 p, uint32 pixe
 	       NQD_packed_rect_edges_byte_aligned(dest_X, width, pixel_size);
 }
 
+// Native CPU acceleration has a known contiguous mapping only for guest RAM.
+// Other memory domains (including ROM sources and external framebuffers) stay
+// with software QuickDraw: hooks must decline them before publishing a proc.
+static bool NQD_resolve_ram_rect(uint32 p, bool source, bool backward_rows,
+                                 uint32 *out_origin)
+{
+	const int rect = source ? acclSrcRect : acclDestRect;
+	const int bounds = source ? acclSrcBoundsRect : acclDestBoundsRect;
+	const int x = (int16)ReadMacInt16(p + rect + 2) - (int16)ReadMacInt16(p + bounds + 2);
+	const int y = (int16)ReadMacInt16(p + rect) - (int16)ReadMacInt16(p + bounds);
+	const int width = (int16)ReadMacInt16(p + acclDestRect + 6) - (int16)ReadMacInt16(p + acclDestRect + 2);
+	const int height = (int16)ReadMacInt16(p + acclDestRect + 4) - (int16)ReadMacInt16(p + acclDestRect);
+	if (x < 0 || y < 0 || width <= 0 || height <= 0) return false;
+	const uint32 bits = ReadMacInt32(p + (source ? acclSrcPixelSize : acclDestPixelSize));
+	if (!(bits == 1 || bits == 2 || bits == 4 || bits == 8 ||
+	      bits == 15 || bits == 16 || bits == 24 || bits == 32)) return false;
+	const uint32 storage_bits = bits == 15 ? 16 : bits == 24 ? 32 : bits;
+	const uint32 base = ReadMacInt32(p + (source ? acclSrcBaseAddr : acclDestBaseAddr));
+	if (base < RAMBase || uint64_t(base - RAMBase) >= uint64_t(RAMSize)) return false;
+	int64_t stride = (int32)ReadMacInt32(p + (source ? acclSrcRowBytes : acclDestRowBytes));
+	if (!stride || stride == INT32_MIN) return false;
+	if (backward_rows && stride < 0) stride = -stride;
+	const uint64_t x_byte = uint64_t(x) * storage_bits / 8u;
+	const uint64_t end_byte = (uint64_t(x + width) * storage_bits + 7u) / 8u;
+	const int64_t origin = int64_t(base) + int64_t(y) * stride + int64_t(x_byte);
+	const int64_t last = origin + int64_t(height - 1) * stride;
+	const int64_t lo = origin < last ? origin : last;
+	const int64_t hi = (origin > last ? origin : last) + int64_t(end_byte - x_byte);
+	const uint64_t ram_end = uint64_t(RAMBase) + uint64_t(RAMSize);
+	if (lo < int64_t(RAMBase) || hi < lo || uint64_t(hi) > ram_end ||
+	    uint64_t(hi) > (uint64_t(1) << 32)) return false;
+	if (out_origin) *out_origin = uint32(origin);
+	return true;
+}
+
+static bool NQD_validate_packet_ram(uint32 p, bool blit)
+{
+	if (blit && (ReadMacInt32(p + acclSrcPixelSize) != ReadMacInt32(p + acclDestPixelSize) ||
+	    (int32)(ReadMacInt32(p + acclSrcRowBytes) ^ ReadMacInt32(p + acclDestRowBytes)) < 0))
+		return false;
+	const bool backward_rows = blit && (int32)ReadMacInt32(p + acclSrcRowBytes) < 0;
+	return NQD_resolve_ram_rect(p, false, backward_rows, nullptr) &&
+	       (!blit || NQD_resolve_ram_rect(p, true, backward_rows, nullptr));
+}
+
 // Pass-through dirty areas to redraw functions
 static inline void NQD_set_dirty_area(uint32 p)
 {
 	if (ReadMacInt32(p + acclDestBaseAddr) == screen_base) {
-		int16 x = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
-		int16 y = (int16)ReadMacInt16(p + acclDestRect + 0) - (int16)ReadMacInt16(p + acclDestBoundsRect + 0);
-		int16 w  = (int16)ReadMacInt16(p + acclDestRect + 6) - (int16)ReadMacInt16(p + acclDestRect + 2);
-		int16 h = (int16)ReadMacInt16(p + acclDestRect + 4) - (int16)ReadMacInt16(p + acclDestRect + 0);
+		int x = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
+		int y = (int16)ReadMacInt16(p + acclDestRect + 0) - (int16)ReadMacInt16(p + acclDestBoundsRect + 0);
+		int w  = (int16)ReadMacInt16(p + acclDestRect + 6) - (int16)ReadMacInt16(p + acclDestRect + 2);
+		int h = (int16)ReadMacInt16(p + acclDestRect + 4) - (int16)ReadMacInt16(p + acclDestRect + 0);
 		video_set_dirty_area(x, y, w, h);
 	}
 }
@@ -184,17 +230,21 @@ void NQD_invrect(uint32 p)
 {
 	D(bug("accl_invrect %08x\n", p));
 
+	if (!NQD_validate_packet_ram(p, false)) return;
+
 	// Metal-accelerated path (only if dest is within Metal-mapped RAM)
 	if (nqd_metal_available && NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
 		NQDMetalInvertRect(p);
 		return;
 	}
 
+	if (ReadMacInt32(p + acclDestPixelSize) < 8) return;
+
 	// Get inversion parameters
-	int16 dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
-	int16 dest_Y = (int16)ReadMacInt16(p + acclDestRect + 0) - (int16)ReadMacInt16(p + acclDestBoundsRect + 0);
-	int16 width  = (int16)ReadMacInt16(p + acclDestRect + 6) - (int16)ReadMacInt16(p + acclDestRect + 2);
-	int16 height = (int16)ReadMacInt16(p + acclDestRect + 4) - (int16)ReadMacInt16(p + acclDestRect + 0);
+	int dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
+	int dest_Y = (int16)ReadMacInt16(p + acclDestRect + 0) - (int16)ReadMacInt16(p + acclDestBoundsRect + 0);
+	int width  = (int16)ReadMacInt16(p + acclDestRect + 6) - (int16)ReadMacInt16(p + acclDestRect + 2);
+	int height = (int16)ReadMacInt16(p + acclDestRect + 4) - (int16)ReadMacInt16(p + acclDestRect + 0);
 	D(bug(" dest X %d, dest Y %d\n", dest_X, dest_Y));
 	D(bug(" width %d, height %d, bytes_per_row %d\n", width, height, (int32)ReadMacInt32(p + acclDestRowBytes)));
 
@@ -203,25 +253,27 @@ void NQD_invrect(uint32 p)
 	// And perform the inversion
 	const int bpp = bytes_per_pixel(ReadMacInt32(p + acclDestPixelSize));
 	const int dest_row_bytes = (int32)ReadMacInt32(p + acclDestRowBytes);
-	uint8 *dest = Mac2HostAddr(ReadMacInt32(p + acclDestBaseAddr) + (dest_Y * dest_row_bytes) + (dest_X * bpp));
+	uint32 dest_origin;
+	if (!NQD_resolve_ram_rect(p, false, false, &dest_origin)) return;
+	uint8 *dest = Mac2HostAddr(dest_origin);
 	width *= bpp;
 	switch (bpp) {
 	case 1:
 		for (int i = 0; i < height; i++) {
 			do_invrect<8>(dest, width);
-			dest += dest_row_bytes;
+			if (i + 1 < height) dest += dest_row_bytes;
 		}
 		break;
 	case 2:
 		for (int i = 0; i < height; i++) {
 			do_invrect<16>(dest, width);
-			dest += dest_row_bytes;
+			if (i + 1 < height) dest += dest_row_bytes;
 		}
 		break;
 	case 4:
 		for (int i = 0; i < height; i++) {
 			do_invrect<32>(dest, width);
-			dest += dest_row_bytes;
+			if (i + 1 < height) dest += dest_row_bytes;
 		}
 		break;
 	}
@@ -304,17 +356,21 @@ void NQD_fillrect(uint32 p)
 {
 	D(bug("accl_fillrect %08x\n", p));
 
+	if (!NQD_validate_packet_ram(p, false)) return;
+
 	// Metal-accelerated path (only if dest is within Metal-mapped RAM)
 	if (nqd_metal_available && NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
 		NQDMetalFillRect(p);
 		return;
 	}
 
+	if (ReadMacInt32(p + acclDestPixelSize) < 8) return;
+
 	// Get filling parameters
-	int16 dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
-	int16 dest_Y = (int16)ReadMacInt16(p + acclDestRect + 0) - (int16)ReadMacInt16(p + acclDestBoundsRect + 0);
-	int16 width  = (int16)ReadMacInt16(p + acclDestRect + 6) - (int16)ReadMacInt16(p + acclDestRect + 2);
-	int16 height = (int16)ReadMacInt16(p + acclDestRect + 4) - (int16)ReadMacInt16(p + acclDestRect + 0);
+	int dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
+	int dest_Y = (int16)ReadMacInt16(p + acclDestRect + 0) - (int16)ReadMacInt16(p + acclDestBoundsRect + 0);
+	int width  = (int16)ReadMacInt16(p + acclDestRect + 6) - (int16)ReadMacInt16(p + acclDestRect + 2);
+	int height = (int16)ReadMacInt16(p + acclDestRect + 4) - (int16)ReadMacInt16(p + acclDestRect + 0);
 	uint32 color = htonl(ReadMacInt32(p + acclPenMode) == 8 ? ReadMacInt32(p + acclForePen) : ReadMacInt32(p + acclBackPen));
 	D(bug(" dest X %d, dest Y %d\n", dest_X, dest_Y));
 	D(bug(" width %d, height %d\n", width, height));
@@ -323,26 +379,28 @@ void NQD_fillrect(uint32 p)
 	// And perform the fill
 	const int bpp = bytes_per_pixel(ReadMacInt32(p + acclDestPixelSize));
 	const int dest_row_bytes = (int32)ReadMacInt32(p + acclDestRowBytes);
-	uint8 *dest = Mac2HostAddr(ReadMacInt32(p + acclDestBaseAddr) + (dest_Y * dest_row_bytes) + (dest_X * bpp));
+	uint32 dest_origin;
+	if (!NQD_resolve_ram_rect(p, false, false, &dest_origin)) return;
+	uint8 *dest = Mac2HostAddr(dest_origin);
 
 	width *= bpp;
 	switch (bpp) {
 	case 1:
 		for (int i = 0; i < height; i++) {
 			memset(dest, color, width);
-			dest += dest_row_bytes;
+			if (i + 1 < height) dest += dest_row_bytes;
 		}
 		break;
 	case 2:
 		for (int i = 0; i < height; i++) {
 			do_fillrect<16>(dest, color, width);
-			dest += dest_row_bytes;
+			if (i + 1 < height) dest += dest_row_bytes;
 		}
 		break;
 	case 4:
 		for (int i = 0; i < height; i++) {
 			do_fillrect<32>(dest, color, width);
-			dest += dest_row_bytes;
+			if (i + 1 < height) dest += dest_row_bytes;
 		}
 		break;
 	}
@@ -376,6 +434,9 @@ bool NQD_fillrect_hook(uint32 p)
 {
 	D(bug("accl_fillrect_hook %08x\n", p));
 	NQD_set_dirty_area(p);
+
+	if (!NQD_validate_packet_ram(p, false))
+		return NQD_decline_with_flush(p);
 
 	// Metal path: accept solid-color fill modes when dest is in Metal-mapped RAM.
 	// Only accept patCopy (8) and arithmetic modes (32-39, 50) as solid fills.
@@ -426,6 +487,8 @@ void NQD_bitblt(uint32 p)
 {
 	D(bug("accl_bitblt %08x\n", p));
 
+	if (!NQD_validate_packet_ram(p, true)) return;
+
 	// Metal-accelerated path (only if src and dest are within Metal-mapped RAM)
 	if (nqd_metal_available &&
 		NQDMetalAddrInBuffer(ReadMacInt32(p + acclSrcBaseAddr)) &&
@@ -434,13 +497,15 @@ void NQD_bitblt(uint32 p)
 		return;
 	}
 
+	if (ReadMacInt32(p + acclSrcPixelSize) < 8) return;
+
 	// Get blitting parameters
-	int16 src_X  = (int16)ReadMacInt16(p + acclSrcRect + 2) - (int16)ReadMacInt16(p + acclSrcBoundsRect + 2);
-	int16 src_Y  = (int16)ReadMacInt16(p + acclSrcRect + 0) - (int16)ReadMacInt16(p + acclSrcBoundsRect + 0);
-	int16 dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
-	int16 dest_Y = (int16)ReadMacInt16(p + acclDestRect + 0) - (int16)ReadMacInt16(p + acclDestBoundsRect + 0);
-	int16 width  = (int16)ReadMacInt16(p + acclDestRect + 6) - (int16)ReadMacInt16(p + acclDestRect + 2);
-	int16 height = (int16)ReadMacInt16(p + acclDestRect + 4) - (int16)ReadMacInt16(p + acclDestRect + 0);
+	int src_X  = (int16)ReadMacInt16(p + acclSrcRect + 2) - (int16)ReadMacInt16(p + acclSrcBoundsRect + 2);
+	int src_Y  = (int16)ReadMacInt16(p + acclSrcRect + 0) - (int16)ReadMacInt16(p + acclSrcBoundsRect + 0);
+	int dest_X = (int16)ReadMacInt16(p + acclDestRect + 2) - (int16)ReadMacInt16(p + acclDestBoundsRect + 2);
+	int dest_Y = (int16)ReadMacInt16(p + acclDestRect + 0) - (int16)ReadMacInt16(p + acclDestBoundsRect + 0);
+	int width  = (int16)ReadMacInt16(p + acclDestRect + 6) - (int16)ReadMacInt16(p + acclDestRect + 2);
+	int height = (int16)ReadMacInt16(p + acclDestRect + 4) - (int16)ReadMacInt16(p + acclDestRect + 0);
 	D(bug(" src addr %08x, dest addr %08x\n", ReadMacInt32(p + acclSrcBaseAddr), ReadMacInt32(p + acclDestBaseAddr)));
 	D(bug(" src X %d, src Y %d, dest X %d, dest Y %d\n", src_X, src_Y, dest_X, dest_Y));
 	D(bug(" width %d, height %d\n", width, height));
@@ -448,27 +513,30 @@ void NQD_bitblt(uint32 p)
 	// And perform the blit
 	const int bpp = bytes_per_pixel(ReadMacInt32(p + acclSrcPixelSize));
 	width *= bpp;
+	const bool backward_rows = (int32)ReadMacInt32(p + acclSrcRowBytes) < 0;
+	uint32 src_origin, dst_origin;
+	if (!NQD_resolve_ram_rect(p, true, backward_rows, &src_origin) ||
+	    !NQD_resolve_ram_rect(p, false, backward_rows, &dst_origin)) return;
+
 	NQDMetalFlush();  // ensure pending NQD GPU writes are visible to CPU
 	if ((int32)ReadMacInt32(p + acclSrcRowBytes) > 0) {
 		const int src_row_bytes = (int32)ReadMacInt32(p + acclSrcRowBytes);
 		const int dst_row_bytes = (int32)ReadMacInt32(p + acclDestRowBytes);
-		uint8 *src = Mac2HostAddr(ReadMacInt32(p + acclSrcBaseAddr) + (src_Y * src_row_bytes) + (src_X * bpp));
-		uint8 *dst = Mac2HostAddr(ReadMacInt32(p + acclDestBaseAddr) + (dest_Y * dst_row_bytes) + (dest_X * bpp));
+		uint8 *src = Mac2HostAddr(src_origin);
+		uint8 *dst = Mac2HostAddr(dst_origin);
 		for (int i = 0; i < height; i++) {
 			memmove(dst, src, width);
-			src += src_row_bytes;
-			dst += dst_row_bytes;
+			if (i + 1 < height) { src += src_row_bytes; dst += dst_row_bytes; }
 		}
 	}
 	else {
 		const int src_row_bytes = -(int32)ReadMacInt32(p + acclSrcRowBytes);
 		const int dst_row_bytes = -(int32)ReadMacInt32(p + acclDestRowBytes);
-		uint8 *src = Mac2HostAddr(ReadMacInt32(p + acclSrcBaseAddr) + ((src_Y + height - 1) * src_row_bytes) + (src_X * bpp));
-		uint8 *dst = Mac2HostAddr(ReadMacInt32(p + acclDestBaseAddr) + ((dest_Y + height - 1) * dst_row_bytes) + (dest_X * bpp));
+		uint8 *src = Mac2HostAddr(uint32(uint64_t(src_origin) + uint64_t(height - 1) * src_row_bytes));
+		uint8 *dst = Mac2HostAddr(uint32(uint64_t(dst_origin) + uint64_t(height - 1) * dst_row_bytes));
 		for (int i = height - 1; i >= 0; i--) {
 			memmove(dst, src, width);
-			src -= src_row_bytes;
-			dst -= dst_row_bytes;
+			if (i > 0) { src -= src_row_bytes; dst -= dst_row_bytes; }
 		}
 	}
 }
@@ -498,6 +566,9 @@ bool NQD_bitblt_hook(uint32 p)
 {
 	D(bug("accl_draw_hook %08x\n", p));
 	NQD_set_dirty_area(p);
+
+	if (!NQD_validate_packet_ram(p, true))
+		return NQD_decline_with_flush(p);
 
 	// This renderer copies rectangles, not arbitrary clipped regions. The
 	// separate BLTMASK hook decodes masks; accepting these packets here would
@@ -593,7 +664,15 @@ bool NQD_bltmask_hook(uint32 arg)
 	D(bug("accl_bltmask_hook %08x\n", arg));
 	NQD_set_dirty_area(arg);
 
+	if (!NQD_validate_packet_ram(arg, true))
+		return NQD_decline_with_flush(arg);
+
 	if (!nqd_metal_available) return false;
+
+	// Packed Boolean kernels use byte masks; QuickDraw regions can select a
+	// single bit pair/nibble within a byte. Decline before publishing a proc.
+	if (ReadMacInt32(arg + acclDestPixelSize) < 8)
+		return NQD_decline_with_flush(arg);
 
 	// Check src and dest are in Metal-mapped RAM
 	if (!NQDMetalAddrInBuffer(ReadMacInt32(arg + acclSrcBaseAddr)) ||
@@ -615,9 +694,13 @@ bool NQD_bltmask_hook(uint32 arg)
 		return NQD_decline_with_flush(arg);
 	}
 
-	// Try reading the region header to validate
-	uint16 rgnSize = ReadMacInt16(mask_rgn_addr);
-	if (rgnSize < 10) {
+	// Check the full mapped header before reading size, then the full body
+	// before reading the bbox. ROM_AREA_SIZE is the mapped ROM allocation.
+	uint16 rgnSize = 0;
+	if (!NQDReadMappedRegionSize(mask_rgn_addr, RAMBase, RAMSize,
+	                            ROMBase, ROM_AREA_SIZE,
+	                            [](uint32_t addr) { return ReadMacInt16(addr); },
+	                            &rgnSize)) {
 		D(bug("  bltmask_hook: invalid rgnSize %u at 0x%08x, declining\n", rgnSize, mask_rgn_addr));
 		return NQD_decline_with_flush(arg);
 	}
@@ -655,7 +738,15 @@ bool NQD_fillmask_hook(uint32 arg)
 	D(bug("accl_fillmask_hook %08x\n", arg));
 	NQD_set_dirty_area(arg);
 
+	if (!NQD_validate_packet_ram(arg, false))
+		return NQD_decline_with_flush(arg);
+
 	if (!nqd_metal_available) return false;
+
+	// Packed Boolean kernels use byte masks; QuickDraw regions can select a
+	// single bit pair/nibble within a byte. Decline before publishing a proc.
+	if (ReadMacInt32(arg + acclDestPixelSize) < 8)
+		return NQD_decline_with_flush(arg);
 
 	// Check dest is in Metal-mapped RAM
 	if (!NQDMetalAddrInBuffer(ReadMacInt32(arg + acclDestBaseAddr)))
@@ -668,9 +759,13 @@ bool NQD_fillmask_hook(uint32 arg)
 		return NQD_decline_with_flush(arg);
 	}
 
-	// Try reading the region header to validate
-	uint16 rgnSize = ReadMacInt16(mask_rgn_addr);
-	if (rgnSize < 10) {
+	// Check the full mapped header before reading size, then the full body
+	// before reading the bbox. ROM_AREA_SIZE is the mapped ROM allocation.
+	uint16 rgnSize = 0;
+	if (!NQDReadMappedRegionSize(mask_rgn_addr, RAMBase, RAMSize,
+	                            ROMBase, ROM_AREA_SIZE,
+	                            [](uint32_t addr) { return ReadMacInt16(addr); },
+	                            &rgnSize)) {
 		D(bug("  fillmask_hook: invalid rgnSize %u at 0x%08x, declining\n", rgnSize, mask_rgn_addr));
 		return NQD_decline_with_flush(arg);
 	}

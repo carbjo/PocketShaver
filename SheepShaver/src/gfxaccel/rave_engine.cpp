@@ -3201,8 +3201,8 @@ int32_t NativeATITextureUpdate(uint32_t flags, uint32_t pixelType, uint32_t imag
 			effectivePixelType = kQAPixel_ARGB16_4444;
 			break;
 		case kQATIPixel_YUV422:
-			RAVE_LOG("ATITextureUpdate: YUV422 pixel type not supported, skipping update");
-			return kQANoErr;
+			RAVE_LOG("ATITextureUpdate: YUV422 pixel type not supported");
+			return kQANotSupported;
 		default:
 			// Standard pixel type -- use as-is
 			break;

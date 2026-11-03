@@ -454,9 +454,7 @@ static void DSpQueueReleaseAtVBLPartial(DSpContextPrivate *ctx)
 	                      memory_order_release);
 }
 
-extern "C" void DSpVBLReleaseCallback(void * /*ctx*/,
-                                       void * /*drawable*/,
-                                       double /*ts*/)
+static void DSpDrainReleaseQueue(void)
 {
 	uint32_t tail = atomic_load_explicit(&dsp_release_tail,
 	                                      memory_order_relaxed);
@@ -479,6 +477,13 @@ extern "C" void DSpVBLReleaseCallback(void * /*ctx*/,
 	atomic_store_explicit(&dsp_release_tail, tail,
 	                      memory_order_release);
 	DSpResetHeapIfIdle("VBL release drain");
+}
+
+extern "C" void DSpVBLReleaseCallback(void * /*ctx*/,
+                                       void * /*drawable*/,
+                                       double /*ts*/)
+{
+	DSpDrainReleaseQueue();
 
 	/* Chain the background/foreground drain off the same VBL hook so
 	 * state transitions happen AFTER releases (drain-first ordering). */
@@ -1568,7 +1573,7 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 		                               : pattr.displayHeight,
 		                           pattr.backBufferBestDepth)) {
 			DSP_LOG("Foreground: ctx=%u back-buffer re-alloc FAILED; "
-			        "context remains Paused (retry on next fg)",
+			        "context remains Paused (retry on next VBL)",
 			        ctx->handle);
 			continue;
 		}
@@ -1607,7 +1612,7 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 
 	/* D-4-1: re-create alt-buffer Metal backings released on background
 	 * and repopulate them from their guest-RAM staging. Failure leaves a
-	 * nil backing (nil-checked everywhere) and retries next foreground,
+	 * nil backing (nil-checked everywhere) and retries next VBL,
 	 * matching the back-buffer policy above. */
 	DSpRestoreAltBufferBackingsForForeground();
 }
@@ -1627,6 +1632,20 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
  *  the atomic is a deliberate deferral primitive that also preserves the
  *  bridge if a future thread split moves emulation off the UIKit main thread.
  */
+static bool DSpForegroundRestorePending(void)
+{
+	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; ++i) {
+		DSpContextPrivate *ctx = dsp_context_table[i];
+		if (ctx && ctx->state == (uint32_t)kDSpContextState_Paused &&
+		    ctx->persisted.invalidated_full) return true;
+	}
+	return DSpAltBufferRestorePending();
+}
+
+// Foreground remains requested until every invalidated context and alt
+// backing has recovered. Retry allocation pressure on later VBL ticks.
+static bool dsp_foreground_restore_retry = false;
+
 extern "C" void DSpVBLBackgroundForegroundDrain(void)
 {
 	uint32_t pending = DSpExchangeBgFgPending();
@@ -1634,10 +1653,14 @@ extern "C" void DSpVBLBackgroundForegroundDrain(void)
 	 * could run (e.g. sync drain skipped inside the VBL chain) nets out
 	 * to release-then-restore in the correct order. */
 	if (pending & kDSpPendingBackground) {
+		dsp_foreground_restore_retry = false;
 		DSpHandleBackgroundFromEmulThread();
+		DSpDrainReleaseQueue();
 	}
-	if (pending & kDSpPendingForeground) {
+	if (pending & kDSpPendingForeground) dsp_foreground_restore_retry = true;
+	if (dsp_foreground_restore_retry) {
 		DSpHandleForegroundFromEmulThread();
+		dsp_foreground_restore_retry = DSpForegroundRestorePending();
 	}
 }
 

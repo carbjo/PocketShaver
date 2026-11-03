@@ -99,7 +99,8 @@ static inline bool GLQueryCapability(const GLContext &c, uint32_t cap, bool &val
     case 0x8078: value = c.texcoord_array[c.client_active_texture].enabled; return true; // GL_TEXTURE_COORD_ARRAY
     case 0x845e: value = c.secondary_color_array.enabled; return true; // GL_SECONDARY_COLOR_ARRAY_EXT
     // Stippling is accepted by Enable/Disable but has no renderer state yet.
-    case 0x0b24: case 0x0b42: value = false; return true;
+    case 0x0b24: value = c.line_stipple_enabled; return true;
+    case 0x0b42: value = c.polygon_stipple_enabled; return true;
     case 0x80d0: value = c.color_table_enabled; return true;
     case 0x80d1: value = c.post_convolution_color_table_enabled; return true;
     case 0x80d2: value = c.post_color_matrix_color_table_enabled; return true;
@@ -196,6 +197,10 @@ static inline bool GLQueryState(const GLContext &c, uint32_t pname, GLStateQuery
     case 0x0d02: return q.scalar(c.pixel_store.pack_row_length); // GL_PACK_ROW_LENGTH
     case 0x0d04: return q.scalar(c.pixel_store.pack_skip_pixels); // GL_PACK_SKIP_PIXELS
     case 0x0d03: return q.scalar(c.pixel_store.pack_skip_rows); // GL_PACK_SKIP_ROWS
+    case 0x0d30: return q.scalar(30); // GL_MAX_EVAL_ORDER
+    case 0x806e: return q.scalar(c.pixel_store.unpack_image_height); // GL_UNPACK_IMAGE_HEIGHT
+    case 0x806d: return q.scalar(c.pixel_store.unpack_skip_images); // GL_UNPACK_SKIP_IMAGES
+    case 0x0cf1: return q.scalar(c.pixel_store.unpack_lsb_first); // GL_UNPACK_LSB_FIRST
     case 0x0cf5: return q.scalar(c.pixel_store.unpack_alignment); // GL_UNPACK_ALIGNMENT
     case 0x0cf2: return q.scalar(c.pixel_store.unpack_row_length); // GL_UNPACK_ROW_LENGTH
     case 0x0cf4: return q.scalar(c.pixel_store.unpack_skip_pixels); // GL_UNPACK_SKIP_PIXELS

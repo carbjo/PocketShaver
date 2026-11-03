@@ -51,7 +51,8 @@ static inline unsigned GLMetalDrawableColorWriteMask(bool is_offscreen,
 static inline float GLMetalOverlayClearAlpha(bool is_offscreen,
                                              float guest_clear_alpha)
 {
-	return OverlayClearEffectiveAlpha(is_offscreen, guest_clear_alpha);
+	(void)is_offscreen;
+	return OverlayClearClampAlpha(guest_clear_alpha);
 }
 
 static inline float GLMetalOverlayClearColorComponent(
@@ -59,14 +60,15 @@ static inline float GLMetalOverlayClearColorComponent(
 {
 	if (is_offscreen)
 		return guest_clear_component;
-	return OverlayClearPremultipliedComponent(guest_clear_component,
-	                                          effective_clear_alpha);
+	(void)effective_clear_alpha;
+	return guest_clear_component;
 }
 
 static inline bool GLMetalForceOpaqueOverlayOutput(bool is_offscreen,
                                                    bool blend_enabled)
 {
-	return !is_offscreen && !blend_enabled;
+	// Guest enables and matrices are authoritative.
+	return false;
 }
 
 struct GLMetalRenderTargetSize {
@@ -98,48 +100,39 @@ static inline bool GLMetalPreparedDrawStateSurvivesDisable(
 	uint32_t last_enable_draw_serial, uint32_t completed_draw_serial,
 	bool had_resource)
 {
-	return had_resource && last_enable_draw_serial == completed_draw_serial;
+	// Guest enables and matrices are authoritative.
+	return false;
 }
 
 static inline bool GLMetalLatchedTexture2DSurvivesDisable(
 	uint32_t last_enable_draw_serial, uint32_t completed_draw_serial,
 	bool had_resource)
 {
-	if (!had_resource)
-		return false;
-	/* Latch ONLY the trailing-draw pattern: enable -> specify -> disable with
-	 * NO draw in between (the pending draw arrives after the teardown). If a
-	 * draw already consumed the enable (serial advanced), the bracket was
-	 * well-formed and the disable is authoritative — latching past it leaks
-	 * the unit onto every later draw (Quake 3: world lightmap unit 1 glued
-	 * onto weapon/HUD/menu with a stale texcoord pointer, per-frame flicker). */
-	return completed_draw_serial == last_enable_draw_serial;
+	// Guest enables and matrices are authoritative.
+	return false;
 }
 
 static inline bool GLMetalTexCoordArrayAvailableForArrayDraw(
 	bool current_enabled, bool prepared_for_draw,
 	bool latched_texture_for_array_draw, bool retained_pointer)
 {
-	return current_enabled ||
-	       prepared_for_draw ||
-	       (latched_texture_for_array_draw && retained_pointer);
+	// Guest enables and matrices are authoritative.
+	return current_enabled;
 }
 
 static inline bool GLMetalTexture2DEnabledForArrayDraw(
 	bool current_enabled, bool prepared_for_draw, bool latched_for_array_draw,
 	bool bound_texture, bool texcoord_available)
 {
-	if (current_enabled)
-		return true;
-	if (prepared_for_draw)
-		return texcoord_available;
-	return latched_for_array_draw && bound_texture && texcoord_available;
+	// Guest enables and matrices are authoritative.
+	return current_enabled;
 }
 
 static inline bool GLMetalLatchedTexture2DSurvivesTextureRebind(
 	bool latched_for_array_draw, bool binding_nonzero_texture)
 {
-	return latched_for_array_draw && binding_nonzero_texture;
+	// Guest enables and matrices are authoritative.
+	return false;
 }
 
 static inline void GLMetalCopyClipPlaneToUniform(float out[4],
@@ -210,28 +203,8 @@ static inline bool GLMetalIdentityPixelProjectionApplies(
 	uint32_t viewport_w, uint32_t viewport_h, float min_x, float max_x,
 	float min_y, float max_y, float min_z, float max_z)
 {
-	if (!has_texture || depth_test || lighting_enabled ||
-	    viewport_w == 0 || viewport_h == 0) {
-		return false;
-	}
-
-	if (min_z < -0.0001f || max_z > 0.0001f)
-		return false;
-
-	const bool already_clip_like =
-		min_x >= -1.0f && max_x <= 1.0f && min_y >= -1.0f && max_y <= 1.0f;
-	if (already_clip_like)
-		return false;
-
-	const float margin = 1.0f;
-	if (min_x < -margin || min_y < -margin ||
-	    max_x > (float)viewport_w + margin ||
-	    max_y > (float)viewport_h + margin) {
-		return false;
-	}
-
-	return GLMetalMatrixActsLikeIdentityForPixelBounds(
-		mvp, min_x, max_x, min_y, max_y, min_z, max_z);
+	// Guest enables and matrices are authoritative.
+	return false;
 }
 
 static inline float GLMetalPixelToClipX(float x, uint32_t viewport_w)
