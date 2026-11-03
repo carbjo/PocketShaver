@@ -1161,7 +1161,11 @@ extern "C" int GLContextGetOffscreenDrawable(GLContext *context,
 		        state.agl_offscreen_width,
 		        state.agl_offscreen_height,
 		        state.agl_offscreen_rowbytes,
-		        state.agl_offscreen_baseaddr)) {
+		        state.agl_offscreen_baseaddr) ||
+		    !GLOffscreenDrawableFitsGuestRAM(
+		        state.agl_offscreen_width, state.agl_offscreen_height,
+		        state.agl_offscreen_rowbytes, state.agl_offscreen_baseaddr,
+		        RAMBase, RAMSize)) {
 			return 0;
 		}
 
@@ -1775,7 +1779,8 @@ uint32_t NativeAGLSetOffScreen(uint32_t ctx, uint32_t width, uint32_t height,
 		return GL_FALSE;
 	}
 
-	if (!GLShouldAcceptOffscreenDrawable(width, height, rowbytes, baseaddr)) {
+	if (!GLOffscreenDrawableFitsGuestRAM(width, height, rowbytes, baseaddr,
+	                                    RAMBase, RAMSize)) {
 		GL_LOG("aglSetOffScreen: rejected invalid offscreen drawable");
 		gl_agl_last_error = AGL_BAD_OFFSCREEN;
 		return GL_FALSE;

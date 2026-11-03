@@ -3813,7 +3813,7 @@ void NativeGLBitmap(GLContext *ctx, int32_t width, int32_t height, float xorig, 
 				}
 			}
 
-			GLMetalBitmap(ctx, width, height, bgra, dstBytes);
+			GLMetalBitmap(ctx, width, height, bgra, dstBytes, xorig, yorig);
 			free(bgra);
 		} else if (!ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY;
 	}

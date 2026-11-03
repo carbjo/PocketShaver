@@ -2847,7 +2847,8 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
  *  with the guest's fragment tests, write masks and blend state.
  */
 static void GLMetalDrawPixelQuad(GLContext *ctx, int width, int height,
-                                 const uint8_t *bgra_data, int data_len, bool bitmap)
+                                 const uint8_t *bgra_data, int data_len, bool bitmap,
+                                 float xorig = 0, float yorig = 0)
 {
     if (!ctx) return;
     int requiredBytes = 0;
@@ -2894,8 +2895,10 @@ static void GLMetalDrawPixelQuad(GLContext *ctx, int width, int height,
     float vp_h = (float)ctx->viewport[3];
     if (vp_w <= 0 || vp_h <= 0) return;
 
-    float win_x = ctx->raster_pos[0];
-    float win_y = ctx->raster_pos[1];
+    // Bitmap origins offset only this draw. Keep the stored raster position
+    // intact so its subsequent xmove/ymove advance and attributes are unchanged.
+    float win_x = ctx->raster_pos[0] - xorig;
+    float win_y = ctx->raster_pos[1] - yorig;
 
     // Apply pixel zoom to quad dimensions (in pixels)
     float quad_w = (float)width * (bitmap ? 1.0f : ctx->pixel_zoom_x);
@@ -3008,9 +3011,10 @@ void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *dat
     GLMetalDrawPixelQuad(ctx, width, height, data, size, false);
 }
 
-void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *data, int size)
+void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *data, int size,
+                   float xorig, float yorig)
 {
-    GLMetalDrawPixelQuad(ctx, width, height, data, size, true);
+    GLMetalDrawPixelQuad(ctx, width, height, data, size, true, xorig, yorig);
 }
 
 

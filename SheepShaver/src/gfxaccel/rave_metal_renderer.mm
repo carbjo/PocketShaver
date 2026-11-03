@@ -2029,17 +2029,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			ConvertGouraudVertex(verticesAddr + i * 32, &verts[i], perspZ);
 		}
 		size_t dataSize = nVertices * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(verts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, verts, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:nVertices];
 		break;
 	}
@@ -2055,17 +2045,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			ConvertGouraudVertex(verticesAddr + i * 32, &verts[i], perspZ);
 		}
 		size_t dataSize = count * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(verts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, verts, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeLine vertexStart:0 vertexCount:count];
 		break;
 	}
@@ -2079,17 +2059,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			ConvertGouraudVertex(verticesAddr + i * 32, &verts[i], perspZ);
 		}
 		size_t dataSize = nVertices * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(verts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, verts, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeLineStrip vertexStart:0 vertexCount:nVertices];
 		break;
 	}
@@ -2109,17 +2079,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		}
 
 		size_t dataSize = totalVerts * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(allVerts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:allVerts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, allVerts, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:totalVerts];
 		break;
 	}
@@ -2136,17 +2096,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		}
 
 		size_t dataSize = nVertices * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(allVerts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:allVerts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, allVerts, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:nVertices];
 		break;
 	}
@@ -2173,17 +2123,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			expanded[outIdx++] = allVerts[t + 2];
 		}
 		size_t dataSize = outIdx * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(expanded, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:expanded length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, expanded, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:outIdx];
 		break;
 	}
@@ -2310,7 +2250,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			RaveExpandMultiTextureFan(uv, nVertices, expanded);
 			uv = expanded;
 		}
-		if (!RaveSetVertexData(ms, uv, (size_t)count * 16, 3)) return kQANoErr;
+		if (!RaveSetVertexData(ms, uv, (size_t)count * 16, 3)) return kQAError;
 	}
 
 	switch (vertexMode) {
@@ -2322,17 +2262,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			ConvertTextureVertex(verticesAddr + i * 64, &verts[i], perspZ);
 		}
 		size_t dataSize = nVertices * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(verts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, verts, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:nVertices];
 		break;
 	}
@@ -2348,17 +2278,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			ConvertTextureVertex(verticesAddr + i * 64, &verts[i], perspZ);
 		}
 		size_t dataSize = count * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(verts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, verts, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeLine vertexStart:0 vertexCount:count];
 		break;
 	}
@@ -2372,17 +2292,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			ConvertTextureVertex(verticesAddr + i * 64, &verts[i], perspZ);
 		}
 		size_t dataSize = nVertices * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(verts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, verts, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeLineStrip vertexStart:0 vertexCount:nVertices];
 		break;
 	}
@@ -2401,17 +2311,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		}
 
 		size_t dataSize = totalVerts * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(allVerts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:allVerts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, allVerts, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:totalVerts];
 		break;
 	}
@@ -2428,17 +2328,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		}
 
 		size_t dataSize = nVertices * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(allVerts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:allVerts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, allVerts, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:nVertices];
 		break;
 	}
@@ -2465,17 +2355,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			expanded[outIdx++] = allVerts[t + 2];
 		}
 		size_t dataSize = outIdx * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(expanded, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				break;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:expanded length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, expanded, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:outIdx];
 		break;
 	}

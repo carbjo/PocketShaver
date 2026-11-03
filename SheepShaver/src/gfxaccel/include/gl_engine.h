@@ -1710,7 +1710,8 @@ extern void GLMetalUploadSubTexture3D(GLContext *ctx, GLTextureObject *texObj, i
                                       const uint8_t *data, int bytesPerRow, int bytesPerImage);
 extern void GLMetalDestroyTexture(GLTextureObject *texObj);
 extern void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len);
-extern void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len);
+extern void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len,
+                          float xorig, float yorig);
 // Read a rectangle from the framebuffer into a malloc'd BGRA8 buffer. Caller must free().
 // Returns NULL on failure. Output length written to *out_len.
 // Ordered framebuffer copy in GL texture row order; preserves other texels.
