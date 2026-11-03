@@ -39,6 +39,7 @@
 #include "rave_depth_policy.h"
 #include "rave_vertex_color_policy.h"
 #include "rave_guest_buffer.h"
+#include "rave_depth_transfer.h"
 #include "gfxaccel_resources.h"
 #include "gfxaccel_resources_heap.h"
 
@@ -267,7 +268,7 @@ struct RaveMetalState {
 
 	// Buffer access staging (AccessDrawBuffer/AccessZBuffer)
 	id<MTLTexture>              stagingDrawBuffer;    // CPU-readable color staging (MTLStorageModeShared)
-	id<MTLTexture>              stagingZBuffer;       // CPU-readable depth staging (MTLStorageModeShared, Float32)
+	id<MTLBuffer>               stagingZBuffer;       // shared, aligned Float32 depth transfer rows
 	uint8_t                    *drawBufferCPU;        // Mac-addressable color buffer (Mac_sysalloc)
 	uint32_t                    drawBufferCPUMac;     // Mac address of drawBufferCPU
 	uint32_t                    drawBufferCPUSize;    // byte size of draw buffer CPU allocation
@@ -3178,8 +3179,10 @@ static void GetTQARectUploadRegion(uint32_t rectAddr, NSUInteger texW, NSUIntege
 
 	if (dLeft < 0) dLeft = 0;
 	if (dTop < 0) dTop = 0;
-	if ((NSUInteger)dRight > texW) dRight = (int32_t)texW;
-	if ((NSUInteger)dBottom > texH) dBottom = (int32_t)texH;
+	if (dRight > (int32_t)texW) dRight = (int32_t)texW;
+	if (dBottom > (int32_t)texH) dBottom = (int32_t)texH;
+	*uploadW = 0;
+	*uploadH = 0;
 	if (dRight > dLeft && dBottom > dTop) {
 		*uploadX = (NSUInteger)dLeft;
 		*uploadY = (NSUInteger)dTop;
@@ -3200,6 +3203,8 @@ static bool UploadDrawBufferCPUToOverlay(RaveDrawPrivate *priv, uint32_t dirtyRe
 
 	NSUInteger uploadX, uploadY, uploadW, uploadH;
 	GetTQARectUploadRegion(dirtyRectAddr, w, h, &uploadX, &uploadY, &uploadW, &uploadH);
+
+	if (!uploadW || !uploadH) return true;
 
 	const uint8_t *srcBytes = (const uint8_t *)ms->drawBufferCPU + uploadY * rowBytes + uploadX * 4;
 	std::vector<uint8_t> bgra(uploadW * uploadH * 4);
@@ -4177,15 +4182,11 @@ int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 
 	NSUInteger w = ms->depthBuffer.width;
 	NSUInteger h = ms->depthBuffer.height;
-	if (!ms->stagingZBuffer ||
-	    ms->stagingZBuffer.width != w || ms->stagingZBuffer.height != h) {
-		MTLTextureDescriptor *desc = [MTLTextureDescriptor
-			texture2DDescriptorWithPixelFormat:MTLPixelFormatR32Float
-			                            width:w height:h mipmapped:NO];
-		desc.storageMode = MTLStorageModeShared;
-		desc.usage = MTLTextureUsageShaderRead;
-		ms->stagingZBuffer = [ms->device newTextureWithDescriptor:desc];
+	const NSUInteger pitch = RaveDepthTransferPitch((uint32_t)w);
+	if (!ms->stagingZBuffer || ms->stagingZBuffer.length < pitch * h) {
+		ms->stagingZBuffer = [ms->device newBufferWithLength:pitch*h options:MTLResourceStorageModeShared];
 	}
+	if (!ms->stagingZBuffer) return kQAError;
 	uint32_t rowBytes = (uint32_t)(w * 4);
 	uint32_t bufSize = rowBytes * (uint32_t)h;
 	if (!ms->zBufferCPU || ms->zBufferCPUSize != bufSize) {
@@ -4209,21 +4210,14 @@ int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 		[resolveEnc endEncoding];
 	}
 	id<MTLBlitCommandEncoder> blit = [blitCmdBuf blitCommandEncoder];
-	[blit copyFromTexture:ms->depthBuffer sourceSlice:0 sourceLevel:0
-	         sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(w,h,1)
-	            toTexture:ms->stagingZBuffer destinationSlice:0
-	     destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+	RaveEncodeDepthReadback(blit, ms->depthBuffer, ms->stagingZBuffer, pitch);
 	[blit endEncoding];
 	[blitCmdBuf commit];
 	[blitCmdBuf waitUntilCompleted];
 
-	const NSUInteger pixelCount = w * h;
-	std::vector<uint32_t> hostDepth(pixelCount);
-	[ms->stagingZBuffer getBytes:hostDepth.data() bytesPerRow:rowBytes
-	                  fromRegion:MTLRegionMake2D(0,0,w,h) mipmapLevel:0];
-	for (NSUInteger i = 0; i < pixelCount; i++) {
-		WriteMacInt32(ms->zBufferCPUMac + (uint32_t)(i * sizeof(uint32_t)), hostDepth[i]);
-	}
+	if (blitCmdBuf.status == MTLCommandBufferStatusError) return kQAError;
+	RaveDepthReadback(ms->stagingZBuffer.contents, pitch, (uint32_t)w, (uint32_t)h,
+		[&](uint32_t index, uint32_t bits) { WriteMacInt32(ms->zBufferCPUMac + index*4, bits); });
 
 	// Populate TQAZBuffer struct
 	WriteMacInt32(bufferStructAddr + 0,  (uint32_t)w);       // width
@@ -4247,24 +4241,23 @@ int32_t NativeAccessZBufferEnd(uint32_t drawContextAddr, uint32_t dirtyRectAddr)
 	if (!ms->zBufferAccessed) return kQANoErr;
 	NSUInteger w = ms->depthBuffer.width;
 	NSUInteger h = ms->depthBuffer.height;
-	uint32_t rowBytes = (uint32_t)(w * 4);
-	const NSUInteger pixelCount = w * h;
-	std::vector<uint32_t> hostDepth(pixelCount);
-	for (NSUInteger i = 0; i < pixelCount; i++) {
-		hostDepth[i] = ReadMacInt32(ms->zBufferCPUMac + (uint32_t)(i * sizeof(uint32_t)));
+	const NSUInteger pitch = RaveDepthTransferPitch((uint32_t)w);
+	NSUInteger x, y, uploadW, uploadH;
+	GetTQARectUploadRegion(dirtyRectAddr, w, h, &x, &y, &uploadW, &uploadH);
+	if (uploadW && uploadH) {
+		RaveDepthUploadRegion(ms->stagingZBuffer.contents, pitch, (uint32_t)x, (uint32_t)y,
+			(uint32_t)uploadW, (uint32_t)uploadH, [&](uint32_t col, uint32_t row) {
+				return ReadMacInt32(ms->zBufferCPUMac + (row*(uint32_t)w+col)*4);
+			});
 	}
-	[ms->stagingZBuffer replaceRegion:MTLRegionMake2D(0,0,w,h)
-	                      mipmapLevel:0 withBytes:hostDepth.data()
-	                      bytesPerRow:rowBytes];
 	id<MTLCommandBuffer> blitCmdBuf = [ms->commandQueue commandBuffer];
 	id<MTLBlitCommandEncoder> blit = [blitCmdBuf blitCommandEncoder];
-	[blit copyFromTexture:ms->stagingZBuffer sourceSlice:0 sourceLevel:0
-	         sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(w,h,1)
-	            toTexture:ms->depthBuffer destinationSlice:0
-	     destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+	if (uploadW && uploadH)
+		RaveEncodeDepthUpload(blit, ms->stagingZBuffer, pitch, ms->depthBuffer, x, y, uploadW, uploadH);
 	[blit endEncoding];
 	[blitCmdBuf commit];
 	[blitCmdBuf waitUntilCompleted];
+	if (blitCmdBuf.status == MTLCommandBufferStatusError) return kQAError;
 	ms->zBufferAccessed = false;
 	if (ms->msaaActive) {
 		// Mirror AccessDrawBufferEnd: the upload above wrote depthBuffer, so
