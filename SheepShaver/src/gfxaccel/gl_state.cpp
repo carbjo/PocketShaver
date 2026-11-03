@@ -3853,6 +3853,18 @@ void NativeGLCopyPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
 	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, width, height, &bufLen);
 	if (!bgra) return;
 
+	// Readback preserves Metal's top-first rows. DrawPixels consumes GL's
+	// bottom-first source order, independently of either pixel-zoom sign.
+	const size_t rowBytes = size_t(width) * 4;
+	for (int32_t row = 0; row < height / 2; ++row) {
+		uint8_t *bottom = bgra + size_t(row) * rowBytes;
+		uint8_t *top = bgra + size_t(height - 1 - row) * rowBytes;
+		for (size_t byte = 0; byte < rowBytes; ++byte) {
+			const uint8_t value = bottom[byte];
+			bottom[byte] = top[byte];
+			top[byte] = value;
+		}
+	}
 	GLMetalDrawPixels(ctx, width, height, bgra, bufLen);
 	free(bgra);
 
@@ -4530,7 +4542,10 @@ void NativeGLIndexPointer(GLContext *ctx, uint32_t type, int32_t stride, uint32_
 // --- Edge flags ---
 void NativeGLEdgeFlag(GLContext *ctx, uint32_t flag) { ctx->current_edge_flag = (flag != 0); }
 void NativeGLEdgeFlagv(GLContext *ctx, uint32_t p) { ctx->current_edge_flag = (ReadMacInt32(p) != 0); }
-void NativeGLEdgeFlagPointer(GLContext *ctx, int32_t stride, uint32_t pointer) { ctx->edge_flag_array.stride = stride; ctx->edge_flag_array.pointer = pointer; }
+void NativeGLEdgeFlagPointer(GLContext *ctx, int32_t stride, uint32_t pointer)
+{
+    ctx->edge_flag_array = {pointer, 1, stride, GL_UNSIGNED_BYTE, ctx->edge_flag_array.enabled};
+}
 
 // --- Line/polygon stipple ---
 void NativeGLLineStipple(GLContext *ctx, int32_t factor, uint32_t pattern)

@@ -13,17 +13,14 @@
 #define GL_INPUT_VALIDATION_H
 #include <cmath>
 #include <cstdint>
+#include "gfx_guest_range.h"
 
 // A captured/read payload must lie wholly in one mapped guest memory region.
 // The end check is in 64 bits and precedes both host allocation and guest reads.
 static inline bool GLGuestMappedRange(uint32_t address,uint64_t bytes,
     uint32_t ramBase,uint32_t ramSize,uint32_t romBase,uint32_t romSize)
 {
-    if(bytes>0x100000000ull-address)return false;
-    auto contains=[&](uint32_t base,uint32_t size) {
-        return address>=base && uint64_t(address-base)+bytes<=size;
-    };
-    return contains(ramBase,ramSize) || contains(romBase,romSize);
+    return GfxGuestMappedRange(address,bytes,ramBase,ramSize,romBase,romSize);
 }
 
 struct GLEvaluatorDefinitionLayout {

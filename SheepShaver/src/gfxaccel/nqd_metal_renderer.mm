@@ -112,26 +112,14 @@ static uint32                     nqd_ram_size     = 0;       // size of the Met
 
 
 // ---------------------------------------------------------------------------
-// Batched command encoding state
-//
-// Instead of creating/committing a command buffer per NQD call, we accumulate
-// multiple compute dispatches into a single command buffer + encoder. The batch
-// is flushed (committed + waited) when:
-//   1. NQDMetalFlush() is called (from NQD_sync_hook or MetalCompositorPresent)
-//   2. A backward blit needs ordering guarantees
-//   3. A mask operation needs the mask buffer (which may be reused across calls)
-//
-// This amortizes command buffer creation and GPU submission overhead across
-// all NQD operations within a frame, which is the dominant perf bottleneck.
+// Command encoding state. All accelerated destinations are guest-visible RAM.
+// Guest PPC code can access pixels directly without calling QuickDraw's sync
+// hook, so each operation must complete before returning to the guest.
 // ---------------------------------------------------------------------------
 
 static id<MTLCommandBuffer>         nqd_batch_cmdbuf  = nil;
 static id<MTLComputeCommandEncoder> nqd_batch_encoder = nil;
 static int                          nqd_batch_count   = 0;
-
-// Maximum dispatches before an automatic flush. Prevents unbounded accumulation
-// (e.g. if sync_hook is never called). 128 dispatches ≈ one busy frame.
-static const int NQD_BATCH_MAX = 128;
 
 // ---------------------------------------------------------------------------
 // CPU fast-path threshold (in total pixels)
@@ -141,7 +129,7 @@ static const int NQD_BATCH_MAX = 128;
 // the actual compute time. The CPU path (memset/memmove/XOR loop) is
 // faster for operations below this threshold.
 //
-// Even with batching, each dispatch adds encoder overhead. For tiny ops
+// Each dispatch adds encoder overhead. For tiny ops
 // (icons, cursors, text glyphs), CPU is still faster.
 // ---------------------------------------------------------------------------
 
@@ -183,13 +171,11 @@ static id<MTLComputeCommandEncoder> nqd_get_batch_encoder(void)
     return nqd_batch_encoder;
 }
 
-// Increment batch count and auto-flush if we've hit the max.
+// Publish GPU writes before any subsequent direct guest CPU read or write.
 static void nqd_batch_did_dispatch(void)
 {
     nqd_batch_count++;
-    if (nqd_batch_count >= NQD_BATCH_MAX) {
-        NQDMetalFlush();
-    }
+    NQDMetalFlush();
 }
 
 // ---------------------------------------------------------------------------

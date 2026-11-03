@@ -40,6 +40,7 @@
 #include "rave_depth_policy.h"
 #include "rave_vertex_color_policy.h"
 #include "rave_guest_buffer.h"
+#include "gfx_guest_range.h"
 #include "rave_depth_transfer.h"
 #include "rave_presentation_policy.h"
 #include "gfxaccel_resources.h"
@@ -1654,6 +1655,12 @@ static void ReadMacVertexLighting(uint32 srcAddr, RaveVertex *dst)
 	}
 }
 
+static bool RaveGeometryRangeIsValid(uint32_t address, uint32_t count, uint32_t stride)
+{
+	return count == 0 || (address && GfxGuestMappedRange(address,
+	    uint64_t(count) * stride, RAMBase, RAMSize, ROMBase, ROM_SIZE));
+}
+
 static uint32_t RaveVertexPrimitiveCount(uint32_t nVertices, uint32_t vertexMode)
 {
 	switch (vertexMode) {
@@ -1854,6 +1861,9 @@ int32 NativeDrawTriGouraud(uint32 drawContextAddr, uint32 v0Addr, uint32 v1Addr,
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->renderPassActive) return kQANoErr;
+	if (!RaveGeometryRangeIsValid(v0Addr, 1, 32) ||
+	    !RaveGeometryRangeIsValid(v1Addr, 1, 32) ||
+	    !RaveGeometryRangeIsValid(v2Addr, 1, 32)) return kQAParamErr;
 
 	// kQATriFlags_Backfacing (bit 0) is a hint for Z-buffer disambiguation only.
 	// The QD3D IR culls backfacing triangles itself before sending to RAVE.
@@ -1945,6 +1955,9 @@ int32 NativeDrawTriTexture(uint32 drawContextAddr, uint32 v0Addr, uint32 v1Addr,
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->renderPassActive) return kQANoErr;
+	if (!RaveGeometryRangeIsValid(v0Addr, 1, 64) ||
+	    !RaveGeometryRangeIsValid(v1Addr, 1, 64) ||
+	    !RaveGeometryRangeIsValid(v2Addr, 1, 64)) return kQAParamErr;
 
 	// kQATriFlags_Backfacing (bit 0) is a hint for Z-buffer disambiguation only.
 	// The QD3D IR culls backfacing triangles itself before sending to RAVE.
@@ -2002,6 +2015,13 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->renderPassActive) return kQANoErr;
 	if (nVertices == 0) return kQANoErr;
+	if (vertexMode > 5 || !RaveGeometryRangeIsValid(verticesAddr, nVertices, 32))
+		return kQAParamErr;
+	const uint64_t expandedCount = vertexMode == 5 && nVertices > 2
+	    ? uint64_t(nVertices - 2) * 3 : nVertices;
+	const uint64_t uploadBudget = std::min<uint64_t>(RAMSize, priv->metal->device.maxBufferLength);
+	if (expandedCount * sizeof(RaveVertex) > std::min<uint64_t>(UINT32_MAX, uploadBudget))
+		return kQAError;
 
 	RaveMetalState *ms = priv->metal;
 	ms->drawCallCount++;
@@ -2150,11 +2170,8 @@ int32 NativeSubmitVerticesGouraud(uint32 drawContextAddr, uint32 nVertices, uint
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv) return kQANoErr;
 
-	if (nVertices > priv->vertexStagingCapacity) {
-		RAVE_VLOG("SubmitVerticesGouraud: %d vertices exceeds capacity %d, clamping",
-		         nVertices, priv->vertexStagingCapacity);
-		nVertices = priv->vertexStagingCapacity;
-	}
+	if (nVertices > priv->vertexStagingCapacity ||
+	    !RaveGeometryRangeIsValid(verticesAddr, nVertices, 32)) return kQAParamErr;
 
 	bool perspZ = (priv->state[10].i != 0);
 	RaveVertex *dst = (RaveVertex *)priv->vertexStagingBuffer;
@@ -2216,6 +2233,13 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->renderPassActive) return kQANoErr;
 	if (nVertices == 0) return kQANoErr;
+	if (vertexMode > 5 || !RaveGeometryRangeIsValid(verticesAddr, nVertices, 64))
+		return kQAParamErr;
+	const uint64_t expandedCount = vertexMode == 5 && nVertices > 2
+	    ? uint64_t(nVertices - 2) * 3 : nVertices;
+	const uint64_t uploadBudget = std::min<uint64_t>(RAMSize, priv->metal->device.maxBufferLength);
+	if (expandedCount * sizeof(RaveVertex) > std::min<uint64_t>(UINT32_MAX, uploadBudget))
+		return kQAError;
 
 	RaveMetalState *ms = priv->metal;
 	ms->drawCallCount++;
@@ -2382,11 +2406,8 @@ int32 NativeSubmitVerticesTexture(uint32 drawContextAddr, uint32 nVertices, uint
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv) return kQANoErr;
 
-	if (nVertices > priv->vertexStagingCapacity) {
-		RAVE_VLOG("SubmitVerticesTexture: %d vertices exceeds capacity %d, clamping",
-		         nVertices, priv->vertexStagingCapacity);
-		nVertices = priv->vertexStagingCapacity;
-	}
+	if (nVertices > priv->vertexStagingCapacity ||
+	    !RaveGeometryRangeIsValid(verticesAddr, nVertices, 64)) return kQAParamErr;
 
 	bool perspZ = (priv->state[10].i != 0);
 	RaveVertex *dst = (RaveVertex *)priv->vertexStagingBuffer;
@@ -2429,16 +2450,13 @@ int32 NativeSubmitMultiTextureParams(uint32 drawContextAddr, uint32 nVertices, u
 		priv->multiTextureActive = false;
 		return kQANoErr;
 	}
-	if (multiTexParamsAddr == 0) return kQAParamErr;
+	if (nVertices > priv->vertexStagingCapacity ||
+	    !RaveGeometryRangeIsValid(multiTexParamsAddr, nVertices, 12)) return kQAParamErr;
 	const uint32_t currentLayer = priv->state[34].i;
 	const uint32_t enabledLayers = priv->state[33].i;
 
 	// TQAVMultiTexture: 12 bytes per vertex (invW, uOverW, vOverW) per RAVE 1.6 spec
 	static const uint32 kMultiTexStride = 12;
-
-	// Cap to staging buffer capacity
-	uint32 maxVerts = priv->vertexStagingCapacity;
-	if (nVertices > maxVerts) nVertices = maxVerts;
 
 	// Extract per-vertex UV2 data into multi-texture staging buffer
 	// Staging buffer layout: 16 bytes per vertex (uOverW2, vOverW2, invW2, pad)
@@ -2486,6 +2504,7 @@ int32 NativeDrawBitmap(uint32 drawContextAddr, uint32 vertexAddr, uint32 bitmapM
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->renderPassActive) return kQANoErr;
+	if (!RaveGeometryRangeIsValid(vertexAddr, 1, 32)) return kQAParamErr;
 
 	RaveMetalState *ms = priv->metal;
 
@@ -2845,6 +2864,7 @@ int32 NativeDrawPoint(uint32 drawContextAddr, uint32 v0Addr)
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->renderPassActive) return kQANoErr;
+	if (!RaveGeometryRangeIsValid(v0Addr, 1, 32)) return kQAParamErr;
 
 	RaveMetalState *ms = priv->metal;
 	bool perspZ = (priv->state[10].i != 0);
@@ -2875,6 +2895,8 @@ int32 NativeDrawLine(uint32 drawContextAddr, uint32 v0Addr, uint32 v1Addr)
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->renderPassActive) return kQANoErr;
+	if (!RaveGeometryRangeIsValid(v0Addr, 1, 32) ||
+	    !RaveGeometryRangeIsValid(v1Addr, 1, 32)) return kQAParamErr;
 
 	RaveMetalState *ms = priv->metal;
 	bool perspZ = (priv->state[10].i != 0);

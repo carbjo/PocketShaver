@@ -58,6 +58,7 @@
 #include "dsp_pixel_staging_lifetime_policy.h"
 #include "dsp_metal_renderer.h"
 #include "dsp_context_private.h"
+#include "dsp_alt_buffer.h"
 #include "gfxaccel_resources.h"       /* per-buffer owner tag */
 #include "gfxaccel_resources_heap.h"
 #include "metal_compositor.h"
@@ -313,6 +314,22 @@ extern "C" void DSpReleaseBackBufferStaging(DSpContextPrivate *ctx)
 	ctx->staging_owned_sysheap = false;
 }
 
+// Guest staging survives host suspension. Rebuild the Metal copy before the
+// context becomes Active, without changing any cached guest port or baseAddr.
+extern "C" bool DSpRestoreBackBufferPixels(DSpContextPrivate *ctx)
+{
+	if (ctx == nullptr || ctx->back_buffer == nil) return false;
+	if (ctx->staging_mac_addr == 0) return true; // retained direct backing
+	const uint64_t bytes = ctx->back_buffer.length;
+	if (bytes > ctx->staging_size || bytes > UINT32_MAX ||
+	    !DSpGuestRAMContains(ctx->staging_mac_addr, uint32_t(bytes), RAMBase, RAMSize))
+		return false;
+	void *destination = ctx->back_buffer.contents;
+	if (destination == nullptr) return false;
+	memcpy(destination, Mac2HostAddr(ctx->staging_mac_addr), size_t(bytes));
+	return true;
+}
+
 /*
  *  Pixel-format mapping.
  *  Matches metal_compositor.mm:370-400 precedent so the compositor's
@@ -348,21 +365,6 @@ static inline uint32_t DSpAlignedRowBytes(uint32_t w, uint32_t bpp)
 	return DSpBackBufferAlignedRowBytes(w, bpp);
 }
 
-static uint32_t DSpCreateBackBufferRectRegion(uint32_t w, uint32_t h)
-{
-	uint32_t region_addr = DSpReserveGuestScratch(DSP_RECT_REGION_SIZE);
-	uint32_t handle_addr = DSpReserveGuestScratch(4u);
-	if (region_addr == 0 || handle_addr == 0) return 0;
-
-	Mac_memset(region_addr, 0, DSP_RECT_REGION_SIZE);
-	WriteMacInt16(region_addr + DSP_REGION_OFF_SIZE, DSP_RECT_REGION_SIZE);
-	WriteMacInt16(region_addr + DSP_REGION_OFF_BBOX + 0, 0);
-	WriteMacInt16(region_addr + DSP_REGION_OFF_BBOX + 2, 0);
-	WriteMacInt16(region_addr + DSP_REGION_OFF_BBOX + 4, (uint16_t)h);
-	WriteMacInt16(region_addr + DSP_REGION_OFF_BBOX + 6, (uint16_t)w);
-	WriteMacInt32(handle_addr, region_addr);
-	return handle_addr;
-}
 
 /* ---------------------------------------------------------------------- *
  *  DSpAllocateBackBuffer — heap-routed MTLBuffer + MTLTexture view       *
@@ -705,119 +707,11 @@ extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 		}
 	}
 
-	int16_t bounds_top    = 0;
-	int16_t bounds_left   = 0;
-	int16_t bounds_bottom = (int16_t)h;
-	int16_t bounds_right  = (int16_t)w;
-
-	/* PixMap field values per Classic Mac PixMap conventions.
-	 * The behavior-preserving defaults are used; fixtures will
-	 * validate against DrawSprocketLib captures.
-	 *
-	 * The 1/2/4 bpp indexed cases follow DSp 1.7 PDF
-	 * p.36 + Inside Macintosh: Imaging With QuickDraw ch.4 PixMap layout.
-	 * pixelType=0 (chunky indexed); pixelSize = bpp; cmpCount = 1
-	 * (single index channel); cmpSize = bpp. */
-	uint16_t pixelType, pixelSize, cmpCount, cmpSize;
-	if (bpp == 1) {
-		pixelType = 0;       /* chunky indexed */
-		pixelSize = 1;  cmpCount = 1;  cmpSize = 1;
-	} else if (bpp == 2) {
-		pixelType = 0;
-		pixelSize = 2;  cmpCount = 1;  cmpSize = 2;
-	} else if (bpp == 4) {
-		pixelType = 0;
-		pixelSize = 4;  cmpCount = 1;  cmpSize = 4;
-	} else if (bpp == 8) {
-		pixelType = 0;
-		pixelSize = 8;  cmpCount = 1;  cmpSize = 8;
-	} else if (bpp == 16) {
-		pixelType = 0x10;    /* RGBDirect */
-		pixelSize = 16; cmpCount = 3;  cmpSize = 5;   /* xRGB1555 */
-	} else { /* bpp == 32 */
-		pixelType = 0x10;    /* RGBDirect */
-		pixelSize = 32; cmpCount = 3;  cmpSize = 8;   /* ARGB8888 */
-	}
-
-	uint32_t pixmap_addr =
-	    DSpReserveGuestScratch(DSpBackBufferPixMapRecordSize());
-	uint32_t pixmap_handle_addr =
-	    DSpReserveGuestScratch(DSpBackBufferPixMapHandleSize());
-	uint32_t cgrafptr_addr =
-	    DSpReserveGuestScratch(DSpBackBufferCGrafPortSize());
-	uint32_t vis_rgn_handle = DSpCreateBackBufferRectRegion(w, h);
-	uint32_t clip_rgn_handle = DSpCreateBackBufferRectRegion(w, h);
-	if (pixmap_addr == 0 || pixmap_handle_addr == 0 ||
-	    cgrafptr_addr == 0 || vis_rgn_handle == 0 ||
-	    clip_rgn_handle == 0) {
-		DSP_LOG("DSpGetBackBufferCGrafPtr: guest-scratch reserve failed "
-		        "(pixmap=0x%08x handle=0x%08x cgraf=0x%08x "
-		        "vis=0x%08x clip=0x%08x)",
-		        pixmap_addr, pixmap_handle_addr, cgrafptr_addr,
-		        vis_rgn_handle, clip_rgn_handle);
-		return 0;
-	}
-
-	const uint16_t row_bytes_field =
-	    DSpBackBufferPixMapRowBytesField(alignedRB);
-
-	Mac_memset(pixmap_addr, 0, DSpBackBufferPixMapRecordSize());
-	WriteMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_BASEADDR,     baseAddr_mac);
-	WriteMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_ROWBYTES,     row_bytes_field);
-	WriteMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_TOP,   (uint16_t)bounds_top);
-	WriteMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_LEFT,  (uint16_t)bounds_left);
-	WriteMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_BOT,   (uint16_t)bounds_bottom);
-	WriteMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_BOUNDS_RIGHT, (uint16_t)bounds_right);
-	WriteMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_HRES,         0x00480000u);
-	WriteMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_VRES,         0x00480000u);
-	WriteMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_PIXELTYPE,    pixelType);
-	WriteMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_PIXELSIZE,    pixelSize);
-	WriteMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_CMPCOUNT,     cmpCount);
-	WriteMacInt16(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_CMPSIZE,      cmpSize);
-	WriteMacInt32(pixmap_addr + DSP_MAINDEVICE_PIXMAP_OFF_PLANEBYTES,   0);
-
-	WriteMacInt32(pixmap_handle_addr, pixmap_addr);
-
-	Mac_memset(cgrafptr_addr, 0, DSpBackBufferCGrafPortSize());
-	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_PIXMAP,
-	              pixmap_handle_addr);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_VERSION, 0xC000);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 0,
-	              (uint16_t)bounds_top);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 2,
-	              (uint16_t)bounds_left);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 4,
-	              (uint16_t)bounds_bottom);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PORT_RECT + 6,
-	              (uint16_t)bounds_right);
-	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_VIS_RGN,
-	              vis_rgn_handle);
-	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_CLIP_RGN,
-	              clip_rgn_handle);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 0,
-	              0xffff);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 2,
-	              0xffff);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_FG_COLOR + 4,
-	              0xffff);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 0, 0);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 2, 0);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_RGB_BK_COLOR + 4, 0);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PN_SIZE + 0, 1);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PN_SIZE + 2, 1);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_PN_MODE, 8);
-	WriteMacInt16(cgrafptr_addr + DSP_CGRAFPORT_OFF_TX_SIZE, 12);
-	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_FG_COLOR, 0xffffffffu);
-	WriteMacInt32(cgrafptr_addr + DSP_CGRAFPORT_OFF_BK_COLOR, 0x00000000u);
-
-	ctx->cgrafptr_mac_addr = cgrafptr_addr;
-	DSP_LOG("DSpGetBackBufferCGrafPtr: ctx=%u cgrafptr=0x%08x pixmapH=0x%08x "
-	        "pixmap=0x%08x visRgn=0x%08x clipRgn=0x%08x baseAddr=0x%08x "
-	        "rbRaw=0x%04x rb=%u bpp=%u",
-	        ctx->handle, cgrafptr_addr, pixmap_handle_addr, pixmap_addr,
-	        vis_rgn_handle, clip_rgn_handle, baseAddr_mac, row_bytes_field,
-	        alignedRB, bpp);
-	return cgrafptr_addr;
+	const uint32_t storage = DSpGuestPortStorageSlot(dsp_guest_port_storage_addr,
+	    ctx->handle - 1, 2 * DSP_MAX_CONTEXTS + DSP_MAX_ALT_BUFFERS);
+	ctx->cgrafptr_mac_addr = DSpEmitSurfaceCGrafPort(baseAddr_mac, w, h, bpp,
+	    alignedRB, 0, nullptr, nullptr, storage);
+	return ctx->cgrafptr_mac_addr;
 }
 
 /* ====================================================================== *

@@ -94,7 +94,7 @@ struct DSpContextPrivate {
 	id<MTLTexture>        back_texture;
 
 	/* CGrafPort emission caching (GetBackBuffer stable-pointer contract).
-	 * First GetBackBuffer call allocates via SheepMem::Reserve
+	 * First GetBackBuffer call initializes its boot-time arena slot
 	 * and caches the Mac address here; subsequent calls return the same. */
 	uint32_t              cgrafptr_mac_addr;
 	uint32_t              front_cgrafptr_mac_addr;
@@ -368,11 +368,6 @@ static inline uint32_t DSpContextBackBufferHeight(const DSpContextPrivate *ctx)
 	       ? ctx->attr.backBufferHeight
 	       : ctx->attr.displayHeight;
 }
-
-/* Reserve guest-RAM scratch (SheepMem). Definition stays in
- * dsp_draw_context.mm; declared here so dsp_alt_buffer.mm can reserve
- * CGrafPort scratch for alt-buffers. */
-uint32_t DSpReserveGuestScratch(uint32_t size);
 
 extern "C" uint32_t DSpReserveGuestPixelStaging(uint32_t size);
 extern "C" void DSpQuarantineGuestPixelStaging(uint32_t mac_addr,

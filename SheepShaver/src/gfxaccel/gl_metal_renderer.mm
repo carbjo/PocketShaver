@@ -32,6 +32,8 @@
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "gl_engine.h"
+#include "gl_input_validation.h"
+#include <new>
 #include "gl_buffer_policy.h"
 #include "metal_compositor.h"    // for MetalCompositorSubmitFrame, CompositeLayer, FrameDescriptor
 #include "display_mode_controller.h"  // dmc_current_snapshot() for FrameDescriptor generation
@@ -4944,6 +4946,47 @@ static inline float ReadArrayNormalizedComponent(uint32_t addr, uint32_t type) {
     }
 }
 
+// Validate the same descriptors FetchArrayVertex consumes, before changing
+// immediate-mode state or reading any enabled array. All arithmetic is wide.
+static bool GLMetalValidateArrayRange(GLContext *ctx, uint32_t first, uint32_t last)
+{
+    auto valid = [&](const GLVertexArrayPointer &array, int components = 0) {
+        if (!array.enabled) return true;
+        // Pixel uploads exclude GL_DOUBLE; client geometry arrays accept it.
+        const int scalar = array.type == GL_DOUBLE ? 8 : GLPixelScalarTypeBytes(array.type);
+        if (!scalar || array.size < 1 || array.size > 4 || array.stride < 0 ||
+            (components && array.size != components)) return false;
+        const uint32_t element = uint32_t(scalar * array.size);
+        const uint32_t stride = array.stride ? uint32_t(array.stride) : element;
+        return GfxGuestStridedRange(array.pointer, first, last, stride, element,
+            RAMBase, RAMSize, ROMBase, ROM_SIZE);
+    };
+    bool ok = valid(ctx->vertex_array) && valid(ctx->normal_array, 3) && valid(ctx->color_array) &&
+        valid(ctx->secondary_color_array, 3) && valid(ctx->edge_flag_array, 1);
+    for (int unit = 0; unit < 4; ++unit) ok = ok && valid(ctx->texcoord_array[unit]);
+    if (!ok && !ctx->last_error) ctx->last_error = 0x0501;
+    return ok;
+}
+
+static bool GLMetalValidateDrawSize(GLContext *ctx, uint32_t mode, int32_t count)
+{
+    if (count <= 0) return true;
+    const GLMetalState *ms = (GLMetalState *)ctx->metal;
+    // Bound temporary geometry by the guest RAM budget as well as the device's
+    // upload limit. Repeated indices must not turn a small guest array into an
+    // unbounded native allocation. Report resource exhaustion without mutation.
+    const uint64_t budget = ms && ms->initialized
+        ? std::min<uint64_t>(RAMSize, ms->device.maxBufferLength) : RAMSize;
+    const bool flat = ctx->shade_model == 0x1d00;
+    const uint64_t expansion = mode == 2 || (mode == 3 && flat) ? 2 :
+        mode >= 6 || (mode == 5 && flat) ? 3 : 1;
+    const uint64_t bytes = uint64_t(count) *
+        std::max(sizeof(GLVertex), sizeof(GLMetalVertex)) * expansion;
+    if (bytes <= budget) return true;
+    if (!ctx->last_error) ctx->last_error = 0x0505;
+    return false;
+}
+
 /*
  *  FetchArrayVertex -- read one vertex from enabled client arrays at index i
  */
@@ -5067,6 +5110,11 @@ static void GLMetalDrawVertexArray(GLContext *ctx, uint32_t mode,
     const uint32_t *indices, int32_t count, bool preserveIndices)
 {
     if (count <= 0) return;
+    uint32_t first = UINT32_MAX, last = 0;
+    for (int32_t i = 0; i < count; ++i) {
+        first = std::min(first, indices[i]); last = std::max(last, indices[i]);
+    }
+    if (!GLMetalValidateArrayRange(ctx, first, last)) return;
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (ctx->render_mode==0x1c00 && (!ms || !ms->initialized)) return;
     ctx->im_mode = mode;
@@ -5119,11 +5167,15 @@ void NativeGLDrawArrays(GLContext *ctx, uint32_t mode, int32_t first, int32_t co
     }
     if (count == 0) return;
 
-    // Build sequential index array
-    std::vector<uint32_t> indices(count);
-    for (int32_t i = 0; i < count; i++) indices[i] = first + i;
+    if (!GLMetalValidateDrawSize(ctx, mode, count) ||
+        !GLMetalValidateArrayRange(ctx, uint32_t(first), uint32_t(first + count - 1))) return;
+    try {
+        // Build sequential index array
+        std::vector<uint32_t> indices(count);
+        for (int32_t i = 0; i < count; i++) indices[i] = first + i;
 
-    GLMetalDrawVertexArray(ctx, mode, indices.data(), count, false);
+        GLMetalDrawVertexArray(ctx, mode, indices.data(), count, false);
+    } catch (const std::bad_alloc &) { if (!ctx->last_error) ctx->last_error = 0x0505; }
 }
 
 
@@ -5141,24 +5193,33 @@ void NativeGLDrawElements(GLContext *ctx, uint32_t mode, int32_t count, uint32_t
     if (count < 0) { if (!ctx->last_error) ctx->last_error = 0x0501; return; }
     if (count == 0) return;
 
-    // Read index array from PPC memory
-    std::vector<uint32_t> indices(count);
-    for (int32_t i = 0; i < count; i++) {
-        switch (type) {
-        case GL_UNSIGNED_INT:
-            indices[i] = ReadMacInt32(indices_ptr + uint32_t(i) * 4);
-            break;
-        case GL_UNSIGNED_SHORT:
-            indices[i] = ReadMacInt16(indices_ptr + uint32_t(i) * 2);
-            break;
-        case GL_UNSIGNED_BYTE:
-            indices[i] = ReadMacInt8(indices_ptr + i);
-            break;
-        default: return; // validated above
-        }
+    const uint32_t scalar = type == GL_UNSIGNED_INT ? 4 : type == GL_UNSIGNED_SHORT ? 2 : 1;
+    if (!indices_ptr || !GLGuestMappedRange(indices_ptr, uint64_t(count) * scalar,
+        RAMBase, RAMSize, ROMBase, ROM_SIZE)) {
+        if (!ctx->last_error) ctx->last_error = 0x0501;
+        return;
     }
+    if (!GLMetalValidateDrawSize(ctx, mode, count)) return;
+    try {
+        // Read index array from PPC memory
+        std::vector<uint32_t> indices(count);
+        for (int32_t i = 0; i < count; i++) {
+            switch (type) {
+            case GL_UNSIGNED_INT:
+                indices[i] = ReadMacInt32(indices_ptr + uint32_t(i) * 4);
+                break;
+            case GL_UNSIGNED_SHORT:
+                indices[i] = ReadMacInt16(indices_ptr + uint32_t(i) * 2);
+                break;
+            case GL_UNSIGNED_BYTE:
+                indices[i] = ReadMacInt8(indices_ptr + i);
+                break;
+            default: return; // validated above
+            }
+        }
 
-    GLMetalDrawVertexArray(ctx, mode, indices.data(), count, true);
+        GLMetalDrawVertexArray(ctx, mode, indices.data(), count, true);
+    } catch (const std::bad_alloc &) { if (!ctx->last_error) ctx->last_error = 0x0505; }
 }
 
 
@@ -5178,6 +5239,8 @@ void NativeGLDrawRangeElements(GLContext *ctx, uint32_t mode, uint32_t start, ui
  */
 void NativeGLArrayElement(GLContext *ctx, int32_t i)
 {
+    if (i < 0) { if (!ctx->last_error) ctx->last_error = 0x0501; return; }
+    if (!GLMetalValidateArrayRange(ctx, uint32_t(i), uint32_t(i))) return;
     GLVertex v;
     FetchArrayVertex(ctx, i, v);
     if (ctx->color_array.enabled) { memcpy(ctx->current_color,v.color,sizeof(v.color)); GLApplyColorMaterial(ctx); }

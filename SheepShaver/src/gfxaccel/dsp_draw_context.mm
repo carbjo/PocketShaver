@@ -24,7 +24,6 @@
 
 #include "sysdeps.h"
 #include "cpu_emulation.h"
-#include "thunks.h"                /* SheepMem::Reserve (test hook) */
 #include "dsp_engine.h"
 #include "dsp_event_record.h"      /* kDSpEvent_OSEvt + osEvt suspend/resume decode constants */
 #include "dsp_draw_context.h"
@@ -410,7 +409,16 @@ static void DSpQueueReleaseAtVBL(DSpContextPrivate *ctx)
  */
 static void DSpQueueReleaseAtVBLPartial(DSpContextPrivate *ctx)
 {
+	// The compositor target may be overwritten/recreated while suspended.
+	// Retain guest bytes, but force the first active publish to restore them.
+	ctx->front_staging_present_state.encoded = false;
+	// Reasserting the existing front after resume must not replace direct
+	// guest front-buffer edits with an older pending back-buffer snapshot.
+	ctx->front_staging_refresh_swap_generation = ctx->swap_generation;
 	DSpRestoreMainDevicePixMap(ctx);  /* Landmine-7: drop PixMap redirect BEFORE back_buffer goes away (no dangling Mac address in lowmem). */
+	// Without guest staging, MainDevice or a cached port may expose the
+	// Metal allocation directly. Retain it until the context is released.
+	if (ctx->back_buffer != nil && ctx->staging_mac_addr == 0) return;
 	uint32_t head = atomic_load_explicit(&dsp_release_head,
 	                                      memory_order_relaxed);
 	uint32_t next = (head + 1) % DSP_RELEASE_QUEUE_CAPACITY;
@@ -436,9 +444,6 @@ static void DSpQueueReleaseAtVBLPartial(DSpContextPrivate *ctx)
 		}
 		ctx->back_texture = nil;
 		ctx->back_buffer  = nil;
-		DSpReleaseBackBufferStaging(ctx);
-		ctx->cgrafptr_mac_addr = 0;
-		DSpReleaseFrontBufferStaging(ctx);
 		DSpResetHeapIfIdle("synchronous partial release");
 		return;
 	}
@@ -447,9 +452,6 @@ static void DSpQueueReleaseAtVBLPartial(DSpContextPrivate *ctx)
 	dsp_release_queue[head].ctx_to_free  = nullptr;   /* KEY: struct stays alive */
 	ctx->back_buffer  = nil;
 	ctx->back_texture = nil;
-	DSpReleaseBackBufferStaging(ctx);
-	ctx->cgrafptr_mac_addr = 0;
-	DSpReleaseFrontBufferStaging(ctx);
 	atomic_store_explicit(&dsp_release_head, next,
 	                      memory_order_release);
 }
@@ -1564,7 +1566,7 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 		/* Re-allocate Metal back-buffer from persisted attributes, at the
 		 * back-buffer size Reserve used (not the display mode size). */
 		const DSpContextAttributes &pattr = ctx->persisted.attr;
-		if (!DSpAllocateBackBuffer(ctx,
+		if (ctx->back_buffer == nil && !DSpAllocateBackBuffer(ctx,
 		                           pattr.backBufferWidth != 0
 		                               ? pattr.backBufferWidth
 		                               : pattr.displayWidth,
@@ -1575,6 +1577,11 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 			DSP_LOG("Foreground: ctx=%u back-buffer re-alloc FAILED; "
 			        "context remains Paused (retry on next VBL)",
 			        ctx->handle);
+			continue;
+		}
+
+		if (!DSpRestoreBackBufferPixels(ctx)) {
+			DSP_LOG("Foreground: ctx=%u back staging is invalid; retaining Paused state", ctx->handle);
 			continue;
 		}
 
@@ -1591,6 +1598,7 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 		/* Invalidate the restore flag — defence-in-depth against a
 		 * redundant foreground event double-restoring the context. */
 		ctx->persisted.invalidated_full = 0u;
+		ctx->front_staging_present_state.encoded = false;
 
 		/* Transition Paused -> Active via the DMC. */
 		DMCOwner new_owner =
@@ -2496,7 +2504,7 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 /* --------------------------------------------------------------------- *
  *  Local helpers                                                        *
  *                                                                       *
- *  DSpAlignedRowBytes / DSpBackBufferSize / DSpReserveGuestScratch live *
+ *  DSpAlignedRowBytes / DSpBackBufferSize live *
  *  as file-local static-inline helpers in dsp_metal_renderer.mm:73-143  *
  *  (not exported through any header — they predate the per-engine      *
  *  refactor). The Redirect helper below needs all three. Re-declaring   *
@@ -2555,12 +2563,6 @@ static inline void DSpWriteCanonicalMainDevicePixMapMetadata(uint32_t pixMapPtr)
 	              DSpMainDevicePixMapResolution());
 	WriteMacInt32(pixMapPtr + DSP_MAINDEVICE_PIXMAP_OFF_PLANEBYTES,
 	              DSpMainDevicePixMapPlaneBytes());
-}
-
-
-uint32_t DSpReserveGuestScratch(uint32_t size)
-{
-	return SheepMem::Reserve(size);
 }
 
 static void DSpInitializeFrontBufferStaging(DSpContextPrivate *ctx,
@@ -3931,6 +3933,7 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	 *  actual activation edge.
 	 */
 	if (state == (uint32_t)kDSpContextState_Active) {
+		ctx->front_staging_present_state.encoded = false;
 		MetalCompositorUpdatePalette(ctx->clut_bytes, 256);
 		dmc_record_palette_change();
 		DSP_LOG("SetState: %u->Active CLUT replay (ctx=%u) -> OK",
@@ -3988,8 +3991,8 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	if (state == (uint32_t)kDSpContextState_Active) {
 		DSpRedirectMainDevicePixMap(ctx);
 	} else {
+		ctx->front_staging_refresh_swap_generation = ctx->swap_generation;
 		DSpRestoreMainDevicePixMap(ctx);
-		DSpReleaseFrontBufferStaging(ctx);
 		if (any_active) {
 			for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; ++i) {
 				DSpContextPrivate *other = dsp_context_table[i];
@@ -4239,30 +4242,12 @@ extern "C" int32_t DSpContext_GetDirtyRectGridSizeHandler(uint32_t ctxRef,
 
 
 #define DSP_FRONT_PIXMAP_SIZE DSpFrontBufferPixMapRecordSize()
-#define DSP_FRONT_PIXMAP_HANDLE_SIZE 4u
 #define DSP_FRONT_CGP_SIZE DSP_CGRAFPORT_MIN_SIZE
-#define DSP_FRONT_REGION_HANDLE_SIZE 4u
-
-static uint32_t DSpCreateFrontRectRegion(uint32_t w, uint32_t h)
-{
-	uint32_t region_addr = DSpReserveGuestScratch(DSP_RECT_REGION_SIZE);
-	uint32_t handle_addr = DSpReserveGuestScratch(DSP_FRONT_REGION_HANDLE_SIZE);
-	if (region_addr == 0 || handle_addr == 0) return 0;
-
-	Mac_memset(region_addr, 0, DSP_RECT_REGION_SIZE);
-	WriteMacInt16(region_addr + DSP_REGION_OFF_SIZE, DSP_RECT_REGION_SIZE);
-	WriteMacInt16(region_addr + DSP_REGION_OFF_BBOX + 0, 0);
-	WriteMacInt16(region_addr + DSP_REGION_OFF_BBOX + 2, 0);
-	WriteMacInt16(region_addr + DSP_REGION_OFF_BBOX + 4, (uint16_t)h);
-	WriteMacInt16(region_addr + DSP_REGION_OFF_BBOX + 6, (uint16_t)w);
-	WriteMacInt32(handle_addr, region_addr);
-	return handle_addr;
-}
 
 /* Emit a REAL guest CGrafPort (classic 50-byte PixMap + PixMapHandle +
  * CGrafPort with portVersion 0xC000 + rect vis/clip regions) describing a
  * DSp-vended drawable surface. This is the ONE construction path for every
- * surface DSp hands the guest as a "CGrafPtr" (front buffer AND alt buffers):
+ * surface DSp hands the guest as a "CGrafPtr" (front, back AND alt buffers):
  * guest code legitimately dereferences these as ports (portPixMap ->
  * GetPixBaseAddr / CopyBits / portRect), so a PixMap-shaped shim is NOT
  * enough — Diablo II software mode drew its frames through the alt-buffer
@@ -4270,7 +4255,7 @@ static uint32_t DSpCreateFrontRectRegion(uint32_t w, uint32_t h)
  * seed_pixmap_mac (optional, 0 = zero-init) seeds the PixMap record before
  * the canonical fields are written — the front buffer passes the saved
  * MainDevice PixMap so unspecified fields inherit real-screen metadata.
- * Returns the CGrafPort Mac address (0 on scratch exhaustion); out_pixmap_mac
+ * Returns the CGrafPort Mac address (0 if no arena slot is available); out_pixmap_mac
  * / out_pixmap_handle_mac (optional) receive the PixMap record + handle. */
 extern "C" uint32_t DSpEmitSurfaceCGrafPort(uint32_t baseAddr_mac,
                                             uint32_t w,
@@ -4279,26 +4264,27 @@ extern "C" uint32_t DSpEmitSurfaceCGrafPort(uint32_t baseAddr_mac,
                                             uint32_t row_bytes,
                                             uint32_t seed_pixmap_mac,
                                             uint32_t *out_pixmap_mac,
-                                            uint32_t *out_pixmap_handle_mac)
+                                            uint32_t *out_pixmap_handle_mac,
+                                            uint32_t port_storage)
 {
 	if (baseAddr_mac == 0 || w == 0 || h == 0 || row_bytes == 0) return 0;
 
-	uint32_t pixmap_addr = DSpReserveGuestScratch(DSP_FRONT_PIXMAP_SIZE);
-	uint32_t pixmap_handle_addr =
-	    DSpReserveGuestScratch(DSP_FRONT_PIXMAP_HANDLE_SIZE);
-	uint32_t cgrafptr_addr = DSpReserveGuestScratch(DSP_FRONT_CGP_SIZE);
-	uint32_t vis_rgn_handle = DSpCreateFrontRectRegion(w, h);
-	uint32_t clip_rgn_handle = DSpCreateFrontRectRegion(w, h);
-	if (pixmap_addr == 0 || pixmap_handle_addr == 0 ||
-	    cgrafptr_addr == 0 || vis_rgn_handle == 0 ||
-	    clip_rgn_handle == 0) {
-		DSP_LOG("DSpEmitSurfaceCGrafPort: guest-scratch reserve failed "
-		        "(pixmap=0x%08x handle=0x%08x cgraf=0x%08x "
-		        "vis=0x%08x clip=0x%08x)",
-		        pixmap_addr, pixmap_handle_addr, cgrafptr_addr,
-		        vis_rgn_handle, clip_rgn_handle);
-		return 0;
-	}
+	if (port_storage == 0) return 0;
+	const uint32_t pixmap_addr = port_storage + DSpPortPixMapOffset;
+	const uint32_t pixmap_handle_addr = port_storage + DSpPortPixMapHandleOffset;
+	const uint32_t cgrafptr_addr = port_storage + DSpPortCGrafOffset;
+	auto region = [&](uint32_t record, uint32_t handle) {
+		Mac_memset(record, 0, DSP_RECT_REGION_SIZE);
+		WriteMacInt16(record + DSP_REGION_OFF_SIZE, DSP_RECT_REGION_SIZE);
+		WriteMacInt16(record + DSP_REGION_OFF_BBOX + 4, (uint16_t)h);
+		WriteMacInt16(record + DSP_REGION_OFF_BBOX + 6, (uint16_t)w);
+		WriteMacInt32(handle, record);
+		return handle;
+	};
+	const uint32_t vis_rgn_handle = region(port_storage + DSpPortVisRegionOffset,
+	                                      port_storage + DSpPortVisHandleOffset);
+	const uint32_t clip_rgn_handle = region(port_storage + DSpPortClipRegionOffset,
+	                                       port_storage + DSpPortClipHandleOffset);
 
 	uint16_t pixelType, pixelSize, cmpCount, cmpSize;
 	DSpPixMapFormatForDepth(depth,
@@ -4430,7 +4416,10 @@ static uint32_t DSpGetFrontBufferCGrafPtr(DSpContextPrivate *ctx)
 	                                                 row_bytes,
 	                                                 seed_pixmap_mac,
 	                                                 &pixmap_addr,
-	                                                 &pixmap_handle_addr);
+	                                                 &pixmap_handle_addr,
+	    DSpGuestPortStorageSlot(dsp_guest_port_storage_addr,
+	        DSP_MAX_CONTEXTS + ctx->handle - 1,
+	        2 * DSP_MAX_CONTEXTS + DSP_MAX_ALT_BUFFERS));
 	if (cgrafptr_addr == 0) {
 		DSP_LOG("DSpGetFrontBufferCGrafPtr: CGrafPort emission failed "
 		        "(ctx=%u %ux%u@%u)", ctx->handle, w, h, front_depth);

@@ -147,6 +147,7 @@ extern bool DSpEncodeFrontBufferStagingToFramebuffer(struct DSpContextPrivate *c
  *  kDSpInternalErr).
  */
 extern uint32_t DSpGetBackBufferCGrafPtr(struct DSpContextPrivate *ctx);
+extern bool DSpRestoreBackBufferPixels(struct DSpContextPrivate *ctx);
 
 /*
  *  Always-on overrun guard for guest-RAM pixel-staging writes. Looks up the

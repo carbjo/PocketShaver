@@ -23,6 +23,9 @@
 #include "cpu_emulation.h"
 #include "thunks.h"
 #include "dsp_engine.h"
+#include "dsp_draw_context.h"
+#include "dsp_alt_buffer.h"
+#include "dsp_guest_port_storage.h"
 
 #include <cstring>
 
@@ -42,6 +45,7 @@ uint32_t dsp_method_tvects[DSP_MAX_SUBOPCODE] = {};
  * function argument, e.g. a ctxRef pointer). Mirrors rave_scratch_addr
  * which is similarly file-scope-but-exported. */
 uint32_t dsp_scratch_addr = 0;
+uint32_t dsp_guest_port_storage_addr = 0;
 
 /*
  *  Allocate a single DSp TVECT thunk in SheepMem. Structurally identical
@@ -103,6 +107,10 @@ static uint32 AllocateDSpTVECT(int method_id, uint32 dsp_opcode)
 
 void DSpThunksInit(void)
 {
+	// Allocate once before any guest callbacks can hold SheepVar temporaries.
+	// Runtime port creation only reuses a slot; it never grows the LIFO stack.
+	dsp_guest_port_storage_addr = SheepMem::Reserve(
+	    (2 * DSP_MAX_CONTEXTS + DSP_MAX_ALT_BUFFERS) * DSpGuestPortStorageBytes);
 	/* Reserve a 16-byte scratch region; same shape as RAVE's scratch. */
 	dsp_scratch_addr = SheepMem::Reserve(16);
 	WriteMacInt32(dsp_scratch_addr, 0);

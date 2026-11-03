@@ -480,7 +480,10 @@ extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
 	                                            rec->depth,
 	                                            alignedRB,
 	                                            0 /* zero-init PixMap */,
-	                                            nullptr, nullptr);
+	                                            nullptr, nullptr,
+	    DSpGuestPortStorageSlot(dsp_guest_port_storage_addr,
+	        2 * DSP_MAX_CONTEXTS + altBuffer - 1,
+	        2 * DSP_MAX_CONTEXTS + DSP_MAX_ALT_BUFFERS));
 	if (cgp_addr == 0) {
 		DSP_LOG("AltBuffer_GetCGrafPtr: CGrafPort emission failed "
 		        "(handle=%u %ux%u@%u)", altBuffer, w, h, rec->depth);
@@ -680,6 +683,9 @@ void DSpReleaseAltBufferBackingsForBackground(void)
 	for (int i = 0; i < DSP_MAX_ALT_BUFFERS; i++) {
 		DSpAltBufferRecord *rec = &dsp_alt_buffer_table[i];
 		if (!rec->in_use || rec->backing == nil) continue;
+		// A directly exposed Metal baseAddr remains guest-owned until Dispose.
+		if (rec->baseaddr_mac != 0 && !rec->baseaddr_owned_staging) continue;
+
 		/* Texture is a view over the backing — drop it first. Guest
 		 * staging, dims, and in_use stay intact for foreground restore. */
 		rec->texture = nil;

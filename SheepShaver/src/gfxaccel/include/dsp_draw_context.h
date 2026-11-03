@@ -24,6 +24,7 @@
 #define DSP_DRAW_CONTEXT_H
 
 #include <stdint.h>
+#include "dsp_guest_port_storage.h"
 
 struct DSpContextPrivate;  /* opaque; full def in dsp_draw_context.mm */
 
@@ -235,10 +236,10 @@ extern int32_t  DSpSetBlankingColorHandler(uint32_t inRGBColorAddr);
 /* Emit a REAL guest CGrafPort (classic PixMap + handle + portVersion-0xC000
  * port + rect vis/clip regions) describing a DSp-vended drawable surface.
  * The one construction path for every guest-facing DSp "CGrafPtr" (front
- * buffer + alt buffers) — guest code dereferences these as ports, so a
+ * buffer + back buffer + alt buffers) — guest code dereferences these as ports, so a
  * PixMap-shaped shim is not enough. seed_pixmap_mac (0 = zero-init) seeds
  * the PixMap record before canonical fields are written. Returns the
- * CGrafPort Mac address (0 on scratch exhaustion); optional out params
+ * CGrafPort Mac address (0 without a valid boot-time storage slot); optional out params
  * receive the PixMap record + handle addresses. */
 extern uint32_t DSpEmitSurfaceCGrafPort(uint32_t baseAddr_mac,
                                         uint32_t w,
@@ -247,7 +248,10 @@ extern uint32_t DSpEmitSurfaceCGrafPort(uint32_t baseAddr_mac,
                                         uint32_t row_bytes,
                                         uint32_t seed_pixmap_mac,
                                         uint32_t *out_pixmap_mac,
-                                        uint32_t *out_pixmap_handle_mac);
+                                        uint32_t *out_pixmap_handle_mac,
+                                        uint32_t port_storage);
+
+extern uint32_t dsp_guest_port_storage_addr;
 
 /*
  *  AltBuffer handlers (sub-ops 700-705).
