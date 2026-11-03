@@ -37,6 +37,7 @@
 #include <cstdlib>
 #include <cerrno>
 #include <cstdarg>
+#include <new>
 
 #define DEBUG 0
 #include "debug.h"
@@ -1031,14 +1032,42 @@ bool ConvertPixels(uint32_t pixelType, uint32 srcAddr, uint8_t *dst,
  *  Used by both the hook path (NativeHookTextureNew) and the engine dispatch
  *  path (NativeEngineTextureNew) to avoid code duplication.
  */
-static void RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
+static bool RaveImageLayoutIsValid(uint32_t pixelType, uint32_t width, uint32_t height,
+                                   uint32_t rowBytes, uint32_t pixels)
+{
+	if (!width || !height || width > 16384 || height > 16384 || !pixels) return false;
+	uint64_t minimumRow;
+	switch (pixelType) {
+		case kQAPixel_Alpha1: minimumRow = (uint64_t(width) + 7) / 8; break;
+		case kQAPixel_CL4: minimumRow = (uint64_t(width) + 1) / 2; break;
+		case kQAPixel_CL8: case kQAPixel_RGB8_332: case kQAPixel_I8:
+			minimumRow = width; break;
+		case kQAPixel_RGB16: case kQAPixel_ARGB16: case kQAPixel_RGB16_565:
+		case kQAPixel_ARGB16_4444: case kQAPixel_ACL16_88: case kQAPixel_AI16_88:
+			minimumRow = uint64_t(width) * 2; break;
+		case kQAPixel_RGB24: minimumRow = uint64_t(width) * 3; break;
+		case kQAPixel_RGB32: case kQAPixel_ARGB32:
+			minimumRow = uint64_t(width) * 4; break;
+		case kQAPixel_YUVS: case kQAPixel_YUVU:
+			// The converter reads a complete YUYV pair, even for an odd width.
+			minimumRow = ((uint64_t(width) + 1) / 2) * 4; break;
+		default: return false;
+	}
+	const uint64_t size = uint64_t(rowBytes) * height;
+	return rowBytes >= minimumRow && size <= UINT32_MAX &&
+	       uint64_t(pixels) + size <= uint64_t(UINT32_MAX) + 1;
+}
+
+static int32_t RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
                                          uint32 imagesAddr, RaveResourceEntry *entry)
 {
+	if (!imagesAddr || uint64_t(imagesAddr) + 16 > uint64_t(UINT32_MAX) + 1) return kQAParamErr;
 	// Read level 0 TQAImage (16 bytes)
 	uint32_t w        = ReadMacInt32(imagesAddr + 0);
 	uint32_t h        = ReadMacInt32(imagesAddr + 4);
 	uint32_t rowBytes = ReadMacInt32(imagesAddr + 8);
 	uint32_t pixmap   = ReadMacInt32(imagesAddr + 12);
+	if (!RaveImageLayoutIsValid(pixelType, w, h, rowBytes, pixmap)) return kQAParamErr;
 
 	// 4-bit priority at [31:28] per QACalculatePriorityBits. Test: RAVEABITests.testPriorityBits_extraction_matchesSpec
 	entry->priority = (uint8_t)((flags >> 28) & 0xF);
@@ -1070,36 +1099,15 @@ static void RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
 		// Copy immediately -- RAVE spec says engine needn't copy until TextureDetach,
 		// but many games (e.g. Tomb Raider) reuse the pixel buffer immediately after
 		// TextureNew, so eager copy is safer and matches real hardware behavior.
-		uint32_t totalSize = rowBytes * h;
-		if (hasMipmaps) {
-			totalSize = 0;
-			uint32_t mw = w, mh = h;
-			for (uint32_t level = 0; level < mipLevels; level++) {
-				uint32_t mRowBytes = ReadMacInt32(imagesAddr + level * 16 + 8);
-				totalSize += mRowBytes * mh;
-				mw = (mw > 1) ? mw / 2 : 1;
-				mh = (mh > 1) ? mh / 2 : 1;
-			}
-		}
-		entry->original_pixels = new uint8_t[totalSize];
+		// CLUT expansion consumes level zero only and generates its own mips.
+		// Never read unused client descriptors to size or populate this buffer.
+		const uint32_t totalSize = uint32_t(uint64_t(rowBytes) * h);
+		entry->original_pixels = new (std::nothrow) uint8_t[totalSize];
+		if (!entry->original_pixels) return kQAOutOfMemory;
 		entry->original_size = totalSize;
 		entry->pixels_copied = true;
 
-		// Copy all pixel data from Mac memory immediately
-		uint32_t offset = 0;
-		uint32_t mw = w, mh = h;
-		for (uint32_t level = 0; level < mipLevels; level++) {
-			uint32_t mRowBytes = ReadMacInt32(imagesAddr + level * 16 + 8);
-			uint32_t mPixmap   = ReadMacInt32(imagesAddr + level * 16 + 12);
-			uint32_t levelSize = mRowBytes * mh;
-			for (uint32_t b = 0; b < levelSize; b++) {
-				entry->original_pixels[offset + b] = ReadMacInt8(mPixmap + b);
-			}
-			offset += levelSize;
-			if (!hasMipmaps) break;
-			mw = (mw > 1) ? mw / 2 : 1;
-			mh = (mh > 1) ? mh / 2 : 1;
-		}
+		Mac2Host_memcpy(entry->original_pixels, pixmap, totalSize);
 
 		// Metal texture deferred until BindColorTable
 		entry->metal_texture = nullptr;
@@ -1113,7 +1121,8 @@ static void RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
 		entry->metal_texture = nullptr;
 		entry->pixels_copied = false;
 
-		uint8_t *expanded = new uint8_t[w * h * 4];
+		uint8_t *expanded = new (std::nothrow) uint8_t[size_t(w) * h * 4]();
+		if (!expanded) return kQAOutOfMemory;
 		const bool converted = ConvertPixels(pixelType, pixmap, expanded, w, h, rowBytes);
 		const bool whitenedAlphaMask =
 			(pixelType == kQAPixel_ARGB32) && RaveBGRAWhitenAlphaOnlyMask(expanded, w * h);
@@ -1144,16 +1153,7 @@ static void RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
 			         sourceStats.first_nonzero, sourceStats.first_alpha, sourceStats.first_rgb,
 			         whitenedAlphaMask);
 		} else {
-			// For deferred mipmapped textures, cache the TQAImage array (it
-			// may be on the caller's stack and won't survive past this call).
-			if (hasMipmaps && mipLevels > 1) {
-				uint32_t imagesSize = mipLevels * 16;
-				entry->original_pixels = new uint8_t[imagesSize];
-				entry->original_size = imagesSize;
-				for (uint32_t b = 0; b < imagesSize; b++) {
-					entry->original_pixels[b] = ReadMacInt8(imagesAddr + b);
-				}
-			}
+			// Deferred realization also generates mips from level zero.
 			RAVE_LOG("TextureNew unconverted (pixelType=%d) %dx%d mips=%d pixmap=0x%08x converted=%d",
 			         pixelType, w, h, mipLevels, pixmap, converted ? 1 : 0);
 		}
@@ -1174,6 +1174,7 @@ static void RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
 	} else {
 		RAVE_LOG("TextureNew WARN: Mac_sysalloc(%d) failed for cpu_pixel_data", cpuBufSize);
 	}
+	return kQANoErr;
 }
 
 
@@ -1261,13 +1262,15 @@ void RaveRealizeDeferredTexture(RaveResourceEntry *entry)
  *
  *  Same as texture but single level only (no mipmaps).
  */
-static void RaveCreateBitmapFromImage(uint32_t pixelType, uint32 imageAddr,
+static int32_t RaveCreateBitmapFromImage(uint32_t pixelType, uint32 imageAddr,
                                        RaveResourceEntry *entry)
 {
+	if (!imageAddr || uint64_t(imageAddr) + 16 > uint64_t(UINT32_MAX) + 1) return kQAParamErr;
 	uint32_t w        = ReadMacInt32(imageAddr + 0);
 	uint32_t h        = ReadMacInt32(imageAddr + 4);
 	uint32_t rowBytes = ReadMacInt32(imageAddr + 8);
 	uint32_t pixmap   = ReadMacInt32(imageAddr + 12);
+	if (!RaveImageLayoutIsValid(pixelType, w, h, rowBytes, pixmap)) return kQAParamErr;
 
 	entry->pixel_type = pixelType;
 	entry->width      = w;
@@ -1280,7 +1283,8 @@ static void RaveCreateBitmapFromImage(uint32_t pixelType, uint32 imageAddr,
 	if (isIndexed) {
 		// Copy indexed pixel data immediately (eager copy).
 		uint32_t totalSize = rowBytes * h;
-		entry->original_pixels = new uint8_t[totalSize];
+		entry->original_pixels = new (std::nothrow) uint8_t[totalSize];
+		if (!entry->original_pixels) return kQAOutOfMemory;
 		entry->original_size = totalSize;
 		entry->pixels_copied = true;
 		for (uint32_t b = 0; b < totalSize; b++) {
@@ -1290,7 +1294,8 @@ static void RaveCreateBitmapFromImage(uint32_t pixelType, uint32 imageAddr,
 		RAVE_LOG("BitmapNew indexed (pixelType=%d) %dx%d rowBytes=%d pixmap=0x%08x",
 		       pixelType, w, h, rowBytes, pixmap);
 	} else {
-		uint8_t *expanded = new uint8_t[w * h * 4];
+		uint8_t *expanded = new (std::nothrow) uint8_t[size_t(w) * h * 4]();
+		if (!expanded) return kQAOutOfMemory;
 		ConvertPixels(pixelType, pixmap, expanded, w, h, rowBytes);
 		entry->metal_texture = RaveCreateMetalTexture(w, h, 1, expanded, w * 4);
 		delete[] expanded;
@@ -1311,6 +1316,7 @@ static void RaveCreateBitmapFromImage(uint32_t pixelType, uint32 imageAddr,
 	} else {
 		RAVE_LOG("BitmapNew WARN: Mac_sysalloc(%d) failed for cpu_pixel_data", cpuBufSize);
 	}
+	return kQANoErr;
 }
 
 
@@ -1467,7 +1473,12 @@ int32_t NativeEngineTextureNew(uint32_t flags, uint32_t pixelType,
 		return kQANotSupported;
 	}
 	RaveResourceEntry *entry = RaveResourceGet(handle);
-	RaveCreateTextureFromImages(flags, pixelType, imagesAddr, entry);
+	const int32_t error = RaveCreateTextureFromImages(flags, pixelType, imagesAddr, entry);
+	if (error != kQANoErr) {
+		RaveResourceFree(handle);
+		WriteMacInt32(newTexturePtr, 0);
+		return error;
+	}
 	WriteMacInt32(newTexturePtr, entry->mac_addr);
 	return kQANoErr;
 }
@@ -1495,7 +1506,12 @@ int32_t NativeEngineBitmapNew(uint32_t flags, uint32_t pixelType,
 		return kQANotSupported;
 	}
 	RaveResourceEntry *entry = RaveResourceGet(handle);
-	RaveCreateBitmapFromImage(pixelType, imageAddr, entry);
+	const int32_t error = RaveCreateBitmapFromImage(pixelType, imageAddr, entry);
+	if (error != kQANoErr) {
+		RaveResourceFree(handle);
+		WriteMacInt32(newBitmapPtr, 0);
+		return error;
+	}
 	// 4-bit priority at [31:28] per QACalculatePriorityBits. Test: RAVEABITests.testPriorityBits_extraction_matchesSpec
 	entry->priority = (uint8_t)((flags >> 28) & 0xF);
 	WriteMacInt32(newBitmapPtr, entry->mac_addr);
@@ -2263,7 +2279,12 @@ uint32 NativeHookTextureNew(uint32 engine, uint32 flags, uint32 pixelType,
 			return (uint32)(int32)kQANotSupported;
 		}
 		RaveResourceEntry *entry = RaveResourceGet(handle);
-		RaveCreateTextureFromImages(flags, pixelType, images, entry);
+		const int32_t error = RaveCreateTextureFromImages(flags, pixelType, images, entry);
+		if (error != kQANoErr) {
+			RaveResourceFree(handle);
+			WriteMacInt32(newTexturePtr, 0);
+			return error;
+		}
 		RAVE_LOG("HOOK: QATextureNew(sentinel) flags=0x%x pixelType=%d %dx%d -> handle %d addr=0x%08x metal=%p",
 		       flags, pixelType, entry->width, entry->height, handle, entry->mac_addr, entry->metal_texture);
 		WriteMacInt32(newTexturePtr, entry->mac_addr);
@@ -2292,7 +2313,12 @@ uint32 NativeHookBitmapNew(uint32 engine, uint32 flags, uint32 pixelType,
 			return (uint32)(int32)kQANotSupported;
 		}
 		RaveResourceEntry *entry = RaveResourceGet(handle);
-		RaveCreateBitmapFromImage(pixelType, image, entry);
+		const int32_t error = RaveCreateBitmapFromImage(pixelType, image, entry);
+		if (error != kQANoErr) {
+			RaveResourceFree(handle);
+			WriteMacInt32(newBitmapPtr, 0);
+			return error;
+		}
 		// 4-bit priority at [31:28] per QACalculatePriorityBits. Test: RAVEABITests.testPriorityBits_extraction_matchesSpec
 		entry->priority = (uint8_t)((flags >> 28) & 0xF);
 		RAVE_LOG("HOOK: QABitmapNew(sentinel) flags=0x%x pixelType=%d %dx%d -> handle %d addr=0x%08x metal=%p",

@@ -3544,6 +3544,10 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	       ctx, target, level, width, height, format, type, mac_pixels);
 
 	if (!ctx) { GL_LOG("NativeGLTexImage2D: ctx is NULL, returning"); return; }
+	if (!GLTextureImageSizeIsValid(level, width, height)) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_VALUE;
+		return;
+	}
 
 	// Get currently bound texture
 	uint32_t texName = 0;
@@ -3644,6 +3648,9 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	if (!object) return;
 
 	GLTextureObject &tex = *object;
+	const uint32_t error = GLTextureSubImageError(tex, level, xoffset, yoffset, 0, width, height);
+	if (error) { if (!ctx->last_error) ctx->last_error = error; return; }
+	if (!width || !height) return;
 
 	int dataLen = 0;
 	uint8_t *converted = ConvertPixelsToBGRA8(mac_pixels, width, height,
@@ -6603,6 +6610,10 @@ void NativeGLTexImage3DEXT(GLContext *ctx, uint32_t target, int32_t level, int32
 {
 	GL_LOG("TexImage3D %dx%dx%d fmt=0x%x type=0x%x level=%d", w, h, d, fmt, type, level);
 	if (!ctx) return;
+	if (!GLTextureImageSizeIsValid(level, w, h, d)) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_VALUE;
+		return;
+	}
 
 	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_3d;
 	if (texName == 0) return;
@@ -6614,6 +6625,7 @@ void NativeGLTexImage3DEXT(GLContext *ctx, uint32_t target, int32_t level, int32
         if (!ctx->last_error) ctx->last_error = GL_INVALID_VALUE;
         return;
     }
+	if (!w || !h || !d) return;
 	if (level > 0) tex.has_mipmaps = true;
 
 	if (data == 0) {
@@ -6674,7 +6686,9 @@ void NativeGLTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level,
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) return;
 	GLTextureObject &tex = *object;
-	if (!tex.metal_texture) return;
+	const uint32_t error = GLTextureSubImageError(tex, level, xoff, yoff, zoff, w, h, d);
+	if (error) { if (!ctx->last_error) ctx->last_error = error; return; }
+	if (!w || !h || !d) return;
 
 	// Convert source pixels slice by slice
 	int srcBpp = 0;

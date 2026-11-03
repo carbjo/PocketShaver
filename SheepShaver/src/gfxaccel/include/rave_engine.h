@@ -341,6 +341,7 @@ struct RaveDrawPrivate {
 
 	// ATI engine-specific tag storage (separate from main state array per user decision)
 	RaveStateValue ati_state[RAVE_ATI_TAG_COUNT];  // indexed by (tag - 1000)
+	uint32_t       ati_ext_funcs_owned; // engine-owned eight-entry guest table; never a SetPtr buffer
 	bool           ati_fog_active;  // true when any ATI fog tag (indices 2-9) has been set
 
 	// Diagnostic: frame counter for vertex dump (first N frames of each context)

@@ -3148,11 +3148,24 @@ void GLMetalSynchronizeSharedContexts(GLContext *ctx)
 void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
                            int width, int height, const uint8_t *data, int dataLen)
 {
+    if (!ctx || !texObj) return;
+    if (!GLTextureImageSizeIsValid(level, width, height) ||
+        dataLen < 0 || uint64_t(width) * uint64_t(height) * 4 > uint64_t(dataLen)) {
+        if (!ctx->last_error) ctx->last_error = 0x0501;
+        return;
+    }
+    if (!width || !height) return;
+    if (!data) { if (!ctx->last_error) ctx->last_error = 0x0501; return; }
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->device) return;
 
     id<MTLTexture> existing = texObj->metal_texture ?
         (__bridge id<MTLTexture>)(texObj->metal_texture) : nil;
+    if (level > 0 && existing && !GLTextureRegionFits(level, 0, 0, 0, width, height, 1,
+        existing.width, existing.height, 1, GLTextureMipLevelCount(existing.width, existing.height))) {
+        if (!ctx->last_error) ctx->last_error = 0x0501;
+        return;
+    }
     if (existing) GLMetalSynchronizeTextureAccess(ctx);
 
     // Need new texture if: no existing, or base level dimensions changed.
@@ -3268,6 +3281,15 @@ void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
 
     if (!existing) return;
 
+    // Promotion can fail to allocate a longer mip chain. Check the resource
+    // actually retained before issuing the upload, rather than its potential
+    // number of levels.
+    if (!GLTextureRegionFits(level, 0, 0, 0, width, height, 1,
+        existing.width, existing.height, 1, unsigned(existing.mipmapLevelCount))) {
+        if (!ctx->last_error) ctx->last_error = 0x0501;
+        return;
+    }
+
     // Upload pixel data to the specified mipmap level
     int mipWidth = width;
     int mipHeight = height;
@@ -3316,10 +3338,18 @@ void GLMetalUploadSubTexture(GLContext *ctx, GLTextureObject *texObj, int level,
                               int xoff, int yoff, int w, int h,
                               const uint8_t *data, int bytesPerRow)
 {
-    if (!texObj->metal_texture) return;
-    GLMetalSynchronizeTextureAccess(ctx);
-
+    if (!ctx || !texObj) return;
+    if (!texObj->metal_texture) { if (!ctx->last_error) ctx->last_error = 0x0502; return; }
     id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)(texObj->metal_texture);
+    if (!GLTextureRegionFits(level, xoff, yoff, 0, w, h, 1,
+        mtlTex.width, mtlTex.height, 1, unsigned(mtlTex.mipmapLevelCount)) ||
+        bytesPerRow < 0 || uint64_t(bytesPerRow) < uint64_t(w) * 4) {
+        if (!ctx->last_error) ctx->last_error = 0x0501;
+        return;
+    }
+    if (!w || !h) return;
+    if (!data) { if (!ctx->last_error) ctx->last_error = 0x0501; return; }
+    GLMetalSynchronizeTextureAccess(ctx);
     MTLRegion region = MTLRegionMake2D(xoff, yoff, w, h);
     [mtlTex replaceRegion:region
               mipmapLevel:level
@@ -3355,11 +3385,25 @@ void GLMetalUpload3DTexture(GLContext *ctx, GLTextureObject *texObj, int level,
                             int width, int height, int depth,
                             const uint8_t *data, int dataLen)
 {
+    if (!ctx || !texObj) return;
+    if (!GLTextureImageSizeIsValid(level, width, height, depth) ||
+        dataLen < 0 || uint64_t(width) * uint64_t(height) * uint64_t(depth) * 4 > uint64_t(dataLen)) {
+        if (!ctx->last_error) ctx->last_error = 0x0501;
+        return;
+    }
+    if (!width || !height || !depth) return;
+    if (!data) { if (!ctx->last_error) ctx->last_error = 0x0501; return; }
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->device) return;
 
     id<MTLTexture> existing = texObj->metal_texture ?
         (__bridge id<MTLTexture>)(texObj->metal_texture) : nil;
+    if (level > 0 && existing && !GLTextureRegionFits(level, 0, 0, 0, width, height, depth,
+        existing.width, existing.height, existing.depth,
+        GLTextureMipLevelCount(existing.width, existing.height, existing.depth))) {
+        if (!ctx->last_error) ctx->last_error = 0x0501;
+        return;
+    }
     if (existing) GLMetalSynchronizeTextureAccess(ctx);
 
     // TexImage3D has already updated the guest metadata. Inspect the backing
@@ -3461,10 +3505,19 @@ void GLMetalUploadSubTexture3D(GLContext *ctx, GLTextureObject *texObj, int leve
                                int w, int h, int d,
                                const uint8_t *data, int bytesPerRow, int bytesPerImage)
 {
-    if (!texObj->metal_texture) return;
-    GLMetalSynchronizeTextureAccess(ctx);
-
+    if (!ctx || !texObj) return;
+    if (!texObj->metal_texture) { if (!ctx->last_error) ctx->last_error = 0x0502; return; }
     id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)(texObj->metal_texture);
+    if (!GLTextureRegionFits(level, xoff, yoff, zoff, w, h, d,
+        mtlTex.width, mtlTex.height, mtlTex.depth, unsigned(mtlTex.mipmapLevelCount)) ||
+        bytesPerRow < 0 || bytesPerImage < 0 || uint64_t(bytesPerRow) < uint64_t(w) * 4 ||
+        uint64_t(bytesPerImage) < uint64_t(bytesPerRow) * uint64_t(h)) {
+        if (!ctx->last_error) ctx->last_error = 0x0501;
+        return;
+    }
+    if (!w || !h || !d) return;
+    if (!data) { if (!ctx->last_error) ctx->last_error = 0x0501; return; }
+    GLMetalSynchronizeTextureAccess(ctx);
     MTLRegion region = MTLRegionMake3D(xoff, yoff, zoff, w, h, d);
     [mtlTex replaceRegion:region
               mipmapLevel:level

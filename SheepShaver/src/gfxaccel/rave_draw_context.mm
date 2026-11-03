@@ -27,6 +27,7 @@
 
 // Forward declare Mac_sysalloc (from macos_util.h) to avoid UIKit header conflicts.
 extern uint32 Mac_sysalloc(uint32 size);
+extern void Mac_sysfree(uint32 addr);
 
 // RAVE error codes (must match TQAError enum in RAVE.h)
 #define kQANoErr                    0
@@ -381,6 +382,12 @@ int32 NativeDrawPrivateDelete(uint32 drawPrivateHandle)
 
 	// Hide the dying context before guest DisposePtr can invoke callbacks.
 	FreeContextHandle(drawPrivateHandle);
+	{
+		RaveGuestMemoryScope guard;
+		const uint32_t owned = ctx->ati_ext_funcs_owned;
+		ctx->ati_ext_funcs_owned = 0;
+		if (owned) Mac_sysfree(owned);
+	}
 
 	// Free vertex staging buffer
 	delete[] ctx->vertexStagingBuffer;
@@ -559,14 +566,17 @@ static void WriteATIRaveExtFuncsTable(uint32 ptr)
 
 static uint32 EnsureATIRaveExtFuncsTable(RaveDrawPrivate *ctx)
 {
-	uint32 ptr = ctx->ati_state[kRaveATIRaveExtFuncsIndex].i;
+	// SetPtr accepts a five-entry caller buffer. GetPtr always vends our
+	// separately owned table, including its three defensive tail stubs.
+	uint32 ptr = ctx->ati_ext_funcs_owned;
 	if (ptr == 0) {
+		RaveGuestMemoryScope guard;
 		ptr = Mac_sysalloc(kRaveATIRaveExtFuncsEntryCount * 4);
 		if (ptr == 0) {
 			RAVE_LOG("GetPtr: kATIRaveExtFuncs allocation failed");
 			return 0;
 		}
-		ctx->ati_state[kRaveATIRaveExtFuncsIndex].i = ptr;
+		ctx->ati_ext_funcs_owned = ptr;
 	}
 
 	WriteATIRaveExtFuncsTable(ptr);

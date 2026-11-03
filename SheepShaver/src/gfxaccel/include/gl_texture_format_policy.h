@@ -9,6 +9,51 @@
 #include <cstddef>
 #include "gl_engine.h"
 
+static inline unsigned GLTextureMipLevelCount(uint64_t width, uint64_t height, uint64_t depth = 1)
+{
+    uint64_t size = width > height ? width : height;
+    if (depth > size) size = depth;
+    unsigned count = 0;
+    do { ++count; size >>= 1; } while (size);
+    return count;
+}
+
+// Bound dimensions before signed byte counts or Metal descriptors are built.
+// 1024 matches GL_MAX_TEXTURE_SIZE; the byte limit matches the upload API's int.
+static inline bool GLTextureImageSizeIsValid(int level, int width, int height, int depth = 1)
+{
+    if (level < 0 || level > 10 || width < 0 || height < 0 || depth < 0) return false;
+    const int maximum = 1024 >> level;
+    return width <= maximum && height <= maximum && depth <= maximum &&
+           uint64_t(width) * uint64_t(height) * uint64_t(depth) * 4 <= INT32_MAX;
+}
+
+static inline bool GLTextureRegionFits(int level, int x, int y, int z,
+    int width, int height, int depth, uint64_t baseWidth, uint64_t baseHeight,
+    uint64_t baseDepth, unsigned mipCount)
+{
+    if (level < 0 || level >= 32 || unsigned(level) >= mipCount ||
+        x < 0 || y < 0 || z < 0 || width < 0 || height < 0 || depth < 0 ||
+        !baseWidth || !baseHeight || !baseDepth) return false;
+    const uint64_t w = baseWidth >> level, h = baseHeight >> level, d = baseDepth >> level;
+    return uint64_t(x) + uint64_t(width) <= (w ? w : 1) &&
+           uint64_t(y) + uint64_t(height) <= (h ? h : 1) &&
+           uint64_t(z) + uint64_t(depth) <= (d ? d : 1);
+}
+
+static inline uint32_t GLTextureSubImageError(const GLTextureObject &texture,
+    int level, int x, int y, int z, int width, int height, int depth = 1)
+{
+    if (level < 0 || level >= 32 || x < 0 || y < 0 || z < 0 ||
+        width < 0 || height < 0 || depth < 0) return 0x0501;
+    if (!texture.metal_texture || texture.width <= 0 || texture.height <= 0) return 0x0502;
+    const uint64_t baseDepth = texture.depth > 0 ? texture.depth : 1;
+    const unsigned count = texture.has_mipmaps
+        ? GLTextureMipLevelCount(texture.width, texture.height, baseDepth) : 1;
+    return GLTextureRegionFits(level, x, y, z, width, height, depth,
+        texture.width, texture.height, baseDepth, count) ? 0 : 0x0501;
+}
+
 static inline uint32_t GLTextureBaseInternalFormat(int32_t format)
 {
     switch (format) {
