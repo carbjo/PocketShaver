@@ -282,16 +282,16 @@ struct RaveNoticeMethod {
 #define RAVE_VERTEX_FLOATS 20
 #define RAVE_VERTEX_BYTES  (RAVE_VERTEX_FLOATS * sizeof(float))
 
+void RaveFlushPendingDraws(void);
+
 struct ZSortTriangle {
+	RaveStateValue state[RAVE_MAX_TAG];
+	bool multiTextureActive;
+	uint32_t multiTextureHandle;
+	float multiTexUV[12];
 	float      verts[3][RAVE_VERTEX_FLOATS];
 	float      sortKey;
 	bool       textured;
-	uint32_t   textureMacAddr;
-	int32_t    textureOp;
-	int32_t    blendMode;
-	uint32_t   glBlendSrc;
-	uint32_t   glBlendDst;
-	int32_t    filterMode;
 };
 
 #define RAVE_ZSORT_MAX_TRIANGLES 16384

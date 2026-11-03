@@ -473,6 +473,7 @@ uint32_t RaveResourceAlloc(RaveResourceType type) {
 // (4) CLUT data via delete[]
 // (5) memset zeroes entry to kRaveResourceFree
 bool RaveResourceFree(uint32_t handle) {
+	RaveFlushPendingDraws();
 	if (handle == 0 || handle > RAVE_MAX_RESOURCES) return false;
 	RaveResourceEntry *entry = &rave_resource_table[handle - 1];
 	if (entry->type == kRaveResourceFree) return false;
@@ -1360,6 +1361,7 @@ static void RaveCreateColorTableData(uint32_t tableType, uint32 pixelDataAddr,
  */
 static void RaveReExpandWithCLUT(RaveResourceEntry *texEntry, RaveResourceEntry *clutEntry)
 {
+	RaveFlushPendingDraws();
 	if (!texEntry->original_pixels || !clutEntry->clut_data) return;
 
 	uint32_t w = texEntry->width;
@@ -1590,6 +1592,7 @@ int32_t NativeEngineBitmapBindColorTable(uint32_t bitmapAddr, uint32_t colorTabl
 int32_t NativeEngineAccessTexture(uint32_t textureAddr, uint32_t mipmapLevel,
                                    uint32_t flags, uint32_t bufferStructAddr)
 {
+	RaveFlushPendingDraws();
 	uint32_t handle = RaveResourceFindByAddr(textureAddr);
 	if (handle == 0) return kQANotSupported;
 	RaveResourceEntry *entry = RaveResourceGet(handle);
@@ -1610,6 +1613,7 @@ int32_t NativeEngineAccessTexture(uint32_t textureAddr, uint32_t mipmapLevel,
 
 int32_t NativeEngineAccessTextureEnd(uint32_t textureAddr, uint32_t dirtyRectAddr)
 {
+	RaveFlushPendingDraws();
 	uint32_t handle = RaveResourceFindByAddr(textureAddr);
 	if (handle == 0) return kQANotSupported;
 	RaveResourceEntry *entry = RaveResourceGet(handle);
@@ -1699,6 +1703,7 @@ int32_t NativeEngineAccessTextureEnd(uint32_t textureAddr, uint32_t dirtyRectAdd
 int32_t NativeEngineAccessBitmap(uint32_t bitmapAddr, uint32_t flags,
                                   uint32_t bufferStructAddr)
 {
+	RaveFlushPendingDraws();
 	uint32_t handle = RaveResourceFindByAddr(bitmapAddr);
 	if (handle == 0) return kQANotSupported;
 	RaveResourceEntry *entry = RaveResourceGet(handle);
@@ -1719,6 +1724,7 @@ int32_t NativeEngineAccessBitmap(uint32_t bitmapAddr, uint32_t flags,
 
 int32_t NativeEngineAccessBitmapEnd(uint32_t bitmapAddr, uint32_t dirtyRectAddr)
 {
+	RaveFlushPendingDraws();
 	uint32_t handle = RaveResourceFindByAddr(bitmapAddr);
 	if (handle == 0) return kQANotSupported;
 	RaveResourceEntry *entry = RaveResourceGet(handle);

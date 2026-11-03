@@ -59,7 +59,6 @@ static bool RaveEnsureGuestBuffer(uint32_t &address, uint8_t *&host, uint32_t &s
 		RaveAllocateGuestBuffer, [](uint32_t addr) { return Mac2HostAddr(addr); }, Mac_sysfree);
 }
 
-
 // RAVE error codes
 #define kQANoErr           0
 #define kQAError          -2
@@ -1294,6 +1293,8 @@ static void RaveFlushRingWindowIfNearExhaustion(RaveDrawPrivate *priv)
  *  textured: when true, selects has_texture=1 pipeline variant and binds
  *            the current texture, sampler, and fragment uniforms (TextureOp).
  */
+static bool s_rave_flushing_zsort = false;
+
 static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured = false)
 {
 	RaveMetalState *ms = priv->metal;
@@ -1329,7 +1330,7 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 				if (!tex_entry->metal_texture && tex_entry->pixmap_mac_addr != 0) {
 					RaveRealizeDeferredTexture(tex_entry);
 				}
-				else if (RaveTextureNeedsLivePixmapRefresh(tex_entry)) {
+				else if (!s_rave_flushing_zsort && RaveTextureNeedsLivePixmapRefresh(tex_entry)) {
 					RaveRefreshTextureFromPixmap(tex_entry);
 				}
 			}
@@ -1340,7 +1341,7 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 				if (!tex2_entry->metal_texture && tex2_entry->pixmap_mac_addr != 0) {
 					RaveRealizeDeferredTexture(tex2_entry);
 				}
-				else if (RaveTextureNeedsLivePixmapRefresh(tex2_entry)) {
+				else if (!s_rave_flushing_zsort && RaveTextureNeedsLivePixmapRefresh(tex2_entry)) {
 					RaveRefreshTextureFromPixmap(tex2_entry);
 				}
 			}
@@ -1423,6 +1424,10 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 		if (scissor.width > 0 && scissor.height > 0) {
 			[ms->currentEncoder setScissorRect:scissor];
 		}
+	}
+
+	if (!(priv->state[105].i || priv->state[106].i || priv->state[107].i || priv->state[108].i)) {
+		[ms->currentEncoder setScissorRect:MTLScissorRect{0, 0, (NSUInteger)priv->width, (NSUInteger)priv->height}];
 	}
 
 	// Bind texture and sampler when rendering textured geometry
@@ -1680,13 +1685,29 @@ static inline void *RaveDrawScratchEnsure(uint8_t **buf, uint32_t *cap, size_t b
  *  instead of drawn immediately. At RenderEnd, they are sorted back-to-front
  *  (higher Z = farther = drawn first) and flushed with per-triangle state.
  */
+static void FlushZSortBuffer(RaveDrawPrivate *priv);
+
+static void RavePrepareSortedTexture(RaveDrawPrivate *priv, bool textured)
+{
+	if (!textured) return;
+	uint32_t addresses[2] = {priv->state[13].i, priv->multiTextureActive ? priv->multiTextureHandle : 0};
+	for (uint32_t address : addresses) {
+		RaveResourceEntry *entry = RaveResourceGet(RaveResourceFindByAddr(address));
+		if (!entry) continue;
+		if ((!entry->metal_texture && entry->pixmap_mac_addr) || RaveTextureNeedsLivePixmapRefresh(entry)) {
+			FlushZSortBuffer(priv);
+			if (!entry->metal_texture) RaveRealizeDeferredTexture(entry);
+			else RaveRefreshTextureFromPixmap(entry);
+		}
+	}
+}
+
 static void BufferZSortTriangle(RaveDrawPrivate *priv, const RaveVertex *v0, const RaveVertex *v1,
                                  const RaveVertex *v2, bool textured)
 {
-	if (priv->zsortCount >= RAVE_ZSORT_MAX_TRIANGLES) {
-		RAVE_VLOG("ZSort: buffer full (%d triangles), dropping triangle", RAVE_ZSORT_MAX_TRIANGLES);
-		return;
-	}
+	RavePrepareSortedTexture(priv, textured);
+	if (priv->zsortCount >= RAVE_ZSORT_MAX_TRIANGLES) FlushZSortBuffer(priv);
+	if (priv->zsortCount >= RAVE_ZSORT_MAX_TRIANGLES) return;
 
 	ZSortTriangle *tri = &priv->zsortBuffer[priv->zsortCount++];
 	memcpy(&tri->verts[0], v0, sizeof(RaveVertex));
@@ -1694,210 +1715,70 @@ static void BufferZSortTriangle(RaveDrawPrivate *priv, const RaveVertex *v0, con
 	memcpy(&tri->verts[2], v2, sizeof(RaveVertex));
 	tri->sortKey = (v0->pos[2] + v1->pos[2] + v2->pos[2]) / 3.0f;
 	tri->textured = textured;
-	tri->textureMacAddr = priv->state[13].i;  // kQATag_Texture
-	tri->textureOp = (int32_t)priv->state[12].i;
-	tri->blendMode = (int32_t)priv->state[9].i;
-	tri->glBlendSrc = (uint32_t)priv->state[109].i;
-	tri->glBlendDst = (uint32_t)priv->state[110].i;
-	tri->filterMode = (int32_t)priv->state[11].i;
+	memcpy(tri->state, priv->state, sizeof(tri->state));
+	tri->multiTextureActive = textured && priv->multiTextureActive && priv->multiTexStagingCount >= 3;
+	tri->multiTextureHandle = priv->multiTextureHandle;
+	if (tri->multiTextureActive) memcpy(tri->multiTexUV, priv->multiTexStagingBuffer, sizeof(tri->multiTexUV));
 }
 
 static void FlushZSortBuffer(RaveDrawPrivate *priv)
 {
-	if (priv->zsortCount == 0) return;
-
+	if (!priv->zsortCount || s_rave_flushing_zsort) return;
 	RaveMetalState *ms = priv->metal;
 	if (!ms || !ms->currentEncoder) return;
-
-	// Ring-exhaustion guard: all batch state below is applied after this, so
-	// a restart here cannot orphan encoder bindings.
-	RaveFlushRingWindowIfNearExhaustion(priv);
-	if (!ms->currentEncoder) return;
-
-	// Sort back-to-front (higher Z = farther = draw first)
-	std::sort(priv->zsortBuffer, priv->zsortBuffer + priv->zsortCount,
-	          [](const ZSortTriangle &a, const ZSortTriangle &b) {
-	              return a.sortKey > b.sortKey;
-	          });
-
-	// Build fragment uniforms once (fog/alpha state is per-context, not per-triangle)
-	FragmentUniforms fragUniforms = {};
-	RaveFillFogUniforms(priv, &fragUniforms);
-	fragUniforms.alpha_test_func = (int32_t)priv->state[31].i;
-	fragUniforms.alpha_test_ref = priv->state[46].f;
-	fragUniforms.mipmap_bias = RaveMetalSamplerMipBias(priv->state[41].f);
-	fragUniforms.multi_texture_mipmap_bias = RaveMetalSamplerMipBias(priv->state[42].f);
-	fragUniforms.env_color_r = priv->state[151].f;
-	fragUniforms.env_color_g = priv->state[152].f;
-	fragUniforms.env_color_b = priv->state[153].f;
-	fragUniforms.env_color_a = priv->state[150].f;
-
-	VertexUniforms vertUniforms;
-	vertUniforms.point_width = priv->state[5].f;
-	if (vertUniforms.point_width < 1.0f) vertUniforms.point_width = 1.0f;
-	[ms->currentEncoder setVertexBytes:&vertUniforms length:sizeof(vertUniforms) atIndex:2];
-
-	bool hasFog = RaveEffectiveFogEnabled(priv);
-	bool hasAlphaTest = (priv->state[31].i != 0 && priv->state[31].i != 7);
-
-	// Batch consecutive triangles that share the same render state into single
-	// draw calls.  The z-sort order is preserved within each batch since we
-	// scan forward.  State keys: textured, textureMacAddr, blendMode,
-	// filterMode, textureOp.  Triangles with different keys break the batch.
-	//
-	// Temporary vertex buffer: sized for the entire zsort buffer.
-	// Most frames reuse a single batch for all triangles (same texture/blend).
-	RaveVertex *batchVerts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (priv->zsortCount * 3) * sizeof(RaveVertex));
-	uint32_t batchCount = 0;
-	uint32_t drawCalls = 0;
-
-	// State of the current batch (from the first triangle)
-	int      curPipeIdx = -1;
-	bool     curUsesGLPipeline = false;
-	uint32_t curGlBlendSrc = 0;
-	uint32_t curGlBlendDst = 0;
-	uint32_t curTexAddr = 0;
-	int32_t  curTexOp   = 0;
-	int      curFilter  = 0;
-	bool     curTextured = false;
-	bool     curTexOpaque = false;
-
-	auto flushBatch = [&]() {
-		if (batchCount == 0) return;
-		uint32_t vertCount = batchCount * 3;
-		size_t dataSize = vertCount * sizeof(RaveVertex);
-
-		// Set fragment uniforms with the current batch's textureOp. Z-sorted
-		// texture batches use the same opaque-texture guard as the immediate path.
-		fragUniforms.texture_op = curTextured ? curTexOp : 0;
-		if (curTextured && curTexOpaque) {
-			fragUniforms.texture_op |= RAVE_TEXTURE_OP_FORCE_OPAQUE_ALPHA;
-		}
-		[ms->currentEncoder setFragmentBytes:&fragUniforms length:sizeof(fragUniforms) atIndex:0];
-
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(batchVerts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				fprintf(stderr, "[RAVE Metal] ring buffer not available; skipping draw\n");
-				batchCount = 0;
-				return;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:batchVerts length:dataSize atIndex:0];
-		}
-		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertCount];
-		drawCalls++;
-		batchCount = 0;
-	};
-
-	for (uint32_t i = 0; i < priv->zsortCount; i++) {
-		ZSortTriangle *tri = &priv->zsortBuffer[i];
-
-		int blend_mode = tri->blendMode;
-		if (blend_mode < 0 || blend_mode > 2) blend_mode = 0;
-		int func_const_bits = 0;
-		if (tri->textured) func_const_bits |= 1;
-		if (hasFog) func_const_bits |= 2;
-		if (hasAlphaTest) func_const_bits |= 4;
-		bool usesGLPipeline = RaveBlendModeUsesGLPipeline(blend_mode) != 0;
-		int pipe_idx = (usesGLPipeline ? 0 : blend_mode) * 16 + func_const_bits;
-
-		// Check if this triangle can join the current batch
-		bool stateChanged = (pipe_idx != curPipeIdx ||
-		                     usesGLPipeline != curUsesGLPipeline ||
-		                     (usesGLPipeline &&
-		                      (tri->glBlendSrc != curGlBlendSrc || tri->glBlendDst != curGlBlendDst)) ||
-		                     tri->textured != curTextured ||
-		                     tri->textureMacAddr != curTexAddr ||
-		                     tri->textureOp != curTexOp ||
-		                     tri->filterMode != curFilter);
-
-		if (stateChanged) {
-			// Flush previous batch
-			flushBatch();
-
-			// Set new GPU state
-			curPipeIdx = pipe_idx;
-			curUsesGLPipeline = usesGLPipeline;
-			curGlBlendSrc = tri->glBlendSrc;
-			curGlBlendDst = tri->glBlendDst;
-			curTextured = tri->textured;
-			curTexAddr = tri->textureMacAddr;
-			curTexOp = tri->textureOp;
-			curFilter = tri->filterMode;
-			curTexOpaque = false;
-
-			// Texture realize / live pixmap refresh can break and restart the
-			// render pass (fenced staging upload) — run it after the previous
-			// batch's flush but before the pipeline/depth/texture binds below,
-			// so a restart cannot orphan state already issued for this batch
-			// (same hazard as ApplyDirtyState's texture section).
-			RaveResourceEntry *tex_entry = nullptr;
-			if (tri->textured && tri->textureMacAddr != 0) {
-				tex_entry = RaveResourceGet(RaveResourceFindByAddr(tri->textureMacAddr));
-				if (tex_entry) {
-					if (!tex_entry->metal_texture && tex_entry->pixmap_mac_addr != 0) {
-						RaveRealizeDeferredTexture(tex_entry);
-					}
-					else if (RaveTextureNeedsLivePixmapRefresh(tex_entry)) {
-						RaveRefreshTextureFromPixmap(tex_entry);
-					}
-				}
-			}
-
-			const bool hasDepthAttachment = RaveContextUsesMetalDepthAttachment(priv->flags) != 0;
-
-			uint32_t channelMask = RaveNormalizeChannelMask(priv->state[27].i);  // kQATag_ChannelMask
-			if (usesGLPipeline) {
-				id<MTLRenderPipelineState> glPipe = GetGLBlendPipeline(
-					ms, func_const_bits, tri->glBlendSrc, tri->glBlendDst,
-					channelMask, ms->msaaActive, hasDepthAttachment);
-				if (glPipe)
-					[ms->currentEncoder setRenderPipelineState:glPipe];
-			} else {
-				// Apply channel mask in z-sort flush path (same as ApplyDirtyState)
-				if (channelMask != 0xF) {
-					id<MTLRenderPipelineState> maskedPipe = GetMaskedPipeline(
-						ms, pipe_idx, channelMask, ms->msaaActive, hasDepthAttachment);
-					if (maskedPipe)
-						[ms->currentEncoder setRenderPipelineState:maskedPipe];
-				} else {
-					id<MTLRenderPipelineState> __strong *pipeArray = ms->msaaActive ? ms->msaaPipelines : ms->pipelines;
-					if (pipe_idx >= 0 && pipe_idx < 48 && pipeArray[pipe_idx])
-						[ms->currentEncoder setRenderPipelineState:pipeArray[pipe_idx]];
-				}
-			}
-			RaveSetDepthStencilStateForDraw(priv, blend_mode, tri->glBlendSrc, tri->glBlendDst);
-
-			if (tri->textured && tri->textureMacAddr != 0) {
-				if (tex_entry) {
-					curTexOpaque =
-						RaveTextureDiagUsesOpaqueAlphaGuard(tex_entry->diag_alpha_zero);
-					if (tex_entry->metal_texture) {
-						id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)tex_entry->metal_texture;
-						[ms->currentEncoder setFragmentTexture:mtlTex atIndex:0];
-					}
-				}
-				int filter = tri->filterMode;
-				if (filter < 0 || filter > 2) filter = 0;
-				[ms->currentEncoder setFragmentSamplerState:ms->samplers[filter] atIndex:0];
-			}
-		}
-
-		// Append triangle vertices to batch
-		memcpy(&batchVerts[batchCount * 3], tri->verts, sizeof(RaveVertex) * 3);
-		batchCount++;
+	s_rave_flushing_zsort = true;
+	const uint32_t count = priv->zsortCount;
+	priv->zsortCount = 0; // Texture uploads during replay cannot recursively drain this batch.
+	std::stable_sort(priv->zsortBuffer, priv->zsortBuffer + count,
+		[](const ZSortTriangle &a, const ZSortTriangle &b) { return a.sortKey > b.sortKey; });
+	RaveStateValue savedState[RAVE_MAX_TAG];
+	memcpy(savedState, priv->state, sizeof(savedState));
+	const bool savedMultiActive = priv->multiTextureActive;
+	const uint32_t savedMultiHandle = priv->multiTextureHandle;
+	const uint32_t savedDirty = priv->dirty_flags;
+	for (uint32_t i = 0; i < count; ++i) {
+		const ZSortTriangle &tri = priv->zsortBuffer[i];
+		memcpy(priv->state, tri.state, sizeof(tri.state));
+		priv->multiTextureActive = tri.multiTextureActive;
+		priv->multiTextureHandle = tri.multiTextureHandle;
+		// Use the immediate path's complete pipeline, sampler, fog, alpha,
+		// depth, channel-mask and environment state rather than a partial key.
+		ApplyDirtyState(priv, true, tri.textured);
+		if (!ms->currentEncoder) break;
+		[ms->currentEncoder setVertexBytes:tri.verts length:sizeof(tri.verts) atIndex:0];
+		if (tri.multiTextureActive)
+			[ms->currentEncoder setVertexBytes:tri.multiTexUV length:sizeof(tri.multiTexUV) atIndex:3];
+		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
 	}
-
-	// Flush final batch
-	flushBatch();
+	memcpy(priv->state, savedState, sizeof(savedState));
+	priv->multiTextureActive = savedMultiActive;
+	priv->multiTextureHandle = savedMultiHandle;
+	priv->dirty_flags = savedDirty;
 	ms->currentPipelineKey = kRavePipelineKeyInvalid;
+	s_rave_flushing_zsort = false;
+}
 
-	RAVE_LOG("ZSort: flushed %d triangles in %d draw calls", priv->zsortCount, drawCalls);
-	priv->zsortCount = 0;
+// Explicit resource mutation/deletion must consume references held by every context.
+void RaveFlushPendingDraws(void)
+{
+	if (s_rave_flushing_zsort) return;
+	for (uint32_t handle = 1; handle <= RAVE_MAX_CONTEXTS; ++handle) {
+		RaveDrawPrivate *ctx = RaveGetContext(handle);
+		if (!ctx || !ctx->metal) continue;
+		FlushZSortBuffer(ctx);
+		// Submit every encoder that could sample the old contents before the
+		// mutation is submitted on the shared queue. A fresh encoder can then
+		// remain open while the upload command is encoded.
+		RaveMetalState *ms = ctx->metal;
+		if (ms->renderPassActive && ms->currentEncoder && ms->currentCommandBuffer) {
+			[ms->currentEncoder endEncoding];
+			ms->currentEncoder = nil;
+			CommitRaveCommandBufferWithRing(ms->currentCommandBuffer);
+			ms->lastCommittedBuffer = ms->currentCommandBuffer;
+			ms->currentCommandBuffer = nil;
+			RestartRenderPassWithLoad(ctx);
+		}
+	}
 }
 
 
@@ -3234,6 +3115,7 @@ static void FireBufferNoticeMethod(RaveDrawPrivate *priv, int selector,
 	if (!ms || !ms->overlayTexture) return;
 
 	bool restartRenderPass = ms->renderPassActive && selector != 4;
+	FlushZSortBuffer(priv);
 	EndAndCommitCurrentRenderPass(ms);
 
 	if (!CopyOverlayToDrawBufferCPU(priv)) {
@@ -3918,6 +3800,7 @@ int32 NativeFlush(uint32 drawContextAddr)
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return kQANoErr;
 
+	FlushZSortBuffer(priv);
 	RaveMetalState *ms = priv->metal;
 
 	if (!ms->renderPassActive || !ms->currentEncoder) {
@@ -4119,6 +4002,7 @@ int32_t NativeAccessDrawBuffer(uint32_t drawContextAddr, uint32_t bufferStructAd
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return kQAError;
+	FlushZSortBuffer(priv);
 	RaveMetalState *ms = priv->metal;
 	if (!ms->renderPassActive || !ms->overlayTexture) return kQAError;
 
@@ -4175,6 +4059,7 @@ int32_t NativeAccessZBuffer(uint32_t drawContextAddr, uint32_t bufferStructAddr)
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return kQAError;
+	FlushZSortBuffer(priv);
 	RaveMetalState *ms = priv->metal;
 	if (!ms->renderPassActive || !ms->depthBuffer) return kQAError;
 
@@ -4276,6 +4161,7 @@ int32_t NativeClearDrawBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint3
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return kQAError;
+	FlushZSortBuffer(priv);
 	RaveMetalState *ms = priv->metal;
 	if (!ms->renderPassActive || !ms->currentEncoder) return kQAError;
 	// NULL rect = whole buffer (same convention as QARenderStart's NULL dirtyRect;
@@ -4379,6 +4265,7 @@ int32_t NativeClearZBuffer(uint32_t drawContextAddr, uint32_t rectAddr, uint32_t
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal) return kQAError;
+	FlushZSortBuffer(priv);
 	RaveMetalState *ms = priv->metal;
 	if (!ms->renderPassActive || !ms->currentEncoder) return kQAError;
 	if (!RaveContextUsesMetalDepthAttachment(priv->flags)) {
@@ -4553,6 +4440,7 @@ static RaveDrawPrivate *s_rave_upload_batch_ctx = nullptr;
 void RaveTextureUploadBatchBegin(void)
 {
 	if (s_rave_upload_batch_depth++ != 0) return;
+	RaveFlushPendingDraws();
 	s_rave_upload_batch_ctx = RaveCurrentDrawContext();
 	s_rave_upload_batch_restart =
 		RaveEndActiveRenderPassForTextureUpload(s_rave_upload_batch_ctx);
@@ -4576,6 +4464,7 @@ void RaveUploadMipLevel(void *metalTexture, uint32_t level, uint32_t width, uint
                          const uint8_t *pixelData, uint32_t bytesPerRow)
 {
 	if (!metalTexture || !pixelData || width == 0 || height == 0 || bytesPerRow == 0) return;
+	if (s_rave_upload_batch_depth == 0) RaveFlushPendingDraws();
 
 	id<MTLTexture> tex = (__bridge id<MTLTexture>)metalTexture;
 	RaveDrawPrivate *currentCtx = RaveCurrentDrawContext();
@@ -4649,6 +4538,7 @@ void RaveUploadMipLevel(void *metalTexture, uint32_t level, uint32_t width, uint
 // Requires MTLTextureUsageShaderWrite on the texture (fixed in RaveCreateMetalTexture).
 void RaveGenerateMipmaps(void *metalTexture)
 {
+	RaveFlushPendingDraws();
 	if (!metalTexture) return;
 	id<MTLTexture> tex = (__bridge id<MTLTexture>)metalTexture;
 	id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
@@ -4667,6 +4557,7 @@ void RaveGenerateMipmaps(void *metalTexture)
 
 void RaveReleaseTexture(void *metalTexture)
 {
+	RaveFlushPendingDraws();
 	if (metalTexture) {
 		id<MTLTexture> tex = (__bridge_transfer id<MTLTexture>)metalTexture;
 		tex = nil;  // ARC releases
@@ -4685,6 +4576,7 @@ void RaveReleaseTexture(void *metalTexture)
 void RaveRefreshTextureFromPixmap(RaveResourceEntry *entry)
 {
 	if (!entry || !entry->metal_texture || entry->pixmap_mac_addr == 0) return;
+	RaveFlushPendingDraws();
 
 	uint32_t w = entry->width;
 	uint32_t h = entry->height;
@@ -4789,6 +4681,7 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || deviceStructAddr == 0) return kQAError;
+	FlushZSortBuffer(priv);
 	RaveMetalState *ms = priv->metal;
 
 	const VideoInfo &mode = VModes[cur_mode];
@@ -4798,7 +4691,12 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 		// Screen is not in a 16bpp mode (callers of this ATI extension do
 		// 16-bit pixel math on the buffer). Return the RGB32 CPU draw buffer
 		// so the pointer is at least valid guest memory.
-		if (!ms->overlayTexture || !EnsureDrawBufferCPU(priv)) return kQAError;
+		if (!ms->overlayTexture) return kQAError;
+		const bool wasActive = ms->renderPassActive && ms->currentEncoder;
+		if (wasActive) EndAndCommitCurrentRenderPass(ms);
+		if (ms->lastCommittedBuffer) [ms->lastCommittedBuffer waitUntilCompleted];
+		if (!CopyOverlayToDrawBufferCPU(priv)) return kQAError;
+		if (wasActive && RestartRenderPassWithLoad(priv) != kQANoErr) return kQAError;
 		NSUInteger w = ms->overlayTexture.width;
 		NSUInteger h = ms->overlayTexture.height;
 		WriteMacInt32(deviceStructAddr + 0,  kQADeviceMemory);
