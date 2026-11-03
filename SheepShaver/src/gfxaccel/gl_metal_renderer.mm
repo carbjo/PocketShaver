@@ -32,6 +32,7 @@
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "gl_engine.h"
+#include "gl_buffer_policy.h"
 #include "metal_compositor.h"    // for MetalCompositorSubmitFrame, CompositeLayer, FrameDescriptor
 #include "display_mode_controller.h"  // dmc_current_snapshot() for FrameDescriptor generation
 #include "accel_logging.h"
@@ -52,12 +53,14 @@
 // Forward declare Mac_sysalloc (from macos_util.h) to avoid UIKit header conflicts
 extern uint32 Mac_sysalloc(uint32 size);
 
-/* Each drawable owns its visible texture pair. Offscreen targets live in
- * GLMetalState and never enter this registry or the compositor mailbox. DMC
- * detach releases GPU targets while retaining the logical drawable binding. */
+/* Each drawable owns logical front/back color buffers, plus two immutable
+ * publication snapshots. A snapshot is reused only after another snapshot
+ * replaces it in the compositor mailbox; all GPU work shares the same queue. */
 struct GLOverlayState {
     id<MTLTexture> pair[2] = { nil, nil };
-    uint32_t write_index = 0;
+    id<MTLTexture> published[2] = { nil, nil };
+    uint32_t publication_index = 0;
+    bool needs_clear = true;
     int32_t left = 0, top = 0, width = 0, height = 0;
     bool committed = false;
 };
@@ -69,10 +72,12 @@ static void gl_release_overlay_texture(GLOverlayState &overlay)
 {
     for (int i = 0; i < 2; ++i) {
         MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
-            (__bridge void *)overlay.pair[i]);
+            (__bridge void *)overlay.published[i]);
+        overlay.published[i] = nil;
         overlay.pair[i] = nil;
     }
-    overlay.write_index = 0;
+    overlay.publication_index = 0;
+    overlay.needs_clear = true;
     overlay.committed = false;
 }
 
@@ -107,8 +112,9 @@ static id<MTLTexture> gl_acquire_overlay_texture(GLOverlayState &overlay)
         overlay.pair[0] = first;
         overlay.pair[1] = second;
         overlay.committed = false;
+        overlay.needs_clear = true;
     }
-    return overlay.pair[overlay.write_index];
+    return overlay.pair[0];
 }
 
 extern "C" void gl_overlay_bind(GLContext *ctx, int32_t left, int32_t top,
@@ -138,21 +144,35 @@ extern "C" void gl_overlay_unbind(GLContext *ctx)
     s_gl_overlays.erase(it);
 }
 
-static void gl_note_overlay_committed(GLContext *ctx, id<MTLTexture> texture)
+static void gl_note_front_modified(GLContext *ctx, id<MTLTexture> texture)
 {
     auto it = s_gl_overlays.find(ctx);
     if (it != s_gl_overlays.end() && texture != nil &&
-        texture == it->second.pair[it->second.write_index])
+        texture == it->second.pair[0] &&
+        (GLDrawBufferTargets(ctx->draw_buffer, ctx->double_buffered) & 1))
         it->second.committed = true;
 }
 
-extern "C" void gl_overlay_present(GLContext *ctx)
+// Publish a copy, never a logical buffer that a later GL_FRONT draw can edit.
+static void gl_publish_front(GLContext *ctx)
 {
     auto it = s_gl_overlays.find(ctx);
     if (it == s_gl_overlays.end()) return;
     GLOverlayState &overlay = it->second;
-    id<MTLTexture> texture = overlay.pair[overlay.write_index];
-    if (!overlay.committed || texture == nil) return;
+    id<MTLTexture> front = overlay.pair[0];
+    if (!overlay.committed || !front) return;
+    id<MTLTexture> __strong &texture = overlay.published[overlay.publication_index];
+    if (!texture) texture = gl_new_render_target(overlay.width, overlay.height);
+    if (!texture) return;
+    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
+    id<MTLCommandBuffer> command = [queue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+    if (!blit) return;
+    [blit copyFromTexture:front sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)
+        sourceSize:MTLSizeMake(front.width,front.height,1)
+        toTexture:texture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+    [blit endEncoding];
+    [command commit];
 
     const DMCModeSnapshot *snap = dmc_current_snapshot();
     CompositeLayer layer = {};
@@ -168,9 +188,23 @@ extern "C" void gl_overlay_present(GLContext *ctx)
     layer.alpha = 1.0f;
     FrameDescriptor desc = { &layer, 1, snap ? snap->generation : 0, 0 };
     if (MetalCompositorSubmitFrame(&desc) == kGfxAccelNoErr) {
-        overlay.write_index ^= 1u;
+        overlay.publication_index ^= 1u;
         overlay.committed = false;
     }
+}
+
+extern "C" void gl_overlay_present(GLContext *ctx)
+{
+    auto it = s_gl_overlays.find(ctx);
+    if (it == s_gl_overlays.end()) return;
+    if (ctx->double_buffered) {
+        std::swap(it->second.pair[0], it->second.pair[1]);
+        it->second.committed = true;
+    }
+    gl_publish_front(ctx);
+    // A swap changes both logical roles. The next operation reloads the pair.
+    // EndFrame was called by AGL before this function.
+    gl_end_render_target_for_detach(ctx);
 }
 
 extern "C" int gl_prepare_overlays_for_attach(void)
@@ -420,7 +454,8 @@ struct GLMetalState {
     // Current frame state
     id<MTLCommandBuffer>        currentCommandBuffer;
     id<MTLRenderCommandEncoder> currentEncoder;
-    id<MTLTexture>              overlayTexture;  // current visible/offscreen render target
+    id<MTLTexture>              overlayTexture;  // logical front color target
+    id<MTLTexture>              backTexture;     // logical back (unused sink for offscreen)
     id<MTLTexture>              offscreenTexture; // private to this context, never published
     id<MTLTexture>              offscreenUploadTexture;
     std::vector<uint8_t>        offscreenUploadPixels;
@@ -443,6 +478,31 @@ struct GLMetalState {
 	id<MTLSamplerState>         linearSampler;
     id<MTLSamplerState>         nearestSampler;
 };
+
+static unsigned GLMetalDrawTargets(GLContext *ctx)
+{
+    const unsigned targets = GLDrawBufferTargets(ctx->draw_buffer, ctx->double_buffered);
+    // An AGL offscreen drawable has one caller-owned pixel array. Retain its
+    // existing FRONT/BACK aliasing while keeping GL_NONE authoritative.
+    return GLContextGetOffscreenDrawable(ctx, NULL, NULL, NULL, NULL) ? (targets ? 1 : 0) : targets;
+}
+
+static id<MTLTexture> GLMetalReadColorTexture(GLContext *ctx, GLMetalState *ms)
+{
+    if (GLContextGetOffscreenDrawable(ctx, NULL, NULL, NULL, NULL)) return ms->overlayTexture;
+    return ctx->read_buffer == 0x0402 || ctx->read_buffer == 0x0405
+        ? ms->backTexture : ms->overlayTexture;
+}
+
+static void GLMetalSetColorAttachments(MTLRenderPassDescriptor *pass, GLMetalState *ms)
+{
+    pass.colorAttachments[0].texture = ms->overlayTexture;
+    pass.colorAttachments[1].texture = ms->backTexture;
+    for (int i = 0; i < 2; ++i) {
+        pass.colorAttachments[i].loadAction = MTLLoadActionLoad;
+        pass.colorAttachments[i].storeAction = MTLStoreActionStore;
+    }
+}
 
 static void GLMetalRingSignalSlots(dispatch_semaphore_t sem,
                                    uint32_t slotCount)
@@ -1574,7 +1634,7 @@ static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext
 
     uint64_t key = MakePipelineKey(blend_enabled, blend_src, blend_dst,
                                     depth_write, color_mask_bits, has_texture,
-                                    ctx->blend_equation, isOffscreen);
+                                    ctx->blend_equation, isOffscreen) | (uint64_t(GLMetalDrawTargets(ctx)) << 56);
 
     auto it = ms->pipelineCache.find(key);
     if (it != ms->pipelineCache.end()) return it->second;
@@ -1621,7 +1681,10 @@ static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext
     if (color_mask_bits & 2) mask |= MTLColorWriteMaskGreen;
     if (color_mask_bits & 4) mask |= MTLColorWriteMaskBlue;
     if (color_mask_bits & 8) mask |= MTLColorWriteMaskAlpha;
-    pipeDesc.colorAttachments[0].writeMask = mask;
+    const unsigned targets = GLMetalDrawTargets(ctx);
+    pipeDesc.colorAttachments[0].writeMask = targets & 1 ? mask : MTLColorWriteMaskNone;
+    pipeDesc.colorAttachments[1] = [pipeDesc.colorAttachments[0] copy];
+    pipeDesc.colorAttachments[1].writeMask = targets & 2 ? mask : MTLColorWriteMaskNone;
 
     id<MTLRenderPipelineState> pipeline = [ms->device newRenderPipelineStateWithDescriptor:pipeDesc error:&err];
     if (!pipeline) {
@@ -1833,20 +1896,17 @@ void GLMetalBeginFrame(GLContext *ctx)
             ms->offscreenTexture.height != drawableH)
             ms->offscreenTexture = gl_new_render_target(drawableW, drawableH);
         nextOverlay = ms->offscreenTexture;
+        if (!ms->backTexture || ms->backTexture.width != drawableW || ms->backTexture.height != drawableH)
+            ms->backTexture = gl_new_render_target(drawableW, drawableH);
     } else {
         if (!gl_claim_display_for_overlay()) return;
         nextOverlay = gl_acquire_overlay_texture(binding->second);
+        ms->backTexture = binding->second.pair[1];
     }
     if (!nextOverlay) return;
 
-    // A single-buffer flush publishes a texture without ending the logical
-    // frame. Continue in the other texture, copying the published pixels so
-    // partial redraws survive without writing the compositor's cached source.
-    id<MTLTexture> previousOverlay = ms->overlayTexture;
-    const bool preserveSingleBuffer = !isOffscreen && !ctx->double_buffered &&
-        previousOverlay && previousOverlay != nextOverlay &&
-        previousOverlay.width == nextOverlay.width && previousOverlay.height == nextOverlay.height;
-    const bool loadColor = isOffscreen || previousOverlay == nextOverlay || preserveSingleBuffer;
+    const bool loadColor = isOffscreen || !binding->second.needs_clear;
+    if (!isOffscreen) binding->second.needs_clear = false;
     ms->overlayTexture = nextOverlay;
     const bool loadDepthStencil = ms->depthBuffer &&
         (int)ms->depthBuffer.width == w && (int)ms->depthBuffer.height == h;
@@ -1861,35 +1921,17 @@ void GLMetalBeginFrame(GLContext *ctx)
         return;
     }
 
-    if (preserveSingleBuffer) {
-        id<MTLBlitCommandEncoder> blit = [ms->currentCommandBuffer blitCommandEncoder];
-        if (!blit) {
-            ms->currentCommandBuffer = nil;
-            if (!ctx->last_error) ctx->last_error = 0x0505;
-            return;
-        }
-        [blit copyFromTexture:previousOverlay sourceSlice:0 sourceLevel:0
-            sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(w, h, 1)
-            toTexture:nextOverlay destinationSlice:0 destinationLevel:0
-            destinationOrigin:MTLOriginMake(0, 0, 0)];
-        [blit endEncoding];
-    }
-
     MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
-    rpd.colorAttachments[0].texture = ms->overlayTexture;
-    rpd.colorAttachments[0].loadAction = loadColor ? MTLLoadActionLoad : MTLLoadActionClear;
-    rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
-    const float clearAlpha =
-        GLMetalOverlayClearAlpha(isOffscreen, ctx->clear_color[3]);
-    rpd.colorAttachments[0].clearColor = MTLClearColorMake(
-        GLMetalOverlayClearColorComponent(isOffscreen,
-                                          ctx->clear_color[0], clearAlpha),
-        GLMetalOverlayClearColorComponent(isOffscreen,
-                                          ctx->clear_color[1], clearAlpha),
-        GLMetalOverlayClearColorComponent(isOffscreen,
-                                          ctx->clear_color[2], clearAlpha),
-        clearAlpha
-    );
+    GLMetalSetColorAttachments(rpd, ms);
+    const float clearAlpha = GLMetalOverlayClearAlpha(isOffscreen, ctx->clear_color[3]);
+    const MTLClearColor clearColor = MTLClearColorMake(
+        GLMetalOverlayClearColorComponent(isOffscreen, ctx->clear_color[0], clearAlpha),
+        GLMetalOverlayClearColorComponent(isOffscreen, ctx->clear_color[1], clearAlpha),
+        GLMetalOverlayClearColorComponent(isOffscreen, ctx->clear_color[2], clearAlpha), clearAlpha);
+    for (int i = 0; i < 2; ++i) {
+        rpd.colorAttachments[i].loadAction = loadColor ? MTLLoadActionLoad : MTLLoadActionClear;
+        rpd.colorAttachments[i].clearColor = clearColor;
+    }
 
     rpd.depthAttachment.texture = ms->depthBuffer;
     rpd.depthAttachment.loadAction = loadDepthStencil ? MTLLoadActionLoad : MTLLoadActionClear;
@@ -1920,9 +1962,10 @@ void GLMetalBeginFrame(GLContext *ctx)
 }
 
 static id<MTLRenderPipelineState> GLMetalGetClearPipeline(GLMetalState *ms,
-                                                        unsigned colorMask)
+                                                        unsigned colorMask, unsigned targets)
 {
-    auto found = ms->clearPipelineCache.find(colorMask);
+    const unsigned key = colorMask | (targets << 4);
+    auto found = ms->clearPipelineCache.find(key);
     if (found != ms->clearPipelineCache.end()) return found->second;
 
     MTLRenderPipelineDescriptor *desc = [[MTLRenderPipelineDescriptor alloc] init];
@@ -1935,6 +1978,9 @@ static id<MTLRenderPipelineState> GLMetalGetClearPipeline(GLMetalState *ms,
         ((colorMask & 2) ? MTLColorWriteMaskGreen : MTLColorWriteMaskNone) |
         ((colorMask & 4) ? MTLColorWriteMaskBlue : MTLColorWriteMaskNone) |
         ((colorMask & 8) ? MTLColorWriteMaskAlpha : MTLColorWriteMaskNone);
+    desc.colorAttachments[1] = [desc.colorAttachments[0] copy];
+    if (!(targets & 1)) desc.colorAttachments[0].writeMask = MTLColorWriteMaskNone;
+    if (!(targets & 2)) desc.colorAttachments[1].writeMask = MTLColorWriteMaskNone;
     desc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
     desc.stencilAttachmentPixelFormat = MTLPixelFormatDepth32Float_Stencil8;
     NSError *error = nil;
@@ -1944,7 +1990,7 @@ static id<MTLRenderPipelineState> GLMetalGetClearPipeline(GLMetalState *ms,
         GL_METAL_LOG("GL clear pipeline failed: %s", error.localizedDescription.UTF8String);
         return nil;
     }
-    ms->clearPipelineCache[colorMask] = pipeline;
+    ms->clearPipelineCache[key] = pipeline;
     return pipeline;
 }
 
@@ -1970,7 +2016,7 @@ static bool GLMetalDrawMaskedClear(GLContext *ctx, uint32_t mask)
     const bool depthWrite = GLShouldClearDepthAttachment(mask);
     const unsigned stencilMask = GLShouldClearStencilAttachment(mask)
         ? (ctx->stencil.write_mask & 0xffu) : 0;
-    id<MTLRenderPipelineState> pipeline = GLMetalGetClearPipeline(ms, colorMask);
+    id<MTLRenderPipelineState> pipeline = GLMetalGetClearPipeline(ms, colorMask, GLMetalDrawTargets(ctx));
     if (!pipeline) return false;
 
     const unsigned key = (depthWrite ? 1u : 0u) | (stencilMask << 1);
@@ -2016,6 +2062,7 @@ static bool GLMetalDrawMaskedClear(GLContext *ctx, uint32_t mask)
     [ms->currentEncoder setVertexBytes:values length:sizeof(values) atIndex:0];
     [ms->currentEncoder setFragmentBytes:values length:sizeof(values) atIndex:0];
     [ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    if (colorMask) gl_note_front_modified(ctx, ms->overlayTexture);
     // The next ordinary draw must restore the guest viewport and scissor.
     ms->viewportScissorCacheValid = false;
     return true;
@@ -2029,7 +2076,7 @@ void GLMetalClear(GLContext *ctx, uint32_t mask)
     if (!(ctx->stencil.write_mask & 0xffu)) mask &= ~0x00000400u;
     const unsigned colorMask = GLMetalGuestColorWriteMask(
         ctx->color_mask[0], ctx->color_mask[1], ctx->color_mask[2], ctx->color_mask[3]);
-    if (!colorMask) mask &= ~0x00004000u;
+    if (!colorMask || !GLMetalDrawTargets(ctx)) mask &= ~0x00004000u;
     if (!GLShouldApplyAttachmentClear(mask)) return;
     if (ctx->scissor_test && (ctx->scissor_box[2] <= 0 || ctx->scissor_box[3] <= 0)) return;
 
@@ -2065,9 +2112,11 @@ void GLMetalClear(GLContext *ctx, uint32_t mask)
     }
 
     MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
-    rpd.colorAttachments[0].texture = ms->overlayTexture;
-    rpd.colorAttachments[0].loadAction = clearColor ? MTLLoadActionClear : MTLLoadActionLoad;
-    rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
+    GLMetalSetColorAttachments(rpd, ms);
+    const unsigned targets = GLMetalDrawTargets(ctx);
+    for (int i = 0; i < 2; ++i)
+        rpd.colorAttachments[i].loadAction = clearColor && (targets & (1u << i))
+            ? MTLLoadActionClear : MTLLoadActionLoad;
 
     uint32_t offscreenW = 0;
     uint32_t offscreenH = 0;
@@ -2084,6 +2133,8 @@ void GLMetalClear(GLContext *ctx, uint32_t mask)
                                           ctx->clear_color[2], clearAlpha),
         clearAlpha
     );
+
+    rpd.colorAttachments[1].clearColor = rpd.colorAttachments[0].clearColor;
 
     if (ms->depthBuffer) {
         rpd.depthAttachment.texture = ms->depthBuffer;
@@ -2107,6 +2158,7 @@ void GLMetalClear(GLContext *ctx, uint32_t mask)
 
     GLMetalApplyViewportAndScissor(ms, ctx, targetW, targetH);
 
+    if (clearColor) gl_note_front_modified(ctx, ms->overlayTexture);
     GL_METAL_VLOG("GLMetalClear: mask=0x%x color=%d depth=%d stencil=%d viewport=(%d,%d %dx%d)",
                  mask, clearColor ? 1 : 0, clearDepth ? 1 : 0, clearStencil ? 1 : 0,
                  ctx->viewport[0], ctx->viewport[1], ctx->viewport[2], ctx->viewport[3]);
@@ -2249,9 +2301,7 @@ static bool GLMetalFlushAndResetRingBuffer(GLContext *ctx)
     }
 
     MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
-    rpd.colorAttachments[0].texture = ms->overlayTexture;
-    rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
-    rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
+    GLMetalSetColorAttachments(rpd, ms);
 
     if (ms->depthBuffer) {
         rpd.depthAttachment.texture = ms->depthBuffer;
@@ -2617,6 +2667,7 @@ static void GLMetalSubmitVertices(GLContext *ctx,
         [ms->currentEncoder drawPrimitives:mtlPrim vertexStart:0 vertexCount:vertCount];
     }
 
+    gl_note_front_modified(ctx, ms->overlayTexture);
     if (!overflow) {
         ms->bufferOffset += (int)stagingBytes;
         ms->bufferOffset = (ms->bufferOffset + 255) & ~255;
@@ -2786,6 +2837,7 @@ static void GLMetalDrawPixelQuad(GLContext *ctx, int width, int height,
     [ms->currentEncoder setFragmentTexture:ms->fallbackWhiteTexture atIndex:2];
     [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:1];
     [ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    gl_note_front_modified(ctx, ms->overlayTexture);
     GLMetalMarkDrawCompleted(ctx);
 
     GL_METAL_VLOG("GLMetalDrawPixels: %dx%d at raster (%.1f, %.1f) zoom (%.1f, %.1f)",
@@ -2824,7 +2876,6 @@ void GLMetalEndFrame(GLContext *ctx)
     ms->currentCommandBuffer = nil;
 
     ms->renderPassActive = false;
-    gl_note_overlay_committed(ctx, ms->overlayTexture);
     GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
 
     GL_METAL_VLOG("GLMetalEndFrame: frame committed, buffer index now %d", ms->currentBufferIndex);
@@ -2850,12 +2901,11 @@ void NativeGLFinish(GLContext *ctx)
         ms->lastCommittedBuffer = committedBuffer;
         ms->currentCommandBuffer = nil;
         ms->renderPassActive = false;
-        gl_note_overlay_committed(ctx, ms->overlayTexture);
         GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
     }
 
     if (ms->lastCommittedBuffer) [ms->lastCommittedBuffer waitUntilCompleted];
-    if (!ctx->double_buffered) gl_overlay_present(ctx);
+    gl_publish_front(ctx);
 
     GL_METAL_VLOG("NativeGLFinish: completed");
 }
@@ -2889,11 +2939,10 @@ void NativeGLFlush(GLContext *ctx)
         ms->lastCommittedBuffer = committedBuffer;
         ms->currentCommandBuffer = nil;
         ms->renderPassActive = false;
-        gl_note_overlay_committed(ctx, ms->overlayTexture);
         GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
     }
 
-    if (!ctx->double_buffered) gl_overlay_present(ctx);
+    gl_publish_front(ctx);
 
     GL_METAL_VLOG("NativeGLFlush: committed");
 }
@@ -3535,9 +3584,7 @@ static bool GLMetalRestartRenderPassForReadback(GLContext *ctx)
     }
 
     MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
-    rpd.colorAttachments[0].texture = ms->overlayTexture;
-    rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
-    rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
+    GLMetalSetColorAttachments(rpd, ms);
 
     if (ms->depthBuffer) {
         rpd.depthAttachment.texture = ms->depthBuffer;
@@ -3645,7 +3692,7 @@ bool GLMetalCopyFramebufferToTexture(GLContext *ctx, GLTextureObject *texObj,
         uint64_t(yoffset) + uint64_t(height) > mipH) return fail(0x0501);
     if (width == 0 || height == 0) return true;
     if (!ms->overlayTexture) GLMetalBeginFrame(ctx);
-    id<MTLTexture> src = ms->overlayTexture;
+    id<MTLTexture> src = GLMetalReadColorTexture(ctx, ms);
     if (!src) return fail(0x0502);
 
     // Source pixels outside the framebuffer are undefined in GL. Preserve the
@@ -3739,14 +3786,15 @@ bool GLMetalCopyFramebufferToTexture(GLContext *ctx, GLTextureObject *texObj,
     return !hasPixels || blit ? true : fail(0x0505);
 }
 
-uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int height, int *out_len)
+static uint8_t *GLMetalReadFramebufferRectFromTexture(GLContext *ctx, int x, int y,
+    int width, int height, int *out_len, id<MTLTexture> source)
 {
     if (out_len) *out_len = 0;
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized || width <= 0 || height <= 0) return NULL;
 
     if (!ms->overlayTexture) GLMetalBeginFrame(ctx);
-    id<MTLTexture> srcTex = ms->overlayTexture;
+    id<MTLTexture> srcTex = source ? source : GLMetalReadColorTexture(ctx, ms);
     if (!srcTex || !GLMetalReadRectIsInTexture(srcTex, x, y, width, height)) return NULL;
 
     const bool restartRenderPass = ms->renderPassActive;
@@ -3796,6 +3844,11 @@ uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int
     return pixels;
 }
 
+
+uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int height, int *out_len)
+{
+    return GLMetalReadFramebufferRectFromTexture(ctx, x, y, width, height, out_len, nil);
+}
 
 static bool GLMetalStoreReadPixelsToGuest(GLContext *ctx, const uint8_t *pixels,
     int32_t width, int32_t height, uint32_t format, uint32_t type, uint32_t address)
@@ -3963,7 +4016,7 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
 
     id<MTLTexture> srcTex = nil;
     if (ms->overlayTexture) {
-        srcTex = ms->overlayTexture;
+        srcTex = GLMetalReadColorTexture(ctx, ms);
     }
     if (!srcTex || !GLMetalReadRectIsInTexture(srcTex, x, y, width, height)) {
         GL_METAL_LOG("NativeGLReadPixels: no overlay texture available");
@@ -4106,7 +4159,7 @@ static void gl_accum_restart_encoder(GLContext *ctx)
 // GL_RETURN bypasses blending, depth and stencil, but honors the scissor and
 // color write masks. Read/merge masked channels in shared staging storage and
 // blit the result into the private overlay, preserving the other attachments.
-static void gl_accum_write_framebuffer(GLContext *ctx, float scale)
+static void gl_accum_write_color_target(GLContext *ctx, float scale, id<MTLTexture> target)
 {
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized || !ctx->accum_allocated || !ms->overlayTexture) return;
@@ -4124,7 +4177,7 @@ static void gl_accum_write_framebuffer(GLContext *ctx, float scale)
     rect.height = std::min(rect.height, height - rect.y);
 
     int byteCount = 0;
-    uint8_t *pixels = GLMetalReadFramebufferRect(ctx, 0, 0, dstW, dstH, &byteCount);
+    uint8_t *pixels = GLMetalReadFramebufferRectFromTexture(ctx, 0, 0, dstW, dstH, &byteCount, target);
     if (!pixels) return;
     for (uint32_t y = rect.y; y < rect.y + rect.height; ++y) {
         for (uint32_t x = rect.x; x < rect.x + rect.width; ++x) {
@@ -4163,10 +4216,21 @@ static void gl_accum_write_framebuffer(GLContext *ctx, float scale)
     [blit copyFromTexture:staging sourceSlice:0 sourceLevel:0
             sourceOrigin:MTLOriginMake(rect.x, rect.y, 0)
               sourceSize:MTLSizeMake(rect.width, rect.height, 1)
-               toTexture:ms->overlayTexture destinationSlice:0 destinationLevel:0
+               toTexture:target destinationSlice:0 destinationLevel:0
        destinationOrigin:MTLOriginMake(rect.x, rect.y, 0)];
     [blit endEncoding];
     gl_accum_restart_encoder(ctx);
+}
+
+static void gl_accum_write_framebuffer(GLContext *ctx, float scale)
+{
+    GLMetalState *ms = (GLMetalState *)ctx->metal;
+    const unsigned targets = GLMetalDrawTargets(ctx);
+    if (targets & 1) {
+        gl_accum_write_color_target(ctx, scale, ms->overlayTexture);
+        gl_note_front_modified(ctx, ms->overlayTexture);
+    }
+    if (targets & 2) gl_accum_write_color_target(ctx, scale, ms->backTexture);
 }
 
 void NativeGLAccum(GLContext *ctx, uint32_t op, float value)
@@ -4174,10 +4238,8 @@ void NativeGLAccum(GLContext *ctx, uint32_t op, float value)
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized) return;
 
-    // LOAD/ACCUM read the current writable framebuffer; RETURN writes it.
-    // After a single-buffer publication, overlayTexture still names the
-    // displayed source. Acquire/copy the next target before any readback
-    // helper can resume its encoder or RETURN can blit into that source.
+    // LOAD/ACCUM use the selected read buffer; RETURN uses draw buffers.
+    // Reacquire logical roles after swaps before reading or writing them.
     if ((op == GL_ACCUM_OP || op == GL_LOAD_OP ||
          (op == GL_RETURN_OP && ctx->accum_allocated)) && !ms->renderPassActive) {
         GLMetalBeginFrame(ctx);
@@ -4760,7 +4822,14 @@ static void FetchArrayVertex(GLContext *ctx, uint32_t i, GLVertex &v) {
         }
     }
 
-    memcpy(v.secondary_color, ctx->current_secondary_color, sizeof(float) * 3);
+    if (ctx->secondary_color_array.enabled && ctx->secondary_color_array.pointer) {
+        const auto &array = ctx->secondary_color_array;
+        const uint32_t base = array.pointer + i * EffectiveStride(array);
+        for (int c = 0; c < 3; ++c)
+            v.secondary_color[c] = ReadArrayNormalizedComponent(base + c * TypeSize(array.type), array.type);
+    } else {
+        memcpy(v.secondary_color, ctx->current_secondary_color, sizeof(float) * 3);
+    }
     v.fog_coord = ctx->current_fog_coord;
 }
 

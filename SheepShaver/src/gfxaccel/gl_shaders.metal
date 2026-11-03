@@ -326,7 +326,12 @@ static float4 gl_texture_environment(float4 color, float4 texel, int mode,
 
 // ---- Fragment shader ----
 
-fragment float4 gl_fragment_main(
+// Duplicate the fragment color into independent logical front/back targets.
+// Their write masks and blending are selected by glDrawBuffer; depth/stencil
+// execute once, including GL_FRONT_AND_BACK.
+struct GLFragmentOutput { float4 front [[color(0)]]; float4 back [[color(1)]]; };
+
+fragment GLFragmentOutput gl_fragment_main(
     GLVertexOut in [[stage_in]],
     constant GLFragmentUniforms &uniforms [[buffer(1)]],
     texture2d<float> tex [[texture(0)]],
@@ -419,7 +424,7 @@ fragment float4 gl_fragment_main(
         color.a = 1.0;
     }
 
-    return color;
+    return {color, color};
 }
 
 // Clear draws bypass the ordinary GL pipeline: only scissor and attachment
@@ -434,8 +439,8 @@ vertex GLClearVertexOut gl_clear_vertex(uint vertexID [[vertex_id]],
     return {float4(positions[vertexID], values[1].x, 1)};
 }
 
-fragment float4 gl_clear_fragment(constant float4 *values [[buffer(0)]]) {
-    return values[0];
+fragment GLFragmentOutput gl_clear_fragment(constant float4 *values [[buffer(0)]]) {
+    return {values[0], values[0]};
 }
 
 // Framebuffer-to-texture transfer. OpenGL texture row zero is the bottom

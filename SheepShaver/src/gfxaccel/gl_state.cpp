@@ -34,6 +34,7 @@
 #include "gl_color_index_policy.h"
 #include "gl_engine.h"
 #include "gl_state_query.h"
+#include "gl_buffer_policy.h"
 #include "gl_metal_draw_state.h"
 #include "gl_offscreen_policy.h"
 #include "gl_pixel_unpack_policy.h"
@@ -3780,8 +3781,22 @@ void NativeGLCopyPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
 
 // NativeGLReadPixels is implemented in gl_metal_renderer.mm (Metal readback)
 
-void NativeGLReadBuffer(GLContext *ctx, uint32_t mode) { ctx->read_buffer = mode; }
-void NativeGLDrawBuffer(GLContext *ctx, uint32_t mode) { ctx->draw_buffer = mode; }
+void NativeGLReadBuffer(GLContext *ctx, uint32_t mode)
+{
+    if (!ctx) return;
+    const uint32_t error = ctx->in_begin ? GL_INVALID_OPERATION :
+        GLBufferSelectionError(mode, ctx->double_buffered, true);
+    if (error) { if (!ctx->last_error) ctx->last_error = error; return; }
+    ctx->read_buffer = mode;
+}
+void NativeGLDrawBuffer(GLContext *ctx, uint32_t mode)
+{
+    if (!ctx) return;
+    const uint32_t error = ctx->in_begin ? GL_INVALID_OPERATION :
+        GLBufferSelectionError(mode, ctx->double_buffered, false);
+    if (error) { if (!ctx->last_error) ctx->last_error = error; return; }
+    ctx->draw_buffer = mode;
+}
 
 // --- Rectangles ---
 extern void NativeGLBegin(GLContext *ctx, uint32_t mode);
@@ -5109,7 +5124,25 @@ void NativeGLGetDoublev(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
     }
 }
 
-void NativeGLGetPointerv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr) { (void)pname; WriteMacInt32(mac_ptr, 0); }
+void NativeGLGetPointerv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
+{
+    if (!ctx) return;
+    if (ctx->in_begin) { if (!ctx->last_error) ctx->last_error = GL_INVALID_OPERATION; return; }
+    uint32_t pointer;
+    switch (pname) {
+    case 0x808e: pointer = ctx->vertex_array.pointer; break;
+    case 0x808f: pointer = ctx->normal_array.pointer; break;
+    case 0x8090: pointer = ctx->color_array.pointer; break;
+    case 0x8091: pointer = ctx->index_array.pointer; break;
+    case 0x8092: pointer = ctx->texcoord_array[ctx->client_active_texture].pointer; break;
+    case 0x8093: pointer = ctx->edge_flag_array.pointer; break;
+    case 0x845d: pointer = ctx->secondary_color_array.pointer; break;
+    case 0x0df3: pointer = ctx->selection_buffer_mac_ptr; break;
+    case 0x0df0: pointer = ctx->feedback_buffer_mac_ptr; break;
+    default: if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM; return;
+    }
+    WriteMacInt32(mac_ptr, pointer);
+}
 
 
 // ============================================================================
@@ -5412,7 +5445,8 @@ static void dxt1_decompress_block(const uint8_t *src, uint8_t *dst, bool has_alp
 {
 	uint16_t c0 = src[0] | (src[1] << 8);
 	uint16_t c1 = src[2] | (src[3] << 8);
-	uint32_t indices = src[4] | (src[5] << 8) | (src[6] << 16) | (src[7] << 24);
+	uint32_t indices = uint32_t(src[4]) | (uint32_t(src[5]) << 8) |
+	    (uint32_t(src[6]) << 16) | (uint32_t(src[7]) << 24);
 
 	uint8_t colors[4][4]; // [index][B,G,R,A]
 	uint8_t r0, g0, b0, r1, g1, b1;
@@ -5506,11 +5540,16 @@ static void dxt5_decompress_block(const uint8_t *src, uint8_t *dst)
 }
 
 // Decompress a full DXT image to BGRA8
-static uint8_t *dxt_decompress_image(const uint8_t *src, int w, int h, uint32_t format, int *outLen)
+static uint8_t *dxt_decompress_image(uint32_t sourceAddress, int w, int h, uint32_t format,
+                                    size_t sourceSize, int *outLen)
 {
+	*outLen = 0;
+	if (!sourceAddress || !GLTextureImageSizeIsValid(0, w, h) || !w || !h ||
+	    (format != 0x83f0 && format != 0x83f2 && format != 0x83f3)) return nullptr;
 	int bw = (w + 3) / 4;  // block width
 	int bh = (h + 3) / 4;  // block height
 	int block_size = (format == 0x83F0) ? 8 : 16; // DXT1=8, DXT3/5=16
+	if (size_t(bw) * size_t(bh) * size_t(block_size) > sourceSize) return nullptr;
 
 	*outLen = w * h * 4;
 	uint8_t *dst = (uint8_t *)malloc(*outLen);
@@ -5520,7 +5559,13 @@ static uint8_t *dxt_decompress_image(const uint8_t *src, int w, int h, uint32_t 
 	for (int by = 0; by < bh; by++) {
 		for (int bx = 0; bx < bw; bx++) {
 			uint8_t block_pixels[16 * 4]; // 4x4 BGRA
-			const uint8_t *block_src = src + (by * bw + bx) * block_size;
+			// Guest RAM can cross separately mapped low-memory pages. Read
+			// through the memory accessors rather than assuming Mac2HostAddr
+			// yields one contiguous host allocation for the whole image.
+			uint8_t block_src[16];
+			const uint32_t offset = uint32_t((by * bw + bx) * block_size);
+			for (int i = 0; i < block_size; ++i)
+				block_src[i] = ReadMacInt8(sourceAddress + offset + uint32_t(i));
 
 			if (format == 0x83F0)      // GL_COMPRESSED_RGB_S3TC_DXT1_EXT
 				dxt1_decompress_block(block_src, block_pixels, true);
@@ -5556,28 +5601,45 @@ void NativeGLCompressedTexImage3DARB(GLContext *ctx, uint32_t target, int32_t le
 	// 3D compressed textures extremely rare in classic Mac games — known limitation
 }
 
+// Validate before translating a guest pointer, allocating, or changing texture
+// metadata. Compressed client storage must fit completely in mapped RAM/ROM;
+// checking only 32-bit address wrap does not make a host pointer readable.
+static bool GLValidateCompressedTextureUpload(GLContext *ctx, uint32_t target, int level,
+    int width, int height, int border, uint32_t format, int imageSize, uint32_t data)
+{
+    auto fail = [&](uint32_t error) { if (!ctx->last_error) ctx->last_error = error; return false; };
+    if (ctx->in_begin) return fail(GL_INVALID_OPERATION);
+    if (target != GL_TEXTURE_2D ||
+        (format != 0x83f0 && format != 0x83f2 && format != 0x83f3)) return fail(GL_INVALID_ENUM);
+    if (!GLTextureImageSizeIsValid(level, width, height) || border != 0 || imageSize < 0)
+        return fail(GL_INVALID_VALUE);
+    const uint64_t bytes = ((uint64_t(width) + 3) / 4) * ((uint64_t(height) + 3) / 4) *
+        (format == 0x83f0 ? 8 : 16);
+    if (uint64_t(imageSize) != bytes || uint64_t(data) + bytes > uint64_t(UINT32_MAX) + 1)
+        return fail(GL_INVALID_VALUE);
+    if (!bytes) return true;
+    auto fits = [&](uint32_t base, uint32_t size) {
+        return data >= base && uint64_t(data - base) + bytes <= size;
+    };
+    if (!data || (!fits(RAMBase, RAMSize) && !fits(ROMBase, ROM_SIZE))) return fail(GL_INVALID_VALUE);
+    return true;
+}
+
 void NativeGLCompressedTexImage2DARB(GLContext *ctx, uint32_t target, int32_t level,
 	uint32_t ifmt, int32_t w, int32_t h, int32_t border, int32_t imageSize, uint32_t data_ptr)
 {
 	GL_LOG("CompressedTexImage2D fmt=0x%x %dx%d size=%d", ifmt, w, h, imageSize);
-	if (!ctx || data_ptr == 0) return;
-
-	// Only handle DXT formats
-	if (ifmt != 0x83F0 && ifmt != 0x83F2 && ifmt != 0x83F3) {
-		GL_LOG("CompressedTexImage2D: unsupported format 0x%x", ifmt);
-		return;
-	}
+	if (!ctx || !GLValidateCompressedTextureUpload(ctx, target, level, w, h, border,
+	                                                ifmt, imageSize, data_ptr)) return;
 
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) return;
 	GLTextureObject &tex = *object;
-
-	// Read compressed data from Mac memory
-	const uint8_t *mac_data = (const uint8_t *)Mac2HostAddr(data_ptr);
+	if (!w || !h) { GLTextureDefineImage(tex, target, level, ifmt, w, h); return; }
 
 	int outLen = 0;
-	uint8_t *decompressed = dxt_decompress_image(mac_data, w, h, ifmt, &outLen);
-	if (!decompressed) return;
+	uint8_t *decompressed = dxt_decompress_image(data_ptr, w, h, ifmt, size_t(imageSize), &outLen);
+	if (!decompressed) { if (!ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY; return; }
 
     if (!GLTextureDefineImage(tex, target, level, ifmt, w, h)) { free(decompressed); return; }
     GLTextureApplyInternalFormatBGRA(decompressed, outLen, GLTextureLevelBaseFormat(tex, level));
@@ -5605,21 +5667,19 @@ void NativeGLCompressedTexSubImage2DARB(GLContext *ctx, uint32_t target, int32_t
 	uint32_t fmt, int32_t imageSize, uint32_t data_ptr)
 {
 	GL_LOG("CompressedTexSubImage2D fmt=0x%x %dx%d at (%d,%d)", fmt, w, h, xoff, yoff);
-	if (!ctx || data_ptr == 0) return;
-
-	if (fmt != 0x83F0 && fmt != 0x83F2 && fmt != 0x83F3) {
-		GL_LOG("CompressedTexSubImage2D: unsupported format 0x%x", fmt);
-		return;
-	}
+	if (!ctx || !GLValidateCompressedTextureUpload(ctx, target, level, w, h, 0,
+	                                                fmt, imageSize, data_ptr)) return;
 
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) return;
 	GLTextureObject &tex = *object;
+	const uint32_t error = GLTextureSubImageError(tex, level, xoff, yoff, 0, w, h);
+	if (error) { if (!ctx->last_error) ctx->last_error = error; return; }
+	if (!w || !h) return;
 
-	const uint8_t *mac_data = (const uint8_t *)Mac2HostAddr(data_ptr);
 	int outLen = 0;
-	uint8_t *decompressed = dxt_decompress_image(mac_data, w, h, fmt, &outLen);
-	if (!decompressed) return;
+	uint8_t *decompressed = dxt_decompress_image(data_ptr, w, h, fmt, size_t(imageSize), &outLen);
+	if (!decompressed) { if (!ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY; return; }
 
     GLTextureApplyInternalFormatBGRA(decompressed, outLen, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUploadSubTexture(ctx, &tex, level, xoff, yoff, w, h, decompressed, w * 4);
