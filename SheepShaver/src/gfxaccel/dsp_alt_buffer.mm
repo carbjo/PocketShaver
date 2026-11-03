@@ -604,6 +604,11 @@ extern "C" int32_t DSpContext_SetUnderlayAltBufferHandler(uint32_t ctxRef,
 		}
 	}
 	ctx->underlay_alt_buffer = inNewUnderlay;
+	/* A newly designated background initializes the whole drawable once. */
+	ctx->underlay_restore_left = ctx->underlay_restore_top = 0;
+	ctx->underlay_restore_right = (int32_t)DSpContextBackBufferWidth(ctx);
+	ctx->underlay_restore_bottom = (int32_t)DSpContextBackBufferHeight(ctx);
+	ctx->underlay_restore_pending = inNewUnderlay != 0;
 	DSP_LOG("SetUnderlayAltBuffer: ctx=%u underlay=%u",
 	        ctxRef, inNewUnderlay);
 	return kDSpNoErr;

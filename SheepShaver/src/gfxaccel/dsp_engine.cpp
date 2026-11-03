@@ -435,6 +435,10 @@ int32_t DSpShutdownHandler(void)
 		DSP_LOG("DSpShutdownHandler: refcount already 0 - no-op");
 		return kDSpNoErr;
 	}
+	if (dsp_startup_refcount == 1) {
+		int32_t rc = DSpReleaseAllContexts();
+		if (rc != kDSpNoErr) return rc;
+	}
 	dsp_startup_refcount--;
 	if (dsp_startup_refcount == 0) {
 		if (dsp_resource_handlers_registered) {

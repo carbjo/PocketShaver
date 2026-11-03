@@ -111,6 +111,12 @@ struct DSpContextPrivate {
 	bool                  dirty_empty;
 	bool                  dirty_cold_start;
 
+	/* Presented damage survives encoder dirty resets until GetBackBuffer
+	 * restores the underlay into the guest's actual drawing surface. */
+	int32_t               underlay_restore_left, underlay_restore_top;
+	int32_t               underlay_restore_right, underlay_restore_bottom;
+	bool                  underlay_restore_pending;
+
 	/* Once a client uses DSpContext_SwapBuffers, that context is
 	 * swap-driven. VBL auto-publish is only a compatibility fallback for
 	 * clients that never swap; keeping it enabled after explicit swaps can

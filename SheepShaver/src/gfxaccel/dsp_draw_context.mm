@@ -182,6 +182,8 @@ extern "C" bool DSpHostBridge_GetActiveFullscreen(void);
  * — all of which appear earlier in the file than the helper bodies —
  * can call the helpers per Landmine-7. */
 extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx);
+static bool DSpPixMapLooksLikeContextRedirect(DSpContextPrivate *ctx,
+                                              uint32_t pixMapPtr);
 extern "C" void DSpRestoreMainDevicePixMap(DSpContextPrivate *ctx);
 
 /* GetBackBuffer underlay-restore branch forward decl (PDF p.51 "clean a
@@ -189,6 +191,7 @@ extern "C" void DSpRestoreMainDevicePixMap(DSpContextPrivate *ctx);
  * section (after the alt-buffer record table + accumulator), but called from
  * DSpContext_GetBackBufferHandler which appears earlier in this file. */
 static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx);
+static void DSpSaveUnderlayRestoreRegion(DSpContextPrivate *ctx);
 
 /* DSP_MAX_CONTEXTS is now defined in dsp_draw_context.h (hoisted there so
  * dsp_host_bridge.mm can reference the bound from cross-TU); the local
@@ -221,6 +224,8 @@ static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx);
 
 static DSpContextPrivate *dsp_context_table[DSP_MAX_CONTEXTS] = {};
 static int                dsp_context_count                   = 0;
+/* Last context to publish a displayed fade; zero denotes an ambient fade. */
+static uint32_t           s_dsp_gamma_context                  = 0;
 
 /* File-static atomic VBL tick counter.
  * DSpVBLServiceCallback increments on every VBL and reads it back for
@@ -675,6 +680,46 @@ static void DSpCopyDriverGammaLUT(uint8_t out_lut[768])
 	}
 }
 
+/* Publish fade ownership together with the DMC's LUT/flag update. */
+static int32_t DSpPublishFadeGamma(DSpContextPrivate *ctx,
+                                  const uint8_t *lut, int fading)
+{
+	int32_t rc = dmc_record_gamma_change_with_lut_fade(lut, fading);
+	if (rc == kDMCNoErr) s_dsp_gamma_context = fading && ctx ? ctx->handle : 0;
+	return rc;
+}
+
+/* A removed context must not strand the global displayed gamma in fade mode.
+ * If another timed fade is alive, resume its current table; otherwise deliver
+ * the latest driver SetGamma (including changes deferred during the fade). */
+static int32_t DSpCancelContextFade(DSpContextPrivate *ctx)
+{
+	if (ctx == nullptr) return kDSpNoErr;
+	if (s_dsp_gamma_context != ctx->handle) {
+		ctx->fade_state.active = 0;
+		return kDSpNoErr;
+	}
+	uint8_t lut[768];
+	DSpContextPrivate *remaining = nullptr;
+	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; ++i) {
+		DSpContextPrivate *other = dsp_context_table[i];
+		if (other != nullptr && other != ctx && other->fade_state.active != 0)
+			remaining = other;
+	}
+	if (remaining != nullptr) {
+		DSpInterpolateGammaLUT(remaining->fade_state.start_lut,
+		                       remaining->fade_state.end_lut,
+		                       remaining->fade_state.elapsed_vbls,
+		                       remaining->fade_state.duration_vbls, lut);
+	} else {
+		DSpCopyDriverGammaLUT(lut);
+	}
+	int32_t rc = DSpPublishFadeGamma(remaining, lut, remaining != nullptr);
+	if (rc != kDMCNoErr) return kDSpInternalErr;
+	ctx->fade_state.active = 0;
+	return kDSpNoErr;
+}
+
 /*
  *  Shared fade-state
  *  initialization. Used by FadeGammaIn (end_lut = identity),
@@ -789,6 +834,7 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 	 * (no longer fading). This mirrors the per-context final-frame test below so
 	 * the OR is exact. */
 	uint32_t any_still_fading = 0u;
+	DSpContextPrivate *continuing_fade = nullptr;
 	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
 		DSpContextPrivate *ctx = dsp_context_table[i];
 		if (ctx == nullptr || ctx->fade_state.active == 0) continue;
@@ -796,6 +842,7 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 		uint32_t after = (uint32_t)ctx->fade_state.elapsed_vbls + 1u;
 		if (after < (uint32_t)ctx->fade_state.duration_vbls) {
 			any_still_fading = 1u;
+			continuing_fade = ctx;
 			break;
 		}
 	}
@@ -824,7 +871,9 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 			// any_still_fading so a concurrent lower/higher-index fade is not
 			// clobbered to 0. The compositor restores its static display-LUT
 			// composition only once NO context is fading.
-			int32_t rv = dmc_record_gamma_change_with_lut_fade(
+			// The completing context is no longer the owner of an ongoing
+			// fade, even when it is later in table order than the survivor.
+			int32_t rv = DSpPublishFadeGamma(continuing_fade,
 			    ctx->fade_state.end_lut, (int)any_still_fading);
 			if (rv != kDMCNoErr) {
 				DSP_LOG("DSpVBLGammaFadeCallback: final-frame DMC push failed "
@@ -854,7 +903,7 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 		// LUT with the OR'd fade_active=1 (this context is mid-fade, so the OR is
 		// trivially 1) so the compositor bypasses pow and the ramp marches
 		// linearly (DSp-1.7). Flag + LUT publish atomically.
-		int32_t rv = dmc_record_gamma_change_with_lut_fade(interp_lut, 1);
+		int32_t rv = DSpPublishFadeGamma(ctx, interp_lut, 1);
 		if (rv != kDMCNoErr) {
 			DSP_LOG("DSpVBLGammaFadeCallback: mid-fade DMC push failed "
 			        "(ctx=%u, elapsed=%u/%u, rv=%d) — leaving fade active",
@@ -1134,6 +1183,7 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 		 * helper so 16 bpp xRGB1555 -> BGRA8Unorm goes through a DSp-
 		 * owned render pass (Metal blit copyFromTexture rejects pixel-
 		 * size-mismatched format pairs on Catalyst). */
+		DSpSaveUnderlayRestoreRegion(active);
 		bool front_presented = false;
 		if (present_front_staging) {
 			front_presented =
@@ -1531,6 +1581,7 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 		ctx->dirty_top        = 0;
 		ctx->dirty_right      = 0;
 		ctx->dirty_bottom     = 0;
+		DSpSaveUnderlayRestoreRegion(ctx);
 
 		/* Invalidate the restore flag — defence-in-depth against a
 		 * redundant foreground event double-restoring the context. */
@@ -2053,11 +2104,38 @@ extern "C" int32_t DSpContext_ReleaseHandler(uint32_t ctxRef)
 		DSP_LOG("Release: invalid ctxRef=%u", ctxRef);
 		return kDSpInvalidContextErr;
 	}
+	/* Deactivation owns the mode, PixMap and idle-timer handoff; do it while
+	 * the handle is still resolvable. On failure retain the context for retry. */
+	if (ctx->state != (uint32_t)kDSpContextState_Inactive) {
+		int32_t rc = DSpContext_SetStateHandler(ctxRef, kDSpContextState_Inactive);
+		if (rc != kDSpNoErr) return rc;
+		if (DSpGetContext(ctxRef) != ctx) return kDSpInvalidContextErr;
+	}
+	int32_t rc = DSpCancelContextFade(ctx);
+	if (rc != kDSpNoErr) return rc;
 	DSpFreeContextHandle(ctxRef);
 	dsp_context_count--;
 	/* Defer to next VBL. Do NOT free synchronously. */
 	DSpQueueReleaseAtVBL(ctx);
 	DSP_LOG("Release: handle=%u queued for VBL drain", ctxRef);
+	return kDSpNoErr;
+}
+
+/* Final Shutdown owns all remaining contexts, including metadata-only ones.
+ * Keep callbacks installed until every release has completed its display and
+ * gamma handoff, then release alt buffers and restore ambient gamma too. */
+extern "C" int32_t DSpReleaseAllContexts(void)
+{
+	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; ++i) {
+		if (dsp_context_table[i] == nullptr) continue;
+		int32_t rc = DSpContext_ReleaseHandler(i + 1u);
+		if (rc != kDSpNoErr) return rc;
+	}
+	DSpResetAltBufferTable();
+	uint8_t lut[768];
+	DSpCopyDriverGammaLUT(lut);
+	if (DSpPublishFadeGamma(nullptr, lut, 0) != kDMCNoErr)
+		return kDSpInternalErr;
 	return kDSpNoErr;
 }
 
@@ -2318,6 +2396,7 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 		 * after a mid-app depth switch). DSpEncodePresentToFramebuffer
 		 * opens / closes its own encoder; we just commit the command
 		 * buffer afterwards. */
+		DSpSaveUnderlayRestoreRegion(ctx);
 		bool front_presented = false;
 		if (present_front_staging) {
 			front_presented =
@@ -2923,95 +3002,89 @@ extern "C" int32_t DSpBlit_FasterHandler(uint32_t inBlitInfo,
 }
 
 
-/* --- GetBackBuffer underlay-restore branch ---
- *
- *  PDF p.51: "When a back buffer is retrieved and there is an underlay
- *  buffer, the invalid areas in the back buffer are restored from the
- *  underlay buffer. This is most useful in sprite games." Called from
- *  DSpContext_GetBackBufferHandler.
- *
- *  When ctx has a designated underlay AND the back buffer has dirty areas,
- *  this copies the dirty sub-rect underlay->back_buffer (CPU memcpy on the
- *  MTLStorageModeShared backing — the alt-buffer is BGRA8Unorm 32-bpp; a copy
- *  is only attempted when both contents pointers are non-NULL, which holds on
- *  device/Catalyst — on the simulator the heap forces StorageModePrivate so
- *  the copy is skipped).
- *
- *  No-op when no underlay is designated or the back buffer is clean. Single-
- *  writer emul-thread; ZERO new concurrency primitive — the copy is a
- *  plain memcpy. */
-
-
-static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
+/* Preserve presented damage separately: render encoders consume dirty_* before
+ * GetBackBuffer can restore the previous frame's underlay. No explicit invalid
+ * rect means the entire drawable was invalidated (DSp 1.7 p.38). */
+static void DSpSaveUnderlayRestoreRegion(DSpContextPrivate *ctx)
 {
 	if (ctx == nullptr || ctx->underlay_alt_buffer == 0) return;
+	const bool full = ctx->dirty_cold_start || ctx->dirty_empty;
+	int32_t left = full ? 0 : ctx->dirty_left;
+	int32_t top = full ? 0 : ctx->dirty_top;
+	int32_t right = full ? (int32_t)DSpContextBackBufferWidth(ctx) : ctx->dirty_right;
+	int32_t bottom = full ? (int32_t)DSpContextBackBufferHeight(ctx) : ctx->dirty_bottom;
+	if (ctx->underlay_restore_pending) {
+		if (left > ctx->underlay_restore_left) left = ctx->underlay_restore_left;
+		if (top > ctx->underlay_restore_top) top = ctx->underlay_restore_top;
+		if (right < ctx->underlay_restore_right) right = ctx->underlay_restore_right;
+		if (bottom < ctx->underlay_restore_bottom) bottom = ctx->underlay_restore_bottom;
+	}
+	ctx->underlay_restore_left = left;
+	ctx->underlay_restore_top = top;
+	ctx->underlay_restore_right = right;
+	ctx->underlay_restore_bottom = bottom;
+	ctx->underlay_restore_pending = true;
+}
+
+/* Restore the surface actually vended to the guest, not the derived Metal
+ * cache: a later staging drain must retain this copy. Both row strides and
+ * allocation extents are checked before any copy, including on Simulator. */
+static void DSpRestoreBackBufferFromUnderlay(DSpContextPrivate *ctx)
+{
+	if (ctx == nullptr || ctx->underlay_alt_buffer == 0 ||
+	    !ctx->underlay_restore_pending) return;
 	DSpAltBufferRecord *u = DSpGetAltBuffer(ctx->underlay_alt_buffer);
 	if (u == nullptr) {
-		/* Stale designation (underlay disposed) — clear it defensively. */
 		ctx->underlay_alt_buffer = 0;
+		ctx->underlay_restore_pending = false;
 		return;
 	}
-	/* Mirror the guest-drawn staging into the underlay's Metal backing so the
-	 * CPU dirty-band restore reads the guest's pixels (NQD draws land in the
-	 * guest-RAM staging, not Metal). */
-	DSpSyncAltBufferStagingToBacking(u);
-	/* Only restore the BACK buffer's invalid (dirty) areas (PDF p.51). When
-	 * the back buffer is clean there is nothing to clean. */
-	if (ctx->dirty_empty) return;
-	if (ctx->back_buffer == nil) return;
-
-	/* Intersection of the back-buffer dirty rect with the underlay bounds. */
-	int32_t rx0 = ctx->dirty_left,  ry0 = ctx->dirty_top;
-	int32_t rx1 = ctx->dirty_right, ry1 = ctx->dirty_bottom;
-	if (rx0 < 0) rx0 = 0;
-	if (ry0 < 0) ry0 = 0;
-	if ((uint32_t)rx1 > u->width)  rx1 = (int32_t)u->width;
-	if ((uint32_t)ry1 > u->height) ry1 = (int32_t)u->height;
-	if (rx1 <= rx0 || ry1 <= ry0) return;
-
-	/* (1) CPU restore copy (underlay -> back buffer) — only when both
-	 * backings are host-visible (Shared). Alt buffers inherit the owning
-	 * context's depth at New time (DSpAllocAltBufferBacking), so when the
-	 * depths still agree the copy is a direct row-wise memcpy of the dirty
-	 * band at that depth. Skipped on StorageModePrivate (simulator) where
-	 * contents is NULL.
-	 *
-	 * The depths can only disagree if the context was re-Reserved at a new
-	 * depth after the underlay was created; a cross-depth restore would need
-	 * a per-pixel format conversion that is NOT implemented, so the PDF-p.51
-	 * "clean a back buffer" restore no-ops there (production SubmitFrame
-	 * ignores underlay-slot layers, so there is no compositor fallback). The
-	 * else-branch logs the skipped restore rather than silently no-op'ing. */
-	void *u_contents  = u->backing.contents;
-	void *bb_contents = ctx->back_buffer.contents;
-	uint32_t bb_depth = ctx->attr.backBufferBestDepth;
-	if (u_contents != NULL && bb_contents != NULL &&
-	    u->depth == bb_depth &&
-	    (bb_depth == 8 || bb_depth == 16 || bb_depth == 32)) {
-		uint32_t px_bytes = bb_depth / 8u;
-		uint32_t u_rb  = ((u->width * px_bytes) + 255u) & ~255u;
-		uint32_t bb_rb = DSpAlignedRowBytes(DSpContextBackBufferWidth(ctx),
-		                                    bb_depth);
-		uint8_t *u_base  = (uint8_t *)u_contents;
-		uint8_t *bb_base = (uint8_t *)bb_contents;
-		uint32_t band_bytes = (uint32_t)(rx1 - rx0) * px_bytes;
-		for (int32_t y = ry0; y < ry1; y++) {
-			uint8_t *src = u_base  + (uint32_t)y * u_rb  + (uint32_t)rx0 * px_bytes;
-			uint8_t *dst = bb_base + (uint32_t)y * bb_rb + (uint32_t)rx0 * px_bytes;
-			memcpy(dst, src, band_bytes);
-		}
-		DSP_LOG("UnderlayRestore: ctx=%u underlay=%u copied dirty band "
-		        "(%d,%d)-(%d,%d) @%ubpp", ctx->handle, ctx->underlay_alt_buffer,
-		        rx0, ry0, rx1, ry1, bb_depth);
-	} else if (u_contents != NULL && bb_contents != NULL) {
-		/* Depth mismatch precludes the restore copy.
-		 * Make the skipped restore observable instead of silently no-op'ing. */
-		DSP_LOG("UnderlayRestore: ctx=%u underlay=%u depth mismatch "
-		        "(underlay=%u back-buffer=%u) — CPU dirty-band restore SKIPPED "
-		        "(cross-depth conversion deferred; no compositor underlay "
-		        "fallback)",
-		        ctx->handle, ctx->underlay_alt_buffer, u->depth, bb_depth);
+	const uint32_t depth = ctx->attr.backBufferBestDepth;
+	if (u->depth != depth || (depth != 8 && depth != 16 && depth != 32)) return;
+	const uint32_t width = DSpContextBackBufferWidth(ctx);
+	const uint32_t height = DSpContextBackBufferHeight(ctx);
+	const uint32_t px = depth / 8u;
+	const uint32_t srcRB = DSpAlignedRowBytes(u->width, depth);
+	const uint32_t dstRB = DSpAlignedRowBytes(width, depth);
+	int32_t left = ctx->underlay_restore_left, top = ctx->underlay_restore_top;
+	int32_t right = ctx->underlay_restore_right, bottom = ctx->underlay_restore_bottom;
+	if (left < 0) left = 0;
+	if (top < 0) top = 0;
+	if (right > (int32_t)width) right = (int32_t)width;
+	if (right > (int32_t)u->width) right = (int32_t)u->width;
+	if (bottom > (int32_t)height) bottom = (int32_t)height;
+	if (bottom > (int32_t)u->height) bottom = (int32_t)u->height;
+	if (right <= left || bottom <= top) {
+		ctx->underlay_restore_pending = false;
+		return;
 	}
+	const uint64_t srcEnd = uint64_t(bottom - 1) * srcRB + uint64_t(right) * px;
+	const uint64_t dstEnd = uint64_t(bottom - 1) * dstRB + uint64_t(right) * px;
+	uint8_t *src = nullptr, *dst = nullptr;
+	if (u->baseaddr_mac != 0) {
+		if (srcEnd > u->baseaddr_size ||
+		    !DSpGuestRAMContains(u->baseaddr_mac, (uint32_t)srcEnd,
+		                         (uint32_t)RAMBase, (uint32_t)RAMSize)) return;
+		src = Mac2HostAddr(u->baseaddr_mac);
+	} else if (u->backing != nil && srcEnd <= u->backing.length) {
+		src = (uint8_t *)u->backing.contents;
+	}
+	if (ctx->staging_mac_addr != 0) {
+		if (dstEnd > ctx->staging_size ||
+		    !DSpGuestRAMContains(ctx->staging_mac_addr, (uint32_t)dstEnd,
+		                         (uint32_t)RAMBase, (uint32_t)RAMSize)) return;
+		dst = Mac2HostAddr(ctx->staging_mac_addr);
+	} else if (ctx->back_buffer != nil && dstEnd <= ctx->back_buffer.length) {
+		dst = (uint8_t *)ctx->back_buffer.contents;
+	}
+	if (src == nullptr || dst == nullptr) return;
+	NQDMetalFlush();
+	for (int32_t y = top; y < bottom; ++y) {
+		memmove(dst + (uint32_t)y * dstRB + (uint32_t)left * px,
+		        src + (uint32_t)y * srcRB + (uint32_t)left * px,
+		        (uint32_t)(right - left) * px);
+	}
+	ctx->underlay_restore_pending = false;
 }
 
 /* --------------------------------------------------------------------- *
@@ -3203,6 +3276,40 @@ extern "C" void DSpRedirectMainDevicePixMap(DSpContextPrivate *ctx)
 			ctx->saved_gdrect[2] = (int16_t)ReadMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 4);
 			ctx->saved_gdrect[3] = (int16_t)ReadMacInt16(gdevicePtr + GDEVICE_OFF_GDRECT + 6);
 			ctx->saved_gdrect_valid = 1;
+		}
+		/* The live PixMap may already expose another DSp context. Inherit
+		 * its root desktop snapshot, never its redirected pixel buffer: both
+		 * contexts must restore the real screen in either release order. */
+		for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; ++i) {
+			DSpContextPrivate *other = dsp_context_table[i];
+			if (other == nullptr || other == ctx ||
+			    other->state != (uint32_t)kDSpContextState_Active ||
+			    other->saved_pixmap_valid == 0 ||
+			    (other->saved_pixmap_addr != pixMapPtr &&
+			     !DSpPixMapLooksLikeContextRedirect(other, pixMapPtr))) continue;
+			/* The guest can relocate the PixMap while preserving the live
+			 * redirect. Keep this context's newly captured structure address,
+			 * while inheriting the original screen's contents and bounds. */
+			ctx->saved_pixmap_baseAddr = other->saved_pixmap_baseAddr;
+			ctx->saved_pixmap_rowBytes = other->saved_pixmap_rowBytes;
+			ctx->saved_pixmap_pixelType = other->saved_pixmap_pixelType;
+			ctx->saved_pixmap_pixelSize = other->saved_pixmap_pixelSize;
+			ctx->saved_pixmap_cmpCount = other->saved_pixmap_cmpCount;
+			ctx->saved_pixmap_cmpSize = other->saved_pixmap_cmpSize;
+			ctx->saved_pixmap_pmVersion = other->saved_pixmap_pmVersion;
+			ctx->saved_pixmap_packType = other->saved_pixmap_packType;
+			ctx->saved_pixmap_packSize = other->saved_pixmap_packSize;
+			ctx->saved_pixmap_hRes = other->saved_pixmap_hRes;
+			ctx->saved_pixmap_vRes = other->saved_pixmap_vRes;
+			ctx->saved_pixmap_planeBytes = other->saved_pixmap_planeBytes;
+			ctx->saved_pixmap_valid = other->saved_pixmap_valid;
+			ctx->saved_gdevice_ptr = other->saved_gdevice_ptr;
+			ctx->saved_gdrect_valid = other->saved_gdrect_valid;
+			memcpy(ctx->saved_pixmap_bounds, other->saved_pixmap_bounds,
+			       sizeof(ctx->saved_pixmap_bounds));
+			memcpy(ctx->saved_gdrect, other->saved_gdrect,
+			       sizeof(ctx->saved_gdrect));
+			break;
 		}
 		DSP_VLOG("DSpRedirectMainDevicePixMap: DSP-RDR-S5 cached originals "
 		         "(baseAddr=0x%08x rowBytes=%u pixelSize=%u packType=%u "
@@ -3721,11 +3828,53 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	 * the DMCOwner enum type directly — the public DSpMapStateToDMCOwner
 	 * returns uint32_t (no DMC header leak through public API). */
 	DMCOwner new_owner = DSpMapStateToDMCOwnerTyped(state);
+	if (state != (uint32_t)kDSpContextState_Active) {
+		for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; ++i) {
+			DSpContextPrivate *other = dsp_context_table[i];
+			if (other != nullptr && other != ctx &&
+			    other->state == (uint32_t)kDSpContextState_Active) {
+				new_owner = kDMCOwnerDSp;
+				break;
+			}
+		}
+	}
+	/* Perform a last-context desktop mode restore before discarding the
+	 * redirect snapshot or changing ctx->state. A rejected DMC transition
+	 * must leave Release with the complete metadata needed for a retry. */
+	const bool switch_handoff =
+	    state == (uint32_t)kDSpContextState_Inactive &&
+	    s_dsp_setstate_switch_handoff_ctx == ctxRef;
+	DMCModeDesc restored_qd_mode = {};
+	const bool have_restored_qd_mode =
+	    state != (uint32_t)kDSpContextState_Active &&
+	    new_owner != kDMCOwnerDSp && !switch_handoff &&
+	    DSpBuildSavedQuickDrawModeDesc(ctx, &restored_qd_mode);
+	const DMCModeSnapshot *prior_snapshot = dmc_current_snapshot();
+	const uint32_t prior_owner = prior_snapshot ? prior_snapshot->active_owner
+	                                            : (uint32_t)kDMCOwnerQuickDraw;
 	int32_t dmc_rc = dmc_set_active_owner((uint32_t)new_owner);
 	if (dmc_rc != 0) {
 		DSP_LOG("SetState: DMC rejected transition ctx=%u %u->%u rc=%d",
 		        ctxRef, ctx->state, state, dmc_rc);
 		return kDSpInvalidAttributesErr;
+	}
+	if (have_restored_qd_mode) {
+		const DMCModeSnapshot *snap = dmc_current_snapshot();
+		if (snap == nullptr ||
+		    DSpQuickDrawModeRestoreDiffers(restored_qd_mode.width,
+		                                   restored_qd_mode.height,
+		                                   restored_qd_mode.depth,
+		                                   snap->width, snap->height, snap->depth)) {
+			int32_t rc = dmc_request_mode_switch(&restored_qd_mode);
+			if (rc != kDMCNoErr) {
+				/* Mode switching is transactional in DMC; restore ownership
+				 * too, while retaining the live surface and its saved desktop. */
+				(void)dmc_set_active_owner(prior_owner);
+				DSP_LOG("SetState: QuickDraw restore rejected rc=%d; "
+				        "ctx=%u retained for retry", rc, ctxRef);
+				return kDSpInternalErr;
+			}
+		}
 	}
 	/* Page-flip page-0 reset on Paused (PDF p.29). Page flipping is not
 	 * implemented yet; log the reset as a no-op note. */
@@ -3816,53 +3965,20 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	if (state == (uint32_t)kDSpContextState_Active) {
 		DSpRedirectMainDevicePixMap(ctx);
 	} else {
-		const bool switch_handoff =
-		    (state == (uint32_t)kDSpContextState_Inactive) &&
-		    (s_dsp_setstate_switch_handoff_ctx == ctxRef);
-		DMCModeDesc restored_qd_mode = {};
-		const bool have_restored_qd_mode =
-		    !switch_handoff &&
-		    !any_active &&
-		    DSpBuildSavedQuickDrawModeDesc(ctx, &restored_qd_mode);
 		DSpRestoreMainDevicePixMap(ctx);
 		DSpReleaseFrontBufferStaging(ctx);
+		if (any_active) {
+			for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; ++i) {
+				DSpContextPrivate *other = dsp_context_table[i];
+				if (other != nullptr && other->state == (uint32_t)kDSpContextState_Active) {
+					DSpRedirectMainDevicePixMap(other);
+					break;
+				}
+			}
+		}
 		if (switch_handoff) {
 			DSP_LOG("SetState: ctx=%u switch handoff suppressed "
 			        "intermediate QuickDraw mode restore", ctxRef);
-		}
-		if (have_restored_qd_mode) {
-			const DMCModeSnapshot *snap = dmc_current_snapshot();
-			const bool mode_differs =
-			    snap == nullptr ||
-			    DSpQuickDrawModeRestoreDiffers(restored_qd_mode.width,
-			                                   restored_qd_mode.height,
-			                                   restored_qd_mode.depth,
-			                                   snap->width,
-			                                   snap->height,
-			                                   snap->depth);
-			if (mode_differs) {
-				int32_t rc = dmc_request_mode_switch(&restored_qd_mode);
-				if (rc != kDMCNoErr) {
-					DSP_LOG("SetState: QuickDraw restore mode switch FAILED "
-					        "(rc=%d) for %ux%u@%u rb=%u base=0x%08x host=%p",
-					        rc,
-					        restored_qd_mode.width,
-					        restored_qd_mode.height,
-					        restored_qd_mode.depth,
-					        restored_qd_mode.row_bytes,
-					        restored_qd_mode.screen_base_mac,
-					        restored_qd_mode.screen_base_host);
-				} else {
-					DSP_LOG("SetState: QuickDraw restore mode switch %ux%u@%u "
-					        "rb=%u base=0x%08x host=%p completed",
-					        restored_qd_mode.width,
-					        restored_qd_mode.height,
-					        restored_qd_mode.depth,
-					        restored_qd_mode.row_bytes,
-					        restored_qd_mode.screen_base_mac,
-					        restored_qd_mode.screen_base_host);
-				}
-			}
 		}
 	}
 
@@ -5172,7 +5288,7 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 		 * 100 leaves the display mid-fade (LUT must march linearly, and
 		 * driver SetGamma arriving now must defer, not pop). 100 restores
 		 * the driver table and ends the fade. */
-		int32_t rv = dmc_record_gamma_change_with_lut_fade(
+		int32_t rv = DSpPublishFadeGamma(nullptr,
 		    target_lut, (inPercent != 100) ? 1 : 0);
 		if (rv != kDMCNoErr) {
 			DSP_LOG("FadeGamma: ctxRef=0 ambient inPercent=%d "
@@ -5215,7 +5331,7 @@ extern "C" int32_t DSpContext_FadeGammaHandler(uint32_t ctxRef,
 	 * mid-fade (LUT must march linearly, and driver SetGamma arriving
 	 * now must defer, not pop); 100 restores the driver table and ends
 	 * the fade. */
-	int32_t rv = dmc_record_gamma_change_with_lut_fade(
+	int32_t rv = DSpPublishFadeGamma(ctx,
 	    target_lut, (inPercent != 100) ? 1 : 0);
 	if (rv != kDMCNoErr) {
 		DSP_LOG("FadeGamma: dmc_record_gamma_change_with_lut_fade returned %d "

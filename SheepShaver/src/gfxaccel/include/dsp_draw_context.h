@@ -150,6 +150,8 @@ extern uint32_t DSpGetContextEnumerationIndex(uint32_t ctxRef);
 extern int32_t  DSpContext_ReserveHandler(uint32_t ctxRef,
                                           uint32_t attrAddr);
 extern int32_t  DSpContext_ReleaseHandler(uint32_t ctxRef);
+/* Emul-thread final shutdown; deactivates/releases live contexts and alt buffers. */
+extern int32_t  DSpReleaseAllContexts(void);
 extern int32_t  DSpContext_GetBackBufferHandler(uint32_t ctxRef,
                                                 uint32_t options,
                                                 uint32_t outBufAddr);

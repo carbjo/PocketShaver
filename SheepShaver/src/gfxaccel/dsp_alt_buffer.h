@@ -62,8 +62,8 @@ DSpAltBufferRecord *DSpGetAltBuffer(uint32_t handle);
 void DSpSyncAltBufferStagingToBacking(DSpAltBufferRecord *rec);
 #endif /* __OBJC__ */
 
-/* Free every in-use alt-buffer record. Used by the test-harness context reset
- * so each case starts with an empty table. Safe to call from non-ObjC TUs. */
+/* Free every in-use alt-buffer record on final DrawSprocket shutdown.
+ * Safe to call from non-ObjC TUs. */
 void DSpResetAltBufferTable(void);
 
 /* Background/foreground Metal-backing lifecycle (D-4-1 heap ratchet fix).
