@@ -9,11 +9,11 @@
  *  (at your option) any later version.
  *
  *  Metal-side half of gfxaccel_resources_heap. Owns:
- *    - Per-engine MTLHeap creation (lazy).
+ *    - Per-engine MTLHeap creation (lazy), except independent DSp buffers.
  *    - Sub-allocation from heaps via the `:offset:` API variants
  *      (newBufferWithLength:options:offset:, newTextureWithDescriptor:offset:).
  *    - Per-heap bump sub-allocator (next_offset), advanced on each alloc
- *      and reset on DMC on_mode_exit.
+ *      and reset on DMC on_mode_exit (DSp uses live-resource accounting).
  *    - Three-tier eviction pipeline: LRU purge, PSO flush, loud fail.
  *    - Memory-warning C shim: atomically marks an eviction request that
  *      SubmitFrame drains on the engine call path.
@@ -40,14 +40,17 @@
 #import <Metal/Metal.h>
 #import <os/log.h>
 #import <TargetConditionals.h>
+#import <objc/runtime.h>
 
 #include <cstdint>
 #include <cstdio>
 #include <dispatch/dispatch.h>
 #include <array>
 #include <atomic>
+#include <memory>
 
 #include "gfxaccel_resources_heap.h"
+#include "gfxaccel_live_buffer_budget.h"
 #include "metal_device_shared.h"
 
 // ---------------------------------------------------------------------------
@@ -116,6 +119,30 @@ static os_log_t gfxaccel_heap_log(void)
 }
 
 static std::atomic_bool g_eviction_pending(false);
+
+// DSp buffers have independent lifetimes (a back buffer may outlive hundreds
+// of alt buffers), so they use device allocations instead of placement ranges.
+// Charge actual resource lifetime, rather than the CPU-owner count: normal
+// retained-reference Metal command buffers and buffer-backed texture views keep
+// this associated token alive until the resource is really safe to reclaim.
+// Each shutdown starts a fresh budget; old in-flight resources retain the old
+// budget so their eventual destruction cannot debit a new session.
+static std::shared_ptr<GfxAccelLiveBufferBudget> g_dsp_buffer_budget =
+    std::make_shared<GfxAccelLiveBufferBudget>();
+static char g_dsp_buffer_charge_key;
+
+@interface GfxAccelDSpBufferCharge : NSObject {
+@public
+    std::shared_ptr<GfxAccelLiveBufferBudget> budget;
+    uint64_t bytes;
+}
+@end
+@implementation GfxAccelDSpBufferCharge
+- (void)dealloc
+{
+    if (budget) budget->release(bytes);
+}
+@end
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -195,6 +222,9 @@ extern "C" void gfxaccel_resources_heap_mm_shutdown(void)
 		g_heap_purgeable_empty[i] = false;
 	}
 
+	// Outstanding DSp resources retain their own accounting generation.
+	g_dsp_buffer_budget = std::make_shared<GfxAccelLiveBufferBudget>();
+
 	// Reset eviction state.
 	g_eviction_pending.store(false, std::memory_order_release);
 }
@@ -250,10 +280,62 @@ extern "C" void *gfxaccel_resources_heap_mm_get(uint32_t heap_id)
 	return (__bridge void *)g_heaps[heap_id];
 }
 
+// Standalone DSp resources preserve Shared storage on the simulator too;
+// unlike simulator heaps, device buffers support CPU-visible Shared storage.
+static void *alloc_dsp_buffer(uint32_t length, uint32_t options)
+{
+    if (length == 0) return NULL;
+    id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
+    if (!device) return NULL;
+    MTLResourceOptions allocOptions = (MTLResourceOptions)options;
+    // Device allocations do not depend on heap storage-mode support (notably
+    // Shared storage on Simulator). Reserve the requested extent first, then
+    // reconcile it with Metal's actual allocation footprint before publishing.
+    const uint64_t predicted = length;
+    for (int tier = 0; tier < 3; ++tier) {
+        if (g_dsp_buffer_budget->reserve(predicted, g_heap_sizes[kHeapEngineDSp])) {
+            id<MTLBuffer> buffer = [device newBufferWithLength:length options:allocOptions];
+            uint64_t charge = predicted;
+            if (buffer) {
+                const uint64_t actual = buffer.allocatedSize;
+                // A device allocation need not have exactly the request's
+                // footprint. Reject it if its actual allocation exceeds budget.
+                if (actual > charge) {
+                    if (g_dsp_buffer_budget->reserve(actual - charge,
+                                                    g_heap_sizes[kHeapEngineDSp])) {
+                        charge = actual;
+                    } else {
+                        buffer = nil;
+                    }
+                } else if (actual != 0 && actual < charge) {
+                    g_dsp_buffer_budget->release(charge - actual);
+                    charge = actual;
+                }
+            }
+            if (buffer) {
+                GfxAccelDSpBufferCharge *token = [GfxAccelDSpBufferCharge new];
+                token->budget = g_dsp_buffer_budget;
+                token->bytes = charge;
+                objc_setAssociatedObject(buffer, &g_dsp_buffer_charge_key, token,
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                g_live_allocations[kHeapEngineDSp]++;
+                return (__bridge_retained void *)buffer;
+            }
+            g_dsp_buffer_budget->release(charge);
+        }
+        if (tier == 0) gfxaccel_heap_lru_purge_volatile();
+        else if (tier == 1) gfxaccel_heap_pso_cache_clear();
+    }
+    os_log_fault(gfxaccel_heap_log(),
+                 "DSp live-buffer budget exhausted: alloc_buffer(length=%u)", length);
+    return NULL;
+}
+
 extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
                                                           uint32_t length,
                                                           uint32_t options)
 {
+    if (heap_id == kHeapEngineDSp) return alloc_dsp_buffer(length, options);
 	// Ensure heap exists (lazy create).
 	if (gfxaccel_resources_heap_mm_get(heap_id) == NULL) {
 		return NULL;

@@ -382,19 +382,11 @@ extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
 	uint32_t alignedRB   = DSpAlignedRowBytes(w, bpp);
 	uint32_t buffer_size = alignedRB * h;
 
-	/* Heap-routed alloc — zero direct [device newBufferWith*] in DSp
-	 * code, preserving the engine-blindness invariants. The heap
-	 * ceiling check is inside the sub-allocator; NULL return here means
-	 * either the heap is exhausted (eviction already ran) or allocation
-	 * failed outright.
-	 *
-	 * Migrated from kHeapCompositor to kHeapEngineDSp.
-	 * The DSp back buffer now lives in the 5th per-engine heap, which is exempt
-	 * from the DMC on_mode_exit reset rule.
-	 * This closes the root cause "DSp back buffer reclaimed by kHeapCompositor
-	 * reset" with a single-argument change. */
+	/* The resource allocator charges DSp's live-buffer budget. Its independent
+	 * device buffers reclaim each disposed surface without aliasing in-flight
+	 * GPU work; unrelated back/alt buffers may remain live. */
 	void *buf_raw = gfxaccel_resources_heap_alloc_buffer(
-	    kHeapEngineDSp,                                          // DSp back buffer now owns its 5th per-engine heap (kHeapDSp excluded from on_mode_exit reset)
+	    kHeapEngineDSp,
 	    buffer_size,
 	    (uint32_t)MTLResourceStorageModeShared);
 	if (buf_raw == NULL) {
@@ -402,9 +394,8 @@ extern "C" bool DSpAllocateBackBuffer(DSpContextPrivate *ctx,
 		        buffer_size, w, h, bpp);
 		return false;
 	}
-	/* The heap API returns a retained object. Transfer it into ARC so the
-	 * DSp release paths can actually drop the Metal resource before resetting
-	 * the bump offset. */
+	/* The allocator returns a retained object. Its budget token stays alive
+	 * until ARC and any GPU command/texture references release the buffer. */
 	id<MTLBuffer> buf = (__bridge_transfer id<MTLBuffer>)buf_raw;
 	ctx->back_buffer = buf;
 

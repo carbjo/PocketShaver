@@ -86,7 +86,7 @@ static void DSpClearAltBufferRecord(DSpAltBufferRecord *rec)
 		gfxaccel_resources_clear_buffer_owner((__bridge void *)rec->backing);
 		gfxaccel_resources_heap_note_allocation_released(kHeapEngineDSp);
 	}
-	rec->backing           = nil;   /* DSp heap resets when all DSp buffers are idle */
+	rec->backing           = nil;   /* budget returns after final GPU/view release */
 	rec->cgrafptr_mac_addr = 0;
 	rec->baseaddr_mac      = 0;
 	rec->baseaddr_size     = 0;
@@ -142,8 +142,8 @@ static void DSpFreeAltBuffer(uint32_t handle)
  *                                                                       *
  *  Real Metal-backed AltBuffer implementations reusing the              *
  *  engine-blind gfxaccel infra: each alt-buffer backs onto the          *
- *  DSp heap (kHeapEngineDSp) — NOT the one-per-engine overlay slot, so   *
- *  N alt-buffers coexist. A designated underlay feeds the                *
+ *  DSp live-buffer budget (kHeapEngineDSp), so independently owned      *
+ *  alt buffers coexist and reclaim memory individually. An underlay feeds *
  *  DSpRestoreBackBufferFromUnderlay CPU dirty-band restore path when     *
  *  host-visible depth-matched backing is available. ZERO new concurrency *
  *  primitives:                                                          *
@@ -216,7 +216,7 @@ static bool DSpAllocAltBufferBacking(DSpAltBufferRecord *rec,
 	uint32_t buffer_size = (uint32_t)size64;
 
 	void *buf_raw = gfxaccel_resources_heap_alloc_buffer(
-	    kHeapEngineDSp,                            /* per-engine DSp heap */
+	    kHeapEngineDSp,                            /* per-engine live-buffer budget */
 	    buffer_size,
 	    (uint32_t)MTLResourceStorageModeShared);
 	if (buf_raw == NULL) {

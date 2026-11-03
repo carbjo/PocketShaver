@@ -14,11 +14,12 @@
  *
  *  Design notes:
  *    - Separate module from gfxaccel_resources.{h,cpp,mm}.
- *    - Five MTLHeaps (NQD / RAVE / GL / Compositor / DSp).
+ *    - Four placement heaps plus independently allocated DSp buffers.
  *    - iOS 17+ -> MTLHeapTypePlacement; 13.4-16.x -> Automatic.
  *    - Per-heap ceilings (32 / 128 / 96 / 48 / 32 MiB).
  *    - Heap creation is lazy (first use, not init).
  *    - Bump reset is legal only when the heap has no live sub-allocations.
+ *    - DSp charges live device-buffer memory until the final resource release.
  *    - Three-tier eviction: LRU purge -> PSO flush -> loud assert.
  *    - Memory-warning C shim called from Swift observer.
  *    - Compositor handshake via dispatch_semaphore.
@@ -62,7 +63,7 @@ typedef enum {
 	kHeapEngineRAVE  = 1,
 	kHeapEngineGL    = 2,
 	kHeapCompositor  = 3,
-	kHeapEngineDSp   = 4,   // 5th per-engine heap; exempt from on_mode_exit reset (bump-with-conditional-reset).
+	kHeapEngineDSp   = 4,   // Live device-buffer budget, independent of placement heap resets.
 	kHeapCount       = 5
 } GfxHeapId;
 
@@ -113,9 +114,17 @@ void gfxaccel_resources_heap_shutdown(void);
 void *gfxaccel_resources_heap_get(uint32_t heap_id);
 
 /*
- * Sub-allocate a buffer from the named heap. Returns id<MTLBuffer> as
- * void*. On failure (heap exhausted after eviction), returns NULL.
+ * Allocate a buffer within the named engine's budget. Returns a retained
+ * id<MTLBuffer> as void*; the caller transfers it into ARC or releases it.
+ * On failure (budget exhausted after eviction), returns NULL.
  * options: MTLResourceOptions (e.g. MTLResourceStorageModeShared).
+ *
+ * DSp uses standalone device buffers, so disposing an alt buffer returns its
+ * memory without waiting for unrelated back buffers to disappear. Its budget
+ * charges actual resource lifetime, including texture views and normal Metal
+ * command buffers' retained references. DSp buffers are never placement-aliased;
+ * their bytes return only when the final resource reference is dropped. The
+ * existing note_allocation_released call still records CPU-owner release.
  */
 void *gfxaccel_resources_heap_alloc_buffer(uint32_t heap_id,
                                            uint32_t length,
@@ -137,7 +146,8 @@ uint64_t gfxaccel_resources_heap_reset(uint32_t heap_id);
  * Record that one heap sub-allocation has been released by its owner.
  * This is accounting only; ownership of the underlying Objective-C object
  * stays with the caller. Reset refuses to zero a heap's bump offset while
- * this count is non-zero.
+ * this count is non-zero. For DSp this does not release the live-byte charge:
+ * the buffer's final destruction does that, after GPU/view references end.
  */
 void gfxaccel_resources_heap_note_allocation_released(uint32_t heap_id);
 
