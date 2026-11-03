@@ -40,6 +40,7 @@
 #include "rave_vertex_color_policy.h"
 #include "rave_guest_buffer.h"
 #include "rave_depth_transfer.h"
+#include "rave_presentation_policy.h"
 #include "gfxaccel_resources.h"
 #include "gfxaccel_resources_heap.h"
 
@@ -228,6 +229,9 @@ struct RaveMetalState {
 	id<MTLTexture>              overlayTexture;        // offscreen render target from compositor
 	id<MTLCommandBuffer>        lastCommittedBuffer;
 	bool                        renderPassActive;
+	struct CompositeLayer       presentationLayer;
+	uint32_t                    presentationGeneration;
+	uint64_t                    renderSerial;
 
 	// Saved for lazy MSAA pipeline creation
 	id<MTLLibrary>              shaderLibrary;
@@ -288,6 +292,7 @@ struct RaveMetalState {
 	uint8_t                    *atiBackBufferHost;      // host view of atiBackBufferMac
 	uint32_t                    atiBackBufferSize;      // allocation size (screen rowBytes * height)
 	bool                        atiBackBufferDirty;     // guest content awaiting present to framebuffer
+	uint64_t                    atiBackBufferSerial;    // render whose pixels are in the CPU back buffer
 
 	// Depth-only clear pipeline (ClearZBuffer)
 	id<MTLDepthStencilState>    depthAlwaysWriteState; // depth=always, write=yes
@@ -361,6 +366,13 @@ static int32_t        s_rave_dst_left    = 0;
 static int32_t        s_rave_dst_top     = 0;
 static int32_t        s_rave_dst_width   = 0;
 static int32_t        s_rave_dst_height  = 0;
+
+struct RavePresentationFrame : RaveCPUPresentationFrame {
+	id<MTLTexture> texture = nil;
+	struct CompositeLayer layer = {};
+	uint32_t generation = 0;
+};
+static RavePresentationQueue<RaveDrawPrivate *, RavePresentationFrame> s_rave_pending_frames;
 
 static void rave_clear_overlay_binding_state(void)
 {
@@ -441,6 +453,10 @@ static void rave_advance_overlay_texture_after_submit(void)
  */
 static void rave_release_overlay_texture(void)
 {
+	// A deferred submission uses a standalone snapshot, outside the shared pair.
+	MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
+	    (__bridge void *)s_rave_submitted_overlay);
+	s_rave_pending_frames.Clear();
 	MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
 	    (__bridge void *)s_rave_overlay_pair[0]);
 	MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
@@ -1020,14 +1036,16 @@ void RaveInvalidateContextOverlay(RaveDrawPrivate *priv)
 
 void RaveReleaseMetalResources(RaveDrawPrivate *priv)
 {
+	s_rave_pending_frames.ClearOwner(priv);
 	RaveMetalState *ms = priv->metal;
 	if (!ms) return;
 	priv->metal = nullptr; // Re-entrant teardown cannot see this resource owner.
 	// Direct native deletes preserve the displayed frame, but must not leave
 	// a dangling producer pointer that could match a recycled context address.
+	// Retain its texture identity so owner/detach cleanup can clear a submitted
+	// standalone snapshot as well as the shared overlay pair.
 	if (s_rave_overlay_submitter == priv) {
 		s_rave_overlay_submitter = nullptr;
-		s_rave_submitted_overlay = nil;
 	}
 	const bool releaseGlobalRing = (rave_context_count <= 1);
 
@@ -3254,6 +3272,99 @@ static void FireNoticeMethod(RaveDrawPrivate *priv, int selector)
 }
 
 
+static bool RaveCapturePresentationFrame(RaveDrawPrivate *priv, bool deferred,
+                                         bool cpuComposite, RavePresentationFrame &frame)
+{
+	RaveMetalState *ms = priv->metal;
+	if (!ms || !ms->overlayTexture) return false;
+	frame.texture = ms->overlayTexture;
+	frame.layer = ms->presentationLayer;
+	frame.generation = ms->presentationGeneration;
+	frame.renderSerial = ms->renderSerial;
+	frame.cpuComposite = cpuComposite;
+	if (deferred) {
+		// Holding the shared target only retains its identity, not its pixels.
+		// Snapshot before callbacks or another RenderStart can reuse that target.
+		MTLTextureDescriptor *td = [MTLTextureDescriptor
+		    texture2DDescriptorWithPixelFormat:ms->overlayTexture.pixelFormat
+		    width:ms->overlayTexture.width height:ms->overlayTexture.height mipmapped:NO];
+		td.storageMode = MTLStorageModePrivate;
+		td.usage = MTLTextureUsageShaderRead;
+		frame.texture = [ms->device newTextureWithDescriptor:td];
+		if (!frame.texture) return false;
+		id<MTLCommandBuffer> command = [ms->commandQueue commandBuffer];
+		id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+		if (!command || !blit) return false;
+		[blit copyFromTexture:ms->overlayTexture sourceSlice:0 sourceLevel:0
+		         sourceOrigin:MTLOriginMake(0, 0, 0)
+		           sourceSize:MTLSizeMake(ms->overlayTexture.width, ms->overlayTexture.height, 1)
+		            toTexture:frame.texture destinationSlice:0 destinationLevel:0
+		    destinationOrigin:MTLOriginMake(0, 0, 0)];
+		[blit endEncoding];
+		[command commit];
+		[command waitUntilCompleted];
+		if (command.status != MTLCommandBufferStatusCompleted) return false;
+		if (cpuComposite && ms->atiBackBufferDirty &&
+		    ms->atiBackBufferSerial == frame.renderSerial) {
+			frame.PreserveCPUFrame(ms->atiBackBufferSerial,
+			                       ms->atiBackBufferHost, ms->atiBackBufferSize);
+		}
+	}
+	frame.layer.source = (__bridge void *)frame.texture;
+	return true;
+}
+
+static RavePresentationResult RavePublishPresentationFrame(
+    RaveDrawPrivate *priv, const RavePresentationFrame &frame, bool deferred)
+{
+	const struct DMCModeSnapshot *snap = dmc_current_snapshot();
+	if (!snap || snap->transitioning || snap->active_owner != kDMCOwnerRAVE ||
+	    snap->generation != frame.generation) return RavePresentationResult::Discarded;
+
+	RaveMetalState *ms = priv->metal;
+	if (frame.cpuComposite) {
+		const VideoInfo &mode = VModes[cur_mode];
+		if (mode.viAppleMode != APPLE_16_BIT || screen_base == 0)
+			return RavePresentationResult::Discarded;
+		const uint32_t size = mode.viRowBytes * mode.viYsize;
+		// Guest interface edits made after RenderEnd belong to this frame too.
+		const uint8_t *pixels = frame.CPUPixelsForSwap(ms->atiBackBufferSerial,
+		    ms->atiBackBufferSize == size ? ms->atiBackBufferHost : nullptr,
+		    size, ms->atiBackBufferDirty);
+		if (pixels) {
+			memcpy(Mac2HostAddr(screen_base), pixels, size);
+			// An explicit swap replaces the visible frame even if another RAVE
+			// context most recently submitted the overlay.
+			MetalCompositorSubmitFrame_ClearCachedOverlayForSource(
+			    (__bridge void *)s_rave_submitted_overlay);
+			s_rave_overlay_submitter = nullptr;
+			s_rave_submitted_overlay = nil;
+			return RavePresentationResult::Presented;
+		}
+		// No ATI lock has read this render yet. Present its retained 3D image.
+	}
+
+	struct FrameDescriptor desc = { &frame.layer, 1, frame.generation, 0 };
+	const int32_t err = RaveSubmitOverlayFrame(priv, &desc);
+	if (err == kGfxAccelErrStaleGeneration) return RavePresentationResult::Discarded;
+	if (err != kGfxAccelNoErr) {
+		RAVE_LOG("RAVE presentation: SubmitFrame returned %d", err);
+		return RavePresentationResult::Failed;
+	}
+	// Deferred snapshots are independent of the shared pair's write slot.
+	if (!deferred) rave_advance_overlay_texture_after_submit();
+	return RavePresentationResult::Presented;
+}
+
+static int32_t RavePresentPendingFrame(RaveDrawPrivate *priv)
+{
+	const RavePresentationResult result = s_rave_pending_frames.Swap(priv,
+	    [priv](const RavePresentationFrame &frame) {
+		    return RavePublishPresentationFrame(priv, frame, true);
+	    });
+	return result == RavePresentationResult::Failed ? kQAError : kQANoErr;
+}
+
 /*
  *  NativeRenderStart
  *
@@ -3290,6 +3401,15 @@ int32 NativeRenderStart(uint32 drawContextAddr, uint32 dirtyRectAddr, uint32 ini
 	/* Track the destination rect for SubmitFrame emission in NativeRenderEnd. */
 	RaveSetCompositorDestinationRect(
 	    priv->left, priv->top, priv->width, priv->height);
+	ms->renderSerial++;
+	const struct DMCModeSnapshot *presentationSnap = dmc_current_snapshot();
+	ms->presentationGeneration = presentationSnap ? presentationSnap->generation : 0;
+	ms->presentationLayer = {
+	    (__bridge void *)overlay, 0, 0, (uint32_t)overlay.width, (uint32_t)overlay.height,
+	    (float)s_rave_dst_left, (float)s_rave_dst_top,
+	    (float)s_rave_dst_width, (float)s_rave_dst_height,
+	    kLayerSlotOverlay, kBlendPremultiplied, 1.0f
+	};
 
 	// Check if MSAA is requested
 	// kQAAntialias_Fast (1) = default, no MSAA
@@ -3492,14 +3612,9 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 		[blit endEncoding];
 	}
 
-	// DELIBERATE: DontSwap is an intentional no-op beyond logging.
-	// With offscreen texture, the rendered content persists regardless and the
-	// command buffer commits unconditionally; DontSwap just controls whether we
-	// log "committed (DontSwap)" vs "frame committed to offscreen". There is no
-	// presentDrawable / held back-buffer to suppress — the compositor reads the
-	// offscreen overlay on its next VBL, so this is semantically equivalent to a
-	// true single-overlay DontSwap. Test: RAVEABITests.testDontSwap_intentionalNoOp
-	int32_t dont_swap = (int32_t)priv->state[32].i;
+	// RAVE 1.6 p.42: DontSwap commits rendering but defers presentation
+	// until QASwapBuffers. The visible compositor mailbox must stay untouched.
+	const bool dont_swap = priv->state[32].i != 0;
 
 	if (ms->currentCommandBuffer) {
 		CommitRaveCommandBufferWithRing(ms->currentCommandBuffer);
@@ -3513,9 +3628,6 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 	// modifiedRect is a const input from the guest, not an output parameter.
 	(void)modifiedRectAddr;
 
-	// Fire kQAMethod_RenderCompletion (selector 0) after present/commit
-	FireNoticeMethod(priv, 0);
-
 	if (rave_logging_enabled) {
 		RAVE_LOG("RenderEnd: ctx=0x%08x draws=%u tris=%u [tG=%u tT=%u vG=%u vT=%u mG=%u mT=%u bm=%u pt=%u ln=%u] blackWorldTex=%u/%u mulDraws=%u %s",
 		         drawContextAddr, ms->drawCallCount, ms->triangleCount,
@@ -3528,77 +3640,32 @@ int32 NativeRenderEnd(uint32 drawContextAddr, uint32 modifiedRectAddr)
 	}
 
 	ms->frameGeneration++;
+	const bool cpuComposite = ms->cpuCompositeFrames > 0;
+	if (cpuComposite) ms->cpuCompositeFrames--;
+	const bool ready = s_rave_pending_frames.FinishFrame(priv, dont_swap, cpuComposite,
+	    [priv, dont_swap, cpuComposite](RavePresentationFrame &frame) {
+		    return RaveCapturePresentationFrame(priv, dont_swap, cpuComposite, frame);
+	    },
+	    [priv](const RavePresentationFrame &frame) {
+		    return RavePublishPresentationFrame(priv, frame, false);
+	    });
 
-	// CPU-composite mode (ATI GetDrawBuffer): the guest reads the frame out
-	// of the framebuffer and draws its 2D interface there, so the framebuffer
-	// is the presentation surface. Caching the overlay here would make the
-	// compositor alternate between the bare 3D overlay and the framebuffer
-	// with the interface on it (visible as heavy flicker whenever the guest
-	// has UI up, e.g. the Myth II in-game menu). Suppress the submit; the
-	// frame reaches the screen via the framebuffer copy in
-	// NativeATIGetDrawBuffer. The counter re-arms on every GetDrawBuffer
-	// call and decays here, so a title that stops using the extension gets
-	// normal overlay presentation back after one frame.
-	if (ms->cpuCompositeFrames > 0) {
-		ms->cpuCompositeFrames--;
-		MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineRAVE);
-		return kQANoErr;
-	}
-
-	// Emit a CompositeLayer for the just-rendered overlay via
-	// MetalCompositorSubmitFrame. The
-	// compositor sees this as a single kLayerSlotOverlay layer with
-	// premultiplied-alpha blend (RAVE always blends; see BuildPipelines)
-	// over whatever the framebuffer currently
-	// shows. Ownership was claimed before acquiring the render target.
-	id<MTLTexture> submittedOverlay = ms->overlayTexture ?: s_rave_overlay_tex;
-	if (submittedOverlay != nil) {
-		struct CompositeLayer layer;
-		layer.source       = (__bridge void *)submittedOverlay;
-		layer.src_origin_x = 0;
-		layer.src_origin_y = 0;
-		layer.src_size_w   = s_rave_overlay_w;
-		layer.src_size_h   = s_rave_overlay_h;
-		layer.dst_origin_x = (float)s_rave_dst_left;
-		layer.dst_origin_y = (float)s_rave_dst_top;
-		layer.dst_size_w   = (float)s_rave_dst_width;
-		layer.dst_size_h   = (float)s_rave_dst_height;
-		layer.slot         = kLayerSlotOverlay;
-		layer.blend        = kBlendPremultiplied;
-		layer.alpha        = 1.0f;
-
-		const struct DMCModeSnapshot *snap = dmc_current_snapshot();
-		struct FrameDescriptor desc;
-		desc.layers               = &layer;
-		desc.layer_count          = 1;
-		desc.generation           = snap ? snap->generation : 0;
-		desc.vbl_tick_target_usec = 0;
-
-		int32_t err = RaveSubmitOverlayFrame(priv, &desc);
-		if (err == kGfxAccelErrStaleGeneration) {
-			RAVE_LOG("RenderEnd: SubmitFrame stale generation; dropping frame");
-		} else if (err != kGfxAccelNoErr) {
-			RAVE_LOG("RenderEnd: SubmitFrame returned %d", err);
-		} else {
-			rave_advance_overlay_texture_after_submit();
-		}
-	}
+	// Capture deferred pixels before guest completion callbacks can re-enter
+	// RenderStart, switch display owners, or delete the context.
+	FireNoticeMethod(priv, 0);
 
 	// SubmitFrame is cache-only in production; pace RAVE render ends explicitly.
 	MetalCompositorSync3DFramePacingForEngine(kGfxFramePacingEngineRAVE);
 
-	return kQANoErr;
+	return ready ? kQANoErr : kQAError;
 }
 
 
 /*
  *  NativeSwapBuffers
  *
- *  Explicitly presents the held drawable from a DontSwap RenderEnd.
- *  If no drawable is held (DontSwap was not set), this is a no-op.
- *  DELIBERATE: Metal CAMetalLayer.presentDrawable always presents the full
- *  drawable. Partial present is not supported by the Metal API. QD3D 1.6 spec §Present allows
- *  implementation-defined behavior. Test: RAVESurfaceTests.testDirtyRect_present_deliberate
+ *  Presents the retained frame from a DontSwap RenderEnd once. Dirty rectangles
+ *  are conservatively expanded to the whole retained frame.
  *  PPC args: r3=drawContextAddr, r4=dirtyRectAddr
  */
 int32 NativeSwapBuffers(uint32 drawContextAddr, uint32 dirtyRectAddr)
@@ -3607,10 +3674,7 @@ int32 NativeSwapBuffers(uint32 drawContextAddr, uint32 dirtyRectAddr)
 	if (!priv || !priv->metal) return kQANoErr;
 	(void)dirtyRectAddr;
 
-	// With offscreen texture rendering, the rendered content persists and
-	// the compositor reads it on every VBL. SwapBuffers is effectively a no-op.
-	RAVE_LOG("SwapBuffers: ctx=0x%08x no-op (offscreen texture persists)", drawContextAddr);
-	return kQANoErr;
+	return RavePresentPendingFrame(priv);
 }
 
 
@@ -4763,10 +4827,15 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 		ms->atiBackBufferDirty = false;
 	}
 
-	// Present: everything the guest drew since the previous lock is now a
-	// completed frame — copy it to the visible framebuffer in one pass.
+	// Present completed guest composition unless DontSwap holds it back.
+	// Snapshot an older pending CPU frame before this lock replaces its pixels.
+	const bool deferPresentation = RaveDeferCPUPresentation(
+	    priv->state[32].i != 0, s_rave_pending_frames.Find(priv) != nullptr);
 	if (ms->atiBackBufferDirty) {
-		memcpy(Mac2HostAddr(screen_base), ms->atiBackBufferHost, backSize);
+		if (RavePresentationFrame *pending = s_rave_pending_frames.Find(priv))
+			pending->PreserveCPUFrame(ms->atiBackBufferSerial, ms->atiBackBufferHost, backSize);
+		if (!deferPresentation)
+			memcpy(Mac2HostAddr(screen_base), ms->atiBackBufferHost, backSize);
 	}
 
 	// Transfer a newly rendered 3D frame into the back buffer, converting
@@ -4818,12 +4887,17 @@ int32_t NativeATIGetDrawBuffer(uint32_t drawContextAddr, uint32_t deviceStructAd
 
 		if (wasActive) RestartRenderPassWithLoad(priv);
 		ms->cpuCompositeCopiedGen = ms->frameGeneration;
+		ms->atiBackBufferSerial = ms->renderSerial;
 	}
 
 	// The framebuffer now owns presentation; stop compositing the (stale)
 	// overlay on top of it. Submits stay suppressed while cpuCompositeFrames
 	// is armed, so the compositor presents the framebuffer alone.
-	RaveInvalidateContextOverlay(priv);
+	// The first lock can follow a GPU-only DontSwap RenderEnd: mark that
+	// pending frame as CPU composition now, before returning it for UI edits.
+	if (RavePresentationFrame *pending = s_rave_pending_frames.Find(priv))
+		pending->PreserveCPUFrame(ms->atiBackBufferSerial, ms->atiBackBufferHost, backSize);
+	if (!deferPresentation) RaveInvalidateContextOverlay(priv);
 
 	ms->atiBackBufferDirty = true;
 
