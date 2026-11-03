@@ -37,6 +37,7 @@
 #include "gl_offscreen_policy.h"
 #include "gl_pixel_unpack_policy.h"
 #include "gl_pixel_readback.h"
+#include "gl_pixel_upload.h"
 #include <algorithm>
 
 extern bool RaveGetLastCL8ColorTableRGBSnapshot(uint8_t outRGB[768]);
@@ -1865,8 +1866,7 @@ uint32_t NativeGLGetString(GLContext *ctx, uint32_t name)
 			"GL_ARB_multitexture GL_ARB_transpose_matrix "
 			"GL_EXT_abgr GL_EXT_bgra GL_EXT_packed_pixels "
 			"GL_EXT_blend_color GL_EXT_blend_equation GL_EXT_compiled_vertex_array "
-			"GL_EXT_secondary_color GL_EXT_stencil_wrap "
-			"GL_EXT_paletted_texture";
+			"GL_EXT_secondary_color GL_EXT_stencil_wrap";
 		{
 			static bool s_logged_extensions = false;
 			if (!s_logged_extensions) {
@@ -2024,6 +2024,7 @@ void NativeGLPushAttrib(GLContext *ctx, uint32_t mask)
 		memcpy(entry.full_current_texcoord, ctx->current_texcoord, sizeof(ctx->current_texcoord));
 		entry.full_current_index = ctx->current_index;
 		memcpy(entry.full_raster_pos, ctx->raster_pos, sizeof(ctx->raster_pos));
+		memcpy(entry.full_raster_color, ctx->raster_color, sizeof(ctx->raster_color));
 		entry.full_current_edge_flag = ctx->current_edge_flag;
 		entry.full_raster_pos_valid = ctx->raster_pos_valid;
 	}
@@ -2248,6 +2249,7 @@ void NativeGLPopAttrib(GLContext *ctx)
 		memcpy(ctx->current_texcoord, entry.full_current_texcoord, sizeof(ctx->current_texcoord));
 		ctx->current_index = entry.full_current_index;
 		memcpy(ctx->raster_pos, entry.full_raster_pos, sizeof(ctx->raster_pos));
+		memcpy(ctx->raster_color, entry.full_raster_color, sizeof(ctx->raster_color));
 		ctx->current_edge_flag = entry.full_current_edge_flag;
 		ctx->raster_pos_valid = entry.full_raster_pos_valid;
 	}
@@ -2417,8 +2419,14 @@ void GLContextInit(GLContext *ctx)
 	float *accum = ctx->accum_buffer;
 	const int accumWidth = ctx->accum_width, accumHeight = ctx->accum_height;
 	const bool accumAllocated = ctx->accum_allocated;
+	GLTextureObject defaults[3];
+	for (int i = 0; i < 3; ++i) {
+		defaults[i] = ctx->default_textures[i];
+		ctx->default_textures[i].metal_texture = nullptr;
+	}
 	ctx->~GLContext();
 	new (ctx) GLContext { std::move(objects) };
+	for (int i = 0; i < 3; ++i) ctx->default_textures[i] = defaults[i];
 	ctx->lifetime = std::move(lifetime);
 	ctx->metal = metal;
 	ctx->accum_buffer = accum;
@@ -2711,7 +2719,7 @@ void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 	GLRetiredTextureBinding(ctx->tex_units[ctx->active_texture], target).reset();
 
 	if (texture == 0) {
-		// Unbind: use default (no texture)
+		// Restore this target's default texture without discarding its images.
 		if (target == GL_TEXTURE_2D) {
 			ctx->tex_units[ctx->active_texture].bound_texture_2d = 0;
 			gl_clear_prepared_texture_2d_for_draw(ctx, ctx->active_texture);
@@ -2726,15 +2734,7 @@ void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 
 	// Create texture object entry if not yet in map (GL spec: first bind creates)
 	if (ctx->texture_objects.find(texture) == ctx->texture_objects.end()) {
-		GLTextureObject obj;
-		memset(&obj, 0, sizeof(obj));
-		obj.name = texture;
-		obj.min_filter = GL_NEAREST_MIPMAP_LINEAR;  // GL default
-		obj.mag_filter = GL_LINEAR;                   // GL default
-		obj.wrap_s = GL_REPEAT;
-		obj.wrap_t = GL_REPEAT;
-		obj.env_mode = GL_MODULATE;
-		ctx->texture_objects[texture] = obj;
+		ctx->texture_objects[texture] = GLNewTextureObject(target, texture);
 	}
 
     ctx->texture_objects[texture].target = target;
@@ -2762,11 +2762,6 @@ void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 void NativeGLTexParameteri(GLContext *ctx, uint32_t target, uint32_t pname, int32_t param)
 {
 	if (!ctx) return;
-
-	// Get currently bound texture for this target
-	uint32_t texName = GLTextureUnitBoundName(ctx->tex_units[ctx->active_texture], target);
-
-	if (texName == 0) return;
 
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) return;
@@ -2839,16 +2834,6 @@ void NativeGLClientActiveTextureARB(GLContext *ctx, uint32_t texture)
 /*
  *  Helper: compute aligned row stride per GL pixel store
  */
-static int ComputeRowStride(int width, int bytesPerPixel, int alignment, int rowLength)
-{
-	int effectiveWidth = (rowLength > 0) ? rowLength : width;
-	int rowBytes = effectiveWidth * bytesPerPixel;
-	// Align to 'alignment' boundary
-	if (alignment > 1)
-		rowBytes = ((rowBytes + alignment - 1) / alignment) * alignment;
-	return rowBytes;
-}
-
 static uint8_t ReadScalarComponentTo8(uint32_t addr, uint32_t type)
 {
 	switch (type) {
@@ -3020,7 +3005,7 @@ static bool GLDetectLegacyUnsignedShortPaletteIndexTexture(uint32_t srcBase,
 		for (int sx = 0; sx < sampleXCount; sx++) {
 			const int x =
 				(sampleXCount == 1) ? 0 : (sx * (width - 1)) / (sampleXCount - 1);
-			const uint32_t pixAddr = srcBase + y * rowStride + x * srcBpp;
+			const uint32_t pixAddr = srcBase + uint32_t(uint64_t(y) * rowStride) + x * srcBpp;
 			const uint16_t word = (uint16_t)ReadMacInt16(pixAddr);
 			GLPixelLegacyUnsignedShortIndexStatsAddWord(&stats, word);
 		}
@@ -3050,7 +3035,7 @@ static bool GLDetectLegacyUnsignedShortExactDuplicatedByteTexture(
 	GLPixelLegacyUnsignedShortIndexStatsInit(&stats);
 	if (srcBase != 0 && width > 0 && height > 0 && srcBpp == 2) {
 		for (int y = 0; y < height; y++) {
-			const uint32_t rowAddr = srcBase + y * rowStride;
+			const uint32_t rowAddr = srcBase + uint32_t(uint64_t(y) * rowStride);
 			for (int x = 0; x < width; x++) {
 				const uint16_t word =
 					(uint16_t)ReadMacInt16(rowAddr + x * srcBpp);
@@ -3087,18 +3072,24 @@ static void GLGetMacVideoPaletteSnapshot(uint8_t outRGB[768])
 static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
                                       uint32_t format, uint32_t type,
                                       const GLPixelStore &ps,
-                                      const GLContext *ctx,
+                                      GLContext *ctx,
                                       int *outLen,
                                       GLTextureObject *textureObject = nullptr,
                                       int32_t textureLevel = 0,
                                       bool updateTextureLegacyState = false)
 {
-	int dstBytes = width * height * 4;
+	if (!outLen) return nullptr;
+	*outLen = 0;
+	int dstBytes = 0;
+	if (!GLPixelBGRA8Size(ctx, width, height, dstBytes) || !dstBytes) return nullptr;
+	GLPixelUnpackLayout layout;
+	int srcBpp = GLPixelSourceBytesPerPixel(format, type);
+	if (!GLPixelGetUnpackLayout(ctx, ps, mac_pixels, width, height,
+	                           unsigned(srcBpp > 0 ? srcBpp : 1) * 8, layout)) return nullptr;
 	uint8_t *dst = (uint8_t *)malloc(dstBytes);
-	if (!dst) { *outLen = 0; return nullptr; }
+	if (!dst) { if (ctx && !ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY; return nullptr; }
 	*outLen = dstBytes;
 
-	int srcBpp = GLPixelSourceBytesPerPixel(format, type);
 	const bool legacyUnsignedShortEligible =
 		type == GL_UNSIGNED_SHORT &&
 		GLPixelLegacyUnsignedShortFormatCanUsePackedDecode(format);
@@ -3110,8 +3101,8 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 		return dst;
 	}
 
-	int rowStride = ComputeRowStride(width, srcBpp, ps.unpack_alignment, ps.unpack_row_length);
-	uint32_t srcBase = mac_pixels + ps.unpack_skip_rows * rowStride + ps.unpack_skip_pixels * srcBpp;
+	int rowStride = layout.rowStride;
+	uint32_t srcBase = mac_pixels + layout.start;
 	const bool hasExplicitColorIndexPalette =
 		ctx != nullptr &&
 		(ctx->color_table_enabled || ctx->color_tables[0].defined ||
@@ -3170,12 +3161,13 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 	if (legacyUnsignedShortEligible) {
 		const int legacySrcBpp =
 			GLPixelLegacyUnsignedShortPackedBytesPerPixel(format, type);
-		const int legacyRowStride =
-			ComputeRowStride(width, legacySrcBpp, ps.unpack_alignment,
-			                 ps.unpack_row_length);
-		const uint32_t legacySrcBase =
-			mac_pixels + ps.unpack_skip_rows * legacyRowStride +
-			ps.unpack_skip_pixels * legacySrcBpp;
+		GLPixelUnpackLayout legacyLayout;
+		if (!GLPixelGetUnpackLayout(ctx, ps, mac_pixels, width, height,
+		                           unsigned(legacySrcBpp) * 8, legacyLayout)) {
+			free(dst); *outLen = 0; return nullptr;
+		}
+		const int legacyRowStride = legacyLayout.rowStride;
+		const uint32_t legacySrcBase = mac_pixels + legacyLayout.start;
 		GLPixelLegacyUnsignedShortIndexStats legacyLayoutStats;
 		const bool exactDuplicatedLegacyLayout =
 			GLDetectLegacyUnsignedShortExactDuplicatedByteTexture(
@@ -3398,9 +3390,9 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 	}
 
 	for (int y = 0; y < height; y++) {
-		uint32_t rowAddr = srcBase + y * rowStride;
+		uint32_t rowAddr = srcBase + uint32_t(uint64_t(y) * rowStride);
 		for (int x = 0; x < width; x++) {
-			uint32_t pixAddr = rowAddr + x * srcBpp;
+			uint32_t pixAddr = rowAddr + uint32_t(uint64_t(x) * srcBpp);
 			uint8_t *out = dst + (y * width + x) * 4;
 
 			if (format == GL_COLOR_INDEX) {
@@ -3558,8 +3550,6 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 
 	GL_VLOG("  -> active_texture=%d texName=%u", ctx->active_texture, texName);
 
-	if (texName == 0) return;
-
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) { GL_LOG("NativeGLTexImage2D: texture %u not found in map", texName); return; }
 
@@ -3639,10 +3629,6 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
                             uint32_t format, uint32_t type, uint32_t mac_pixels)
 {
 	if (!ctx || mac_pixels == 0) return;
-
-	uint32_t texName = 0;
-	texName = GLTextureUnitBoundName(ctx->tex_units[ctx->active_texture], target);
-	if (texName == 0) return;
 
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) return;
@@ -3834,6 +3820,8 @@ static void gl_raster_pos4f(GLContext *ctx, float x, float y, float z, float w)
 		ctx->raster_pos[1] = ctx->viewport[1] + ctx->viewport[3] * (ndc_y + 1.0f) * 0.5f;
 		ctx->raster_pos[2] = (ctx->depth_range_far - ctx->depth_range_near) * (ndc_z + 1.0f) * 0.5f + ctx->depth_range_near;
 		ctx->raster_pos[3] = clip[3];
+		for (int i = 0; i < 4; ++i)
+			ctx->raster_color[i] = std::max(0.0f, std::min(1.0f, ctx->current_color[i]));
 		ctx->raster_pos_valid = true;
 	} else {
 		ctx->raster_pos_valid = false;
@@ -3880,34 +3868,33 @@ void NativeGLRasterPos4sv(GLContext *ctx, uint32_t p) { gl_raster_pos4f(ctx, (fl
 void NativeGLBitmap(GLContext *ctx, int32_t width, int32_t height, float xorig, float yorig,
                     float xmove, float ymove, uint32_t bitmap_ptr)
 {
+	if (!ctx) return;
+	int dstBytes = 0;
+	if (!GLPixelBGRA8Size(ctx, width, height, dstBytes)) return;
 	// Render the bitmap if we have valid data and raster position
 	if (bitmap_ptr != 0 && ctx->raster_pos_valid && width > 0 && height > 0) {
-		// Unpack 1-bit bitmap to BGRA8: bit=1 → current_color, bit=0 → transparent
-		int dstBytes = width * height * 4;
+		GLPixelUnpackLayout layout;
+		if (!GLPixelGetUnpackLayout(ctx, ctx->pixel_store, bitmap_ptr,
+		                           width, height, 1, layout)) return;
+		// Alpha carries coverage only. The renderer applies raster color and
+		// alpha independently, so a one bit with color alpha zero can write depth.
 		uint8_t *bgra = (uint8_t *)malloc(dstBytes);
 		if (bgra) {
 			// Current color as BGRA8
 			uint8_t cr = (uint8_t)(ctx->current_color[0] * 255.0f);
 			uint8_t cg = (uint8_t)(ctx->current_color[1] * 255.0f);
 			uint8_t cb = (uint8_t)(ctx->current_color[2] * 255.0f);
-			uint8_t ca = (uint8_t)(ctx->current_color[3] * 255.0f);
-
-			// Row stride for 1-bit-per-pixel with unpack_alignment
-			int bytesPerRow = (width + 7) / 8;  // ceil(width / 8)
-			int alignment = ctx->pixel_store.unpack_alignment;
-			if (alignment > 1)
-				bytesPerRow = ((bytesPerRow + alignment - 1) / alignment) * alignment;
 
 			for (int y = 0; y < height; y++) {
-				uint32_t rowAddr = bitmap_ptr + y * bytesPerRow;
+				uint32_t rowAddr = bitmap_ptr + layout.start + uint32_t(uint64_t(y) * layout.rowStride);
 				for (int x = 0; x < width; x++) {
-					int byteIndex = x / 8;
-					int bitIndex = 7 - (x % 8);  // MSB-first bit order
+					int byteIndex = (x + layout.bitOffset) / 8;
+					int bitIndex = 7 - ((x + layout.bitOffset) % 8);  // MSB-first bit order
 					uint8_t byte = ReadMacInt8(rowAddr + byteIndex);
 					uint8_t *out = bgra + (y * width + x) * 4;
 					if (byte & (1 << bitIndex)) {
 						// bit=1: write current color as BGRA
-						out[0] = cb; out[1] = cg; out[2] = cr; out[3] = ca;
+						out[0] = cb; out[1] = cg; out[2] = cr; out[3] = 255;
 					} else {
 						// bit=0: fully transparent
 						out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0;
@@ -3917,7 +3904,7 @@ void NativeGLBitmap(GLContext *ctx, int32_t width, int32_t height, float xorig, 
 
 			GLMetalBitmap(ctx, width, height, bgra, dstBytes);
 			free(bgra);
-		}
+		} else if (!ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY;
 	}
 
 	// Advance raster position by move amounts (always, even if rendering was skipped)
@@ -3928,7 +3915,7 @@ void NativeGLBitmap(GLContext *ctx, int32_t width, int32_t height, float xorig, 
 // --- DrawPixels / CopyPixels / ReadPixels / ReadBuffer / DrawBuffer ---
 void NativeGLDrawPixels(GLContext *ctx, int32_t width, int32_t height, uint32_t format, uint32_t type, uint32_t pixels_ptr)
 {
-	if (!ctx->raster_pos_valid) return;
+	if (!ctx || !ctx->raster_pos_valid) return;
 
 	int outLen = 0;
 	uint8_t *bgra = ConvertPixelsToBGRA8(pixels_ptr, width, height, format, type, ctx->pixel_store, ctx, &outLen);
@@ -5782,8 +5769,6 @@ void NativeGLCompressedTexImage2DARB(GLContext *ctx, uint32_t target, int32_t le
 		return;
 	}
 
-	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	if (texName == 0) return;
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) return;
 	GLTextureObject &tex = *object;
@@ -5828,8 +5813,6 @@ void NativeGLCompressedTexSubImage2DARB(GLContext *ctx, uint32_t target, int32_t
 		return;
 	}
 
-	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	if (texName == 0) return;
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) return;
 	GLTextureObject &tex = *object;
@@ -6615,8 +6598,6 @@ void NativeGLTexImage3DEXT(GLContext *ctx, uint32_t target, int32_t level, int32
 		return;
 	}
 
-	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_3d;
-	if (texName == 0) return;
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) return;
 	GLTextureObject &tex = *object;
@@ -6681,8 +6662,6 @@ void NativeGLTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level,
 	GL_LOG("TexSubImage3D offset=(%d,%d,%d) size=%dx%dx%d", xoff, yoff, zoff, w, h, d);
 	if (!ctx || data == 0) return;
 
-	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_3d;
-	if (texName == 0) return;
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) return;
 	GLTextureObject &tex = *object;
@@ -6732,13 +6711,10 @@ void NativeGLCopyTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level
 	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, w, h, &bufLen);
 	if (!bgra) return;
 
-	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_3d;
-	if (texName != 0) {
-		GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
-		if (object) {
-            GLTextureApplyInternalFormatBGRA(bgra, bufLen, GLTextureLevelBaseFormat(*object, level));
-			GLMetalUploadSubTexture3D(ctx, object, level, xoff, yoff, zoff, w, h, 1, bgra, w * 4, w * h * 4);
-		}
-	}
+    GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+    if (object) {
+        GLTextureApplyInternalFormatBGRA(bgra, bufLen, GLTextureLevelBaseFormat(*object, level));
+        GLMetalUploadSubTexture3D(ctx, object, level, xoff, yoff, zoff, w, h, 1, bgra, w * 4, w * h * 4);
+    }
 	free(bgra);
 }

@@ -800,6 +800,18 @@ struct GLTextureObject {
 			    bool     legacy_ushort_scalar_no_palette_chain; // level-0 scalar decode rejected duplicated-byte mips
 			};
 
+static inline GLTextureObject GLNewTextureObject(uint32_t target, uint32_t name = 0)
+{
+    GLTextureObject object{};
+    object.target = target;
+    object.name = name;
+    object.min_filter = 0x2702; // NEAREST_MIPMAP_LINEAR
+    object.mag_filter = 0x2601; // LINEAR
+    object.wrap_s = object.wrap_t = 0x2901; // REPEAT
+    object.env_mode = 0x2100; // MODULATE
+    return object;
+}
+
 
 /*
  *  GLCommand -- display list command storage
@@ -1030,6 +1042,7 @@ struct GLAttribStackEntry {
     float full_current_texcoord[4][4];
     float full_current_index;
     float full_raster_pos[4];
+    float full_raster_color[4];
     bool full_current_edge_flag;
     bool full_raster_pos_valid;
     GLLight full_lights[8];
@@ -1274,6 +1287,11 @@ struct GLContext {
     // ---- Texture objects ----
     std::unordered_map<uint32_t, GLTextureObject> &texture_objects = shared_objects->texture_objects;
     uint32_t &next_texture_name = shared_objects->next_texture_name;
+    // Name zero denotes a per-target, per-context default texture. These are
+    // shared between units in this context, never between shared contexts.
+    GLTextureObject default_textures[3] = {
+        GLNewTextureObject(0x0de0), GLNewTextureObject(0x0de1), GLNewTextureObject(0x806f)
+    };
 
     // ---- Enable/disable caps ----
     bool     depth_test;
@@ -1426,6 +1444,7 @@ struct GLContext {
 
     // ---- Raster position ----
     float    raster_pos[4];
+    float    raster_color[4] = {1, 1, 1, 1}; // captured when RasterPos is set
     bool     raster_pos_valid;
 
     // ---- Pixel transfer ----
@@ -1519,6 +1538,12 @@ struct GLContext {
 
     // ---- Error ----
     uint32_t last_error;               // GLenum: GL_NO_ERROR, etc.
+
+    ~GLContext() {
+        if (shared_objects->destroy_texture)
+            for (auto &texture : default_textures)
+                if (texture.metal_texture) shared_objects->destroy_texture(&texture);
+    }
 };
 
 static inline std::shared_ptr<GLTextureObject> &GLRetiredTextureBinding(GLTextureUnit &unit,
@@ -1528,17 +1553,24 @@ static inline std::shared_ptr<GLTextureObject> &GLRetiredTextureBinding(GLTextur
            target == 0x806f ? unit.retired_texture_3d : unit.retired_texture_2d;
 }
 
-static inline GLTextureObject *GLBoundTextureObject(const GLContext *ctx, int unit, uint32_t target)
+static inline const GLTextureObject *GLBoundTextureObject(const GLContext *ctx, int unit, uint32_t target)
 {
-    if (!ctx || unit < 0 || unit >= 4) return nullptr;
+    if (!ctx || unit < 0 || unit >= 4 ||
+        (target != 0x0de0 && target != 0x0de1 && target != 0x806f)) return nullptr;
     const GLTextureUnit &binding = ctx->tex_units[unit];
     const auto &retired = target == 0x0de0 ? binding.retired_texture_1d :
                           target == 0x806f ? binding.retired_texture_3d : binding.retired_texture_2d;
     if (retired) return retired.get();
     const uint32_t name = target == 0x0de0 ? binding.bound_texture_1d :
                           target == 0x806f ? binding.bound_texture_3d : binding.bound_texture_2d;
+    if (!name) return &ctx->default_textures[target == 0x0de0 ? 0 : target == 0x0de1 ? 1 : 2];
     auto entry = ctx->texture_objects.find(name);
     return entry == ctx->texture_objects.end() ? nullptr : &entry->second;
+}
+
+static inline GLTextureObject *GLBoundTextureObject(GLContext *ctx, int unit, uint32_t target)
+{
+    return const_cast<GLTextureObject *>(GLBoundTextureObject(static_cast<const GLContext *>(ctx), unit, target));
 }
 
 

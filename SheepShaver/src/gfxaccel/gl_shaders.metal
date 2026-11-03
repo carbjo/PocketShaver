@@ -90,6 +90,7 @@ struct GLFragmentUniforms {
     float4 texenv1_color;       // independent unit-1 GL_TEXTURE_ENV_COLOR
     int    has_texture_1d;
     int    has_texture_unit1_1d;
+    int    bitmap_mask;
 };
 
 struct GLLight {
@@ -358,8 +359,14 @@ fragment float4 gl_fragment_main(
             tex_color = tex.sample(samp, uv);
         }
 
-        color = gl_texture_environment(color, tex_color, uniforms.texenv_mode,
-                                       uniforms.texenv_color, uniforms.tex_format);
+        if (uniforms.bitmap_mask) {
+            // A zero bitmap bit generates no fragment, even with blending or
+            // alpha testing disabled. Coverage is independent of raster alpha.
+            if (tex_color.a < 0.5) discard_fragment();
+        } else {
+            color = gl_texture_environment(color, tex_color, uniforms.texenv_mode,
+                                           uniforms.texenv_color, uniforms.tex_format);
+        }
     }
 
     if (uniforms.has_texture_unit1) {

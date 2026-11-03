@@ -34,7 +34,8 @@ struct GLMetalFragmentUniforms {
     float texenv1_color[4];          // offset 96, independent unit-1 environment
     int32_t has_texture_1d;          // offset 112, ignore T for the primary 1D target
     int32_t has_texture_unit1_1d;
-    int32_t _pad8, _pad9;            // pad to 128, matching Metal struct alignment
+    int32_t bitmap_mask;            // offset 120, sampled alpha is coverage only
+    int32_t _pad9;                  // pad to 128, matching Metal struct alignment
 };
 
 static inline int32_t GLTexEnvModeToShader(uint32_t gl_mode) {
@@ -51,6 +52,7 @@ static inline int32_t GLTexEnvModeToShader(uint32_t gl_mode) {
 static inline void GLMetalSetTextureEnvironments(GLMetalFragmentUniforms &uniforms,
                                                  const GLContext &ctx)
 {
+    uniforms.bitmap_mask = 0;
     uniforms.texenv_mode = GLTexEnvModeToShader(ctx.tex_units[0].env_mode);
     uniforms.texenv1_mode = GLTexEnvModeToShader(ctx.tex_units[1].env_mode);
     std::memcpy(uniforms.texenv_color, ctx.tex_units[0].env_color, sizeof(uniforms.texenv_color));

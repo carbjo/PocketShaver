@@ -31,6 +31,7 @@
 #include "display_mode_controller.h"
 #include "gl_drawable_owner_policy.h"
 #include "gl_offscreen_policy.h"
+#include "gl_pixel_upload.h"
 #include "accel_logging.h"
 
 #include <cstring>
@@ -1565,6 +1566,9 @@ uint32_t NativeAGLCopyContext(uint32_t src, uint32_t dst, uint32_t mask)
 		d->current_fog_coord = s->current_fog_coord;
 		d->current_index = s->current_index;
 		d->current_edge_flag = s->current_edge_flag;
+		memcpy(d->raster_pos, s->raster_pos, sizeof(s->raster_pos));
+		memcpy(d->raster_color, s->raster_color, sizeof(s->raster_color));
+		d->raster_pos_valid = s->raster_pos_valid;
 	}
 	if (mask & GL_ENABLE_BIT) {
 		d->depth_test = s->depth_test;
@@ -3680,15 +3684,7 @@ void NativeGLTexImage2D_Direct(GLContext *ctx, uint32_t target, int32_t level,
 	// Input validation (ASVS V5 — mirror gl_engine.cpp NativeGLUBuild2DMipmaps guards).
 	if (!ctx || pixels == 0 || width <= 0 || height <= 0) return;
 
-	// Find the currently bound texture object (mirror NativeGLTexImage2D, gl_state.cpp:2528).
-	uint32_t texName = 0;
-	if (target == GL_TEXTURE_2D)
-		texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	else if (target == GL_TEXTURE_1D)
-		texName = ctx->tex_units[ctx->active_texture].bound_texture_1d;
-
-	if (texName == 0) return;
-
+	// Resolve named and default textures through the same target binding.
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) return;
 
@@ -3772,14 +3768,8 @@ uint32_t NativeGLUBuild2DMipmaps(GLContext *ctx,
 	       target, internalFormat, width, height, format, type, data_ptr);
 
 	if (!ctx || data_ptr == 0 || width <= 0 || height <= 0) return GLU_INVALID_VALUE;
-
-	uint32_t texName = 0;
-	if (target == GL_TEXTURE_2D)
-		texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	else if (target == GL_TEXTURE_1D)
-		texName = ctx->tex_units[ctx->active_texture].bound_texture_1d;
-
-	if (texName == 0) return 0;
+	int expectedBaseBGRABytes = 0;
+	if (!GLPixelBGRA8Size(nullptr, width, height, expectedBaseBGRABytes)) return GLU_INVALID_VALUE;
 
 	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
 	if (!object) return 0;
@@ -3794,7 +3784,6 @@ uint32_t NativeGLUBuild2DMipmaps(GLContext *ctx,
 	int baseBGRABytes = 0;
 	uint8_t *baseBGRA = GLConvertMacPixelsToBGRA8(
 		ctx, data_ptr, width, height, format, type, &baseBGRABytes);
-	const int expectedBaseBGRABytes = width * height * 4;
 	if (!baseBGRA || baseBGRABytes < expectedBaseBGRABytes) {
 		if (baseBGRA) free(baseBGRA);
 		return GLU_OUT_OF_MEMORY;

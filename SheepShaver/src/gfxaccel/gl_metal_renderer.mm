@@ -45,6 +45,7 @@
 #include "gl_pixel_unpack_policy.h"
 #include "gl_pixel_pack_policy.h"
 #include "gl_pixel_readback.h"
+#include "gl_pixel_upload.h"
 #include "nqd_accel.h"
 
 
@@ -1569,7 +1570,7 @@ static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext
     int texUnit = GLMetalPrimaryTextureUnitForDraw(ctx->active_texture);
     const uint32_t target = GLTextureUnitTarget(ctx->tex_units[texUnit],
         GLMetalTexture2DEnabledForDraw(ctx, texUnit));
-    bool has_texture = GLTextureUnitBoundName(ctx->tex_units[texUnit], target) != 0;
+    bool has_texture = target != 0 && GLBoundTextureObject(ctx, texUnit, target) != nullptr;
 
     uint64_t key = MakePipelineKey(blend_enabled, blend_src, blend_dst,
                                     depth_write, color_mask_bits, has_texture,
@@ -1804,6 +1805,7 @@ void GLMetalBeginFrame(GLContext *ctx)
 {
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized) return;
+
     if (ms->renderPassActive) return;
 
     // Render over the full drawable. The GL viewport/scissor restrict draws
@@ -2339,9 +2341,8 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     const int texUnit = GLMetalPrimaryTextureUnitForDraw(ctx->active_texture);
     const uint32_t primaryTarget = GLTextureUnitTarget(ctx->tex_units[texUnit],
         GLMetalTexture2DEnabledForDraw(ctx, texUnit));
-    const bool hasPrimaryTexture =
-        GLTextureUnitBoundName(ctx->tex_units[texUnit], primaryTarget) != 0;
     GLTextureObject *primaryTexture = GLBoundTextureObject(ctx, texUnit, primaryTarget);
+    const bool hasPrimaryTexture = primaryTarget != 0 && primaryTexture != nullptr;
     const uint32_t secondaryTarget = GLTextureUnitTarget(ctx->tex_units[1],
         GLMetalTexture2DEnabledForDraw(ctx, 1));
     GLTextureObject *secondaryTexture = GLBoundTextureObject(ctx, 1, secondaryTarget);
@@ -2472,7 +2473,7 @@ static void GLMetalSubmitVertices(GLContext *ctx,
     // Each unit chooses its enabled target independently. 1D images use a
     // height-one Metal texture, with T ignored in the fragment shader.
     fu.has_texture_unit1 = (secondaryTarget == 0x0de0 || secondaryTarget == 0x0de1) &&
-        GLTextureUnitBoundName(ctx->tex_units[1], secondaryTarget) != 0;
+        secondaryTexture != nullptr;
     fu.has_texture_unit1_1d = secondaryTarget == 0x0de0;
     {
         const bool isOffscreen =
@@ -2642,12 +2643,24 @@ void GLMetalFlushImmediateMode(GLContext *ctx)
  *
  *  Called from NativeGLDrawPixels after ConvertPixelsToBGRA8. Creates a transient
  *  Metal texture, computes an NDC quad at the current raster position, and draws
- *  with depth write/test disabled. Uses the current blend state.
+ *  with the guest's fragment tests, write masks and blend state.
  */
-void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len)
+static void GLMetalDrawPixelQuad(GLContext *ctx, int width, int height,
+                                 const uint8_t *bgra_data, int data_len, bool bitmap)
 {
+    if (!ctx) return;
+    int requiredBytes = 0;
+    if (!GLPixelBGRA8Size(ctx, width, height, requiredBytes) || !requiredBytes) return;
+    if (!bgra_data || data_len < requiredBytes) { GLPixelUploadInvalid(ctx); return; }
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized) return;
+
+    // Apple/Mac GPU families supported by this backend allow at most 16384
+    // texels on a 2D axis. Reject before Metal's descriptor validation asserts.
+    if (width > 16384 || height > 16384) {
+        if (!ctx->last_error) ctx->last_error = 0x0505; // OUT_OF_MEMORY
+        return;
+    }
 
     // Auto-start frame if needed
 	if (!ms->renderPassActive) {
@@ -2684,8 +2697,8 @@ void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgr
     float win_y = ctx->raster_pos[1];
 
     // Apply pixel zoom to quad dimensions (in pixels)
-    float quad_w = (float)width * ctx->pixel_zoom_x;
-    float quad_h = (float)height * ctx->pixel_zoom_y;
+    float quad_w = (float)width * (bitmap ? 1.0f : ctx->pixel_zoom_x);
+    float quad_h = (float)height * (bitmap ? 1.0f : ctx->pixel_zoom_y);
 
     // Convert to NDC
     float ndc_x0 = (win_x - vp_x) / vp_w * 2.0f - 1.0f;
@@ -2696,6 +2709,17 @@ void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgr
     // Build 4 vertices for triangle strip (positions in NDC, white color, texcoords 0->1)
     GLMetalVertex verts[4];
     GLMetalFillPixelQuadVertices(verts, ndc_x0, ndc_y0, ndc_x1, ndc_y1);
+    for (auto &v : verts) {
+        v.position[2] = ctx->raster_pos[2] * 2.0f - 1.0f;
+        if (bitmap) memcpy(v.color, ctx->raster_color, sizeof(v.color));
+    }
+    // RasterPos has already applied the depth range. Use window depth directly,
+    // including when DepthRange changed after RasterPos was established.
+    GLMetalViewportRect rect = GLMetalMakeViewportRect(vp_x, vp_y, vp_w, vp_h,
+                                                       ms->overlayTexture.height, 0, 1);
+    MTLViewport viewport = {rect.origin_x, rect.origin_y, rect.width, rect.height, 0, 1};
+    [ms->currentEncoder setViewport:viewport];
+    ms->viewportScissorCacheValid = false;
 
     // Set up identity MVP (NDC pass-through)
     GLMetalVertexUniforms vu_local;
@@ -2712,16 +2736,18 @@ void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgr
     vu_local.fog_mode = 0;
     vu_local.fog_start = 0; vu_local.fog_end = 1; vu_local.fog_density = 0;
 
-    // Set up fragment uniforms: replace mode, has_texture, no alpha test, fog inactive
+    // The transient texture supplies pixel colors or bitmap coverage. Guest
+    // alpha testing follows either path before depth/stencil/blending.
     GLMetalFragmentUniforms fu_local;
     memset(&fu_local, 0, sizeof(fu_local));
     fu_local.texenv_mode = 3;  // replace: use texture color directly
     fu_local.texenv_color[0] = fu_local.texenv_color[1] = fu_local.texenv_color[2] = fu_local.texenv_color[3] = 1.0f;
     fu_local.fog_color[0] = fu_local.fog_color[1] = fu_local.fog_color[2] = 0.0f;
     fu_local.fog_color[3] = -1.0f;  // sentinel: fog inactive
-    fu_local.alpha_test_enabled = 0;
-    fu_local.alpha_func = 0;
-    fu_local.alpha_ref = 0;
+    fu_local.alpha_test_enabled = ctx->alpha_test;
+    fu_local.alpha_func = GLAlphaFuncToShader(ctx->alpha_func);
+    fu_local.alpha_ref = ctx->alpha_ref;
+    fu_local.bitmap_mask = bitmap;
     fu_local.has_texture = 1;
     fu_local.shade_model = 1;  // smooth
     {
@@ -2731,23 +2757,18 @@ void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgr
             GLMetalForceOpaqueOverlayOutput(isOffscreen, ctx->blend) ? 1 : 0;
     }
 
-    // Get pipeline with current blend state (DrawPixels respects existing blend)
-    // Temporarily override depth_mask for pipeline key (no depth write for pixel draws)
-    bool saved_depth_mask = ctx->depth_mask;
-    ctx->depth_mask = false;
     id<MTLRenderPipelineState> pipeline = GLMetalGetPipeline(ms, ctx);
-    ctx->depth_mask = saved_depth_mask;
     if (!pipeline) return;
 
-    // Depth stencil: depth write OFF, depth test OFF
-    MTLDepthStencilDescriptor *dsDesc = [[MTLDepthStencilDescriptor alloc] init];
-    dsDesc.depthCompareFunction = MTLCompareFunctionAlways;
-    dsDesc.depthWriteEnabled = NO;
-    id<MTLDepthStencilState> dsState = [ms->device newDepthStencilStateWithDescriptor:dsDesc];
+    id<MTLDepthStencilState> dsState = GLMetalCreateDepthStencilState(ms, ctx);
 
     // Encode draw
     [ms->currentEncoder setRenderPipelineState:pipeline];
     [ms->currentEncoder setDepthStencilState:dsState];
+    [ms->currentEncoder setStencilReferenceValue:(uint32_t)(ctx->stencil.ref & 0xff)];
+    [ms->currentEncoder setBlendColorRed:ctx->blend_color[0] green:ctx->blend_color[1]
+                                   blue:ctx->blend_color[2] alpha:ctx->blend_color[3]];
+    [ms->currentEncoder setDepthBias:0 slopeScale:0 clamp:0];
     [ms->currentEncoder setCullMode:MTLCullModeNone];
     [ms->currentEncoder setVertexBytes:verts length:sizeof(verts) atIndex:0];
     {
@@ -2765,6 +2786,7 @@ void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgr
     [ms->currentEncoder setFragmentTexture:ms->fallbackWhiteTexture atIndex:2];
     [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:1];
     [ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    GLMetalMarkDrawCompleted(ctx);
 
     GL_METAL_VLOG("GLMetalDrawPixels: %dx%d at raster (%.1f, %.1f) zoom (%.1f, %.1f)",
                  width, height, ctx->raster_pos[0], ctx->raster_pos[1],
@@ -2772,153 +2794,16 @@ void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgr
 }
 
 
-/*
- *  GLMetalBitmap - render unpacked 1-bit bitmap as a screen-aligned textured quad
- *
- *  Called from NativeGLBitmap after 1-bit → BGRA8 expansion. Same rendering
- *  approach as GLMetalDrawPixels but always uses SrcAlpha/OneMinusSrcAlpha blend
- *  for bitmap transparency (bit=0 pixels are fully transparent).
- */
-void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len)
+// Both entry points share the same fragment-state application. Bitmap coverage
+// is tested separately from the raster color's alpha in the fragment shader.
+void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *data, int size)
 {
-    GLMetalState *ms = (GLMetalState *)ctx->metal;
-    if (!ms || !ms->initialized) return;
+    GLMetalDrawPixelQuad(ctx, width, height, data, size, false);
+}
 
-    // Auto-start frame if needed
-	if (!ms->renderPassActive) {
-		GLMetalBeginFrame(ctx);
-		if (!ms->renderPassActive) return;
-	}
-	if (ms->overlayTexture) {
-		GLMetalApplyViewportAndScissor(ms, ctx,
-		                               (uint32_t)[ms->overlayTexture width],
-		                               (uint32_t)[ms->overlayTexture height]);
-	}
-
-	// Create transient texture from BGRA8 data
-    MTLTextureDescriptor *texDesc = [MTLTextureDescriptor
-        texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                     width:width
-                                    height:height
-                                 mipmapped:NO];
-    texDesc.usage = MTLTextureUsageShaderRead;
-    id<MTLTexture> tex = [ms->device newTextureWithDescriptor:texDesc];
-    if (!tex) return;
-
-    MTLRegion region = MTLRegionMake2D(0, 0, width, height);
-    [tex replaceRegion:region mipmapLevel:0 withBytes:bgra_data bytesPerRow:width * 4];
-
-    // Compute NDC quad from raster position and viewport
-    float vp_x = (float)ctx->viewport[0];
-    float vp_y = (float)ctx->viewport[1];
-    float vp_w = (float)ctx->viewport[2];
-    float vp_h = (float)ctx->viewport[3];
-    if (vp_w <= 0 || vp_h <= 0) return;
-
-    float win_x = ctx->raster_pos[0];
-    float win_y = ctx->raster_pos[1];
-
-    // Apply pixel zoom to quad dimensions (in pixels)
-    float quad_w = (float)width * ctx->pixel_zoom_x;
-    float quad_h = (float)height * ctx->pixel_zoom_y;
-
-    // Convert to NDC
-    float ndc_x0 = (win_x - vp_x) / vp_w * 2.0f - 1.0f;
-    float ndc_y0 = (win_y - vp_y) / vp_h * 2.0f - 1.0f;
-    float ndc_x1 = ndc_x0 + quad_w / vp_w * 2.0f;
-    float ndc_y1 = ndc_y0 + quad_h / vp_h * 2.0f;
-
-    // Build 4 vertices for triangle strip
-    GLMetalVertex verts[4];
-    GLMetalFillPixelQuadVertices(verts, ndc_x0, ndc_y0, ndc_x1, ndc_y1);
-
-    // Set up identity MVP (NDC pass-through)
-    GLMetalVertexUniforms vu_local2;
-    memset(&vu_local2, 0, sizeof(vu_local2));
-    static const float identity2[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
-    memcpy(vu_local2.mvp_matrix, identity2, sizeof(float) * 16);
-    memcpy(vu_local2.modelview_matrix, identity2, sizeof(float) * 16);
-    memset(vu_local2.normal_matrix, 0, sizeof(float) * 12);
-    vu_local2.normal_matrix[0] = 1; vu_local2.normal_matrix[4] = 1; vu_local2.normal_matrix[8] = 1;
-    vu_local2.lighting_enabled = 0;
-    vu_local2.normalize_enabled = 0;
-    vu_local2.num_active_lights = 0;
-    vu_local2.fog_enabled = 0;
-    vu_local2.fog_mode = 0;
-    vu_local2.fog_start = 0; vu_local2.fog_end = 1; vu_local2.fog_density = 0;
-
-    // Fragment uniforms: replace mode, textured, no alpha test, fog inactive
-    GLMetalFragmentUniforms fu_local2;
-    memset(&fu_local2, 0, sizeof(fu_local2));
-    fu_local2.texenv_mode = 3;  // replace
-    fu_local2.texenv_color[0] = fu_local2.texenv_color[1] = fu_local2.texenv_color[2] = fu_local2.texenv_color[3] = 1.0f;
-    fu_local2.fog_color[0] = fu_local2.fog_color[1] = fu_local2.fog_color[2] = 0.0f;
-    fu_local2.fog_color[3] = -1.0f;
-    fu_local2.alpha_test_enabled = 0;
-    fu_local2.alpha_func = 0;
-    fu_local2.alpha_ref = 0;
-    fu_local2.has_texture = 1;
-    fu_local2.shade_model = 1;
-    fu_local2.force_opaque_output = 0;
-
-    // Pipeline with blend enabled (SrcAlpha/OneMinusSrcAlpha) for bitmap transparency
-    // Temporarily override blend state and depth_mask for pipeline key
-    bool saved_blend = ctx->blend;
-    uint32_t saved_src = ctx->blend_src;
-    uint32_t saved_dst = ctx->blend_dst;
-    bool saved_depth_mask = ctx->depth_mask;
-    ctx->blend = true;
-    ctx->blend_src = 0x0302;  // GL_SRC_ALPHA
-    ctx->blend_dst = 0x0303;  // GL_ONE_MINUS_SRC_ALPHA
-    ctx->depth_mask = false;
-    id<MTLRenderPipelineState> pipeline = GLMetalGetPipeline(ms, ctx);
-    ctx->blend = saved_blend;
-    ctx->blend_src = saved_src;
-    ctx->blend_dst = saved_dst;
-    ctx->depth_mask = saved_depth_mask;
-    if (!pipeline) return;
-
-    // Depth stencil: depth write OFF, depth test OFF
-    MTLDepthStencilDescriptor *dsDesc = [[MTLDepthStencilDescriptor alloc] init];
-    dsDesc.depthCompareFunction = MTLCompareFunctionAlways;
-    dsDesc.depthWriteEnabled = NO;
-    id<MTLDepthStencilState> dsState = [ms->device newDepthStencilStateWithDescriptor:dsDesc];
-
-    // Encode draw
-    [ms->currentEncoder setRenderPipelineState:pipeline];
-    [ms->currentEncoder setDepthStencilState:dsState];
-    // This draw always uses a blend-enabled pipeline
-    // (SrcAlpha/OneMinusSrcAlpha forced above), so the encoder-level blend color
-    // must be defined before it. Without this, a prior GLMetalFlushImmediateMode
-    // that used CONSTANT_COLOR factors would leave a stale blend constant on the
-    // encoder. Bitmap doesn't use a constant-color factor today, but emitting the
-    // color keeps the "blend color is always set before a blend-enabled draw"
-    // invariant intact (mirrors GLMetalFlushImmediateMode's setBlendColorRed:).
-    [ms->currentEncoder setBlendColorRed:ctx->blend_color[0]
-                                  green:ctx->blend_color[1]
-                                   blue:ctx->blend_color[2]
-                                  alpha:ctx->blend_color[3]];
-    [ms->currentEncoder setCullMode:MTLCullModeNone];
-    [ms->currentEncoder setVertexBytes:verts length:sizeof(verts) atIndex:0];
-    {
-        GLMetalLightingData ld_empty2;
-        memset(&ld_empty2, 0, sizeof(ld_empty2));
-        [ms->currentEncoder setVertexBytes:&vu_local2 length:sizeof(GLMetalVertexUniforms) atIndex:1];
-        [ms->currentEncoder setVertexBytes:&ld_empty2 length:sizeof(GLMetalLightingData) atIndex:2];
-    }
-    [ms->currentEncoder setFragmentBytes:&fu_local2 length:sizeof(GLMetalFragmentUniforms) atIndex:1];
-    [ms->currentEncoder setFragmentTexture:tex atIndex:0];
-    [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:0];
-    // gl_fragment_main always declares tex1 [[texture(2)]] / samp1 [[sampler(1)]]
-    // (ARB_multitexture unit 1); bind the fallback so Metal validation passes
-    // (has_texture_unit1=0 here via memset, so the shader never samples it).
-    [ms->currentEncoder setFragmentTexture:ms->fallbackWhiteTexture atIndex:2];
-    [ms->currentEncoder setFragmentSamplerState:ms->nearestSampler atIndex:1];
-    [ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
-
-    GL_METAL_VLOG("GLMetalBitmap: %dx%d at raster (%.1f, %.1f) zoom (%.1f, %.1f)",
-                 width, height, ctx->raster_pos[0], ctx->raster_pos[1],
-                 ctx->pixel_zoom_x, ctx->pixel_zoom_y);
+void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *data, int size)
+{
+    GLMetalDrawPixelQuad(ctx, width, height, data, size, true);
 }
 
 
