@@ -2378,7 +2378,7 @@ void NativeGLPopClientAttrib(GLContext *ctx)
 
 void GLContextInit(GLContext *ctx)
 {
-	memset(ctx, 0, sizeof(GLContext));
+	*ctx = GLContext{};
 
 	// Matrix stacks: load identity
 	mat4_identity(ctx->modelview_stack[0]);
@@ -4620,13 +4620,16 @@ void NativeGLPrioritizeTextures(GLContext *ctx, int32_t n, uint32_t textures_ptr
 // --- Display lists ---
 void NativeGLNewList(GLContext *ctx, uint32_t list, uint32_t mode)
 {
+	if (ctx->in_display_list || ctx->in_begin) { if(!ctx->last_error)ctx->last_error=0x0502;return; }
+	if (!list) { if(!ctx->last_error)ctx->last_error=0x0501;return; }
+	if (mode!=0x1300 && mode!=0x1301) { if(!ctx->last_error)ctx->last_error=0x0500;return; }
 	ctx->in_display_list = true;
 	ctx->current_list_name = list;
 	ctx->current_list_mode = mode;
 	ctx->display_lists[list] = GLDisplayList();
 }
 
-void NativeGLEndList(GLContext *ctx) { ctx->in_display_list = false; }
+void NativeGLEndList(GLContext *ctx) { if(!ctx->in_display_list) {if(!ctx->last_error)ctx->last_error=0x0502;return;} ctx->in_display_list = false; }
 
 // GLReplayCommand - replay a single recorded display list command
 // Implemented in gl_dispatch.cpp (has access to all NativeGL* handlers)
@@ -4637,13 +4640,24 @@ void NativeGLCallList(GLContext *ctx, uint32_t list)
 	auto it = ctx->display_lists.find(list);
 	if (it == ctx->display_lists.end()) return;
 
-	for (const GLCommand &cmd : it->second.commands) {
-		GLReplayCommand(ctx, cmd);
-	}
+	if(ctx->list_call_depth >= 64) {if(!ctx->last_error)ctx->last_error=0x0503;return;}
+	++ctx->list_call_depth;
+	// Keep the executing list alive if a nested command changes the map.
+	const auto commands=it->second.commands;
+    const std::weak_ptr<char> lifetime=ctx->lifetime;
+    for (const GLCommand &cmd : commands) {
+        GLReplayCommand(ctx, cmd);
+        if(lifetime.expired()) return;
+        if(gl_current_context!=ctx) break;
+    }
+	--ctx->list_call_depth;
 }
 
 void NativeGLCallLists(GLContext *ctx, int32_t n, uint32_t type, uint32_t lists_ptr)
 {
+    if(n<0) {if(!ctx->last_error)ctx->last_error=0x0501;return;}
+    if(type<0x1400 || type>0x1409) {if(!ctx->last_error)ctx->last_error=0x0500;return;}
+    const std::weak_ptr<char> lifetime=ctx->lifetime;
 	for (int32_t i = 0; i < n; i++) {
 		uint32_t name = 0;
 		switch (type) {
@@ -4690,6 +4704,7 @@ void NativeGLCallLists(GLContext *ctx, int32_t n, uint32_t type, uint32_t lists_
 		}
 		name += ctx->list_base;
 		NativeGLCallList(ctx, name);
+        if(lifetime.expired() || gl_current_context!=ctx) return;
 	}
 }
 

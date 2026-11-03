@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <vector>
 #include <unordered_map>
+#include <memory>
 
 /*
  *  OpenGL sub-opcode constants
@@ -799,6 +800,16 @@ struct GLTextureObject {
  *  GLCommand -- display list command storage
  */
 struct GLCommand {
+    struct Payload { int argument; std::vector<uint8_t> bytes; };
+    std::vector<Payload> payloads;
+    std::vector<uint32_t> float_args;
+    uint32_t stack_args[6] = {};
+    int unpack[4] = {};
+    bool has_unpack = false;
+    bool has_arrays = false;
+    // Array descriptors are copied by value without depending on declaration order.
+    struct Array { uint32_t pointer, type; int size, stride; bool enabled; };
+    Array arrays[10] = {};
     uint16_t opcode;         // GL_SUB_* sub-opcode
     union {
         float    f[16];      // float arguments (e.g., matrix, vertex)
@@ -1183,6 +1194,9 @@ struct GLMinmaxState {
  *  Metal types use void* bridges to keep this header C++ compatible.
  */
 struct GLContext {
+    // Guest Memory Manager calls can reenter AGL and destroy this context.
+    // Replay retains a weak token, never a raw pointer across that boundary.
+    std::shared_ptr<char> lifetime = std::make_shared<char>(0);
     // ---- Matrix stacks ----
     float    modelview_stack[32][16];   // 32 deep, 4x4 floats
     int      modelview_depth;
@@ -1314,6 +1328,7 @@ struct GLContext {
     uint32_t current_list_name;
     uint32_t current_list_mode;        // GL_COMPILE or GL_COMPILE_AND_EXECUTE
     uint32_t list_base;
+    unsigned list_call_depth = 0;
 
     // ---- Metal state ----
     void    *metal;                    // opaque Metal resources pointer

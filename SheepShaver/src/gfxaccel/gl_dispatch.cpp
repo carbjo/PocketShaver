@@ -20,6 +20,9 @@
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "gl_engine.h"
+#include "gl_pixel_unpack_policy.h"
+#include <algorithm>
+#include <limits>
 #include "accel_logging.h"
 #include "gl_defer.h"
 
@@ -783,16 +786,17 @@ static inline double double_arg(const uint32_t* float_bits, int index) {
  *  in display lists (per GL spec: list management, query, and flush/sync).
  */
 static bool IsNonRecordableOpcode(uint32_t op) {
+	// Window-system calls and client GLU queries/lifecycle commands execute
+    // during compilation. GLU matrix/geometry operations remain recordable.
+    if ((op >= GL_SUB_AGL_CHOOSEPIXELFORMAT && op < GL_SUB_GLU_BEGINCURVE) ||
+        op >= GL_SUB_GLUT_INITMAC) return true;
 	switch (op) {
 	// Display list management
 	case GL_SUB_NEW_LIST:
 	case GL_SUB_END_LIST:
-	case GL_SUB_CALL_LIST:
-	case GL_SUB_CALL_LISTS:
 	case GL_SUB_GEN_LISTS:
 	case GL_SUB_DELETE_LISTS:
 	case GL_SUB_IS_LIST:
-	case GL_SUB_LIST_BASE:
 	// Query/state-reading commands
 	case GL_SUB_GET_BOOLEANV:
 	case GL_SUB_GET_DOUBLEV:
@@ -830,6 +834,62 @@ static bool IsNonRecordableOpcode(uint32_t op) {
 	case GL_SUB_SELECT_BUFFER:
 	case GL_SUB_ARE_TEXTURES_RESIDENT:
 	case GL_SUB_READ_PIXELS:
+	case GL_SUB_GEN_TEXTURES:
+	case GL_SUB_DELETE_TEXTURES:
+	case GL_SUB_PIXEL_STOREF:
+	case GL_SUB_PIXEL_STOREI:
+	case GL_SUB_VERTEX_POINTER:
+	case GL_SUB_NORMAL_POINTER:
+	case GL_SUB_COLOR_POINTER:
+	case GL_SUB_TEX_COORD_POINTER:
+	case GL_SUB_INDEX_POINTER:
+	case GL_SUB_EDGE_FLAG_POINTER:
+	case GL_SUB_ENABLE_CLIENT_STATE:
+	case GL_SUB_DISABLE_CLIENT_STATE:
+	case GL_SUB_INTERLEAVED_ARRAYS:
+	case GL_SUB_PUSH_CLIENT_ATTRIB:
+	case GL_SUB_POP_CLIENT_ATTRIB:
+	case GL_SUB_CLIENT_ACTIVE_TEXTURE_ARB:
+	case GL_SUB_LOCK_ARRAYS_EXT:
+	case GL_SUB_UNLOCK_ARRAYS_EXT:
+	case GL_SUB_SECONDARY_COLOR_POINTER_EXT:
+	case GL_SUB_GET_COMPRESSED_TEX_IMAGE_ARB:
+	case GL_SUB_GET_COLOR_TABLE:
+	case GL_SUB_GET_COLOR_TABLE_PARAMETERFV:
+	case GL_SUB_GET_COLOR_TABLE_PARAMETERIV:
+	case GL_SUB_GET_CONVOLUTION_FILTER:
+	case GL_SUB_GET_CONVOLUTION_PARAMETERFV:
+	case GL_SUB_GET_CONVOLUTION_PARAMETERIV:
+	case GL_SUB_GET_SEPARABLE_FILTER:
+	case GL_SUB_GET_HISTOGRAM:
+	case GL_SUB_GET_HISTOGRAM_PARAMETERFV:
+	case GL_SUB_GET_HISTOGRAM_PARAMETERIV:
+	case GL_SUB_GET_MINMAX:
+	case GL_SUB_GET_MINMAX_PARAMETERFV:
+	case GL_SUB_GET_MINMAX_PARAMETERIV:
+	case GL_SUB_GLU_ERRORSTRING:
+	case GL_SUB_GLU_GETNURBSPROPERTY:
+	case GL_SUB_GLU_GETSTRING:
+	case GL_SUB_GLU_GETTESSPROPERTY:
+	case GL_SUB_GLU_NEWNURBSRENDERER:
+	case GL_SUB_GLU_NEWNURBSTESSELLATOREXT:
+	case GL_SUB_GLU_NEWQUADRIC:
+	case GL_SUB_GLU_NEWTESS:
+	case GL_SUB_GLU_DELETENURBSRENDERER:
+	case GL_SUB_GLU_DELETENURBSTESSELLATOREXT:
+	case GL_SUB_GLU_DELETEQUADRIC:
+	case GL_SUB_GLU_DELETETESS:
+	case GL_SUB_GLU_PROJECT:
+	case GL_SUB_GLU_UNPROJECT:
+	case GL_SUB_GLU_SCALEIMAGE:
+	case GL_SUB_GLU_NURBSCALLBACK:
+	case GL_SUB_GLU_NURBSCALLBACKDATAEXT:
+	case GL_SUB_GLU_TESSCALLBACK:
+	case GL_SUB_GLU_QUADRICCALLBACK:
+	case GL_SUB_GLU_QUADRICDRAWSTYLE:
+	case GL_SUB_GLU_QUADRICNORMALS:
+	case GL_SUB_GLU_QUADRICORIENTATION:
+	case GL_SUB_GLU_QUADRICTEXTURE:
 	// Sync
 	case GL_SUB_FLUSH:
 	case GL_SUB_FINISH:
@@ -846,217 +906,388 @@ static bool IsNonRecordableOpcode(uint32_t op) {
  *  Returns the pointer arg register index (0-based from r3) and byte count
  *  to capture, or 0 if not a pointer command.
  */
-static int PointerDataSize(uint32_t op, uint32_t r3, uint32_t r4, uint32_t r5,
-                            int &arg_index) {
-	arg_index = -1;
-	switch (op) {
-	// Matrix loads: 16 floats (64 bytes) or 16 doubles (128 bytes) at pointer in r3
-	case GL_SUB_LOAD_MATRIXF:
-	case GL_SUB_LOAD_MATRIXD:
-	case GL_SUB_MULT_MATRIXF:
-	case GL_SUB_MULT_MATRIXD:
-		arg_index = 0; return (op == GL_SUB_LOAD_MATRIXD || op == GL_SUB_MULT_MATRIXD) ? 128 : 64;
-	// Vertex pointer variants: 2-4 floats
-	case GL_SUB_VERTEX2FV: arg_index = 0; return 8;
-	case GL_SUB_VERTEX3FV: arg_index = 0; return 12;
-	case GL_SUB_VERTEX4FV: arg_index = 0; return 16;
-	case GL_SUB_VERTEX2DV: arg_index = 0; return 16;
-	case GL_SUB_VERTEX3DV: arg_index = 0; return 24;
-	case GL_SUB_VERTEX4DV: arg_index = 0; return 32;
-	case GL_SUB_VERTEX2IV: arg_index = 0; return 8;
-	case GL_SUB_VERTEX3IV: arg_index = 0; return 12;
-	case GL_SUB_VERTEX4IV: arg_index = 0; return 16;
-	case GL_SUB_VERTEX2SV: arg_index = 0; return 4;
-	case GL_SUB_VERTEX3SV: arg_index = 0; return 6;
-	case GL_SUB_VERTEX4SV: arg_index = 0; return 8;
-	// Normal pointer variants: 3 components
-	case GL_SUB_NORMAL3FV: arg_index = 0; return 12;
-	case GL_SUB_NORMAL3DV: arg_index = 0; return 24;
-	case GL_SUB_NORMAL3IV: arg_index = 0; return 12;
-	case GL_SUB_NORMAL3SV: arg_index = 0; return 6;
-	case GL_SUB_NORMAL3BV: arg_index = 0; return 3;
-	// Color pointer variants
-	case GL_SUB_COLOR3FV: arg_index = 0; return 12;
-	case GL_SUB_COLOR4FV: arg_index = 0; return 16;
-	case GL_SUB_COLOR3DV: arg_index = 0; return 24;
-	case GL_SUB_COLOR4DV: arg_index = 0; return 32;
-	case GL_SUB_COLOR3BV: arg_index = 0; return 3;
-	case GL_SUB_COLOR4BV: arg_index = 0; return 4;
-	case GL_SUB_COLOR3UBV: arg_index = 0; return 3;
-	case GL_SUB_COLOR4UBV: arg_index = 0; return 4;
-	case GL_SUB_COLOR3IV: arg_index = 0; return 12;
-	case GL_SUB_COLOR4IV: arg_index = 0; return 16;
-	case GL_SUB_COLOR3SV: arg_index = 0; return 6;
-	case GL_SUB_COLOR4SV: arg_index = 0; return 8;
-	case GL_SUB_COLOR3USV: arg_index = 0; return 6;
-	case GL_SUB_COLOR4USV: arg_index = 0; return 8;
-	// TexCoord pointer variants
-	case GL_SUB_TEX_COORD1FV: arg_index = 0; return 4;
-	case GL_SUB_TEX_COORD2FV: arg_index = 0; return 8;
-	case GL_SUB_TEX_COORD3FV: arg_index = 0; return 12;
-	case GL_SUB_TEX_COORD4FV: arg_index = 0; return 16;
-	case GL_SUB_TEX_COORD1DV: arg_index = 0; return 8;
-	case GL_SUB_TEX_COORD2DV: arg_index = 0; return 16;
-	case GL_SUB_TEX_COORD3DV: arg_index = 0; return 24;
-	case GL_SUB_TEX_COORD4DV: arg_index = 0; return 32;
-	case GL_SUB_TEX_COORD1IV: arg_index = 0; return 4;
-	case GL_SUB_TEX_COORD2IV: arg_index = 0; return 8;
-	case GL_SUB_TEX_COORD3IV: arg_index = 0; return 12;
-	case GL_SUB_TEX_COORD4IV: arg_index = 0; return 16;
-	case GL_SUB_TEX_COORD1SV: arg_index = 0; return 2;
-	case GL_SUB_TEX_COORD2SV: arg_index = 0; return 4;
-	case GL_SUB_TEX_COORD3SV: arg_index = 0; return 6;
-	case GL_SUB_TEX_COORD4SV: arg_index = 0; return 8;
-	// Light/Material float vectors: 4 floats at pointer in r5 (third arg)
-	case GL_SUB_LIGHTFV: arg_index = 2; return 16;
-	case GL_SUB_MATERIALFV: arg_index = 2; return 16;
-	case GL_SUB_LIGHT_MODELFV: arg_index = 1; return 16;
-	// Clip plane: 4 doubles at pointer in r4
-	case GL_SUB_CLIP_PLANE: arg_index = 1; return 32;
-	// Fog fv: up to 4 floats at pointer in r4
-	case GL_SUB_FOGFV: arg_index = 1; return 16;
-	// TexParameter fv: up to 4 floats in r5
-	case GL_SUB_TEX_PARAMETERFV: arg_index = 2; return 16;
-	// TexEnv fv: up to 4 floats in r5
-	case GL_SUB_TEX_ENVFV: arg_index = 2; return 16;
-	// Map1/Map2, PixelMap, PolygonStipple -- rare in games, skip for now
-	default: return 0;
-	}
-}
-
-
-/*
- *  GLRecordCommand -- pack a GL command into the current display list
- *
- *  Stores the sub_opcode, register args (r3-r10), float bits,
- *  and captured pointer data into a GLCommand struct.
- */
-static void GLRecordCommand(GLContext *ctx, uint32_t sub_opcode,
-                             uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
-                             uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
-                             const uint32_t *float_bits, int num_float_args)
+static int PointerDataSize(uint32_t op,uint32_t a,uint32_t b,uint32_t c,int &arg_index)
 {
-	GLCommand cmd;
-	cmd.opcode = (uint16_t)sub_opcode;
-
-	// Pack integer/unsigned args
-	cmd.args.u[0] = r3;
-	cmd.args.u[1] = r4;
-	cmd.args.u[2] = r5;
-	cmd.args.u[3] = r6;
-	cmd.args.u[4] = r7;
-	cmd.args.u[5] = r8;
-	cmd.args.u[6] = r9;
-	cmd.args.u[7] = r10;
-
-	// Store float args in the data vector (after any pointer data)
-	// We pack float_bits[0..num_float_args-1] as raw bytes
-	int flt_bytes = num_float_args * 4;
-
-	// Check if this command has pointer data to capture
-	int ptr_arg_index = -1;
-	int ptr_data_size = PointerDataSize(sub_opcode, r3, r4, r5, ptr_arg_index);
-
-	if (ptr_data_size > 0 && ptr_arg_index >= 0) {
-		// Get the Mac pointer from the appropriate register
-		uint32_t mac_ptr = 0;
-		switch (ptr_arg_index) {
-		case 0: mac_ptr = r3; break;
-		case 1: mac_ptr = r4; break;
-		case 2: mac_ptr = r5; break;
-		case 3: mac_ptr = r6; break;
-		default: break;
-		}
-
-		if (mac_ptr) {
-			// Capture pointer data into cmd.data
-			cmd.data.resize(ptr_data_size + flt_bytes);
-			for (int b = 0; b < ptr_data_size; b++)
-				cmd.data[b] = ReadMacInt8(mac_ptr + b);
-			// Append float bits after pointer data
-			if (flt_bytes > 0)
-				memcpy(cmd.data.data() + ptr_data_size, float_bits, flt_bytes);
-		}
-	} else if (flt_bytes > 0) {
-		cmd.data.resize(flt_bytes);
-		memcpy(cmd.data.data(), float_bits, flt_bytes);
-	}
-
-	ctx->display_lists[ctx->current_list_name].commands.push_back(std::move(cmd));
+    arg_index=-1;
+    switch(op){
+    case GL_SUB_LOAD_MATRIXF:case GL_SUB_MULT_MATRIXF:arg_index=0;return 64;
+    case GL_SUB_LOAD_MATRIXD:case GL_SUB_MULT_MATRIXD:arg_index=0;return 128;
+    case GL_SUB_COLOR3BV: arg_index=0;return 3;
+    case GL_SUB_COLOR3DV: arg_index=0;return 24;
+    case GL_SUB_COLOR3FV: arg_index=0;return 12;
+    case GL_SUB_COLOR3IV: arg_index=0;return 12;
+    case GL_SUB_COLOR3SV: arg_index=0;return 6;
+    case GL_SUB_COLOR3UBV: arg_index=0;return 3;
+    case GL_SUB_COLOR3UIV: arg_index=0;return 12;
+    case GL_SUB_COLOR3USV: arg_index=0;return 6;
+    case GL_SUB_COLOR4BV: arg_index=0;return 4;
+    case GL_SUB_COLOR4DV: arg_index=0;return 32;
+    case GL_SUB_COLOR4FV: arg_index=0;return 16;
+    case GL_SUB_COLOR4IV: arg_index=0;return 16;
+    case GL_SUB_COLOR4SV: arg_index=0;return 8;
+    case GL_SUB_COLOR4UBV: arg_index=0;return 4;
+    case GL_SUB_COLOR4UIV: arg_index=0;return 16;
+    case GL_SUB_COLOR4USV: arg_index=0;return 8;
+    case GL_SUB_EVAL_COORD1DV: arg_index=0;return 8;
+    case GL_SUB_EVAL_COORD1FV: arg_index=0;return 4;
+    case GL_SUB_EVAL_COORD2DV: arg_index=0;return 16;
+    case GL_SUB_EVAL_COORD2FV: arg_index=0;return 8;
+    case GL_SUB_NORMAL3BV: arg_index=0;return 3;
+    case GL_SUB_NORMAL3DV: arg_index=0;return 24;
+    case GL_SUB_NORMAL3FV: arg_index=0;return 12;
+    case GL_SUB_NORMAL3IV: arg_index=0;return 12;
+    case GL_SUB_NORMAL3SV: arg_index=0;return 6;
+    case GL_SUB_RASTER_POS2DV: arg_index=0;return 16;
+    case GL_SUB_RASTER_POS2FV: arg_index=0;return 8;
+    case GL_SUB_RASTER_POS2IV: arg_index=0;return 8;
+    case GL_SUB_RASTER_POS2SV: arg_index=0;return 4;
+    case GL_SUB_RASTER_POS3DV: arg_index=0;return 24;
+    case GL_SUB_RASTER_POS3FV: arg_index=0;return 12;
+    case GL_SUB_RASTER_POS3IV: arg_index=0;return 12;
+    case GL_SUB_RASTER_POS3SV: arg_index=0;return 6;
+    case GL_SUB_RASTER_POS4DV: arg_index=0;return 32;
+    case GL_SUB_RASTER_POS4FV: arg_index=0;return 16;
+    case GL_SUB_RASTER_POS4IV: arg_index=0;return 16;
+    case GL_SUB_RASTER_POS4SV: arg_index=0;return 8;
+    case GL_SUB_TEX_COORD1DV: arg_index=0;return 8;
+    case GL_SUB_TEX_COORD1FV: arg_index=0;return 4;
+    case GL_SUB_TEX_COORD1IV: arg_index=0;return 4;
+    case GL_SUB_TEX_COORD1SV: arg_index=0;return 2;
+    case GL_SUB_TEX_COORD2DV: arg_index=0;return 16;
+    case GL_SUB_TEX_COORD2FV: arg_index=0;return 8;
+    case GL_SUB_TEX_COORD2IV: arg_index=0;return 8;
+    case GL_SUB_TEX_COORD2SV: arg_index=0;return 4;
+    case GL_SUB_TEX_COORD3DV: arg_index=0;return 24;
+    case GL_SUB_TEX_COORD3FV: arg_index=0;return 12;
+    case GL_SUB_TEX_COORD3IV: arg_index=0;return 12;
+    case GL_SUB_TEX_COORD3SV: arg_index=0;return 6;
+    case GL_SUB_TEX_COORD4DV: arg_index=0;return 32;
+    case GL_SUB_TEX_COORD4FV: arg_index=0;return 16;
+    case GL_SUB_TEX_COORD4IV: arg_index=0;return 16;
+    case GL_SUB_TEX_COORD4SV: arg_index=0;return 8;
+    case GL_SUB_VERTEX2DV: arg_index=0;return 16;
+    case GL_SUB_VERTEX2FV: arg_index=0;return 8;
+    case GL_SUB_VERTEX2IV: arg_index=0;return 8;
+    case GL_SUB_VERTEX2SV: arg_index=0;return 4;
+    case GL_SUB_VERTEX3DV: arg_index=0;return 24;
+    case GL_SUB_VERTEX3FV: arg_index=0;return 12;
+    case GL_SUB_VERTEX3IV: arg_index=0;return 12;
+    case GL_SUB_VERTEX3SV: arg_index=0;return 6;
+    case GL_SUB_VERTEX4DV: arg_index=0;return 32;
+    case GL_SUB_VERTEX4FV: arg_index=0;return 16;
+    case GL_SUB_VERTEX4IV: arg_index=0;return 16;
+    case GL_SUB_VERTEX4SV: arg_index=0;return 8;
+    case GL_SUB_MULTI_TEX_COORD1DV_ARB: arg_index=1;return 8;
+    case GL_SUB_MULTI_TEX_COORD1FV_ARB: arg_index=1;return 4;
+    case GL_SUB_MULTI_TEX_COORD1IV_ARB: arg_index=1;return 4;
+    case GL_SUB_MULTI_TEX_COORD1SV_ARB: arg_index=1;return 2;
+    case GL_SUB_MULTI_TEX_COORD2DV_ARB: arg_index=1;return 16;
+    case GL_SUB_MULTI_TEX_COORD2FV_ARB: arg_index=1;return 8;
+    case GL_SUB_MULTI_TEX_COORD2IV_ARB: arg_index=1;return 8;
+    case GL_SUB_MULTI_TEX_COORD2SV_ARB: arg_index=1;return 4;
+    case GL_SUB_MULTI_TEX_COORD3DV_ARB: arg_index=1;return 24;
+    case GL_SUB_MULTI_TEX_COORD3FV_ARB: arg_index=1;return 12;
+    case GL_SUB_MULTI_TEX_COORD3IV_ARB: arg_index=1;return 12;
+    case GL_SUB_MULTI_TEX_COORD3SV_ARB: arg_index=1;return 6;
+    case GL_SUB_MULTI_TEX_COORD4DV_ARB: arg_index=1;return 32;
+    case GL_SUB_MULTI_TEX_COORD4FV_ARB: arg_index=1;return 16;
+    case GL_SUB_MULTI_TEX_COORD4IV_ARB: arg_index=1;return 16;
+    case GL_SUB_MULTI_TEX_COORD4SV_ARB: arg_index=1;return 8;
+    case GL_SUB_SECONDARYCOLOR3BV_EXT: arg_index=0;return 3;
+    case GL_SUB_SECONDARY_COLOR3DV_EXT: arg_index=0;return 24;
+    case GL_SUB_SECONDARY_COLOR3FV_EXT: arg_index=0;return 12;
+    case GL_SUB_SECONDARY_COLOR3IV_EXT: arg_index=0;return 12;
+    case GL_SUB_SECONDARY_COLOR3SV_EXT: arg_index=0;return 6;
+    case GL_SUB_SECONDARY_COLOR3UBV_EXT: arg_index=0;return 3;
+    case GL_SUB_SECONDARY_COLOR3UIV_EXT: arg_index=0;return 12;
+    case GL_SUB_SECONDARY_COLOR3USV_EXT: arg_index=0;return 6;
+    case GL_SUB_INDEXDV:arg_index=0;return 8;
+    case GL_SUB_INDEXFV:arg_index=0;return 4;
+    case GL_SUB_INDEXIV:arg_index=0;return 4;
+    case GL_SUB_INDEXSV:arg_index=0;return 2;
+    case GL_SUB_INDEXUBV:arg_index=0;return 1;
+    case GL_SUB_EDGE_FLAGV:arg_index=0;return 1;
+    case GL_SUB_LIGHTFV:case GL_SUB_LIGHTIV:
+        arg_index=2;return (b==0x1204 ? 3 : b>=0x1205 && b<=0x1209 ? 1 : 4)*4;
+    case GL_SUB_MATERIALFV:case GL_SUB_MATERIALIV:
+        arg_index=2;return b==0x1601 ? 4 : b==0x1603 ? 12 : 16;
+    case GL_SUB_LIGHT_MODELFV:case GL_SUB_LIGHT_MODELIV:
+        arg_index=1;return a==0x0b53 ? 16 : 4;
+    case GL_SUB_FOGFV:case GL_SUB_FOGIV:arg_index=1;return a==0x0b66 ? 16 : 4;
+    case GL_SUB_TEX_PARAMETERFV:case GL_SUB_TEX_PARAMETERIV:
+        arg_index=2;return b==0x1004 ? 16 : 4;
+    case GL_SUB_TEX_ENVFV:case GL_SUB_TEX_ENVIV:arg_index=2;return b==0x2201 ? 16 : 4;
+    case GL_SUB_TEX_GENFV:case GL_SUB_TEX_GENIV:arg_index=2;return b==0x2500 ? 4 : 16;
+    case GL_SUB_TEX_GENDV:arg_index=2;return b==0x2500 ? 8 : 32;
+    case GL_SUB_COLOR_TABLE_PARAMETERFV:case GL_SUB_COLOR_TABLE_PARAMETERIV:
+    case GL_SUB_CONVOLUTION_PARAMETERFV:case GL_SUB_CONVOLUTION_PARAMETERIV:
+        arg_index=2;return (b==0x8013 || b==0x801a || b==0x801b || b==0x80d6 || b==0x80d7) ? 16 : 4;
+    case GL_SUB_CLIP_PLANE:arg_index=1;return 32;
+    default:return 0;
+    }
 }
 
-
-/*
- *  GLReplayCommand -- replay a single recorded display list command
- *
- *  For commands with captured pointer data, we write the data to a small
- *  scratch buffer in Mac memory and point the register arg at it.
- *  For commands without pointer data, we call handlers directly with
- *  stored register args and float bits.
- */
-static uint32_t gl_dlist_scratch_addr = 0;  // Mac-side scratch for pointer replay
+// Captured arguments are numbered r3..r10=0..7, followed by PPC stack words.
+// Each invocation owns its scratch allocation, so nested lists cannot overwrite
+// an outer command's captured pointers or stack frame.
+static void GLRecordCommand(GLContext *ctx, uint32_t op,
+    uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint32_t e,uint32_t f,uint32_t g,uint32_t h,
+    const uint32_t *floats,int numFloats)
+{
+    GLCommand cmd{};
+    cmd.opcode=uint16_t(op);
+    const uint32_t args[8]={a,b,c,d,e,f,g,h};
+    memcpy(cmd.args.u,args,sizeof(args));
+    if(floats && numFloats>0) cmd.float_args.assign(floats,floats+numFloats);
+    int stackCount=0;
+    switch(op) {
+    case GL_SUB_TEX_IMAGE2D: case GL_SUB_TEX_SUB_IMAGE2D: stackCount=1;
+        if(gl_ppc_stack_arg_offset) cmd.args.u[7]=gl_ppc_stack_arg(-1);
+        break;
+    case GL_SUB_GLU_PICKMATRIX: stackCount=1;break;
+    case GL_SUB_GLU_CYLINDER: stackCount=1;break;
+    case GL_SUB_MAP2D: stackCount=6;break;
+    case GL_SUB_MAP2F: stackCount=2;break;
+    case GL_SUB_COMPRESSED_TEX_IMAGE3D_ARB:
+    case GL_SUB_COMPRESSED_TEX_SUB_IMAGE2D_ARB: stackCount=1;break;
+    case GL_SUB_COMPRESSED_TEX_SUB_IMAGE3D_ARB: stackCount=3;break;
+    case GL_SUB_TEX_IMAGE3D_EXT: stackCount=2;break;
+    case GL_SUB_TEX_SUB_IMAGE3D_EXT: stackCount=3;break;
+    case GL_SUB_COPY_TEX_SUB_IMAGE3D_EXT: stackCount=1;break;
+    default:break;
+    }
+    for(int i=0;i<stackCount;++i) cmd.stack_args[i]=gl_ppc_stack_arg(i);
+    auto argument=[&](int n)->uint32_t {return n<8 ? cmd.args.u[n] : cmd.stack_args[n-8];};
+    bool valid=true;
+    auto capture=[&](int n,uint64_t bytes) {
+        const uint32_t address=argument(n);
+        if(!address || !bytes) return;
+        if(bytes > 0xffffffffull || bytes > 0x100000000ull-address) {valid=false;return;}
+        GLCommand::Payload payload;payload.argument=n;payload.bytes.resize(size_t(bytes));
+        for(size_t i=0;i<bytes;++i) payload.bytes[i]=ReadMacInt8(address+uint32_t(i));
+        cmd.payloads.push_back(std::move(payload));
+    };
+    int pointer=-1;
+    const int bytes=PointerDataSize(op,a,b,c,pointer);
+    if(bytes>0 && pointer>=0) capture(pointer,bytes);
+    auto pixelData=[&](int pointer,int32_t w,int32_t height,uint32_t format,uint32_t type,int32_t depth=1) {
+        const int bpp=GLPixelSourceBytesPerPixel(format,type);
+        const auto &ps=ctx->pixel_store;
+        if(w<0 || height<0 || depth<0 || !bpp || ps.unpack_row_length<0 || ps.unpack_skip_rows<0 || ps.unpack_skip_pixels<0) {valid=false;return;}
+        if(!w || !height || !depth) return;
+        int align=ps.unpack_alignment;
+        if(align!=1 && align!=2 && align!=4 && align!=8) align=4;
+        const uint64_t pitch=(uint64_t(ps.unpack_row_length ? ps.unpack_row_length : w)*bpp+align-1)&~uint64_t(align-1);
+        const uint64_t rows=uint64_t(height)*depth;
+        if(pitch>0xffffffffull || rows>0xffffffffull) {valid=false;return;}
+        const uint64_t rowCount=uint64_t(ps.unpack_skip_rows)+rows-1;
+        if(pitch && rowCount>0xffffffffull/pitch) {valid=false;return;}
+        const uint64_t length=rowCount*pitch+(uint64_t(ps.unpack_skip_pixels)+w)*bpp;
+        capture(pointer,length);
+        cmd.has_unpack=true;cmd.unpack[0]=align;cmd.unpack[1]=ps.unpack_row_length;
+        cmd.unpack[2]=ps.unpack_skip_pixels;cmd.unpack[3]=ps.unpack_skip_rows;
+    };
+    switch(op) {
+    case GL_SUB_CALL_LISTS: {
+        int size=GLPixelScalarTypeBytes(b);
+        if(b>=0x1407 && b<=0x1409) size=int(b-0x1405);
+        if(int32_t(a)<0 || !size) valid=false;else capture(2,uint64_t(a)*size);
+        break;
+    }
+    case GL_SUB_TEX_IMAGE1D: pixelData(7,d,1,f,g);break;
+    case GL_SUB_TEX_IMAGE2D: pixelData(8,d,e,g,cmd.args.u[7]);break;
+    case GL_SUB_TEX_SUB_IMAGE1D: pixelData(6,d,1,e,f);break;
+    case GL_SUB_TEX_SUB_IMAGE2D: pixelData(8,e,f,g,cmd.args.u[7]);break;
+    case GL_SUB_TEX_IMAGE3D_EXT: pixelData(9,d,e,h,cmd.stack_args[0],f);break;
+    case GL_SUB_TEX_SUB_IMAGE3D_EXT: pixelData(10,f,g,cmd.stack_args[0],cmd.stack_args[1],h);break;
+    case GL_SUB_DRAW_PIXELS: pixelData(4,a,b,c,d);break;
+    case GL_SUB_COLOR_TABLE: case GL_SUB_COLOR_SUB_TABLE: pixelData(5,c,1,d,e);break;
+    case GL_SUB_CONVOLUTION_FILTER1D: pixelData(5,c,1,d,e);break;
+    case GL_SUB_CONVOLUTION_FILTER2D: pixelData(6,c,d,e,f);break;
+    case GL_SUB_SEPARABLE_FILTER2D: pixelData(6,c,1,e,f);pixelData(7,d,1,e,f);break;
+    case GL_SUB_BITMAP: {
+        const auto &ps=ctx->pixel_store;
+        if(int32_t(a)<0 || int32_t(b)<0) {valid=false;break;}
+        const int align=ps.unpack_alignment==1 || ps.unpack_alignment==2 || ps.unpack_alignment==8 ? ps.unpack_alignment : 4;
+        const uint64_t pitch=(((uint64_t(a)+7)/8)+align-1)&~uint64_t(align-1);
+        capture(6,pitch*b);cmd.has_unpack=true;
+        cmd.unpack[0]=ps.unpack_alignment;cmd.unpack[1]=ps.unpack_row_length;
+        cmd.unpack[2]=ps.unpack_skip_pixels;cmd.unpack[3]=ps.unpack_skip_rows;break;
+    }
+    case GL_SUB_GLU_PICKMATRIX: capture(8,16);break;
+    case GL_SUB_GLU_BUILD1DMIPMAPS: pixelData(5,c,1,d,e);break;
+    case GL_SUB_GLU_BUILD2DMIPMAPS: pixelData(6,c,d,e,f);break;
+    case GL_SUB_PIXEL_MAPFV: case GL_SUB_PIXEL_MAPUIV: capture(2,uint64_t(b)*4);break;
+    case GL_SUB_PIXEL_MAPUSV: capture(2,uint64_t(b)*2);break;
+    case GL_SUB_POLYGON_STIPPLE: capture(0,128);break;
+    case GL_SUB_RECTDV: capture(0,16);capture(1,16);break;
+    case GL_SUB_RECTFV: case GL_SUB_RECTIV: capture(0,8);capture(1,8);break;
+    case GL_SUB_RECTSV: capture(0,4);capture(1,4);break;
+    case GL_SUB_COMPRESSED_TEX_IMAGE1D_ARB: capture(6,f);break;
+    case GL_SUB_COMPRESSED_TEX_IMAGE2D_ARB: capture(7,g);break;
+    case GL_SUB_COMPRESSED_TEX_IMAGE3D_ARB: capture(8,h);break;
+    case GL_SUB_COMPRESSED_TEX_SUB_IMAGE1D_ARB: capture(6,f);break;
+    case GL_SUB_COMPRESSED_TEX_SUB_IMAGE2D_ARB: capture(8,h);break;
+    case GL_SUB_COMPRESSED_TEX_SUB_IMAGE3D_ARB: capture(10,cmd.stack_args[1]);break;
+    case GL_SUB_MAP1F: case GL_SUB_MAP1D: case GL_SUB_MAP2F: case GL_SUB_MAP2D: {
+        // Control-point strides count scalar values, not bytes. Preserve gaps
+        // so handlers see the same layout as at compilation.
+        const bool two=op==GL_SUB_MAP2F || op==GL_SUB_MAP2D;
+        const bool dbl=op==GL_SUB_MAP1D || op==GL_SUB_MAP2D;
+        const int target=int(a)-(two ? 0x0db0 : 0x0d90);
+        const int components[9]={4,1,3,1,2,3,4,3,4};
+        const int32_t us=int32_t(dbl ? f : d),un=int32_t(dbl ? g : e);
+        const int32_t vs=two ? int32_t(dbl ? cmd.stack_args[3] : h) : 0;
+        const int32_t vn=two ? int32_t(dbl ? cmd.stack_args[4] : cmd.stack_args[0]) : 1;
+        if(target<0 || target>=9 || un<=0 || vn<=0 || us<0 || vs<0) {valid=false;break;}
+        const uint64_t scalars=uint64_t(un-1)*us+uint64_t(vn-1)*vs+components[target];
+        capture(two ? (dbl ? 13 : 9) : (dbl ? 7 : 5),scalars*(dbl ? 8 : 4));break;
+    }
+    case GL_SUB_PRIORITIZE_TEXTURES: capture(1,uint64_t(a)*4);capture(2,uint64_t(a)*4);break;
+    default:break;
+    }
+    // Arrays remain client state. Draw commands capture array storage and the
+    // descriptors active at compilation; subsequent pointer edits cannot affect them.
+    if(op==GL_SUB_DRAW_ARRAYS || op==GL_SUB_DRAW_ELEMENTS || op==GL_SUB_DRAW_RANGE_ELEMENTS || op==GL_SUB_ARRAY_ELEMENT) {
+        int32_t count=op==GL_SUB_DRAW_ARRAYS ? int32_t(c) : op==GL_SUB_DRAW_ELEMENTS ? int32_t(b) : op==GL_SUB_DRAW_RANGE_ELEMENTS ? int32_t(d) : 1;
+        uint32_t maximum=0;
+        if(count<0) valid=false;
+        if(op==GL_SUB_DRAW_ARRAYS || op==GL_SUB_ARRAY_ELEMENT) {
+            const int64_t first=op==GL_SUB_ARRAY_ELEMENT ? int32_t(a) : int32_t(b);
+            if(first<0 || first+count>INT32_MAX) valid=false;
+            else maximum=uint32_t(first+std::max(count,1)-1);
+        } else {
+            const int indexArg=op==GL_SUB_DRAW_ELEMENTS ? 3 : 5;
+            const uint32_t type=op==GL_SUB_DRAW_ELEMENTS ? c : e;
+            const int size=type==0x1401 ? 1 : type==0x1403 ? 2 : type==0x1405 ? 4 : 0;
+            if(!size) valid=false;
+            else {
+                capture(indexArg,uint64_t(std::max(count,0))*size);
+                if(valid && argument(indexArg)) for(int32_t i=0;i<count;++i) {
+                    const uint32_t p=argument(indexArg)+uint32_t(i)*size;
+                    const uint32_t index=size==1 ? ReadMacInt8(p) : size==2 ? ReadMacInt16(p) : ReadMacInt32(p);
+                    maximum=std::max(maximum,index);
+                }
+            }
+        }
+        GLVertexArrayPointer *arrays[]={&ctx->vertex_array,&ctx->normal_array,&ctx->color_array,
+            &ctx->texcoord_array[0],&ctx->texcoord_array[1],&ctx->texcoord_array[2],&ctx->texcoord_array[3],
+            &ctx->secondary_color_array,&ctx->edge_flag_array,&ctx->index_array};
+        cmd.has_arrays=true;
+        for(int i=0;i<10;++i) {
+            GLVertexArrayPointer v=*arrays[i];
+            if(i>=3 && i<=6 && !v.enabled &&
+                (ctx->prepared_texcoord_array_for_draw[i-3] || ctx->latched_texture_2d_for_array_draw[i-3]) &&
+                ctx->prepared_texcoord_array[i-3].pointer) {
+                v=ctx->prepared_texcoord_array[i-3];v.enabled=true;
+            }
+            cmd.arrays[i]={v.pointer,v.type,v.size,v.stride,v.enabled};
+            if(!valid || !v.enabled || !count) continue;
+            const int scalar=GLPixelScalarTypeBytes(v.type);
+            const int64_t element=int64_t(scalar)*v.size;
+            const int64_t stride=v.stride ? v.stride : element;
+            if(!scalar || element<=0 || stride<0) {valid=false;continue;}
+            // Array payload arguments use a separate namespace (16..25).
+            const uint64_t bytes=uint64_t(maximum)*stride+element;
+            if(bytes>0xffffffffull || bytes>0x100000000ull-v.pointer) {valid=false;continue;}
+            if(v.pointer) {
+                GLCommand::Payload data;data.argument=16+i;data.bytes.resize(size_t(bytes));
+                for(size_t b=0;b<bytes;++b)data.bytes[b]=ReadMacInt8(v.pointer+uint32_t(b));
+                cmd.payloads.push_back(std::move(data));
+            }
+        }
+    }
+    if(!valid) {if(!ctx->last_error)ctx->last_error=0x0501;return;}
+    ctx->display_lists[ctx->current_list_name].commands.push_back(std::move(cmd));
+}
 
 void GLReplayCommand(GLContext *ctx, const GLCommand &cmd)
 {
-	// Reconstruct args
-	uint32_t r3 = cmd.args.u[0];
-	uint32_t r4 = cmd.args.u[1];
-	uint32_t r5 = cmd.args.u[2];
-	uint32_t r6 = cmd.args.u[3];
-	uint32_t r7 = cmd.args.u[4];
-	uint32_t r8 = cmd.args.u[5];
-	uint32_t r9 = cmd.args.u[6];
-	uint32_t r10 = cmd.args.u[7];
-
-	// Check if this command had pointer data captured
-	int ptr_arg_index = -1;
-	int ptr_data_size = PointerDataSize(cmd.opcode, r3, r4, r5, ptr_arg_index);
-
-	const uint32_t *float_bits = nullptr;
-	int num_float_args = 0;
-
-	if (ptr_data_size > 0 && ptr_arg_index >= 0 && (int)cmd.data.size() >= ptr_data_size) {
-		// Write captured data to Mac scratch buffer for the handler to read
-		if (!gl_dlist_scratch_addr) {
-			extern uint32 Mac_sysalloc(uint32 size);
-			gl_dlist_scratch_addr = Mac_sysalloc(256);  // 256 bytes plenty for any single command
-		}
-
-		for (int b = 0; b < ptr_data_size; b++)
-			WriteMacInt8(gl_dlist_scratch_addr + b, cmd.data[b]);
-
-		// Point the register arg at our scratch buffer
-		switch (ptr_arg_index) {
-		case 0: r3 = gl_dlist_scratch_addr; break;
-		case 1: r4 = gl_dlist_scratch_addr; break;
-		case 2: r5 = gl_dlist_scratch_addr; break;
-		case 3: r6 = gl_dlist_scratch_addr; break;
-		}
-
-		// Float bits follow pointer data in cmd.data
-		if ((int)cmd.data.size() > ptr_data_size) {
-			float_bits = (const uint32_t *)(cmd.data.data() + ptr_data_size);
-			num_float_args = ((int)cmd.data.size() - ptr_data_size) / 4;
-		}
-	} else if (!cmd.data.empty()) {
-		// No pointer data -- cmd.data contains only float bits
-		float_bits = (const uint32_t *)cmd.data.data();
-		num_float_args = (int)cmd.data.size() / 4;
-	}
-
-	// Temporarily clear in_display_list to prevent re-recording during replay
-	bool was_in_list = ctx->in_display_list;
-	ctx->in_display_list = false;
-
-	// Write sub-opcode to scratch word so GLDispatch can read it
-	WriteMacInt32(gl_scratch_addr, cmd.opcode);
-
-	// Re-dispatch through GLDispatch
-	GLDispatch(r3, r4, r5, r6, r7, r8, r9, r10,
-	           float_bits ? float_bits : (const uint32_t *)"\0\0\0\0",
-	           num_float_args);
-
-	ctx->in_display_list = was_in_list;
+    const uint32_t savedSP=gl_ppc_sp;const int savedOffset=gl_ppc_stack_arg_offset;
+    const uint32_t savedOpcode=ReadMacInt32(gl_scratch_addr);
+    uint64_t bytes=96;
+    for(const auto &p:cmd.payloads) bytes+=(p.bytes.size()+7)&~size_t(7);
+    if(bytes>0xffffffffull) {if(!ctx->last_error)ctx->last_error=0x0505;return;}
+    const std::weak_ptr<char> lifetime=ctx->lifetime;
+    // Most list commands are scalar setters. They need neither guest storage
+    // nor a guest Memory Manager call. Pointer/stack commands reuse one busy
+    // slot per nesting depth, growing geometrically only when necessary.
+    const bool needsScratch=!cmd.payloads.empty() ||
+        cmd.opcode==GL_SUB_TEX_IMAGE2D || cmd.opcode==GL_SUB_TEX_SUB_IMAGE2D ||
+        cmd.opcode==GL_SUB_MAP2D || cmd.opcode==GL_SUB_MAP2F ||
+        cmd.opcode==GL_SUB_TEX_IMAGE3D_EXT || cmd.opcode==GL_SUB_TEX_SUB_IMAGE3D_EXT ||
+        cmd.opcode==GL_SUB_COPY_TEX_SUB_IMAGE3D_EXT ||
+        cmd.opcode==GL_SUB_COMPRESSED_TEX_IMAGE3D_ARB ||
+        cmd.opcode==GL_SUB_COMPRESSED_TEX_SUB_IMAGE2D_ARB ||
+        cmd.opcode==GL_SUB_COMPRESSED_TEX_SUB_IMAGE3D_ARB ||
+        cmd.opcode==GL_SUB_GLU_PICKMATRIX || cmd.opcode==GL_SUB_GLU_CYLINDER;
+    struct Scratch {uint32_t address=0,capacity=0;bool busy=false;};
+    static std::vector<std::unique_ptr<Scratch>> slots;
+    Scratch *slot=nullptr;
+    uint32_t scratch=0;
+    if(needsScratch) {
+        for(auto &entry:slots)if(!entry->busy){slot=entry.get();break;}
+        if(!slot){slots.emplace_back(new Scratch);slot=slots.back().get();}
+        slot->busy=true;
+        if(slot->capacity<bytes) {
+            extern uint32 Mac_sysalloc(uint32 size);
+            extern void Mac_sysfree(uint32 p);
+            const uint32_t capacity=uint32_t(std::max<uint64_t>(bytes,std::min<uint64_t>(0xffffffffull,uint64_t(slot->capacity)*2)));
+            const uint32_t old=slot->address;
+            const uint32_t address=Mac_sysalloc(capacity);
+            if(address){slot->address=address;slot->capacity=capacity;}
+            // A nested allocator callback cannot acquire this busy slot.
+            if(address && old)Mac_sysfree(old);
+            gl_ppc_sp=savedSP;gl_ppc_stack_arg_offset=savedOffset;
+            WriteMacInt32(gl_scratch_addr,savedOpcode);
+            if(lifetime.expired() || gl_current_context!=ctx){slot->busy=false;return;}
+            if(!address){slot->busy=false;if(!ctx->last_error)ctx->last_error=0x0505;return;}
+        }
+        scratch=slot->address;
+    }
+    uint32_t args[8];memcpy(args,cmd.args.u,sizeof(args));
+    uint32_t stack[6];memcpy(stack,cmd.stack_args,sizeof(stack));
+    uint32_t arrayAddress[10]={};
+    uint32_t offset=96;
+    for(const auto &p:cmd.payloads) {
+        const uint32_t address=scratch+offset;
+        for(size_t i=0;i<p.bytes.size();++i)WriteMacInt8(address+uint32_t(i),p.bytes[i]);
+        if(p.argument<8)args[p.argument]=address;
+        else if(p.argument<14)stack[p.argument-8]=address;
+        else if(p.argument>=16 && p.argument<26)arrayAddress[p.argument-16]=address;
+        offset+=uint32_t((p.bytes.size()+7)&~size_t(7));
+    }
+    if(scratch)for(int i=0;i<6;++i)WriteMacInt32(scratch+56+i*4,stack[i]);
+    GLVertexArrayPointer *arrays[]={&ctx->vertex_array,&ctx->normal_array,&ctx->color_array,
+        &ctx->texcoord_array[0],&ctx->texcoord_array[1],&ctx->texcoord_array[2],&ctx->texcoord_array[3],
+        &ctx->secondary_color_array,&ctx->edge_flag_array,&ctx->index_array};
+    GLVertexArrayPointer saved[10];
+    GLVertexArrayPointer prepared[4];
+    if(cmd.has_arrays)for(int i=0;i<4;++i){prepared[i]=ctx->prepared_texcoord_array[i];ctx->prepared_texcoord_array[i].pointer=0;}
+    if(cmd.has_arrays)for(int i=0;i<10;++i){
+        saved[i]=*arrays[i];const auto &v=cmd.arrays[i];
+        *arrays[i]={arrayAddress[i] ? arrayAddress[i] : v.pointer,v.size,v.stride,v.type,v.enabled};
+    }
+    const GLPixelStore savedStore=ctx->pixel_store;
+    if(cmd.has_unpack){ctx->pixel_store.unpack_alignment=cmd.unpack[0];ctx->pixel_store.unpack_row_length=cmd.unpack[1];
+        ctx->pixel_store.unpack_skip_pixels=cmd.unpack[2];ctx->pixel_store.unpack_skip_rows=cmd.unpack[3];}
+    const bool compiling=ctx->in_display_list;
+    if(scratch)gl_ppc_sp=scratch;
+    gl_ppc_stack_arg_offset=0;ctx->in_display_list=false;
+    WriteMacInt32(gl_scratch_addr,cmd.opcode);
+    const uint32_t zero[1]={};
+    GLDispatch(args[0],args[1],args[2],args[3],args[4],args[5],args[6],args[7],
+        cmd.float_args.empty() ? zero : cmd.float_args.data(),int(cmd.float_args.size()));
+    WriteMacInt32(gl_scratch_addr,savedOpcode);
+    gl_ppc_sp=savedSP;gl_ppc_stack_arg_offset=savedOffset;
+    if(slot)slot->busy=false;
+    if(lifetime.expired())return;
+    ctx->in_display_list=compiling;
+    if(cmd.has_unpack)ctx->pixel_store=savedStore;
+    if(cmd.has_arrays){
+        for(int i=0;i<10;++i)*arrays[i]=saved[i];
+        for(int i=0;i<4;++i)ctx->prepared_texcoord_array[i]=prepared[i];
+    }
 }
 
 
@@ -2103,7 +2334,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 
 		// ARB_texture_compression
 		case GL_SUB_COMPRESSED_TEX_IMAGE3D_ARB:
-			NativeGLCompressedTexImage3DARB(gl_current_context, r3, (int32_t)r4, r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, 0 /*stack*/);
+			NativeGLCompressedTexImage3DARB(gl_current_context, r3, (int32_t)r4, r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, (int32_t)gl_ppc_stack_arg(0));
 			return 0;
 		case GL_SUB_COMPRESSED_TEX_IMAGE2D_ARB:
 			NativeGLCompressedTexImage2DARB(gl_current_context, r3, (int32_t)r4, r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, r10);
@@ -2112,10 +2343,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLCompressedTexImage1DARB(gl_current_context, r3, (int32_t)r4, r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, r9);
 			return 0;
 		case GL_SUB_COMPRESSED_TEX_SUB_IMAGE3D_ARB:
-			NativeGLCompressedTexSubImage3DARB(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, 0, 0, 0 /*stack args*/);
+			NativeGLCompressedTexSubImage3DARB(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, gl_ppc_stack_arg(0), gl_ppc_stack_arg(1), gl_ppc_stack_arg(2));
 			return 0;
 		case GL_SUB_COMPRESSED_TEX_SUB_IMAGE2D_ARB:
-			NativeGLCompressedTexSubImage2DARB(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, r9, (int32_t)r10, 0 /*stack*/);
+			NativeGLCompressedTexSubImage2DARB(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, r9, (int32_t)r10, (int32_t)gl_ppc_stack_arg(0));
 			return 0;
 		case GL_SUB_COMPRESSED_TEX_SUB_IMAGE1D_ARB:
 			NativeGLCompressedTexSubImage1DARB(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, r7, (int32_t)r8, r9);
@@ -2286,13 +2517,13 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLResetMinmax(gl_current_context, r3);
 			return 0;
 		case GL_SUB_TEX_IMAGE3D_EXT:
-			NativeGLTexImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, r10, 0 /*stack*/, 0 /*stack*/);
+			NativeGLTexImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, r10, gl_ppc_stack_arg(0), gl_ppc_stack_arg(1));
 			return 0;
 		case GL_SUB_TEX_SUB_IMAGE3D_EXT:
-			NativeGLTexSubImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, 0, 0, 0 /*stack args*/);
+			NativeGLTexSubImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, gl_ppc_stack_arg(0), gl_ppc_stack_arg(1), gl_ppc_stack_arg(2));
 			return 0;
 		case GL_SUB_COPY_TEX_SUB_IMAGE3D_EXT:
-			NativeGLCopyTexSubImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, 0 /*stack*/);
+			NativeGLCopyTexSubImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, (int32_t)gl_ppc_stack_arg(0));
 			return 0;
 
 		// --- AGL - Apple GL (600-632) --- real handlers in gl_engine.cpp
