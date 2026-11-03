@@ -1961,8 +1961,9 @@ int32 NativeEngineGestalt(uint32 selector, uint32 responsePtr)
 		break;
 
 	case kQAGestalt_MultiTextureMax:
-		WriteMacInt32(responsePtr, 2);
-		RAVE_LOG("EngineGestalt: %s -> 2", gestalt_selector_names[selector]);
+		// One secondary layer in addition to the primary texture.
+		WriteMacInt32(responsePtr, 1);
+		RAVE_LOG("EngineGestalt: %s -> 1", gestalt_selector_names[selector]);
 		break;
 
 	case kQAGestalt_NumSelectors:

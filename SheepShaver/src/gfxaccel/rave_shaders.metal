@@ -136,9 +136,9 @@ fragment float4 rave_fragment(VertexOut in [[stage_in]],
             texPix.rgb = texPix.a * texPix.rgb + (1.0 - texPix.a) * color.rgb;
             texPix.a = in.color.a;
         } else if (uniforms.texture_op & 16) {  // Blend (bit 4): GL_TEXTURE_ENV_MODE GL_BLEND
-            // Per GL spec: Cv = (1-Cs)*Cc + Cs*Cv where Cs=texture, Cc=env_color
+            // GL_BLEND: retain the fragment at texture=0, use env color at texture=1.
             float3 envColor = float3(uniforms.env_color_r, uniforms.env_color_g, uniforms.env_color_b);
-            texPix.rgb = (1.0 - texPix.rgb) * envColor + texPix.rgb * color.rgb;
+            texPix.rgb = (1.0 - texPix.rgb) * color.rgb + texPix.rgb * envColor;
             texPix.a *= in.color.a;
         } else {
             texPix.a *= in.color.a;

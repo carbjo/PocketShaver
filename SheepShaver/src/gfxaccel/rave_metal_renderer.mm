@@ -62,6 +62,7 @@ static bool RaveEnsureGuestBuffer(uint32_t &address, uint8_t *&host, uint32_t &s
 // RAVE error codes
 #define kQANoErr           0
 #define kQAError          -2
+#define kQAParamErr        5
 
 // Viewport uniform (matches Viewport struct in rave_shaders.metal)
 struct RaveViewport {
@@ -181,7 +182,7 @@ static const uint64_t kRavePipelineKeyInvalid = ~0ULL;
 
 static uint32_t RaveNormalizeChannelMask(uint32_t channelMask)
 {
-	return channelMask == 0 ? 0xF : (channelMask & 0xF);
+	return channelMask & 0xF;
 }
 
 static uint64_t RavePipelineBindingKey(int pipeIdx, uint32_t channelMask,
@@ -1295,15 +1296,46 @@ static void RaveFlushRingWindowIfNearExhaustion(RaveDrawPrivate *priv)
  */
 static bool s_rave_flushing_zsort = false;
 
-static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured = false)
+// Tags use signed endpoints. Intersect before converting to Metal's unsigned
+// extents; an empty intersection must suppress the draw, not retain old state.
+static bool RaveBuildScissorRect(const RaveDrawPrivate *priv, MTLScissorRect *out)
+{
+	if (priv->width <= 0 || priv->height <= 0) return false;
+	const int32_t x0 = std::max(0, std::min(priv->width, (int32_t)priv->state[105].i));
+	const int32_t y0 = std::max(0, std::min(priv->height, (int32_t)priv->state[106].i));
+	const int32_t x1 = std::max(0, std::min(priv->width, (int32_t)priv->state[107].i));
+	const int32_t y1 = std::max(0, std::min(priv->height, (int32_t)priv->state[108].i));
+	if (x1 <= x0 || y1 <= y0) return false;
+	*out = MTLScissorRect{(NSUInteger)x0, (NSUInteger)y0,
+	                      (NSUInteger)(x1 - x0), (NSUInteger)(y1 - y0)};
+	return true;
+}
+
+static bool RaveMultiTextureForDraw(const RaveDrawPrivate *priv, uint32_t requiredVertices)
+{
+	return requiredVertices != 0 && priv->state[33].i == 1 &&
+	       priv->state[26].i != 0 && priv->multiTexStagingCount >= requiredVertices;
+}
+
+static void RaveExpandMultiTextureFan(const float *source, uint32_t count, float *destination)
+{
+	for (uint32_t t = 0; t + 2 < count; ++t) {
+		memcpy(destination + t * 12, source, 4 * sizeof(float));
+		memcpy(destination + t * 12 + 4, source + (t + 1) * 4, 4 * sizeof(float));
+		memcpy(destination + t * 12 + 8, source + (t + 2) * 4, 4 * sizeof(float));
+	}
+}
+
+static bool ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured = false,
+                            uint32_t multiTextureVertices = 0)
 {
 	RaveMetalState *ms = priv->metal;
-	if (!ms->currentEncoder) return;
+	if (!ms->currentEncoder) return false;
 
 	// Ring-exhaustion guard: every per-draw bind below lands on the (possibly
 	// fresh) encoder this leaves behind.
 	RaveFlushRingWindowIfNearExhaustion(priv);
-	if (!ms->currentEncoder) return;
+	if (!ms->currentEncoder) return false;
 
 	// Texture realize / live pixmap refresh can break and restart the render
 	// pass (fenced staging upload), so run them BEFORE any per-draw encoder
@@ -1320,6 +1352,7 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 	// the pixmap on every draw call (no GPU upload step). QD3D's Interactive
 	// Renderer writes directly to the pixmap between frames. We must re-read
 	// and re-upload every frame to match this behavior.
+	const bool useMultiTexture = textured && RaveMultiTextureForDraw(priv, multiTextureVertices);
 	RaveResourceEntry *tex_entry = nullptr;
 	RaveResourceEntry *tex2_entry = nullptr;
 	if (textured) {
@@ -1335,8 +1368,8 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 				}
 			}
 		}
-		if (priv->multiTextureActive && priv->multiTextureHandle != 0) {
-			tex2_entry = RaveResourceGet(RaveResourceFindByAddr(priv->multiTextureHandle));
+		if (useMultiTexture) {
+			tex2_entry = RaveResourceGet(RaveResourceFindByAddr(priv->state[26].i));
 			if (tex2_entry) {
 				if (!tex2_entry->metal_texture && tex2_entry->pixmap_mac_addr != 0) {
 					RaveRealizeDeferredTexture(tex2_entry);
@@ -1347,8 +1380,10 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 			}
 		}
 		// A failed restart leaves no encoder to bind on.
-		if (!ms->currentEncoder) return;
+		if (!ms->currentEncoder) return false;
 	}
+
+	if (useMultiTexture && (!tex2_entry || !tex2_entry->metal_texture)) return false;
 
 	// Determine current pipeline index
 	// bit 0 = has_texture, bit 1 = has_fog, bit 2 = has_alpha_test, bit 3 = has_multi_texture
@@ -1357,7 +1392,7 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 	if (textured) func_const_bits |= 1;  // bit 0 = has_texture
 	if (RaveEffectiveFogEnabled(priv)) func_const_bits |= 2;  // bit 1: has_fog
 	if (priv->state[31].i != 0 && priv->state[31].i != 7) func_const_bits |= 4;  // bit 2: has_alpha_test
-	if (priv->multiTextureActive) func_const_bits |= 8;  // bit 3: has_multi_texture
+	if (useMultiTexture) func_const_bits |= 8;  // bit 3: has_multi_texture
 
 	const bool hasDepthAttachment = RaveContextUsesMetalDepthAttachment(priv->flags) != 0;
 	uint32_t channelMask = RaveNormalizeChannelMask(priv->state[27].i);  // kQATag_ChannelMask
@@ -1408,27 +1443,10 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 	// Depth writes depend on both z-mask tags and the active blend factors.
 	RaveSetDepthStencilStateForCurrentDraw(priv);
 
-	// Apply GL scissor rect if GL tags are set (tags 105-108)
-	if (priv->state[105].i != 0 || priv->state[106].i != 0 ||
-	    priv->state[107].i != 0 || priv->state[108].i != 0) {
-		MTLScissorRect scissor;
-		scissor.x = (NSUInteger)priv->state[105].i;       // kQATagGL_ScissorXMin
-		scissor.y = (NSUInteger)priv->state[106].i;       // kQATagGL_ScissorYMin
-		scissor.width = (NSUInteger)(priv->state[107].i - priv->state[105].i);   // XMax - XMin
-		scissor.height = (NSUInteger)(priv->state[108].i - priv->state[106].i);  // YMax - YMin
-		// Clamp to drawable dimensions to avoid Metal validation errors
-		if (scissor.x + scissor.width > (NSUInteger)priv->width)
-			scissor.width = priv->width - scissor.x;
-		if (scissor.y + scissor.height > (NSUInteger)priv->height)
-			scissor.height = priv->height - scissor.y;
-		if (scissor.width > 0 && scissor.height > 0) {
-			[ms->currentEncoder setScissorRect:scissor];
-		}
-	}
-
-	if (!(priv->state[105].i || priv->state[106].i || priv->state[107].i || priv->state[108].i)) {
-		[ms->currentEncoder setScissorRect:MTLScissorRect{0, 0, (NSUInteger)priv->width, (NSUInteger)priv->height}];
-	}
+	// Apply GL scissor rect only after computing a nonempty intersection.
+	MTLScissorRect scissor;
+	if (!RaveBuildScissorRect(priv, &scissor)) return false;
+	[ms->currentEncoder setScissorRect:scissor];
 
 	// Bind texture and sampler when rendering textured geometry
 	bool boundTexOpaque = false;  // reused by the opaque-texture guard below (avoids a 2nd lookup)
@@ -1475,7 +1493,7 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 		}
 
 		// Multi-texture: bind second texture and sampler at indices 1
-		if (priv->multiTextureActive && priv->multiTextureHandle != 0) {
+		if (useMultiTexture) {
 			if (tex2_entry && tex2_entry->metal_texture) {
 				id<MTLTexture> mtlTex2 = (__bridge id<MTLTexture>)tex2_entry->metal_texture;
 				[ms->currentEncoder setFragmentTexture:mtlTex2 atIndex:1];
@@ -1522,6 +1540,7 @@ static void ApplyDirtyState(RaveDrawPrivate *priv, bool forceAll, bool textured 
 	[ms->currentEncoder setFragmentBytes:&fragUniforms length:sizeof(fragUniforms) atIndex:0];
 
 	priv->dirty_flags = 0;
+	return true;
 }
 
 
@@ -1690,7 +1709,7 @@ static void FlushZSortBuffer(RaveDrawPrivate *priv);
 static void RavePrepareSortedTexture(RaveDrawPrivate *priv, bool textured)
 {
 	if (!textured) return;
-	uint32_t addresses[2] = {priv->state[13].i, priv->multiTextureActive ? priv->multiTextureHandle : 0};
+	uint32_t addresses[2] = {priv->state[13].i, RaveMultiTextureForDraw(priv, 3) ? priv->state[26].i : 0};
 	for (uint32_t address : addresses) {
 		RaveResourceEntry *entry = RaveResourceGet(RaveResourceFindByAddr(address));
 		if (!entry) continue;
@@ -1716,8 +1735,8 @@ static void BufferZSortTriangle(RaveDrawPrivate *priv, const RaveVertex *v0, con
 	tri->sortKey = (v0->pos[2] + v1->pos[2] + v2->pos[2]) / 3.0f;
 	tri->textured = textured;
 	memcpy(tri->state, priv->state, sizeof(tri->state));
-	tri->multiTextureActive = textured && priv->multiTextureActive && priv->multiTexStagingCount >= 3;
-	tri->multiTextureHandle = priv->multiTextureHandle;
+	tri->multiTextureActive = textured && RaveMultiTextureForDraw(priv, 3);
+	tri->multiTextureHandle = priv->state[26].i;
 	if (tri->multiTextureActive) memcpy(tri->multiTexUV, priv->multiTexStagingBuffer, sizeof(tri->multiTexUV));
 }
 
@@ -1735,15 +1754,20 @@ static void FlushZSortBuffer(RaveDrawPrivate *priv)
 	memcpy(savedState, priv->state, sizeof(savedState));
 	const bool savedMultiActive = priv->multiTextureActive;
 	const uint32_t savedMultiHandle = priv->multiTextureHandle;
+	const uint32_t savedMultiCount = priv->multiTexStagingCount;
 	const uint32_t savedDirty = priv->dirty_flags;
 	for (uint32_t i = 0; i < count; ++i) {
 		const ZSortTriangle &tri = priv->zsortBuffer[i];
 		memcpy(priv->state, tri.state, sizeof(tri.state));
 		priv->multiTextureActive = tri.multiTextureActive;
 		priv->multiTextureHandle = tri.multiTextureHandle;
+		priv->multiTexStagingCount = tri.multiTextureActive ? 3 : 0;
 		// Use the immediate path's complete pipeline, sampler, fog, alpha,
 		// depth, channel-mask and environment state rather than a partial key.
-		ApplyDirtyState(priv, true, tri.textured);
+		if (!ApplyDirtyState(priv, true, tri.textured, 3)) {
+			if (!ms->currentEncoder) break;
+			continue;
+		}
 		if (!ms->currentEncoder) break;
 		[ms->currentEncoder setVertexBytes:tri.verts length:sizeof(tri.verts) atIndex:0];
 		if (tri.multiTextureActive)
@@ -1753,6 +1777,7 @@ static void FlushZSortBuffer(RaveDrawPrivate *priv)
 	memcpy(priv->state, savedState, sizeof(savedState));
 	priv->multiTextureActive = savedMultiActive;
 	priv->multiTextureHandle = savedMultiHandle;
+	priv->multiTexStagingCount = savedMultiCount;
 	priv->dirty_flags = savedDirty;
 	ms->currentPipelineKey = kRavePipelineKeyInvalid;
 	s_rave_flushing_zsort = false;
@@ -1819,7 +1844,7 @@ int32 NativeDrawTriGouraud(uint32 drawContextAddr, uint32 v0Addr, uint32 v1Addr,
 	}
 
 	// Apply pending state (pipeline, depth)
-	ApplyDirtyState(priv, false);
+	if (!ApplyDirtyState(priv, false)) return kQANoErr;
 
 	// Submit triangle
 	[ms->currentEncoder setVertexBytes:verts length:sizeof(verts) atIndex:0];
@@ -1909,13 +1934,13 @@ int32 NativeDrawTriTexture(uint32 drawContextAddr, uint32 v0Addr, uint32 v1Addr,
 		return kQANoErr;
 	}
 
-	ApplyDirtyState(priv, false, true);  // textured=true
+	if (!ApplyDirtyState(priv, false, true, 3)) return kQANoErr;
 
 	[ms->currentEncoder setVertexBytes:verts length:sizeof(verts) atIndex:0];
 
 	// Bind UV2 for multi-texture (DrawTriTexture draws 3 vertices per call,
 	// multi-texture UV2 only applies if staging count matches)
-	if (priv->multiTextureActive && priv->multiTexStagingCount >= 3) {
+	if (RaveMultiTextureForDraw(priv, 3)) {
 		size_t multiTexSize = 3 * 16;  // 4 floats per vertex
 		if (!RaveSetVertexData(ms, priv->multiTexStagingBuffer, multiTexSize, 3))
 			return kQANoErr;
@@ -1962,7 +1987,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	}
 	bool perspZ = (priv->state[10].i != 0);
 
-	ApplyDirtyState(priv, false);
+	if (!ApplyDirtyState(priv, false)) return kQANoErr;
 
 	switch (vertexMode) {
 	case 0: // kQAVertexMode_Point
@@ -2231,13 +2256,22 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	}
 	bool perspZ = (priv->state[10].i != 0);
 
-	ApplyDirtyState(priv, false, true);  // textured=true
+	if (!ApplyDirtyState(priv, false, true, nVertices)) return kQANoErr;
 
-	// Bind UV2 staging buffer for multi-texture at buffer index 3
-	if (priv->multiTextureActive && priv->multiTexStagingCount > 0) {
-		size_t multiTexSize = priv->multiTexStagingCount * 16;  // 4 floats per vertex
-		if (!RaveSetVertexData(ms, priv->multiTexStagingBuffer, multiTexSize, 3))
-			return kQANoErr;
+	// Bind exactly the UV stream addressed by this draw's vertex IDs.
+	if (RaveMultiTextureForDraw(priv, nVertices)) {
+		const float *uv = (const float *)priv->multiTexStagingBuffer;
+		uint32_t count = nVertices;
+		if (vertexMode == 5) {
+			if (nVertices < 3) return kQANoErr;
+			if (nVertices > UINT32_MAX / 3) return kQAParamErr;
+			count = (nVertices - 2) * 3;
+			float *expanded = (float *)RaveDrawScratchEnsure(&priv->drawScratchF,
+			    &priv->drawScratchFCap, (size_t)count * 4 * sizeof(float));
+			RaveExpandMultiTextureFan(uv, nVertices, expanded);
+			uv = expanded;
+		}
+		if (!RaveSetVertexData(ms, uv, (size_t)count * 16, 3)) return kQANoErr;
 	}
 
 	switch (vertexMode) {
@@ -2447,9 +2481,8 @@ int32 NativeSubmitVerticesTexture(uint32 drawContextAddr, uint32 nVertices, uint
  *  PPC args: r3=drawContextAddr, r4=nVertices, r5=multiTexParamsAddr
  *
  *  RAVE 1.6 multi-texture extension. Receives per-vertex UV data for a
- *  second texture layer, stored in a parallel staging buffer alongside the
- *  primary vertex staging buffer. The struct layout is speculative based on
- *  the RAVE 1.6 DDK specification:
+ *  secondary texture layer (index 0), stored in a parallel staging buffer
+ *  alongside the primary vertex staging buffer. RAVE 1.6 DDK layout:
  *
  *  TQAVMultiTexture (12 bytes per vertex, per RAVE 1.6 spec):
  *    0: invW    (float) - inverse W for perspective correction
@@ -2464,18 +2497,15 @@ int32 NativeSubmitMultiTextureParams(uint32 drawContextAddr, uint32 nVertices, u
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv) return kQANoErr;
 
-	if (nVertices == 0 || multiTexParamsAddr == 0) return kQANoErr;
-
-	uint32_t currentLayer = priv->state[34].i;  // kQATag_MultiTextureCurrent
-	uint32_t enabledLayers = priv->state[33].i; // kQATag_MultiTextureEnable
-	if (enabledLayers < 2 || currentLayer != 1) {
+	if (priv->state[34].i != 0) return kQAParamErr;
+	if (nVertices == 0) {
 		priv->multiTexStagingCount = 0;
 		priv->multiTextureActive = false;
-		priv->multiTextureHandle = 0;
-		RAVE_VLOG("SubmitMultiTex: ignored layer=%u enabled=%u (only secondary layer 1 is supported)",
-		         currentLayer, enabledLayers);
 		return kQANoErr;
 	}
+	if (multiTexParamsAddr == 0) return kQAParamErr;
+	const uint32_t currentLayer = priv->state[34].i;
+	const uint32_t enabledLayers = priv->state[33].i;
 
 	// TQAVMultiTexture: 12 bytes per vertex (invW, uOverW, vOverW) per RAVE 1.6 spec
 	static const uint32 kMultiTexStride = 12;
@@ -2567,6 +2597,10 @@ int32 NativeDrawBitmap(uint32 drawContextAddr, uint32 vertexAddr, uint32 bitmapM
 	if (scaleY <= 0.0f) scaleY = 1.0f;
 	w *= scaleX;
 	h *= scaleY;
+
+	MTLScissorRect scissor;
+	if (!RaveBuildScissorRect(priv, &scissor)) return kQANoErr;
+	[ms->currentEncoder setScissorRect:scissor];
 
 	// Generate 6 vertices for screen-aligned quad (2 triangles)
 	// Depth test disabled: z=0 (front), w=1
@@ -2689,7 +2723,7 @@ int32 NativeDrawTriMeshGouraud(uint32 drawContextAddr, uint32 numTriangles, uint
 	RaveVertex *staged = (RaveVertex *)priv->vertexStagingBuffer;
 	uint32 maxIdx = priv->vertexStagingCount;
 
-	ApplyDirtyState(priv, false);
+	if (!ApplyDirtyState(priv, false)) return kQANoErr;
 
 	// Build triangle list from indexed triangles
 	// kQATriFlags_Backfacing (bit 0) is a hint only (RAVE spec p.1566) -- do not cull.
@@ -2773,14 +2807,13 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 	RaveVertex *staged = (RaveVertex *)priv->vertexStagingBuffer;
 	uint32 maxIdx = priv->vertexStagingCount;
 
-	ApplyDirtyState(priv, false, true);  // textured=true
-
 	// Build triangle list from indexed triangles
 	// kQATriFlags_Backfacing (bit 0) is a hint only (RAVE spec p.1566) -- do not cull.
 	// The QD3D IR handles backface culling before sending triangles to RAVE.
 	RaveVertex *verts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (numTriangles * 3) * sizeof(RaveVertex));
 	uint32 outIdx = 0;
 	uint32 oobCount = 0;
+	uint32_t requiredMultiVertices = 0;
 
 	for (uint32 t = 0; t < numTriangles; t++) {
 		uint32 triAddr = trianglesAddr + t * 16;
@@ -2793,6 +2826,7 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 		// Bounds check indices
 		if (i0 >= maxIdx || i1 >= maxIdx || i2 >= maxIdx) { oobCount++; continue; }
 
+		requiredMultiVertices = std::max(requiredMultiVertices, std::max(i0, std::max(i1, i2)) + 1);
 		verts[outIdx++] = staged[i0];
 		verts[outIdx++] = staged[i1];
 		verts[outIdx++] = staged[i2];
@@ -2824,6 +2858,7 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 	}
 
 	if (outIdx > 0) {
+		if (!ApplyDirtyState(priv, false, true, requiredMultiVertices)) return kQANoErr;
 		size_t dataSize = outIdx * sizeof(RaveVertex);
 		if (dataSize > 4096) {
 			uint32_t ringOffset = 0;
@@ -2838,7 +2873,7 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 		}
 
 		// Bind UV2 for multi-texture: build indexed UV2 from staging buffer
-		if (priv->multiTextureActive && priv->multiTexStagingCount > 0) {
+		if (RaveMultiTextureForDraw(priv, requiredMultiVertices)) {
 			float *uv2Staged = (float *)priv->multiTexStagingBuffer;
 			float *uv2Indexed = (float *)RaveDrawScratchEnsure(&priv->drawScratchF, &priv->drawScratchFCap, (outIdx * 4) * sizeof(float));
 			uint32 uv2Out = 0;
@@ -2888,7 +2923,7 @@ int32 NativeDrawPoint(uint32 drawContextAddr, uint32 v0Addr)
 	RaveVertex vert;
 	ConvertGouraudVertex(v0Addr, &vert, perspZ);
 
-	ApplyDirtyState(priv, false);
+	if (!ApplyDirtyState(priv, false)) return kQANoErr;
 	[ms->currentEncoder setVertexBytes:&vert length:sizeof(vert) atIndex:0];
 	[ms->currentEncoder drawPrimitives:MTLPrimitiveTypePoint vertexStart:0 vertexCount:1];
 	ms->drawCallCount++;
@@ -2919,7 +2954,7 @@ int32 NativeDrawLine(uint32 drawContextAddr, uint32 v0Addr, uint32 v1Addr)
 	ConvertGouraudVertex(v0Addr, &verts[0], perspZ);
 	ConvertGouraudVertex(v1Addr, &verts[1], perspZ);
 
-	ApplyDirtyState(priv, false);
+	if (!ApplyDirtyState(priv, false)) return kQANoErr;
 	[ms->currentEncoder setVertexBytes:verts length:sizeof(verts) atIndex:0];
 	[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeLine vertexStart:0 vertexCount:2];
 	ms->drawCallCount++;

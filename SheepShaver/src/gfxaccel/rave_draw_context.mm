@@ -527,6 +527,9 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 	// compatibility with callers that set them.
 	if (tag >= RAVE_MAX_TAG) return kQANoErr;
 
+	// MultiTextureEnable counts secondary layers; only secondary index 0 exists.
+	if ((tag == 33 && value > 1) || (tag == 34 && value != 0)) return kQAParamErr;
+
 	ctx->state[tag].i = value;
 	ctx->dirty_flags |= (1 << (tag & 31));
 
