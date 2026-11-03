@@ -1865,6 +1865,7 @@ uint32_t NativeGLGetString(GLContext *ctx, uint32_t name)
 
 void NativeGLPushAttrib(GLContext *ctx, uint32_t mask)
 {
+    if(ctx->in_begin) {if(!ctx->last_error)ctx->last_error=0x0502;return;}
 	if (ctx->attrib_stack_depth >= GL_MAX_ATTRIB_STACK_DEPTH) {
 		ctx->last_error = GL_STACK_OVERFLOW;
 		return;
@@ -1967,11 +1968,125 @@ void NativeGLPushAttrib(GLContext *ctx, uint32_t mask)
 		memcpy(entry.saved_clip_plane_enabled, ctx->clip_plane_enabled, 6 * sizeof(bool));
 	}
 
+	if (mask & GL_COLOR_BUFFER_BIT_ATTRIB) {
+		entry.full_blend = ctx->blend;
+		entry.full_alpha_test = ctx->alpha_test;
+		entry.full_dither = ctx->dither;
+		entry.full_color_logic_op = ctx->color_logic_op;
+		memcpy(entry.full_color_mask, ctx->color_mask, sizeof(ctx->color_mask));
+		entry.full_blend_src = ctx->blend_src;
+		entry.full_blend_dst = ctx->blend_dst;
+		entry.full_blend_equation = ctx->blend_equation;
+		entry.full_alpha_func = ctx->alpha_func;
+		entry.full_logic_op_mode = ctx->logic_op_mode;
+		entry.full_draw_buffer = ctx->draw_buffer;
+		entry.full_index_write_mask = ctx->index_write_mask;
+		memcpy(entry.full_blend_color, ctx->blend_color, sizeof(ctx->blend_color));
+		entry.full_alpha_ref = ctx->alpha_ref;
+		entry.full_clear_index = ctx->clear_index;
+	}
+	if (mask & GL_DEPTH_BUFFER_BIT) {
+		entry.full_depth_test = ctx->depth_test;
+		entry.full_depth_mask = ctx->depth_mask;
+		entry.full_depth_func = ctx->depth_func;
+	}
+	if (mask & GL_STENCIL_BUFFER_BIT) {
+		entry.full_stencil_test = ctx->stencil_test;
+	}
+	if (mask & GL_POLYGON_BIT) {
+		entry.full_cull_face_mode = ctx->cull_face_mode;
+		entry.full_polygon_smooth = ctx->polygon_smooth;
+	}
+	if (mask & GL_CURRENT_BIT) {
+		memcpy(entry.full_current_texcoord, ctx->current_texcoord, sizeof(ctx->current_texcoord));
+		entry.full_current_index = ctx->current_index;
+		memcpy(entry.full_raster_pos, ctx->raster_pos, sizeof(ctx->raster_pos));
+		entry.full_current_edge_flag = ctx->current_edge_flag;
+		entry.full_raster_pos_valid = ctx->raster_pos_valid;
+	}
+	if (mask & GL_LIGHTING_BIT) {
+		memcpy(entry.full_lights, ctx->lights, sizeof(ctx->lights));
+	}
+	if (mask & GL_TRANSFORM_BIT) {
+		memcpy(entry.full_clip_planes, ctx->clip_planes, sizeof(ctx->clip_planes));
+		entry.full_normalize = ctx->normalize;
+	}
+	if (mask & GL_ACCUM_BUFFER_BIT) {
+		memcpy(entry.full_clear_accum, ctx->clear_accum, sizeof(ctx->clear_accum));
+	}
+	if (mask & 0x00020000u /* GL_LIST_BIT */) {
+		entry.full_list_base = ctx->list_base;
+	}
+	if (mask & 0x00000010u /* GL_POLYGON_STIPPLE_BIT */) {
+		memcpy(entry.full_polygon_stipple, ctx->polygon_stipple, sizeof(ctx->polygon_stipple));
+	}
+	if(mask & GL_ENABLE_BIT) {
+		entry.extra_color_sum=ctx->color_sum;
+		entry.extra_auto_normal=ctx->auto_normal;
+		entry.extra_point_smooth=ctx->point_smooth;
+		entry.extra_line_smooth=ctx->line_smooth;
+		entry.extra_polygon_smooth=ctx->polygon_smooth;
+		entry.extra_dither=ctx->dither;
+		entry.extra_color_logic_op=ctx->color_logic_op;
+		entry.extra_polygon_offset_fill=ctx->polygon_offset_fill;
+		entry.extra_polygon_offset_line=ctx->polygon_offset_line;
+		entry.extra_polygon_offset_point=ctx->polygon_offset_point;
+		entry.extra_multisample=ctx->multisample;
+		entry.extra_sample_alpha_to_coverage=ctx->sample_alpha_to_coverage;
+		entry.extra_sample_alpha_to_one=ctx->sample_alpha_to_one;
+		entry.extra_sample_coverage=ctx->sample_coverage;
+		entry.extra_color_material_enabled=ctx->color_material_enabled;
+		memcpy(entry.extra_clip_plane_enabled, ctx->clip_plane_enabled, sizeof(ctx->clip_plane_enabled));
+		memcpy(entry.extra_eval_map1_enabled, ctx->eval_map1_enabled, sizeof(ctx->eval_map1_enabled));
+		memcpy(entry.extra_eval_map2_enabled, ctx->eval_map2_enabled, sizeof(ctx->eval_map2_enabled));
+		entry.extra_color_table_enabled=ctx->color_table_enabled;
+		entry.extra_post_convolution_color_table_enabled=ctx->post_convolution_color_table_enabled;
+		entry.extra_post_color_matrix_color_table_enabled=ctx->post_color_matrix_color_table_enabled;
+		entry.extra_convolution_1d_enabled=ctx->convolution_1d_enabled;
+		entry.extra_convolution_2d_enabled=ctx->convolution_2d_enabled;
+		entry.extra_separable_2d_enabled=ctx->separable_2d_enabled;
+		entry.extra_histogram_enabled=ctx->histogram_enabled;
+		entry.extra_minmax_enabled=ctx->minmax_enabled;
+		memcpy(entry.extra_tex_units, ctx->tex_units, sizeof(ctx->tex_units));
+		memcpy(entry.extra_lights, ctx->lights, sizeof(ctx->lights));
+	}
+	if(mask & 0x00000020u /* GL_PIXEL_MODE_BIT */) {
+		entry.extra_read_buffer=ctx->read_buffer;
+		entry.extra_pixel_zoom_x=ctx->pixel_zoom_x;
+		entry.extra_pixel_zoom_y=ctx->pixel_zoom_y;
+		entry.extra_pixel_transfer_red_scale=ctx->pixel_transfer_red_scale;
+		entry.extra_pixel_transfer_green_scale=ctx->pixel_transfer_green_scale;
+		entry.extra_pixel_transfer_blue_scale=ctx->pixel_transfer_blue_scale;
+		entry.extra_pixel_transfer_alpha_scale=ctx->pixel_transfer_alpha_scale;
+		entry.extra_pixel_transfer_red_bias=ctx->pixel_transfer_red_bias;
+		entry.extra_pixel_transfer_green_bias=ctx->pixel_transfer_green_bias;
+		entry.extra_pixel_transfer_blue_bias=ctx->pixel_transfer_blue_bias;
+		entry.extra_pixel_transfer_alpha_bias=ctx->pixel_transfer_alpha_bias;
+		entry.extra_pixel_transfer_depth_scale=ctx->pixel_transfer_depth_scale;
+		entry.extra_pixel_transfer_depth_bias=ctx->pixel_transfer_depth_bias;
+		memcpy(entry.extra_pixel_map_i_to_r, ctx->pixel_map_i_to_r, sizeof(ctx->pixel_map_i_to_r));
+		memcpy(entry.extra_pixel_map_i_to_g, ctx->pixel_map_i_to_g, sizeof(ctx->pixel_map_i_to_g));
+		memcpy(entry.extra_pixel_map_i_to_b, ctx->pixel_map_i_to_b, sizeof(ctx->pixel_map_i_to_b));
+		memcpy(entry.extra_pixel_map_i_to_a, ctx->pixel_map_i_to_a, sizeof(ctx->pixel_map_i_to_a));
+		memcpy(entry.extra_pixel_map_r_to_r, ctx->pixel_map_r_to_r, sizeof(ctx->pixel_map_r_to_r));
+		memcpy(entry.extra_pixel_map_g_to_g, ctx->pixel_map_g_to_g, sizeof(ctx->pixel_map_g_to_g));
+		memcpy(entry.extra_pixel_map_b_to_b, ctx->pixel_map_b_to_b, sizeof(ctx->pixel_map_b_to_b));
+		memcpy(entry.extra_pixel_map_a_to_a, ctx->pixel_map_a_to_a, sizeof(ctx->pixel_map_a_to_a));
+		entry.extra_pixel_map_i_to_r_size=ctx->pixel_map_i_to_r_size;
+		entry.extra_pixel_map_i_to_g_size=ctx->pixel_map_i_to_g_size;
+		entry.extra_pixel_map_i_to_b_size=ctx->pixel_map_i_to_b_size;
+		entry.extra_pixel_map_i_to_a_size=ctx->pixel_map_i_to_a_size;
+		entry.extra_pixel_map_r_to_r_size=ctx->pixel_map_r_to_r_size;
+		entry.extra_pixel_map_g_to_g_size=ctx->pixel_map_g_to_g_size;
+		entry.extra_pixel_map_b_to_b_size=ctx->pixel_map_b_to_b_size;
+		entry.extra_pixel_map_a_to_a_size=ctx->pixel_map_a_to_a_size;
+	}
 	ctx->attrib_stack_depth++;
 }
 
 void NativeGLPopAttrib(GLContext *ctx)
 {
+    if(ctx->in_begin) {if(!ctx->last_error)ctx->last_error=0x0502;return;}
 	if (ctx->attrib_stack_depth <= 0) {
 		ctx->last_error = GL_STACK_UNDERFLOW;
 		return;
@@ -2077,6 +2192,133 @@ void NativeGLPopAttrib(GLContext *ctx)
 		ctx->matrix_mode = entry.saved_matrix_mode;
 		memcpy(ctx->clip_plane_enabled, entry.saved_clip_plane_enabled, 6 * sizeof(bool));
 	}
+	if (mask & GL_COLOR_BUFFER_BIT_ATTRIB) {
+		ctx->blend = entry.full_blend;
+		ctx->alpha_test = entry.full_alpha_test;
+		ctx->dither = entry.full_dither;
+		ctx->color_logic_op = entry.full_color_logic_op;
+		memcpy(ctx->color_mask, entry.full_color_mask, sizeof(ctx->color_mask));
+		ctx->blend_src = entry.full_blend_src;
+		ctx->blend_dst = entry.full_blend_dst;
+		ctx->blend_equation = entry.full_blend_equation;
+		ctx->alpha_func = entry.full_alpha_func;
+		ctx->logic_op_mode = entry.full_logic_op_mode;
+		ctx->draw_buffer = entry.full_draw_buffer;
+		ctx->index_write_mask = entry.full_index_write_mask;
+		memcpy(ctx->blend_color, entry.full_blend_color, sizeof(ctx->blend_color));
+		ctx->alpha_ref = entry.full_alpha_ref;
+		ctx->clear_index = entry.full_clear_index;
+	}
+	if (mask & GL_DEPTH_BUFFER_BIT) {
+		ctx->depth_test = entry.full_depth_test;
+		ctx->depth_mask = entry.full_depth_mask;
+		ctx->depth_func = entry.full_depth_func;
+	}
+	if (mask & GL_STENCIL_BUFFER_BIT) {
+		ctx->stencil_test = entry.full_stencil_test;
+	}
+	if (mask & GL_POLYGON_BIT) {
+		ctx->cull_face_mode = entry.full_cull_face_mode;
+		ctx->polygon_smooth = entry.full_polygon_smooth;
+	}
+	if (mask & GL_CURRENT_BIT) {
+		memcpy(ctx->current_texcoord, entry.full_current_texcoord, sizeof(ctx->current_texcoord));
+		ctx->current_index = entry.full_current_index;
+		memcpy(ctx->raster_pos, entry.full_raster_pos, sizeof(ctx->raster_pos));
+		ctx->current_edge_flag = entry.full_current_edge_flag;
+		ctx->raster_pos_valid = entry.full_raster_pos_valid;
+	}
+	if (mask & GL_LIGHTING_BIT) {
+		memcpy(ctx->lights, entry.full_lights, sizeof(ctx->lights));
+	}
+	if (mask & GL_TRANSFORM_BIT) {
+		memcpy(ctx->clip_planes, entry.full_clip_planes, sizeof(ctx->clip_planes));
+		ctx->normalize = entry.full_normalize;
+	}
+	if (mask & GL_ACCUM_BUFFER_BIT) {
+		memcpy(ctx->clear_accum, entry.full_clear_accum, sizeof(ctx->clear_accum));
+	}
+	if (mask & 0x00020000u /* GL_LIST_BIT */) {
+		ctx->list_base = entry.full_list_base;
+	}
+	if (mask & 0x00000010u /* GL_POLYGON_STIPPLE_BIT */) {
+		memcpy(ctx->polygon_stipple, entry.full_polygon_stipple, sizeof(ctx->polygon_stipple));
+	}
+	if(mask & GL_ENABLE_BIT) {
+		ctx->color_sum=entry.extra_color_sum;
+		ctx->auto_normal=entry.extra_auto_normal;
+		ctx->point_smooth=entry.extra_point_smooth;
+		ctx->line_smooth=entry.extra_line_smooth;
+		ctx->polygon_smooth=entry.extra_polygon_smooth;
+		ctx->dither=entry.extra_dither;
+		ctx->color_logic_op=entry.extra_color_logic_op;
+		ctx->polygon_offset_fill=entry.extra_polygon_offset_fill;
+		ctx->polygon_offset_line=entry.extra_polygon_offset_line;
+		ctx->polygon_offset_point=entry.extra_polygon_offset_point;
+		ctx->multisample=entry.extra_multisample;
+		ctx->sample_alpha_to_coverage=entry.extra_sample_alpha_to_coverage;
+		ctx->sample_alpha_to_one=entry.extra_sample_alpha_to_one;
+		ctx->sample_coverage=entry.extra_sample_coverage;
+		ctx->color_material_enabled=entry.extra_color_material_enabled;
+		memcpy(ctx->clip_plane_enabled, entry.extra_clip_plane_enabled, sizeof(ctx->clip_plane_enabled));
+		memcpy(ctx->eval_map1_enabled, entry.extra_eval_map1_enabled, sizeof(ctx->eval_map1_enabled));
+		memcpy(ctx->eval_map2_enabled, entry.extra_eval_map2_enabled, sizeof(ctx->eval_map2_enabled));
+		ctx->color_table_enabled=entry.extra_color_table_enabled;
+		ctx->post_convolution_color_table_enabled=entry.extra_post_convolution_color_table_enabled;
+		ctx->post_color_matrix_color_table_enabled=entry.extra_post_color_matrix_color_table_enabled;
+		ctx->convolution_1d_enabled=entry.extra_convolution_1d_enabled;
+		ctx->convolution_2d_enabled=entry.extra_convolution_2d_enabled;
+		ctx->separable_2d_enabled=entry.extra_separable_2d_enabled;
+		ctx->histogram_enabled=entry.extra_histogram_enabled;
+		ctx->minmax_enabled=entry.extra_minmax_enabled;
+		for(int i=0;i<4;++i) ctx->tex_units[i].enabled_1d=entry.extra_tex_units[i].enabled_1d;
+		for(int i=0;i<4;++i) ctx->tex_units[i].enabled_2d=entry.extra_tex_units[i].enabled_2d;
+		for(int i=0;i<4;++i) ctx->tex_units[i].enabled_3d=entry.extra_tex_units[i].enabled_3d;
+		for(int i=0;i<4;++i) ctx->tex_units[i].texgen_s_enabled=entry.extra_tex_units[i].texgen_s_enabled;
+		for(int i=0;i<4;++i) ctx->tex_units[i].texgen_t_enabled=entry.extra_tex_units[i].texgen_t_enabled;
+		for(int i=0;i<4;++i) ctx->tex_units[i].texgen_r_enabled=entry.extra_tex_units[i].texgen_r_enabled;
+		for(int i=0;i<4;++i) ctx->tex_units[i].texgen_q_enabled=entry.extra_tex_units[i].texgen_q_enabled;
+		for(int i=0;i<8;++i)ctx->lights[i].enabled=entry.extra_lights[i].enabled;
+	}
+	if(mask & 0x00000020u /* GL_PIXEL_MODE_BIT */) {
+		ctx->read_buffer=entry.extra_read_buffer;
+		ctx->pixel_zoom_x=entry.extra_pixel_zoom_x;
+		ctx->pixel_zoom_y=entry.extra_pixel_zoom_y;
+		ctx->pixel_transfer_red_scale=entry.extra_pixel_transfer_red_scale;
+		ctx->pixel_transfer_green_scale=entry.extra_pixel_transfer_green_scale;
+		ctx->pixel_transfer_blue_scale=entry.extra_pixel_transfer_blue_scale;
+		ctx->pixel_transfer_alpha_scale=entry.extra_pixel_transfer_alpha_scale;
+		ctx->pixel_transfer_red_bias=entry.extra_pixel_transfer_red_bias;
+		ctx->pixel_transfer_green_bias=entry.extra_pixel_transfer_green_bias;
+		ctx->pixel_transfer_blue_bias=entry.extra_pixel_transfer_blue_bias;
+		ctx->pixel_transfer_alpha_bias=entry.extra_pixel_transfer_alpha_bias;
+		ctx->pixel_transfer_depth_scale=entry.extra_pixel_transfer_depth_scale;
+		ctx->pixel_transfer_depth_bias=entry.extra_pixel_transfer_depth_bias;
+		memcpy(ctx->pixel_map_i_to_r, entry.extra_pixel_map_i_to_r, sizeof(ctx->pixel_map_i_to_r));
+		memcpy(ctx->pixel_map_i_to_g, entry.extra_pixel_map_i_to_g, sizeof(ctx->pixel_map_i_to_g));
+		memcpy(ctx->pixel_map_i_to_b, entry.extra_pixel_map_i_to_b, sizeof(ctx->pixel_map_i_to_b));
+		memcpy(ctx->pixel_map_i_to_a, entry.extra_pixel_map_i_to_a, sizeof(ctx->pixel_map_i_to_a));
+		memcpy(ctx->pixel_map_r_to_r, entry.extra_pixel_map_r_to_r, sizeof(ctx->pixel_map_r_to_r));
+		memcpy(ctx->pixel_map_g_to_g, entry.extra_pixel_map_g_to_g, sizeof(ctx->pixel_map_g_to_g));
+		memcpy(ctx->pixel_map_b_to_b, entry.extra_pixel_map_b_to_b, sizeof(ctx->pixel_map_b_to_b));
+		memcpy(ctx->pixel_map_a_to_a, entry.extra_pixel_map_a_to_a, sizeof(ctx->pixel_map_a_to_a));
+		ctx->pixel_map_i_to_r_size=entry.extra_pixel_map_i_to_r_size;
+		ctx->pixel_map_i_to_g_size=entry.extra_pixel_map_i_to_g_size;
+		ctx->pixel_map_i_to_b_size=entry.extra_pixel_map_i_to_b_size;
+		ctx->pixel_map_i_to_a_size=entry.extra_pixel_map_i_to_a_size;
+		ctx->pixel_map_r_to_r_size=entry.extra_pixel_map_r_to_r_size;
+		ctx->pixel_map_g_to_g_size=entry.extra_pixel_map_g_to_g_size;
+		ctx->pixel_map_b_to_b_size=entry.extra_pixel_map_b_to_b_size;
+		ctx->pixel_map_a_to_a_size=entry.extra_pixel_map_a_to_a_size;
+	}
+    if(mask & (GL_ENABLE_BIT | GL_TEXTURE_BIT)) {
+        for(int unit=0;unit<4;++unit) {
+            gl_clear_prepared_texture_2d_for_draw(ctx,unit);
+            gl_clear_latched_texture_2d_for_array_draw(ctx,unit);
+            ctx->texture_2d_enable_draw_serial[unit]=ctx->completed_draw_serial;
+        }
+    }
+
 }
 
 // Client attrib stacks -- simplified, stores vertex array pointers
