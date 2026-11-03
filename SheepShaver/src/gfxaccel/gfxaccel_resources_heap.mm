@@ -568,7 +568,7 @@ extern "C" int32_t gfxaccel_heap_wait_for_eviction(uint64_t frame_interval_usec)
 // pattern (gl_metal_renderer.mm:641).
 // ---------------------------------------------------------------------------
 
-#define RAVE_RING_BUFFER_SIZE  (4 * 1024 * 1024)   // 4 MiB per slot (matches GL precedent)
+#define RAVE_RING_BUFFER_SIZE  GFXACCEL_RAVE_RING_SLOT_BYTES
 #define RAVE_RING_BUFFER_COUNT 3                     // triple-buffered
 
 static id<MTLBuffer> g_rave_ring_buffer = nil;

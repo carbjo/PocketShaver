@@ -221,6 +221,7 @@ struct AGLContextState {
 	int32_t  agl_swap_rect[4];
 	bool     agl_rasterization_enabled;
 	uint32_t agl_drawable;           // Mac address stored at SetDrawable time
+	bool     agl_viewport_initialized;
 	bool     agl_offscreen;
 	uint32_t agl_offscreen_width;
 	uint32_t agl_offscreen_height;
@@ -1217,6 +1218,31 @@ uint32_t NativeAGLSetCurrentContext(uint32_t ctx)
  *  (same infrastructure as RAVE), initializes Metal resources, and connects
  *  the overlay to the GL context for rendering.
  */
+struct GLDrawableGeometry {
+	int32_t left, top, width, height;
+};
+
+static GLDrawableGeometry GLReadDrawableGeometry(uint32_t drawable)
+{
+	// Both GrafPort and CGrafPort place portRect at byte 16. Their bitmap
+	// bounds are in port-local coordinates, so subtract the bounds origin
+	// to locate portRect in the screen framebuffer.
+	const int32_t top = (int16_t)ReadMacInt16(drawable + 16);
+	const int32_t left = (int16_t)ReadMacInt16(drawable + 18);
+	int32_t height = (int16_t)ReadMacInt16(drawable + 20) - top;
+	int32_t width = (int16_t)ReadMacInt16(drawable + 22) - left;
+	uint32_t bounds = drawable + 8; // GrafPort.portBits.bounds
+	if (ReadMacInt16(drawable + 6) & 0xC000) {
+		const uint32_t pixmapHandle = ReadMacInt32(drawable + 2);
+		const uint32_t pixmap = pixmapHandle ? ReadMacInt32(pixmapHandle) : 0;
+		bounds = pixmap ? pixmap + 6 : 0;
+	}
+	const int32_t boundsTop = bounds ? (int16_t)ReadMacInt16(bounds) : 0;
+	const int32_t boundsLeft = bounds ? (int16_t)ReadMacInt16(bounds + 2) : 0;
+	if (width <= 0 || height <= 0) { width = 640; height = 480; }
+	return {left - boundsLeft, top - boundsTop, width, height};
+}
+
 uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 {
 	GL_LOG("aglSetDrawable: ctx=0x%08x drawable=0x%08x", ctx, drawable);
@@ -1248,29 +1274,13 @@ uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 		return GL_TRUE;
 	}
 
-	// Read port dimensions from the Mac GrafPort/CGrafPort.
-	// Detect color port: CGrafPort has portVersion with high bit set at offset 6.
-	// CGrafPort.portRect at offset 16; GrafPort.portRect at offset 14.
-	uint16_t portVersion = ReadMacInt16(drawable + 6);
-	int portRectOff = (portVersion & 0xC000) ? 16 : 14;  // CGrafPort vs GrafPort
-	int16_t port_top    = (int16_t)ReadMacInt16(drawable + portRectOff);
-	int16_t port_left   = (int16_t)ReadMacInt16(drawable + portRectOff + 2);
-	int16_t port_bottom = (int16_t)ReadMacInt16(drawable + portRectOff + 4);
-	int16_t port_right  = (int16_t)ReadMacInt16(drawable + portRectOff + 6);
-	int32_t width  = port_right - port_left;
-	int32_t height = port_bottom - port_top;
-	if (width <= 0 || height <= 0) {
-		width = 640;
-		height = 480;
-	}
-
-	GL_LOG("aglSetDrawable: port rect=(%d,%d,%d,%d) -> %dx%d",
-	       port_top, port_left, port_bottom, port_right, width, height);
+	const GLDrawableGeometry geometry = GLReadDrawableGeometry(drawable);
+	const int32_t width = geometry.width, height = geometry.height;
 
 	GLCaptureOwnerBeforeDrawableBind(idx);
 
 	// Keep the render targets and destination rect with this drawable.
-	gl_overlay_bind(context, port_left, port_top, width, height);
+	gl_overlay_bind(context, geometry.left, geometry.top, width, height);
 
 	// Initialize Metal resources for this context if not yet done
 	if (!context->metal) {
@@ -1279,11 +1289,15 @@ uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 
 	GL_LOG("aglSetDrawable: Metal overlay connected to context %d (%dx%d)", idx + 1, width, height);
 
-	// Update viewport to match drawable dimensions
-	context->viewport[0] = 0;
-	context->viewport[1] = 0;
-	context->viewport[2] = width;
-	context->viewport[3] = height;
+	// Initialize once; moving, resizing or rebinding a drawable must preserve
+	// the viewport subsequently chosen by the application.
+	if (!agl_ctx_state[idx].agl_viewport_initialized) {
+		context->viewport[0] = 0;
+		context->viewport[1] = 0;
+		context->viewport[2] = width;
+		context->viewport[3] = height;
+		agl_ctx_state[idx].agl_viewport_initialized = true;
+	}
 
 	// Store drawable Mac address for GetDrawable
 	agl_ctx_state[idx].agl_drawable = drawable;
@@ -1707,11 +1721,8 @@ uint32_t NativeAGLCopyContext(uint32_t src, uint32_t dst, uint32_t mask)
  *  NativeAGLUpdateContext(r3=ctx) - re-read the bound drawable geometry
  *
  *  An app calls aglUpdateContext after resizing/moving the window bound via
- *  aglSetDrawable. We validate the context (AGL_BAD_CONTEXT on a bad handle —
- *  the old pure no-op silently succeeded on garbage), then re-read the bound
- *  drawable's portRect by REUSING the exact aglSetDrawable CGrafPort-vs-GrafPort
- *  offset logic and refresh the GL viewport. The bound drawable Mac address is
- *  guest-controlled, so we NULL/zero-guard it before any ReadMacInt16 (ASVS V5).
+ *  aglSetDrawable. Refresh its screen placement and dimensions using the same
+ *  port parser as attachment, without changing application GL viewport state.
  */
 uint32_t NativeAGLUpdateContext(uint32_t ctx)
 {
@@ -1727,30 +1738,12 @@ uint32_t NativeAGLUpdateContext(uint32_t ctx)
 
 	uint32_t drawable = agl_ctx_state[idx].agl_drawable;
 	if (drawable != 0) {
-		// Re-read port dimensions from the Mac GrafPort/CGrafPort — same
-		// CGrafPort-vs-GrafPort offset logic as NativeAGLSetDrawable (do NOT
-		// hand-roll a second parser).
-		uint16_t portVersion = ReadMacInt16(drawable + 6);
-		int portRectOff = (portVersion & 0xC000) ? 16 : 14;  // CGrafPort vs GrafPort
-		int16_t port_top    = (int16_t)ReadMacInt16(drawable + portRectOff);
-		int16_t port_left   = (int16_t)ReadMacInt16(drawable + portRectOff + 2);
-		int16_t port_bottom = (int16_t)ReadMacInt16(drawable + portRectOff + 4);
-		int16_t port_right  = (int16_t)ReadMacInt16(drawable + portRectOff + 6);
-		int32_t width  = port_right - port_left;
-		int32_t height = port_bottom - port_top;
-		if (width <= 0 || height <= 0) {
-			width = 640;
-			height = 480;
-		}
-
-		gl_overlay_bind(context, port_left, port_top, width, height);
-		context->viewport[0] = 0;
-		context->viewport[1] = 0;
-		context->viewport[2] = width;
-		context->viewport[3] = height;
+		const GLDrawableGeometry geometry = GLReadDrawableGeometry(drawable);
+		gl_overlay_bind(context, geometry.left, geometry.top,
+		                geometry.width, geometry.height);
 
 		GL_LOG("aglUpdateContext: re-read port rect -> %dx%d for context %d",
-		       width, height, idx + 1);
+		       geometry.width, geometry.height, idx + 1);
 	}
 
 	gl_agl_last_error = AGL_NO_ERROR;
@@ -4093,8 +4086,8 @@ void NativeGLUSphere(GLContext *ctx, uint32_t quad_handle,
 			float x0 = cp0 * ct, y0 = cp0 * st, z0 = sp0;
 			float x1 = cp1 * ct, y1 = cp1 * st, z1 = sp1;
 
-			if (inside) {
-				// Reversed winding: top vertex first
+			if (!inside) {
+				// Outside faces: upper vertex first as longitude increases
 				if (gen_normals) NativeGLNormal3f(ctx, nsign*x1, nsign*y1, nsign*z1);
 				if (gen_tex) NativeGLTexCoord2f(ctx, s, t1);
 				NativeGLVertex3f(ctx, r * x1, r * y1, r * z1);
@@ -4102,11 +4095,11 @@ void NativeGLUSphere(GLContext *ctx, uint32_t quad_handle,
 				if (gen_tex) NativeGLTexCoord2f(ctx, s, t0);
 				NativeGLVertex3f(ctx, r * x0, r * y0, r * z0);
 			} else {
-				// Normal winding: bottom vertex first
-				if (gen_normals) NativeGLNormal3f(ctx, x0, y0, z0);
+				// Inside faces use the opposite strip winding
+				if (gen_normals) NativeGLNormal3f(ctx, nsign*x0, nsign*y0, nsign*z0);
 				if (gen_tex) NativeGLTexCoord2f(ctx, s, t0);
 				NativeGLVertex3f(ctx, r * x0, r * y0, r * z0);
-				if (gen_normals) NativeGLNormal3f(ctx, x1, y1, z1);
+				if (gen_normals) NativeGLNormal3f(ctx, nsign*x1, nsign*y1, nsign*z1);
 				if (gen_tex) NativeGLTexCoord2f(ctx, s, t1);
 				NativeGLVertex3f(ctx, r * x1, r * y1, r * z1);
 			}
@@ -4158,7 +4151,7 @@ void NativeGLUCylinder(GLContext *ctx, uint32_t quad_handle,
 
 			float nx = ca / nlen, ny = sa / nlen, nzc = nz_slope / nlen;
 
-			if (inside) {
+			if (!inside) {
 				if (gen_normals) NativeGLNormal3f(ctx, nsign*nx, nsign*ny, nsign*nzc);
 				if (gen_tex) NativeGLTexCoord2f(ctx, (float)j / slices, s1);
 				NativeGLVertex3f(ctx, r1 * ca, r1 * sa, z1);
@@ -4166,10 +4159,10 @@ void NativeGLUCylinder(GLContext *ctx, uint32_t quad_handle,
 				if (gen_tex) NativeGLTexCoord2f(ctx, (float)j / slices, s0);
 				NativeGLVertex3f(ctx, r0 * ca, r0 * sa, z0);
 			} else {
-				if (gen_normals) NativeGLNormal3f(ctx, nx, ny, nzc);
+				if (gen_normals) NativeGLNormal3f(ctx, nsign*nx, nsign*ny, nsign*nzc);
 				if (gen_tex) NativeGLTexCoord2f(ctx, (float)j / slices, s0);
 				NativeGLVertex3f(ctx, r0 * ca, r0 * sa, z0);
-				if (gen_normals) NativeGLNormal3f(ctx, nx, ny, nzc);
+				if (gen_normals) NativeGLNormal3f(ctx, nsign*nx, nsign*ny, nsign*nzc);
 				if (gen_tex) NativeGLTexCoord2f(ctx, (float)j / slices, s1);
 				NativeGLVertex3f(ctx, r1 * ca, r1 * sa, z1);
 			}

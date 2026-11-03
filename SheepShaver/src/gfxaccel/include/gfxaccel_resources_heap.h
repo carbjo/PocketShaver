@@ -215,6 +215,8 @@ void gfxaccel_heap_pso_cache_clear(void);
 
 /* --- RAVE Ring Buffer --- */
 
+#define GFXACCEL_RAVE_RING_SLOT_BYTES (4u * 1024u * 1024u)
+
 /*
  * Initialize the RAVE triple-buffered ring buffer. Allocates a single
  * MTLBuffer of RAVE_RING_BUFFER_SIZE * RAVE_RING_BUFFER_COUNT (4 MiB x 3)

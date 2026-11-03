@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <new>
 #include <unordered_map>
 #include <vector>
 
@@ -313,7 +314,16 @@ static bool RaveSetVertexData(RaveMetalState *ms, const void *data,
                               size_t dataSize, NSUInteger bufferIndex)
 {
 	if (!ms || !ms->currentEncoder || !data) return false;
-	if (dataSize > 4096) {
+	if (dataSize > GFXACCEL_RAVE_RING_SLOT_BYTES) {
+		// A single draw can exceed a ring slot. Keep its topology and parallel
+		// vertex streams intact; the command buffer retains this allocation
+		// after it is bound to the encoder.
+		if (!ms->device || dataSize > ms->device.maxBufferLength) return false;
+		id<MTLBuffer> buffer = [ms->device newBufferWithBytes:data length:dataSize
+		    options:MTLResourceStorageModeShared];
+		if (!buffer) return false;
+		[ms->currentEncoder setVertexBuffer:buffer offset:0 atIndex:bufferIndex];
+	} else if (dataSize > 4096) {
 		uint32_t ringOffset = 0;
 		void *ringBuf = gfxaccel_rave_ring_stage(data, (uint32_t)dataSize, &ringOffset);
 		if (!ringBuf) return false;
@@ -1704,12 +1714,15 @@ static void ConvertGouraudVertex(uint32 srcAddr, RaveVertex *dst, bool perspZ) {
  */
 static inline void *RaveDrawScratchEnsure(uint8_t **buf, uint32_t *cap, size_t bytes)
 {
-	// Never returns null (mirrors new[]'s non-null result even for a
-	// zero-element request); +64 keeps degenerate counts off the allocator.
+	// Capacities are stored in uint32_t. Do not truncate the allocation size,
+	// and preserve the previous arena if growing it fails.
+	if (bytes > UINT32_MAX) return nullptr;
 	if (*buf == nullptr || (size_t)*cap < bytes) {
+		size_t grown = std::min(bytes + bytes / 2 + 64, size_t(UINT32_MAX));
+		uint8_t *replacement = new (std::nothrow) uint8_t[grown];
+		if (!replacement) return nullptr;
 		delete[] *buf;
-		size_t grown = bytes + bytes / 2 + 64;
-		*buf = new uint8_t[grown];
+		*buf = replacement;
 		*cap = (uint32_t)grown;
 	}
 	return *buf;
@@ -2011,6 +2024,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	case 0: // kQAVertexMode_Point
 	{
 		RaveVertex *verts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (nVertices) * sizeof(RaveVertex));
+		if (!verts) return kQAError;
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &verts[i], perspZ);
 		}
@@ -2036,6 +2050,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		if (nLines == 0) break;
 		uint32 count = nLines * 2;
 		RaveVertex *verts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (count) * sizeof(RaveVertex));
+		if (!verts) return kQAError;
 		for (uint32 i = 0; i < count; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &verts[i], perspZ);
 		}
@@ -2059,6 +2074,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	{
 		if (nVertices < 2) break;
 		RaveVertex *verts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (nVertices) * sizeof(RaveVertex));
+		if (!verts) return kQAError;
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &verts[i], perspZ);
 		}
@@ -2087,6 +2103,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		// The QD3D IR handles backface culling before sending triangles to RAVE.
 		uint32 totalVerts = nTris * 3;
 		RaveVertex *allVerts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (totalVerts) * sizeof(RaveVertex));
+		if (!allVerts) return kQAError;
 		for (uint32 i = 0; i < totalVerts; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &allVerts[i], perspZ);
 		}
@@ -2113,6 +2130,7 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 
 		// kQATriFlags_Backfacing is a hint only -- do not cull.
 		RaveVertex *allVerts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (nVertices) * sizeof(RaveVertex));
+		if (!allVerts) return kQAError;
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &allVerts[i], perspZ);
 		}
@@ -2141,11 +2159,13 @@ int32 NativeDrawVGouraud(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		// kQATriFlags_Backfacing is a hint only -- do not cull.
 		// Metal has no triangle fan primitive, so expand to triangle list.
 		RaveVertex *allVerts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (nVertices) * sizeof(RaveVertex));
+		if (!allVerts) return kQAError;
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertGouraudVertex(verticesAddr + i * 32, &allVerts[i], perspZ);
 		}
 
 		RaveVertex *expanded = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchB, &priv->drawScratchBCap, (nTris * 3) * sizeof(RaveVertex));
+		if (!expanded) return kQAError;
 		uint32 outIdx = 0;
 		for (uint32 t = 0; t < nTris; t++) {
 			expanded[outIdx++] = allVerts[0];
@@ -2286,6 +2306,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 			count = (nVertices - 2) * 3;
 			float *expanded = (float *)RaveDrawScratchEnsure(&priv->drawScratchF,
 			    &priv->drawScratchFCap, (size_t)count * 4 * sizeof(float));
+			if (!expanded) return kQAError;
 			RaveExpandMultiTextureFan(uv, nVertices, expanded);
 			uv = expanded;
 		}
@@ -2296,6 +2317,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	case 0: // kQAVertexMode_Point
 	{
 		RaveVertex *verts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (nVertices) * sizeof(RaveVertex));
+		if (!verts) return kQAError;
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &verts[i], perspZ);
 		}
@@ -2321,6 +2343,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		if (nLines == 0) break;
 		uint32 count = nLines * 2;
 		RaveVertex *verts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (count) * sizeof(RaveVertex));
+		if (!verts) return kQAError;
 		for (uint32 i = 0; i < count; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &verts[i], perspZ);
 		}
@@ -2344,6 +2367,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 	{
 		if (nVertices < 2) break;
 		RaveVertex *verts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (nVertices) * sizeof(RaveVertex));
+		if (!verts) return kQAError;
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &verts[i], perspZ);
 		}
@@ -2371,6 +2395,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		// kQATriFlags_Backfacing is a hint only (RAVE spec p.1566) -- do not cull.
 		uint32 totalVerts = nTris * 3;
 		RaveVertex *allVerts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (totalVerts) * sizeof(RaveVertex));
+		if (!allVerts) return kQAError;
 		for (uint32 i = 0; i < totalVerts; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &allVerts[i], perspZ);
 		}
@@ -2397,6 +2422,7 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 
 		// kQATriFlags_Backfacing is a hint only -- do not cull.
 		RaveVertex *allVerts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (nVertices) * sizeof(RaveVertex));
+		if (!allVerts) return kQAError;
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &allVerts[i], perspZ);
 		}
@@ -2425,11 +2451,13 @@ int32 NativeDrawVTexture(uint32 drawContextAddr, uint32 nVertices, uint32 vertex
 		// kQATriFlags_Backfacing is a hint only -- do not cull.
 		// Metal has no triangle fan primitive, so expand to triangle list.
 		RaveVertex *allVerts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (nVertices) * sizeof(RaveVertex));
+		if (!allVerts) return kQAError;
 		for (uint32 i = 0; i < nVertices; i++) {
 			ConvertTextureVertex(verticesAddr + i * 64, &allVerts[i], perspZ);
 		}
 
 		RaveVertex *expanded = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchB, &priv->drawScratchBCap, (nTris * 3) * sizeof(RaveVertex));
+		if (!expanded) return kQAError;
 		uint32 outIdx = 0;
 		for (uint32 t = 0; t < nTris; t++) {
 			expanded[outIdx++] = allVerts[0];
@@ -2731,11 +2759,28 @@ int32 NativeDrawBitmap(uint32 drawContextAddr, uint32 vertexAddr, uint32 bitmapM
  *    offset 0: triangleFlags (uint32) - bit 0 = backfacing
  *    offset 4: vertices[3] (3 x uint32) - indices into staging buffer
  */
+static bool RaveMeshLayoutIsValid(uint32_t numTriangles, uint32_t trianglesAddr)
+{
+	// Check the expanded allocation and the complete indexed-triangle array
+	// before reading indices or changing encoder state. ReadMacInt32 handles
+	// guest page boundaries; the array must still lie in mapped RAM or ROM.
+	if (!trianglesAddr || numTriangles > UINT32_MAX / (3 * sizeof(RaveVertex))) return false;
+	const uint64_t bytes = uint64_t(numTriangles) * 16;
+	if (uint64_t(trianglesAddr) + bytes > uint64_t(UINT32_MAX) + 1) return false;
+	auto fits = [&](uint32_t base, uint32_t size) {
+		return trianglesAddr >= base && uint64_t(trianglesAddr - base) + bytes <= size;
+	};
+	return fits(RAMBase, RAMSize) || fits(ROMBase, ROM_SIZE);
+}
+
 int32 NativeDrawTriMeshGouraud(uint32 drawContextAddr, uint32 numTriangles, uint32 trianglesAddr)
 {
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->renderPassActive) return kQANoErr;
 	if (numTriangles == 0 || priv->vertexStagingCount == 0) return kQANoErr;
+	if (!RaveMeshLayoutIsValid(numTriangles, trianglesAddr)) return kQAParamErr;
+	const size_t expandedBytes = size_t(numTriangles) * 3 * sizeof(RaveVertex);
+	if (expandedBytes > priv->metal->device.maxBufferLength) return kQAError;
 
 	RaveMetalState *ms = priv->metal;
 	RaveVertex *staged = (RaveVertex *)priv->vertexStagingBuffer;
@@ -2746,7 +2791,8 @@ int32 NativeDrawTriMeshGouraud(uint32 drawContextAddr, uint32 numTriangles, uint
 	// Build triangle list from indexed triangles
 	// kQATriFlags_Backfacing (bit 0) is a hint only (RAVE spec p.1566) -- do not cull.
 	// The QD3D IR handles backface culling before sending triangles to RAVE.
-	RaveVertex *verts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (numTriangles * 3) * sizeof(RaveVertex));
+	RaveVertex *verts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, expandedBytes);
+	if (!verts) return kQAError;
 	uint32 outIdx = 0;
 	uint32 oobCount = 0;
 
@@ -2785,17 +2831,7 @@ int32 NativeDrawTriMeshGouraud(uint32 drawContextAddr, uint32 numTriangles, uint
 
 	if (outIdx > 0) {
 		size_t dataSize = outIdx * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(verts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				return kQANoErr;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, verts, dataSize, 0)) return kQAError;
 		[ms->currentEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:outIdx];
 		ms->drawCallCount++;
 		ms->triangleCount += outIdx / 3;
@@ -2820,6 +2856,9 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 	RaveDrawPrivate *priv = GetContextFromDrawAddr(drawContextAddr);
 	if (!priv || !priv->metal || !priv->metal->renderPassActive) return kQANoErr;
 	if (numTriangles == 0 || priv->vertexStagingCount == 0) return kQANoErr;
+	if (!RaveMeshLayoutIsValid(numTriangles, trianglesAddr)) return kQAParamErr;
+	const size_t expandedBytes = size_t(numTriangles) * 3 * sizeof(RaveVertex);
+	if (expandedBytes > priv->metal->device.maxBufferLength) return kQAError;
 
 	RaveMetalState *ms = priv->metal;
 	RaveVertex *staged = (RaveVertex *)priv->vertexStagingBuffer;
@@ -2828,7 +2867,8 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 	// Build triangle list from indexed triangles
 	// kQATriFlags_Backfacing (bit 0) is a hint only (RAVE spec p.1566) -- do not cull.
 	// The QD3D IR handles backface culling before sending triangles to RAVE.
-	RaveVertex *verts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, (numTriangles * 3) * sizeof(RaveVertex));
+	RaveVertex *verts = (RaveVertex *)RaveDrawScratchEnsure(&priv->drawScratchA, &priv->drawScratchACap, expandedBytes);
+	if (!verts) return kQAError;
 	uint32 outIdx = 0;
 	uint32 oobCount = 0;
 	uint32_t requiredMultiVertices = 0;
@@ -2878,22 +2918,13 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 	if (outIdx > 0) {
 		if (!ApplyDirtyState(priv, false, true, requiredMultiVertices)) return kQANoErr;
 		size_t dataSize = outIdx * sizeof(RaveVertex);
-		if (dataSize > 4096) {
-			uint32_t ringOffset = 0;
-			void *ringBuf = gfxaccel_rave_ring_stage(verts, (uint32_t)dataSize, &ringOffset);
-			if (ringBuf) {
-				[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf offset:ringOffset atIndex:0];
-			} else {
-				return kQANoErr;
-			}
-		} else {
-			[ms->currentEncoder setVertexBytes:verts length:dataSize atIndex:0];
-		}
+		if (!RaveSetVertexData(ms, verts, dataSize, 0)) return kQAError;
 
 		// Bind UV2 for multi-texture: build indexed UV2 from staging buffer
 		if (RaveMultiTextureForDraw(priv, requiredMultiVertices)) {
 			float *uv2Staged = (float *)priv->multiTexStagingBuffer;
 			float *uv2Indexed = (float *)RaveDrawScratchEnsure(&priv->drawScratchF, &priv->drawScratchFCap, (outIdx * 4) * sizeof(float));
+			if (!uv2Indexed) return kQAError;
 			uint32 uv2Out = 0;
 			for (uint32 t = 0; t < numTriangles; t++) {
 				uint32 triAddr = trianglesAddr + t * 16;
@@ -2910,7 +2941,7 @@ int32 NativeDrawTriMeshTexture(uint32 drawContextAddr, uint32 numTriangles, uint
 			}
 			size_t uv2Size = uv2Out * 16;
 			if (!RaveSetVertexData(ms, uv2Indexed, uv2Size, 3)) {
-				return kQANoErr;
+				return kQAError;
 			}
 		}
 
