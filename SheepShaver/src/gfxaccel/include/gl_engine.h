@@ -1332,6 +1332,7 @@ struct GLContext {
     uint32_t polygon_stipple[32];      // 32x32 bit pattern
 
     // ---- Draw/read buffer ----
+    bool     double_buffered;         // selected AGL pixel format
     uint32_t draw_buffer;              // GL_FRONT, GL_BACK, etc.
     uint32_t read_buffer;
 
@@ -1464,6 +1465,8 @@ extern void GLMetalInit(GLContext *ctx);
 extern void GLMetalBeginFrame(GLContext *ctx);
 extern void GLMetalClear(GLContext *ctx, uint32_t mask);
 extern void GLMetalEndFrame(GLContext *ctx);
+// Complete writes to the old drawable before AGL replaces its binding.
+extern void GLMetalPrepareDrawableChange(GLContext *ctx);
 extern void GLMetalFlushImmediateMode(GLContext *ctx);
 extern void GLMetalRelease(GLContext *ctx);
 extern void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,

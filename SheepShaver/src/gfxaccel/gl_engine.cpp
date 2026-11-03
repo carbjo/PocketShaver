@@ -742,6 +742,8 @@ static GLContext *GLContextNew(int width, int height)
 	//   These match the GL 1.2 spec §4.1.7 initial values.
 	ctx->blend_src = GL_ONE;
 	ctx->blend_dst = GL_ZERO;
+	ctx->double_buffered = true;
+	ctx->draw_buffer = ctx->read_buffer = GL_BACK;
 
 	// ---- Vertex arrays ----
 	// All zero-initialized (disabled, null pointers)
@@ -838,6 +840,11 @@ static GLContext *GLContextNew(int width, int height)
 	// ---- Pixel transfer ----
 	ctx->pixel_zoom_x = 1.0f;
 	ctx->pixel_zoom_y = 1.0f;
+	ctx->pixel_transfer_red_scale = 1.0f;
+	ctx->pixel_transfer_green_scale = 1.0f;
+	ctx->pixel_transfer_blue_scale = 1.0f;
+	ctx->pixel_transfer_alpha_scale = 1.0f;
+	ctx->pixel_transfer_depth_scale = 1.0f;
 
 	// ---- Clip planes ----
 	for (int i = 0; i < 6; i++) {
@@ -1030,6 +1037,18 @@ uint32_t NativeAGLCreateContext(uint32_t pixelFormat, uint32_t shareContext)
 {
 	GL_LOG("aglCreateContext: pixelFormat=0x%08x shareContext=0x%08x", pixelFormat, shareContext);
 
+	const GLPixelFormatInfo *format = nullptr;
+	for (int i = 0; i < gl_pixel_format_count; ++i) {
+		if (pixelFormat != 0 && gl_pixel_formats[i].mac_addr == pixelFormat) {
+			format = &gl_pixel_formats[i];
+			break;
+		}
+	}
+	if (!format) {
+		gl_agl_last_error = AGL_BAD_PIXELFMT;
+		return 0;
+	}
+
 	// Find a free context slot
 	int slot = -1;
 	for (int i = 0; i < GL_MAX_CONTEXTS; i++) {
@@ -1047,6 +1066,8 @@ uint32_t NativeAGLCreateContext(uint32_t pixelFormat, uint32_t shareContext)
 
 	// Create the context with default dimensions (will be set by aglSetDrawable)
 	GLContext *ctx = GLContextNew(640, 480);
+	ctx->double_buffered = format->has_double_buffer;
+	ctx->draw_buffer = ctx->read_buffer = ctx->double_buffered ? GL_BACK : GL_FRONT;
 	gl_contexts[slot] = ctx;
 
 	// Allocate Mac-side context handle with dispatch table.
@@ -1184,6 +1205,11 @@ uint32_t NativeAGLSetDrawable(uint32_t ctx, uint32_t drawable)
 		GL_LOG("aglSetDrawable: invalid context handle");
 		gl_agl_last_error = AGL_BAD_CONTEXT;
 		return GL_FALSE;
+	}
+
+	if (agl_ctx_state[idx].agl_offscreen ||
+	    agl_ctx_state[idx].agl_drawable != drawable) {
+		GLMetalPrepareDrawableChange(context);
 	}
 
 	if (drawable == 0) {
@@ -1735,6 +1761,11 @@ uint32_t NativeAGLSetOffScreen(uint32_t ctx, uint32_t width, uint32_t height,
 		gl_agl_last_error = AGL_BAD_OFFSCREEN;
 		return GL_FALSE;
 	}
+
+	// Read back against the OLD binding, including same-size rebindings.
+	// The next pass must import the new caller's pixels instead of continuing
+	// to encode into a target whose readback destination has just changed.
+	GLMetalPrepareDrawableChange(context);
 
 	if (agl_ctx_state[idx].agl_drawable != 0) {
 		gl_overlay_unbind(context);

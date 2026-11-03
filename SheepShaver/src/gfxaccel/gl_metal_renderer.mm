@@ -1383,17 +1383,18 @@ static MTLStencilOperation GLStencilOpToMetal(uint32_t gl_op) {
 // (MakeDepthStencilKey).
 static uint64_t MakePipelineKey(bool blend_enabled, uint32_t blend_src, uint32_t blend_dst,
                                  bool depth_write, uint32_t color_mask_bits, bool has_texture,
-                                 uint32_t blend_equation) {
+                                 uint32_t blend_equation, bool is_offscreen) {
     uint64_t key = 0;
     key |= (blend_enabled ? 1ULL : 0);
-    key |= ((uint64_t)(blend_src & 0xFFF)) << 1;
-    key |= ((uint64_t)(blend_dst & 0xFFF)) << 13;
-    key |= (depth_write ? 1ULL : 0) << 25;
-    key |= ((uint64_t)(color_mask_bits & 0xF)) << 26;
-    key |= (has_texture ? 1ULL : 0) << 30;
-    // blend_equation occupies free bits above bit 30. The five
-    // GL equations (ADD/SUBTRACT/REVERSE_SUBTRACT/MIN/MAX) need only the low bits; mask to 0xFF.
-    key |= ((uint64_t)(blend_equation & 0xFF)) << 31;
+    // Preserve the full GL tokens: CONSTANT_COLOR (0x8001) and ONE (1)
+    // must never share a pipeline, for either source or destination.
+    key |= ((uint64_t)(blend_src & 0xFFFF)) << 1;
+    key |= ((uint64_t)(blend_dst & 0xFFFF)) << 17;
+    key |= (depth_write ? 1ULL : 0) << 33;
+    key |= ((uint64_t)(color_mask_bits & 0xF)) << 34;
+    key |= (has_texture ? 1ULL : 0) << 38;
+    key |= ((uint64_t)(blend_equation & 0xFFFF)) << 39;
+    key |= (is_offscreen ? 1ULL : 0) << 55;
     return key;
 }
 
@@ -1592,7 +1593,7 @@ static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext
 
     uint64_t key = MakePipelineKey(blend_enabled, blend_src, blend_dst,
                                     depth_write, color_mask_bits, has_texture,
-                                    ctx->blend_equation);
+                                    ctx->blend_equation, isOffscreen);
 
     auto it = ms->pipelineCache.find(key);
     if (it != ms->pipelineCache.end()) return it->second;
@@ -1622,10 +1623,12 @@ static id<MTLRenderPipelineState> GLMetalGetPipeline(GLMetalState *ms, GLContext
         pipeDesc.colorAttachments[0].alphaBlendOperation = blendOp;
         pipeDesc.colorAttachments[0].sourceRGBBlendFactor = GLBlendToMetal(blend_src);
         pipeDesc.colorAttachments[0].destinationRGBBlendFactor = GLBlendToMetal(blend_dst);
-        // The compositor treats GL overlay contents as premultiplied BGRA.
-        // RGB blend factors follow GL; alpha tracks coverage for final compositing.
-        pipeDesc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
-        pipeDesc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        // Only visible overlays need coverage alpha for the compositor.
+        // Caller-owned offscreen pixels retain GL's actual alpha equation.
+        pipeDesc.colorAttachments[0].sourceAlphaBlendFactor =
+            isOffscreen ? GLBlendToMetal(blend_src) : MTLBlendFactorOne;
+        pipeDesc.colorAttachments[0].destinationAlphaBlendFactor =
+            isOffscreen ? GLBlendToMetal(blend_dst) : MTLBlendFactorOneMinusSourceAlpha;
     } else {
         pipeDesc.colorAttachments[0].blendingEnabled = NO;
     }
@@ -1854,9 +1857,14 @@ void GLMetalBeginFrame(GLContext *ctx)
     }
     if (!nextOverlay) return;
 
-    // Flush/Finish submit work without swapping the drawable. Resuming that
-    // same color target must retain the pixels already drawn into it.
-    const bool loadColor = isOffscreen || ms->overlayTexture == nextOverlay;
+    // A single-buffer flush publishes a texture without ending the logical
+    // frame. Continue in the other texture, copying the published pixels so
+    // partial redraws survive without writing the compositor's cached source.
+    id<MTLTexture> previousOverlay = ms->overlayTexture;
+    const bool preserveSingleBuffer = !isOffscreen && !ctx->double_buffered &&
+        previousOverlay && previousOverlay != nextOverlay &&
+        previousOverlay.width == nextOverlay.width && previousOverlay.height == nextOverlay.height;
+    const bool loadColor = isOffscreen || previousOverlay == nextOverlay || preserveSingleBuffer;
     ms->overlayTexture = nextOverlay;
     const bool loadDepthStencil = ms->depthBuffer &&
         (int)ms->depthBuffer.width == w && (int)ms->depthBuffer.height == h;
@@ -1869,6 +1877,20 @@ void GLMetalBeginFrame(GLContext *ctx)
         ms->currentCommandBuffer = nil;
         if (!ctx->last_error) ctx->last_error = 0x0505; // GL_OUT_OF_MEMORY
         return;
+    }
+
+    if (preserveSingleBuffer) {
+        id<MTLBlitCommandEncoder> blit = [ms->currentCommandBuffer blitCommandEncoder];
+        if (!blit) {
+            ms->currentCommandBuffer = nil;
+            if (!ctx->last_error) ctx->last_error = 0x0505;
+            return;
+        }
+        [blit copyFromTexture:previousOverlay sourceSlice:0 sourceLevel:0
+            sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(w, h, 1)
+            toTexture:nextOverlay destinationSlice:0 destinationLevel:0
+            destinationOrigin:MTLOriginMake(0, 0, 0)];
+        [blit endEncoding];
     }
 
     MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
@@ -3185,7 +3207,20 @@ void NativeGLFinish(GLContext *ctx)
         GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
     }
 
+    if (ms->lastCommittedBuffer) [ms->lastCommittedBuffer waitUntilCompleted];
+    if (!ctx->double_buffered) gl_overlay_present(ctx);
+
     GL_METAL_VLOG("NativeGLFinish: completed");
+}
+
+void GLMetalPrepareDrawableChange(GLContext *ctx)
+{
+    if (!ctx || !ctx->metal) return;
+    NativeGLFinish(ctx);
+    GLMetalState *ms = (GLMetalState *)ctx->metal;
+    if (ms->lastCommittedBuffer) [ms->lastCommittedBuffer waitUntilCompleted];
+    ms->overlayTexture = nil;
+    ms->viewportScissorCacheValid = false;
 }
 
 
@@ -3210,6 +3245,8 @@ void NativeGLFlush(GLContext *ctx)
         gl_note_overlay_committed(ctx, ms->overlayTexture);
         GLMetalReadbackOffscreenDrawable(ctx, ms, committedBuffer);
     }
+
+    if (!ctx->double_buffered) gl_overlay_present(ctx);
 
     GL_METAL_VLOG("NativeGLFlush: committed");
 }
@@ -3823,32 +3860,41 @@ static bool GLMetalReadRectIsInTexture(id<MTLTexture> tex,
     return x1 <= [tex width] && y1 <= [tex height];
 }
 
-static uint32_t GLMetalPackRowStride(int32_t width,
-                                     int32_t bytesPerPixel,
-                                     const GLPixelStore &ps)
+struct GLMetalPackLayout {
+    uint64_t rowStride;
+    uint64_t start;
+};
+
+// Color and depth readbacks share exactly the same guest address bounds.
+// Validate the whole range before writing any pixels, using wide arithmetic.
+static bool GLMetalGetPackLayout(GLContext *ctx, int32_t width, int32_t height,
+                                 uint32_t bytesPerPixel, uint32_t base,
+                                 GLMetalPackLayout &layout)
 {
+    const GLPixelStore &ps = ctx->pixel_store;
+    auto invalid = [&]() {
+        if (!ctx->last_error) ctx->last_error = 0x0501; // GL_INVALID_VALUE
+        return false;
+    };
+    if (width <= 0 || height <= 0 || !bytesPerPixel ||
+        ps.pack_row_length < 0 || ps.pack_skip_rows < 0 || ps.pack_skip_pixels < 0)
+        return invalid();
     int32_t alignment = ps.pack_alignment;
     if (alignment != 1 && alignment != 2 && alignment != 4 && alignment != 8) {
         alignment = 4;
     }
-
-    int32_t rowPixels = ps.pack_row_length > 0 ? ps.pack_row_length : width;
-    rowPixels = std::max(rowPixels, width);
-    const uint32_t rawBytes = (uint32_t)(rowPixels * bytesPerPixel);
-    return (rawBytes + (uint32_t)alignment - 1u) & ~((uint32_t)alignment - 1u);
-}
-
-static uint32_t GLMetalPackPixelAddress(uint32_t base,
-                                        int32_t row,
-                                        int32_t col,
-                                        int32_t bytesPerPixel,
-                                        uint32_t rowStride,
-                                        const GLPixelStore &ps)
-{
-    const int32_t skipRows = std::max(0, ps.pack_skip_rows);
-    const int32_t skipPixels = std::max(0, ps.pack_skip_pixels);
-    return base + (uint32_t)(skipRows + row) * rowStride +
-           (uint32_t)(skipPixels + col) * (uint32_t)bytesPerPixel;
+    // A row length shorter than width is legal and produces overlapping rows.
+    const uint64_t rowPixels = ps.pack_row_length > 0 ? ps.pack_row_length : width;
+    layout.rowStride = (rowPixels * bytesPerPixel + alignment - 1u) &
+                       ~(uint64_t)(alignment - 1u);
+    if (layout.rowStride > 0xffffffffull) return invalid();
+    layout.start = (uint64_t)ps.pack_skip_rows * layout.rowStride +
+                   (uint64_t)ps.pack_skip_pixels * bytesPerPixel;
+    const uint64_t available = 0x100000000ull - base;
+    if (layout.start > available) return invalid();
+    const uint64_t tail = (uint64_t)(height - 1) * layout.rowStride +
+                          (uint64_t)width * bytesPerPixel;
+    return tail <= available - layout.start ? true : invalid();
 }
 
 static id<MTLBuffer> GLMetalGetDepthReadbackBuffer(GLMetalState *ms,
@@ -4017,6 +4063,7 @@ uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized || width <= 0 || height <= 0) return NULL;
 
+    if (!ms->overlayTexture) GLMetalBeginFrame(ctx);
     id<MTLTexture> srcTex = ms->overlayTexture;
     if (!srcTex || !GLMetalReadRectIsInTexture(srcTex, x, y, width, height)) return NULL;
 
@@ -4082,34 +4129,14 @@ static bool GLMetalStoreReadPixelsToGuest(GLContext *ctx, const uint8_t *staging
         if (!ctx->last_error) ctx->last_error = 0x0501; // GL_INVALID_VALUE
         return false;
     }
-    const GLPixelStore &ps = ctx->pixel_store;
-    uint32_t alignment = (uint32_t)ps.pack_alignment;
-    if (alignment != 1 && alignment != 2 && alignment != 4 && alignment != 8) alignment = 4;
-    const uint64_t rowPixels = ps.pack_row_length > 0 ? ps.pack_row_length : width;
-    const uint64_t stride = (rowPixels * bytesPerPixel + alignment - 1) & ~(uint64_t)(alignment - 1);
-    // Reject oversized strides before multiplying by the skip count. A valid
-    // GLint pair can overflow even uint64_t and wrap back into guest memory.
-    if (stride > 0xffffffffull) {
-        if (!ctx->last_error) ctx->last_error = 0x0501;
-        return false;
-    }
-    const uint64_t start = (uint64_t)std::max(0, ps.pack_skip_rows) * stride +
-                          (uint64_t)std::max(0, ps.pack_skip_pixels) * bytesPerPixel;
-    if (start > 0x100000000ull - mac_pixels) {
-        if (!ctx->last_error) ctx->last_error = 0x0501;
-        return false;
-    }
-    const uint64_t end = start + (uint64_t)(height - 1) * stride + (uint64_t)width * bytesPerPixel;
-    if (end > 0x100000000ull - mac_pixels) {
-        if (!ctx->last_error) ctx->last_error = 0x0501; // GL_INVALID_VALUE
-        return false;
-    }
+    GLMetalPackLayout layout;
+    if (!GLMetalGetPackLayout(ctx, width, height, bytesPerPixel, mac_pixels, layout)) return false;
     for (int32_t row = 0; row < height; ++row) {
         for (int32_t col = 0; col < width; ++col) {
             const uint8_t *src = stagingBytes + ((size_t)(height - 1 - row) * width + col) * 4u;
             uint8_t packed[16];
             GLPixelPackBGRA8(src, format, type, packed);
-            const uint32_t dstAddr = (uint32_t)(mac_pixels + start + (uint64_t)row * stride +
+            const uint32_t dstAddr = (uint32_t)(mac_pixels + layout.start + (uint64_t)row * layout.rowStride +
                                                (uint64_t)col * bytesPerPixel);
             for (uint32_t byte = 0; byte < bytesPerPixel; ++byte)
                 WriteMacInt8(dstAddr + byte, packed[byte]);
@@ -4131,6 +4158,7 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized || mac_pixels == 0 || width <= 0 || height <= 0) return;
 
+    if (!ms->overlayTexture) GLMetalBeginFrame(ctx);
     if (format != GL_DEPTH_COMPONENT) {
         const uint32_t error = GLPixelPackError(format, type);
         if (error) {
@@ -4151,6 +4179,11 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
     };
 
     if (format == GL_DEPTH_COMPONENT && type == GL_UNSIGNED_SHORT) {
+        GLMetalPackLayout layout;
+        if (!GLMetalGetPackLayout(ctx, width, height, 2, mac_pixels, layout)) {
+            restartIfNeeded();
+            return;
+        }
         id<MTLTexture> depthTex = ms->depthBuffer;
         if (!depthTex || !GLMetalReadRectIsInTexture(depthTex, x, y, width, height)) {
             restartIfNeeded();
@@ -4195,8 +4228,6 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
         const uint8_t *depthBytes = (const uint8_t *)[staging contents];
 
         const int32_t bytesPerPixel = 2;
-        const uint32_t rowStride =
-            GLMetalPackRowStride(width, bytesPerPixel, ctx->pixel_store);
         float sampleDepth = 0.0f;
         uint16_t samplePacked = 0;
         bool haveSampleDepth = false;
@@ -4212,9 +4243,8 @@ void NativeGLReadPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
                     samplePacked = packed;
                     haveSampleDepth = true;
                 }
-                const uint32_t dstAddr =
-                    GLMetalPackPixelAddress(mac_pixels, row, col, bytesPerPixel,
-                                            rowStride, ctx->pixel_store);
+                const uint32_t dstAddr = (uint32_t)(mac_pixels + layout.start +
+                    (uint64_t)row * layout.rowStride + (uint64_t)col * bytesPerPixel);
                 WriteMacInt16(dstAddr, packed);
             }
         }
@@ -4444,6 +4474,16 @@ void NativeGLAccum(GLContext *ctx, uint32_t op, float value)
 {
     GLMetalState *ms = (GLMetalState *)ctx->metal;
     if (!ms || !ms->initialized) return;
+
+    // LOAD/ACCUM read the current writable framebuffer; RETURN writes it.
+    // After a single-buffer publication, overlayTexture still names the
+    // displayed source. Acquire/copy the next target before any readback
+    // helper can resume its encoder or RETURN can blit into that source.
+    if ((op == GL_ACCUM_OP || op == GL_LOAD_OP ||
+         (op == GL_RETURN_OP && ctx->accum_allocated)) && !ms->renderPassActive) {
+        GLMetalBeginFrame(ctx);
+        if (!ms->renderPassActive) return;
+    }
 
     switch (op) {
     case GL_ACCUM_OP:
