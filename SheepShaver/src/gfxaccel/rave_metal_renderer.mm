@@ -315,23 +315,26 @@ static bool RaveSetVertexData(RaveMetalState *ms, const void *data,
                               size_t dataSize, NSUInteger bufferIndex)
 {
 	if (!ms || !ms->currentEncoder || !data) return false;
-	if (dataSize > GFXACCEL_RAVE_RING_SLOT_BYTES) {
-		// A single draw can exceed a ring slot. Keep its topology and parallel
-		// vertex streams intact; the command buffer retains this allocation
-		// after it is bound to the encoder.
+	if (dataSize <= 4096) {
+		[ms->currentEncoder setVertexBytes:data length:dataSize atIndex:bufferIndex];
+		return true;
+	}
+	uint32_t ringOffset = 0;
+	void *ringBuf = dataSize <= GFXACCEL_RAVE_RING_SLOT_BYTES
+	    ? gfxaccel_rave_ring_stage((__bridge void *)ms->currentCommandBuffer,
+	                              data, (uint32_t)dataSize, &ringOffset)
+	    : NULL;
+	if (ringBuf) {
+		[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf
+		                              offset:ringOffset atIndex:bufferIndex];
+	} else {
+		// Oversized draws and ring pressure both need an immutable upload.
+		// The command buffer retains it once bound; preserve all vertices.
 		if (!ms->device || dataSize > ms->device.maxBufferLength) return false;
 		id<MTLBuffer> buffer = [ms->device newBufferWithBytes:data length:dataSize
 		    options:MTLResourceStorageModeShared];
 		if (!buffer) return false;
 		[ms->currentEncoder setVertexBuffer:buffer offset:0 atIndex:bufferIndex];
-	} else if (dataSize > 4096) {
-		uint32_t ringOffset = 0;
-		void *ringBuf = gfxaccel_rave_ring_stage(data, (uint32_t)dataSize, &ringOffset);
-		if (!ringBuf) return false;
-		[ms->currentEncoder setVertexBuffer:(__bridge id<MTLBuffer>)ringBuf
-		                              offset:ringOffset atIndex:bufferIndex];
-	} else {
-		[ms->currentEncoder setVertexBytes:data length:dataSize atIndex:bufferIndex];
 	}
 	return true;
 }
@@ -1288,24 +1291,18 @@ static id<MTLRenderPipelineState> GetGLBlendPipeline(RaveMetalState *ms, int fun
 
 
 /*
- *  RaveFlushRingWindowIfNearExhaustion - commit the ring submission window
- *  before it can self-deadlock.
- *
- *  Ring slot credits consumed by the current (uncommitted) submission are
- *  only signal-registered at commit (gfxaccel_rave_ring_frame_end), so a
- *  window that staged into every slot would wait forever acquiring the next
- *  one. Mirror GL's mid-frame flush (GLMetalFlushAndResetRingBuffer): commit
- *  and restart with LoadActionLoad. Must run at a draw-sequence boundary,
- *  BEFORE any per-draw encoder state is applied — a mid-draw restart would
- *  orphan bindings already encoded for the draw in progress, whereas here
- *  the caller applies everything on the new encoder.
+ *  Submit large ring windows at a draw-sequence boundary so their slots can
+ *  be recycled. Staging falls back to a dedicated upload while another
+ *  context or GPU submission holds the remaining slots. Restart before any
+ *  per-draw state is applied so no bindings are lost across the restart.
  */
 static void RaveFlushRingWindowIfNearExhaustion(RaveDrawPrivate *priv)
 {
-	if (!gfxaccel_rave_ring_submission_near_exhaustion()) return;
-
 	RaveMetalState *ms = priv->metal;
 	if (!ms || !ms->renderPassActive || !ms->currentEncoder || !ms->currentCommandBuffer) return;
+
+	if (!gfxaccel_rave_ring_submission_near_exhaustion(
+	        (__bridge void *)ms->currentCommandBuffer)) return;
 
 	[ms->currentEncoder endEncoding];
 	ms->currentEncoder = nil;

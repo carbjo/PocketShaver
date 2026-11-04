@@ -517,7 +517,8 @@ extern "C" void DSpReleaseBackBufferNow(DSpContextPrivate *ctx)
  *  on the next frame (cold-start logic still fires only after
  *  bg/fg restore).
  */
-extern "C" void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
+static void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
+                                         id<MTLTexture> source_texture,
                                          void *encoder_raw,
                                          void *framebuffer_texture_raw)
 {
@@ -526,7 +527,7 @@ extern "C" void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
 	id<MTLTexture> framebuffer_texture =
 	    (__bridge id<MTLTexture>)framebuffer_texture_raw;
 	if (ctx == nullptr || encoder == nil || framebuffer_texture == nil) return;
-	if (ctx->back_texture == nil) return;
+	if (source_texture == nil) return;
 
 	uint32_t full_w = DSpContextBackBufferWidth(ctx);
 	uint32_t full_h = DSpContextBackBufferHeight(ctx);
@@ -538,8 +539,8 @@ extern "C" void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
 	 * blit past either extent; Metal validation asserts on that. */
 	NSUInteger dst_w = framebuffer_texture.width;
 	NSUInteger dst_h = framebuffer_texture.height;
-	NSUInteger back_w = ctx->back_texture.width;
-	NSUInteger back_h = ctx->back_texture.height;
+	NSUInteger back_w = source_texture.width;
+	NSUInteger back_h = source_texture.height;
 	NSUInteger clamp_w = ((NSUInteger)full_w < dst_w) ? (NSUInteger)full_w : dst_w;
 	NSUInteger clamp_h = ((NSUInteger)full_h < dst_h) ? (NSUInteger)full_h : dst_h;
 	if (clamp_w > back_w) clamp_w = back_w;
@@ -565,7 +566,7 @@ extern "C" void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
 	}
 
 	if (full_upload) {
-		[encoder copyFromTexture:ctx->back_texture
+		[encoder copyFromTexture:source_texture
 		             sourceSlice:0
 		             sourceLevel:0
 		            sourceOrigin:MTLOriginMake(0, 0, 0)
@@ -588,7 +589,7 @@ extern "C" void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
 		if (origin_x + sub_w > clamp_w) sub_w = (origin_x < clamp_w) ? (clamp_w - origin_x) : 0;
 		if (origin_y + sub_h > clamp_h) sub_h = (origin_y < clamp_h) ? (clamp_h - origin_y) : 0;
 		if (sub_w > 0 && sub_h > 0) {
-			[encoder copyFromTexture:ctx->back_texture
+			[encoder copyFromTexture:source_texture
 			             sourceSlice:0
 			             sourceLevel:0
 			            sourceOrigin:MTLOriginMake((NSUInteger)ctx->dirty_left,
@@ -1216,6 +1217,7 @@ static bool DSpEncodeUnpackTextureRenderPass(DSpContextPrivate *ctx,
 }
 
 static bool DSpEncodeUnpackRenderPass(DSpContextPrivate *ctx,
+                                       id<MTLTexture> source_texture,
                                        id<MTLCommandBuffer> cb,
                                        id<MTLTexture> framebuffer_texture)
 {
@@ -1223,7 +1225,7 @@ static bool DSpEncodeUnpackRenderPass(DSpContextPrivate *ctx,
 	const bool write_compositor32_layout =
 	    DSpBackBufferWritesCompositor32Layout();
 	return DSpEncodeUnpackTextureRenderPass(ctx,
-	                                        ctx->back_texture,
+	                                        source_texture,
 	                                        ctx->attr.backBufferBestDepth,
 	                                        DSpContextBackBufferWidth(ctx),
 	                                        "backBuffer",
@@ -1235,7 +1237,7 @@ static bool DSpEncodeUnpackRenderPass(DSpContextPrivate *ctx,
 	                                        framebuffer_texture);
 }
 
-extern "C" void DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx,
+extern "C" bool DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx,
                                                 void *command_buffer_raw,
                                                 void *framebuffer_texture_raw)
 {
@@ -1243,10 +1245,26 @@ extern "C" void DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx,
 	    (__bridge id<MTLCommandBuffer>)command_buffer_raw;
 	id<MTLTexture> framebuffer_texture =
 	    (__bridge id<MTLTexture>)framebuffer_texture_raw;
-	if (ctx == nullptr || cb == nil || framebuffer_texture == nil) return;
-	if (ctx->back_texture == nil) return;
+	if (ctx == nullptr || cb == nil || framebuffer_texture == nil) return false;
+	if (ctx->back_texture == nil || ctx->back_buffer == nil) return false;
 
-	MTLPixelFormat src_fmt = ctx->back_texture.pixelFormat;
+	// Guest drawing may resume as soon as this function returns. Never let
+	// queued Metal work sample the guest-writable backing allocation.
+	id<MTLBuffer> snapshot = [ctx->back_buffer.device
+	    newBufferWithBytes:ctx->back_buffer.contents
+	    length:ctx->back_buffer.length options:MTLResourceStorageModeShared];
+	if (snapshot == nil) return false;
+	MTLTextureDescriptor *td = [MTLTextureDescriptor
+	    texture2DDescriptorWithPixelFormat:ctx->back_texture.pixelFormat
+	    width:ctx->back_texture.width height:ctx->back_texture.height mipmapped:NO];
+	td.storageMode = MTLStorageModeShared;
+	td.usage = MTLTextureUsageShaderRead;
+	id<MTLTexture> source_texture = [snapshot newTextureWithDescriptor:td offset:0
+	    bytesPerRow:DSpBackBufferAlignedRowBytes(DSpContextBackBufferWidth(ctx),
+	                                            ctx->attr.backBufferBestDepth)];
+	if (source_texture == nil) return false;
+
+	MTLPixelFormat src_fmt = source_texture.pixelFormat;
 	MTLPixelFormat dst_fmt = framebuffer_texture.pixelFormat;
 
 	if (src_fmt == dst_fmt) {
@@ -1257,24 +1275,24 @@ extern "C" void DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx,
 		if (blit == nil) {
 			DSP_LOG("DSpEncodePresentToFramebuffer: blitCommandEncoder "
 			        "returned nil (fast path)");
-			return;
+			return false;
 		}
-		DSpEncodeBackBufferBlit(ctx, (__bridge void *)blit,
+		DSpEncodeBackBufferBlit(ctx, source_texture, (__bridge void *)blit,
 		                         (__bridge void *)framebuffer_texture);
 		[blit endEncoding];
-		return;
+		return true;
 	}
 
 	/* Mismatched-format path: run a DSp-owned render pass that unpacks
 	 * the source pixel format and writes BGRA8Unorm to the framebuffer
 	 * texture. */
-	bool ok = DSpEncodeUnpackRenderPass(ctx, cb, framebuffer_texture);
+	bool ok = DSpEncodeUnpackRenderPass(ctx, source_texture, cb, framebuffer_texture);
 	if (!ok) {
 		DSP_LOG("DSpEncodePresentToFramebuffer: no compatible present path "
 		        "(src=%lu dst=%lu bpp=%u)",
 		        (unsigned long)src_fmt, (unsigned long)dst_fmt,
 		        ctx->attr.backBufferBestDepth);
-		return;
+		return false;
 	}
 
 	/* Render pass succeeded — apply the same dirty-state reset that the
@@ -1283,6 +1301,7 @@ extern "C" void DSpEncodePresentToFramebuffer(DSpContextPrivate *ctx,
 	ctx->dirty_empty       = true;
 	ctx->dirty_cold_start  = false;
 	ctx->dirty_left = ctx->dirty_top = ctx->dirty_right = ctx->dirty_bottom = 0;
+	return true;
 }
 
 extern "C" bool DSpEncodeFrontBufferStagingToFramebuffer(DSpContextPrivate *ctx,

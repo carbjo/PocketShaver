@@ -232,36 +232,22 @@ int32_t gfxaccel_rave_ring_init(void);
 void gfxaccel_rave_ring_shutdown(void);
 
 /*
- * Stage vertex data into the ring buffer. Copies 'size' bytes from 'data'
- * into the current write position. Sets *out_offset to the byte offset
- * into the ring buffer for use with setVertexBuffer:offset:atIndex:.
- * Advances write offset by size aligned to 256 bytes.
- * Waits before the first write to each slot. If current slot overflows,
- * advances to the next slot and waits before staging there.
- * Returns the ring buffer as void* (caller bridge-casts to id<MTLBuffer>).
- * Returns NULL if ring is not initialized or data/out_offset is NULL.
+ * Stage vertex data for command_buffer (id<MTLCommandBuffer> as void*).
+ * Copies size bytes and sets out_offset to its 256-byte-aligned ring offset.
+ * Slots belong to this command buffer until its GPU work completes.
+ * Returns the ring MTLBuffer as void*, or NULL when unavailable/invalid.
+ * Never waits: callers must fall back to a dedicated upload on exhaustion.
  */
-void *gfxaccel_rave_ring_stage(const void *data, uint32_t size,
-                               uint32_t *out_offset);
+void *gfxaccel_rave_ring_stage(void *command_buffer, const void *data,
+                               uint32_t size, uint32_t *out_offset);
 
-/*
- * Called when a RAVE command buffer that may reference ring-backed vertex data
- * is submitted. command_buffer is an id<MTLCommandBuffer> bridged as void*.
- * Registers completion-handler signals for every slot consumed since the
- * previous submission and advances to the next slot for subsequent staging.
- */
+/* Register completion signals for slots owned by this command buffer only.
+ * Must be called before committing it, including during context teardown. */
 void gfxaccel_rave_ring_frame_end(void *command_buffer);
 
-/*
- * Returns 1 when the in-progress (uncommitted) submission window holds
- * enough ring slots that a worst-case draw sequence could block acquiring
- * a credit the window itself holds — only frame_end (commit) returns those
- * credits, so without a mid-frame commit the wait could never complete.
- * The RAVE renderer polls this at draw-sequence boundaries (before per-draw
- * encoder state is applied) and commits + restarts the render pass when set.
- * Returns 0 if the ring is not initialized.
- */
-int32_t gfxaccel_rave_ring_submission_near_exhaustion(void);
+/* Returns 1 when this uncommitted command buffer owns at least two slots.
+ * Poll at draw-sequence boundaries to submit and reuse the ring efficiently. */
+int32_t gfxaccel_rave_ring_submission_near_exhaustion(void *command_buffer);
 
 #ifdef __cplusplus
 }

@@ -55,34 +55,6 @@ extern void DSpReleaseBackBufferNow(struct DSpContextPrivate *ctx);
 extern void DSpReleaseBackBufferStaging(struct DSpContextPrivate *ctx);
 
 /*
- *  Encode the SwapBuffers blit. Honors ctx->dirty_* state:
- *
- *    - ctx->dirty_cold_start -> full-buffer blit (PDF p.38 cold-start
- *      semantics; set at Reserve, set again at foreground restore).
- *    - ctx->dirty_empty -> full-buffer blit (PDF p.38: zero Inval calls
- *      between SwapBuffers means the entire back-buffer is dirty).
- *    - Otherwise, dirty-rect union covers > 90% of back-buffer -> full
- *      blit (coverage threshold; sub-rect encoder setup cost does not
- *      pay off above ~90%).
- *    - Else: sub-rect blit at (dirty_left, dirty_top) with size
- *      (dirty_right-dirty_left, dirty_bottom-dirty_top).
- *
- *  encoder is id<MTLBlitCommandEncoder> as void*; framebuffer_texture
- *  is id<MTLTexture> as void*. After encoding, resets ctx->dirty_empty
- *  = true, ctx->dirty_cold_start = false, and zeroes the dirty bounds
- *  so the next frame starts fresh.
- *
- *  PRECONDITION: ctx->back_texture.pixelFormat must equal
- *  framebuffer_texture.pixelFormat. Metal's [blit copyFromTexture:] does
- *  not permit pixel-size-mismatched formats (debug layer asserts).
- *  Mixed-format presents must go through DSpEncodePresentToFramebuffer
- *  (below) instead — that helper picks blit-vs-render-pass per format.
- */
-extern void DSpEncodeBackBufferBlit(struct DSpContextPrivate *ctx,
-                                     void *encoder,
-                                     void *framebuffer_texture);
-
-/*
  *  Full present-to-framebuffer helper that picks the right Metal encoder
  *  based on whether ctx->back_texture and framebuffer_texture share a
  *  pixel format.
@@ -107,7 +79,11 @@ extern void DSpEncodeBackBufferBlit(struct DSpContextPrivate *ctx,
  *  is id<MTLTexture> as void*. The function opens/closes its own encoder
  *  on `command_buffer`; the caller is responsible for [cb commit].
  *
- *  Dirty-state reset semantics match DSpEncodeBackBufferBlit
+ *  Copies the guest-writable back buffer into an immutable upload before
+ *  encoding; the command buffer retains the upload through completion.
+ *  Returns false if allocation or encoding fails.
+ *
+ *  Dirty-state reset semantics match the back-buffer blit
  *  (ctx->dirty_empty = true, ctx->dirty_cold_start = false, dirty bounds
  *  zeroed) on every successful encode.
  *
@@ -118,7 +94,7 @@ extern void DSpEncodeBackBufferBlit(struct DSpContextPrivate *ctx,
  *  are logged and skipped rather than routed through a Metal-incompatible
  *  blit.
  */
-extern void DSpEncodePresentToFramebuffer(struct DSpContextPrivate *ctx,
+extern bool DSpEncodePresentToFramebuffer(struct DSpContextPrivate *ctx,
                                             void *command_buffer,
                                             void *framebuffer_texture);
 

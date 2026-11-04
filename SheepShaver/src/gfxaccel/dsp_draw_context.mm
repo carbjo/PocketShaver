@@ -412,9 +412,6 @@ static void DSpQueueReleaseAtVBLPartial(DSpContextPrivate *ctx)
 	// The compositor target may be overwritten/recreated while suspended.
 	// Retain guest bytes, but force the first active publish to restore them.
 	ctx->front_staging_present_state.encoded = false;
-	// Reasserting the existing front after resume must not replace direct
-	// guest front-buffer edits with an older pending back-buffer snapshot.
-	ctx->front_staging_refresh_swap_generation = ctx->swap_generation;
 	DSpRestoreMainDevicePixMap(ctx);  /* Landmine-7: drop PixMap redirect BEFORE back_buffer goes away (no dangling Mac address in lowmem). */
 	// Without guest staging, MainDevice or a cached port may expose the
 	// Metal allocation directly. Retain it until the context is released.
@@ -1198,13 +1195,13 @@ extern "C" void DSpVBLCompositorPublishCallback(void *cb_ctx,
 			                                             (__bridge void *)cb,
 			                                             fb_tex_raw);
 		}
-		if (!front_presented) {
-			DSpEncodePresentToFramebuffer(active, (__bridge void *)cb, fb_tex_raw);
+		if (!front_presented &&
+		    !DSpEncodePresentToFramebuffer(active, (__bridge void *)cb, fb_tex_raw)) {
+			return;
 		}
 		/* Register the GPU-completion latch BEFORE commit
 		 * (addCompletedHandler is illegal afterwards): the encoded present
-		 * reads back_texture — DSp-heap memory — so the heap bump reset
-		 * must defer until this buffer completes. */
+		 * retains its immutable pixel upload through GPU completion. */
 		gfxaccel_resources_heap_note_gpu_commit(kHeapEngineDSp,
 		                                        (__bridge void *)cb);
 		[cb commit];
@@ -2322,6 +2319,63 @@ static int32_t DSpRevalidateSwapContext(uint32_t ctxRef,
 	return kDSpNoErr;
 }
 
+// Keep an already-vended front surface current at the swap itself. A later
+// GetFrontBuffer or resume must not copy the next, partially drawn back frame
+// over either this picture or direct front-buffer edits made after the swap.
+static void DSpRefreshFrontBufferAfterSwap(DSpContextPrivate *ctx,
+                                           id<MTLTexture> framebuffer_texture,
+                                           bool full_present,
+                                           int32_t left, int32_t top,
+                                           int32_t right, int32_t bottom)
+{
+	const uint32_t depth = ctx->attr.backBufferBestDepth;
+	const uint32_t front_depth = DSpDisplayModeDepth(depth, ctx->attr.displayBestDepth);
+	const uint32_t front_pitch = DSpDisplayModePitch(ctx->attr.displayWidth, front_depth);
+	const uint32_t back_pitch = DSpBackBufferAlignedRowBytes(DSpContextBackBufferWidth(ctx), depth);
+	const uint64_t front_size = (uint64_t)front_pitch * ctx->attr.displayHeight;
+	if (depth != front_depth || front_size == 0 || front_size > ctx->front_staging_size ||
+	    DSpUsableGuestBaseOrZero(ctx->front_staging_mac_addr, (uint32_t)front_size,
+	                            (uint32_t)RAMBase, (uint32_t)RAMSize) == 0) return;
+	uint8_t *dst = Mac2HostAddr(ctx->front_staging_mac_addr);
+	const uint8_t *src = (const uint8_t *)ctx->back_buffer.contents;
+	if (dst == NULL || src == NULL) return;
+	uint32_t width = ctx->attr.displayWidth < DSpContextBackBufferWidth(ctx)
+	    ? ctx->attr.displayWidth : DSpContextBackBufferWidth(ctx);
+	uint32_t height = ctx->attr.displayHeight < DSpContextBackBufferHeight(ctx)
+	    ? ctx->attr.displayHeight : DSpContextBackBufferHeight(ctx);
+	if (width > framebuffer_texture.width) width = (uint32_t)framebuffer_texture.width;
+	if (height > framebuffer_texture.height) height = (uint32_t)framebuffer_texture.height;
+	const bool entire_front_presented = full_present &&
+	    (uint32_t)width == ctx->attr.displayWidth &&
+	    (uint32_t)height == ctx->attr.displayHeight;
+	const DSpFrontStagingPresentState &prior = ctx->front_staging_present_state;
+	const bool prior_front_presented = prior.valid && prior.encoded &&
+	    prior.last_size == front_size &&
+	    prior.last_hash == DSpFrontStagingHashBytes(dst, (uint32_t)front_size);
+	if (full_present) { left = top = 0; right = width; bottom = height; }
+	auto clamp = [](int32_t value, int32_t low, int32_t high) {
+		return value < low ? low : (value > high ? high : value);
+	};
+	left = clamp(left, 0, width);
+	right = clamp(right, left, width);
+	top = clamp(top, 0, height);
+	bottom = clamp(bottom, top, height);
+	const uint32_t byte_left = (uint32_t)left * depth / 8;
+	const uint32_t byte_right = ((uint32_t)right * depth + 7) / 8;
+	for (int32_t y = top; y < bottom; y++) {
+		if ((uint64_t)y * back_pitch + byte_right > ctx->back_buffer.length) return;
+		memcpy(dst + (size_t)y * front_pitch + byte_left,
+		       src + (size_t)y * back_pitch + byte_left, byte_right - byte_left);
+	}
+	ctx->front_staging_refresh_swap_generation = ctx->swap_generation;
+	DSpFrontStagingRememberHash(&ctx->front_staging_present_state,
+	    DSpFrontStagingHashBytes(dst, (uint32_t)front_size), (uint32_t)front_size);
+	// A partial swap does not publish pending front edits outside its damage.
+	// Leave them eligible for the next VBL front upload.
+	ctx->front_staging_present_state.encoded =
+	    entire_front_presented || prior_front_presented;
+}
+
 extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
                                                   uint32_t busyProcAddr,
                                                   uint32_t userRefCon)
@@ -2335,9 +2389,6 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 		DSP_LOG("SwapBuffers: ctxRef=%u has no back-buffer", ctxRef);
 		return kDSpInternalErr;
 	}
-
-	ctx->explicit_swap_observed = true;
-	ctx->swap_generation++;
 
 	/* State captured at entry — revalidation rejects on CHANGE during the
 	 * busyProc / frame-pacing re-entry windows, not on non-Active per se. */
@@ -2435,13 +2486,25 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 			                                             (__bridge void *)cb,
 			                                             fb_tex_raw);
 		}
-		if (!front_presented) {
-			DSpEncodePresentToFramebuffer(ctx, (__bridge void *)cb, fb_tex_raw);
+		const bool full_present = ctx->back_texture.pixelFormat !=
+		    ((__bridge id<MTLTexture>)fb_tex_raw).pixelFormat ||
+		    ctx->dirty_cold_start || ctx->dirty_empty ||
+		    (uint64_t)(ctx->dirty_right - ctx->dirty_left) *
+		    (uint64_t)(ctx->dirty_bottom - ctx->dirty_top) * 10 >
+		    (uint64_t)DSpContextBackBufferWidth(ctx) * DSpContextBackBufferHeight(ctx) * 9;
+		const int32_t left = ctx->dirty_left, top = ctx->dirty_top;
+		const int32_t right = ctx->dirty_right, bottom = ctx->dirty_bottom;
+		if (!front_presented &&
+		    !DSpEncodePresentToFramebuffer(ctx, (__bridge void *)cb, fb_tex_raw)) {
+			return kDSpInternalErr;
 		}
+		ctx->explicit_swap_observed = true;
+		ctx->swap_generation++;
+		DSpRefreshFrontBufferAfterSwap(ctx, (__bridge id<MTLTexture>)fb_tex_raw,
+		                               full_present, left, top, right, bottom);
 		/* Register the GPU-completion latch BEFORE commit
 		 * (addCompletedHandler is illegal afterwards): the encoded present
-		 * reads back_texture — DSp-heap memory — so the heap bump reset
-		 * must defer until this buffer completes. */
+		 * retains its immutable pixel upload through GPU completion. */
 		gfxaccel_resources_heap_note_gpu_commit(kHeapEngineDSp,
 		                                        (__bridge void *)cb);
 		[cb commit];
@@ -3991,7 +4054,6 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	if (state == (uint32_t)kDSpContextState_Active) {
 		DSpRedirectMainDevicePixMap(ctx);
 	} else {
-		ctx->front_staging_refresh_swap_generation = ctx->swap_generation;
 		DSpRestoreMainDevicePixMap(ctx);
 		if (any_active) {
 			for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; ++i) {

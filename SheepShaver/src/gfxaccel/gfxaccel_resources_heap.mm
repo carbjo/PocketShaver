@@ -572,67 +572,11 @@ extern "C" int32_t gfxaccel_heap_wait_for_eviction(uint64_t frame_interval_usec)
 #define RAVE_RING_BUFFER_COUNT 3                     // triple-buffered
 
 static id<MTLBuffer> g_rave_ring_buffer = nil;
-static uint32_t      g_rave_ring_slot_index = 0;
-static NSUInteger    g_rave_ring_offset = 0;  // write offset within current slot
-// Per-slot credits rather than one anonymous counting semaphore: each RAVE
-// context commits on its OWN command queue and Metal orders completion only
-// within a queue, so an anonymous credit returned by queue B's finished
-// buffer must not let round-robin staging wrap onto a slot queue A's
-// still-executing buffer reads. Each slot is gated on completion of the
-// submission that consumed that specific slot.
+// Only the emulation thread changes ownership/offsets. Completion handlers
+// return the individual slot credit without touching that bookkeeping.
 static dispatch_semaphore_t g_rave_ring_slot_sems[RAVE_RING_BUFFER_COUNT];
-static bool          g_rave_ring_slot_acquired = false;
-static uint32_t      g_rave_ring_slots_in_submission = 0;
-static uint32_t      g_rave_ring_submission_first_slot = 0;
-
-// Backstop only: the renderer commits the submission window before it can
-// hold every credit (gfxaccel_rave_ring_submission_near_exhaustion), so a
-// wait here is bounded by in-flight GPU completion. If that invariant ever
-// breaks, fail the stage loudly instead of hanging the emul/UI thread.
-#define RAVE_RING_ACQUIRE_TIMEOUT_NSEC  (1ull * NSEC_PER_SEC)
-
-static bool gfxaccel_rave_ring_acquire_slot(void)
-{
-	dispatch_semaphore_t slot_sem = g_rave_ring_slot_sems[g_rave_ring_slot_index];
-	if (slot_sem == NULL) {
-		return false;
-	}
-
-	if (dispatch_semaphore_wait(slot_sem,
-	        dispatch_time(DISPATCH_TIME_NOW, RAVE_RING_ACQUIRE_TIMEOUT_NSEC)) != 0) {
-		os_log_fault(gfxaccel_heap_log(),
-		             "rave_ring_acquire_slot: slot %u still in flight after "
-		             "%llu ms; dropping stage instead of deadlocking",
-		             (unsigned)g_rave_ring_slot_index,
-		             (unsigned long long)(RAVE_RING_ACQUIRE_TIMEOUT_NSEC / NSEC_PER_MSEC));
-		return false;
-	}
-	if (g_rave_ring_slots_in_submission == 0) {
-		g_rave_ring_submission_first_slot = g_rave_ring_slot_index;
-	}
-	g_rave_ring_slot_acquired = true;
-	g_rave_ring_slots_in_submission++;
-	return true;
-}
-
-static void gfxaccel_rave_ring_advance_slot(void)
-{
-	g_rave_ring_slot_index = (g_rave_ring_slot_index + 1) % RAVE_RING_BUFFER_COUNT;
-	g_rave_ring_offset = 0;
-	g_rave_ring_slot_acquired = false;
-}
-
-static void gfxaccel_rave_ring_signal_slot_range(
-    const std::array<dispatch_semaphore_t, RAVE_RING_BUFFER_COUNT> &sems,
-    uint32_t first_slot, uint32_t slot_count)
-{
-	for (uint32_t i = 0; i < slot_count; i++) {
-		dispatch_semaphore_t sem = sems[(first_slot + i) % RAVE_RING_BUFFER_COUNT];
-		if (sem != NULL) {
-			dispatch_semaphore_signal(sem);
-		}
-	}
-}
+static void *g_rave_ring_slot_owners[RAVE_RING_BUFFER_COUNT];
+static NSUInteger g_rave_ring_slot_offsets[RAVE_RING_BUFFER_COUNT];
 
 extern "C" int32_t gfxaccel_rave_ring_init(void)
 {
@@ -658,12 +602,9 @@ extern "C" int32_t gfxaccel_rave_ring_init(void)
 
 	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
 		g_rave_ring_slot_sems[i] = dispatch_semaphore_create(1);
+		g_rave_ring_slot_owners[i] = NULL;
+		g_rave_ring_slot_offsets[i] = 0;
 	}
-	g_rave_ring_slot_index = 0;
-	g_rave_ring_offset = 0;
-	g_rave_ring_slot_acquired = false;
-	g_rave_ring_slots_in_submission = 0;
-	g_rave_ring_submission_first_slot = 0;
 
 	return kGfxAccelResNoErr;
 }
@@ -673,106 +614,83 @@ extern "C" void gfxaccel_rave_ring_shutdown(void)
 	g_rave_ring_buffer = nil;
 	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
 		g_rave_ring_slot_sems[i] = NULL;
+		g_rave_ring_slot_owners[i] = NULL;
+		g_rave_ring_slot_offsets[i] = 0;
 	}
-	g_rave_ring_slot_index = 0;
-	g_rave_ring_offset = 0;
-	g_rave_ring_slot_acquired = false;
-	g_rave_ring_slots_in_submission = 0;
-	g_rave_ring_submission_first_slot = 0;
 }
 
-extern "C" void *gfxaccel_rave_ring_stage(const void *data, uint32_t size,
+extern "C" void *gfxaccel_rave_ring_stage(void *command_buffer,
+                                          const void *data, uint32_t size,
                                           uint32_t *out_offset)
 {
-	if (g_rave_ring_buffer == nil || data == NULL || out_offset == NULL) {
-		return NULL;
-	}
+	if (g_rave_ring_buffer == nil || command_buffer == NULL ||
+	    data == NULL || out_offset == NULL || size == 0) return NULL;
 
-	// Align size to 256 bytes (Metal vertex buffer offset alignment).
 	NSUInteger alignedSize = ((NSUInteger)size + 255) & ~(NSUInteger)255;
-	if (alignedSize > (NSUInteger)RAVE_RING_BUFFER_SIZE) {
-		fprintf(stderr, "[gfxaccel-heap] rave_ring_stage: size %u exceeds slot "
-		        "capacity\n", (unsigned)size);
-		return NULL;
-	}
+	if (alignedSize > (NSUInteger)RAVE_RING_BUFFER_SIZE) return NULL;
 
-	if (!g_rave_ring_slot_acquired &&
-	    !gfxaccel_rave_ring_acquire_slot()) {
-		return NULL;
-	}
-
-	// Check if current slot has room.
-	if (g_rave_ring_offset + alignedSize > (NSUInteger)RAVE_RING_BUFFER_SIZE) {
-		// Current slot full -- wait before staging into the next slot.
-		gfxaccel_rave_ring_advance_slot();
-		if (!gfxaccel_rave_ring_acquire_slot()) {
-			return NULL;
+	uint32_t slot = RAVE_RING_BUFFER_COUNT;
+	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
+		if (g_rave_ring_slot_owners[i] == command_buffer &&
+		    g_rave_ring_slot_offsets[i] + alignedSize <= RAVE_RING_BUFFER_SIZE) {
+			slot = i;
+			break;
 		}
 	}
-
-	NSUInteger slotBase = (NSUInteger)g_rave_ring_slot_index * RAVE_RING_BUFFER_SIZE;
-	NSUInteger writeOff = slotBase + g_rave_ring_offset;
-
-	// Verify write stays within slot boundary.
-	if (writeOff + size > slotBase + RAVE_RING_BUFFER_SIZE) {
-		fprintf(stderr, "[gfxaccel-heap] rave_ring_stage: size %u exceeds slot "
-		        "capacity at offset %lu\n", (unsigned)size,
-		        (unsigned long)g_rave_ring_offset);
-		return NULL;
+	if (slot == RAVE_RING_BUFFER_COUNT) {
+		for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
+			if (g_rave_ring_slot_owners[i] == NULL &&
+			    g_rave_ring_slot_sems[i] != NULL &&
+			    dispatch_semaphore_wait(g_rave_ring_slot_sems[i], DISPATCH_TIME_NOW) == 0) {
+				slot = i;
+				g_rave_ring_slot_owners[i] = command_buffer;
+				g_rave_ring_slot_offsets[i] = 0;
+				break;
+			}
+		}
 	}
+	// Other contexts may hold every slot in unsubmitted passes. Never wait
+	// for them on the emulation thread: the caller uses a dedicated upload.
+	if (slot == RAVE_RING_BUFFER_COUNT) return NULL;
 
-	memcpy((char *)[g_rave_ring_buffer contents] + writeOff, data, size);
+	NSUInteger writeOff = (NSUInteger)slot * RAVE_RING_BUFFER_SIZE +
+	                      g_rave_ring_slot_offsets[slot];
+	memcpy((char *)g_rave_ring_buffer.contents + writeOff, data, size);
 	*out_offset = (uint32_t)writeOff;
-
-	g_rave_ring_offset += alignedSize;
-
+	g_rave_ring_slot_offsets[slot] += alignedSize;
 	return (__bridge void *)g_rave_ring_buffer;
 }
 
 extern "C" void gfxaccel_rave_ring_frame_end(void *command_buffer)
 {
-	if (g_rave_ring_buffer == nil) {
-		return;
-	}
-
-	uint32_t slots_consumed = g_rave_ring_slots_in_submission;
-	if (slots_consumed == 0) {
-		return;
-	}
-
-	// Copy the semaphores into the handler so a shutdown between commit and
-	// completion cannot strand un-signaled (and un-deallocatable) slots.
-	std::array<dispatch_semaphore_t, RAVE_RING_BUFFER_COUNT> sems;
-	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
-		sems[i] = g_rave_ring_slot_sems[i];
-	}
-	uint32_t first_slot = g_rave_ring_submission_first_slot;
-	g_rave_ring_slots_in_submission = 0;
-	gfxaccel_rave_ring_advance_slot();
-
 	id<MTLCommandBuffer> cmd = (__bridge id<MTLCommandBuffer>)command_buffer;
-	if (cmd != nil) {
-		[cmd addCompletedHandler:^(id<MTLCommandBuffer> completedCommandBuffer) {
-			(void)completedCommandBuffer;
-			gfxaccel_rave_ring_signal_slot_range(sems, first_slot, slots_consumed);
-		}];
-	} else {
-		gfxaccel_rave_ring_signal_slot_range(sems, first_slot, slots_consumed);
+	if (g_rave_ring_buffer == nil || cmd == nil) return;
+
+	// Capture only this command buffer's credits. An empty submission on
+	// another context must not release an unsubmitted pass's vertex data.
+	std::array<dispatch_semaphore_t, RAVE_RING_BUFFER_COUNT> sems = {};
+	bool consumed = false;
+	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
+		if (g_rave_ring_slot_owners[i] != command_buffer) continue;
+		sems[i] = g_rave_ring_slot_sems[i];
+		g_rave_ring_slot_owners[i] = NULL;
+		consumed = true;
 	}
+	if (!consumed) return;
+	[cmd addCompletedHandler:^(id<MTLCommandBuffer> completedCommandBuffer) {
+		(void)completedCommandBuffer;
+		for (dispatch_semaphore_t sem : sems) {
+			if (sem != NULL) dispatch_semaphore_signal(sem);
+		}
+	}];
 }
 
-extern "C" int32_t gfxaccel_rave_ring_submission_near_exhaustion(void)
+extern "C" int32_t gfxaccel_rave_ring_submission_near_exhaustion(void *command_buffer)
 {
-	if (g_rave_ring_buffer == nil) {
-		return 0;
+	if (g_rave_ring_buffer == nil || command_buffer == NULL) return 0;
+	uint32_t slots = 0;
+	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
+		if (g_rave_ring_slot_owners[i] == command_buffer) slots++;
 	}
-	// A single draw sequence can need up to two more slot acquires beyond
-	// the slots the window already holds (overflow of the vertex stage plus
-	// a second stage such as multi-texture UVs). Credits consumed by the
-	// uncommitted window are only signal-registered at frame_end (commit),
-	// so once the window holds COUNT-1 slots a further acquire could wait
-	// on a credit the window itself holds. The renderer commits and
-	// restarts the pass at a draw-sequence boundary when this fires.
-	return (g_rave_ring_slots_in_submission >= RAVE_RING_BUFFER_COUNT - 1) ? 1 : 0;
+	return slots >= RAVE_RING_BUFFER_COUNT - 1 ? 1 : 0;
 }
-

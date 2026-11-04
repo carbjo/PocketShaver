@@ -553,6 +553,10 @@ static float4 gl_presentation_color(float4 source, float4 nativeDestination,
     // a single compositor coverage channel cannot encode three transmittances.
     float coverage=max(sourceFactor.r,max(sourceFactor.g,sourceFactor.b)) +
         visibleDestination.a*max(destinationFactor.r,max(destinationFactor.g,destinationFactor.b));
+    // Blending can darken an already covered surface, but cannot uncover it.
+    // In particular DST_COLOR/ZERO and ZERO/SRC_COLOR multiply the scene;
+    // their color weights must not punch translucent holes into opaque floors.
+    coverage=max(visibleDestination.a,coverage);
     if(u.blend_equation==0x8007 || u.blend_equation==0x8008) coverage=1;
     return saturate(float4(result,coverage));
 }
