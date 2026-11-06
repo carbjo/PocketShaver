@@ -120,6 +120,7 @@ struct DMCModeDesc {
  */
 struct DMCModeSnapshot {
 	uint32_t       generation;              /* monotonic, bumped per commit; 0 reserved */
+	uint32_t       layout_gen;              /* generation of the last mode/owner/blanking commit; gamma and palette changes keep it */
 	int32_t        transitioning;           /* 0 = stable; non-zero = in Transitioning state */
 	uint32_t       width;
 	uint32_t       height;

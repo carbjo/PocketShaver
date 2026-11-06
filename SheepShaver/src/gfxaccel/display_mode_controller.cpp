@@ -234,6 +234,7 @@ static DMCModeSnapshot *dmc_alloc_snapshot_from_desc(const DMCModeDesc *m,
 		return NULL;
 	}
 	s->generation       = generation;
+	s->layout_gen       = generation;
 	s->transitioning    = 0;
 	s->width            = m->width;
 	s->height           = m->height;
@@ -279,6 +280,7 @@ static DMCModeSnapshot *dmc_clone_snapshot_with_owner(const DMCModeSnapshot *src
 	*s = *src;
 	// Override mutable-per-commit fields.
 	s->generation       = generation;
+	s->layout_gen       = generation;
 	s->transitioning    = 0;
 	s->active_owner     = active_owner;
 	if (blanking_rgba != NULL) {

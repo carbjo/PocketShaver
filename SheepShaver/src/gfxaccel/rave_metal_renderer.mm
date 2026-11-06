@@ -232,7 +232,7 @@ struct RaveMetalState {
 	id<MTLCommandBuffer>        lastCommittedBuffer;
 	bool                        renderPassActive;
 	struct CompositeLayer       presentationLayer;
-	uint32_t                    presentationGeneration;
+	uint32_t                    presentationLayoutGeneration;
 	uint64_t                    renderSerial;
 
 	// Saved for lazy MSAA pipeline creation
@@ -3223,7 +3223,7 @@ static bool RaveCapturePresentationFrame(RaveDrawPrivate *priv, bool deferred,
 	if (!ms || !ms->overlayTexture) return false;
 	frame.texture = ms->overlayTexture;
 	frame.layer = ms->presentationLayer;
-	frame.generation = ms->presentationGeneration;
+	frame.generation = ms->presentationLayoutGeneration;
 	frame.renderSerial = ms->renderSerial;
 	frame.cpuComposite = cpuComposite;
 	if (deferred) {
@@ -3262,8 +3262,10 @@ static RavePresentationResult RavePublishPresentationFrame(
     RaveDrawPrivate *priv, const RavePresentationFrame &frame, bool deferred)
 {
 	const struct DMCModeSnapshot *snap = dmc_current_snapshot();
+	// Gamma fades and palette changes bump the generation every VBL; only a
+	// mode, owner or blanking commit makes a rendered frame stale.
 	if (!snap || snap->transitioning || snap->active_owner != kDMCOwnerRAVE ||
-	    snap->generation != frame.generation) return RavePresentationResult::Discarded;
+	    snap->layout_gen != frame.generation) return RavePresentationResult::Discarded;
 
 	RaveMetalState *ms = priv->metal;
 	if (frame.cpuComposite) {
@@ -3288,7 +3290,7 @@ static RavePresentationResult RavePublishPresentationFrame(
 		// No ATI lock has read this render yet. Present its retained 3D image.
 	}
 
-	struct FrameDescriptor desc = { &frame.layer, 1, frame.generation, 0 };
+	struct FrameDescriptor desc = { &frame.layer, 1, snap->generation, 0 };
 	const int32_t err = RaveSubmitOverlayFrame(priv, &desc);
 	if (err == kGfxAccelErrStaleGeneration) return RavePresentationResult::Discarded;
 	if (err != kGfxAccelNoErr) {
@@ -3347,7 +3349,7 @@ int32 NativeRenderStart(uint32 drawContextAddr, uint32 dirtyRectAddr, uint32 ini
 	    priv->left, priv->top, priv->width, priv->height);
 	ms->renderSerial++;
 	const struct DMCModeSnapshot *presentationSnap = dmc_current_snapshot();
-	ms->presentationGeneration = presentationSnap ? presentationSnap->generation : 0;
+	ms->presentationLayoutGeneration = presentationSnap ? presentationSnap->layout_gen : 0;
 	ms->presentationLayer = {
 	    (__bridge void *)overlay, 0, 0, (uint32_t)overlay.width, (uint32_t)overlay.height,
 	    (float)s_rave_dst_left, (float)s_rave_dst_top,
