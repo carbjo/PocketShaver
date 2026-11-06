@@ -287,6 +287,13 @@ static uint32_t DSpAllocContextHandle(DSpContextPrivate *ctx)
 static void DSpFreeContextHandle(uint32_t handle)
 {
 	if (handle > 0 && handle <= DSP_MAX_CONTEXTS) {
+		/* Handles are slot indices and can be reused immediately. A queued
+		 * switch must not follow this slot into an unrelated replacement. */
+		for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; ++i) {
+			DSpContextPrivate *parent = dsp_context_table[i];
+			if (parent != nullptr && parent->queued_child == handle)
+				parent->queued_child = 0;
+		}
 		dsp_context_table[handle - 1] = nullptr;
 	}
 }
@@ -1389,6 +1396,7 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 	uint32_t message = (uint32_t)ReadMacInt32(inEventAddr + 2);
 
 	bool consumed = false;
+	WriteMacInt8(outProcessedAddr, 0);
 
 	/* osEvt suspend/resume is the documented event DSp consumes for
 	 * context suspend/resume: high byte = subtype, bit 0 = resume flag.
@@ -1432,8 +1440,10 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 					if (ctx == nullptr) continue;
 					if (ctx->state != (uint32_t)kDSpContextState_Paused) continue;
 					if (ctx->paused_by_background == 0) continue;
-					(void)DSpContext_SetStateHandler(ctx->handle,
+					int32_t rc = DSpContext_SetStateHandler(i + 1u,
 						(uint32_t)kDSpContextState_Active);
+					if (rc != kDSpNoErr) return rc;
+					if (DSpGetContext(i + 1u) != ctx) return kDSpInvalidContextErr;
 					ctx->paused_by_background = 0;
 				}
 			} else {
@@ -1446,8 +1456,10 @@ extern "C" int32_t DSpProcessEventHandler(uint32_t inEventAddr,
 					DSpContextPrivate *ctx = DSpGetContext(i + 1u);
 					if (ctx == nullptr) continue;
 					if (ctx->state != (uint32_t)kDSpContextState_Active) continue;
-					(void)DSpContext_SetStateHandler(ctx->handle,
+					int32_t rc = DSpContext_SetStateHandler(i + 1u,
 						(uint32_t)kDSpContextState_Paused);
+					if (rc != kDSpNoErr) return rc;
+					if (DSpGetContext(i + 1u) != ctx) return kDSpInvalidContextErr;
 					ctx->paused_by_background = 1;
 				}
 			}
@@ -1544,9 +1556,9 @@ extern "C" void DSpHandleBackgroundFromEmulThread(void)
  *       context Paused — next foreground tick retries.
  *    2. Reset dirty state + set dirty_cold_start=true so the next
  *       SwapBuffers performs a full re-upload (PDF p.38).
- *    3. Clear invalidated_full so a redundant foreground event (shouldn't
- *       happen, defense-in-depth) doesn't double-restore.
- *    4. Transition Paused -> Active via the DMC (kDMCOwnerDSp).
+ *    3. Transition Paused -> Active through SetState, restoring the display
+ *       mode, palette, ownership and PixMap redirect together.
+ *    4. Clear invalidated_full only after successful activation.
  *
  *  Failure here logs + continues without
  *  transitioning; next foreground retries. User can also explicitly
@@ -1592,23 +1604,20 @@ extern "C" void DSpHandleForegroundFromEmulThread(void)
 		ctx->dirty_bottom     = 0;
 		DSpSaveUnderlayRestoreRegion(ctx);
 
-		/* Invalidate the restore flag — defence-in-depth against a
-		 * redundant foreground event double-restoring the context. */
-		ctx->persisted.invalidated_full = 0u;
 		ctx->front_staging_present_state.encoded = false;
 
-		/* Transition Paused -> Active via the DMC. */
-		DMCOwner new_owner =
-		    DSpMapStateToDMCOwnerTyped(kDSpContextState_Active);
-		(void)dmc_set_active_owner((uint32_t)new_owner);
-		ctx->state = (uint32_t)kDSpContextState_Active;
-
-		/* Landmine-7: re-apply the MainDevice PixMap redirect
-		 * AFTER back_buffer is re-allocated above and ctx->state is set
-		 * to Active. (See documentation in dsp_engine.cpp:DSpOnForeground
-		 * explaining why this MUST run here from the VBL drain rather
-		 * than inside the lifecycle hook.) */
-		DSpRedirectMainDevicePixMap(ctx);
+		/* Use the normal activation path for ownership, mode, palette and
+		 * PixMap restoration. A rejected transition must retain both Paused
+		 * state and the restore marker so the next VBL can retry. */
+		int32_t rc = DSpContext_SetStateHandler(i + 1u,
+		                                      kDSpContextState_Active);
+		if (rc != kDSpNoErr) {
+			DSP_LOG("Foreground: ctx=%u activation failed rc=%d; retry pending",
+			        i + 1u, rc);
+			continue;
+		}
+		if (DSpGetContext(i + 1u) != ctx) continue;
+		ctx->persisted.invalidated_full = 0u;
 
 		DSP_LOG("Foreground: ctx=%u Paused->Active "
 		        "(back-buffer re-allocated; dirty_cold_start=1)",
@@ -3892,6 +3901,15 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 		        "(valid: 0=Active, 1=Paused, 2=Inactive)",
 		        state);
 		return kDSpInvalidAttributesErr;
+	}
+	/* A host suspend can temporarily remove a reserved context's backing.
+	 * Do not let guest resume events bypass the pending foreground restore,
+	 * or let an unreserved enumeration context take ownership of the display. */
+	if (state == (uint32_t)kDSpContextState_Active &&
+	    (ctx->back_buffer == nil || ctx->back_texture == nil)) {
+		DSP_LOG("SetState: ctx=%u has no drawable back-buffer", ctxRef);
+		return ctx->persisted.invalidated_full != 0
+		    ? kDSpInternalErr : kDSpContextNotReservedErr;
 	}
 	/* Paused-persistence: capture the
 	 * pre-transition state so the Paused->Active replay arm can run
