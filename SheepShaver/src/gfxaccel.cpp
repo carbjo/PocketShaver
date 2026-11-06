@@ -98,11 +98,15 @@ static inline bool NQD_bitblt_rects_byte_aligned_for_depth(uint32 p, uint32 pixe
 	       NQD_packed_rect_edges_byte_aligned(dest_X, width, pixel_size);
 }
 
-// Native CPU acceleration has a known contiguous mapping only for guest RAM.
-// Other memory domains (including ROM sources and external framebuffers) stay
-// with software QuickDraw: hooks must decline them before publishing a proc.
-static bool NQD_resolve_ram_rect(uint32 p, bool source, bool backward_rows,
-                                 uint32 *out_origin)
+// Native CPU acceleration needs a known contiguous mapping: guest RAM or the
+// video driver's frame buffer. A rect must lie wholly inside one of them.
+// Other memory domains (such as ROM sources) stay with software QuickDraw:
+// hooks must decline them before publishing a proc. Only RAM is visible to
+// the Metal path (NQDMetalAddrInBuffer), so screen packets take the CPU paths.
+extern bool video_get_frame_buffer_range(uint32 *mac_base, uint32 *size);
+
+static bool NQD_resolve_mapped_rect(uint32 p, bool source, bool backward_rows,
+                                    uint32 *out_origin)
 {
 	const int rect = source ? acclSrcRect : acclDestRect;
 	const int bounds = source ? acclSrcBoundsRect : acclDestBoundsRect;
@@ -116,7 +120,14 @@ static bool NQD_resolve_ram_rect(uint32 p, bool source, bool backward_rows,
 	      bits == 15 || bits == 16 || bits == 24 || bits == 32)) return false;
 	const uint32 storage_bits = bits == 15 ? 16 : bits == 24 ? 32 : bits;
 	const uint32 base = ReadMacInt32(p + (source ? acclSrcBaseAddr : acclDestBaseAddr));
-	if (base < RAMBase || uint64_t(base - RAMBase) >= uint64_t(RAMSize)) return false;
+	uint64_t domain_base = RAMBase, domain_size = RAMSize;
+	if (uint64_t(base) - domain_base >= domain_size) {
+		uint32 fb_base, fb_size;
+		if (!video_get_frame_buffer_range(&fb_base, &fb_size) ||
+		    uint64_t(base) - fb_base >= fb_size) return false;
+		domain_base = fb_base;
+		domain_size = fb_size;
+	}
 	int64_t stride = (int32)ReadMacInt32(p + (source ? acclSrcRowBytes : acclDestRowBytes));
 	if (!stride || stride == INT32_MIN) return false;
 	if (backward_rows && stride < 0) stride = -stride;
@@ -126,21 +137,21 @@ static bool NQD_resolve_ram_rect(uint32 p, bool source, bool backward_rows,
 	const int64_t last = origin + int64_t(height - 1) * stride;
 	const int64_t lo = origin < last ? origin : last;
 	const int64_t hi = (origin > last ? origin : last) + int64_t(end_byte - x_byte);
-	const uint64_t ram_end = uint64_t(RAMBase) + uint64_t(RAMSize);
-	if (lo < int64_t(RAMBase) || hi < lo || uint64_t(hi) > ram_end ||
+	const uint64_t domain_end = domain_base + domain_size;
+	if (lo < int64_t(domain_base) || hi < lo || uint64_t(hi) > domain_end ||
 	    uint64_t(hi) > (uint64_t(1) << 32)) return false;
 	if (out_origin) *out_origin = uint32(origin);
 	return true;
 }
 
-static bool NQD_validate_packet_ram(uint32 p, bool blit)
+static bool NQD_validate_packet_mapping(uint32 p, bool blit)
 {
 	if (blit && (ReadMacInt32(p + acclSrcPixelSize) != ReadMacInt32(p + acclDestPixelSize) ||
 	    (int32)(ReadMacInt32(p + acclSrcRowBytes) ^ ReadMacInt32(p + acclDestRowBytes)) < 0))
 		return false;
 	const bool backward_rows = blit && (int32)ReadMacInt32(p + acclSrcRowBytes) < 0;
-	return NQD_resolve_ram_rect(p, false, backward_rows, nullptr) &&
-	       (!blit || NQD_resolve_ram_rect(p, true, backward_rows, nullptr));
+	return NQD_resolve_mapped_rect(p, false, backward_rows, nullptr) &&
+	       (!blit || NQD_resolve_mapped_rect(p, true, backward_rows, nullptr));
 }
 
 // Pass-through dirty areas to redraw functions
@@ -231,7 +242,7 @@ void NQD_invrect(uint32 p)
 {
 	D(bug("accl_invrect %08x\n", p));
 
-	if (!NQD_validate_packet_ram(p, false)) return;
+	if (!NQD_validate_packet_mapping(p, false)) return;
 
 	// Metal-accelerated path (only if dest is within Metal-mapped RAM)
 	if (nqd_metal_available && NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
@@ -255,7 +266,7 @@ void NQD_invrect(uint32 p)
 	const int bpp = bytes_per_pixel(ReadMacInt32(p + acclDestPixelSize));
 	const int dest_row_bytes = (int32)ReadMacInt32(p + acclDestRowBytes);
 	uint32 dest_origin;
-	if (!NQD_resolve_ram_rect(p, false, false, &dest_origin)) return;
+	if (!NQD_resolve_mapped_rect(p, false, false, &dest_origin)) return;
 	uint8 *dest = Mac2HostAddr(dest_origin);
 	width *= bpp;
 	switch (bpp) {
@@ -357,7 +368,7 @@ void NQD_fillrect(uint32 p)
 {
 	D(bug("accl_fillrect %08x\n", p));
 
-	if (!NQD_validate_packet_ram(p, false)) return;
+	if (!NQD_validate_packet_mapping(p, false)) return;
 
 	// Metal-accelerated path (only if dest is within Metal-mapped RAM)
 	if (nqd_metal_available && NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr))) {
@@ -381,7 +392,7 @@ void NQD_fillrect(uint32 p)
 	const int bpp = bytes_per_pixel(ReadMacInt32(p + acclDestPixelSize));
 	const int dest_row_bytes = (int32)ReadMacInt32(p + acclDestRowBytes);
 	uint32 dest_origin;
-	if (!NQD_resolve_ram_rect(p, false, false, &dest_origin)) return;
+	if (!NQD_resolve_mapped_rect(p, false, false, &dest_origin)) return;
 	uint8 *dest = Mac2HostAddr(dest_origin);
 
 	width *= bpp;
@@ -436,7 +447,7 @@ bool NQD_fillrect_hook(uint32 p)
 	D(bug("accl_fillrect_hook %08x\n", p));
 	NQD_set_dirty_area(p);
 
-	if (!NQD_validate_packet_ram(p, false))
+	if (!NQD_validate_packet_mapping(p, false))
 		return NQD_decline_with_flush(p);
 	if (!NQDMetalSupportsTransferMode(ReadMacInt32(p + acclDestPixelSize),
 	                                  ReadMacInt32(p + acclTransferMode)))
@@ -491,7 +502,7 @@ void NQD_bitblt(uint32 p)
 {
 	D(bug("accl_bitblt %08x\n", p));
 
-	if (!NQD_validate_packet_ram(p, true)) return;
+	if (!NQD_validate_packet_mapping(p, true)) return;
 
 	// Metal-accelerated path (only if src and dest are within Metal-mapped RAM)
 	if (nqd_metal_available &&
@@ -519,8 +530,8 @@ void NQD_bitblt(uint32 p)
 	width *= bpp;
 	const bool backward_rows = (int32)ReadMacInt32(p + acclSrcRowBytes) < 0;
 	uint32 src_origin, dst_origin;
-	if (!NQD_resolve_ram_rect(p, true, backward_rows, &src_origin) ||
-	    !NQD_resolve_ram_rect(p, false, backward_rows, &dst_origin)) return;
+	if (!NQD_resolve_mapped_rect(p, true, backward_rows, &src_origin) ||
+	    !NQD_resolve_mapped_rect(p, false, backward_rows, &dst_origin)) return;
 
 	NQDMetalFlush();  // ensure pending NQD GPU writes are visible to CPU
 	if ((int32)ReadMacInt32(p + acclSrcRowBytes) > 0) {
@@ -571,7 +582,7 @@ bool NQD_bitblt_hook(uint32 p)
 	D(bug("accl_draw_hook %08x\n", p));
 	NQD_set_dirty_area(p);
 
-	if (!NQD_validate_packet_ram(p, true))
+	if (!NQD_validate_packet_mapping(p, true))
 		return NQD_decline_with_flush(p);
 	if (!NQDMetalSupportsTransferMode(ReadMacInt32(p + acclDestPixelSize),
 	                                  ReadMacInt32(p + acclTransferMode)))
@@ -671,7 +682,7 @@ bool NQD_bltmask_hook(uint32 arg)
 	D(bug("accl_bltmask_hook %08x\n", arg));
 	NQD_set_dirty_area(arg);
 
-	if (!NQD_validate_packet_ram(arg, true))
+	if (!NQD_validate_packet_mapping(arg, true))
 		return NQD_decline_with_flush(arg);
 	if (!NQDMetalSupportsTransferMode(ReadMacInt32(arg + acclDestPixelSize),
 	                                  ReadMacInt32(arg + acclTransferMode)))
@@ -748,7 +759,7 @@ bool NQD_fillmask_hook(uint32 arg)
 	D(bug("accl_fillmask_hook %08x\n", arg));
 	NQD_set_dirty_area(arg);
 
-	if (!NQD_validate_packet_ram(arg, false))
+	if (!NQD_validate_packet_mapping(arg, false))
 		return NQD_decline_with_flush(arg);
 	if (!NQDMetalSupportsTransferMode(ReadMacInt32(arg + acclDestPixelSize),
 	                                  ReadMacInt32(arg + acclTransferMode)))
