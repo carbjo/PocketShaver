@@ -15,6 +15,15 @@
 #import <objc/message.h>
 #endif
 
+void objc_set_emulation_orientation(BOOL portrait) {
+#if TARGET_OS_IPHONE && !TARGET_OS_MACCATALYST
+	// SDL otherwise infers allowed orientations from its cached desktop mode,
+	// which can still have the aspect ratio from before the startup UI rotated.
+	SDL_SetHint(SDL_HINT_ORIENTATIONS, portrait ? "Portrait PortraitUpsideDown" :
+		"LandscapeLeft LandscapeRight");
+#endif
+}
+
 #ifndef SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH
 #define SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH "SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH"
 #endif

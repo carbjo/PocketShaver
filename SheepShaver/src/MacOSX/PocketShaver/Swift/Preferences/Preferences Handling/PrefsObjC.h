@@ -67,6 +67,12 @@ extern "C"
 #endif
 void objc_savePrefs(void);
 
+// Keep SDL's rotation policy consistent with the selected boot layout.
+#ifdef __cplusplus
+extern "C"
+#endif
+void objc_set_emulation_orientation(BOOL portrait);
+
 // Mac Catalyst only: apply the Windowed(NO)/Full Screen(YES) choice to the live emulation
 // window. No-op off Catalyst.
 #ifdef __cplusplus

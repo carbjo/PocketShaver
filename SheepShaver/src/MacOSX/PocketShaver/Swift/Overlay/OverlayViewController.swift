@@ -41,7 +41,7 @@ public class OverlayViewController: UIViewController {
 			fetchState: { [weak self] in
 				Self.globalState
 			}, fetchFrameSize: { [weak self] in
-				self?.view.frame.size ?? .zero
+				self?.view.bounds.size ?? .zero
 			}, transformMainGamepadLayoutView: { [weak self] transform in
 				self?.transformMainGamepadLayoutView(transform)
 			}, transformAllGamepadLayoutViews: { [weak self] transform in
@@ -152,6 +152,12 @@ public class OverlayViewController: UIViewController {
 	private var performanceCounter: PerformanceCounter?
 
 	private var queuedAlertController: UIAlertController?
+	private weak var transformedSDLView: UIView?
+	private var sdlBaseTransform: CGAffineTransform = .identity
+	private var lastAppliedSDLTransform: CGAffineTransform = .identity
+	private var sdlOffsetTransform: CGAffineTransform = .identity
+	private var laidOutSize: CGSize = .zero
+	private var informationPositionConstraint: NSLayoutConstraint?
 
 	public override func viewDidLoad() {
 		super.viewDidLoad()
@@ -190,8 +196,8 @@ public class OverlayViewController: UIViewController {
 		super.viewDidAppear(animated)
 
 		if !Self.hideGamepad {
-			if state != .showingGamepad {
-				gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+			if state == .normal || state == .showingKeyboard {
+				gamepadLayerView.transform = .init(translationX: 0, y: -view.bounds.size.height)
 			}
 		}
 
@@ -222,6 +228,8 @@ public class OverlayViewController: UIViewController {
 
 		view.addSubview(performanceLabel)
 
+		let informationPosition = informationView.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+		informationPositionConstraint = informationPosition
 		NSLayoutConstraint.activate([
 			gestureInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
 			gestureInputView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -247,7 +255,7 @@ public class OverlayViewController: UIViewController {
 			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor, constant: -3000),
 
 			informationView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-			informationView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -UIScreen.main.bounds.size.height / 4),
+			informationPosition,
 			informationView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 8),
 			informationView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -8),
 
@@ -337,7 +345,7 @@ public class OverlayViewController: UIViewController {
 			if allowHiddenInputFieldResponserResignation {
 				hiddenInputField.resignFirstResponder()
 			}
-			transformAllGamepadLayoutViews(.init(translationX: 0, y: -view.frame.size.height))
+			transformAllGamepadLayoutViews(.init(translationX: 0, y: -view.bounds.size.height))
 			gestureInputView.set(state: state)
 			gamepadLayerView.isUserInteractionEnabled = false
 		case .showingGamepad:
@@ -347,7 +355,7 @@ public class OverlayViewController: UIViewController {
 			gamepadLayerView.isUserInteractionEnabled = true
 		case .showingKeyboard:
 			hiddenInputField.becomeFirstResponder()
-			transformAllGamepadLayoutViews(.init(translationX: 0, y: -view.frame.size.height))
+			transformAllGamepadLayoutViews(.init(translationX: 0, y: -view.bounds.size.height))
 			gestureInputView.set(state: state)
 			gamepadLayerView.isUserInteractionEnabled = false
 		case .editingGamepad:
@@ -418,9 +426,9 @@ public class OverlayViewController: UIViewController {
 					case .none:
 						self.transition(to: result.state)
 					case .next:
-						self.transformAllGamepadLayoutViews(.init(translationX: -self.view.frame.size.width, y: 0))
+						self.transformAllGamepadLayoutViews(.init(translationX: -self.view.bounds.size.width, y: 0))
 					case .previous:
-						self.transformAllGamepadLayoutViews(.init(translationX: self.view.frame.size.width, y: 0))
+						self.transformAllGamepadLayoutViews(.init(translationX: self.view.bounds.size.width, y: 0))
 					}
 				},
 				completion: { [weak self] _ in
@@ -432,7 +440,7 @@ public class OverlayViewController: UIViewController {
 
 					if result.state == .showingKeyboard,
 					   MiscellaneousSettings.current.keyboardAutoOffsetSetting != .top {
-						let screenHeight = UIScreen.main.bounds.height
+						let screenHeight = self.view.bounds.height
 						let offset: CGFloat = MiscellaneousSettings.current.keyboardAutoOffsetSetting == .middle ?
 						-screenHeight * (2/5) :
 						-screenHeight * (2/3)
@@ -491,8 +499,41 @@ public class OverlayViewController: UIViewController {
 			return
 		}
 
-		sdlView.transform = transform
+		// UIKit owns the root view's rotation. Apply only our keyboard translation
+		// on top of it; returning to normal must never reset that rotation.
+		// UIKit can replace the root transform during a rotation while the keyboard
+		// is open, so capture that new base instead of restoring the previous one.
+		if transformedSDLView !== sdlView || sdlView.transform != lastAppliedSDLTransform {
+			transformedSDLView = sdlView
+			sdlBaseTransform = sdlView.transform
+		}
+		sdlView.transform = transform.concatenating(sdlBaseTransform)
+		lastAppliedSDLTransform = sdlView.transform
+		sdlOffsetTransform = transform
 		view.transform = transform.inverted()
+	}
+
+	public override func viewDidLayoutSubviews() {
+		super.viewDidLayoutSubviews()
+		informationPositionConstraint?.constant = -view.bounds.height / 4
+		if let sdlView = view.superview, transformedSDLView === sdlView {
+			let offset: CGAffineTransform
+			if state == .showingKeyboard {
+				let y = max(-view.bounds.height * (2/3), min(0, sdlOffsetTransform.ty))
+				offset = .init(translationX: 0, y: y)
+				dragInteractionModel.set(sdlViewVerticalOffset: y)
+			} else {
+				offset = sdlOffsetTransform
+			}
+			if sdlView.transform != lastAppliedSDLTransform || offset != sdlOffsetTransform {
+				transformSDLContainerView(offset)
+			}
+		}
+		guard laidOutSize != view.bounds.size else { return }
+		laidOutSize = view.bounds.size
+		if state == .normal || state == .showingKeyboard {
+			transformAllGamepadLayoutViews(.init(translationX: 0, y: -view.bounds.height))
+		}
 	}
 
 	

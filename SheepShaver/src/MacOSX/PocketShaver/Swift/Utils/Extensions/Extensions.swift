@@ -345,7 +345,8 @@ extension UITableViewCell {
 
 extension UIApplication {
 	static var safeAreaInsets: UIEdgeInsets {
-		shared.windows.first!.safeAreaInsets
+		shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+			.flatMap(\.windows).first(where: { $0.isKeyWindow && $0.windowLevel == .normal })?.safeAreaInsets ?? .zero
 	}
 }
 
@@ -371,9 +372,8 @@ extension UIImage {
 
 extension UIViewController {
 	func embed(_ childVC: UIViewController) {
-		childVC.willMove(toParent: self)
-
 		addChild(childVC)
+		childVC.view.translatesAutoresizingMaskIntoConstraints = false
 		view.addSubview(childVC.view)
 
 		NSLayoutConstraint.activate([
