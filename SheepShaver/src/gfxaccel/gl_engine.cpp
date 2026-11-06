@@ -216,6 +216,7 @@
 
 // ---- AGL Per-Context State (stored alongside GLContext) ----
 struct AGLContextState {
+	uint32_t agl_pixel_size;         // copied from the selected format; survives format deletion
 	uint32_t agl_options;            // bitmask of enabled AGL options
 	int32_t  agl_swap_interval;
 	int32_t  agl_buffer_rect[4];
@@ -467,6 +468,7 @@ static uint32_t gl_agl_last_error = AGL_NO_ERROR;
 // Pixel format storage (simple: just save that a format was requested)
 struct GLPixelFormatInfo {
 	uint32_t mac_addr;      // Mac-side handle
+	uint32_t pixel_size;    // offscreen guest storage: ARGB1555 or ARGB8888
 	bool     has_depth;
 	bool     has_double_buffer;
 	bool     has_rgba;
@@ -891,6 +893,7 @@ uint32_t NativeAGLChoosePixelFormat(uint32_t gdevs, uint32_t ndev, uint32_t attr
 	// rather than silently consumed, and the 64-iteration cap + the AGL_NONE
 	// terminator both still bound the walk — ASVS V5).
 	bool has_rgba = false, has_depth = false, has_double = false;
+	uint32_t pixel_size = 32;
 	if (attribs != 0) {
 		uint32_t addr = attribs;
 		for (int i = 0; i < 64; i++) {  // safety limit — never advance past AGL_NONE
@@ -928,11 +931,13 @@ uint32_t NativeAGLChoosePixelFormat(uint32_t gdevs, uint32_t ndev, uint32_t attr
 					break;
 			}
 
-			// Record the three capabilities we actually act on.
+			// Preserve drawable storage independently of row stride. Other
+			// requests retain the existing 32-bit choice (e.g. 24-bit RGB).
 			switch (attr) {
 				case AGL_RGBA:         has_rgba = true; break;
 				case AGL_DOUBLEBUFFER: has_double = true; break;
 				case AGL_DEPTH_SIZE:   has_depth = true; break;
+				case AGL_PIXEL_SIZE:   pixel_size = ReadMacInt32(addr + 4) == 16 ? 16 : 32; break;
 				default:               break;
 			}
 
@@ -973,6 +978,7 @@ uint32_t NativeAGLChoosePixelFormat(uint32_t gdevs, uint32_t ndev, uint32_t attr
 	}
 
 	gl_pixel_formats[idx].mac_addr = mac_handle;
+	gl_pixel_formats[idx].pixel_size = pixel_size;
 	gl_pixel_formats[idx].has_depth = has_depth;
 	gl_pixel_formats[idx].has_double_buffer = has_double;
 	gl_pixel_formats[idx].has_rgba = has_rgba;
@@ -1076,6 +1082,7 @@ uint32_t NativeAGLCreateContext(uint32_t pixelFormat, uint32_t shareContext)
 
 	// Create the context with default dimensions (will be set by aglSetDrawable)
 	GLContext *ctx = GLContextNew(640, 480, share);
+	const uint32_t pixel_size = format->pixel_size;
 	ctx->double_buffered = format->has_double_buffer;
 	ctx->draw_buffer = ctx->read_buffer = ctx->double_buffered ? GL_BACK : GL_FRONT;
 	gl_contexts[slot] = ctx;
@@ -1105,6 +1112,7 @@ uint32_t NativeAGLCreateContext(uint32_t pixelFormat, uint32_t shareContext)
 
 	// Initialize per-context AGL state
 	memset(&agl_ctx_state[slot], 0, sizeof(AGLContextState));
+	agl_ctx_state[slot].agl_pixel_size = pixel_size;
 	agl_ctx_state[slot].agl_rasterization_enabled = true;  // default: rasterization on
 	agl_ctx_state[slot].agl_owner_before_drawable = kDMCOwnerQuickDraw;
 
@@ -1148,7 +1156,8 @@ extern "C" int GLContextGetOffscreenDrawable(GLContext *context,
                                              uint32_t *outW,
                                              uint32_t *outH,
                                              uint32_t *outRowbytes,
-                                             uint32_t *outBaseaddr)
+                                             uint32_t *outBaseaddr,
+                                             uint32_t *outBytesPerPixel)
 {
 	if (context == nullptr) return 0;
 
@@ -1161,11 +1170,11 @@ extern "C" int GLContextGetOffscreenDrawable(GLContext *context,
 		        state.agl_offscreen_width,
 		        state.agl_offscreen_height,
 		        state.agl_offscreen_rowbytes,
-		        state.agl_offscreen_baseaddr) ||
+		        state.agl_offscreen_baseaddr, state.agl_pixel_size) ||
 		    !GLOffscreenDrawableFitsGuestRAM(
 		        state.agl_offscreen_width, state.agl_offscreen_height,
 		        state.agl_offscreen_rowbytes, state.agl_offscreen_baseaddr,
-		        RAMBase, RAMSize)) {
+		        RAMBase, RAMSize, state.agl_pixel_size)) {
 			return 0;
 		}
 
@@ -1173,6 +1182,7 @@ extern "C" int GLContextGetOffscreenDrawable(GLContext *context,
 		if (outH) *outH = state.agl_offscreen_height;
 		if (outRowbytes) *outRowbytes = state.agl_offscreen_rowbytes;
 		if (outBaseaddr) *outBaseaddr = state.agl_offscreen_baseaddr;
+		if (outBytesPerPixel) *outBytesPerPixel = state.agl_pixel_size / 8u;
 		return 1;
 	}
 
@@ -1523,17 +1533,17 @@ uint32_t NativeAGLDescribePixelFormat(uint32_t pix, uint32_t attrib, uint32_t va
 		case AGL_RGBA:             value = pf->has_rgba ? 1 : 0; break;
 		case AGL_DOUBLEBUFFER:     value = pf->has_double_buffer ? 1 : 0; break;
 		case AGL_DEPTH_SIZE:       value = pf->has_depth ? 32 : 0; break;
-		case AGL_BUFFER_SIZE:      value = 32; break;  // always ARGB8888
-		case AGL_RED_SIZE:         value = 8; break;
-		case AGL_GREEN_SIZE:       value = 8; break;
-		case AGL_BLUE_SIZE:        value = 8; break;
-		case AGL_ALPHA_SIZE:       value = 8; break;
+		case AGL_BUFFER_SIZE:      value = pf->pixel_size; break;
+		case AGL_RED_SIZE:         value = pf->pixel_size == 16 ? 5 : 8; break;
+		case AGL_GREEN_SIZE:       value = pf->pixel_size == 16 ? 5 : 8; break;
+		case AGL_BLUE_SIZE:        value = pf->pixel_size == 16 ? 5 : 8; break;
+		case AGL_ALPHA_SIZE:       value = pf->pixel_size == 16 ? 1 : 8; break;
 		case AGL_STENCIL_SIZE:     value = 8; break;  // Depth32Float_Stencil8
 		case AGL_ACCUM_RED_SIZE:   value = 16; break;  // float accum
 		case AGL_ACCUM_GREEN_SIZE: value = 16; break;
 		case AGL_ACCUM_BLUE_SIZE:  value = 16; break;
 		case AGL_ACCUM_ALPHA_SIZE: value = 16; break;
-		case AGL_PIXEL_SIZE:       value = 32; break;
+		case AGL_PIXEL_SIZE:       value = pf->pixel_size; break;
 		case AGL_WINDOW:           value = 1; break;   // always windowed
 		case AGL_RENDERER_ID:      value = (int32_t)GLAGLRendererID(); break;
 		case AGL_ACCELERATED:      value = GLAGLRendererIsAccelerated() ? 1 : 0; break;
@@ -1780,7 +1790,7 @@ uint32_t NativeAGLSetOffScreen(uint32_t ctx, uint32_t width, uint32_t height,
 	}
 
 	if (!GLOffscreenDrawableFitsGuestRAM(width, height, rowbytes, baseaddr,
-	                                    RAMBase, RAMSize)) {
+	                                    RAMBase, RAMSize, agl_ctx_state[idx].agl_pixel_size)) {
 		GL_LOG("aglSetOffScreen: rejected invalid offscreen drawable");
 		gl_agl_last_error = AGL_BAD_OFFSCREEN;
 		return GL_FALSE;

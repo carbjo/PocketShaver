@@ -1734,7 +1734,8 @@ int  GLContextGetOffscreenDrawable(GLContext *ctx,
                                    uint32_t *outW,
                                    uint32_t *outH,
                                    uint32_t *outRowbytes,
-                                   uint32_t *outBaseaddr);
+                                   uint32_t *outBaseaddr,
+                                   uint32_t *outBytesPerPixel = nullptr);
 
 #ifdef __cplusplus
 }

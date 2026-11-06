@@ -743,8 +743,9 @@ static bool GLMetalReadbackOffscreenDrawable(GLContext *ctx,
     uint32_t dstH = 0;
     uint32_t dstRowbytes = 0;
     uint32_t dstBaseaddr = 0;
+    uint32_t dstBytesPerPixel = 0;
     if (!GLContextGetOffscreenDrawable(ctx, &dstW, &dstH,
-                                       &dstRowbytes, &dstBaseaddr)) {
+                                       &dstRowbytes, &dstBaseaddr, &dstBytesPerPixel)) {
         return false;
     }
 
@@ -752,10 +753,6 @@ static bool GLMetalReadbackOffscreenDrawable(GLContext *ctx,
         ms->device == nil || ms->commandQueue == nil) {
         return false;
     }
-
-    const uint32_t dstBytesPerPixel =
-        GLOffscreenDrawableBytesPerPixel(dstW, dstRowbytes);
-    if (dstBytesPerPixel == 0) return false;
 
     if (committedBuffer != nil) {
         [committedBuffer waitUntilCompleted];
@@ -1872,9 +1869,9 @@ static void EnsureDepthBuffer(GLMetalState *ms, int width, int height) {
 // rebindings. Flush/Finish read them back before returning to the guest.
 static bool GLMetalUploadGuestOffscreenDrawable(GLMetalState *ms,
                                                 uint32_t width, uint32_t height,
-                                                uint32_t rowbytes, uint32_t baseaddr)
+                                                uint32_t rowbytes, uint32_t baseaddr,
+                                                uint32_t bytesPerPixel)
 {
-    const uint32_t bytesPerPixel = GLOffscreenDrawableBytesPerPixel(width, rowbytes);
     NQDMetalFlush(); // Complete earlier QuickDraw writes before reading shared guest memory.
     if (ms->lastCommittedBuffer) [ms->lastCommittedBuffer waitUntilCompleted];
 
@@ -1925,9 +1922,10 @@ void GLMetalBeginFrame(GLContext *ctx)
     uint32_t offscreenH = 0;
     uint32_t offscreenRowbytes = 0;
     uint32_t offscreenBaseaddr = 0;
+    uint32_t offscreenBytesPerPixel = 0;
     const bool isOffscreen =
         GLContextGetOffscreenDrawable(ctx, &offscreenW, &offscreenH,
-                                     &offscreenRowbytes, &offscreenBaseaddr);
+                                     &offscreenRowbytes, &offscreenBaseaddr, &offscreenBytesPerPixel);
     auto binding = s_gl_overlays.find(ctx);
     if (!isOffscreen && binding == s_gl_overlays.end()) return;
     uint32_t drawableW = isOffscreen ? offscreenW : (uint32_t)binding->second.width;
@@ -1966,7 +1964,8 @@ void GLMetalBeginFrame(GLContext *ctx)
     ms->currentCommandBuffer = [ms->commandQueue commandBuffer];
     if (!ms->currentCommandBuffer ||
         (isOffscreen && !GLMetalUploadGuestOffscreenDrawable(
-            ms, offscreenW, offscreenH, offscreenRowbytes, offscreenBaseaddr))) {
+            ms, offscreenW, offscreenH, offscreenRowbytes, offscreenBaseaddr,
+            offscreenBytesPerPixel))) {
         ms->currentCommandBuffer = nil;
         if (!ctx->last_error) ctx->last_error = 0x0505; // GL_OUT_OF_MEMORY
         return;

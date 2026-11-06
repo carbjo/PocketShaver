@@ -2264,6 +2264,9 @@ uint32 NativeHookDrawContextNew(uint32 device, uint32 rect, uint32 clip,
 		RAVE_LOG("HOOK: NativeDrawPrivateNew returned %d", err);
 		if (err != kQANoErr) {
 			RAVE_LOG("HOOK: DrawPrivateNew failed with %d", err);
+			// ReserveProc storage is permanent. A failed creation never publishes
+			// this address, so recycle it just as a successful context delete does.
+			rave_ctx_free_list.push_back(ctx);
 			return (uint32)err;
 		}
 

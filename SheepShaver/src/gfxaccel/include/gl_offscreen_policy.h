@@ -18,27 +18,28 @@ typedef struct GLOverlayLayerRect {
 } GLOverlayLayerRect;
 
 static inline uint32_t GLOffscreenDrawableBytesPerPixel(uint32_t width,
-                                                        uint32_t rowbytes)
+                                                        uint32_t rowbytes,
+                                                        uint32_t pixel_size)
 {
 	if (width == 0) return 0;
-
-	const uint64_t min_32bpp_rowbytes = (uint64_t)width * 4u;
-	const uint64_t min_16bpp_rowbytes = (uint64_t)width * 2u;
-	if ((uint64_t)rowbytes >= min_32bpp_rowbytes) return 4;
-	if ((uint64_t)rowbytes >= min_16bpp_rowbytes) return 2;
-	return 0;
+	// Row padding describes layout, not color depth. Use the format selected
+	// at context creation for validation, CPU import, and GPU readback alike.
+	if (pixel_size != 16 && pixel_size != 32) return 0;
+	const uint32_t bytes = pixel_size / 8u;
+	return (uint64_t)rowbytes >= (uint64_t)width * bytes ? bytes : 0;
 }
 
 static inline bool GLShouldAcceptOffscreenDrawable(uint32_t width,
                                                    uint32_t height,
                                                    uint32_t rowbytes,
-                                                   uint32_t baseaddr)
+                                                   uint32_t baseaddr,
+                                                   uint32_t pixel_size)
 {
 	// AGL sizes/strides are signed GLsizei values at the guest ABI boundary.
 	// Bound them before viewport casts, CPU allocations, or Metal descriptors.
 	return width != 0 && width <= 16384 &&
 	       height != 0 && height <= 16384 && rowbytes <= INT32_MAX &&
-	       GLOffscreenDrawableBytesPerPixel(width, rowbytes) != 0 &&
+	       GLOffscreenDrawableBytesPerPixel(width, rowbytes, pixel_size) != 0 &&
 	       baseaddr != 0;
 }
 
@@ -47,14 +48,15 @@ static inline bool GLOffscreenDrawableFitsGuestRAM(uint32_t width,
                                                    uint32_t rowbytes,
                                                    uint32_t baseaddr,
                                                    uint32_t ram_base,
-                                                   uint32_t ram_size)
+                                                   uint32_t ram_size,
+                                                   uint32_t pixel_size)
 {
-	if (!GLShouldAcceptOffscreenDrawable(width, height, rowbytes, baseaddr) ||
+	if (!GLShouldAcceptOffscreenDrawable(width, height, rowbytes, baseaddr, pixel_size) ||
 	    baseaddr < ram_base) return false;
 	// Only the pixels in the last row are accessed; trailing padding need not
 	// be mapped. Both import and readback must fit writable guest RAM.
 	const uint64_t bytes = uint64_t(height - 1) * rowbytes +
-	    uint64_t(width) * GLOffscreenDrawableBytesPerPixel(width, rowbytes);
+	    uint64_t(width) * GLOffscreenDrawableBytesPerPixel(width, rowbytes, pixel_size);
 	const uint64_t end = uint64_t(baseaddr) + bytes;
 	return end <= (uint64_t(1) << 32) &&
 	       end <= uint64_t(ram_base) + ram_size;
@@ -64,10 +66,11 @@ static inline bool GLShouldReadbackOffscreenDrawable(bool is_offscreen,
                                                      uint32_t width,
                                                      uint32_t height,
                                                      uint32_t rowbytes,
-                                                     uint32_t baseaddr)
+                                                     uint32_t baseaddr,
+                                                     uint32_t pixel_size)
 {
 	return is_offscreen &&
-	       GLShouldAcceptOffscreenDrawable(width, height, rowbytes, baseaddr);
+	       GLShouldAcceptOffscreenDrawable(width, height, rowbytes, baseaddr, pixel_size);
 }
 
 static inline bool GLShouldPreserveOverlayBindingAfterResourceDetach(

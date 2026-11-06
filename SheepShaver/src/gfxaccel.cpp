@@ -28,6 +28,7 @@
 #include "dsp_engine.h"
 #include "nqd_accel.h"
 #include "nqd_region_range.h"
+#include "nqd_transfer_mode_policy.h"
 
 #define DEBUG 0
 #include "debug.h"
@@ -437,6 +438,9 @@ bool NQD_fillrect_hook(uint32 p)
 
 	if (!NQD_validate_packet_ram(p, false))
 		return NQD_decline_with_flush(p);
+	if (!NQDMetalSupportsTransferMode(ReadMacInt32(p + acclDestPixelSize),
+	                                  ReadMacInt32(p + acclTransferMode)))
+		return NQD_decline_with_flush(p);
 
 	// Metal path: accept solid-color fill modes when dest is in Metal-mapped RAM.
 	// Only accept patCopy (8) and arithmetic modes (32-39, 50) as solid fills.
@@ -569,6 +573,9 @@ bool NQD_bitblt_hook(uint32 p)
 
 	if (!NQD_validate_packet_ram(p, true))
 		return NQD_decline_with_flush(p);
+	if (!NQDMetalSupportsTransferMode(ReadMacInt32(p + acclDestPixelSize),
+	                                  ReadMacInt32(p + acclTransferMode)))
+		return NQD_decline_with_flush(p);
 
 	// This renderer copies rectangles, not arbitrary clipped regions. The
 	// separate BLTMASK hook decodes masks; accepting these packets here would
@@ -666,6 +673,9 @@ bool NQD_bltmask_hook(uint32 arg)
 
 	if (!NQD_validate_packet_ram(arg, true))
 		return NQD_decline_with_flush(arg);
+	if (!NQDMetalSupportsTransferMode(ReadMacInt32(arg + acclDestPixelSize),
+	                                  ReadMacInt32(arg + acclTransferMode)))
+		return NQD_decline_with_flush(arg);
 
 	if (!nqd_metal_available) return false;
 
@@ -739,6 +749,9 @@ bool NQD_fillmask_hook(uint32 arg)
 	NQD_set_dirty_area(arg);
 
 	if (!NQD_validate_packet_ram(arg, false))
+		return NQD_decline_with_flush(arg);
+	if (!NQDMetalSupportsTransferMode(ReadMacInt32(arg + acclDestPixelSize),
+	                                  ReadMacInt32(arg + acclTransferMode)))
 		return NQD_decline_with_flush(arg);
 
 	if (!nqd_metal_available) return false;
