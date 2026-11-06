@@ -1393,12 +1393,12 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		uint32 arg_r3, arg_r4, arg_r5, arg_r6, arg_r7, arg_r8, arg_r9, arg_r10;
 		if (dt_flag) {
 			// Dispatch-table path: skip context index in R3, shift args.
-			// r4-r10 become args 0-6. Arg 7 (r10) is set to 0 for now;
-			// functions with 9+ args (like glTexImage2D) read additional
-			// args from the PPC stack via gl_ppc_stack_arg().
+			// r4-r10 become args 0-6. Arg 7 is the first stack word of the
+			// parameter area (sp+24+8*4), the slot gl_ppc_stack_arg(-1)
+			// reads; functions with 9+ args read the rest from the stack.
 			arg_r3 = gpr(4);  arg_r4 = gpr(5);  arg_r5 = gpr(6);
 			arg_r6 = gpr(7);  arg_r7 = gpr(8);  arg_r8 = gpr(9);
-			arg_r9 = gpr(10); arg_r10 = 0;
+			arg_r9 = gpr(10); arg_r10 = ReadMacInt32(saved_sp + 56);
 		} else {
 			// Stub-patching path: args in normal positions
 			arg_r3 = gpr(3);  arg_r4 = gpr(4);  arg_r5 = gpr(5);

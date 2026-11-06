@@ -496,11 +496,8 @@ static inline void GLPixelUnpackRGB332ToBGRA(uint8_t packed,
                                              uint32_t format,
                                              uint8_t out_bgra[4])
 {
-	const uint8_t normalBits[3] = {3, 3, 2};
-	const uint8_t reversedBits[3] = {2, 3, 3};
-	GLPixelUnpackPackedToBGRA(packed,
-	                          reversed ? reversedBits : normalBits,
-	                          3, reversed, format, out_bgra);
+	const uint8_t bits[3] = {3, 3, 2};
+	GLPixelUnpackPackedToBGRA(packed, bits, 3, reversed, format, out_bgra);
 }
 
 static inline void GLPixelUnpackLegacyUnsignedShortRGB332ToBGRA(
@@ -561,11 +558,8 @@ static inline void GLPixelUnpackRGBA5551ToBGRA(uint16_t packed,
                                                uint32_t format,
                                                uint8_t out_bgra[4])
 {
-	const uint8_t normalBits[4] = {5, 5, 5, 1};
-	const uint8_t reversedBits[4] = {1, 5, 5, 5};
-	GLPixelUnpackPackedToBGRA(packed,
-	                          reversed ? reversedBits : normalBits,
-	                          4, reversed, format, out_bgra);
+	const uint8_t bits[4] = {5, 5, 5, 1};
+	GLPixelUnpackPackedToBGRA(packed, bits, 4, reversed, format, out_bgra);
 }
 
 static inline void GLPixelUnpackLegacyUnsignedShortToBGRA(uint16_t packed,
@@ -595,11 +589,8 @@ static inline void GLPixelUnpackRGBA1010102ToBGRA(uint32_t packed,
                                                   uint32_t format,
                                                   uint8_t out_bgra[4])
 {
-	const uint8_t normalBits[4] = {10, 10, 10, 2};
-	const uint8_t reversedBits[4] = {2, 10, 10, 10};
-	GLPixelUnpackPackedToBGRA(packed,
-	                          reversed ? reversedBits : normalBits,
-	                          4, reversed, format, out_bgra);
+	const uint8_t bits[4] = {10, 10, 10, 2};
+	GLPixelUnpackPackedToBGRA(packed, bits, 4, reversed, format, out_bgra);
 }
 
 #endif /* GL_PIXEL_UNPACK_POLICY_H */

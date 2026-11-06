@@ -1383,8 +1383,9 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 	// Games like THPS 2 may call glGetError before aglSetCurrentContext.
 	if (sub_opcode < GL_SUB_AGL_CHOOSEPIXELFORMAT && !gl_current_context) {
 		GL_LOG("GLDispatch sub_opcode=%u ignored (no current context)", sub_opcode);
-		// Return GL_INVALID_OPERATION for glGetError, 0 for everything else
-		return (sub_opcode == GL_SUB_GET_ERROR) ? 0x0502 /* GL_INVALID_OPERATION */ : 0;
+		// Return 0 for everything, including glGetError: a sticky
+		// GL_INVALID_OPERATION would never drain in `while (glGetError());`.
+		return 0;
 	}
 
 	switch (sub_opcode) {
