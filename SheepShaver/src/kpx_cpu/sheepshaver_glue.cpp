@@ -828,6 +828,9 @@ static bool guest_addr_ok(uint32 a, uint32 len)
 
 static void dump_crash_context(sheepshaver_cpu *cpu)
 {
+	// The guest PC may be a corrupt call target. LR still identifies the caller.
+	cpu->dump_call_context();
+
 	// Guest stack crawl. PowerOpen ABI: back chain at [sp], saved LR at [sp+8].
 	uint32 sp = cpu->cur_gpr(1);
 	fprintf(stderr, "guest stack crawl (r1=%08x):\n", sp);

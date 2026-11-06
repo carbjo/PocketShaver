@@ -31,6 +31,7 @@
 #include "metal_compositor.h"  // MetalCompositorSubmitFrame_ClearCachedOverlay
 
 #include <cstring>
+#include <algorithm>
 #include <cmath>
 #include <vector>
 #include <cstdio>
@@ -59,6 +60,9 @@
 // apps that create/destroy contexts every frame (e.g. RAVE Bench) exhaust
 // the 512KB SheepMem region and corrupt PPC memory, causing hangs.
 static std::vector<uint32> rave_ctx_free_list;
+// Provenance survives removal from the live handle table. These SheepMem
+// contexts must never be handed to the guest RAVE manager for disposal.
+static std::vector<uint32> rave_ctx_owned_addresses;
 
 static uint8_t rave_last_cl8_color_table_rgb[768];
 static bool rave_last_cl8_color_table_valid = false;
@@ -2246,6 +2250,7 @@ uint32 NativeHookDrawContextNew(uint32 device, uint32 rect, uint32 clip,
 			       ctx, rave_ctx_free_list.size());
 		} else {
 			ctx = SheepMem::ReserveProc(ctx_size);
+			rave_ctx_owned_addresses.push_back(ctx);
 			RAVE_LOG("HOOK: allocated ctx=0x%08x from SheepMem proc", ctx);
 		}
 		// NativeDrawPrivateNew writes all 37 fields (handle + version +
@@ -2390,25 +2395,33 @@ uint32 NativeHookColorTableNew(uint32 engine, uint32 tableType, uint32 pixelData
  *  r3 = drawContextPtr (TQADrawContext* Mac address)
  */
 uint32 NativeHookDrawContextDelete(uint32 drawContextPtr) {
+	if (drawContextPtr == 0) return kQANoErr;
+	const bool owned = std::find(rave_ctx_owned_addresses.begin(),
+	                             rave_ctx_owned_addresses.end(), drawContextPtr)
+	                   != rave_ctx_owned_addresses.end();
 	uint32 handle = ReadMacInt32(drawContextPtr + 0);
 	RaveDrawPrivate *ctx = RaveGetContext(handle);
-	if (ctx) {
+	if (owned && ctx && ctx->drawContextAddr == drawContextPtr) {
 		RAVE_LOG("HOOK: QADrawContextDelete(0x%08x) handle=%d -> native delete",
 		       drawContextPtr, handle);
 		// Invalidate while the context still owns its source texture. A newer
 		// GL/RAVE frame must survive cleanup of this inactive context.
 		RaveInvalidateContextOverlay(ctx);
-		NativeDrawPrivateDelete(handle);
-
-		// Invalidate the Mac-side handle so stale references via this
-		// address see handle=0 and fail gracefully in RaveGetContext(),
-		// rather than accidentally hitting a recycled handle slot.
+		// Invalidate before DisposePtr can re-enter the guest. Ownership below
+		// still recognizes this address while its native handle is unavailable.
 		WriteMacInt32(drawContextPtr + 0, 0);
+		NativeDrawPrivateDelete(handle);
 
 		// Recycle the Mac-side context address so the next QADrawContextNew
 		// can reuse it instead of permanently allocating from SheepMem.
 		rave_ctx_free_list.push_back(drawContextPtr);
 
+		return kQANoErr;
+	}
+	// A duplicate delete, or a callback during native teardown, cannot resolve
+	// a live handle. That does not make the synthetic context guest-owned.
+	if (owned) {
+		RAVE_LOG("HOOK: QADrawContextDelete(0x%08x) -> inactive native context", drawContextPtr);
 		return kQANoErr;
 	}
 	// Not our context, chain to original
