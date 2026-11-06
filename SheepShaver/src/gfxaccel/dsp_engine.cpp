@@ -221,13 +221,25 @@ static void DSpRegisterResourceHandlers(void)
 
 static uint32_t DSpAllocateGestaltCallback(uint32_t value)
 {
-	/* 28 bytes: 8-byte TVECT header + 5 PPC instructions. */
-	uint32_t base = SheepMem::ReserveProc(28);
+	/* Gestalt's SelectorFunctionUPP is invoked through Mixed Mode. A bare
+	 * PPC TVECT would be interpreted as 68k instructions. Keep the descriptor,
+	 * TVECT and code in permanent thunk storage, as Gestalt retains the UPP. */
+	uint32_t base = SheepMem::ReserveProc(sizeof(RoutineDescriptor) + 28);
 	if (base == 0) return 0;
-	uint32_t code = base + 8;
+	const uint32_t tvect = base + sizeof(RoutineDescriptor);
+	const uint32_t code = tvect + 8;
+	Mac_memset(base, 0, sizeof(RoutineDescriptor));
+	WriteMacInt16(base + offsetof(RoutineDescriptor, goMixedModeTrap), 0xAAFE);
+	WriteMacInt8(base + offsetof(RoutineDescriptor, version), 7);
+	const uint32_t record = base + offsetof(RoutineDescriptor, routineRecords);
+	/* uppSelectorFunctionProcInfo: Pascal OSErr (UInt32, SInt32 *). */
+	WriteMacInt32(record + offsetof(RoutineRecord, procInfo), 0x000003E0);
+	WriteMacInt8(record + offsetof(RoutineRecord, ISA), 1);  /* kPowerPCISA */
+	WriteMacInt16(record + offsetof(RoutineRecord, routineFlags), 4);
+	WriteMacInt32(record + offsetof(RoutineRecord, procDescriptor), tvect);
 
-	WriteMacInt32(base, code);
-	WriteMacInt32(base + 4, 0);
+	WriteMacInt32(tvect, code);
+	WriteMacInt32(tvect + 4, 0);
 
 	const uint32_t r3 = 3, r4 = 4, r5 = 5;
 	WriteMacInt32(code + 0, 0x3C000000 | (r5 << 21) |

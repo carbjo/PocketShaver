@@ -123,6 +123,11 @@ extern bool DSpEncodeFrontBufferStagingToFramebuffer(struct DSpContextPrivate *c
  *  kDSpInternalErr).
  */
 extern uint32_t DSpGetBackBufferCGrafPtr(struct DSpContextPrivate *ctx);
+/* Preparation may execute guest NewPtrSys callbacks. Emission only writes
+ * existing arena storage, so Queue can revalidate between the two phases. */
+extern uint32_t DSpPrepareBackBufferGuestStorage(struct DSpContextPrivate *ctx);
+extern uint32_t DSpEmitBackBufferCGrafPtr(struct DSpContextPrivate *ctx,
+                                       uint32_t baseAddr_mac);
 extern bool DSpRestoreBackBufferPixels(struct DSpContextPrivate *ctx);
 
 /*

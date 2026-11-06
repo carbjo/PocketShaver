@@ -30,6 +30,13 @@
 extern "C" {
 #endif
 
+struct DSpContextPrivate;
+struct DSpContextAttributes;
+/* Queue reserves metadata contexts and prepares changed inactive surfaces
+ * before publishing the queued child. Failure preserves the existing surface. */
+int32_t DSpPrepareContextForQueue(struct DSpContextPrivate *ctx,
+                                const struct DSpContextAttributes *desired);
+
 /*
  *  Typed wrapper over DSpMapStateToDMCOwner() — returns the proper DMCOwner
  *  enum for call sites inside the gfxaccel tree. Implementation is a trivial

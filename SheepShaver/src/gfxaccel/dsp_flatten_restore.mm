@@ -213,10 +213,10 @@ extern "C" int32_t DSpContext_RestoreHandler(uint32_t inFlatContext,
 	 * child drawing environment; if the child came from FindBest/GetFirst, keep
 	 * its selected display mode and store the desired size in backBufferWidth /
 	 * backBufferHeight. */
-static bool DSpApplyDesiredAttributesToChild(DSpContextPrivate *child,
+static int32_t DSpApplyDesiredAttributesToChild(DSpContextPrivate *child,
                                              uint32_t inDesiredAttributes)
 {
-	if (child == nullptr || inDesiredAttributes == 0) return false;
+	if (child == nullptr || inDesiredAttributes == 0) return kDSpInvalidAttributesErr;
 	/* Validate the whole attribute-struct extent lies in mapped RAM
 	 * before reading any field (ASVS V5; NQDMetalAddrInBuffer idiom). The
 	 * on-wire block matches DSpWriteAttributesCore's layout; the last field
@@ -229,38 +229,28 @@ static bool DSpApplyDesiredAttributesToChild(DSpContextPrivate *child,
 	    !NQDMetalAddrInBuffer(inDesiredAttributes + kDesiredAttrSize - 1u)) {
 		DSP_LOG("Queue: inDesiredAttributes 0x%08x out of mapped RAM -> reject",
 		        inDesiredAttributes);
-		return false;
+		return kDSpInvalidAttributesErr;
 	}
+	DSpContextAttributes desired = child->attr;
 	const uint32_t desiredWidth = ReadMacInt32(inDesiredAttributes +  4);
 	const uint32_t desiredHeight = ReadMacInt32(inDesiredAttributes +  8);
 	const uint32_t desiredBackDepth = ReadMacInt32(inDesiredAttributes + 40);
 	const uint32_t desiredDisplayDepth = ReadMacInt32(inDesiredAttributes + 44);
 
-	child->attr.displayWidth        =
-	    DSpReserveActualDisplayDimension(child->attr.displayWidth,
-	                                     desiredWidth);
-	child->attr.displayHeight       =
-	    DSpReserveActualDisplayDimension(child->attr.displayHeight,
-	                                     desiredHeight);
-	child->attr.colorNeeds          = ReadMacInt32(inDesiredAttributes + 20);
-	child->attr.colorTable          = ReadMacInt32(inDesiredAttributes + 24);
-	child->attr.contextOptions      = ReadMacInt32(inDesiredAttributes + 28);
-	child->attr.backBufferDepthMask = ReadMacInt32(inDesiredAttributes + 32);
-	child->attr.displayDepthMask    = ReadMacInt32(inDesiredAttributes + 36);
-	child->attr.backBufferBestDepth = desiredBackDepth;
-	child->attr.displayBestDepth    =
-	    DSpReserveActualDisplayDepth(child->attr.displayBestDepth,
-	                                 desiredDisplayDepth,
-	                                 desiredBackDepth);
-	child->attr.pageCount           = ReadMacInt32(inDesiredAttributes + 48);
-	child->attr.gameMustConfirmSwitch = ReadMacInt8(inDesiredAttributes + 55);
-	child->attr.backBufferWidth     = DSpReserveBackBufferDimension(
-	                                      child->attr.displayWidth,
-	                                      desiredWidth);
-	child->attr.backBufferHeight    = DSpReserveBackBufferDimension(
-	                                      child->attr.displayHeight,
-	                                      desiredHeight);
-	return true;
+	/* Reserve preserves the selected display and derives the back-buffer
+	 * geometry from these requested dimensions. Do not normalize them twice. */
+	desired.displayWidth        = desiredWidth;
+	desired.displayHeight       = desiredHeight;
+	desired.colorNeeds          = ReadMacInt32(inDesiredAttributes + 20);
+	desired.colorTable          = ReadMacInt32(inDesiredAttributes + 24);
+	desired.contextOptions      = ReadMacInt32(inDesiredAttributes + 28);
+	desired.backBufferDepthMask = ReadMacInt32(inDesiredAttributes + 32);
+	desired.displayDepthMask    = ReadMacInt32(inDesiredAttributes + 36);
+	desired.backBufferBestDepth = desiredBackDepth;
+	desired.displayBestDepth    = desiredDisplayDepth;
+	desired.pageCount           = ReadMacInt32(inDesiredAttributes + 48);
+	desired.gameMustConfirmSwitch = ReadMacInt8(inDesiredAttributes + 55);
+	return DSpPrepareContextForQueue(child, &desired);
 }
 
 /* Core deferred-switch staging for the Queue handler. Resolves both ctxRefs,
@@ -308,17 +298,11 @@ extern "C" int32_t DSpContext_QueueHandler(uint32_t parentCtx, uint32_t childCtx
 		        "kDSpInvalidContextErr", parentCtx, childCtx);
 		return kDSpInvalidContextErr;
 	}
-	if (inDesiredAttributes != 0) {
-		/* Reject-before-mutate — if the attribute struct is out of
-		 * mapped RAM, fail without staging the switch. */
-		if (!DSpApplyDesiredAttributesToChild(child, inDesiredAttributes)) {
-			DSP_LOG("Queue: inDesiredAttributes=0x%08x invalid -> "
-			        "kDSpInvalidAttributesErr", inDesiredAttributes);
-			return kDSpInvalidAttributesErr;
-		}
-		DSP_LOG("Queue: applied inDesiredAttributes=0x%08x to child=%u",
-		        inDesiredAttributes, childCtx);
-	}
+	if (parentCtx == childCtx) return kDSpInvalidContextErr;
+	int32_t rc = inDesiredAttributes != 0
+	    ? DSpApplyDesiredAttributesToChild(child, inDesiredAttributes)
+	    : DSpPrepareContextForQueue(child, &child->attr);
+	if (rc != kDSpNoErr) return rc;
 	return DSpQueueCore(parentCtx, childCtx);
 }
 

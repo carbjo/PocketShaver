@@ -616,13 +616,9 @@ static void DSpEncodeBackBufferBlit(DSpContextPrivate *ctx,
  *  DSpGetBackBufferCGrafPtr — CGrafPort emission into guest RAM          *
  * ---------------------------------------------------------------------- */
 
-extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
+extern "C" uint32_t DSpPrepareBackBufferGuestStorage(DSpContextPrivate *ctx)
 {
 	if (ctx == nullptr || ctx->back_buffer == nil) return 0;
-	/* Stable-pointer contract: subsequent GetBackBuffer calls
-	 * for the same context return the same Mac address for the lifetime
-	 * of the mode. Cached on first call. */
-	if (ctx->cgrafptr_mac_addr != 0) return ctx->cgrafptr_mac_addr;
 
 	uint32_t bpp       = ctx->attr.backBufferBestDepth;
 	uint32_t w         = DSpContextBackBufferWidth(ctx);
@@ -708,11 +704,33 @@ extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
 		}
 	}
 
+	return baseAddr_mac;
+}
+
+/* No guest calls: callers that prepare off-table can validate table identity
+ * after allocation before rewriting a retained port's arena records. */
+extern "C" uint32_t DSpEmitBackBufferCGrafPtr(DSpContextPrivate *ctx,
+                                              uint32_t baseAddr_mac)
+{
+	if (ctx == nullptr || ctx->back_buffer == nil || baseAddr_mac == 0) return 0;
+	const uint32_t w = DSpContextBackBufferWidth(ctx);
+	const uint32_t h = DSpContextBackBufferHeight(ctx);
+	const uint32_t bpp = ctx->attr.backBufferBestDepth;
+	const uint32_t alignedRB = DSpAlignedRowBytes(w, bpp);
+
 	const uint32_t storage = DSpGuestPortStorageSlot(dsp_guest_port_storage_addr,
 	    ctx->handle - 1, 2 * DSP_MAX_CONTEXTS + DSP_MAX_ALT_BUFFERS);
 	ctx->cgrafptr_mac_addr = DSpEmitSurfaceCGrafPort(baseAddr_mac, w, h, bpp,
 	    alignedRB, 0, nullptr, nullptr, storage);
 	return ctx->cgrafptr_mac_addr;
+}
+
+extern "C" uint32_t DSpGetBackBufferCGrafPtr(DSpContextPrivate *ctx)
+{
+	if (ctx == nullptr || ctx->back_buffer == nil) return 0;
+	if (ctx->cgrafptr_mac_addr != 0) return ctx->cgrafptr_mac_addr;
+	const uint32_t base = DSpPrepareBackBufferGuestStorage(ctx);
+	return DSpEmitBackBufferCGrafPtr(ctx, base);
 }
 
 /* ====================================================================== *

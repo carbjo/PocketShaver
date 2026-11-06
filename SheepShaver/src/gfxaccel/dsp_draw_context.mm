@@ -1972,6 +1972,66 @@ static int32_t DSpContext_Reserve_OnHandle_Core(DSpContextPrivate *ctx,
 	return kDSpNoErr;
 }
 
+extern "C" int32_t DSpPrepareContextForQueue(DSpContextPrivate *ctx,
+                                             const DSpContextAttributes *desired)
+{
+	if (ctx == nullptr || desired == nullptr) return kDSpInvalidAttributesErr;
+	if (ctx->state != (uint32_t)kDSpContextState_Inactive)
+		return kDSpInvalidContextErr;
+	if (desired == &ctx->attr && ctx->back_buffer != nil && ctx->back_texture != nil)
+		return kDSpNoErr;
+	const uint32_t handle = ctx->handle;
+	const uint32_t prior_port = ctx->cgrafptr_mac_addr;
+	id<MTLBuffer> prior_back_buffer = ctx->back_buffer;
+	id<MTLTexture> prior_back_texture = ctx->back_texture;
+
+	/* Prepare off-table. In particular, an allocation failure must not change
+	 * the dimensions/stride of a previously reserved, guest-visible buffer. */
+	DSpContextPrivate prepared = {};
+	prepared.attr = ctx->attr;
+	prepared.attr.gameMustConfirmSwitch = desired->gameMustConfirmSwitch;
+	prepared.handle = ctx->handle;
+	int32_t rc = DSpContext_Reserve_OnHandle_Core(&prepared, desired);
+	if (rc != kDSpNoErr) return rc;
+
+	/* NewPtrSys can execute guest callbacks. Prepare pixel storage without
+	 * touching the shared port arena, then revalidate before committing. */
+	NQDMetalFlush();
+	const uint32_t base = prior_port != 0
+	    ? DSpPrepareBackBufferGuestStorage(&prepared) : 0;
+	if (DSpGetContext(handle) != ctx ||
+	    ctx->state != (uint32_t)kDSpContextState_Inactive ||
+	    ctx->back_buffer != prior_back_buffer ||
+	    ctx->back_texture != prior_back_texture ||
+	    ctx->cgrafptr_mac_addr != prior_port) {
+		DSpReleaseBackBufferNow(&prepared);
+		return kDSpInvalidContextErr;
+	}
+	/* A retained back port keeps its address across a successful Queue. No
+	 * guest-visible port is changed on staging allocation failure. */
+	if (prior_port != 0 && DSpEmitBackBufferCGrafPtr(&prepared, base) == 0) {
+		DSpReleaseBackBufferNow(&prepared);
+		return kDSpInternalErr;
+	}
+	DSpReleaseBackBufferNow(ctx);
+	ctx->attr = prepared.attr;
+	ctx->back_buffer = prepared.back_buffer;
+	ctx->back_texture = prepared.back_texture;
+	ctx->cgrafptr_mac_addr = prepared.cgrafptr_mac_addr;
+	ctx->staging_mac_addr = prepared.staging_mac_addr;
+	ctx->staging_size = prepared.staging_size;
+	ctx->staging_owned_sysheap = prepared.staging_owned_sysheap;
+	ctx->enumeration_mode_index = DSP_ENUMERATION_INDEX_NONE;
+	ctx->dirty_empty = ctx->dirty_cold_start = true;
+	ctx->underlay_restore_pending = false;
+	ctx->explicit_swap_observed = false;
+	ctx->front_staging_present_state.encoded = false;
+	memcpy(ctx->clut_bytes, prepared.clut_bytes, sizeof(ctx->clut_bytes));
+	memcpy(ctx->clut_bytes_latched, prepared.clut_bytes_latched,
+	       sizeof(ctx->clut_bytes_latched));
+	return kDSpNoErr;
+}
+
 extern "C" int32_t DSpContext_ReserveHandler(uint32_t ctxRef,
                                               uint32_t attrAddr)
 {
@@ -2258,6 +2318,9 @@ static bool DSpPollBusyProc(uint32_t ctxRef, uint32_t busyProcAddr,
                             uint32_t userRefCon)
 {
 	if (busyProcAddr == 0) return true;
+	DSpContextPrivate *expected = DSpGetContext(ctxRef);
+	if (expected == nullptr) return false;
+	const uint32_t entry_state = expected->state;
 
 	uint64_t cadence = vbl_source_get_cadence_usec();
 	if (cadence == 0) cadence = 16667;    /* fallback 60 Hz */
@@ -2271,6 +2334,11 @@ static bool DSpPollBusyProc(uint32_t ctxRef, uint32_t busyProcAddr,
 	 * values through uintptr before narrowing them back to uint32 here.
 	 * Classic Boolean is an 8-bit value, so only the low byte matters. */
 	while (elapsed < timeout_usec) {
+		/* The guest callback can release/pause the context or pump a lifecycle
+		 * transition. Stop calling its code as soon as the context changes;
+		 * SwapBuffers revalidates the result before touching any surface. */
+		DSpContextPrivate *current = DSpGetContext(ctxRef);
+		if (current != expected || current->state != entry_state) return false;
 		uint32 rv = call_macos2(busyProcAddr, ctxRef, userRefCon);
 		if ((rv & 0xff) == 0) {
 			return true;   /* busyProc signalled "checks complete" */
@@ -2396,13 +2464,14 @@ extern "C" int32_t DSpContext_SwapBuffersHandler(uint32_t ctxRef,
 
 	/* Pre-swap busyProc gate (PDF p.39 — constraints-before-swap, NOT
 	 * post-swap completion). */
-	if (!DSpPollBusyProc(ctxRef, busyProcAddr, userRefCon)) {
-		DSP_LOG("SwapBuffers: busyProc gate timed out (2 VBL cap); "
-		        "proceeding with swap");
-	}
+	const bool busy_completed = DSpPollBusyProc(ctxRef, busyProcAddr, userRefCon);
 	int32_t revalidate_rc =
 	    DSpRevalidateSwapContext(ctxRef, ctx, entry_state, &ctx, "busyProc");
 	if (revalidate_rc != kDSpNoErr) return revalidate_rc;
+	if (!busy_completed) {
+		DSP_LOG("SwapBuffers: busyProc gate timed out (2 VBL cap); "
+		        "proceeding with swap");
+	}
 
 	/* VBL sync unless kDSpContextOption_DontSyncVBL is set. max_frame_rate
 	 * multiplies the same DSp pacing lane, so a 60-fps cap on a 120-Hz
