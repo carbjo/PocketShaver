@@ -65,27 +65,23 @@
 void powerpc_cpu::execute_illegal(uint32 opcode)
 {
 #ifdef SHEEPSHAVER
-	// The guest can dispose component code resources behind prepared CFM
-	// TVectors, leaving apps executing freed memory inside a container tracked
-	// by the rsrc_patches monitor.  The freed space may be zero-filled OR
-	// already re-populated by a new owner (any garbage opcode), so try the
-	// repair on EVERY illegal opcode -- TryRepair itself verifies the word at
-	// pc actually differs from the lock-time snapshot before restoring.
-	// Retry semantics: every invalid opcode decodes as CFLOW_TRAP (block-
-	// final), so returning without increment_pc() re-decodes from the
-	// repaired memory and retries this PC.
+	// The guest can dispose component code behind prepared CFM TVectors,
+	// leaving apps executing freed memory in a container the rsrc_patches
+	// monitor tracks. Freed space may be zeroed or already reused (any
+	// opcode), so try the repair on every illegal opcode; TryRepair checks
+	// the word at pc against the lock-time snapshot. Invalid opcodes decode
+	// as CFLOW_TRAP, so returning without increment_pc() retries this PC
+	// from the repaired memory.
 	{
 		extern int RsrcLocksTryRepair(uint32 pc, uint32 *out_start, uint32 *out_end);
 		uint32 repair_start, repair_end;
 		int repaired = RsrcLocksTryRepair(pc(), &repair_start, &repair_end);
 		if (repaired) {
 			if (repaired == 2) {
-				// Disposed-import graceful return: the stale cross-TOC call
-				// targeted a freed container whose code is gone.  Resume the
-				// caller as if the import returned noErr -- the bctr glue left
-				// LR = caller's return address (no link), and r3 carries the
-				// result.  This breaks the runaway CFM-REPAIR storm without
-				// restoring (and thus resurrecting) the freed code.
+				// Disposed import: the stale cross-TOC call hit a freed container.
+				// Return to the caller as if the import returned noErr (the bctr
+				// glue left LR = return address; r3 carries the result) rather
+				// than resurrecting the freed code.
 				gpr(3) = 0;
 				pc() = lr();
 			}
@@ -98,8 +94,8 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 	fprintf(stderr, "Illegal instruction at %08x, opcode = %08x\n", pc(), opcode);
 
 #ifdef SHEEPSHAVER
-	// Dump the locked-'nift' monitor table on the first fault -- host-side
-	// reads only, context-safe.
+	// Dump the locked-'nift' monitor table on the first fault (host-side
+	// reads only).
 	extern void RsrcLocksDumpOnCrash(void);
 	RsrcLocksDumpOnCrash();
 #endif
@@ -133,6 +129,11 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 	fprintf(stderr, "  R8=0x%08x R9=0x%08x R10=0x%08x R11=0x%08x\n",
 			gpr(8), gpr(9), gpr(10), gpr(11));
 	fprintf(stderr, "  R12=0x%08x R13=0x%08x\n", gpr(12), gpr(13));
+	// Object/table pointers often survive indirect-call glue in nonvolatile
+	// registers. Keep them in the dump when the glue has already clobbered r12.
+	for (int reg = 14; reg < 32; reg += 3)
+		fprintf(stderr, "  R%d=0x%08x R%d=0x%08x R%d=0x%08x\n",
+				reg, gpr(reg), reg + 1, gpr(reg + 1), reg + 2, gpr(reg + 2));
 	// Dump instructions around the crash address
 	fprintf(stderr, "  Instructions around PC:\n");
 	for (int di = -4; di <= 4; di++) {
@@ -140,13 +141,7 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 		uint32 instr = vm_read_memory_4(addr);
 		fprintf(stderr, "    [0x%08x] %08x%s\n", addr, instr, di == 0 ? " <-- CRASH" : "");
 	}
-	// Dump a few words at LR to help understand call chain
-	fprintf(stderr, "  Instructions at LR 0x%08x:\n", lr());
-	for (int di = -2; di <= 2; di++) {
-		uint32 addr = lr() + di * 4;
-		uint32 instr = vm_read_memory_4(addr);
-		fprintf(stderr, "    [0x%08x] %08x\n", addr, instr);
-	}
+	dump_call_context();
 
 	// Cross-TOC import calls reach here through a TVector held in r12
 	// (glue: lwz r12,off(r2); lwz r0,0(r12); mtctr r0; lwz r2,4(r12); bctr).
@@ -205,6 +200,49 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 	mon(3, arg);
 #endif
 	abort();
+}
+
+// Shared by illegal-instruction and host-fault reporting. A wild branch
+// can fault during instruction fetch before execute_illegal is reached.
+void powerpc_cpu::dump_call_context()
+{
+	// A null indirect call faults at PC=0, so the caller and its branch glue
+	// are more useful than the faulting instruction. Validate these extra
+	// reads: a corrupt LR must not cause another fault while reporting one.
+	auto read_call_word = [&](uint32 addr, uint32 &word) -> bool {
+#ifdef SHEEPSHAVER
+		const bool in_ram = addr >= RAMBase && addr - RAMBase < RAMSize
+			&& RAMSize - (addr - RAMBase) >= 4;
+		const bool in_rom = addr >= ROMBase && addr - ROMBase < ROM_AREA_SIZE
+			&& ROM_AREA_SIZE - (addr - ROMBase) >= 4;
+		if (!in_ram && !in_rom) return false;
+#else
+		if (addr < 0x1000 || addr > 0x4ffffffc) return false;
+#endif
+		word = vm_read_memory_4(addr);
+		return true;
+	};
+	auto dump_call_word = [&](uint32 addr) {
+		uint32 instr;
+		if (read_call_word(addr, instr))
+			fprintf(stderr, "    [0x%08x] %08x\n", addr, instr);
+		else
+			fprintf(stderr, "    [0x%08x] <outside diagnostic memory ranges>\n", addr);
+	};
+	fprintf(stderr, "  Instructions at LR 0x%08x:\n", lr());
+	for (int di = -16; di <= 4; di++)
+		dump_call_word(lr() + di * 4);
+	uint32 call;
+	if (lr() >= 4 && read_call_word(lr() - 4, call)
+		&& (call & 0xfc000001) == 0x48000001) { // bl / bla
+		uint32 displacement = call & 0x03fffffc;
+		if (displacement & 0x02000000) displacement |= 0xfc000000;
+		uint32 target = (call & 2) ? displacement : lr() - 4 + displacement;
+		fprintf(stderr, "  Call target from LR-4: 0x%08x:\n", target);
+		for (int di = 0; di < 8; di++)
+			dump_call_word(target + di * 4);
+	}
+
 }
 
 void powerpc_cpu::execute_nop(uint32 opcode)
@@ -1640,10 +1678,8 @@ void powerpc_cpu::execute_vector_merge(uint32 opcode)
 	typename VD::type & vD = VD::ref(this, opcode);
 	const int n_elements = 16 / VD::element_size;
 
-	// Compute into a temporary so that an in-place destination (vD aliasing
-	// vA or vB, which compiled/hand-written AltiVec code does routinely to
-	// save registers) reads original source bytes, not ones already
-	// overwritten.  Real hardware reads all sources before writing vD.
+	// Compute into a temporary: vD often aliases vA or vB in real AltiVec
+	// code, and hardware reads all sources before writing vD.
 	powerpc_vr tmp;
 	for (int i = 0; i < n_elements; i += 2) {
 		VD::set_element(tmp, i    , VA::get_element(vA, (i / 2) + LO * (n_elements / 2)));

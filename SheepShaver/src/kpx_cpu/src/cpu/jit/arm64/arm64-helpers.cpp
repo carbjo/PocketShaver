@@ -1,12 +1,10 @@
 /*
  *  arm64-helpers.cpp - C helpers called by JIT-generated arm64 code
  *
- *  The flag-producing arithmetic (XER carry/overflow), divides, and XER
- *  packing are transcribed directly from the interpreter's semantics
- *  (ppc-execute.hpp do_execute_addition/subtract, ppc-registers.hpp XER
- *  accessors) so they are correct by construction. The generated code
- *  keeps values in T0/T1 (w20/w21) and marshals them as C arguments,
- *  reading/writing XER through the CPU pointer (x19).
+ *  XER carry/overflow arithmetic, divides and XER packing are transcribed
+ *  from the interpreter (ppc-execute.hpp do_execute_addition/subtract,
+ *  ppc-registers.hpp XER accessors). Generated code passes T0/T1 (w20/w21)
+ *  as C arguments; XER is reached through the CPU pointer (x19).
  *
  *  PocketShaver arm64 JIT backend (C) 2026 Sierra Burkhart
  *  Kheperix (C) 2003-2005 Gwenole Beauchesne
@@ -149,12 +147,11 @@ uint32 kpx_op_load_xer(powerpc_cpu *c) { return c->jit_xer().get(); }
 void   kpx_op_store_xer(powerpc_cpu *c, uint32 v) { c->jit_xer().set(v); }
 
 // ---- guest memory access ---------------------------------------------------
-// Under MEM_BULK the generated code translates flat guest->host inline
-// against the VMBASE register (x23) and only calls these helpers on the
-// coarse-filter cold path (kernel-data windows and wild addresses); the vm
-// accessors then apply the exact translation semantics (32-bit wrap, window
-// redirect, VMBaseDiff, big-endian byteswap). Without MEM_BULK every access
-// still routes through here.
+// Under MEM_BULK, generated code translates guest->host inline against
+// VMBASE (x23) and calls these only on the coarse-filter cold path
+// (kernel-data windows, wild addresses), where the vm accessors apply the
+// exact semantics (32-bit wrap, window redirect, VMBaseDiff, byteswap).
+// Without MEM_BULK every access comes here.
 extern "C" uintptr kpx_vm_base(void)
 {
 #ifdef MEM_BULK
@@ -167,8 +164,7 @@ extern "C" uintptr kpx_vm_base(void)
 static inline void kpx_mem_cold_instrument()
 {
 #ifdef KPX_JIT_INSTRUMENT
-	// Differential-harness hook: proves the inline-fastmem cold path (and
-	// with it the coarse filter) is being exercised (never defined in
+	// Differential-harness hook counting cold-path hits (not defined in
 	// shipping builds)
 	extern unsigned long kpx_jit_mem_cold_count;
 	kpx_jit_mem_cold_count++;
@@ -224,10 +220,9 @@ void kpx_op_dcbz(uint32 ea)
 		p[i] = 0;
 }
 
-// AltiVec 128-bit and element loads/stores. Transcribed from the dyngen op
-// bodies (ppc-dyngen-ops.cpp op_load_vect_VD_T0 & friends): w[i] holds
-// guest word element i as a host-endian value; the vm accessors provide
-// byteswap and the kernel-window redirect.
+// AltiVec 128-bit and element loads/stores, transcribed from the dyngen ops
+// (op_load_vect_VD_T0 etc.). w[i] holds guest word i host-endian; the vm
+// accessors handle byteswap and the kernel-window redirect.
 void kpx_op_load_vect(void *cpu, void *vrp, uint32 ea)
 {
 	powerpc_vr &v = *(powerpc_vr *)vrp;
@@ -260,13 +255,11 @@ void kpx_op_store_word_vect(void *cpu, void *vrp, uint32 ea)
 } // extern "C"
 
 // ---- floating point --------------------------------------------------------
-// Transcribed from the interpreter's execute_fp_arith / fp_classify
-// (ppc-execute.cpp) and the C.6/C.7 single-precision converters
-// (ppc-execute.hpp): FP arithmetic computes in double via the same
-// expressions (mathlib_fmadd/fmsub for the fused family), then updates
-// FPSCR[FPRF] with the class and sign of the result unless FPSCR[VE] is
-// set. The FABS/FMR/FNABS/FNEG move ops do not classify (decode table
-// passes FPSCR=false) and are emitted inline, not through helpers.
+// Transcribed from execute_fp_arith / fp_classify (ppc-execute.cpp) and the
+// C.6/C.7 single-precision converters (ppc-execute.hpp). Arithmetic runs in
+// double with the same expressions (mathlib_fmadd/fmsub for the fused
+// family), then sets FPSCR[FPRF] unless FPSCR[VE] is set. FABS/FMR/FNABS/FNEG
+// do not classify and are emitted inline.
 
 template< class FP >
 static inline void kpx_fp_classify(powerpc_cpu *c, FP x)
@@ -298,14 +291,13 @@ static inline void kpx_fp_classify(powerpc_cpu *c, FP x)
 	c->jit_regs().fpscr = f;
 }
 
-// Result commit for double-typed and float-typed instructions (the FP
-// template parameter in the decode table): classify runs on the same-typed
-// value the interpreter uses; the FPR always receives the double
+// Result commit for double- and float-typed instructions (the decode table's
+// FP template parameter): classify the same-typed value the interpreter does;
+// the FPR always receives the double.
 static inline void kpx_fp_instrument()
 {
 #ifdef KPX_JIT_INSTRUMENT
-	// Differential-harness hook: proves the native FP path executed
-	// (never defined in shipping builds)
+	// Differential-harness hook (not defined in shipping builds)
 	extern unsigned long kpx_jit_fp_helper_count;
 	kpx_jit_fp_helper_count++;
 #endif
@@ -349,13 +341,11 @@ double kpx_fp_fmsubs (powerpc_cpu *c, double a, double b, double x) { return kpx
 double kpx_fp_fnmadds(powerpc_cpu *c, double a, double b, double x) { return kpx_fp_ret_d(c, -(float)mathlib_fmadd(a, b, x)); }
 double kpx_fp_fnmsubs(powerpc_cpu *c, double a, double b, double x) { return kpx_fp_ret_d(c, -(float)mathlib_fmsub(a, b, x)); }
 
-// FP loads/stores: 64-bit vm access plus the single-precision converters
-// transcribed from ppc-execute.hpp (fp_load_single_convert /
-// fp_store_single_convert, including the denormalization window). Under
-// MEM_BULK, read_8/write_8/load_single are cold-path only (the inline hot
-// path replicates them: flat access + REV, and (double)f == FCVT for
-// load_single); store_single stays a helper unconditionally because the
-// out-of-range denormalization cases are NOT a plain FCVT.
+// FP loads/stores: 64-bit vm access plus fp_load_single_convert /
+// fp_store_single_convert (ppc-execute.hpp). Under MEM_BULK,
+// read_8/write_8/load_single are cold-path only (inline: flat access + REV,
+// FCVT for load_single). store_single is always a helper: its out-of-range
+// denormalization cases are not a plain FCVT.
 uint64 kpx_vm_read_8(uint32 ea) { kpx_mem_cold_instrument(); return vm_read_memory_8(ea); }
 void kpx_vm_write_8(uint32 ea, uint64 v) { kpx_mem_cold_instrument(); vm_write_memory_8(ea, v); }
 

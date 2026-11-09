@@ -20,10 +20,9 @@ static constexpr uint32_t kRaveATIPrivateTagBase = 1000u;
 static constexpr uint32_t kRaveATIRage128RendererID = 0x00021000u;
 
 /*
- * Unreal Tournament's first-time renderer picker creates a tiny RAVE context,
- * then reads ATI private int tag 1011.  Returning a boolean 1 leaves RAVE
- * disabled; match the Rage 128 renderer family that we advertise through RAVE
- * and AGL so the game takes its Rage 128 renderer path.
+ * Unreal Tournament's renderer picker reads ATI private int tag 1011 from a
+ * probe context. A boolean 1 leaves RAVE disabled; answer the Rage 128
+ * renderer ID advertised elsewhere so it takes its Rage 128 path.
  */
 static constexpr uint32_t kRaveATIUnrealTournamentProbeTag = 1011u;
 static constexpr uint32_t kRaveATIUnrealTournamentProbeIndex =
@@ -33,13 +32,11 @@ static constexpr uint32_t kRaveATIRaveExtFuncsTag = 1021u;
 static constexpr uint32_t kRaveATIRaveExtFuncsIndex =
 	kRaveATIRaveExtFuncsTag - kRaveATIPrivateTagBase;
 /*
- * The real ATI table has at least 5 entries: Myth II (render_rave.c) calls
- * slot 4 as GetDrawBuffer(ctx, TQADevice*) right after sync() and reads
- * rowBytes (+4) and baseAddr (+0x14) from the returned TQADevice, so any
- * caller-provided struct is at least 5 pointers long. We over-allocate our
- * own table to 8 entries (slots 5-7 filled with a safe stub) in case other
- * titles index further, but only ever write 5 slots into a caller-provided
- * struct because 5 is the largest size proven by a real client.
+ * The ATI table has at least 5 entries: Myth II calls slot 4 as
+ * GetDrawBuffer(ctx, TQADevice*) after sync() and reads rowBytes (+4) and
+ * baseAddr (+0x14). Our own table has 8 (slots 5-7 are safe stubs), but only
+ * 5 slots are ever written into a caller-provided struct, the largest size a
+ * real client is known to use.
  */
 static constexpr uint32_t kRaveATIRaveExtFuncsEntryCount = 8u;
 static constexpr uint32_t kRaveATIRaveExtFuncsKnownSlotCount = 5u;

@@ -9,31 +9,6 @@
 
 #include <stdint.h>
 
-typedef struct GLOffscreenBGRAStats {
-	uint64_t total_pixels;
-	uint64_t rgb_nonzero_pixels;
-	uint64_t alpha_nonzero_pixels;
-	uint64_t alpha_opaque_pixels;
-	uint32_t rgb_min_x;
-	uint32_t rgb_min_y;
-	uint32_t rgb_max_x;
-	uint32_t rgb_max_y;
-	uint32_t alpha_min_x;
-	uint32_t alpha_min_y;
-	uint32_t alpha_max_x;
-	uint32_t alpha_max_y;
-	bool rgb_bounds_valid;
-	bool alpha_bounds_valid;
-} GLOffscreenBGRAStats;
-
-typedef struct GLOffscreenCompositeRect {
-	bool valid;
-	uint32_t x;
-	uint32_t y;
-	uint32_t width;
-	uint32_t height;
-} GLOffscreenCompositeRect;
-
 typedef struct GLOverlayLayerRect {
 	float dst_origin_x;
 	float dst_origin_y;
@@ -43,36 +18,59 @@ typedef struct GLOverlayLayerRect {
 } GLOverlayLayerRect;
 
 static inline uint32_t GLOffscreenDrawableBytesPerPixel(uint32_t width,
-                                                        uint32_t rowbytes)
+                                                        uint32_t rowbytes,
+                                                        uint32_t pixel_size)
 {
 	if (width == 0) return 0;
-
-	const uint64_t min_32bpp_rowbytes = (uint64_t)width * 4u;
-	const uint64_t min_16bpp_rowbytes = (uint64_t)width * 2u;
-	if ((uint64_t)rowbytes >= min_32bpp_rowbytes) return 4;
-	if ((uint64_t)rowbytes >= min_16bpp_rowbytes) return 2;
-	return 0;
+	// Row padding describes layout, not color depth. Use the format selected
+	// at context creation for validation, CPU import, and GPU readback alike.
+	if (pixel_size != 16 && pixel_size != 32) return 0;
+	const uint32_t bytes = pixel_size / 8u;
+	return (uint64_t)rowbytes >= (uint64_t)width * bytes ? bytes : 0;
 }
 
 static inline bool GLShouldAcceptOffscreenDrawable(uint32_t width,
                                                    uint32_t height,
                                                    uint32_t rowbytes,
-                                                   uint32_t baseaddr)
+                                                   uint32_t baseaddr,
+                                                   uint32_t pixel_size)
 {
-	return width != 0 &&
-	       height != 0 &&
-	       GLOffscreenDrawableBytesPerPixel(width, rowbytes) != 0 &&
+	// AGL sizes/strides are signed GLsizei values at the guest ABI boundary.
+	// Bound them before viewport casts, CPU allocations, or Metal descriptors.
+	return width != 0 && width <= 16384 &&
+	       height != 0 && height <= 16384 && rowbytes <= INT32_MAX &&
+	       GLOffscreenDrawableBytesPerPixel(width, rowbytes, pixel_size) != 0 &&
 	       baseaddr != 0;
+}
+
+static inline bool GLOffscreenDrawableFitsGuestRAM(uint32_t width,
+                                                   uint32_t height,
+                                                   uint32_t rowbytes,
+                                                   uint32_t baseaddr,
+                                                   uint32_t ram_base,
+                                                   uint32_t ram_size,
+                                                   uint32_t pixel_size)
+{
+	if (!GLShouldAcceptOffscreenDrawable(width, height, rowbytes, baseaddr, pixel_size) ||
+	    baseaddr < ram_base) return false;
+	// Only the pixels in the last row are accessed; trailing padding need not
+	// be mapped. Both import and readback must fit writable guest RAM.
+	const uint64_t bytes = uint64_t(height - 1) * rowbytes +
+	    uint64_t(width) * GLOffscreenDrawableBytesPerPixel(width, rowbytes, pixel_size);
+	const uint64_t end = uint64_t(baseaddr) + bytes;
+	return end <= (uint64_t(1) << 32) &&
+	       end <= uint64_t(ram_base) + ram_size;
 }
 
 static inline bool GLShouldReadbackOffscreenDrawable(bool is_offscreen,
                                                      uint32_t width,
                                                      uint32_t height,
                                                      uint32_t rowbytes,
-                                                     uint32_t baseaddr)
+                                                     uint32_t baseaddr,
+                                                     uint32_t pixel_size)
 {
 	return is_offscreen &&
-	       GLShouldAcceptOffscreenDrawable(width, height, rowbytes, baseaddr);
+	       GLShouldAcceptOffscreenDrawable(width, height, rowbytes, baseaddr, pixel_size);
 }
 
 static inline bool GLShouldPreserveOverlayBindingAfterResourceDetach(
@@ -166,435 +164,6 @@ static inline GLOverlayLayerRect GLMakeOverlayLayerRect(
 	return rect;
 }
 
-static inline bool GLShouldCompositeOffscreenIntoGuestSurface(
-	bool readback_valid,
-	bool alpha_bounds_valid,
-	uint32_t readback_baseaddr,
-	uint32_t readback_width,
-	uint32_t readback_height,
-	uint32_t readback_bytes_per_pixel,
-	uint32_t dst_baseaddr,
-	uint32_t dst_rowbytes,
-	uint32_t dst_depth_bits)
-{
-	return readback_valid &&
-	       alpha_bounds_valid &&
-	       readback_baseaddr != 0 &&
-	       readback_width != 0 &&
-	       readback_height != 0 &&
-	       readback_bytes_per_pixel == 2 &&
-	       dst_baseaddr != 0 &&
-	       dst_baseaddr != readback_baseaddr &&
-	       dst_depth_bits == 16 &&
-	       GLOffscreenDrawableBytesPerPixel(readback_width, dst_rowbytes) == 2;
-}
-
-static inline bool GLShouldBridgeOffscreenAfterNQDFrontBlt(
-	bool main_device_valid,
-	uint32_t main_device_baseaddr,
-	int32_t main_device_rowbytes,
-	uint32_t src_baseaddr,
-	int32_t src_rowbytes,
-	uint32_t src_depth_bits,
-	uint32_t dst_baseaddr,
-	int32_t dst_rowbytes,
-	uint32_t dst_depth_bits,
-	uint32_t transfer_mode)
-{
-	return main_device_valid &&
-	       main_device_baseaddr != 0 &&
-	       main_device_rowbytes > 0 &&
-	       dst_baseaddr == main_device_baseaddr &&
-	       dst_rowbytes == main_device_rowbytes &&
-	       src_baseaddr != 0 &&
-	       src_baseaddr != dst_baseaddr &&
-	       src_rowbytes >= dst_rowbytes &&
-	       transfer_mode == 0 &&
-	       src_depth_bits == 16 &&
-	       dst_depth_bits == 16;
-}
-
-static inline bool GLShouldCompositeOffscreenDirtyRect(
-	bool alpha_bounds_valid,
-	uint32_t alpha_min_x,
-	uint32_t alpha_min_y,
-	uint32_t alpha_max_x,
-	uint32_t alpha_max_y,
-	int32_t dirty_x,
-	int32_t dirty_y,
-	int32_t dirty_width,
-	int32_t dirty_height)
-{
-	if (!alpha_bounds_valid ||
-	    alpha_max_x < alpha_min_x ||
-	    alpha_max_y < alpha_min_y ||
-	    dirty_width <= 0 ||
-	    dirty_height <= 0) {
-		return false;
-	}
-
-	const int64_t alpha_left = alpha_min_x;
-	const int64_t alpha_top = alpha_min_y;
-	const int64_t alpha_right = (int64_t)alpha_max_x + 1;
-	const int64_t alpha_bottom = (int64_t)alpha_max_y + 1;
-	const int64_t dirty_left = dirty_x;
-	const int64_t dirty_top = dirty_y;
-	const int64_t dirty_right = (int64_t)dirty_x + dirty_width;
-	const int64_t dirty_bottom = (int64_t)dirty_y + dirty_height;
-
-	return dirty_left < alpha_right &&
-	       dirty_right > alpha_left &&
-	       dirty_top < alpha_bottom &&
-	       dirty_bottom > alpha_top;
-}
-
-static inline bool GLDirtyRectCoversSurface(int32_t dirty_x,
-                                            int32_t dirty_y,
-                                            int32_t dirty_width,
-                                            int32_t dirty_height,
-                                            uint32_t surface_width,
-                                            uint32_t surface_height)
-{
-	if (dirty_width <= 0 ||
-	    dirty_height <= 0 ||
-	    surface_width == 0 ||
-	    surface_height == 0) {
-		return false;
-	}
-
-	const int64_t dirty_left = dirty_x;
-	const int64_t dirty_top = dirty_y;
-	const int64_t dirty_right = (int64_t)dirty_x + dirty_width;
-	const int64_t dirty_bottom = (int64_t)dirty_y + dirty_height;
-
-	return dirty_left <= 0 &&
-	       dirty_top <= 0 &&
-	       dirty_right >= (int64_t)surface_width &&
-	       dirty_bottom >= (int64_t)surface_height;
-}
-
-static inline uint64_t GLDirtyRectAlphaIntersectionArea(
-	uint32_t alpha_min_x,
-	uint32_t alpha_min_y,
-	uint32_t alpha_max_x,
-	uint32_t alpha_max_y,
-	int32_t dirty_x,
-	int32_t dirty_y,
-	int32_t dirty_width,
-	int32_t dirty_height)
-{
-	if (alpha_max_x < alpha_min_x ||
-	    alpha_max_y < alpha_min_y ||
-	    dirty_width <= 0 ||
-	    dirty_height <= 0) {
-		return 0;
-	}
-
-	const int64_t alpha_left = alpha_min_x;
-	const int64_t alpha_top = alpha_min_y;
-	const int64_t alpha_right = (int64_t)alpha_max_x + 1;
-	const int64_t alpha_bottom = (int64_t)alpha_max_y + 1;
-	const int64_t dirty_left = dirty_x;
-	const int64_t dirty_top = dirty_y;
-	const int64_t dirty_right = (int64_t)dirty_x + dirty_width;
-	const int64_t dirty_bottom = (int64_t)dirty_y + dirty_height;
-	const int64_t clipped_left =
-		dirty_left > alpha_left ? dirty_left : alpha_left;
-	const int64_t clipped_top =
-		dirty_top > alpha_top ? dirty_top : alpha_top;
-	const int64_t clipped_right =
-		dirty_right < alpha_right ? dirty_right : alpha_right;
-	const int64_t clipped_bottom =
-		dirty_bottom < alpha_bottom ? dirty_bottom : alpha_bottom;
-
-	if (clipped_left >= clipped_right || clipped_top >= clipped_bottom) {
-		return 0;
-	}
-	return (uint64_t)(clipped_right - clipped_left) *
-	       (uint64_t)(clipped_bottom - clipped_top);
-}
-
-static inline uint64_t GLOffscreenAlphaBoundsArea(uint32_t alpha_min_x,
-                                                  uint32_t alpha_min_y,
-                                                  uint32_t alpha_max_x,
-                                                  uint32_t alpha_max_y)
-{
-	if (alpha_max_x < alpha_min_x || alpha_max_y < alpha_min_y) {
-		return 0;
-	}
-	return (uint64_t)((uint64_t)alpha_max_x - alpha_min_x + 1u) *
-	       (uint64_t)((uint64_t)alpha_max_y - alpha_min_y + 1u);
-}
-
-static inline bool GLDirtyRectFullyCoversAlphaBounds(
-	uint32_t alpha_min_x,
-	uint32_t alpha_min_y,
-	uint32_t alpha_max_x,
-	uint32_t alpha_max_y,
-	int32_t dirty_x,
-	int32_t dirty_y,
-	int32_t dirty_width,
-	int32_t dirty_height)
-{
-	if (alpha_max_x < alpha_min_x ||
-	    alpha_max_y < alpha_min_y ||
-	    dirty_width <= 0 ||
-	    dirty_height <= 0) {
-		return false;
-	}
-
-	const int64_t dirty_left = dirty_x;
-	const int64_t dirty_top = dirty_y;
-	const int64_t dirty_right = (int64_t)dirty_x + dirty_width;
-	const int64_t dirty_bottom = (int64_t)dirty_y + dirty_height;
-	const int64_t alpha_left = alpha_min_x;
-	const int64_t alpha_top = alpha_min_y;
-	const int64_t alpha_right = (int64_t)alpha_max_x + 1;
-	const int64_t alpha_bottom = (int64_t)alpha_max_y + 1;
-
-	return dirty_left <= alpha_left &&
-	       dirty_top <= alpha_top &&
-	       dirty_right >= alpha_right &&
-	       dirty_bottom >= alpha_bottom;
-}
-
-static inline bool GLShouldCompositeCurrentOffscreenDirtyRect(
-	bool using_dirty_rect,
-	uint32_t alpha_min_x,
-	uint32_t alpha_min_y,
-	uint32_t alpha_max_x,
-	uint32_t alpha_max_y,
-	int32_t dirty_x,
-	int32_t dirty_y,
-	int32_t dirty_width,
-	int32_t dirty_height,
-	uint32_t surface_width,
-	uint32_t surface_height)
-{
-	if (alpha_max_x < alpha_min_x || alpha_max_y < alpha_min_y) {
-		return false;
-	}
-	if (!using_dirty_rect) return true;
-	if (GLDirtyRectCoversSurface(dirty_x,
-	                             dirty_y,
-	                             dirty_width,
-	                             dirty_height,
-	                             surface_width,
-	                             surface_height)) {
-		return true;
-	}
-	if (!GLShouldCompositeOffscreenDirtyRect(true,
-	                                        alpha_min_x,
-	                                        alpha_min_y,
-	                                        alpha_max_x,
-	                                        alpha_max_y,
-	                                        dirty_x,
-	                                        dirty_y,
-	                                        dirty_width,
-	                                        dirty_height)) {
-		return false;
-	}
-	const uint64_t alpha_area =
-		GLOffscreenAlphaBoundsArea(alpha_min_x,
-		                           alpha_min_y,
-		                           alpha_max_x,
-		                           alpha_max_y);
-	const uint64_t dirty_area =
-		(uint64_t)(uint32_t)dirty_width * (uint32_t)dirty_height;
-	const uint64_t intersection_area =
-		GLDirtyRectAlphaIntersectionArea(alpha_min_x,
-		                                  alpha_min_y,
-		                                  alpha_max_x,
-		                                  alpha_max_y,
-		                                  dirty_x,
-		                                  dirty_y,
-		                                  dirty_width,
-		                                  dirty_height);
-	if (alpha_area == 0 || dirty_area == 0 || intersection_area == 0) {
-		return false;
-	}
-	if (GLDirtyRectFullyCoversAlphaBounds(alpha_min_x,
-	                                      alpha_min_y,
-	                                      alpha_max_x,
-	                                      alpha_max_y,
-	                                      dirty_x,
-	                                      dirty_y,
-	                                      dirty_width,
-	                                      dirty_height) &&
-	    dirty_area > alpha_area * 2u) {
-		return false;
-	}
-
-	return intersection_area * 5u >= alpha_area * 4u ||
-	       intersection_area * 3u >= dirty_area * 2u;
-}
-
-static inline bool GLDirtyRectFullyCoversOffscreenComposite(
-	int32_t dirty_x,
-	int32_t dirty_y,
-	int32_t dirty_width,
-	int32_t dirty_height,
-	uint32_t composite_x,
-	uint32_t composite_y,
-	uint32_t composite_width,
-	uint32_t composite_height)
-{
-	if (dirty_width <= 0 ||
-	    dirty_height <= 0 ||
-	    composite_width == 0 ||
-	    composite_height == 0) {
-		return false;
-	}
-
-	const int64_t dirty_left = dirty_x;
-	const int64_t dirty_top = dirty_y;
-	const int64_t dirty_right = (int64_t)dirty_x + dirty_width;
-	const int64_t dirty_bottom = (int64_t)dirty_y + dirty_height;
-	const int64_t composite_left = composite_x;
-	const int64_t composite_top = composite_y;
-	const int64_t composite_right =
-		(int64_t)composite_x + composite_width;
-	const int64_t composite_bottom =
-		(int64_t)composite_y + composite_height;
-
-	return dirty_left <= composite_left &&
-	       dirty_top <= composite_top &&
-	       dirty_right >= composite_right &&
-	       dirty_bottom >= composite_bottom;
-}
-
-static inline bool GLDirtyRectIntersectsOffscreenComposite(
-	int32_t dirty_x,
-	int32_t dirty_y,
-	int32_t dirty_width,
-	int32_t dirty_height,
-	uint32_t composite_x,
-	uint32_t composite_y,
-	uint32_t composite_width,
-	uint32_t composite_height)
-{
-	if (composite_width == 0 || composite_height == 0) return false;
-	return GLShouldCompositeOffscreenDirtyRect(
-		true,
-		composite_x,
-		composite_y,
-		composite_x + composite_width - 1u,
-		composite_y + composite_height - 1u,
-		dirty_x,
-		dirty_y,
-		dirty_width,
-		dirty_height);
-}
-
-static inline GLOffscreenCompositeRect GLOffscreenCompositeRectForDirty(
-	bool using_dirty_rect,
-	uint32_t alpha_min_x,
-	uint32_t alpha_min_y,
-	uint32_t alpha_max_x,
-	uint32_t alpha_max_y,
-	int32_t dirty_x,
-	int32_t dirty_y,
-	int32_t dirty_width,
-	int32_t dirty_height)
-{
-	GLOffscreenCompositeRect rect = {false, 0, 0, 0, 0};
-	if (alpha_max_x < alpha_min_x || alpha_max_y < alpha_min_y) {
-		return rect;
-	}
-
-	const int64_t alpha_left = alpha_min_x;
-	const int64_t alpha_top = alpha_min_y;
-	const int64_t alpha_right = (int64_t)alpha_max_x + 1;
-	const int64_t alpha_bottom = (int64_t)alpha_max_y + 1;
-
-	if (!using_dirty_rect) {
-		rect.valid = true;
-		rect.x = alpha_min_x;
-		rect.y = alpha_min_y;
-		rect.width = (uint32_t)(alpha_right - alpha_left);
-		rect.height = (uint32_t)(alpha_bottom - alpha_top);
-		return rect;
-	}
-
-	if (dirty_width <= 0 || dirty_height <= 0) return rect;
-
-	const int64_t dirty_left = dirty_x;
-	const int64_t dirty_top = dirty_y;
-	const int64_t dirty_right = (int64_t)dirty_x + dirty_width;
-	const int64_t dirty_bottom = (int64_t)dirty_y + dirty_height;
-	const int64_t clipped_left =
-		dirty_left > alpha_left ? dirty_left : alpha_left;
-	const int64_t clipped_top =
-		dirty_top > alpha_top ? dirty_top : alpha_top;
-	const int64_t clipped_right =
-		dirty_right < alpha_right ? dirty_right : alpha_right;
-	const int64_t clipped_bottom =
-		dirty_bottom < alpha_bottom ? dirty_bottom : alpha_bottom;
-	if (clipped_left >= clipped_right || clipped_top >= clipped_bottom) {
-		return rect;
-	}
-
-	rect.valid = true;
-	rect.x = (uint32_t)clipped_left;
-	rect.y = (uint32_t)clipped_top;
-	rect.width = (uint32_t)(clipped_right - clipped_left);
-	rect.height = (uint32_t)(clipped_bottom - clipped_top);
-	return rect;
-}
-
-static inline GLOffscreenCompositeRect GLOffscreenCurrentCompositeRectForDirty(
-	bool using_dirty_rect,
-	uint32_t alpha_min_x,
-	uint32_t alpha_min_y,
-	uint32_t alpha_max_x,
-	uint32_t alpha_max_y,
-	int32_t dirty_x,
-	int32_t dirty_y,
-	int32_t dirty_width,
-	int32_t dirty_height,
-	uint32_t surface_width,
-	uint32_t surface_height)
-{
-	GLOffscreenCompositeRect rect = {false, 0, 0, 0, 0};
-	if (!GLShouldCompositeCurrentOffscreenDirtyRect(using_dirty_rect,
-	                                                alpha_min_x,
-	                                                alpha_min_y,
-	                                                alpha_max_x,
-	                                                alpha_max_y,
-	                                                dirty_x,
-	                                                dirty_y,
-	                                                dirty_width,
-	                                                dirty_height,
-	                                                surface_width,
-	                                                surface_height)) {
-		return rect;
-	}
-
-	return GLOffscreenCompositeRectForDirty(false,
-	                                       alpha_min_x,
-	                                       alpha_min_y,
-	                                       alpha_max_x,
-	                                       alpha_max_y,
-	                                       0,
-	                                       0,
-	                                       0,
-	                                       0);
-}
-
-static inline bool GLShouldInvalidateOffscreenReadbackAfterGLFlush(
-	bool committed_command_buffer,
-	bool readback_succeeded)
-{
-	return committed_command_buffer && !readback_succeeded;
-}
-
-static inline bool GLShouldInvalidateOffscreenReadbackAfterNoCommandBufferFlush(
-	bool cached_readback_valid,
-	uint64_t composite_count)
-{
-	return cached_readback_valid && composite_count > 0;
-}
-
 static inline uint16_t GLOffscreenPackRGB555BigEndian(uint8_t r,
                                                       uint8_t g,
                                                       uint8_t b)
@@ -620,21 +189,6 @@ static inline void GLOffscreenStoreRGB555Bytes(uint16_t pixel,
 	out_bytes[1] = (uint8_t)(pixel & 0xffu);
 }
 
-static inline uint16_t GLOffscreenLoadRGB555Bytes(const uint8_t bytes[2])
-{
-	return (uint16_t)(((uint16_t)bytes[0] << 8) | bytes[1]);
-}
-
-static inline bool GLOffscreenARGB1555PixelHasAlpha(uint16_t pixel)
-{
-	return (pixel & 0x8000u) != 0;
-}
-
-static inline uint16_t GLOffscreenRGB555WithoutAlpha(uint16_t pixel)
-{
-	return (uint16_t)(pixel & 0x7fffu);
-}
-
 static inline void GLOffscreenStoreARGB8888Bytes(uint8_t r,
                                                  uint8_t g,
                                                  uint8_t b,
@@ -647,55 +201,42 @@ static inline void GLOffscreenStoreARGB8888Bytes(uint8_t r,
 	out_bytes[3] = b;
 }
 
-static inline GLOffscreenBGRAStats GLOffscreenAnalyzeBGRA8Pixels(
-	const uint8_t *bgra,
-	uint32_t width,
-	uint32_t height,
-	uint32_t rowbytes)
+/* Import caller-owned offscreen memory before resuming GPU rendering. A
+ * flush exposes this memory to the guest CPU; preserving the private Metal
+ * texture alone would undo CPU erases and edits on the next readback. */
+static inline bool GLOffscreenLoadGuestPixelsToBGRA8(
+	const uint8_t *guest, uint32_t width, uint32_t height,
+	uint32_t rowbytes, uint32_t bytes_per_pixel, uint8_t *bgra)
 {
-	GLOffscreenBGRAStats stats =
-		{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false};
-	if (bgra == 0) return stats;
+	if (!guest || !bgra || width == 0 || height == 0 ||
+	    (bytes_per_pixel != 2 && bytes_per_pixel != 4) ||
+	    (uint64_t)rowbytes < (uint64_t)width * bytes_per_pixel)
+		return false;
 
-	for (uint32_t y = 0; y < height; y++) {
-		const uint8_t *row = bgra + (uint64_t)y * (uint64_t)rowbytes;
-		for (uint32_t x = 0; x < width; x++) {
-			const uint8_t *pixel = row + (uint64_t)x * 4u;
-			const uint8_t b = pixel[0];
-			const uint8_t g = pixel[1];
-			const uint8_t r = pixel[2];
-			const uint8_t a = pixel[3];
-			stats.total_pixels++;
-			if (r != 0 || g != 0 || b != 0) {
-				stats.rgb_nonzero_pixels++;
-				if (!stats.rgb_bounds_valid) {
-					stats.rgb_min_x = stats.rgb_max_x = x;
-					stats.rgb_min_y = stats.rgb_max_y = y;
-					stats.rgb_bounds_valid = true;
-				} else {
-					if (x < stats.rgb_min_x) stats.rgb_min_x = x;
-					if (y < stats.rgb_min_y) stats.rgb_min_y = y;
-					if (x > stats.rgb_max_x) stats.rgb_max_x = x;
-					if (y > stats.rgb_max_y) stats.rgb_max_y = y;
-				}
+	for (uint32_t y = 0; y < height; ++y) {
+		const uint8_t *src = guest + (uint64_t)y * rowbytes;
+		uint8_t *dst = bgra + (uint64_t)y * width * 4u;
+		for (uint32_t x = 0; x < width; ++x) {
+			if (bytes_per_pixel == 2) {
+				const uint16_t pixel = (uint16_t)((src[0] << 8) | src[1]);
+				const uint8_t b = pixel & 31u;
+				const uint8_t g = (pixel >> 5) & 31u;
+				const uint8_t r = (pixel >> 10) & 31u;
+				dst[0] = (uint8_t)((b << 3) | (b >> 2));
+				dst[1] = (uint8_t)((g << 3) | (g >> 2));
+				dst[2] = (uint8_t)((r << 3) | (r >> 2));
+				dst[3] = (pixel & 0x8000u) ? 255 : 0;
+			} else {
+				dst[0] = src[3];
+				dst[1] = src[2];
+				dst[2] = src[1];
+				dst[3] = src[0];
 			}
-			if (a != 0) stats.alpha_nonzero_pixels++;
-			if (a >= 128) {
-				stats.alpha_opaque_pixels++;
-				if (!stats.alpha_bounds_valid) {
-					stats.alpha_min_x = stats.alpha_max_x = x;
-					stats.alpha_min_y = stats.alpha_max_y = y;
-					stats.alpha_bounds_valid = true;
-				} else {
-					if (x < stats.alpha_min_x) stats.alpha_min_x = x;
-					if (y < stats.alpha_min_y) stats.alpha_min_y = y;
-					if (x > stats.alpha_max_x) stats.alpha_max_x = x;
-					if (y > stats.alpha_max_y) stats.alpha_max_y = y;
-				}
-			}
+			src += bytes_per_pixel;
+			dst += 4;
 		}
 	}
-	return stats;
+	return true;
 }
 
 #endif /* GL_OFFSCREEN_POLICY_H */

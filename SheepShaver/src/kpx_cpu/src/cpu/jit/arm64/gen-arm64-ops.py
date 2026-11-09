@@ -65,14 +65,12 @@ REAL["gen_op_invoke_CPU_A0_ret_A0"] = invoke("\temit_32(a64_mov_x(0, A64_CPU));\
 for name in [n for n in list(REAL) if n.startswith("gen_op_invoke")]:
     REAL[name.replace("gen_op_invoke", "gen_op_invoke_direct", 1)] = REAL[name]
 
-# Prologue also pins VMBASE (x23) = VMBaseDiff for inline fastmem (the value
-# is baked at emission time: op_execute is generated at CPU construction,
-# after vm_init) and saves d8-d11 — the FP value plan hands those to
-# generated code as scratch, but their low halves are AAPCS64 callee-saved
-# toward op_execute's own caller (host frames keeping live doubles in d8-d11
-# across execute() would be silently corrupted otherwise). x24 (A64_VD, the
-# AltiVec VD pointer clobbered by vector blocks) is callee-saved too and
-# rides in the second half of the VMBASE stp pair.
+# Prologue: pins VMBASE (x23) = VMBaseDiff for inline fastmem (baked at
+# emission: op_execute is generated at CPU construction, after vm_init) and
+# saves d8-d11. The FP plan uses those as scratch, but their low halves are
+# AAPCS64 callee-saved toward op_execute's caller, whose live doubles would
+# otherwise be corrupted. x24 (A64_VD, clobbered by vector blocks) is
+# callee-saved too and shares the VMBASE stp pair.
 # 13 prologue instructions -> op_exec_return_offset = 0x34.
 REAL["gen_op_execute"] = (
     "\tconst uintptr vmbase = kpx_vm_base();\n"
@@ -127,9 +125,8 @@ def moves(name):
         "gen_op_store_T0_CR": ("a64_str_w(A64_T0, A64_CPU, (uint32)kpx_jit_cr_offset(cpu()))", 1),
         "gen_op_load_T0_CTR": ("a64_ldr_w(A64_T0, A64_CPU, (uint32)kpx_jit_ctr_offset(cpu()))", 1),
         "gen_op_store_T0_CTR":("a64_str_w(A64_T0, A64_CPU, (uint32)kpx_jit_ctr_offset(cpu()))", 1),
-        # VRSAVE is a plain uint32 SPR (mfspr/mtspr 256), not vector state; it
-        # reaches the JIT via the whitelisted MFSPR/MTSPR case, so it needs a
-        # real body even though the AltiVec compute ops stay generic.
+        # VRSAVE is a plain uint32 SPR (mfspr/mtspr 256) reached through the
+        # whitelisted MFSPR/MTSPR case, so it needs a real body.
         "gen_op_load_T0_VRSAVE": ("a64_ldr_w(A64_T0, A64_CPU, (uint32)kpx_jit_vrsave_offset(cpu()))", 1),
         "gen_op_store_T0_VRSAVE":("a64_str_w(A64_T0, A64_CPU, (uint32)kpx_jit_vrsave_offset(cpu()))", 1),
         "gen_op_load_T0_LR":  ("a64_ldr_w(A64_T0, A64_CPU, (uint32)kpx_jit_lr_offset(cpu()))", 1),
@@ -377,13 +374,12 @@ def ppc_plain(name):
     return None
 
 # ------------------------------------------------------------------ memory ops
-# EA = T1 + OFFSET computed with W-form arithmetic (guest addresses wrap mod
-# 2^32). Under MEM_BULK the access itself is emitted inline (fastmem): flat
-# [VMBASE, EA(uxtw)] plus REV byteswap behind the same coarse pre-filter
-# vm.hpp uses (EA >> 19 >= 0xbff covers both kernel-data windows and
-# everything past the mapped guest space); the filter's cold path calls the
-# old kpx_vm_* helpers, which apply the exact translation rules. Without
-# MEM_BULK every access takes the helper call as before.
+# EA = T1 + OFFSET in W-form arithmetic (guest addresses wrap mod 2^32).
+# Under MEM_BULK the access is inline fastmem: flat [VMBASE, EA(uxtw)] plus
+# REV, behind vm.hpp's coarse pre-filter (EA >> 19 >= 0xbff covers both
+# kernel-data windows and everything past mapped guest space). The cold path
+# calls the kpx_vm_* helpers, which apply the exact rules. Without MEM_BULK
+# every access is a helper call.
 
 def _ea_w0(kind):
     # Effective address into w0 (the helper's first argument)
@@ -526,12 +522,11 @@ def branches(name):
                     E("a64_cmp_imm(A64_T1, 0)"),
                     E("a64_csel(A64_X16, A64_X16, A64_X17, A64_NE)"),
                     E("a64_str_w(A64_X16, A64_CPU, (uint32)kpx_jit_pc_offset(cpu()))"))
-    # Direct block chaining: deposit patchable B slots (retargeted to the
-    # resolver trampolines at translate time, then to target entry points at
-    # run time). Slots MUST be B imm26 — run-time retargets span the whole
-    # translation cache, beyond CBZ's +/-1MB. The placeholder a64_b(0) is a
-    # well-formed branch-to-self so the patcher can classify the site; the
-    # translator always retargets it before the block is published.
+    # Direct block chaining: patchable B slots, retargeted to the resolver
+    # trampolines at translate time and to target entries at run time. They
+    # must be B imm26: run-time targets span the whole cache, beyond CBZ's
+    # +/-1MB. a64_b(0) is a well-formed branch-to-self so the patcher can
+    # classify the site; the translator retargets it before publishing.
     if name == "gen_op_branch_chain_1":
         return emit("jmp_addr[0] = code_ptr();",
                     E("a64_b(0)"))
@@ -607,15 +602,12 @@ def fp(name):
     return None
 
 # ------------------------------------------------------------------ NEON AltiVec
-# Vector layout contract: powerpc_vr.w[i] holds guest word element i as a
-# HOST-endian value (the interpreter's LVX fills w[0..3] via
-# vm_read_memory_4), so `ldr q` maps guest word element i to .4s lane i and
-# byte/half lanes are positionally consistent between any two vr's --
-# element-wise NEON ops match the interpreter's element-wise loops with no
-# shuffling. Order-SENSITIVE ops (splat lanes, vperm indices) convert guest
-# element numbers to host byte positions with the involution x^3 (bytes) /
-# x^1 (halves); those conversions happen in the mid-level handlers
-# (ppc-jit.cpp) or inline in the op bodies below.
+# Vector layout: powerpc_vr.w[i] holds guest word i host-endian (LVX fills
+# w[0..3] via vm_read_memory_4), so `ldr q` maps guest word i to .4s lane i
+# and element-wise NEON ops match the interpreter's loops without shuffles.
+# Order-sensitive ops (splat lanes, vperm indices) map guest element numbers
+# to host byte positions with the involution x^3 (bytes) / x^1 (halves), in
+# the ppc-jit.cpp handlers or inline below.
 # Pointer plan: V0/V1/V2 = x20/x21/x22 (A0-A2, like x86), VD = x24.
 
 def _vec_ptrs(n_srcs):
@@ -722,13 +714,12 @@ def body_for(name):
 # ------------------------------------------------------------------ emit headers
 
 # arm64-only ops with no x86 counterpart (callers are __aarch64__-gated).
-# gen_op_sheep_guard_im: trap-chaining resume guard emitted after a generic
-# execute_sheep invoke whose handler deterministically resumes at the next
-# instruction. Continue inline iff regs().pc == param1 (the expected resume
-# pc) AND spcflags are clear; otherwise fall through into the exit stanza
-# the translator emits right after this op. Deposits the patchable CBZ in
-# jmp_addr[0]; the translator retargets it past the exit stanza (same
-# protocol as gen_op_spcflags_check) and must re-NULL the slot.
+# gen_op_sheep_guard_im: resume guard after a generic execute_sheep invoke
+# whose handler resumes at the next instruction. Continues inline iff
+# regs().pc == param1 and spcflags are clear; otherwise falls into the exit
+# stanza the translator emits next. The patchable CBZ goes in jmp_addr[0];
+# the translator retargets it past the exit stanza (as for
+# gen_op_spcflags_check) and must re-NULL the slot.
 EXTRA_PPC_OPS = [
     ("gen_op_sheep_guard_im", "long param1",
      "\ta64_emit_mov_imm32(*this, A64_X16, (uint32)param1);\n"

@@ -151,8 +151,8 @@ class PreferencesGraphicsModel {
 
 	// MARK: - Display Mode (Mac Catalyst)
 
-	// Backed by the `catalystfullscreen` bool pref (single source of truth). Persisted
-	// immediately so launch honors it, and applied to the live window during emulation.
+	// Backed by the `catalystfullscreen` pref. Persisted immediately so launch
+	// honors it, and applied to the live window during emulation.
 	var displayMode: CatalystDisplayMode {
 		get {
 			objc_findBool("catalystfullscreen") ? .fullScreen : .windowed

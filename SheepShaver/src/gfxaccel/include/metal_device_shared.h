@@ -8,10 +8,8 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  C++ callable interface for the shared Metal device singleton.
- *  Returns void* so this header can be included from plain .cpp files
- *  without pulling in ObjC types.  Callers cast to id<MTLDevice> /
- *  id<MTLCommandQueue> in .mm files.
+ *  Shared Metal device and queue, returned as void* so plain .cpp files can
+ *  include this header.
  */
 
 #ifndef METAL_DEVICE_SHARED_H
@@ -21,20 +19,14 @@
 extern "C" {
 #endif
 
-/* Returns the shared id<MTLDevice> as void*.
- * Thread-safe (uses dispatch_once internally).
- * Returns NULL if no Metal GPU is available. */
+/* Shared id<MTLDevice>, or NULL if no Metal GPU. Thread-safe. */
 void *SharedMetalDevice(void);
 
-/* Returns the shared id<MTLCommandQueue> as void*.
- * Thread-safe (uses dispatch_once internally).
- * Implicitly creates the device if not yet initialised. */
+/* Shared id<MTLCommandQueue>; creates the device if needed. Thread-safe. */
 void *SharedMetalCommandQueue(void);
 
-/* Install debug-only command buffer error handler.
- * cmdBufPtr is void* pointing to id<MTLCommandBuffer>.
- * In DEBUG builds, adds a completedHandler that asserts on non-nil error.
- * In Release builds, this is a no-op. */
+/* DEBUG only: adds a completedHandler to the id<MTLCommandBuffer> that
+ * asserts on error. No-op in release. */
 void MetalValidation_InstallErrorHandler(void *cmdBufPtr);
 
 

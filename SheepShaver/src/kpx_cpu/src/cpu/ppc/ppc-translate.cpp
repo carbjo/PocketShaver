@@ -44,9 +44,8 @@
 // Define to enable const branches optimization
 #define FOLLOW_CONST_JUMPS 1
 
-// Cap on const-jump splices per block: an unconditional branch cycle in
-// guest code (e.g. "b .") would otherwise keep compile_block translating
-// forever, since followed jumps emit no code and revisit the same PCs
+// Cap on const-jump splices per block. A guest branch cycle ("b .") would
+// otherwise translate forever: followed jumps emit no code.
 #define CONST_JUMP_FOLLOW_LIMIT 128
 
 #if PPC_ENABLE_JIT
@@ -63,11 +62,9 @@ static inline bool is_read_only_memory(uintptr addr)
 
 #if DYNGEN_DIRECT_BLOCK_CHAINING
 // Returns TRUE if we can directly generate a jump to the target block.
-// Cross-page targets are allowed: every resolved link is registered on
-// the target's incoming dependency list (compile_chain_block), and
-// powerpc_block_info::invalidate() unchains incoming sources wherever
-// they live, so chain teardown no longer relies on the source sharing
-// the target's page.
+// Cross-page targets are fine: each link is registered on the target's
+// incoming list (compile_chain_block), and invalidate() unchains sources
+// wherever they live.
 static inline bool direct_chaining_possible(uint32 bpc, uint32 tpc)
 {
 #ifndef DYNGEN_FAST_DISPATCH
@@ -78,13 +75,12 @@ static inline bool direct_chaining_possible(uint32 bpc, uint32 tpc)
 #endif
 
 #if defined(SHEEPSHAVER) && defined(__aarch64__) && PPC_ENABLE_JIT
-// Trap chaining: SHEEP handlers that deterministically resume at the next
-// instruction need not end the block. Low 6 bits select the handler
-// (sheepshaver_glue.cpp execute_sheep): 0 = EMUL_RETURN (quits), 1 =
-// EXEC_RETURN (no pc advance), 2 = EXEC_NATIVE (pc += 4 unless the FN bit,
-// bit 19, redirects to LR), >= 3 = EMUL_OP (pc += 4). A resume guard after
-// the invoke re-checks pc and spcflags, so this predicate only needs the
-// handler's INTENDED continuation, not a guarantee.
+// Trap chaining: SHEEP handlers that resume at the next instruction need
+// not end the block. Low 6 bits select the handler (execute_sheep):
+// 0 = EMUL_RETURN (quits), 1 = EXEC_RETURN (no pc advance), 2 = EXEC_NATIVE
+// (pc += 4 unless FN bit 19 redirects to LR), >= 3 = EMUL_OP (pc += 4).
+// A resume guard re-checks pc and spcflags after the invoke, so this only
+// needs the handler's intended continuation, not a guarantee.
 #define TRAP_CHAIN_LIMIT 32
 static inline bool sheep_op_resumes_inline(uint32 opcode)
 {
@@ -172,10 +168,9 @@ powerpc_cpu::call_execute_illegal(powerpc_cpu * cpu, uint32 param1) {
 }
 
 #if PPC_JIT_MNEMO_WHITELIST
-// Default-deny native translation: only mnemonics with a validated arm64
-// op implementation take their specialized case; everything else (memory,
-// branches, FP, vector, SHEEP) falls through to the generic interpreter
-// invoke. Grow this set as native ops are added and lockstep-validated.
+// Default-deny native translation: only mnemonics with a lockstep-validated
+// arm64 op take their specialized case; the rest use the generic
+// interpreter invoke. Grow this set as native ops are validated.
 static inline bool ppc_jit_native_mnemo(int mnemo)
 {
 	switch (mnemo) {
@@ -195,9 +190,9 @@ static inline bool ppc_jit_native_mnemo(int mnemo)
 	case PPC_I(SRAWI): case PPC_I(SRW): case PPC_I(SUBF): case PPC_I(SUBFC):
 	case PPC_I(SUBFE): case PPC_I(SUBFIC): case PPC_I(SUBFME): case PPC_I(SUBFZE):
 	case PPC_I(XOR): case PPC_I(XORI): case PPC_I(XORIS):
-	// branches (P3.5)
+	// branches
 	case PPC_I(B): case PPC_I(BC): case PPC_I(BCCTR): case PPC_I(BCLR):
-	// integer loads/stores (P3.5; EA + access via the kpx_vm_* helpers)
+	// integer loads/stores (EA + access via the kpx_vm_* helpers)
 	case PPC_I(LBZ): case PPC_I(LBZU): case PPC_I(LBZUX): case PPC_I(LBZX):
 	case PPC_I(LHA): case PPC_I(LHAU): case PPC_I(LHAUX): case PPC_I(LHAX):
 	case PPC_I(LHZ): case PPC_I(LHZU): case PPC_I(LHZUX): case PPC_I(LHZX):
@@ -207,13 +202,12 @@ static inline bool ppc_jit_native_mnemo(int mnemo)
 	case PPC_I(STW): case PPC_I(STWU): case PPC_I(STWUX): case PPC_I(STWX):
 	case PPC_I(LMW): case PPC_I(STMW): case PPC_I(LWARX): case PPC_I(STWCX):
 	case PPC_I(DCBZ):
-	// cache/synchronization ops the translator emits as no-ops (and isync,
-	// which uses the already-native generic invoke)
+	// cache/sync ops emitted as no-ops (isync uses the generic invoke)
 	case PPC_I(DCBA): case PPC_I(DCBF): case PPC_I(DCBI): case PPC_I(DCBST):
 	case PPC_I(DCBT): case PPC_I(DCBTST): case PPC_I(ECIWX): case PPC_I(ECOWX):
 	case PPC_I(EIEIO): case PPC_I(SYNC): case PPC_I(ISYNC):
-	// FP loads/stores and arithmetic (P4; fcmp/fctiw/frsp/fsel and the
-	// FPSCR moves stay generic, matching the old x86 JIT's coverage)
+	// FP loads/stores and arithmetic (fcmp/fctiw/frsp/fsel and FPSCR moves
+	// stay generic, matching the old x86 JIT's coverage)
 	case PPC_I(LFD): case PPC_I(LFDU): case PPC_I(LFDUX): case PPC_I(LFDX):
 	case PPC_I(LFS): case PPC_I(LFSU): case PPC_I(LFSUX): case PPC_I(LFSX):
 	case PPC_I(STFD): case PPC_I(STFDU): case PPC_I(STFDUX): case PPC_I(STFDX):
@@ -223,10 +217,9 @@ static inline bool ppc_jit_native_mnemo(int mnemo)
 	case PPC_I(FMUL): case PPC_I(FMULS): case PPC_I(FDIV): case PPC_I(FDIVS):
 	case PPC_I(FMADD): case PPC_I(FMADDS): case PPC_I(FMSUB): case PPC_I(FMSUBS):
 	case PPC_I(FNMADD): case PPC_I(FNMADDS): case PPC_I(FNMSUB): case PPC_I(FNMSUBS):
-	// AltiVec via NEON (P5): element-wise arith/logic/minmax/compare,
-	// splats, vsel/vperm, and the 128-bit + word-element loads/stores.
-	// Everything else (saturating arith, packs/merges, shifts, VSCR moves,
-	// vsldoi, estimates) stays generic -> interpreter.
+	// AltiVec via NEON: element-wise arith/logic/minmax/compare, splats,
+	// vsel/vperm, 128-bit and word-element loads/stores. Saturating arith,
+	// packs/merges, shifts, VSCR moves, vsldoi and estimates stay generic.
 	case PPC_I(LVX): case PPC_I(LVXL): case PPC_I(LVEWX):
 	case PPC_I(STVX): case PPC_I(STVXL): case PPC_I(STVEWX):
 	case PPC_I(VADDFP): case PPC_I(VSUBFP): case PPC_I(VMADDFP): case PPC_I(VNMSUBFP):
@@ -263,8 +256,7 @@ powerpc_cpu::compile_block(uint32 entry_point)
 #endif
 
 #ifdef KPX_JIT_INSTRUMENT
-	// Differential-harness hook: proves the JIT compile path actually ran
-	// (never defined in shipping builds)
+	// Lockstep-harness hook proving the JIT compile path ran (test builds only)
 	extern unsigned long kpx_jit_compile_count;
 	kpx_jit_compile_count++;
 #endif
@@ -321,12 +313,10 @@ powerpc_cpu::compile_block(uint32 entry_point)
 		operands_t op;
 
 #if PPC_JIT_GENERIC_ONLY
-		// Match no specialized case so control reaches default:, which is
-		// the generic interpreter-invoke path (do_generic)
+		// Match no specialized case so control reaches default: (do_generic)
 		switch (PPC_I(MAX)) {
 #elif PPC_JIT_MNEMO_WHITELIST
-		// Only whitelisted mnemonics translate natively; the rest fall to
-		// default: (generic invoke)
+		// Non-whitelisted mnemonics fall to default: (generic invoke)
 		switch (ppc_jit_native_mnemo(ii->mnemo) ? ii->mnemo : PPC_I(MAX)) {
 #else
 		switch (ii->mnemo) {
@@ -1679,13 +1669,11 @@ powerpc_cpu::compile_block(uint32 entry_point)
 			}
 			done_compile = cg_context.done_compile;
 #if defined(SHEEPSHAVER) && defined(__aarch64__)
-			// Trap chaining: continue translating through a SHEEP op whose
-			// handler resumes at dpc + 4. The guard falls through into the
-			// rest of the block iff the handler left pc at dpc + 4 and no
-			// spcflags are pending (EXEC_RETURN, interrupts, and cache
-			// invalidation from FlushCodeCache all surface as spcflags);
-			// otherwise it runs the exit stanza below, identical to a
-			// normal block epilogue.
+			// Trap chaining: keep translating through a SHEEP op that resumes
+			// at dpc + 4. The guard falls through iff pc == dpc + 4 and no
+			// spcflags are pending (EXEC_RETURN, interrupts and FlushCodeCache
+			// all raise spcflags); otherwise it runs the exit stanza below,
+			// same as a normal block epilogue.
 			if (done_compile
 				&& ii->mnemo == PPC_I(MAX)	// == PPC_I(SHEEP), glue-local alias
 				&& compile_status == COMPILE_CODE_OK

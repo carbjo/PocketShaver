@@ -8,48 +8,22 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Implements the authoritative writer of display state. The 4-state
- *  finite-state machine
- *  (Quiescent / QuickDrawOwner / ThreeDOwner / Transitioning / Blanking)
- *  plus owner enum captures every legal display-mode transition from
- *  native code and rejects illegal transitions with a named kDMCErr*
- *  code.
+ *  Sole writer of display-mode state. A state machine (Quiescent /
+ *  QuickDrawOwner / ThreeDOwner / Transitioning / Blanking) accepts legal
+ *  transitions and rejects the rest with a kDMCErr* code.
  *
- *  Subscriber dispatch:
- *    - dmc_subscribe stores a copy of the DMCSubscriber in a real
- *      std::vector<DMCSubscriber>, with name-keyed duplicate rejection.
- *    - Every legal transition fires on_mode_exit in REGISTRATION ORDER
- *      (FIFO) BEFORE the snapshot swap, then on_mode_enter in REVERSE
- *      REGISTRATION ORDER (LIFO) AFTER the swap. If any on_mode_enter
- *      returns non-zero, the controller fires exit for the rejected
- *      snapshot, republishes the outgoing snapshot, fires advisory enter
- *      for the restored snapshot, and returns kDMCErrSubscriberRejected.
- *    - Late subscribers receive a synthetic on_mode_enter with the
- *      current snapshot so they start observably in-sync.
+ *  Each transition fires on_mode_exit in registration order before the
+ *  snapshot swap, then on_mode_enter in reverse order after it. If an enter
+ *  rejects, the outgoing snapshot is restored and kDMCErrSubscriberRejected
+ *  returned. Late subscribers get a synthetic enter with the current snapshot.
  *
- *  Concurrency primitives:
- *    - `s_write_mutex` (std::mutex) serializes every public write API
- *      via std::lock_guard at function entry; readers stay lock-free.
- *    - `s_current` is `std::atomic<const DMCModeSnapshot *>`; writers
- *      publish via memory_order_release, readers load via
- *      memory_order_acquire. The snapshot structure is IMMUTABLE once
- *      published (mutations allocate a fresh snapshot then swap, rather
- *      than mutating in place).
- *    - 2-generation retirement ring buffer (`s_retired[2]`): when
- *      generation N is published, the slot for N-2 is freed. This
- *      guarantees a reader that held the snapshot pointer at N-1 keeps
- *      a valid pointer for at least one VBL grace period (matches
- *      maximumDrawableCount=3 triple-buffering rhythm).
- *    - `DMCReentryScope` + `s_in_dmc_call` (thread_local) guards against
- *      subscriber callbacks re-entering the controller; the inner call
- *      returns kDMCErrReentrantRequest BEFORE touching the mutex
- *      (avoiding deadlock under non-recursive std::mutex semantics).
- *    - `s_emul_thread` captured at first dmc_create; subsequent write
- *      calls from any other thread trigger an assertion.
+ *  Concurrency: writes are emul-thread only and serialized by s_write_mutex.
+ *  Readers load s_current lock-free (acquire). Snapshots are immutable once
+ *  published; a two-slot retirement ring keeps a reader's pointer valid for
+ *  one more generation. A thread_local guard makes re-entrant calls from
+ *  subscriber callbacks fail with kDMCErrReentrantRequest before locking.
  *
- *  The controller does NOT touch emulated Mac memory - macos_util.h and
- *  thunks.h are intentionally omitted from the includes vs.
- *  rave_engine.cpp.
+ *  Does not touch emulated Mac memory.
  */
 
 #include "sysdeps.h"
@@ -60,7 +34,6 @@
 #include <cstdlib>
 #include <vector>
 
-// Concurrency primitives
 #include <mutex>
 #include <atomic>
 #include <pthread.h>
@@ -69,66 +42,35 @@
 #define DEBUG 0
 #include "debug.h"
 
-// Internal logging macros - promote to DMC_ERR for the rollback path
-// so subscriber-rejected transitions are visible even in release builds.
+// DMC_ERR prints in release builds too, so rollbacks are always visible.
 #define DMC_LOG(fmt, ...) D(bug("[DMC] " fmt "\n", ##__VA_ARGS__))
 #define DMC_ERR(fmt, ...) do { printf("[DMC ERROR] " fmt "\n", ##__VA_ARGS__); } while (0)
 
-// ---------------------------------------------------------------------------
-// Module-local state (writer-mutex serialized; atomic snapshot
-// publication; 2-generation retirement ring; re-entry guard; thread-identity
-// assertion).
-//
-// s_current is ATOMIC (lock-free read path for the VBL-tick thread). All
-// OTHER state (s_state, s_subscribers, s_next_generation, s_dmc_initialized,
-// s_retired[]) is protected by s_write_mutex. Writers always hold the mutex
-// when mutating any of the non-atomic state AND when publishing to s_current;
-// readers ONLY load s_current and never touch the rest.
-// ---------------------------------------------------------------------------
+// s_current is the only state readers touch. Everything else is guarded by
+// s_write_mutex, which writers also hold when publishing s_current.
 static std::mutex                             s_write_mutex;
 static std::atomic<const DMCModeSnapshot *>   s_current{NULL};
 static DMCState                               s_state = kDMCStateQuiescent;
 static uint32_t                               s_next_generation = 1;
 static bool                                   s_dmc_initialized = false;
 
-// Real subscriber registration table (dynamic vector). Ordered-vector
-// semantics: index 0 is first-registered, N-1 is last-registered. Exit
-// dispatch walks 0..N-1 (FIFO); enter dispatch walks N-1..0 (LIFO).
-// Mutated exclusively under s_write_mutex.
+// Registration order. Exit walks forward, enter walks backward.
 static std::vector<DMCSubscriber>             s_subscribers;
 
-// 2-generation snapshot retirement ring buffer (matches
-// maximumDrawableCount=3 triple-buffering rhythm). Indexed by
-// (generation - 1) % 2. When a new snapshot is published at generation N,
-// the slot that formerly held generation N-2 is now safe to free: any
-// reader that held that pointer must have done so before N-1 was
-// published, which was itself at least one release-store ago.
-//
-// Mutated exclusively under s_write_mutex.
+// Retirement ring, indexed by (generation - 1) % 2. Publishing generation N
+// frees N-2, which no reader can still hold.
 static const DMCModeSnapshot *                s_retired[2] = { NULL, NULL };
 
-// Re-entry guard (subscriber callback re-enters a dmc_*
-// write API). thread_local so a cross-thread writer doesn't see the flag
-// set by a different thread's outer call (defense-in-depth; all writers are
-// on the emul thread today).
+// Set while inside a dmc_* write call; catches re-entry from subscribers.
 static thread_local bool                      s_in_dmc_call = false;
 
 
-// Thread-identity baseline (assertion gate). Captured on the first
-// dmc_create call; subsequent writes from any other thread trigger
-// assert(0).
+// Captured by the first dmc_create; writes from other threads assert.
 static pthread_t                              s_emul_thread = 0;
 
-// ---------------------------------------------------------------------------
-// Re-entry guard RAII helper.
-//
-// Instantiate at the TOP of every public write API, BEFORE acquiring
-// s_write_mutex. If the calling thread is already inside a dmc_* call
-// (e.g. a subscriber callback), `installed` is false and the caller
-// MUST return kDMCErrReentrantRequest WITHOUT acquiring the mutex.
-// Otherwise the flag is set for the duration of this scope and cleared
-// on destruction.
-// ---------------------------------------------------------------------------
+// Create at the top of every write API, before locking. If `installed` is
+// false the call is re-entrant: return kDMCErrReentrantRequest without
+// taking the (non-recursive) mutex.
 struct DMCReentryScope {
 	bool installed;
 	DMCReentryScope() {
@@ -146,10 +88,6 @@ struct DMCReentryScope {
 	}
 };
 
-// ---------------------------------------------------------------------------
-// Thread-identity assertion macro. Asserts that dmc_* write APIs run on the
-// emul thread that first called dmc_create.
-// ---------------------------------------------------------------------------
 #define DMC_ASSERT_EMUL_THREAD() \
 	do { \
 		if (s_emul_thread != 0 && pthread_self() != s_emul_thread) { \
@@ -163,8 +101,6 @@ struct DMCReentryScope {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// Validate a caller-supplied DMCModeDesc.
-// Returns kDMCNoErr on valid input, kDMCErrInvalidModeDesc on any failure.
 static int32_t dmc_validate_mode_desc(const DMCModeDesc *m) {
 	if (m == NULL) {
 		return kDMCErrInvalidModeDesc;
@@ -188,10 +124,7 @@ static int32_t dmc_validate_mode_desc(const DMCModeDesc *m) {
 	return kDMCNoErr;
 }
 
-// Internal allocation wrappers that funnel the 4 direct calloc/malloc sites
-// in this file through a single pair of helpers. Callers MUST hold
-// s_write_mutex when invoking these (every call site is already inside the
-// writer mutex by construction).
+// Callers hold s_write_mutex.
 static DMCModeSnapshot *dmc_alloc_zeroed_snapshot(void) {
 	return (DMCModeSnapshot *)calloc(1, sizeof(DMCModeSnapshot));
 }
@@ -200,12 +133,10 @@ static DMCModeSnapshot *dmc_alloc_raw_snapshot(void) {
 	return (DMCModeSnapshot *)malloc(sizeof(DMCModeSnapshot));
 }
 
-// Initialize gamma_lut[768] to the Mac Standard curve — the same default the
-// video driver installs at VideoOpen (set_gamma nil-table path) and the
-// profile table Mac OS pushes on Display Manager mode switches. Seeding the
-// pre-driver boot frames with the identical curve keeps the display policy's
-// composition (verbatim in OS-defined mode, inverse-cancelled to identity in
-// Linear mode) constant from the first frame onward.
+// Despite the name, seeds the Mac Standard curve: the video driver's nil-table
+// default and what the Display Manager pushes on mode switches. Using the same
+// curve before the driver loads keeps the gamma policy consistent from the
+// first frame.
 static void dmc_init_identity_gamma(DMCModeSnapshot *snap) {
 	for (int c = 0; c < 3; c++) {
 		for (int i = 0; i < 256; i++) {
@@ -216,15 +147,9 @@ static void dmc_init_identity_gamma(DMCModeSnapshot *snap) {
 	}
 }
 
-// Heap-allocate a fresh snapshot populated from a DMCModeDesc. Fields the
-// descriptor does not carry (palette_gen, gamma_gen) default to 0 unless the
-// caller later copies them from the outgoing snapshot.
-//
-// NOTE: transitioning is ALWAYS 0 in published snapshots under the
-// immutability model. The transitioning=1 in-place sentinel has
-// been replaced by s_state == kDMCStateTransitioning; readers simply tolerate
-// seeing the old snapshot for a sub-microsecond transition window during
-// which s_current still points at `outgoing`.
+// palette_gen and gamma_gen start at 0 unless the caller copies them from
+// the outgoing snapshot. Published snapshots always have transitioning == 0;
+// the transition itself is tracked in s_state.
 static DMCModeSnapshot *dmc_alloc_snapshot_from_desc(const DMCModeDesc *m,
                                                      uint32_t generation,
                                                      uint32_t active_owner,
@@ -234,6 +159,7 @@ static DMCModeSnapshot *dmc_alloc_snapshot_from_desc(const DMCModeDesc *m,
 		return NULL;
 	}
 	s->generation       = generation;
+	s->layout_gen       = generation;
 	s->transitioning    = 0;
 	s->width            = m->width;
 	s->height           = m->height;
@@ -242,7 +168,7 @@ static DMCModeSnapshot *dmc_alloc_snapshot_from_desc(const DMCModeDesc *m,
 	s->pitch            = m->pitch;
 	s->palette_gen      = 0;
 	s->gamma_gen        = 0;
-	s->fade_active      = 0;  // no fade in progress on a fresh mode
+	s->fade_active      = 0;
 	s->vbl_usec         = m->vbl_usec;
 	s->active_owner     = active_owner;
 	if (blanking_rgba != NULL) {
@@ -258,15 +184,12 @@ static DMCModeSnapshot *dmc_alloc_snapshot_from_desc(const DMCModeDesc *m,
 	}
 	s->screen_base_mac  = m->screen_base_mac;
 	s->screen_base_host = m->screen_base_host;
-	// identity gamma ramp for initial snapshot (no outgoing to copy from).
 	dmc_init_identity_gamma(s);
 	return s;
 }
 
-// Clone an existing snapshot, overriding active_owner (and optionally
-// blanking_rgba). Used by dmc_set_active_owner / dmc_request_blanking /
-// dmc_end_blanking to produce a new snapshot without re-validating a
-// DMCModeDesc (the existing fields were validated on the previous commit).
+// Clone with a new owner and optionally new blanking_rgba. No revalidation:
+// the fields were validated when first committed.
 static DMCModeSnapshot *dmc_clone_snapshot_with_owner(const DMCModeSnapshot *src,
                                                       uint32_t generation,
                                                       uint32_t active_owner,
@@ -275,10 +198,9 @@ static DMCModeSnapshot *dmc_clone_snapshot_with_owner(const DMCModeSnapshot *src
 	if (s == NULL) {
 		return NULL;
 	}
-	// Copy existing fields verbatim.
 	*s = *src;
-	// Override mutable-per-commit fields.
 	s->generation       = generation;
+	s->layout_gen       = generation;
 	s->transitioning    = 0;
 	s->active_owner     = active_owner;
 	if (blanking_rgba != NULL) {
@@ -290,10 +212,7 @@ static DMCModeSnapshot *dmc_clone_snapshot_with_owner(const DMCModeSnapshot *src
 	return s;
 }
 
-// Translate an owner enum to the corresponding FSM target state.
-// Returns kDMCStateQuickDrawOwner for QD, kDMCStateThreeDOwner for 3D engines.
-// Callers that pass Blanking / Quiescent owners must handle those cases
-// separately (they are not legal targets of dmc_set_active_owner).
+// Blanking / Quiescent owners aren't valid here; callers handle them.
 static DMCState dmc_target_state_for_owner(uint32_t owner) {
 	if (owner == kDMCOwnerRAVE || owner == kDMCOwnerGL || owner == kDMCOwnerDSp) {
 		return kDMCStateThreeDOwner;
@@ -301,14 +220,8 @@ static DMCState dmc_target_state_for_owner(uint32_t owner) {
 	return kDMCStateQuickDrawOwner;
 }
 
-// Retire `old_snap` into the 2-generation ring buffer. `this_gen` is the
-// generation of the snapshot THAT IS NOW PUBLISHED (i.e. the replacement).
-// Call site MUST hold s_write_mutex.
-//
-// Slot assignment: the ring is indexed by (this_gen - 1) % 2. Each new
-// publish at generation N overwrites the slot for generation N-2 (which
-// was itself retired when N-1 was published). This preserves reader
-// pointer validity for one full VBL cycle.
+// `this_gen` is the generation just published. Frees the snapshot retired
+// two publishes ago. Caller holds s_write_mutex.
 static void dmc_retire_snapshot(const DMCModeSnapshot *old_snap, uint32_t this_gen) {
 	if (old_snap == NULL) {
 		return;
@@ -321,24 +234,9 @@ static void dmc_retire_snapshot(const DMCModeSnapshot *old_snap, uint32_t this_g
 	s_retired[slot] = old_snap;
 }
 
-// ---------------------------------------------------------------------------
-// Subscriber event dispatch
-//
-// dmc_internal_fire_exit_events iterates subscribers in REGISTRATION ORDER
-// (index 0 -> N-1). Each subscriber's on_mode_exit return is advisory
-// ("exit is advisory, not vetoable"); a non-zero return
-// is logged and dispatch continues to the next subscriber.
-//
-// dmc_internal_fire_enter_events iterates subscribers in REVERSE REGISTRATION
-// ORDER (index N-1 -> 0). A non-zero on_mode_enter return aborts further
-// dispatch and propagates kDMCErrSubscriberRejected up to the caller, which
-// compensates and rolls the transition back.
-//
-// Both helpers are called with s_write_mutex held (by the outer public
-// API). Subscriber callbacks MUST NOT re-enter a dmc_* write API; if they
-// do, the DMCReentryScope guard in the re-entered function returns
-// kDMCErrReentrantRequest without acquiring the mutex.
-// ---------------------------------------------------------------------------
+// Subscriber dispatch, called with s_write_mutex held. Exit runs in
+// registration order and can't veto. Enter runs in reverse order; a non-zero
+// return stops dispatch and the caller rolls back.
 
 static void dmc_internal_fire_exit_events(const DMCModeSnapshot *outgoing) {
 	for (size_t i = 0; i < s_subscribers.size(); ++i) {
@@ -353,14 +251,6 @@ static void dmc_internal_fire_exit_events(const DMCModeSnapshot *outgoing) {
 }
 
 static int32_t dmc_internal_fire_enter_events(const DMCModeSnapshot *incoming) {
-	// Use a raw reverse index
-	// (size - 1 - idx) instead of a filtered dispatch_pos counter so
-	// enter's dispatch_index semantics mirror exit's raw forward index.
-	// Before: one-sided-callback subscribers produced ambiguous enter
-	// indices (filtered counter skipped NULL on_mode_enter). After: every
-	// dispatch_index reflects the subscriber's position in the registration
-	// table regardless of callback presence. Exit's `(uint32_t)i` stays
-	// untouched — both paths now converge on raw subscriber index.
 	for (size_t i = s_subscribers.size(); i > 0; --i) {
 		size_t idx = i - 1;  // walk in reverse without size_t underflow
 		if (s_subscribers[idx].on_mode_enter != NULL) {
@@ -409,21 +299,9 @@ static void dmc_internal_compensate_rejected_transition(
 	dmc_internal_fire_enter_events_advisory(restored, reason);
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-//
-// Every public write entry point follows the same preamble:
-//   1. DMCReentryScope reentry;
-//      if (!reentry.installed) return kDMCErrReentrantRequest;
-//   2. std::lock_guard<std::mutex> guard(s_write_mutex);
-//   3. DMC_ASSERT_EMUL_THREAD();
-//   4. FSM / validation checks.
-//   5. Allocate incoming snapshot, fire exits, publish (atomic release),
-//      fire enters, retire outgoing (or compensate + rollback on enter veto).
-//
-// dmc_current_snapshot is the ONLY read path; it is lock-free and callable
-// from any thread (acquire-load on s_current).
-// ---------------------------------------------------------------------------
+// Public API. Each write: re-entry guard, lock, thread assert, validation,
+// then build the incoming snapshot, fire exits, publish, fire enters, and
+// retire the outgoing snapshot (or roll back on an enter veto).
 
 int32_t dmc_create(const struct DMCModeDesc *initial_mode) {
 	DMCReentryScope reentry;
@@ -431,8 +309,7 @@ int32_t dmc_create(const struct DMCModeDesc *initial_mode) {
 		return kDMCErrReentrantRequest;
 	}
 	std::lock_guard<std::mutex> guard(s_write_mutex);
-	// (No DMC_ASSERT_EMUL_THREAD here: production captures s_emul_thread
-	// on the FIRST dmc_create call. Subsequent writes assert.)
+	// No thread assert: this call captures s_emul_thread.
 
 	if (s_dmc_initialized) {
 		return kDMCErrAlreadyInitialized;
@@ -452,22 +329,19 @@ int32_t dmc_create(const struct DMCModeDesc *initial_mode) {
 	                                                     (uint32_t)kDMCOwnerQuickDraw,
 	                                                     default_blanking);
 	if (snap == NULL) {
-		return kDMCErrOutOfMemory;  // uniform OOM return
+		return kDMCErrOutOfMemory;
 	}
 	s_next_generation++;
 
-	// T1 has no outgoing snapshot (source state is Quiescent), so there is
-	// nothing to exit.
+	// Nothing to exit: the source state is Quiescent.
 	s_current.store(snap, std::memory_order_release);
 	s_state = kDMCStateQuickDrawOwner;
 	s_dmc_initialized = true;
 
-	// Fire enter on T1 for any subscribers that registered before create
-	// (cannot happen by contract, but safe to invoke an empty vector).
+	// No subscribers can exist yet; this is for safety.
 	int32_t enter_err = dmc_internal_fire_enter_events(snap);
 	if (enter_err != kDMCNoErr) {
-		// Rollback: undo T1. Since there is no prior snapshot, we tear
-		// back down to Quiescent.
+		// No prior snapshot, so roll back to Quiescent.
 		dmc_internal_compensate_rejected_transition(
 		    snap, NULL, kDMCStateQuiescent, "dmc_create enter veto");
 		free(snap);
@@ -489,10 +363,7 @@ int32_t dmc_shutdown(void) {
 	if (!s_dmc_initialized) {
 		return kDMCErrNotInitialized;
 	}
-	// Fire exit on the current snapshot for every subscriber in
-	// registration order. There is NO incoming snapshot in Quiescent, so
-	// we do not fire enter (reverse enter is conditional on an incoming
-	// snapshot).
+	// Exit only: Quiescent has no incoming snapshot.
 	const DMCModeSnapshot *cur = s_current.load(std::memory_order_relaxed);
 	if (cur != NULL) {
 		dmc_internal_fire_exit_events(cur);
@@ -501,9 +372,7 @@ int32_t dmc_shutdown(void) {
 	s_state = kDMCStateQuiescent;
 	s_dmc_initialized = false;
 
-	// Free the outgoing snapshot AND the retirement ring (no readers
-	// remain after shutdown; production callers are quiescent during
-	// shutdown).
+	// No readers remain after shutdown, so free everything.
 	if (cur != NULL) {
 		free((void *)cur);
 	}
@@ -513,8 +382,6 @@ int32_t dmc_shutdown(void) {
 			s_retired[i] = NULL;
 		}
 	}
-	// Clear subscriber list on shutdown - a subsequent create+subscribe
-	// sequence starts clean.
 	s_subscribers.clear();
 	return kDMCNoErr;
 }
@@ -533,7 +400,6 @@ int32_t dmc_subscribe(const struct DMCSubscriber *sub) {
 	if (sub == NULL || sub->name == NULL) {
 		return kDMCErrSubscriberRejected;
 	}
-	// Duplicate-name check.
 	for (size_t i = 0; i < s_subscribers.size(); ++i) {
 		if (s_subscribers[i].name != NULL &&
 		    strcmp(s_subscribers[i].name, sub->name) == 0) {
@@ -543,13 +409,8 @@ int32_t dmc_subscribe(const struct DMCSubscriber *sub) {
 	DMCSubscriber copy = *sub;
 	s_subscribers.push_back(copy);
 
-	// Catchup synthesized on_mode_enter for mid-transition subscriber
-	// ("subscribe always leaves you in a consistent state"). The new
-	// subscriber observes the
-	// current snapshot as its enter event. Return value is IGNORED here:
-	// a mid-init subscriber cannot veto an already-committed state - it
-	// must deal with whatever mode is currently published or fail in its
-	// own init path.
+	// Catch the new subscriber up with a synthetic enter. It can't veto an
+	// already-committed state, so the return value is ignored.
 	const DMCModeSnapshot *cur = s_current.load(std::memory_order_relaxed);
 	if (cur != NULL && copy.on_mode_enter != NULL) {
 		(void)copy.on_mode_enter(cur, copy.ctx);
@@ -581,10 +442,21 @@ int32_t dmc_unsubscribe(const char *name) {
 	return kDMCErrSubscriberNotFound;
 }
 
-// Reader path - lock-free. Callable from any thread. The returned pointer
-// is valid until at LEAST the next VBL (ring-buffer retirement guarantee).
+// Lock-free, any thread. The pointer stays valid for at least one more
+// publish (retirement ring).
 const struct DMCModeSnapshot *dmc_current_snapshot(void) {
 	return s_current.load(std::memory_order_acquire);
+}
+
+// True while a 3D or DrawSprocket context owns the screen. SynchIdleTime
+// (emul_op.cpp) caps its host sleep then, so per-frame and per-read guest
+// yields do not each wait for the next 60Hz tick.
+extern "C" int gfx_idle_latency_sensitive(void) {
+	const DMCModeSnapshot *snap = dmc_current_snapshot();
+	if (!snap) return 0;
+	return snap->active_owner == kDMCOwnerRAVE ||
+	       snap->active_owner == kDMCOwnerGL ||
+	       snap->active_owner == kDMCOwnerDSp;
 }
 
 int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
@@ -609,8 +481,7 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 		return verr;
 	}
 
-	// Read current snapshot via relaxed (mutex is held; readers only see
-	// release-published values).
+	// Relaxed is fine: we hold the writer mutex.
 	const DMCModeSnapshot *outgoing = s_current.load(std::memory_order_relaxed);
 	DMCState         src_state = s_state;
 	uint32_t prior_owner = (outgoing != NULL) ? outgoing->active_owner : (uint32_t)kDMCOwnerQuickDraw;
@@ -622,11 +493,10 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 	} else {
 		new_owner = (uint32_t)kDMCOwnerQuickDraw;
 	}
-	// Carry palette_gen / gamma_gen / fade_active / blanking_rgba across the switch.
+	// Carry these across the switch. fade_active matters because DSp games
+	// can FadeGammaOut across a resolution change.
 	uint32_t carry_palette_gen = (outgoing != NULL) ? outgoing->palette_gen : 0;
 	uint32_t carry_gamma_gen   = (outgoing != NULL) ? outgoing->gamma_gen   : 0;
-	// A mid-fade mode switch must NOT drop the fade flag — a
-	// DSp game can FadeGammaOut across a resolution change.
 	uint32_t carry_fade_active = (outgoing != NULL) ? outgoing->fade_active : 0;
 	const uint8_t carry_blanking[4] = {
 		(outgoing != NULL) ? outgoing->blanking_rgba[0] : (uint8_t)0,
@@ -635,27 +505,19 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 		(outgoing != NULL) ? outgoing->blanking_rgba[3] : (uint8_t)0xFF
 	};
 
-	// Enter Transitioning state. We no longer mutate outgoing in
-	// place (snapshots are immutable once published); the transition is
-	// observable via s_state. Readers that cared about the former
-	// snapshot.transitioning sentinel should read s_state or simply accept
-	// a sub-microsecond window during which s_current still points at the
-	// stable `outgoing`.
+	// Readers keep seeing `outgoing` until the publish below.
 	s_state = kDMCStateTransitioning;
 
-	// Fire exit (FIFO) BEFORE publishing the new snapshot.
 	if (outgoing != NULL) {
 		dmc_internal_fire_exit_events(outgoing);
 	}
 
-	// Build incoming snapshot.
 	DMCModeSnapshot *incoming = dmc_alloc_snapshot_from_desc(new_mode,
 	                                                         s_next_generation,
 	                                                         new_owner,
 	                                                         carry_blanking);
 	if (incoming == NULL) {
-		// Allocation failure - roll back to prior stable state. No enter
-		// has fired yet, but exits already ran and must be compensated.
+		// Exits already ran, so compensate with an advisory enter.
 		s_state = src_state;
 		dmc_internal_fire_enter_events_advisory(
 		    outgoing, "dmc_request_mode_switch allocation rollback");
@@ -663,41 +525,30 @@ int32_t dmc_request_mode_switch(const struct DMCModeDesc *new_mode) {
 	}
 	incoming->palette_gen = carry_palette_gen;
 	incoming->gamma_gen   = carry_gamma_gen;
-	incoming->fade_active = carry_fade_active;  // carry mid-fade flag
-	// Carry gamma_lut across mode switch. dmc_alloc_snapshot_from_desc
-	// initialized identity gamma; overwrite with outgoing LUT if available.
+	incoming->fade_active = carry_fade_active;
+	// Replace the default gamma with the outgoing LUTs.
 	if (outgoing != NULL) {
 		memcpy(incoming->gamma_lut, outgoing->gamma_lut, 768);
 		memcpy(incoming->driver_gamma_lut, outgoing->driver_gamma_lut, 768);
 	}
 	s_next_generation++;
 
-	// Publish (atomic release-store).
 	s_current.store(incoming, std::memory_order_release);
 	DMCState target = dmc_target_state_for_owner(new_owner);
 	s_state = target;
 
-	// Fire enter (LIFO) AFTER publication.
 	int32_t enter_err = dmc_internal_fire_enter_events(incoming);
 	if (enter_err != kDMCNoErr) {
-		// Rollback: compensate subscribers, re-publish outgoing, and
-		// retire the rejected incoming.
 		dmc_internal_compensate_rejected_transition(
 		    incoming, outgoing, src_state,
 		    "dmc_request_mode_switch enter veto");
-		// Route the rejected snapshot through
-		// the retirement ring so concurrent readers get one more publish of
-		// grace before it is freed. incoming->generation + 1 is the ring slot
-		// the NEXT successful publish would have used; concurrent readers
-		// holding `incoming` finish their frame before this slot is
-		// overwritten (at gen + 3 publish). The rejected generation stays
-		// consumed — we do NOT decrement s_next_generation because
-		// the ring-slot calculation relies on the bumped counter.
+		// Readers may have loaded `incoming`, so retire it through the ring
+		// rather than freeing it. Its generation stays consumed; the slot
+		// math depends on s_next_generation not being decremented.
 		dmc_retire_snapshot(incoming, incoming->generation + 1);
 		return kDMCErrSubscriberRejected;
 	}
 
-	// Retire outgoing into the 2-generation ring buffer.
 	dmc_retire_snapshot(outgoing, incoming->generation);
 	return kDMCNoErr;
 }
@@ -713,10 +564,8 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 	if (!s_dmc_initialized) {
 		return kDMCErrNotInitialized;
 	}
-	// Out-of-enum-range check. kDMCOwnerQuiescent (5) is the maximum legal
-	// enum value; anything above that is invalid. Using set_active_owner to
-	// request Blanking or Quiescent is also illegal (those are reached via
-	// dmc_request_blanking / dmc_shutdown respectively).
+	// Blanking and Quiescent are reached via dmc_request_blanking and
+	// dmc_shutdown, not here.
 	if (owner > (uint32_t)kDMCOwnerQuiescent) {
 		return kDMCErrInvalidOwner;
 	}
@@ -732,12 +581,8 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 	}
 
 	const DMCModeSnapshot *outgoing = s_current.load(std::memory_order_relaxed);
-	// Idempotent early-return when the requested
-	// owner + the current FSM state already match. Once engines
-	// start vending overlays per frame (which drives a dmc_set_active_owner call
-	// per frame), this prevents 60 Hz calloc + subscriber-dispatch churn. Both
-	// owner AND state must match — a state transition (e.g. back from Blanking)
-	// still requires a real transition.
+	// Engines may call this every frame, so skip the transition when both
+	// owner and state already match.
 	if (outgoing != NULL &&
 	    outgoing->active_owner == owner &&
 	    s_state == dmc_target_state_for_owner(owner)) {
@@ -755,8 +600,7 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 	                                                          owner,
 	                                                          NULL);
 	if (incoming == NULL) {
-		// Uniform kDMCErrOutOfMemory on alloc failure; exits already
-		// ran and must be compensated.
+		// Exits already ran, so compensate.
 		s_state = src_state;
 		dmc_internal_fire_enter_events_advisory(
 		    outgoing, "dmc_set_active_owner allocation rollback");
@@ -772,9 +616,7 @@ int32_t dmc_set_active_owner(uint32_t owner) {
 		dmc_internal_compensate_rejected_transition(
 		    incoming, outgoing, src_state,
 		    "dmc_set_active_owner enter veto");
-		// Route the rejected snapshot through
-		// the retirement ring. See dmc_request_mode_switch rollback site for
-		// the uniform-across-4-sites rationale.
+		// Retire, don't free (see dmc_request_mode_switch).
 		dmc_retire_snapshot(incoming, incoming->generation + 1);
 		return kDMCErrSubscriberRejected;
 	}
@@ -814,8 +656,7 @@ int32_t dmc_request_blanking(const uint8_t rgba[4]) {
 	                                                          (uint32_t)kDMCOwnerBlanking,
 	                                                          rgba);
 	if (incoming == NULL) {
-		// Uniform kDMCErrOutOfMemory on alloc failure; exits already
-		// ran and must be compensated.
+		// Exits already ran, so compensate.
 		s_state = src_state;
 		dmc_internal_fire_enter_events_advisory(
 		    outgoing, "dmc_request_blanking allocation rollback");
@@ -830,9 +671,7 @@ int32_t dmc_request_blanking(const uint8_t rgba[4]) {
 		dmc_internal_compensate_rejected_transition(
 		    incoming, outgoing, src_state,
 		    "dmc_request_blanking enter veto");
-		// Route the rejected snapshot through
-		// the retirement ring. See dmc_request_mode_switch rollback site for
-		// the uniform-across-4-sites rationale.
+		// Retire, don't free (see dmc_request_mode_switch).
 		dmc_retire_snapshot(incoming, incoming->generation + 1);
 		return kDMCErrSubscriberRejected;
 	}
@@ -869,8 +708,7 @@ int32_t dmc_end_blanking(void) {
 	                                                          (uint32_t)kDMCOwnerQuickDraw,
 	                                                          NULL);
 	if (incoming == NULL) {
-		// Uniform kDMCErrOutOfMemory on alloc failure; exits already
-		// ran and must be compensated.
+		// Exits already ran, so compensate.
 		s_state = src_state;
 		dmc_internal_fire_enter_events_advisory(
 		    outgoing, "dmc_end_blanking allocation rollback");
@@ -885,9 +723,7 @@ int32_t dmc_end_blanking(void) {
 		dmc_internal_compensate_rejected_transition(
 		    incoming, outgoing, src_state,
 		    "dmc_end_blanking enter veto");
-		// Route the rejected snapshot through
-		// the retirement ring. See dmc_request_mode_switch rollback site for
-		// the uniform-across-4-sites rationale.
+		// Retire, don't free (see dmc_request_mode_switch).
 		dmc_retire_snapshot(incoming, incoming->generation + 1);
 		return kDMCErrSubscriberRejected;
 	}
@@ -896,16 +732,9 @@ int32_t dmc_end_blanking(void) {
 	return kDMCNoErr;
 }
 
-// palette_gen / gamma_gen bump requires ALLOCATING A FRESH SNAPSHOT under
-// the immutability invariant. The published snapshot is NEVER
-// mutated in place. snapshot.generation is bumped on every mutation
-// (including pure palette/gamma bumps) so the retirement ring slot math
-// is consistent.
-//
-// No subscriber events are fired - these are pure snapshot updates, not
-// FSM transitions. Subscribers that care about palette/gamma changes
-// observe them by comparing palette_gen / gamma_gen across successive
-// calls to dmc_current_snapshot().
+// Field-only updates (palette, gamma, blanking color) still publish a fresh
+// snapshot with a new generation, keeping the retirement ring consistent.
+// They fire no subscriber events; listeners compare palette_gen / gamma_gen.
 int32_t dmc_record_palette_change(void) {
 	DMCReentryScope reentry;
 	if (!reentry.installed) {
@@ -934,14 +763,8 @@ int32_t dmc_record_palette_change(void) {
 	return kDMCNoErr;
 }
 
-// Companion to
-// dmc_record_gamma_change_with_lut that ALSO publishes a fade_active flag in
-// the SAME snapshot bump. Clone-mutate-publish under the EXISTING s_write_mutex
-// (no NEW MTLFence / MTLSharedEvent / std::mutex / @synchronized / _Atomic — the
-// flag rides the existing atomic-release publish). Publishing fade_active
-// and the interpolated LUT together avoids a frame where the LUT is mid-fade
-// but the flag is stale, which would warp one fade frame: a separate
-// fade_active setter would produce exactly that torn frame.
+// Publishes fade_active in the same snapshot as the LUT. A separate setter
+// would allow one torn frame with a mid-fade LUT and a stale flag.
 int32_t dmc_record_gamma_change_with_lut_fade(const uint8_t *lut, int fade_active) {
 	DMCReentryScope reentry;
 	if (!reentry.installed) {
@@ -969,32 +792,21 @@ int32_t dmc_record_gamma_change_with_lut_fade(const uint8_t *lut, int fade_activ
 	if (lut != NULL) {
 		memcpy(fresh->gamma_lut, lut, 768);
 	}
-	// If lut == NULL, the memcpy from old already carried the existing LUT
 
 	s_current.store(fresh, std::memory_order_release);
 	dmc_retire_snapshot(old, fresh->generation);
 	return kDMCNoErr;
 }
 
-// Record a gamma ramp change with optional LUT data. If lut is non-NULL,
-// the 768 bytes (planar: 256 R + 256 G + 256 B) overwrite the snapshot's
-// gamma_lut field. If lut is NULL, the memcpy from old snapshot carries the
-// existing LUT data unchanged (backward compatible with dmc_record_gamma_change).
-//
-// A plain SetGamma is NOT a fade, so this
-// 1-arg form delegates with fade_active=0. The fade-driver uses the explicit
-// 2-arg dmc_record_gamma_change_with_lut_fade overload instead.
+// lut is planar 768 bytes (256 R, G, B); NULL keeps the current LUT. Not a
+// fade, so fade_active is cleared.
 int32_t dmc_record_gamma_change_with_lut(const uint8_t *lut) {
 	return dmc_record_gamma_change_with_lut_fade(lut, 0);
 }
 
-// Record a DRIVER (guest SetGamma) table: always store it in
-// driver_gamma_lut — the "original intensity" the DSp fades blend toward —
-// and apply it to the displayed gamma_lut only when no fade is in progress.
-// During a fade the displayed LUT is left alone (an immediate apply would
-// visibly pop the faded screen); the fade's end-state push delivers the
-// table instead. Same clone-mutate-publish discipline as the other
-// dmc_record_* writers (existing s_write_mutex; no new primitives).
+// Guest SetGamma table. Always stored as driver_gamma_lut (what DSp fades
+// blend toward), but applied to gamma_lut only when no fade is running;
+// otherwise the faded screen would pop. The fade's end state applies it.
 int32_t dmc_record_driver_gamma_change(const uint8_t *lut) {
 	if (lut == NULL) {
 		return kDMCErrInvalidModeDesc;
@@ -1032,28 +844,13 @@ int32_t dmc_record_driver_gamma_change(const uint8_t *lut) {
 	return apply_now ? kDMCNoErr : kDMCDriverGammaDeferred;
 }
 
-// Legacy API: bump gamma_gen without changing LUT data. Delegates to
-// dmc_record_gamma_change_with_lut(NULL) for backward compatibility.
+// Bump gamma_gen without changing the LUT.
 int32_t dmc_record_gamma_change(void) {
 	return dmc_record_gamma_change_with_lut(NULL);
 }
 
-// Assign the snapshot's blanking color WITHOUT
-// entering the Blanking FSM state. DSpSetBlankingColor (sub-op 760) only sets
-// the color the library will use the next time the screen IS blanked — it does
-// NOT blank now (DSp 1.7 PDF p.30). This is the no-state-transition twin of
-// dmc_record_gamma_change_with_lut: clone the current snapshot, mutate the one
-// field (blanking_rgba), bump generation, publish, retire old. It deliberately
-// does NOT call any blanking-enter path (dmc_request_blanking transitions the
-// FSM to Blanking — wrong for SetBlankingColor).
-//
-// Reuses the EXISTING DMC single-writer primitive (s_write_mutex +
-// DMCReentryScope + DMC_ASSERT_EMUL_THREAD); adds ZERO new MTLFence /
-// MTLSharedEvent / std::mutex / @synchronized / _Atomic. The DMC is the
-// documented single-writer exception, so this is compliant.
-//
-// No subscriber events are fired — this is a pure snapshot field update, not an
-// FSM transition (same posture as dmc_record_palette_change / gamma_change).
+// Sets the color for the next blank without blanking now (DSpSetBlankingColor,
+// DSp 1.7 p.30), so no state transition.
 int32_t dmc_set_blanking_color(const uint8_t rgba[4]) {
 	DMCReentryScope reentry;
 	if (!reentry.installed) {
@@ -1066,7 +863,7 @@ int32_t dmc_set_blanking_color(const uint8_t rgba[4]) {
 		return kDMCErrNotInitialized;
 	}
 	if (rgba == NULL) {
-		return kDMCErrInvalidModeDesc;   /* defensive: param-invalid */
+		return kDMCErrInvalidModeDesc;
 	}
 	const DMCModeSnapshot *old = s_current.load(std::memory_order_relaxed);
 	if (old == NULL) {

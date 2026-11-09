@@ -42,11 +42,8 @@ static inline uint16_t DSpPackRGB555BigEndian(uint8_t r,
 static inline void DSpStoreRGB555FrontStagingBytes(uint16_t pixel,
                                                    uint8_t out_bytes[2])
 {
-	/*
-	 * Front staging is guest-visible Mac framebuffer memory. Keep 16-bit
-	 * pixels in Mac big-endian xRGB1555 byte order, then let the same Metal
-	 * unpack path used by the compositor byte-swap before extracting RGB.
-	 */
+	/* Front staging is guest framebuffer memory: store big-endian xRGB1555
+	 * and let the compositor's Metal unpack do the byte swap. */
 	out_bytes[0] = (uint8_t)(pixel >> 8);
 	out_bytes[1] = (uint8_t)(pixel & 0xffu);
 }

@@ -54,13 +54,11 @@ public class PreferencesViewController: UIViewController {
 		button.configuration = .defaultConfig
 		button.configuration?.baseBackgroundColor = .gray
 		if UIDevice.deviceType == .mac {
-			// The Mac idiom swaps UIButton to an AppKit-style bezel that
-			// ignores the filled configuration (fill, corner radius, frame
-			// height), leaving a washed-out sliver. Keep the iPad rendering.
+			// The Mac idiom's AppKit-style bezel ignores the filled
+			// configuration. Keep the iPad rendering.
 			button.preferredBehavioralStyle = .pad
-			// The prefs window fills the whole Mac screen, so the default
-			// title size gets lost in the full-width bar — scale the type up
-			// with the taller Mac height set in viewDidLoad.
+			// Larger title for the full-screen Mac window, matching the taller
+			// bar height set in viewDidLoad.
 			button.configuration?.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
 				var attributes = attributes
 				attributes.font = .boldSystemFont(ofSize: 20)
@@ -107,6 +105,8 @@ public class PreferencesViewController: UIViewController {
 	private var displayedViewController: UIViewController?
 
 	private var lockInterfaceOrientationsToLandscape = false
+	private var pendingBoot: (() -> Void)?
+	private var bootRotationRequestID = UUID()
 
 	public override var shouldAutorotate: Bool {
 		return true
@@ -116,7 +116,7 @@ public class PreferencesViewController: UIViewController {
 		if lockInterfaceOrientationsToLandscape {
 			return .landscape
 		} else {
-			return .allButUpsideDown
+			return UIDevice.isIPadIdiom ? .all : .allButUpsideDown
 		}
 	}
 
@@ -208,10 +208,37 @@ public class PreferencesViewController: UIViewController {
 	}
 
 	public override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
-		DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-			guard let self else { return }
-			updateBottomButton()
+		super.viewWillTransition(to: size, with: coordinator)
+		coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+			self?.updateBottomButton()
+			self?.finishBootAfterRotationIfReady(afterTransition: true)
 		}
+	}
+
+	public override func viewDidLayoutSubviews() {
+		super.viewDidLayoutSubviews()
+		finishBootAfterRotationIfReady()
+	}
+
+	private func finishBootAfterRotationIfReady(afterTransition: Bool = false) {
+		guard let pendingBoot,
+			  view.window?.windowScene?.interfaceOrientation.isLandscape == true,
+			  view.bounds.width > view.bounds.height,
+			  afterTransition || transitionCoordinator == nil else { return }
+		self.pendingBoot = nil
+		// Leave UIKit's layout callback before removing the preferences window.
+		DispatchQueue.main.async(execute: pendingBoot)
+	}
+
+	private func cancelPendingBootRotation(_ message: String) {
+		guard pendingBoot != nil else { return }
+		pendingBoot = nil
+		lockInterfaceOrientationsToLandscape = false
+		bottomButton.isEnabled = true
+		if #available(iOS 16.0, *) {
+			setNeedsUpdateOfSupportedInterfaceOrientations()
+		}
+		present(UIAlertController.withMessage(message), animated: true)
 	}
 
 	private func display(tab: Tab) {
@@ -286,12 +313,15 @@ public class PreferencesViewController: UIViewController {
 	}
 
 	private func boot(forceLandscape: Bool = false) {
+		guard pendingBoot == nil else { return }
 		do {
 			try model.validate()
 
 			let bootBlock = { [weak self] in
 				guard let self else { return }
 
+				PreferencesManager.shared.writePreferences()
+				objc_set_emulation_orientation(MonitorResolutionManager.shared.willLaunchInPortraitMode)
 				DiskManager.shared.reportWillBoot()
 
 				removeFromParent()
@@ -301,14 +331,28 @@ public class PreferencesViewController: UIViewController {
 				isDone = true
 			}
 
-			if MiscellaneousSettings.current.alwaysLandscapeMode || forceLandscape,
-			   !UIDevice.current.orientation.isLandscape {
+			if UIDevice.deviceType != .mac,
+			   MiscellaneousSettings.current.alwaysLandscapeMode || forceLandscape {
 				lockInterfaceOrientationsToLandscape = true
-				UINavigationController.attemptRotationToDeviceOrientation()
-
-				DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-					PreferencesManager.shared.writePreferences()
-					bootBlock()
+				pendingBoot = bootBlock
+				let requestID = UUID()
+				bootRotationRequestID = requestID
+				bottomButton.isEnabled = false
+				if #available(iOS 16.0, *) {
+					setNeedsUpdateOfSupportedInterfaceOrientations()
+					view.window?.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape)) { [weak self] error in
+						Task { @MainActor in
+							guard self?.bootRotationRequestID == requestID else { return }
+							self?.cancelPendingBootRotation(error.localizedDescription)
+						}
+					}
+				} else {
+					UIViewController.attemptRotationToDeviceOrientation()
+				}
+				finishBootAfterRotationIfReady()
+				DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+					guard self?.bootRotationRequestID == requestID else { return }
+					self?.cancelPendingBootRotation("Rotate the device or resize the window to landscape, then tap Boot again.")
 				}
 			} else {
 				bootBlock()

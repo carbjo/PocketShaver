@@ -8,26 +8,9 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Provides MTLBinaryArchive-backed PSO persistence so first-launch
- *  has zero runtime shader compiles for stock pipelines. The archive
- *  is loaded from the app bundle at init time (iOS 14+ only; iOS 13.x
- *  is a no-op fallback to runtime compile).
- *
- *  Design notes:
- *    - New module pso_archive.{h,mm} in SheepShaver/src/gfxaccel/.
- *    - Build-time archive generation via PSOArchiveCaptureTests.swift.
- *    - PSO cache integration: archive as backing store.
- *    - First-launch budget: <=150 ms for first frame on iPhone 12.
- *
- *  Scope: Compositor + NQD stock descriptors only. RAVE and GL
- *  PSO descriptors are highly variable (many shader permutations) and
- *  will be added later once those engines stabilize the shader
- *  permutation set.
- *
- *  C-callable throughout: the header can be included from .cpp, .mm, or
- *  Swift-via-bridging-header without pulling in Metal types; PSO return
- *  values are exposed as void* and bridge-cast inside the .mm
- *  implementation.
+ *  MTLBinaryArchive of stock compositor and NQD pipelines, loaded from the
+ *  bundle so first launch needs no runtime shader compiles (iOS 14+). RAVE
+ *  and GL pipelines are not archived. PSOs are returned as void*.
  */
 
 #ifndef PSO_ARCHIVE_H
@@ -39,9 +22,7 @@
 extern "C" {
 #endif
 
-/*
- * Error codes extending the -4000 block (continuing from -4012).
- */
+/* Continues the -4000 gfxaccel error block. */
 enum GfxAccelPSOArchiveError {
 	kGfxAccelErrPSOArchiveLoadFailed   = -4012,
 	kGfxAccelErrPSOArchiveNotAvailable = -4013  /* iOS < 14 */
@@ -50,67 +31,35 @@ enum GfxAccelPSOArchiveError {
 /* --- Lifecycle --- */
 
 /*
- * Load the stock PSO binary archive from the app bundle.
- *
- * iOS 14+ gate: on iOS 13.x, sets s_initialized = true and returns
- * kGfxAccelErrPSOArchiveNotAvailable (non-fatal; caller knows archive
- * is unavailable and runtime compile is the only path).
- *
- * If the archive file (stock_pipelines.metalarchive) is not present in
- * the bundle, returns 0 with s_archive = nil (no archive available;
- * runtime compile fallback for all PSOs).
- *
- * Must be called after SharedMetalDevice() is available.
- *
- * Returns 0 on success, kGfxAccelErrPSOArchiveLoadFailed on Metal
- * error, kGfxAccelErrPSOArchiveNotAvailable on iOS < 14.
+ * Loads stock_pipelines.metalarchive. Call after SharedMetalDevice() is up.
+ * Returns 0 on success, including when the bundle has no archive (everything
+ * compiles at runtime), kGfxAccelErrPSOArchiveLoadFailed on a Metal error, or
+ * kGfxAccelErrPSOArchiveNotAvailable (non-fatal) before iOS 14.
  */
 int32_t pso_archive_init(void);
 
-/*
- * Release the archive and reset state. Idempotent.
- */
+/* Releases the archive. Idempotent. */
 void pso_archive_shutdown(void);
 
 /* --- Lookup --- */
 
 /*
- * Look up a pre-compiled render PSO from the binary archive.
- *
- * descriptor: void* pointing to MTLRenderPipelineDescriptor.
- * Sets descriptor.binaryArchives = @[s_archive] so Metal checks the
- * archive first. On archive hit, returns the pre-compiled PSO
- * (id<MTLRenderPipelineState> as void*). On archive miss, clears
- * descriptor.binaryArchives and returns NULL (caller should fall back
- * to runtime compile).
- *
- * Returns NULL if no archive is loaded or descriptor is NULL.
+ * descriptor is an MTLRenderPipelineDescriptor. Returns the archived
+ * id<MTLRenderPipelineState>, or NULL on a miss (binaryArchives is cleared
+ * and the caller compiles at runtime), with no archive, or a NULL descriptor.
  */
 void *pso_archive_lookup_render(void *descriptor);
 
-/*
- * Look up a pre-compiled compute PSO from the binary archive.
- *
- * descriptor: void* pointing to MTLComputePipelineDescriptor.
- * Same pattern as pso_archive_lookup_render but for compute PSOs.
- *
- * Returns NULL if no archive is loaded or descriptor is NULL.
- */
+/* Compute-pipeline counterpart of pso_archive_lookup_render. */
 void *pso_archive_lookup_compute(void *descriptor);
 
-/*
- * Returns 1 if archive is loaded and available, 0 otherwise.
- */
+/* 1 if an archive is loaded. */
 uint32_t pso_archive_is_available(void);
 
 /*
- * Set binaryArchives on a render pipeline descriptor if an archive
- * is loaded. No-op if no archive is available. This is the
- * integration point: callers set this on their descriptor BEFORE
- * calling [device newRenderPipelineStateWithDescriptor:error:] so
- * Metal checks the shipped archive before runtime compilation.
- *
- * descriptor: void* pointing to MTLRenderPipelineDescriptor.
+ * Sets binaryArchives on an MTLRenderPipelineDescriptor when an archive is
+ * loaded, so Metal checks it before compiling. Call before
+ * newRenderPipelineStateWithDescriptor:.
  */
 void pso_archive_set_on_descriptor(void *descriptor);
 

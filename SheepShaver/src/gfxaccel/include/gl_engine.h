@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <vector>
 #include <unordered_map>
+#include <memory>
 
 /*
  *  OpenGL sub-opcode constants
@@ -705,7 +706,7 @@ enum {
     // =========================================================================
     // Reserved sub-opcodes (916-919) -- internal host use only
     // =========================================================================
-    GL_SUB_DRAIN                                    = 916,   // reserved: native deferred-ring drain trigger (Track A)
+    GL_SUB_DRAIN                                    = 916,   // native deferred-ring drain trigger
 
     GL_SUB_GLUT_COUNT                               = 116,
 };
@@ -714,16 +715,13 @@ enum {
 #define GL_MAX_SUBOPCODE 920
 
 // ---- Context-handle dispatch table ----
-// Some games (4x4 Evolution, Cro-Mag Rally) read GL function descriptors
-// directly out of the Mac-side context handle at `handle + 4 + slot*4` instead
-// of calling the exported stubs. Core GL 1.1 occupies slots 0..335 (see
-// gl_dispatch_sub_opcodes[]), but a game may also read *extension* slots beyond
-// that. We over-allocate the handle to GL_CTX_DISPATCH_SLOTS so every such read
-// lands inside a populated allocation (never uninitialized guest heap), and we
-// fill any slot we don't map to a real GL function with a diagnostic no-op
-// TVECT whose sub-opcode is GL_DT_DIAG_BASE + slot. GL_DT_DIAG_BASE must be
-// greater than every real sub-opcode, and GL_DT_DIAG_BASE + GL_CTX_DISPATCH_SLOTS
-// must stay below 0x8000 (the signed 16-bit `li` immediate the thunk emits).
+// Some games (4x4 Evolution, Cro-Mag Rally) read GL descriptors straight from
+// the context handle at `handle + 4 + slot*4`, including extension slots past
+// core GL's 0..335. The handle is over-allocated to GL_CTX_DISPATCH_SLOTS and
+// unmapped slots get a diagnostic no-op TVECT with sub-opcode
+// GL_DT_DIAG_BASE + slot. GL_DT_DIAG_BASE must exceed every real sub-opcode,
+// and GL_DT_DIAG_BASE + GL_CTX_DISPATCH_SLOTS must stay below 0x8000 (the
+// thunk's signed 16-bit `li` immediate).
 #define GL_CTX_DISPATCH_SLOTS 512
 #define GL_DT_DIAG_BASE       4096   // sub_opcode >= this => unmapped slot (slot = sub_opcode - base)
 
@@ -741,16 +739,9 @@ enum {
 
 
 /*
- *  Function signature table -- maps sub-opcode to argument type info
- *
- *  For each sub-opcode, stores how many args and which are float/double
- *  (passed in FPRs on PPC). This enables generic FPR extraction in the
- *  NATIVE_OPENGL_DISPATCH handler.
- *
- *  float_mask: bit N = 1 means arg N is a float/double (comes from FPR).
- *              bit N = 0 means arg N is int/pointer (comes from GPR).
- *  PPC ABI passes floating-point args in FPR1-FPR13, so signatures can
- *  describe up to 13 PPC-visible floating-point args.
+ *  Per-sub-opcode argument layout, used for generic FPR extraction in
+ *  NATIVE_OPENGL_DISPATCH. float_mask bit N set = arg N is float/double (FPR),
+ *  clear = int/pointer (GPR). PPC passes floats in FPR1-FPR13, so at most 13.
  */
 struct GLFuncSignature {
     uint8_t num_args;    // Total argument count (excluding ctx pointer)
@@ -761,13 +752,24 @@ struct GLFuncSignature {
 /*
  *  GLVertex -- immediate mode vertex with full attribute state
  */
+struct GLMaterial {
+    float ambient[4];
+    float diffuse[4];
+    float specular[4];
+    float emission[4];
+    float shininess;
+    float color_indexes[3] = {0,1,1};
+};
+
 struct GLVertex {
     float position[4];       // x, y, z, w
     float color[4];          // r, g, b, a
     float normal[3];         // nx, ny, nz
     float texcoord[4][4];    // per texture unit: s, t, r, q
     float secondary_color[3]; // r, g, b (EXT_secondary_color)
+    bool edge_flag = true;
     float fog_coord;          // EXT_fog_coord
+    GLMaterial material[2]; // fixed-function material at vertex submission
 };
 
 
@@ -782,6 +784,11 @@ struct GLTextureObject {
     int      depth;          // for 3D textures (GL_TEXTURE_3D_EXT)
     uint32_t source_format;
     uint32_t source_type;
+    uint32_t target;         // first bound GL target; storage remains target-specific
+    uint32_t internal_format; // original level-zero token (including legacy 1..4)
+    uint32_t base_internal_format; // canonical GL_ALPHA/LUMINANCE/.../RGBA
+    uint32_t level_internal_format[32];
+    int      level_width[32], level_height[32], level_depth[32];
     uint32_t min_filter;     // GLenum: GL_NEAREST, GL_LINEAR, etc.
     uint32_t mag_filter;     // GLenum
 	    uint32_t wrap_s;         // GLenum: GL_REPEAT, GL_CLAMP, etc.
@@ -794,11 +801,35 @@ struct GLTextureObject {
 			    bool     legacy_ushort_scalar_no_palette_chain; // level-0 scalar decode rejected duplicated-byte mips
 			};
 
+static inline GLTextureObject GLNewTextureObject(uint32_t target, uint32_t name = 0)
+{
+    GLTextureObject object{};
+    object.target = target;
+    object.name = name;
+    object.min_filter = 0x2702; // NEAREST_MIPMAP_LINEAR
+    object.mag_filter = 0x2601; // LINEAR
+    object.wrap_s = object.wrap_t = 0x2901; // REPEAT
+    object.env_mode = 0x2100; // MODULATE
+    return object;
+}
+
 
 /*
  *  GLCommand -- display list command storage
  */
 struct GLCommand {
+    struct Payload { int argument; std::vector<uint8_t> bytes; };
+    std::vector<Payload> payloads;
+    std::vector<uint32_t> float_args;
+    uint32_t stack_args[6] = {};
+    int unpack[4] = {};
+    bool unpack_lsb_first = false;
+    int unpack_image_height = 0, unpack_skip_images = 0;
+    bool has_unpack = false;
+    bool has_arrays = false;
+    // Array descriptors are copied by value without depending on declaration order.
+    struct Array { uint32_t pointer, type; int size, stride; bool enabled; };
+    Array arrays[10] = {};
     uint16_t opcode;         // GL_SUB_* sub-opcode
     union {
         float    f[16];      // float arguments (e.g., matrix, vertex)
@@ -839,22 +870,23 @@ struct GLLight {
 /*
  *  GLMaterial -- front/back material state
  */
-struct GLMaterial {
-    float ambient[4];
-    float diffuse[4];
-    float specular[4];
-    float emission[4];
-    float shininess;
-};
+
 
 
 /*
- *  GLTextureUnit -- per-unit texture state (GL 1.2 supports up to 4 units)
+ *  GLTextureUnit -- per-unit texture state. Storage retains four legacy slots;
+ *  the Metal backend exposes only the two units it can sample.
  */
+enum { GL_RENDER_TEXTURE_UNITS = 2 };
 struct GLTextureUnit {
     uint32_t bound_texture_1d;   // name of bound GL_TEXTURE_1D
     uint32_t bound_texture_2d;   // name of bound GL_TEXTURE_2D
     uint32_t bound_texture_3d;   // name of bound GL_TEXTURE_3D_EXT
+    // A deleted name leaves the object alive in other contexts which still
+    // bind it. These identities remain distinct if the numeric name is reused.
+    std::shared_ptr<GLTextureObject> retired_texture_1d;
+    std::shared_ptr<GLTextureObject> retired_texture_2d;
+    std::shared_ptr<GLTextureObject> retired_texture_3d;
     bool     enabled_1d;
     bool     enabled_2d;
     bool     enabled_3d;
@@ -871,6 +903,8 @@ struct GLTextureUnit {
     int      texgen_t_mode;
     int      texgen_r_mode;
     int      texgen_q_mode;
+    double   texgen_object_plane[4][4];
+    double   texgen_eye_plane[4][4];
 };
 
 
@@ -890,14 +924,31 @@ struct GLVertexArrayPointer {
  *  GLPixelStore -- pixel pack/unpack state
  */
 struct GLPixelStore {
+    bool unpack_lsb_first = false;
+    bool pack_swap_bytes;
+    bool pack_lsb_first; // Relevant only for bitmap output; color/depth output is scalar.
     int  pack_alignment;
     int  pack_row_length;
     int  pack_skip_pixels;
     int  pack_skip_rows;
+    int  unpack_image_height = 0;
+    int  unpack_skip_images = 0;
     int  unpack_alignment;
     int  unpack_row_length;
     int  unpack_skip_pixels;
     int  unpack_skip_rows;
+};
+
+constexpr int GL_MAX_CLIENT_ATTRIB_STACK_DEPTH = 16;
+struct GLClientAttribStackEntry {
+    uint32_t mask;
+    GLPixelStore pixel_store;
+    GLVertexArrayPointer vertex_array, normal_array, color_array;
+    GLVertexArrayPointer texcoord_array[4];
+    GLVertexArrayPointer secondary_color_array, edge_flag_array, index_array;
+    int client_active_texture;
+    bool arrays_locked;
+    int32_t lock_first, lock_count;
 };
 
 
@@ -921,6 +972,103 @@ struct GLStencilState {
  *  plus copies of each saveable state group.
  */
 struct GLAttribStackEntry {
+    bool extra_color_sum;
+    bool extra_auto_normal;
+    bool extra_point_smooth;
+    bool extra_line_smooth;
+    bool extra_line_stipple_enabled;
+    bool extra_polygon_stipple_enabled;
+    bool saved_line_stipple_enabled;
+    bool full_polygon_stipple_enabled;
+    bool extra_polygon_smooth;
+    bool extra_dither;
+    bool extra_color_logic_op;
+    bool extra_polygon_offset_fill;
+    bool extra_polygon_offset_line;
+    bool extra_polygon_offset_point;
+    bool extra_multisample;
+    bool extra_sample_alpha_to_coverage;
+    bool extra_sample_alpha_to_one;
+    bool extra_sample_coverage;
+    bool extra_color_material_enabled;
+    bool extra_clip_plane_enabled[6];
+    bool extra_eval_map1_enabled[9];
+    bool extra_eval_map2_enabled[9];
+    bool extra_color_table_enabled;
+    bool extra_post_convolution_color_table_enabled;
+    bool extra_post_color_matrix_color_table_enabled;
+    bool extra_convolution_1d_enabled;
+    bool extra_convolution_2d_enabled;
+    bool extra_separable_2d_enabled;
+    bool extra_histogram_enabled;
+    bool extra_minmax_enabled;
+    GLTextureUnit extra_tex_units[4];
+    GLLight extra_lights[8];
+    uint32_t extra_read_buffer;
+    float extra_pixel_zoom_x;
+    float extra_pixel_zoom_y;
+    float extra_pixel_transfer_red_scale;
+    float extra_pixel_transfer_green_scale;
+    float extra_pixel_transfer_blue_scale;
+    float extra_pixel_transfer_alpha_scale;
+    float extra_pixel_transfer_red_bias;
+    float extra_pixel_transfer_green_bias;
+    float extra_pixel_transfer_blue_bias;
+    float extra_pixel_transfer_alpha_bias;
+    float extra_pixel_transfer_depth_scale;
+    float extra_pixel_transfer_depth_bias;
+    float extra_pixel_map_i_to_r[256];
+    float extra_pixel_map_i_to_g[256];
+    float extra_pixel_map_i_to_b[256];
+    float extra_pixel_map_i_to_a[256];
+    float extra_pixel_map_r_to_r[256];
+    float extra_pixel_map_g_to_g[256];
+    float extra_pixel_map_b_to_b[256];
+    float extra_pixel_map_a_to_a[256];
+    int extra_pixel_map_i_to_r_size;
+    int extra_pixel_map_i_to_g_size;
+    int extra_pixel_map_i_to_b_size;
+    int extra_pixel_map_i_to_a_size;
+    int extra_pixel_map_r_to_r_size;
+    int extra_pixel_map_g_to_g_size;
+    int extra_pixel_map_b_to_b_size;
+    int extra_pixel_map_a_to_a_size;
+
+    bool full_blend;
+    bool full_alpha_test;
+    bool full_dither;
+    bool full_color_logic_op;
+    bool full_color_mask[4];
+    uint32_t full_blend_src;
+    uint32_t full_blend_dst;
+    uint32_t full_blend_equation;
+    uint32_t full_alpha_func;
+    uint32_t full_logic_op_mode;
+    uint32_t full_draw_buffer;
+    uint32_t full_index_write_mask;
+    float full_blend_color[4];
+    float full_alpha_ref;
+    float full_clear_index;
+    bool full_depth_test;
+    bool full_depth_mask;
+    uint32_t full_depth_func;
+    bool full_stencil_test;
+    uint32_t full_cull_face_mode;
+    bool full_polygon_smooth;
+    float full_current_texcoord[4][4];
+    float full_current_index;
+    float full_raster_pos[4];
+    float full_raster_color[4];
+    float full_raster_texcoord[4];
+    bool full_current_edge_flag;
+    bool full_raster_pos_valid;
+    GLLight full_lights[8];
+    double full_clip_planes[6][4];
+    bool full_normalize;
+    float full_clear_accum[4];
+    uint32_t full_list_base;
+    uint32_t full_polygon_stipple[32];
+
     uint32_t mask;  // GL_CURRENT_BIT, GL_ENABLE_BIT, etc.
     // --- GL_CURRENT_BIT ---
     float    clear_color[4];
@@ -1089,18 +1237,37 @@ struct GLMinmaxState {
  *  This is the native-side representation of an OpenGL context.
  *  Metal types use void* bridges to keep this header C++ compatible.
  */
+struct GLSharedObjects {
+    std::unordered_map<uint32_t, GLTextureObject> texture_objects;
+    std::unordered_map<uint32_t, GLDisplayList> display_lists;
+    uint32_t next_texture_name = 1;
+    uint32_t next_list_name = 1;
+    // Installed by the Metal backend. Keeping this optional lets portable
+    // users construct contexts without linking an Apple-platform renderer.
+    void (*destroy_texture)(GLTextureObject *) = nullptr;
+
+    ~GLSharedObjects() {
+        if (destroy_texture)
+            for (auto &entry : texture_objects) destroy_texture(&entry.second);
+    }
+};
+
 struct GLContext {
+    // Keep this first: GLContextNew can aggregate-initialize a shared group
+    // without a user-provided constructor suppressing POD value-initialization.
+    std::shared_ptr<GLSharedObjects> shared_objects = std::make_shared<GLSharedObjects>();
+    // Guest Memory Manager calls can reenter AGL and destroy this context.
+    // Replay retains a weak token, never a raw pointer across that boundary.
+    std::shared_ptr<char> lifetime = std::make_shared<char>(0);
     // ---- Matrix stacks ----
     float    modelview_stack[32][16];   // 32 deep, 4x4 floats
     int      modelview_depth;
-    float    projection_stack[32][16];  // 32 deep (was 2 = spec minimum; real
-                                        // Apple/ATI GL allowed ~10. Cro-Mag Rally
-                                        // nests the projection matrix deeper than
-                                        // 1 -> GL_STACK_OVERFLOW at the old cap)
+    float    projection_stack[32][16];  // 32 deep; Cro-Mag Rally nests past the
+                                        // spec minimum of 2
     int      projection_depth;
-    float    texture_stack[4][32][16];  // per unit, 32 deep (was 2)
+    float    texture_stack[4][32][16];  // per unit, 32 deep
     int      texture_depth[4];
-    float    color_stack[32][16];       // 32 deep (was 2; for imaging subset)
+    float    color_stack[32][16];       // 32 deep (imaging subset)
     int      color_depth;
     uint32_t matrix_mode;              // GL_MODELVIEW, GL_PROJECTION, etc.
 
@@ -1133,8 +1300,13 @@ struct GLContext {
     int      client_active_texture;    // for client state
 
     // ---- Texture objects ----
-    std::unordered_map<uint32_t, GLTextureObject> texture_objects;
-    uint32_t next_texture_name;
+    std::unordered_map<uint32_t, GLTextureObject> &texture_objects = shared_objects->texture_objects;
+    uint32_t &next_texture_name = shared_objects->next_texture_name;
+    // Name zero denotes a per-target, per-context default texture. These are
+    // shared between units in this context, never between shared contexts.
+    GLTextureObject default_textures[3] = {
+        GLNewTextureObject(0x0de0), GLNewTextureObject(0x0de1), GLNewTextureObject(0x806f)
+    };
 
     // ---- Enable/disable caps ----
     bool     depth_test;
@@ -1153,6 +1325,8 @@ struct GLContext {
     bool     auto_normal;
     bool     point_smooth;
     bool     line_smooth;
+    bool line_stipple_enabled = false;
+    bool polygon_stipple_enabled = false;
     bool     polygon_smooth;
     bool     dither;
     bool     color_logic_op;
@@ -1201,11 +1375,9 @@ struct GLContext {
     GLVertexArrayPointer edge_flag_array;
     GLVertexArrayPointer index_array;
 
-    // ---- Immediate draw-state latches ----
-    // ATI-era clients such as Warcraft III prepare texture state and client
-    // texcoords, then disable them immediately before glDrawElements. Track
-    // same-draw cleanup plus a bounded texture latch for subsequent array
-    // draws that keep binding textures and texcoords in the same batch.
+    // ---- Legacy draw-state bookkeeping ----
+    // Retained for state-stack compatibility. These fields never override a
+    // guest texture/client-array disable; strict GL state controls submission.
     uint32_t completed_draw_serial;
     uint32_t texture_2d_enable_draw_serial[4];
     uint32_t texcoord_array_enable_draw_serial[4];
@@ -1215,18 +1387,22 @@ struct GLContext {
     GLVertexArrayPointer prepared_texcoord_array[4];
 
     // ---- Display lists ----
-    std::unordered_map<uint32_t, GLDisplayList> display_lists;
-    uint32_t next_list_name;
+    std::unordered_map<uint32_t, GLDisplayList> &display_lists = shared_objects->display_lists;
+    uint32_t &next_list_name = shared_objects->next_list_name;
     bool     in_display_list;
     uint32_t current_list_name;
     uint32_t current_list_mode;        // GL_COMPILE or GL_COMPILE_AND_EXECUTE
     uint32_t list_base;
+    unsigned list_call_depth = 0;
 
     // ---- Metal state ----
     void    *metal;                    // opaque Metal resources pointer
 
     // ---- Pixel store ----
     GLPixelStore pixel_store;
+
+    GLClientAttribStackEntry client_attrib_stack[GL_MAX_CLIENT_ATTRIB_STACK_DEPTH];
+    int client_attrib_stack_depth = 0;
 
     // ---- Color material ----
     // (state tracked in color_material_* fields above)
@@ -1261,6 +1437,9 @@ struct GLContext {
     uint32_t feedback_buffer_mac_ptr;
     int32_t  feedback_buffer_size;
     uint32_t feedback_type;
+    int32_t feedback_buffer_offset = 0;
+    bool feedback_overflow = false;
+    bool selection_overflow = false;
     int32_t  name_stack_depth;
     uint32_t name_stack[64];
 
@@ -1286,6 +1465,8 @@ struct GLContext {
 
     // ---- Raster position ----
     float    raster_pos[4];
+    float raster_texcoord[4] = {0,0,0,1};
+    float    raster_color[4] = {1, 1, 1, 1}; // captured when RasterPos is set
     bool     raster_pos_valid;
 
     // ---- Pixel transfer ----
@@ -1332,6 +1513,7 @@ struct GLContext {
     uint32_t polygon_stipple[32];      // 32x32 bit pattern
 
     // ---- Draw/read buffer ----
+    bool     double_buffered;         // selected AGL pixel format
     uint32_t draw_buffer;              // GL_FRONT, GL_BACK, etc.
     uint32_t read_buffer;
 
@@ -1378,7 +1560,40 @@ struct GLContext {
 
     // ---- Error ----
     uint32_t last_error;               // GLenum: GL_NO_ERROR, etc.
+
+    ~GLContext() {
+        if (shared_objects->destroy_texture)
+            for (auto &texture : default_textures)
+                if (texture.metal_texture) shared_objects->destroy_texture(&texture);
+    }
 };
+
+static inline std::shared_ptr<GLTextureObject> &GLRetiredTextureBinding(GLTextureUnit &unit,
+                                                                     uint32_t target)
+{
+    return target == 0x0de0 ? unit.retired_texture_1d :
+           target == 0x806f ? unit.retired_texture_3d : unit.retired_texture_2d;
+}
+
+static inline const GLTextureObject *GLBoundTextureObject(const GLContext *ctx, int unit, uint32_t target)
+{
+    if (!ctx || unit < 0 || unit >= 4 ||
+        (target != 0x0de0 && target != 0x0de1 && target != 0x806f)) return nullptr;
+    const GLTextureUnit &binding = ctx->tex_units[unit];
+    const auto &retired = target == 0x0de0 ? binding.retired_texture_1d :
+                          target == 0x806f ? binding.retired_texture_3d : binding.retired_texture_2d;
+    if (retired) return retired.get();
+    const uint32_t name = target == 0x0de0 ? binding.bound_texture_1d :
+                          target == 0x806f ? binding.bound_texture_3d : binding.bound_texture_2d;
+    if (!name) return &ctx->default_textures[target == 0x0de0 ? 0 : target == 0x0de1 ? 1 : 2];
+    auto entry = ctx->texture_objects.find(name);
+    return entry == ctx->texture_objects.end() ? nullptr : &entry->second;
+}
+
+static inline GLTextureObject *GLBoundTextureObject(GLContext *ctx, int unit, uint32_t target)
+{
+    return const_cast<GLTextureObject *>(GLBoundTextureObject(static_cast<const GLContext *>(ctx), unit, target));
+}
 
 
 /*
@@ -1387,6 +1602,10 @@ struct GLContext {
 
 // Current GL context (singleton for now)
 extern GLContext *gl_current_context;
+// Return registered contexts sharing this object's namespace, including ctx.
+extern unsigned GLContextGetSharedContexts(const GLContext *ctx, GLContext **out,
+                                           unsigned capacity);
+extern void GLMetalSynchronizeSharedContexts(GLContext *ctx);
 
 // Initialize GL context to default state
 extern void GLContextInit(GLContext *ctx);
@@ -1400,11 +1619,9 @@ extern uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
                            uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
                            const uint32_t *float_bits, int num_float_args);
 
-// @autoreleasepool wrapper around GLDispatch (defined in gfxaccel_arc_shim.mm).
-// See the RaveDispatchARC comment for the rationale.  Called from
-// sheepshaver_glue.cpp:NATIVE_GL_DISPATCH in
-// place of direct GLDispatch so the emul thread drains autoreleased MTL*/NS*
-// temporaries every dispatch call.
+// @autoreleasepool wrapper around GLDispatch (gfxaccel_arc_shim.mm). Used by
+// NATIVE_GL_DISPATCH so the emul thread drains autoreleased Metal temporaries
+// on every call.
 extern uint32_t GLDispatchARC(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
                               uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
                               const uint32_t *float_bits, int num_float_args);
@@ -1433,8 +1650,8 @@ extern uint32_t gl_dt_flag_addr;
 #if ACCEL_LOGGING_ENABLED
 #ifdef __APPLE__
 #include <os/log.h>
-extern os_log_t gl_log;        /* defined in gl_dispatch.cpp */
-extern os_log_t gl_metal_log;  /* defined in gl_dispatch.cpp */
+extern os_log_t gl_log;
+extern os_log_t gl_metal_log;
 #endif
 extern bool gl_logging_enabled;
 #ifdef __APPLE__
@@ -1464,6 +1681,8 @@ extern void GLMetalInit(GLContext *ctx);
 extern void GLMetalBeginFrame(GLContext *ctx);
 extern void GLMetalClear(GLContext *ctx, uint32_t mask);
 extern void GLMetalEndFrame(GLContext *ctx);
+// Complete writes to the old drawable before AGL replaces its binding.
+extern void GLMetalPrepareDrawableChange(GLContext *ctx);
 extern void GLMetalFlushImmediateMode(GLContext *ctx);
 extern void GLMetalRelease(GLContext *ctx);
 extern void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
@@ -1477,54 +1696,40 @@ extern void GLMetalUploadSubTexture3D(GLContext *ctx, GLTextureObject *texObj, i
                                       const uint8_t *data, int bytesPerRow, int bytesPerImage);
 extern void GLMetalDestroyTexture(GLTextureObject *texObj);
 extern void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len);
-extern void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len);
-// Read a rectangle from the framebuffer into a malloc'd BGRA8 buffer. Caller must free().
-// Returns NULL on failure. Output length written to *out_len.
+extern void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len,
+                          float xorig, float yorig);
+// Ordered framebuffer copy in GL texture row order; preserves other texels.
+extern bool GLMetalCopyFramebufferToTexture(GLContext *ctx, GLTextureObject *texObj,
+    int level, int xoffset, int yoffset, int x, int y, int width, int height,
+    bool redefine = false);
+// Returns a malloc'd BGRA8 copy of the rect (caller frees) and its length in
+// *out_len, or NULL on failure.
 extern uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int height, int *out_len);
 
-/*
- *  Per-engine overlay lifecycle + gfxaccel_resources fan-out
- *  hooks for GL (mirrors RAVE's overlay pattern).
- *
- *  gl_overlay_bind / gl_overlay_unbind / gl_overlay_present are called from
- *  gl_engine.cpp's NativeAGLSetDrawable / NativeAGLSwapBuffers. They own
- *  the kGfxEngineGL fleet slot's overlay texture lifetime and emit a
- *  kLayerSlotOverlay CompositeLayer via MetalCompositorSubmitFrame on
- *  present.
- *
- *  gl_has_active_overlay / gl_get_overlay_dims / gl_release_overlay_for_detach
- *  are the C-linkage probes consumed by gl_engine.cpp's GLOnAttach / GLOnDetach
- *  fan-out handlers (registered with gfxaccel_resources at GLInstallHooks).
- */
+/* Per-context visible overlays. Offscreen targets never enter the compositor
+ * mailbox. DMC fan-out preserves each drawable binding across resource detach. */
 #ifdef __cplusplus
 extern "C" {
 #endif
-void gl_overlay_bind(int32_t left, int32_t top, int32_t width, int32_t height);
-void gl_overlay_unbind(void);
-void gl_overlay_present(void);
-int  gl_has_active_overlay(void);
-int  gl_get_overlay_dims(uint32_t *outW, uint32_t *outH);
+void gl_overlay_bind(GLContext *ctx, int32_t left, int32_t top, int32_t width, int32_t height);
+void gl_overlay_unbind(GLContext *ctx);
+void gl_overlay_present(GLContext *ctx);
+int  gl_prepare_overlays_for_attach(void);
 void gl_release_overlay_for_detach(void);
 int  GLContextGetOffscreenDrawable(GLContext *ctx,
                                    uint32_t *outW,
                                    uint32_t *outH,
                                    uint32_t *outRowbytes,
-                                   uint32_t *outBaseaddr);
-uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentDirtyRect(
-	uint32_t dstBaseaddr,
-	uint32_t dstRowbytes,
-	uint32_t dstDepthBits,
-	int32_t dirtyX,
-	int32_t dirtyY,
-	int32_t dirtyWidth,
-	int32_t dirtyHeight);
-uint64_t GLCompositeLatestOffscreenToGuestSurfaceUsingLatestExtentIfNotSuppressed(
-	uint32_t dstBaseaddr,
-	uint32_t dstRowbytes,
-	uint32_t dstDepthBits);
+                                   uint32_t *outBaseaddr,
+                                   uint32_t *outBytesPerPixel = nullptr);
+
 #ifdef __cplusplus
 }
 #endif
 
+// Material updates persist independently of the GL_COLOR_MATERIAL enable.
+void GLApplyColorMaterial(GLContext *ctx);
+void GLSelectionRecordDepthRange(GLContext *ctx, double zmin, double zmax);
+void GLFeedbackWrite(GLContext *ctx, float value);
 
 #endif /* GL_ENGINE_H */

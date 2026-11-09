@@ -8,26 +8,24 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Implements:
- *    - NativeDrawPrivateNew: allocates RaveDrawPrivate, populates TQADrawContext TVECTs
- *    - NativeDrawPrivateDelete: frees RaveDrawPrivate, removes from context table
- *    - NativeSetFloat/SetInt/SetPtr: store state values by tag ID
- *    - NativeGetFloat/GetInt/GetPtr: retrieve state values by tag ID
- *
- *  ObjC++ (.mm) for future Metal integration.
+ *  Draw context create/delete and the Set/Get state methods.
  */
 
+#include <memory>
+#include <new>
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "rave_engine.h"
+#include "rave_guest_buffer.h"
 #include "rave_metal_renderer.h"
 
 #include <cstring>
 
-// Forward declare Mac_sysalloc (from macos_util.h) to avoid UIKit header conflicts.
+// Declared here rather than via macos_util.h to avoid UIKit header conflicts.
 extern uint32 Mac_sysalloc(uint32 size);
+extern void Mac_sysfree(uint32 addr);
 
-// RAVE error codes (must match TQAError enum in RAVE.h)
+// Must match TQAError in RAVE.h.
 #define kQANoErr                    0
 #define kQAError                    1
 #define kQANotSupported             3
@@ -37,32 +35,31 @@ extern uint32 Mac_sysalloc(uint32 size);
 #define kQAContext_NoZBuffer  (1 << 0)
 
 /*
- *  Context table
- *
- *  Maps uint32 handles (1-based) to native RaveDrawPrivate pointers.
- *  Max 8 simultaneous contexts (games typically use 1-2).
+ *  Context table: 1-based handles to RaveDrawPrivate.
  */
 #ifndef RAVE_MAX_CONTEXTS
 #define RAVE_MAX_CONTEXTS 8
 #endif
 
 static RaveDrawPrivate *context_table[RAVE_MAX_CONTEXTS] = {};
+static uint64_t context_generation = 0;
 
 int rave_context_count = 0;
 uint32_t rave_current_draw_context_addr = 0;
 
 RaveDrawPrivate *RaveGetContext(uint32 handle)
 {
-	if (handle == 0 || handle > RAVE_MAX_CONTEXTS)
+	if (RaveGuestMemoryCallActive() || handle == 0 || handle > RAVE_MAX_CONTEXTS)
 		return nullptr;
 	return context_table[handle - 1];
 }
 
 static uint32_t AllocContextHandle(RaveDrawPrivate *ctx)
 {
-	// Find a free slot
 	for (int i = 0; i < RAVE_MAX_CONTEXTS; i++) {
 		if (context_table[i] == nullptr) {
+			ctx->generation = ++context_generation;
+			if (!ctx->generation) ctx->generation = ++context_generation;
 			context_table[i] = ctx;
 			return (uint32_t)(i + 1);
 		}
@@ -78,14 +75,11 @@ static void FreeContextHandle(uint32_t handle)
 }
 
 /*
- *  State defaults per RAVE spec
- *
- *  Tag IDs are globally unique across float/int/ptr types.
- *  See RAVE.h TQATagFloat/TQATagInt/TQATagPtr enums.
+ *  RAVE spec state defaults. Tag IDs are unique across the float/int/ptr
+ *  enums in RAVE.h, so one state[] array holds them all.
  */
 static void InitStateDefaults(RaveDrawPrivate *ctx, uint32 flags)
 {
-	// Zero all state first
 	memset(ctx->state, 0, sizeof(ctx->state));
 
 	// kQATag_ZFunction (0) - int: kQAZFunction_None (0) if NoZBuffer, else kQAZFunction_LT (1)
@@ -182,7 +176,7 @@ static void InitStateDefaults(RaveDrawPrivate *ctx, uint32 flags)
 	ctx->state[149].i = 1;      // kQATagGL_LinePatternFactor
 	// Tags 150-153: TextureEnvColor a/r/g/b (default 0.0 from memset)
 
-	// ATI state defaults (all zero from memset in RaveDrawPrivate allocation)
+	// ATI engine-specific defaults
 	ctx->ati_fog_active = false;
 	memset(ctx->ati_state, 0, sizeof(ctx->ati_state));
 	uint32_t atiIntDefaults[RAVE_ATI_TAG_COUNT] = {};
@@ -197,15 +191,10 @@ static void InitStateDefaults(RaveDrawPrivate *ctx, uint32 flags)
 }
 
 /*
- *  TQADrawContext struct field -> TVECT sub-opcode mapping
- *
- *  The struct has 35 method pointer fields starting at offset 8.
- *  Fields 0-34 all map to draw method tags.
- *  Fields 26-33 are RAVE 1.6 buffer access/clear methods.
+ *  TQADrawContext has 35 method pointers starting at offset 8. This maps
+ *  each field to its rave_method_tvects sub-opcode.
  */
 static const int kDrawContextMethodFields = 35;
-
-// Maps struct field index (0-34) to rave_method_tvects sub-opcode, or -1 for no mapping
 static const int struct_field_to_subopcode[35] = {
 	0,  1,  2,  3,  4,  5,       // setFloat..getPtr
 	6,  7,  8,  9,  10, 11, 12,  // drawPoint..drawBitmap
@@ -221,19 +210,18 @@ static const int struct_field_to_subopcode[35] = {
 
 
 /*
- *  NativeDrawPrivateNew - Create a new draw context
- *
+ *  NativeDrawPrivateNew
  *  PPC args: r3=drawContext, r4=device, r5=rect, r6=clip, r7=flags
- *  Returns TQAError (0 = success)
+ *  Returns TQAError.
  */
 int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
                            uint32 rectAddr, uint32 clipAddr, uint32 flags)
 {
+	if (RaveGuestMemoryCallActive()) return kQAError;
 	if (rave_logging_enabled) {
 		printf("RAVE DrawPrivateNew ENTER: ctx=0x%08x dev=0x%08x rect=0x%08x clip=0x%08x flags=0x%x\n",
 		       drawContextAddr, deviceAddr, rectAddr, clipAddr, flags);
 
-		// Dump context table state on entry
 		printf("RAVE DrawPrivateNew: context_table state on entry (count=%d):\n", rave_context_count);
 		for (int i = 0; i < RAVE_MAX_CONTEXTS; i++) {
 			if (context_table[i] != nullptr) {
@@ -242,7 +230,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 		}
 	}
 
-	// Read TQARect from Mac memory (DDK struct order: left, right, top, bottom)
+	// TQARect field order is left, right, top, bottom.
 	int32 left   = (int32)ReadMacInt32(rectAddr + 0);
 	int32 right  = (int32)ReadMacInt32(rectAddr + 4);
 	int32 top    = (int32)ReadMacInt32(rectAddr + 8);
@@ -252,8 +240,8 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 		printf("RAVE DrawPrivateNew: rect raw=(%d,%d,%d,%d) size=%dx%d\n",
 		       left, top, right, bottom, right - left, bottom - top);
 
-	// Allocate RaveDrawPrivate on native heap
-	RaveDrawPrivate *ctx = new RaveDrawPrivate();
+	std::unique_ptr<RaveDrawPrivate> owner(new (std::nothrow) RaveDrawPrivate());
+	RaveDrawPrivate *ctx = owner.get();
 	if (!ctx) {
 		if (rave_logging_enabled)
 			printf("RAVE DrawPrivateNew: FAIL - native allocation returned null\n");
@@ -263,7 +251,6 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 		printf("RAVE DrawPrivateNew: native alloc OK at %p\n", ctx);
 	memset(ctx, 0, sizeof(RaveDrawPrivate));
 
-	// Store dimensions and flags
 	ctx->left   = left;
 	ctx->top    = top;
 	ctx->width  = right - left;
@@ -271,50 +258,49 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 	ctx->flags  = flags;
 	ctx->drawContextAddr = drawContextAddr;
 
-	// Initialize state defaults per RAVE spec
 	InitStateDefaults(ctx, flags);
 
-	// Allocate vertex staging buffer
 	ctx->vertexStagingCapacity = 65536;
 	ctx->vertexStagingCount = 0;
-	ctx->vertexStagingBuffer = new uint8_t[ctx->vertexStagingCapacity * RAVE_VERTEX_BYTES];
+	std::unique_ptr<uint8_t[]> vertices(new (std::nothrow) uint8_t[ctx->vertexStagingCapacity * RAVE_VERTEX_BYTES]);
+	ctx->vertexStagingBuffer = vertices.get();
 
-	// Allocate multi-texture UV staging buffer (parallel to vertexStagingBuffer)
-	// 16 bytes per vertex: uOverW2(4) + vOverW2(4) + invW2(4) + pad(4)
-	ctx->multiTexStagingBuffer = new uint8_t[ctx->vertexStagingCapacity * 16];
+	// Multi-texture UVs, parallel to vertexStagingBuffer. 16 bytes per
+	// vertex: uOverW2, vOverW2, invW2, pad.
+	std::unique_ptr<uint8_t[]> multiTex(new (std::nothrow) uint8_t[ctx->vertexStagingCapacity * 16]);
+	ctx->multiTexStagingBuffer = multiTex.get();
 	ctx->multiTexStagingCount = 0;
 	ctx->multiTextureActive = false;
 	ctx->multiTextureHandle = 0;
 	ctx->multiTextureOp = 0;
 	ctx->multiTextureFactor = 0.0f;
 
-	// Allocate Z-sort transparency buffer
-	ctx->zsortBuffer = new ZSortTriangle[RAVE_ZSORT_MAX_TRIANGLES];
+	std::unique_ptr<ZSortTriangle[]> zsort(new (std::nothrow) ZSortTriangle[RAVE_ZSORT_MAX_TRIANGLES]);
+	ctx->zsortBuffer = zsort.get();
+	if (!vertices || !multiTex || !zsort) return kQAError;
 	ctx->zsortCount = 0;
 
-	// Diagnostic frame counter
 	ctx->frameCount = 0;
 
-	// Register in context table
 	uint32_t handle = AllocContextHandle(ctx);
 	if (handle == 0) {
 		if (rave_logging_enabled)
 			printf("RAVE DrawPrivateNew: FAIL - no free context slots (all %d occupied)\n", RAVE_MAX_CONTEXTS);
-		delete ctx;
 		return kQAError;
 	}
+	// Ownership transfers only after all staging allocations and registration succeed.
+	vertices.release();
+	multiTex.release();
+	zsort.release();
+	owner.release();
 	if (rave_logging_enabled)
 		printf("RAVE DrawPrivateNew: got handle=%d\n", handle);
 
-	// Write handle into TQADrawContext.drawPrivate at offset 0
+	// TQADrawContext: +0 drawPrivate handle, +4 version, +8 method TVECTs.
 	WriteMacInt32(drawContextAddr + 0, handle);
 
-	// Write version at offset 4
-	// TQAVersion enum: kQAVersion_1_6 = 4 (NOT 0x01060000!)
+	// TQAVersion: kQAVersion_1_6 = 4, not 0x01060000.
 	WriteMacInt32(drawContextAddr + 4, 4);
-
-	// Write all 35 draw method TVECTs into TQADrawContext struct fields
-	// Method pointer fields start at offset 8, each is 4 bytes
 	for (int i = 0; i < kDrawContextMethodFields; i++) {
 		int subopcode = struct_field_to_subopcode[i];
 		uint32 tvect_addr = 0;
@@ -326,18 +312,12 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 
 	rave_context_count++;
 
-	// Initialize Metal overlay (viewport-sized) and per-context resources.
-	// Shared-overlay retain call deleted — per-engine ownership
-	// via gfxaccel_resources eliminates the shared refcount model entirely.
-	// RaveCreateMetalOverlay vends a per-engine overlay texture from
-	// gfxaccel_resources directly.
 	RaveCreateMetalOverlay(ctx->left, ctx->top, ctx->width, ctx->height);
 	RaveInitMetalResources(ctx);
 
 	RAVE_LOG("DrawPrivateNew: handle=%d size=%dx%d contexts=%d",
 	         handle, ctx->width, ctx->height, rave_context_count);
 
-	// Diagnostic: dump TQADrawContext struct contents for crash debugging
 	if (rave_logging_enabled) {
 		printf("RAVE DrawContext at 0x%08x:\n", drawContextAddr);
 		printf("  [+0] drawPrivate = %d\n", ReadMacInt32(drawContextAddr + 0));
@@ -354,7 +334,7 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 		}
 	}
 
-	// Track the most recent draw context for EngineGestalt(kQATIGestalt_CurrentContext)
+	// For EngineGestalt(kQATIGestalt_CurrentContext).
 	rave_current_draw_context_addr = drawContextAddr;
 
 	return kQANoErr;
@@ -362,10 +342,8 @@ int32 NativeDrawPrivateNew(uint32 drawContextAddr, uint32 deviceAddr,
 
 
 /*
- *  NativeDrawPrivateDelete - Destroy a draw context
- *
- *  PPC args: r3 = drawPrivate handle (value from TQADrawContext.drawPrivate)
- *  Returns void (we return 0 in gpr(3))
+ *  NativeDrawPrivateDelete
+ *  PPC args: r3 = drawPrivate handle. Returns 0 in gpr(3).
  */
 int32 NativeDrawPrivateDelete(uint32 drawPrivateHandle)
 {
@@ -377,15 +355,21 @@ int32 NativeDrawPrivateDelete(uint32 drawPrivateHandle)
 		return kQANoErr;
 	}
 
-	// Free vertex staging buffer
+	// Hide the dying context before guest DisposePtr can invoke callbacks.
+	FreeContextHandle(drawPrivateHandle);
+	{
+		RaveGuestMemoryScope guard;
+		const uint32_t owned = ctx->ati_ext_funcs_owned;
+		ctx->ati_ext_funcs_owned = 0;
+		if (owned) Mac_sysfree(owned);
+	}
+
 	delete[] ctx->vertexStagingBuffer;
 	ctx->vertexStagingBuffer = nullptr;
 
-	// Free multi-texture staging buffer
 	delete[] ctx->multiTexStagingBuffer;
 	ctx->multiTexStagingBuffer = nullptr;
 
-	// Free per-draw scratch arenas
 	delete[] ctx->drawScratchA;
 	ctx->drawScratchA = nullptr;
 	ctx->drawScratchACap = 0;
@@ -396,27 +380,19 @@ int32 NativeDrawPrivateDelete(uint32 drawPrivateHandle)
 	ctx->drawScratchF = nullptr;
 	ctx->drawScratchFCap = 0;
 
-	// Free Z-sort transparency buffer
 	delete[] ctx->zsortBuffer;
 	ctx->zsortBuffer = nullptr;
 
-	// Release Metal resources before freeing context
 	RaveReleaseMetalResources(ctx);
 
-	FreeContextHandle(drawPrivateHandle);
 	delete ctx;
 	rave_context_count--;
 
-	// Overlay lifetime is scoped to the DMC MODE, not to draw-context churn.
-	// When the last RAVE context goes away, LEAVE the cached overlay alive.
-	// The gfxaccel_resources fan-out (RaveOnDetach in rave_engine.cpp) will
-	// release it on real mode changes, and RaveOnAttach will re-vend at the
-	// new resolution. Tearing down here caused visible black flashes on every
-	// Nanosaur scene transition (menu ↔ gameplay) because the host's main-
-	// thread VBL presented frames during the interval between destroy and the
-	// next DrawPrivateNew → RaveCreateMetalOverlay call.
-
-	// Clamp for safety
+	// Leave the cached overlay alive when the last context goes away. Its
+	// lifetime is the display mode: RaveOnDetach releases it on a real mode
+	// change. Freeing it here caused a black flash on every Nanosaur scene
+	// transition, because VBL presented between the delete and the next
+	// DrawPrivateNew.
 	if (rave_context_count <= 0) {
 		rave_context_count = 0;
 		rave_current_draw_context_addr = 0;
@@ -428,10 +404,8 @@ int32 NativeDrawPrivateDelete(uint32 drawPrivateHandle)
 
 
 /*
- *  State management helpers
- *
- *  All state methods receive drawContextAddr (Mac address of TQADrawContext),
- *  read the drawPrivate handle from offset 0, and look up the native context.
+ *  State methods get the TQADrawContext address and read the drawPrivate
+ *  handle from offset 0.
  */
 static RaveDrawPrivate *GetContextFromDrawAddr(uint32 drawContextAddr)
 {
@@ -441,8 +415,8 @@ static RaveDrawPrivate *GetContextFromDrawAddr(uint32 drawContextAddr)
 
 
 /*
- *  NativeSetFloat - Store a float state value
- *  PPC args: r3=drawContextAddr, r4=tag, r5=valueBits (float reinterpreted as uint32)
+ *  NativeSetFloat
+ *  PPC args: r3=drawContextAddr, r4=tag, r5=float bits
  */
 int32 NativeSetFloat(uint32 drawContextAddr, uint32 tag, uint32 valueBits)
 {
@@ -452,7 +426,7 @@ int32 NativeSetFloat(uint32 drawContextAddr, uint32 tag, uint32 valueBits)
 		return kQAError;
 	}
 
-	// ATI EngineSpecific range (1000+)
+	// ATI engine-specific tags (1000+)
 	if (tag >= 1000) {
 		uint32_t ati_idx = tag - 1000;
 		if (ati_idx < RAVE_ATI_TAG_COUNT) {
@@ -462,24 +436,19 @@ int32 NativeSetFloat(uint32 drawContextAddr, uint32 tag, uint32 valueBits)
 			if (ati_idx == kRaveATIDepthWriteEnableIndex) {
 				ctx->dirty_flags |= 1;
 			}
-			// Activate ATI fog override when fog-related tags are set (indices 2-9)
+				// ATI fog tags (indices 2-9) override standard fog.
 			if (ati_idx >= 2 && ati_idx <= 9) {
 				ctx->ati_fog_active = true;
 			}
 		}
-		// Silently ignore unknown engine-specific tags
 		return kQANoErr;
 	}
-	// GL + standard range (0-153)
-	// GL tags (100+) are stored in state[] but unused -- kQAOptional_OpenGL is not
-	// advertised, so these values have no rendering effect. Stored silently for
-	// compatibility with callers that set them.
+	// Standard and GL tags (0-153).
 	if (tag >= RAVE_MAX_TAG) return kQANoErr;
 
-	// Tags 6,7 are read-only per spec; silently accept writes for compatibility
+	// Tags 6 and 7 are read-only per spec; accept and ignore writes.
 	if (tag == 6 || tag == 7) return kQANoErr;
 
-	// Store float bits directly (PPC passes float as uint32 in r5)
 	float value;
 	memcpy(&value, &valueBits, sizeof(float));
 	ctx->state[tag].f = value;
@@ -490,7 +459,7 @@ int32 NativeSetFloat(uint32 drawContextAddr, uint32 tag, uint32 valueBits)
 
 
 /*
- *  NativeSetInt - Store an integer state value
+ *  NativeSetInt
  *  PPC args: r3=drawContextAddr, r4=tag, r5=value
  */
 int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
@@ -501,7 +470,7 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 		return kQAError;
 	}
 
-	// ATI EngineSpecific range (1000+)
+	// ATI engine-specific tags (1000+)
 	if (tag >= 1000) {
 		uint32_t ati_idx = tag - 1000;
 		if (ati_idx < RAVE_ATI_TAG_COUNT) {
@@ -509,24 +478,23 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 			if (ati_idx == kRaveATIDepthWriteEnableIndex) {
 				ctx->dirty_flags |= 1;
 			}
-			// Activate ATI fog override when fog-related tags are set (indices 2-9)
+				// ATI fog tags (indices 2-9) override standard fog.
 			if (ati_idx >= 2 && ati_idx <= 9) {
 				ctx->ati_fog_active = true;
 			}
 		}
-		// Silently ignore unknown engine-specific tags
 		return kQANoErr;
 	}
-	// GL + standard range (0-153)
-	// GL tags (100+) are stored in state[] but unused -- kQAOptional_OpenGL is not
-	// advertised, so these values have no rendering effect. Stored silently for
-	// compatibility with callers that set them.
+	// Standard and GL tags (0-153).
 	if (tag >= RAVE_MAX_TAG) return kQANoErr;
+
+	// MultiTextureEnable counts secondary layers; only secondary index 0 exists.
+	if ((tag == 33 && value > 1) || (tag == 34 && value != 0)) return kQAParamErr;
 
 	ctx->state[tag].i = value;
 	ctx->dirty_flags |= (1 << (tag & 31));
 
-	// Reset ATI fog when standard fog mode is explicitly set
+	// Setting a standard fog mode cancels the ATI fog override.
 	if (tag == 17 && value != 0) {
 		ctx->ati_fog_active = false;
 	}
@@ -534,8 +502,8 @@ int32 NativeSetInt(uint32 drawContextAddr, uint32 tag, uint32 value)
 	return kQANoErr;
 }
 
-// Writes the 5 identified slots only — safe for caller-provided structs,
-// whose true size is unknown beyond the 5 entries proven by Myth II.
+// Writes only the 5 known slots: a caller-provided table's real size is
+// unknown beyond the 5 entries Myth II uses.
 static void WriteATIRaveExtFuncsTable(uint32 ptr)
 {
 	WriteMacInt32(ptr + kRaveATIRaveExtFuncsSlotClearDrawBuffer * 4,
@@ -552,20 +520,22 @@ static void WriteATIRaveExtFuncsTable(uint32 ptr)
 
 static uint32 EnsureATIRaveExtFuncsTable(RaveDrawPrivate *ctx)
 {
-	uint32 ptr = ctx->ati_state[kRaveATIRaveExtFuncsIndex].i;
+	// SetPtr writes into a caller's five-entry buffer. GetPtr vends this
+	// separately owned table, which also has defensive tail stubs.
+	uint32 ptr = ctx->ati_ext_funcs_owned;
 	if (ptr == 0) {
+		RaveGuestMemoryScope guard;
 		ptr = Mac_sysalloc(kRaveATIRaveExtFuncsEntryCount * 4);
 		if (ptr == 0) {
 			RAVE_LOG("GetPtr: kATIRaveExtFuncs allocation failed");
 			return 0;
 		}
-		ctx->ati_state[kRaveATIRaveExtFuncsIndex].i = ptr;
+		ctx->ati_ext_funcs_owned = ptr;
 	}
 
 	WriteATIRaveExtFuncsTable(ptr);
-	// Our own allocation is over-sized: fill the unidentified tail slots with
-	// a callable stub so an out-of-range index can never jump through heap
-	// garbage (the Myth II RAVE-entry crash).
+	// Fill the unidentified tail slots with a callable stub so an
+	// out-of-range index never jumps through heap garbage (Myth II crash).
 	for (uint32 slot = kRaveATIRaveExtFuncsKnownSlotCount;
 	     slot < kRaveATIRaveExtFuncsEntryCount; slot++) {
 		WriteMacInt32(ptr + slot * 4, rave_method_tvects[kRaveATIStub]);
@@ -575,8 +545,8 @@ static uint32 EnsureATIRaveExtFuncsTable(RaveDrawPrivate *ctx)
 
 
 /*
- *  NativeSetPtr - Store a pointer state value (Mac address)
- *  PPC args: r3=drawContextAddr, r4=tag, r5=ptr
+ *  NativeSetPtr
+ *  PPC args: r3=drawContextAddr, r4=tag, r5=Mac address
  */
 int32 NativeSetPtr(uint32 drawContextAddr, uint32 tag, uint32 ptr)
 {
@@ -586,7 +556,7 @@ int32 NativeSetPtr(uint32 drawContextAddr, uint32 tag, uint32 ptr)
 		return kQAError;
 	}
 
-	// ATI EngineSpecific range (1000+)
+	// ATI engine-specific tags (1000+)
 	if (tag >= 1000) {
 		uint32_t ati_idx = tag - 1000;
 		if (ati_idx == kRaveATIRaveExtFuncsIndex) {
@@ -603,13 +573,11 @@ int32 NativeSetPtr(uint32 drawContextAddr, uint32 tag, uint32 ptr)
 		if (ati_idx < RAVE_ATI_TAG_COUNT) {
 			ctx->ati_state[ati_idx].i = ptr;
 		}
-		// Silently ignore unknown engine-specific tags
 		return kQANoErr;
 	}
-	// GL + standard range (0-153)
 	if (tag >= RAVE_MAX_TAG) return kQANoErr;
 
-	ctx->state[tag].i = ptr;  // Mac address stored as uint32
+	ctx->state[tag].i = ptr;
 	ctx->dirty_flags |= (1 << (tag & 31));
 
 	return kQANoErr;
@@ -617,9 +585,8 @@ int32 NativeSetPtr(uint32 drawContextAddr, uint32 tag, uint32 ptr)
 
 
 /*
- *  NativeGetFloat - Retrieve a float state value
- *  PPC args: r3=drawContextAddr, r4=tag
- *  Returns: float bits as uint32
+ *  NativeGetFloat
+ *  PPC args: r3=drawContextAddr, r4=tag. Returns float bits in gpr(3).
  */
 uint32 NativeGetFloat(uint32 drawContextAddr, uint32 tag)
 {
@@ -629,7 +596,7 @@ uint32 NativeGetFloat(uint32 drawContextAddr, uint32 tag)
 		return 0;
 	}
 
-	// ATI EngineSpecific range (1000+)
+	// ATI engine-specific tags (1000+)
 	if (tag >= 1000) {
 		uint32_t ati_idx = tag - 1000;
 		if (ati_idx < RAVE_ATI_TAG_COUNT) {
@@ -639,10 +606,8 @@ uint32 NativeGetFloat(uint32 drawContextAddr, uint32 tag)
 		}
 		return 0;
 	}
-	// GL + standard range (0-153)
 	if (tag >= RAVE_MAX_TAG) return 0;
 
-	// Return float bits as uint32 (PPC expects float in gpr(3) for this callback)
 	uint32 bits;
 	memcpy(&bits, &ctx->state[tag].f, sizeof(uint32));
 	return bits;
@@ -650,9 +615,8 @@ uint32 NativeGetFloat(uint32 drawContextAddr, uint32 tag)
 
 
 /*
- *  NativeGetInt - Retrieve an integer state value
+ *  NativeGetInt
  *  PPC args: r3=drawContextAddr, r4=tag
- *  Returns: state value
  */
 uint32 NativeGetInt(uint32 drawContextAddr, uint32 tag)
 {
@@ -662,7 +626,7 @@ uint32 NativeGetInt(uint32 drawContextAddr, uint32 tag)
 		return 0;
 	}
 
-	// ATI EngineSpecific range (1000+)
+	// ATI engine-specific tags (1000+)
 	if (tag >= 1000) {
 		uint32_t ati_idx = tag - 1000;
 		if (ati_idx < RAVE_ATI_TAG_COUNT) {
@@ -674,7 +638,6 @@ uint32 NativeGetInt(uint32 drawContextAddr, uint32 tag)
 		}
 		return 0;
 	}
-	// GL + standard range (0-153)
 	if (tag >= RAVE_MAX_TAG) return 0;
 
 	return ctx->state[tag].i;
@@ -682,9 +645,8 @@ uint32 NativeGetInt(uint32 drawContextAddr, uint32 tag)
 
 
 /*
- *  NativeGetPtr - Retrieve a pointer state value (Mac address)
- *  PPC args: r3=drawContextAddr, r4=tag
- *  Returns: Mac address as uint32
+ *  NativeGetPtr
+ *  PPC args: r3=drawContextAddr, r4=tag. Returns a Mac address.
  */
 uint32 NativeGetPtr(uint32 drawContextAddr, uint32 tag)
 {
@@ -694,7 +656,7 @@ uint32 NativeGetPtr(uint32 drawContextAddr, uint32 tag)
 		return 0;
 	}
 
-	// ATI EngineSpecific range (1000+)
+	// ATI engine-specific tags (1000+)
 	if (tag >= 1000) {
 		uint32_t ati_idx = tag - 1000;
 		if (ati_idx == kRaveATIRaveExtFuncsIndex) {
@@ -707,8 +669,7 @@ uint32 NativeGetPtr(uint32 drawContextAddr, uint32 tag)
 		}
 		return 0;
 	}
-	// GL + standard range (0-153)
 	if (tag >= RAVE_MAX_TAG) return 0;
 
-	return ctx->state[tag].i;  // Mac address stored as uint32
+	return ctx->state[tag].i;
 }

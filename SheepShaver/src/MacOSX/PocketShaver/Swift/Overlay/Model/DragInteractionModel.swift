@@ -91,7 +91,7 @@ class DragInteractionModel {
 		switch state {
 		case .normal:
 			let x = threeFingerGestureDragDelta.dx
-			let y = threeFingerGestureDragDelta.dy - fetchFrameSize().width
+			let y = threeFingerGestureDragDelta.dy - fetchFrameSize().height
 			transformMainGamepadLayoutView(.init(translationX: x, y: y))
 		case .showingGamepad:
 			let x = threeFingerGestureDragDelta.dx
@@ -115,7 +115,8 @@ class DragInteractionModel {
 		if state == .showingGamepad {
 			let absDx = abs(threeFingerGestureDragDelta.dx)
 			let absDy = abs(threeFingerGestureDragDelta.dy)
-			willTranslateInLongAxis = UIScreen.isPortraitMode ? absDx < absDy : absDx > absDy
+			let size = fetchFrameSize()
+			willTranslateInLongAxis = size.height > size.width ? absDx < absDy : absDx > absDy
 		}
 
 		let resultingState: OverlayState
@@ -177,7 +178,7 @@ class DragInteractionModel {
 			triggerDragHapticFeedback()
 		}
 
-		let screenHeight = UIScreen.main.bounds.height
+		let screenHeight = fetchFrameSize().height
 		let limit = -screenHeight * (2/3)
 		let y: CGFloat
 		if sdlViewVerticalOffset > 0 {

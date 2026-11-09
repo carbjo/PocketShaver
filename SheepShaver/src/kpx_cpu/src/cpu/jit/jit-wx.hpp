@@ -23,16 +23,15 @@
 #define JIT_WX_H
 
 /*
- *  On Apple Silicon (macOS / Mac Catalyst), executable memory must be
- *  mapped with MAP_JIT and is write-protected per-thread by default:
- *  writes land only inside pthread_jit_write_with_callback_np (the
- *  classic pthread_jit_write_protect_np is compile-time unavailable on
- *  Mac Catalyst), and every write must be followed by
- *  sys_icache_invalidate before execution. Backends therefore assemble
- *  each block into plain scratch memory and publish it with one
- *  jit_wx_publish call; chain backpatches are small publishes.
+ *  Apple Silicon (macOS / Mac Catalyst) maps executable memory with MAP_JIT,
+ *  write-protected per thread: writes happen only inside
+ *  pthread_jit_write_with_callback_np (pthread_jit_write_protect_np is not
+ *  available on Catalyst), and each must be followed by
+ *  sys_icache_invalidate. Backends assemble a block in plain memory and
+ *  publish it with one jit_wx_publish call; chain backpatches are small
+ *  publishes.
  *
- *  On other hosts these degrade to a plain RWX mapping and memcpy.
+ *  Other hosts use a plain RWX mapping and memcpy.
  */
 
 // True when this process can map and use W^X code memory

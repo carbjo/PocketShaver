@@ -167,11 +167,9 @@ static int32 AudioGetInfo(uint32 infoPtr, uint32 selector, uint32 sourceID)
 			break;
 
 		case siCompressionFactor: {
-			// Answer like a real sound output device: this output takes
-			// uncompressed PCM.  Delegating this to the Apple Mixer returns
-			// siUnknownInfoType forever, and some apps (Diablo II's splash)
-			// poll the selector in a loop until they get a valid answer --
-			// the eternal -231 left them hung.
+			// Answer like a real output device: uncompressed PCM. The Apple
+			// Mixer returns siUnknownInfoType here, and apps that poll this
+			// selector until it succeeds (Diablo II's splash) would hang.
 			uint32 bytes_per_sample = AudioStatus.sample_size >> 3;
 			WriteMacInt32(infoPtr + 0, 20);								// recordSize
 			WriteMacInt32(infoPtr + 4, AudioStatus.sample_size == 16 ? FOURCC('t','w','o','s') : FOURCC('r','a','w',' '));	// format

@@ -75,11 +75,12 @@ class GamepadLayerView: UIView, ImageDerivable {
 			}
 		}
 
+		let usesLiveSafeArea = mode == .default
 		NSLayoutConstraint.activate([
-			leftCollectionStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin + safeAreaInsets.left),
+			leftCollectionStackView.leadingAnchor.constraint(equalTo: usesLiveSafeArea ? safeAreaLayoutGuide.leadingAnchor : leadingAnchor, constant: sideMargin + (usesLiveSafeArea ? 0 : safeAreaInsets.left)),
 			leftCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
-			rightCollectionStackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -sideMargin - safeAreaInsets.right),
+			rightCollectionStackView.trailingAnchor.constraint(equalTo: usesLiveSafeArea ? safeAreaLayoutGuide.trailingAnchor : trailingAnchor, constant: -sideMargin - (usesLiveSafeArea ? 0 : safeAreaInsets.right)),
 			rightCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
 
 			settingsButton.centerXAnchor.constraint(equalTo: centerXAnchor),
