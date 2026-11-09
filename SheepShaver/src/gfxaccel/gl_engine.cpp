@@ -583,6 +583,7 @@ static GLContext *GLContextNew(int width, int height, GLContext *share = nullptr
 	ctx->current_normal[0] = 0.0f;
 	ctx->current_normal[1] = 0.0f;
 	ctx->current_normal[2] = 1.0f;
+	ctx->current_edge_flag = true;  // GL default; LINE/POINT polygon mode draws only flagged edges
 
 	// texcoords default to (0,0,0,1)
 	for (int u = 0; u < 4; u++) {

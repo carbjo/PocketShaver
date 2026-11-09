@@ -2414,18 +2414,32 @@ uint32 NativeHookAccessBitmapEnd(uint32 engine, uint32 bitmap, uint32 dirtyRect)
 
 
 /*
- *  Build a PPC Gestalt selector function in SheepMem,
+ *  Build a Gestalt selector function in permanent thunk storage,
  *    pascal OSErr SelectorFunction(OSType selector, long *response)
  *  that stores value in *response and returns noErr.
+ *
+ *  Gestalt calls the SelectorFunctionUPP through Mixed Mode, so it must be a
+ *  routine descriptor; a bare PPC TVECT would run as 68k code. Same layout
+ *  as DSpAllocateGestaltCallback.
  */
 static uint32 AllocateGestaltCallback(uint32 value)
 {
-	// 8-byte TVECT + 5 instructions
-	uint32 base = SheepMem::ReserveProc(28);
-	uint32 code = base + 8;
+	uint32 base = SheepMem::ReserveProc(sizeof(RoutineDescriptor) + 28);
+	if (base == 0) return 0;
+	const uint32 tvect = base + sizeof(RoutineDescriptor);
+	const uint32 code = tvect + 8;
+	Mac_memset(base, 0, sizeof(RoutineDescriptor));
+	WriteMacInt16(base + offsetof(RoutineDescriptor, goMixedModeTrap), 0xAAFE);
+	WriteMacInt8(base + offsetof(RoutineDescriptor, version), 7);
+	const uint32 record = base + offsetof(RoutineDescriptor, routineRecords);
+	// uppSelectorFunctionProcInfo: pascal OSErr (UInt32, SInt32 *)
+	WriteMacInt32(record + offsetof(RoutineRecord, procInfo), 0x000003E0);
+	WriteMacInt8(record + offsetof(RoutineRecord, ISA), 1);  // kPowerPCISA
+	WriteMacInt16(record + offsetof(RoutineRecord, routineFlags), 4);
+	WriteMacInt32(record + offsetof(RoutineRecord, procDescriptor), tvect);
 
-	WriteMacInt32(base, code);      // code_ptr
-	WriteMacInt32(base + 4, 0);     // TOC, unused
+	WriteMacInt32(tvect, code);     // code_ptr
+	WriteMacInt32(tvect + 4, 0);    // TOC, unused
 
 	// r3 = selector, r4 = response pointer
 	const uint32 r3 = 3, r4 = 4, r5 = 5;

@@ -4379,7 +4379,7 @@ void NativeGLIndexPointer(GLContext *ctx, uint32_t type, int32_t stride, uint32_
 
 // --- Edge flags ---
 void NativeGLEdgeFlag(GLContext *ctx, uint32_t flag) { ctx->current_edge_flag = (flag != 0); }
-void NativeGLEdgeFlagv(GLContext *ctx, uint32_t p) { ctx->current_edge_flag = (ReadMacInt32(p) != 0); }
+void NativeGLEdgeFlagv(GLContext *ctx, uint32_t p) { ctx->current_edge_flag = (ReadMacInt8(p) != 0); }  // GLboolean is one byte
 void NativeGLEdgeFlagPointer(GLContext *ctx, int32_t stride, uint32_t pointer)
 {
     ctx->edge_flag_array = {pointer, 1, stride, GL_UNSIGNED_BYTE, ctx->edge_flag_array.enabled};
