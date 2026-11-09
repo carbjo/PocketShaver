@@ -73,19 +73,15 @@ extern "C"
 #endif
 void objc_set_emulation_orientation(BOOL portrait);
 
-// Mac Catalyst only: apply the Windowed(NO)/Full Screen(YES) choice to the live emulation
-// window. No-op off Catalyst.
+// Catalyst only: apply Windowed (NO) / Full Screen (YES) to the live emulation window.
 #ifdef __cplusplus
 extern "C"
 #endif
 void objc_set_catalyst_fullscreen(BOOL enable);
 
-// Mac Catalyst only: height in points of the display's camera-housing (notch) /
-// menu-bar safe-area strip, read from AppKit's NSScreen. UIKit reports this as 0
-// in a Catalyst process even on a notched Mac, so MonitorResolutionManager uses
-// this to populate the notch-respecting resolutions and to trim the boot
-// resolution below the housing. Returns 0 off Catalyst, on notchless/external
-// displays, and on macOS < 12.
+// Catalyst only: height in points of the notch / menu-bar safe-area strip, from
+// AppKit's NSScreen (UIKit reports 0 in Catalyst). Returns 0 off Catalyst, on
+// notchless or external displays, and on macOS < 12.
 #ifdef __cplusplus
 extern "C"
 #endif

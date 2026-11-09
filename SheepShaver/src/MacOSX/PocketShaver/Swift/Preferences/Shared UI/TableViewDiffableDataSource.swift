@@ -9,14 +9,10 @@ import UIKit
 
 
 #if targetEnvironment(macCatalyst)
-/// Shared base for the preferences table screens. The stock plain-style
-/// section headers are small and pale, which on the full-screen Mac window
-/// makes each tab read as one undifferentiated list — replace them with big
-/// bold full-contrast headings there.
-///
-/// The header view is built from scratch rather than restyled: UIKit renders
-/// the stock header title through a content configuration it re-applies after
-/// `willDisplay`, so font/color set on its `textLabel` does not survive.
+/// Shared base for the preferences tables on Mac: big bold section headings
+/// instead of the small, pale stock ones. The header view is built from scratch
+/// because UIKit re-applies its content configuration after `willDisplay`,
+/// discarding font/color set on `textLabel`.
 class PreferencesTableViewController: UITableViewController {
 	private func sectionHasTitle(_ tableView: UITableView, _ section: Int) -> Bool {
 		guard let title = tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: section) else {
@@ -50,9 +46,8 @@ class PreferencesTableViewController: UITableViewController {
 	}
 
 	override func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-		// Collapse untitled sections. automaticDimension let the grouped style
-		// reserve its default header padding, so a nil title still showed an
-		// empty header; leastNonzeroMagnitude reads as zero without that default.
+		// Collapse untitled sections. automaticDimension would keep the grouped
+		// style's default header padding.
 		guard sectionHasTitle(tableView, section) else {
 			return .leastNonzeroMagnitude
 		}

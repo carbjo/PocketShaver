@@ -3,16 +3,15 @@
  *
  *  (C) 2026 Sierra Burkhart (sierra760)
  *
- *  Uber-shader using Metal function constants for compile-time
- *  specialization. RAVE builds texture/fog/alpha_test/multi_texture
- *  combinations per blend mode, with premultiply tied to that blend mode.
+ *  Uber-shader specialized by Metal function constants: texture, fog,
+ *  alpha test and multi-texture per blend mode, with premultiply tied to
+ *  the blend mode.
  */
 
 #include <metal_stdlib>
 using namespace metal;
 
-// Function constants for pipeline specialization
-// Texture/fog/alpha/multitexture state, plus output alpha convention.
+// Function constants: texture/fog/alpha/multi-texture state and output alpha convention.
 constant bool has_texture       [[function_constant(0)]];
 constant bool has_fog           [[function_constant(1)]];
 constant bool has_alpha_test    [[function_constant(2)]];
@@ -63,7 +62,7 @@ struct FragmentUniforms {
     float alpha_test_ref; // [0.0, 1.0]
     uint multi_texture_op;    // 0=Add, 1=Modulate, 2=BlendAlpha, 3=Fixed
     float multi_texture_factor; // blend factor for Fixed mode
-    float mipmap_bias;          // LOD bias for texture sampling (BIA-01)
+    float mipmap_bias;          // LOD bias for texture sampling
     float multi_texture_mipmap_bias;  // LOD bias for second texture (tag 42)
     float env_color_r;    // kQATextureOp_Blend env color (GL_TEXTURE_ENV_COLOR)
     float env_color_g;
@@ -79,12 +78,11 @@ vertex VertexOut rave_vertex(VertexIn in [[stage_in]],
     // Metal validates all declared interpolants, including UVs unused by a
     // specialized fragment function. Keep disabled texture channels finite.
     VertexOut out = {};
-    // RAVE provides pre-transformed screen-space coordinates.
-    // Convert pixel coords to Metal NDC [-1, 1]:
+    // RAVE gives screen-space pixel coords; convert to NDC [-1, 1].
     out.position.x = (in.position.x / viewport.width) * 2.0 - 1.0;
     out.position.y = 1.0 - (in.position.y / viewport.height) * 2.0;  // Y flipped
     out.position.z = in.position.z;  // depth [0..1]
-    out.position.w = in.position.w;  // always 1.0 for now
+    out.position.w = in.position.w;  // always 1.0 from the vertex converters
     out.pointSize = vertUniforms.point_width;
     out.color = in.color;
     out.diffuse = in.diffuse;
@@ -115,23 +113,19 @@ fragment float4 rave_fragment(VertexOut in [[stage_in]],
         } else {
             uv = float2(0.0, 0.0);
         }
-        // V-axis: The V flip from OpenGL convention (V=0 at bottom) to Metal
-        // convention (V=0 at top) is applied at vertex conversion time in
-        // ConvertTextureVertex (vOverW = invW - vOverW).  No additional
-        // flip needed here — the interpolated values are already correct.
+        // V is already flipped to Metal convention in ConvertTextureVertex.
 
         float4 texPix = tex.sample(samp, uv, bias(uniforms.mipmap_bias));
-        // Opaque-texture guard (bit30 set by the engine when the bound texture has
-        // no transparent texels at level 0): force opaque so mip/filter alpha
-        // artifacts can't bleed the overlay clear through. Vertex alpha (applied
-        // below) and the blend mode still produce genuine translucency.
+        // Opaque-texture guard (bit30: bound texture has no transparent texels at
+        // level 0). Force opaque so mip/filter alpha cannot let the overlay clear
+        // show through; vertex alpha and blend mode still give real translucency.
         if (uniforms.texture_op & 0x40000000) {
             texPix.a = 1.0;
         }
         bool sampledTransparentTexel = texPix.a <= 0.0;
 
-        // Deterministic RAVE/GL texture-env alpha: Decal takes the vertex alpha;
-        // all other ops modulate texture alpha by vertex alpha. No content guess.
+        // RAVE/GL texture-env alpha: Decal takes the vertex alpha; all other ops
+        // modulate texture alpha by vertex alpha.
         if (uniforms.texture_op & 4) {  // Decal
             texPix.rgb = texPix.a * texPix.rgb + (1.0 - texPix.a) * color.rgb;
             texPix.a = in.color.a;
@@ -182,7 +176,7 @@ fragment float4 rave_fragment(VertexOut in [[stage_in]],
             color.rgb = mix(color.rgb, tex2Color.rgb, uniforms.multi_texture_factor);
     }
 
-    // Alpha test FIRST per RAVE spec (discard before fog)
+    // Alpha test before fog, per RAVE spec
     if (has_alpha_test) {
         bool pass = true;
         int func = uniforms.alpha_test_func;
@@ -206,32 +200,24 @@ fragment float4 rave_fragment(VertexOut in [[stage_in]],
         }
     }
 
-    // Fog invW depth z=1/invW and all 5 fog modes verified against RAVE.h.
-    // Test: RAVERenderingStateTests.testFogLinear, testFogExponential, testFogExponentialSquared
-    // FogMode_Alpha uses vertex alpha as fog factor, output alpha=1.0 per spec.
-    // Test: RAVERenderingStateTests.testFogAlpha
-    //
-    // Fog SECOND (applied only to surviving fragments)
-    // FogMode_None(0): no fog
-    // FogMode_Alpha(1): fog_factor = vertex.alpha, then alpha = 1.0
-    // FogMode_Linear(2): z = 1/invW, fog = (end - z) / (end - start)
-    // FogMode_Exponential(3): z = 1/invW, fog = exp(-density * z)
-    // FogMode_ExponentialSquared(4): z = 1/invW, fog = exp(-(density*z)^2)
+    // Fog applies to fragments that survived the alpha test (modes per RAVE.h):
+    //   None(0); Alpha(1): factor = vertex alpha, then alpha = 1;
+    //   Linear(2): z = 1/invW, fog = (end - z) / (end - start);
+    //   Exponential(3): fog = exp(-density * z);
+    //   ExponentialSquared(4): fog = exp(-(density * z)^2).
     if (has_fog) {
         float fog_factor = 1.0;
         if (uniforms.fog_mode == 1) {
-            // Alpha-based fog: vertex alpha IS the fog interpolation factor
+            // Vertex alpha is the fog factor
             fog_factor = in.color.a;
         } else if (uniforms.fog_mode == 2) {
-            // Linear fog: use perspective depth; submitted z is post-projection depth and over-fogs QD3D menu billboards.
+            // Use perspective depth: submitted z is post-projection and over-fogs QD3D menu billboards.
             float z = (in.texcoord.z > 0.0) ? (1.0 / in.texcoord.z) : (in.position.z * uniforms.fog_max_depth);
             fog_factor = clamp((uniforms.fog_end - z) / (uniforms.fog_end - uniforms.fog_start), 0.0, 1.0);
         } else if (uniforms.fog_mode == 3) {
-            // Exponential fog: z = 1/invW, fog = clamp(exp(-density * z), 0, 1)
             float z = (in.texcoord.z > 0.0) ? (1.0 / in.texcoord.z) : (in.position.z * uniforms.fog_max_depth);
             fog_factor = clamp(exp(-uniforms.fog_density * z), 0.0, 1.0);
         } else if (uniforms.fog_mode == 4) {
-            // Exponential squared fog: z = 1/invW, fog = clamp(exp(-(density*z)^2), 0, 1)
             float z = (in.texcoord.z > 0.0) ? (1.0 / in.texcoord.z) : (in.position.z * uniforms.fog_max_depth);
             float dz = uniforms.fog_density * z;
             fog_factor = clamp(exp(-dz * dz), 0.0, 1.0);

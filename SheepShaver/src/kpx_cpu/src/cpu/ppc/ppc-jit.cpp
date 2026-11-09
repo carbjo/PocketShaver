@@ -94,10 +94,9 @@ bool powerpc_jit::initialize(void)
 			jit_info[gen_vector[i].mnemo] = &gen_vector[i];
 
 #if defined(__aarch64__)
-		// NEON handlers: dyngen-op route through the generic handlers
-		// (V0/V1/V2 pointers in x20-x22, VD in x24); op bodies live in
-		// ppc-dyngen-ops-arm64.hpp. The mmx_* op names are historical --
-		// on arm64 they are plain NEON bodies with the same semantics.
+		// NEON handlers route through the generic dyngen-op handlers (V0/V1/V2
+		// in x20-x22, VD in x24); bodies are in ppc-dyngen-ops-arm64.hpp. The
+		// mmx_* op names are historical: on arm64 they are plain NEON bodies.
 		static const jit_info_t neon_vector[] = {
 #define DEFINE_OP(MNEMO, GEN_OP, DYNGEN_OP) \
 			{ PPC_I(MNEMO), (gen_handler_t)&powerpc_jit::gen_vector_generic_##GEN_OP, &powerpc_dyngen::gen_op_##DYNGEN_OP }
@@ -235,11 +234,9 @@ bool powerpc_jit::initialize(void)
 
 #if defined(__APPLE__)
 		// Packed-float fast paths whose SSE semantics differ from the
-		// interpreter's C arithmetic — NaN sign/payload, ±0 ordering in
-		// max/min, non-fused multiply-add rounding, unordered compares,
-		// and hardware estimate precision. Keep these on the generic ops
-		// so the JIT stays bit-identical with the interpreter (the
-		// lockstep harness holds this line).
+		// interpreter (NaN sign/payload, ±0 in max/min, non-fused madd
+		// rounding, unordered compares, estimate precision) stay on the
+		// generic ops so the JIT stays bit-identical (lockstep harness).
 #define KPX_SSE_FLOAT_INEXACT(m) \
 		((m) == PPC_I(VADDFP) || (m) == PPC_I(VSUBFP)      \
 		 || (m) == PPC_I(VMAXFP) || (m) == PPC_I(VMINFP)   \
@@ -304,14 +301,11 @@ bool powerpc_jit::initialize(void)
 		}
 
 #if defined(__APPLE__) && defined(__x86_64__)
-		// Vector-float ops go to the interpreter wholesale. The frozen
-		// generic dyngen ops were compiled from the upstream-era C and
-		// cannot track this fork's evolved float semantics (fused
-		// vmaddfp/vnmsubfp, NaN sign/payload propagation, estimate
-		// precision), and the SSE fast paths differ further (±0 in
-		// max/min, unordered compares). The lockstep harness holds the
-		// JIT bit-identical to the interpreter; only the float family
-		// pays the interpreter-invoke cost.
+		// Vector-float ops always go to the interpreter. The frozen generic
+		// dyngen ops were compiled from upstream C and miss this fork's float
+		// semantics (fused vmaddfp/vnmsubfp, NaN propagation, estimate
+		// precision); the SSE paths differ further (±0 in max/min, unordered
+		// compares). Lockstep keeps the JIT bit-identical to the interpreter.
 		static const int vecfp_to_interp[] = {
 			PPC_I(VADDFP), PPC_I(VSUBFP), PPC_I(VMAXFP), PPC_I(VMINFP),
 			PPC_I(VMADDFP), PPC_I(VNMSUBFP), PPC_I(VREFP), PPC_I(VRSQRTEFP),
@@ -352,8 +346,7 @@ bool powerpc_jit::initialize(void)
 	return true;
 }
 
-// Differential-harness hook: proves vector ops actually took the native
-// path at translate time (never defined in shipping builds)
+// Differential-harness hook (not defined in shipping builds)
 #ifdef KPX_JIT_INSTRUMENT
 extern unsigned long kpx_jit_vector_native_count;
 #define KPX_COUNT_VECTOR_NATIVE(ok) do { if (ok) kpx_jit_vector_native_count++; } while (0)

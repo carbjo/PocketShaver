@@ -86,8 +86,7 @@ class PreferencesGraphicsViewController: PreferencesTableViewController {
 
 	#if targetEnvironment(macCatalyst)
 	@objc private func handleCatalystFullscreenStateChanged() {
-		// The window's fullscreen state changed by some external means (green button, View
-		// menu, ⌃⌘F, gesture); re-read the pref into the segmented control.
+		// Fullscreen changed externally (green button, View menu, ⌃⌘F); re-read the pref.
 		reloadSection(.display)
 	}
 	#endif

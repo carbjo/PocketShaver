@@ -13,11 +13,9 @@
 #include "overlay_clear_policy.h"
 
 /*
- * Fixed-function draw state helpers shared by the renderer and focused tests.
- *
- * glActiveTextureARB selects the texture unit modified by subsequent texture
- * state calls. It does not move legacy GL_TEXTURE_2D sampling for texcoord0
- * away from unit 0. Unit 1 remains a separate multitexture input.
+ * glActiveTextureARB selects which unit later texture state calls modify. It
+ * does not move legacy GL_TEXTURE_2D sampling for texcoord0 off unit 0; unit 1
+ * stays a separate multitexture input.
  */
 static inline int GLMetalPrimaryTextureUnitForDraw(int active_texture)
 {

@@ -3,14 +3,9 @@
  *
  *  (C) 2026 Sierra Burkhart (sierra760)
  *
- *  Implements the full OpenGL 1.2 fixed-function pipeline as a pair of
- *  Metal vertex/fragment shaders controlled by uniform buffers:
- *    - MVP + modelview + normal matrix transforms
- *    - Per-vertex Phong lighting for up to 8 lights
- *    - 4 texture environment modes (modulate, decal, blend, replace)
- *    - 3 fog modes (linear, exp, exp2)
- *    - Alpha test with all 8 comparison functions
- *    - Flat/smooth shading support
+ *  The OpenGL 1.2 fixed-function pipeline as uniform-driven Metal shaders:
+ *  transforms, per-vertex lighting (8 lights), texture environments, fog,
+ *  alpha test, and flat/smooth shading.
  */
 
 #include <metal_stdlib>
@@ -23,8 +18,8 @@ struct GLVertexIn {
     float4 position        [[attribute(0)]];
     float4 color           [[attribute(1)]];
     float3 normal          [[attribute(2)]];
-    float4 texcoord        [[attribute(3)]];   // (s, t, q) unit 0 — q enables projective texturing
-    float4 texcoord1       [[attribute(4)]];   // (s, t, q) unit 1 — for multitexture
+    float4 texcoord        [[attribute(3)]];   // (s, t, q) unit 0; q enables projective texturing
+    float4 texcoord1       [[attribute(4)]];   // (s, t, q) unit 1
     float stipple_distance [[attribute(17)]];
     float4 lighting_position [[attribute(6)]]; // provoking position for flat lighting
     float3 secondary_color [[attribute(5)]];   // (r, g, b) EXT_secondary_color / GL_COLOR_SUM
@@ -47,9 +42,9 @@ struct GLVertexOut {
     float4 color;
     float4 back_color;
     float3 eye_normal;
-    float4 texcoord;    // (s, t, q) unit 0 — interpolated, then divided per-fragment
-    float4 texcoord1;   // (s, t, q) unit 1 — for multitexture
-    float3 secondary_color; // (r, g, b) EXT_secondary_color / GL_COLOR_SUM — added after texturing
+    float4 texcoord;    // (s, t, q) unit 0; divided by q per fragment
+    float4 texcoord1;   // (s, t, q) unit 1
+    float3 secondary_color; // GL_COLOR_SUM term, added after texturing
     float3 eye_position;
     float  fog_factor;
     float  clip_dist0;  // user clip plane distances (interpolated, discard if < 0)
@@ -58,7 +53,7 @@ struct GLVertexOut {
     float  clip_dist3;
     float  clip_dist4;
     float  clip_dist5;
-    int    num_clip_planes; // number of active clip planes
+    int    num_clip_planes;
 };
 
 
@@ -79,7 +74,7 @@ struct GLVertexUniforms {
     float    point_size;         // glPointSize value (default 1.0)
     int      two_side_lighting; // GL_LIGHT_MODEL_TWO_SIDE: negate normal for back-facing vertices
     // User clip planes (GL_CLIP_PLANE0-5). Equation is dot(plane, eye_pos) >= 0.
-    int      num_clip_planes;   // number of enabled clip planes (0-6)
+    int      num_clip_planes;   // 0-6
     float4   clip_planes[6];    // plane equations in eye space
 };
 
@@ -94,7 +89,7 @@ struct GLFragmentUniforms {
     int    has_texture_3d;      // 1 = bound texture is 3D, sample from tex3d at index 1
     int    shade_model;         // 0=flat, 1=smooth
     int    color_sum_enabled;   // GL_COLOR_SUM (EXT_secondary_color): add secondary color after texturing
-    int    has_texture_unit1;   // ARB_multitexture: unit 1 has a bound+enabled 2D texture (sample tex1 with texcoord1)
+    int    has_texture_unit1;   // unit 1 has an enabled texture
     int    texenv1_mode;        // unit-1 texenv mode (0=modulate,1=decal,2=blend,3=replace,4=add)
     int    force_opaque_output; // window overlay, GL blending disabled: store coverage alpha
     int    tex_format;          // primary base internal format
@@ -125,7 +120,7 @@ struct GLLight {
     float  linear_atten;
     float  quadratic_atten;
     int    enabled;
-    float  _pad0;               // padding to align to 16 bytes
+    float  _pad0;               // 16-byte alignment
     float  _pad1;
     float  _pad2;
 };
@@ -245,7 +240,6 @@ vertex GLVertexOut gl_vertex_main(
     // Remap depth from GL NDC [-1,+1] to Metal NDC [0,+1].
     out.position.z = out.position.z * 0.5 + out.position.w * 0.5;
 
-    // Point size for GL_POINTS primitives
     out.point_size = uniforms.point_size;
     out.stipple_distance = in.stipple_distance;
 
@@ -262,10 +256,9 @@ vertex GLVertexOut gl_vertex_main(
     }
     out.eye_normal = eye_normal;
 
-    // 4. Pass through texcoords (s, t, q) for projective texturing
+    // 4. Texcoords and secondary color pass through
     out.texcoord = in.texcoord;
     out.texcoord1 = in.texcoord1;
-    // Pass through the secondary color (added after texturing, gated on GL_COLOR_SUM)
     out.secondary_color = in.secondary_color;
 
     // 5. Lighting or pass-through color. Points/lines and one-sided polygons
@@ -387,7 +380,7 @@ static float4 gl_shade_fragment(
         // Line pattern is carried separately in the last padding word.
         if ((uint(uniforms._raster_pad0)&(1u<<bit))==0) discard_fragment();
     }
-    // User clip planes: discard if any clip distance is negative
+    // User clip planes
     if (in.num_clip_planes > 0 && in.clip_dist0 < 0.0) discard_fragment();
     if (in.num_clip_planes > 1 && in.clip_dist1 < 0.0) discard_fragment();
     if (in.num_clip_planes > 2 && in.clip_dist2 < 0.0) discard_fragment();
@@ -399,7 +392,7 @@ static float4 gl_shade_fragment(
 
     // Texture application
     if (uniforms.has_texture) {
-        // Projective texturing: divide s,t by q for perspective-correct mapping
+        // Projective texturing: divide by q
         float2 uv = (in.texcoord.w != 0.0) ? in.texcoord.xy / in.texcoord.w : in.texcoord.xy;
         if (uniforms.has_texture_1d) uv.y = 0.5;
         float4 tex_color;
@@ -429,16 +422,14 @@ static float4 gl_shade_fragment(
                                        uniforms.texenv1_color, uniforms.tex1_format);
     }
 
-    // Color sum (GL_COLOR_SUM / EXT_secondary_color): per OpenGL 1.2.1 §3.9 the
-    // secondary (specular) color is added AFTER texturing and clamped, before fog.
+    // Color sum (GL 1.2.1 §3.9): secondary color is added after texturing,
+    // clamped, before fog.
     if (uniforms.color_sum_enabled) {
         color.rgb = saturate(color.rgb + in.secondary_color);
     }
 
-    // Fog application
+    // Fog. fog_color.w < 0 means fog is off.
     if (uniforms.fog_color.w > -0.5) {
-        // Use fog_color.w as a sentinel: >= 0 means fog is active
-        // (We always compute fog_factor in vertex shader, check fog_color validity here)
         color.rgb = mix(uniforms.fog_color.rgb, color.rgb, in.fog_factor);
     }
 

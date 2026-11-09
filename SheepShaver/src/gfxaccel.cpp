@@ -419,19 +419,9 @@ void NQD_fillrect(uint32 p)
 }
 
 /*
- *  Decline-to-software with GPU-batch flush.
- *
- *  Returning false hands the op to software QuickDraw immediately — but up
- *  to NQD_BATCH_MAX GPU dispatches against Metal-mapped RAM may still be
- *  queued. Software QD would then read/write a surface (e.g. the
- *  desktop-picture cache GWorld) BEFORE the queued GPU work lands: the
- *  visible result is stale/partial content (banding, stale strips), and
- *  for writes the late-landing batch can stomp newer software output.
- *  Flush first whenever the declined op touches the Metal RAM window on
- *  either side. Accepted ops keep batching; NQDMetalFlush early-outs when
- *  the batch is empty, so the cost on the hot decline edge is two range
- *  checks. (The CPU-fallback helper NQD_bitblt already flushes; this
- *  closes the same invariant for the decline edge.)
+ *  Decline to software QuickDraw, flushing queued GPU work first if the op
+ *  touches Metal-mapped RAM. Otherwise software QD could read stale pixels,
+ *  or have its output overwritten by the late batch.
  */
 static inline bool NQD_decline_with_flush(uint32 p)
 {
@@ -453,11 +443,8 @@ bool NQD_fillrect_hook(uint32 p)
 	                                  ReadMacInt32(p + acclTransferMode)))
 		return NQD_decline_with_flush(p);
 
-	// Metal path: accept solid-color fill modes when dest is in Metal-mapped RAM.
-	// Only accept patCopy (8) and arithmetic modes (32-39, 50) as solid fills.
-	// Other pattern modes (9, 11-15 = patOr, notPatCopy, etc.) may carry non-solid
-	// 8x8 bit patterns that the Metal kernel can't render -- let those fall back
-	// to software QuickDraw.
+	// Metal path: only patCopy (8) and arithmetic/hilite (32-39, 50) are solid
+	// fills. Other pattern modes may carry 8x8 patterns the kernel can't render.
 	if (nqd_metal_available && ReadMacInt32(p + 0x284) != 0 &&
 		NQDMetalAddrInBuffer(ReadMacInt32(p + acclDestBaseAddr)) &&
 		NQD_dest_rect_byte_aligned_for_depth(p, ReadMacInt32(p + acclDestPixelSize))) {
@@ -614,30 +601,19 @@ bool NQD_bitblt_hook(uint32 p)
 		(int32)(ReadMacInt32(p + acclSrcRowBytes) ^ ReadMacInt32(p + acclDestRowBytes)) >= 0 &&
 		NQD_bitblt_rects_byte_aligned_for_depth(p, ReadMacInt32(p + acclSrcPixelSize))) {
 		const uint32 mode = ReadMacInt32(p + acclTransferMode);
-		// The colorizing Boolean SOURCE modes
-		// (1, 3-7 — srcOr/srcBic/notSrcCopy/notSrcOr/notSrcXor/notSrcBic) at a
-		// COLOUR depth (multi-bit source, acclSrcPixelSize >= 8) are the general
-		// multi-bit-colour-source-under-a-Boolean-op case, whose Color-QuickDraw
-		// semantics are defined only for 1-bit-style sources (rare/ill-defined
-		// for multi-bit colour sources per IWQD). Decline these to software
-		// QuickDraw rather than invent semantics — the Metal kernel's
-		// colorize arm handles ONLY the 1-bit source (bits_per_pixel == 1) case.
-		// srcCopy (0) and srcXor (2) are depth-agnostic raw copy/bitwise ops and
-		// stay accelerated at every depth; arithmetic (32-39) and hilite (50) are
-		// unaffected. Never leave a
-		// multi-bit-colour Boolean source running raw per-byte bitwise on the GPU.
+		// Colorizing Boolean source modes (1, 3-7) with a multi-bit source are
+		// only well defined for 1-bit sources (IWQD), and the kernel's colorize
+		// arm handles only bits_per_pixel == 1. Leave those to software.
+		// srcCopy (0) and srcXor (2) are depth-agnostic.
 		const uint32 src_px = ReadMacInt32(p + acclSrcPixelSize);
 		const bool colorizing_bool = (mode == 1 || (mode >= 3 && mode <= 7));
 		if (colorizing_bool && src_px >= 8) {
-			// Fall through to the CPU fallback / software QuickDraw (DELIBERATE).
+			// Fall through to the CPU fallback / software QuickDraw.
 		} else if (mode <= 7 || (mode >= 32 && mode <= 39) || mode == 50) {
-			// Same-surface overlapping blits: the nqd_bitblt kernel is one
-			// flat unordered dispatch, and only the standard-depth Boolean
-			// family diverts overlaps to the ordered CPU scratch path inside
-			// NQDMetalBitblt (NQD-02). Packed-depth Boolean and
-			// arithmetic/hilite (32-39, 50) overlaps have no ordered route on
-			// the accelerated path — decline them to software QuickDraw
-			// (DELIBERATE), which observes sequential source reads.
+			// The bitblt kernel is unordered. NQDMetalBitblt routes overlapping
+			// standard-depth Boolean blits through an ordered CPU path, but
+			// packed-depth and arithmetic/hilite overlaps have none, so they
+			// go to software.
 			if ((src_px < 8 || mode >= 32) &&
 				NQDMetalBitbltSameSurfaceOverlap(p)) {
 				// Fall through to the CPU fallback / software QuickDraw.
@@ -936,31 +912,18 @@ void VideoInstallAccel(void)
 		}
 	}
 
-	// Register RAVE engine for 3D acceleration.
-	// RaveRegisterEngine has its own guards (rave_registered, rave_reg_in_progress)
-	// and returns immediately if already registered. May be called multiple times
-	// from accRun periodic action until RAVE library is available.
+	// Called on each accRun tick until the RAVE library is available.
+	// Returns immediately once registered.
 	if (PrefsFindBool("raveaccel"))
 		RaveRegisterEngine();
 
-	// Install OpenGL hooks for GL/AGL/GLU/GLUT function interception.
-	// GLInstallHooks has its own guards and returns immediately if already installed.
+	// GL/AGL/GLU/GLUT interception. Idempotent.
 	if (PrefsFindBool("glaccel"))
 		GLInstallHooks();
 
-	// DSp (DrawSprocket) engine — fourth engine peer to NQD/RAVE/GL.
-	// Gated on "dspaccel" prefs key (default true) so users
-	// can disable cleanly to isolate regressions. Both DSpInit and the install
-	// hook live in the SAME gated branch: DSpInit registers the engine +
-	// host-bridge observer (idempotent, safe to call multiply); the install
-	// hook patches the emulated-PPC DrawSprocketLib CFM symbol-table entries
-	// to redirect into our dsp_method_tvects[] thunks. The installer has
-	// its own retry-guard triplet (dsp_hooks_installed + dsp_hooks_in_progress
-	// + dsp_hooks_attempts) and caps at DSP_HOOKS_MAX_ATTEMPTS=3 — mirrors
-	// GLInstallHooks wired 3 lines above. The CFM fragment may not be loaded
-	// on the first accRun tick (apps lazy-load DrawSprocketLib), so
-	// VideoInstallAccel calls into this branch on every accRun tick until
-	// hooks install.
+	// DrawSprocket. DSpInit is idempotent. DSpInstallHooks patches the
+	// DrawSprocketLib CFM symbols to our thunks; apps load the library lazily,
+	// so it retries on each accRun tick (capped by DSP_HOOKS_MAX_ATTEMPTS).
 	if (PrefsFindBool("dspaccel")) {
 		DSpInit();
 		DSpInstallHooks();

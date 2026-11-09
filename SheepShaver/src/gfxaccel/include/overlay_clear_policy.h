@@ -10,11 +10,10 @@
 #include <stdbool.h>
 
 /*
- * RAVE and GL window drawables are premultiplied overlay textures composited
- * over the QuickDraw framebuffer. A zero-alpha guest clear with nonzero RGB is
- * treated as an opaque background clear, matching legacy 3D titles that use
- * glClearColor/RAVE clear state as the scene backdrop. Offscreen GL drawables
- * preserve the guest alpha because they are read back as guest-owned pixels.
+ * RAVE and GL window drawables are premultiplied overlays over the QuickDraw
+ * framebuffer. A zero-alpha clear with nonzero RGB is treated as opaque, since
+ * legacy titles use the clear color as the scene backdrop. Offscreen GL
+ * drawables keep guest alpha because the guest reads them back.
  */
 
 static inline float OverlayClearClampAlpha(float guest_clear_alpha)

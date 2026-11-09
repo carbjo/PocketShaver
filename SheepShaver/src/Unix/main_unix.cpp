@@ -217,10 +217,9 @@ uint8 *ROMBaseHost;		// Base address of Mac ROM (host address space)
 uint32 ROMEnd;
 
 #if defined(__APPLE__) && (defined(__x86_64__) || defined(__aarch64__)) || defined(MEM_BULK)
-// gKernelData is a 16 KB window: KernelData struct in the upper 8 KB
+// gKernelData is a 16 KB window: KernelData in the upper 8 KB
 // (0x68ffe000 / 0x5fffe000), nanokernel stack slack in the lower 8 KB
-// (0x68ffc000 / 0x5fffc000). See vm_do_get_real_address in
-// kpx_cpu/src/cpu/vm.hpp.
+// (0x68ffc000 / 0x5fffc000). Keep in sync with vm_do_get_real_address.
 uint8 gZeroPage[0x3000], gKernelData[0x4000];
 #endif
 
@@ -417,14 +416,9 @@ static void get_system_info(void)
 	TimebaseSpeed =  25000000;	// Default:  25MHz
 
 #if EMULATED_PPC
-	/* AltiVec toggle (Preferences ▸ Advanced ▸ CPU emulation; default on):
-	 * advertise a 7400 G4 so AltiVec-aware guest code (QuickTime's vectorized
-	 * IDCT/colour-convert, game fast paths) uses the kpx_cpu VMX
-	 * implementation. Turning it off reports a 740/750 G3 — the OS then
-	 * publishes no vector gestalt and the same software falls back to its
-	 * scalar paths. Experimental lever for suspected VMX-interpreter bugs and
-	 * graphics-acceleration conflicts (QuickTime image decode producing
-	 * chroma-scrambled, block-striped output is the canonical symptom). */
+	/* AltiVec pref: a 7400 G4 makes AltiVec-aware guest code use the VMX
+	 * implementation. Off reports a 740/750 G3, so the OS publishes no vector
+	 * gestalt and software takes its scalar paths. */
 	PVR = objc_getAltivec() ? 0x000c0000   // 7400 (with AltiVec)
 	                        : 0x00084202;  // 740/750 G3 (no AltiVec)
 	int pref_cpu_clock = PrefsFindInt32("cpuclock");
@@ -838,9 +832,9 @@ int main(int argc, char *argv[])
 	printf(" %s\n", GetString(STR_ABOUT_TEXT2));
 
 #ifdef __APPLE__
-	// Probe the W^X code-memory path (MAP_JIT + write callback); passes
-	// on macOS / Mac Catalyst with the allow-jit entitlement or a
-	// non-hardened signature, and is expected to fail on iOS devices
+	// Probe the W^X code-memory path (MAP_JIT + write callback). Passes on
+	// macOS / Catalyst with allow-jit or a non-hardened signature; expected to
+	// fail on iOS devices.
 	printf("JIT W^X self-test: %s\n", jit_wx_selftest() ? "pass" : "unavailable");
 	fflush(stdout);
 #endif

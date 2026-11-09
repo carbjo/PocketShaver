@@ -8,9 +8,9 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Implements Metal compute shaders for NQD bitblt (srcCopy), fillrect,
- *  and invrect operations. Mac RAM is wrapped as a shared MTLBuffer so the
- *  GPU reads/writes the same memory the CPU emulator uses.
+ *  Metal compute acceleration for NQD bitblt, fillrect and invrect. Mac RAM
+ *  is wrapped as a shared MTLBuffer, so the GPU works on the same memory as
+ *  the emulator.
  */
 
 #import <Metal/Metal.h>
@@ -25,10 +25,6 @@
 #include "nqd_main_device_policy.h"
 #include "nqd_packed_fill_policy.h"
 #include "metal_device_shared.h"
-
-// ---------------------------------------------------------------------------
-// Diagnostic logging
-// ---------------------------------------------------------------------------
 
 #import <os/log.h>
 #if ACCEL_LOGGING_ENABLED
@@ -45,97 +41,45 @@ static struct NQDLogInit {
 #define NQD_VLOG(fmt, ...) do {} while (0)
 #endif
 
-// Always-on error logging (NOT gated by ACCEL_LOGGING_ENABLED).
+// Error logging is always on.
 #if ACCEL_LOGGING_ENABLED
 #define NQD_ERR(fmt, ...) do { os_log_error(nqd_log, fmt, ##__VA_ARGS__); } while (0)
 #else
 #define NQD_ERR(fmt, ...) do { os_log_error(OS_LOG_DEFAULT, fmt, ##__VA_ARGS__); } while (0)
 #endif
 
-// ---------------------------------------------------------------------------
-// NQD/DSp framebuffer-ownership conflict rule:
-//
-// Original rule: "if both NQD and DSp try to own kLayerSlotFramebuffer
-// in the same mode window, DSp wins". This was first implemented as a
-// BLANKET drop of every NQD entry when DMC owner == kDMCOwnerDSp. In
-// practice, that gate was too broad — it silenced the legitimate
-// DSp-1.7-sanctioned pattern of "Reserve + SetState(Active) + draw via
-// QuickDraw to the main-screen port" (used by The Sims and other DSp
-// games that do not call GetBackBuffer / SwapBuffers).
-//
-// Architectural reality: the NQD Metal path is only dispatched when
-// the accl_params dest_base falls inside nqd_ram_buffer (see
-// gfxaccel.cpp's NQDMetalAddrInBuffer guard at every NQD_* entry).
-// The DSp back-buffer lives in a SEPARATE MTLBuffer allocated out of
-// kHeapCompositor — it is NOT in nqd_ram_buffer, so an NQD op
-// targeting the DSp back-buffer can never reach this file. Every NQD
-// op that reaches us targets either the emulator's visible framebuffer
-// (the_buffer — host-side memory wrapped by the compositor texture) or an
-// app-owned offscreen pixmap in guest RAM. Screen-visible NQD ops are still
-// CPU-handled; Metal acceleration covers offscreen/redirected destinations.
-// Writes to either path are SAFE regardless of DSp owner state:
-//   - main framebuffer writes: visible via MetalCompositorPresent
-//     (compositor_texture is a zero-copy view over the_buffer) until
-//     a DSp SwapBuffers blit overwrites them. Well-behaved DSp apps
-//     SwapBuffers at the end of each frame; apps that draw via QD
-//     instead of the back-buffer API (The Sims pattern) rely on
-//     these writes being visible.
-//   - app offscreen writes: not on the display path at all; DSp has
-//     no claim over them.
-//
-// So: the blanket drop gate is REMOVED at the five NQD entry points.
-// The owner-map tagging in gfxaccel_resources (set_buffer_owner) is
-// authoritative per-buffer and remains unchanged — it is the correct place
-// for ownership metadata if a future enforcement point needs it (e.g., a
-// hypothetical NQD op that somehow reached a DSp back-buffer via an aliased
-// pixmap would be caught by an address comparison there; no such pathway
-// exists today).
-//
-// Compositor-blindness preserved: the compositor
-// still never reads the owner map.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Metal state (file-static)
-// ---------------------------------------------------------------------------
+// NQD and DSp ownership: NQD Metal only runs for destinations inside
+// nqd_ram_buffer (guest RAM, checked by NQDMetalAddrInBuffer in gfxaccel.cpp).
+// DSp back buffers live in a separate compositor-heap MTLBuffer, so NQD can
+// never write them. NQD writes to the main framebuffer or to app offscreens
+// are therefore safe whatever the DSp owner state, and DSp games that draw
+// through QuickDraw to the main port (e.g. The Sims) depend on them. Do not
+// drop NQD ops just because DSp owns the display.
 
 bool nqd_metal_available = false;
 
 static id<MTLDevice>              nqd_device       = nil;
 static id<MTLCommandQueue>        nqd_queue        = nil;
 static id<MTLComputePipelineState> nqd_bitblt_pipeline = nil;
-static id<MTLComputePipelineState> nqd_bitblt_scaled_pipeline = nil;  /* DSpBlit_Faster scaling kernel */
+static id<MTLComputePipelineState> nqd_bitblt_scaled_pipeline = nil;  /* DSpBlit_Faster */
 static id<MTLComputePipelineState> nqd_fillrect_pipeline = nil;
 static id<MTLBuffer>              nqd_ram_buffer   = nil;
-static uint8                     *nqd_ram_base     = nullptr; // host pointer that corresponds to Metal buffer start
+static uint8                     *nqd_ram_base     = nullptr; // host address of buffer start
 static uint32                     nqd_ram_size     = 0;       // size of the Metal buffer (== RAMSize)
 
 
-// ---------------------------------------------------------------------------
-// Command encoding state. All accelerated destinations are guest-visible RAM.
-// Guest PPC code can access pixels directly without calling QuickDraw's sync
-// hook, so each operation must complete before returning to the guest.
-// ---------------------------------------------------------------------------
+// Every destination is guest-visible RAM that PPC code may touch without
+// calling QuickDraw's sync hook, so each op completes before returning.
 
 static id<MTLCommandBuffer>         nqd_batch_cmdbuf  = nil;
 static id<MTLComputeCommandEncoder> nqd_batch_encoder = nil;
 static int                          nqd_batch_count   = 0;
 
-// ---------------------------------------------------------------------------
-// CPU fast-path threshold (in total pixels)
-//
-// For small rects, the Metal submission overhead (command buffer alloc,
-// encoder setup, GPU scheduling, waitUntilCompleted stall) far exceeds
-// the actual compute time. The CPU path (memset/memmove/XOR loop) is
-// faster for operations below this threshold.
-//
-// Each dispatch adds encoder overhead. For tiny ops
-// (icons, cursors, text glyphs), CPU is still faster.
-// ---------------------------------------------------------------------------
+// Below this many pixels the CPU path beats Metal's submit-and-wait overhead
+// (icons, cursors, glyphs).
 
 static const int NQD_CPU_THRESHOLD_PIXELS = 4096;  // ~64x64 or equivalent
 
-// Check if a Mac address is within the Metal-mapped RAM region.
 static inline bool nqd_addr_in_buffer(uint32 mac_addr)
 {
     return mac_addr >= RAMBase && mac_addr < RAMBase + nqd_ram_size;
@@ -146,12 +90,6 @@ bool NQDMetalAddrInBuffer(uint32 mac_addr)
     return nqd_addr_in_buffer(mac_addr);
 }
 
-// ---------------------------------------------------------------------------
-// Batch command buffer helpers
-// ---------------------------------------------------------------------------
-
-// Ensure we have an active batch command buffer + encoder.
-// Returns the encoder, creating a new batch if needed.
 static id<MTLComputeCommandEncoder> nqd_get_batch_encoder(void)
 {
     if (!nqd_batch_encoder) {
@@ -171,20 +109,15 @@ static id<MTLComputeCommandEncoder> nqd_get_batch_encoder(void)
     return nqd_batch_encoder;
 }
 
-// Publish GPU writes before any subsequent direct guest CPU read or write.
+// Complete GPU writes before the guest can read or write the pixels.
 static void nqd_batch_did_dispatch(void)
 {
     nqd_batch_count++;
     NQDMetalFlush();
 }
 
-// ---------------------------------------------------------------------------
-// NQDMetalFlush — commit the batched command buffer and wait for completion
-//
-// Called from NQD_sync_hook (Mac OS sync point) and before
-// MetalCompositorPresent (frame boundary). Also called internally when
-// ordering guarantees are needed (backward blits, mask buffer reuse).
-// ---------------------------------------------------------------------------
+// Commit and wait. Called from NQD_sync_hook, before present, and wherever
+// ordering matters (backward blits, mask buffer reuse).
 
 void NQDMetalFlush(void)
 {
@@ -209,9 +142,7 @@ void NQDMetalFlush(void)
     } // @autoreleasepool
 }
 
-// ---------------------------------------------------------------------------
-// Uniform struct — must match NQDBitbltUniforms in nqd_shaders.metal
-// ---------------------------------------------------------------------------
+// Must match NQDBitbltUniforms in nqd_shaders.metal.
 
 struct NQDBitbltUniforms {
     uint32_t src_offset;
@@ -229,42 +160,34 @@ struct NQDBitbltUniforms {
     uint32_t mask_enabled;   // 1 = mask gating active, 0 = no mask
     uint32_t mask_offset;    // byte offset into mask_buffer where mask data starts
     uint32_t mask_stride;    // mask row stride (width_bytes for Boolean, width_pixels for arithmetic)
-    uint32_t bits_per_pixel; // raw pixel depth in bits (1, 2, 4, 8, 16, or 32) — for packed pixel support
-    // Per-channel rgbOpColor blend weights [0-65535] for mode
-    // 32 (blend). Replaces the single scalar blend_weight; must match the
-    // 3-field layout in NQDBitbltUniforms in nqd_shaders.metal exactly.
+    uint32_t bits_per_pixel; // 1, 2, 4, 8, 16 or 32
+    // rgbOpColor weights for blend (32): 0 = all dst, 65535 = all src.
     uint32_t blend_weight_r;
     uint32_t blend_weight_g;
     uint32_t blend_weight_b;
 };
 
-// ---------------------------------------------------------------------------
-// Uniform struct — must match NQDBitbltScaledUniforms in nqd_shaders.metal
-// (DSpBlit_Faster scaling kernel). Field order + size must
-// match the .metal struct EXACTLY.
-// ---------------------------------------------------------------------------
+// Must match NQDBitbltScaledUniforms in nqd_shaders.metal.
 
 struct NQDBitbltScaledUniforms {
-    uint32_t src_offset;     // byte offset of src rect origin within the RAM buffer
-    uint32_t dst_offset;     // byte offset of dst rect origin within the RAM buffer
+    uint32_t src_offset;     // byte offset of src rect origin
+    uint32_t dst_offset;     // byte offset of dst rect origin
     int32_t  src_row_bytes;
     int32_t  dst_row_bytes;
     uint32_t pixel_size;     // bytes per pixel (1, 2, or 4)
-    uint32_t bits_per_pixel; // raw pixel depth in bits (8, 16, or 32)
-    uint32_t src_w;          // source rect width in pixels
-    uint32_t src_h;          // source rect height in pixels
-    uint32_t dst_w;          // dest rect width in pixels
-    uint32_t dst_h;          // dest rect height in pixels
+    uint32_t bits_per_pixel; // 8, 16 or 32
+    uint32_t src_w;          // pixels
+    uint32_t src_h;
+    uint32_t dst_w;
+    uint32_t dst_h;
     uint32_t interpolate;    // 1 = bilinear (kDSpBlitMode_Interpolation), 0 = nearest
-    uint32_t src_key;        // source color key (big-endian packed pixel value)
-    uint32_t dst_key;        // dest color key (big-endian packed pixel value)
+    uint32_t src_key;        // big-endian pixel value
+    uint32_t dst_key;
     uint32_t key_enable;     // bit-or of kDSpBlitMode_SrcKey(1) / _DstKey(2); 0 = no key
-    uint32_t ram_size;       // defense-in-depth: total mapped RAM bytes; the
-                             // kernel clamps every per-pixel addr < ram_size so a
-                             // resolved-geometry mismatch cannot OOB the buffer
+    uint32_t ram_size;       // kernel bounds clamp
 };
 
-// Uniforms for fillrect — must match NQDFillRectUniforms in nqd_shaders.metal
+// Must match NQDFillRectUniforms in nqd_shaders.metal.
 struct NQDFillRectUniforms {
     uint32_t dst_offset;
     int32_t  row_bytes;
@@ -281,10 +204,8 @@ struct NQDFillRectUniforms {
     uint32_t mask_enabled;   // 1 = mask gating active, 0 = no mask
     uint32_t mask_offset;    // byte offset into mask_buffer where mask data starts
     uint32_t mask_stride;    // mask row stride (width_bytes for Boolean, width_pixels for arithmetic)
-    uint32_t bits_per_pixel; // raw pixel depth in bits (1, 2, 4, 8, 16, or 32) — for packed pixel support
-    // Per-channel rgbOpColor blend weights [0-65535] for mode
-    // 32 (blend). Replaces the single scalar blend_weight; must match the
-    // 3-field layout in NQDFillRectUniforms in nqd_shaders.metal exactly.
+    uint32_t bits_per_pixel; // 1, 2, 4, 8, 16 or 32
+    // rgbOpColor weights for blend (32): 0 = all dst, 65535 = all src.
     uint32_t blend_weight_r;
     uint32_t blend_weight_g;
     uint32_t blend_weight_b;
@@ -292,22 +213,13 @@ struct NQDFillRectUniforms {
 
 static inline uint32_t nqd_uniform_pen_for_depth(uint32_t logical_pen, uint32_t bits_per_pixel)
 {
-    // Standard-depth kernels compare against nqd_read_pixel()'s logical value.
-    // Packed kernels extract the Mac pen LSByte from an htonl-packed word.
+    // Packed-depth kernels read the pen index from the top byte (see nqd_pen_index_packed).
     return (bits_per_pixel < 8) ? htonl(logical_pen) : logical_pen;
 }
 
-// ---------------------------------------------------------------------------
-// Helper: read OpColor blend weight from Mac low-memory 0x0A28.
-// OpColor is an RGBColor (3 x uint16). The red channel is used as the
-// single-valued blend weight for transfer mode 32 (blend).
-// Returns [0-65535] where 0 = all destination, 65535 = all source.
-//
-// This is the DOCUMENTED FALLBACK target for nqd_read_rgb_op_color():
-// the non-canonical lowmem 0x0A28 scalar is only used when the current
-// port's GrafVars handle is genuinely unreachable (port==0 / OOB / basic
-// GrafPort), and only with a logged NQD_LOG message — never silently.
-// ---------------------------------------------------------------------------
+// Red channel of the low-memory OpColor at 0x0A28, as a single blend weight.
+// Fallback for nqd_read_rgb_op_color() when the port's GrafVars can't be
+// reached (no port, out of range, or a basic GrafPort); always logged.
 
 static inline uint16_t nqd_read_lowmem_opcolor_scalar()
 {
@@ -319,10 +231,7 @@ static inline uint32_t nqd_read_lowmem_theport()
     return ReadMacInt32(0x0916);
 }
 
-// In-RAM walk reads for nqd_read_rgb_op_color() Steps 2-5. Plain
-// ReadMacInt* wrappers kept as the single indirection point for reading
-// guest memory during the GrafVars walk — an alternate guest-memory
-// access convention only needs to change these two helpers.
+// Guest reads for the GrafVars walk, kept as one indirection point.
 static inline uint16_t nqd_walk_read16(uint32_t mac_addr)
 {
     return (uint16_t)ReadMacInt16(mac_addr);
@@ -419,40 +328,19 @@ static inline uint32_t nqd_effective_main_device_pixel_size(NQDMainDevicePixMapS
 
 static inline uint32_t nqd_read_blend_weight()
 {
-    // OpColor at Mac low-memory 0x0DA0 is actually HiliteRGB.
-    // OpColor is at 0x0A28 (RGBColor: {red, green, blue} as big-endian uint16).
+    // OpColor is the RGBColor at 0x0A28 (0x0DA0 is HiliteRGB).
     return (uint32_t)nqd_read_lowmem_opcolor_scalar();
 }
 
-// ---------------------------------------------------------------------------
-// Per-channel rgbOpColor blend weights.
-//
-// Transfer mode 32 (blend) is weighted by the current CGrafPort's OpColor,
-// which Color QuickDraw stores per-channel as an RGBColor in the port's
-// GrafVars handle (Imaging With QuickDraw 4-40 / 4-62 / 4-78 / 4-110). The
-// legacy nqd_read_blend_weight() reads ONE big-endian uint16 from the
-// non-canonical lowmem 0x0A28 scalar and applies it to all three channels.
-// This helper reads the per-channel
-// R/G/B rgbOpColor from the canonical source.
-//
-// SECURITY: the GrafVars pointer chain is
-// guest-controlled (an emulated app sets thePort and the GrafVars Handle to
-// arbitrary values). EVERY ReadMacInt* in the walk is preceded by an
-// NQD_INRANGE OOB gate so a garbage pointer cannot trigger a host OOB read.
-// The gate + per-step graceful-return idiom is copied verbatim in shape from
-// DSpRedirectMainDevicePixMap (dsp_draw_context.mm:3616). On any gate failure
-// or a basic (non-colour) GrafPort, fall back to the lowmem 0x0A28 scalar
-// applied to all 3 channels WITH an NQD_LOG — never silent.
-// ---------------------------------------------------------------------------
+// Blend (mode 32) is weighted per channel by the port's rgbOpColor, stored in
+// the CGrafPort's GrafVars (IWQD 4-40, 4-62, 4-78, 4-110). The pointer chain
+// is guest-controlled, so every read is range-checked first. Any failure, or
+// a basic GrafPort, falls back to the 0x0A28 scalar on all channels (logged).
 struct NQDRgbOpColor { uint32_t r, g, b; };
 
 static inline NQDRgbOpColor nqd_read_rgb_op_color()
 {
-    // NQD_INRANGE gate: RAM range [RAMBase, RAMBase+RAMSize) UNION lowmem
-    // gZeroPage [0, 0x3000). Identical in shape to DSP_REDIR_INRANGE
-    // (dsp_draw_context.mm:3616). Implemented as a scope-local lambda (not a
-    // #define) so every gate site in the walk can use it safely without the
-    // multiple-#undef hazard a function-local macro carries.
+    // Guest RAM or the low-memory page [0, 0x3000).
     const uint32_t kLomemBase = 0x0;
     const uint32_t kLomemTop  = 0x3000;        // matches gZeroPage in vm.hpp
     const uint32_t kRamLo     = (uint32_t)RAMBase;
@@ -462,13 +350,10 @@ static inline NQDRgbOpColor nqd_read_rgb_op_color()
                 (a >= kLomemBase && a < kLomemTop));
     };
 
-    // Fallback: lowmem 0x0A28 scalar applied to all 3 channels.
     NQDRgbOpColor fallback;
     fallback.r = fallback.g = fallback.b = nqd_read_blend_weight();
 
-    // Step 1: thePort — lowmem 0x0916, the classic Mac OS current-GrafPort
-    // global. 0x0916 lives inside gZeroPage so the read itself is always safe
-    // under EMULATED_PPC=1; gate the VALUE before dereferencing it.
+    // thePort (low-mem 0x0916).
     uint32_t portPtr = nqd_read_lowmem_theport();
     if (portPtr == 0 || !NQD_INRANGE(portPtr)) {
         NQD_LOG("nqd_read_rgb_op_color: rgbOpColor unreachable (step 1: thePort"
@@ -476,12 +361,8 @@ static inline NQDRgbOpColor nqd_read_rgb_op_color()
         return fallback;
     }
 
-    // Step 2: CGrafPort detect — portVersion @ +6; a colour port has the high
-    // two bits set (& 0xC000). A basic GrafPort has no GrafVars/OpColor, so
-    // OpColor has no effect → fallback. portPtr is INRANGE (step 1); gate the
-    // FULL 2-byte read extent (+6..+7) for spill safety. Previously only
-    // the START byte (+6) was gated, allowing a ≤1-byte over-read when portPtr
-    // lands at kRamHi-1; gate the END byte (+6+1) to match step 5.
+    // portVersion at +6: a CGrafPort has the top two bits set; a basic GrafPort
+    // has no GrafVars. Range checks cover the last byte of every read.
     if (!NQD_INRANGE(portPtr + 6 + 1)) {
         NQD_LOG("nqd_read_rgb_op_color: rgbOpColor unreachable (step 2: "
                 "portVersion@+6 spilled, portPtr=0x%08x) — lowmem 0x0A28 "
@@ -496,10 +377,7 @@ static inline NQDRgbOpColor nqd_read_rgb_op_color()
         return fallback;
     }
 
-    // Step 3: grafVars Handle @ CGrafPort + 8. Gate the FULL 4-byte read extent
-    // (+8..+11), then the resulting Handle value. Previously only the
-    // START byte (+8) was gated, allowing a ≤3-byte over-read; gate the END byte
-    // (+8+3) to match step 5.
+    // grafVars handle at +8.
     if (!NQD_INRANGE(portPtr + 8 + 3)) {
         NQD_LOG("nqd_read_rgb_op_color: rgbOpColor unreachable (step 3: "
                 "grafVars@+8 spilled, portPtr=0x%08x) — lowmem 0x0A28 fallback",
@@ -507,16 +385,12 @@ static inline NQDRgbOpColor nqd_read_rgb_op_color()
         return fallback;
     }
     uint32_t grafVarsH = nqd_walk_read32(portPtr + 8);
-    // Gate the FULL 4-byte Handle deref extent (grafVarsH..grafVarsH+3) BEFORE
-    // step 4 reads it. Previously only the START byte (grafVarsH) was
-    // gated, allowing a ≤3-byte over-read when grafVarsH lands at kRamHi-1.
     if (grafVarsH == 0 || !NQD_INRANGE(grafVarsH) || !NQD_INRANGE(grafVarsH + 3)) {
         NQD_LOG("nqd_read_rgb_op_color: rgbOpColor unreachable (step 3: "
                 "grafVarsH=0x%08x) — lowmem 0x0A28 fallback", grafVarsH);
         return fallback;
     }
 
-    // Step 4: dereference Handle → GrafVars pointer. Gate the resulting ptr.
     uint32_t grafVarsPtr = nqd_walk_read32(grafVarsH);
     if (grafVarsPtr == 0 || !NQD_INRANGE(grafVarsPtr)) {
         NQD_LOG("nqd_read_rgb_op_color: rgbOpColor unreachable (step 4: "
@@ -524,9 +398,7 @@ static inline NQDRgbOpColor nqd_read_rgb_op_color()
         return fallback;
     }
 
-    // Step 5: rgbOpColor RGBColor @ GrafVars + 0 — red/green/blue as 3
-    // big-endian uint16. Confirm the whole 6-byte RGBColor fits in range
-    // before reading any channel.
+    // rgbOpColor at GrafVars+0: three big-endian uint16s.
     if (!NQD_INRANGE(grafVarsPtr + 4 + 1)) {
         NQD_LOG("nqd_read_rgb_op_color: rgbOpColor unreachable (step 5: "
                 "RGBColor spilled, grafVarsPtr=0x%08x) — lowmem 0x0A28 "
@@ -541,10 +413,6 @@ static inline NQDRgbOpColor nqd_read_rgb_op_color()
 }
 
 
-// ---------------------------------------------------------------------------
-// Helper: bytes per pixel
-// ---------------------------------------------------------------------------
-
 static inline int nqd_bytes_per_pixel(uint32 pixel_size)
 {
     switch (pixel_size) {
@@ -557,10 +425,7 @@ static inline int nqd_bytes_per_pixel(uint32 pixel_size)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helper: packed pixel width in bytes (handles sub-byte depths)
-// Matches TrivialBytesPerRow from video.h for all 6 Apple depths.
-// ---------------------------------------------------------------------------
+// Row width in bytes, sub-byte depths included; matches TrivialBytesPerRow.
 
 static inline uint32_t nqd_packed_width_bytes(int width, uint32_t pixel_size_bits)
 {
@@ -577,17 +442,10 @@ static inline uint32_t nqd_packed_width_bytes(int width, uint32_t pixel_size_bit
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helper: byte offset for pixel X coordinate (handles sub-byte depths)
-// For packed depths (1/2/4), returns the byte containing pixel X.
-// ---------------------------------------------------------------------------
-
-// Returns a SIGNED byte offset: X coordinates can be negative (srcRect.left <
-// srcBoundsRect.left), and a uint32_t return turned e.g. x=-3 @32bpp into
-// 0xFFFFFFF4, producing a wild pointer in the negative-row_bytes blit path
-// (MacBench 5.0 Photoshop: same-surface backward scroll with negative src_X ->
-// SIGSEGV). The one caller that casts to uint64_t (nqd_resolve_rect_extent)
-// already bails on x < 0 before calling, so a signed return is safe there.
+// Byte offset of pixel x (for 1/2/4bpp, the byte containing it). Signed:
+// x can be negative (srcRect.left < srcBoundsRect.left), and an unsigned
+// result becomes a wild pointer in the backward blit path.
+// nqd_resolve_rect_extent rejects x < 0 before its uint64_t cast.
 static inline int32_t nqd_packed_byte_offset(int x, uint32_t pixel_size_bits)
 {
     switch (pixel_size_bits) {
@@ -635,7 +493,7 @@ static bool nqd_resolve_rect_extent(const char *op_name,
     }
 
     uint64_t x_offset = (uint64_t)nqd_packed_byte_offset(x, bits_per_pixel);
-    // Packed rectangles can start within a byte; include the final partial byte.
+    // Packed rects can start mid-byte; include the final partial byte.
     const uint64_t end_pixel = (uint64_t)(uint32_t)x + (uint64_t)(uint32_t)width;
     const uint64_t storage_bits = bits_per_pixel == 15 ? 16 :
                                   bits_per_pixel == 24 ? 32 : bits_per_pixel;
@@ -691,8 +549,8 @@ static inline bool nqd_same_surface_rects_overlap(uint32_t src_base,
                                                   int height)
 {
     if (width <= 0 || height <= 0) return false;
-    // Negative rowBytes selects backward traversal, not a different surface.
-    // Widen before negation so even malformed INT_MIN cannot overflow.
+    // Negative rowBytes means backward traversal, not another surface. Widen
+    // before negating so INT_MIN can't overflow.
     const int64_t src_stride = src_row_bytes < 0 ? -(int64_t)src_row_bytes : src_row_bytes;
     const int64_t dest_stride = dest_row_bytes < 0 ? -(int64_t)dest_row_bytes : dest_row_bytes;
     if (src_stride == 0 || dest_stride == 0) return false;
@@ -705,9 +563,8 @@ static inline bool nqd_same_surface_rects_overlap(uint32_t src_base,
                (int64_t)src_Y < (int64_t)dest_Y + height;
     }
 
-    // Different PixMap base addresses/strides can alias the same RAM. Merge
-    // their ordered scanline byte intervals, rather than treating distinct
-    // descriptors as distinct storage. Exactly in-place operations are safe.
+    // Different bases/strides can still alias the same RAM, so walk the
+    // scanline byte intervals. An exactly in-place op is safe.
     const int64_t row_width = nqd_packed_width_bytes(width, src_pixel_size);
     int64_t src_start = (int64_t)src_base + (int64_t)src_Y * src_stride +
                         nqd_packed_byte_offset(src_X, src_pixel_size);
@@ -732,17 +589,10 @@ static inline bool nqd_same_surface_rects_overlap(uint32_t src_base,
     return false;
 }
 
-// ---------------------------------------------------------------------------
-// NQDMetalBitbltSameSurfaceOverlap — hook-side overlap probe.
-//
-// Reads the bitblt accl_params at p (same packet decode as NQDMetalBitblt)
-// and reports whether src and dest describe overlapping rects on the same
-// surface. NQD_bitblt_hook uses this to decline the overlap families the
-// GPU path cannot order — packed-depth Boolean and arithmetic/hilite — to
-// software QuickDraw: the nqd_bitblt kernel is one flat unordered dispatch,
-// and only the standard-depth Boolean family diverts same-surface overlaps
-// to the ordered CPU scratch path inside NQDMetalBitblt (NQD-02).
-// ---------------------------------------------------------------------------
+// True if the bitblt at p has overlapping src and dst on the same surface.
+// The kernel is one unordered dispatch, so NQD_bitblt_hook sends overlapping
+// packed-Boolean and arithmetic/hilite blits to software. Standard-depth
+// Boolean overlaps go through NQDMetalBitblt's ordered CPU path instead.
 
 bool NQDMetalBitbltSameSurfaceOverlap(uint32 p)
 {
@@ -765,15 +615,10 @@ bool NQDMetalBitbltSameSurfaceOverlap(uint32 p)
                                           width, height);
 }
 
-// ---------------------------------------------------------------------------
-// NQDMetalInit — create device, queue, pipeline, wrap Mac RAM
-// ---------------------------------------------------------------------------
-
 void NQDMetalInit(void)
 {
     NQD_LOG("NQDMetalInit: starting");
 
-    // Always use the shared device/queue singletons.
     nqd_device = (__bridge id<MTLDevice>)SharedMetalDevice();
     if (!nqd_device) {
         NQD_ERR("NQDMetalInit: SharedMetalDevice failed — no Metal GPU");
@@ -781,7 +626,6 @@ void NQDMetalInit(void)
     }
     NQD_LOG("NQDMetalInit: device=%p (%s)", nqd_device, [[nqd_device name] UTF8String]);
 
-    // Create command queue
     nqd_queue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
     if (!nqd_queue) {
         NQD_ERR("NQDMetalInit: SharedMetalCommandQueue failed");
@@ -789,7 +633,6 @@ void NQDMetalInit(void)
         return;
     }
 
-    // Load shader library (compiled into app bundle as default metallib)
     id<MTLLibrary> library = nil;
     library = [nqd_device newDefaultLibrary];
     if (!library) {
@@ -799,7 +642,6 @@ void NQDMetalInit(void)
         return;
     }
 
-    // Create compute pipeline for nqd_bitblt kernel
     id<MTLFunction> bitblt_func = [library newFunctionWithName:@"nqd_bitblt"];
     if (!bitblt_func) {
         NQD_ERR("NQDMetalInit: kernel function 'nqd_bitblt' not found in library");
@@ -818,8 +660,6 @@ void NQDMetalInit(void)
         return;
     }
 
-    // Create compute pipeline for nqd_bitblt_scaled kernel (DSpBlit_Faster
-    // scaling path). Built the same way as nqd_bitblt_pipeline.
     id<MTLFunction> bitblt_scaled_func = [library newFunctionWithName:@"nqd_bitblt_scaled"];
     if (!bitblt_scaled_func) {
         NQD_ERR("NQDMetalInit: kernel function 'nqd_bitblt_scaled' not found in library");
@@ -840,7 +680,6 @@ void NQDMetalInit(void)
         return;
     }
 
-    // Create compute pipeline for nqd_fillrect kernel
     id<MTLFunction> fillrect_func = [library newFunctionWithName:@"nqd_fillrect"];
     if (!fillrect_func) {
         NQD_ERR("NQDMetalInit: kernel function 'nqd_fillrect' not found in library");
@@ -863,10 +702,9 @@ void NQDMetalInit(void)
         return;
     }
 
-    // Wrap Mac RAM as a shared Metal buffer (zero-copy — GPU reads/writes CPU memory)
-    // Use RAMBaseHost (the mmap'd allocation) instead of Mac2HostAddr(0), which
-    // may hit the gZeroPage intercept and return a non-page-aligned global array.
-    // Metal's newBufferWithBytesNoCopy requires both pointer and length to be page-aligned.
+    // Wrap Mac RAM without copying. Use RAMBaseHost, not Mac2HostAddr(0): the
+    // latter can hit the gZeroPage intercept and return an unaligned global,
+    // and newBufferWithBytesNoCopy needs a page-aligned pointer and length.
     uint8 *ram_host = RAMBaseHost;
     nqd_ram_buffer = [nqd_device newBufferWithBytesNoCopy:ram_host
                                                    length:RAMSize
@@ -889,23 +727,15 @@ void NQDMetalInit(void)
             [[nqd_device name] UTF8String], RAMSize, nqd_ram_buffer);
 }
 
-// ---------------------------------------------------------------------------
-// Helper: check if transfer mode is arithmetic/hilite (per-pixel dispatch)
-// ---------------------------------------------------------------------------
+// Arithmetic or hilite: dispatched per pixel.
 
 static inline bool nqd_is_pixel_mode(uint32_t mode)
 {
     return (mode >= 32 && mode <= 39) || mode == 50;
 }
 
-// ---------------------------------------------------------------------------
-// Helper: pack HiliteRGB from Mac low-memory global into pixel-depth value
-//
-// HiliteRGB at Mac address 0x0DA0: 6 bytes = uint16 red, uint16 green, uint16 blue
-// (big-endian, each 0-65535). Pack to pixel-depth representation matching
-// framebuffer byte order (big-endian packed via htonl pattern).
-// ---------------------------------------------------------------------------
-
+// HiliteRGB (low-mem 0x0DA0, three big-endian uint16s) as a logical pixel
+// value for `bpp` bytes per pixel. Not htonl'd.
 
 static uint32_t nqd_pack_hilite_color(int bpp)
 {
@@ -917,18 +747,15 @@ static uint32_t nqd_pack_hilite_color(int bpp)
     }
 
     if (bpp == 1) {
-        // 8bpp indexed: use red channel high byte as index approximation
-        // (DELIBERATE-documented approximation; no
-        // Color-Manager inverse-table is reachable from the NQD path).
+        // Indexed: approximate with the red high byte; no Color Manager inverse
+        // table is reachable from here.
         return (r16 >> 8) & 0xFF;
     } else if (bpp == 2) {
-        // 16bpp 1-5-5-5 ARGB: truncate 16-bit channels to 5-bit, set alpha=1
         uint16 r5 = (r16 >> 11) & 0x1F;
         uint16 g5 = (g16 >> 11) & 0x1F;
         uint16 b5 = (b16 >> 11) & 0x1F;
         return (uint32_t)((1 << 15) | (r5 << 10) | (g5 << 5) | b5);
     } else {
-        // 32bpp ARGB: truncate 16-bit channels to 8-bit, alpha=0xFF
         uint8_t r8 = (r16 >> 8) & 0xFF;
         uint8_t g8 = (g16 >> 8) & 0xFF;
         uint8_t b8 = (b16 >> 8) & 0xFF;
@@ -1205,17 +1032,12 @@ static bool nqd_cpu_bitblt_1bpp_to_direct_boolean(uint32 src_base,
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Mask buffer management (file-static)
-// ---------------------------------------------------------------------------
-
 static id<MTLBuffer>  nqd_mask_buffer      = nil;
 static NSUInteger     nqd_mask_buffer_size  = 0;
 
 static void nqd_ensure_mask_buffer(NSUInteger needed)
 {
     if (nqd_mask_buffer && nqd_mask_buffer_size >= needed) return;
-    // Round up to 4 KB granularity for reuse
     NSUInteger alloc_size = (needed + 4095) & ~(NSUInteger)4095;
     nqd_mask_buffer = [nqd_device newBufferWithLength:alloc_size
                                               options:MTLResourceStorageModeShared];
@@ -1227,18 +1049,9 @@ static void nqd_ensure_mask_buffer(NSUInteger needed)
     NQD_LOG("nqd_ensure_mask_buffer: allocated %lu bytes", (unsigned long)alloc_size);
 }
 
-// ---------------------------------------------------------------------------
-// nqd_decode_region — QuickDraw Region to 1-byte-per-cell bitmap
-//
-// Takes a Mac address pointing to a QuickDraw Region, the destination rect
-// origin/dimensions (for coordinate mapping), and an output buffer pointer +
-// size.
-// Returns true on success. The output bitmap is 1 byte per cell where 1 means
-// "inside region" and 0 means "outside".
-//
-// mask_stride is either width_pixels (standard-depth Boolean and all
-// pixel-mode arithmetic/hilite paths) or width_bytes (packed Boolean paths).
-// ---------------------------------------------------------------------------
+// Decode a QuickDraw region into a 1-byte-per-cell mask (1 = inside), relative
+// to the destination rect. mask_stride is width_pixels for standard depths and
+// arithmetic/hilite, width_bytes for packed Boolean.
 
 static inline void nqd_set_mask_pixel(uint8_t *out_mask,
                                       int mask_row,
@@ -1274,7 +1087,7 @@ static bool nqd_decode_region(uint32 rgn_addr,
         return false;
     }
 
-    // Bound both the header and complete scanline payload before any read.
+    // Bounds-check the header and the whole scanline payload before any read.
     uint16 rgnSize = 0;
     if (!NQDReadMappedRegionSize(rgn_addr, RAMBase, RAMSize,
                                 ROMBase, ROM_AREA_SIZE,
@@ -1302,7 +1115,6 @@ static bool nqd_decode_region(uint32 rgn_addr,
              rect_left, rect_top, width_pixels, dest_height, mask_stride,
              pixel_mask_columns ? 1u : 0u);
 
-    // Ensure output buffer is large enough
     NSUInteger needed = (NSUInteger)(mask_stride * dest_height);
     if (needed > mask_size) {
         NQD_ERR("nqd_decode_region: mask_size %lu < needed %lu",
@@ -1312,7 +1124,7 @@ static bool nqd_decode_region(uint32 rgn_addr,
 
     memset(out_mask, 0, needed);
 
-    // Rectangular region: fill the intersection of bbox and destination rect.
+    // Rectangular region: fill bbox intersected with the dest rect.
     if (rgnSize == 10) {
         int top = (bbox_top > rect_top) ? bbox_top : rect_top;
         int bottom = (bbox_bottom < rect_top + dest_height)
@@ -1334,20 +1146,18 @@ static bool nqd_decode_region(uint32 rgn_addr,
         return true;
     }
 
-    // Complex region: decode RLE scanline data
-    // Scanline state: tracks which columns are "inside" the region.
-    // The region scanline data works by inversion: each h-point toggles inside/outside.
-    // State persists across scanlines (running state).
+    // Complex region: each scanline lists inversion points, and each one toggles
+    // the running inside/outside state from that column rightward. The state
+    // carries over between scanlines.
     int max_cols = rgn_width;
     if (max_cols <= 0 || max_cols > 16384) {
         NQD_ERR("nqd_decode_region: unreasonable rgn_width %d", max_cols);
         return false;
     }
 
-    // Running state: one bool per column of the region bbox
     std::vector<uint8_t> col_state(max_cols, 0);
 
-    uint64_t offset = uint64_t(rgn_addr) + 10;  // Start of scanline data
+    uint64_t offset = uint64_t(rgn_addr) + 10;  // scanline data
     const uint64_t rgn_end = uint64_t(rgn_addr) + rgnSize;
     int prev_v = bbox_top;
     int inversion_count = 0;
@@ -1356,10 +1166,9 @@ static bool nqd_decode_region(uint32 rgn_addr,
         int16 v_coord = (int16)ReadMacInt16(uint32_t(offset));
         offset += 2;
 
-        // End sentinel
         if (v_coord == 0x7FFF) break;
 
-        // Fill mask rows from prev_v to v_coord using current col_state
+        // Rows prev_v..v_coord use the current state.
         for (int row = prev_v; row < v_coord; row++) {
             int mask_row = row - rect_top;
             for (int c = 0; c < max_cols; c++) {
@@ -1373,23 +1182,14 @@ static bool nqd_decode_region(uint32 rgn_addr,
             }
         }
 
-        // Read horizontal inversion points for this scanline
         while (offset + 2 <= rgn_end) {
             int16 h_point = (int16)ReadMacInt16(uint32_t(offset));
             offset += 2;
 
-            if (h_point == 0x7FFF) break;  // End of h-points for this scanline
+            if (h_point == 0x7FFF) break;
 
-            // Toggle all columns from h_point to the next h_point
             int h_col = h_point - bbox_left;
             if (h_col >= 0 && h_col < max_cols) {
-                // Toggle from h_col onward (next h_point will stop the toggle)
-                // Actually, inversion points work in pairs: toggle from h_col to next h_point
-                // But the way QuickDraw encodes it, each point just toggles the running state
-                // for that column onward. Let's apply it correctly:
-                // Read the next h_point to know the range end
-                // Actually, QD region points toggle the inside/outside state at each x coordinate.
-                // They come in pairs and toggle entire ranges.
                 for (int c = h_col; c < max_cols; c++) {
                     col_state[c] = !col_state[c];
                 }
@@ -1400,7 +1200,6 @@ static bool nqd_decode_region(uint32 rgn_addr,
         prev_v = v_coord;
     }
 
-    // Fill remaining rows from prev_v to bbox_bottom
     for (int row = prev_v; row < bbox_bottom; row++) {
         int mask_row = row - rect_top;
         for (int c = 0; c < max_cols; c++) {
@@ -1418,22 +1217,15 @@ static bool nqd_decode_region(uint32 rgn_addr,
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// NQDMetalBltMask — bitblt with mask via Metal compute
-//
-// Reads accl_params + mask region from Mac memory. Decodes region to bitmap,
-// dispatches through existing nqd_bitblt pipeline with mask buffer at index 2.
-// ---------------------------------------------------------------------------
+// Masked bitblt: decode the mask region and bind it at buffer index 2.
 
 void NQDMetalBltMask(uint32 p)
 {
     if (!nqd_metal_available) return;
 
-    // Flush any pending batch — mask ops use the shared mask buffer which
-    // may be overwritten between calls, so we need serial execution.
+    // Mask ops share nqd_mask_buffer, so they run serially.
     NQDMetalFlush();
 
-    // Extract bitblt parameters (same as NQDMetalBitblt)
     int src_X  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 2) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 2);
     int src_Y  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 0) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 0);
     int dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
@@ -1465,7 +1257,6 @@ void NQDMetalBltMask(uint32 p)
 
     bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
 
-    // Read mask region address from accl_params
     uint32 mask_rgn_addr = ReadMacInt32(p + NQD_acclMaskAddr);
     NQD_VLOG("NQDMetalBltMask: mask_rgn_addr=0x%08x mode=%d %dx%d bpp=%d bits_per_pixel=%u",
              mask_rgn_addr, transfer_mode, width, height, bpp, src_pixel_size);
@@ -1487,27 +1278,19 @@ void NQDMetalBltMask(uint32 p)
         return;
     }
 
-    // Standard-depth Boolean byte shaders map byte columns back to pixels;
-    // packed Boolean keeps the existing coarse byte-column mask until packed
-    // sub-byte ops are declined/fixed separately.
+    // Standard-depth Boolean shaders map byte columns back to pixels; packed
+    // Boolean still uses a coarse byte-column mask.
     bool pixel_mask_columns = pixel_mode || src_pixel_size >= 8;
     uint32_t mask_stride = pixel_mask_columns ? width_pixels : width_bytes;
     NSUInteger mask_size = (NSUInteger)(mask_stride * (uint32)height);
 
-    // Allocate mask bitmap on CPU, decode region.
-    // Region coordinates live in the destination pixmap's LOCAL space (the
-    // same space as acclDestRect); dest_X/dest_Y are bounds-relative MEMORY
-    // offsets (rect - boundsRect). Map the mask with the rect's own origin
-    // so a non-zero-origin destBounds (offscreen GWorld with a shifted
-    // portRect) doesn't displace the clip shape.
+    // Regions are in the destination's local (portRect) space, while
+    // dest_X/dest_Y are offsets from boundsRect. Map with the rect's own origin
+    // so a shifted portRect doesn't displace the clip.
     int16 dest_rect_left = (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
     int16 dest_rect_top  = (int16)ReadMacInt16(p + NQD_acclDestRect + 0);
-    // Decode straight into the pooled shared-storage buffer — a CPU-side
-    // staging vector would zero, decode, then copy the full mask a second
-    // time (~786 KB twice for a full-screen 1024x768 masked redraw). A failed
-    // decode leaves dirty bytes that are never read: the dispatch below is
-    // skipped, and every later mask op fully rewrites and only reads its own
-    // [0, mask_size) window.
+    // Decode straight into the shared buffer (no staging copy). After a failed
+    // decode the dispatch is skipped, and later ops rewrite their own window.
     nqd_ensure_mask_buffer(mask_size);
     if (!nqd_mask_buffer) return;
     uint8_t *mask_bytes = (uint8_t *)[nqd_mask_buffer contents];
@@ -1538,12 +1321,8 @@ void NQDMetalBltMask(uint32 p)
     uniforms.mask_offset   = 0;
     uniforms.mask_stride   = mask_stride;
     uniforms.bits_per_pixel = src_pixel_size;
-    {   // Per-channel rgbOpColor blend weights for mode 32.
-        // The GrafVars walk (a 5-step guest-controlled Mac-VM read) is
-        // consumed ONLY by blend mode 32, so gate it on the mode — for every
-        // other transfer mode the weights are dead. This narrows the
-        // guest-controlled OOB-read attack surface to blend dispatches and skips
-        // the per-op lowmem traffic. Mode-32 behaviour is byte-identical.
+    {   // Only blend (32) needs rgbOpColor; skipping the guest-controlled
+        // GrafVars walk otherwise also shrinks the attack surface.
         NQDRgbOpColor _op = (transfer_mode == 32) ? nqd_read_rgb_op_color()
                                                   : NQDRgbOpColor{0, 0, 0};
         uniforms.blend_weight_r = _op.r;
@@ -1555,8 +1334,6 @@ void NQDMetalBltMask(uint32 p)
         ? (NSUInteger)(width_pixels * height)
         : (NSUInteger)(width_bytes * height);
 
-    // Mask ops dispatch into a fresh batch (we flushed above) and immediately
-    // flush again, since the next mask call may overwrite nqd_mask_buffer.
     id<MTLComputeCommandEncoder> encoder = nqd_get_batch_encoder();
     if (!encoder) return;
 
@@ -1573,24 +1350,18 @@ void NQDMetalBltMask(uint32 p)
     MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
     [encoder dispatchThreads:grid threadsPerThreadgroup:group];
 
-    NQDMetalFlush();  // must complete before mask buffer is reused
+    NQDMetalFlush();  // before the mask buffer is reused
 }
 
-// ---------------------------------------------------------------------------
-// NQDMetalFillMask — fill rect with mask via Metal compute
-//
-// Reads accl_params + mask region from Mac memory. Decodes region to bitmap,
-// dispatches through existing nqd_fillrect pipeline with mask buffer at index 2.
-// ---------------------------------------------------------------------------
+// Masked fillrect: decode the mask region and bind it at buffer index 2.
 
 void NQDMetalFillMask(uint32 p)
 {
     if (!nqd_metal_available) return;
 
-    // Flush any pending batch — mask ops use the shared mask buffer
+    // Mask ops share nqd_mask_buffer.
     NQDMetalFlush();
 
-    // Extract fillrect parameters (same as NQDMetalFillRect)
     int dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
     int dest_Y = (int16)ReadMacInt16(p + NQD_acclDestRect + 0) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
     int width  = (int16)ReadMacInt16(p + NQD_acclDestRect + 6) - (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
@@ -1619,7 +1390,6 @@ void NQDMetalFillMask(uint32 p)
     uint32_t hilite_color = (transfer_mode == 50) ? nqd_pack_hilite_color(bpp) : 0;
     bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
 
-    // Read mask region address from accl_params
     uint32 mask_rgn_addr = ReadMacInt32(p + NQD_acclMaskAddr);
     NQD_VLOG("NQDMetalFillMask: mask_rgn_addr=0x%08x mode=%d %dx%d bpp=%d bits_per_pixel=%u",
              mask_rgn_addr, transfer_mode, width, height, bpp, pixel_size);
@@ -1631,19 +1401,13 @@ void NQDMetalFillMask(uint32 p)
         return;
     }
 
-    // Standard-depth Boolean byte shaders map byte columns back to pixels;
-    // packed Boolean keeps the existing coarse byte-column mask until packed
-    // sub-byte ops are declined/fixed separately.
+    // Standard-depth Boolean shaders map byte columns back to pixels; packed
+    // Boolean still uses a coarse byte-column mask.
     bool pixel_mask_columns = pixel_mode || pixel_size >= 8;
     uint32_t mask_stride = pixel_mask_columns ? width_pixels : width_bytes;
     NSUInteger mask_size = (NSUInteger)(mask_stride * (uint32)height);
 
-    // Decode the region mask straight into the pooled GPU buffer. Same
-    // local-vs-bounds origin rule as NQDMetalBltMask above (regions are in
-    // the destination's LOCAL portRect space; dest_X/dest_Y are memory
-    // offsets), and the same direct-decode rationale: no CPU staging vector,
-    // no second full-size copy; a failed decode's dirty bytes are never read
-    // because the dispatch is skipped.
+    // Same origin mapping and direct decode as NQDMetalBltMask.
     int16 dest_rect_left = (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
     int16 dest_rect_top  = (int16)ReadMacInt16(p + NQD_acclDestRect + 0);
     nqd_ensure_mask_buffer(mask_size);
@@ -1676,12 +1440,8 @@ void NQDMetalFillMask(uint32 p)
     uniforms.mask_offset   = 0;
     uniforms.mask_stride   = mask_stride;
     uniforms.bits_per_pixel = pixel_size;
-    {   // Per-channel rgbOpColor blend weights for mode 32.
-        // The GrafVars walk (a 5-step guest-controlled Mac-VM read) is
-        // consumed ONLY by blend mode 32, so gate it on the mode — for every
-        // other transfer mode the weights are dead. This narrows the
-        // guest-controlled OOB-read attack surface to blend dispatches and skips
-        // the per-op lowmem traffic. Mode-32 behaviour is byte-identical.
+    {   // Only blend (32) needs rgbOpColor; skipping the guest-controlled
+        // GrafVars walk otherwise also shrinks the attack surface.
         NQDRgbOpColor _op = (transfer_mode == 32) ? nqd_read_rgb_op_color()
                                                   : NQDRgbOpColor{0, 0, 0};
         uniforms.blend_weight_r = _op.r;
@@ -1709,18 +1469,13 @@ void NQDMetalFillMask(uint32 p)
     MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
     [encoder dispatchThreads:grid threadsPerThreadgroup:group];
 
-    NQDMetalFlush();  // must complete before mask buffer is reused
+    NQDMetalFlush();  // before the mask buffer is reused
 }
-
-// ---------------------------------------------------------------------------
-// NQDMetalCleanup — release all Metal resources
-// ---------------------------------------------------------------------------
 
 void NQDMetalCleanup(void)
 {
     NQD_LOG("NQDMetalCleanup: releasing Metal resources");
 
-    // Flush any pending batch before releasing resources
     NQDMetalFlush();
 
     nqd_metal_available = false;
@@ -1738,22 +1493,12 @@ void NQDMetalCleanup(void)
     NQD_LOG("NQDMetalCleanup: done");
 }
 
-// ---------------------------------------------------------------------------
-// NQDMetalBitblt — bitblt via Metal compute for all transfer modes
-//
-// Reads accl_params from Mac memory at address p. Dispatches the nqd_bitblt
-// compute kernel. For overlapping blits (negative row_bytes), rows are
-// dispatched one at a time in reverse order to ensure correctness.
-//
-// Boolean modes (0-7): per-byte dispatch (width_bytes * height threads)
-// Arithmetic modes (32-39) + hilite (50): per-pixel dispatch (width_pixels * height)
-// ---------------------------------------------------------------------------
+// Bitblt from the accl_params at p, all transfer modes.
 
 void NQDMetalBitblt(uint32 p)
 {
     if (!nqd_metal_available) return;
 
-    // Extract parameters from accl_params in Mac memory
     int src_X  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 2) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 2);
     int src_Y  = (int16)ReadMacInt16(p + NQD_acclSrcRect + 0) - (int16)ReadMacInt16(p + NQD_acclSrcBoundsRect + 0);
     int dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
@@ -1761,7 +1506,6 @@ void NQDMetalBitblt(uint32 p)
     int width  = (int16)ReadMacInt16(p + NQD_acclDestRect + 6) - (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
     int height = (int16)ReadMacInt16(p + NQD_acclDestRect + 4) - (int16)ReadMacInt16(p + NQD_acclDestRect + 0);
 
-    // Edge case: nothing to blit
     if (width <= 0 || height <= 0) return;
 
     uint32 src_pixel_size  = ReadMacInt32(p + NQD_acclSrcPixelSize);
@@ -1776,7 +1520,6 @@ void NQDMetalBitblt(uint32 p)
     int32 src_row_bytes  = (int32)ReadMacInt32(p + NQD_acclSrcRowBytes);
     int32 dest_row_bytes = (int32)ReadMacInt32(p + NQD_acclDestRowBytes);
 
-    // Read transfer mode and pen colors from accl_params
     uint32_t transfer_mode = ReadMacInt32(p + NQD_acclTransferMode);
 
     NQD_VLOG("NQDMetalBitblt: src=(%d,%d) dst=(%d,%d) %dx%d bpp=%d bits_per_pixel=%u dest_bits=%u mode=%d src_base=0x%08x dest_base=0x%08x src_rb=%d dst_rb=%d",
@@ -1828,8 +1571,8 @@ void NQDMetalBitblt(uint32 p)
                  "packet=%u live=%u dst_rb=%d",
                  packet_dest_pixel_size, dest_pixel_size, dest_row_bytes);
     }
-    // Negative rowBytes is QuickDraw's backward-traversal hint. The CPU
-    // branch walks the positive-stride rectangle from its last row.
+    // Negative rowBytes is QuickDraw's backward-traversal hint; the CPU branch
+    // walks the positive-stride rect from its last row.
     const bool backward_rows = src_row_bytes < 0;
     if (backward_rows &&
         (!nqd_abs_row_bytes_checked(src_row_bytes, &src_row_bytes) ||
@@ -1870,8 +1613,8 @@ void NQDMetalBitblt(uint32 p)
                  src_pixel_size, dest_pixel_size, transfer_mode);
         return;
     }
-    // Generic Boolean CPU and GPU paths address both sides at source depth.
-    // Mixed-depth MainDevice conversion has already returned above.
+    // From here both sides are addressed at source depth; mixed-depth MainDevice
+    // blits returned above.
     if (!nqd_resolve_rect_extent("NQDMetalBitblt", "dest source-depth span",
                                  dest_base, dest_row_bytes,
                                  dest_X, dest_Y, width, height, src_pixel_size, nullptr)) return;
@@ -1892,25 +1635,13 @@ void NQDMetalBitblt(uint32 p)
         }
     }
 
-    // -----------------------------------------------------------------------
-    // CPU fast path for small operations and simple modes
-    //
-    // For srcCopy (mode 0) on standard depths (>= 8bpp), memmove is faster
-    // than any Metal path for small rects. For backward blits (negative
-    // row_bytes), CPU is always preferred since Metal would need per-row
-    // serialization or a temp buffer.
-    //
-    // All Boolean modes (0-7) get CPU fast paths for small rects — the
-    // per-byte logic is trivial and doesn't benefit from GPU parallelism
-    // at these sizes.
-    // -----------------------------------------------------------------------
+    // CPU paths: backward blits always (Metal would need per-row ordering),
+    // and small standard-depth Boolean blits.
 
     uint64_t total_pixels = (uint64_t)width * (uint64_t)height;
 
     if (backward_rows) {
-        // Backward blit — always use CPU. Metal per-row dispatch was the
-        // worst case: N command buffers for N rows. CPU memmove is trivial.
-        NQDMetalFlush();  // ensure any pending GPU writes are visible to CPU
+        NQDMetalFlush();  // make pending GPU writes visible
         int32 abs_src_rb = src_row_bytes;
         int32 abs_dst_rb = dest_row_bytes;
         uint8 *src_start = Mac2HostAddr(src_base) + (int64_t(src_Y + height - 1) * abs_src_rb) + nqd_packed_byte_offset(src_X, src_pixel_size);
@@ -1939,14 +1670,10 @@ void NQDMetalBitblt(uint32 p)
 
     if (transfer_mode <= 7 && src_pixel_size >= 8 &&
         (total_pixels < NQD_CPU_THRESHOLD_PIXELS || same_surface_overlap)) {
-        // Boolean bitblt modes, small rect, standard depth — CPU is faster.
-        // Same-surface overlaps also need CPU ordering: the GPU path is a
-        // flat dispatch, while QuickDraw observes sequential source pixels.
-        // The other dispatch families (packed-depth Boolean and
-        // arithmetic/hilite) never reach the Metal path with a same-surface
-        // overlap: NQD_bitblt_hook probes NQDMetalBitbltSameSurfaceOverlap()
-        // and declines those to software QuickDraw.
-        NQDMetalFlush();  // ensure any pending GPU writes are visible to CPU
+        // Same-surface overlaps also need CPU ordering: QuickDraw reads source
+        // pixels sequentially, the GPU dispatch is unordered. Other mode families
+        // never get here with an overlap (NQD_bitblt_hook sends them to software).
+        NQDMetalFlush();  // make pending GPU writes visible
         uint8 *src_ptr = Mac2HostAddr(src_base) + (int64_t(src_Y) * src_row_bytes) + (src_X * bpp);
         uint8 *dst_ptr = Mac2HostAddr(dest_base) + (int64_t(dest_Y) * dest_row_bytes) + (dest_X * bpp);
         int op_bytes = width * bpp;
@@ -1967,14 +1694,12 @@ void NQDMetalBitblt(uint32 p)
                      src_pixel_size, transfer_mode);
         }
         if (transfer_mode == 0) {
-            // srcCopy — plain memmove
             for (int row = 0; row < height; row++) {
                 memmove(dst_ptr, src_ptr, op_bytes);
                 src_ptr += cpu_src_row_bytes;
                 dst_ptr += dest_row_bytes;
             }
         } else {
-            // Modes 1-7: per-byte Boolean ops
             for (int row = 0; row < height; row++) {
                 for (int b = 0; b < op_bytes; b++) {
                     uint8_t s = src_ptr[b];
@@ -1996,9 +1721,7 @@ void NQDMetalBitblt(uint32 p)
         return;
     }
 
-    // -----------------------------------------------------------------------
-    // Metal batched path — forward blit, single dispatch covering all rows
-    // -----------------------------------------------------------------------
+    // Metal: one dispatch for the whole rect.
 
     uint32_t fore_pen = nqd_uniform_pen_for_depth(ReadMacInt32(p + NQD_acclForePen), src_pixel_size);
     uint32_t back_pen = nqd_uniform_pen_for_depth(ReadMacInt32(p + NQD_acclBackPen), src_pixel_size);
@@ -2006,12 +1729,8 @@ void NQDMetalBitblt(uint32 p)
     bool pixel_mode = nqd_is_pixel_mode(transfer_mode);
     uint32_t src_offset = 0;
     uint32_t dst_offset = 0;
-    // Both extents are validated at the SOURCE depth: the nqd_bitblt kernel
-    // addresses dst with the same src-derived byte span it reads (width_bytes
-    // and the per-pixel column stride both come from src_pixel_size), so the
-    // dest clamp must cover exactly that span (mirrors NQDMetalBltMask).
-    // After MainDevice depth coercion src/dest depths can diverge; validating
-    // dest at dest_pixel_size would under-bound the kernel's writes.
+    // Validate both extents at source depth: the kernel writes dst with the
+    // src-derived span, and after MainDevice coercion the depths can differ.
     if (!nqd_resolve_rect_extent("NQDMetalBitblt", "src",
                                   src_base, src_row_bytes,
                                   src_X, src_Y, width, height,
@@ -2040,12 +1759,8 @@ void NQDMetalBitblt(uint32 p)
     uniforms.mask_offset   = 0;
     uniforms.mask_stride   = 0;
     uniforms.bits_per_pixel = src_pixel_size;
-    {   // Per-channel rgbOpColor blend weights for mode 32.
-        // The GrafVars walk (a 5-step guest-controlled Mac-VM read) is
-        // consumed ONLY by blend mode 32, so gate it on the mode — for every
-        // other transfer mode the weights are dead. This narrows the
-        // guest-controlled OOB-read attack surface to blend dispatches and skips
-        // the per-op lowmem traffic. Mode-32 behaviour is byte-identical.
+    {   // Only blend (32) needs rgbOpColor; skipping the guest-controlled
+        // GrafVars walk otherwise also shrinks the attack surface.
         NQDRgbOpColor _op = (transfer_mode == 32) ? nqd_read_rgb_op_color()
                                                   : NQDRgbOpColor{0, 0, 0};
         uniforms.blend_weight_r = _op.r;
@@ -2076,20 +1791,10 @@ void NQDMetalBitblt(uint32 p)
     nqd_batch_did_dispatch();
 }
 
-// ---------------------------------------------------------------------------
-// NQDMetalBitblt1to1 — 1:1 bitblt via Metal compute (DSpBlit_Fastest)
-//
-// DSpBlit_Fastest (sub-op 711) is a strict 1:1
-// copy (srcRect == dstRect, no scaling). It REUSES the proven nqd_bitblt kernel
-// (UNCHANGED) by filling NQDBitbltUniforms directly from the DSp blit handler's
-// resolved geometry + a CGrafPtr->RAM-offset shim (the same Mac2HostAddr-
-// relative subtraction NQDMetalBitblt uses). transfer_mode is
-// srcCopy (0) by default, or transparent (36) when SrcKey is set (the existing
-// kernel's mode-36 "skip if src == back_pen" branch with back_pen = src_key).
-// Encodes into the EXISTING NQD batch on the single shared MTLCommandQueue.
-// Returns false on unavailable Metal / degenerate geometry /
-// OOB baseAddr (caller maps false -> kDSpInternalErr).
-// ---------------------------------------------------------------------------
+// DSpBlit_Fastest (sub-op 711): unscaled copy through the nqd_bitblt kernel.
+// transfer_mode is srcCopy (0), or transparent (36) with back_pen = src_key
+// for SrcKey. Returns false if Metal is unavailable, the geometry is empty,
+// or the extent leaves mapped RAM; the caller maps that to kDSpInternalErr.
 
 bool NQDMetalBitblt1to1(uint32 src_base, int32 src_row_bytes,
                         uint32 dst_base, int32 dst_row_bytes,
@@ -2103,16 +1808,9 @@ bool NQDMetalBitblt1to1(uint32 src_base, int32 src_row_bytes,
     if (src_row_bytes < 0 || dst_row_bytes < 0) return false;
     if (!nqd_addr_in_buffer(src_base) || !nqd_addr_in_buffer(dst_base)) return false;
 
-    // The rect-origin check above bounds ONLY the first byte. Validate
-    // the full blit EXTENT against nqd_ram_size before dispatch so a guest
-    // cannot drive the kernel to stride dy*row_bytes past the mapped RAM
-    // MTLBuffer (OOB GPU read/write). Compute the worst-case last byte each
-    // side addresses in 64-bit UNSIGNED arithmetic (so the overflow that would
-    // itself defeat the check cannot occur), using abs(row_bytes)
-    // (a negative stride must still be range-checked at its magnitude).
-    // src/dst last byte = (h-1)*|row_bytes| + (w-1)*bpp + (bpp-1) == h*|rb| ...
-    // we use the conservative upper bound h*|rb| + w*bpp which is >= the true
-    // extent (reject OOB extent BEFORE GPU dispatch).
+    // The origin check covers only the first byte. Bound the whole extent
+    // (h*|rb| + w*bpp, a safe overestimate) in 64-bit unsigned arithmetic so
+    // the check itself can't overflow.
     uint64_t src_rb  = (uint64_t)(src_row_bytes < 0 ? -(int64_t)src_row_bytes : (int64_t)src_row_bytes);
     uint64_t dst_rb  = (uint64_t)(dst_row_bytes < 0 ? -(int64_t)dst_row_bytes : (int64_t)dst_row_bytes);
     uint64_t span    = (uint64_t)height * src_rb + (uint64_t)width_pixels * pixel_size_bytes;
@@ -2129,23 +1827,21 @@ bool NQDMetalBitblt1to1(uint32 src_base, int32 src_row_bytes,
     uniforms.dst_row_bytes  = dst_row_bytes;
     uniforms.width_bytes    = width_pixels * pixel_size_bytes;
     uniforms.height         = height;
-    uniforms.transfer_mode  = transfer_mode;          // 0 srcCopy, or 36 transparent (SrcKey)
+    uniforms.transfer_mode  = transfer_mode;          // 0 or 36
     uniforms.pixel_size     = pixel_size_bytes;
     uniforms.width_pixels   = width_pixels;
     uniforms.fore_pen       = 0;
-    uniforms.back_pen       = src_key;                // mode-36 transparent key
+    uniforms.back_pen       = src_key;                // mode-36 key
     uniforms.hilite_color   = 0;
     uniforms.mask_enabled   = 0;
     uniforms.mask_offset    = 0;
     uniforms.mask_stride    = 0;
     uniforms.bits_per_pixel = bits_per_pixel;
-    // Non-blend path — zero all 3 rgbOpColor channels.
     uniforms.blend_weight_r = 0;
     uniforms.blend_weight_g = 0;
     uniforms.blend_weight_b = 0;
 
-    // mode 36 (transparent) dispatches per-pixel for standard depths;
-    // srcCopy (0) dispatches per-byte. Mirror NQDMetalBitblt's choice.
+    // Same grid choice as NQDMetalBitblt.
     bool pixel_mode = (transfer_mode == 36) && (bits_per_pixel >= 8);
     NSUInteger total_threads = pixel_mode
         ? (NSUInteger)width_pixels * (NSUInteger)height
@@ -2172,24 +1868,10 @@ bool NQDMetalBitblt1to1(uint32 src_base, int32 src_row_bytes,
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// NQDMetalBitbltScaled — scaling bitblt via Metal compute (DSpBlit_Faster)
-//
-// The DSp blit handler reads the DSpBlitInfo,
-// resolves the src/dst CGrafPtr baseAddr to Mac addresses + row bytes + rects,
-// then calls this entry. We compute the Mac2HostAddr-relative byte offset of
-// each rect origin (NEVER a raw (uint32)(uintptr_t) cast — arm64 >4GiB UB
-// on the arm64 simulator), fill NQDBitbltScaledUniforms, and encode into the
-// EXISTING NQD batch on the SINGLE shared MTLCommandQueue (no
-// DSp-specific path, no new concurrency primitive). One thread per dst pixel.
-//
-// src_base / dst_base : Mac (guest) addresses of the src/dst rect origins'
-//                       PIXMAP baseAddr (NOT the rect origin — caller folds in
-//                       the rect top/left when passing src_base/dst_base).
-// Returns true if the dispatch was encoded; false if Metal is unavailable, the
-// geometry is degenerate, or an offset would fall outside the mapped RAM
-// buffer (the caller maps false -> kDSpInternalErr).
-// ---------------------------------------------------------------------------
+// DSpBlit_Faster: scaling blit, one thread per dst pixel. src_base/dst_base
+// are guest addresses with the rect top/left already folded in. Offsets are
+// computed relative to RAMBase, never from a raw pointer cast (host pointers
+// can exceed 4 GiB). Returns false like NQDMetalBitblt1to1.
 
 bool NQDMetalBitbltScaled(uint32 src_base, int32 src_row_bytes,
                           uint32 dst_base, int32 dst_row_bytes,
@@ -2204,21 +1886,14 @@ bool NQDMetalBitbltScaled(uint32 src_base, int32 src_row_bytes,
     if (src_w == 0 || src_h == 0 || dst_w == 0 || dst_h == 0) return false;
     if (pixel_size_bytes != 1 && pixel_size_bytes != 2 && pixel_size_bytes != 4) return false;
 
-    // Both rect origins must lie inside the Metal-mapped RAM buffer
-    // (T-22.5.3-02-01 — reject OOB baseAddr BEFORE GPU dispatch).
     if (src_row_bytes < 0 || dst_row_bytes < 0) return false;
     if (!nqd_addr_in_buffer(src_base) || !nqd_addr_in_buffer(dst_base)) return false;
 
-    // The rect-origin check bounds ONLY the first byte. Validate the
-    // full blit EXTENT of BOTH sides against nqd_ram_size before dispatch.
-    // The src side is read at scaled coordinates; the bilinear path also reads
-    // the +1 neighbor row/col (sx1/sy1), so the conservative src extent adds an
-    // extra row+col. All arithmetic is 64-bit UNSIGNED so the overflow that
-    // would defeat the check cannot occur, and uses abs(row_bytes).
+    // Bound both extents before dispatch, in 64-bit unsigned arithmetic.
+    // Bilinear may read one extra row and column (sy1/sx1), so the src bound
+    // is (src_h+1)*|rb| + (src_w+1)*bpp.
     uint64_t src_rb  = (uint64_t)(src_row_bytes < 0 ? -(int64_t)src_row_bytes : (int64_t)src_row_bytes);
     uint64_t dst_rb  = (uint64_t)(dst_row_bytes < 0 ? -(int64_t)dst_row_bytes : (int64_t)dst_row_bytes);
-    // src worst case: bilinear may touch row sy1 (<= src_h) and col sx1 (<= src_w),
-    // so bound by (src_h+1)*|src_rb| + (src_w+1)*bpp.
     uint64_t src_span = ((uint64_t)src_h + 1u) * src_rb + ((uint64_t)src_w + 1u) * pixel_size_bytes;
     uint64_t dst_span = (uint64_t)dst_h * dst_rb + (uint64_t)dst_w * pixel_size_bytes;
     uint32_t src_off  = (src_base - RAMBase);
@@ -2241,7 +1916,7 @@ bool NQDMetalBitbltScaled(uint32 src_base, int32 src_row_bytes,
     uniforms.src_key        = src_key;
     uniforms.dst_key        = dst_key;
     uniforms.key_enable     = key_enable;
-    uniforms.ram_size       = nqd_ram_size;   // per-pixel clamp ceiling
+    uniforms.ram_size       = nqd_ram_size;
 
     NSUInteger total_threads = (NSUInteger)dst_w * (NSUInteger)dst_h;
 
@@ -2265,20 +1940,12 @@ bool NQDMetalBitbltScaled(uint32 src_base, int32 src_row_bytes,
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// NQDMetalFillRect — fill rect via Metal compute (all pen modes)
-//
-// Reads accl_params from Mac memory at address p. Dispatches the nqd_fillrect
-// compute kernel. For Boolean modes (8-15), dispatches per-byte threads.
-// For arithmetic modes (32-39) and hilite (50), dispatches per-pixel threads.
-// ---------------------------------------------------------------------------
-
+// Fillrect from the accl_params at p, all pen modes.
 
 void NQDMetalFillRect(uint32 p)
 {
     if (!nqd_metal_available) return;
 
-    // Extract parameters from accl_params
     int dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
     int dest_Y = (int16)ReadMacInt16(p + NQD_acclDestRect + 0) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
     int width  = (int16)ReadMacInt16(p + NQD_acclDestRect + 6) - (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
@@ -2292,7 +1959,6 @@ void NQDMetalFillRect(uint32 p)
     int32 dest_row_bytes = (int32)ReadMacInt32(p + NQD_acclDestRowBytes);
     uint32 dest_base = ReadMacInt32(p + NQD_acclDestBaseAddr);
 
-    // Read transfer mode and pen colors
     uint32_t transfer_mode = ReadMacInt32(p + NQD_acclTransferMode);
     uint32_t pen_mode = ReadMacInt32(p + NQD_acclPenMode);
 
@@ -2350,23 +2016,17 @@ void NQDMetalFillRect(uint32 p)
         }
     }
 
-    // -----------------------------------------------------------------------
-    // CPU fast path for small Boolean fills on standard depths
-    //
-    // Boolean fill modes (8-15) do per-byte operations on a repeating fill
-    // pattern. For small rects, a tight CPU loop is much faster than Metal.
-    // -----------------------------------------------------------------------
+    // CPU path for small standard-depth Boolean fills.
 
     uint64_t total_pixels = (uint64_t)width * (uint64_t)height;
 
     if (transfer_mode >= 8 && transfer_mode <= 15 && pixel_size >= 8 && total_pixels < NQD_CPU_THRESHOLD_PIXELS) {
-        NQDMetalFlush();  // ensure any pending GPU writes are visible to CPU
+        NQDMetalFlush();  // make pending GPU writes visible
         uint32_t color = htonl((pen_mode == 8) ? ReadMacInt32(p + NQD_acclForePen) : ReadMacInt32(p + NQD_acclBackPen));
         uint8 *dst_ptr = Mac2HostAddr(dest_base) + (int64_t(dest_Y) * dest_row_bytes) + (dest_X * bpp);
         int fill_bytes = width * bpp;
 
         if (transfer_mode == 8) {
-            // patCopy — just fill
             if (bpp == 1) {
                 for (int row = 0; row < height; row++) {
                     memset(dst_ptr, (uint8_t)(color & 0xFF), fill_bytes);
@@ -2387,7 +2047,6 @@ void NQDMetalFillRect(uint32 p)
                 }
             }
         } else {
-            // Modes 9-15: per-byte Boolean ops with fill pattern
             for (int row = 0; row < height; row++) {
                 for (int b = 0; b < fill_bytes; b++) {
                     uint8_t byte_in_pixel = b % bpp;
@@ -2409,10 +2068,6 @@ void NQDMetalFillRect(uint32 p)
         }
         return;
     }
-
-    // -----------------------------------------------------------------------
-    // Metal batched path
-    // -----------------------------------------------------------------------
 
     uint32_t fore_pen_native = ReadMacInt32(p + NQD_acclForePen);
     uint32_t back_pen_native = ReadMacInt32(p + NQD_acclBackPen);
@@ -2450,12 +2105,8 @@ void NQDMetalFillRect(uint32 p)
     uniforms.mask_offset   = 0;
     uniforms.mask_stride   = 0;
     uniforms.bits_per_pixel = pixel_size;
-    {   // Per-channel rgbOpColor blend weights for mode 32.
-        // The GrafVars walk (a 5-step guest-controlled Mac-VM read) is
-        // consumed ONLY by blend mode 32, so gate it on the mode — for every
-        // other transfer mode the weights are dead. This narrows the
-        // guest-controlled OOB-read attack surface to blend dispatches and skips
-        // the per-op lowmem traffic. Mode-32 behaviour is byte-identical.
+    {   // Only blend (32) needs rgbOpColor; skipping the guest-controlled
+        // GrafVars walk otherwise also shrinks the attack surface.
         NQDRgbOpColor _op = (transfer_mode == 32) ? nqd_read_rgb_op_color()
                                                   : NQDRgbOpColor{0, 0, 0};
         uniforms.blend_weight_r = _op.r;
@@ -2486,22 +2137,13 @@ void NQDMetalFillRect(uint32 p)
     nqd_batch_did_dispatch();
 }
 
-// ---------------------------------------------------------------------------
-// NQDMetalInvertRect — invert rect via Metal compute
-//
-// Delegates to the fillrect kernel with transfer_mode=10 (patXor). The XOR
-// of fill_color with each dest byte inverts all bits (equivalent to the old
-// dedicated nqd_invert kernel which XOR'd with 0xFF).
-//
-// Mac OS dispatches invert through a separate thunk entry, so we keep this
-// function as a thin wrapper that sets up the right fill parameters.
-// ---------------------------------------------------------------------------
+// InvertRect has its own thunk entry. It runs the fillrect kernel as patXor
+// (10) with an all-ones fill.
 
 void NQDMetalInvertRect(uint32 p)
 {
     if (!nqd_metal_available) return;
 
-    // Extract parameters from accl_params
     int dest_X = (int16)ReadMacInt16(p + NQD_acclDestRect + 2) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 2);
     int dest_Y = (int16)ReadMacInt16(p + NQD_acclDestRect + 0) - (int16)ReadMacInt16(p + NQD_acclDestBoundsRect + 0);
     int width  = (int16)ReadMacInt16(p + NQD_acclDestRect + 6) - (int16)ReadMacInt16(p + NQD_acclDestRect + 2);
@@ -2524,22 +2166,15 @@ void NQDMetalInvertRect(uint32 p)
     NQD_VLOG("NQDMetalInvertRect: dst=(%d,%d) %dx%d bpp=%d bits_per_pixel=%u rb=%d",
              dest_X, dest_Y, width, height, bpp, pixel_size, dest_row_bytes);
 
-    // -----------------------------------------------------------------------
-    // CPU fast path for small inverts on standard depths
-    //
-    // Invert is just XOR with 0xFF per byte. A tight CPU loop is much faster
-    // than Metal for small rects, and competitive even for medium ones since
-    // the operation is purely sequential memory access.
-    // -----------------------------------------------------------------------
+    // CPU path for small standard-depth inverts.
 
     uint64_t total_pixels = (uint64_t)width * (uint64_t)height;
 
     if (pixel_size >= 8 && total_pixels < NQD_CPU_THRESHOLD_PIXELS) {
-        NQDMetalFlush();  // ensure any pending GPU writes are visible to CPU
+        NQDMetalFlush();  // make pending GPU writes visible
         uint8 *dst_ptr = Mac2HostAddr(dest_base) + (int64_t(dest_Y) * dest_row_bytes) + (dest_X * bpp);
         int invert_bytes = width * bpp;
         for (int row = 0; row < height; row++) {
-            // XOR 8 bytes at a time for throughput
             uint8 *p8 = dst_ptr;
             int remaining = invert_bytes;
             while (remaining >= 8) {
@@ -2556,10 +2191,6 @@ void NQDMetalInvertRect(uint32 p)
         }
         return;
     }
-
-    // -----------------------------------------------------------------------
-    // Metal batched path — patXor with fill_color=0xFFFFFFFF
-    // -----------------------------------------------------------------------
 
     uint32_t transfer_mode = 10;  // patXor
     uint32_t fore_pen = nqd_uniform_pen_for_depth(ReadMacInt32(p + NQD_acclForePen), pixel_size);
@@ -2591,12 +2222,8 @@ void NQDMetalInvertRect(uint32 p)
     uniforms.mask_offset   = 0;
     uniforms.mask_stride   = 0;
     uniforms.bits_per_pixel = pixel_size;
-    {   // Per-channel rgbOpColor blend weights for mode 32.
-        // The GrafVars walk (a 5-step guest-controlled Mac-VM read) is
-        // consumed ONLY by blend mode 32, so gate it on the mode — for every
-        // other transfer mode the weights are dead. This narrows the
-        // guest-controlled OOB-read attack surface to blend dispatches and skips
-        // the per-op lowmem traffic. Mode-32 behaviour is byte-identical.
+    {   // Only blend (32) needs rgbOpColor; skipping the guest-controlled
+        // GrafVars walk otherwise also shrinks the attack surface.
         NQDRgbOpColor _op = (transfer_mode == 32) ? nqd_read_rgb_op_color()
                                                   : NQDRgbOpColor{0, 0, 0};
         uniforms.blend_weight_r = _op.r;
@@ -2604,7 +2231,7 @@ void NQDMetalInvertRect(uint32 p)
         uniforms.blend_weight_b = _op.b;
     }
 
-    // patXor is a Boolean mode → per-byte dispatch
+    // Boolean mode: one thread per byte.
     NSUInteger total_threads = (NSUInteger)(width_bytes * height);
 
     id<MTLComputeCommandEncoder> encoder = nqd_get_batch_encoder();

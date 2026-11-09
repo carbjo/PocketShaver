@@ -103,7 +103,7 @@ static inline void GLConvertDrawVertices(const GLContext &ctx,
     }
 }
 
-// Expand from the ORIGINAL GL topology. Selecting a triangle's last vertex
+// Expand from the original GL topology. Selecting a triangle's last vertex
 // after quad triangulation loses the quad's provoking vertex (GL 1.2.1 table 2.9).
 static inline bool GLExpandDrawPrimitives(uint32_t mode, bool flat,
     const std::vector<GLMetalVertex> &in, std::vector<GLMetalVertex> &out,

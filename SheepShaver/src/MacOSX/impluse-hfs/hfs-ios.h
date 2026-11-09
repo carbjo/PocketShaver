@@ -8,12 +8,9 @@
 #import <Foundation/Foundation.h>
 
 /*
- *  This header replicates the HFS/Finder/TextCommon definitions that the
- *  iOS SDK lacks. On macOS and Mac Catalyst the Foundation import above
- *  already provides all of them via CoreServices/CarbonCore (HFSVolumes.h
- *  includes usr/include/hfs/hfs_format.h; CarbonCore.h includes Finder.h,
- *  TextCommon.h, UnicodeConverter.h, MacErrors.h), and redefining them is
- *  a compile error — so the replicas are iOS-only.
+ *  Replicas of the HFS/Finder/TextCommon definitions the iOS SDK lacks.
+ *  iOS-only: on macOS and Catalyst, CoreServices already provides them and
+ *  redefining them is a compile error.
  */
 #if TARGET_OS_IPHONE && !TARGET_OS_MACCATALYST
 

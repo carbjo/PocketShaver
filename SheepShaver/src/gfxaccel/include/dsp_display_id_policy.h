@@ -9,17 +9,12 @@
 
 #include <stdint.h>
 
-/* The Display-Manager id of the single backing screen as the GUEST OS knows
- * it. Apps hand this id back to the Display Manager
- * (DMGetGDeviceByDisplayID) to recover the GDevice a DSp context lives on,
- * so DSpContext_GetDisplayID must report an id the guest DM can actually
- * resolve — NOT one of the per-mode ids below (those mirror the video
- * driver's APPLE_* display-MODE ids, a different namespace). 0x100 is the id
- * real titles pass INTO DSp for this screen (The Sims and 4x4 Evolution both
- * send displayID=256 to DSpFindBestContextOnDisplayID), i.e. the value the
- * guest DM vended to them. Reporting a mode id here instead sends the app's
- * DM lookup into the weeds: Quake II spins forever re-running
- * UserSelectContext -> GetDisplayID -> Release when the id doesn't map. */
+/* Display Manager id of the single screen as the guest OS knows it. Apps pass
+ * it to DMGetGDeviceByDisplayID to find the context's GDevice, so
+ * DSpContext_GetDisplayID must return this, not a per-mode id below (those
+ * are video-driver display-mode ids, a different namespace). Titles such as
+ * The Sims and 4x4 Evolution pass 256 into DSpFindBestContextOnDisplayID;
+ * Quake II loops forever if GetDisplayID returns an id DM can't resolve. */
 enum {
 	kDSpGuestDMMainDisplayID = 0x100
 };

@@ -65,27 +65,23 @@
 void powerpc_cpu::execute_illegal(uint32 opcode)
 {
 #ifdef SHEEPSHAVER
-	// The guest can dispose component code resources behind prepared CFM
-	// TVectors, leaving apps executing freed memory inside a container tracked
-	// by the rsrc_patches monitor.  The freed space may be zero-filled OR
-	// already re-populated by a new owner (any garbage opcode), so try the
-	// repair on EVERY illegal opcode -- TryRepair itself verifies the word at
-	// pc actually differs from the lock-time snapshot before restoring.
-	// Retry semantics: every invalid opcode decodes as CFLOW_TRAP (block-
-	// final), so returning without increment_pc() re-decodes from the
-	// repaired memory and retries this PC.
+	// The guest can dispose component code behind prepared CFM TVectors,
+	// leaving apps executing freed memory in a container the rsrc_patches
+	// monitor tracks. Freed space may be zeroed or already reused (any
+	// opcode), so try the repair on every illegal opcode; TryRepair checks
+	// the word at pc against the lock-time snapshot. Invalid opcodes decode
+	// as CFLOW_TRAP, so returning without increment_pc() retries this PC
+	// from the repaired memory.
 	{
 		extern int RsrcLocksTryRepair(uint32 pc, uint32 *out_start, uint32 *out_end);
 		uint32 repair_start, repair_end;
 		int repaired = RsrcLocksTryRepair(pc(), &repair_start, &repair_end);
 		if (repaired) {
 			if (repaired == 2) {
-				// Disposed-import graceful return: the stale cross-TOC call
-				// targeted a freed container whose code is gone.  Resume the
-				// caller as if the import returned noErr -- the bctr glue left
-				// LR = caller's return address (no link), and r3 carries the
-				// result.  This breaks the runaway CFM-REPAIR storm without
-				// restoring (and thus resurrecting) the freed code.
+				// Disposed import: the stale cross-TOC call hit a freed container.
+				// Return to the caller as if the import returned noErr (the bctr
+				// glue left LR = return address; r3 carries the result) rather
+				// than resurrecting the freed code.
 				gpr(3) = 0;
 				pc() = lr();
 			}
@@ -98,8 +94,8 @@ void powerpc_cpu::execute_illegal(uint32 opcode)
 	fprintf(stderr, "Illegal instruction at %08x, opcode = %08x\n", pc(), opcode);
 
 #ifdef SHEEPSHAVER
-	// Dump the locked-'nift' monitor table on the first fault -- host-side
-	// reads only, context-safe.
+	// Dump the locked-'nift' monitor table on the first fault (host-side
+	// reads only).
 	extern void RsrcLocksDumpOnCrash(void);
 	RsrcLocksDumpOnCrash();
 #endif
@@ -1682,10 +1678,8 @@ void powerpc_cpu::execute_vector_merge(uint32 opcode)
 	typename VD::type & vD = VD::ref(this, opcode);
 	const int n_elements = 16 / VD::element_size;
 
-	// Compute into a temporary so that an in-place destination (vD aliasing
-	// vA or vB, which compiled/hand-written AltiVec code does routinely to
-	// save registers) reads original source bytes, not ones already
-	// overwritten.  Real hardware reads all sources before writing vD.
+	// Compute into a temporary: vD often aliases vA or vB in real AltiVec
+	// code, and hardware reads all sources before writing vD.
 	powerpc_vr tmp;
 	for (int i = 0; i < n_elements; i += 2) {
 		VD::set_element(tmp, i    , VA::get_element(vA, (i / 2) + LO * (n_elements / 2)));

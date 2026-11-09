@@ -15,13 +15,9 @@
 #include <stdint.h>
 
 /*
- * Keep these distinct from RAVE_ENGINE_MAGIC. The magic value is an internal
- * sentinel handle marker; these are the hardware IDs returned to guest RAVE
- * clients during engine enumeration.
- *
- * Classic games such as Unreal Tournament use the engine identity as part of
- * their hardware renderer picker. Advertise the same ATI Rage 128 family ID
- * used by the AGL renderer policy instead of PocketShaver's internal magic.
+ * Hardware IDs returned during engine enumeration, distinct from the internal
+ * RAVE_ENGINE_MAGIC handle marker. Unreal Tournament's renderer picker checks
+ * them, so advertise the ATI Rage 128 ID that AGL also reports.
  */
 static const uint32_t kRaveAdvertisedVendorID = 1u;          // kQAVendor_ATI
 static const uint32_t kRaveAdvertisedEngineID = 0x00021000u; // ATI Rage 128
@@ -29,14 +25,10 @@ static const uint32_t kRaveAdvertisedRevision = 0x00010000u; // 1.0
 static const uint32_t kRaveAdvertisedTextureMemoryBytes = 64u * 1024u * 1024u;
 
 /*
- * ATI Rage 128 engine-specific gestalt selector 1001
- * (kQAGestalt_EngineSpecific_Minimum + 1): total on-board VRAM in bytes.
- * Because we advertise the ATI Rage 128 engine identity, apps with an
- * ATI-aware RAVE path query this. Myth II's monitor dialog uses it to gate
- * each candidate resolution (width*height*4 <= VRAM); returning
- * kQANotSupported made it skip list population and register an
- * uninitialized (garbage) resolution record. Report a full-card 32 MB so
- * every mode we vend passes the fit test.
+ * ATI gestalt selector 1001 (kQAGestalt_EngineSpecific_Minimum + 1): VRAM in
+ * bytes. Myth II gates each resolution on width*height*4 <= VRAM, and if the
+ * selector is unsupported it registers a garbage resolution record. Report
+ * 32 MB so every mode we offer fits.
  */
 static const uint32_t kRaveAdvertisedVRAMBytes = 32u * 1024u * 1024u;
 

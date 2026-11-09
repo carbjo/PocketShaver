@@ -26,10 +26,10 @@ struct GLMetalFragmentUniforms {
     int32_t has_texture;             // offset 60
     int32_t has_texture_3d;          // offset 64
     int32_t shade_model;             // offset 68
-    int32_t color_sum_enabled;       // offset 72 — EXT_secondary_color / GL_COLOR_SUM (consumes former _pad3)
-    int32_t has_texture_unit1;       // offset 76 — ARB_multitexture: unit 1 has a bound+enabled 2D texture (consumes former _pad4)
-    int32_t texenv1_mode;            // offset 80 — unit-1 texenv mode (GLTexEnvModeToShader: 0=modulate..4=add)
-    int32_t force_opaque_output;     // offset 84 — window overlay with GL blending disabled stores coverage alpha
+    int32_t color_sum_enabled;       // offset 72, GL_COLOR_SUM (EXT_secondary_color)
+    int32_t has_texture_unit1;       // offset 76, unit 1 has a bound and enabled 2D texture
+    int32_t texenv1_mode;            // offset 80, unit-1 texenv mode (GLTexEnvModeToShader: 0=modulate..4=add)
+    int32_t force_opaque_output;     // offset 84, window overlay with blending off stores coverage alpha
     int32_t tex_format, tex1_format; // offset 88-92, base internal-format tokens
     float texenv1_color[4];          // offset 96, independent unit-1 environment
     int32_t has_texture_1d;          // offset 112, ignore T for the primary 1D target

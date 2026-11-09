@@ -8,15 +8,8 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Pure-C header. No Metal / Objective-C / Swift types — consumable from
- *  .cpp / .mm / Swift bridging header alike. Isolates the DSp engine's
- *  need to toggle UIApplication.shared.isIdleTimerDisabled behind a
- *  single C-linkage entry point; the Swift-side observer
- *  (DSpIdleTimerService.swift) reads the flag via
- *  DSpHostBridge_GetActiveFullscreen on foreground re-apply.
- *
- *  The fullscreen-only idle-timer suppression deliberately diverges from
- *  the RAVE/NQD engine-blind compositor boundary.
+ *  Pure C, usable from .cpp, .mm and the Swift bridging header. Lets the DSp
+ *  engine drive UIApplication.isIdleTimerDisabled via DSpIdleTimerService.
  */
 
 #ifndef DSP_HOST_BRIDGE_H
@@ -30,36 +23,18 @@ extern "C" {
 #include <stdint.h>
 
 /*
- *  Mark the DSp engine as holding an Active fullscreen context (true)
- *  or not (false). Called from DSpContext_SetStateHandler
- *  on Active/Paused/Inactive transitions — the handler computes
- *  "any DSp context Active AND fullscreen-mode" and calls this setter
- *  on the transition edge (fullscreen-only idle-timer
- *  suppression per DSp 1.7 spec p.88).
+ *  Set whether any DSp context is Active and fullscreen. Called by
+ *  DSpContext_SetStateHandler on state edges (idle-timer suppression is
+ *  fullscreen-only, DSp 1.7 p.88). Stores an atomic flag and posts
+ *  "DSpHostBridge.activeFullscreenChanged" so DSpIdleTimerService can toggle
+ *  the idle timer on the main thread.
  *
- *  Writes a file-static flag in dsp_host_bridge.mm AND posts
- *  Notification.Name("DSpHostBridge.activeFullscreenChanged") so
- *  DSpIdleTimerService can toggle UIApplication.shared.isIdleTimerDisabled
- *  on the main thread (iOS requires UIApplication on main).
- *
- *  Threading: single-writer emul-thread (DSpContext_SetStateHandler
- *  always runs on emul thread) + single-reader
- *  main-thread (DSpIdleTimerService reads on foreground re-apply).
- *  The flag is stored as `_Atomic bool` with relaxed memory ordering —
- *  matches the single-word read-mostly cross-thread flag pattern
- *  (minimum primitive sufficient;
- *  no happens-before requirements beyond monotonic writes).
+ *  Emul thread writes, main thread reads; relaxed ordering is enough.
  */
 void DSpHostBridge_SetActiveFullscreen(bool active);
 
-/*
- *  Read the current active-fullscreen flag. Called by
- *  DSpIdleTimerService on foreground re-apply (UIApplication
- *  .willEnterForegroundNotification) to decide whether to re-assert
- *  isIdleTimerDisabled after the OS restored it on background entry.
- *
- *  Returns the value of the file-static atomic flag.
- */
+/* Read on foreground re-entry to decide whether to re-assert
+ * isIdleTimerDisabled after iOS reset it. */
 bool DSpHostBridge_GetActiveFullscreen(void);
 
 #ifdef __cplusplus

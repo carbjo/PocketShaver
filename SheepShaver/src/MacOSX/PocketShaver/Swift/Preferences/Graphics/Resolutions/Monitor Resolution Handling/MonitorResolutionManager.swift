@@ -132,22 +132,16 @@ public class MonitorResolutionManager: NSObject {
 		}
 	}
 
-	/// The always-on boot resolution — the native-scale, pixel-aligned mode the UI marks
-	/// "cannot be deselected / needed for boot sequence" — for the launch orientation,
-	/// freshly detected from the current display each launch (never a persisted copy).
-	/// `availableResolutions` is rebuilt from the live screen in init(), so this always
-	/// reflects the current device; `isResolutionAlwaysEnabled` pins this same value.
+	/// The always-on boot resolution (the pixel-aligned mode the UI marks "cannot be
+	/// deselected") for the launch orientation, detected from the current display rather
+	/// than persisted. `isResolutionAlwaysEnabled` pins this same value.
 	private var freshBootResolutionOption: MonitorResolutionOption? {
 		let category: MonitorResolutionCategory = willLaunchInPortraitMode ? .pixelAlignedPortrait : .pixelAlignedLandscape
 		return availableResolutions[category]?.first
 	}
 
-	/// The resolution PocketShaver records into the "screen" pref to boot into. Sourced
-	/// from `freshBootResolutionOption` — the freshly-detected "cannot be deselected"
-	/// pixel-aligned mode — not the live UIScreen point size and not a stale persisted
-	/// value. On Mac Catalyst the pixel-aligned modes are already computed from the
-	/// camera-housing-excluded screen size (see `UIScreen.pixelAligned*Size`), so this
-	/// boots the usable-below-the-notch resolution without any extra trim here.
+	/// The resolution written to the "screen" pref to boot into. On Catalyst the
+	/// pixel-aligned modes already exclude the camera housing (`UIScreen.pixelAligned*Size`).
 	var bootScreenResolution: MonitorResolution {
 		return freshBootResolutionOption?.resolution
 			?? enabledResolutions.first?.resolution
@@ -273,11 +267,8 @@ public class MonitorResolutionManager: NSObject {
 		var resolutions = enabledResolutions.map({ $0.resolution })
 		resolutions = Array(resolutions.prefix(10))
 
-		// The first enabled resolution is the pixel-aligned "cannot be deselected"
-		// boot entry. Force it to exactly match `bootScreenResolution` (which the
-		// screen pref is written from), so the guest always boots a mode that is
-		// present in VModes[]. This also carries the Catalyst safe-area (menu bar /
-		// notch) trim into the registered mode list, keeping pref == VMode entry.
+		// The first entry is the boot resolution. Force it to match
+		// `bootScreenResolution` (the screen pref) so the boot mode is in VModes[].
 		if !resolutions.isEmpty {
 			resolutions[0] = bootScreenResolution
 		}
@@ -295,16 +286,10 @@ public class MonitorResolutionManager: NSObject {
 		return outputResolutions
 	}
 
-	/// Refresh a persisted enabled list against the freshly-detected pixel-aligned modes for
-	/// the current display, and guarantee the always-on boot resolution (the first pixel-aligned
-	/// entry — the one the UI marks "cannot be deselected") is present. Persisted entries carry
-	/// concrete pixel dimensions, so any pixel-aligned entry saved on a previous display or a
-	/// pre-notch build would otherwise show stale values in the UI and diverge from what the
-	/// guest receives (e.g. a Mac Catalyst 1x mode saved as 4112x2658 before the camera-housing
-	/// strip was excluded, now 4112x2582). Every persisted entry of `category` is re-matched to
-	/// the current option by the notch-invariant axis — width in landscape, height in portrait,
-	/// since the camera housing only trims the other axis — keeping `enabledResolutions` the
-	/// single fresh source of truth read by both the Preferences UI and the SDL mode list.
+	/// Re-match persisted pixel-aligned entries to the current display's modes and make
+	/// sure the always-on boot resolution is present. Persisted entries store pixel sizes
+	/// that can be stale (another display, or before the notch was excluded). Entries are
+	/// matched on the notch-invariant axis: width in landscape, height in portrait.
 	private static func withRefreshedBootResolution(
 		_ persisted: [MonitorResolutionOption],
 		category: MonitorResolutionCategory,

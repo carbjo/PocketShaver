@@ -8,10 +8,9 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Reads the sub-opcode from the scratch word written by the PPC thunk
- *  and dispatches to the appropriate GL/AGL/GLU/GLUT handler function.
- *  All dispatch entries have real implementations covering core GL 1.2.1,
- *  extensions, GLU, and GLUT function groups.
+ *  Reads the sub-opcode the PPC thunk wrote to the scratch word and
+ *  dispatches to the GL/AGL/GLU/GLUT handler. Also records and replays
+ *  display-list commands.
  */
 
 #include <cstring>
@@ -28,28 +27,21 @@
 #include "accel_logging.h"
 #include "gl_defer.h"
 
-// Logging state -- gated by GL_LOGGING env var (via subsystem_on).
+// Gated by the GL_LOGGING env var.
 #if ACCEL_LOGGING_ENABLED
 bool gl_logging_enabled = accel_log_detail::subsystem_on("gl");
 #endif
 
-// PPC stack pointer, saved by glue code before dispatch for 9+ arg access
+// PPC SP, saved by the glue before dispatch for 9+ arg calls.
 uint32_t gl_ppc_sp = 0;
-// Stack arg offset: 1 when dispatch-table path shifts args, 0 normally
+// 1 when the dispatch-table path shifts args by one, else 0.
 int gl_ppc_stack_arg_offset = 0;
 
 /*
- *  gl_ppc_stack_arg -- read the Nth stack argument (0-based) from PPC stack
- *
- *  PPC ABI: stack args start at SP + 24 + 8*4 = SP + 56 (after linkage area
- *  and 8 parameter save words). But in practice with thunks, the caller's
- *  frame has params at SP + 24 (linkage) + param_offset.
- *  For PowerPC, args beyond r10 are at: caller SP + 24 + (arg_index) * 4
- *  where arg_index starts at 8 (since r3-r10 = args 0-7).
- *
- *  When the dispatch-table path is active (gl_ppc_stack_arg_offset == 1),
- *  stack indices are shifted by 1 because the context arg in r3 pushes
- *  all subsequent args one position further on the stack.
+ *  Read the Nth (0-based) argument past r10 from the PPC stack. Per the PPC
+ *  ABI it sits at SP + 24 (linkage) + (8 + N) * 4, after the save words for
+ *  r3-r10. On the dispatch-table path the context arg in r3 shifts every
+ *  argument one slot further.
  */
 uint32_t gl_ppc_stack_arg(int index)
 {
@@ -761,13 +753,9 @@ static struct GLLogInit {
 #endif
 
 /*
- *  Helpers for FPR arguments captured by sheepshaver_glue.cpp.
- *
- *  Wire format: one 32-bit float payload per PPC FPR argument. The glue casts
- *  each guest float/double FPR value down to float and copies that raw word into
- *  float_bits[n]. Dispatchers for *d entry points must therefore widen that one
- *  word back to double; they must not reconstruct a 64-bit double from adjacent
- *  float_bits slots.
+ *  FPR args from sheepshaver_glue.cpp: one 32-bit float per FPR, with doubles
+ *  already narrowed. *d entry points widen that one word back to double; never
+ *  rebuild a double from two adjacent slots.
  */
 static inline float float_arg(const uint32_t* float_bits, int index) {
 	float f;
@@ -783,10 +771,9 @@ static inline double double_arg(const uint32_t* float_bits, int index) {
 //  Display List Recording and Replay
 // ============================================================================
 
-/*
- *  IsNonRecordableOpcode -- returns true for commands that must NOT be recorded
- *  in display lists (per GL spec: list management, query, and flush/sync).
- */
+// Commands that execute immediately instead of being recorded into a display
+// list (per GL spec: list management, queries, flush/sync).
+
 static bool IsNonRecordableOpcode(uint32_t op) {
 	// Window-system calls and client GLU queries/lifecycle commands execute
     // during compilation. GLU matrix/geometry operations remain recordable.
@@ -902,12 +889,9 @@ static bool IsNonRecordableOpcode(uint32_t op) {
 }
 
 
-/*
- *  IsPointerCommand -- returns true if the sub_opcode passes a PPC pointer
- *  argument that references data which must be captured at record time.
- *  Returns the pointer arg register index (0-based from r3) and byte count
- *  to capture, or 0 if not a pointer command.
- */
+// For commands whose pointer arg must be captured at record time, returns the
+// byte count and sets arg_index (0-based from r3). Returns 0 otherwise.
+
 static int PointerDataSize(uint32_t op,uint32_t a,uint32_t b,uint32_t c,int &arg_index)
 {
     arg_index=-1;
@@ -1160,8 +1144,8 @@ static void GLRecordCommand(GLContext *ctx, uint32_t op,
     case GL_SUB_PRIORITIZE_TEXTURES: capture(1,uint64_t(a)*4);capture(2,uint64_t(a)*4);break;
     default:break;
     }
-    // Arrays remain client state. Draw commands capture array storage and the
-    // descriptors active at compilation; subsequent pointer edits cannot affect them.
+    // Arrays are client state: draw commands capture the array data and
+    // descriptors at compile time, so later pointer edits do not affect them.
     if(op==GL_SUB_DRAW_ARRAYS || op==GL_SUB_DRAW_ELEMENTS || op==GL_SUB_DRAW_RANGE_ELEMENTS || op==GL_SUB_ARRAY_ELEMENT) {
         int32_t count=op==GL_SUB_DRAW_ARRAYS ? int32_t(c) : op==GL_SUB_DRAW_ELEMENTS ? int32_t(b) : op==GL_SUB_DRAW_RANGE_ELEMENTS ? int32_t(d) : 1;
         uint32_t maximum=0;
@@ -1225,9 +1209,8 @@ void GLReplayCommand(GLContext *ctx, const GLCommand &cmd)
     for(const auto &p:cmd.payloads) bytes+=(p.bytes.size()+7)&~size_t(7);
     if(bytes>0xffffffffull) {if(!ctx->last_error)ctx->last_error=0x0505;return;}
     const std::weak_ptr<char> lifetime=ctx->lifetime;
-    // Most list commands are scalar setters. They need neither guest storage
-    // nor a guest Memory Manager call. Pointer/stack commands reuse one busy
-    // slot per nesting depth, growing geometrically only when necessary.
+    // Scalar setters need no guest scratch. Pointer/stack commands reuse one
+    // slot per nesting depth, grown geometrically.
     const bool needsScratch=!cmd.payloads.empty() ||
         cmd.opcode==GL_SUB_TEX_IMAGE2D || cmd.opcode==GL_SUB_TEX_SUB_IMAGE2D ||
         cmd.opcode==GL_SUB_MAP2D || cmd.opcode==GL_SUB_MAP2F ||
@@ -1308,27 +1291,18 @@ void GLReplayCommand(GLContext *ctx, const GLCommand &cmd)
 
 
 /*
- *  GLDispatch - multiplexed dispatch entry point
- *
- *  Called from execute_native_op() when NATIVE_OPENGL_DISPATCH fires.
- *  Receives PPC registers r3-r10 as explicit arguments plus extracted
- *  float bits from FPR registers.
- *
- *  Returns the value to be placed in gpr(3) by the caller.
+ *  Entry point from execute_native_op() for NATIVE_OPENGL_DISPATCH. Takes
+ *  r3-r10 plus the captured FPR bits; returns the value for gpr(3).
  */
 uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
                     uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
                     const uint32_t *float_bits, int num_float_args)
 {
-	// Read sub-opcode from scratch word (same pattern as RAVE)
 	uint32_t sub_opcode = ReadMacInt32(gl_scratch_addr);
 
-	// Unmapped context-handle dispatch slot (see GLPopulateDispatchTable):
-	// the game read a GL function descriptor from a dispatch-table slot we do
-	// not map to a real GL function (encoded as GL_DT_DIAG_BASE + slot). Return
-	// a safe no-op so the game does not call uninitialized guest heap as code
-	// (root cause of the Cro-Mag Rally gameplay-launch crash), and log which
-	// slot so the extension behind it can be wired to its real handler.
+	// Unmapped dispatch-table slot (GL_DT_DIAG_BASE + slot, see
+	// GLPopulateDispatchTable). Return a no-op rather than let the game
+	// call uninitialized guest heap as code, and log the slot.
 	if (sub_opcode >= GL_DT_DIAG_BASE) {
 		uint32_t slot = sub_opcode - GL_DT_DIAG_BASE;
 		static int s_unmapped_dt_log_count = 0;
@@ -1342,19 +1316,15 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		return 0;
 	}
 
-	// Track A immediate-mode batching: this sub-opcode IS the explicit drain trigger.
 	if (sub_opcode == GL_SUB_DRAIN) { GLDrainDeferred(); return 0; }
-	// Drain any buffered deferred immediate-mode records before executing an observable
-	// GL call, preserving program order. Guard on the ring being allocated (addr!=0) so
-	// this is a true no-op until GLThunksInit reserves the ring (Task 6), and skip while
-	// already draining (the replay re-enters GLDispatch).
+	// Drain deferred records before any other call to keep program order.
+	// The replay re-enters GLDispatch, hence the draining check.
 	if (!gl_defer_draining && gl_defer_count_addr && ReadMacInt32(gl_defer_count_addr)) {
 		GLDrainDeferred();
 	}
 
-	// Task 9 fallback counter: a deferrable opcode reaching GLDispatch while NOT
-	// draining means the PPC stub fell back (ring full or deferral disabled).
-	// Don't count calls re-entered by the drain replay (gl_defer_draining==true).
+	// A deferrable opcode arriving outside a drain means the PPC stub fell
+	// back to a direct trap (ring full or deferral disabled).
 	if (!gl_defer_draining && GLDeferIsDeferrable(sub_opcode)) {
 		g_defer_fallbacks++;
 	}
@@ -1362,9 +1332,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 	GL_VLOG("GLDispatch sub_opcode=%u r3=0x%x r4=0x%x r5=0x%x r6=0x%x r7=0x%x r8=0x%x r9=0x%x r10=0x%x ctx=%p",
 	        sub_opcode, r3, r4, r5, r6, r7, r8, r9, r10, gl_current_context);
 
-	// ---- Display list recording check ----
-	// When compiling a display list, most commands are recorded rather than executed.
-	// Non-recordable commands (list management, queries, sync) always execute.
+	// While compiling a display list, record instead of executing.
 	if (gl_current_context && gl_current_context->in_display_list &&
 	    !IsNonRecordableOpcode(sub_opcode)) {
 		GLRecordCommand(gl_current_context, sub_opcode,
@@ -1379,8 +1347,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		}
 	}
 
-	// Guard: core GL calls (sub_opcode < 600) require an active context.
-	// Games like THPS 2 may call glGetError before aglSetCurrentContext.
+	// Core GL calls need a current context. THPS 2 calls glGetError before
+	// aglSetCurrentContext.
 	if (sub_opcode < GL_SUB_AGL_CHOOSEPIXELFORMAT && !gl_current_context) {
 		GL_LOG("GLDispatch sub_opcode=%u ignored (no current context)", sub_opcode);
 		// Return 0 for everything, including glGetError: a sticky
@@ -1420,10 +1388,6 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 				float_arg(float_bits, 2), float_arg(float_bits, 3));
 			return 0;
 		case GL_SUB_CLEAR_DEPTH: {
-			// FPR extraction in sheepshaver_glue.cpp casts all FPR values to
-			// float (truncating doubles).  glClearDepth takes a double, but
-			// float_bits[0] contains the float-truncated value.  Read it as
-			// a float instead of trying to reconstruct a double.
 			NativeGLClearDepth(gl_current_context, (double)float_arg(float_bits, 0));
 			return 0;
 		}
@@ -1572,7 +1536,6 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLDepthMask(gl_current_context, r3);
 			return 0;
 		case GL_SUB_DEPTH_RANGE: {
-			// FPR extraction truncates doubles to float -- read as floats
 			NativeGLDepthRange(gl_current_context,
 			                   (double)float_arg(float_bits, 0),
 			                   (double)float_arg(float_bits, 1));
@@ -1599,10 +1562,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_END_LIST:
 			NativeGLEndList(gl_current_context);
-			// Re-enable deferral now that list compilation is done -- UNLESS the
-			// failsafe has latched off (ring corruption). Respecting the latch here
-			// stops glEndList from un-degrading a tripped failsafe every batch.
-			// Guard on addr!=0: no write to guest address 0 before ring is allocated (Task 6).
+			// Re-enable deferral unless the corruption failsafe has latched.
 			if (gl_defer_enabled_addr && !gl_defer_failsafe_tripped) WriteMacInt32(gl_defer_enabled_addr, 1);
 			return 0;
 		case GL_SUB_EVAL_COORD1D:
@@ -1643,7 +1603,6 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLFrontFace(gl_current_context, r3);
 			return 0;
 		case GL_SUB_FRUSTUM:
-			// FPR extraction already converts doubles to floats in float_bits[]
 			NativeGLFrustum(gl_current_context,
 				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
 				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3),
@@ -1793,11 +1752,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		// --- Core GL: New, Normal ---
 		case GL_SUB_NEW_LIST:
 			NativeGLNewList(gl_current_context, r3, r4);
-			// Disable deferral while compiling a display list so immediate-mode calls
-			// go through the recording path (existing in_display_list check above),
-			// not into the deferred ring. Any pending records were already drained by
-			// the drain-first hook earlier in this dispatch, preserving program order.
-			// Guard on addr!=0: no write to guest address 0 before ring is allocated (Task 6).
+			// Immediate-mode calls must reach the recording path, not the
+			// ring, while a list compiles. Pending records were drained above.
 			if (gl_defer_enabled_addr) WriteMacInt32(gl_defer_enabled_addr, 0);
 			return 0;
 		case GL_SUB_NORMAL3B:
@@ -1837,7 +1793,6 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_NORMAL_POINTER: NativeGLNormalPointer(gl_current_context, r3, (int32_t)r4, r5); return 0;
 		// --- Core GL: Ortho, Pass, Pixel ---
 		case GL_SUB_ORTHO:
-			// FPR extraction already converts doubles to floats in float_bits[]
 			NativeGLOrtho(gl_current_context,
 				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
 				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3),
@@ -2071,22 +2026,15 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 				extern uint32_t gl_ppc_stack_arg(int index);
 				extern uint32_t gl_ppc_sp;
 				extern int gl_ppc_stack_arg_offset;
-				// glTexImage2D has 9 args. In the dispatch-table path (offset=1),
-				// r10=0 (unused) and the real args 8-9 (type, pixels) are on the
-				// stack at shifted positions. Read type from stack arg -1 (the slot
-				// that would have been r10) and pixels from stack arg 0.
+				// 9 args. On the dispatch-table path the shift puts type and
+				// pixels on the stack (type in the slot r10 would have been).
+				// See gl_thunks.cpp for both calling conventions.
 				uint32_t type, pixels;
-				// This branch handles the dispatch-table calling convention
-				// (gl_dt_flag_addr == 1). The "else" branch handles the stub-call
-				// convention (gl_dt_flag_addr == 0). Both are real dispatch paths;
-				// neither is a "stub" in the unimplemented sense. See the gl_thunks.cpp
-				// comment for the full calling-convention contract.
 				if (gl_ppc_stack_arg_offset) {
-					// Dispatch-table path: type and pixels are both on the stack
-					type   = gl_ppc_stack_arg(-1);  // game's r10 equivalent
-					pixels = gl_ppc_stack_arg(0);    // game's stack arg 0
+					type   = gl_ppc_stack_arg(-1);
+					pixels = gl_ppc_stack_arg(0);
 				} else {
-					// FindLibSymbol path: type is r10, pixels is stack arg 0
+					// FindLibSymbol path
 					type   = r10;
 					pixels = gl_ppc_stack_arg(0);
 				}
@@ -2568,8 +2516,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_AGL_GETVERSION:           return NativeAGLGetVersion(r3, r4);
 		case GL_SUB_AGL_CONFIGURE:            return NativeAGLConfigure(r3, r4);
 		case GL_SUB_AGL_SWAPBUFFERS: {
-			// Task 9 periodic diagnostic report: log deferred-batching counters
-			// every 120 frames when logging is enabled. Silent in shipping builds.
+			// Log deferred-batching counters every 120 frames.
 			static uint32_t s_swap_count = 0;
 			if (++s_swap_count >= 120) {
 				s_swap_count = 0;
@@ -2592,15 +2539,12 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 
 		// --- GLU (700-753) --- real handlers in gl_engine.cpp
 		//
-		// CFM/PowerOpen wire format for mixed float/int signatures: every
-		// parameter consumes words sequentially (doubles 2, everything
-		// else 1); words 0-7 map to r3-r10 and words >=8 to
-		// gl_ppc_stack_arg(word-8); float/double VALUES arrive in the
-		// FPR capture (float_bits) while their GPR word slots are
-		// SKIPPED (undefined in prototyped calls). Post-float ints/
-		// pointers therefore land in LATER registers than a dense
-		// count suggests — reading the skipped shadow registers yields
-		// garbage (the D-5-2 guest-memory-corruption class).
+		// CFM/PowerOpen mixed float/int args: each parameter takes words in
+		// order (double 2, else 1); words 0-7 are r3-r10, words >= 8 are
+		// gl_ppc_stack_arg(word-8). Float values arrive in float_bits and
+		// their GPR words are skipped and undefined, so ints after floats
+		// land in later registers. Reading the skipped shadows yields
+		// garbage pointers that corrupt guest memory.
 		case GL_SUB_GLU_BEGINCURVE:    NativeGLUBeginCurve(r3); return 0;
 		case GL_SUB_GLU_BEGINPOLYGON:  NativeGLUBeginPolygon(r3); return 0;
 		case GL_SUB_GLU_BEGINSURFACE:  NativeGLUBeginSurface(r3); return 0;
@@ -2689,9 +2633,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		}
 		case GL_SUB_GLU_PROJECT: {
 			/* 3 doubles w0-5; model w6=r9, proj w7=r10, viewport w8,
-			 * winx/winy/winz out-pointers w9-11. The old r3-r8 read the
-			 * doubles' skipped shadows — WriteMacDouble through those
-			 * garbage registers corrupted guest memory. */
+			 * winx/winy/winz out-pointers w9-11. */
 			return NativeGLUProject(gl_current_context,
 			                        double_arg(float_bits, 0),
 			                        double_arg(float_bits, 1),

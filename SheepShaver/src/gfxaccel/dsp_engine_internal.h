@@ -1,7 +1,6 @@
 /*
- *  dsp_engine_internal.h - Private-typed DSp <-> DMC helpers shared across
- *                          dsp_engine.cpp + dsp_draw_context.mm only.
- *                          Not exported via include/.
+ *  dsp_engine_internal.h - Private DSp helpers shared by dsp_engine.cpp and
+ *                          dsp_draw_context.mm. Not exported via include/.
  *
  *  (C) 2026 Sierra Burkhart (sierra760)
  *
@@ -9,22 +8,13 @@
  *  it under the terms of the GNU General Public License as published by
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
- *
- *  Provides the typed DSpMapStateToDMCOwnerTyped() wrapper below.
- *  Rationale: the public DSp header include/dsp_draw_context.h
- *  MUST NOT transitively pull in display_mode_controller.h, so the public
- *  helper DSpMapStateToDMCOwner() returns uint32_t. gfxaccel-internal
- *  consumers (dsp_draw_context.mm SetState handler; the bg/fg hooks)
- *  include THIS private header and call the typed wrapper — which is a
- *  trivial cast — so they get the proper DMCOwner enum type without
- *  leaking DMC into every DSp public consumer.
  */
 
 #ifndef DSP_ENGINE_INTERNAL_H
 #define DSP_ENGINE_INTERNAL_H
 
 #include <stdint.h>
-#include "display_mode_controller.h"    /* DMCOwner - internal use only */
+#include "display_mode_controller.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,20 +22,16 @@ extern "C" {
 
 struct DSpContextPrivate;
 struct DSpContextAttributes;
-/* Queue reserves metadata contexts and prepares changed inactive surfaces
- * before publishing the queued child. Failure preserves the existing surface. */
+/* Prepares a changed inactive surface before the queued child is published.
+ * On failure the existing surface is kept. */
 int32_t DSpPrepareContextForQueue(struct DSpContextPrivate *ctx,
                                 const struct DSpContextAttributes *desired);
 
-/*
- *  Typed wrapper over DSpMapStateToDMCOwner() — returns the proper DMCOwner
- *  enum for call sites inside the gfxaccel tree. Implementation is a trivial
- *  static-inline cast of the uint32_t-typed public function declared in
- *  include/dsp_draw_context.h.
- */
+/* DMCOwner-typed DSpMapStateToDMCOwner(). The public one returns uint32_t
+ * so include/dsp_draw_context.h need not pull in the DMC header. */
 static inline DMCOwner DSpMapStateToDMCOwnerTyped(uint32_t dsp_state)
 {
-	extern uint32_t DSpMapStateToDMCOwner(uint32_t);   /* fwd decl */
+	extern uint32_t DSpMapStateToDMCOwner(uint32_t);
 	return (DMCOwner)DSpMapStateToDMCOwner(dsp_state);
 }
 

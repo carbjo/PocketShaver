@@ -331,17 +331,14 @@ void ExitAll(void)
 
 void PatchAfterStartup(void)
 {
-	// One-time patches: NQD acceleration hooks and ExtFS.
-	// These are idempotent but wasteful to repeat, so guard them.
+	// One-time patches (idempotent, but wasteful to repeat)
 	static bool one_time_done = false;
 	if (!one_time_done) {
 		one_time_done = true;
 		InstallExtFS();
 	}
 
-	// RAVE registration may need retries if QD3D libraries aren't loaded
-	// yet (e.g. Disk First Aid runs at startup, delaying extension loading).
-	// VideoInstallAccel -> RaveRegisterEngine has its own guards and will
-	// return quickly if already registered.
+	// Retried every call: QD3D may not be loaded yet (e.g. Disk First Aid
+	// delays extension loading). RaveRegisterEngine returns early once registered.
 	ExecuteNative(NATIVE_VIDEO_INSTALL_ACCEL);
 }

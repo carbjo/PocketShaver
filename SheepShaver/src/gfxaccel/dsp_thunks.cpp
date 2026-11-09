@@ -8,15 +8,8 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  DSpThunksInit populates SheepMem TVECT allocation for the 7
- *  context-lifecycle sub-opcodes (100..106): Reserve, Release,
- *  GetBackBuffer, SwapBuffers, SetState, GetState, InvalBackBufferRect.
- *  The TVECTs must exist so CFM FindLibSymbol resolution can return stable
- *  function pointers even before the handler bodies ship.
- *
- *  Pattern: mirrors rave_thunks.cpp:AllocateRaveTVECT verbatim — 32-byte
- *  TVECT (8-byte header + 24-byte thunk code that writes the sub-opcode
- *  to a scratch word, triggers NATIVE_DSP_DISPATCH, and returns).
+ *  One TVECT per DSp sub-opcode. Each stub stores its sub-opcode in a
+ *  scratch word and traps to NATIVE_DSP_DISPATCH, like the RAVE thunks.
  */
 
 #include "sysdeps.h"
@@ -29,31 +22,17 @@
 
 #include <cstring>
 
-/* Exported — CFM FindLibSymbol resolver reads this table when the
- * emulated app looks up "DSpContext_Reserve" etc. against the fake
- * DrawSprocketLib linkage fragment. Additional entries are populated as
- * more sub-opcode ranges land. */
+/* Indexed by sub-opcode; DSpInstallHooks patches exports to branch here. */
 uint32_t dsp_method_tvects[DSP_MAX_SUBOPCODE] = {};
 
-/* Scratch word TVECT stubs write the sub-opcode into before the
- * NATIVE_DSP_DISPATCH opcode fires; the native handler reads it back.
- * Layout: [0..3] sub-opcode scratch, [4..7] spare, [8..15] diagnostic.
- *
- * Bug fix (sims-dsp-subop-mismatch): this used to be `static`,
- * but `DSpDispatch` (in dsp_dispatch.cpp) MUST read the sub-opcode from
- * this scratch word — NOT from r3 (which carries the guest's first real
- * function argument, e.g. a ctxRef pointer). Mirrors rave_scratch_addr
- * which is similarly file-scope-but-exported. */
+/* The stubs store the sub-opcode at +0. DSpDispatch must read it from
+ * here, not from r3, which holds the guest's first argument.
+ * Layout: [0..3] sub-opcode, [4..7] spare, [8..15] diagnostic. */
 uint32_t dsp_scratch_addr = 0;
 uint32_t dsp_guest_port_storage_addr = 0;
 
 /*
- *  Allocate a single DSp TVECT thunk in SheepMem. Structurally identical
- *  to AllocateRaveTVECT in rave_thunks.cpp; only the native opcode
- *  differs. See rave_thunks.cpp:68-109 for the PPC instruction-encoding
- *  commentary.
- *
- *  Layout (32 bytes total):
+ *  Layout (32 bytes):
  *    +0:  code_ptr (= base + 8, points to first instruction)
  *    +4:  TOC (= 0, unused)
  *    +8:  lis   r11, scratch_hi16
@@ -63,21 +42,17 @@ uint32_t dsp_guest_port_storage_addr = 0;
  *   +24:  <dsp_opcode>               -- NATIVE_DSP_DISPATCH
  *   +28:  blr
  *
- *  Uses r11 and r12 as scratch registers (volatile in PPC ABI),
- *  preserving r3-r10 which carry the original DSp method arguments.
- *
- *  Returns the TVECT address (base), NOT the code address.
+ *  Only r11/r12 (volatile) are used, so r3-r10 still hold the guest
+ *  arguments. Returns the TVECT address, not the code address.
  */
 static uint32 AllocateDSpTVECT(int method_id, uint32 dsp_opcode)
 {
 	uint32 scratch_hi = (dsp_scratch_addr >> 16) & 0xFFFF;
 	uint32 scratch_lo = dsp_scratch_addr & 0xFFFF;
 
-	/* Reserve 32 bytes: 8-byte TVECT header + 24 bytes (6 instructions). */
 	uint32 base = SheepMem::ReserveProc(32);
 	uint32 code = base + 8;
 
-	/* TVECT header: {code_ptr, TOC}. */
 	WriteMacInt32(base + 0, code);
 	WriteMacInt32(base + 4, 0);
 
@@ -107,22 +82,15 @@ static uint32 AllocateDSpTVECT(int method_id, uint32 dsp_opcode)
 
 void DSpThunksInit(void)
 {
-	// Allocate once before any guest callbacks can hold SheepVar temporaries.
-	// Runtime port creation only reuses a slot; it never grows the LIFO stack.
+	// Allocate before any guest callback can hold SheepVar temporaries. Port
+	// creation later only reuses slots and never grows the LIFO stack.
 	dsp_guest_port_storage_addr = SheepMem::Reserve(
 	    (2 * DSP_MAX_CONTEXTS + DSP_MAX_ALT_BUFFERS) * DSpGuestPortStorageBytes);
-	/* Reserve a 16-byte scratch region; same shape as RAVE's scratch. */
 	dsp_scratch_addr = SheepMem::Reserve(16);
 	WriteMacInt32(dsp_scratch_addr, 0);
 
-	/* NativeOpcode() is only declared when EMULATED_PPC=1 (see
-	 * include/thunks.h). PocketShaverTests builds this translation unit
-	 * with EMULATED_PPC=0 so the test process can link the dsp_testing_*
-	 * helpers defined below without pulling in the full PPC emulator.
-	 * Under that mode the TVECT body would not be executable anyway, so
-	 * substituting 0 for the fake-opcode slot is safe for the test-time
-	 * code paths (tvect tables are populated, but never actually invoked
-	 * through PPC emulation). */
+	/* NativeOpcode() exists only with EMULATED_PPC. Without it the stubs are
+	 * never executed, so 0 is a safe placeholder. */
 #if EMULATED_PPC
 	uint32 dsp_opcode = NativeOpcode(NATIVE_DSP_DISPATCH);
 #else
@@ -133,11 +101,10 @@ void DSpThunksInit(void)
 
 	int tvect_count = 0;
 
-	/* TVECTs for sub-opcodes 0/1/2 (Startup, Shutdown, GetVersion).
-	 * These three entry points are the CFM availability-probe path per DSp 1.7
-	 * PDF p.10 — apps call FindSymbol("DSpStartup") FIRST, before any context
-	 * API. These TVECTs let DSpInstallHooks patch them into the emulated
-	 * DrawSprocketLib symbol table. */
+	/* The sub-opcode space is sparse, so each contiguous band gets its own
+	 * loop. Gaps (400-401, 501-502) are not PEF exports. */
+
+	/* 0-2: Startup, Shutdown, GetVersion. Apps probe DSpStartup first (p.10). */
 	for (int op = kDSpStartup; op <= kDSpGetVersion; op++) {
 		uint32 tvect = AllocateDSpTVECT(op, dsp_opcode);
 		if (tvect == 0) {
@@ -148,9 +115,7 @@ void DSpThunksInit(void)
 		tvect_count++;
 	}
 
-	/* Allocate one TVECT per public sub-opcode in the 100..106 range.
-	 * An earlier revision left this empty; allocating unused TVECTs earlier
-	 * risked CFM prematurely resolving them to no-op handlers. */
+	/* 100-106: context lifecycle. */
 	for (int op = kDSpContext_Reserve;
 	     op <= kDSpContext_InvalBackBufferRect; op++) {
 		uint32 tvect = AllocateDSpTVECT(op, dsp_opcode);
@@ -162,9 +127,7 @@ void DSpThunksInit(void)
 		tvect_count++;
 	}
 
-	/* Mode-enumeration sub-opcodes 200..202: GetFirstContext,
-	 * FindBestContext, GetAttributes. dsp_method_tvects[] is already sized
-	 * by DSP_MAX_SUBOPCODE, so no array-size change. */
+	/* 200-202: GetFirstContext, FindBestContext, GetAttributes. */
 	for (int op = kDSpGetFirstContext;
 	     op <= kDSpContext_GetAttributes; op++) {
 		uint32 tvect = AllocateDSpTVECT(op, dsp_opcode);
@@ -176,10 +139,7 @@ void DSpThunksInit(void)
 		tvect_count++;
 	}
 
-	/* TVECT for sub-opcode 203 (DSpGetNextContext).
-	 * Single-iteration loop preserves the grep-counts-monotonically pattern
-	 * (same as sub-op 600). dsp_method_tvects[] is sized by
-	 * DSP_MAX_SUBOPCODE so no array-size change. */
+	/* 203: GetNextContext. */
 	for (int op = kDSpGetNextContext; op <= kDSpGetNextContext; op++) {
 		uint32 tvect = AllocateDSpTVECT(op, dsp_opcode);
 		if (tvect == 0) {
@@ -190,8 +150,7 @@ void DSpThunksInit(void)
 		tvect_count++;
 	}
 
-	/* Palette sub-opcodes 300..301. dsp_method_tvects[] is already sized by
-	 * DSP_MAX_SUBOPCODE, so no array-size change. */
+	/* 300-301: CLUT entries. */
 	for (int op = kDSpContext_SetCLUTEntries;
 	     op <= kDSpContext_GetCLUTEntries; op++) {
 		uint32 tvect = AllocateDSpTVECT(op, dsp_opcode);
@@ -203,13 +162,7 @@ void DSpThunksInit(void)
 		tvect_count++;
 	}
 
-	/* Gamma+fade sub-opcodes 402..404 (FadeGammaIn / FadeGammaOut /
-	 * FadeGamma).
-	 *
-	 * The non-canonical SetGamma (400) / GetGamma (401) sub-opcodes were
-	 * DROPPED (proven absent from the canonical DrawSprocketLib PEF export
-	 * table), so this loop now starts at kDSpContext_FadeGammaIn (402)
-	 * instead of kDSpContext_SetGamma (400). 400/401 stay reserved / unused. */
+	/* 402-404: FadeGammaIn, FadeGammaOut, FadeGamma. */
 	for (int op = kDSpContext_FadeGammaIn;
 	     op <= kDSpContext_FadeGamma; op++) {
 		uint32 tvect = AllocateDSpTVECT(op, dsp_opcode);
@@ -221,15 +174,7 @@ void DSpThunksInit(void)
 		tvect_count++;
 	}
 
-	/* VBL service sub-opcodes 500 (SetVBLProc) + 503 (GetVBLProc internal
-	 * test helper).
-	 *
-	 * The non-canonical GetVBLCount (501) / BlankFill (502) sub-opcodes were
-	 * DROPPED (proven absent from the canonical DrawSprocketLib PEF export
-	 * table), so 501/502 stay reserved / unused and are no longer allocated a
-	 * TVECT. Two single-iteration loops alloc only the surviving 500 + 503
-	 * slots; the loop form keeps the grep-counts-monotonically structural
-	 * pattern intact. */
+	/* 500: SetVBLProc. 503: GetVBLProc, internal only (not a PEF export). */
 	for (int op = kDSpContext_SetVBLProc;
 	     op <= kDSpContext_SetVBLProc; op++) {
 		uint32 tvect = AllocateDSpTVECT(op, dsp_opcode);
@@ -251,19 +196,8 @@ void DSpThunksInit(void)
 		tvect_count++;
 	}
 
-	/* TVECTs for the 33 real-but-not-yet-installed DrawSprocketLib PEF
-	 * exports (sub-opcodes 700..761). DSpInstallHooks needs a non-zero
-	 * dsp_method_tvects[subop] for every installed symbol so the
-	 * 4-instruction CFM patch can branch into it — so the symbols must have
-	 * TVECTs allocated here even though their handler BODIES land elsewhere.
-	 * dsp_method_tvects[] is sized by DSP_MAX_SUBOPCODE so no array-size
-	 * change beyond the enum bump.
-	 *
-	 * The enum range is sparse (700-705 AltBuffers, 710-711 Blit, 720-723
-	 * coords/mouse, 730-739 queries/grid, 739-747 save-restore-flatten +
-	 * queue/switch, 750 DSpProcessEvent, 760-761 blanking/debug),
-	 * so each contiguous sub-band is allocated by its own loop to avoid
-	 * reserving TVECTs for unused integers between bands. */
+	/* 700-761: AltBuffers, Blit, coords/mouse, queries, flatten/queue,
+	 * ProcessEvent, blanking/debug. */
 	for (int op = kDSpAltBuffer_New;
 	     op <= kDSpContext_SetUnderlayAltBuffer; op++) {       /* 700..705 */
 		uint32 tvect = AllocateDSpTVECT(op, dsp_opcode);

@@ -2,21 +2,15 @@
 # PocketShaver arm64 JIT backend (C) 2026 Sierra Burkhart
 #
 # Build the interpreter-vs-JIT lockstep harness (test-jit-lockstep.cpp) as a
-# Mac Catalyst arm64 CLI tool. The macabi triple selects the same
-# config-ios-aarch64.h the shipping Catalyst app uses (ENABLE_DYNGEN=1,
-# MEM_BULK=1), so the harness exercises the exact production JIT
-# configuration. Usage:
+# Mac Catalyst CLI tool. The macabi triple selects the app's own
+# config-ios-aarch64.h (ENABLE_DYNGEN=1, MEM_BULK=1). Usage:
 #   ./build-jit-lockstep.sh [output-dir]     (default: /tmp/kpx-lockstep)
 #   KPX_LOCKSTEP_OPT="-O3" KPX_LOCKSTEP_NO_INSTRUMENT=1 ./build-jit-lockstep.sh
-#     (bench flavor: -O3 matches the app's GCC_OPTIMIZATION_LEVEL=3, and
-#     dropping KPX_JIT_INSTRUMENT removes counter increments from timed code
-#     paths — the shipping app never defines it. Correctness runs keep the
-#     faster -O1 compile and the fail-if-zero counters.)
+#     (bench: -O3 like the app, no KPX_JIT_INSTRUMENT counters in timed code.
+#     Correctness runs use -O1 and keep the fail-if-zero counters.)
 #   KPX_LOCKSTEP_ARCH=x86_64 ./build-jit-lockstep.sh
-#     (Intel Catalyst slice: exercises the classic dyngen backend via
-#     config-ios-x86_64.h; run the binary under Rosetta on arm64 hosts.
-#     The arm64-only teeth — trap chaining, native vector/FP, inline
-#     fastmem — legitimately read 0 there.)
+#     (Intel slice, classic dyngen via config-ios-x86_64.h; runs under
+#     Rosetta. Arm64-only counters such as trap chaining read 0 there.)
 set -e
 HERE=${0:A:h}                       # .../kpx_cpu/src/test
 K=${HERE:h}                         # .../kpx_cpu/src
@@ -25,8 +19,7 @@ OUT=${1:-/tmp/kpx-lockstep}
 mkdir -p "$OUT/stubs"
 SDK=$(xcrun --sdk macosx --show-sdk-path)
 
-# App-UI bridge headers pulled in by ppc-execute.cpp under TARGET_OS_IPHONE;
-# the harness provides stub declarations (implementations live in the test)
+# Stub app-UI bridge headers needed by ppc-execute.cpp (impls in the test)
 cat > "$OUT/stubs/FatalErrorAlertViewControllerObjCCppHeader.h" <<'EOF'
 #pragma once
 void objc_displayRamAllocFailedAlert(void);

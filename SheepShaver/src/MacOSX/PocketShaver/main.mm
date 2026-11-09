@@ -11,29 +11,17 @@
 #include "my_sdl.h"
 #include "utils_ios.h"
 
-/* Expose Swift host-bridge observers (GfxAccelBackgroundLifecycleObserver,
- * DSpIdleTimerService) to this Obj-C++ translation unit via
- * the auto-generated Swift umbrella header. The observers' @objc
- * singleton classes become callable through the standard ObjC message
- * syntax after this import. */
 #import "PocketShaver-Swift-ObjCHeader.h"
 
 
 extern "C" int main_ios(int argc, char* argv[]);
 
 
-/* UIScene life cycle adoption. Apps built with the iOS 27 SDK must adopt
- * scenes or UIKit refuses to launch them ("UIScene life cycle is required").
- * The bundled SDL2 has no scene support: its app delegate still drives launch
- * and it creates its UIWindow with -initWithFrame: and no windowScene, which
- * under the scene life cycle never reaches the screen. The legacy model
- * attached such windows to the app's implicit scene automatically; this
- * restores that. Every app-level UIWindow created with -initWithFrame: (SDL's
- * window, the preferences window, the fatal-error window, SDL message boxes)
- * is attached to the connected UIWindowScene as it is created, and any made
- * before the scene connected (or while it was disconnected) are attached when
- * it connects. Info.plist names PocketShaverSceneDelegate in
- * UIApplicationSceneManifest. */
+/* UIScene adoption. The iOS 27 SDK requires the scene life cycle, but the
+ * bundled SDL2 creates its UIWindow with -initWithFrame: and no windowScene,
+ * so it never reaches the screen. Every app-level window created that way is
+ * attached to the connected UIWindowScene, or queued until one connects.
+ * Info.plist names PocketShaverSceneDelegate in UIApplicationSceneManifest. */
 
 static UIWindowScene *g_window_scene;
 static NSHashTable<UIWindow *> *g_sceneless_windows;
@@ -115,7 +103,7 @@ static void install_window_scene_adoption(void)
 	[self forwardURLContexts:URLContexts];
 }
 
-// URL opens now arrive at the scene; hand them to SDL's app delegate as before.
+// URL opens arrive at the scene; forward them to SDL's app delegate.
 - (void)forwardURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts
 {
 	UIApplication *app = UIApplication.sharedApplication;
@@ -131,49 +119,29 @@ static void install_window_scene_adoption(void)
 
 // Because main is #defined as SDL_main, this function is actually SDL_main. This gets called from -[SDLUIKitDelegate postFinishLaunch].
 int main(int argc, char * argv[]) {
-	/* Diagnostic stdio capture: when PS_STDIO_FILE is set (Xcode scheme env
-	 * or launchctl setenv), mirror stdout+stderr to that file so emulator
-	 * printf/fprintf diagnostics survive launches without an attached
-	 * console (LaunchServices `open`, tap-to-launch, resume relaunches). */
+	/* If PS_STDIO_FILE is set, redirect stdout and stderr to that file so
+	 * diagnostics survive launches without an attached console. */
 	if (const char *stdio_path = getenv("PS_STDIO_FILE")) {
 		if (freopen(stdio_path, "a", stderr)) setvbuf(stderr, NULL, _IONBF, 0);
 		if (freopen(stdio_path, "a", stdout)) setvbuf(stdout, NULL, _IOLBF, 0);
 		fprintf(stderr, "--- PS_STDIO_FILE capture started ---\n");
 	}
-	/* Relocate app data from the legacy visible-home location
-	 * (~/PocketShaver Home) into the app container's Data directory exactly
-	 * once, before the emulator core (main_ios) or any Swift file access reads
-	 * or creates anything. Idempotent; Catalyst-only. */
+	/* Must run before the emulator core or Swift touches any files. */
 #if TARGET_OS_MACCATALYST
 	pocketshaver_migrate_home_if_needed();
 #endif
-	/* Install background/foreground observer
-	 * so gfxaccel_handle_background_enter / _foreground_enter run on the
-	 * OS lifecycle transitions. Install here — SDL's UIKit delegate is
-	 * about to enter its run loop and UIApplication notifications start
-	 * firing from that point forward; installing before SDL_UIKitRunApp
-	 * ensures the first didEnterBackground is never missed. */
+	/* Install before SDL's run loop starts so the first didEnterBackground
+	 * isn't missed. */
 	[GfxAccelBackgroundLifecycleObserver.shared install];
 
-	/* Install memory-pressure observer. The notification arrives on the
-	 * main thread; the C shim only marks an atomic pending-eviction flag.
-	 * The next compositor SubmitFrame drains that request on the engine
-	 * call path, keeping heap mutation off UIKit's notification callback. */
+	/* The C shim only flags an eviction; the next SubmitFrame performs it. */
 	[GfxAccelMemoryWarningObserver.shared install];
 
-	/* Install DSp idle-timer
-	 * observer. Observes UIApplication.didEnterBackground /
-	 * willEnterForeground + the custom DSpHostBridge.activeFullscreenChanged
-	 * notification; toggles UIApplication.shared.isIdleTimerDisabled on main
-	 * thread. Must install BEFORE the first DSpContext_SetStateHandler
-	 * Active transition fires (usually well after app launch, so
-	 * install-at-startup is comfortable timing). */
+	/* Must be installed before the first DSp context goes active. */
 	[DSpIdleTimerService.shared install];
 
-	/* The window scene normally connects during UIApplicationMain's launch
-	 * transaction, before SDL schedules this function. If it hasn't yet, pump
-	 * briefly so the windows the emulator creates from here on are attached
-	 * to it as they are created. */
+	/* The scene normally connects before SDL calls this. If not, pump briefly
+	 * so the emulator's windows can attach as they are created. */
 	for (int i = 0; i < 500 && !g_window_scene; i++)
 		CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, true);
 	if (!g_window_scene)

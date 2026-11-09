@@ -8,13 +8,9 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Implements the full GL 1.2 fixed-function state machine:
- *    - Matrix stacks with column-major 4x4 math (push/pop/load/mult/rotate/translate/scale/frustum/ortho)
- *    - glEnable/glDisable for all GL 1.2 capability flags
- *    - Depth/blend/alpha/stencil/viewport/scissor/clear state
- *    - Shade model, cull face, front face, polygon mode, color mask
- *    - Lighting (8 lights), materials, fog, texture environment
- *    - Pixel store, get functions, attrib stacks
+ *  GL 1.2 fixed-function state: matrix stacks, enables, raster/lighting/
+ *  fog/texenv state, pixel store, queries, attrib stacks, texture objects
+ *  and CPU-side pixel conversion.
  */
 
 #include <cstring>
@@ -67,7 +63,7 @@ extern bool RaveGetLastCL8ColorTableRGBSnapshot(uint8_t outRGB[768]);
 #define GL_NORMALIZE                      0x0BA1
 #define GL_COLOR_MATERIAL                 0x0B57
 #define GL_STENCIL_TEST                   0x0B90
-#define GL_COLOR_SUM                      0x8458 // EXT_secondary_color / GL_COLOR_SUM (glext.h-verified)
+#define GL_COLOR_SUM                      0x8458 // EXT_secondary_color
 #define GL_TEXTURE_1D                     0x0DE0
 #define GL_TEXTURE_2D                     0x0DE1
 #define GL_LIGHT0                         0x4000
@@ -170,7 +166,6 @@ extern bool RaveGetLastCL8ColorTableRGBSnapshot(uint8_t outRGB[768]);
 #define GL_OR                             0x1507
 #define GL_NOR                            0x1508
 #define GL_EQUIV                          0x1509
-// GL_INVERT = 0x150A (defined above)
 #define GL_OR_REVERSE                     0x150B
 #define GL_COPY_INVERTED                  0x150C
 #define GL_OR_INVERTED                    0x150D
@@ -468,7 +463,7 @@ extern bool RaveGetLastCL8ColorTableRGBSnapshot(uint8_t outRGB[768]);
 #define GL_LUMINANCE8                     0x8040
 #define GL_ALPHA8                         0x803C
 
-// Forward declare Metal upload (implemented in gl_metal_renderer.mm)
+// Implemented in gl_metal_renderer.mm
 extern void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
                                  int width, int height, const uint8_t *data, int dataLen);
 extern void GLMetalUploadSubTexture(GLContext *ctx, GLTextureObject *texObj, int level,
@@ -488,9 +483,8 @@ extern void GLMetalDestroyTexture(GLTextureObject *texObj);
 //  Global GL context
 // =========================================================================
 
-// gl_current_context is defined in gl_engine.cpp (managed by AGL context table)
 
-// Allocated Mac-side string pointers (allocated once via Mac_sysalloc)
+// glGetString results, allocated once in Mac memory
 static uint32_t gl_string_vendor_addr   = 0;
 static uint32_t gl_string_renderer_addr = 0;
 static uint32_t gl_string_version_addr  = 0;
@@ -613,7 +607,7 @@ static void mat4_ortho(float m[16], double l, double r, double b, double t, doub
 
 
 // =========================================================================
-//  Helper: read float from Mac memory
+//  Helpers
 // =========================================================================
 
 static inline float ReadMacFloat(uint32 addr)
@@ -632,10 +626,6 @@ static inline void WriteMacFloat(uint32 addr, float f)
 }
 
 
-// =========================================================================
-//  Helper: get current matrix stack top pointer
-// =========================================================================
-
 static float *gl_get_current_matrix(GLContext *ctx)
 {
 	switch (ctx->matrix_mode) {
@@ -652,13 +642,14 @@ static float *gl_get_current_matrix(GLContext *ctx)
 	}
 }
 
-// Stack depth limits
+// The spec minimum for projection/texture stacks is 2; Apple/ATI GL allowed
+// more, and Cro-Mag Rally needs it.
 static int gl_get_max_stack_depth(uint32_t mode)
 {
 	switch (mode) {
 	case GL_MODELVIEW:  return 32;
-	case GL_PROJECTION: return 32;   // was 2 (spec min); real Apple/ATI GL >2.
-	case GL_TEXTURE:    return 32;   // Cro-Mag overflowed the old depth-2 cap.
+	case GL_PROJECTION: return 32;
+	case GL_TEXTURE:    return 32;
 	case GL_COLOR:      return 32;
 	default:            return 32;
 	}
@@ -805,9 +796,7 @@ void NativeGLFrustum(GLContext *ctx, double l, double r, double b, double t, dou
 
 void NativeGLOrtho(GLContext *ctx, double l, double r, double b, double t, double n, double f)
 {
-	// Pass parameters through unmodified — the game's projection matrix
-	// already encodes the Y orientation it expects.  The GL-to-Metal NDC
-	// depth remap is handled in the vertex shader (z * 0.5 + w * 0.5).
+	// Unmodified: the GL-to-Metal depth remap happens in the vertex shader.
 	mat4_ortho(gl_get_current_matrix(ctx), l, r, b, t, n, f);
 }
 
@@ -816,7 +805,6 @@ void NativeGLOrtho(GLContext *ctx, double l, double r, double b, double t, doubl
 //  Enable / Disable
 // =========================================================================
 
-// Forward declarations for evaluator helpers (defined in evaluator section below)
 static int gl_eval_target_index(uint32_t target);
 
 static inline int gl_clamp_texture_unit(int unit)
@@ -894,7 +882,7 @@ static void gl_set_cap(GLContext *ctx, uint32_t cap, bool value)
 	case GL_POLYGON_SMOOTH:       ctx->polygon_smooth = value; break;
 	case GL_DITHER:               ctx->dither = value; break;
 	case GL_COLOR_LOGIC_OP:       ctx->color_logic_op = value; break;
-	case GL_INDEX_LOGIC_OP:       ctx->color_logic_op = value; break; // map to same
+	case GL_INDEX_LOGIC_OP:       ctx->color_logic_op = value; break;
 	case GL_AUTO_NORMAL:          ctx->auto_normal = value; break;
 	case GL_LINE_STIPPLE:         ctx->line_stipple_enabled=value; break;
 	case GL_POLYGON_STIPPLE:      ctx->polygon_stipple_enabled=value; break;
@@ -948,7 +936,7 @@ static void gl_set_cap(GLContext *ctx, uint32_t cap, bool value)
 			if (idx >= 0) ctx->eval_map2_enabled[idx] = value;
 			break;
 		}
-		// Unknown cap -- not an error per GL spec for forward-compat
+		// Unknown caps are ignored
 		GL_LOG("unhandled cap 0x%X in enable/disable", cap);
 		break;
 	}
@@ -1072,7 +1060,7 @@ void NativeGLClearStencil(GLContext *ctx, int32_t s)
 
 void NativeGLClear(GLContext *ctx, uint32_t mask)
 {
-	// Handle accum buffer clear on the CPU side
+	// Accum buffer is cleared on the CPU
 	if (mask & GL_ACCUM_BUFFER_BIT) {
 		if (ctx->accum_allocated && ctx->accum_buffer) {
 			int n = ctx->accum_width * ctx->accum_height * 4;
@@ -1158,14 +1146,12 @@ void NativeGLHint(GLContext *ctx, uint32_t target, uint32_t mode)
 	case GL_LINE_SMOOTH_HINT:            ctx->hint_line_smooth = mode; break;
 	case GL_POLYGON_SMOOTH_HINT:         ctx->hint_polygon_smooth = mode; break;
 	case GL_FOG_HINT:                    ctx->hint_fog = mode; break;
-	default: break; // Silently ignore unknown hint targets
+	default: break;
 	}
 }
 
-// NOTE: Logic operations are state-tracked but NOT rendered. Metal on iOS does
-// not support framebuffer logic operations natively. A compute shader workaround
-// would be needed for true implementation. In practice, no known Mac OS 9 OpenGL
-// game relies on logic ops for rendering.
+// Applied in the fragment shaders (gl_logic_color); Metal has no fixed-function
+// logic ops.
 void NativeGLLogicOp(GLContext *ctx, uint32_t op)
 {
 	ctx->logic_op_mode = op;
@@ -1211,10 +1197,9 @@ void NativeGLLightfv(GLContext *ctx, uint32_t light, uint32_t pname, uint32_t ma
 		for (int i = 0; i < 4; i++) l.specular[i] = ReadMacFloat(mac_ptr + i * 4);
 		break;
 	case GL_POSITION: {
-		// Light position is transformed by current modelview matrix
+		// Stored in eye space, transformed by the current modelview
 		float pos[4];
 		for (int i = 0; i < 4; i++) pos[i] = ReadMacFloat(mac_ptr + i * 4);
-		// Transform by current modelview
 		float *mv = ctx->modelview_stack[ctx->modelview_depth];
 		for (int row = 0; row < 4; row++) {
 			l.position[row] =
@@ -1678,13 +1663,6 @@ uint32_t NativeGLGetString(GLContext *ctx, uint32_t name)
 			uint32_t len = (uint32_t)strlen(str) + 1;
 			addr = Mac_sysalloc(len);
 			if (addr) {
-				// A prior per-iteration clear loop used a 4-byte
-				// WriteMacInt32 over [0, len), writing len*4 bytes into a
-				// len-byte SheepMem allocation and overrunning it by 3*len
-				// bytes. The clear was also redundant: the memcpy below writes
-				// all len bytes (string + NUL). Removed to match the
-				// NativeAGLErrorString analog (gl_engine.cpp:1689) which does
-				// Mac_sysalloc(len) + memcpy(host_ptr, str, len) with no clear.
 				uint8 *host_ptr = Mac2HostAddr(addr);
 				memcpy(host_ptr, str, len);
 			}
@@ -1696,44 +1674,15 @@ uint32_t NativeGLGetString(GLContext *ctx, uint32_t name)
 	case GL_VENDOR:     return alloc_string(gl_string_vendor_addr,   "ATI Technologies Inc.");
 	case GL_RENDERER:   return alloc_string(gl_string_renderer_addr, "ATI Rage 128 Pro OpenGL Engine");
 	case GL_VERSION:
-		// Report the complete core contract. 1.2-era features that this backend
-		// implements are exposed as explicit extension tokens below.
+		// 1.2-era features this backend implements are listed as extensions.
 		return alloc_string(gl_string_version_addr,  "1.1");
-	// The EXT texture-env COMBINE extension token is DE-ADVERTISED.
-	// The GL_COMBINE_EXT (0x8570) crossbar is store-only — env_mode is recorded but
-	// GLTexEnvModeToShader has no GL_COMBINE case (it falls to default = modulate), so
-	// advertising the token would be silent-wrong-output for a conformant app querying
-	// the COMBINE crossbar (silent wrong output). De-advertisement
-	// IS the honest fix: a conformant app detects absence and branches around it.
-	// GL_ARB_multitexture stays advertised — it honestly covers the 2-unit modulate/add
-	// texenv path now wired. (The exact token is intentionally NOT spelled out here so
-	// the GLARBExtensionTests source-scan absence assertion stays robust.)
-	//
-	// DELIBERATE (convolution / histogram-minmax): the
-	// ARB imaging umbrella extension token is intentionally ABSENT from the string below.
-	// The convolution (478-490) and histogram/minmax (491-500) families store state but do
-	// NOT apply it to the pixel pipeline; advertising the umbrella token would let a
-	// conformant app call those paths and silently get wrong output.
-	// De-advertisement IS the honest fix (classic Mac games do not use
-	// imaging convolution/histogram). The handlers log their known limitation; the
-	// GLARBExtensionTests gate tests assert the token's absence. (The umbrella token is
-	// intentionally NOT spelled out as a literal here so the source-scan absence assertion
-	// stays robust — same robustness discipline as the COMBINE de-advertisement.)
-	//
-	// DELIBERATE (texture compression): the ARB compression token is ABSENT from the
-	// string below. Only 2D DXT upload/sub-upload paths decompress into Metal textures;
-	// the 1D, 3D, and readback handlers explicitly log known limitations. Advertising
-	// the full extension would invite conformant callers into silent no-op paths.
-	//
-	// DELIBERATE (fog coordinate): the per-vertex fog-coordinate extension token is
-	// ABSENT from the string below. This backend tracks a passive vertex/current
-	// field, but it has no glFogCoord* or glFogCoordPointer entry points, no
-	// FOG_COORDINATE_SOURCE state, and no dispatch sub-opcodes. Advertising that
-	// extension would be a pure reachability lie.
-	//
-	// DELIBERATE (texture LOD bias): ABSENT from the string below. The extension
-	// has no entry points, but it does require GL_TEXTURE_FILTER_CONTROL /
-	// GL_TEXTURE_LOD_BIAS TexEnv state, which this backend does not consume.
+	// Deliberately not advertised, so apps take their fallback paths instead
+	// of getting wrong output:
+	//  - texenv combine: env mode is stored, but the shader treats it as modulate.
+	//  - ARB imaging: convolution and histogram/minmax store state only.
+	//  - ARB texture compression: only 2D DXT uploads are decoded.
+	//  - fog coordinate: no glFogCoord* entry points.
+	//  - texture LOD bias: the TexEnv state is not consumed.
 	case GL_EXTENSIONS: {
 		static const char *extensions =
 			"GL_ARB_multitexture GL_ARB_transpose_matrix "
@@ -1770,7 +1719,6 @@ void NativeGLPushAttrib(GLContext *ctx, uint32_t mask)
 	GLAttribStackEntry &entry = ctx->attrib_stack[ctx->attrib_stack_depth];
 	entry.mask = mask;
 
-	// Snapshot requested state groups
 	if (mask & GL_CURRENT_BIT) {
 		memcpy(entry.current_color,    ctx->current_color,    4 * sizeof(float));
 		memcpy(entry.current_normal,   ctx->current_normal,   3 * sizeof(float));
@@ -2302,9 +2250,8 @@ void NativeGLPopClientAttrib(GLContext *ctx)
 
 void GLContextInit(GLContext *ctx)
 {
-	// Reconstruct resettable state without rebinding the reference members to
-	// another namespace or expiring replay's identity token. Context-owned
-	// renderer/accumulation allocations remain owned across a state reset.
+	// Reset state while keeping the share group, lifetime token, and
+	// renderer/accumulation allocations.
 	auto objects = ctx->shared_objects;
 	auto lifetime = ctx->lifetime;
 	void *metal = ctx->metal;
@@ -2335,9 +2282,9 @@ void GLContextInit(GLContext *ctx)
 
 	// Default colors
 	ctx->current_color[0] = ctx->current_color[1] = ctx->current_color[2] = ctx->current_color[3] = 1.0f;
-	ctx->current_normal[2] = 1.0f; // default normal = (0,0,1)
+	ctx->current_normal[2] = 1.0f;
 	for (int u = 0; u < 4; u++)
-		ctx->current_texcoord[u][3] = 1.0f; // q=1 by default
+		ctx->current_texcoord[u][3] = 1.0f;
 
 	// Depth
 	ctx->depth_func = GL_LESS;
@@ -2369,9 +2316,7 @@ void GLContextInit(GLContext *ctx)
 	ctx->polygon_mode_front= GL_FILL;
 	ctx->polygon_mode_back = GL_FILL;
 
-	// Viewport (set to 0,0,0,0 -- will be updated by app)
-	// Scissor
-	// (both left at 0 until glViewport/glScissor called)
+	// Viewport and scissor stay 0 until the app sets them
 
 	// Clear values
 	ctx->clear_depth   = 1.0f;
@@ -2393,10 +2338,10 @@ void GLContextInit(GLContext *ctx)
 	ctx->lights[0].diffuse[0] = ctx->lights[0].diffuse[1] = ctx->lights[0].diffuse[2] = ctx->lights[0].diffuse[3] = 1.0f;
 	ctx->lights[0].specular[0] = ctx->lights[0].specular[1] = ctx->lights[0].specular[2] = ctx->lights[0].specular[3] = 1.0f;
 	for (int i = 0; i < 8; i++) {
-		ctx->lights[i].position[2] = 1.0f;  // default position (0,0,1,0) = directional
-		ctx->lights[i].spot_cutoff = 180.0f; // no spotlight by default
+		ctx->lights[i].position[2] = 1.0f;  // (0,0,1,0): directional
+		ctx->lights[i].spot_cutoff = 180.0f; // not a spotlight
 		ctx->lights[i].constant_attenuation = 1.0f;
-		ctx->lights[i].ambient[3] = 1.0f; // alpha defaults
+		ctx->lights[i].ambient[3] = 1.0f;
 	}
 	// Lights 1-7: diffuse/specular default to (0,0,0,1)
 	for (int i = 1; i < 8; i++) {
@@ -2450,7 +2395,7 @@ void GLContextInit(GLContext *ctx)
 	ctx->line_width = 1.0f;
 	ctx->point_size = 1.0f;
 
-	// Dither defaults on per spec
+	// Dither defaults on
 	ctx->dither = true;
 
 	// Hints
@@ -2474,8 +2419,7 @@ void GLContextInit(GLContext *ctx)
 	ctx->pixel_zoom_x = 1.0f;
 	ctx->pixel_zoom_y = 1.0f;
 
-	// Texture name
-	// Object names belong to the share group, rather than resettable state.
+	// Texture names belong to the share group, not resettable state.
 
 	// Evaluator defaults
 	for (int i = 0; i < GL_EVAL_MAX_TARGETS; i++) {
@@ -2508,9 +2452,6 @@ void GLContextInit(GLContext *ctx)
 //  Texture object management
 // =========================================================================
 
-/*
- *  glGenTextures -- generate unique texture names
- */
 void NativeGLGenTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 {
 	if (!ctx || n == 0 || mac_ptr == 0) return;
@@ -2525,9 +2466,6 @@ void NativeGLGenTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 }
 
 
-/*
- *  glDeleteTextures -- free texture objects and Metal resources
- */
 static void GLRetainDeletedTextureBindings(GLContext *ctx, uint32_t name,
                                             const std::shared_ptr<GLTextureObject> &object)
 {
@@ -2562,7 +2500,6 @@ void NativeGLDeleteTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 
 		auto it = ctx->texture_objects.find(name);
 		if (it != ctx->texture_objects.end()) {
-			// Log deletion for debugging texture lifecycle
 			bool had_metal = (it->second.metal_texture != nullptr);
 			GL_LOG("glDeleteTextures: deleting tex %u (had_metal=%d, %dx%d)",
 			       name, had_metal, it->second.width, it->second.height);
@@ -2576,7 +2513,6 @@ void NativeGLDeleteTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 			    [destroy](GLTextureObject *texture) { destroy(texture); delete texture; });
 			GLRetainDeletedTextureBindings(ctx, name, object);
 
-			// Unbind from any texture unit if bound
 			for (int u = 0; u < 4; u++) {
 				if (ctx->tex_units[u].bound_texture_2d == name && !ctx->tex_units[u].retired_texture_2d) {
 					ctx->tex_units[u].bound_texture_2d = 0;
@@ -2595,9 +2531,6 @@ void NativeGLDeleteTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 }
 
 
-/*
- *  glBindTexture -- bind a texture object to the active texture unit
- */
 void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 {
 	if (!ctx) return;
@@ -2627,7 +2560,7 @@ void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 		return;
 	}
 
-	// Create texture object entry if not yet in map (GL spec: first bind creates)
+	// First bind creates the object
 	if (ctx->texture_objects.find(texture) == ctx->texture_objects.end()) {
 		ctx->texture_objects[texture] = GLNewTextureObject(target, texture);
 	}
@@ -2651,9 +2584,6 @@ void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 }
 
 
-/*
- *  glTexParameteri / glTexParameterf -- set texture object parameters
- */
 void NativeGLTexParameteri(GLContext *ctx, uint32_t target, uint32_t pname, int32_t param)
 {
 	if (!ctx) return;
@@ -2679,7 +2609,6 @@ void NativeGLTexParameterf(GLContext *ctx, uint32_t target, uint32_t pname, floa
 void NativeGLTexParameterfv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t mac_ptr)
 {
 	if (!ctx || mac_ptr == 0) return;
-	// Read first float and delegate (most params are single-value)
 	float val = ReadMacFloat(mac_ptr);
 	NativeGLTexParameterf(ctx, target, pname, val);
 }
@@ -2692,9 +2621,6 @@ void NativeGLTexParameteriv(GLContext *ctx, uint32_t target, uint32_t pname, uin
 }
 
 
-/*
- *  glActiveTextureARB -- select active texture unit
- */
 void NativeGLActiveTextureARB(GLContext *ctx, uint32_t texture)
 {
 	if (!ctx) return;
@@ -2707,9 +2633,6 @@ void NativeGLActiveTextureARB(GLContext *ctx, uint32_t texture)
 }
 
 
-/*
- *  glClientActiveTextureARB -- select client active texture unit
- */
 void NativeGLClientActiveTextureARB(GLContext *ctx, uint32_t texture)
 {
 	if (!ctx) return;
@@ -2726,9 +2649,7 @@ void NativeGLClientActiveTextureARB(GLContext *ctx, uint32_t texture)
 //  Texture pixel data upload with format conversion
 // =========================================================================
 
-/*
- *  Helper: compute aligned row stride per GL pixel store
- */
+// Row stride and start offset per the GL pixel-store state
 static uint8_t ReadScalarComponentTo8(uint32_t addr, uint32_t type)
 {
 	switch (type) {
@@ -2958,12 +2879,7 @@ static void GLGetMacVideoPaletteSnapshot(uint8_t outRGB[768])
 }
 
 
-/*
- *  Helper: convert GL pixel data from PPC memory to BGRA8 (Metal format)
- *
- *  Reads from PPC Mac address space; writes into a malloc'd native buffer.
- *  Returns the buffer (caller must free) and sets outLen.
- */
+// Convert guest pixel data to a malloc'd BGRA8 buffer (caller frees).
 static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
                                       uint32_t format, uint32_t type,
                                       const GLPixelStore &ps,
@@ -2989,7 +2905,7 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 		type == GL_UNSIGNED_SHORT &&
 		GLPixelLegacyUnsignedShortFormatCanUsePackedDecode(format);
 	if (srcBpp <= 0) {
-		// Unsupported format -- fill with magenta for visibility
+		// Unsupported format: magenta
 		for (int i = 0; i < width * height; i++) {
 			dst[i*4+0] = 255; dst[i*4+1] = 0; dst[i*4+2] = 255; dst[i*4+3] = 255;
 		}
@@ -3326,13 +3242,11 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 					(uint16_t)ReadMacInt16(pixAddr), format, out);
 			}
 			else if (ConvertPackedPixelToBGRA8(pixAddr, format, type, out)) {
-				// Packed pixel handled above.
 			}
 			else if (ConvertScalarPixelToBGRA8(pixAddr, format, type, out)) {
-				// Scalar component pixel handled above.
 			}
 			else {
-				// Fallback: magenta
+				// Unsupported: magenta
 				out[0] = 255; out[1] = 0; out[2] = 255; out[3] = 255;
 			}
 		}
@@ -3363,25 +3277,11 @@ uint8_t *GLConvertMacPixelsToBGRA8(GLContext *ctx,
 
 
 /*
- *  GLApplyColorTableLUT -- ARB_imaging color-table apply in the CPU upload path.
- *
- *  When GL_COLOR_TABLE is enabled and the primary color table (index 0) is defined, remap
- *  each BGRA8 texel through the LUT in place, BEFORE the GPU upload. This is the
- *  minimal-correct apply mechanism: it folds the LUT into the same
- *  CPU transfer seam the indexed->BGRA conversion already uses, so color_table_enabled
- *  becomes a READ (was write-only). No new compute pass, no new shader, no command-encoder
- *  dependency. The buffer is host-side BGRA8 (B@+0, G@+1, R@+2, A@+3).
- *
- *  Index source: per OpenGL 1.2.1 SS3.6.3 the color table maps incoming component values
- *  through the table. For the paletted-texture case we route through the
- *  red component as the LUT index -- the common single-channel palette remap -- and write
- *  the LUT's RGB back into the texel (alpha preserved). The index is clamped to the LUT's
- *  [0, width-1] range AND the hard GLColorTable.data[256][4] ceiling BEFORE any read
- *  (no OOB index into the [256][4] array).
- *
- *  bufLen is the converted-buffer byte length (4 bytes/pixel); pixel_count is derived from
- *  it (NOT width*height, which the caller may have already consumed) so a short/over-long
- *  buffer cannot drive an out-of-bounds write.
+ *  GL_COLOR_TABLE apply (GL 1.2.1 §3.6.3) on the CPU upload path. When enabled
+ *  and table 0 is defined, remap each BGRA8 texel in place before upload. Red
+ *  is the LUT index (the single-channel palette case); RGB is replaced and
+ *  alpha kept. The pixel count comes from bufLen so a mismatched width/height
+ *  cannot overrun the buffer.
  */
 static void GLApplyColorTableLUT(GLContext *ctx, uint8_t *bgra, int width, int height, int bufLen)
 {
@@ -3389,39 +3289,31 @@ static void GLApplyColorTableLUT(GLContext *ctx, uint8_t *bgra, int width, int h
 	if (!ctx->color_table_enabled) return;
 	const GLColorTable &ct = ctx->color_tables[0];
 	if (!ct.defined) return;
-	// LUT entry count, clamped to the hard [1, 256] ceiling of GLColorTable.data[256][4].
+	// Clamp to [1, 256], the size of GLColorTable.data.
 	int lut_entries = ct.width;
 	if (lut_entries <= 0) return;
 	if (lut_entries > 256) lut_entries = 256;
-	// Pixel count is derived from the actual buffer length (4 bytes/pixel), guarded against
-	// a negative/short buffer or a width/height that disagrees with bufLen.
 	if (bufLen < 4) return;
 	long pixel_count = (long)bufLen / 4;
 	if (width > 0 && height > 0) {
 		long wh = (long)width * (long)height;
-		if (wh < pixel_count) pixel_count = wh;   // never write past the smaller of the two
+		if (wh < pixel_count) pixel_count = wh;
 	}
 	for (long p = 0; p < pixel_count; p++) {
 		uint8_t *px = bgra + p * 4;
-		// BGRA8: red is at byte +2. Use it as the LUT index (paletted-texture remap).
+		// Red (byte 2) is the index
 		int idx = px[2];
-		if (idx >= lut_entries) idx = lut_entries - 1;   // clamp to [0, lut_entries-1]
-		if (idx < 0) idx = 0;                            // (red is unsigned; defensive)
-		// LUT data is float RGBA in [0,1]; write back as BGRA8, preserving the texel alpha.
-		px[0] = (uint8_t)(ct.data[idx][2] * 255.0f + 0.5f);   // B <- LUT blue
-		px[1] = (uint8_t)(ct.data[idx][1] * 255.0f + 0.5f);   // G <- LUT green
-		px[2] = (uint8_t)(ct.data[idx][0] * 255.0f + 0.5f);   // R <- LUT red
+		if (idx >= lut_entries) idx = lut_entries - 1;
+		if (idx < 0) idx = 0;
+		px[0] = (uint8_t)(ct.data[idx][2] * 255.0f + 0.5f);
+		px[1] = (uint8_t)(ct.data[idx][1] * 255.0f + 0.5f);
+		px[2] = (uint8_t)(ct.data[idx][0] * 255.0f + 0.5f);
 	}
 }
 
 
 
-/*
- *  glTexImage2D -- upload pixel data to texture
- *
- *  All 9 GL args come via PPC registers r3-r10 (target through type)
- *  plus mac_pixels from stack/r10.
- */
+// mac_pixels is the 9th PPC argument and arrives on the stack.
 void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
                          int32_t internalformat, int32_t width, int32_t height,
                          int32_t border, uint32_t format, uint32_t type,
@@ -3436,7 +3328,6 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 		return;
 	}
 
-	// Get currently bound texture
 	uint32_t texName = 0;
 	if (target == GL_TEXTURE_2D)
 		texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
@@ -3478,7 +3369,7 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	if (level > 0) tex.has_mipmaps = true;
 
 	if (mac_pixels == 0) {
-		// Allocate storage only (no data), still create Metal texture
+		// No data: allocate storage only
 		int emptyLen = width * height * 4;
 		uint8_t *emptyData = (uint8_t *)calloc(1, emptyLen);
 		if (emptyData) {
@@ -3489,7 +3380,6 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 		return;
 	}
 
-	// Convert pixel data
 	GL_VLOG("  -> about to ConvertPixelsToBGRA8: mac_pixels=0x%08x host=%p w=%d h=%d fmt=0x%x type=0x%x",
 	       mac_pixels, Mac2HostAddr(mac_pixels), width, height, format, type);
 	int dataLen = 0;
@@ -3498,15 +3388,6 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	                                           &tex, level, true);
 	if (!converted) return;
 
-	// ARB_imaging color-table LUT apply: when GL_COLOR_TABLE is
-	// enabled and a primary color table is defined, remap each BGRA8 texel through the
-	// LUT before the GPU upload. This makes color_table_enabled a READ (was write-only)
-	// and applies the stored LUT in the existing CPU upload seam — no new compute pass,
-	// no new shader, no command-encoder dependency. Per OpenGL 1.2.1 §3.6.3 the
-	// color table maps incoming component values through the table; the minimal-correct
-	// paletted-texture case routes through the red component as the index (the common
-	// 1-channel LUT-remap use). The index is clamped to [0, width-1] and the hard
-	// GLColorTable.data[256][4] ceiling BEFORE any LUT read.
 	GLApplyColorTableLUT(ctx, converted, width, height, dataLen);
 
     GLTextureApplyInternalFormatBGRA(converted, dataLen, GLTextureLevelBaseFormat(tex, level));
@@ -3515,9 +3396,6 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 }
 
 
-/*
- *  glTexSubImage2D -- partial texture update
- */
 void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
                             int32_t xoffset, int32_t yoffset,
                             int32_t width, int32_t height,
@@ -3539,9 +3417,6 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	                                           &tex, level, false);
 	if (!converted) return;
 
-	// ARB_imaging color-table LUT apply: same upload-path remap as
-	// NativeGLTexImage2D — the color table applies during pixel transfer for the sub-image
-	// upload too (OpenGL 1.2.1 §3.6.3). Index clamped before any LUT read.
 	GLApplyColorTableLUT(ctx, converted, width, height, dataLen);
 
     GLTextureApplyInternalFormatBGRA(converted, dataLen, GLTextureLevelBaseFormat(tex, level));
@@ -3551,9 +3426,7 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 }
 
 
-/*
- *  glTexImage1D -- treat as 2D with height=1 (Metal has no 1D textures on iOS)
- */
+// 1D textures are stored as 2D with height 1.
 void NativeGLTexImage1D(GLContext *ctx, uint32_t target, int32_t level,
                          int32_t internalformat, int32_t width, int32_t border,
                          uint32_t format, uint32_t type, uint32_t mac_pixels)
@@ -3563,9 +3436,6 @@ void NativeGLTexImage1D(GLContext *ctx, uint32_t target, int32_t level,
 }
 
 
-/*
- *  glTexSubImage1D -- partial 1D texture update (height=1)
- */
 void NativeGLTexSubImage1D(GLContext *ctx, uint32_t target, int32_t level,
                             int32_t xoffset, int32_t width,
                             uint32_t format, uint32_t type, uint32_t mac_pixels)
@@ -3575,9 +3445,6 @@ void NativeGLTexSubImage1D(GLContext *ctx, uint32_t target, int32_t level,
 }
 
 
-/*
- *  glCopyTexImage2D -- copy framebuffer rect into a new texture level
- */
 void NativeGLCopyTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
                              uint32_t internalformat, int32_t x, int32_t y,
                              int32_t width, int32_t height, int32_t border)
@@ -3598,9 +3465,6 @@ void NativeGLCopyTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	                                x, y, width, height, true);
 }
 
-/*
- *  glCopyTexSubImage2D -- copy framebuffer rect into existing texture sub-region
- */
 void NativeGLCopyTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
                                 int32_t xoffset, int32_t yoffset,
                                 int32_t x, int32_t y, int32_t width, int32_t height)
@@ -3621,9 +3485,6 @@ void NativeGLCopyTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 }
 
 
-/*
- *  glIsTexture -- check if name is a texture object
- */
 uint32_t NativeGLIsTexture(GLContext *ctx, uint32_t texture)
 {
 	if (!ctx || texture == 0) return GL_FALSE;
@@ -3633,16 +3494,11 @@ uint32_t NativeGLIsTexture(GLContext *ctx, uint32_t texture)
 
 // =========================================================================
 //  Remaining core GL handlers
-//
-//  Categories: Accumulation, bitmap/raster, rectangles, finish/flush,
-//  evaluators, selection/feedback, pixel transfer/map, index mode,
-//  edge flags, line/polygon stipple, display lists, vertex arrays,
-//  clip planes, draw arrays/elements, copy tex, get functions, misc.
 // =========================================================================
 
 
 // --- Accumulation buffer ---
-// NativeGLAccum is implemented in gl_metal_renderer.mm (Metal readback/writeback)
+// NativeGLAccum is in gl_metal_renderer.mm
 
 void NativeGLClearAccum(GLContext *ctx, float r, float g, float b, float a)
 {
@@ -3787,7 +3643,6 @@ void NativeGLBitmap(GLContext *ctx, int32_t width, int32_t height, float xorig, 
         ctx->raster_pos[0]+=xmove;ctx->raster_pos[1]+=ymove;
         return;
     }
-	// Render the bitmap if we have valid data and raster position
 	if (bitmap_ptr != 0 && ctx->raster_pos_valid && width > 0 && height > 0) {
 		GLPixelUnpackLayout layout;
 		if (!GLPixelGetUnpackLayout(ctx, ctx->pixel_store, bitmap_ptr,
@@ -3818,7 +3673,7 @@ void NativeGLBitmap(GLContext *ctx, int32_t width, int32_t height, float xorig, 
 		} else if (!ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY;
 	}
 
-	// Advance raster position by move amounts (always, even if rendering was skipped)
+	// Advance the raster position even if nothing was drawn
 	ctx->raster_pos[0] += xmove;
 	ctx->raster_pos[1] += ymove;
 }
@@ -3843,7 +3698,7 @@ void NativeGLCopyPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
 	if (!ctx || width <= 0 || height <= 0) return;
     if(type!=0x1800 && type!=0x1801 && type!=0x1802){ctx->last_error=GL_INVALID_ENUM;return;}
     if(GLProcessRasterRenderMode(ctx,0x0706))return;
-	// GL_COLOR is the only type we support (not GL_DEPTH or GL_STENCIL)
+	// Only GL_COLOR is supported
 	if (type != 0x1800 /* GL_COLOR */) {
 		GL_LOG("glCopyPixels type 0x%x not supported (only GL_COLOR)", type);
 		return;
@@ -3871,7 +3726,7 @@ void NativeGLCopyPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
 	GL_VLOG("glCopyPixels: %dx%d from (%d,%d)", width, height, x, y);
 }
 
-// NativeGLReadPixels is implemented in gl_metal_renderer.mm (Metal readback)
+// NativeGLReadPixels is in gl_metal_renderer.mm
 
 void NativeGLReadBuffer(GLContext *ctx, uint32_t mode)
 {
@@ -3923,7 +3778,7 @@ static int gl_eval_target_index(uint32_t target)
 	return GLStateEvaluatorIndex(target);
 }
 
-// de Casteljau evaluation for 1D map: evaluate Bernstein polynomial at parameter u
+// de Casteljau evaluation of a 1D map at u
 static void gl_eval_bernstein1(const GLEvaluatorMap1 &map, float u, float *out)
 {
 	int dim = map.dimension;
@@ -3934,10 +3789,8 @@ static void gl_eval_bernstein1(const GLEvaluatorMap1 &map, float u, float *out)
 	float range = map.u2 - map.u1;
 	float t = (range != 0.0f) ? (u - map.u1) / range : 0.0f;
 
-	// Copy control points into temp buffer for in-place de Casteljau
 	std::vector<float> tmp(map.control_points.begin(), map.control_points.begin() + order * dim);
 
-	// de Casteljau's algorithm: iteratively reduce
 	for (int r = 1; r < order; r++) {
 		for (int i = 0; i < order - r; i++) {
 			for (int d = 0; d < dim; d++) {
@@ -3969,8 +3822,7 @@ static void gl_eval_bernstein2(const GLEvaluatorMap2 &map, float u, float v, flo
 	std::vector<float> vtmp(vorder * dim);
 
 	for (int ui = 0; ui < uorder; ui++) {
-		// Extract the v-row for this u index
-		for (int vi = 0; vi < vorder; vi++) {
+			for (int vi = 0; vi < vorder; vi++) {
 			for (int d = 0; d < dim; d++) {
 				vtmp[vi * dim + d] = map.control_points[(ui * vorder + vi) * dim + d];
 			}
@@ -4000,7 +3852,6 @@ static void gl_eval_bernstein2(const GLEvaluatorMap2 &map, float u, float v, flo
 		out[d] = upoints[d];
 }
 
-// Forward declarations for immediate-mode functions used by evaluator
 extern void NativeGLBegin(GLContext *ctx, uint32_t mode);
 extern void NativeGLEnd(GLContext *ctx);
 extern void NativeGLVertex3f(GLContext *ctx, float x, float y, float z);
@@ -4018,7 +3869,7 @@ static void gl_eval_apply_map1(GLContext *ctx, int idx, const float *val)
 	switch (idx) {
 	case 0: NativeGLVertex3f(ctx, val[0], val[1], val[2]); break;                    // VERTEX_3
 	case 1: NativeGLVertex4f(ctx, val[0], val[1], val[2], val[3]); break;             // VERTEX_4
-	case 2: /* INDEX -- no-op in Metal */ break;
+	case 2: /* INDEX: no-op in RGBA mode */ break;
 	case 3: NativeGLColor4f(ctx, val[0], val[1], val[2], val[3]); break;              // COLOR_4
 	case 4: NativeGLNormal3f(ctx, val[0], val[1], val[2]); break;                     // NORMAL
 	case 5: NativeGLTexCoord1f(ctx, val[0]); break;                                   // TEXCOORD_1
@@ -4028,7 +3879,6 @@ static void gl_eval_apply_map1(GLContext *ctx, int idx, const float *val)
 	}
 }
 
-// glMap1f -- define a 1D evaluator map (float version)
 void NativeGLMap1f(GLContext *ctx, uint32_t t, float u1, float u2, int32_t s, int32_t o, uint32_t p)
 {
     GLEvaluatorDefinitionLayout layout;
@@ -4048,7 +3898,6 @@ void NativeGLMap1f(GLContext *ctx, uint32_t t, float u1, float u2, int32_t s, in
     } catch (const std::bad_alloc &) { if (!ctx->last_error) ctx->last_error=GL_OUT_OF_MEMORY; }
 }
 
-// glMap1d -- define a 1D evaluator map (double version, converts to float)
 void NativeGLMap1d(GLContext *ctx, uint32_t t, double u1, double u2, int32_t s, int32_t o, uint32_t p)
 {
     GLEvaluatorDefinitionLayout layout;
@@ -4068,7 +3917,6 @@ void NativeGLMap1d(GLContext *ctx, uint32_t t, double u1, double u2, int32_t s, 
     } catch (const std::bad_alloc &) { if (!ctx->last_error) ctx->last_error=GL_OUT_OF_MEMORY; }
 }
 
-// glMap2f -- define a 2D evaluator map (float version)
 void NativeGLMap2f(GLContext *ctx, uint32_t t, float u1, float u2, int32_t us, int32_t uo, float v1, float v2, int32_t vs, int32_t vo, uint32_t p)
 {
     GLEvaluatorDefinitionLayout layout;
@@ -4089,7 +3937,6 @@ void NativeGLMap2f(GLContext *ctx, uint32_t t, float u1, float u2, int32_t us, i
     } catch (const std::bad_alloc &) { if (!ctx->last_error) ctx->last_error=GL_OUT_OF_MEMORY; }
 }
 
-// glMap2d -- define a 2D evaluator map (double version)
 void NativeGLMap2d(GLContext *ctx, uint32_t t, double u1, double u2, int32_t us, int32_t uo, double v1, double v2, int32_t vs, int32_t vo, uint32_t p)
 {
     GLEvaluatorDefinitionLayout layout;
@@ -4110,7 +3957,6 @@ void NativeGLMap2d(GLContext *ctx, uint32_t t, double u1, double u2, int32_t us,
     } catch (const std::bad_alloc &) { if (!ctx->last_error) ctx->last_error=GL_OUT_OF_MEMORY; }
 }
 
-// glMapGrid1f/1d -- define a 1D evaluation grid
 void NativeGLMapGrid1f(GLContext *ctx, int32_t un, float u1, float u2)
 {
     if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
@@ -4125,7 +3971,6 @@ void NativeGLMapGrid1d(GLContext *ctx, int32_t un, double u1, double u2)
 	NativeGLMapGrid1f(ctx, un, (float)u1, (float)u2);
 }
 
-// glMapGrid2f/2d -- define a 2D evaluation grid
 void NativeGLMapGrid2f(GLContext *ctx, int32_t un, float u1, float u2, int32_t vn, float v1, float v2)
 {
     if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
@@ -4145,11 +3990,10 @@ void NativeGLMapGrid2d(GLContext *ctx, int32_t un, double u1, double u2, int32_t
 	NativeGLMapGrid2f(ctx, un, (float)u1, (float)u2, vn, (float)v1, (float)v2);
 }
 
-// glEvalCoord1f -- evaluate all enabled 1D maps at parameter u
 void NativeGLEvalCoord1f(GLContext *ctx, float u)
 {
 	float val[4];
-	// Evaluate non-vertex attributes first, then vertex (vertex triggers emit)
+	// Non-vertex attributes first: the vertex emits.
 	for (int idx = 2; idx < GL_EVAL_MAX_TARGETS; idx++) {
 		if (ctx->eval_map1_enabled[idx] && ctx->eval_map1[idx].defined) {
 			gl_eval_bernstein1(ctx->eval_map1[idx], u, val);
@@ -4167,7 +4011,6 @@ void NativeGLEvalCoord1f(GLContext *ctx, float u)
 
 void NativeGLEvalCoord1d(GLContext *ctx, double u) { NativeGLEvalCoord1f(ctx, (float)u); }
 
-// glEvalCoord2f -- evaluate all enabled 2D maps at parameters (u,v)
 void NativeGLEvalCoord2f(GLContext *ctx, float u, float v)
 {
 	float val[4];
@@ -4175,7 +4018,7 @@ void NativeGLEvalCoord2f(GLContext *ctx, float u, float v)
 	for (int idx = 2; idx < GL_EVAL_MAX_TARGETS; idx++) {
 		if (ctx->eval_map2_enabled[idx] && ctx->eval_map2[idx].defined) {
 			gl_eval_bernstein2(ctx->eval_map2[idx], u, v, val);
-			gl_eval_apply_map1(ctx, idx, val); // same apply logic
+			gl_eval_apply_map1(ctx, idx, val);
 		}
 	}
 	// Vertex targets last
@@ -4189,13 +4032,12 @@ void NativeGLEvalCoord2f(GLContext *ctx, float u, float v)
 
 void NativeGLEvalCoord2d(GLContext *ctx, double u, double v) { NativeGLEvalCoord2f(ctx, (float)u, (float)v); }
 
-// glEvalCoord*v -- vector variants read parameter from Mac memory
 void NativeGLEvalCoord1fv(GLContext *ctx, uint32_t p) { NativeGLEvalCoord1f(ctx, ReadMacFloat(p)); }
 void NativeGLEvalCoord1dv(GLContext *ctx, uint32_t p) { NativeGLEvalCoord1f(ctx, (float)ReadMacDouble(p)); }
 void NativeGLEvalCoord2fv(GLContext *ctx, uint32_t p) { NativeGLEvalCoord2f(ctx, ReadMacFloat(p), ReadMacFloat(p + 4)); }
 void NativeGLEvalCoord2dv(GLContext *ctx, uint32_t p) { NativeGLEvalCoord2f(ctx, (float)ReadMacDouble(p), (float)ReadMacDouble(p + 8)); }
 
-// glEvalMesh1 -- generate 1D mesh through Begin/End pipeline
+// Meshes are emitted through the Begin/End path.
 void NativeGLEvalMesh1(GLContext *ctx, uint32_t mode, int32_t i1, int32_t i2)
 {
     if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
@@ -4213,7 +4055,6 @@ void NativeGLEvalMesh1(GLContext *ctx, uint32_t mode, int32_t i1, int32_t i2)
 	NativeGLEnd(ctx);
 }
 
-// glEvalMesh2 -- generate 2D mesh through Begin/End pipeline
 void NativeGLEvalMesh2(GLContext *ctx, uint32_t mode, int32_t i1, int32_t i2, int32_t j1, int32_t j2)
 {
     if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
@@ -4272,7 +4113,6 @@ void NativeGLEvalMesh2(GLContext *ctx, uint32_t mode, int32_t i1, int32_t i2, in
 	GL_LOG("EvalMesh2 mode=0x%X i=[%d,%d] j=[%d,%d]", mode, i1, i2, j1, j2);
 }
 
-// glEvalPoint1 -- evaluate at a single 1D grid point
 void NativeGLEvalPoint1(GLContext *ctx, int32_t i)
 {
 	if (ctx->grid1_un <= 0) return;
@@ -4281,7 +4121,6 @@ void NativeGLEvalPoint1(GLContext *ctx, int32_t i)
 	NativeGLEvalCoord1f(ctx, u);
 }
 
-// glEvalPoint2 -- evaluate at a single 2D grid point
 void NativeGLEvalPoint2(GLContext *ctx, int32_t i, int32_t j)
 {
 	if (ctx->grid2_un <= 0 || ctx->grid2_vn <= 0) return;
@@ -4294,7 +4133,7 @@ void NativeGLEvalPoint2(GLContext *ctx, int32_t i, int32_t j)
 
 // --- Selection and Feedback ---
 
-// Flush the current selection hit record to the selection buffer (if any primitive was drawn)
+// Write the pending hit record, if any primitive was drawn
 static void FlushSelectionHit(GLContext *ctx)
 {
     if(!ctx->selection_hit_flag)return;
@@ -4314,8 +4153,7 @@ static void FlushSelectionHit(GLContext *ctx)
     ctx->selection_hit_flag=false;
 }
 
-// Called during GL_SELECT mode when a primitive is rasterized.
-// Records a hit with z_min/z_max derived from the vertex Z values.
+// GL_SELECT: record a hit with z range from the primitive's vertices.
 void GLSelectionRecordDepthRange(GLContext *ctx, double z_min, double z_max)
 {
     auto depth=[](double value){
@@ -4595,13 +4433,11 @@ uint32_t NativeGLAreTexturesResident(GLContext *ctx, int32_t n, uint32_t texture
 
 void NativeGLPrioritizeTextures(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t priorities_ptr)
 {
-	// Store priority hints on texture objects (advisory, not enforced by Metal)
+	// Priorities are advisory and ignored
 	for (int32_t i = 0; i < n; i++) {
 		uint32_t name = ReadMacInt32(textures_ptr + i * 4);
-		// Priority is stored but not used by Metal runtime
 		auto it = ctx->texture_objects.find(name);
 		if (it != ctx->texture_objects.end()) {
-			// Accept and ignore priority (Metal manages memory automatically)
 		}
 	}
 }
@@ -4620,8 +4456,7 @@ void NativeGLNewList(GLContext *ctx, uint32_t list, uint32_t mode)
 
 void NativeGLEndList(GLContext *ctx) { if(!ctx->in_display_list) {if(!ctx->last_error)ctx->last_error=0x0502;return;} ctx->in_display_list = false; }
 
-// GLReplayCommand - replay a single recorded display list command
-// Implemented in gl_dispatch.cpp (has access to all NativeGL* handlers)
+// In gl_dispatch.cpp
 extern void GLReplayCommand(GLContext *ctx, const GLCommand &cmd);
 
 void NativeGLCallList(GLContext *ctx, uint32_t list)
@@ -4788,8 +4623,7 @@ void NativeGLDisableClientState(GLContext *ctx, uint32_t array)
 	}
 }
 
-// NativeGLArrayElement, NativeGLDrawArrays, NativeGLDrawElements, NativeGLInterleavedArrays
-// are implemented in gl_metal_renderer.mm (they need Metal rendering access)
+// ArrayElement/DrawArrays/DrawElements/InterleavedArrays are in gl_metal_renderer.mm
 
 // --- Copy tex 1D (delegate to 2D with height=1) ---
 void NativeGLCopyTexImage1D(GLContext *ctx, uint32_t target, int32_t level, uint32_t ifmt, int32_t x, int32_t y, int32_t w, int32_t border)
@@ -4999,13 +4833,11 @@ void NativeGLGetMaterialiv(GLContext *ctx, uint32_t face, uint32_t pname, uint32
     for(int i=0;i<4;++i)WriteMacInt32(mac_ptr+i*4,gl_color_integer(v[i]));
 }
 
-// glGetMapdv/fv/iv -- query evaluator map parameters
 void NativeGLGetMapdv(GLContext *ctx, uint32_t target, uint32_t query, uint32_t p)
 {
 	int idx = gl_eval_target_index(target);
 	if (idx < 0) return;
 
-	// Determine if it's a MAP1 or MAP2 target
 	bool is_map2 = (target >= GL_MAP2_COLOR_4 && target <= GL_MAP2_VERTEX_4);
 
 	if (!is_map2) {
@@ -5013,7 +4845,6 @@ void NativeGLGetMapdv(GLContext *ctx, uint32_t target, uint32_t query, uint32_t 
 		switch (query) {
 		case GL_COEFF:
 			for (int i = 0; i < map.order * map.dimension; i++) {
-				// Write double to Mac memory (big-endian)
 				double d = map.defined ? (double)map.control_points[i] : 0.0;
 				uint64_t bits;
 				memcpy(&bits, &d, sizeof(double));
@@ -5495,7 +5326,6 @@ void NativeGLMultTransposeMatrixfARB(GLContext *ctx, uint32_t mac_ptr)
 //  ARB_texture_compression — DXT1/3/5 CPU decompression
 // ============================================================================
 
-// Decode one RGB565 value to R,G,B bytes
 static inline void dxt_rgb565_to_rgb(uint16_t c, uint8_t *r, uint8_t *g, uint8_t *b)
 {
 	*r = (uint8_t)(((c >> 11) & 0x1F) * 255 / 31);
@@ -5546,10 +5376,9 @@ static void dxt3_decompress_block(const uint8_t *src, uint8_t *dst)
 	const uint8_t *alpha_block = src;
 	const uint8_t *color_block = src + 8;
 
-	// Decode color portion using DXT1 (no alpha transparency)
+	// Color block as DXT1, without 1-bit alpha
 	dxt1_decompress_block(color_block, dst, false);
 
-	// Override alpha with explicit 4-bit values
 	for (int i = 0; i < 16; i++) {
 		int byte_idx = i / 2;
 		uint8_t a4;
@@ -5591,11 +5420,9 @@ static void dxt5_decompress_block(const uint8_t *src, uint8_t *dst)
 		alpha_lut[7] = 255;
 	}
 
-	// Decode color portion
 	const uint8_t *color_block = src + 8;
 	dxt1_decompress_block(color_block, dst, false);
 
-	// Apply interpolated alpha
 	for (int i = 0; i < 16; i++) {
 		int aidx = (alpha_bits >> (i * 3)) & 7;
 		dst[i*4+3] = alpha_lut[aidx];
@@ -5637,7 +5464,6 @@ static uint8_t *dxt_decompress_image(uint32_t sourceAddress, int w, int h, uint3
 			else if (format == 0x83F3) // GL_COMPRESSED_RGBA_S3TC_DXT5_EXT
 				dxt5_decompress_block(block_src, block_pixels);
 
-			// Copy block pixels to destination image
 			for (int py = 0; py < 4; py++) {
 				int dy = by * 4 + py;
 				if (dy >= h) break;
@@ -5661,7 +5487,7 @@ void NativeGLCompressedTexImage3DARB(GLContext *ctx, uint32_t target, int32_t le
 	uint32_t ifmt, int32_t w, int32_t h, int32_t d, int32_t border, int32_t imageSize, uint32_t data_ptr)
 {
 	GL_LOG("CompressedTexImage3D fmt=0x%x %dx%dx%d size=%d (known limitation)", ifmt, w, h, d, imageSize);
-	// 3D compressed textures extremely rare in classic Mac games — known limitation
+	// Not implemented; unused by classic Mac games.
 }
 
 // Validate before translating a guest pointer, allocating, or changing texture
@@ -5715,7 +5541,7 @@ void NativeGLCompressedTexImage1DARB(GLContext *ctx, uint32_t target, int32_t le
 	uint32_t ifmt, int32_t w, int32_t border, int32_t imageSize, uint32_t data_ptr)
 {
 	GL_LOG("CompressedTexImage1D fmt=0x%x %d size=%d (known limitation)", ifmt, w, imageSize);
-	// 1D compressed textures essentially never used — known limitation
+	// Not implemented; unused by classic Mac games.
 }
 
 void NativeGLCompressedTexSubImage3DARB(GLContext *ctx, uint32_t target, int32_t level,
@@ -5865,7 +5691,6 @@ void NativeGLSecondaryColorPointerEXT(GLContext *ctx, int32_t size, uint32_t typ
 //  OpenGL 1.2 imaging subset — CPU state storage
 // ============================================================================
 
-// Helper: resolve color table target to index (0-2)
 static int gl_color_table_index(uint32_t target) {
 	switch (target) {
 		case 0x80D0: return 0; // GL_COLOR_TABLE
@@ -5875,7 +5700,6 @@ static int gl_color_table_index(uint32_t target) {
 	}
 }
 
-// Helper: resolve convolution target to index (0-1)
 static int gl_convolution_index(uint32_t target) {
 	switch (target) {
 		case 0x8010: return 0; // GL_CONVOLUTION_1D
@@ -5884,23 +5708,10 @@ static int gl_convolution_index(uint32_t target) {
 	}
 }
 
-// --- Imaging subset (GL 1.2): Color tables, convolution, histogram, minmax ---
-// NOTE: The COLOR TABLE family (GL_COLOR_TABLE / glColorTable / glColorSubTable /
-// glCopyColorTable / glCopyColorSubTable, sub-ops 469-477) IS now applied to the pixel
-// pipeline: when GL_COLOR_TABLE is enabled the stored LUT is
-// folded into the CPU texture-upload path via GLApplyColorTableLUT (no new
-// compute pass; color_table_enabled is now a READ), and glCopyColorTable/glCopyColorSubTable
-// read the framebuffer via GLMetalReadFramebufferRect with overflow-safe bounds.
-// The CONVOLUTION (478-490) and HISTOGRAM/MINMAX (491-500)
-// handlers still store state only and do NOT apply their transforms in the Metal pipeline (a
-// full convolution/histogram pass is DELIBERATELY not built — owned by later work; classic
-// Mac games do not use imaging convolution/histogram). Those families are
-// honestly DE-ADVERTISED: the ARB imaging umbrella token is NOT in the GL_EXTENSIONS string
-// (over-advertising would be the silent-wrong-output the Core Value forbids), and each
-// handler LOGS its known limitation so the disposition is visible at runtime,
-// never a silent claim of success. (The umbrella token is intentionally not
-// spelled out as a literal so the GLARBExtensionTests source-scan absence assertion stays
-// robust — same discipline as the COMBINE de-advertisement.)
+// --- Imaging subset (GL 1.2) ---
+// Color tables are applied on texture upload (GLApplyColorTableLUT).
+// Convolution and histogram/minmax only store state, so ARB_imaging is not
+// advertised.
 
 // --- Color table operations (9 functions) ---
 
@@ -5914,7 +5725,6 @@ void NativeGLColorTable(GLContext *ctx, uint32_t target, uint32_t ifmt, int32_t 
 	ct.width = w;
 	ct.internal_format = ifmt;
 	ct.defined = true;
-	// Read pixel data from Mac memory, convert to float RGBA
 	if (data != 0 && w > 0) {
 		for (int i = 0; i < w; i++) {
 			if (fmt == GL_RGBA && type == GL_UNSIGNED_BYTE) {
@@ -5928,7 +5738,7 @@ void NativeGLColorTable(GLContext *ctx, uint32_t target, uint32_t ifmt, int32_t 
 				ct.data[i][2] = ReadMacInt8(data + i*3 + 2) / 255.0f;
 				ct.data[i][3] = 1.0f;
 			} else {
-				// Default: opaque white for unsupported formats
+				// Unsupported format: opaque white
 				ct.data[i][0] = ct.data[i][1] = ct.data[i][2] = ct.data[i][3] = 1.0f;
 			}
 		}
@@ -5936,10 +5746,7 @@ void NativeGLColorTable(GLContext *ctx, uint32_t target, uint32_t ifmt, int32_t 
 }
 
 void NativeGLColorTableParameterfv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t params) {
-	// The color-table scale/bias params are NOT consumed by the implemented
-	// single-channel LUT apply; the knob is honestly inert — a
-	// conformant app gets no scale/bias transform rather than a silent partial
-	// one. Logging-only, no state mutation (additive marker only).
+	// Scale/bias are not applied by the LUT path; log only.
 	GL_LOG("ColorTableParameterfv target=0x%x pname=0x%x (known limitation — color-table scale/bias not consumed by the single-channel LUT apply; honestly inert)", target, pname);
 }
 
@@ -5953,30 +5760,26 @@ void NativeGLCopyColorTable(GLContext *ctx, uint32_t target, uint32_t ifmt, int3
 	int idx = gl_color_table_index(target);
 	if (idx < 0) return;
 	GLColorTable &ct = ctx->color_tables[idx];
-	// ASVS-V5 bounds: the guest controls x/y/w. Reject non-positive or
-	// over-ceiling widths BEFORE any framebuffer read / LUT write. The hard ceiling is the
-	// GLColorTable.data[256][4] array. x/y must be non-negative (the readback rect origin).
+	// Guest-controlled; bound by GLColorTable.data[256] before any read.
 	if (w <= 0 || w > 256) return;
 	if (x < 0 || y < 0) return;
-	// Read a 1-row strip of width w from the framebuffer (BGRA8). NULL return == no
-	// framebuffer / blit failure -> honest failure (log + return), never silent success.
+	// One BGRA8 row from the framebuffer
 	int outLen = 0;
 	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, w, 1, &outLen);
 	if (!bgra) {
 		GL_LOG("CopyColorTable: framebuffer read failed (no overlay) — not stored");
 		return;
 	}
-	// Store the strip into color_tables[idx] as float RGBA (BGRA8: B@+0,G@+1,R@+2,A@+3).
-	// Bound the copy by both the requested w and the actual bytes returned (outLen/4).
+	// Bound by both w and the bytes actually returned.
 	int avail = (outLen >= 0) ? outLen / 4 : 0;
 	int n = (w < avail) ? w : avail;
 	if (n > 256) n = 256;
 	for (int i = 0; i < n; i++) {
 		uint8_t *px = bgra + i * 4;
-		ct.data[i][0] = px[2] / 255.0f;   // R
-		ct.data[i][1] = px[1] / 255.0f;   // G
-		ct.data[i][2] = px[0] / 255.0f;   // B
-		ct.data[i][3] = px[3] / 255.0f;   // A
+		ct.data[i][0] = px[2] / 255.0f;
+		ct.data[i][1] = px[1] / 255.0f;
+		ct.data[i][2] = px[0] / 255.0f;
+		ct.data[i][3] = px[3] / 255.0f;
 	}
 	ct.width = n;
 	ct.internal_format = ifmt;
@@ -5991,7 +5794,6 @@ void NativeGLGetColorTable(GLContext *ctx, uint32_t target, uint32_t fmt, uint32
 	if (idx < 0) return;
 	const GLColorTable &ct = ctx->color_tables[idx];
 	if (!ct.defined) return;
-	// Write stored float RGBA data back to Mac memory as unsigned bytes
 	if (type == GL_UNSIGNED_BYTE && (fmt == GL_RGBA || fmt == GL_RGB)) {
 		int bpp = (fmt == GL_RGBA) ? 4 : 3;
 		for (int i = 0; i < ct.width; i++) {
@@ -6048,32 +5850,22 @@ void NativeGLColorSubTable(GLContext *ctx, uint32_t target, int32_t start, int32
 	if (idx < 0) return;
 	GLColorTable &ct = ctx->color_tables[idx];
 	if (!ct.defined) return;
-	// ASVS-V5 bounds: start and count are guest-controlled and index into the
-	// fixed GLColorTable.data[256][4] array embedded in the GLContext. Use the SAME
-	// OVERFLOW-SAFE headroom comparison `count > 256 - start` as the hardened
-	// NativeGLCopyColorSubTable twin. The previous loop-guard sum form
-	// (start-plus-index compared against the table width, with no prior range check)
-	// 32-bit-overflows when the guest supplies a large start, letting di = start + i
-	// index out of bounds (the DSp CLUT integer-overflow -> stack-OOB precedent).
-	// Reject start out of range, a zero/negative count, or a strip that would not fit in
-	// the headroom BEFORE any write.
+	// Guest-controlled start/count. Compare against headroom (256 - start)
+	// rather than summing, which could overflow.
 	if (start < 0 || start > 255) return;
 	if (count <= 0) return;
-	if (count > 256 - start) return;        // overflow-safe headroom check (NOT the naive sum)
-	// Core Value: no silent no-op — the loop below only handles
-	// GL_RGBA + GL_UNSIGNED_BYTE. Any other format/type combination would silently
-	// do nothing after the bounds pass; log the known limitation and fail honestly
-	// instead (mirrors the de-advertised imaging-family known-limitation logs).
+	if (count > 256 - start) return;
+	// Only GL_RGBA / GL_UNSIGNED_BYTE is handled; log anything else.
 	if (fmt != GL_RGBA || type != GL_UNSIGNED_BYTE) {
 		GL_LOG("ColorSubTable: unhandled fmt=0x%x type=0x%x (known limitation — only GL_RGBA/GL_UNSIGNED_BYTE applied)", fmt, type);
 		return;
 	}
 	int n = count;
-	if (start + n > ct.width) n = ct.width - start;  // clamp to the existing LUT size
+	if (start + n > ct.width) n = ct.width - start;
 	if (n <= 0) return;
 	for (int i = 0; i < n; i++) {
 		int di = start + i;
-		if (di >= 256) break;               // hard ceiling guard (di already <= start+count <= 256)
+		if (di >= 256) break;
 		ct.data[di][0] = ReadMacInt8(data + i*4 + 0) / 255.0f;
 		ct.data[di][1] = ReadMacInt8(data + i*4 + 1) / 255.0f;
 		ct.data[di][2] = ReadMacInt8(data + i*4 + 2) / 255.0f;
@@ -6088,17 +5880,12 @@ void NativeGLCopyColorSubTable(GLContext *ctx, uint32_t target, int32_t start, i
 	if (idx < 0) return;
 	GLColorTable &ct = ctx->color_tables[idx];
 	if (!ct.defined) return;
-	// ASVS-V5 bounds (HIGH): start and w are guest-controlled and index into the
-	// fixed GLColorTable.data[256][4] array. Use the OVERFLOW-SAFE headroom comparison
-	// `w > 256 - start` rather than the naive sum-then-compare form — the naive sum
-	// 32-bit-overflows when the guest supplies a large start (the DSp CLUT
-	// integer-overflow -> stack-OOB precedent). Reject start out of range, a zero/negative
-	// width, or a strip that would not fit in the headroom BEFORE any framebuffer read / write.
+	// Guest-controlled start/w. Compare against headroom (256 - start)
+	// rather than summing, which could overflow.
 	if (start < 0 || start > 255) return;
 	if (w <= 0) return;
-	if (w > 256 - start) return;            // overflow-safe headroom check (NOT the naive sum)
+	if (w > 256 - start) return;
 	if (x < 0 || y < 0) return;
-	// Read a 1-row strip of width w from the framebuffer (BGRA8). NULL return -> honest fail.
 	int outLen = 0;
 	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, w, 1, &outLen);
 	if (!bgra) {
@@ -6109,12 +5896,12 @@ void NativeGLCopyColorSubTable(GLContext *ctx, uint32_t target, int32_t start, i
 	int n = (w < avail) ? w : avail;
 	for (int i = 0; i < n; i++) {
 		int di = start + i;
-		if (di >= 256) break;               // hard ceiling guard (di already <= start+w <= 256)
+		if (di >= 256) break;
 		uint8_t *px = bgra + i * 4;
-		ct.data[di][0] = px[2] / 255.0f;    // R
-		ct.data[di][1] = px[1] / 255.0f;    // G
-		ct.data[di][2] = px[0] / 255.0f;    // B
-		ct.data[di][3] = px[3] / 255.0f;    // A
+		ct.data[di][0] = px[2] / 255.0f;    // BGRA8 -> RGBA
+		ct.data[di][1] = px[1] / 255.0f;
+		ct.data[di][2] = px[0] / 255.0f;
+		ct.data[di][3] = px[3] / 255.0f;
 	}
 	free(bgra);
 }
@@ -6122,18 +5909,8 @@ void NativeGLCopyColorSubTable(GLContext *ctx, uint32_t target, int32_t start, i
 
 // --- Convolution operations (13 functions) ---
 
-// DELIBERATE de-advertisement: the ARB imaging
-// CONVOLUTION family (sub-ops 478-490) stores its kernel/params honestly but is
-// NOT applied to any pixel — a convolution pass is DELIBERATELY not built (classic
-// Mac games do not use imaging convolution).
-// Over-advertising the capability would be the silent-wrong-output the Core Value
-// forbids: a conformant app that sees the imaging umbrella token would call this
-// path and silently get an un-convolved result. The honest fix is capability-gating
-// — the umbrella token is ABSENT from the GL_EXTENSIONS string (see the glGetString
-// switch above) and each handler LOGS its known limitation so the disposition is
-// visible. State is kept for API completeness (glGet* round-trips), never claimed
-// as applied. Real apply path is owned by later work. (The umbrella token is not
-// spelled out as a literal so the source-scan absence assertion stays robust.)
+// State is stored for glGet* round-trips but never applied to pixels; classic
+// Mac games do not use convolution. Handlers log the limitation.
 void NativeGLConvolutionFilter1D(GLContext *ctx, uint32_t target, uint32_t ifmt, int32_t w, uint32_t fmt, uint32_t type, uint32_t data) {
 	GL_LOG("ConvolutionFilter1D target=0x%x width=%d (known limitation — kernel stored, NOT applied; imaging umbrella de-advertised)", target, w);
 	if (!ctx) return;
@@ -6199,7 +5976,7 @@ void NativeGLConvolutionFilter2D(GLContext *ctx, uint32_t target, uint32_t ifmt,
 
 void NativeGLConvolutionParameterf(GLContext *ctx, uint32_t target, uint32_t pname, float param) {
 	GL_LOG("ConvolutionParameterf target=0x%x pname=0x%x val=%f (known limitation — convolution de-advertised)", target, pname, param);
-	// Border mode parameter — stored but not applied in Metal pipeline (DELIBERATE)
+	// Border mode is stored, not applied
 }
 
 void NativeGLConvolutionParameterfv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t params) {
@@ -6364,20 +6141,8 @@ void NativeGLSeparableFilter2D(GLContext *ctx, uint32_t target, uint32_t ifmt, i
 
 // --- Histogram/Minmax operations (10 functions) ---
 
-// DELIBERATE de-advertisement: the ARB imaging
-// HISTOGRAM / MINMAX family (sub-ops 491-500) tracks its bins/min-max state
-// honestly but is NOT fed by the actual pixel pipeline — a real histogram/minmax
-// pass is DELIBERATELY not built (classic Mac games do not use imaging
-// histogram/minmax). Advertising the
-// capability would be the silent-wrong-output the Core Value forbids: a conformant
-// app that sees the imaging umbrella token would read GetHistogram/GetMinmax
-// expecting collected pixel statistics and silently get the un-collected defaults.
-// The honest fix is capability-gating — the umbrella token is ABSENT from the
-// GL_EXTENSIONS string (see the glGetString switch above) and each handler LOGS its
-// known limitation so the disposition is visible. State is kept for API
-// completeness, never claimed as collected. Real collection path is owned by
-// later work. (The umbrella token is not spelled out as a literal so the source-scan
-// absence assertion stays robust.)
+// State is stored, but no pixel statistics are collected; classic Mac games do
+// not use histogram/minmax. Handlers log the limitation.
 void NativeGLHistogram(GLContext *ctx, uint32_t target, int32_t width, uint32_t ifmt, uint32_t sink) {
 	GL_LOG("Histogram target=0x%x width=%d fmt=0x%x sink=%d (known limitation — bins tracked, NOT collected from pixels; imaging umbrella de-advertised)", target, width, ifmt, sink);
 	if (!ctx) return;
@@ -6565,7 +6330,7 @@ void NativeGLTexImage3DEXT(GLContext *ctx, uint32_t target, int32_t level, int32
 	if (level > 0) tex.has_mipmaps = true;
 
 	if (data == 0) {
-		// Allocate storage only (no data)
+		// No data: allocate storage only
 		int emptyLen = w * h * d * 4;
 		uint8_t *emptyData = (uint8_t *)calloc(1, emptyLen);
 		if (emptyData) {
@@ -6576,7 +6341,6 @@ void NativeGLTexImage3DEXT(GLContext *ctx, uint32_t target, int32_t level, int32
 		return;
 	}
 
-	// Convert each slice and assemble into a single buffer
 	int sliceSize = w * h * 4;
 	int totalSize = sliceSize * d;
 	uint8_t *converted = (uint8_t *)malloc(totalSize);
@@ -6591,7 +6355,7 @@ void NativeGLTexImage3DEXT(GLContext *ctx, uint32_t target, int32_t level, int32
 			memcpy(converted + z * sliceSize, sliceData, sliceSize);
 			free(sliceData);
 		} else {
-			memset(converted + z * sliceSize, 0xFF, sliceSize); // magenta fallback
+			memset(converted + z * sliceSize, 0xFF, sliceSize); // opaque white
 		}
 	}
 
@@ -6648,7 +6412,7 @@ void NativeGLTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level,
 void NativeGLCopyTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level,
 	int32_t xoff, int32_t yoff, int32_t zoff, int32_t x, int32_t y, int32_t w, int32_t h)
 {
-	// 3D texture sub-copy: read framebuffer, upload as a single slice
+	// Read the framebuffer rect and upload it as one slice
 	if (!ctx || w <= 0 || h <= 0) return;
 	int bufLen = 0;
 	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, w, h, &bufLen);

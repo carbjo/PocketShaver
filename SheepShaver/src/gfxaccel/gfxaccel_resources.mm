@@ -8,26 +8,12 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Metal-side half of gfxaccel_resources. Owns:
- *    - per-engine overlay texture fleet (two MTLTextures per engine slot,
- *      same-resolution recycle);
- *    - the framebuffer MTLBuffer wrapping emulated Mac RAM via the
- *      zero-copy newBufferWithBytesNoCopy path (byte-identical to
- *      metal_compositor.mm:279-282);
- *    - the shared DepthStencil texture (placeholder; consumed by the
- *      SubmitFrame render pass).
+ *  Metal side of gfxaccel_resources: per-engine overlay texture pairs, the
+ *  zero-copy framebuffer MTLBuffer over emulated RAM, the buffer owner-tag
+ *  map, and the background/foreground handlers.
  *
- *  Page-alignment guard on the framebuffer buffer:
- *  iOS 17+ 16K-page devices fail the Metal validation assertion
- *  "newBufferWithBytesNoCopy:pointer is not %d byte aligned" if host_base
- *  is not vm_page_size-aligned. vm_allocate (used by the_buffer allocator)
- *  already produces page-aligned pointers; the guard is cheap insurance.
- *
- *  ARC ownership model: s_overlay_fleet + s_framebuffer_buffer +
- *  s_depth_stencil are strong references under ARC (assigning nil
- *  releases). newBufferWithBytesNoCopy uses deallocator:nil - Metal does
- *  NOT own the backing memory; the emul runtime does. Both properties
- *  are required by the zero-copy contract.
+ *  The framebuffer buffer uses deallocator:nil; the emulator owns that
+ *  memory, not Metal.
  */
 
 #import <Foundation/Foundation.h>
@@ -36,7 +22,7 @@
 
 #include <cstdint>
 #include <cstdio>
-#include <unistd.h>         // sysconf(_SC_PAGESIZE)
+#include <unistd.h>
 
 #include "gfxaccel_resources.h"
 #include "metal_device_shared.h"
@@ -52,8 +38,7 @@ typedef struct {
 	id<MTLTexture> tex[2];
 	uint32_t       w;
 	uint32_t       h;
-	uint32_t       fmt;         // stored as uint32_t so the bridging header
-	                            // can pass numeric MTLPixelFormat values
+	uint32_t       fmt;         // MTLPixelFormat
 } GfxResOverlaySlot;
 
 static GfxResOverlaySlot s_overlay_fleet[kGfxEngineCount] = {};
@@ -62,21 +47,15 @@ static id<MTLBuffer>  s_framebuffer_buffer    = nil;
 static void          *s_framebuffer_host_base = NULL;
 static uint32_t       s_framebuffer_length    = 0;
 
-// Depth/stencil texture is a placeholder. The SubmitFrame render pass
-// will consume it; the slot is kept wired so subsequent work can add
-// texture creation without module churn.
+// Placeholder; never allocated yet.
 static id<MTLTexture> s_depth_stencil         = nil;
 
-// Static-duration page size snapshot captured on first call. sysconf
-// result is invariant for the process lifetime.
 static uintptr_t gfxres_page_size(void)
 {
 	long ps = sysconf(_SC_PAGESIZE);
 	return (ps > 0) ? (uintptr_t)ps : (uintptr_t)4096;
 }
 
-// Forward declaration: owner-map clear helper used by shutdown.
-// Implementation lives near the map definition below.
 static void gfxres_clear_owner_map_on_shutdown(void);
 
 // ---------------------------------------------------------------------------
@@ -85,8 +64,6 @@ static void gfxres_clear_owner_map_on_shutdown(void);
 
 extern "C" void gfxaccel_resources_mm_init_metal_state(void)
 {
-	// Zero the overlay fleet. No MTLTextures are allocated until an
-	// engine calls gfxaccel_resources_vend_overlay_texture_indexed().
 	for (uint32_t i = 0; i < (uint32_t)kGfxEngineCount; ++i) {
 		s_overlay_fleet[i].tex[0] = nil;
 		s_overlay_fleet[i].tex[1] = nil;
@@ -95,8 +72,7 @@ extern "C" void gfxaccel_resources_mm_init_metal_state(void)
 		s_overlay_fleet[i].fmt = 0;
 	}
 
-	// The framebuffer MTLBuffer is lazily created on first vend; do not
-	// force-create one here (we don't know the buffer / size yet).
+	// The framebuffer buffer is created on first request.
 	s_framebuffer_buffer    = nil;
 	s_framebuffer_host_base = NULL;
 	s_framebuffer_length    = 0;
@@ -107,24 +83,20 @@ extern "C" void gfxaccel_resources_mm_init_metal_state(void)
 extern "C" void gfxaccel_resources_mm_shutdown_metal_state(void)
 {
 	for (uint32_t i = 0; i < (uint32_t)kGfxEngineCount; ++i) {
-		s_overlay_fleet[i].tex[0] = nil;  // ARC release
+		s_overlay_fleet[i].tex[0] = nil;
 		s_overlay_fleet[i].tex[1] = nil;
 		s_overlay_fleet[i].w   = 0;
 		s_overlay_fleet[i].h   = 0;
 		s_overlay_fleet[i].fmt = 0;
 	}
 
-	s_framebuffer_buffer    = nil;  // ARC release; deallocator:nil means
-	                                // the emul RAM backing is NOT freed
-	                                // - it belongs to the emul runtime.
+	s_framebuffer_buffer    = nil;  // does not free the emulated RAM
 	s_framebuffer_host_base = NULL;
 	s_framebuffer_length    = 0;
 
 	s_depth_stencil = nil;
 
-	// Clear owner-tag map on shutdown so stale pointers do not survive
-	// shutdown/restart cycles. The forward-declared helper is implemented
-	// alongside the map storage below.
+	// Stale pointers must not survive a restart.
 	gfxres_clear_owner_map_on_shutdown();
 }
 
@@ -140,7 +112,7 @@ extern "C" void *gfxaccel_resources_get_framebuffer_buffer(void *host_base, uint
 		return NULL;
 	}
 
-	// Page-alignment guard.
+	// newBufferWithBytesNoCopy asserts on unaligned pointers (16K pages).
 	const uintptr_t page = gfxres_page_size();
 	if (((uintptr_t)host_base & (page - 1)) != 0) {
 		fprintf(stderr, "[gfxaccel_resources] get_framebuffer_buffer: "
@@ -151,14 +123,12 @@ extern "C" void *gfxaccel_resources_get_framebuffer_buffer(void *host_base, uint
 		return NULL;
 	}
 
-	// Cache hit: same backing + length.
 	if (s_framebuffer_buffer != nil &&
 	    s_framebuffer_host_base == host_base &&
 	    s_framebuffer_length == length) {
 		return (__bridge void *)s_framebuffer_buffer;
 	}
 
-	// Cache miss: release prior buffer (ARC) and allocate a fresh one.
 	s_framebuffer_buffer    = nil;
 	s_framebuffer_host_base = NULL;
 	s_framebuffer_length    = 0;
@@ -170,7 +140,6 @@ extern "C" void *gfxaccel_resources_get_framebuffer_buffer(void *host_base, uint
 		return NULL;
 	}
 
-	// Byte-identical to metal_compositor.mm:279-282 zero-copy creation.
 	id<MTLBuffer> buf = [device newBufferWithBytesNoCopy:host_base
 	                                              length:length
 	                                             options:MTLResourceStorageModeShared
@@ -236,7 +205,6 @@ extern "C" void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine
 
 	GfxResOverlaySlot *slot = &s_overlay_fleet[engine_id];
 
-	// Cache hit: same engine, same pair index, same dimensions + format.
 	if (slot->tex[texture_index] != nil &&
 	    slot->w == width &&
 	    slot->h == height &&
@@ -247,7 +215,7 @@ extern "C" void *gfxaccel_resources_vend_overlay_texture_indexed(uint32_t engine
 	// Size/format change invalidates the pair as a unit.
 	if ((slot->tex[0] != nil || slot->tex[1] != nil) &&
 	    (slot->w != width || slot->h != height || slot->fmt != pixel_format)) {
-		slot->tex[0] = nil;  // ARC release
+		slot->tex[0] = nil;
 		slot->tex[1] = nil;
 		slot->w = 0;
 		slot->h = 0;
@@ -307,9 +275,7 @@ extern "C" void gfxaccel_resources_release_overlay_texture(uint32_t engine_id,
 	if (slot->tex[0] == passed) matched_index = 0;
 	if (slot->tex[1] == passed) matched_index = 1;
 	if (matched_index >= 2) {
-		// Unknown/stale handle. Log and return - we don't own this
-		// texture so we can't release it safely, and we don't know
-		// which engine actually does.
+		// Not ours; leave it alone.
 		fprintf(stderr, "[gfxaccel_resources] release_overlay_texture(engine_id=%u): "
 		                "texture=%p does not match cached pair (%p, %p); ignoring\n",
 		        (unsigned)engine_id, texture,
@@ -318,7 +284,7 @@ extern "C" void gfxaccel_resources_release_overlay_texture(uint32_t engine_id,
 		return;
 	}
 
-	slot->tex[matched_index] = nil;  // ARC release
+	slot->tex[matched_index] = nil;
 	if (slot->tex[0] == nil && slot->tex[1] == nil) {
 		slot->w   = 0;
 		slot->h   = 0;
@@ -329,28 +295,16 @@ extern "C" void gfxaccel_resources_release_overlay_texture(uint32_t engine_id,
 // ---------------------------------------------------------------------------
 // Per-buffer owner-tag map
 //
-// Explicit per-buffer engine-id tagging. The "explicit tag" model is used
-// (the alternative "DMC-implicit fallback" was rejected): every engine
-// that allocates a buffer at a slot where arbitration may fire tags the
-// buffer's owner here. The NQD conflict gate queries
-// dmc_current_snapshot()->active_owner rather than this map in the hot
-// path, but the map is the authoritative per-buffer record and is consumed
-// by test harnesses (coexistence tests) to cross-check tag integrity.
-//
-// Bounded 32-slot array, linear scan on set/get/clear. No dynamic
-// allocation. No mutex / atomic — DSp Reserve + engine allocations fire
-// at mode-enter (not per-frame) on the emul thread, so O(n) with n<=32
-// is well within budget. Single-writer invariant matches the rest of
-// the resource manager.
-//
-// The compositor never reads this map. The CompositeLayer POD the
-// compositor sees carries only slot + source; ownership lives here.
+// Records which engine owns each tagged buffer. The NQD conflict gate uses
+// the DMC active owner instead; the compositor never reads this. Fixed
+// 32 entries with linear scans: tagging only happens at mode changes on the
+// emul thread.
 // ---------------------------------------------------------------------------
 
 #define GFXRES_OWNER_MAP_CAP 32
 
 typedef struct {
-	void    *buffer;        // non-NULL == slot occupied
+	void    *buffer;        // NULL == free
 	uint32_t engine_id;     // kGfxEngineNQD/RAVE/GL/DSp
 } GfxResOwnerEntry;
 
@@ -366,14 +320,12 @@ extern "C" void gfxaccel_resources_set_buffer_owner(void *buffer,
 		        (unsigned)engine_id, (unsigned)kGfxEngineCount);
 		return;
 	}
-	// Replace-in-place: if the buffer is already tagged, overwrite.
 	for (uint32_t i = 0; i < GFXRES_OWNER_MAP_CAP; ++i) {
 		if (s_owner_map[i].buffer == buffer) {
 			s_owner_map[i].engine_id = engine_id;
 			return;
 		}
 	}
-	// Insert into first free slot.
 	for (uint32_t i = 0; i < GFXRES_OWNER_MAP_CAP; ++i) {
 		if (s_owner_map[i].buffer == NULL) {
 			s_owner_map[i].buffer    = buffer;
@@ -400,8 +352,6 @@ extern "C" void gfxaccel_resources_clear_buffer_owner(void *buffer)
 }
 
 
-// Owner-map clear helper invoked by the shutdown path. File-local (static)
-// so production builds reset the map on shutdown/restart cycles.
 static void gfxres_clear_owner_map_on_shutdown(void)
 {
 	for (uint32_t i = 0; i < GFXRES_OWNER_MAP_CAP; ++i) {
@@ -414,8 +364,7 @@ static void gfxres_clear_owner_map_on_shutdown(void)
 // Background/Foreground lifecycle
 // ---------------------------------------------------------------------------
 
-// DSp M2 hook state. Both NULL initially. M2's DrawSprocket will register
-// its own enter/exit handlers here.
+// Set by DSpInit.
 static GfxAccelLifecycleHookFn s_dsp_background_hook     = NULL;
 static void                   *s_dsp_background_hook_ctx = NULL;
 static GfxAccelLifecycleHookFn s_dsp_foreground_hook     = NULL;
@@ -423,12 +372,10 @@ static void                   *s_dsp_foreground_hook_ctx = NULL;
 
 extern "C" void gfxaccel_handle_background_enter(void)
 {
-	// Step 1: Pause VBLSource (stop display link callbacks).
 	vbl_source_set_paused(1);
 
-	// Step 2: Drain in-flight GPU work. Submit an empty command buffer
-	// and wait for GPU completion. This ensures any previously committed
-	// work has finished before we release drawables.
+	// Wait for committed GPU work by committing an empty command buffer.
+	// The DSp hook below relies on this before it frees back buffers.
 	id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)SharedMetalCommandQueue();
 	if (queue != nil) {
 		id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
@@ -438,16 +385,13 @@ extern "C" void gfxaccel_handle_background_enter(void)
 		}
 	}
 
-	// Step 3: Release drawables by setting drawableSize = CGSizeZero.
-	// Apple-recommended pattern: setting drawableSize to zero releases
-	// the drawable backing store without destroying the layer.
+	// A zero drawableSize frees the drawables but keeps the layer.
 	void *layerPtr = MetalCompositorGetLayer();
 	if (layerPtr != NULL) {
 		CAMetalLayer *layer = (__bridge CAMetalLayer *)layerPtr;
 		layer.drawableSize = CGSizeZero;
 	}
 
-	// Step 4: Invoke DSp M2 background hook if registered (NULL initially).
 	if (s_dsp_background_hook != NULL) {
 		s_dsp_background_hook(s_dsp_background_hook_ctx);
 	}
@@ -455,7 +399,6 @@ extern "C" void gfxaccel_handle_background_enter(void)
 
 extern "C" void gfxaccel_handle_foreground_enter(void)
 {
-	// Step 1: Restore drawableSize to current DMC snapshot dimensions.
 	void *layerPtr = MetalCompositorGetLayer();
 	if (layerPtr != NULL) {
 		const struct DMCModeSnapshot *snap = dmc_current_snapshot();
@@ -466,10 +409,8 @@ extern "C" void gfxaccel_handle_foreground_enter(void)
 		}
 	}
 
-	// Step 2: Resume VBLSource.
 	vbl_source_set_paused(0);
 
-	// Step 3: Invoke DSp M2 foreground hook if registered (NULL initially).
 	if (s_dsp_foreground_hook != NULL) {
 		s_dsp_foreground_hook(s_dsp_foreground_hook_ctx);
 	}

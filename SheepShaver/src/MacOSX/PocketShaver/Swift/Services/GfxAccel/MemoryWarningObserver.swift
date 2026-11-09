@@ -8,13 +8,8 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Observes UIApplicationDidReceiveMemoryWarningNotification on the main
- *  thread and calls the C shim gfxaccel_handle_memory_warning() which marks
- *  a pending eviction request. The next compositor SubmitFrame drains that
- *  request on the engine call path.
- *
- *  Swift singleton calls C shim from main thread; the C shim returns in
- *  <=1 ms and does not mutate heap state from UIKit's notification callback.
+ *  Forwards memory warnings to gfxaccel_handle_memory_warning(), which only
+ *  flags a pending eviction; the next compositor SubmitFrame performs it.
  */
 
 import UIKit

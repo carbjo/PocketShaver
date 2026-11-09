@@ -8,10 +8,8 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Vertex shader generates a fullscreen triangle from vertex_id (no vertex
- *  buffer needed). Fragment shader samples the 32-bit BGRA framebuffer texture.
- *  The oversized triangle is clipped by the CAMetalLayer viewport, so only
- *  the visible region is rasterized.
+ *  Compositor shaders: guest framebuffer presentation at each Mac depth, and
+ *  the SubmitFrame layer pipeline.
  */
 
 #include <metal_stdlib>
@@ -32,26 +30,18 @@ static inline float3 apply_display_gamma_lut(float3 c,
 }
 
 /*
- *  Fullscreen triangle trick: three vertices cover the entire clip space.
- *  Positions: (-1,-1), (3,-1), (-1,3)  — triangle covers [-1,1]x[-1,1]
- *
- *  UV mapping: Metal's texture origin is top-left (0,0).
- *  Clip-space (-1,-1) is bottom-left, so we flip Y:
- *    vertex 0: pos(-1,-1) → UV(0,1)   bottom-left
- *    vertex 1: pos( 3,-1) → UV(2,1)   bottom-right (overscanned)
- *    vertex 2: pos(-1, 3) → UV(0,-1)  top-left (overscanned)
+ *  Fullscreen triangle from vertex_id, no vertex buffer: (-1,-1), (3,-1),
+ *  (-1,3) covers clip space. Y is flipped for Metal's top-left texture origin.
  */
 vertex CompositorVertexOut compositor_vertex(uint vid [[vertex_id]])
 {
     CompositorVertexOut out;
 
-    // Generate clip-space position from vertex_id
     float2 pos;
     pos.x = (vid == 1) ? 3.0 : -1.0;
     pos.y = (vid == 2) ? 3.0 : -1.0;
     out.position = float4(pos, 0.0, 1.0);
 
-    // Map clip-space to UV with Y-flip for top-left origin
     out.texCoord.x = (pos.x + 1.0) * 0.5;
     out.texCoord.y = (1.0 - pos.y) * 0.5;
 
@@ -59,20 +49,9 @@ vertex CompositorVertexOut compositor_vertex(uint vid [[vertex_id]])
 }
 
 /*
- *  Sample the 32-bit framebuffer texture.
- *
- *  On iOS (non-VOSF, little-endian arm64), the PPC interpreter writes
- *  32-bit ARGB pixels in big-endian byte order via do_put_mem_long():
- *    b[0]=A, b[1]=R, b[2]=G, b[3]=B  →  memory bytes [A][R][G][B]
- *
- *  Metal's BGRA8Unorm reads bytes as [B][G][R][A], so it maps our bytes:
- *    .b = byte0 = A(actual)
- *    .g = byte1 = R(actual)
- *    .r = byte2 = G(actual)
- *    .a = byte3 = B(actual)
- *
- *  Swizzle to recover correct (R, G, B) and force alpha to 1.0 (classic
- *  Mac OS framebuffers store 0x00 in the alpha byte for opaque pixels).
+ *  32 bpp. Guest pixels are big-endian ARGB in memory ([A][R][G][B]), and
+ *  BGRA8Unorm reads them as .b=A .g=R .r=G .a=B. Swizzle back and force
+ *  alpha to 1 (Mac OS leaves the alpha byte 0 for opaque pixels).
  */
 fragment float4 compositor_fragment_32bpp(CompositorVertexOut in [[stage_in]],
                                           texture2d<float> tex [[texture(0)]],
@@ -80,22 +59,15 @@ fragment float4 compositor_fragment_32bpp(CompositorVertexOut in [[stage_in]],
                                           constant uchar *gamma_lut [[buffer(0)]])
 {
     float4 s = tex.sample(samp, in.texCoord);
-    // Recover (R, G, B) from the big-endian swizzle.
     float3 c = float3(s.g, s.r, s.a);
 
     return float4(apply_display_gamma_lut(c, gamma_lut), 1.0);
 }
 
 /*
- *  Indexed color fragment shader for 1/2/4/8-bit Mac depths.
- *
- *  The framebuffer texture is R8Uint — one byte per texel. For sub-8-bit
- *  depths, multiple pixels are packed into each byte (MSB = leftmost pixel).
- *  The shader unpacks the pixel index from the byte using bits_per_pixel,
- *  then looks up the color in the 256-entry RGBA palette buffer.
- *
- *  Integer textures require tex.read(uint2) — tex.sample() is not
- *  available for MTLPixelFormatR8Uint.
+ *  1/2/4/8 bpp indexed. R8Uint texture, one byte per texel; sub-8-bit pixels
+ *  are packed MSB-first. Looks up the 256-entry RGBA palette. Integer
+ *  textures need tex.read(), not sample().
  */
 fragment float4 compositor_fragment_indexed(CompositorVertexOut in [[stage_in]],
                                             texture2d<uint, access::read> tex [[texture(0)]],
@@ -136,15 +108,8 @@ fragment float4 compositor_fragment_indexed(CompositorVertexOut in [[stage_in]],
 }
 
 /*
- *  16-bit fragment shader for big-endian xRGB1555 Mac depth.
- *
- *  The framebuffer texture is R16Uint — one 16-bit value per texel.
- *  Mac stores 16-bit pixels as big-endian xRGB1555, but the ARM64
- *  GPU reads them as little-endian, so we byte-swap before extracting
- *  the 5-bit RGB channels.
- *
- *  Integer textures require tex.read(uint2) — tex.sample() is not
- *  available for MTLPixelFormatR16Uint.
+ *  16 bpp: big-endian xRGB1555 in an R16Uint texture, so byte-swap before
+ *  extracting channels. Integer textures need tex.read(), not sample().
  */
 fragment float4 compositor_fragment_16bpp(CompositorVertexOut in [[stage_in]],
                                           texture2d<uint, access::read> tex [[texture(0)]],
@@ -176,20 +141,12 @@ fragment float4 compositor_fragment_16bpp(CompositorVertexOut in [[stage_in]],
                   1.0);
 }
 
-/* ========================================================================
- *  SubmitFrame pipeline shaders
- *
- *  Vertex + fragment siblings used by MetalCompositorSubmitFrame to encode
- *  CompositeLayer entries into the drawable.
- *
- *  Each layer emits a triangle over its destination viewport and samples
- *  its source pixel rectangle. Clamp to that rectangle's texel centers so
- *  linear filtering cannot bleed adjacent texels into an enlarged crop.
- *
- *  The three blend modes (Opaque / Premultiplied / Straight) share this
- *  shader pair; the pipeline object differs only in its color-attachment
- *  blend state (built at MetalCompositorInit time in s_pipe_for_blend[]).
- * ======================================================================== */
+/*
+ *  SubmitFrame shaders: each CompositeLayer draws a triangle over its
+ *  destination viewport and samples its source rect, clamped to texel
+ *  centers so linear filtering can't bleed neighbouring texels. All three
+ *  blend modes share these; only the pipeline blend state differs.
+ */
 
 struct SubmitFrameVOut {
     float4 position [[position]];
@@ -218,8 +175,7 @@ static inline float2 submitframe_source_uv(float2 uv,
 vertex SubmitFrameVOut submitframe_vertex(uint vid [[vertex_id]],
                                          constant SubmitFrameUniform &u [[buffer(0)]])
 {
-    /* Fullscreen triangle covering the viewport. UVs flipped so texture
-     * origin at top-left maps correctly (matches compositor_vertex). */
+    /* Same fullscreen triangle as compositor_vertex. */
     float2 pos;
     pos.x = (vid == 1) ? 3.0 : -1.0;
     pos.y = (vid == 2) ? 3.0 : -1.0;
@@ -238,9 +194,7 @@ fragment float4 submitframe_fragment(SubmitFrameVOut in [[stage_in]],
     constexpr sampler samp(filter::linear, address::clamp_to_edge);
     float2 uv = submitframe_source_uv(in.uv, u, tex.get_width(), tex.get_height());
     float4 c = tex.sample(samp, uv);
-    /* Apply per-layer alpha for non-Opaque blend modes. kBlendOpaque
-     * pipelines disable blending entirely so the alpha multiplier is
-     * ignored even though we compute it. */
+    /* Per-layer alpha; ignored by Opaque pipelines, which disable blending. */
     c.a *= u.alpha;
     return c;
 }

@@ -100,9 +100,8 @@ static bool open_sdl_audio(void)
 	audio_spec.callback = stream_func;
 	audio_spec.userdata = NULL;
 
-	// iOS: SDL's default audio-session category is "ambient", which the
-	// ringer/silent switch mutes.  Emulated Mac audio is primary app content,
-	// so use "playback" (ignores the silent switch, like a game/media app).
+	// iOS: SDL defaults to the "ambient" category, which the silent switch
+	// mutes. Mac audio is primary content, so use "playback".
 #ifdef SDL_HINT_AUDIO_CATEGORY
 	SDL_SetHint(SDL_HINT_AUDIO_CATEGORY, "playback");
 #endif

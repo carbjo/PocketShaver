@@ -8,20 +8,9 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Observes UIApplication.didEnterBackgroundNotification and
- *  UIApplication.willEnterForegroundNotification on the main thread,
- *  calling the C entry points gfxaccel_handle_background_enter() and
- *  gfxaccel_handle_foreground_enter() respectively.
- *
- *  Follows the MemoryWarningObserver singleton pattern:
- *    - @objc public final class with static let shared singleton
- *    - install() / uninstall() lifecycle
- *    - NotificationCenter observer with queue: .main
- *    - C function call in the closure body
- *    - deinit { uninstall() } cleanup
- *
- *  Swift singleton calls C shims from main thread for background and
- *  foreground; the C shims return within a 50 ms budget on main thread.
+ *  Forwards background/foreground transitions to
+ *  gfxaccel_handle_background_enter() / gfxaccel_handle_foreground_enter()
+ *  on the main thread. The shims must return within 50 ms.
  */
 
 import UIKit

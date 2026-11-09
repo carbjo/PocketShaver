@@ -26,19 +26,16 @@
 #include <assert.h>
 
 /*
- *  Register plan (see arm64/dyngen-target-exec.h): x19 = CPU,
- *  x20 = T0/A0, x21 = T1/A1, x22 = T2/A2, x16/x17 = intra-op scratch
- *  (IP0/IP1, caller-saved, never live across an emitted call), and
- *  x23 = VMBASE, the guest->host translation base (VMBaseDiff) pinned
- *  for inline fastmem. All of x19-x23 are AAPCS64 callee-saved, so C
- *  helper calls made from generated code preserve them; op_execute
- *  saves/restores them (plus d8-d11, which the FP value plan treats as
- *  scratch but whose low halves are callee-saved toward op_execute's
- *  caller) and materializes VMBASE in its prologue.
+ *  Register plan (see dyngen-target-exec.h): x19 = CPU, x20/x21/x22 =
+ *  T0-T2 (aliasing A0-A2), x16/x17 = intra-op scratch (IP0/IP1, never live
+ *  across an emitted call), x23 = VMBASE (VMBaseDiff, pinned for inline
+ *  fastmem). x19-x23 are AAPCS64 callee-saved, so they survive C helper
+ *  calls. op_execute saves/restores them plus d8-d11 (scratch to the FP
+ *  plan, but callee-saved toward op_execute's caller) and loads VMBASE in
+ *  its prologue.
  *
- *  Every emitter writes through basic_jit_cache::emit_32, which routes
- *  the store to the RW shadow of the MAP_JIT region; code_ptr() values
- *  remain execute-view addresses throughout.
+ *  All emitters write through basic_jit_cache::emit_32 to the RW shadow of
+ *  the MAP_JIT region; code_ptr() values stay execute-view addresses.
  */
 
 // Gen-time services provided by the C++ side of the engine
@@ -307,9 +304,8 @@ static inline uint32 a64_cbz_x(int rt, intptr rel)
 	{ assert((rel & 3) == 0 && rel >= -(intptr)0x100000 && rel < (intptr)0x100000);
 	  return 0xb4000000 | ((((uint32)(rel >> 2)) & 0x7ffff) << 5) | rt; }
 
-// SIMD&FP register pairs (64-bit D form, signed offset). op_execute must
-// save d8-d11: the FP value plan hands them to generated code as scratch,
-// but AAPCS64 makes their low halves callee-saved toward OUR caller.
+// SIMD&FP register pairs (64-bit D form, signed offset), for op_execute's
+// d8-d11 save/restore.
 static inline uint32 a64_stp_d(int rt, int rt2, int rn, int byte_off)
 	{ assert((byte_off & 7) == 0 && byte_off >= -512 && byte_off < 512);
 	  return 0x6d000000 | ((((uint32)(byte_off / 8)) & 0x7f) << 15) | (rt2 << 10) | (rn << 5) | rt; }
@@ -361,11 +357,9 @@ static inline void a64_emit_jmp_abs(basic_jit_cache &c, uintptr target)
 }
 
 /*
- *  Retarget a patchable branch instruction located (in execute view) at
- *  insn_addr. Handles the two shapes the backend emits: unconditional B
- *  and CBZ/CBNZ. Returns the new instruction word; the caller decides
- *  how to store it (shadow write at translate time, jit_wx_publish for
- *  live code).
+ *  Retarget a patchable B or CBZ/CBNZ at insn_addr (execute view). Returns
+ *  the new word; the caller stores it (shadow write at translate time,
+ *  jit_wx_publish for live code).
  */
 static inline uint32 a64_retarget_branch(uint32 insn, const uint8 *insn_addr, const uint8 *target)
 {

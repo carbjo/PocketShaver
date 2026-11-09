@@ -706,7 +706,7 @@ enum {
     // =========================================================================
     // Reserved sub-opcodes (916-919) -- internal host use only
     // =========================================================================
-    GL_SUB_DRAIN                                    = 916,   // reserved: native deferred-ring drain trigger (Track A)
+    GL_SUB_DRAIN                                    = 916,   // native deferred-ring drain trigger
 
     GL_SUB_GLUT_COUNT                               = 116,
 };
@@ -715,16 +715,13 @@ enum {
 #define GL_MAX_SUBOPCODE 920
 
 // ---- Context-handle dispatch table ----
-// Some games (4x4 Evolution, Cro-Mag Rally) read GL function descriptors
-// directly out of the Mac-side context handle at `handle + 4 + slot*4` instead
-// of calling the exported stubs. Core GL 1.1 occupies slots 0..335 (see
-// gl_dispatch_sub_opcodes[]), but a game may also read *extension* slots beyond
-// that. We over-allocate the handle to GL_CTX_DISPATCH_SLOTS so every such read
-// lands inside a populated allocation (never uninitialized guest heap), and we
-// fill any slot we don't map to a real GL function with a diagnostic no-op
-// TVECT whose sub-opcode is GL_DT_DIAG_BASE + slot. GL_DT_DIAG_BASE must be
-// greater than every real sub-opcode, and GL_DT_DIAG_BASE + GL_CTX_DISPATCH_SLOTS
-// must stay below 0x8000 (the signed 16-bit `li` immediate the thunk emits).
+// Some games (4x4 Evolution, Cro-Mag Rally) read GL descriptors straight from
+// the context handle at `handle + 4 + slot*4`, including extension slots past
+// core GL's 0..335. The handle is over-allocated to GL_CTX_DISPATCH_SLOTS and
+// unmapped slots get a diagnostic no-op TVECT with sub-opcode
+// GL_DT_DIAG_BASE + slot. GL_DT_DIAG_BASE must exceed every real sub-opcode,
+// and GL_DT_DIAG_BASE + GL_CTX_DISPATCH_SLOTS must stay below 0x8000 (the
+// thunk's signed 16-bit `li` immediate).
 #define GL_CTX_DISPATCH_SLOTS 512
 #define GL_DT_DIAG_BASE       4096   // sub_opcode >= this => unmapped slot (slot = sub_opcode - base)
 
@@ -742,16 +739,9 @@ enum {
 
 
 /*
- *  Function signature table -- maps sub-opcode to argument type info
- *
- *  For each sub-opcode, stores how many args and which are float/double
- *  (passed in FPRs on PPC). This enables generic FPR extraction in the
- *  NATIVE_OPENGL_DISPATCH handler.
- *
- *  float_mask: bit N = 1 means arg N is a float/double (comes from FPR).
- *              bit N = 0 means arg N is int/pointer (comes from GPR).
- *  PPC ABI passes floating-point args in FPR1-FPR13, so signatures can
- *  describe up to 13 PPC-visible floating-point args.
+ *  Per-sub-opcode argument layout, used for generic FPR extraction in
+ *  NATIVE_OPENGL_DISPATCH. float_mask bit N set = arg N is float/double (FPR),
+ *  clear = int/pointer (GPR). PPC passes floats in FPR1-FPR13, so at most 13.
  */
 struct GLFuncSignature {
     uint8_t num_args;    // Total argument count (excluding ctx pointer)
@@ -1272,14 +1262,12 @@ struct GLContext {
     // ---- Matrix stacks ----
     float    modelview_stack[32][16];   // 32 deep, 4x4 floats
     int      modelview_depth;
-    float    projection_stack[32][16];  // 32 deep (was 2 = spec minimum; real
-                                        // Apple/ATI GL allowed ~10. Cro-Mag Rally
-                                        // nests the projection matrix deeper than
-                                        // 1 -> GL_STACK_OVERFLOW at the old cap)
+    float    projection_stack[32][16];  // 32 deep; Cro-Mag Rally nests past the
+                                        // spec minimum of 2
     int      projection_depth;
-    float    texture_stack[4][32][16];  // per unit, 32 deep (was 2)
+    float    texture_stack[4][32][16];  // per unit, 32 deep
     int      texture_depth[4];
-    float    color_stack[32][16];       // 32 deep (was 2; for imaging subset)
+    float    color_stack[32][16];       // 32 deep (imaging subset)
     int      color_depth;
     uint32_t matrix_mode;              // GL_MODELVIEW, GL_PROJECTION, etc.
 
@@ -1631,11 +1619,9 @@ extern uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
                            uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
                            const uint32_t *float_bits, int num_float_args);
 
-// @autoreleasepool wrapper around GLDispatch (defined in gfxaccel_arc_shim.mm).
-// See the RaveDispatchARC comment for the rationale.  Called from
-// sheepshaver_glue.cpp:NATIVE_GL_DISPATCH in
-// place of direct GLDispatch so the emul thread drains autoreleased MTL*/NS*
-// temporaries every dispatch call.
+// @autoreleasepool wrapper around GLDispatch (gfxaccel_arc_shim.mm). Used by
+// NATIVE_GL_DISPATCH so the emul thread drains autoreleased Metal temporaries
+// on every call.
 extern uint32_t GLDispatchARC(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
                               uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
                               const uint32_t *float_bits, int num_float_args);
@@ -1664,8 +1650,8 @@ extern uint32_t gl_dt_flag_addr;
 #if ACCEL_LOGGING_ENABLED
 #ifdef __APPLE__
 #include <os/log.h>
-extern os_log_t gl_log;        /* defined in gl_dispatch.cpp */
-extern os_log_t gl_metal_log;  /* defined in gl_dispatch.cpp */
+extern os_log_t gl_log;
+extern os_log_t gl_metal_log;
 #endif
 extern bool gl_logging_enabled;
 #ifdef __APPLE__
@@ -1712,12 +1698,12 @@ extern void GLMetalDestroyTexture(GLTextureObject *texObj);
 extern void GLMetalDrawPixels(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len);
 extern void GLMetalBitmap(GLContext *ctx, int width, int height, const uint8_t *bgra_data, int data_len,
                           float xorig, float yorig);
-// Read a rectangle from the framebuffer into a malloc'd BGRA8 buffer. Caller must free().
-// Returns NULL on failure. Output length written to *out_len.
 // Ordered framebuffer copy in GL texture row order; preserves other texels.
 extern bool GLMetalCopyFramebufferToTexture(GLContext *ctx, GLTextureObject *texObj,
     int level, int xoffset, int yoffset, int x, int y, int width, int height,
     bool redefine = false);
+// Returns a malloc'd BGRA8 copy of the rect (caller frees) and its length in
+// *out_len, or NULL on failure.
 extern uint8_t *GLMetalReadFramebufferRect(GLContext *ctx, int x, int y, int width, int height, int *out_len);
 
 /* Per-context visible overlays. Offscreen targets never enter the compositor

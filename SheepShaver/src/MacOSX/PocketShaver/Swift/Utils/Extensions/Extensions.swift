@@ -78,10 +78,9 @@ extension UIScreen {
 		return .init(width: portraitModeSize.height, height: portraitModeSize.width)
 	}
 
-	/// Height in points of the Mac camera-housing (notch) / menu-bar strip on Mac
-	/// Catalyst — where UIKit does NOT surface it as a safe-area inset — sourced from
-	/// AppKit's NSScreen via `catalyst_screen_top_inset()`. Zero off Catalyst and on
-	/// notchless / external displays.
+	/// Height in points of the notch / menu-bar strip on Catalyst, where UIKit
+	/// doesn't report it as a safe-area inset. Zero off Catalyst and on notchless
+	/// or external displays.
 	static var macCatalystNotchInset: CGFloat {
 		#if targetEnvironment(macCatalyst)
 		return CGFloat(catalyst_screen_top_inset())
@@ -90,11 +89,8 @@ extension UIScreen {
 		#endif
 	}
 
-	/// Landscape / portrait screen size with the Mac Catalyst camera-housing strip
-	/// removed from the physical-vertical dimension, so pixel-aligned resolutions
-	/// occupy the usable area below the notch — parity with Designed-for-iPad, whose
-	/// `bounds` already exclude it. Identical to the plain sizes off Catalyst and on
-	/// notchless / external displays (`macCatalystNotchInset` is 0 there).
+	/// Screen size minus the Catalyst notch strip on the physical-vertical axis,
+	/// matching Designed-for-iPad, whose `bounds` already exclude it.
 	static var pixelAlignedLandscapeSize: CGSize {
 		var size = landscapeModeSize
 		size.height -= macCatalystNotchInset
@@ -129,11 +125,7 @@ extension UIDevice {
 
 	static var deviceType: DeviceType {
 		#if targetEnvironment(macCatalyst)
-		// Mac Catalyst IS a Mac app, but ProcessInfo.isiOSAppOnMac is false here
-		// (that flag is only true for "Designed for iPad" apps). Detect Catalyst
-		// explicitly so all the app's existing `.mac` behaviour applies —
-		// notably suppressing the on-screen gamepad and its (main-thread,
-		// full-window) thumbnail rendering.
+		// isiOSAppOnMac is false under Catalyst (it's only for Designed for iPad).
 		return .mac
 		#else
 		if ProcessInfo.processInfo.isiOSAppOnMac {
@@ -154,9 +146,7 @@ extension UIDevice {
 #endif
 	}
 
-	/// True when running as "Designed for iPad" (or Mac Catalyst) on macOS.
-	/// The on-screen gamepad is pointless there — the user has a real keyboard
-	/// and mouse/trackpad.
+	/// True when running as Designed for iPad or Mac Catalyst.
 	static let isiOSAppOnMac: Bool = {
 		if #available(iOS 14.0, *) {
 			return ProcessInfo.processInfo.isiOSAppOnMac
@@ -220,15 +210,9 @@ extension UIButton {
 }
 
 extension FileManager {
-	// On the (unsandboxed) Mac Catalyst build we deliberately store all app data
-	// under the app's container Data directory
-	// (~/Library/Containers/<bundle-id>/Data) rather than the user's visible
-	// home, to keep it out of casual sight and reduce accidental corruption.
-	// Kept byte-identical to utils_ios.mm's pocketshaver_home_directory() so
-	// Swift and the emulator core agree on the same container path.
-	// NSHomeDirectory() (not FileManager.homeDirectoryForCurrentUser, which is
-	// unavailable on Mac Catalyst) returns the real user home here because the
-	// build is unsandboxed.
+	// Catalyst app data lives in ~/Library/Containers/<bundle-id>/Data, out of the
+	// user's visible home. Must match pocketshaver_home_directory() in utils_ios.mm.
+	// NSHomeDirectory() is the real home because the build is unsandboxed.
 	static var pocketShaverHome: URL {
 		let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
 		let bundleID = Bundle.main.bundleIdentifier ?? "com.carbjo.pocketshaver"

@@ -22,13 +22,9 @@ static inline bool DSpShouldReuseBackBufferCGrafPtrForFrontBuffer(
 	uint32_t back_buffer_depth,
 	uint32_t display_depth)
 {
-	/* The front buffer is the visible screen; the back buffer is the draw
-	 * target. They must NOT alias, or the guest's double-buffering / page
-	 * arithmetic desyncs (observed as a half-buffer roll in Diablo II's
-	 * splash). Always vend a distinct front buffer — never reuse the back
-	 * buffer's CGrafPtr. (Reverts the prior same-depth front==back reuse,
-	 * which did not fix the RAVE crash it targeted and collapsed double
-	 * buffering.) */
+	/* Front and back buffers must not alias, or the guest's page-flip
+	 * arithmetic desyncs (Diablo II's splash rolls by half a buffer).
+	 * Always vend a distinct front buffer. */
 	(void)back_buffer_depth;
 	(void)display_depth;
 	return false;
@@ -116,18 +112,12 @@ static inline bool DSpShouldRefreshFrontBufferStagingFromBackStaging(
 	uint32_t front_staging_refresh_swap_generation,
 	bool front_staging_geometry_changed)
 {
-	/* Only refresh when a SwapBuffers actually delivered a new visible
-	 * frame since the last copy, or the staging is being re-vended with a
-	 * new geometry (mode switch reusing the old allocation — its pixels
-	 * have the wrong pitch and must be replaced). The front staging is
-	 * the guest's live screen surface — front-buffer-direct clients
-	 * (never swap) draw 2D straight into it, and an unconditional
-	 * refresh replays the stale back-staging snapshot over their work on
-	 * every GetFrontBuffer reassert (The Sims: UI panels flicker to
-	 * black). Swap-driven and mixed clients still get one refresh per
-	 * swap, which matches real hardware: the swap replaces the visible
-	 * frame, front-buffer draws made after it persist until the next
-	 * swap. */
+	/* Refresh only after a swap delivered a new frame, or when a mode
+	 * switch re-vends the old allocation with a new pitch. Clients that
+	 * draw straight into the front buffer never swap, so refreshing
+	 * unconditionally would paint the stale back staging over their work
+	 * (The Sims' UI panels flicker black). As on hardware, front-buffer
+	 * draws made after a swap persist until the next swap. */
 	return front_staging_mac_addr != 0 &&
 	       (swap_generation != front_staging_refresh_swap_generation ||
 	        front_staging_geometry_changed) &&
