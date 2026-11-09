@@ -332,6 +332,33 @@ uint32_t rave_resource_addr_base = 0;
 static uint32_t g_rave_resource_high_water = 0;
 static uint32_t g_rave_resource_next_generation = 1;
 
+// Guest-format bytes held by live textures and bitmaps, charged against the
+// advertised texture memory. A full card answers kQAOutOfMemory so games can
+// evict (Diablo II's texture cache allocates until it sees that error and
+// treats any other error as fatal). Without the cap the 4096-slot table fills
+// with ~1 GB of Metal textures first.
+static uint64_t g_rave_texture_bytes_live = 0;
+
+static uint32_t RaveTextureBudgetBytes(uint32_t rowBytes, uint32_t h, uint32_t mipLevels)
+{
+	uint64_t bytes = uint64_t(rowBytes) * h;
+	if (mipLevels > 1) bytes += bytes / 3;
+	return bytes > UINT32_MAX ? UINT32_MAX : uint32_t(bytes);
+}
+
+// An empty card still takes one oversized texture, as long as it is valid.
+static bool RaveTextureBudgetAdmits(uint32_t bytes)
+{
+	return g_rave_texture_bytes_live == 0 ||
+	       g_rave_texture_bytes_live + bytes <= kRaveAdvertisedTextureMemoryBytes;
+}
+
+static void RaveTextureBudgetCharge(RaveResourceEntry *entry, uint32_t bytes)
+{
+	entry->budget_bytes = bytes;
+	g_rave_texture_bytes_live += bytes;
+}
+
 // Saved instructions for unpatch-call-repatch chaining
 RaveHookPatchInfo rave_hook_patches[RAVE_NUM_HOOKED_APIS] = {};
 
@@ -457,6 +484,8 @@ bool RaveResourceFree(uint32_t handle) {
 		delete[] entry->clut_data;
 		entry->clut_data = nullptr;
 	}
+	g_rave_texture_bytes_live -= entry->budget_bytes < g_rave_texture_bytes_live
+		? entry->budget_bytes : g_rave_texture_bytes_live;
 
 	memset(entry, 0, sizeof(RaveResourceEntry));
 	return true;
@@ -970,6 +999,13 @@ static int32_t RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
 		mipLevels = (uint32_t)floor(log2((double)maxDim)) + 1;
 	}
 
+	const uint32_t budgetBytes = RaveTextureBudgetBytes(rowBytes, h, mipLevels);
+	if (!RaveTextureBudgetAdmits(budgetBytes)) {
+		RAVE_LOG("TextureNew %ux%u (%u bytes) -> kQAOutOfMemory, %llu bytes live",
+		         w, h, budgetBytes, (unsigned long long)g_rave_texture_bytes_live);
+		return kQAOutOfMemory;
+	}
+
 	entry->pixel_type = pixelType;
 	entry->width      = w;
 	entry->height     = h;
@@ -1053,6 +1089,7 @@ static int32_t RaveCreateTextureFromImages(uint32_t flags, uint32_t pixelType,
 	} else {
 		RAVE_LOG("TextureNew WARN: Mac_sysalloc(%d) failed for cpu_pixel_data", cpuBufSize);
 	}
+	RaveTextureBudgetCharge(entry, budgetBytes);
 	return kQANoErr;
 }
 
@@ -1134,6 +1171,13 @@ static int32_t RaveCreateBitmapFromImage(uint32_t pixelType, uint32 imageAddr,
 	uint32_t pixmap   = ReadMacInt32(imageAddr + 12);
 	if (!RaveImageLayoutIsValid(pixelType, w, h, rowBytes, pixmap)) return kQAParamErr;
 
+	const uint32_t budgetBytes = RaveTextureBudgetBytes(rowBytes, h, 1);
+	if (!RaveTextureBudgetAdmits(budgetBytes)) {
+		RAVE_LOG("BitmapNew %ux%u (%u bytes) -> kQAOutOfMemory, %llu bytes live",
+		         w, h, budgetBytes, (unsigned long long)g_rave_texture_bytes_live);
+		return kQAOutOfMemory;
+	}
+
 	entry->pixel_type = pixelType;
 	entry->width      = w;
 	entry->height     = h;
@@ -1177,6 +1221,7 @@ static int32_t RaveCreateBitmapFromImage(uint32_t pixelType, uint32 imageAddr,
 	} else {
 		RAVE_LOG("BitmapNew WARN: Mac_sysalloc(%d) failed for cpu_pixel_data", cpuBufSize);
 	}
+	RaveTextureBudgetCharge(entry, budgetBytes);
 	return kQANoErr;
 }
 
@@ -1315,7 +1360,7 @@ int32_t NativeEngineTextureNew(uint32_t flags, uint32_t pixelType,
 	uint32_t handle = RaveResourceAlloc(kRaveResourceTexture);
 	if (handle == 0) {
 		WriteMacInt32(newTexturePtr, 0);
-		return kQANotSupported;
+		return kQAOutOfMemory;
 	}
 	RaveResourceEntry *entry = RaveResourceGet(handle);
 	const int32_t error = RaveCreateTextureFromImages(flags, pixelType, imagesAddr, entry);
@@ -1348,7 +1393,7 @@ int32_t NativeEngineBitmapNew(uint32_t flags, uint32_t pixelType,
 	uint32_t handle = RaveResourceAlloc(kRaveResourceBitmap);
 	if (handle == 0) {
 		WriteMacInt32(newBitmapPtr, 0);
-		return kQANotSupported;
+		return kQAOutOfMemory;
 	}
 	RaveResourceEntry *entry = RaveResourceGet(handle);
 	const int32_t error = RaveCreateBitmapFromImage(pixelType, imageAddr, entry);
@@ -1383,7 +1428,7 @@ int32_t NativeEngineColorTableNew(uint32_t tableType, uint32_t pixelDataAddr,
 	uint32_t handle = RaveResourceAlloc(kRaveResourceColorTable);
 	if (handle == 0) {
 		WriteMacInt32(newTablePtr, 0);
-		return kQANotSupported;
+		return kQAOutOfMemory;
 	}
 	RaveResourceEntry *entry = RaveResourceGet(handle);
 	RaveCreateColorTableData(tableType, pixelDataAddr, (int32_t)transparentIndexOrFlag, entry);
@@ -2043,7 +2088,7 @@ uint32 NativeHookTextureNew(uint32 engine, uint32 flags, uint32 pixelType,
 		if (handle == 0) {
 			RAVE_LOG("HOOK: QATextureNew(sentinel) FAILED - resource table full");
 			WriteMacInt32(newTexturePtr, 0);
-			return (uint32)(int32)kQANotSupported;
+			return (uint32)(int32)kQAOutOfMemory;
 		}
 		RaveResourceEntry *entry = RaveResourceGet(handle);
 		const int32_t error = RaveCreateTextureFromImages(flags, pixelType, images, entry);
@@ -2076,7 +2121,7 @@ uint32 NativeHookBitmapNew(uint32 engine, uint32 flags, uint32 pixelType,
 		if (handle == 0) {
 			RAVE_LOG("HOOK: QABitmapNew(sentinel) FAILED - resource table full");
 			WriteMacInt32(newBitmapPtr, 0);
-			return (uint32)(int32)kQANotSupported;
+			return (uint32)(int32)kQAOutOfMemory;
 		}
 		RaveResourceEntry *entry = RaveResourceGet(handle);
 		const int32_t error = RaveCreateBitmapFromImage(pixelType, image, entry);
@@ -2112,7 +2157,7 @@ uint32 NativeHookColorTableNew(uint32 engine, uint32 tableType, uint32 pixelData
 		if (handle == 0) {
 			RAVE_LOG("HOOK: QAColorTableNew(sentinel) FAILED - resource table full");
 			WriteMacInt32(newTablePtr, 0);
-			return (uint32)(int32)kQANotSupported;
+			return (uint32)(int32)kQAOutOfMemory;
 		}
 		RaveResourceEntry *entry = RaveResourceGet(handle);
 		RaveCreateColorTableData(tableType, pixelData, (int32_t)transparentFlag, entry);

@@ -514,6 +514,7 @@ struct RaveResourceEntry {
 	uint8_t         *original_pixels; // retained indexed pixel data (CL8/CL4) for re-expansion
 	uint32_t         original_size;   // size of original_pixels buffer
 	uint32_t         row_bytes;       // original row bytes for level 0
+	uint32_t         budget_bytes;    // charged against advertised texture memory (0 = uncharged)
 	uint32_t         bound_clut;      // resource handle of bound color table (0 = none)
 	uint8_t          priority;        // 4-bit priority (0-15) from bits [31:28] per RAVE 1.6 spec
 	uint32_t         pixmap_mac_addr; // deferred direct texture Mac address
