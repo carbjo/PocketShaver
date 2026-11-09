@@ -1217,6 +1217,22 @@ static bool nqd_decode_region(uint32 rgn_addr,
     return true;
 }
 
+/* One thread per element, dispatched as whole threadgroups. dispatchThreads:
+ * needs non-uniform threadgroup support (A11 and later); A8-A10 are still in
+ * the deployment range. Every kernel returns early for gid >= total, so the
+ * round-up to a full last group is harmless. */
+static void NQDDispatchThreads(id<MTLComputeCommandEncoder> encoder,
+                               NSUInteger total_threads,
+                               NSUInteger threadgroup_size)
+{
+    if (total_threads == 0) return;
+    if (threadgroup_size == 0) threadgroup_size = 1;
+    const NSUInteger groups =
+        (total_threads + threadgroup_size - 1) / threadgroup_size;
+    [encoder dispatchThreadgroups:MTLSizeMake(groups, 1, 1)
+            threadsPerThreadgroup:MTLSizeMake(threadgroup_size, 1, 1)];
+}
+
 // Masked bitblt: decode the mask region and bind it at buffer index 2.
 
 void NQDMetalBltMask(uint32 p)
@@ -1346,9 +1362,7 @@ void NQDMetalBltMask(uint32 p)
     if (threadgroup_size > 256) threadgroup_size = 256;
     if (threadgroup_size > total_threads) threadgroup_size = total_threads;
 
-    MTLSize grid = MTLSizeMake(total_threads, 1, 1);
-    MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
-    [encoder dispatchThreads:grid threadsPerThreadgroup:group];
+    NQDDispatchThreads(encoder, total_threads, threadgroup_size);
 
     NQDMetalFlush();  // before the mask buffer is reused
 }
@@ -1465,9 +1479,7 @@ void NQDMetalFillMask(uint32 p)
     if (threadgroup_size > 256) threadgroup_size = 256;
     if (threadgroup_size > total_threads) threadgroup_size = total_threads;
 
-    MTLSize grid = MTLSizeMake(total_threads, 1, 1);
-    MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
-    [encoder dispatchThreads:grid threadsPerThreadgroup:group];
+    NQDDispatchThreads(encoder, total_threads, threadgroup_size);
 
     NQDMetalFlush();  // before the mask buffer is reused
 }
@@ -1784,9 +1796,7 @@ void NQDMetalBitblt(uint32 p)
     if (threadgroup_size > 256) threadgroup_size = 256;
     if (threadgroup_size > total_threads) threadgroup_size = total_threads;
 
-    MTLSize grid = MTLSizeMake(total_threads, 1, 1);
-    MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
-    [encoder dispatchThreads:grid threadsPerThreadgroup:group];
+    NQDDispatchThreads(encoder, total_threads, threadgroup_size);
 
     nqd_batch_did_dispatch();
 }
@@ -1860,9 +1870,7 @@ bool NQDMetalBitblt1to1(uint32 src_base, int32 src_row_bytes,
     if (threadgroup_size > total_threads) threadgroup_size = total_threads;
     if (threadgroup_size == 0) threadgroup_size = 1;
 
-    MTLSize grid  = MTLSizeMake(total_threads, 1, 1);
-    MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
-    [encoder dispatchThreads:grid threadsPerThreadgroup:group];
+    NQDDispatchThreads(encoder, total_threads, threadgroup_size);
 
     nqd_batch_did_dispatch();
     return true;
@@ -1932,9 +1940,7 @@ bool NQDMetalBitbltScaled(uint32 src_base, int32 src_row_bytes,
     if (threadgroup_size > total_threads) threadgroup_size = total_threads;
     if (threadgroup_size == 0) threadgroup_size = 1;
 
-    MTLSize grid  = MTLSizeMake(total_threads, 1, 1);
-    MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
-    [encoder dispatchThreads:grid threadsPerThreadgroup:group];
+    NQDDispatchThreads(encoder, total_threads, threadgroup_size);
 
     nqd_batch_did_dispatch();
     return true;
@@ -2130,9 +2136,7 @@ void NQDMetalFillRect(uint32 p)
     if (threadgroup_size > 256) threadgroup_size = 256;
     if (threadgroup_size > total_threads) threadgroup_size = total_threads;
 
-    MTLSize grid = MTLSizeMake(total_threads, 1, 1);
-    MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
-    [encoder dispatchThreads:grid threadsPerThreadgroup:group];
+    NQDDispatchThreads(encoder, total_threads, threadgroup_size);
 
     nqd_batch_did_dispatch();
 }
@@ -2246,9 +2250,7 @@ void NQDMetalInvertRect(uint32 p)
     if (threadgroup_size > 256) threadgroup_size = 256;
     if (threadgroup_size > total_threads) threadgroup_size = total_threads;
 
-    MTLSize grid = MTLSizeMake(total_threads, 1, 1);
-    MTLSize group = MTLSizeMake(threadgroup_size, 1, 1);
-    [encoder dispatchThreads:grid threadsPerThreadgroup:group];
+    NQDDispatchThreads(encoder, total_threads, threadgroup_size);
 
     nqd_batch_did_dispatch();
 }

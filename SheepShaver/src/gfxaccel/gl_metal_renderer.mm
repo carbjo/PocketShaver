@@ -3709,8 +3709,11 @@ bool GLMetalCopyFramebufferToTexture(GLContext *ctx, GLTextureObject *texObj,
         [compute setTexture:src atIndex:0];
         [compute setTexture:scratch atIndex:1];
         [compute setBytes:&u length:sizeof(u) atIndex:0];
-        const NSUInteger tw = ms->textureCopyPipeline.threadExecutionWidth;
-        [compute dispatchThreads:MTLSizeMake(w, h, 1) threadsPerThreadgroup:MTLSizeMake(tw, 1, 1)];
+        // Whole threadgroups, not dispatchThreads: (needs A11+). The kernel
+        // returns early for threads past width/height.
+        const NSUInteger tw = std::max<NSUInteger>(1, ms->textureCopyPipeline.threadExecutionWidth);
+        [compute dispatchThreadgroups:MTLSizeMake(((NSUInteger)w + tw - 1) / tw, (NSUInteger)h, 1)
+                threadsPerThreadgroup:MTLSizeMake(tw, 1, 1)];
         [compute endEncoding];
         blit = [ms->currentCommandBuffer blitCommandEncoder];
         if (blit) {
