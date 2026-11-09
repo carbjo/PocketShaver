@@ -720,19 +720,20 @@ extern "C" void DSpVBLGammaFadeCallback(void *cb_ctx, void *drawable, double ts)
 }
 
 /*
- *  VBL service callback: bumps s_dsp_vbl_count and calls each Active
- *  context's VBLProc via call_macos3. Registered after
- *  DSpVBLGammaFadeCallback, unregistered in reverse order.
+ *  VBL service callback: bumps s_dsp_vbl_count and latches a pending VBLProc
+ *  delivery. Registered after DSpVBLGammaFadeCallback, unregistered in
+ *  reverse order.
  *
- *  VBLProc ABI (DSp 1.7 p.81):
- *    void DSpVBLProc(DSpContextReference ctx, void *refCon, UInt32 vblCount)
- *  r3 = ctx handle, r4 = refCon, r5 = vblCount (low 32 bits of the counter).
- *
- *  Contexts run in table index order. Every VBLProc must fire every VBL,
- *  so there is no early exit. call_macos3 blocks the emul thread until the
- *  proc returns; keeping VBLProcs short is the game's job, and a crashing
- *  VBLProc crashes the game as it would on real hardware.
+ *  The procs are not called from here. The display link fires from the
+ *  runloop pump at the top of HandleInterrupt, i.e. at an arbitrary guest
+ *  instruction, before the interrupt-nesting check and on the interrupted
+ *  stack, where a call would land inside a leaf routine's red zone.
+ *  DSpDeliverPendingVBLProcs runs them from VideoVBL, the guest's own VBL
+ *  interrupt.
  */
+static bool s_dsp_vblproc_pending = false;
+static bool s_dsp_vblproc_delivering = false;
+
 extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
 {
 	(void)cb_ctx; (void)drawable; (void)ts;
@@ -740,6 +741,28 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
 	/* Relaxed: readers only need monotonicity. */
 	atomic_fetch_add_explicit(&s_dsp_vbl_count, 1u,
 	                          memory_order_relaxed);
+	s_dsp_vblproc_pending = true;
+}
+
+/*
+ *  Calls each Active context's VBLProc via call_macos3, at most once per
+ *  guest VBL interrupt and only when a display VBL has elapsed since the
+ *  last delivery. Emul thread, guest interrupt time.
+ *
+ *  VBLProc ABI (DSp 1.7 p.81):
+ *    void DSpVBLProc(DSpContextReference ctx, void *refCon, UInt32 vblCount)
+ *  r3 = ctx handle, r4 = refCon, r5 = vblCount (low 32 bits of the counter).
+ *
+ *  Contexts run in table index order with no early exit. call_macos3 blocks
+ *  the emul thread until the proc returns; keeping VBLProcs short is the
+ *  game's job, and a crashing VBLProc crashes the game as it would on real
+ *  hardware.
+ */
+extern "C" void DSpDeliverPendingVBLProcs(void)
+{
+	if (!s_dsp_vblproc_pending || s_dsp_vblproc_delivering) return;
+	s_dsp_vblproc_pending = false;
+	s_dsp_vblproc_delivering = true;
 
 	/* All VBLProcs this tick see the same vblCount. */
 	const uint32_t vbl_count_arg =
@@ -765,6 +788,7 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
 		                  proc_refcon,
 		                  vbl_count_arg);
 	}
+	s_dsp_vblproc_delivering = false;
 }
 
 /*
@@ -774,8 +798,7 @@ extern "C" void DSpVBLServiceCallback(void *cb_ctx, void *drawable, double ts)
  *  SwapBuffers) show pixels, and keeps front-buffer drawing visible in apps
  *  that mix SwapBuffers with it.
  *
- *  Registered after DSpVBLServiceCallback, so user VBLProcs have run before
- *  this publishes. Same steps as SwapBuffers: drain guest staging into
+ *  Registered after DSpVBLServiceCallback. Same steps as SwapBuffers: drain guest staging into
  *  back_buffer.contents, encode the present into the compositor framebuffer,
  *  submit an engine-blind framebuffer layer.
  */
@@ -1635,16 +1658,29 @@ extern "C" uint32_t DSpAllocMetadataContextHandle(
 {
 	if (attr == nullptr) return 0;
 
+	/* Vend the existing metadata context for this mode if there is one, as
+	 * real DSp does (a context ref names a display mode, and enumerating
+	 * twice returns the same refs). Enumeration contexts are never freed
+	 * (PDF p.16), so without this each walk and each FindBest would claim
+	 * new slots until the table fills. DSpContextAttributes is all
+	 * uint32_t, so memcmp sees no padding. */
+	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
+		DSpContextPrivate *ctx = dsp_context_table[i];
+		if (!DSpIsInactiveMetadataOnlyContext(ctx)) continue;
+		if (ctx->enumeration_mode_index != enumeration_mode_index) continue;
+		if (memcmp(&ctx->attr, attr, sizeof(*attr)) != 0) continue;
+		return ctx->handle;
+	}
+
 	uint32_t handle = DSpAllocFirstContextHandle(attr, enumeration_mode_index);
 	if (handle != 0) return handle;
 
 	for (uint32_t i = 0; i < DSP_MAX_CONTEXTS; i++) {
 		DSpContextPrivate *ctx = dsp_context_table[i];
 		if (!DSpIsInactiveMetadataOnlyContext(ctx)) continue;
-		/* Enumeration contexts are recyclable: GetNextContext vends a new
-		 * context per step and never frees them (PDF p.16), so under table
-		 * pressure the oldest stale one is reclaimed. An app would need more
-		 * than DSP_MAX_CONTEXTS live enumerated refs to lose one it holds. */
+		/* Last resort, reachable only with more distinct metadata contexts
+		 * than slots: reclaim one. Any ref the app still holds to it then
+		 * names the new mode. */
 
 		const uint32_t recycled_handle = i + 1u;
 		DSpFreeContextHandle(recycled_handle);
@@ -3354,7 +3390,13 @@ extern "C" int32_t DSpContext_SetStateHandler(uint32_t ctxRef, uint32_t state)
 	}
 	if (have_restored_qd_mode) {
 		const DMCModeSnapshot *snap = dmc_current_snapshot();
+		/* A desktop below 32 bpp needs the switch even when the mode is
+		 * unchanged: on activation the compositor replaced its surface
+		 * with a standalone BGRA texture (MetalCompositor_OnModeEnter),
+		 * and only a snapshot carrying screen_base_host points it back at
+		 * the QuickDraw framebuffer. */
 		if (snap == nullptr ||
+		    restored_qd_mode.depth != 32u ||
 		    DSpQuickDrawModeRestoreDiffers(restored_qd_mode.width,
 		                                   restored_qd_mode.height,
 		                                   restored_qd_mode.depth,

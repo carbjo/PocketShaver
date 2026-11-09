@@ -265,18 +265,18 @@ extern void     DSpContext_SetStateSwitchHandoff(uint32_t oldCtxRef);
 
 /*
  *  CLUT handlers (DSp 1.7 pp.56-57). Guest entries are 8-byte ColorSpecs
- *  with 16-bit big-endian channels. Pointer comes before index;
- *  inEntryCount is a count, not a last index. Conversion to the 8-bit
- *  clut_bytes happens only at the guest boundary.
+ *  with 16-bit big-endian channels. Pointer comes before index; the fourth
+ *  argument is zero-based: entries start..start+inLastEntry. Conversion to
+ *  the 8-bit clut_bytes happens only at the guest boundary.
  */
 extern int32_t  DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
                                                  uint32_t entriesAddr,
                                                  uint32_t inStartingEntry,
-                                                 uint32_t inEntryCount);
+                                                 uint32_t inLastEntry);
 extern int32_t  DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
                                                  uint32_t entriesOutAddr,
                                                  uint32_t inStartingEntry,
-                                                 uint32_t inEntryCount);
+                                                 uint32_t inLastEntry);
 extern int32_t  DSpGetActiveCLUTSnapshot(uint8_t out_clut_bytes[768]);
 
 /*
@@ -330,9 +330,11 @@ extern void     DSpVBLClutLatchCallback(void *ctx, void *drawable, double ts);
 extern void     DSpVBLGammaFadeCallback(void *ctx, void *drawable, double ts);
 
 /* VBL secondary callback, registered after the gamma fade and unregistered
- * before it. Increments s_dsp_vbl_count and calls each context's VBLProc
- * through call_macos3. Emul thread. */
+ * before it. Increments s_dsp_vbl_count and latches VBLProc delivery.
+ * Emul thread. */
 extern void     DSpVBLServiceCallback(void *ctx, void *drawable, double ts);
+/* Runs latched VBLProcs; call from the guest VBL interrupt (VideoVBL). */
+extern void     DSpDeliverPendingVBLProcs(void);
 
 /* Emul-thread background/foreground drain, run from the VBL chain. */
 extern void     DSpVBLBackgroundForegroundDrain(void);

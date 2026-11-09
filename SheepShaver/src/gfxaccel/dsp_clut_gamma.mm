@@ -68,9 +68,12 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
 
 /*
  *  DSpContext_SetCLUTEntries (sub-opcode 300), DSp 1.7 p.56.
- *  entriesAddr points to inEntryCount 8-byte ColorSpecs: value@+0 (ignored),
- *  r@+2, g@+4, b@+6, 16-bit big-endian. inEntryCount is a count, not a last
- *  index; start + count must be <= 256.
+ *  ColorSpecs are 8 bytes: value@+0 (ignored), r@+2, g@+4, b@+6, 16-bit
+ *  big-endian. Matches the shipped DrawSprocketLib (and the header's
+ *  inLastEntry name) rather than the preliminary PDF: the fourth argument is
+ *  a zero-based count like VDSetEntryRecord.csCount, so CLUT entries
+ *  [start .. start + inLastEntry] are set, and entry k is read from
+ *  inEntries[k]: the table is indexed absolutely, not from the start entry.
  *
  *  Channels are narrowed to 8 bits here; everything internal stays 8-bit.
  *  When the context is not Active the write lands only in clut_bytes, and
@@ -79,7 +82,7 @@ int32_t DSpSetCLUTCore(DSpContextPrivate *ctx,
 extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
                                                      uint32_t entriesAddr,
                                                      uint32_t inStartingEntry,
-                                                     uint32_t inEntryCount)
+                                                     uint32_t inLastEntry)
 {
 	/* Check ctxRef first so a bad handle wins over a NULL buffer. */
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
@@ -91,28 +94,28 @@ extern "C" int32_t DSpContext_SetCLUTEntriesHandler(uint32_t ctxRef,
 	if (entriesAddr == 0) {
 		DSP_LOG("SetCLUTEntries: NULL entriesAddr (ctxRef=%u start=%u count=%u) "
 		        "-> kDSpInvalidAttributesErr",
-		        ctxRef, inStartingEntry, inEntryCount);
+		        ctxRef, inStartingEntry, inLastEntry);
 		return kDSpInvalidAttributesErr;
 	}
-	/* Both values are guest-controlled (r5/r6), so compare headroom by
-	 * subtraction: start + count could wrap in 32 bits. start <= 255 makes
-	 * 256 - start safe. */
-	if (inStartingEntry > 255 || inEntryCount == 0 ||
-	    inEntryCount > 256 - inStartingEntry) {
+	/* The real library takes both as UInt16. Compare headroom by
+	 * subtraction so start + extra can't wrap. */
+	inStartingEntry &= 0xFFFFu;
+	inLastEntry &= 0xFFFFu;
+	if (inStartingEntry > 255 || inLastEntry > 255 - inStartingEntry) {
 		DSP_LOG("SetCLUTEntries: out-of-range (ctxRef=%u start=%u count=%u) "
 		        "-> kDSpInvalidAttributesErr",
-		        ctxRef, inStartingEntry, inEntryCount);
+		        ctxRef, inStartingEntry, inLastEntry);
 		return kDSpInvalidAttributesErr;
 	}
 
 	const uint32_t start = inStartingEntry;
-	const uint32_t count = inEntryCount;
+	const uint32_t count = inLastEntry + 1;
 	const uint32_t last  = start + count - 1;  /* inclusive, for the core */
 
 	/* Stage as host 8-bit RGB so DSpSetCLUTCore never reads guest RAM. */
 	uint8_t staged[256 * 3];
 	for (uint32_t i = 0; i < count; i++) {
-		uint32_t e = entriesAddr + i * 8;  /* 8-byte ColorSpec stride */
+		uint32_t e = entriesAddr + (start + i) * 8;  /* absolute index */
 		staged[i * 3 + 0] = (uint8_t)(ReadMacInt16(e + 2) >> 8);  /* r */
 		staged[i * 3 + 1] = (uint8_t)(ReadMacInt16(e + 4) >> 8);  /* g */
 		staged[i * 3 + 2] = (uint8_t)(ReadMacInt16(e + 6) >> 8);  /* b */
@@ -151,7 +154,8 @@ int32_t DSpGetCLUTCore(DSpContextPrivate *ctx,
 
 /*
  *  DSpContext_GetCLUTEntries (sub-opcode 301), DSp 1.7 p.57.
- *  Same layout and limits as SetCLUTEntries; value@+0 is written as 0.
+ *  Same range as SetCLUTEntries, but the entries are written from
+ *  outEntries[0]; value@+0 is written as 0.
  *  Reads the VBL-latched CLUT, so a Set followed by a Get in the same VBL
  *  returns the previous palette (DSp palette-animation semantics). Before
  *  any Set the table is all zeros.
@@ -159,7 +163,7 @@ int32_t DSpGetCLUTCore(DSpContextPrivate *ctx,
 extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
                                                      uint32_t entriesOutAddr,
                                                      uint32_t inStartingEntry,
-                                                     uint32_t inEntryCount)
+                                                     uint32_t inLastEntry)
 {
 	/* Check ctxRef first so a bad handle wins over a NULL buffer. */
 	DSpContextPrivate *ctx = DSpGetContext(ctxRef);
@@ -171,20 +175,20 @@ extern "C" int32_t DSpContext_GetCLUTEntriesHandler(uint32_t ctxRef,
 	if (entriesOutAddr == 0) {
 		DSP_LOG("GetCLUTEntries: NULL entriesOutAddr (ctxRef=%u start=%u count=%u) "
 		        "-> kDSpInvalidAttributesErr",
-		        ctxRef, inStartingEntry, inEntryCount);
+		        ctxRef, inStartingEntry, inLastEntry);
 		return kDSpInvalidAttributesErr;
 	}
-	/* Compare headroom by subtraction; start + count could wrap. */
-	if (inStartingEntry > 255 || inEntryCount == 0 ||
-	    inEntryCount > 256 - inStartingEntry) {
+	inStartingEntry &= 0xFFFFu;
+	inLastEntry &= 0xFFFFu;
+	if (inStartingEntry > 255 || inLastEntry > 255 - inStartingEntry) {
 		DSP_LOG("GetCLUTEntries: out-of-range (ctxRef=%u start=%u count=%u) "
 		        "-> kDSpInvalidAttributesErr",
-		        ctxRef, inStartingEntry, inEntryCount);
+		        ctxRef, inStartingEntry, inLastEntry);
 		return kDSpInvalidAttributesErr;
 	}
 
 	const uint32_t start = inStartingEntry;
-	const uint32_t count = inEntryCount;
+	const uint32_t count = inLastEntry + 1;
 	const uint32_t last  = start + count - 1;  /* inclusive, for the core */
 
 	uint8_t staged[256 * 3];

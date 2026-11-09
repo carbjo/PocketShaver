@@ -360,31 +360,19 @@ extern "C" int32_t DSpAltBuffer_GetCGrafPtrHandler(uint32_t altBuffer,
 
 	uint32_t buffer_size = alignedRB * h;
 
-	/* Use the backing's contents directly if they map into guest RAM.
-	 * Never truncate a host pointer with (uint32)(uintptr_t). */
-	uint32_t baseAddr_mac = 0;
-	bool baseaddr_owned_staging = false;
-	void *contents = rec->backing.contents;        /* NULL on StorageModePrivate */
-	if (contents != NULL) {
-		baseAddr_mac = DSpUsableGuestBaseOrZero(
-			Host2MacAddr((uint8 *)contents),
-			buffer_size,
-			(uint32_t)RAMBase,
-			(uint32_t)RAMSize);
-	}
+	/* Always stage in guest RAM (NewPtrSys), like the back buffer. The Metal
+	 * backing lives outside the guest window, and Host2MacAddr truncates a
+	 * host pointer to 32 bits, so a "direct" address that happens to land
+	 * inside guest RAM would alias unrelated guest memory. Do not use
+	 * DSpReserveGuestScratch: it is the 512 KB SheepMem thunk stack and a
+	 * framebuffer-sized request overruns it. */
+	const uint32_t baseAddr_mac = DSpReserveGuestPixelStaging(buffer_size);
 	if (baseAddr_mac == 0) {
-		/* Backing is outside guest RAM (iOS MEM_BULK): stage in guest RAM
-		 * like the back buffer does (NewPtrSys). Do not use
-		 * DSpReserveGuestScratch: it is the 512 KB SheepMem thunk stack and
-		 * a framebuffer-sized request overruns it. */
-		baseAddr_mac = DSpReserveGuestPixelStaging(buffer_size);
-		if (baseAddr_mac == 0) {
-			DSP_LOG("AltBuffer_GetCGrafPtr: neither Host2MacAddr nor pixel "
-			        "staging reserve(%u) vended a guest baseAddr", buffer_size);
-			return kDSpInternalErr;
-		}
-		baseaddr_owned_staging = true;
+		DSP_LOG("AltBuffer_GetCGrafPtr: pixel staging reserve(%u) failed",
+		        buffer_size);
+		return kDSpInternalErr;
 	}
+	const bool baseaddr_owned_staging = true;
 	rec->baseaddr_mac           = baseAddr_mac;
 	rec->baseaddr_size          = buffer_size;
 	rec->baseaddr_owned_staging = baseaddr_owned_staging;

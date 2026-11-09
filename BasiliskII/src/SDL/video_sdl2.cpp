@@ -63,6 +63,7 @@
 #include "metal_compositor.h"
 #include "display_mode_controller.h"
 #include "gfxaccel_resources.h"
+extern "C" void DSpDeliverPendingVBLProcs(void);
 #endif
 
 #ifdef WIN32
@@ -2018,6 +2019,11 @@ void VideoVBL(void)
 	// Execute video VBL
 	if (private_data != NULL && private_data->interruptsEnabled)
 		VSLDoInterruptService(private_data->vslServiceID);
+#if TARGET_OS_IPHONE
+	// DrawSprocket VBLProcs latched by the display link run here, in the
+	// guest's own VBL interrupt, never from the runloop pump.
+	DSpDeliverPendingVBLProcs();
+#endif
 }
 #else
 void VideoInterrupt(void)

@@ -92,17 +92,17 @@ uint32_t DSpDispatch(uint32_t r3, uint32_t r4, uint32_t r5,
 			                                           r4 /* outContextRefAddr */);
 
 		/* 300/301 (DSp pp.56-57): pointer before index. r4 is the ColorSpec
-		 * array, r6 is a count, not a last index. */
+		 * array, r6 is a zero-based count (entries start..start+r6). */
 		case kDSpContext_SetCLUTEntries:
 			return (uint32_t)DSpContext_SetCLUTEntriesHandler(r3 /* ctxRef */,
 			                                                   r4 /* inEntries (ptr) */,
 			                                                   r5 /* inStartingEntry */,
-			                                                   r6 /* inEntryCount */);
+			                                                   r6 /* inLastEntry */);
 		case kDSpContext_GetCLUTEntries:
 			return (uint32_t)DSpContext_GetCLUTEntriesHandler(r3 /* ctxRef */,
 			                                                   r4 /* outEntries (ptr) */,
 			                                                   r5 /* inStartingEntry */,
-			                                                   r6 /* inEntryCount */);
+			                                                   r6 /* inLastEntry */);
 
 		/* Fades 402-404 (DSp pp.32-35). SetGamma/GetGamma (400/401) are not
 		 * DrawSprocketLib exports.
