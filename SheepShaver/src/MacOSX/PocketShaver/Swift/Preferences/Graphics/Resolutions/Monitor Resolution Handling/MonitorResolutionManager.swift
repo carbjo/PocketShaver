@@ -222,7 +222,9 @@ public class MonitorResolutionManager: NSObject {
 
 	func registerSafeAreaInsets(_ safeAreaInsets: UIEdgeInsets) {
 		let largestInset = [safeAreaInsets.left, safeAreaInsets.top, safeAreaInsets.right, safeAreaInsets.bottom].max()!
-
+if largestInset == 0 {
+		return
+}
 		guard !hasRegisteredSafeAreaInsets else {
 			return
 		}
