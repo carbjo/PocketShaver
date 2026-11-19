@@ -343,7 +343,7 @@
 		E204B9F228BC7D020081FDCA /* utils_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9EF28BC7D010081FDCA /* utils_ios.mm */; };
 		E204B9F328BC7D020081FDCA /* sys_darwin_ios.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E204B9F028BC7D010081FDCA /* sys_darwin_ios.cpp */; };
 		E204BA0028BC816E0081FDCA /* SDL2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204B92128BC3D640081FDCA /* SDL2.xcframework */; };
-		E204BA0128BC816E0081FDCA /* SDL2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E204B92128BC3D640081FDCA /* SDL2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E204BA0128BC816E0081FDCA /* SDL2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 286FA9AC3B4D4CC7BEABC331 /* SDL2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E204BA0928BC83620081FDCA /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA0828BC83620081FDCA /* AVFoundation.framework */; };
 		E204BA0B28BC83700081FDCA /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA0A28BC83700081FDCA /* GameController.framework */; };
 		E204BA0D28BC837D0081FDCA /* CoreAudioKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA0C28BC837D0081FDCA /* CoreAudioKit.framework */; };
@@ -474,7 +474,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				E204BA0128BC816E0081FDCA /* SDL2.xcframework in Embed Frameworks */,
+				E204BA0128BC816E0081FDCA /* SDL2.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -899,6 +899,7 @@
 		DMC10A1B2C3D4E5F60002 /* display_mode_controller.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = display_mode_controller.h; sourceTree = "<group>"; };
 		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
+		286FA9AC3B4D4CC7BEABC331 /* SDL2.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; name = SDL2.framework; path = SDL2WithPrivacy/SDL2.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B98A28BC3EBE0081FDCA /* PocketShaver.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketShaver.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; path = "iOS Launch Screen.storyboard"; sourceTree = "<group>"; };
 		E204B9A428BC7BF10081FDCA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -2298,6 +2299,7 @@
 			isa = PBXGroup;
 			children = (
 				E420260A2412540D000508DF /* etherhelpertool */,
+				286FA9AC3B4D4CC7BEABC331 /* SDL2.framework */,
 			);
 			name = Generated;
 			sourceTree = "<group>";
@@ -2410,6 +2412,7 @@
 				E204B93228BC3EBE0081FDCA /* Sources */,
 				E204B97D28BC3EBE0081FDCA /* Frameworks */,
 				E204B92B28BC3EBE0081FDCA /* Resources */,
+				286FA9AC3B4D4CC7BEABC332 /* Prepare SDL2 Framework */,
 				E204B98528BC3EBE0081FDCA /* Embed Frameworks */,
 			);
 			buildRules = (
@@ -2491,6 +2494,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		286FA9AC3B4D4CC7BEABC332 /* Prepare SDL2 Framework */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/SDL2.framework",
+				"$(SRCROOT)/PocketShaver/SDL2 Packaging/PrivacyInfo-iOS.xcprivacy",
+				"$(SRCROOT)/PocketShaver/SDL2 Packaging/PrivacyInfo-MacCatalyst.xcprivacy",
+				"$(SRCROOT)/PocketShaver/SDL2 Packaging/stage-framework.sh",
+			);
+			name = "Prepare SDL2 Framework";
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/SDL2WithPrivacy/SDL2.framework",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"$SCRIPT_INPUT_FILE_3\"\n";
+		};
 		08CD3F3214B665E1009CA2A2 /* Preprocess Info.plist */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
