@@ -336,6 +336,7 @@
 		E204B98228BC3EBE0081FDCA /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E447066F25D904D500EA2C14 /* Metal.framework */; };
 		E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */; };
 		E204B9CE28BC7BF10081FDCA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E204B9A428BC7BF10081FDCA /* Assets.xcassets */; };
+		F4C38619B12E4A3EAD267C59 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F4C38619B12E4A3EAD267C58 /* PrivacyInfo.xcprivacy */; };
 		E204B9D628BC7BF10081FDCA /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9AE28BC7BF10081FDCA /* main.mm */; };
 		E204B9E828BC7CE80081FDCA /* clip_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9E728BC7CE80081FDCA /* clip_ios.mm */; };
 		E204B9EC28BC7CF20081FDCA /* prefs_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9EB28BC7CF20081FDCA /* prefs_ios.mm */; };
@@ -903,6 +904,7 @@
 		E204B9A428BC7BF10081FDCA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E204B9AE28BC7BF10081FDCA /* main.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		E204B9C128BC7BF10081FDCA /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F4C38619B12E4A3EAD267C58 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E204B9E728BC7CE80081FDCA /* clip_ios.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = clip_ios.mm; sourceTree = "<group>"; };
 		E204B9EB28BC7CF20081FDCA /* prefs_ios.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = prefs_ios.mm; sourceTree = "<group>"; };
 		E204B9EF28BC7D010081FDCA /* utils_ios.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = utils_ios.mm; sourceTree = "<group>"; };
@@ -2278,6 +2280,7 @@
 				C7E2AFBE2E19629100CF50D4 /* Swift */,
 				C74B222D2ED78079003D0F71 /* sheepicon.png */,
 				E204B9C128BC7BF10081FDCA /* Info.plist */,
+				F4C38619B12E4A3EAD267C58 /* PrivacyInfo.xcprivacy */,
 				E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */,
 				E2F38C2228C470CC00FB98B4 /* Localizable.strings */,
 				E204B9AE28BC7BF10081FDCA /* main.mm */,
@@ -2475,6 +2478,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E204B9CE28BC7BF10081FDCA /* Assets.xcassets in Resources */,
+				F4C38619B12E4A3EAD267C59 /* PrivacyInfo.xcprivacy in Resources */,
 				E2F38C2328C470CC00FB98B4 /* Localizable.strings in Resources */,
 				E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */,
 				E204B92E28BC3EBE0081FDCA /* SheepShaver.icns in Resources */,
