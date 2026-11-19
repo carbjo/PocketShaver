@@ -25,16 +25,16 @@ extern void CheckLoad(uint32 type, int16 id, uint16 *p, uint32 size);
 extern void CheckLoad(uint32 type, const char *name, uint16 *p, uint32 size);
 extern void PatchNativeResourceManager(void);
 
-// DII splash-hang fix: lock Sound Manager component PEF code resources so they
-// are not purged/heap-moved after CFM prepares them.  maybe_queue_nift_lock()
-// records a handle at load (safe anywhere); DrainPendingResourceLocks() locks
-// queued handles and MUST be called only from a legal Execute68kTrap context
-// (the 60Hz VBL interrupt), never the native get_resource thunk.
+// Lock Sound Manager component PEF code resources so they are not purged or
+// moved after CFM prepares them (DII splash hang). maybe_queue_nift_lock()
+// records a handle at load and is safe anywhere. DrainPendingResourceLocks()
+// must be called only from a legal Execute68kTrap context (the 60Hz VBL
+// interrupt), never from the native get_resource thunk.
 extern void maybe_queue_nift_lock(uint32 type, uint32 h);
 extern void DrainPendingResourceLocks(void);
 
-// Diagnostic: dump monitored 'nift' handle state from the illegal-instruction
-// handler.  Pure host-side reads, safe from any context.
+// Dump monitored 'nift' handle state from the illegal-instruction handler.
+// Host-side reads only, safe from any context.
 extern void RsrcLocksDumpOnCrash(void);
 
 // Fault-time repair: if pc lies in a monitored 'nift' container whose code has
@@ -43,30 +43,24 @@ extern void RsrcLocksDumpOnCrash(void);
 // if repaired and the faulting instruction should be retried.
 extern int RsrcLocksTryRepair(uint32 pc, uint32 *out_start, uint32 *out_end);
 
-// True iff guest handle h is a live monitored 'nift' whose backing store must
-// never be freed (DII use-after-free root fix).  Used by the _DisposHandle
-// head-patch (OP_DISPOSE_NIFT_GUARD) to skip the free for these handles only.
+// True if h is a live monitored 'nift' whose storage must never be freed. The
+// _DisposHandle head-patch (OP_DISPOSE_NIFT_GUARD) skips the free for these.
 extern bool RsrcLockIsLiveNift(uint32 h);
 
 // Stock _DisposHandle trap entry captured at head-patch install (host global); the
 // dispose thunk's EMUL_OP returns it in A1 for the chain-to-stock (non-'nift') path.
 extern uint32 RsrcLockDisposeOrig(void);
 
-// Virtual-memory-present Gestalt spoof.  Stock _Gestalt ($A1AD) trap entry captured
-// at head-patch install (host global); the thunk's EMUL_OP returns it in A1 to
-// tail-jump to the genuine _Gestalt on the chain path.
+// Gestalt VM spoof: stock _Gestalt ($A1AD) entry captured at install. The
+// thunk's EMUL_OP returns it in A1 to chain to the real _Gestalt.
 extern uint32 GestaltHookOrig(void);
 
-// Virtual-memory-present Gestalt spoof.  Address of the bare `rts` at the tail of
-// the gestalt thunk; the OP_GESTALT_VM head-patch points A1 here on the spoof path
-// so it returns the synthesized "VM present" A0/D0 without running the real _Gestalt.
+// Gestalt VM spoof: address of the thunk's trailing rts. OP_GESTALT_VM points
+// A1 here to return the synthesized "VM present" A0/D0 without running _Gestalt.
 extern uint32 GestaltRtsStub(void);
 
-// Virtual-memory-present Gestalt spoof, process-scoped.  Returns true iff the
-// current application (CurApName, low-mem 0x910) is one of the target apps that
-// require VM, so the OP_GESTALT_VM head-patch reports gestaltVMAttr = "VM present"
-// only for them and gives the truth (VM off) to everything else (spoofing it
-// globally crashes boot).
+// True if the current app (CurApName, low-mem 0x910) needs VM, so OP_GESTALT_VM
+// reports gestaltVMAttr only for it. Spoofing it globally crashes boot.
 extern bool GestaltFakeVMForCurrentApp(void);
 
 #endif

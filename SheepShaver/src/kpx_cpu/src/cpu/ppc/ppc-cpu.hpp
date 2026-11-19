@@ -279,6 +279,7 @@ public:
 
 	// Dump registers
 	void dump_registers();
+	void dump_call_context();
 	void dump_instruction(uint32 opcode);
 	void fake_dump_registers(uint32);
 

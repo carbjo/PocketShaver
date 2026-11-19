@@ -23,9 +23,8 @@
 #include "cpu/jit/jit-wx.hpp"
 
 /*
- *  W^X code-memory primitives (see jit-wx.hpp). Compiled regardless of
- *  ENABLE_DYNGEN so the write path can be validated in builds that do
- *  not yet carry a JIT backend.
+ *  W^X code-memory primitives (see jit-wx.hpp). Built regardless of
+ *  ENABLE_DYNGEN so the write path can be validated without a JIT backend.
  */
 
 #if defined(__APPLE__) && defined(__aarch64__)
@@ -161,11 +160,10 @@ bool jit_wx_selftest(void)
 #if defined(__APPLE__)
 #include <sys/mman.h>
 
-// MEM_BULK's vm_acquire() carves from the guest bulk arena (and needs
-// vm_init() to have run) — host-side code memory must come straight from
-// mmap. MAP_JIT + simultaneous RWX is permitted by the allow-jit
-// entitlement on Intel, Rosetta included; no write-protect toggling
-// exists or is needed on x86_64.
+// Host code memory must come straight from mmap: MEM_BULK's vm_acquire()
+// carves from the guest bulk arena (and needs vm_init()). The allow-jit
+// entitlement permits MAP_JIT + RWX on Intel, Rosetta included; x86_64 has
+// no write-protect toggling.
 void *jit_wx_map(uint32 size)
 {
 	void *p = mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC,
@@ -304,10 +302,9 @@ basic_jit_cache::init_translation_cache(uint32 size)
 	wx_write_delta = wx_scratch - tcode_start;
 	jit_wx_register_shadow(tcode_start, wx_scratch, cache_size);
 #elif defined(__APPLE__)
-	// Intel: RWX MAP_JIT memory is directly writable (no W^X toggling on
-	// x86_64), so the emitters write straight into the cache — no shadow.
-	// Must not come from vm_acquire: under MEM_BULK that carves guest
-	// address space out of the bulk arena.
+	// Intel: RWX MAP_JIT memory is directly writable, so the emitters write
+	// straight into the cache with no shadow. Must not come from vm_acquire
+	// (MEM_BULK guest arena).
 	tcode_start = (uint8 *)jit_wx_map(cache_size);
 	if (tcode_start == NULL)
 		return false;

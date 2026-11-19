@@ -75,6 +75,7 @@ class GamepadLayerView: UIView, ImageDerivable {
 			}
 		}
 
+		// Capture horizontal insets before insertion to avoid a jump when switching layouts.
 		NSLayoutConstraint.activate([
 			leftCollectionStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: sideMargin + safeAreaInsets.left),
 			leftCollectionStackView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),

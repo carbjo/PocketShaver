@@ -13,21 +13,14 @@
 #include <string.h>
 
 /*
- * DMC snapshots store the Mac-side gamma/fade LUT: identity means "full
- * classic Mac intensity". The compositor converts that source LUT into the
- * display-ready LUT sampled by every visible path. Outside active DSp fades,
- * the default display policy composes the classic Mac 1.8 gamma space into
- * the modern sRGB-ish 2.2 display space. During an active fade, the LUT is
- * used directly so DSp's linear fade ramps stay linear instead of being
- * warped by a static display correction.
+ * DMC snapshots hold the guest gamma/fade LUT. The compositor turns it into
+ * the display LUT sampled by every visible path. During a DSp fade the LUT is
+ * used as-is so fade ramps stay linear.
  *
- * Single-owner rule: on iOS the compositor LUT is the ONLY place driver
- * gamma is applied. The legacy CPU bake in video.cpp cscSetEntries
- * (palette entries pre-multiplied through the guest gamma table) is
- * disabled under TARGET_OS_IPHONE — with the LUT also carrying the guest
- * table, the bake would apply gamma twice on every indexed path. Any new
- * consumer of csSave->gammaTable must route through
- * publish_gamma_lut_to_display_controller instead of baking.
+ * On iOS the compositor LUT is the only place driver gamma is applied; the
+ * cscSetEntries palette bake in video.cpp is disabled there, or indexed paths
+ * would get gamma twice. New consumers of csSave->gammaTable must go through
+ * publish_gamma_lut_to_display_controller rather than baking.
  */
 
 static inline uint8_t GfxColorByteFromUnitFloat(float unit)
@@ -44,9 +37,8 @@ static inline uint8_t GfxColorClassicMacToSRGBByte(uint8_t value)
 	return GfxColorByteFromUnitFloat(powf(unit, 1.8f / 2.2f));
 }
 
-/* Exact inverse of GfxColorClassicMacToSRGBByte (up to +/-1 LSB rounding).
- * Composing a guest table with this curve cancels the Mac Standard profile
- * gamma back to identity — the anchor for the Linear display policy. */
+/* Inverse of GfxColorClassicMacToSRGBByte (within 1 LSB). Composing a guest
+ * table with it cancels the Mac Standard curve; used by the Linear pref. */
 static inline uint8_t GfxColorSRGBToClassicMacByte(uint8_t value)
 {
 	if (value == 0 || value == 255) return value;
@@ -64,15 +56,13 @@ static inline void GfxColorFillIdentityGammaLUT(uint8_t *lut)
 	}
 }
 
-// apply_correction follows the user "Gamma ramp" pref. The guest-side driver
-// default (and the profile table Mac OS pushes on Display Manager mode
-// switches) is the Mac Standard curve — a classic-Mac 1.8 -> sRGB 2.2 lift —
-// so the guest table itself already carries the bright presentation:
-//   true (OS defined): present the guest table VERBATIM (the standard lift
-//     IS the correction; composing another lift on top would double-correct).
-//   false (Linear): compose the INVERSE standard curve so the profile lift
-//     cancels back to identity — the darker raw-framebuffer image the pref
-//     promises, held permanently: boot, post-switch, fullscreen-native alike.
+// apply_correction follows the "Gamma ramp" pref. The guest driver default,
+// and the table Mac OS pushes on Display Manager switches, is the Mac
+// Standard curve (1.8 -> 2.2 lift), so the guest table already carries it.
+//   true (OS defined): present the guest table verbatim; lifting again would
+//     double-correct.
+//   false (Linear): compose the inverse curve so the lift cancels to identity,
+//     the darker raw image, consistently at boot and after mode switches.
 static inline void GfxColorFillDefaultDisplayGammaLUT(uint8_t *lut,
                                                       bool apply_correction)
 {
@@ -96,15 +86,13 @@ static inline void GfxColorBuildDisplayGammaLUT(const uint8_t *mac_lut,
 {
 	if (mac_lut == NULL || display_lut == NULL) return;
 
-	// A fade ramp must march linearly, and OS-defined mode presents the guest
-	// table verbatim (see above) — both are a straight passthrough of mac_lut.
+	// Fades must stay linear, and OS-defined presents the guest table verbatim.
 	if (fade_active || apply_correction) {
 		memcpy(display_lut, mac_lut, 768);
 		return;
 	}
 
-	// Linear: cancel the Mac Standard profile lift out of the guest table so
-	// the presentation stays anchored at the darker raw image.
+	// Linear: cancel the Mac Standard lift out of the guest table.
 	for (int i = 0; i < 768; i++) {
 		display_lut[i] = GfxColorSRGBToClassicMacByte(mac_lut[i]);
 	}

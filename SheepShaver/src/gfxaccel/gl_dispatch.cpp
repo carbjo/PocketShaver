@@ -8,10 +8,9 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Reads the sub-opcode from the scratch word written by the PPC thunk
- *  and dispatches to the appropriate GL/AGL/GLU/GLUT handler function.
- *  All dispatch entries have real implementations covering core GL 1.2.1,
- *  extensions, GLU, and GLUT function groups.
+ *  Reads the sub-opcode the PPC thunk wrote to the scratch word and
+ *  dispatches to the GL/AGL/GLU/GLUT handler. Also records and replays
+ *  display-list commands.
  */
 
 #include <cstring>
@@ -20,31 +19,29 @@
 #include "sysdeps.h"
 #include "cpu_emulation.h"
 #include "gl_engine.h"
+#include "gl_input_validation.h"
+#include "gl_pixel_unpack_policy.h"
+#include <algorithm>
+#include <limits>
+#include <new>
 #include "accel_logging.h"
 #include "gl_defer.h"
 
-// Logging state -- gated by GL_LOGGING env var (via subsystem_on).
+// Gated by the GL_LOGGING env var.
 #if ACCEL_LOGGING_ENABLED
 bool gl_logging_enabled = accel_log_detail::subsystem_on("gl");
 #endif
 
-// PPC stack pointer, saved by glue code before dispatch for 9+ arg access
+// PPC SP, saved by the glue before dispatch for 9+ arg calls.
 uint32_t gl_ppc_sp = 0;
-// Stack arg offset: 1 when dispatch-table path shifts args, 0 normally
+// 1 when the dispatch-table path shifts args by one, else 0.
 int gl_ppc_stack_arg_offset = 0;
 
 /*
- *  gl_ppc_stack_arg -- read the Nth stack argument (0-based) from PPC stack
- *
- *  PPC ABI: stack args start at SP + 24 + 8*4 = SP + 56 (after linkage area
- *  and 8 parameter save words). But in practice with thunks, the caller's
- *  frame has params at SP + 24 (linkage) + param_offset.
- *  For PowerPC, args beyond r10 are at: caller SP + 24 + (arg_index) * 4
- *  where arg_index starts at 8 (since r3-r10 = args 0-7).
- *
- *  When the dispatch-table path is active (gl_ppc_stack_arg_offset == 1),
- *  stack indices are shifted by 1 because the context arg in r3 pushes
- *  all subsequent args one position further on the stack.
+ *  Read the Nth (0-based) argument past r10 from the PPC stack. Per the PPC
+ *  ABI it sits at SP + 24 (linkage) + (8 + N) * 4, after the save words for
+ *  r3-r10. On the dispatch-table path the context arg in r3 shifts every
+ *  argument one slot further.
  */
 uint32_t gl_ppc_stack_arg(int index)
 {
@@ -369,7 +366,7 @@ extern void NativeGLEdgeFlagPointer(GLContext *ctx, int32_t stride, uint32_t poi
 extern void NativeGLLineStipple(GLContext *ctx, int32_t factor, uint32_t pattern);
 extern void NativeGLPolygonStipple(GLContext *ctx, uint32_t mask_ptr);
 extern void NativeGLGetPolygonStipple(GLContext *ctx, uint32_t mask_ptr);
-extern void NativeGLAreTexturesResident(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t residences_ptr);
+extern uint32_t NativeGLAreTexturesResident(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t residences_ptr);
 extern void NativeGLPrioritizeTextures(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t priorities_ptr);
 extern void NativeGLNewList(GLContext *ctx, uint32_t list, uint32_t mode);
 extern void NativeGLEndList(GLContext *ctx);
@@ -756,13 +753,9 @@ static struct GLLogInit {
 #endif
 
 /*
- *  Helpers for FPR arguments captured by sheepshaver_glue.cpp.
- *
- *  Wire format: one 32-bit float payload per PPC FPR argument. The glue casts
- *  each guest float/double FPR value down to float and copies that raw word into
- *  float_bits[n]. Dispatchers for *d entry points must therefore widen that one
- *  word back to double; they must not reconstruct a 64-bit double from adjacent
- *  float_bits slots.
+ *  FPR args from sheepshaver_glue.cpp: one 32-bit float per FPR, with doubles
+ *  already narrowed. *d entry points widen that one word back to double; never
+ *  rebuild a double from two adjacent slots.
  */
 static inline float float_arg(const uint32_t* float_bits, int index) {
 	float f;
@@ -778,21 +771,21 @@ static inline double double_arg(const uint32_t* float_bits, int index) {
 //  Display List Recording and Replay
 // ============================================================================
 
-/*
- *  IsNonRecordableOpcode -- returns true for commands that must NOT be recorded
- *  in display lists (per GL spec: list management, query, and flush/sync).
- */
+// Commands that execute immediately instead of being recorded into a display
+// list (per GL spec: list management, queries, flush/sync).
+
 static bool IsNonRecordableOpcode(uint32_t op) {
+	// Window-system calls and client GLU queries/lifecycle commands execute
+    // during compilation. GLU matrix/geometry operations remain recordable.
+    if ((op >= GL_SUB_AGL_CHOOSEPIXELFORMAT && op < GL_SUB_GLU_BEGINCURVE) ||
+        op >= GL_SUB_GLUT_INITMAC) return true;
 	switch (op) {
 	// Display list management
 	case GL_SUB_NEW_LIST:
 	case GL_SUB_END_LIST:
-	case GL_SUB_CALL_LIST:
-	case GL_SUB_CALL_LISTS:
 	case GL_SUB_GEN_LISTS:
 	case GL_SUB_DELETE_LISTS:
 	case GL_SUB_IS_LIST:
-	case GL_SUB_LIST_BASE:
 	// Query/state-reading commands
 	case GL_SUB_GET_BOOLEANV:
 	case GL_SUB_GET_DOUBLEV:
@@ -830,6 +823,62 @@ static bool IsNonRecordableOpcode(uint32_t op) {
 	case GL_SUB_SELECT_BUFFER:
 	case GL_SUB_ARE_TEXTURES_RESIDENT:
 	case GL_SUB_READ_PIXELS:
+	case GL_SUB_GEN_TEXTURES:
+	case GL_SUB_DELETE_TEXTURES:
+	case GL_SUB_PIXEL_STOREF:
+	case GL_SUB_PIXEL_STOREI:
+	case GL_SUB_VERTEX_POINTER:
+	case GL_SUB_NORMAL_POINTER:
+	case GL_SUB_COLOR_POINTER:
+	case GL_SUB_TEX_COORD_POINTER:
+	case GL_SUB_INDEX_POINTER:
+	case GL_SUB_EDGE_FLAG_POINTER:
+	case GL_SUB_ENABLE_CLIENT_STATE:
+	case GL_SUB_DISABLE_CLIENT_STATE:
+	case GL_SUB_INTERLEAVED_ARRAYS:
+	case GL_SUB_PUSH_CLIENT_ATTRIB:
+	case GL_SUB_POP_CLIENT_ATTRIB:
+	case GL_SUB_CLIENT_ACTIVE_TEXTURE_ARB:
+	case GL_SUB_LOCK_ARRAYS_EXT:
+	case GL_SUB_UNLOCK_ARRAYS_EXT:
+	case GL_SUB_SECONDARY_COLOR_POINTER_EXT:
+	case GL_SUB_GET_COMPRESSED_TEX_IMAGE_ARB:
+	case GL_SUB_GET_COLOR_TABLE:
+	case GL_SUB_GET_COLOR_TABLE_PARAMETERFV:
+	case GL_SUB_GET_COLOR_TABLE_PARAMETERIV:
+	case GL_SUB_GET_CONVOLUTION_FILTER:
+	case GL_SUB_GET_CONVOLUTION_PARAMETERFV:
+	case GL_SUB_GET_CONVOLUTION_PARAMETERIV:
+	case GL_SUB_GET_SEPARABLE_FILTER:
+	case GL_SUB_GET_HISTOGRAM:
+	case GL_SUB_GET_HISTOGRAM_PARAMETERFV:
+	case GL_SUB_GET_HISTOGRAM_PARAMETERIV:
+	case GL_SUB_GET_MINMAX:
+	case GL_SUB_GET_MINMAX_PARAMETERFV:
+	case GL_SUB_GET_MINMAX_PARAMETERIV:
+	case GL_SUB_GLU_ERRORSTRING:
+	case GL_SUB_GLU_GETNURBSPROPERTY:
+	case GL_SUB_GLU_GETSTRING:
+	case GL_SUB_GLU_GETTESSPROPERTY:
+	case GL_SUB_GLU_NEWNURBSRENDERER:
+	case GL_SUB_GLU_NEWNURBSTESSELLATOREXT:
+	case GL_SUB_GLU_NEWQUADRIC:
+	case GL_SUB_GLU_NEWTESS:
+	case GL_SUB_GLU_DELETENURBSRENDERER:
+	case GL_SUB_GLU_DELETENURBSTESSELLATOREXT:
+	case GL_SUB_GLU_DELETEQUADRIC:
+	case GL_SUB_GLU_DELETETESS:
+	case GL_SUB_GLU_PROJECT:
+	case GL_SUB_GLU_UNPROJECT:
+	case GL_SUB_GLU_SCALEIMAGE:
+	case GL_SUB_GLU_NURBSCALLBACK:
+	case GL_SUB_GLU_NURBSCALLBACKDATAEXT:
+	case GL_SUB_GLU_TESSCALLBACK:
+	case GL_SUB_GLU_QUADRICCALLBACK:
+	case GL_SUB_GLU_QUADRICDRAWSTYLE:
+	case GL_SUB_GLU_QUADRICNORMALS:
+	case GL_SUB_GLU_QUADRICORIENTATION:
+	case GL_SUB_GLU_QUADRICTEXTURE:
 	// Sync
 	case GL_SUB_FLUSH:
 	case GL_SUB_FINISH:
@@ -840,248 +889,420 @@ static bool IsNonRecordableOpcode(uint32_t op) {
 }
 
 
-/*
- *  IsPointerCommand -- returns true if the sub_opcode passes a PPC pointer
- *  argument that references data which must be captured at record time.
- *  Returns the pointer arg register index (0-based from r3) and byte count
- *  to capture, or 0 if not a pointer command.
- */
-static int PointerDataSize(uint32_t op, uint32_t r3, uint32_t r4, uint32_t r5,
-                            int &arg_index) {
-	arg_index = -1;
-	switch (op) {
-	// Matrix loads: 16 floats (64 bytes) or 16 doubles (128 bytes) at pointer in r3
-	case GL_SUB_LOAD_MATRIXF:
-	case GL_SUB_LOAD_MATRIXD:
-	case GL_SUB_MULT_MATRIXF:
-	case GL_SUB_MULT_MATRIXD:
-		arg_index = 0; return (op == GL_SUB_LOAD_MATRIXD || op == GL_SUB_MULT_MATRIXD) ? 128 : 64;
-	// Vertex pointer variants: 2-4 floats
-	case GL_SUB_VERTEX2FV: arg_index = 0; return 8;
-	case GL_SUB_VERTEX3FV: arg_index = 0; return 12;
-	case GL_SUB_VERTEX4FV: arg_index = 0; return 16;
-	case GL_SUB_VERTEX2DV: arg_index = 0; return 16;
-	case GL_SUB_VERTEX3DV: arg_index = 0; return 24;
-	case GL_SUB_VERTEX4DV: arg_index = 0; return 32;
-	case GL_SUB_VERTEX2IV: arg_index = 0; return 8;
-	case GL_SUB_VERTEX3IV: arg_index = 0; return 12;
-	case GL_SUB_VERTEX4IV: arg_index = 0; return 16;
-	case GL_SUB_VERTEX2SV: arg_index = 0; return 4;
-	case GL_SUB_VERTEX3SV: arg_index = 0; return 6;
-	case GL_SUB_VERTEX4SV: arg_index = 0; return 8;
-	// Normal pointer variants: 3 components
-	case GL_SUB_NORMAL3FV: arg_index = 0; return 12;
-	case GL_SUB_NORMAL3DV: arg_index = 0; return 24;
-	case GL_SUB_NORMAL3IV: arg_index = 0; return 12;
-	case GL_SUB_NORMAL3SV: arg_index = 0; return 6;
-	case GL_SUB_NORMAL3BV: arg_index = 0; return 3;
-	// Color pointer variants
-	case GL_SUB_COLOR3FV: arg_index = 0; return 12;
-	case GL_SUB_COLOR4FV: arg_index = 0; return 16;
-	case GL_SUB_COLOR3DV: arg_index = 0; return 24;
-	case GL_SUB_COLOR4DV: arg_index = 0; return 32;
-	case GL_SUB_COLOR3BV: arg_index = 0; return 3;
-	case GL_SUB_COLOR4BV: arg_index = 0; return 4;
-	case GL_SUB_COLOR3UBV: arg_index = 0; return 3;
-	case GL_SUB_COLOR4UBV: arg_index = 0; return 4;
-	case GL_SUB_COLOR3IV: arg_index = 0; return 12;
-	case GL_SUB_COLOR4IV: arg_index = 0; return 16;
-	case GL_SUB_COLOR3SV: arg_index = 0; return 6;
-	case GL_SUB_COLOR4SV: arg_index = 0; return 8;
-	case GL_SUB_COLOR3USV: arg_index = 0; return 6;
-	case GL_SUB_COLOR4USV: arg_index = 0; return 8;
-	// TexCoord pointer variants
-	case GL_SUB_TEX_COORD1FV: arg_index = 0; return 4;
-	case GL_SUB_TEX_COORD2FV: arg_index = 0; return 8;
-	case GL_SUB_TEX_COORD3FV: arg_index = 0; return 12;
-	case GL_SUB_TEX_COORD4FV: arg_index = 0; return 16;
-	case GL_SUB_TEX_COORD1DV: arg_index = 0; return 8;
-	case GL_SUB_TEX_COORD2DV: arg_index = 0; return 16;
-	case GL_SUB_TEX_COORD3DV: arg_index = 0; return 24;
-	case GL_SUB_TEX_COORD4DV: arg_index = 0; return 32;
-	case GL_SUB_TEX_COORD1IV: arg_index = 0; return 4;
-	case GL_SUB_TEX_COORD2IV: arg_index = 0; return 8;
-	case GL_SUB_TEX_COORD3IV: arg_index = 0; return 12;
-	case GL_SUB_TEX_COORD4IV: arg_index = 0; return 16;
-	case GL_SUB_TEX_COORD1SV: arg_index = 0; return 2;
-	case GL_SUB_TEX_COORD2SV: arg_index = 0; return 4;
-	case GL_SUB_TEX_COORD3SV: arg_index = 0; return 6;
-	case GL_SUB_TEX_COORD4SV: arg_index = 0; return 8;
-	// Light/Material float vectors: 4 floats at pointer in r5 (third arg)
-	case GL_SUB_LIGHTFV: arg_index = 2; return 16;
-	case GL_SUB_MATERIALFV: arg_index = 2; return 16;
-	case GL_SUB_LIGHT_MODELFV: arg_index = 1; return 16;
-	// Clip plane: 4 doubles at pointer in r4
-	case GL_SUB_CLIP_PLANE: arg_index = 1; return 32;
-	// Fog fv: up to 4 floats at pointer in r4
-	case GL_SUB_FOGFV: arg_index = 1; return 16;
-	// TexParameter fv: up to 4 floats in r5
-	case GL_SUB_TEX_PARAMETERFV: arg_index = 2; return 16;
-	// TexEnv fv: up to 4 floats in r5
-	case GL_SUB_TEX_ENVFV: arg_index = 2; return 16;
-	// Map1/Map2, PixelMap, PolygonStipple -- rare in games, skip for now
-	default: return 0;
-	}
-}
+// For commands whose pointer arg must be captured at record time, returns the
+// byte count and sets arg_index (0-based from r3). Returns 0 otherwise.
 
-
-/*
- *  GLRecordCommand -- pack a GL command into the current display list
- *
- *  Stores the sub_opcode, register args (r3-r10), float bits,
- *  and captured pointer data into a GLCommand struct.
- */
-static void GLRecordCommand(GLContext *ctx, uint32_t sub_opcode,
-                             uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
-                             uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
-                             const uint32_t *float_bits, int num_float_args)
+static int PointerDataSize(uint32_t op,uint32_t a,uint32_t b,uint32_t c,int &arg_index)
 {
-	GLCommand cmd;
-	cmd.opcode = (uint16_t)sub_opcode;
-
-	// Pack integer/unsigned args
-	cmd.args.u[0] = r3;
-	cmd.args.u[1] = r4;
-	cmd.args.u[2] = r5;
-	cmd.args.u[3] = r6;
-	cmd.args.u[4] = r7;
-	cmd.args.u[5] = r8;
-	cmd.args.u[6] = r9;
-	cmd.args.u[7] = r10;
-
-	// Store float args in the data vector (after any pointer data)
-	// We pack float_bits[0..num_float_args-1] as raw bytes
-	int flt_bytes = num_float_args * 4;
-
-	// Check if this command has pointer data to capture
-	int ptr_arg_index = -1;
-	int ptr_data_size = PointerDataSize(sub_opcode, r3, r4, r5, ptr_arg_index);
-
-	if (ptr_data_size > 0 && ptr_arg_index >= 0) {
-		// Get the Mac pointer from the appropriate register
-		uint32_t mac_ptr = 0;
-		switch (ptr_arg_index) {
-		case 0: mac_ptr = r3; break;
-		case 1: mac_ptr = r4; break;
-		case 2: mac_ptr = r5; break;
-		case 3: mac_ptr = r6; break;
-		default: break;
-		}
-
-		if (mac_ptr) {
-			// Capture pointer data into cmd.data
-			cmd.data.resize(ptr_data_size + flt_bytes);
-			for (int b = 0; b < ptr_data_size; b++)
-				cmd.data[b] = ReadMacInt8(mac_ptr + b);
-			// Append float bits after pointer data
-			if (flt_bytes > 0)
-				memcpy(cmd.data.data() + ptr_data_size, float_bits, flt_bytes);
-		}
-	} else if (flt_bytes > 0) {
-		cmd.data.resize(flt_bytes);
-		memcpy(cmd.data.data(), float_bits, flt_bytes);
-	}
-
-	ctx->display_lists[ctx->current_list_name].commands.push_back(std::move(cmd));
+    arg_index=-1;
+    switch(op){
+    case GL_SUB_LOAD_TRANSPOSE_MATRIXF_ARB:case GL_SUB_MULT_TRANSPOSE_MATRIXF_ARB:
+    case GL_SUB_LOAD_MATRIXF:case GL_SUB_MULT_MATRIXF:arg_index=0;return 64;
+    case GL_SUB_LOAD_TRANSPOSE_MATRIXD_ARB:case GL_SUB_MULT_TRANSPOSE_MATRIXD_ARB:
+    case GL_SUB_LOAD_MATRIXD:case GL_SUB_MULT_MATRIXD:arg_index=0;return 128;
+    case GL_SUB_COLOR3BV: arg_index=0;return 3;
+    case GL_SUB_COLOR3DV: arg_index=0;return 24;
+    case GL_SUB_COLOR3FV: arg_index=0;return 12;
+    case GL_SUB_COLOR3IV: arg_index=0;return 12;
+    case GL_SUB_COLOR3SV: arg_index=0;return 6;
+    case GL_SUB_COLOR3UBV: arg_index=0;return 3;
+    case GL_SUB_COLOR3UIV: arg_index=0;return 12;
+    case GL_SUB_COLOR3USV: arg_index=0;return 6;
+    case GL_SUB_COLOR4BV: arg_index=0;return 4;
+    case GL_SUB_COLOR4DV: arg_index=0;return 32;
+    case GL_SUB_COLOR4FV: arg_index=0;return 16;
+    case GL_SUB_COLOR4IV: arg_index=0;return 16;
+    case GL_SUB_COLOR4SV: arg_index=0;return 8;
+    case GL_SUB_COLOR4UBV: arg_index=0;return 4;
+    case GL_SUB_COLOR4UIV: arg_index=0;return 16;
+    case GL_SUB_COLOR4USV: arg_index=0;return 8;
+    case GL_SUB_EVAL_COORD1DV: arg_index=0;return 8;
+    case GL_SUB_EVAL_COORD1FV: arg_index=0;return 4;
+    case GL_SUB_EVAL_COORD2DV: arg_index=0;return 16;
+    case GL_SUB_EVAL_COORD2FV: arg_index=0;return 8;
+    case GL_SUB_NORMAL3BV: arg_index=0;return 3;
+    case GL_SUB_NORMAL3DV: arg_index=0;return 24;
+    case GL_SUB_NORMAL3FV: arg_index=0;return 12;
+    case GL_SUB_NORMAL3IV: arg_index=0;return 12;
+    case GL_SUB_NORMAL3SV: arg_index=0;return 6;
+    case GL_SUB_RASTER_POS2DV: arg_index=0;return 16;
+    case GL_SUB_RASTER_POS2FV: arg_index=0;return 8;
+    case GL_SUB_RASTER_POS2IV: arg_index=0;return 8;
+    case GL_SUB_RASTER_POS2SV: arg_index=0;return 4;
+    case GL_SUB_RASTER_POS3DV: arg_index=0;return 24;
+    case GL_SUB_RASTER_POS3FV: arg_index=0;return 12;
+    case GL_SUB_RASTER_POS3IV: arg_index=0;return 12;
+    case GL_SUB_RASTER_POS3SV: arg_index=0;return 6;
+    case GL_SUB_RASTER_POS4DV: arg_index=0;return 32;
+    case GL_SUB_RASTER_POS4FV: arg_index=0;return 16;
+    case GL_SUB_RASTER_POS4IV: arg_index=0;return 16;
+    case GL_SUB_RASTER_POS4SV: arg_index=0;return 8;
+    case GL_SUB_TEX_COORD1DV: arg_index=0;return 8;
+    case GL_SUB_TEX_COORD1FV: arg_index=0;return 4;
+    case GL_SUB_TEX_COORD1IV: arg_index=0;return 4;
+    case GL_SUB_TEX_COORD1SV: arg_index=0;return 2;
+    case GL_SUB_TEX_COORD2DV: arg_index=0;return 16;
+    case GL_SUB_TEX_COORD2FV: arg_index=0;return 8;
+    case GL_SUB_TEX_COORD2IV: arg_index=0;return 8;
+    case GL_SUB_TEX_COORD2SV: arg_index=0;return 4;
+    case GL_SUB_TEX_COORD3DV: arg_index=0;return 24;
+    case GL_SUB_TEX_COORD3FV: arg_index=0;return 12;
+    case GL_SUB_TEX_COORD3IV: arg_index=0;return 12;
+    case GL_SUB_TEX_COORD3SV: arg_index=0;return 6;
+    case GL_SUB_TEX_COORD4DV: arg_index=0;return 32;
+    case GL_SUB_TEX_COORD4FV: arg_index=0;return 16;
+    case GL_SUB_TEX_COORD4IV: arg_index=0;return 16;
+    case GL_SUB_TEX_COORD4SV: arg_index=0;return 8;
+    case GL_SUB_VERTEX2DV: arg_index=0;return 16;
+    case GL_SUB_VERTEX2FV: arg_index=0;return 8;
+    case GL_SUB_VERTEX2IV: arg_index=0;return 8;
+    case GL_SUB_VERTEX2SV: arg_index=0;return 4;
+    case GL_SUB_VERTEX3DV: arg_index=0;return 24;
+    case GL_SUB_VERTEX3FV: arg_index=0;return 12;
+    case GL_SUB_VERTEX3IV: arg_index=0;return 12;
+    case GL_SUB_VERTEX3SV: arg_index=0;return 6;
+    case GL_SUB_VERTEX4DV: arg_index=0;return 32;
+    case GL_SUB_VERTEX4FV: arg_index=0;return 16;
+    case GL_SUB_VERTEX4IV: arg_index=0;return 16;
+    case GL_SUB_VERTEX4SV: arg_index=0;return 8;
+    case GL_SUB_MULTI_TEX_COORD1DV_ARB: arg_index=1;return 8;
+    case GL_SUB_MULTI_TEX_COORD1FV_ARB: arg_index=1;return 4;
+    case GL_SUB_MULTI_TEX_COORD1IV_ARB: arg_index=1;return 4;
+    case GL_SUB_MULTI_TEX_COORD1SV_ARB: arg_index=1;return 2;
+    case GL_SUB_MULTI_TEX_COORD2DV_ARB: arg_index=1;return 16;
+    case GL_SUB_MULTI_TEX_COORD2FV_ARB: arg_index=1;return 8;
+    case GL_SUB_MULTI_TEX_COORD2IV_ARB: arg_index=1;return 8;
+    case GL_SUB_MULTI_TEX_COORD2SV_ARB: arg_index=1;return 4;
+    case GL_SUB_MULTI_TEX_COORD3DV_ARB: arg_index=1;return 24;
+    case GL_SUB_MULTI_TEX_COORD3FV_ARB: arg_index=1;return 12;
+    case GL_SUB_MULTI_TEX_COORD3IV_ARB: arg_index=1;return 12;
+    case GL_SUB_MULTI_TEX_COORD3SV_ARB: arg_index=1;return 6;
+    case GL_SUB_MULTI_TEX_COORD4DV_ARB: arg_index=1;return 32;
+    case GL_SUB_MULTI_TEX_COORD4FV_ARB: arg_index=1;return 16;
+    case GL_SUB_MULTI_TEX_COORD4IV_ARB: arg_index=1;return 16;
+    case GL_SUB_MULTI_TEX_COORD4SV_ARB: arg_index=1;return 8;
+    case GL_SUB_SECONDARYCOLOR3BV_EXT: arg_index=0;return 3;
+    case GL_SUB_SECONDARY_COLOR3DV_EXT: arg_index=0;return 24;
+    case GL_SUB_SECONDARY_COLOR3FV_EXT: arg_index=0;return 12;
+    case GL_SUB_SECONDARY_COLOR3IV_EXT: arg_index=0;return 12;
+    case GL_SUB_SECONDARY_COLOR3SV_EXT: arg_index=0;return 6;
+    case GL_SUB_SECONDARY_COLOR3UBV_EXT: arg_index=0;return 3;
+    case GL_SUB_SECONDARY_COLOR3UIV_EXT: arg_index=0;return 12;
+    case GL_SUB_SECONDARY_COLOR3USV_EXT: arg_index=0;return 6;
+    case GL_SUB_INDEXDV:arg_index=0;return 8;
+    case GL_SUB_INDEXFV:arg_index=0;return 4;
+    case GL_SUB_INDEXIV:arg_index=0;return 4;
+    case GL_SUB_INDEXSV:arg_index=0;return 2;
+    case GL_SUB_INDEXUBV:arg_index=0;return 1;
+    case GL_SUB_EDGE_FLAGV:arg_index=0;return 1;
+    case GL_SUB_LIGHTFV:case GL_SUB_LIGHTIV:
+        arg_index=2;return (b==0x1204 ? 3 : b>=0x1205 && b<=0x1209 ? 1 : 4)*4;
+    case GL_SUB_MATERIALFV:case GL_SUB_MATERIALIV:
+        arg_index=2;return b==0x1601 ? 4 : b==0x1603 ? 12 : 16;
+    case GL_SUB_LIGHT_MODELFV:case GL_SUB_LIGHT_MODELIV:
+        arg_index=1;return a==0x0b53 ? 16 : 4;
+    case GL_SUB_FOGFV:case GL_SUB_FOGIV:arg_index=1;return a==0x0b66 ? 16 : 4;
+    case GL_SUB_TEX_PARAMETERFV:case GL_SUB_TEX_PARAMETERIV:
+        arg_index=2;return b==0x1004 ? 16 : 4;
+    case GL_SUB_TEX_ENVFV:case GL_SUB_TEX_ENVIV:arg_index=2;return b==0x2201 ? 16 : 4;
+    case GL_SUB_TEX_GENFV:case GL_SUB_TEX_GENIV:arg_index=2;return b==0x2500 ? 4 : 16;
+    case GL_SUB_TEX_GENDV:arg_index=2;return b==0x2500 ? 8 : 32;
+    case GL_SUB_COLOR_TABLE_PARAMETERFV:case GL_SUB_COLOR_TABLE_PARAMETERIV:
+    case GL_SUB_CONVOLUTION_PARAMETERFV:case GL_SUB_CONVOLUTION_PARAMETERIV:
+        arg_index=2;return (b==0x8013 || b==0x801a || b==0x801b || b==0x80d6 || b==0x80d7) ? 16 : 4;
+    case GL_SUB_CLIP_PLANE:arg_index=1;return 32;
+    default:return 0;
+    }
 }
 
-
-/*
- *  GLReplayCommand -- replay a single recorded display list command
- *
- *  For commands with captured pointer data, we write the data to a small
- *  scratch buffer in Mac memory and point the register arg at it.
- *  For commands without pointer data, we call handlers directly with
- *  stored register args and float bits.
- */
-static uint32_t gl_dlist_scratch_addr = 0;  // Mac-side scratch for pointer replay
+// Captured arguments are numbered r3..r10=0..7, followed by PPC stack words.
+// Each invocation owns its scratch allocation, so nested lists cannot overwrite
+// an outer command's captured pointers or stack frame.
+static void GLRecordCommand(GLContext *ctx, uint32_t op,
+    uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint32_t e,uint32_t f,uint32_t g,uint32_t h,
+    const uint32_t *floats,int numFloats)
+{
+    GLCommand cmd{};
+    cmd.unpack_lsb_first=ctx->pixel_store.unpack_lsb_first;
+    cmd.unpack_image_height=ctx->pixel_store.unpack_image_height;
+    cmd.unpack_skip_images=ctx->pixel_store.unpack_skip_images;
+    cmd.opcode=uint16_t(op);
+    const uint32_t args[8]={a,b,c,d,e,f,g,h};
+    memcpy(cmd.args.u,args,sizeof(args));
+    if(floats && numFloats>0) cmd.float_args.assign(floats,floats+numFloats);
+    int stackCount=0;
+    switch(op) {
+    case GL_SUB_TEX_IMAGE2D: case GL_SUB_TEX_SUB_IMAGE2D: stackCount=1;
+        if(gl_ppc_stack_arg_offset) cmd.args.u[7]=gl_ppc_stack_arg(-1);
+        break;
+    case GL_SUB_GLU_PICKMATRIX: stackCount=1;break;
+    case GL_SUB_GLU_CYLINDER: stackCount=1;break;
+    case GL_SUB_MAP2D: stackCount=6;break;
+    case GL_SUB_MAP2F: stackCount=2;break;
+    case GL_SUB_COMPRESSED_TEX_IMAGE3D_ARB:
+    case GL_SUB_COMPRESSED_TEX_SUB_IMAGE2D_ARB: stackCount=1;break;
+    case GL_SUB_COMPRESSED_TEX_SUB_IMAGE3D_ARB: stackCount=3;break;
+    case GL_SUB_TEX_IMAGE3D_EXT: stackCount=2;break;
+    case GL_SUB_TEX_SUB_IMAGE3D_EXT: stackCount=3;break;
+    case GL_SUB_COPY_TEX_SUB_IMAGE3D_EXT: stackCount=1;break;
+    default:break;
+    }
+    for(int i=0;i<stackCount;++i) cmd.stack_args[i]=gl_ppc_stack_arg(i);
+    auto argument=[&](int n)->uint32_t {return n<8 ? cmd.args.u[n] : cmd.stack_args[n-8];};
+    bool valid=true;
+    auto capture=[&](int n,uint64_t bytes) {
+        const uint32_t address=argument(n);
+        if(!address || !bytes) return;
+        if(bytes > 0xffffffffull || !GLGuestMappedRange(address,bytes,RAMBase,RAMSize,ROMBase,ROM_SIZE)) {valid=false;return;}
+        try {
+            GLCommand::Payload payload;payload.argument=n;payload.bytes.resize(size_t(bytes));
+            for(size_t i=0;i<bytes;++i) payload.bytes[i]=ReadMacInt8(address+uint32_t(i));
+            cmd.payloads.push_back(std::move(payload));
+        } catch(const std::bad_alloc &) {if(!ctx->last_error)ctx->last_error=0x0505;valid=false;}
+    };
+    int pointer=-1;
+    const int bytes=PointerDataSize(op,a,b,c,pointer);
+    if(bytes>0 && pointer>=0) capture(pointer,bytes);
+    auto pixelData=[&](int pointer,int32_t w,int32_t height,uint32_t format,uint32_t type,int32_t depth=1,bool image3D=false) {
+        const int bpp=GLPixelSourceBytesPerPixel(format,type);
+        const auto &ps=ctx->pixel_store;
+        if(w<0 || height<0 || depth<0 || !bpp || ps.unpack_row_length<0 || ps.unpack_skip_rows<0 || ps.unpack_skip_pixels<0 || ps.unpack_image_height<0 || ps.unpack_skip_images<0) {valid=false;return;}
+        if(!w || !height || !depth) return;
+        int align=ps.unpack_alignment;
+        if(align!=1 && align!=2 && align!=4 && align!=8) align=4;
+        const uint64_t pitch=(uint64_t(ps.unpack_row_length ? ps.unpack_row_length : w)*bpp+align-1)&~uint64_t(align-1);
+        const uint64_t imageRows=ps.unpack_image_height ? uint64_t(ps.unpack_image_height) : uint64_t(height);
+        const uint64_t rows=image3D ? (uint64_t(ps.unpack_skip_images)+depth-1)*imageRows+height : uint64_t(height);
+        if(pitch>0xffffffffull || rows>0xffffffffull) {valid=false;return;}
+        const uint64_t rowCount=uint64_t(ps.unpack_skip_rows)+rows-1;
+        if(pitch && rowCount>0xffffffffull/pitch) {valid=false;return;}
+        const uint64_t length=rowCount*pitch+(uint64_t(ps.unpack_skip_pixels)+w)*bpp;
+        capture(pointer,length);
+        cmd.has_unpack=true;cmd.unpack[0]=align;cmd.unpack[1]=ps.unpack_row_length;
+        cmd.unpack[2]=ps.unpack_skip_pixels;cmd.unpack[3]=ps.unpack_skip_rows;
+    };
+    auto bitmapData=[&](int pointer,int32_t width,int32_t height) {
+        const auto &ps=ctx->pixel_store;
+        if(width<0 || height<0 || ps.unpack_row_length<0 || ps.unpack_skip_rows<0 || ps.unpack_skip_pixels<0) {valid=false;return;}
+        const int align=ps.unpack_alignment==1 || ps.unpack_alignment==2 || ps.unpack_alignment==8 ? ps.unpack_alignment : 4;
+        const uint64_t rowBits=ps.unpack_row_length ? uint64_t(ps.unpack_row_length) : uint64_t(width);
+        const uint64_t pitch=(((rowBits+7)/8)+align-1)&~uint64_t(align-1);
+        const uint64_t length=width && height ? (uint64_t(ps.unpack_skip_rows)+height-1)*pitch+(uint64_t(ps.unpack_skip_pixels)+width+7)/8 : 0;
+        capture(pointer,length);cmd.has_unpack=true;
+        cmd.unpack[0]=align;cmd.unpack[1]=ps.unpack_row_length;
+        cmd.unpack[2]=ps.unpack_skip_pixels;cmd.unpack[3]=ps.unpack_skip_rows;
+    };
+    switch(op) {
+    case GL_SUB_CALL_LISTS: {
+        int size=GLPixelScalarTypeBytes(b);
+        if(b>=0x1407 && b<=0x1409) size=int(b-0x1405);
+        if(int32_t(a)<0 || !size) valid=false;else capture(2,uint64_t(a)*size);
+        break;
+    }
+    case GL_SUB_TEX_IMAGE1D: pixelData(7,d,1,f,g);break;
+    case GL_SUB_TEX_IMAGE2D: pixelData(8,d,e,g,cmd.args.u[7]);break;
+    case GL_SUB_TEX_SUB_IMAGE1D: pixelData(6,d,1,e,f);break;
+    case GL_SUB_TEX_SUB_IMAGE2D: pixelData(8,e,f,g,cmd.args.u[7]);break;
+    case GL_SUB_TEX_IMAGE3D_EXT: pixelData(9,d,e,h,cmd.stack_args[0],f,true);break;
+    case GL_SUB_TEX_SUB_IMAGE3D_EXT: pixelData(10,f,g,cmd.stack_args[0],cmd.stack_args[1],h,true);break;
+    case GL_SUB_DRAW_PIXELS: pixelData(4,a,b,c,d);break;
+    case GL_SUB_COLOR_TABLE: case GL_SUB_COLOR_SUB_TABLE: pixelData(5,c,1,d,e);break;
+    case GL_SUB_CONVOLUTION_FILTER1D: pixelData(5,c,1,d,e);break;
+    case GL_SUB_CONVOLUTION_FILTER2D: pixelData(6,c,d,e,f);break;
+    case GL_SUB_SEPARABLE_FILTER2D: pixelData(6,c,1,e,f);pixelData(7,d,1,e,f);break;
+    case GL_SUB_BITMAP: bitmapData(6,a,b);break;
+    case GL_SUB_GLU_PICKMATRIX: capture(8,16);break;
+    case GL_SUB_GLU_BUILD1DMIPMAPS: pixelData(5,c,1,d,e);break;
+    case GL_SUB_GLU_BUILD2DMIPMAPS: pixelData(6,c,d,e,f);break;
+    case GL_SUB_PIXEL_MAPFV: case GL_SUB_PIXEL_MAPUIV: capture(2,uint64_t(b)*4);break;
+    case GL_SUB_PIXEL_MAPUSV: capture(2,uint64_t(b)*2);break;
+    case GL_SUB_POLYGON_STIPPLE: bitmapData(0,32,32);break;
+    case GL_SUB_RECTDV: capture(0,16);capture(1,16);break;
+    case GL_SUB_RECTFV: case GL_SUB_RECTIV: capture(0,8);capture(1,8);break;
+    case GL_SUB_RECTSV: capture(0,4);capture(1,4);break;
+    case GL_SUB_COMPRESSED_TEX_IMAGE1D_ARB: capture(6,f);break;
+    case GL_SUB_COMPRESSED_TEX_IMAGE2D_ARB: capture(7,g);break;
+    case GL_SUB_COMPRESSED_TEX_IMAGE3D_ARB: capture(8,h);break;
+    case GL_SUB_COMPRESSED_TEX_SUB_IMAGE1D_ARB: capture(6,f);break;
+    case GL_SUB_COMPRESSED_TEX_SUB_IMAGE2D_ARB: capture(8,h);break;
+    case GL_SUB_COMPRESSED_TEX_SUB_IMAGE3D_ARB: capture(10,cmd.stack_args[1]);break;
+    case GL_SUB_MAP1F: case GL_SUB_MAP1D: case GL_SUB_MAP2F: case GL_SUB_MAP2D: {
+        const bool two=op==GL_SUB_MAP2F || op==GL_SUB_MAP2D;
+        const bool dbl=op==GL_SUB_MAP1D || op==GL_SUB_MAP2D;
+        const int32_t us=int32_t(dbl ? f : d),un=int32_t(dbl ? g : e);
+        const int32_t vs=two ? int32_t(dbl ? cmd.stack_args[3] : h) : 0;
+        const int32_t vn=two ? int32_t(dbl ? cmd.stack_args[4] : cmd.stack_args[0]) : 1;
+        const int pointer=two ? (dbl ? 13 : 9) : (dbl ? 7 : 5);
+        auto domain=[&](int index) {float value=0;if(floats && index<numFloats)std::memcpy(&value,floats+index,4);return double(value);};
+        GLEvaluatorDefinitionLayout layout;
+        const uint32_t error=GLValidateEvaluatorDefinition(ctx->in_begin,a,two,argument(pointer),dbl?8:4,
+            un,us,domain(0),domain(1),vn,vs,two?domain(2):0,two?domain(3):1,
+            RAMBase,RAMSize,ROMBase,ROM_SIZE,layout);
+        if(error) {if(!ctx->last_error)ctx->last_error=error;valid=false;break;}
+        capture(pointer,layout.bytes);break;
+    }
+    case GL_SUB_PRIORITIZE_TEXTURES: capture(1,uint64_t(a)*4);capture(2,uint64_t(a)*4);break;
+    default:break;
+    }
+    // Arrays are client state: draw commands capture the array data and
+    // descriptors at compile time, so later pointer edits do not affect them.
+    if(op==GL_SUB_DRAW_ARRAYS || op==GL_SUB_DRAW_ELEMENTS || op==GL_SUB_DRAW_RANGE_ELEMENTS || op==GL_SUB_ARRAY_ELEMENT) {
+        int32_t count=op==GL_SUB_DRAW_ARRAYS ? int32_t(c) : op==GL_SUB_DRAW_ELEMENTS ? int32_t(b) : op==GL_SUB_DRAW_RANGE_ELEMENTS ? int32_t(d) : 1;
+        uint32_t maximum=0;
+        if(count<0) valid=false;
+        if(op==GL_SUB_DRAW_ARRAYS || op==GL_SUB_ARRAY_ELEMENT) {
+            const int64_t first=op==GL_SUB_ARRAY_ELEMENT ? int32_t(a) : int32_t(b);
+            if(first<0 || first+count>INT32_MAX) valid=false;
+            else maximum=uint32_t(first+std::max(count,1)-1);
+        } else {
+            const int indexArg=op==GL_SUB_DRAW_ELEMENTS ? 3 : 5;
+            const uint32_t type=op==GL_SUB_DRAW_ELEMENTS ? c : e;
+            const int size=type==0x1401 ? 1 : type==0x1403 ? 2 : type==0x1405 ? 4 : 0;
+            if(!size) valid=false;
+            else {
+                capture(indexArg,uint64_t(std::max(count,0))*size);
+                if(valid && argument(indexArg)) for(int32_t i=0;i<count;++i) {
+                    const uint32_t p=argument(indexArg)+uint32_t(i)*size;
+                    const uint32_t index=size==1 ? ReadMacInt8(p) : size==2 ? ReadMacInt16(p) : ReadMacInt32(p);
+                    maximum=std::max(maximum,index);
+                }
+            }
+        }
+        GLVertexArrayPointer *arrays[]={&ctx->vertex_array,&ctx->normal_array,&ctx->color_array,
+            &ctx->texcoord_array[0],&ctx->texcoord_array[1],&ctx->texcoord_array[2],&ctx->texcoord_array[3],
+            &ctx->secondary_color_array,&ctx->edge_flag_array,&ctx->index_array};
+        cmd.has_arrays=true;
+        for(int i=0;i<10;++i) {
+            GLVertexArrayPointer v=*arrays[i];
+            if(i>=3 && i<=6 && !v.enabled &&
+                (ctx->prepared_texcoord_array_for_draw[i-3] || ctx->latched_texture_2d_for_array_draw[i-3]) &&
+                ctx->prepared_texcoord_array[i-3].pointer) {
+                v=ctx->prepared_texcoord_array[i-3];v.enabled=true;
+            }
+            cmd.arrays[i]={v.pointer,v.type,v.size,v.stride,v.enabled};
+            if(!valid || !v.enabled || !count) continue;
+            const int scalar=GLPixelScalarTypeBytes(v.type);
+            const int64_t element=int64_t(scalar)*v.size;
+            const int64_t stride=v.stride ? v.stride : element;
+            if(!scalar || element<=0 || stride<0) {valid=false;continue;}
+            // Array payload arguments use a separate namespace (16..25).
+            const uint64_t bytes=uint64_t(maximum)*stride+element;
+            if(bytes>0xffffffffull || !GLGuestMappedRange(v.pointer,bytes,RAMBase,RAMSize,ROMBase,ROM_SIZE)) {valid=false;continue;}
+            if(v.pointer) {
+                try {
+                    GLCommand::Payload data;data.argument=16+i;data.bytes.resize(size_t(bytes));
+                    for(size_t b=0;b<bytes;++b)data.bytes[b]=ReadMacInt8(v.pointer+uint32_t(b));
+                    cmd.payloads.push_back(std::move(data));
+                } catch(const std::bad_alloc &) {if(!ctx->last_error)ctx->last_error=0x0505;valid=false;}
+            }
+        }
+    }
+    if(!valid) {if(!ctx->last_error)ctx->last_error=0x0501;return;}
+    ctx->display_lists[ctx->current_list_name].commands.push_back(std::move(cmd));
+}
 
 void GLReplayCommand(GLContext *ctx, const GLCommand &cmd)
 {
-	// Reconstruct args
-	uint32_t r3 = cmd.args.u[0];
-	uint32_t r4 = cmd.args.u[1];
-	uint32_t r5 = cmd.args.u[2];
-	uint32_t r6 = cmd.args.u[3];
-	uint32_t r7 = cmd.args.u[4];
-	uint32_t r8 = cmd.args.u[5];
-	uint32_t r9 = cmd.args.u[6];
-	uint32_t r10 = cmd.args.u[7];
-
-	// Check if this command had pointer data captured
-	int ptr_arg_index = -1;
-	int ptr_data_size = PointerDataSize(cmd.opcode, r3, r4, r5, ptr_arg_index);
-
-	const uint32_t *float_bits = nullptr;
-	int num_float_args = 0;
-
-	if (ptr_data_size > 0 && ptr_arg_index >= 0 && (int)cmd.data.size() >= ptr_data_size) {
-		// Write captured data to Mac scratch buffer for the handler to read
-		if (!gl_dlist_scratch_addr) {
-			extern uint32 Mac_sysalloc(uint32 size);
-			gl_dlist_scratch_addr = Mac_sysalloc(256);  // 256 bytes plenty for any single command
-		}
-
-		for (int b = 0; b < ptr_data_size; b++)
-			WriteMacInt8(gl_dlist_scratch_addr + b, cmd.data[b]);
-
-		// Point the register arg at our scratch buffer
-		switch (ptr_arg_index) {
-		case 0: r3 = gl_dlist_scratch_addr; break;
-		case 1: r4 = gl_dlist_scratch_addr; break;
-		case 2: r5 = gl_dlist_scratch_addr; break;
-		case 3: r6 = gl_dlist_scratch_addr; break;
-		}
-
-		// Float bits follow pointer data in cmd.data
-		if ((int)cmd.data.size() > ptr_data_size) {
-			float_bits = (const uint32_t *)(cmd.data.data() + ptr_data_size);
-			num_float_args = ((int)cmd.data.size() - ptr_data_size) / 4;
-		}
-	} else if (!cmd.data.empty()) {
-		// No pointer data -- cmd.data contains only float bits
-		float_bits = (const uint32_t *)cmd.data.data();
-		num_float_args = (int)cmd.data.size() / 4;
-	}
-
-	// Temporarily clear in_display_list to prevent re-recording during replay
-	bool was_in_list = ctx->in_display_list;
-	ctx->in_display_list = false;
-
-	// Write sub-opcode to scratch word so GLDispatch can read it
-	WriteMacInt32(gl_scratch_addr, cmd.opcode);
-
-	// Re-dispatch through GLDispatch
-	GLDispatch(r3, r4, r5, r6, r7, r8, r9, r10,
-	           float_bits ? float_bits : (const uint32_t *)"\0\0\0\0",
-	           num_float_args);
-
-	ctx->in_display_list = was_in_list;
+    const uint32_t savedSP=gl_ppc_sp;const int savedOffset=gl_ppc_stack_arg_offset;
+    const uint32_t savedOpcode=ReadMacInt32(gl_scratch_addr);
+    uint64_t bytes=96;
+    for(const auto &p:cmd.payloads) bytes+=(p.bytes.size()+7)&~size_t(7);
+    if(bytes>0xffffffffull) {if(!ctx->last_error)ctx->last_error=0x0505;return;}
+    const std::weak_ptr<char> lifetime=ctx->lifetime;
+    // Scalar setters need no guest scratch. Pointer/stack commands reuse one
+    // slot per nesting depth, grown geometrically.
+    const bool needsScratch=!cmd.payloads.empty() ||
+        cmd.opcode==GL_SUB_TEX_IMAGE2D || cmd.opcode==GL_SUB_TEX_SUB_IMAGE2D ||
+        cmd.opcode==GL_SUB_MAP2D || cmd.opcode==GL_SUB_MAP2F ||
+        cmd.opcode==GL_SUB_TEX_IMAGE3D_EXT || cmd.opcode==GL_SUB_TEX_SUB_IMAGE3D_EXT ||
+        cmd.opcode==GL_SUB_COPY_TEX_SUB_IMAGE3D_EXT ||
+        cmd.opcode==GL_SUB_COMPRESSED_TEX_IMAGE3D_ARB ||
+        cmd.opcode==GL_SUB_COMPRESSED_TEX_SUB_IMAGE2D_ARB ||
+        cmd.opcode==GL_SUB_COMPRESSED_TEX_SUB_IMAGE3D_ARB ||
+        cmd.opcode==GL_SUB_GLU_PICKMATRIX || cmd.opcode==GL_SUB_GLU_CYLINDER;
+    struct Scratch {uint32_t address=0,capacity=0;bool busy=false;};
+    static std::vector<std::unique_ptr<Scratch>> slots;
+    Scratch *slot=nullptr;
+    uint32_t scratch=0;
+    if(needsScratch) {
+        for(auto &entry:slots)if(!entry->busy){slot=entry.get();break;}
+        if(!slot){slots.emplace_back(new Scratch);slot=slots.back().get();}
+        slot->busy=true;
+        if(slot->capacity<bytes) {
+            extern uint32 Mac_sysalloc(uint32 size);
+            extern void Mac_sysfree(uint32 p);
+            const uint32_t capacity=uint32_t(std::max<uint64_t>(bytes,std::min<uint64_t>(0xffffffffull,uint64_t(slot->capacity)*2)));
+            const uint32_t old=slot->address;
+            const uint32_t address=Mac_sysalloc(capacity);
+            if(address){slot->address=address;slot->capacity=capacity;}
+            // A nested allocator callback cannot acquire this busy slot.
+            if(address && old)Mac_sysfree(old);
+            gl_ppc_sp=savedSP;gl_ppc_stack_arg_offset=savedOffset;
+            WriteMacInt32(gl_scratch_addr,savedOpcode);
+            if(lifetime.expired() || gl_current_context!=ctx){slot->busy=false;return;}
+            if(!address){slot->busy=false;if(!ctx->last_error)ctx->last_error=0x0505;return;}
+        }
+        scratch=slot->address;
+    }
+    uint32_t args[8];memcpy(args,cmd.args.u,sizeof(args));
+    uint32_t stack[6];memcpy(stack,cmd.stack_args,sizeof(stack));
+    uint32_t arrayAddress[10]={};
+    uint32_t offset=96;
+    for(const auto &p:cmd.payloads) {
+        const uint32_t address=scratch+offset;
+        for(size_t i=0;i<p.bytes.size();++i)WriteMacInt8(address+uint32_t(i),p.bytes[i]);
+        if(p.argument<8)args[p.argument]=address;
+        else if(p.argument<14)stack[p.argument-8]=address;
+        else if(p.argument>=16 && p.argument<26)arrayAddress[p.argument-16]=address;
+        offset+=uint32_t((p.bytes.size()+7)&~size_t(7));
+    }
+    if(scratch)for(int i=0;i<6;++i)WriteMacInt32(scratch+56+i*4,stack[i]);
+    GLVertexArrayPointer *arrays[]={&ctx->vertex_array,&ctx->normal_array,&ctx->color_array,
+        &ctx->texcoord_array[0],&ctx->texcoord_array[1],&ctx->texcoord_array[2],&ctx->texcoord_array[3],
+        &ctx->secondary_color_array,&ctx->edge_flag_array,&ctx->index_array};
+    GLVertexArrayPointer saved[10];
+    GLVertexArrayPointer prepared[4];
+    if(cmd.has_arrays)for(int i=0;i<4;++i){prepared[i]=ctx->prepared_texcoord_array[i];ctx->prepared_texcoord_array[i].pointer=0;}
+    if(cmd.has_arrays)for(int i=0;i<10;++i){
+        saved[i]=*arrays[i];const auto &v=cmd.arrays[i];
+        *arrays[i]={arrayAddress[i] ? arrayAddress[i] : v.pointer,v.size,v.stride,v.type,v.enabled};
+    }
+    const GLPixelStore savedStore=ctx->pixel_store;
+    if(cmd.has_unpack){ctx->pixel_store.unpack_image_height=cmd.unpack_image_height;ctx->pixel_store.unpack_skip_images=cmd.unpack_skip_images;ctx->pixel_store.unpack_lsb_first=cmd.unpack_lsb_first;ctx->pixel_store.unpack_alignment=cmd.unpack[0];ctx->pixel_store.unpack_row_length=cmd.unpack[1];
+        ctx->pixel_store.unpack_skip_pixels=cmd.unpack[2];ctx->pixel_store.unpack_skip_rows=cmd.unpack[3];}
+    const bool compiling=ctx->in_display_list;
+    if(scratch)gl_ppc_sp=scratch;
+    gl_ppc_stack_arg_offset=0;ctx->in_display_list=false;
+    WriteMacInt32(gl_scratch_addr,cmd.opcode);
+    const uint32_t zero[1]={};
+    GLDispatch(args[0],args[1],args[2],args[3],args[4],args[5],args[6],args[7],
+        cmd.float_args.empty() ? zero : cmd.float_args.data(),int(cmd.float_args.size()));
+    WriteMacInt32(gl_scratch_addr,savedOpcode);
+    gl_ppc_sp=savedSP;gl_ppc_stack_arg_offset=savedOffset;
+    if(slot)slot->busy=false;
+    if(lifetime.expired())return;
+    ctx->in_display_list=compiling;
+    if(cmd.has_unpack)ctx->pixel_store=savedStore;
+    if(cmd.has_arrays){
+        for(int i=0;i<10;++i)*arrays[i]=saved[i];
+        for(int i=0;i<4;++i)ctx->prepared_texcoord_array[i]=prepared[i];
+    }
 }
 
 
 /*
- *  GLDispatch - multiplexed dispatch entry point
- *
- *  Called from execute_native_op() when NATIVE_OPENGL_DISPATCH fires.
- *  Receives PPC registers r3-r10 as explicit arguments plus extracted
- *  float bits from FPR registers.
- *
- *  Returns the value to be placed in gpr(3) by the caller.
+ *  Entry point from execute_native_op() for NATIVE_OPENGL_DISPATCH. Takes
+ *  r3-r10 plus the captured FPR bits; returns the value for gpr(3).
  */
 uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
                     uint32_t r7, uint32_t r8, uint32_t r9, uint32_t r10,
                     const uint32_t *float_bits, int num_float_args)
 {
-	// Read sub-opcode from scratch word (same pattern as RAVE)
 	uint32_t sub_opcode = ReadMacInt32(gl_scratch_addr);
 
-	// Unmapped context-handle dispatch slot (see GLPopulateDispatchTable):
-	// the game read a GL function descriptor from a dispatch-table slot we do
-	// not map to a real GL function (encoded as GL_DT_DIAG_BASE + slot). Return
-	// a safe no-op so the game does not call uninitialized guest heap as code
-	// (root cause of the Cro-Mag Rally gameplay-launch crash), and log which
-	// slot so the extension behind it can be wired to its real handler.
+	// Unmapped dispatch-table slot (GL_DT_DIAG_BASE + slot, see
+	// GLPopulateDispatchTable). Return a no-op rather than let the game
+	// call uninitialized guest heap as code, and log the slot.
 	if (sub_opcode >= GL_DT_DIAG_BASE) {
 		uint32_t slot = sub_opcode - GL_DT_DIAG_BASE;
 		static int s_unmapped_dt_log_count = 0;
@@ -1095,19 +1316,15 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		return 0;
 	}
 
-	// Track A immediate-mode batching: this sub-opcode IS the explicit drain trigger.
 	if (sub_opcode == GL_SUB_DRAIN) { GLDrainDeferred(); return 0; }
-	// Drain any buffered deferred immediate-mode records before executing an observable
-	// GL call, preserving program order. Guard on the ring being allocated (addr!=0) so
-	// this is a true no-op until GLThunksInit reserves the ring (Task 6), and skip while
-	// already draining (the replay re-enters GLDispatch).
+	// Drain deferred records before any other call to keep program order.
+	// The replay re-enters GLDispatch, hence the draining check.
 	if (!gl_defer_draining && gl_defer_count_addr && ReadMacInt32(gl_defer_count_addr)) {
 		GLDrainDeferred();
 	}
 
-	// Task 9 fallback counter: a deferrable opcode reaching GLDispatch while NOT
-	// draining means the PPC stub fell back (ring full or deferral disabled).
-	// Don't count calls re-entered by the drain replay (gl_defer_draining==true).
+	// A deferrable opcode arriving outside a drain means the PPC stub fell
+	// back to a direct trap (ring full or deferral disabled).
 	if (!gl_defer_draining && GLDeferIsDeferrable(sub_opcode)) {
 		g_defer_fallbacks++;
 	}
@@ -1115,9 +1332,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 	GL_VLOG("GLDispatch sub_opcode=%u r3=0x%x r4=0x%x r5=0x%x r6=0x%x r7=0x%x r8=0x%x r9=0x%x r10=0x%x ctx=%p",
 	        sub_opcode, r3, r4, r5, r6, r7, r8, r9, r10, gl_current_context);
 
-	// ---- Display list recording check ----
-	// When compiling a display list, most commands are recorded rather than executed.
-	// Non-recordable commands (list management, queries, sync) always execute.
+	// While compiling a display list, record instead of executing.
 	if (gl_current_context && gl_current_context->in_display_list &&
 	    !IsNonRecordableOpcode(sub_opcode)) {
 		GLRecordCommand(gl_current_context, sub_opcode,
@@ -1132,12 +1347,13 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		}
 	}
 
-	// Guard: core GL calls (sub_opcode < 600) require an active context.
-	// Games like THPS 2 may call glGetError before aglSetCurrentContext.
+	// Core GL calls need a current context. THPS 2 calls glGetError before
+	// aglSetCurrentContext.
 	if (sub_opcode < GL_SUB_AGL_CHOOSEPIXELFORMAT && !gl_current_context) {
 		GL_LOG("GLDispatch sub_opcode=%u ignored (no current context)", sub_opcode);
-		// Return GL_INVALID_OPERATION for glGetError, 0 for everything else
-		return (sub_opcode == GL_SUB_GET_ERROR) ? 0x0502 /* GL_INVALID_OPERATION */ : 0;
+		// Return 0 for everything, including glGetError: a sticky
+		// GL_INVALID_OPERATION would never drain in `while (glGetError());`.
+		return 0;
 	}
 
 	switch (sub_opcode) {
@@ -1147,7 +1363,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_ALPHA_FUNC:
 			NativeGLAlphaFunc(gl_current_context, r3, float_arg(float_bits, 0));
 			return 0;
-		case GL_SUB_ARE_TEXTURES_RESIDENT: NativeGLAreTexturesResident(gl_current_context, (int32_t)r3, r4, r5); return 0;
+		case GL_SUB_ARE_TEXTURES_RESIDENT: return NativeGLAreTexturesResident(gl_current_context, (int32_t)r3, r4, r5);
 		case GL_SUB_ARRAY_ELEMENT: NativeGLArrayElement(gl_current_context, (int32_t)r3); return 0;
 		case GL_SUB_BEGIN:
 			NativeGLBegin(gl_current_context, r3);
@@ -1172,10 +1388,6 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 				float_arg(float_bits, 2), float_arg(float_bits, 3));
 			return 0;
 		case GL_SUB_CLEAR_DEPTH: {
-			// FPR extraction in sheepshaver_glue.cpp casts all FPR values to
-			// float (truncating doubles).  glClearDepth takes a double, but
-			// float_bits[0] contains the float-truncated value.  Read it as
-			// a float instead of trying to reconstruct a double.
 			NativeGLClearDepth(gl_current_context, (double)float_arg(float_bits, 0));
 			return 0;
 		}
@@ -1324,7 +1536,6 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLDepthMask(gl_current_context, r3);
 			return 0;
 		case GL_SUB_DEPTH_RANGE: {
-			// FPR extraction truncates doubles to float -- read as floats
 			NativeGLDepthRange(gl_current_context,
 			                   (double)float_arg(float_bits, 0),
 			                   (double)float_arg(float_bits, 1));
@@ -1351,10 +1562,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			return 0;
 		case GL_SUB_END_LIST:
 			NativeGLEndList(gl_current_context);
-			// Re-enable deferral now that list compilation is done -- UNLESS the
-			// failsafe has latched off (ring corruption). Respecting the latch here
-			// stops glEndList from un-degrading a tripped failsafe every batch.
-			// Guard on addr!=0: no write to guest address 0 before ring is allocated (Task 6).
+			// Re-enable deferral unless the corruption failsafe has latched.
 			if (gl_defer_enabled_addr && !gl_defer_failsafe_tripped) WriteMacInt32(gl_defer_enabled_addr, 1);
 			return 0;
 		case GL_SUB_EVAL_COORD1D:
@@ -1395,7 +1603,6 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLFrontFace(gl_current_context, r3);
 			return 0;
 		case GL_SUB_FRUSTUM:
-			// FPR extraction already converts doubles to floats in float_bits[]
 			NativeGLFrustum(gl_current_context,
 				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
 				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3),
@@ -1545,11 +1752,8 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		// --- Core GL: New, Normal ---
 		case GL_SUB_NEW_LIST:
 			NativeGLNewList(gl_current_context, r3, r4);
-			// Disable deferral while compiling a display list so immediate-mode calls
-			// go through the recording path (existing in_display_list check above),
-			// not into the deferred ring. Any pending records were already drained by
-			// the drain-first hook earlier in this dispatch, preserving program order.
-			// Guard on addr!=0: no write to guest address 0 before ring is allocated (Task 6).
+			// Immediate-mode calls must reach the recording path, not the
+			// ring, while a list compiles. Pending records were drained above.
 			if (gl_defer_enabled_addr) WriteMacInt32(gl_defer_enabled_addr, 0);
 			return 0;
 		case GL_SUB_NORMAL3B:
@@ -1589,7 +1793,6 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_NORMAL_POINTER: NativeGLNormalPointer(gl_current_context, r3, (int32_t)r4, r5); return 0;
 		// --- Core GL: Ortho, Pass, Pixel ---
 		case GL_SUB_ORTHO:
-			// FPR extraction already converts doubles to floats in float_bits[]
 			NativeGLOrtho(gl_current_context,
 				(double)float_arg(float_bits, 0), (double)float_arg(float_bits, 1),
 				(double)float_arg(float_bits, 2), (double)float_arg(float_bits, 3),
@@ -1823,22 +2026,15 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 				extern uint32_t gl_ppc_stack_arg(int index);
 				extern uint32_t gl_ppc_sp;
 				extern int gl_ppc_stack_arg_offset;
-				// glTexImage2D has 9 args. In the dispatch-table path (offset=1),
-				// r10=0 (unused) and the real args 8-9 (type, pixels) are on the
-				// stack at shifted positions. Read type from stack arg -1 (the slot
-				// that would have been r10) and pixels from stack arg 0.
+				// 9 args. On the dispatch-table path the shift puts type and
+				// pixels on the stack (type in the slot r10 would have been).
+				// See gl_thunks.cpp for both calling conventions.
 				uint32_t type, pixels;
-				// This branch handles the dispatch-table calling convention
-				// (gl_dt_flag_addr == 1). The "else" branch handles the stub-call
-				// convention (gl_dt_flag_addr == 0). Both are real dispatch paths;
-				// neither is a "stub" in the unimplemented sense. See the gl_thunks.cpp
-				// comment for the full calling-convention contract.
 				if (gl_ppc_stack_arg_offset) {
-					// Dispatch-table path: type and pixels are both on the stack
-					type   = gl_ppc_stack_arg(-1);  // game's r10 equivalent
-					pixels = gl_ppc_stack_arg(0);    // game's stack arg 0
+					type   = gl_ppc_stack_arg(-1);
+					pixels = gl_ppc_stack_arg(0);
 				} else {
-					// FindLibSymbol path: type is r10, pixels is stack arg 0
+					// FindLibSymbol path
 					type   = r10;
 					pixels = gl_ppc_stack_arg(0);
 				}
@@ -2103,7 +2299,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 
 		// ARB_texture_compression
 		case GL_SUB_COMPRESSED_TEX_IMAGE3D_ARB:
-			NativeGLCompressedTexImage3DARB(gl_current_context, r3, (int32_t)r4, r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, 0 /*stack*/);
+			NativeGLCompressedTexImage3DARB(gl_current_context, r3, (int32_t)r4, r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, (int32_t)gl_ppc_stack_arg(0));
 			return 0;
 		case GL_SUB_COMPRESSED_TEX_IMAGE2D_ARB:
 			NativeGLCompressedTexImage2DARB(gl_current_context, r3, (int32_t)r4, r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, r10);
@@ -2112,10 +2308,10 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLCompressedTexImage1DARB(gl_current_context, r3, (int32_t)r4, r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, r9);
 			return 0;
 		case GL_SUB_COMPRESSED_TEX_SUB_IMAGE3D_ARB:
-			NativeGLCompressedTexSubImage3DARB(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, 0, 0, 0 /*stack args*/);
+			NativeGLCompressedTexSubImage3DARB(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, gl_ppc_stack_arg(0), gl_ppc_stack_arg(1), gl_ppc_stack_arg(2));
 			return 0;
 		case GL_SUB_COMPRESSED_TEX_SUB_IMAGE2D_ARB:
-			NativeGLCompressedTexSubImage2DARB(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, r9, (int32_t)r10, 0 /*stack*/);
+			NativeGLCompressedTexSubImage2DARB(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, r9, (int32_t)r10, (int32_t)gl_ppc_stack_arg(0));
 			return 0;
 		case GL_SUB_COMPRESSED_TEX_SUB_IMAGE1D_ARB:
 			NativeGLCompressedTexSubImage1DARB(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, r7, (int32_t)r8, r9);
@@ -2286,13 +2482,13 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 			NativeGLResetMinmax(gl_current_context, r3);
 			return 0;
 		case GL_SUB_TEX_IMAGE3D_EXT:
-			NativeGLTexImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, r10, 0 /*stack*/, 0 /*stack*/);
+			NativeGLTexImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, r10, gl_ppc_stack_arg(0), gl_ppc_stack_arg(1));
 			return 0;
 		case GL_SUB_TEX_SUB_IMAGE3D_EXT:
-			NativeGLTexSubImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, 0, 0, 0 /*stack args*/);
+			NativeGLTexSubImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, gl_ppc_stack_arg(0), gl_ppc_stack_arg(1), gl_ppc_stack_arg(2));
 			return 0;
 		case GL_SUB_COPY_TEX_SUB_IMAGE3D_EXT:
-			NativeGLCopyTexSubImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, 0 /*stack*/);
+			NativeGLCopyTexSubImage3DEXT(gl_current_context, r3, (int32_t)r4, (int32_t)r5, (int32_t)r6, (int32_t)r7, (int32_t)r8, (int32_t)r9, (int32_t)r10, (int32_t)gl_ppc_stack_arg(0));
 			return 0;
 
 		// --- AGL - Apple GL (600-632) --- real handlers in gl_engine.cpp
@@ -2320,8 +2516,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		case GL_SUB_AGL_GETVERSION:           return NativeAGLGetVersion(r3, r4);
 		case GL_SUB_AGL_CONFIGURE:            return NativeAGLConfigure(r3, r4);
 		case GL_SUB_AGL_SWAPBUFFERS: {
-			// Task 9 periodic diagnostic report: log deferred-batching counters
-			// every 120 frames when logging is enabled. Silent in shipping builds.
+			// Log deferred-batching counters every 120 frames.
 			static uint32_t s_swap_count = 0;
 			if (++s_swap_count >= 120) {
 				s_swap_count = 0;
@@ -2344,15 +2539,12 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 
 		// --- GLU (700-753) --- real handlers in gl_engine.cpp
 		//
-		// CFM/PowerOpen wire format for mixed float/int signatures: every
-		// parameter consumes words sequentially (doubles 2, everything
-		// else 1); words 0-7 map to r3-r10 and words >=8 to
-		// gl_ppc_stack_arg(word-8); float/double VALUES arrive in the
-		// FPR capture (float_bits) while their GPR word slots are
-		// SKIPPED (undefined in prototyped calls). Post-float ints/
-		// pointers therefore land in LATER registers than a dense
-		// count suggests — reading the skipped shadow registers yields
-		// garbage (the D-5-2 guest-memory-corruption class).
+		// CFM/PowerOpen mixed float/int args: each parameter takes words in
+		// order (double 2, else 1); words 0-7 are r3-r10, words >= 8 are
+		// gl_ppc_stack_arg(word-8). Float values arrive in float_bits and
+		// their GPR words are skipped and undefined, so ints after floats
+		// land in later registers. Reading the skipped shadows yields
+		// garbage pointers that corrupt guest memory.
 		case GL_SUB_GLU_BEGINCURVE:    NativeGLUBeginCurve(r3); return 0;
 		case GL_SUB_GLU_BEGINPOLYGON:  NativeGLUBeginPolygon(r3); return 0;
 		case GL_SUB_GLU_BEGINSURFACE:  NativeGLUBeginSurface(r3); return 0;
@@ -2441,9 +2633,7 @@ uint32_t GLDispatch(uint32_t r3, uint32_t r4, uint32_t r5, uint32_t r6,
 		}
 		case GL_SUB_GLU_PROJECT: {
 			/* 3 doubles w0-5; model w6=r9, proj w7=r10, viewport w8,
-			 * winx/winy/winz out-pointers w9-11. The old r3-r8 read the
-			 * doubles' skipped shadows — WriteMacDouble through those
-			 * garbage registers corrupted guest memory. */
+			 * winx/winy/winz out-pointers w9-11. */
 			return NativeGLUProject(gl_current_context,
 			                        double_arg(float_bits, 0),
 			                        double_arg(float_bits, 1),

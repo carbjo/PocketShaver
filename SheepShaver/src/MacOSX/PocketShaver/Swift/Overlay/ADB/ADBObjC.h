@@ -48,10 +48,9 @@ extern "C"
 #endif
 void objc_ADBMouseMoved(NSInteger x, NSInteger y);
 
-// Native pointer bypass (Mac Catalyst): map a pointer location in UIWindow-base
-// coordinates to the guest cursor via the compositor present rect, bypassing
-// SDL (whose Catalyst window transposes on refocus and clamps mouse-x). Called
-// from the UIKit hover/drag recognizers.
+// Moves the guest cursor to a UIWindow-base point via the compositor present
+// rect, bypassing SDL (whose Catalyst window transposes on refocus and clamps
+// mouse-x).
 #ifdef __cplusplus
 extern "C"
 #endif

@@ -41,7 +41,7 @@ static inline bool GLSyntheticFindLibSymbolSubOpcode(const char *lib,
 		uint16_t sub_opcode;
 	};
 	static const GLSyntheticSymbolEntry symbols[] = {
-		{ "\020aglNextPixelFormat", (uint16_t)GL_SUB_AGL_NEXTPIXELFORMAT },
+		{ "\022aglNextPixelFormat", (uint16_t)GL_SUB_AGL_NEXTPIXELFORMAT },
 		{ "\017glBlendColorEXT", (uint16_t)GL_SUB_BLEND_COLOR_EXT },
 		{ "\022glBlendEquationEXT", (uint16_t)GL_SUB_BLEND_EQUATION_EXT },
 		{ "\017glLockArraysEXT", (uint16_t)GL_SUB_LOCK_ARRAYS_EXT },

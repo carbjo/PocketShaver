@@ -1,33 +1,15 @@
 #ifndef GL_PPC_EMIT_H
 #define GL_PPC_EMIT_H
 /*
- *  gl_ppc_emit.h - 32-bit PowerPC instruction encoders for Track-A batching
+ *  gl_ppc_emit.h - 32-bit PowerPC instruction encoders for GL deferred batching
  *
  *  (C) 2026 Sierra Burkhart (sierra760)
  *
- *  Hand-written PPC machine-code encoders used to author the GL deferred-
- *  batching thunks (Track A). Each function returns the 32-bit big-endian
- *  instruction WORD (the value you pass to WriteMacInt32, which stores it
- *  big-endian into guest memory).
+ *  Each function returns the instruction word to pass to WriteMacInt32. Used
+ *  to emit the deferrable GL capture stubs and their shared fallback.
  *
- *  These mirror the inline encodings already used by AllocateGLTVECT in
- *  gl_thunks.cpp (lis/ori/li/stw/blr) and the NATIVE_*_DISPATCH tail, but
- *  factored into named, individually testable helpers so Task 8 can emit the
- *  deferrable capture stubs (and the shared fallback) without open-coding the
- *  bit math at every site.
- *
- *  Header-only / all `static inline`: no translation unit, so no Xcode target
- *  membership is needed, and a standalone host test can include this header
- *  directly to verify the encoders against an assembler.
- *
- *  Register numbering: GPRs r0..r31 and FPRs f0..f31 are 0..31.
- *  Displacements (d) and immediates are masked to 16 bits; signed values are
- *  two's-complement and only their low 16 bits are encoded (the hardware
- *  sign-extends D-form displacements / SI immediates at execution).
- *
- *  All encoders verified against llvm-mc (ppc32) ground truth -- see
- *  tests/gl_ppc_emit_test.cpp for the comparison harness and the b/bc
- *  displacement round-trips.
+ *  Registers r0..r31 / f0..f31 are 0..31. Displacements and immediates are
+ *  masked to their low 16 bits; the CPU sign-extends D-form d/SI fields.
  */
 
 #include <cstdint>
@@ -46,8 +28,7 @@
  *      [31    ] Rc (record, 0 here)
  * ------------------------------------------------------------------------- */
 
-// add D, A, B  ->  D = A + B (XO-form, OE=0 Rc=0). Encoded base 0x7C000214.
-//   add 11,11,0 -> 0x7D6B0214 (verified vs llvm-mc, see gl_ppc_emit_test.cpp).
+// add D, A, B (OE=0 Rc=0). add 11,11,0 -> 0x7D6B0214.
 static inline uint32_t ppc_add(int D, int A, int B) {
     return 0x7C000214u | ((uint32_t)(D & 31) << 21) | ((uint32_t)(A & 31) << 16) |
            ((uint32_t)(B & 31) << 11);
@@ -70,7 +51,7 @@ static inline uint32_t ppc_lis(int D, uint32_t imm16) {
 }
 
 // ori A, S, imm16  ->  A = S | (imm16 & 0xFFFF). Primary opcode 24 (0x60).
-//   Note D-form S is the [6..10] field (<<21) and A is the [11..15] field (<<16).
+//   S is the [6..10] field (<<21), A the [11..15] field (<<16).
 static inline uint32_t ppc_ori(int A, int S, uint32_t imm16) {
     return 0x60000000u | ((uint32_t)(S & 31) << 21) | ((uint32_t)(A & 31) << 16) |
            (imm16 & 0xFFFFu);
@@ -161,33 +142,22 @@ static inline uint32_t ppc_blr(void) {
     return 0x4E800020u;
 }
 
-// b  (I-form, AA=0 LK=0): branch to (fromAddr + sign_extend(LI||0b00)).
-//   We compute LI from the byte delta (toAddr - fromAddr); the two low bits are
-//   forced 0 by the 0x03FFFFFC mask. Range is +/- 32 MiB. Primary opcode 18.
-//
-//   layout: [0..5]=18(0x48>>2) [6..29]=LI [30]=AA=0 [31]=LK=0
-//   so the 24-bit field already includes the low two (zero) bits when we mask
-//   the byte delta with 0x03FFFFFC.
+// b (I-form, AA=0 LK=0), primary opcode 18. Range +/- 32 MiB.
+//   layout: [0..5]=18 [6..29]=LI [30]=AA [31]=LK. Masking the byte delta with
+//   0x03FFFFFC yields LI with its two implied zero bits.
 static inline uint32_t ppc_b(uint32_t fromAddr, uint32_t toAddr) {
-    // Range/alignment check (Task 7): the I-form branch field is a signed 26-bit
-    // byte displacement (24-bit LI + 2 implied zero bits). Assert the delta is
-    // 4-byte aligned and fits signed-26 BEFORE masking, so an out-of-range target
-    // traps in debug instead of silently truncating into the wrong branch.
+    // Check alignment and signed-26 range before masking so a bad target
+    // traps in debug instead of silently branching elsewhere.
     const int32_t delta = (int32_t)(toAddr - fromAddr);
     assert((delta & 0x3) == 0 && "ppc_b target not 4-byte aligned");
     assert(delta >= -(1 << 25) && delta < (1 << 25) && "ppc_b displacement out of signed-26 range");
     return 0x48000000u | ((uint32_t)delta & 0x03FFFFFCu);
 }
 
-// bc BO,BI (B-form, AA=0 LK=0): conditional branch to fromAddr + delta.
-//   The relative displacement field BD is 14 bits + 2 implied zero bits; we
-//   mask the byte delta with 0xFFFC. Range is +/- 32 KiB. Primary opcode 16.
-//
-//   layout: [0..5]=16(0x40>>2) [6..10]=BO [11..15]=BI [16..29]=BD [30]=AA [31]=LK
+// bc BO,BI (B-form, AA=0 LK=0), primary opcode 16. Range +/- 32 KiB.
+//   layout: [0..5]=16 [6..10]=BO [11..15]=BI [16..29]=BD [30]=AA [31]=LK
 static inline uint32_t ppc_bc(int BO, int BI, uint32_t fromAddr, uint32_t toAddr) {
-    // Range/alignment check (Task 7): the B-form displacement is a signed 16-bit
-    // byte field (14-bit BD + 2 implied zero bits). Assert 4-byte alignment and
-    // signed-16 fit BEFORE masking so an out-of-range short branch traps in debug.
+    // Check alignment and signed-16 range before masking.
     const int32_t delta = (int32_t)(toAddr - fromAddr);
     assert((delta & 0x3) == 0 && "ppc_bc target not 4-byte aligned");
     assert(delta >= -(1 << 15) && delta < (1 << 15) && "ppc_bc displacement out of signed-16 range");

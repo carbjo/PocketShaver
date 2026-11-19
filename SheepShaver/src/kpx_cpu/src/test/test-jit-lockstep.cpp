@@ -1,14 +1,9 @@
 /*
  *  test-jit-lockstep.cpp - interpreter vs JIT differential harness
  *
- *  Runs two powerpc_cpu instances in one process — one interpreter, one
- *  JIT — over synthetic guest programs and compares the full register
- *  file after each. The interpreter is the trusted oracle, so no
- *  pre-recorded reference file is needed. Deterministic: no ROM, no
- *  interrupts, no wall clock.
- *
- *  This is validation scaffolding for the arm64 JIT backend; it is not
- *  part of any shipping target.
+ *  Runs an interpreter and a JIT powerpc_cpu over synthetic guest programs
+ *  and compares the full register file after each; the interpreter is the
+ *  oracle. Deterministic: no ROM, interrupts or wall clock. Test-only.
  *
  *  PocketShaver arm64 JIT backend (C) 2026 Sierra Burkhart
  *  Kheperix (C) 2003-2005 Gwenole Beauchesne
@@ -38,33 +33,29 @@ bool PrefsFindBool(const char *) { return false; }
 uint64 GetTicks_usec(void) { return clock(); }
 void HandleInterrupt(powerpc_registers *) {}
 
-// iOS/Catalyst app-bridge stubs referenced by ppc-execute.cpp (C++ linkage,
-// matching the header declarations)
+// App-bridge stubs referenced by ppc-execute.cpp (C++ linkage)
 void objc_displayRamAllocFailedAlert(void) {}
 void objc_displayEncounteredIllegalInstructionAlert(void) {}
 bool objc_getIgnoreIllegalInstructions(void) { return true; }
 bool objc_getAltivec(void) { return true; }
 
-// Guest zero-page / kernel-data window backing stores (vm.hpp redirect
-// targets) and the resource-lock repair hooks the illegal path calls
+// vm.hpp redirect targets and the illegal-path resource-lock hooks
 uint8 gZeroPage[0x3000];
 uint8 gKernelData[0x4000];
 bool RsrcLocksTryRepair(uint32, uint32 *, uint32 *) { return false; }
 void RsrcLocksDumpOnCrash(void) {}
 
-// Bumped by compile_block under -DKPX_JIT_INSTRUMENT; proves the JIT ran
+// -DKPX_JIT_INSTRUMENT counters, each proving a JIT path ran
 unsigned long kpx_jit_compile_count = 0;
-// Bumped by compile_chain_block; proves direct block chaining resolved links
+// compile_chain_block (direct block chaining resolved links)
 unsigned long kpx_jit_chain_count = 0;
 unsigned long kpx_jit_trap_chain_count = 0;
 unsigned long kpx_jit_vector_native_count = 0;
-// Bumped by the kpx_fp_* arithmetic helpers; proves native FP executed
+// kpx_fp_* arithmetic helpers (native FP)
 unsigned long kpx_jit_fp_helper_count = 0;
-// Bumped at translate time per inline-fastmem access emitted; proves the
-// memory whitelist still routes loads/stores to the inline path
+// per inline-fastmem access emitted at translate time
 unsigned long kpx_jit_inline_mem_emitted = 0;
-// Bumped by the kpx_vm_*/kpx_fp_load_single helpers (fastmem cold path);
-// proves the coarse filter actually diverts kernel-window traffic
+// kpx_vm_*/kpx_fp_load_single (fastmem cold path, kernel-window traffic)
 unsigned long kpx_jit_mem_cold_count = 0;
 #if PPC_ENABLE_JIT && PPC_REENTRANT_JIT
 void init_emul_op_trampolines(basic_dyngen &) {}
@@ -76,17 +67,14 @@ const uint32 POWERPC_BLRL = 0x4e800021;
 const uint32 POWERPC_EMUL_OP = 0x18000000;	// D-form primary op 6 -> return
 
 struct test_cpu : public powerpc_cpu {
-	// Under SHEEPSHAVER powerpc_cpu has a no-arg constructor
 	test_cpu() : powerpc_cpu() { init_return_op(); }
 
-	// Mini execute_sheep: low 6 bits select behavior, mirroring the app's
-	// SHEEP dispatch closely enough to exercise trap chaining. 0 = return
-	// (non-continuable), 3 = data-dependent redirect (resumes at +4 OR
-	// jumps to LR -- the trap-chain resume guard must catch the redirect),
-	// 4 = self-modifying op (rewrites the guest word at r8 to r9's value
-	// and range-invalidates it -- the guard must see the spcflag and bail
-	// before running a stale inline continuation), >= 5 = plain continuable
-	// pseudo-EmulOp (r7 += low6; resume at +4).
+	// Mini execute_sheep for trap chaining; low 6 bits select:
+	// 0 = return (non-continuable).
+	// 3 = redirect: resume at +4 or jump to LR (the guard must catch it).
+	// 4 = SMC: write r9 to the word at r8 and range-invalidate it (the guard
+	//     must see the spcflag and bail).
+	// >= 5 = continuable pseudo-EmulOp (r7 += low6, resume at +4).
 	void execute_return(uint32 opcode) {
 		switch (opcode & 0x3f) {
 		case 0:
@@ -138,9 +126,8 @@ struct test_cpu : public powerpc_cpu {
 	void   set_fpscr(uint32 v) { fpscr() = v; }
 	uint32 get_vr_w(int i, int j) const { return vr(i).w[j]; }
 	void   set_vr_w(int i, int j, uint32 v) { vr(i).w[j] = v; }
-	// Consume the transient redecode flag so a range-invalidated block is
-	// subsequently reached through a normal cache hit (models the real gap
-	// between an invalidation and a much-later execution of a stale block)
+	// Consume the redecode flag so a range-invalidated block is next reached
+	// through a normal cache hit, like a stale block run much later
 	void   clear_jit_return() { spcflags().clear(SPCFLAG_JIT_EXEC_RETURN); }
 };
 
@@ -197,9 +184,8 @@ static void load_snippet(const uint32 *ops, int n)
 
 static void run(test_cpu &cpu)
 {
-	// Each program reuses the same guest address, so both engines must
-	// drop any block cached from the previous program or they would
-	// re-run stale code (and match vacuously)
+	// Programs reuse one guest address; drop cached blocks or both engines
+	// would rerun stale code and match vacuously
 	cpu.invalidate_cache();
 	cpu.set_lr(guest_code);
 	cpu.execute(guest_trampoline);
@@ -256,9 +242,8 @@ static int diff(const char *name, const regfile &a, const regfile &b)
 	if (a.cr  != b.cr)  { printf("  [%s] CR  interp=%08x jit=%08x\n", name, a.cr,  b.cr);  n++; }
 	if (a.xer != b.xer) { printf("  [%s] XER interp=%08x jit=%08x\n", name, a.xer, b.xer); n++; }
 #if defined(__x86_64__)
-	// The classic x86 dyngen scalar-FP ops have never modeled FPRF (FPSCR
-	// bits 12..16) — a known upstream gap; FP register values themselves
-	// are held bit-exact above. Compare everything but that field.
+	// Classic x86 dyngen FP ops don't model FPRF (FPSCR bits 12..16), an
+	// upstream gap. FPRs are still compared bit-exact above.
 	const uint32 fpscr_mask = ~0x0001f000u;
 #else
 	const uint32 fpscr_mask = 0xffffffffu;
@@ -407,15 +392,11 @@ static uint32 stvewx_(int s,int a,int b){return X(31,s,a,b,199,0);}
 static uint32 g_rng = 0x12345678;
 static uint32 rnd() { g_rng = g_rng*1103515245u + 12345u; return g_rng; }
 
-// Self-modifying-code interior-invalidation regression. A decode-cache block
-// predecoded BELOW the execute() entry PC must still be range-invalidated
-// when its own bytes are rewritten. If min_pc is set to the execute() entry
-// rather than the block's own start, a below-entry block gets min_pc > max_pc
-// (inverted), and clear_range's intersect misses it -- the stale predecoded
-// block stays live (the Open Transport CFM-binding boot crash). Runs a low
-// subroutine reached from a higher entry, rewrites the subroutine's code,
-// range-invalidates just that line, and returns r3 from a second run: a
-// correct engine re-decodes and yields 2; a stale block yields the old 1.
+// SMC regression: a decode-cache block predecoded below the execute() entry
+// PC must still be range-invalidated. If min_pc is the entry rather than the
+// block's start, min_pc > max_pc and clear_range misses it. Calls a low
+// subroutine from a higher entry, rewrites and invalidates it, reruns:
+// correct = r3 2, stale = 1.
 static uint32 smc_below_entry_scenario(test_cpu &c)
 {
 	const uint32 Lo = guest_code;			// low subroutine
@@ -438,12 +419,10 @@ static uint32 smc_below_entry_scenario(test_cpu &c)
 	return c.get_gpr(3);
 }
 
-// Cross-page direct block chaining: a block ending in `bl` chains to a target
-// TWO pages away. After the target's page is range-invalidated (the source's
-// page is NOT in the invalidation window), the source's patched branch must
-// have been reset to its resolver via the target's incoming dependency list.
-// A stale chain keeps jumping to the old target code and returns the old
-// value. Expected composite: 112 (run1=1, run2=1 via hot chain, run3=2).
+// Cross-page chaining: a bl chains to a target two pages away. Invalidating
+// only the target's page must reset the source's branch via the target's
+// incoming list; a stale chain returns the old value.
+// Expected composite: 112 (run1=1, run2=1 via hot chain, run3=2).
 static uint32 crosspage_chain_scenario(test_cpu &c)
 {
 	const uint32 Lo = guest_code;			// target, low page
@@ -474,11 +453,10 @@ static uint32 crosspage_chain_scenario(test_cpu &c)
 	return r1 * 100 + r2 * 10 + r3;
 }
 
-// Conditional cross-page chaining, both slots, then SOURCE-page invalidation:
-// the dying source must unlink its outgoing links from the surviving target's
-// incoming list (remove_deps), so the target's later invalidation walks a
-// clean list instead of patching through a freed block_info. Expected
-// composite: 9-7-11-7 packed as 0x97b7.
+// Conditional cross-page chaining (both slots), then source-page
+// invalidation: the dying source must unlink from the target's incoming list
+// (remove_deps), or the target's later invalidation patches a freed
+// block_info. Expected composite: 9-7-11-7 packed as 0x97b7.
 static uint32 crosspage_cond_chain_scenario(test_cpu &c)
 {
 	const uint32 Lo = guest_code;			// taken target, low page
@@ -504,13 +482,11 @@ static uint32 crosspage_cond_chain_scenario(test_cpu &c)
 	c.execute(Hi);						// fallthrough slot resolves
 	uint32 r2 = c.get_gpr(4);
 
-	// Kill the SOURCE page: Hi's blocks die and must unlink from Lo's
-	// incoming list. Lo's block survives.
+	// Kill the source page; Hi's blocks must unlink from Lo's incoming list
 	c.invalidate_cache_range(Hi, Hi + 4);
 	c.clear_jit_return();
 
-	// Now retarget and kill Lo: its invalidate() walks the incoming list,
-	// which must no longer reference the freed source block
+	// Retarget and kill Lo; its incoming list must not reference freed Hi
 	vm_write_memory_4(Lo + 0, addi(4, 0, 11));			// li r4,11
 	c.invalidate_cache_range(Lo, Lo + 4);
 	c.clear_jit_return();
@@ -528,11 +504,10 @@ static uint32 crosspage_cond_chain_scenario(test_cpu &c)
 	return (r1 << 12) | (r2 << 8) | (r3 << 4) | r4;
 }
 
-// Trap chaining vs self-modifying code: a continuable pseudo-EmulOp (low6=4)
-// rewrites the NEXT instruction of its own block and range-invalidates it.
-// The resume guard must see SPCFLAG_JIT_EXEC_RETURN and bail out to the
-// driver, which recompiles and runs the NEW instruction (r3 = 42). A JIT
-// that continues inline past the trap runs the stale translation (r3 = 7).
+// Trap chaining vs SMC: pseudo-EmulOp low6=4 rewrites the next instruction
+// in its own block and invalidates it. The guard must see
+// SPCFLAG_JIT_EXEC_RETURN and bail, so the new instruction runs (r3 = 42);
+// continuing inline runs the stale one (r3 = 7).
 static uint32 trap_smc_scenario(test_cpu &c)
 {
 	const uint32 A = guest_code;
@@ -551,11 +526,9 @@ static uint32 trap_smc_scenario(test_cpu &c)
 }
 
 // ---- vm accessor contract (host-side unit test, no CPU involved) -----------
-// The lockstep suites compare interpreter vs JIT, but both share vm.hpp, so a
-// semantic bug in vm_do_get_real_address itself would cancel out. This pins
-// the translation contract directly: exact window membership and the flat
-// VMBaseDiff mapping everywhere else (pointer math only — out-of-range
-// pointers are compared, never dereferenced).
+// Both engines share vm.hpp, so a bug in vm_do_get_real_address would cancel
+// out in lockstep. Pin it directly: exact window membership, flat VMBaseDiff
+// elsewhere. Pointers are compared, never dereferenced.
 static int unit_accessor()
 {
 	static const uint32 cases[] = {
@@ -579,8 +552,8 @@ static int unit_accessor()
 			bad++;
 		}
 	}
-	// Round-trip: a store through one kernel window must be readable through
-	// the other (same gKernelData slot) with big-endian byte order
+	// A store through one kernel window reads back through the other
+	// (same gKernelData slot), big-endian
 	memset(gKernelData, 0, sizeof gKernelData);
 	vm_write_memory_4(0x68ffe008, 0xa1b2c3d4);
 	if (gKernelData[0x2008] != 0xa1 || gKernelData[0x200b] != 0xd4) {
@@ -597,9 +570,8 @@ static int unit_accessor()
 }
 
 // ---- --bench: guest-CPU throughput over loop-heavy snippets ----------------
-// Steady-state measurement: translate once, then time whole execute() calls
-// of a CTR-counted loop (best of 3). No cache invalidation between timed
-// runs, so the JIT numbers measure execution, not translation.
+// Translate once, then time whole execute() calls of a CTR loop (best of 3).
+// No invalidation between runs, so JIT numbers exclude translation.
 static double now_ns()
 {
 	static mach_timebase_info_data_t tb;
@@ -710,8 +682,7 @@ static int run_bench(test_cpu &interp, test_cpu &jit, uint32 iters)
 		in.gpr[10] = p.r10 ? p.r10 : guest_data + DATA_SIZE/2;
 		in.lr = 0;
 
-		// Reset memory to the same state before EACH engine; the FP operand
-		// seeds must land AFTER the refill or they would be clobbered by it
+		// Reset memory before each engine; FP seeds go after the refill
 		regfile oi, oj;
 		double ti = 0, tj = 0;
 		union { double d; uint64 j; } v;
@@ -781,8 +752,7 @@ int main(int argc, char **argv)
 	if (vm_init() < 0) { fprintf(stderr, "vm_init failed\n"); return 2; }
 	mem_init();
 
-	// Heap-allocate: powerpc_cpu asserts 16-byte alignment of its vector
-	// registers, which malloc guarantees but a stack object may not
+	// Heap-allocate: powerpc_cpu asserts 16-byte VR alignment
 	test_cpu &interp = *new test_cpu();
 	test_cpu &jit = *new test_cpu();
 	jit.enable_jit();
@@ -815,8 +785,7 @@ int main(int argc, char **argv)
 	}
 
 	// --- suite 1: straight-line ALU blocks, random seeds ---
-	// Divide corner cases (0 divisor, 0x80000000/-1) have architecturally
-	// undefined results; they get a dedicated suite instead of random soup
+	// Divide corner cases are architecturally undefined; suite 2 covers divides
 	for (int t = 0; t < 4000; t++) {
 		uint32 ops[40]; int n = 0;
 		int len = 2 + (rnd() % 24);
@@ -939,11 +908,8 @@ int main(int argc, char **argv)
 		if (diff(nm, ai, aj)) failed++;
 	}
 
-	// --- suite 3b: VRSAVE (SPR 256) — a plain uint32 SPR reached through the
-	// whitelisted mfspr/mtspr path. Regression guard: the arm64 backend once
-	// stubbed load/store_T0_VRSAVE (grouped with the deferred AltiVec ops) and
-	// aborted here. Seeding vrsave and reading it back cross-checks the field
-	// offset against the interpreter, not just a self-consistent round-trip.
+	// --- suite 3b: VRSAVE (SPR 256) via the mfspr/mtspr path. Seeding it
+	// cross-checks the field offset against the interpreter. ---
 	for (int t = 0; t < 200; t++) {
 		uint32 ops[8]; int n = 0;
 		ops[n++] = mfspr(4, 256);			// r4 = VRSAVE (seeded value)
@@ -996,9 +962,8 @@ int main(int argc, char **argv)
 			ops[n++] = POWERPC_BLR;
 			break;
 		case 3:
-			// conditional early return via bclr (branch commit through T0);
-			// LR here is the trampoline return, so a taken bclr ends the
-			// program with the remaining ops skipped
+			// conditional early return via bclr (commit through T0); LR is
+			// the trampoline return, so a taken bclr ends the program
 			ops[n++] = cmpw(0, 3, 4);
 			ops[n++] = bclr(4 + ((rnd()&1)<<3), rnd()%4, 0);
 			ops[n++] = mfspr(9, 8);				// mflr r9
@@ -1031,8 +996,8 @@ int main(int argc, char **argv)
 	}
 
 	// --- suite 5: integer loads/stores over the data area ---
-	// Random mixes of D-form, indexed and update forms at arbitrary (incl.
-	// unaligned) offsets; the data area is compared byte-for-byte afterwards
+	// D-form, indexed and update forms at arbitrary (incl. unaligned)
+	// offsets; data area byte-compared afterwards
 	for (int t = 0; t < 1500; t++) {
 		uint32 ops[40]; int n = 0;
 		int len = 4 + (rnd() % 20);
@@ -1180,8 +1145,7 @@ int main(int argc, char **argv)
 	}
 
 	// --- suite 8: FP arithmetic (incl. FPSCR[FPRF] classify fidelity) ---
-	// Random FPR bit patterns: normals, zeros, infinities, NaNs, and the
-	// exponent window 874..896 that triggers store-single denormalization
+	// FPRs from rnd_fp(), incl. the store-single denormalization window
 	for (int t = 0; t < 600; t++) {
 		uint32 ops[32]; int n = 0;
 		int len = 3 + (rnd() % 12);
@@ -1274,9 +1238,7 @@ int main(int argc, char **argv)
 	}
 
 	// --- suite 10: self-modifying-code interior invalidation (below-entry) ---
-	// Not a differential-vs-JIT check: both engines must independently reach 2.
-	// A stale below-entry predecoded block yields 1 (interpreter path); the JIT
-	// path uses the block's own entry as min_pc and re-decodes correctly.
+	// Not differential: each engine must independently reach 2
 	{
 		uint32 ri = smc_below_entry_scenario(interp);
 		uint32 rj = smc_below_entry_scenario(jit);
@@ -1289,9 +1251,7 @@ int main(int argc, char **argv)
 	}
 
 	// --- suite 11: cross-page direct chaining + unchain-on-invalidate ---
-	// Both engines must independently reach the expected composites; the JIT
-	// side additionally proves the incoming-dependency unchain protocol (a
-	// stale cross-page chain returns the pre-invalidation value).
+	// Each engine must independently reach the expected composites
 	{
 		uint32 ri = crosspage_chain_scenario(interp);
 		uint32 rj = crosspage_chain_scenario(jit);
@@ -1313,9 +1273,8 @@ int main(int argc, char **argv)
 		}
 	}
 
-	// --- suite 13: NEON AltiVec — element-wise arith/logic/minmax/compare,
-	// splats, vsel/vperm; VRs seeded with random bits (float ops get
-	// float-biased patterns via rnd_fp splits) and fully compared ---
+	// --- suite 13: NEON AltiVec element-wise arith/logic/minmax/compare,
+	// splats, vsel/vperm over random VRs ---
 	for (int t = 0; t < 800; t++) {
 		uint32 ops[32]; int n = 0;
 		int len = 3 + (rnd() % 10);
@@ -1372,9 +1331,7 @@ int main(int argc, char **argv)
 		if (diff(nm, ai, aj)) failed++;
 	}
 
-	// --- suite 13b: vector float (vaddfp/vsubfp/vmaddfp/vnmsubfp + float
-	// compares) over float-biased lane patterns: normals, zeros, infs,
-	// NaNs, subnormals ---
+	// --- suite 13b: vector float arith + compares over float-biased lanes ---
 	for (int t = 0; t < 400; t++) {
 		uint32 ops[24]; int n = 0;
 		int len = 2 + (rnd() % 8);
@@ -1418,8 +1375,7 @@ int main(int argc, char **argv)
 		if (diff(nm, ai, aj)) failed++;
 	}
 
-	// --- suite 14: LVX/STVX/LVEWX/STVEWX round-trips over the data area,
-	// byte-compared afterwards ---
+	// --- suite 14: LVX/STVX/LVEWX/STVEWX round-trips, data byte-compared ---
 	for (int t = 0; t < 300; t++) {
 		uint32 ops[24]; int n = 0;
 		int len = 3 + (rnd() % 8);
@@ -1459,8 +1415,8 @@ int main(int argc, char **argv)
 	}
 
 	// --- suite 12: trap chaining through continuable pseudo-EmulOps ---
-	// a) random ALU + pseudo-EmulOp interleavings: with trap chaining the
-	// whole program is one JIT block crossing several handler invokes
+	// a) random ALU + pseudo-EmulOp mixes: one JIT block across several
+	// handler invokes
 	for (int t = 0; t < 300; t++) {
 		uint32 ops[24]; int n = 0;
 		int len = 3 + (rnd() % 8);
@@ -1487,9 +1443,8 @@ int main(int argc, char **argv)
 		if (diff(nm, ai, aj)) failed++;
 	}
 
-	// b) data-dependent redirect (low6=3): resumes at +4 when r6 is even,
-	// jumps to LR (ending the program) when odd -- the resume guard's pc
-	// check must catch the redirect on a block compiled for fall-through
+	// b) redirect (low6=3): +4 when r6 is even, LR when odd. The guard's pc
+	// check must catch it on a block compiled for fall-through
 	for (int t = 0; t < 40; t++) {
 		uint32 ops[8]; int n = 0;
 		ops[n++] = POWERPC_EMUL_OP | 3;
@@ -1552,10 +1507,7 @@ int main(int argc, char **argv)
 		return 2;
 	}
 #if defined(__aarch64__)
-	// arm64-backend-only teeth: trap chaining, native FP helpers, inline
-	// fastmem, and the coarse-filter cold path exist only in that backend.
-	// The x86 dyngen backend routes SHEEP/FP/memory through its own
-	// (stub-translated) mechanisms and legitimately reports 0 here.
+	// These paths exist only in the arm64 backend; x86 dyngen reports 0
 	if (kpx_jit_trap_chain_count == 0) {
 		printf("FAIL: trap chaining was never exercised\n");
 		return 2;
@@ -1568,11 +1520,9 @@ int main(int argc, char **argv)
 		printf("FAIL: inline fastmem was never emitted\n");
 		return 2;
 	}
-	// Only suite 6's kernel-window traffic may legitimately go cold (the
-	// guest arena is bump-allocated from guest 0, far below the coarse
-	// bound). Equality — not just nonzero — also catches the inverse
-	// regression, where a broken filter sends ALL traffic to the (correct
-	// but slow) helpers and every program still byte-matches.
+	// Only suite 6's kernel-window traffic should go cold (the arena sits far
+	// below the coarse bound). Checking equality also catches a filter that
+	// sends all traffic to the slow helpers.
 	const unsigned long expected_cold = 300 * 8;	// kwin programs x accesses
 	if (kpx_jit_mem_cold_count != expected_cold) {
 		printf("FAIL: fastmem cold-path count %lu != expected %lu (filter mis-routing)\n",

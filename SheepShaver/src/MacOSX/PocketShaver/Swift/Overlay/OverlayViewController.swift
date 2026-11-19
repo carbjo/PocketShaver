@@ -41,7 +41,7 @@ public class OverlayViewController: UIViewController {
 			fetchState: { [weak self] in
 				Self.globalState
 			}, fetchFrameSize: { [weak self] in
-				self?.view.frame.size ?? .zero
+				self?.view.bounds.size ?? .zero
 			}, transformMainGamepadLayoutView: { [weak self] transform in
 				self?.transformMainGamepadLayoutView(transform)
 			}, transformAllGamepadLayoutViews: { [weak self] transform in
@@ -52,9 +52,7 @@ public class OverlayViewController: UIViewController {
 		)
 	}()
 
-	/// Whether the on-screen gamepad should be suppressed entirely.
-	/// True on any Mac (Designed-for-iPad or Mac Catalyst) — the user has a
-	/// physical keyboard and mouse, so touch gamepad controls are useless.
+	/// Hide the on-screen gamepad on any Mac (Designed-for-iPad or Catalyst).
 	private static let hideGamepad: Bool = UIDevice.deviceType == .mac
 
 	private lazy var gamepadLayerView: GamepadLayerView = {
@@ -152,6 +150,12 @@ public class OverlayViewController: UIViewController {
 	private var performanceCounter: PerformanceCounter?
 
 	private var queuedAlertController: UIAlertController?
+	private weak var transformedSDLView: UIView?
+	private var sdlBaseTransform: CGAffineTransform = .identity
+	private var lastAppliedSDLTransform: CGAffineTransform = .identity
+	private var sdlOffsetTransform: CGAffineTransform = .identity
+	private var laidOutSize: CGSize = .zero
+	private var informationPositionConstraint: NSLayoutConstraint?
 
 	public override func viewDidLoad() {
 		super.viewDidLoad()
@@ -190,8 +194,8 @@ public class OverlayViewController: UIViewController {
 		super.viewDidAppear(animated)
 
 		if !Self.hideGamepad {
-			if state != .showingGamepad {
-				gamepadLayerView.transform = .init(translationX: 0, y: -view.frame.size.height)
+			if state == .normal || state == .showingKeyboard {
+				gamepadLayerView.transform = .init(translationX: 0, y: -view.bounds.size.height)
 			}
 		}
 
@@ -222,6 +226,8 @@ public class OverlayViewController: UIViewController {
 
 		view.addSubview(performanceLabel)
 
+		let informationPosition = informationView.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+		informationPositionConstraint = informationPosition
 		NSLayoutConstraint.activate([
 			gestureInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
 			gestureInputView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -247,7 +253,7 @@ public class OverlayViewController: UIViewController {
 			hiddenInputField.bottomAnchor.constraint(equalTo: view.topAnchor, constant: -3000),
 
 			informationView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-			informationView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -UIScreen.main.bounds.size.height / 4),
+			informationPosition,
 			informationView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 8),
 			informationView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -8),
 
@@ -322,8 +328,7 @@ public class OverlayViewController: UIViewController {
 		to state: OverlayState,
 		allowHiddenInputFieldResponserResignation: Bool = true
 	) {
-		// On Mac ("Designed for iPad"), only allow normal and keyboard states —
-		// the on-screen gamepad is hidden because the user has real input devices.
+		// On Mac, only the normal and keyboard states are allowed.
 		if Self.hideGamepad && (state == .showingGamepad || state == .editingGamepad) {
 			return
 		}
@@ -337,7 +342,7 @@ public class OverlayViewController: UIViewController {
 			if allowHiddenInputFieldResponserResignation {
 				hiddenInputField.resignFirstResponder()
 			}
-			transformAllGamepadLayoutViews(.init(translationX: 0, y: -view.frame.size.height))
+			transformAllGamepadLayoutViews(.init(translationX: 0, y: -view.bounds.size.height))
 			gestureInputView.set(state: state)
 			gamepadLayerView.isUserInteractionEnabled = false
 		case .showingGamepad:
@@ -347,7 +352,7 @@ public class OverlayViewController: UIViewController {
 			gamepadLayerView.isUserInteractionEnabled = true
 		case .showingKeyboard:
 			hiddenInputField.becomeFirstResponder()
-			transformAllGamepadLayoutViews(.init(translationX: 0, y: -view.frame.size.height))
+			transformAllGamepadLayoutViews(.init(translationX: 0, y: -view.bounds.size.height))
 			gestureInputView.set(state: state)
 			gamepadLayerView.isUserInteractionEnabled = false
 		case .editingGamepad:
@@ -418,9 +423,9 @@ public class OverlayViewController: UIViewController {
 					case .none:
 						self.transition(to: result.state)
 					case .next:
-						self.transformAllGamepadLayoutViews(.init(translationX: -self.view.frame.size.width, y: 0))
+						self.transformAllGamepadLayoutViews(.init(translationX: -self.view.bounds.size.width, y: 0))
 					case .previous:
-						self.transformAllGamepadLayoutViews(.init(translationX: self.view.frame.size.width, y: 0))
+						self.transformAllGamepadLayoutViews(.init(translationX: self.view.bounds.size.width, y: 0))
 					}
 				},
 				completion: { [weak self] _ in
@@ -432,7 +437,7 @@ public class OverlayViewController: UIViewController {
 
 					if result.state == .showingKeyboard,
 					   MiscellaneousSettings.current.keyboardAutoOffsetSetting != .top {
-						let screenHeight = UIScreen.main.bounds.height
+						let screenHeight = self.view.bounds.height
 						let offset: CGFloat = MiscellaneousSettings.current.keyboardAutoOffsetSetting == .middle ?
 						-screenHeight * (2/5) :
 						-screenHeight * (2/3)
@@ -491,8 +496,41 @@ public class OverlayViewController: UIViewController {
 			return
 		}
 
-		sdlView.transform = transform
+		// UIKit owns the root view's rotation. Apply only our keyboard translation
+		// on top of it; returning to normal must never reset that rotation.
+		// UIKit can replace the root transform during a rotation while the keyboard
+		// is open, so capture that new base instead of restoring the previous one.
+		if transformedSDLView !== sdlView || sdlView.transform != lastAppliedSDLTransform {
+			transformedSDLView = sdlView
+			sdlBaseTransform = sdlView.transform
+		}
+		sdlView.transform = transform.concatenating(sdlBaseTransform)
+		lastAppliedSDLTransform = sdlView.transform
+		sdlOffsetTransform = transform
 		view.transform = transform.inverted()
+	}
+
+	public override func viewDidLayoutSubviews() {
+		super.viewDidLayoutSubviews()
+		informationPositionConstraint?.constant = -view.bounds.height / 4
+		if let sdlView = view.superview, transformedSDLView === sdlView {
+			let offset: CGAffineTransform
+			if state == .showingKeyboard {
+				let y = max(-view.bounds.height * (2/3), min(0, sdlOffsetTransform.ty))
+				offset = .init(translationX: 0, y: y)
+				dragInteractionModel.set(sdlViewVerticalOffset: y)
+			} else {
+				offset = sdlOffsetTransform
+			}
+			if sdlView.transform != lastAppliedSDLTransform || offset != sdlOffsetTransform {
+				transformSDLContainerView(offset)
+			}
+		}
+		guard laidOutSize != view.bounds.size else { return }
+		laidOutSize = view.bounds.size
+		if state == .normal || state == .showingKeyboard {
+			transformAllGamepadLayoutViews(.init(translationX: 0, y: -view.bounds.height))
+		}
 	}
 
 	
@@ -802,13 +840,9 @@ extension OverlayViewController {
 		// but the system sends it on iPadOS 15+ as a private selector. We match both
 		// so this builds with earlier versions of Xcode and iOS SDK
 		if action == Selector(("_performClose:")) { return true }
-		// Intercept Cmd+Q (AppKit's terminate:) on macOS (Designed for iPad) so the
-		// emulator app does not quit. Like _performClose: above, this reaches
-		// OverlayViewController through view-controller containment. The actual 'q'
-		// keystroke still reaches the guest via SDL's input path (video_sdl2.cpp), so a
-		// classic Mac app's own Cmd+Q still works.
-		// On a physical iPad, Cmd-Q is system-reserved (handled above the responder
-		// chain) and never reaches here — this is a no-op there. See terminate(_:) below.
+		// Intercept Cmd+Q (AppKit's terminate:) on Mac so the app doesn't quit.
+		// The keystroke still reaches the guest through SDL, so a Mac app's own
+		// Cmd+Q works. On iPad, Cmd-Q is system-reserved and never gets here.
 		if action == #selector(OverlayViewController.terminate(_:)) { return true }
 		if #available(iOS 26.0, *) {
 			#if compiler(>=6.2)
@@ -825,10 +859,8 @@ extension OverlayViewController {
 	public override func performClose(_ sender: Any?) {}
 	#endif
 
-	// No-op so the Cmd+Q action claimed in canPerformAction is swallowed instead of
-	// quitting the app. terminate: is AppKit's quit selector (not a formal UIResponder
-	// API on iOS), so this is a plain @objc method — no availability guard and no
-	// 'override' (there is no superclass terminate(_:) on UIKit to override).
+	// No-op so Cmd+Q is swallowed. terminate: is AppKit's selector with no UIKit
+	// superclass method, hence a plain @objc func without 'override'.
 	@objc public func terminate(_ sender: Any?) {}
 
 	@objc
@@ -849,16 +881,9 @@ extension OverlayViewController {
 		lockWindowSize()
 	}
 
-	/// Intentionally does NOT restrict the window size.
-	///
-	/// This used to pin the Mac Catalyst window to `min == max == launch bounds`,
-	/// which froze the window at its small initial size and defeated fullscreen
-	/// (including the `UILaunchToFullScreenByDefaultOnMac` Info.plist key). On Mac
-	/// we want a resizable window that launches fullscreen, so sizing is left to
-	/// the OS. On iPad/iPhone `sizeRestrictions` is best-effort or nil and cannot
-	/// block system resizing anyway, so there is nothing to do on any platform.
+	/// Intentionally leaves the window size unrestricted. Pinning it on Mac
+	/// defeats fullscreen, and iPad `sizeRestrictions` can't block resizing.
 	private static func lockWindowSize() {
-		// No size restriction — see doc comment above.
 	}
 
 	// No-op implementation so that key strokes on macOS does not result in "alert sound"

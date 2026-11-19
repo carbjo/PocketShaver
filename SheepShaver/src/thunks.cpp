@@ -286,14 +286,11 @@ bool ThunksInit(void)
 		native_op[i].tvect = base;
 		native_op[i].func  = base + 8;
 	}
-	// Initialize RAVE method TVECTs (must be after SheepMem is available)
+	// RAVE, GL and DSp TVECTs live in SheepMem, so init them after it
 	RaveThunksInit();
 
-	// Initialize OpenGL TVECTs (must be after SheepMem is available)
 	GLThunksInit();
 
-	// Initialize DSp thunks. Allocates real TVECTs for the
-	// public DSp entry points via SheepMem::Reserve, matching RAVE.
 	DSpThunksInit();
 
 #if POWERPC_GET_RESOURCE_THUNKS

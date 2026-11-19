@@ -94,18 +94,15 @@ void set_current_directory()
 }
 
 #if TARGET_OS_MACCATALYST
-// The app's bundle identifier, with a defensive fallback if -bundleIdentifier
-// is ever nil. Must match the Swift side (Bundle.main.bundleIdentifier) so both
-// resolve to byte-identical container paths.
+// Must match the Swift side (FileManager.pocketShaverHome), fallback included.
 static NSString *pocketshaver_bundle_identifier()
 {
 	NSString *bid = [[NSBundle mainBundle] bundleIdentifier];
 	return bid.length ? bid : @"com.carbjo.pocketshaver";
 }
 
-// <real home>/Library/Containers/<bundle-id>/Data — the container Data dir the
-// OS would manage if we were sandboxed. We are not, so NSHomeDirectory() is the
-// real user home; we store here anyway to keep data out of the visible home.
+// ~/Library/Containers/<bundle-id>/Data. The build is unsandboxed, so
+// NSHomeDirectory() is the real user home.
 static NSString *pocketshaver_container_data_path()
 {
 	NSString *containers = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Containers"];
@@ -121,17 +118,14 @@ void pocketshaver_migrate_home_if_needed()
 		NSString *newHome = pocketshaver_container_data_path();
 		NSString *oldHome = [NSHomeDirectory() stringByAppendingPathComponent:@"PocketShaver Home"];
 
-		// Treat an absent OR empty container as "not yet migrated": a prior
-		// interrupted attempt (or a first-use access that created an empty dir)
-		// must not defeat migration and strand the intact legacy home.
+		// An empty container counts as not migrated, so an interrupted attempt
+		// or an early empty mkdir doesn't strand the legacy home.
 		NSArray *newContents = [fm contentsOfDirectoryAtPath:newHome error:nil];
 		BOOL newHasContent = (newContents.count > 0);
 		BOOL oldExists = [fm fileExistsAtPath:oldHome];
 
 		if (!newHasContent && oldExists) {
-			// Ensure ~/Library/Containers/<bundle-id>/ exists, and clear any
-			// empty/leftover container so move/copy has a clean destination
-			// (both fail if the destination already exists).
+			// Move and copy both fail if the destination exists, so clear it.
 			[fm createDirectoryAtPath:[newHome stringByDeletingLastPathComponent]
 				  withIntermediateDirectories:YES attributes:nil error:nil];
 			[fm removeItemAtPath:newHome error:nil];
@@ -142,8 +136,7 @@ void pocketshaver_migrate_home_if_needed()
 					   [oldHome fileSystemRepresentation], [newHome fileSystemRepresentation]);
 			} else {
 				// Move can fail across volumes; fall back to a copy, keeping the
-				// legacy home intact. Clear any partial destination the failed
-				// move may have left so the copy starts clean.
+				// legacy home intact.
 				[fm removeItemAtPath:newHome error:nil];
 				NSError *cErr = nil;
 				if ([fm copyItemAtPath:oldHome toPath:newHome error:&cErr]) {
@@ -151,10 +144,8 @@ void pocketshaver_migrate_home_if_needed()
 						   [oldHome fileSystemRepresentation], [newHome fileSystemRepresentation],
 						   [[err localizedDescription] UTF8String]);
 				} else {
-					// Discard any partial copy so the next launch retries cleanly
-					// from the still-intact legacy home instead of adopting a
-					// truncated container. (The empty dir the ensure-create below
-					// leaves is treated as "not migrated" on the next run.)
+					// Discard any partial copy so the next launch retries from
+					// the intact legacy home.
 					[fm removeItemAtPath:newHome error:nil];
 					printf("WARNING: could not migrate app home %s -> %s (%s)\n",
 						   [oldHome fileSystemRepresentation], [newHome fileSystemRepresentation],
@@ -162,26 +153,21 @@ void pocketshaver_migrate_home_if_needed()
 				}
 			}
 		} else if (newHasContent && oldExists) {
-			// Interim-build overlap: a populated container already exists. Leave
-			// the stale legacy dir untouched rather than risk clobbering live
-			// data (cleanup of the legacy dir is deliberately left to the user).
+			// Both exist: leave the legacy dir alone rather than risk live data.
 			printf("Note: both container home %s and legacy %s exist; leaving legacy dir in place.\n",
 				   [newHome fileSystemRepresentation], [oldHome fileSystemRepresentation]);
 		}
 
-		// Ensure the container Data dir exists for first use.
 		[fm createDirectoryAtPath:newHome withIntermediateDirectories:YES attributes:nil error:nil];
 	});
 }
 
 const char* pocketshaver_home_directory()
 {
-	// Idempotent one-time relocation; calling here guarantees the move even if
-	// some path resolves before main()'s explicit call.
+	// Covers callers that run before main()'s explicit migration call.
 	pocketshaver_migrate_home_if_needed();
 	NSString *home = pocketshaver_container_data_path();
-	// Recreate defensively each call (matches prior behavior if the dir is
-	// removed at runtime); cheap and returns immediately if it already exists.
+	// Recreated each call in case it was removed at runtime.
 	[[NSFileManager defaultManager] createDirectoryAtPath:home
 							  withIntermediateDirectories:YES attributes:nil error:nil];
 	static char buf[1024];
@@ -193,8 +179,8 @@ const char* pocketshaver_home_directory()
 const char* document_directory()
 {
 #if TARGET_OS_MACCATALYST
-	// On Catalyst, "Documents" (ROM, prefs, disk images, extfs root) lives
-	// under the PocketShaver home rather than the user's real ~/Documents.
+	// Catalyst: Documents (ROM, prefs, disks, extfs root) lives under the
+	// PocketShaver home, not the user's ~/Documents.
 	static char buf[1024];
 	NSString *docs = [[NSString stringWithUTF8String:pocketshaver_home_directory()]
 					  stringByAppendingPathComponent:@"Documents"];

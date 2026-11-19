@@ -10,9 +10,8 @@
 
 BOOL objc_createDiskWithName(NSString *inName, NSInteger sizeInMb)
 {
-	// Create new disk images in the same Documents the emulator/prefs use
-	// (the OS container's Documents on iOS and, on Mac Catalyst, the app
-	// container's Data/Documents) rather than the user's real ~/Documents.
+	// Use the emulator's Documents directory, not the user's real ~/Documents
+	// (they differ on Catalyst).
 	NSString* aDocsDirectory = [NSString stringWithUTF8String:document_directory()];
 	NSString* aFilePath = [aDocsDirectory stringByAppendingPathComponent:inName];
 

@@ -8,22 +8,9 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Pure C++ companion to gfxaccel_resources.mm. Owns:
- *    - the DMC subscription handshake (dmc_subscribe under name
- *      "gfxaccel_resources");
- *    - GfxRes_OnModeExit / GfxRes_OnModeEnter fan-out callbacks that
- *      relay to engine-owned attach/detach handlers;
- *    - register_engine / unregister_engine bookkeeping.
- *
- *  Metal allocation sites live in gfxaccel_resources.mm and are reached
- *  via two forward-declared extern "C" helpers (init_metal_state,
- *  shutdown_metal_state). No id<MTLTexture> / id<MTLBuffer> types cross
- *  this .cpp file.
- *
- *  Threading (documented carve-out):
- *    Single-threaded from the PPC emul thread. No std::mutex, no atomic.
- *    The DMC threading exception remains the ONLY
- *    acceleration-code module with concurrency primitives.
+ *  Subscribes to DMC mode changes and fans them out to each engine's
+ *  attach/detach handlers. Metal state lives in gfxaccel_resources.mm.
+ *  Emul thread only.
  */
 
 #include "gfxaccel_resources.h"
@@ -35,15 +22,9 @@
 #include <cstring>
 #include <vector>
 
-// Forward-declared helpers implemented in gfxaccel_resources.mm.
-// Keeping them extern "C" so the linker resolves cross-file without
-// mangling and so the .mm side can keep using plain Obj-C++ function
-// definitions without C++ namespace boilerplate.
+// Implemented in gfxaccel_resources.mm.
 extern "C" void gfxaccel_resources_mm_init_metal_state(void);
 extern "C" void gfxaccel_resources_mm_shutdown_metal_state(void);
-// Background/foreground lifecycle handlers implemented in
-// gfxaccel_resources.mm. Forward declarations here so the linker sees them
-// from both .cpp and .mm translation units.
 extern "C" void gfxaccel_handle_background_enter(void);
 extern "C" void gfxaccel_handle_foreground_enter(void);
 extern "C" void gfxaccel_set_dsp_background_hook(GfxAccelLifecycleHookFn fn, void *ctx);
@@ -51,21 +32,14 @@ extern "C" void gfxaccel_set_dsp_foreground_hook(GfxAccelLifecycleHookFn fn, voi
 
 namespace {
 
-// Internal registry entry. NOT exposed in the public header -
-// callers interact via register_engine / unregister_engine only.
 struct GfxResEngineRegistration {
 	uint32_t                    engine_id;
 	struct GfxResEngineHandlers handlers;
 };
 
-// File-scope state. Single-writer / single-reader = emul thread only.
-// No concurrency primitives here; see file header.
 static std::vector<GfxResEngineRegistration> s_engine_handlers;
 static bool                                  s_initialized = false;
 
-// DMC subscriber entry. Borrows the name's C-string storage (static
-// duration) - matches the "compositor" subscriber pattern established
-// in metal_compositor.mm.
 static int32_t GfxRes_OnModeExit(const struct DMCModeSnapshot *outgoing, void *ctx);
 static int32_t GfxRes_OnModeEnter(const struct DMCModeSnapshot *incoming, void *ctx);
 
@@ -80,9 +54,8 @@ static DMCSubscriber s_dmc_subscriber = {
 // Fan-out callbacks
 // ---------------------------------------------------------------------------
 
-// on_mode_exit: FIFO engine registration order.
-// Each detach return is advisory (logged only) - the DMC exit-fire
-// contract does not allow vetoing an already-committed transition.
+// Detach runs in registration order. Its result is only logged: DMC does
+// not allow vetoing a committed exit.
 static int32_t GfxRes_OnModeExit(const struct DMCModeSnapshot *outgoing, void *ctx)
 {
 	(void)ctx;
@@ -102,11 +75,8 @@ static int32_t GfxRes_OnModeExit(const struct DMCModeSnapshot *outgoing, void *c
 	return kDMCNoErr;
 }
 
-// on_mode_enter: LIFO (reverse registration order) - mirrors the DMC
-// delivery contract so the FIRST engine that registered with us is the
-// LAST to receive an attach callback. A non-zero attach return
-// propagates back to DMC as kDMCErrSubscriberRejected so the
-// rollback path fires.
+// Attach runs in reverse registration order, matching DMC. A failed attach
+// is returned as kDMCErrSubscriberRejected so DMC rolls back.
 static int32_t GfxRes_OnModeEnter(const struct DMCModeSnapshot *incoming, void *ctx)
 {
 	(void)ctx;
@@ -136,15 +106,11 @@ static int32_t GfxRes_OnModeEnter(const struct DMCModeSnapshot *incoming, void *
 extern "C" int32_t gfxaccel_resources_init(void)
 {
 	if (s_initialized) {
-		// Idempotent per header contract.
 		return kGfxAccelResNoErr;
 	}
 
-	// Subscribe to DMC SECOND (metal_compositor subscribes FIRST during
-	// MetalCompositorInit - see the gfxaccel_resources.h file header).
-	// Tolerate kDMCErrSubscriberAlreadyRegistered so
-	// repeated bring-up/tear-down cycles within a single process don't
-	// leave us stuck.
+	// Must subscribe after metal_compositor (see gfxaccel_resources.h).
+	// Already-registered is fine across repeated init/shutdown cycles.
 	int32_t sub_err = dmc_subscribe(&s_dmc_subscriber);
 	if (sub_err != kDMCNoErr && sub_err != kDMCErrSubscriberAlreadyRegistered) {
 		fprintf(stderr,
@@ -153,19 +119,11 @@ extern "C" int32_t gfxaccel_resources_init(void)
 		return kGfxAccelResErrGeneric;
 	}
 
-	// Initialize the Metal-side state (zero out the overlay fleet; the
-	// framebuffer MTLBuffer stays nil until first vend).
 	gfxaccel_resources_mm_init_metal_state();
 
-	// Initialize the heap sub-allocator. Heaps themselves are
-	// lazy; this just sets up bookkeeping + eviction semaphore.
 	gfxaccel_resources_heap_init();
 
-	// Initialize the PSO binary archive. Loads the
-	// shipped MTLBinaryArchive from the app bundle so PSO cache misses
-	// check the archive before falling back to runtime compile. Non-fatal:
-	// if the archive is missing or iOS < 14, runtime compile is the only
-	// path. Return code is logged but does not fail the parent init.
+	// Optional; without the archive PSOs are compiled at runtime.
 	{
 		int32_t pso_err = pso_archive_init();
 		if (pso_err != 0 && pso_err != kGfxAccelErrPSOArchiveNotAvailable) {
@@ -185,27 +143,15 @@ extern "C" void gfxaccel_resources_shutdown(void)
 		return;
 	}
 
-	// Shut down the PSO binary archive BEFORE draining the fan-out
-	// registry and heap sub-allocator. The archive is read-only and
-	// has no dependency on heaps, but shutting it down first ensures
-	// clean ordering.
 	pso_archive_shutdown();
 
-	// Drain the fan-out registry. Any engine that forgot to unregister
-	// is silently dropped - this is a defensive final tear-down path;
-	// engines that leak should be caught by their own shutdown tests,
-	// not by this module.
+	// Engines that did not unregister are dropped silently.
 	s_engine_handlers.clear();
 
-	// Shut down the heap sub-allocator BEFORE releasing Metal resources.
-	// This ensures heap-backed buffers are released while the heaps
-	// are still alive, maintaining proper ARC release ordering.
+	// Before the Metal state, so heap-backed buffers are released while
+	// their heaps still exist.
 	gfxaccel_resources_heap_shutdown();
 
-	// Release Metal resources BEFORE unsubscribing from DMC so any in-
-	// flight DMC exit event doesn't race a detach against a freed
-	// texture. (The fan-out is single-threaded so this is belt-and-
-	// suspenders; the heap work adds real asynchrony.)
 	gfxaccel_resources_mm_shutdown_metal_state();
 
 	int32_t unsub_err = dmc_unsubscribe(s_dmc_subscriber.name);
@@ -233,9 +179,7 @@ extern "C" void gfxaccel_resources_register_engine(uint32_t engine_id,
 		return;
 	}
 
-	// Replace any existing entry for this engine_id. Engines own their
-	// own lifecycle - a second register call means "use these handlers
-	// now" not "add another subscriber".
+	// Re-registering replaces the engine's handlers.
 	for (size_t i = 0; i < s_engine_handlers.size(); ++i) {
 		if (s_engine_handlers[i].engine_id == engine_id) {
 			s_engine_handlers[i].handlers = *h;
@@ -257,8 +201,5 @@ extern "C" void gfxaccel_resources_unregister_engine(uint32_t engine_id)
 			return;
 		}
 	}
-	// Silent no-op if engine wasn't registered - matches the header
-	// contract (engines that never registered shouldn't trigger a
-	// diagnostic at shutdown).
 }
 

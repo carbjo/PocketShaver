@@ -14,16 +14,13 @@ class GamepadThumbnailCache {
 
 	private static let encoder: JSONEncoder = {
 		let encoder = JSONEncoder()
-		// Deterministic output so equal configs always encode to the same bytes,
-		// and therefore hash to the same on-disk cache key.
+		// Deterministic output so equal configs hash to the same cache key.
 		encoder.outputFormatting = [.sortedKeys]
 		return encoder
 	}()
 
-	// Thumbnails live in their own subdirectory rather than loose in Application
-	// Support. That keeps them clearly separated from Storage's named files and,
-	// because the directory did not exist under the old (top-level) scheme, its
-	// absence doubles as the "haven't migrated yet" signal below.
+	// Thumbnails get their own subdirectory, apart from Storage's files. Its
+	// absence also signals that the legacy cleanup below hasn't run yet.
 	private let thumbnailsDirectory = FileManager.appSupportUrl
 		.appendingPathComponent("GamepadThumbnails", isDirectory: true)
 
@@ -91,25 +88,19 @@ class GamepadThumbnailCache {
 		thumbnailsDirectory.appendingPathComponent(stableIdentifier(for: config))
 	}
 
-	// A content-addressed filename that is stable across launches, unlike
-	// `config.hashValue` (whose `Hasher` is seeded with a per-process random
-	// value). See GamepadThumbnailCacheKey for the rationale.
+	// Content-addressed filename, stable across launches (unlike `hashValue`).
 	private func stableIdentifier(for config: GamepadConfig) -> String {
 		guard let data = try? Self.encoder.encode(config) else {
-			// Encoding a Codable config should never fail; if it somehow does,
-			// fall back to the process-local hash so the cache still functions
-			// for this launch (it just won't hit across launches). The prefix
-			// keeps it out of the legacy-orphan cleanup's numeric-name filter.
+			// Encoding should never fail. If it does, fall back to the
+			// per-process hash; the prefix keeps it out of the legacy cleanup.
 			return "unstable-\(config.hashValue)"
 		}
 		return GamepadThumbnailCacheKey.stableKey(for: data)
 	}
 
-	// One-time cleanup of files written by the old cache, which named thumbnails
-	// "\(config.hashValue)" directly in Application Support. Because that key
-	// changed every launch, a fresh orphan accreted for each config on each
-	// launch (thousands were observed in one container). Runs once, gated by the
-	// existence of `thumbnailsDirectory`.
+	// One-time cleanup of legacy thumbnails named "\(config.hashValue)" in
+	// Application Support; that key changed every launch, so orphans piled up.
+	// Gated on `thumbnailsDirectory` not existing yet.
 	private func removeLegacyOrphanedThumbnails() {
 		let fileManager = FileManager.default
 		guard let entries = try? fileManager.contentsOfDirectory(

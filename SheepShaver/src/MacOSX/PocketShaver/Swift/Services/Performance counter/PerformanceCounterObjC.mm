@@ -11,11 +11,9 @@
 
 #import <stdatomic.h>
 
-// Frame/byte tallies are file-static atomics. The writers run OFF the main
-// thread — objc_reportFrameRender() from the Metal compositor present (VBL)
-// path, objc_reportBytesTransferred() from the ether/slirp packet-reception
-// threads — while the read-and-reset runs on the @MainActor 1-second timer.
-// Relaxed ordering suffices: each is a monotonic tally with no dependent memory.
+// Written off the main thread (compositor present path, slirp receive threads)
+// and read-and-reset by the main-thread 1-second timer. Relaxed ordering is
+// enough: these are plain tallies with no dependent memory.
 static _Atomic int s_framesRendered   = 0;
 static _Atomic int s_bytesTransferred = 0;
 
@@ -42,8 +40,7 @@ PerformanceCounterObjC* objc_getPerformanceCounter(void) {
 @implementation PerformanceCounterObjC
 
 - (PerformanceCounterReport*)reportOneSecondAndFetchReport {
-	// Read-and-clear each tally atomically. The 1-second sampling window means
-	// the frame count returned here IS the frames-per-second value.
+	// Over the 1-second window, the frame count is the FPS.
 	int framesRendered   = atomic_exchange_explicit(&s_framesRendered, 0, memory_order_relaxed);
 	int bytesTransferred = atomic_exchange_explicit(&s_bytesTransferred, 0, memory_order_relaxed);
 

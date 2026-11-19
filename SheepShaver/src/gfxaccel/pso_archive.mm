@@ -8,14 +8,8 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Loads a shipped MTLBinaryArchive from the app bundle at init time
- *  so stock PSO descriptors resolve without runtime shader compilation.
- *  On iOS 13.x, the module is a no-op (MTLBinaryArchive requires iOS 14+).
- *
- *  Scope: stock PSO descriptors (Compositor + NQD; RAVE and GL deferred
- *  until shader permutations stabilize).
- *
- *  Threading: single-writer from PPC emul thread. No concurrency primitives.
+ *  Loads the bundled MTLBinaryArchive so compositor and NQD PSOs skip
+ *  runtime shader compilation. No-op before iOS 14. Emul thread only.
  */
 
 #import <Metal/Metal.h>
@@ -24,16 +18,8 @@
 
 #include <cstdio>
 
-// ---------------------------------------------------------------------------
-// Static singleton state
-// ---------------------------------------------------------------------------
-
 static id<MTLBinaryArchive> s_archive     = nil;
 static bool                 s_initialized = false;
-
-// ---------------------------------------------------------------------------
-// Lifecycle
-// ---------------------------------------------------------------------------
 
 extern "C" int32_t pso_archive_init(void)
 {
@@ -53,8 +39,7 @@ extern "C" int32_t pso_archive_init(void)
 			URLForResource:@"stock_pipelines"
 			 withExtension:@"metalarchive"];
 		if (!archiveURL) {
-			// Archive not shipped yet (or not in this bundle). Non-fatal:
-			// all PSOs will be runtime-compiled as before.
+			// Not in this bundle. Non-fatal: PSOs compile at runtime.
 			printf("[pso_archive] init: stock_pipelines.metalarchive not found "
 			       "in bundle -- runtime compile fallback\n");
 			s_initialized = true;
@@ -80,7 +65,7 @@ extern "C" int32_t pso_archive_init(void)
 		s_initialized = true;
 		return 0;
 	} else {
-		// iOS 13.x: MTLBinaryArchive not available. Non-fatal.
+		// Non-fatal.
 		printf("[pso_archive] init: iOS < 14 -- archive not available\n");
 		s_initialized = true;
 		return kGfxAccelErrPSOArchiveNotAvailable;
@@ -96,10 +81,6 @@ extern "C" void pso_archive_shutdown(void)
 	s_archive = nil;
 	s_initialized = false;
 }
-
-// ---------------------------------------------------------------------------
-// Lookup
-// ---------------------------------------------------------------------------
 
 extern "C" void *pso_archive_lookup_render(void *descriptor)
 {
@@ -123,8 +104,7 @@ extern "C" void *pso_archive_lookup_render(void *descriptor)
 		id<MTLRenderPipelineState> pso =
 			[device newRenderPipelineStateWithDescriptor:desc error:&err];
 		if (!pso) {
-			// Archive miss: clear hint and return NULL so caller
-			// does runtime compile.
+			// Archive miss: clear the hint; caller compiles at runtime.
 			desc.binaryArchives = nil;
 			return NULL;
 		}
@@ -150,7 +130,6 @@ extern "C" void *pso_archive_lookup_compute(void *descriptor)
 		MTLComputePipelineDescriptor *desc =
 			(__bridge MTLComputePipelineDescriptor *)descriptor;
 
-		// Hint Metal to check the archive first.
 		desc.binaryArchives = @[s_archive];
 
 		NSError *err = nil;
@@ -160,7 +139,7 @@ extern "C" void *pso_archive_lookup_compute(void *descriptor)
 			                                  reflection:nil
 			                                       error:&err];
 		if (!pso) {
-			// Archive miss: clear hint and return NULL.
+			// Archive miss: clear the hint.
 			desc.binaryArchives = nil;
 			return NULL;
 		}

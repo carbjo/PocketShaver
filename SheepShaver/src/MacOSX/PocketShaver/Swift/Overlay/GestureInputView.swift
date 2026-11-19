@@ -49,19 +49,15 @@ class GestureInputView: UIView {
 	}
 
 #if targetEnvironment(macCatalyst)
-	// Mac Catalyst mouse-position bypass. SDL's Catalyst window transposes to
-	// portrait on unfocus/refocus and clamps mouse-x, so the guest cursor is
-	// driven from the real UIKit pointer location instead. Buttons continue to
-	// flow through SDL. Hover covers button-up moves; touchesMoved (below) covers
-	// button-down drags.
+	// Catalyst: SDL's window transposes on refocus and clamps mouse-x, so the
+	// guest cursor follows the UIKit pointer instead. Buttons still go through
+	// SDL. Hover covers button-up moves; touchesMoved covers drags.
 	private weak var catalystHover: UIHoverGestureRecognizer?
 
 	override func didMoveToWindow() {
 		super.didMoveToWindow()
-		// Attach the hover recognizer to the WINDOW, not this view: the compositor
-		// keeps the window at the true full size, but SDL's transposed view
-		// geometry could shrink this view's width and clip the pointer at the same
-		// wrong edge we're trying to escape.
+		// Attach to the window, not this view: SDL's transposed view geometry
+		// can shrink this view and clip the pointer at the wrong edge.
 		if let window, catalystHover == nil {
 			let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleCatalystPointerHover(_:)))
 			window.addGestureRecognizer(hover)
@@ -101,24 +97,18 @@ class GestureInputView: UIView {
 		 }
 
 #if !targetEnvironment(macCatalyst)
-		// iOS: snap the guest cursor to the steering finger the instant it lands
-		// (draggingMode is set above so the three-finger guard applies here too).
-		// Inert outside hover mode — VideoMapWindowPointToGuestAndMove no-ops.
+		// iOS: snap the cursor to the steering finger as it lands. draggingMode
+		// must be set first for the three-finger guard. No-op outside hover mode.
 		forwardSteeringTouchPosition(from: touches)
 #endif
 	}
 
 #if !targetEnvironment(macCatalyst)
-	// Forwards the steering finger's absolute window position to the guest cursor
-	// so it tracks that finger. The steering finger is the tracked finger that is
-	// not the second (click) finger, chosen with a STABLE ordering (min hashValue)
-	// so the pick never alternates between fingers within a gesture — otherwise a
-	// simultaneous two-finger landing (which never populates secondFingerTouch)
-	// would flip between fingers and reintroduce the bounce. Only the steering
-	// finger drives the cursor, so a resting/clicking second finger never moves
-	// it; three-finger gestures (gamepad switching) don't move it at all. The C++
-	// side ignores SDL's own synthesized touch motion while hover mode owns the
-	// cursor, so this is the single cursor driver during two-finger steering.
+	// Sole cursor driver during two-finger steering: forwards the steering
+	// finger's window position. The steering finger is the tracked touch that
+	// isn't secondFingerTouch, picked by min hashValue so the choice is stable
+	// within a gesture (a simultaneous two-finger landing never sets
+	// secondFingerTouch). Three-finger gestures don't move the cursor.
 	private func forwardSteeringTouchPosition(from touches: Set<UITouch>) {
 		guard state != .editingGamepad, draggingMode != .threeFingers, let window else {
 			return
@@ -138,9 +128,8 @@ class GestureInputView: UIView {
 		super.touchesMoved(touches, with: event)
 
 #if targetEnvironment(macCatalyst)
-		// A Catalyst mouse drag (button held) arrives as a single touch; feed its
-		// position through the same bypass as hover (UIHoverGestureRecognizer only
-		// fires with no button pressed).
+		// A Catalyst mouse drag arrives as a single touch. Route it through the
+		// same bypass, since hover only fires with no button pressed.
 		if state != .editingGamepad, touchDictionary.count == 1,
 		   let touch = touches.first, let window {
 			let p = touch.location(in: window)
@@ -149,7 +138,7 @@ class GestureInputView: UIView {
 #endif
 
 #if !targetEnvironment(macCatalyst)
-		// iOS: drive the guest cursor from the steering finger only (see above).
+		// iOS: only the steering finger drives the cursor.
 		forwardSteeringTouchPosition(from: touches)
 #endif
 

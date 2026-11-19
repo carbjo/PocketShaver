@@ -15,6 +15,15 @@
 #import <objc/message.h>
 #endif
 
+void objc_set_emulation_orientation(BOOL portrait) {
+#if TARGET_OS_IPHONE && !TARGET_OS_MACCATALYST
+	// SDL otherwise infers allowed orientations from its cached desktop mode,
+	// which can still have the aspect ratio from before the startup UI rotated.
+	SDL_SetHint(SDL_HINT_ORIENTATIONS, portrait ? "Portrait PortraitUpsideDown" :
+		"LandscapeLeft LandscapeRight");
+#endif
+}
+
 #ifndef SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH
 #define SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH "SDL_HINT_IOS_IPAD_MOUSE_PASSTHROUGH"
 #endif
@@ -98,23 +107,17 @@ void objc_savePrefs(void) {
 
 double catalyst_screen_top_inset(void) {
 #if TARGET_OS_MACCATALYST
-	// The Mac camera housing (notch) / menu-bar strip is surfaced only by AppKit's
-	// NSScreen.safeAreaInsets — UIKit's view/window safeAreaInsets are 0 in a
-	// Catalyst process even on a notched Mac (unlike "Designed for iPad", where the
-	// notch is a UIKit inset). Catalyst ships no AppKit headers, so NSScreen is
-	// reached through the ObjC runtime, the same technique the app already uses for
-	// NSApplication in catalyst_pump_appkit_events.
+	// Only NSScreen.safeAreaInsets reports the notch in Catalyst; UIKit's insets
+	// are 0. Catalyst has no AppKit headers, so go through the ObjC runtime.
 	Class NSScreenClass = NSClassFromString(@"NSScreen");
 	if (!NSScreenClass) return 0;
 	id screen = ((id (*)(Class, SEL))objc_msgSend)(NSScreenClass, sel_registerName("mainScreen"));
 	if (!screen) return 0;
 	SEL saiSel = sel_registerName("safeAreaInsets");
 	if (![screen respondsToSelector:saiSel]) return 0; // pre-macOS 12 / pre-notch
-	// NSEdgeInsets == { CGFloat top, left, bottom, right }. On arm64 (AAPCS64) this
-	// small homogeneous-float aggregate is returned in registers, so the plain
-	// objc_msgSend cast is correct there (arm64 has no objc_msgSend_stret at all).
-	// On x86-64 a 32-byte aggregate returns through a hidden sret pointer, so the
-	// stret entry point is REQUIRED — the plain cast crashes.
+	// NSEdgeInsets is 4 CGFloats. arm64 returns it in registers (plain
+	// objc_msgSend; there is no _stret). x86-64 returns it via a hidden sret
+	// pointer, so objc_msgSend_stret is required there or it crashes.
 	struct CatalystNSEdgeInsets { CGFloat top; CGFloat left; CGFloat bottom; CGFloat right; };
 #if defined(__x86_64__)
 	CatalystNSEdgeInsets insets;

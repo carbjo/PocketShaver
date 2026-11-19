@@ -8,58 +8,35 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Metal-side half of gfxaccel_resources_heap. Owns:
- *    - Per-engine MTLHeap creation (lazy).
- *    - Sub-allocation from heaps via the `:offset:` API variants
- *      (newBufferWithLength:options:offset:, newTextureWithDescriptor:offset:).
- *    - Per-heap bump sub-allocator (next_offset), advanced on each alloc
- *      and reset on DMC on_mode_exit.
- *    - Three-tier eviction pipeline: LRU purge, PSO flush, loud fail.
- *    - Memory-warning C shim: atomically marks an eviction request that
- *      SubmitFrame drains on the engine call path.
- *    - Compositor handshake: SubmitFrame drains pending evictions.
+ *  Metal side of gfxaccel_resources_heap: lazy per-engine MTLHeaps with a
+ *  bump sub-allocator (Placement heaps on iOS 17+, reset on DMC mode exit),
+ *  standalone budgeted DSp buffers, three-tier eviction (LRU purge, PSO
+ *  flush, loud fail), and the RAVE vertex ring.
  *
- *  Placement-heap policy is used on iOS 17+ via the `:offset:` alloc API
- *  variants. A per-heap bump allocator tracks next_offset, advanced on
- *  each alloc and reset on DMC on_mode_exit. This gives exact memory
- *  accounting.
- *
- *  Alignment floor: each allocation aligns to max(Metal-reported-align,
- *  256). Over-commit returns NULL + os_log_fault without invoking
- *  Metal alloc (prevents Placement validation assertion from firing).
- *
- *  ARC ownership: g_heaps[] are strong references under ARC. Setting nil
- *  releases the heap and all sub-allocations.
- *
- *  Threading: heap allocation/reset/purge remains single-writer on the
- *  engine call path. The UIKit memory-warning callback only toggles an
- *  atomic pending flag; it does not mutate heaps.
+ *  Threading: heap alloc/reset/purge is single-writer on the engine call
+ *  path. The memory-warning callback only sets an atomic pending flag.
  */
 
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <os/log.h>
 #import <TargetConditionals.h>
+#import <objc/runtime.h>
 
 #include <cstdint>
 #include <cstdio>
 #include <dispatch/dispatch.h>
 #include <array>
 #include <atomic>
+#include <memory>
 
 #include "gfxaccel_resources_heap.h"
+#include "gfxaccel_live_buffer_budget.h"
 #include "metal_device_shared.h"
-
-// ---------------------------------------------------------------------------
-// File-scope Metal state
-// ---------------------------------------------------------------------------
 
 static id<MTLHeap> g_heaps[kHeapCount] = { nil, nil, nil, nil, nil };
 
-// Per-heap monotonic bump offset (bump allocator).
-// Reset to 0 on DMC on_mode_exit. All allocations
-// compute their aligned start offset from this counter and advance it.
-// No std::atomic: single-writer invariant (emul serial queue).
+// Per-heap bump offset, reset to 0 on DMC on_mode_exit. Emul thread only.
 static NSUInteger g_next_offset[kHeapCount] = { 0, 0, 0, 0, 0 };
 
 // Per-heap live sub-allocation count. A placement heap's bump offset can only
@@ -70,23 +47,16 @@ static uint32_t g_live_allocations[kHeapCount] = { 0, 0, 0, 0, 0 };
 // set Empty is restored to NonVolatile before the next placement allocation.
 static bool g_heap_purgeable_empty[kHeapCount] = { false, false, false, false, false };
 
-// Per-heap GPU-completion latch. A bump reset must not zero next_offset
-// while a committed-but-incomplete command buffer may still be reading
-// heap memory: the heaps are MTLHazardTrackingModeUntracked and
-// g_live_allocations tracks CPU ownership, not GPU completion, so a
-// reset + immediate re-alloc could placement-alias in-flight bytes.
-// Engines note each command buffer that references heap memory BEFORE
-// committing it; the addCompletedHandler bumps the completed counter
-// (same completion-handler shape as the RAVE ring slot gate below).
-// Reset defers (returns 0) while pending != completed; the DSp VBL
-// release drain retries every tick, so a deferred reset lands one VBL
-// later. pending is single-writer on the emul thread; completed is
-// bumped from Metal's completion-handler thread, hence atomic.
+// Per-heap GPU-completion latch. Heaps are hazard-untracked and
+// g_live_allocations tracks CPU ownership only, so a reset while a command
+// buffer is still in flight could placement-alias bytes the GPU is reading.
+// Engines note each command buffer that touches heap memory before commit;
+// reset defers (returns 0) while pending != completed. pending is written
+// on the emul thread; completed is bumped from Metal's completion thread.
 static uint64_t g_gpu_commits_pending[kHeapCount] = { 0, 0, 0, 0, 0 };
 static std::atomic<uint64_t> g_gpu_commits_completed[kHeapCount];
 
-// Heap sizes (initial = ceiling constants from header; overridable via
-// gfxaccel_heap_testing_set_ceiling for tests).
+// Heap sizes; overridable via gfxaccel_heap_testing_set_ceiling.
 static NSUInteger g_heap_sizes[kHeapCount] = {
 	kHeapCeiling_NQD,
 	kHeapCeiling_RAVE,
@@ -95,7 +65,6 @@ static NSUInteger g_heap_sizes[kHeapCount] = {
 	kHeapCeiling_DSp
 };
 
-// Default ceiling values for reset.
 static const NSUInteger g_heap_defaults[kHeapCount] = {
 	kHeapCeiling_NQD,
 	kHeapCeiling_RAVE,
@@ -104,7 +73,6 @@ static const NSUInteger g_heap_defaults[kHeapCount] = {
 	kHeapCeiling_DSp
 };
 
-// os_log subsystem for heap exhaustion + eviction timeout
 static os_log_t gfxaccel_heap_log(void)
 {
 	static os_log_t log = NULL;
@@ -117,18 +85,33 @@ static os_log_t gfxaccel_heap_log(void)
 
 static std::atomic_bool g_eviction_pending(false);
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
+// DSp buffers have independent lifetimes (a back buffer may outlive hundreds
+// of alt buffers), so they are device allocations, not placement ranges.
+// The budget is charged via an associated token that lives as long as the
+// MTLBuffer (command buffers and texture views retain it). Each shutdown
+// starts a fresh budget so late frees cannot debit a new session.
+static std::shared_ptr<GfxAccelLiveBufferBudget> g_dsp_buffer_budget =
+    std::make_shared<GfxAccelLiveBufferBudget>();
+static char g_dsp_buffer_charge_key;
 
-// Forward declarations of C++ side eviction functions.
+@interface GfxAccelDSpBufferCharge : NSObject {
+@public
+    std::shared_ptr<GfxAccelLiveBufferBudget> budget;
+    uint64_t bytes;
+}
+@end
+@implementation GfxAccelDSpBufferCharge
+- (void)dealloc
+{
+    if (budget) budget->release(bytes);
+}
+@end
+
 extern "C" void gfxaccel_heap_lru_purge_volatile(void);
 extern "C" void gfxaccel_heap_pso_cache_clear(void);
 
-// Align `offset` up to `alignment`, honoring the floor of 256
-// bytes. Metal's reported alignment may be lower (e.g., 16 bytes for a
-// simple buffer); 256 is the conservative cache-line / MTL offset
-// alignment requirement that also matches the RAVE ring buffer stride.
+// Align up with a 256-byte floor (Metal may report as low as 16; 256 also
+// matches the RAVE ring stride).
 static inline NSUInteger align_offset_up(NSUInteger offset,
                                           NSUInteger alignment)
 {
@@ -160,28 +143,25 @@ static bool restore_heap_if_purgeable(uint32_t heap_id)
 }
 
 // ---------------------------------------------------------------------------
-// extern "C" helpers called from gfxaccel_resources_heap.cpp
+// Called from gfxaccel_resources_heap.cpp
 // ---------------------------------------------------------------------------
 
 extern "C" void gfxaccel_resources_heap_mm_init(void)
 {
-	// No-op: heaps are lazy.
+	// Heaps are created lazily.
 	g_eviction_pending.store(false, std::memory_order_release);
 }
 
 extern "C" void gfxaccel_resources_heap_mm_shutdown(void)
 {
-	// Release all heaps (ARC).
 	for (int i = 0; i < kHeapCount; ++i) {
 		g_heaps[i] = nil;
 	}
 
-	// Reset heap sizes to defaults.
 	for (int i = 0; i < kHeapCount; ++i) {
 		g_heap_sizes[i] = g_heap_defaults[i];
 	}
 
-	// Reset per-heap bump offsets.
 	for (int i = 0; i < kHeapCount; ++i) {
 		g_next_offset[i] = 0;
 	}
@@ -195,7 +175,9 @@ extern "C" void gfxaccel_resources_heap_mm_shutdown(void)
 		g_heap_purgeable_empty[i] = false;
 	}
 
-	// Reset eviction state.
+	// Outstanding DSp resources retain their own accounting generation.
+	g_dsp_buffer_budget = std::make_shared<GfxAccelLiveBufferBudget>();
+
 	g_eviction_pending.store(false, std::memory_order_release);
 }
 
@@ -205,7 +187,6 @@ extern "C" void *gfxaccel_resources_heap_mm_get(uint32_t heap_id)
 		return NULL;
 	}
 
-	// Lazy-create the heap on first access.
 	if (g_heaps[heap_id] != nil) {
 		restore_heap_if_purgeable(heap_id);
 		return (__bridge void *)g_heaps[heap_id];
@@ -221,17 +202,15 @@ extern "C" void *gfxaccel_resources_heap_mm_get(uint32_t heap_id)
 	MTLHeapDescriptor *desc = [[MTLHeapDescriptor alloc] init];
 	desc.size = g_heap_sizes[heap_id];
 #if TARGET_OS_SIMULATOR
-	// iOS simulator Metal driver requires MTLStorageModePrivate for heaps.
-	// On-device builds use Shared for CPU+GPU access.
+	// The simulator's Metal driver requires Private storage for heaps.
 	desc.storageMode = MTLStorageModePrivate;
 #else
 	desc.storageMode = MTLStorageModeShared;
 #endif
 	desc.hazardTrackingMode = MTLHazardTrackingModeUntracked;
 
-	// Placement on iOS 17+ for exact memory accounting. Alloc paths use
-	// the :offset: API variants required by Placement. Automatic retained
-	// for iOS 13.4-16.x.
+	// Placement on iOS 17+ for exact accounting (alloc uses the :offset:
+	// variants); Automatic on older iOS.
 	if (@available(iOS 17, *)) {
 		desc.type = MTLHeapTypePlacement;
 	} else {
@@ -250,29 +229,72 @@ extern "C" void *gfxaccel_resources_heap_mm_get(uint32_t heap_id)
 	return (__bridge void *)g_heaps[heap_id];
 }
 
+// Device buffers keep Shared storage even on the simulator, unlike heaps.
+static void *alloc_dsp_buffer(uint32_t length, uint32_t options)
+{
+    if (length == 0) return NULL;
+    id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
+    if (!device) return NULL;
+    MTLResourceOptions allocOptions = (MTLResourceOptions)options;
+    // Reserve the requested length, then reconcile with allocatedSize.
+    const uint64_t predicted = length;
+    for (int tier = 0; tier < 3; ++tier) {
+        if (g_dsp_buffer_budget->reserve(predicted, g_heap_sizes[kHeapEngineDSp])) {
+            id<MTLBuffer> buffer = [device newBufferWithLength:length options:allocOptions];
+            uint64_t charge = predicted;
+            if (buffer) {
+                const uint64_t actual = buffer.allocatedSize;
+                // Reject if the real footprint pushes past budget.
+                if (actual > charge) {
+                    if (g_dsp_buffer_budget->reserve(actual - charge,
+                                                    g_heap_sizes[kHeapEngineDSp])) {
+                        charge = actual;
+                    } else {
+                        buffer = nil;
+                    }
+                } else if (actual != 0 && actual < charge) {
+                    g_dsp_buffer_budget->release(charge - actual);
+                    charge = actual;
+                }
+            }
+            if (buffer) {
+                GfxAccelDSpBufferCharge *token = [GfxAccelDSpBufferCharge new];
+                token->budget = g_dsp_buffer_budget;
+                token->bytes = charge;
+                objc_setAssociatedObject(buffer, &g_dsp_buffer_charge_key, token,
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                g_live_allocations[kHeapEngineDSp]++;
+                return (__bridge_retained void *)buffer;
+            }
+            g_dsp_buffer_budget->release(charge);
+        }
+        if (tier == 0) gfxaccel_heap_lru_purge_volatile();
+        else if (tier == 1) gfxaccel_heap_pso_cache_clear();
+    }
+    os_log_fault(gfxaccel_heap_log(),
+                 "DSp live-buffer budget exhausted: alloc_buffer(length=%u)", length);
+    return NULL;
+}
+
 extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
                                                           uint32_t length,
                                                           uint32_t options)
 {
-	// Ensure heap exists (lazy create).
+    if (heap_id == kHeapEngineDSp) return alloc_dsp_buffer(length, options);
 	if (gfxaccel_resources_heap_mm_get(heap_id) == NULL) {
 		return NULL;
 	}
 
 	id<MTLHeap> heap = g_heaps[heap_id];
 
-	// On simulator, heap uses Private storage; force buffer options to match.
+	// Simulator heaps are Private; buffer options must match.
 #if TARGET_OS_SIMULATOR
 	MTLResourceOptions allocOptions = MTLResourceStorageModePrivate;
 #else
 	MTLResourceOptions allocOptions = (MTLResourceOptions)options;
 #endif
 
-	// Bump allocator: query the device for the size/alignment
-	// requirement (Metal's heapBuffer/heapTexture size-and-align APIs live
-	// on MTLDevice, not MTLHeap), align the current bump offset up, call
-	// the :offset: variant required by Placement heaps, and advance the
-	// bump offset.
+	// Size/align queries live on MTLDevice, not MTLHeap.
 	id<MTLDevice> device = (__bridge id<MTLDevice>)SharedMetalDevice();
 	MTLSizeAndAlign sa = [device heapBufferSizeAndAlignWithLength:(NSUInteger)length
 	                                                       options:allocOptions];
@@ -282,27 +304,30 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
 		restore_heap_if_purgeable(heap_id);
 		NSUInteger aligned = align_offset_up(g_next_offset[heap_id], sa.align);
 
-		// Over-commit pre-check: if the aligned placement would exceed
-		// the heap's size, skip the Metal call (Placement would fire a
-		// validation assertion) and fall through to the eviction tier.
+		// Skip the Metal call on over-commit: Placement would assert.
 		if (aligned + sa.size > g_heap_sizes[heap_id]) {
 			// Fall through to eviction below.
 		} else {
-			buf = [heap newBufferWithLength:(NSUInteger)length
-			                        options:allocOptions
-			                         offset:aligned];
+			// :offset: is Placement-only. Automatic heaps place the buffer
+			// themselves and the bump offset is accounting only.
+			if (heap.type == MTLHeapTypePlacement) {
+				buf = [heap newBufferWithLength:(NSUInteger)length
+				                        options:allocOptions
+				                         offset:aligned];
+			} else {
+				buf = [heap newBufferWithLength:(NSUInteger)length
+				                        options:allocOptions];
+			}
 			if (buf != nil) {
 				g_next_offset[heap_id] = aligned + sa.size;
 				g_live_allocations[heap_id]++;
 				return (__bridge_retained void *)buf;
 			}
-			// Metal refused at this offset; advance past the failed
-			// attempt so we don't re-hit the same offset next tier.
+			// Metal refused this offset; skip past it for the next tier.
 			g_next_offset[heap_id] = aligned + sa.size;
 		}
 
-		// Eviction pipeline: tier 0 -> LRU purge, tier 1 -> PSO flush.
-		// Tier 2 has no additional eviction action; it's the final retry.
+		// Tier 0 -> LRU purge, tier 1 -> PSO flush, tier 2 is the final retry.
 		if (tier == 0) {
 			gfxaccel_heap_lru_purge_volatile();
 		} else if (tier == 1) {
@@ -310,7 +335,7 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
 		}
 	}
 
-	// Tier 3 - Loud failure. No silent fallback.
+	// No silent fallback.
 	os_log_fault(gfxaccel_heap_log(),
 	             "Heap exhausted for heap_id=%u: alloc_buffer(length=%u) "
 	             "failed after 3-tier eviction (next_offset=%lu, size=%lu, align=%lu)",
@@ -321,13 +346,10 @@ extern "C" void *gfxaccel_resources_heap_mm_alloc_buffer(uint32_t heap_id,
 	return NULL;
 }
 
-// Per-heap bump-offset reset. Zeros g_next_offset[heap_id] and returns
-// the number of bytes reclaimed (= the previous next_offset). Does NOT
-// release g_heaps[heap_id] — only the offset counter is reset.
-// Invalid heap_id is a no-op returning 0 (bounds check at function entry).
-// gpu_idle_asserted skips the GPU-completion latch for callers that have
-// already proven idleness (explicit waitUntilCompleted on the shared
-// queue); the live-allocation gate always applies.
+// Zeros the bump offset (the heap itself is kept) and returns the bytes
+// reclaimed, or 0 if deferred. gpu_idle_asserted skips the GPU-completion
+// latch for callers that already waited on the queue; the live-allocation
+// gate always applies.
 static uint64_t heap_mm_reset_internal(uint32_t heap_id,
                                        bool gpu_idle_asserted)
 {
@@ -352,10 +374,7 @@ static uint64_t heap_mm_reset_internal(uint32_t heap_id,
 	if (!gpu_idle_asserted &&
 	    g_gpu_commits_completed[heap_id].load(std::memory_order_acquire) <
 	        g_gpu_commits_pending[heap_id]) {
-		// In-flight GPU reads of heap memory: deferring keeps offset 0
-		// from aliasing bytes a committed blit may still touch. Expected
-		// transient — the caller's next reset attempt (e.g. the DSp VBL
-		// release drain) lands after the completed handler fires.
+		// Expected transient: the DSp VBL release drain retries next tick.
 		os_log(gfxaccel_heap_log(),
 		       "heap reset deferred for heap_id=%u: command buffer(s) "
 		       "referencing this heap still in flight (next_offset=%lu)",
@@ -420,9 +439,7 @@ extern "C" uint32_t gfxaccel_resources_heap_mm_live_allocation_count(uint32_t he
 
 extern "C" void gfxaccel_resources_heap_mm_lru_purge(void)
 {
-	// Walk heaps and set purgeable state to Empty only for heaps with no
-	// live resources. Live heaps are skipped because Empty makes their
-	// contents OS-discardable.
+	// Only heaps with no live resources: Empty makes contents discardable.
 	for (int i = 0; i < kHeapCount; ++i) {
 		if (g_heaps[i] == nil) {
 			continue;
@@ -460,89 +477,22 @@ extern "C" int32_t gfxaccel_heap_wait_for_eviction(uint64_t frame_interval_usec)
 }
 
 // ---------------------------------------------------------------------------
-// Public wrappers (route through heap_mm_ variants)
-// ---------------------------------------------------------------------------
-
-// gfxaccel_resources_heap_get and gfxaccel_resources_heap_alloc_buffer are
-// implemented in the .cpp side and call through to the _mm_ variants declared
-// above.
-
-// ---------------------------------------------------------------------------
-// RaveRingBuffer implementation
+// RAVE vertex ring
 //
-// Triple-buffered ring for RAVE per-draw vertex staging. Eliminates 15+
-// newBufferWithBytes: calls per frame. Allocated directly from the device
-// (not from kHeapEngineRAVE heap) because CPU write access (memcpy) requires
-// MTLResourceStorageModeShared, which is incompatible with the simulator's
-// MTLStorageModePrivate heap requirement. Matches GL ring buffer allocation
-// pattern (gl_metal_renderer.mm:641).
+// Triple-buffered staging for per-draw RAVE vertices. Device-allocated, not
+// from the RAVE heap, because memcpy needs Shared storage and simulator
+// heaps are Private.
 // ---------------------------------------------------------------------------
 
-#define RAVE_RING_BUFFER_SIZE  (4 * 1024 * 1024)   // 4 MiB per slot (matches GL precedent)
-#define RAVE_RING_BUFFER_COUNT 3                     // triple-buffered
+#define RAVE_RING_BUFFER_SIZE  GFXACCEL_RAVE_RING_SLOT_BYTES
+#define RAVE_RING_BUFFER_COUNT 3
 
 static id<MTLBuffer> g_rave_ring_buffer = nil;
-static uint32_t      g_rave_ring_slot_index = 0;
-static NSUInteger    g_rave_ring_offset = 0;  // write offset within current slot
-// Per-slot credits rather than one anonymous counting semaphore: each RAVE
-// context commits on its OWN command queue and Metal orders completion only
-// within a queue, so an anonymous credit returned by queue B's finished
-// buffer must not let round-robin staging wrap onto a slot queue A's
-// still-executing buffer reads. Each slot is gated on completion of the
-// submission that consumed that specific slot.
+// Only the emulation thread changes ownership/offsets. Completion handlers
+// return the individual slot credit without touching that bookkeeping.
 static dispatch_semaphore_t g_rave_ring_slot_sems[RAVE_RING_BUFFER_COUNT];
-static bool          g_rave_ring_slot_acquired = false;
-static uint32_t      g_rave_ring_slots_in_submission = 0;
-static uint32_t      g_rave_ring_submission_first_slot = 0;
-
-// Backstop only: the renderer commits the submission window before it can
-// hold every credit (gfxaccel_rave_ring_submission_near_exhaustion), so a
-// wait here is bounded by in-flight GPU completion. If that invariant ever
-// breaks, fail the stage loudly instead of hanging the emul/UI thread.
-#define RAVE_RING_ACQUIRE_TIMEOUT_NSEC  (1ull * NSEC_PER_SEC)
-
-static bool gfxaccel_rave_ring_acquire_slot(void)
-{
-	dispatch_semaphore_t slot_sem = g_rave_ring_slot_sems[g_rave_ring_slot_index];
-	if (slot_sem == NULL) {
-		return false;
-	}
-
-	if (dispatch_semaphore_wait(slot_sem,
-	        dispatch_time(DISPATCH_TIME_NOW, RAVE_RING_ACQUIRE_TIMEOUT_NSEC)) != 0) {
-		os_log_fault(gfxaccel_heap_log(),
-		             "rave_ring_acquire_slot: slot %u still in flight after "
-		             "%llu ms; dropping stage instead of deadlocking",
-		             (unsigned)g_rave_ring_slot_index,
-		             (unsigned long long)(RAVE_RING_ACQUIRE_TIMEOUT_NSEC / NSEC_PER_MSEC));
-		return false;
-	}
-	if (g_rave_ring_slots_in_submission == 0) {
-		g_rave_ring_submission_first_slot = g_rave_ring_slot_index;
-	}
-	g_rave_ring_slot_acquired = true;
-	g_rave_ring_slots_in_submission++;
-	return true;
-}
-
-static void gfxaccel_rave_ring_advance_slot(void)
-{
-	g_rave_ring_slot_index = (g_rave_ring_slot_index + 1) % RAVE_RING_BUFFER_COUNT;
-	g_rave_ring_offset = 0;
-	g_rave_ring_slot_acquired = false;
-}
-
-static void gfxaccel_rave_ring_signal_slot_range(
-    const std::array<dispatch_semaphore_t, RAVE_RING_BUFFER_COUNT> &sems,
-    uint32_t first_slot, uint32_t slot_count)
-{
-	for (uint32_t i = 0; i < slot_count; i++) {
-		dispatch_semaphore_t sem = sems[(first_slot + i) % RAVE_RING_BUFFER_COUNT];
-		if (sem != NULL) {
-			dispatch_semaphore_signal(sem);
-		}
-	}
-}
+static void *g_rave_ring_slot_owners[RAVE_RING_BUFFER_COUNT];
+static NSUInteger g_rave_ring_slot_offsets[RAVE_RING_BUFFER_COUNT];
 
 extern "C" int32_t gfxaccel_rave_ring_init(void)
 {
@@ -568,12 +518,9 @@ extern "C" int32_t gfxaccel_rave_ring_init(void)
 
 	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
 		g_rave_ring_slot_sems[i] = dispatch_semaphore_create(1);
+		g_rave_ring_slot_owners[i] = NULL;
+		g_rave_ring_slot_offsets[i] = 0;
 	}
-	g_rave_ring_slot_index = 0;
-	g_rave_ring_offset = 0;
-	g_rave_ring_slot_acquired = false;
-	g_rave_ring_slots_in_submission = 0;
-	g_rave_ring_submission_first_slot = 0;
 
 	return kGfxAccelResNoErr;
 }
@@ -583,106 +530,83 @@ extern "C" void gfxaccel_rave_ring_shutdown(void)
 	g_rave_ring_buffer = nil;
 	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
 		g_rave_ring_slot_sems[i] = NULL;
+		g_rave_ring_slot_owners[i] = NULL;
+		g_rave_ring_slot_offsets[i] = 0;
 	}
-	g_rave_ring_slot_index = 0;
-	g_rave_ring_offset = 0;
-	g_rave_ring_slot_acquired = false;
-	g_rave_ring_slots_in_submission = 0;
-	g_rave_ring_submission_first_slot = 0;
 }
 
-extern "C" void *gfxaccel_rave_ring_stage(const void *data, uint32_t size,
+extern "C" void *gfxaccel_rave_ring_stage(void *command_buffer,
+                                          const void *data, uint32_t size,
                                           uint32_t *out_offset)
 {
-	if (g_rave_ring_buffer == nil || data == NULL || out_offset == NULL) {
-		return NULL;
-	}
+	if (g_rave_ring_buffer == nil || command_buffer == NULL ||
+	    data == NULL || out_offset == NULL || size == 0) return NULL;
 
-	// Align size to 256 bytes (Metal vertex buffer offset alignment).
 	NSUInteger alignedSize = ((NSUInteger)size + 255) & ~(NSUInteger)255;
-	if (alignedSize > (NSUInteger)RAVE_RING_BUFFER_SIZE) {
-		fprintf(stderr, "[gfxaccel-heap] rave_ring_stage: size %u exceeds slot "
-		        "capacity\n", (unsigned)size);
-		return NULL;
-	}
+	if (alignedSize > (NSUInteger)RAVE_RING_BUFFER_SIZE) return NULL;
 
-	if (!g_rave_ring_slot_acquired &&
-	    !gfxaccel_rave_ring_acquire_slot()) {
-		return NULL;
-	}
-
-	// Check if current slot has room.
-	if (g_rave_ring_offset + alignedSize > (NSUInteger)RAVE_RING_BUFFER_SIZE) {
-		// Current slot full -- wait before staging into the next slot.
-		gfxaccel_rave_ring_advance_slot();
-		if (!gfxaccel_rave_ring_acquire_slot()) {
-			return NULL;
+	uint32_t slot = RAVE_RING_BUFFER_COUNT;
+	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
+		if (g_rave_ring_slot_owners[i] == command_buffer &&
+		    g_rave_ring_slot_offsets[i] + alignedSize <= RAVE_RING_BUFFER_SIZE) {
+			slot = i;
+			break;
 		}
 	}
-
-	NSUInteger slotBase = (NSUInteger)g_rave_ring_slot_index * RAVE_RING_BUFFER_SIZE;
-	NSUInteger writeOff = slotBase + g_rave_ring_offset;
-
-	// Verify write stays within slot boundary.
-	if (writeOff + size > slotBase + RAVE_RING_BUFFER_SIZE) {
-		fprintf(stderr, "[gfxaccel-heap] rave_ring_stage: size %u exceeds slot "
-		        "capacity at offset %lu\n", (unsigned)size,
-		        (unsigned long)g_rave_ring_offset);
-		return NULL;
+	if (slot == RAVE_RING_BUFFER_COUNT) {
+		for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
+			if (g_rave_ring_slot_owners[i] == NULL &&
+			    g_rave_ring_slot_sems[i] != NULL &&
+			    dispatch_semaphore_wait(g_rave_ring_slot_sems[i], DISPATCH_TIME_NOW) == 0) {
+				slot = i;
+				g_rave_ring_slot_owners[i] = command_buffer;
+				g_rave_ring_slot_offsets[i] = 0;
+				break;
+			}
+		}
 	}
+	// Other contexts may hold every slot in unsubmitted passes. Never wait
+	// for them on the emulation thread: the caller uses a dedicated upload.
+	if (slot == RAVE_RING_BUFFER_COUNT) return NULL;
 
-	memcpy((char *)[g_rave_ring_buffer contents] + writeOff, data, size);
+	NSUInteger writeOff = (NSUInteger)slot * RAVE_RING_BUFFER_SIZE +
+	                      g_rave_ring_slot_offsets[slot];
+	memcpy((char *)g_rave_ring_buffer.contents + writeOff, data, size);
 	*out_offset = (uint32_t)writeOff;
-
-	g_rave_ring_offset += alignedSize;
-
+	g_rave_ring_slot_offsets[slot] += alignedSize;
 	return (__bridge void *)g_rave_ring_buffer;
 }
 
 extern "C" void gfxaccel_rave_ring_frame_end(void *command_buffer)
 {
-	if (g_rave_ring_buffer == nil) {
-		return;
-	}
-
-	uint32_t slots_consumed = g_rave_ring_slots_in_submission;
-	if (slots_consumed == 0) {
-		return;
-	}
-
-	// Copy the semaphores into the handler so a shutdown between commit and
-	// completion cannot strand un-signaled (and un-deallocatable) slots.
-	std::array<dispatch_semaphore_t, RAVE_RING_BUFFER_COUNT> sems;
-	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
-		sems[i] = g_rave_ring_slot_sems[i];
-	}
-	uint32_t first_slot = g_rave_ring_submission_first_slot;
-	g_rave_ring_slots_in_submission = 0;
-	gfxaccel_rave_ring_advance_slot();
-
 	id<MTLCommandBuffer> cmd = (__bridge id<MTLCommandBuffer>)command_buffer;
-	if (cmd != nil) {
-		[cmd addCompletedHandler:^(id<MTLCommandBuffer> completedCommandBuffer) {
-			(void)completedCommandBuffer;
-			gfxaccel_rave_ring_signal_slot_range(sems, first_slot, slots_consumed);
-		}];
-	} else {
-		gfxaccel_rave_ring_signal_slot_range(sems, first_slot, slots_consumed);
+	if (g_rave_ring_buffer == nil || cmd == nil) return;
+
+	// Capture only this command buffer's credits. An empty submission on
+	// another context must not release an unsubmitted pass's vertex data.
+	std::array<dispatch_semaphore_t, RAVE_RING_BUFFER_COUNT> sems = {};
+	bool consumed = false;
+	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
+		if (g_rave_ring_slot_owners[i] != command_buffer) continue;
+		sems[i] = g_rave_ring_slot_sems[i];
+		g_rave_ring_slot_owners[i] = NULL;
+		consumed = true;
 	}
+	if (!consumed) return;
+	[cmd addCompletedHandler:^(id<MTLCommandBuffer> completedCommandBuffer) {
+		(void)completedCommandBuffer;
+		for (dispatch_semaphore_t sem : sems) {
+			if (sem != NULL) dispatch_semaphore_signal(sem);
+		}
+	}];
 }
 
-extern "C" int32_t gfxaccel_rave_ring_submission_near_exhaustion(void)
+extern "C" int32_t gfxaccel_rave_ring_submission_near_exhaustion(void *command_buffer)
 {
-	if (g_rave_ring_buffer == nil) {
-		return 0;
+	if (g_rave_ring_buffer == nil || command_buffer == NULL) return 0;
+	uint32_t slots = 0;
+	for (uint32_t i = 0; i < RAVE_RING_BUFFER_COUNT; i++) {
+		if (g_rave_ring_slot_owners[i] == command_buffer) slots++;
 	}
-	// A single draw sequence can need up to two more slot acquires beyond
-	// the slots the window already holds (overflow of the vertex stage plus
-	// a second stage such as multi-texture UVs). Credits consumed by the
-	// uncommitted window are only signal-registered at frame_end (commit),
-	// so once the window holds COUNT-1 slots a further acquire could wait
-	// on a credit the window itself holds. The renderer commits and
-	// restarts the pass at a draw-sequence boundary when this fires.
-	return (g_rave_ring_slots_in_submission >= RAVE_RING_BUFFER_COUNT - 1) ? 1 : 0;
+	return slots >= RAVE_RING_BUFFER_COUNT - 1 ? 1 : 0;
 }
-

@@ -78,9 +78,8 @@
  *	PPC_JIT_GENERIC_ONLY
  *
  *		Define to 1 to route every instruction through the generic
- *		interpreter-invoke translation path (threaded code). This was
- *		the initial bring-up mode of the arm64 backend; it is kept as a
- *		fallback / bisection lever (-DPPC_JIT_GENERIC_ONLY=1).
+ *		interpreter-invoke path (threaded code). Kept as a fallback and
+ *		bisection lever (-DPPC_JIT_GENERIC_ONLY=1).
  **/
 
 #ifndef PPC_JIT_GENERIC_ONLY
@@ -93,8 +92,7 @@
  *
  *		Define to 1 to translate only mnemonics with a validated native
  *		backend implementation (ppc_jit_native_mnemo), routing the rest
- *		through the generic invoke. Default on for the arm64 backend
- *		while its native op coverage grows.
+ *		through the generic invoke. Default on for the arm64 backend.
  **/
 
 #ifndef PPC_JIT_MNEMO_WHITELIST

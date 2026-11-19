@@ -3,9 +3,7 @@
  *
  *  (C) 2026 Sierra Burkhart (sierra760)
  *
- *  The full TQADevice payload lives in guest memory, but the device type and
- *  Mac memory-device fields are stable RAVE 1.6 ABI values. Keeping these in
- *  one tested place avoids scattering raw offsets through diagnostics.
+ *  Device type and memory-device fields are stable RAVE 1.6 ABI offsets.
  */
 
 #ifndef RAVE_DEVICE_SUMMARY_H

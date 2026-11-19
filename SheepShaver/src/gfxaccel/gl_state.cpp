@@ -8,19 +8,16 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Implements the full GL 1.2 fixed-function state machine:
- *    - Matrix stacks with column-major 4x4 math (push/pop/load/mult/rotate/translate/scale/frustum/ortho)
- *    - glEnable/glDisable for all GL 1.2 capability flags
- *    - Depth/blend/alpha/stencil/viewport/scissor/clear state
- *    - Shade model, cull face, front face, polygon mode, color mask
- *    - Lighting (8 lights), materials, fog, texture environment
- *    - Pixel store, get functions, attrib stacks
+ *  GL 1.2 fixed-function state: matrix stacks, enables, raster/lighting/
+ *  fog/texenv state, pixel store, queries, attrib stacks, texture objects
+ *  and CPU-side pixel conversion.
  */
 
 #include <cstring>
 #include <cstdio>
 #include <cmath>
 #include <cfloat>
+#include <new>
 
 #include "sysdeps.h"
 #include "cpu_emulation.h"
@@ -28,11 +25,20 @@
 #include "video.h"
 #include "dsp_draw_context.h"
 #include "gl_clip_plane_policy.h"
+#include "gl_texture_coordinates.h"
+#include "gl_texture_format_policy.h"
 #include "gl_color_index_policy.h"
 #include "gl_engine.h"
+#include "gl_input_validation.h"
+#include "gl_state_query.h"
+#include "gl_buffer_policy.h"
 #include "gl_metal_draw_state.h"
 #include "gl_offscreen_policy.h"
 #include "gl_pixel_unpack_policy.h"
+#include "gl_pixel_readback.h"
+#include "gl_pixel_upload.h"
+#include "gl_render_contract.h"
+#include <algorithm>
 
 extern bool RaveGetLastCL8ColorTableRGBSnapshot(uint8_t outRGB[768]);
 
@@ -57,7 +63,7 @@ extern bool RaveGetLastCL8ColorTableRGBSnapshot(uint8_t outRGB[768]);
 #define GL_NORMALIZE                      0x0BA1
 #define GL_COLOR_MATERIAL                 0x0B57
 #define GL_STENCIL_TEST                   0x0B90
-#define GL_COLOR_SUM                      0x8458 // EXT_secondary_color / GL_COLOR_SUM (glext.h-verified)
+#define GL_COLOR_SUM                      0x8458 // EXT_secondary_color
 #define GL_TEXTURE_1D                     0x0DE0
 #define GL_TEXTURE_2D                     0x0DE1
 #define GL_LIGHT0                         0x4000
@@ -160,7 +166,6 @@ extern bool RaveGetLastCL8ColorTableRGBSnapshot(uint8_t outRGB[768]);
 #define GL_OR                             0x1507
 #define GL_NOR                            0x1508
 #define GL_EQUIV                          0x1509
-// GL_INVERT = 0x150A (defined above)
 #define GL_OR_REVERSE                     0x150B
 #define GL_COPY_INVERTED                  0x150C
 #define GL_OR_INVERTED                    0x150D
@@ -188,6 +193,7 @@ extern bool RaveGetLastCL8ColorTableRGBSnapshot(uint8_t outRGB[768]);
 #define GL_LINEAR_ATTENUATION             0x1208
 #define GL_QUADRATIC_ATTENUATION          0x1209
 #define GL_EMISSION                       0x1600
+#define GL_COLOR_INDEXES                 0x1603
 #define GL_SHININESS                      0x1601
 #define GL_AMBIENT_AND_DIFFUSE            0x1602
 #define GL_LIGHT_MODEL_LOCAL_VIEWER       0x0B51
@@ -457,7 +463,7 @@ extern bool RaveGetLastCL8ColorTableRGBSnapshot(uint8_t outRGB[768]);
 #define GL_LUMINANCE8                     0x8040
 #define GL_ALPHA8                         0x803C
 
-// Forward declare Metal upload (implemented in gl_metal_renderer.mm)
+// Implemented in gl_metal_renderer.mm
 extern void GLMetalUploadTexture(GLContext *ctx, GLTextureObject *texObj, int level,
                                  int width, int height, const uint8_t *data, int dataLen);
 extern void GLMetalUploadSubTexture(GLContext *ctx, GLTextureObject *texObj, int level,
@@ -477,9 +483,8 @@ extern void GLMetalDestroyTexture(GLTextureObject *texObj);
 //  Global GL context
 // =========================================================================
 
-// gl_current_context is defined in gl_engine.cpp (managed by AGL context table)
 
-// Allocated Mac-side string pointers (allocated once via Mac_sysalloc)
+// glGetString results, allocated once in Mac memory
 static uint32_t gl_string_vendor_addr   = 0;
 static uint32_t gl_string_renderer_addr = 0;
 static uint32_t gl_string_version_addr  = 0;
@@ -602,7 +607,7 @@ static void mat4_ortho(float m[16], double l, double r, double b, double t, doub
 
 
 // =========================================================================
-//  Helper: read float from Mac memory
+//  Helpers
 // =========================================================================
 
 static inline float ReadMacFloat(uint32 addr)
@@ -621,10 +626,6 @@ static inline void WriteMacFloat(uint32 addr, float f)
 }
 
 
-// =========================================================================
-//  Helper: get current matrix stack top pointer
-// =========================================================================
-
 static float *gl_get_current_matrix(GLContext *ctx)
 {
 	switch (ctx->matrix_mode) {
@@ -641,13 +642,14 @@ static float *gl_get_current_matrix(GLContext *ctx)
 	}
 }
 
-// Stack depth limits
+// The spec minimum for projection/texture stacks is 2; Apple/ATI GL allowed
+// more, and Cro-Mag Rally needs it.
 static int gl_get_max_stack_depth(uint32_t mode)
 {
 	switch (mode) {
 	case GL_MODELVIEW:  return 32;
-	case GL_PROJECTION: return 32;   // was 2 (spec min); real Apple/ATI GL >2.
-	case GL_TEXTURE:    return 32;   // Cro-Mag overflowed the old depth-2 cap.
+	case GL_PROJECTION: return 32;
+	case GL_TEXTURE:    return 32;
 	case GL_COLOR:      return 32;
 	default:            return 32;
 	}
@@ -794,9 +796,7 @@ void NativeGLFrustum(GLContext *ctx, double l, double r, double b, double t, dou
 
 void NativeGLOrtho(GLContext *ctx, double l, double r, double b, double t, double n, double f)
 {
-	// Pass parameters through unmodified — the game's projection matrix
-	// already encodes the Y orientation it expects.  The GL-to-Metal NDC
-	// depth remap is handled in the vertex shader (z * 0.5 + w * 0.5).
+	// Unmodified: the GL-to-Metal depth remap happens in the vertex shader.
 	mat4_ortho(gl_get_current_matrix(ctx), l, r, b, t, n, f);
 }
 
@@ -805,7 +805,6 @@ void NativeGLOrtho(GLContext *ctx, double l, double r, double b, double t, doubl
 //  Enable / Disable
 // =========================================================================
 
-// Forward declarations for evaluator helpers (defined in evaluator section below)
 static int gl_eval_target_index(uint32_t target);
 
 static inline int gl_clamp_texture_unit(int unit)
@@ -846,7 +845,7 @@ static void gl_set_cap(GLContext *ctx, uint32_t cap, bool value)
 	case GL_ALPHA_TEST:           ctx->alpha_test = value; break;
 	case GL_COLOR_SUM:            ctx->color_sum = value; break;
 	case GL_NORMALIZE:            ctx->normalize = value; break;
-	case GL_COLOR_MATERIAL:       ctx->color_material_enabled = value; break;
+	case GL_COLOR_MATERIAL:       ctx->color_material_enabled = value; GLApplyColorMaterial(ctx); break;
 	case GL_STENCIL_TEST:         ctx->stencil_test = value; break;
 	case GL_TEXTURE_1D:           ctx->tex_units[ctx->active_texture].enabled_1d = value; break;
 	case GL_TEXTURE_2D: {
@@ -883,10 +882,10 @@ static void gl_set_cap(GLContext *ctx, uint32_t cap, bool value)
 	case GL_POLYGON_SMOOTH:       ctx->polygon_smooth = value; break;
 	case GL_DITHER:               ctx->dither = value; break;
 	case GL_COLOR_LOGIC_OP:       ctx->color_logic_op = value; break;
-	case GL_INDEX_LOGIC_OP:       ctx->color_logic_op = value; break; // map to same
+	case GL_INDEX_LOGIC_OP:       ctx->color_logic_op = value; break;
 	case GL_AUTO_NORMAL:          ctx->auto_normal = value; break;
-	case GL_LINE_STIPPLE:         break; // tracked but not used in Metal
-	case GL_POLYGON_STIPPLE:      break; // tracked but not used in Metal
+	case GL_LINE_STIPPLE:         ctx->line_stipple_enabled=value; break;
+	case GL_POLYGON_STIPPLE:      ctx->polygon_stipple_enabled=value; break;
 	case GL_MULTISAMPLE_ARB:      ctx->multisample = value; break;
 	case GL_SAMPLE_ALPHA_TO_COVERAGE_ARB: ctx->sample_alpha_to_coverage = value; break;
 	case GL_SAMPLE_ALPHA_TO_ONE_ARB:      ctx->sample_alpha_to_one = value; break;
@@ -937,7 +936,7 @@ static void gl_set_cap(GLContext *ctx, uint32_t cap, bool value)
 			if (idx >= 0) ctx->eval_map2_enabled[idx] = value;
 			break;
 		}
-		// Unknown cap -- not an error per GL spec for forward-compat
+		// Unknown caps are ignored
 		GL_LOG("unhandled cap 0x%X in enable/disable", cap);
 		break;
 	}
@@ -955,34 +954,12 @@ void NativeGLDisable(GLContext *ctx, uint32_t cap)
 
 uint32_t NativeGLIsEnabled(GLContext *ctx, uint32_t cap)
 {
-	bool result = false;
-	switch (cap) {
-	case GL_DEPTH_TEST:           result = ctx->depth_test; break;
-	case GL_BLEND:                result = ctx->blend; break;
-	case GL_LIGHTING:             result = ctx->lighting_enabled; break;
-	case GL_FOG:                  result = ctx->fog_enabled; break;
-	case GL_SCISSOR_TEST:         result = ctx->scissor_test; break;
-	case GL_CULL_FACE:            result = ctx->cull_face_enabled; break;
-	case GL_ALPHA_TEST:           result = ctx->alpha_test; break;
-	case GL_COLOR_SUM:            result = ctx->color_sum; break;
-	case GL_NORMALIZE:            result = ctx->normalize; break;
-	case GL_COLOR_MATERIAL:       result = ctx->color_material_enabled; break;
-	case GL_STENCIL_TEST:         result = ctx->stencil_test; break;
-	case GL_TEXTURE_2D:           result = ctx->tex_units[ctx->active_texture].enabled_2d; break;
-	default:
-		if (cap >= GL_LIGHT0 && cap < GL_LIGHT0 + 8)
-			result = ctx->lights[cap - GL_LIGHT0].enabled;
-		else if (cap >= GL_MAP1_COLOR_4 && cap <= GL_MAP1_VERTEX_4) {
-			int idx = gl_eval_target_index(cap);
-			if (idx >= 0) result = ctx->eval_map1_enabled[idx];
-		}
-		else if (cap >= GL_MAP2_COLOR_4 && cap <= GL_MAP2_VERTEX_4) {
-			int idx = gl_eval_target_index(cap);
-			if (idx >= 0) result = ctx->eval_map2_enabled[idx];
-		}
-		break;
-	}
-	return result ? GL_TRUE : GL_FALSE;
+    bool enabled;
+    if (ctx->in_begin || !GLQueryCapability(*ctx, cap, enabled)) {
+        if (!ctx->last_error) ctx->last_error = ctx->in_begin ? GL_INVALID_OPERATION : GL_INVALID_ENUM;
+        return GL_FALSE;
+    }
+    return enabled ? GL_TRUE : GL_FALSE;
 }
 
 
@@ -997,7 +974,7 @@ void NativeGLDepthFunc(GLContext *ctx, uint32_t func)
 
 void NativeGLDepthMask(GLContext *ctx, uint32_t flag)
 {
-	ctx->depth_mask = (flag == GL_TRUE);
+	ctx->depth_mask = (flag != 0);
 }
 
 void NativeGLDepthRange(GLContext *ctx, double near_val, double far_val)
@@ -1083,7 +1060,7 @@ void NativeGLClearStencil(GLContext *ctx, int32_t s)
 
 void NativeGLClear(GLContext *ctx, uint32_t mask)
 {
-	// Handle accum buffer clear on the CPU side
+	// Accum buffer is cleared on the CPU
 	if (mask & GL_ACCUM_BUFFER_BIT) {
 		if (ctx->accum_allocated && ctx->accum_buffer) {
 			int n = ctx->accum_width * ctx->accum_height * 4;
@@ -1169,14 +1146,12 @@ void NativeGLHint(GLContext *ctx, uint32_t target, uint32_t mode)
 	case GL_LINE_SMOOTH_HINT:            ctx->hint_line_smooth = mode; break;
 	case GL_POLYGON_SMOOTH_HINT:         ctx->hint_polygon_smooth = mode; break;
 	case GL_FOG_HINT:                    ctx->hint_fog = mode; break;
-	default: break; // Silently ignore unknown hint targets
+	default: break;
 	}
 }
 
-// NOTE: Logic operations are state-tracked but NOT rendered. Metal on iOS does
-// not support framebuffer logic operations natively. A compute shader workaround
-// would be needed for true implementation. In practice, no known Mac OS 9 OpenGL
-// game relies on logic ops for rendering.
+// Applied in the fragment shaders (gl_logic_color); Metal has no fixed-function
+// logic ops.
 void NativeGLLogicOp(GLContext *ctx, uint32_t op)
 {
 	ctx->logic_op_mode = op;
@@ -1222,10 +1197,9 @@ void NativeGLLightfv(GLContext *ctx, uint32_t light, uint32_t pname, uint32_t ma
 		for (int i = 0; i < 4; i++) l.specular[i] = ReadMacFloat(mac_ptr + i * 4);
 		break;
 	case GL_POSITION: {
-		// Light position is transformed by current modelview matrix
+		// Stored in eye space, transformed by the current modelview
 		float pos[4];
 		for (int i = 0; i < 4; i++) pos[i] = ReadMacFloat(mac_ptr + i * 4);
-		// Transform by current modelview
 		float *mv = ctx->modelview_stack[ctx->modelview_depth];
 		for (int row = 0; row < 4; row++) {
 			l.position[row] =
@@ -1263,36 +1237,42 @@ void NativeGLLighti(GLContext *ctx, uint32_t light, uint32_t pname, int32_t para
 	NativeGLLightf(ctx, light, pname, (float)param);
 }
 
+static float gl_integer_color(int32_t value)
+{
+    return float((2.0 * double(value) + 1.0) / 4294967295.0);
+}
+static int32_t gl_color_integer(float value)
+{
+    if (std::isnan(value)) return 0;
+    if (value >= 1.0f) return INT32_MAX;
+    if (value <= -1.0f) return INT32_MIN;
+    return int32_t(std::floor((4294967295.0 * double(value) - 1.0) / 2.0 + 0.5));
+}
+static int32_t gl_query_integer(float value)
+{
+    if (std::isnan(value)) return 0;
+    if (double(value) >= INT32_MAX) return INT32_MAX;
+    if (double(value) <= INT32_MIN) return INT32_MIN;
+    return int32_t(std::round(double(value)));
+}
+
 void NativeGLLightiv(GLContext *ctx, uint32_t light, uint32_t pname, uint32_t mac_ptr)
 {
-	// Read integers, convert to float, store via fv path
-	// For vector params, read 3 or 4 ints
-	if (light < GL_LIGHT0 || light >= GL_LIGHT0 + 8) {
-		ctx->last_error = GL_INVALID_ENUM;
-		return;
-	}
-	GLLight &l = ctx->lights[light - GL_LIGHT0];
-	int count = 4;
-	if (pname == GL_SPOT_DIRECTION) count = 3;
-	else if (pname == GL_SPOT_EXPONENT || pname == GL_SPOT_CUTOFF ||
-	         pname == GL_CONSTANT_ATTENUATION || pname == GL_LINEAR_ATTENUATION ||
-	         pname == GL_QUADRATIC_ATTENUATION) count = 1;
-
-	float vals[4];
-	for (int i = 0; i < count; i++)
-		vals[i] = (float)(int32_t)ReadMacInt32(mac_ptr + i * 4);
-
-	switch (pname) {
-	case GL_AMBIENT:    for (int i = 0; i < 4; i++) l.ambient[i] = vals[i]; break;
-	case GL_DIFFUSE:    for (int i = 0; i < 4; i++) l.diffuse[i] = vals[i]; break;
-	case GL_SPECULAR:   for (int i = 0; i < 4; i++) l.specular[i] = vals[i]; break;
-	case GL_SPOT_EXPONENT:         l.spot_exponent = vals[0]; break;
-	case GL_SPOT_CUTOFF:           l.spot_cutoff = vals[0]; break;
-	case GL_CONSTANT_ATTENUATION:  l.constant_attenuation = vals[0]; break;
-	case GL_LINEAR_ATTENUATION:    l.linear_attenuation = vals[0]; break;
-	case GL_QUADRATIC_ATTENUATION: l.quadratic_attenuation = vals[0]; break;
-	default: ctx->last_error = GL_INVALID_ENUM; break;
-	}
+    if (light<GL_LIGHT0 || light>=GL_LIGHT0+8) {ctx->last_error=GL_INVALID_ENUM;return;}
+    GLLight &l=ctx->lights[light-GL_LIGHT0];
+    float *color=nullptr;
+    if(pname==GL_AMBIENT)color=l.ambient;
+    else if(pname==GL_DIFFUSE)color=l.diffuse;
+    else if(pname==GL_SPECULAR)color=l.specular;
+    if(color){for(int i=0;i<4;++i)color[i]=gl_integer_color(int32_t(ReadMacInt32(mac_ptr+i*4)));return;}
+    if(pname==GL_POSITION || pname==GL_SPOT_DIRECTION){
+        float vals[4]={0,0,0,0};int n=pname==GL_POSITION?4:3;
+        for(int i=0;i<n;++i)vals[i]=float(int32_t(ReadMacInt32(mac_ptr+i*4)));
+        float *mv=ctx->modelview_stack[ctx->modelview_depth];float *out=pname==GL_POSITION?l.position:l.spot_direction;
+        for(int row=0;row<n;++row){out[row]=0;for(int col=0;col<n;++col)out[row]+=mv[col*4+row]*vals[col];}
+        return;
+    }
+    NativeGLLighti(ctx,light,pname,int32_t(ReadMacInt32(mac_ptr)));
 }
 
 void NativeGLLightModelf(GLContext *ctx, uint32_t pname, float param)
@@ -1330,7 +1310,7 @@ void NativeGLLightModeliv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
 	if (pname == GL_LIGHT_MODEL_AMBIENT) {
 		for (int i = 0; i < 4; i++)
-			ctx->light_model_ambient[i] = (float)(int32_t)ReadMacInt32(mac_ptr + i * 4);
+			ctx->light_model_ambient[i] = gl_integer_color(int32_t(ReadMacInt32(mac_ptr + i * 4)));
 	} else {
 		NativeGLLightModeli(ctx, pname, (int32_t)ReadMacInt32(mac_ptr));
 	}
@@ -1343,6 +1323,10 @@ void NativeGLLightModeliv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 
 static void gl_set_material_fv(GLContext *ctx, uint32_t face, uint32_t pname, const float *vals)
 {
+    if(face!=GL_FRONT && face!=GL_BACK && face!=GL_FRONT_AND_BACK){ctx->last_error=GL_INVALID_ENUM;return;}
+    if(pname==GL_SHININESS && (!std::isfinite(vals[0]) || vals[0]<0 || vals[0]>128)){
+        ctx->last_error=GL_INVALID_VALUE;return;
+    }
 	int indices[2];
 	int count = 0;
 	if (face == GL_FRONT || face == GL_FRONT_AND_BACK) indices[count++] = 0;
@@ -1359,6 +1343,8 @@ static void gl_set_material_fv(GLContext *ctx, uint32_t face, uint32_t pname, co
 			memcpy(mat.specular, vals, 4 * sizeof(float)); break;
 		case GL_EMISSION:
 			memcpy(mat.emission, vals, 4 * sizeof(float)); break;
+        case GL_COLOR_INDEXES:
+            memcpy(mat.color_indexes,vals,3*sizeof(float));break;
 		case GL_SHININESS:
 			mat.shininess = vals[0]; break;
 		case GL_AMBIENT_AND_DIFFUSE:
@@ -1373,13 +1359,16 @@ static void gl_set_material_fv(GLContext *ctx, uint32_t face, uint32_t pname, co
 
 void NativeGLMaterialf(GLContext *ctx, uint32_t face, uint32_t pname, float param)
 {
+    if(pname!=GL_SHININESS){ctx->last_error=GL_INVALID_ENUM;return;}
 	float vals[4] = {param, 0, 0, 0};
 	gl_set_material_fv(ctx, face, pname, vals);
 }
 
 void NativeGLMaterialfv(GLContext *ctx, uint32_t face, uint32_t pname, uint32_t mac_ptr)
 {
-	int count = (pname == GL_SHININESS) ? 1 : 4;
+	int count = pname==GL_SHININESS?1:pname==GL_COLOR_INDEXES?3:4;
+    if(pname!=GL_SHININESS && pname!=GL_COLOR_INDEXES && pname!=GL_AMBIENT && pname!=GL_DIFFUSE &&
+       pname!=GL_SPECULAR && pname!=GL_EMISSION && pname!=GL_AMBIENT_AND_DIFFUSE){ctx->last_error=GL_INVALID_ENUM;return;}
 	float vals[4];
 	for (int i = 0; i < count; i++)
 		vals[i] = ReadMacFloat(mac_ptr + i * 4);
@@ -1393,17 +1382,39 @@ void NativeGLMateriali(GLContext *ctx, uint32_t face, uint32_t pname, int32_t pa
 
 void NativeGLMaterialiv(GLContext *ctx, uint32_t face, uint32_t pname, uint32_t mac_ptr)
 {
-	int count = (pname == GL_SHININESS) ? 1 : 4;
+	int count = pname==GL_SHININESS?1:pname==GL_COLOR_INDEXES?3:4;
+    if(pname!=GL_SHININESS && pname!=GL_COLOR_INDEXES && pname!=GL_AMBIENT && pname!=GL_DIFFUSE &&
+       pname!=GL_SPECULAR && pname!=GL_EMISSION && pname!=GL_AMBIENT_AND_DIFFUSE){ctx->last_error=GL_INVALID_ENUM;return;}
 	float vals[4];
 	for (int i = 0; i < count; i++)
-		vals[i] = (float)(int32_t)ReadMacInt32(mac_ptr + i * 4);
+		vals[i] = (pname == GL_SHININESS || pname==GL_COLOR_INDEXES) ? float(int32_t(ReadMacInt32(mac_ptr + i * 4))) : gl_integer_color(int32_t(ReadMacInt32(mac_ptr + i * 4)));
 	gl_set_material_fv(ctx, face, pname, vals);
+}
+
+// ColorMaterial changes real material state, including before and after Begin/End.
+void GLApplyColorMaterial(GLContext *ctx)
+{
+    if(!ctx->color_material_enabled)return;
+    for(int face=0;face<2;++face){
+        if(ctx->color_material_face!=(face?GL_BACK:GL_FRONT) && ctx->color_material_face!=GL_FRONT_AND_BACK)continue;
+        GLMaterial &m=ctx->materials[face];
+        const uint32_t mode=ctx->color_material_mode;
+        if(mode==GL_AMBIENT || mode==GL_AMBIENT_AND_DIFFUSE)memcpy(m.ambient,ctx->current_color,sizeof(m.ambient));
+        if(mode==GL_DIFFUSE || mode==GL_AMBIENT_AND_DIFFUSE)memcpy(m.diffuse,ctx->current_color,sizeof(m.diffuse));
+        if(mode==GL_SPECULAR)memcpy(m.specular,ctx->current_color,sizeof(m.specular));
+        if(mode==GL_EMISSION)memcpy(m.emission,ctx->current_color,sizeof(m.emission));
+    }
 }
 
 void NativeGLColorMaterial(GLContext *ctx, uint32_t face, uint32_t mode)
 {
-	ctx->color_material_face = face;
-	ctx->color_material_mode = mode;
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if((face!=GL_FRONT && face!=GL_BACK && face!=GL_FRONT_AND_BACK) ||
+        (mode!=GL_AMBIENT && mode!=GL_DIFFUSE && mode!=GL_SPECULAR && mode!=GL_EMISSION && mode!=GL_AMBIENT_AND_DIFFUSE)){
+        ctx->last_error=GL_INVALID_ENUM;return;
+    }
+    ctx->color_material_face=face;ctx->color_material_mode=mode;
+    GLApplyColorMaterial(ctx);
 }
 
 
@@ -1445,7 +1456,7 @@ void NativeGLFogiv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
 	if (pname == GL_FOG_COLOR) {
 		for (int i = 0; i < 4; i++)
-			ctx->fog_color[i] = (float)(int32_t)ReadMacInt32(mac_ptr + i * 4);
+			ctx->fog_color[i] = gl_integer_color(int32_t(ReadMacInt32(mac_ptr + i * 4)));
 	} else {
 		NativeGLFogi(ctx, pname, (int32_t)ReadMacInt32(mac_ptr));
 	}
@@ -1486,7 +1497,7 @@ void NativeGLTexEnviv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t 
 	if (target != GL_TEXTURE_ENV) return;
 	if (pname == GL_TEXTURE_ENV_COLOR) {
 		for (int i = 0; i < 4; i++)
-			ctx->tex_units[ctx->active_texture].env_color[i] = (float)(int32_t)ReadMacInt32(mac_ptr + i * 4);
+			ctx->tex_units[ctx->active_texture].env_color[i] = gl_integer_color(int32_t(ReadMacInt32(mac_ptr + i * 4)));
 	} else if (pname == GL_TEXTURE_ENV_MODE) {
 		ctx->tex_units[ctx->active_texture].env_mode = (int32_t)ReadMacInt32(mac_ptr);
 	}
@@ -1508,56 +1519,70 @@ static int gl_texgen_coord_index(uint32_t coord)
 	}
 }
 
+static int *gl_texgen_mode(GLTextureUnit &unit, int coord)
+{
+    int *modes[] = {&unit.texgen_s_mode, &unit.texgen_t_mode,
+                    &unit.texgen_r_mode, &unit.texgen_q_mode};
+    return modes[coord];
+}
+
+static void gl_set_texgen(GLContext *ctx, uint32_t coord, uint32_t pname,
+                           const double *params, bool vector)
+{
+    if (!ctx) return;
+    auto fail = [&](uint32_t error) { if (!ctx->last_error) ctx->last_error = error; };
+    if (ctx->in_begin) { fail(GL_INVALID_OPERATION); return; }
+    const int c = gl_texgen_coord_index(coord);
+    if (c < 0) { fail(GL_INVALID_ENUM); return; }
+    auto &unit = ctx->tex_units[ctx->active_texture];
+    if (pname == GL_TEXTURE_GEN_MODE) {
+        const double mode = params[0];
+        if ((mode != GL_OBJECT_LINEAR && mode != GL_EYE_LINEAR && mode != GL_SPHERE_MAP) ||
+            (mode == GL_SPHERE_MAP && c >= 2)) { fail(GL_INVALID_ENUM); return; }
+        *gl_texgen_mode(unit,c) = (int)mode;
+    } else if (vector && (pname == GL_OBJECT_PLANE || pname == GL_EYE_PLANE)) {
+        double plane[4];
+        if (pname == GL_EYE_PLANE) {
+            if (!GLTextureTransformPlane(plane, params, ctx->modelview_stack[ctx->modelview_depth]))
+                std::memcpy(plane, params, sizeof(plane)); // singular matrices are undefined
+        } else std::memcpy(plane, params, sizeof(plane));
+        std::memcpy(pname == GL_EYE_PLANE ? unit.texgen_eye_plane[c] : unit.texgen_object_plane[c],
+                    plane, sizeof(plane));
+    } else fail(GL_INVALID_ENUM);
+}
+
 void NativeGLTexGeni(GLContext *ctx, uint32_t coord, uint32_t pname, int32_t param)
 {
-	int ci = gl_texgen_coord_index(coord);
-	if (ci < 0) { ctx->last_error = GL_INVALID_ENUM; return; }
-	if (pname == GL_TEXTURE_GEN_MODE) {
-		int *modes[] = {
-			&ctx->tex_units[ctx->active_texture].texgen_s_mode,
-			&ctx->tex_units[ctx->active_texture].texgen_t_mode,
-			&ctx->tex_units[ctx->active_texture].texgen_r_mode,
-			&ctx->tex_units[ctx->active_texture].texgen_q_mode,
-		};
-		*modes[ci] = param;
-	}
+    const double p = param; gl_set_texgen(ctx,coord,pname,&p,false);
 }
-
 void NativeGLTexGenf(GLContext *ctx, uint32_t coord, uint32_t pname, float param)
 {
-	NativeGLTexGeni(ctx, coord, pname, (int32_t)param);
+    const double p = param; gl_set_texgen(ctx,coord,pname,&p,false);
 }
-
 void NativeGLTexGend(GLContext *ctx, uint32_t coord, uint32_t pname, double param)
 {
-	NativeGLTexGeni(ctx, coord, pname, (int32_t)param);
+    gl_set_texgen(ctx,coord,pname,&param,false);
 }
-
 void NativeGLTexGenfv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t mac_ptr)
 {
-	if (pname == GL_TEXTURE_GEN_MODE) {
-		NativeGLTexGenf(ctx, coord, pname, ReadMacFloat(mac_ptr));
-	}
-	// GL_OBJECT_PLANE and GL_EYE_PLANE store 4 coefficients -- tracked in context but minimal impl
+    double p[4] = {}; const int count = pname == GL_TEXTURE_GEN_MODE ? 1 : 4;
+    for (int i=0;i<count;++i) p[i] = ReadMacFloat(mac_ptr+i*4);
+    gl_set_texgen(ctx,coord,pname,p,true);
 }
-
 void NativeGLTexGeniv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t mac_ptr)
 {
-	if (pname == GL_TEXTURE_GEN_MODE) {
-		NativeGLTexGeni(ctx, coord, pname, (int32_t)ReadMacInt32(mac_ptr));
-	}
+    double p[4] = {}; const int count = pname == GL_TEXTURE_GEN_MODE ? 1 : 4;
+    for (int i=0;i<count;++i) p[i] = (int32_t)ReadMacInt32(mac_ptr+i*4);
+    gl_set_texgen(ctx,coord,pname,p,true);
 }
-
 void NativeGLTexGendv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t mac_ptr)
 {
-	if (pname == GL_TEXTURE_GEN_MODE) {
-		uint32 hi = ReadMacInt32(mac_ptr);
-		uint32 lo = ReadMacInt32(mac_ptr + 4);
-		uint64_t bits = ((uint64_t)hi << 32) | lo;
-		double d;
-		memcpy(&d, &bits, sizeof(double));
-		NativeGLTexGend(ctx, coord, pname, d);
-	}
+    double p[4] = {}; const int count = pname == GL_TEXTURE_GEN_MODE ? 1 : 4;
+    for (int i=0;i<count;++i) {
+        const uint64_t bits = ((uint64_t)ReadMacInt32(mac_ptr+i*8)<<32) | ReadMacInt32(mac_ptr+i*8+4);
+        std::memcpy(&p[i],&bits,sizeof(double));
+    }
+    gl_set_texgen(ctx,coord,pname,p,true);
 }
 
 
@@ -1567,6 +1592,15 @@ void NativeGLTexGendv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t m
 
 void NativeGLPixelStorei(GLContext *ctx, uint32_t pname, int32_t param)
 {
+    if (pname==0x0d00) {ctx->pixel_store.pack_swap_bytes=param!=0;return;}
+    if (pname==0x0d01) {ctx->pixel_store.pack_lsb_first=param!=0;return;}
+    if (pname==0x0cf1) {ctx->pixel_store.unpack_lsb_first=param!=0;return;}
+    if (pname==0x806e || pname==0x806d) {
+        if(param<0){ctx->last_error=GL_INVALID_VALUE;return;}
+        if(pname==0x806e)ctx->pixel_store.unpack_image_height=param;
+        else ctx->pixel_store.unpack_skip_images=param;
+        return;
+    }
 	switch (pname) {
 	case GL_PACK_ALIGNMENT:    ctx->pixel_store.pack_alignment    = param; break;
 	case GL_PACK_ROW_LENGTH:   ctx->pixel_store.pack_row_length   = param; break;
@@ -1592,164 +1626,26 @@ void NativeGLPixelStoref(GLContext *ctx, uint32_t pname, float param)
 
 void NativeGLGetIntegerv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
-	switch (pname) {
-	case GL_MAX_TEXTURE_SIZE:
-		WriteMacInt32(mac_ptr, 1024); break;
-	case GL_MAX_LIGHTS:
-		WriteMacInt32(mac_ptr, 8); break;
-	case GL_MAX_MODELVIEW_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, 32); break;
-	case GL_MAX_PROJECTION_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, 32); break;   // match gl_get_max_stack_depth()
-	case GL_MAX_TEXTURE_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, 32); break;
-	case GL_MAX_CLIP_PLANES:
-		WriteMacInt32(mac_ptr, 6); break;
-	case GL_MAX_ATTRIB_STACK_DEPTH_QUERY:
-		WriteMacInt32(mac_ptr, GL_MAX_ATTRIB_STACK_DEPTH); break;
-	case GL_MAX_NAME_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, 64); break;
-	case GL_MAX_TEXTURE_UNITS_ARB:
-		WriteMacInt32(mac_ptr, 4); break;
-	case GL_VIEWPORT:
-		for (int i = 0; i < 4; i++)
-			WriteMacInt32(mac_ptr + i * 4, (uint32_t)ctx->viewport[i]);
-		break;
-	case GL_SCISSOR_BOX:
-		for (int i = 0; i < 4; i++)
-			WriteMacInt32(mac_ptr + i * 4, (uint32_t)ctx->scissor_box[i]);
-		break;
-	case GL_MODELVIEW_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, ctx->modelview_depth + 1); break;
-	case GL_PROJECTION_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, ctx->projection_depth + 1); break;
-	case GL_TEXTURE_STACK_DEPTH:
-		WriteMacInt32(mac_ptr, ctx->texture_depth[ctx->active_texture] + 1); break;
-	case GL_DEPTH_FUNC_QUERY:
-		WriteMacInt32(mac_ptr, ctx->depth_func); break;
-	case GL_DEPTH_WRITEMASK:
-		WriteMacInt32(mac_ptr, ctx->depth_mask ? GL_TRUE : GL_FALSE); break;
-	case GL_SHADE_MODEL_QUERY:
-		WriteMacInt32(mac_ptr, ctx->shade_model); break;
-	case GL_BLEND_SRC:
-		WriteMacInt32(mac_ptr, ctx->blend_src); break;
-	case GL_BLEND_DST:
-		WriteMacInt32(mac_ptr, ctx->blend_dst); break;
-	case GL_STENCIL_FUNC_QUERY:
-		WriteMacInt32(mac_ptr, ctx->stencil.func); break;
-	case GL_STENCIL_VALUE_MASK:
-		WriteMacInt32(mac_ptr, ctx->stencil.value_mask); break;
-	case GL_STENCIL_REF:
-		WriteMacInt32(mac_ptr, (uint32_t)ctx->stencil.ref); break;
-	case GL_STENCIL_FAIL:
-		WriteMacInt32(mac_ptr, ctx->stencil.sfail); break;
-	case GL_STENCIL_PASS_DEPTH_FAIL:
-		WriteMacInt32(mac_ptr, ctx->stencil.dpfail); break;
-	case GL_STENCIL_PASS_DEPTH_PASS:
-		WriteMacInt32(mac_ptr, ctx->stencil.dppass); break;
-	case GL_STENCIL_WRITEMASK:
-		WriteMacInt32(mac_ptr, ctx->stencil.write_mask); break;
-	case GL_STENCIL_CLEAR_VALUE:
-		WriteMacInt32(mac_ptr, (uint32_t)ctx->clear_stencil); break;
-	case GL_ALPHA_TEST_FUNC:
-		WriteMacInt32(mac_ptr, ctx->alpha_func); break;
-	case GL_CULL_FACE_MODE_QUERY:
-		WriteMacInt32(mac_ptr, ctx->cull_face_mode); break;
-	case GL_FRONT_FACE_QUERY:
-		WriteMacInt32(mac_ptr, ctx->front_face); break;
-	case GL_LOGIC_OP_MODE:
-		WriteMacInt32(mac_ptr, ctx->logic_op_mode); break;
-	case GL_ACTIVE_TEXTURE_ARB:
-		WriteMacInt32(mac_ptr, GL_TEXTURE0_ARB + ctx->active_texture); break;
-	case GL_TEXTURE_BINDING_2D:
-		WriteMacInt32(mac_ptr, ctx->tex_units[ctx->active_texture].bound_texture_2d); break;
-	case GL_RENDER:
-		WriteMacInt32(mac_ptr, ctx->render_mode); break;
-	default:
-		// Return 0 for unknown queries (better than crashing)
-		WriteMacInt32(mac_ptr, 0);
-		break;
-	}
+    GLStateQuery query;
+    if (!GLGetStateQuery(ctx, pname, query)) return;
+    for (unsigned i = 0; i < query.count; ++i)
+        WriteMacInt32(mac_ptr + i * 4, uint32_t(query.integer(i)));
 }
 
 void NativeGLGetFloatv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
-	switch (pname) {
-	case GL_MODELVIEW_MATRIX: {
-		float *m = ctx->modelview_stack[ctx->modelview_depth];
-		for (int i = 0; i < 16; i++) WriteMacFloat(mac_ptr + i * 4, m[i]);
-		break;
-	}
-	case GL_PROJECTION_MATRIX: {
-		float *m = ctx->projection_stack[ctx->projection_depth];
-		for (int i = 0; i < 16; i++) WriteMacFloat(mac_ptr + i * 4, m[i]);
-		break;
-	}
-	case GL_TEXTURE_MATRIX: {
-		float *m = ctx->texture_stack[ctx->active_texture][ctx->texture_depth[ctx->active_texture]];
-		for (int i = 0; i < 16; i++) WriteMacFloat(mac_ptr + i * 4, m[i]);
-		break;
-	}
-	case GL_DEPTH_RANGE:
-		WriteMacFloat(mac_ptr,     ctx->depth_range_near);
-		WriteMacFloat(mac_ptr + 4, ctx->depth_range_far);
-		break;
-	case GL_DEPTH_CLEAR_VALUE:
-		WriteMacFloat(mac_ptr, ctx->clear_depth); break;
-	case GL_COLOR_CLEAR_VALUE:
-		for (int i = 0; i < 4; i++) WriteMacFloat(mac_ptr + i * 4, ctx->clear_color[i]);
-		break;
-	case GL_CURRENT_COLOR:
-		for (int i = 0; i < 4; i++) WriteMacFloat(mac_ptr + i * 4, ctx->current_color[i]);
-		break;
-	case GL_CURRENT_NORMAL:
-		for (int i = 0; i < 3; i++) WriteMacFloat(mac_ptr + i * 4, ctx->current_normal[i]);
-		break;
-	case GL_CURRENT_TEXTURE_COORDS:
-		for (int i = 0; i < 4; i++) WriteMacFloat(mac_ptr + i * 4, ctx->current_texcoord[ctx->active_texture][i]);
-		break;
-	case GL_ALPHA_TEST_REF:
-		WriteMacFloat(mac_ptr, ctx->alpha_ref); break;
-	case GL_POINT_SIZE_QUERY:
-		WriteMacFloat(mac_ptr, ctx->point_size); break;
-	case GL_LINE_WIDTH_QUERY:
-		WriteMacFloat(mac_ptr, ctx->line_width); break;
-	case GL_FOG_COLOR:
-		for (int i = 0; i < 4; i++) WriteMacFloat(mac_ptr + i * 4, ctx->fog_color[i]);
-		break;
-	case GL_FOG_DENSITY:
-		WriteMacFloat(mac_ptr, ctx->fog_density); break;
-	case GL_FOG_START:
-		WriteMacFloat(mac_ptr, ctx->fog_start); break;
-	case GL_FOG_END:
-		WriteMacFloat(mac_ptr, ctx->fog_end); break;
-	case GL_POLYGON_OFFSET_FACTOR_QUERY:
-		WriteMacFloat(mac_ptr, ctx->polygon_offset_factor); break;
-	case GL_POLYGON_OFFSET_UNITS_QUERY:
-		WriteMacFloat(mac_ptr, ctx->polygon_offset_units); break;
-	default:
-		WriteMacFloat(mac_ptr, 0.0f);
-		break;
-	}
+    GLStateQuery query;
+    if (!GLGetStateQuery(ctx, pname, query)) return;
+    for (unsigned i = 0; i < query.count; ++i)
+        WriteMacFloat(mac_ptr + i * 4, float(query.values[i]));
 }
 
 void NativeGLGetBooleanv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
-	// Most boolean queries map to isEnabled -- handle a few common ones
-	bool val = false;
-	switch (pname) {
-	case GL_DEPTH_TEST:     val = ctx->depth_test; break;
-	case GL_BLEND:          val = ctx->blend; break;
-	case GL_LIGHTING:       val = ctx->lighting_enabled; break;
-	case GL_FOG:            val = ctx->fog_enabled; break;
-	case GL_SCISSOR_TEST:   val = ctx->scissor_test; break;
-	case GL_CULL_FACE:      val = ctx->cull_face_enabled; break;
-	case GL_ALPHA_TEST:     val = ctx->alpha_test; break;
-	case GL_STENCIL_TEST:   val = ctx->stencil_test; break;
-	case GL_DEPTH_WRITEMASK:val = ctx->depth_mask; break;
-	default: break;
-	}
-	WriteMacInt32(mac_ptr, val ? GL_TRUE : GL_FALSE);
+    GLStateQuery query;
+    if (!GLGetStateQuery(ctx, pname, query)) return;
+    for (unsigned i = 0; i < query.count; ++i)
+        WriteMacInt8(mac_ptr + i, query.values[i] != 0 ? GL_TRUE : GL_FALSE);
 }
 
 uint32_t NativeGLGetError(GLContext *ctx)
@@ -1767,13 +1663,6 @@ uint32_t NativeGLGetString(GLContext *ctx, uint32_t name)
 			uint32_t len = (uint32_t)strlen(str) + 1;
 			addr = Mac_sysalloc(len);
 			if (addr) {
-				// A prior per-iteration clear loop used a 4-byte
-				// WriteMacInt32 over [0, len), writing len*4 bytes into a
-				// len-byte SheepMem allocation and overrunning it by 3*len
-				// bytes. The clear was also redundant: the memcpy below writes
-				// all len bytes (string + NUL). Removed to match the
-				// NativeAGLErrorString analog (gl_engine.cpp:1689) which does
-				// Mac_sysalloc(len) + memcpy(host_ptr, str, len) with no clear.
 				uint8 *host_ptr = Mac2HostAddr(addr);
 				memcpy(host_ptr, str, len);
 			}
@@ -1785,51 +1674,21 @@ uint32_t NativeGLGetString(GLContext *ctx, uint32_t name)
 	case GL_VENDOR:     return alloc_string(gl_string_vendor_addr,   "ATI Technologies Inc.");
 	case GL_RENDERER:   return alloc_string(gl_string_renderer_addr, "ATI Rage 128 Pro OpenGL Engine");
 	case GL_VERSION:
-		// Report the complete core contract. 1.2-era features that this backend
-		// implements are exposed as explicit extension tokens below.
+		// 1.2-era features this backend implements are listed as extensions.
 		return alloc_string(gl_string_version_addr,  "1.1");
-	// The EXT texture-env COMBINE extension token is DE-ADVERTISED.
-	// The GL_COMBINE_EXT (0x8570) crossbar is store-only — env_mode is recorded but
-	// GLTexEnvModeToShader has no GL_COMBINE case (it falls to default = modulate), so
-	// advertising the token would be silent-wrong-output for a conformant app querying
-	// the COMBINE crossbar (silent wrong output). De-advertisement
-	// IS the honest fix: a conformant app detects absence and branches around it.
-	// GL_ARB_multitexture stays advertised — it honestly covers the 2-unit modulate/add
-	// texenv path now wired. (The exact token is intentionally NOT spelled out here so
-	// the GLARBExtensionTests source-scan absence assertion stays robust.)
-	//
-	// DELIBERATE (convolution / histogram-minmax): the
-	// ARB imaging umbrella extension token is intentionally ABSENT from the string below.
-	// The convolution (478-490) and histogram/minmax (491-500) families store state but do
-	// NOT apply it to the pixel pipeline; advertising the umbrella token would let a
-	// conformant app call those paths and silently get wrong output.
-	// De-advertisement IS the honest fix (classic Mac games do not use
-	// imaging convolution/histogram). The handlers log their known limitation; the
-	// GLARBExtensionTests gate tests assert the token's absence. (The umbrella token is
-	// intentionally NOT spelled out as a literal here so the source-scan absence assertion
-	// stays robust — same robustness discipline as the COMBINE de-advertisement.)
-	//
-	// DELIBERATE (texture compression): the ARB compression token is ABSENT from the
-	// string below. Only 2D DXT upload/sub-upload paths decompress into Metal textures;
-	// the 1D, 3D, and readback handlers explicitly log known limitations. Advertising
-	// the full extension would invite conformant callers into silent no-op paths.
-	//
-	// DELIBERATE (fog coordinate): the per-vertex fog-coordinate extension token is
-	// ABSENT from the string below. This backend tracks a passive vertex/current
-	// field, but it has no glFogCoord* or glFogCoordPointer entry points, no
-	// FOG_COORDINATE_SOURCE state, and no dispatch sub-opcodes. Advertising that
-	// extension would be a pure reachability lie.
-	//
-	// DELIBERATE (texture LOD bias): ABSENT from the string below. The extension
-	// has no entry points, but it does require GL_TEXTURE_FILTER_CONTROL /
-	// GL_TEXTURE_LOD_BIAS TexEnv state, which this backend does not consume.
+	// Deliberately not advertised, so apps take their fallback paths instead
+	// of getting wrong output:
+	//  - texenv combine: env mode is stored, but the shader treats it as modulate.
+	//  - ARB imaging: convolution and histogram/minmax store state only.
+	//  - ARB texture compression: only 2D DXT uploads are decoded.
+	//  - fog coordinate: no glFogCoord* entry points.
+	//  - texture LOD bias: the TexEnv state is not consumed.
 	case GL_EXTENSIONS: {
 		static const char *extensions =
 			"GL_ARB_multitexture GL_ARB_transpose_matrix "
 			"GL_EXT_abgr GL_EXT_bgra GL_EXT_packed_pixels "
 			"GL_EXT_blend_color GL_EXT_blend_equation GL_EXT_compiled_vertex_array "
-			"GL_EXT_secondary_color GL_EXT_stencil_wrap "
-			"GL_EXT_paletted_texture";
+			"GL_EXT_secondary_color GL_EXT_stencil_wrap";
 		{
 			static bool s_logged_extensions = false;
 			if (!s_logged_extensions) {
@@ -1851,6 +1710,7 @@ uint32_t NativeGLGetString(GLContext *ctx, uint32_t name)
 
 void NativeGLPushAttrib(GLContext *ctx, uint32_t mask)
 {
+    if(ctx->in_begin) {if(!ctx->last_error)ctx->last_error=0x0502;return;}
 	if (ctx->attrib_stack_depth >= GL_MAX_ATTRIB_STACK_DEPTH) {
 		ctx->last_error = GL_STACK_OVERFLOW;
 		return;
@@ -1859,7 +1719,6 @@ void NativeGLPushAttrib(GLContext *ctx, uint32_t mask)
 	GLAttribStackEntry &entry = ctx->attrib_stack[ctx->attrib_stack_depth];
 	entry.mask = mask;
 
-	// Snapshot requested state groups
 	if (mask & GL_CURRENT_BIT) {
 		memcpy(entry.current_color,    ctx->current_color,    4 * sizeof(float));
 		memcpy(entry.current_normal,   ctx->current_normal,   3 * sizeof(float));
@@ -1920,7 +1779,7 @@ void NativeGLPushAttrib(GLContext *ctx, uint32_t mask)
 	}
 	if (mask & GL_TEXTURE_BIT) {
 		entry.saved_active_texture = ctx->active_texture;
-		memcpy(entry.saved_tex_units, ctx->tex_units, sizeof(ctx->tex_units));
+		std::copy(ctx->tex_units, ctx->tex_units + 4, entry.saved_tex_units);
 	}
 	if (mask & GL_VIEWPORT_BIT) {
 		memcpy(entry.saved_viewport, ctx->viewport, 4 * sizeof(int32_t));
@@ -1939,6 +1798,7 @@ void NativeGLPushAttrib(GLContext *ctx, uint32_t mask)
 		entry.saved_point_smooth = ctx->point_smooth;
 	}
 	if (mask & GL_LINE_BIT) {
+		entry.saved_line_stipple_enabled=ctx->line_stipple_enabled;
 		entry.saved_line_width          = ctx->line_width;
 		entry.saved_line_smooth         = ctx->line_smooth;
 		entry.saved_line_stipple_factor = ctx->line_stipple_factor;
@@ -1953,11 +1813,130 @@ void NativeGLPushAttrib(GLContext *ctx, uint32_t mask)
 		memcpy(entry.saved_clip_plane_enabled, ctx->clip_plane_enabled, 6 * sizeof(bool));
 	}
 
+	if (mask & GL_COLOR_BUFFER_BIT_ATTRIB) {
+		entry.full_blend = ctx->blend;
+		entry.full_alpha_test = ctx->alpha_test;
+		entry.full_dither = ctx->dither;
+		entry.full_color_logic_op = ctx->color_logic_op;
+		memcpy(entry.full_color_mask, ctx->color_mask, sizeof(ctx->color_mask));
+		entry.full_blend_src = ctx->blend_src;
+		entry.full_blend_dst = ctx->blend_dst;
+		entry.full_blend_equation = ctx->blend_equation;
+		entry.full_alpha_func = ctx->alpha_func;
+		entry.full_logic_op_mode = ctx->logic_op_mode;
+		entry.full_draw_buffer = ctx->draw_buffer;
+		entry.full_index_write_mask = ctx->index_write_mask;
+		memcpy(entry.full_blend_color, ctx->blend_color, sizeof(ctx->blend_color));
+		entry.full_alpha_ref = ctx->alpha_ref;
+		entry.full_clear_index = ctx->clear_index;
+	}
+	if (mask & GL_DEPTH_BUFFER_BIT) {
+		entry.full_depth_test = ctx->depth_test;
+		entry.full_depth_mask = ctx->depth_mask;
+		entry.full_depth_func = ctx->depth_func;
+	}
+	if (mask & GL_STENCIL_BUFFER_BIT) {
+		entry.full_stencil_test = ctx->stencil_test;
+	}
+	if (mask & GL_POLYGON_BIT) {
+		entry.full_polygon_stipple_enabled=ctx->polygon_stipple_enabled;
+		entry.full_cull_face_mode = ctx->cull_face_mode;
+		entry.full_polygon_smooth = ctx->polygon_smooth;
+	}
+	if (mask & GL_CURRENT_BIT) {
+		memcpy(entry.full_current_texcoord, ctx->current_texcoord, sizeof(ctx->current_texcoord));
+		entry.full_current_index = ctx->current_index;
+		memcpy(entry.full_raster_pos, ctx->raster_pos, sizeof(ctx->raster_pos));
+		memcpy(entry.full_raster_color, ctx->raster_color, sizeof(ctx->raster_color));
+        memcpy(entry.full_raster_texcoord,ctx->raster_texcoord,sizeof(ctx->raster_texcoord));
+		entry.full_current_edge_flag = ctx->current_edge_flag;
+		entry.full_raster_pos_valid = ctx->raster_pos_valid;
+	}
+	if (mask & GL_LIGHTING_BIT) {
+		memcpy(entry.full_lights, ctx->lights, sizeof(ctx->lights));
+	}
+	if (mask & GL_TRANSFORM_BIT) {
+		memcpy(entry.full_clip_planes, ctx->clip_planes, sizeof(ctx->clip_planes));
+		entry.full_normalize = ctx->normalize;
+	}
+	if (mask & GL_ACCUM_BUFFER_BIT) {
+		memcpy(entry.full_clear_accum, ctx->clear_accum, sizeof(ctx->clear_accum));
+	}
+	if (mask & 0x00020000u /* GL_LIST_BIT */) {
+		entry.full_list_base = ctx->list_base;
+	}
+	if (mask & 0x00000010u /* GL_POLYGON_STIPPLE_BIT */) {
+		memcpy(entry.full_polygon_stipple, ctx->polygon_stipple, sizeof(ctx->polygon_stipple));
+	}
+	if(mask & GL_ENABLE_BIT) {
+		entry.extra_line_stipple_enabled=ctx->line_stipple_enabled;
+		entry.extra_polygon_stipple_enabled=ctx->polygon_stipple_enabled;
+		entry.extra_color_sum=ctx->color_sum;
+		entry.extra_auto_normal=ctx->auto_normal;
+		entry.extra_point_smooth=ctx->point_smooth;
+		entry.extra_line_smooth=ctx->line_smooth;
+		entry.extra_polygon_smooth=ctx->polygon_smooth;
+		entry.extra_dither=ctx->dither;
+		entry.extra_color_logic_op=ctx->color_logic_op;
+		entry.extra_polygon_offset_fill=ctx->polygon_offset_fill;
+		entry.extra_polygon_offset_line=ctx->polygon_offset_line;
+		entry.extra_polygon_offset_point=ctx->polygon_offset_point;
+		entry.extra_multisample=ctx->multisample;
+		entry.extra_sample_alpha_to_coverage=ctx->sample_alpha_to_coverage;
+		entry.extra_sample_alpha_to_one=ctx->sample_alpha_to_one;
+		entry.extra_sample_coverage=ctx->sample_coverage;
+		entry.extra_color_material_enabled=ctx->color_material_enabled;
+		memcpy(entry.extra_clip_plane_enabled, ctx->clip_plane_enabled, sizeof(ctx->clip_plane_enabled));
+		memcpy(entry.extra_eval_map1_enabled, ctx->eval_map1_enabled, sizeof(ctx->eval_map1_enabled));
+		memcpy(entry.extra_eval_map2_enabled, ctx->eval_map2_enabled, sizeof(ctx->eval_map2_enabled));
+		entry.extra_color_table_enabled=ctx->color_table_enabled;
+		entry.extra_post_convolution_color_table_enabled=ctx->post_convolution_color_table_enabled;
+		entry.extra_post_color_matrix_color_table_enabled=ctx->post_color_matrix_color_table_enabled;
+		entry.extra_convolution_1d_enabled=ctx->convolution_1d_enabled;
+		entry.extra_convolution_2d_enabled=ctx->convolution_2d_enabled;
+		entry.extra_separable_2d_enabled=ctx->separable_2d_enabled;
+		entry.extra_histogram_enabled=ctx->histogram_enabled;
+		entry.extra_minmax_enabled=ctx->minmax_enabled;
+		std::copy(ctx->tex_units, ctx->tex_units + 4, entry.extra_tex_units);
+		memcpy(entry.extra_lights, ctx->lights, sizeof(ctx->lights));
+	}
+	if(mask & 0x00000020u /* GL_PIXEL_MODE_BIT */) {
+		entry.extra_read_buffer=ctx->read_buffer;
+		entry.extra_pixel_zoom_x=ctx->pixel_zoom_x;
+		entry.extra_pixel_zoom_y=ctx->pixel_zoom_y;
+		entry.extra_pixel_transfer_red_scale=ctx->pixel_transfer_red_scale;
+		entry.extra_pixel_transfer_green_scale=ctx->pixel_transfer_green_scale;
+		entry.extra_pixel_transfer_blue_scale=ctx->pixel_transfer_blue_scale;
+		entry.extra_pixel_transfer_alpha_scale=ctx->pixel_transfer_alpha_scale;
+		entry.extra_pixel_transfer_red_bias=ctx->pixel_transfer_red_bias;
+		entry.extra_pixel_transfer_green_bias=ctx->pixel_transfer_green_bias;
+		entry.extra_pixel_transfer_blue_bias=ctx->pixel_transfer_blue_bias;
+		entry.extra_pixel_transfer_alpha_bias=ctx->pixel_transfer_alpha_bias;
+		entry.extra_pixel_transfer_depth_scale=ctx->pixel_transfer_depth_scale;
+		entry.extra_pixel_transfer_depth_bias=ctx->pixel_transfer_depth_bias;
+		memcpy(entry.extra_pixel_map_i_to_r, ctx->pixel_map_i_to_r, sizeof(ctx->pixel_map_i_to_r));
+		memcpy(entry.extra_pixel_map_i_to_g, ctx->pixel_map_i_to_g, sizeof(ctx->pixel_map_i_to_g));
+		memcpy(entry.extra_pixel_map_i_to_b, ctx->pixel_map_i_to_b, sizeof(ctx->pixel_map_i_to_b));
+		memcpy(entry.extra_pixel_map_i_to_a, ctx->pixel_map_i_to_a, sizeof(ctx->pixel_map_i_to_a));
+		memcpy(entry.extra_pixel_map_r_to_r, ctx->pixel_map_r_to_r, sizeof(ctx->pixel_map_r_to_r));
+		memcpy(entry.extra_pixel_map_g_to_g, ctx->pixel_map_g_to_g, sizeof(ctx->pixel_map_g_to_g));
+		memcpy(entry.extra_pixel_map_b_to_b, ctx->pixel_map_b_to_b, sizeof(ctx->pixel_map_b_to_b));
+		memcpy(entry.extra_pixel_map_a_to_a, ctx->pixel_map_a_to_a, sizeof(ctx->pixel_map_a_to_a));
+		entry.extra_pixel_map_i_to_r_size=ctx->pixel_map_i_to_r_size;
+		entry.extra_pixel_map_i_to_g_size=ctx->pixel_map_i_to_g_size;
+		entry.extra_pixel_map_i_to_b_size=ctx->pixel_map_i_to_b_size;
+		entry.extra_pixel_map_i_to_a_size=ctx->pixel_map_i_to_a_size;
+		entry.extra_pixel_map_r_to_r_size=ctx->pixel_map_r_to_r_size;
+		entry.extra_pixel_map_g_to_g_size=ctx->pixel_map_g_to_g_size;
+		entry.extra_pixel_map_b_to_b_size=ctx->pixel_map_b_to_b_size;
+		entry.extra_pixel_map_a_to_a_size=ctx->pixel_map_a_to_a_size;
+	}
 	ctx->attrib_stack_depth++;
 }
 
 void NativeGLPopAttrib(GLContext *ctx)
 {
+    if(ctx->in_begin) {if(!ctx->last_error)ctx->last_error=0x0502;return;}
 	if (ctx->attrib_stack_depth <= 0) {
 		ctx->last_error = GL_STACK_UNDERFLOW;
 		return;
@@ -2031,7 +2010,7 @@ void NativeGLPopAttrib(GLContext *ctx)
 	}
 	if (mask & GL_TEXTURE_BIT) {
 		ctx->active_texture = entry.saved_active_texture;
-		memcpy(ctx->tex_units, entry.saved_tex_units, sizeof(ctx->tex_units));
+		std::copy(entry.saved_tex_units, entry.saved_tex_units + 4, ctx->tex_units);
 	}
 	if (mask & GL_VIEWPORT_BIT) {
 		memcpy(ctx->viewport, entry.saved_viewport, 4 * sizeof(int32_t));
@@ -2050,6 +2029,7 @@ void NativeGLPopAttrib(GLContext *ctx)
 		ctx->point_smooth = entry.saved_point_smooth;
 	}
 	if (mask & GL_LINE_BIT) {
+		ctx->line_stipple_enabled=entry.saved_line_stipple_enabled;
 		ctx->line_width          = entry.saved_line_width;
 		ctx->line_smooth         = entry.saved_line_smooth;
 		ctx->line_stipple_factor = entry.saved_line_stipple_factor;
@@ -2063,56 +2043,204 @@ void NativeGLPopAttrib(GLContext *ctx)
 		ctx->matrix_mode = entry.saved_matrix_mode;
 		memcpy(ctx->clip_plane_enabled, entry.saved_clip_plane_enabled, 6 * sizeof(bool));
 	}
+	if (mask & GL_COLOR_BUFFER_BIT_ATTRIB) {
+		ctx->blend = entry.full_blend;
+		ctx->alpha_test = entry.full_alpha_test;
+		ctx->dither = entry.full_dither;
+		ctx->color_logic_op = entry.full_color_logic_op;
+		memcpy(ctx->color_mask, entry.full_color_mask, sizeof(ctx->color_mask));
+		ctx->blend_src = entry.full_blend_src;
+		ctx->blend_dst = entry.full_blend_dst;
+		ctx->blend_equation = entry.full_blend_equation;
+		ctx->alpha_func = entry.full_alpha_func;
+		ctx->logic_op_mode = entry.full_logic_op_mode;
+		ctx->draw_buffer = entry.full_draw_buffer;
+		ctx->index_write_mask = entry.full_index_write_mask;
+		memcpy(ctx->blend_color, entry.full_blend_color, sizeof(ctx->blend_color));
+		ctx->alpha_ref = entry.full_alpha_ref;
+		ctx->clear_index = entry.full_clear_index;
+	}
+	if (mask & GL_DEPTH_BUFFER_BIT) {
+		ctx->depth_test = entry.full_depth_test;
+		ctx->depth_mask = entry.full_depth_mask;
+		ctx->depth_func = entry.full_depth_func;
+	}
+	if (mask & GL_STENCIL_BUFFER_BIT) {
+		ctx->stencil_test = entry.full_stencil_test;
+	}
+	if (mask & GL_POLYGON_BIT) {
+		ctx->polygon_stipple_enabled=entry.full_polygon_stipple_enabled;
+		ctx->cull_face_mode = entry.full_cull_face_mode;
+		ctx->polygon_smooth = entry.full_polygon_smooth;
+	}
+	if (mask & GL_CURRENT_BIT) {
+		memcpy(ctx->current_texcoord, entry.full_current_texcoord, sizeof(ctx->current_texcoord));
+		ctx->current_index = entry.full_current_index;
+		memcpy(ctx->raster_pos, entry.full_raster_pos, sizeof(ctx->raster_pos));
+		memcpy(ctx->raster_color, entry.full_raster_color, sizeof(ctx->raster_color));
+        memcpy(ctx->raster_texcoord,entry.full_raster_texcoord,sizeof(ctx->raster_texcoord));
+		ctx->current_edge_flag = entry.full_current_edge_flag;
+		ctx->raster_pos_valid = entry.full_raster_pos_valid;
+	}
+	if (mask & GL_LIGHTING_BIT) {
+		memcpy(ctx->lights, entry.full_lights, sizeof(ctx->lights));
+	}
+	if (mask & GL_TRANSFORM_BIT) {
+		memcpy(ctx->clip_planes, entry.full_clip_planes, sizeof(ctx->clip_planes));
+		ctx->normalize = entry.full_normalize;
+	}
+	if (mask & GL_ACCUM_BUFFER_BIT) {
+		memcpy(ctx->clear_accum, entry.full_clear_accum, sizeof(ctx->clear_accum));
+	}
+	if (mask & 0x00020000u /* GL_LIST_BIT */) {
+		ctx->list_base = entry.full_list_base;
+	}
+	if (mask & 0x00000010u /* GL_POLYGON_STIPPLE_BIT */) {
+		memcpy(ctx->polygon_stipple, entry.full_polygon_stipple, sizeof(ctx->polygon_stipple));
+	}
+	if(mask & GL_ENABLE_BIT) {
+		ctx->line_stipple_enabled=entry.extra_line_stipple_enabled;
+		ctx->polygon_stipple_enabled=entry.extra_polygon_stipple_enabled;
+		ctx->color_sum=entry.extra_color_sum;
+		ctx->auto_normal=entry.extra_auto_normal;
+		ctx->point_smooth=entry.extra_point_smooth;
+		ctx->line_smooth=entry.extra_line_smooth;
+		ctx->polygon_smooth=entry.extra_polygon_smooth;
+		ctx->dither=entry.extra_dither;
+		ctx->color_logic_op=entry.extra_color_logic_op;
+		ctx->polygon_offset_fill=entry.extra_polygon_offset_fill;
+		ctx->polygon_offset_line=entry.extra_polygon_offset_line;
+		ctx->polygon_offset_point=entry.extra_polygon_offset_point;
+		ctx->multisample=entry.extra_multisample;
+		ctx->sample_alpha_to_coverage=entry.extra_sample_alpha_to_coverage;
+		ctx->sample_alpha_to_one=entry.extra_sample_alpha_to_one;
+		ctx->sample_coverage=entry.extra_sample_coverage;
+		ctx->color_material_enabled=entry.extra_color_material_enabled;
+		memcpy(ctx->clip_plane_enabled, entry.extra_clip_plane_enabled, sizeof(ctx->clip_plane_enabled));
+		memcpy(ctx->eval_map1_enabled, entry.extra_eval_map1_enabled, sizeof(ctx->eval_map1_enabled));
+		memcpy(ctx->eval_map2_enabled, entry.extra_eval_map2_enabled, sizeof(ctx->eval_map2_enabled));
+		ctx->color_table_enabled=entry.extra_color_table_enabled;
+		ctx->post_convolution_color_table_enabled=entry.extra_post_convolution_color_table_enabled;
+		ctx->post_color_matrix_color_table_enabled=entry.extra_post_color_matrix_color_table_enabled;
+		ctx->convolution_1d_enabled=entry.extra_convolution_1d_enabled;
+		ctx->convolution_2d_enabled=entry.extra_convolution_2d_enabled;
+		ctx->separable_2d_enabled=entry.extra_separable_2d_enabled;
+		ctx->histogram_enabled=entry.extra_histogram_enabled;
+		ctx->minmax_enabled=entry.extra_minmax_enabled;
+		for(int i=0;i<4;++i) ctx->tex_units[i].enabled_1d=entry.extra_tex_units[i].enabled_1d;
+		for(int i=0;i<4;++i) ctx->tex_units[i].enabled_2d=entry.extra_tex_units[i].enabled_2d;
+		for(int i=0;i<4;++i) ctx->tex_units[i].enabled_3d=entry.extra_tex_units[i].enabled_3d;
+		for(int i=0;i<4;++i) ctx->tex_units[i].texgen_s_enabled=entry.extra_tex_units[i].texgen_s_enabled;
+		for(int i=0;i<4;++i) ctx->tex_units[i].texgen_t_enabled=entry.extra_tex_units[i].texgen_t_enabled;
+		for(int i=0;i<4;++i) ctx->tex_units[i].texgen_r_enabled=entry.extra_tex_units[i].texgen_r_enabled;
+		for(int i=0;i<4;++i) ctx->tex_units[i].texgen_q_enabled=entry.extra_tex_units[i].texgen_q_enabled;
+		for(int i=0;i<8;++i)ctx->lights[i].enabled=entry.extra_lights[i].enabled;
+	}
+	if(mask & 0x00000020u /* GL_PIXEL_MODE_BIT */) {
+		ctx->read_buffer=entry.extra_read_buffer;
+		ctx->pixel_zoom_x=entry.extra_pixel_zoom_x;
+		ctx->pixel_zoom_y=entry.extra_pixel_zoom_y;
+		ctx->pixel_transfer_red_scale=entry.extra_pixel_transfer_red_scale;
+		ctx->pixel_transfer_green_scale=entry.extra_pixel_transfer_green_scale;
+		ctx->pixel_transfer_blue_scale=entry.extra_pixel_transfer_blue_scale;
+		ctx->pixel_transfer_alpha_scale=entry.extra_pixel_transfer_alpha_scale;
+		ctx->pixel_transfer_red_bias=entry.extra_pixel_transfer_red_bias;
+		ctx->pixel_transfer_green_bias=entry.extra_pixel_transfer_green_bias;
+		ctx->pixel_transfer_blue_bias=entry.extra_pixel_transfer_blue_bias;
+		ctx->pixel_transfer_alpha_bias=entry.extra_pixel_transfer_alpha_bias;
+		ctx->pixel_transfer_depth_scale=entry.extra_pixel_transfer_depth_scale;
+		ctx->pixel_transfer_depth_bias=entry.extra_pixel_transfer_depth_bias;
+		memcpy(ctx->pixel_map_i_to_r, entry.extra_pixel_map_i_to_r, sizeof(ctx->pixel_map_i_to_r));
+		memcpy(ctx->pixel_map_i_to_g, entry.extra_pixel_map_i_to_g, sizeof(ctx->pixel_map_i_to_g));
+		memcpy(ctx->pixel_map_i_to_b, entry.extra_pixel_map_i_to_b, sizeof(ctx->pixel_map_i_to_b));
+		memcpy(ctx->pixel_map_i_to_a, entry.extra_pixel_map_i_to_a, sizeof(ctx->pixel_map_i_to_a));
+		memcpy(ctx->pixel_map_r_to_r, entry.extra_pixel_map_r_to_r, sizeof(ctx->pixel_map_r_to_r));
+		memcpy(ctx->pixel_map_g_to_g, entry.extra_pixel_map_g_to_g, sizeof(ctx->pixel_map_g_to_g));
+		memcpy(ctx->pixel_map_b_to_b, entry.extra_pixel_map_b_to_b, sizeof(ctx->pixel_map_b_to_b));
+		memcpy(ctx->pixel_map_a_to_a, entry.extra_pixel_map_a_to_a, sizeof(ctx->pixel_map_a_to_a));
+		ctx->pixel_map_i_to_r_size=entry.extra_pixel_map_i_to_r_size;
+		ctx->pixel_map_i_to_g_size=entry.extra_pixel_map_i_to_g_size;
+		ctx->pixel_map_i_to_b_size=entry.extra_pixel_map_i_to_b_size;
+		ctx->pixel_map_i_to_a_size=entry.extra_pixel_map_i_to_a_size;
+		ctx->pixel_map_r_to_r_size=entry.extra_pixel_map_r_to_r_size;
+		ctx->pixel_map_g_to_g_size=entry.extra_pixel_map_g_to_g_size;
+		ctx->pixel_map_b_to_b_size=entry.extra_pixel_map_b_to_b_size;
+		ctx->pixel_map_a_to_a_size=entry.extra_pixel_map_a_to_a_size;
+	}
+    if(mask & (GL_ENABLE_BIT | GL_TEXTURE_BIT)) {
+        for(int unit=0;unit<4;++unit) {
+            gl_clear_prepared_texture_2d_for_draw(ctx,unit);
+            gl_clear_latched_texture_2d_for_array_draw(ctx,unit);
+            ctx->texture_2d_enable_draw_serial[unit]=ctx->completed_draw_serial;
+        }
+    }
+	// A popped stack slot no longer owns texture references. The restored
+	// bindings retain their copies; stale slots must not delay destruction.
+	for (auto &unit : entry.saved_tex_units) {
+		unit.retired_texture_1d.reset(); unit.retired_texture_2d.reset(); unit.retired_texture_3d.reset();
+	}
+	for (auto &unit : entry.extra_tex_units) {
+		unit.retired_texture_1d.reset(); unit.retired_texture_2d.reset(); unit.retired_texture_3d.reset();
+	}
 }
-
-// Client attrib stacks -- simplified, stores vertex array pointers
-static GLVertexArrayPointer gl_saved_vertex_array;
-static GLVertexArrayPointer gl_saved_normal_array;
-static GLVertexArrayPointer gl_saved_color_array;
-static GLVertexArrayPointer gl_saved_texcoord_array[4];
-static GLPixelStore gl_saved_pixel_store;
-static int gl_client_attrib_depth = 0;
-static uint32_t gl_client_attrib_mask = 0;
 
 void NativeGLPushClientAttrib(GLContext *ctx, uint32_t mask)
 {
-	if (gl_client_attrib_depth >= 1) {
-		ctx->last_error = GL_STACK_OVERFLOW;
+	if (ctx->in_begin) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_OPERATION;
 		return;
 	}
-	gl_client_attrib_mask = mask;
+	if (ctx->client_attrib_stack_depth >= GL_MAX_CLIENT_ATTRIB_STACK_DEPTH) {
+		if (!ctx->last_error) ctx->last_error = GL_STACK_OVERFLOW;
+		return;
+	}
+	auto &entry = ctx->client_attrib_stack[ctx->client_attrib_stack_depth++];
+	entry.mask = mask;
 	if (mask & GL_CLIENT_VERTEX_ARRAY_BIT) {
-		gl_saved_vertex_array = ctx->vertex_array;
-		gl_saved_normal_array = ctx->normal_array;
-		gl_saved_color_array  = ctx->color_array;
-		memcpy(gl_saved_texcoord_array, ctx->texcoord_array, sizeof(gl_saved_texcoord_array));
+		entry.vertex_array = ctx->vertex_array;
+		entry.normal_array = ctx->normal_array;
+		entry.color_array = ctx->color_array;
+		memcpy(entry.texcoord_array, ctx->texcoord_array, sizeof(entry.texcoord_array));
+		entry.secondary_color_array = ctx->secondary_color_array;
+		entry.edge_flag_array = ctx->edge_flag_array;
+		entry.index_array = ctx->index_array;
+		entry.client_active_texture = ctx->client_active_texture;
+		entry.arrays_locked = ctx->arrays_locked;
+		entry.lock_first = ctx->lock_first;
+		entry.lock_count = ctx->lock_count;
 	}
-	if (mask & GL_CLIENT_PIXEL_STORE_BIT) {
-		gl_saved_pixel_store = ctx->pixel_store;
-	}
-	gl_client_attrib_depth++;
+	if (mask & GL_CLIENT_PIXEL_STORE_BIT) entry.pixel_store = ctx->pixel_store;
 }
 
 void NativeGLPopClientAttrib(GLContext *ctx)
 {
-	if (gl_client_attrib_depth <= 0) {
-		ctx->last_error = GL_STACK_UNDERFLOW;
+	if (ctx->in_begin) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_OPERATION;
 		return;
 	}
-	gl_client_attrib_depth--;
-	if (gl_client_attrib_mask & GL_CLIENT_VERTEX_ARRAY_BIT) {
-		ctx->vertex_array = gl_saved_vertex_array;
-		ctx->normal_array = gl_saved_normal_array;
-		ctx->color_array  = gl_saved_color_array;
-		memcpy(ctx->texcoord_array, gl_saved_texcoord_array, sizeof(gl_saved_texcoord_array));
+	if (ctx->client_attrib_stack_depth <= 0) {
+		if (!ctx->last_error) ctx->last_error = GL_STACK_UNDERFLOW;
+		return;
+	}
+	const auto &entry = ctx->client_attrib_stack[--ctx->client_attrib_stack_depth];
+	if (entry.mask & GL_CLIENT_VERTEX_ARRAY_BIT) {
+		ctx->vertex_array = entry.vertex_array;
+		ctx->normal_array = entry.normal_array;
+		ctx->color_array = entry.color_array;
+		memcpy(ctx->texcoord_array, entry.texcoord_array, sizeof(ctx->texcoord_array));
+		ctx->secondary_color_array = entry.secondary_color_array;
+		ctx->edge_flag_array = entry.edge_flag_array;
+		ctx->index_array = entry.index_array;
+		ctx->client_active_texture = entry.client_active_texture;
+		ctx->arrays_locked = entry.arrays_locked;
+		ctx->lock_first = entry.lock_first;
+		ctx->lock_count = entry.lock_count;
 		for (int u = 0; u < 4; u++) {
 			ctx->texcoord_array_enable_draw_serial[u] = ctx->completed_draw_serial;
 			ctx->prepared_texcoord_array_for_draw[u] = false;
 		}
 	}
-	if (gl_client_attrib_mask & GL_CLIENT_PIXEL_STORE_BIT) {
-		ctx->pixel_store = gl_saved_pixel_store;
-	}
+	if (entry.mask & GL_CLIENT_PIXEL_STORE_BIT) ctx->pixel_store = entry.pixel_store;
 }
 
 
@@ -2122,7 +2250,27 @@ void NativeGLPopClientAttrib(GLContext *ctx)
 
 void GLContextInit(GLContext *ctx)
 {
-	memset(ctx, 0, sizeof(GLContext));
+	// Reset state while keeping the share group, lifetime token, and
+	// renderer/accumulation allocations.
+	auto objects = ctx->shared_objects;
+	auto lifetime = ctx->lifetime;
+	void *metal = ctx->metal;
+	float *accum = ctx->accum_buffer;
+	const int accumWidth = ctx->accum_width, accumHeight = ctx->accum_height;
+	const bool accumAllocated = ctx->accum_allocated;
+	GLTextureObject defaults[3];
+	for (int i = 0; i < 3; ++i) {
+		defaults[i] = ctx->default_textures[i];
+		ctx->default_textures[i].metal_texture = nullptr;
+	}
+	ctx->~GLContext();
+	new (ctx) GLContext { std::move(objects) };
+	for (int i = 0; i < 3; ++i) ctx->default_textures[i] = defaults[i];
+	ctx->lifetime = std::move(lifetime);
+	ctx->metal = metal;
+	ctx->accum_buffer = accum;
+	ctx->accum_width = accumWidth; ctx->accum_height = accumHeight;
+	ctx->accum_allocated = accumAllocated;
 
 	// Matrix stacks: load identity
 	mat4_identity(ctx->modelview_stack[0]);
@@ -2134,9 +2282,9 @@ void GLContextInit(GLContext *ctx)
 
 	// Default colors
 	ctx->current_color[0] = ctx->current_color[1] = ctx->current_color[2] = ctx->current_color[3] = 1.0f;
-	ctx->current_normal[2] = 1.0f; // default normal = (0,0,1)
+	ctx->current_normal[2] = 1.0f;
 	for (int u = 0; u < 4; u++)
-		ctx->current_texcoord[u][3] = 1.0f; // q=1 by default
+		ctx->current_texcoord[u][3] = 1.0f;
 
 	// Depth
 	ctx->depth_func = GL_LESS;
@@ -2168,9 +2316,7 @@ void GLContextInit(GLContext *ctx)
 	ctx->polygon_mode_front= GL_FILL;
 	ctx->polygon_mode_back = GL_FILL;
 
-	// Viewport (set to 0,0,0,0 -- will be updated by app)
-	// Scissor
-	// (both left at 0 until glViewport/glScissor called)
+	// Viewport and scissor stay 0 until the app sets them
 
 	// Clear values
 	ctx->clear_depth   = 1.0f;
@@ -2192,10 +2338,10 @@ void GLContextInit(GLContext *ctx)
 	ctx->lights[0].diffuse[0] = ctx->lights[0].diffuse[1] = ctx->lights[0].diffuse[2] = ctx->lights[0].diffuse[3] = 1.0f;
 	ctx->lights[0].specular[0] = ctx->lights[0].specular[1] = ctx->lights[0].specular[2] = ctx->lights[0].specular[3] = 1.0f;
 	for (int i = 0; i < 8; i++) {
-		ctx->lights[i].position[2] = 1.0f;  // default position (0,0,1,0) = directional
-		ctx->lights[i].spot_cutoff = 180.0f; // no spotlight by default
+		ctx->lights[i].position[2] = 1.0f;  // (0,0,1,0): directional
+		ctx->lights[i].spot_cutoff = 180.0f; // not a spotlight
 		ctx->lights[i].constant_attenuation = 1.0f;
-		ctx->lights[i].ambient[3] = 1.0f; // alpha defaults
+		ctx->lights[i].ambient[3] = 1.0f;
 	}
 	// Lights 1-7: diffuse/specular default to (0,0,0,1)
 	for (int i = 1; i < 8; i++) {
@@ -2218,11 +2364,15 @@ void GLContextInit(GLContext *ctx)
 	}
 
 	// Color material
+	ctx->line_stipple_enabled=false;ctx->polygon_stipple_enabled=false;
+    ctx->line_stipple_factor=1;ctx->line_stipple_pattern=0xffff;
+    std::fill(std::begin(ctx->polygon_stipple),std::end(ctx->polygon_stipple),UINT32_MAX);
 	ctx->color_material_face = GL_FRONT_AND_BACK;
 	ctx->color_material_mode = GL_AMBIENT_AND_DIFFUSE;
 
 	// Texture units
 	for (int u = 0; u < 4; u++) {
+		GLInitTextureGeneration(ctx->tex_units[u]);
 		ctx->tex_units[u].env_mode = GL_MODULATE;
 		ctx->tex_units[u].env_color[3] = 1.0f;
 		ctx->tex_units[u].current_texcoord[3] = 1.0f;
@@ -2245,7 +2395,7 @@ void GLContextInit(GLContext *ctx)
 	ctx->line_width = 1.0f;
 	ctx->point_size = 1.0f;
 
-	// Dither defaults on per spec
+	// Dither defaults on
 	ctx->dither = true;
 
 	// Hints
@@ -2269,9 +2419,7 @@ void GLContextInit(GLContext *ctx)
 	ctx->pixel_zoom_x = 1.0f;
 	ctx->pixel_zoom_y = 1.0f;
 
-	// Texture name
-	ctx->next_texture_name = 1;
-	ctx->next_list_name = 1;
+	// Texture names belong to the share group, not resettable state.
 
 	// Evaluator defaults
 	for (int i = 0; i < GL_EVAL_MAX_TARGETS; i++) {
@@ -2304,23 +2452,44 @@ void GLContextInit(GLContext *ctx)
 //  Texture object management
 // =========================================================================
 
-/*
- *  glGenTextures -- generate unique texture names
- */
 void NativeGLGenTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 {
 	if (!ctx || n == 0 || mac_ptr == 0) return;
 
 	for (uint32_t i = 0; i < n; i++) {
+		while (ctx->next_texture_name && ctx->texture_objects.count(ctx->next_texture_name))
+			++ctx->next_texture_name;
+		if (!ctx->next_texture_name) { if (!ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY; return; }
 		uint32_t name = ctx->next_texture_name++;
 		WriteMacInt32(mac_ptr + i * 4, name);
 	}
 }
 
 
-/*
- *  glDeleteTextures -- free texture objects and Metal resources
- */
+static void GLRetainDeletedTextureBindings(GLContext *ctx, uint32_t name,
+                                            const std::shared_ptr<GLTextureObject> &object)
+{
+	GLContext *contexts[4] = {};
+	unsigned count = GLContextGetSharedContexts(ctx, contexts, 4);
+	if (!count) { contexts[0] = ctx; count = 1; }
+	auto retain = [&](GLTextureUnit &unit) {
+		for (uint32_t target : {uint32_t(0x0de0), uint32_t(0x0de1), uint32_t(0x806f)}) {
+			auto &retired = GLRetiredTextureBinding(unit, target);
+			if (GLTextureUnitBoundName(unit, target) == name && !retired) retired = object;
+		}
+	};
+	for (unsigned c = 0; c < count; ++c) {
+		GLContext *other = contexts[c];
+		if (other != ctx) for (auto &unit : other->tex_units) retain(unit);
+		// Saved texture bindings are references to objects too. Restoring a
+		// stack entry must not attach a newly-created object with a reused name.
+		for (int i = 0; i < other->attrib_stack_depth; ++i) {
+			if (other->attrib_stack[i].mask & GL_TEXTURE_BIT)
+				for (auto &unit : other->attrib_stack[i].saved_tex_units) retain(unit);
+		}
+	}
+}
+
 void NativeGLDeleteTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 {
 	if (!ctx || n == 0 || mac_ptr == 0) return;
@@ -2331,23 +2500,29 @@ void NativeGLDeleteTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 
 		auto it = ctx->texture_objects.find(name);
 		if (it != ctx->texture_objects.end()) {
-			// Log deletion for debugging texture lifecycle
 			bool had_metal = (it->second.metal_texture != nullptr);
 			GL_LOG("glDeleteTextures: deleting tex %u (had_metal=%d, %dx%d)",
 			       name, had_metal, it->second.width, it->second.height);
 
-			// Destroy Metal texture
-			GLMetalDestroyTexture(&it->second);
+			// The numeric name disappears immediately. Other contexts and saved
+			// attribute bindings retain the old object until they stop using it.
+			if (!ctx->shared_objects->destroy_texture)
+				ctx->shared_objects->destroy_texture = GLMetalDestroyTexture;
+			auto destroy = ctx->shared_objects->destroy_texture;
+			std::shared_ptr<GLTextureObject> object(new GLTextureObject(it->second),
+			    [destroy](GLTextureObject *texture) { destroy(texture); delete texture; });
+			GLRetainDeletedTextureBindings(ctx, name, object);
 
-			// Unbind from any texture unit if bound
 			for (int u = 0; u < 4; u++) {
-				if (ctx->tex_units[u].bound_texture_2d == name) {
+				if (ctx->tex_units[u].bound_texture_2d == name && !ctx->tex_units[u].retired_texture_2d) {
 					ctx->tex_units[u].bound_texture_2d = 0;
 					gl_clear_prepared_texture_2d_for_draw(ctx, u);
 					gl_clear_latched_texture_2d_for_array_draw(ctx, u);
 				}
-				if (ctx->tex_units[u].bound_texture_1d == name)
+				if (ctx->tex_units[u].bound_texture_1d == name && !ctx->tex_units[u].retired_texture_1d)
 					ctx->tex_units[u].bound_texture_1d = 0;
+				if (ctx->tex_units[u].bound_texture_3d == name && !ctx->tex_units[u].retired_texture_3d)
+					ctx->tex_units[u].bound_texture_3d = 0;
 			}
 
 			ctx->texture_objects.erase(it);
@@ -2356,40 +2531,43 @@ void NativeGLDeleteTextures(GLContext *ctx, uint32_t n, uint32_t mac_ptr)
 }
 
 
-/*
- *  glBindTexture -- bind a texture object to the active texture unit
- */
 void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 {
 	if (!ctx) return;
+    if (target != GL_TEXTURE_1D && target != GL_TEXTURE_2D && target != 0x806f) {
+        if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM;
+        return;
+    }
+    auto found = ctx->texture_objects.find(texture);
+    if (texture && found != ctx->texture_objects.end() && found->second.target && found->second.target != target) {
+        if (!ctx->last_error) ctx->last_error = GL_INVALID_OPERATION;
+        return;
+    }
+	const bool wasRetired = bool(GLRetiredTextureBinding(ctx->tex_units[ctx->active_texture], target));
+	GLRetiredTextureBinding(ctx->tex_units[ctx->active_texture], target).reset();
 
 	if (texture == 0) {
-		// Unbind: use default (no texture)
+		// Restore this target's default texture without discarding its images.
 		if (target == GL_TEXTURE_2D) {
 			ctx->tex_units[ctx->active_texture].bound_texture_2d = 0;
 			gl_clear_prepared_texture_2d_for_draw(ctx, ctx->active_texture);
 			gl_clear_latched_texture_2d_for_array_draw(ctx, ctx->active_texture);
 		} else if (target == GL_TEXTURE_1D) {
 			ctx->tex_units[ctx->active_texture].bound_texture_1d = 0;
+        } else if (target == 0x806f) {
+            ctx->tex_units[ctx->active_texture].bound_texture_3d = 0;
 		}
 		return;
 	}
 
-	// Create texture object entry if not yet in map (GL spec: first bind creates)
+	// First bind creates the object
 	if (ctx->texture_objects.find(texture) == ctx->texture_objects.end()) {
-		GLTextureObject obj;
-		memset(&obj, 0, sizeof(obj));
-		obj.name = texture;
-		obj.min_filter = GL_NEAREST_MIPMAP_LINEAR;  // GL default
-		obj.mag_filter = GL_LINEAR;                   // GL default
-		obj.wrap_s = GL_REPEAT;
-		obj.wrap_t = GL_REPEAT;
-		obj.env_mode = GL_MODULATE;
-		ctx->texture_objects[texture] = obj;
+		ctx->texture_objects[texture] = GLNewTextureObject(target, texture);
 	}
 
+    ctx->texture_objects[texture].target = target;
 	if (target == GL_TEXTURE_2D) {
-		if (ctx->tex_units[ctx->active_texture].bound_texture_2d != texture) {
+		if (ctx->tex_units[ctx->active_texture].bound_texture_2d != texture || wasRetired) {
 			gl_clear_prepared_texture_2d_for_draw(ctx, ctx->active_texture);
 			if (!GLMetalLatchedTexture2DSurvivesTextureRebind(
 					ctx->latched_texture_2d_for_array_draw[ctx->active_texture],
@@ -2400,30 +2578,20 @@ void NativeGLBindTexture(GLContext *ctx, uint32_t target, uint32_t texture)
 		ctx->tex_units[ctx->active_texture].bound_texture_2d = texture;
 	} else if (target == GL_TEXTURE_1D) {
 		ctx->tex_units[ctx->active_texture].bound_texture_1d = texture;
+    } else if (target == 0x806f) {
+        ctx->tex_units[ctx->active_texture].bound_texture_3d = texture;
 	}
 }
 
 
-/*
- *  glTexParameteri / glTexParameterf -- set texture object parameters
- */
 void NativeGLTexParameteri(GLContext *ctx, uint32_t target, uint32_t pname, int32_t param)
 {
 	if (!ctx) return;
 
-	// Get currently bound texture for this target
-	uint32_t texName = 0;
-	if (target == GL_TEXTURE_2D)
-		texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	else if (target == GL_TEXTURE_1D)
-		texName = ctx->tex_units[ctx->active_texture].bound_texture_1d;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
 
-	if (texName == 0) return;
-
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
-
-	GLTextureObject &tex = it->second;
+	GLTextureObject &tex = *object;
 	switch (pname) {
 		case GL_TEXTURE_MIN_FILTER: tex.min_filter = (uint32_t)param; break;
 		case GL_TEXTURE_MAG_FILTER: tex.mag_filter = (uint32_t)param; break;
@@ -2441,7 +2609,6 @@ void NativeGLTexParameterf(GLContext *ctx, uint32_t target, uint32_t pname, floa
 void NativeGLTexParameterfv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t mac_ptr)
 {
 	if (!ctx || mac_ptr == 0) return;
-	// Read first float and delegate (most params are single-value)
 	float val = ReadMacFloat(mac_ptr);
 	NativeGLTexParameterf(ctx, target, pname, val);
 }
@@ -2454,26 +2621,26 @@ void NativeGLTexParameteriv(GLContext *ctx, uint32_t target, uint32_t pname, uin
 }
 
 
-/*
- *  glActiveTextureARB -- select active texture unit
- */
 void NativeGLActiveTextureARB(GLContext *ctx, uint32_t texture)
 {
 	if (!ctx) return;
 	int unit = (int)(texture - GL_TEXTURE0_ARB);
-	if (unit < 0 || unit >= 4) return;
+	if (unit < 0 || unit >= GL_RENDER_TEXTURE_UNITS) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM;
+		return;
+	}
 	ctx->active_texture = unit;
 }
 
 
-/*
- *  glClientActiveTextureARB -- select client active texture unit
- */
 void NativeGLClientActiveTextureARB(GLContext *ctx, uint32_t texture)
 {
 	if (!ctx) return;
 	int unit = (int)(texture - GL_TEXTURE0_ARB);
-	if (unit < 0 || unit >= 4) return;
+	if (unit < 0 || unit >= GL_RENDER_TEXTURE_UNITS) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM;
+		return;
+	}
 	ctx->client_active_texture = unit;
 }
 
@@ -2482,19 +2649,7 @@ void NativeGLClientActiveTextureARB(GLContext *ctx, uint32_t texture)
 //  Texture pixel data upload with format conversion
 // =========================================================================
 
-/*
- *  Helper: compute aligned row stride per GL pixel store
- */
-static int ComputeRowStride(int width, int bytesPerPixel, int alignment, int rowLength)
-{
-	int effectiveWidth = (rowLength > 0) ? rowLength : width;
-	int rowBytes = effectiveWidth * bytesPerPixel;
-	// Align to 'alignment' boundary
-	if (alignment > 1)
-		rowBytes = ((rowBytes + alignment - 1) / alignment) * alignment;
-	return rowBytes;
-}
-
+// Row stride and start offset per the GL pixel-store state
 static uint8_t ReadScalarComponentTo8(uint32_t addr, uint32_t type)
 {
 	switch (type) {
@@ -2666,7 +2821,7 @@ static bool GLDetectLegacyUnsignedShortPaletteIndexTexture(uint32_t srcBase,
 		for (int sx = 0; sx < sampleXCount; sx++) {
 			const int x =
 				(sampleXCount == 1) ? 0 : (sx * (width - 1)) / (sampleXCount - 1);
-			const uint32_t pixAddr = srcBase + y * rowStride + x * srcBpp;
+			const uint32_t pixAddr = srcBase + uint32_t(uint64_t(y) * rowStride) + x * srcBpp;
 			const uint16_t word = (uint16_t)ReadMacInt16(pixAddr);
 			GLPixelLegacyUnsignedShortIndexStatsAddWord(&stats, word);
 		}
@@ -2696,7 +2851,7 @@ static bool GLDetectLegacyUnsignedShortExactDuplicatedByteTexture(
 	GLPixelLegacyUnsignedShortIndexStatsInit(&stats);
 	if (srcBase != 0 && width > 0 && height > 0 && srcBpp == 2) {
 		for (int y = 0; y < height; y++) {
-			const uint32_t rowAddr = srcBase + y * rowStride;
+			const uint32_t rowAddr = srcBase + uint32_t(uint64_t(y) * rowStride);
 			for (int x = 0; x < width; x++) {
 				const uint16_t word =
 					(uint16_t)ReadMacInt16(rowAddr + x * srcBpp);
@@ -2724,40 +2879,41 @@ static void GLGetMacVideoPaletteSnapshot(uint8_t outRGB[768])
 }
 
 
-/*
- *  Helper: convert GL pixel data from PPC memory to BGRA8 (Metal format)
- *
- *  Reads from PPC Mac address space; writes into a malloc'd native buffer.
- *  Returns the buffer (caller must free) and sets outLen.
- */
+// Convert guest pixel data to a malloc'd BGRA8 buffer (caller frees).
 static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
                                       uint32_t format, uint32_t type,
                                       const GLPixelStore &ps,
-                                      const GLContext *ctx,
+                                      GLContext *ctx,
                                       int *outLen,
                                       GLTextureObject *textureObject = nullptr,
                                       int32_t textureLevel = 0,
                                       bool updateTextureLegacyState = false)
 {
-	int dstBytes = width * height * 4;
+	if (!outLen) return nullptr;
+	*outLen = 0;
+	int dstBytes = 0;
+	if (!GLPixelBGRA8Size(ctx, width, height, dstBytes) || !dstBytes) return nullptr;
+	GLPixelUnpackLayout layout;
+	int srcBpp = GLPixelSourceBytesPerPixel(format, type);
+	if (!GLPixelGetUnpackLayout(ctx, ps, mac_pixels, width, height,
+	                           unsigned(srcBpp > 0 ? srcBpp : 1) * 8, layout)) return nullptr;
 	uint8_t *dst = (uint8_t *)malloc(dstBytes);
-	if (!dst) { *outLen = 0; return nullptr; }
+	if (!dst) { if (ctx && !ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY; return nullptr; }
 	*outLen = dstBytes;
 
-	int srcBpp = GLPixelSourceBytesPerPixel(format, type);
 	const bool legacyUnsignedShortEligible =
 		type == GL_UNSIGNED_SHORT &&
 		GLPixelLegacyUnsignedShortFormatCanUsePackedDecode(format);
 	if (srcBpp <= 0) {
-		// Unsupported format -- fill with magenta for visibility
+		// Unsupported format: magenta
 		for (int i = 0; i < width * height; i++) {
 			dst[i*4+0] = 255; dst[i*4+1] = 0; dst[i*4+2] = 255; dst[i*4+3] = 255;
 		}
 		return dst;
 	}
 
-	int rowStride = ComputeRowStride(width, srcBpp, ps.unpack_alignment, ps.unpack_row_length);
-	uint32_t srcBase = mac_pixels + ps.unpack_skip_rows * rowStride + ps.unpack_skip_pixels * srcBpp;
+	int rowStride = layout.rowStride;
+	uint32_t srcBase = mac_pixels + layout.start;
 	const bool hasExplicitColorIndexPalette =
 		ctx != nullptr &&
 		(ctx->color_table_enabled || ctx->color_tables[0].defined ||
@@ -2816,12 +2972,13 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 	if (legacyUnsignedShortEligible) {
 		const int legacySrcBpp =
 			GLPixelLegacyUnsignedShortPackedBytesPerPixel(format, type);
-		const int legacyRowStride =
-			ComputeRowStride(width, legacySrcBpp, ps.unpack_alignment,
-			                 ps.unpack_row_length);
-		const uint32_t legacySrcBase =
-			mac_pixels + ps.unpack_skip_rows * legacyRowStride +
-			ps.unpack_skip_pixels * legacySrcBpp;
+		GLPixelUnpackLayout legacyLayout;
+		if (!GLPixelGetUnpackLayout(ctx, ps, mac_pixels, width, height,
+		                           unsigned(legacySrcBpp) * 8, legacyLayout)) {
+			free(dst); *outLen = 0; return nullptr;
+		}
+		const int legacyRowStride = legacyLayout.rowStride;
+		const uint32_t legacySrcBase = mac_pixels + legacyLayout.start;
 		GLPixelLegacyUnsignedShortIndexStats legacyLayoutStats;
 		const bool exactDuplicatedLegacyLayout =
 			GLDetectLegacyUnsignedShortExactDuplicatedByteTexture(
@@ -3044,9 +3201,9 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 	}
 
 	for (int y = 0; y < height; y++) {
-		uint32_t rowAddr = srcBase + y * rowStride;
+		uint32_t rowAddr = srcBase + uint32_t(uint64_t(y) * rowStride);
 		for (int x = 0; x < width; x++) {
-			uint32_t pixAddr = rowAddr + x * srcBpp;
+			uint32_t pixAddr = rowAddr + uint32_t(uint64_t(x) * srcBpp);
 			uint8_t *out = dst + (y * width + x) * 4;
 
 			if (format == GL_COLOR_INDEX) {
@@ -3085,13 +3242,11 @@ static uint8_t *ConvertPixelsToBGRA8(uint32_t mac_pixels, int width, int height,
 					(uint16_t)ReadMacInt16(pixAddr), format, out);
 			}
 			else if (ConvertPackedPixelToBGRA8(pixAddr, format, type, out)) {
-				// Packed pixel handled above.
 			}
 			else if (ConvertScalarPixelToBGRA8(pixAddr, format, type, out)) {
-				// Scalar component pixel handled above.
 			}
 			else {
-				// Fallback: magenta
+				// Unsupported: magenta
 				out[0] = 255; out[1] = 0; out[2] = 255; out[3] = 255;
 			}
 		}
@@ -3113,32 +3268,20 @@ uint8_t *GLConvertMacPixelsToBGRA8(GLContext *ctx,
 		return ConvertPixelsToBGRA8(mac_pixels, width, height, format, type,
 		                            ctx->pixel_store, ctx, outLen);
 
-	GLPixelStore ps = {4, 0, 0, 0, 4, 0, 0, 0};
+	GLPixelStore ps{};
+	ps.pack_alignment=4;
+	ps.unpack_alignment=4;
 	return ConvertPixelsToBGRA8(mac_pixels, width, height, format, type,
 	                            ps, nullptr, outLen);
 }
 
 
 /*
- *  GLApplyColorTableLUT -- ARB_imaging color-table apply in the CPU upload path.
- *
- *  When GL_COLOR_TABLE is enabled and the primary color table (index 0) is defined, remap
- *  each BGRA8 texel through the LUT in place, BEFORE the GPU upload. This is the
- *  minimal-correct apply mechanism: it folds the LUT into the same
- *  CPU transfer seam the indexed->BGRA conversion already uses, so color_table_enabled
- *  becomes a READ (was write-only). No new compute pass, no new shader, no command-encoder
- *  dependency. The buffer is host-side BGRA8 (B@+0, G@+1, R@+2, A@+3).
- *
- *  Index source: per OpenGL 1.2.1 SS3.6.3 the color table maps incoming component values
- *  through the table. For the paletted-texture case we route through the
- *  red component as the LUT index -- the common single-channel palette remap -- and write
- *  the LUT's RGB back into the texel (alpha preserved). The index is clamped to the LUT's
- *  [0, width-1] range AND the hard GLColorTable.data[256][4] ceiling BEFORE any read
- *  (no OOB index into the [256][4] array).
- *
- *  bufLen is the converted-buffer byte length (4 bytes/pixel); pixel_count is derived from
- *  it (NOT width*height, which the caller may have already consumed) so a short/over-long
- *  buffer cannot drive an out-of-bounds write.
+ *  GL_COLOR_TABLE apply (GL 1.2.1 §3.6.3) on the CPU upload path. When enabled
+ *  and table 0 is defined, remap each BGRA8 texel in place before upload. Red
+ *  is the LUT index (the single-channel palette case); RGB is replaced and
+ *  alpha kept. The pixel count comes from bufLen so a mismatched width/height
+ *  cannot overrun the buffer.
  */
 static void GLApplyColorTableLUT(GLContext *ctx, uint8_t *bgra, int width, int height, int bufLen)
 {
@@ -3146,39 +3289,31 @@ static void GLApplyColorTableLUT(GLContext *ctx, uint8_t *bgra, int width, int h
 	if (!ctx->color_table_enabled) return;
 	const GLColorTable &ct = ctx->color_tables[0];
 	if (!ct.defined) return;
-	// LUT entry count, clamped to the hard [1, 256] ceiling of GLColorTable.data[256][4].
+	// Clamp to [1, 256], the size of GLColorTable.data.
 	int lut_entries = ct.width;
 	if (lut_entries <= 0) return;
 	if (lut_entries > 256) lut_entries = 256;
-	// Pixel count is derived from the actual buffer length (4 bytes/pixel), guarded against
-	// a negative/short buffer or a width/height that disagrees with bufLen.
 	if (bufLen < 4) return;
 	long pixel_count = (long)bufLen / 4;
 	if (width > 0 && height > 0) {
 		long wh = (long)width * (long)height;
-		if (wh < pixel_count) pixel_count = wh;   // never write past the smaller of the two
+		if (wh < pixel_count) pixel_count = wh;
 	}
 	for (long p = 0; p < pixel_count; p++) {
 		uint8_t *px = bgra + p * 4;
-		// BGRA8: red is at byte +2. Use it as the LUT index (paletted-texture remap).
+		// Red (byte 2) is the index
 		int idx = px[2];
-		if (idx >= lut_entries) idx = lut_entries - 1;   // clamp to [0, lut_entries-1]
-		if (idx < 0) idx = 0;                            // (red is unsigned; defensive)
-		// LUT data is float RGBA in [0,1]; write back as BGRA8, preserving the texel alpha.
-		px[0] = (uint8_t)(ct.data[idx][2] * 255.0f + 0.5f);   // B <- LUT blue
-		px[1] = (uint8_t)(ct.data[idx][1] * 255.0f + 0.5f);   // G <- LUT green
-		px[2] = (uint8_t)(ct.data[idx][0] * 255.0f + 0.5f);   // R <- LUT red
+		if (idx >= lut_entries) idx = lut_entries - 1;
+		if (idx < 0) idx = 0;
+		px[0] = (uint8_t)(ct.data[idx][2] * 255.0f + 0.5f);
+		px[1] = (uint8_t)(ct.data[idx][1] * 255.0f + 0.5f);
+		px[2] = (uint8_t)(ct.data[idx][0] * 255.0f + 0.5f);
 	}
 }
 
 
 
-/*
- *  glTexImage2D -- upload pixel data to texture
- *
- *  All 9 GL args come via PPC registers r3-r10 (target through type)
- *  plus mac_pixels from stack/r10.
- */
+// mac_pixels is the 9th PPC argument and arrives on the stack.
 void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
                          int32_t internalformat, int32_t width, int32_t height,
                          int32_t border, uint32_t format, uint32_t type,
@@ -3188,8 +3323,11 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	       ctx, target, level, width, height, format, type, mac_pixels);
 
 	if (!ctx) { GL_LOG("NativeGLTexImage2D: ctx is NULL, returning"); return; }
+	if (!GLTextureImageSizeIsValid(level, width, height)) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_VALUE;
+		return;
+	}
 
-	// Get currently bound texture
 	uint32_t texName = 0;
 	if (target == GL_TEXTURE_2D)
 		texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
@@ -3198,12 +3336,15 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 
 	GL_VLOG("  -> active_texture=%d texName=%u", ctx->active_texture, texName);
 
-	if (texName == 0) return;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) { GL_LOG("NativeGLTexImage2D: texture %u not found in map", texName); return; }
 
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) { GL_LOG("NativeGLTexImage2D: texture %u not found in map", texName); return; }
-
-	GLTextureObject &tex = it->second;
+	GLTextureObject &tex = *object;
+    if (!GLTextureDefineImage(tex, target, level, internalformat, width, height)) {
+        if (!ctx->last_error) ctx->last_error = GL_INVALID_VALUE;
+        return;
+    }
+    if (width == 0 || height == 0) return;
 	if (level == 0) {
 		tex.width = width;
 		tex.height = height;
@@ -3228,17 +3369,17 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	if (level > 0) tex.has_mipmaps = true;
 
 	if (mac_pixels == 0) {
-		// Allocate storage only (no data), still create Metal texture
+		// No data: allocate storage only
 		int emptyLen = width * height * 4;
 		uint8_t *emptyData = (uint8_t *)calloc(1, emptyLen);
 		if (emptyData) {
+            GLTextureApplyInternalFormatBGRA(emptyData, emptyLen, GLTextureLevelBaseFormat(tex, level));
 			GLMetalUploadTexture(ctx, &tex, level, width, height, emptyData, emptyLen);
 			free(emptyData);
 		}
 		return;
 	}
 
-	// Convert pixel data
 	GL_VLOG("  -> about to ConvertPixelsToBGRA8: mac_pixels=0x%08x host=%p w=%d h=%d fmt=0x%x type=0x%x",
 	       mac_pixels, Mac2HostAddr(mac_pixels), width, height, format, type);
 	int dataLen = 0;
@@ -3247,25 +3388,14 @@ void NativeGLTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	                                           &tex, level, true);
 	if (!converted) return;
 
-	// ARB_imaging color-table LUT apply: when GL_COLOR_TABLE is
-	// enabled and a primary color table is defined, remap each BGRA8 texel through the
-	// LUT before the GPU upload. This makes color_table_enabled a READ (was write-only)
-	// and applies the stored LUT in the existing CPU upload seam — no new compute pass,
-	// no new shader, no command-encoder dependency. Per OpenGL 1.2.1 §3.6.3 the
-	// color table maps incoming component values through the table; the minimal-correct
-	// paletted-texture case routes through the red component as the index (the common
-	// 1-channel LUT-remap use). The index is clamped to [0, width-1] and the hard
-	// GLColorTable.data[256][4] ceiling BEFORE any LUT read.
 	GLApplyColorTableLUT(ctx, converted, width, height, dataLen);
 
+    GLTextureApplyInternalFormatBGRA(converted, dataLen, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUploadTexture(ctx, &tex, level, width, height, converted, dataLen);
 	free(converted);
 }
 
 
-/*
- *  glTexSubImage2D -- partial texture update
- */
 void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
                             int32_t xoffset, int32_t yoffset,
                             int32_t width, int32_t height,
@@ -3273,15 +3403,13 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 {
 	if (!ctx || mac_pixels == 0) return;
 
-	uint32_t texName = 0;
-	if (target == GL_TEXTURE_2D)
-		texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	if (texName == 0) return;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
 
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
-
-	GLTextureObject &tex = it->second;
+	GLTextureObject &tex = *object;
+	const uint32_t error = GLTextureSubImageError(tex, level, xoffset, yoffset, 0, width, height);
+	if (error) { if (!ctx->last_error) ctx->last_error = error; return; }
+	if (!width || !height) return;
 
 	int dataLen = 0;
 	uint8_t *converted = ConvertPixelsToBGRA8(mac_pixels, width, height,
@@ -3289,116 +3417,74 @@ void NativeGLTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
 	                                           &tex, level, false);
 	if (!converted) return;
 
-	// ARB_imaging color-table LUT apply: same upload-path remap as
-	// NativeGLTexImage2D — the color table applies during pixel transfer for the sub-image
-	// upload too (OpenGL 1.2.1 §3.6.3). Index clamped before any LUT read.
 	GLApplyColorTableLUT(ctx, converted, width, height, dataLen);
 
+    GLTextureApplyInternalFormatBGRA(converted, dataLen, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUploadSubTexture(ctx, &tex, level, xoffset, yoffset, width, height,
 	                         converted, width * 4);
 	free(converted);
 }
 
 
-/*
- *  glTexImage1D -- treat as 2D with height=1 (Metal has no 1D textures on iOS)
- */
+// 1D textures are stored as 2D with height 1.
 void NativeGLTexImage1D(GLContext *ctx, uint32_t target, int32_t level,
                          int32_t internalformat, int32_t width, int32_t border,
                          uint32_t format, uint32_t type, uint32_t mac_pixels)
 {
-	NativeGLTexImage2D(ctx, GL_TEXTURE_2D, level, internalformat, width, 1,
+	NativeGLTexImage2D(ctx, GL_TEXTURE_1D, level, internalformat, width, 1,
 	                    border, format, type, mac_pixels);
 }
 
 
-/*
- *  glTexSubImage1D -- partial 1D texture update (height=1)
- */
 void NativeGLTexSubImage1D(GLContext *ctx, uint32_t target, int32_t level,
                             int32_t xoffset, int32_t width,
                             uint32_t format, uint32_t type, uint32_t mac_pixels)
 {
-	NativeGLTexSubImage2D(ctx, GL_TEXTURE_2D, level, xoffset, 0, width, 1,
+	NativeGLTexSubImage2D(ctx, GL_TEXTURE_1D, level, xoffset, 0, width, 1,
 	                       format, type, mac_pixels);
 }
 
 
-/*
- *  glCopyTexImage2D -- copy framebuffer rect into a new texture level
- */
 void NativeGLCopyTexImage2D(GLContext *ctx, uint32_t target, int32_t level,
                              uint32_t internalformat, int32_t x, int32_t y,
                              int32_t width, int32_t height, int32_t border)
 {
-	if (!ctx || width <= 0 || height <= 0) return;
-
-	int bufLen = 0;
-	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, width, height, &bufLen);
-	if (!bgra) return;
-
-	uint32_t texName = (target == GL_TEXTURE_2D)
-		? ctx->tex_units[ctx->active_texture].bound_texture_2d
-		: ctx->tex_units[ctx->active_texture].bound_texture_1d;
-	if (texName == 0) { free(bgra); return; }
-
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) { free(bgra); return; }
-
-	GLTextureObject &tex = it->second;
-	if (level == 0) { tex.width = width; tex.height = height; }
-	if (level > 0) tex.has_mipmaps = true;
-
-	GLMetalUploadTexture(ctx, &tex, level, width, height, bgra, bufLen);
-	free(bgra);
-
-	GL_LOG("glCopyTexImage2D: %dx%d from (%d,%d) -> tex %u level %d",
-		        width, height, x, y, texName, level);
+	if (!ctx) return;
+	auto fail = [&](uint32_t error) { if (!ctx->last_error) ctx->last_error = error; };
+	if (ctx->in_begin) { fail(GL_INVALID_OPERATION); return; }
+	if (target != GL_TEXTURE_2D && target != GL_TEXTURE_1D) { fail(GL_INVALID_ENUM); return; }
+	if (level < 0 || width < 0 || height < 0 || border != 0) {
+		fail(GL_INVALID_VALUE); return;
+	}
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) { fail(GL_INVALID_OPERATION); return; }
+    if (!GLTextureDefineImage(*object, target, level, internalformat, width, height)) {
+        fail(GL_INVALID_VALUE); return;
+    }
+	GLMetalCopyFramebufferToTexture(ctx, object, level, 0, 0,
+	                                x, y, width, height, true);
 }
 
-/*
- *  glCopyTexSubImage2D -- copy framebuffer rect into existing texture sub-region
- */
 void NativeGLCopyTexSubImage2D(GLContext *ctx, uint32_t target, int32_t level,
                                 int32_t xoffset, int32_t yoffset,
                                 int32_t x, int32_t y, int32_t width, int32_t height)
 {
-	if (!ctx || width <= 0 || height <= 0) return;
-
-	int bufLen = 0;
-	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, width, height, &bufLen);
-	if (!bgra) return;
-
-	uint32_t texName = (target == GL_TEXTURE_2D)
-		? ctx->tex_units[ctx->active_texture].bound_texture_2d
-		: ctx->tex_units[ctx->active_texture].bound_texture_1d;
-	if (texName == 0) { free(bgra); return; }
-
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) { free(bgra); return; }
-
-	GLTextureObject &tex = it->second;
-	// Use sub-image upload: upload as full image at the given level, offset by xoffset/yoffset
-	// For simplicity, upload the full level and let Metal handle the sub-region
-	// TODO: Use a dedicated sub-image upload for better efficiency
-	if (xoffset == 0 && yoffset == 0 && level == 0 &&
-	    width == tex.width && height == tex.height) {
-		GLMetalUploadTexture(ctx, &tex, level, width, height, bgra, bufLen);
-	} else {
-		// For sub-region copies, re-upload the full texture with the modified region
-		// This is a simplification -- a proper implementation would use replaceRegion
-		GLMetalUploadTexture(ctx, &tex, level, width, height, bgra, bufLen);
+	if (!ctx) return;
+	auto fail = [&](uint32_t error) { if (!ctx->last_error) ctx->last_error = error; };
+	if (ctx->in_begin) { fail(GL_INVALID_OPERATION); return; }
+	if (target != GL_TEXTURE_2D && target != GL_TEXTURE_1D) { fail(GL_INVALID_ENUM); return; }
+	if (level < 0 || xoffset < 0 || yoffset < 0 || width < 0 || height < 0) {
+		fail(GL_INVALID_VALUE); return;
 	}
-	free(bgra);
-
-	GL_LOG("glCopyTexSubImage2D: %dx%d from (%d,%d) -> tex %u level %d offset (%d,%d)",
-	        width, height, x, y, texName, level, xoffset, yoffset);
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object || !object->metal_texture) {
+		fail(GL_INVALID_OPERATION); return;
+	}
+	GLMetalCopyFramebufferToTexture(ctx, object, level, xoffset, yoffset,
+	                                x, y, width, height);
 }
 
 
-/*
- *  glIsTexture -- check if name is a texture object
- */
 uint32_t NativeGLIsTexture(GLContext *ctx, uint32_t texture)
 {
 	if (!ctx || texture == 0) return GL_FALSE;
@@ -3408,16 +3494,11 @@ uint32_t NativeGLIsTexture(GLContext *ctx, uint32_t texture)
 
 // =========================================================================
 //  Remaining core GL handlers
-//
-//  Categories: Accumulation, bitmap/raster, rectangles, finish/flush,
-//  evaluators, selection/feedback, pixel transfer/map, index mode,
-//  edge flags, line/polygon stipple, display lists, vertex arrays,
-//  clip planes, draw arrays/elements, copy tex, get functions, misc.
 // =========================================================================
 
 
 // --- Accumulation buffer ---
-// NativeGLAccum is implemented in gl_metal_renderer.mm (Metal readback/writeback)
+// NativeGLAccum is in gl_metal_renderer.mm
 
 void NativeGLClearAccum(GLContext *ctx, float r, float g, float b, float a)
 {
@@ -3481,7 +3562,13 @@ static void gl_raster_pos4f(GLContext *ctx, float x, float y, float z, float w)
 	float clip[4];
 	for (int r = 0; r < 4; r++)
 		clip[r] = proj[0*4+r]*eye[0] + proj[1*4+r]*eye[1] + proj[2*4+r]*eye[2] + proj[3*4+r]*eye[3];
-	if (clip[3] != 0.0f) {
+    bool clipped=!std::isfinite(clip[3]) || clip[3]<=0;
+    for(int r=0;r<3;++r)clipped=clipped || !std::isfinite(clip[r]) || clip[r]<-clip[3] || clip[r]>clip[3];
+    for(int plane=0;plane<6;++plane)if(ctx->clip_plane_enabled[plane]){
+        double distance=0;for(int r=0;r<4;++r)distance+=ctx->clip_planes[plane][r]*eye[r];
+        clipped=clipped || distance<0;
+    }
+	if (!clipped) {
 		float inv_w = 1.0f / clip[3];
 		float ndc_x = clip[0] * inv_w;
 		float ndc_y = clip[1] * inv_w;
@@ -3490,6 +3577,19 @@ static void gl_raster_pos4f(GLContext *ctx, float x, float y, float z, float w)
 		ctx->raster_pos[1] = ctx->viewport[1] + ctx->viewport[3] * (ndc_y + 1.0f) * 0.5f;
 		ctx->raster_pos[2] = (ctx->depth_range_far - ctx->depth_range_near) * (ndc_z + 1.0f) * 0.5f + ctx->depth_range_near;
 		ctx->raster_pos[3] = clip[3];
+		for (int i = 0; i < 4; ++i)
+			ctx->raster_color[i] = std::max(0.0f, std::min(1.0f, ctx->current_color[i]));
+        const float object[4]={x,y,z,w};
+        double inverse[4][4]={};
+        if(!GLTextureInverseMatrix(inverse,mv))for(int i=0;i<4;++i)inverse[i][i]=1;
+        float normal[3]={};
+        for(int r=0;r<3;++r)for(int c=0;c<3;++c)normal[r]+=float(inverse[c][r])*ctx->current_normal[c];
+        if(ctx->normalize){
+            const float length=std::sqrt(normal[0]*normal[0]+normal[1]*normal[1]+normal[2]*normal[2]);
+            if(length>0)for(float &component:normal)component/=length;
+        }
+        GLGenerateTextureCoordinates(ctx->raster_texcoord,ctx->tex_units[0],ctx->current_texcoord[0],
+            object,eye,normal,ctx->texture_stack[0][ctx->texture_depth[0]]);
 		ctx->raster_pos_valid = true;
 	} else {
 		ctx->raster_pos_valid = false;
@@ -3536,34 +3636,31 @@ void NativeGLRasterPos4sv(GLContext *ctx, uint32_t p) { gl_raster_pos4f(ctx, (fl
 void NativeGLBitmap(GLContext *ctx, int32_t width, int32_t height, float xorig, float yorig,
                     float xmove, float ymove, uint32_t bitmap_ptr)
 {
-	// Render the bitmap if we have valid data and raster position
+	if (!ctx) return;
+	int dstBytes = 0;
+	if (!GLPixelBGRA8Size(ctx, width, height, dstBytes)) return;
+    if(GLProcessRasterRenderMode(ctx,0x0704)){
+        ctx->raster_pos[0]+=xmove;ctx->raster_pos[1]+=ymove;
+        return;
+    }
 	if (bitmap_ptr != 0 && ctx->raster_pos_valid && width > 0 && height > 0) {
-		// Unpack 1-bit bitmap to BGRA8: bit=1 → current_color, bit=0 → transparent
-		int dstBytes = width * height * 4;
+		GLPixelUnpackLayout layout;
+		if (!GLPixelGetUnpackLayout(ctx, ctx->pixel_store, bitmap_ptr,
+		                           width, height, 1, layout)) return;
+		// Alpha carries coverage only. The renderer applies raster color and
+		// alpha independently, so a one bit with color alpha zero can write depth.
 		uint8_t *bgra = (uint8_t *)malloc(dstBytes);
 		if (bgra) {
-			// Current color as BGRA8
-			uint8_t cr = (uint8_t)(ctx->current_color[0] * 255.0f);
-			uint8_t cg = (uint8_t)(ctx->current_color[1] * 255.0f);
-			uint8_t cb = (uint8_t)(ctx->current_color[2] * 255.0f);
-			uint8_t ca = (uint8_t)(ctx->current_color[3] * 255.0f);
-
-			// Row stride for 1-bit-per-pixel with unpack_alignment
-			int bytesPerRow = (width + 7) / 8;  // ceil(width / 8)
-			int alignment = ctx->pixel_store.unpack_alignment;
-			if (alignment > 1)
-				bytesPerRow = ((bytesPerRow + alignment - 1) / alignment) * alignment;
-
 			for (int y = 0; y < height; y++) {
-				uint32_t rowAddr = bitmap_ptr + y * bytesPerRow;
+				uint32_t rowAddr = bitmap_ptr + layout.start + uint32_t(uint64_t(y) * layout.rowStride);
 				for (int x = 0; x < width; x++) {
-					int byteIndex = x / 8;
-					int bitIndex = 7 - (x % 8);  // MSB-first bit order
+					int byteIndex = (x + layout.bitOffset) / 8;
+					int bitIndex = ctx->pixel_store.unpack_lsb_first ? ((x + layout.bitOffset) % 8) : 7 - ((x + layout.bitOffset) % 8);
 					uint8_t byte = ReadMacInt8(rowAddr + byteIndex);
 					uint8_t *out = bgra + (y * width + x) * 4;
 					if (byte & (1 << bitIndex)) {
-						// bit=1: write current color as BGRA
-						out[0] = cb; out[1] = cg; out[2] = cr; out[3] = ca;
+						// A white texel carries coverage; the renderer supplies raster color.
+						out[0] = 255; out[1] = 255; out[2] = 255; out[3] = 255;
 					} else {
 						// bit=0: fully transparent
 						out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0;
@@ -3571,12 +3668,12 @@ void NativeGLBitmap(GLContext *ctx, int32_t width, int32_t height, float xorig, 
 				}
 			}
 
-			GLMetalBitmap(ctx, width, height, bgra, dstBytes);
+			GLMetalBitmap(ctx, width, height, bgra, dstBytes, xorig, yorig);
 			free(bgra);
-		}
+		} else if (!ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY;
 	}
 
-	// Advance raster position by move amounts (always, even if rendering was skipped)
+	// Advance the raster position even if nothing was drawn
 	ctx->raster_pos[0] += xmove;
 	ctx->raster_pos[1] += ymove;
 }
@@ -3584,7 +3681,9 @@ void NativeGLBitmap(GLContext *ctx, int32_t width, int32_t height, float xorig, 
 // --- DrawPixels / CopyPixels / ReadPixels / ReadBuffer / DrawBuffer ---
 void NativeGLDrawPixels(GLContext *ctx, int32_t width, int32_t height, uint32_t format, uint32_t type, uint32_t pixels_ptr)
 {
-	if (!ctx->raster_pos_valid) return;
+	if (!ctx || !ctx->raster_pos_valid) return;
+
+    if(GLProcessRasterRenderMode(ctx,0x0705))return;
 
 	int outLen = 0;
 	uint8_t *bgra = ConvertPixelsToBGRA8(pixels_ptr, width, height, format, type, ctx->pixel_store, ctx, &outLen);
@@ -3597,7 +3696,9 @@ void NativeGLDrawPixels(GLContext *ctx, int32_t width, int32_t height, uint32_t 
 void NativeGLCopyPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int32_t height, uint32_t type)
 {
 	if (!ctx || width <= 0 || height <= 0) return;
-	// GL_COLOR is the only type we support (not GL_DEPTH or GL_STENCIL)
+    if(type!=0x1800 && type!=0x1801 && type!=0x1802){ctx->last_error=GL_INVALID_ENUM;return;}
+    if(GLProcessRasterRenderMode(ctx,0x0706))return;
+	// Only GL_COLOR is supported
 	if (type != 0x1800 /* GL_COLOR */) {
 		GL_LOG("glCopyPixels type 0x%x not supported (only GL_COLOR)", type);
 		return;
@@ -3607,16 +3708,42 @@ void NativeGLCopyPixels(GLContext *ctx, int32_t x, int32_t y, int32_t width, int
 	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, width, height, &bufLen);
 	if (!bgra) return;
 
+	// Readback preserves Metal's top-first rows. DrawPixels consumes GL's
+	// bottom-first source order, independently of either pixel-zoom sign.
+	const size_t rowBytes = size_t(width) * 4;
+	for (int32_t row = 0; row < height / 2; ++row) {
+		uint8_t *bottom = bgra + size_t(row) * rowBytes;
+		uint8_t *top = bgra + size_t(height - 1 - row) * rowBytes;
+		for (size_t byte = 0; byte < rowBytes; ++byte) {
+			const uint8_t value = bottom[byte];
+			bottom[byte] = top[byte];
+			top[byte] = value;
+		}
+	}
 	GLMetalDrawPixels(ctx, width, height, bgra, bufLen);
 	free(bgra);
 
 	GL_VLOG("glCopyPixels: %dx%d from (%d,%d)", width, height, x, y);
 }
 
-// NativeGLReadPixels is implemented in gl_metal_renderer.mm (Metal readback)
+// NativeGLReadPixels is in gl_metal_renderer.mm
 
-void NativeGLReadBuffer(GLContext *ctx, uint32_t mode) { ctx->read_buffer = mode; }
-void NativeGLDrawBuffer(GLContext *ctx, uint32_t mode) { ctx->draw_buffer = mode; }
+void NativeGLReadBuffer(GLContext *ctx, uint32_t mode)
+{
+    if (!ctx) return;
+    const uint32_t error = ctx->in_begin ? GL_INVALID_OPERATION :
+        GLBufferSelectionError(mode, ctx->double_buffered, true);
+    if (error) { if (!ctx->last_error) ctx->last_error = error; return; }
+    ctx->read_buffer = mode;
+}
+void NativeGLDrawBuffer(GLContext *ctx, uint32_t mode)
+{
+    if (!ctx) return;
+    const uint32_t error = ctx->in_begin ? GL_INVALID_OPERATION :
+        GLBufferSelectionError(mode, ctx->double_buffered, false);
+    if (error) { if (!ctx->last_error) ctx->last_error = error; return; }
+    ctx->draw_buffer = mode;
+}
 
 // --- Rectangles ---
 extern void NativeGLBegin(GLContext *ctx, uint32_t mode);
@@ -3648,38 +3775,10 @@ void NativeGLRectsv(GLContext *ctx, uint32_t v1, uint32_t v2) { NativeGLRectf(ct
 // Map GL evaluator target to internal index 0-8
 static int gl_eval_target_index(uint32_t target)
 {
-	switch (target) {
-	case GL_MAP1_VERTEX_3:        case GL_MAP2_VERTEX_3:        return 0;
-	case GL_MAP1_VERTEX_4:        case GL_MAP2_VERTEX_4:        return 1;
-	case GL_MAP1_INDEX:           case GL_MAP2_INDEX:           return 2;
-	case GL_MAP1_COLOR_4:         case GL_MAP2_COLOR_4:         return 3;
-	case GL_MAP1_NORMAL:          case GL_MAP2_NORMAL:          return 4;
-	case GL_MAP1_TEXTURE_COORD_1: case GL_MAP2_TEXTURE_COORD_1: return 5;
-	case GL_MAP1_TEXTURE_COORD_2: case GL_MAP2_TEXTURE_COORD_2: return 6;
-	case GL_MAP1_TEXTURE_COORD_3: case GL_MAP2_TEXTURE_COORD_3: return 7;
-	case GL_MAP1_TEXTURE_COORD_4: case GL_MAP2_TEXTURE_COORD_4: return 8;
-	default: return -1;
-	}
+	return GLStateEvaluatorIndex(target);
 }
 
-// Return number of components for a given evaluator target
-static int gl_eval_target_dimension(uint32_t target)
-{
-	switch (target) {
-	case GL_MAP1_VERTEX_3:        case GL_MAP2_VERTEX_3:        return 3;
-	case GL_MAP1_VERTEX_4:        case GL_MAP2_VERTEX_4:        return 4;
-	case GL_MAP1_INDEX:           case GL_MAP2_INDEX:           return 1;
-	case GL_MAP1_COLOR_4:         case GL_MAP2_COLOR_4:         return 4;
-	case GL_MAP1_NORMAL:          case GL_MAP2_NORMAL:          return 3;
-	case GL_MAP1_TEXTURE_COORD_1: case GL_MAP2_TEXTURE_COORD_1: return 1;
-	case GL_MAP1_TEXTURE_COORD_2: case GL_MAP2_TEXTURE_COORD_2: return 2;
-	case GL_MAP1_TEXTURE_COORD_3: case GL_MAP2_TEXTURE_COORD_3: return 3;
-	case GL_MAP1_TEXTURE_COORD_4: case GL_MAP2_TEXTURE_COORD_4: return 4;
-	default: return 0;
-	}
-}
-
-// de Casteljau evaluation for 1D map: evaluate Bernstein polynomial at parameter u
+// de Casteljau evaluation of a 1D map at u
 static void gl_eval_bernstein1(const GLEvaluatorMap1 &map, float u, float *out)
 {
 	int dim = map.dimension;
@@ -3690,10 +3789,8 @@ static void gl_eval_bernstein1(const GLEvaluatorMap1 &map, float u, float *out)
 	float range = map.u2 - map.u1;
 	float t = (range != 0.0f) ? (u - map.u1) / range : 0.0f;
 
-	// Copy control points into temp buffer for in-place de Casteljau
 	std::vector<float> tmp(map.control_points.begin(), map.control_points.begin() + order * dim);
 
-	// de Casteljau's algorithm: iteratively reduce
 	for (int r = 1; r < order; r++) {
 		for (int i = 0; i < order - r; i++) {
 			for (int d = 0; d < dim; d++) {
@@ -3725,8 +3822,7 @@ static void gl_eval_bernstein2(const GLEvaluatorMap2 &map, float u, float v, flo
 	std::vector<float> vtmp(vorder * dim);
 
 	for (int ui = 0; ui < uorder; ui++) {
-		// Extract the v-row for this u index
-		for (int vi = 0; vi < vorder; vi++) {
+			for (int vi = 0; vi < vorder; vi++) {
 			for (int d = 0; d < dim; d++) {
 				vtmp[vi * dim + d] = map.control_points[(ui * vorder + vi) * dim + d];
 			}
@@ -3756,7 +3852,6 @@ static void gl_eval_bernstein2(const GLEvaluatorMap2 &map, float u, float v, flo
 		out[d] = upoints[d];
 }
 
-// Forward declarations for immediate-mode functions used by evaluator
 extern void NativeGLBegin(GLContext *ctx, uint32_t mode);
 extern void NativeGLEnd(GLContext *ctx);
 extern void NativeGLVertex3f(GLContext *ctx, float x, float y, float z);
@@ -3774,7 +3869,7 @@ static void gl_eval_apply_map1(GLContext *ctx, int idx, const float *val)
 	switch (idx) {
 	case 0: NativeGLVertex3f(ctx, val[0], val[1], val[2]); break;                    // VERTEX_3
 	case 1: NativeGLVertex4f(ctx, val[0], val[1], val[2], val[3]); break;             // VERTEX_4
-	case 2: /* INDEX -- no-op in Metal */ break;
+	case 2: /* INDEX: no-op in RGBA mode */ break;
 	case 3: NativeGLColor4f(ctx, val[0], val[1], val[2], val[3]); break;              // COLOR_4
 	case 4: NativeGLNormal3f(ctx, val[0], val[1], val[2]); break;                     // NORMAL
 	case 5: NativeGLTexCoord1f(ctx, val[0]); break;                                   // TEXCOORD_1
@@ -3784,133 +3879,88 @@ static void gl_eval_apply_map1(GLContext *ctx, int idx, const float *val)
 	}
 }
 
-// glMap1f -- define a 1D evaluator map (float version)
 void NativeGLMap1f(GLContext *ctx, uint32_t t, float u1, float u2, int32_t s, int32_t o, uint32_t p)
 {
-	int idx = gl_eval_target_index(t);
-	if (idx < 0) return;
-	int dim = gl_eval_target_dimension(t);
-	if (dim <= 0 || o <= 0) return;
-
-	GLEvaluatorMap1 &map = ctx->eval_map1[idx];
-	map.target = t;
-	map.order = o;
-	map.u1 = u1;
-	map.u2 = u2;
-	map.stride = s;
-	map.dimension = dim;
-	map.control_points.resize(o * dim);
-
-	// Read control points from Mac memory (stride-aware)
-	for (int i = 0; i < o; i++) {
-		uint32_t base = p + i * s * 4; // stride is in floats, each float = 4 bytes
-		for (int d = 0; d < dim; d++) {
-			map.control_points[i * dim + d] = ReadMacFloat(base + d * 4);
-		}
-	}
-	map.defined = true;
-
-	GL_LOG("Map1f target=0x%X order=%d dim=%d u=[%f,%f]", t, o, dim, u1, u2);
+    GLEvaluatorDefinitionLayout layout;
+    const uint32_t error=GLValidateEvaluatorDefinition(ctx->in_begin,t,false,p,4,
+        o, s, u1, u2, 1, 0, 0, 1,RAMBase,RAMSize,ROMBase,ROM_SIZE,layout);
+    if(error) {if(!ctx->last_error)ctx->last_error=error;return;}
+    const int idx=layout.index,dim=layout.dimension;
+    try {
+        GLEvaluatorMap1 map=ctx->eval_map1[idx];
+        map.target=t; map.dimension=dim;
+        map.order=o; map.stride=s; map.u1=float(u1); map.u2=float(u2);
+        map.control_points.resize(size_t(o)*dim);
+        for (int i=0;i<o;++i) for (int c=0;c<dim;++c)
+            map.control_points[size_t(i)*dim+c]=float(ReadMacFloat(p+uint32_t((uint64_t(i)*s+c)*4)));
+        map.defined=true;
+        ctx->eval_map1[idx]=std::move(map);
+    } catch (const std::bad_alloc &) { if (!ctx->last_error) ctx->last_error=GL_OUT_OF_MEMORY; }
 }
 
-// glMap1d -- define a 1D evaluator map (double version, converts to float)
 void NativeGLMap1d(GLContext *ctx, uint32_t t, double u1, double u2, int32_t s, int32_t o, uint32_t p)
 {
-	int idx = gl_eval_target_index(t);
-	if (idx < 0) return;
-	int dim = gl_eval_target_dimension(t);
-	if (dim <= 0 || o <= 0) return;
-
-	GLEvaluatorMap1 &map = ctx->eval_map1[idx];
-	map.target = t;
-	map.order = o;
-	map.u1 = (float)u1;
-	map.u2 = (float)u2;
-	map.stride = s;
-	map.dimension = dim;
-	map.control_points.resize(o * dim);
-
-	// Read doubles from Mac memory, convert to float
-	for (int i = 0; i < o; i++) {
-		uint32_t base = p + i * s * 8; // stride is in doubles, each double = 8 bytes
-		for (int d = 0; d < dim; d++) {
-			map.control_points[i * dim + d] = (float)ReadMacDouble(base + d * 8);
-		}
-	}
-	map.defined = true;
+    GLEvaluatorDefinitionLayout layout;
+    const uint32_t error=GLValidateEvaluatorDefinition(ctx->in_begin,t,false,p,8,
+        o, s, u1, u2, 1, 0, 0, 1,RAMBase,RAMSize,ROMBase,ROM_SIZE,layout);
+    if(error) {if(!ctx->last_error)ctx->last_error=error;return;}
+    const int idx=layout.index,dim=layout.dimension;
+    try {
+        GLEvaluatorMap1 map=ctx->eval_map1[idx];
+        map.target=t; map.dimension=dim;
+        map.order=o; map.stride=s; map.u1=float(u1); map.u2=float(u2);
+        map.control_points.resize(size_t(o)*dim);
+        for (int i=0;i<o;++i) for (int c=0;c<dim;++c)
+            map.control_points[size_t(i)*dim+c]=float(ReadMacDouble(p+uint32_t((uint64_t(i)*s+c)*8)));
+        map.defined=true;
+        ctx->eval_map1[idx]=std::move(map);
+    } catch (const std::bad_alloc &) { if (!ctx->last_error) ctx->last_error=GL_OUT_OF_MEMORY; }
 }
 
-// glMap2f -- define a 2D evaluator map (float version)
 void NativeGLMap2f(GLContext *ctx, uint32_t t, float u1, float u2, int32_t us, int32_t uo, float v1, float v2, int32_t vs, int32_t vo, uint32_t p)
 {
-	int idx = gl_eval_target_index(t);
-	if (idx < 0) return;
-	int dim = gl_eval_target_dimension(t);
-	if (dim <= 0 || uo <= 0 || vo <= 0) return;
-
-	GLEvaluatorMap2 &map = ctx->eval_map2[idx];
-	map.target = t;
-	map.uorder = uo;
-	map.vorder = vo;
-	map.u1 = u1;
-	map.u2 = u2;
-	map.v1 = v1;
-	map.v2 = v2;
-	map.ustride = us;
-	map.vstride = vs;
-	map.dimension = dim;
-	map.control_points.resize(uo * vo * dim);
-
-	// Read control points from Mac memory (stride-aware in both u and v)
-	for (int ui = 0; ui < uo; ui++) {
-		for (int vi = 0; vi < vo; vi++) {
-			uint32_t base = p + ui * us * 4 + vi * vs * 4;
-			for (int d = 0; d < dim; d++) {
-				map.control_points[(ui * vo + vi) * dim + d] = ReadMacFloat(base + d * 4);
-			}
-		}
-	}
-	map.defined = true;
-
-	GL_LOG("Map2f target=0x%X uorder=%d vorder=%d dim=%d u=[%f,%f] v=[%f,%f]",
-	       t, uo, vo, dim, u1, u2, v1, v2);
+    GLEvaluatorDefinitionLayout layout;
+    const uint32_t error=GLValidateEvaluatorDefinition(ctx->in_begin,t,true,p,4,
+        uo, us, u1, u2, vo, vs, v1, v2,RAMBase,RAMSize,ROMBase,ROM_SIZE,layout);
+    if(error) {if(!ctx->last_error)ctx->last_error=error;return;}
+    const int idx=layout.index,dim=layout.dimension;
+    try {
+        GLEvaluatorMap2 map=ctx->eval_map2[idx];
+        map.target=t; map.dimension=dim;
+        map.uorder=uo; map.vorder=vo; map.ustride=us; map.vstride=vs;
+        map.u1=float(u1); map.u2=float(u2); map.v1=float(v1); map.v2=float(v2);
+        map.control_points.resize(size_t(uo)*vo*dim);
+        for (int i=0;i<uo;++i) for (int j=0;j<vo;++j) for (int c=0;c<dim;++c)
+            map.control_points[(size_t(i)*vo+j)*dim+c]=float(ReadMacFloat(p+uint32_t((uint64_t(i)*us+uint64_t(j)*vs+c)*4)));
+        map.defined=true;
+        ctx->eval_map2[idx]=std::move(map);
+    } catch (const std::bad_alloc &) { if (!ctx->last_error) ctx->last_error=GL_OUT_OF_MEMORY; }
 }
 
-// glMap2d -- define a 2D evaluator map (double version)
 void NativeGLMap2d(GLContext *ctx, uint32_t t, double u1, double u2, int32_t us, int32_t uo, double v1, double v2, int32_t vs, int32_t vo, uint32_t p)
 {
-	int idx = gl_eval_target_index(t);
-	if (idx < 0) return;
-	int dim = gl_eval_target_dimension(t);
-	if (dim <= 0 || uo <= 0 || vo <= 0) return;
-
-	GLEvaluatorMap2 &map = ctx->eval_map2[idx];
-	map.target = t;
-	map.uorder = uo;
-	map.vorder = vo;
-	map.u1 = (float)u1;
-	map.u2 = (float)u2;
-	map.v1 = (float)v1;
-	map.v2 = (float)v2;
-	map.ustride = us;
-	map.vstride = vs;
-	map.dimension = dim;
-	map.control_points.resize(uo * vo * dim);
-
-	for (int ui = 0; ui < uo; ui++) {
-		for (int vi = 0; vi < vo; vi++) {
-			uint32_t base = p + ui * us * 8 + vi * vs * 8;
-			for (int d = 0; d < dim; d++) {
-				map.control_points[(ui * vo + vi) * dim + d] = (float)ReadMacDouble(base + d * 8);
-			}
-		}
-	}
-	map.defined = true;
+    GLEvaluatorDefinitionLayout layout;
+    const uint32_t error=GLValidateEvaluatorDefinition(ctx->in_begin,t,true,p,8,
+        uo, us, u1, u2, vo, vs, v1, v2,RAMBase,RAMSize,ROMBase,ROM_SIZE,layout);
+    if(error) {if(!ctx->last_error)ctx->last_error=error;return;}
+    const int idx=layout.index,dim=layout.dimension;
+    try {
+        GLEvaluatorMap2 map=ctx->eval_map2[idx];
+        map.target=t; map.dimension=dim;
+        map.uorder=uo; map.vorder=vo; map.ustride=us; map.vstride=vs;
+        map.u1=float(u1); map.u2=float(u2); map.v1=float(v1); map.v2=float(v2);
+        map.control_points.resize(size_t(uo)*vo*dim);
+        for (int i=0;i<uo;++i) for (int j=0;j<vo;++j) for (int c=0;c<dim;++c)
+            map.control_points[(size_t(i)*vo+j)*dim+c]=float(ReadMacDouble(p+uint32_t((uint64_t(i)*us+uint64_t(j)*vs+c)*8)));
+        map.defined=true;
+        ctx->eval_map2[idx]=std::move(map);
+    } catch (const std::bad_alloc &) { if (!ctx->last_error) ctx->last_error=GL_OUT_OF_MEMORY; }
 }
 
-// glMapGrid1f/1d -- define a 1D evaluation grid
 void NativeGLMapGrid1f(GLContext *ctx, int32_t un, float u1, float u2)
 {
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(un<1 || !std::isfinite(u1) || !std::isfinite(u2)){ctx->last_error=GL_INVALID_VALUE;return;}
 	ctx->grid1_un = un;
 	ctx->grid1_u1 = u1;
 	ctx->grid1_u2 = u2;
@@ -3921,9 +3971,12 @@ void NativeGLMapGrid1d(GLContext *ctx, int32_t un, double u1, double u2)
 	NativeGLMapGrid1f(ctx, un, (float)u1, (float)u2);
 }
 
-// glMapGrid2f/2d -- define a 2D evaluation grid
 void NativeGLMapGrid2f(GLContext *ctx, int32_t un, float u1, float u2, int32_t vn, float v1, float v2)
 {
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(un<1 || vn<1 || !std::isfinite(u1) || !std::isfinite(u2) || !std::isfinite(v1) || !std::isfinite(v2)){
+        ctx->last_error=GL_INVALID_VALUE;return;
+    }
 	ctx->grid2_un = un;
 	ctx->grid2_u1 = u1;
 	ctx->grid2_u2 = u2;
@@ -3937,11 +3990,10 @@ void NativeGLMapGrid2d(GLContext *ctx, int32_t un, double u1, double u2, int32_t
 	NativeGLMapGrid2f(ctx, un, (float)u1, (float)u2, vn, (float)v1, (float)v2);
 }
 
-// glEvalCoord1f -- evaluate all enabled 1D maps at parameter u
 void NativeGLEvalCoord1f(GLContext *ctx, float u)
 {
 	float val[4];
-	// Evaluate non-vertex attributes first, then vertex (vertex triggers emit)
+	// Non-vertex attributes first: the vertex emits.
 	for (int idx = 2; idx < GL_EVAL_MAX_TARGETS; idx++) {
 		if (ctx->eval_map1_enabled[idx] && ctx->eval_map1[idx].defined) {
 			gl_eval_bernstein1(ctx->eval_map1[idx], u, val);
@@ -3959,7 +4011,6 @@ void NativeGLEvalCoord1f(GLContext *ctx, float u)
 
 void NativeGLEvalCoord1d(GLContext *ctx, double u) { NativeGLEvalCoord1f(ctx, (float)u); }
 
-// glEvalCoord2f -- evaluate all enabled 2D maps at parameters (u,v)
 void NativeGLEvalCoord2f(GLContext *ctx, float u, float v)
 {
 	float val[4];
@@ -3967,7 +4018,7 @@ void NativeGLEvalCoord2f(GLContext *ctx, float u, float v)
 	for (int idx = 2; idx < GL_EVAL_MAX_TARGETS; idx++) {
 		if (ctx->eval_map2_enabled[idx] && ctx->eval_map2[idx].defined) {
 			gl_eval_bernstein2(ctx->eval_map2[idx], u, v, val);
-			gl_eval_apply_map1(ctx, idx, val); // same apply logic
+			gl_eval_apply_map1(ctx, idx, val);
 		}
 	}
 	// Vertex targets last
@@ -3981,31 +4032,33 @@ void NativeGLEvalCoord2f(GLContext *ctx, float u, float v)
 
 void NativeGLEvalCoord2d(GLContext *ctx, double u, double v) { NativeGLEvalCoord2f(ctx, (float)u, (float)v); }
 
-// glEvalCoord*v -- vector variants read parameter from Mac memory
 void NativeGLEvalCoord1fv(GLContext *ctx, uint32_t p) { NativeGLEvalCoord1f(ctx, ReadMacFloat(p)); }
 void NativeGLEvalCoord1dv(GLContext *ctx, uint32_t p) { NativeGLEvalCoord1f(ctx, (float)ReadMacDouble(p)); }
 void NativeGLEvalCoord2fv(GLContext *ctx, uint32_t p) { NativeGLEvalCoord2f(ctx, ReadMacFloat(p), ReadMacFloat(p + 4)); }
 void NativeGLEvalCoord2dv(GLContext *ctx, uint32_t p) { NativeGLEvalCoord2f(ctx, (float)ReadMacDouble(p), (float)ReadMacDouble(p + 8)); }
 
-// glEvalMesh1 -- generate 1D mesh through Begin/End pipeline
+// Meshes are emitted through the Begin/End path.
 void NativeGLEvalMesh1(GLContext *ctx, uint32_t mode, int32_t i1, int32_t i2)
 {
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(mode!=GL_POINT && mode!=GL_LINE){ctx->last_error=GL_INVALID_ENUM;return;}
 	if (ctx->grid1_un <= 0) return;
 
 	float du = (ctx->grid1_u2 - ctx->grid1_u1) / (float)ctx->grid1_un;
 
 	uint32_t prim = (mode == GL_LINE) ? GL_LINE_STRIP : GL_POINTS;
 	NativeGLBegin(ctx, prim);
-	for (int32_t i = i1; i <= i2; i++) {
+	for (int64_t i = i1; i <= i2; i++) {
 		float u = ctx->grid1_u1 + (float)i * du;
 		NativeGLEvalCoord1f(ctx, u);
 	}
 	NativeGLEnd(ctx);
 }
 
-// glEvalMesh2 -- generate 2D mesh through Begin/End pipeline
 void NativeGLEvalMesh2(GLContext *ctx, uint32_t mode, int32_t i1, int32_t i2, int32_t j1, int32_t j2)
 {
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(mode!=GL_POINT && mode!=GL_LINE && mode!=GL_FILL){ctx->last_error=GL_INVALID_ENUM;return;}
 	if (ctx->grid2_un <= 0 || ctx->grid2_vn <= 0) return;
 
 	float du = (ctx->grid2_u2 - ctx->grid2_u1) / (float)ctx->grid2_un;
@@ -4013,8 +4066,8 @@ void NativeGLEvalMesh2(GLContext *ctx, uint32_t mode, int32_t i1, int32_t i2, in
 
 	if (mode == GL_POINT) {
 		NativeGLBegin(ctx, GL_POINTS);
-		for (int32_t j = j1; j <= j2; j++) {
-			for (int32_t i = i1; i <= i2; i++) {
+		for (int64_t j = j1; j <= j2; j++) {
+			for (int64_t i = i1; i <= i2; i++) {
 				float u = ctx->grid2_u1 + (float)i * du;
 				float v = ctx->grid2_v1 + (float)j * dv;
 				NativeGLEvalCoord2f(ctx, u, v);
@@ -4023,9 +4076,9 @@ void NativeGLEvalMesh2(GLContext *ctx, uint32_t mode, int32_t i1, int32_t i2, in
 		NativeGLEnd(ctx);
 	} else if (mode == GL_LINE) {
 		// Row-major line strips
-		for (int32_t j = j1; j <= j2; j++) {
+		for (int64_t j = j1; j <= j2; j++) {
 			NativeGLBegin(ctx, GL_LINE_STRIP);
-			for (int32_t i = i1; i <= i2; i++) {
+			for (int64_t i = i1; i <= i2; i++) {
 				float u = ctx->grid2_u1 + (float)i * du;
 				float v = ctx->grid2_v1 + (float)j * dv;
 				NativeGLEvalCoord2f(ctx, u, v);
@@ -4033,9 +4086,9 @@ void NativeGLEvalMesh2(GLContext *ctx, uint32_t mode, int32_t i1, int32_t i2, in
 			NativeGLEnd(ctx);
 		}
 		// Column line strips
-		for (int32_t i = i1; i <= i2; i++) {
+		for (int64_t i = i1; i <= i2; i++) {
 			NativeGLBegin(ctx, GL_LINE_STRIP);
-			for (int32_t j = j1; j <= j2; j++) {
+			for (int64_t j = j1; j <= j2; j++) {
 				float u = ctx->grid2_u1 + (float)i * du;
 				float v = ctx->grid2_v1 + (float)j * dv;
 				NativeGLEvalCoord2f(ctx, u, v);
@@ -4044,9 +4097,9 @@ void NativeGLEvalMesh2(GLContext *ctx, uint32_t mode, int32_t i1, int32_t i2, in
 		}
 	} else {
 		// GL_FILL -- emit quad strips per row
-		for (int32_t j = j1; j < j2; j++) {
+		for (int64_t j = j1; j < j2; j++) {
 			NativeGLBegin(ctx, GL_QUAD_STRIP);
-			for (int32_t i = i1; i <= i2; i++) {
+			for (int64_t i = i1; i <= i2; i++) {
 				float u = ctx->grid2_u1 + (float)i * du;
 				float v0 = ctx->grid2_v1 + (float)j * dv;
 				float v1 = ctx->grid2_v1 + (float)(j + 1) * dv;
@@ -4060,7 +4113,6 @@ void NativeGLEvalMesh2(GLContext *ctx, uint32_t mode, int32_t i1, int32_t i2, in
 	GL_LOG("EvalMesh2 mode=0x%X i=[%d,%d] j=[%d,%d]", mode, i1, i2, j1, j2);
 }
 
-// glEvalPoint1 -- evaluate at a single 1D grid point
 void NativeGLEvalPoint1(GLContext *ctx, int32_t i)
 {
 	if (ctx->grid1_un <= 0) return;
@@ -4069,7 +4121,6 @@ void NativeGLEvalPoint1(GLContext *ctx, int32_t i)
 	NativeGLEvalCoord1f(ctx, u);
 }
 
-// glEvalPoint2 -- evaluate at a single 2D grid point
 void NativeGLEvalPoint2(GLContext *ctx, int32_t i, int32_t j)
 {
 	if (ctx->grid2_un <= 0 || ctx->grid2_vn <= 0) return;
@@ -4082,137 +4133,116 @@ void NativeGLEvalPoint2(GLContext *ctx, int32_t i, int32_t j)
 
 // --- Selection and Feedback ---
 
-// Flush the current selection hit record to the selection buffer (if any primitive was drawn)
+// Write the pending hit record, if any primitive was drawn
 static void FlushSelectionHit(GLContext *ctx)
 {
-	if (!ctx->selection_hit_flag) return;
-	if (!ctx->selection_buffer_mac_ptr) return;
-
-	// A hit record is: {name_stack_depth, z_min, z_max, name[0], name[1], ...}
-	int recordSize = 3 + ctx->name_stack_depth;
-	if (ctx->selection_buffer_offset + recordSize > ctx->selection_buffer_size) {
-		// Buffer overflow -- stop writing but keep counting
-		ctx->selection_hit_count++;
-		ctx->selection_hit_flag = false;
-		return;
-	}
-
-	uint32_t base = ctx->selection_buffer_mac_ptr + ctx->selection_buffer_offset * 4;
-	WriteMacInt32(base + 0, ctx->name_stack_depth);
-	WriteMacInt32(base + 4, ctx->selection_hit_z_min);
-	WriteMacInt32(base + 8, ctx->selection_hit_z_max);
-	for (int i = 0; i < ctx->name_stack_depth; i++) {
-		WriteMacInt32(base + 12 + i * 4, ctx->name_stack[i]);
-	}
-	ctx->selection_buffer_offset += recordSize;
-	ctx->selection_hit_count++;
-	ctx->selection_hit_flag = false;
+    if(!ctx->selection_hit_flag)return;
+    const int count=3+ctx->name_stack_depth;
+    if(!ctx->selection_buffer_mac_ptr || ctx->selection_overflow ||
+        int64_t(ctx->selection_buffer_offset)+count>ctx->selection_buffer_size ||
+        uint64_t(ctx->selection_buffer_mac_ptr)+(uint64_t(ctx->selection_buffer_offset)+count)*4>0x100000000ull){
+        ctx->selection_overflow=true;
+    }else{
+        const uint32_t p=ctx->selection_buffer_mac_ptr+uint32_t(ctx->selection_buffer_offset)*4;
+        WriteMacInt32(p,ctx->name_stack_depth);WriteMacInt32(p+4,ctx->selection_hit_z_min);WriteMacInt32(p+8,ctx->selection_hit_z_max);
+        for(int i=0;i<ctx->name_stack_depth;++i)WriteMacInt32(p+12+i*4,ctx->name_stack[i]);
+        ctx->selection_buffer_offset+=count;
+    }
+    if(ctx->selection_hit_count<INT32_MAX)++ctx->selection_hit_count;
+    else ctx->selection_overflow=true;
+    ctx->selection_hit_flag=false;
 }
 
-// Called during GL_SELECT mode when a primitive is rasterized.
-// Records a hit with z_min/z_max derived from the vertex Z values.
-static void SelectionRecordHit(GLContext *ctx, float z_min, float z_max)
+// GL_SELECT: record a hit with z range from the primitive's vertices.
+void GLSelectionRecordDepthRange(GLContext *ctx, double z_min, double z_max)
 {
-	// Convert floating-point Z [0,1] to GLuint range [0, 0xFFFFFFFF]
-	uint32_t iz_min = (uint32_t)(z_min * 4294967295.0f);
-	uint32_t iz_max = (uint32_t)(z_max * 4294967295.0f);
-
-	if (!ctx->selection_hit_flag) {
-		ctx->selection_hit_flag = true;
-		ctx->selection_hit_z_min = iz_min;
-		ctx->selection_hit_z_max = iz_max;
-	} else {
-		if (iz_min < ctx->selection_hit_z_min) ctx->selection_hit_z_min = iz_min;
-		if (iz_max > ctx->selection_hit_z_max) ctx->selection_hit_z_max = iz_max;
-	}
-}
-
-// Called from NativeGLEnd when in GL_SELECT mode.
-// Scans all vertices in im_vertices to find Z range, then records a hit.
-// All primitives are considered hits (no clip-volume culling — conservative approach).
-void GLSelectionRecordPrimitive(GLContext *ctx)
-{
-	if (ctx->im_vertices.empty()) return;
-
-	// Transform vertices through modelview-projection to get clip-space Z
-	// For simplicity, use the raw vertex Z as a normalized depth estimate.
-	// A full implementation would multiply by the MVP matrix, but games
-	// that use selection mode typically set up the pick matrix such that
-	// Z is already in [0,1] or we can approximate with the object-space Z.
-	float z_min = 1.0f, z_max = 0.0f;
-	for (size_t i = 0; i < ctx->im_vertices.size(); i++) {
-		float z = ctx->im_vertices[i].position[2];
-		// Clamp to [0,1] for the GLuint conversion
-		if (z < 0.0f) z = 0.0f;
-		if (z > 1.0f) z = 1.0f;
-		if (z < z_min) z_min = z;
-		if (z > z_max) z_max = z;
-	}
-
-	SelectionRecordHit(ctx, z_min, z_max);
+    auto depth=[](double value){
+        if(!std::isfinite(value) || value<=0)return uint32_t(0);
+        if(value>=1)return UINT32_MAX;
+        return uint32_t(value*double(UINT32_MAX));
+    };
+    const uint32_t lo=depth(z_min),hi=depth(z_max);
+    if(!ctx->selection_hit_flag){ctx->selection_hit_flag=true;ctx->selection_hit_z_min=lo;ctx->selection_hit_z_max=hi;}
+    else{ctx->selection_hit_z_min=std::min(ctx->selection_hit_z_min,lo);ctx->selection_hit_z_max=std::max(ctx->selection_hit_z_max,hi);}
 }
 
 uint32_t NativeGLRenderMode(GLContext *ctx, uint32_t mode)
 {
-	uint32_t prev = ctx->render_mode;
-	uint32_t result = 0;
-
-	if (prev == GL_SELECT) {
-		// Flush any pending hit
-		FlushSelectionHit(ctx);
-		result = ctx->selection_hit_count;
-	}
-
-	ctx->render_mode = mode;
-
-	if (mode == GL_SELECT) {
-		ctx->selection_hit_count = 0;
-		ctx->selection_buffer_offset = 0;
-		ctx->selection_hit_flag = false;
-		ctx->name_stack_depth = 0;
-	}
-
-	return result;
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return 0;}
+    if(mode!=GL_RENDER && mode!=GL_SELECT && mode!=GL_FEEDBACK){ctx->last_error=GL_INVALID_ENUM;return 0;}
+    if((mode==GL_SELECT && !ctx->selection_buffer_mac_ptr) ||
+        (mode==GL_FEEDBACK && !ctx->feedback_buffer_mac_ptr)){ctx->last_error=GL_INVALID_OPERATION;return 0;}
+    uint32_t result=0;
+    if(ctx->render_mode==GL_SELECT){FlushSelectionHit(ctx);result=ctx->selection_overflow?UINT32_MAX:uint32_t(ctx->selection_hit_count);}
+    if(ctx->render_mode==GL_FEEDBACK)result=ctx->feedback_overflow?UINT32_MAX:uint32_t(ctx->feedback_buffer_offset);
+    ctx->name_stack_depth=0;
+    ctx->render_mode=mode;
+    if(mode==GL_SELECT){ctx->selection_hit_count=0;ctx->selection_buffer_offset=0;ctx->selection_hit_flag=false;ctx->selection_overflow=false;}
+    if(mode==GL_FEEDBACK){ctx->feedback_buffer_offset=0;ctx->feedback_overflow=false;}
+    return result;
 }
 
 void NativeGLSelectBuffer(GLContext *ctx, int32_t size, uint32_t buffer_ptr)
 {
-	ctx->selection_buffer_size = size;
-	ctx->selection_buffer_mac_ptr = buffer_ptr;
+    if(ctx->in_begin || ctx->render_mode==GL_SELECT){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(size<0 || uint64_t(buffer_ptr)+uint64_t(size)*4>0x100000000ull){ctx->last_error=GL_INVALID_VALUE;return;}
+    ctx->selection_buffer_size=size;ctx->selection_buffer_mac_ptr=buffer_ptr;
 }
 
 void NativeGLFeedbackBuffer(GLContext *ctx, int32_t size, uint32_t type, uint32_t buffer_ptr)
 {
-	ctx->feedback_buffer_size = size;
-	ctx->feedback_type = type;
-	ctx->feedback_buffer_mac_ptr = buffer_ptr;
+    if(ctx->in_begin || ctx->render_mode==GL_FEEDBACK){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(type<0x0600 || type>0x0604){ctx->last_error=GL_INVALID_ENUM;return;}
+    if(size<0 || uint64_t(buffer_ptr)+uint64_t(size)*4>0x100000000ull){ctx->last_error=GL_INVALID_VALUE;return;}
+    ctx->feedback_buffer_size=size;ctx->feedback_type=type;ctx->feedback_buffer_mac_ptr=buffer_ptr;
 }
 
-void NativeGLInitNames(GLContext *ctx) { ctx->name_stack_depth = 0; }
+void NativeGLInitNames(GLContext *ctx)
+{
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(ctx->render_mode!=GL_SELECT)return;
+    FlushSelectionHit(ctx);
+    ctx->name_stack_depth=0;
+}
 
 void NativeGLPushName(GLContext *ctx, uint32_t name)
 {
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(ctx->render_mode!=GL_SELECT)return;
 	if (ctx->render_mode == GL_SELECT) FlushSelectionHit(ctx);
 	if (ctx->name_stack_depth < 64) ctx->name_stack[ctx->name_stack_depth++] = name;
 }
 
 void NativeGLPopName(GLContext *ctx)
 {
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(ctx->render_mode!=GL_SELECT)return;
 	if (ctx->render_mode == GL_SELECT) FlushSelectionHit(ctx);
 	if (ctx->name_stack_depth > 0) ctx->name_stack_depth--;
 }
 
 void NativeGLLoadName(GLContext *ctx, uint32_t name)
 {
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(ctx->render_mode!=GL_SELECT)return;
 	if (ctx->render_mode == GL_SELECT) FlushSelectionHit(ctx);
 	if (ctx->name_stack_depth > 0) ctx->name_stack[ctx->name_stack_depth - 1] = name;
 }
+void GLFeedbackWrite(GLContext *ctx, float value)
+{
+    if(ctx->feedback_overflow)return;
+    if(!ctx->feedback_buffer_mac_ptr || ctx->feedback_buffer_offset>=ctx->feedback_buffer_size ||
+        uint64_t(ctx->feedback_buffer_mac_ptr)+(uint64_t(ctx->feedback_buffer_offset)+1)*4>0x100000000ull){
+        ctx->feedback_overflow=true;return;
+    }
+    WriteMacFloat(ctx->feedback_buffer_mac_ptr+uint32_t(ctx->feedback_buffer_offset)*4,value);
+    ++ctx->feedback_buffer_offset;
+}
+
 void NativeGLPassThrough(GLContext *ctx, float token)
 {
-	// In feedback mode, PassThrough inserts a token marker
-	if (ctx->render_mode == GL_FEEDBACK && ctx->feedback_buffer_mac_ptr) {
-		GL_LOG("PassThrough token=%.3f (feedback mode)", token);
-	}
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(ctx->render_mode==GL_FEEDBACK){GLFeedbackWrite(ctx,0x0700);GLFeedbackWrite(ctx,token);}
 }
 
 // --- Pixel Transfer and Maps ---
@@ -4349,37 +4379,65 @@ void NativeGLIndexPointer(GLContext *ctx, uint32_t type, int32_t stride, uint32_
 
 // --- Edge flags ---
 void NativeGLEdgeFlag(GLContext *ctx, uint32_t flag) { ctx->current_edge_flag = (flag != 0); }
-void NativeGLEdgeFlagv(GLContext *ctx, uint32_t p) { ctx->current_edge_flag = (ReadMacInt32(p) != 0); }
-void NativeGLEdgeFlagPointer(GLContext *ctx, int32_t stride, uint32_t pointer) { ctx->edge_flag_array.stride = stride; ctx->edge_flag_array.pointer = pointer; }
+void NativeGLEdgeFlagv(GLContext *ctx, uint32_t p) { ctx->current_edge_flag = (ReadMacInt8(p) != 0); }  // GLboolean is one byte
+void NativeGLEdgeFlagPointer(GLContext *ctx, int32_t stride, uint32_t pointer)
+{
+    ctx->edge_flag_array = {pointer, 1, stride, GL_UNSIGNED_BYTE, ctx->edge_flag_array.enabled};
+}
 
 // --- Line/polygon stipple ---
-void NativeGLLineStipple(GLContext *ctx, int32_t factor, uint32_t pattern) { ctx->line_stipple_factor = factor; ctx->line_stipple_pattern = (uint16_t)pattern; }
+void NativeGLLineStipple(GLContext *ctx, int32_t factor, uint32_t pattern)
+{
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    ctx->line_stipple_factor=std::max(1,std::min(256,factor));ctx->line_stipple_pattern=uint16_t(pattern);
+}
 void NativeGLPolygonStipple(GLContext *ctx, uint32_t mask_ptr)
 {
-	for (int i = 0; i < 32; i++)
-		ctx->polygon_stipple[i] = ReadMacInt32(mask_ptr + i * 4);
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    GLPixelUnpackLayout layout;
+    if(!GLPixelGetUnpackLayout(ctx,ctx->pixel_store,mask_ptr,32,32,1,layout))return;
+    uint32_t pattern[32]={};
+    for(int y=0;y<32;++y)for(int x=0;x<32;++x){
+        const uint32_t bit=layout.bitOffset+x;
+        const uint8_t byte=ReadMacInt8(mask_ptr+layout.start+uint32_t(y*layout.rowStride)+bit/8);
+        const int shift=ctx->pixel_store.unpack_lsb_first?bit%8:7-bit%8;
+        if((byte>>shift)&1)pattern[y]|=uint32_t(1)<<x;
+    }
+    memcpy(ctx->polygon_stipple,pattern,sizeof(pattern));
 }
 void NativeGLGetPolygonStipple(GLContext *ctx, uint32_t mask_ptr)
 {
-	for (int i = 0; i < 32; i++)
-		WriteMacInt32(mask_ptr + i * 4, ctx->polygon_stipple[i]);
+    if(ctx->in_begin){ctx->last_error=GL_INVALID_OPERATION;return;}
+    GLPixelStore ps=ctx->pixel_store;
+    ps.unpack_alignment=ps.pack_alignment;ps.unpack_row_length=ps.pack_row_length;
+    ps.unpack_skip_rows=ps.pack_skip_rows;ps.unpack_skip_pixels=ps.pack_skip_pixels;
+    GLPixelUnpackLayout layout;
+    if(!GLPixelGetUnpackLayout(ctx,ps,mask_ptr,32,32,1,layout))return;
+    for(int y=0;y<32;++y)for(int x=0;x<32;++x){
+        const uint32_t bit=layout.bitOffset+x;
+        const uint32_t p=mask_ptr+layout.start+uint32_t(y*layout.rowStride)+bit/8;
+        const int shift=ps.pack_lsb_first?bit%8:7-bit%8;
+        const uint8_t mask=uint8_t(1)<<shift;
+        const uint8_t old=ReadMacInt8(p);
+        WriteMacInt8(p,uint8_t((old&~mask)|(((ctx->polygon_stipple[y]>>x)&1)?mask:0)));
+    }
 }
 
 // --- Texture residency ---
-void NativeGLAreTexturesResident(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t residences_ptr)
+uint32_t NativeGLAreTexturesResident(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t residences_ptr)
 {
-	for (int32_t i = 0; i < n; i++) WriteMacInt32(residences_ptr + i * 4, GL_TRUE);
+	// Every texture is resident under Metal. Per the GL spec, when all are
+	// resident the call returns GL_TRUE and leaves the GLboolean array untouched.
+	return GL_TRUE;
 }
 
 void NativeGLPrioritizeTextures(GLContext *ctx, int32_t n, uint32_t textures_ptr, uint32_t priorities_ptr)
 {
-	// Store priority hints on texture objects (advisory, not enforced by Metal)
+	// Priorities are advisory and ignored
 	for (int32_t i = 0; i < n; i++) {
 		uint32_t name = ReadMacInt32(textures_ptr + i * 4);
-		// Priority is stored but not used by Metal runtime
 		auto it = ctx->texture_objects.find(name);
 		if (it != ctx->texture_objects.end()) {
-			// Accept and ignore priority (Metal manages memory automatically)
 		}
 	}
 }
@@ -4387,16 +4445,18 @@ void NativeGLPrioritizeTextures(GLContext *ctx, int32_t n, uint32_t textures_ptr
 // --- Display lists ---
 void NativeGLNewList(GLContext *ctx, uint32_t list, uint32_t mode)
 {
+	if (ctx->in_display_list || ctx->in_begin) { if(!ctx->last_error)ctx->last_error=0x0502;return; }
+	if (!list) { if(!ctx->last_error)ctx->last_error=0x0501;return; }
+	if (mode!=0x1300 && mode!=0x1301) { if(!ctx->last_error)ctx->last_error=0x0500;return; }
 	ctx->in_display_list = true;
 	ctx->current_list_name = list;
 	ctx->current_list_mode = mode;
 	ctx->display_lists[list] = GLDisplayList();
 }
 
-void NativeGLEndList(GLContext *ctx) { ctx->in_display_list = false; }
+void NativeGLEndList(GLContext *ctx) { if(!ctx->in_display_list) {if(!ctx->last_error)ctx->last_error=0x0502;return;} ctx->in_display_list = false; }
 
-// GLReplayCommand - replay a single recorded display list command
-// Implemented in gl_dispatch.cpp (has access to all NativeGL* handlers)
+// In gl_dispatch.cpp
 extern void GLReplayCommand(GLContext *ctx, const GLCommand &cmd);
 
 void NativeGLCallList(GLContext *ctx, uint32_t list)
@@ -4404,13 +4464,24 @@ void NativeGLCallList(GLContext *ctx, uint32_t list)
 	auto it = ctx->display_lists.find(list);
 	if (it == ctx->display_lists.end()) return;
 
-	for (const GLCommand &cmd : it->second.commands) {
-		GLReplayCommand(ctx, cmd);
-	}
+	if(ctx->list_call_depth >= 64) {if(!ctx->last_error)ctx->last_error=0x0503;return;}
+	++ctx->list_call_depth;
+	// Keep the executing list alive if a nested command changes the map.
+	const auto commands=it->second.commands;
+    const std::weak_ptr<char> lifetime=ctx->lifetime;
+    for (const GLCommand &cmd : commands) {
+        GLReplayCommand(ctx, cmd);
+        if(lifetime.expired()) return;
+        if(gl_current_context!=ctx) break;
+    }
+	--ctx->list_call_depth;
 }
 
 void NativeGLCallLists(GLContext *ctx, int32_t n, uint32_t type, uint32_t lists_ptr)
 {
+    if(n<0) {if(!ctx->last_error)ctx->last_error=0x0501;return;}
+    if(type<0x1400 || type>0x1409) {if(!ctx->last_error)ctx->last_error=0x0500;return;}
+    const std::weak_ptr<char> lifetime=ctx->lifetime;
 	for (int32_t i = 0; i < n; i++) {
 		uint32_t name = 0;
 		switch (type) {
@@ -4457,14 +4528,31 @@ void NativeGLCallLists(GLContext *ctx, int32_t n, uint32_t type, uint32_t lists_
 		}
 		name += ctx->list_base;
 		NativeGLCallList(ctx, name);
+        if(lifetime.expired() || gl_current_context!=ctx) return;
 	}
 }
 
 uint32_t NativeGLGenLists(GLContext *ctx, int32_t range)
 {
-	uint32_t base = ctx->next_list_name;
-	ctx->next_list_name += range;
-	return base;
+	if (range <= 0) {
+		if (range < 0 && !ctx->last_error) ctx->last_error = GL_INVALID_VALUE;
+		return 0;
+	}
+	uint64_t base = ctx->next_list_name;
+	for (;;) {
+		if (!base || base + uint32_t(range) - 1 > UINT32_MAX) return 0;
+		bool collision = false;
+		for (const auto &entry : ctx->display_lists) {
+			if (entry.first >= base && entry.first < base + uint32_t(range)) {
+				base = uint64_t(entry.first) + 1;
+				collision = true;
+				break;
+			}
+		}
+		if (!collision) break;
+	}
+	ctx->next_list_name = uint32_t(base + uint32_t(range));
+	return uint32_t(base);
 }
 
 void NativeGLDeleteLists(GLContext *ctx, uint32_t list, int32_t range) { for (int32_t i = 0; i < range; i++) ctx->display_lists.erase(list + i); }
@@ -4473,7 +4561,7 @@ void NativeGLListBase(GLContext *ctx, uint32_t base) { ctx->list_base = base; }
 
 // --- Vertex arrays ---
 void NativeGLVertexPointer(GLContext *ctx, int32_t size, uint32_t type, int32_t stride, uint32_t pointer) { ctx->vertex_array.size = size; ctx->vertex_array.type = type; ctx->vertex_array.stride = stride; ctx->vertex_array.pointer = pointer; }
-void NativeGLNormalPointer(GLContext *ctx, uint32_t type, int32_t stride, uint32_t pointer) { ctx->normal_array.type = type; ctx->normal_array.stride = stride; ctx->normal_array.pointer = pointer; }
+void NativeGLNormalPointer(GLContext *ctx, uint32_t type, int32_t stride, uint32_t pointer) { ctx->normal_array.size = 3; ctx->normal_array.type = type; ctx->normal_array.stride = stride; ctx->normal_array.pointer = pointer; }
 void NativeGLColorPointer(GLContext *ctx, int32_t size, uint32_t type, int32_t stride, uint32_t pointer) { ctx->color_array.size = size; ctx->color_array.type = type; ctx->color_array.stride = stride; ctx->color_array.pointer = pointer; }
 void NativeGLTexCoordPointer(GLContext *ctx, int32_t size, uint32_t type,
                              int32_t stride, uint32_t pointer)
@@ -4535,8 +4623,7 @@ void NativeGLDisableClientState(GLContext *ctx, uint32_t array)
 	}
 }
 
-// NativeGLArrayElement, NativeGLDrawArrays, NativeGLDrawElements, NativeGLInterleavedArrays
-// are implemented in gl_metal_renderer.mm (they need Metal rendering access)
+// ArrayElement/DrawArrays/DrawElements/InterleavedArrays are in gl_metal_renderer.mm
 
 // --- Copy tex 1D (delegate to 2D with height=1) ---
 void NativeGLCopyTexImage1D(GLContext *ctx, uint32_t target, int32_t level, uint32_t ifmt, int32_t x, int32_t y, int32_t w, int32_t border)
@@ -4558,62 +4645,107 @@ void NativeGLGetTexEnvfv(GLContext *ctx, uint32_t target, uint32_t pname, uint32
 
 void NativeGLGetTexEnviv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t mac_ptr)
 {
-	if (target != GL_TEXTURE_ENV) return;
-	if (pname == GL_TEXTURE_ENV_MODE) WriteMacInt32(mac_ptr, ctx->tex_units[ctx->active_texture].env_mode);
+    if(target!=GL_TEXTURE_ENV){ctx->last_error=GL_INVALID_ENUM;return;}
+    const auto &unit=ctx->tex_units[ctx->active_texture];
+    if(pname==GL_TEXTURE_ENV_MODE)WriteMacInt32(mac_ptr,unit.env_mode);
+    else if(pname==GL_TEXTURE_ENV_COLOR)for(int i=0;i<4;++i)WriteMacInt32(mac_ptr+i*4,gl_color_integer(unit.env_color[i]));
+    else ctx->last_error=GL_INVALID_ENUM;
 }
 
-void NativeGLGetTexGendv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p) { (void)coord; (void)pname; WriteMacInt32(p, 0); WriteMacInt32(p+4, 0); }
-void NativeGLGetTexGenfv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p) { (void)coord; (void)pname; WriteMacFloat(p, 0.0f); }
-void NativeGLGetTexGeniv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p) { (void)coord; (void)pname; WriteMacInt32(p, 0); }
+static int gl_get_texgen(GLContext *ctx, uint32_t coord, uint32_t pname, double out[4])
+{
+    if (!ctx) return 0;
+    auto fail = [&]() { if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM; };
+    if (ctx->in_begin) { if (!ctx->last_error) ctx->last_error=GL_INVALID_OPERATION; return 0; }
+    const int c = gl_texgen_coord_index(coord);
+    if (c < 0) { fail(); return 0; }
+    auto &unit = ctx->tex_units[ctx->active_texture];
+    if (pname == GL_TEXTURE_GEN_MODE) { out[0] = *gl_texgen_mode(unit,c); return 1; }
+    if (pname != GL_OBJECT_PLANE && pname != GL_EYE_PLANE) { fail(); return 0; }
+    std::memcpy(out,pname == GL_EYE_PLANE ? unit.texgen_eye_plane[c] : unit.texgen_object_plane[c],4*sizeof(double));
+    return 4;
+}
+void NativeGLGetTexGendv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p)
+{
+    double values[4]; const int count = gl_get_texgen(ctx,coord,pname,values);
+    for (int i=0;i<count;++i) {
+        uint64_t bits; std::memcpy(&bits,&values[i],sizeof(bits));
+        WriteMacInt32(p+i*8,(uint32_t)(bits>>32)); WriteMacInt32(p+i*8+4,(uint32_t)bits);
+    }
+}
+void NativeGLGetTexGenfv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p)
+{
+    double values[4]; const int count = gl_get_texgen(ctx,coord,pname,values);
+    for (int i=0;i<count;++i) WriteMacFloat(p+i*4,(float)values[i]);
+}
+void NativeGLGetTexGeniv(GLContext *ctx, uint32_t coord, uint32_t pname, uint32_t p)
+{
+    double values[4]; const int count = gl_get_texgen(ctx,coord,pname,values);
+    for (int i=0;i<count;++i) WriteMacInt32(p+i*4,(uint32_t)(int32_t)values[i]);
+}
 void NativeGLGetTexImage(GLContext *ctx, uint32_t target, int32_t level, uint32_t fmt, uint32_t type, uint32_t p)
 {
-	// Return zeroed data with warning — full Metal texture readback not yet implemented
-	GL_LOG("WARNING: glGetTexImage returning zeroes (known limitation)");
-	uint32_t tex = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(tex);
-	if (it != ctx->texture_objects.end() && p != 0) {
-		int w = it->second.width;
-		int h = it->second.height;
-		int bytes = w * h * 4;
-		for (int i = 0; i < bytes; i++) WriteMacInt8(p + i, 0);
-	}
+    auto fail=[&](uint32_t e){if(!ctx->last_error) ctx->last_error=e;};
+    // The current pixel-store model has no 3D image stride/skip state. Reject
+    // 3D readback explicitly instead of returning one slice or overrunning it.
+    if (target == 0x806f) { fail(0x0502); return; }
+    if (target != 0x0de0 && target != 0x0de1) { fail(0x0500); return; }
+    if (level < 0 || level > 30) { fail(0x0501); return; }
+    const uint32_t error=GLPixelPackError(fmt,type);
+    if(error) {fail(error);return;}
+    GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+    if(!object || !p) return;
+    const int32_t width=object->level_internal_format[level] ? object->level_width[level] :
+        (object->width > 0 ? std::max(1,object->width >> level) : 0);
+    const int32_t height=object->level_internal_format[level] ? object->level_height[level] :
+        (object->height > 0 ? std::max(1,object->height >> level) : 0);
+    if (!width || !height) return;
+    GLMetalPackLayout layout;
+    if(!GLMetalGetPackLayout(ctx,width,height,GLPixelPackBytesPerPixel(fmt,type),p,layout)) return;
+    std::vector<uint8_t> pixels;
+    extern bool GLMetalReadTexture(GLContext*,GLTextureObject*,int32_t,int32_t,int32_t,std::vector<uint8_t>&);
+    if(!GLMetalReadTexture(ctx,object,level,width,height,pixels)) return;
+    GLStoreReadbackPixels(ctx,pixels.data(),width,height,fmt,type,p,false,
+        [](uint32_t a,uint8_t b){WriteMacInt8(a,b);});
 }
 void NativeGLGetTexLevelParameterfv(GLContext *ctx, uint32_t target, int32_t level, uint32_t pname, uint32_t p)
 {
-	uint32_t tex = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(tex);
-	if (it == ctx->texture_objects.end()) { WriteMacFloat(p, 0.0f); return; }
-	GLTextureObject &obj = it->second;
-	switch (pname) {
-	case GL_TEXTURE_WIDTH:           WriteMacFloat(p, (float)obj.width); break;
-	case GL_TEXTURE_HEIGHT:          WriteMacFloat(p, (float)obj.height); break;
-	case GL_TEXTURE_INTERNAL_FORMAT: WriteMacFloat(p, (float)GL_RGBA); break;
-	case GL_TEXTURE_BORDER:          WriteMacFloat(p, 0.0f); break;
-	default: WriteMacFloat(p, 0.0f); break;
-	}
+    uint32_t result = 0;
+    GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+    if (object && level >= 0 && level < 32) {
+        const GLTextureObject &obj = *object;
+        switch (pname) {
+        case GL_TEXTURE_WIDTH: result = obj.level_width[level]; break;
+        case GL_TEXTURE_HEIGHT: result = obj.level_height[level]; break;
+        case GL_TEXTURE_INTERNAL_FORMAT: result = obj.level_internal_format[level]; break;
+        case GL_TEXTURE_BORDER: break;
+        default: break;
+        }
+    }
+    WriteMacFloat(p, (float)result);
 }
 void NativeGLGetTexLevelParameteriv(GLContext *ctx, uint32_t target, int32_t level, uint32_t pname, uint32_t p)
 {
-	uint32_t tex = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(tex);
-	if (it == ctx->texture_objects.end()) { WriteMacInt32(p, 0); return; }
-	GLTextureObject &obj = it->second;
-	switch (pname) {
-	case GL_TEXTURE_WIDTH:           WriteMacInt32(p, obj.width); break;
-	case GL_TEXTURE_HEIGHT:          WriteMacInt32(p, obj.height); break;
-	case GL_TEXTURE_INTERNAL_FORMAT: WriteMacInt32(p, GL_RGBA); break;
-	case GL_TEXTURE_BORDER:          WriteMacInt32(p, 0); break;
-	default: WriteMacInt32(p, 0); break;
-	}
+    uint32_t result = 0;
+    GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+    if (object && level >= 0 && level < 32) {
+        const GLTextureObject &obj = *object;
+        switch (pname) {
+        case GL_TEXTURE_WIDTH: result = obj.level_width[level]; break;
+        case GL_TEXTURE_HEIGHT: result = obj.level_height[level]; break;
+        case GL_TEXTURE_INTERNAL_FORMAT: result = obj.level_internal_format[level]; break;
+        case GL_TEXTURE_BORDER: break;
+        default: break;
+        }
+    }
+    WriteMacInt32(p, result);
 }
 
 void NativeGLGetTexParameterfv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t mac_ptr)
 {
-	(void)target;
-	uint32_t tex = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(tex);
-	if (it == ctx->texture_objects.end()) { WriteMacFloat(mac_ptr, 0.0f); return; }
-	GLTextureObject &obj = it->second;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) { WriteMacFloat(mac_ptr, 0.0f); return; }
+	GLTextureObject &obj = *object;
 	switch (pname) {
 	case GL_TEXTURE_MIN_FILTER: WriteMacFloat(mac_ptr, (float)obj.min_filter); break;
 	case GL_TEXTURE_MAG_FILTER: WriteMacFloat(mac_ptr, (float)obj.mag_filter); break;
@@ -4625,11 +4757,9 @@ void NativeGLGetTexParameterfv(GLContext *ctx, uint32_t target, uint32_t pname, 
 
 void NativeGLGetTexParameteriv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t mac_ptr)
 {
-	(void)target;
-	uint32_t tex = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	auto it = ctx->texture_objects.find(tex);
-	if (it == ctx->texture_objects.end()) { WriteMacInt32(mac_ptr, 0); return; }
-	GLTextureObject &obj = it->second;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) { WriteMacInt32(mac_ptr, 0); return; }
+	GLTextureObject &obj = *object;
 	switch (pname) {
 	case GL_TEXTURE_MIN_FILTER: WriteMacInt32(mac_ptr, obj.min_filter); break;
 	case GL_TEXTURE_MAG_FILTER: WriteMacInt32(mac_ptr, obj.mag_filter); break;
@@ -4660,14 +4790,22 @@ void NativeGLGetLightfv(GLContext *ctx, uint32_t light, uint32_t pname, uint32_t
 
 void NativeGLGetLightiv(GLContext *ctx, uint32_t light, uint32_t pname, uint32_t mac_ptr)
 {
-	if (light < GL_LIGHT0 || light >= GL_LIGHT0 + 8) return;
-	const GLLight &l = ctx->lights[light - GL_LIGHT0];
-	switch (pname) {
-	case GL_AMBIENT:  for (int i=0;i<4;i++) WriteMacInt32(mac_ptr+i*4, (uint32_t)(int32_t)l.ambient[i]); break;
-	case GL_DIFFUSE:  for (int i=0;i<4;i++) WriteMacInt32(mac_ptr+i*4, (uint32_t)(int32_t)l.diffuse[i]); break;
-	case GL_SPECULAR: for (int i=0;i<4;i++) WriteMacInt32(mac_ptr+i*4, (uint32_t)(int32_t)l.specular[i]); break;
-	default: WriteMacInt32(mac_ptr, 0); break;
-	}
+    if(light<GL_LIGHT0 || light>=GL_LIGHT0+8){ctx->last_error=GL_INVALID_ENUM;return;}
+    const GLLight &l=ctx->lights[light-GL_LIGHT0];const float *v=nullptr;float scalar=0;int count=1;bool color=false;
+    switch(pname){
+    case GL_AMBIENT:v=l.ambient;count=4;color=true;break;
+    case GL_DIFFUSE:v=l.diffuse;count=4;color=true;break;
+    case GL_SPECULAR:v=l.specular;count=4;color=true;break;
+    case GL_POSITION:v=l.position;count=4;break;
+    case GL_SPOT_DIRECTION:v=l.spot_direction;count=3;break;
+    case GL_SPOT_EXPONENT:scalar=l.spot_exponent;break;
+    case GL_SPOT_CUTOFF:scalar=l.spot_cutoff;break;
+    case GL_CONSTANT_ATTENUATION:scalar=l.constant_attenuation;break;
+    case GL_LINEAR_ATTENUATION:scalar=l.linear_attenuation;break;
+    case GL_QUADRATIC_ATTENUATION:scalar=l.quadratic_attenuation;break;
+    default:ctx->last_error=GL_INVALID_ENUM;return;}
+    if(!v)v=&scalar;
+    for(int i=0;i<count;++i)WriteMacInt32(mac_ptr+i*4,color?gl_color_integer(v[i]):gl_query_integer(v[i]));
 }
 
 void NativeGLGetMaterialfv(GLContext *ctx, uint32_t face, uint32_t pname, uint32_t mac_ptr)
@@ -4679,6 +4817,7 @@ void NativeGLGetMaterialfv(GLContext *ctx, uint32_t face, uint32_t pname, uint32
 	case GL_DIFFUSE:   for (int i=0;i<4;i++) WriteMacFloat(mac_ptr+i*4, mat.diffuse[i]); break;
 	case GL_SPECULAR:  for (int i=0;i<4;i++) WriteMacFloat(mac_ptr+i*4, mat.specular[i]); break;
 	case GL_EMISSION:  for (int i=0;i<4;i++) WriteMacFloat(mac_ptr+i*4, mat.emission[i]); break;
+    case GL_COLOR_INDEXES:for(int i=0;i<3;++i)WriteMacFloat(mac_ptr+i*4,mat.color_indexes[i]);break;
 	case GL_SHININESS: WriteMacFloat(mac_ptr, mat.shininess); break;
 	default: break;
 	}
@@ -4686,21 +4825,19 @@ void NativeGLGetMaterialfv(GLContext *ctx, uint32_t face, uint32_t pname, uint32
 
 void NativeGLGetMaterialiv(GLContext *ctx, uint32_t face, uint32_t pname, uint32_t mac_ptr)
 {
-	int idx = (face == GL_BACK) ? 1 : 0;
-	const GLMaterial &mat = ctx->materials[idx];
-	switch (pname) {
-	case GL_SHININESS: WriteMacInt32(mac_ptr, (uint32_t)(int32_t)mat.shininess); break;
-	default: WriteMacInt32(mac_ptr, 0); break;
-	}
+    if(face!=GL_FRONT && face!=GL_BACK){ctx->last_error=GL_INVALID_ENUM;return;}
+    const GLMaterial &m=ctx->materials[face==GL_BACK?1:0];const float *v=nullptr;
+    switch(pname){case GL_AMBIENT:v=m.ambient;break;case GL_DIFFUSE:v=m.diffuse;break;case GL_SPECULAR:v=m.specular;break;case GL_EMISSION:v=m.emission;break;
+    case GL_COLOR_INDEXES:for(int i=0;i<3;++i)WriteMacInt32(mac_ptr+i*4,gl_query_integer(m.color_indexes[i]));return;
+    case GL_SHININESS:WriteMacInt32(mac_ptr,gl_query_integer(m.shininess));return;default:ctx->last_error=GL_INVALID_ENUM;return;}
+    for(int i=0;i<4;++i)WriteMacInt32(mac_ptr+i*4,gl_color_integer(v[i]));
 }
 
-// glGetMapdv/fv/iv -- query evaluator map parameters
 void NativeGLGetMapdv(GLContext *ctx, uint32_t target, uint32_t query, uint32_t p)
 {
 	int idx = gl_eval_target_index(target);
 	if (idx < 0) return;
 
-	// Determine if it's a MAP1 or MAP2 target
 	bool is_map2 = (target >= GL_MAP2_COLOR_4 && target <= GL_MAP2_VERTEX_4);
 
 	if (!is_map2) {
@@ -4708,7 +4845,6 @@ void NativeGLGetMapdv(GLContext *ctx, uint32_t target, uint32_t query, uint32_t 
 		switch (query) {
 		case GL_COEFF:
 			for (int i = 0; i < map.order * map.dimension; i++) {
-				// Write double to Mac memory (big-endian)
 				double d = map.defined ? (double)map.control_points[i] : 0.0;
 				uint64_t bits;
 				memcpy(&bits, &d, sizeof(double));
@@ -4872,25 +5008,35 @@ void NativeGLGetMapiv(GLContext *ctx, uint32_t target, uint32_t query, uint32_t 
 
 void NativeGLGetDoublev(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
 {
-	// Matrix queries
-	float *m = nullptr;
-	if (pname == GL_MODELVIEW_MATRIX) m = ctx->modelview_stack[ctx->modelview_depth];
-	else if (pname == GL_PROJECTION_MATRIX) m = ctx->projection_stack[ctx->projection_depth];
-	else if (pname == GL_TEXTURE_MATRIX) m = ctx->texture_stack[ctx->active_texture][ctx->texture_depth[ctx->active_texture]];
-	if (m) {
-		for (int i = 0; i < 16; i++) {
-			double d = (double)m[i];
-			uint64_t bits; memcpy(&bits, &d, sizeof(double));
-			WriteMacInt32(mac_ptr + i*8, (uint32_t)(bits >> 32));
-			WriteMacInt32(mac_ptr + i*8+4, (uint32_t)(bits & 0xFFFFFFFF));
-		}
-		return;
-	}
-	// Default: write 0.0
-	WriteMacInt32(mac_ptr, 0); WriteMacInt32(mac_ptr+4, 0);
+    GLStateQuery query;
+    if (!GLGetStateQuery(ctx, pname, query)) return;
+    for (unsigned i = 0; i < query.count; ++i) {
+        uint64_t bits;
+        memcpy(&bits, &query.values[i], sizeof(bits));
+        WriteMacInt32(mac_ptr + i * 8, uint32_t(bits >> 32));
+        WriteMacInt32(mac_ptr + i * 8 + 4, uint32_t(bits));
+    }
 }
 
-void NativeGLGetPointerv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr) { (void)pname; WriteMacInt32(mac_ptr, 0); }
+void NativeGLGetPointerv(GLContext *ctx, uint32_t pname, uint32_t mac_ptr)
+{
+    if (!ctx) return;
+    if (ctx->in_begin) { if (!ctx->last_error) ctx->last_error = GL_INVALID_OPERATION; return; }
+    uint32_t pointer;
+    switch (pname) {
+    case 0x808e: pointer = ctx->vertex_array.pointer; break;
+    case 0x808f: pointer = ctx->normal_array.pointer; break;
+    case 0x8090: pointer = ctx->color_array.pointer; break;
+    case 0x8091: pointer = ctx->index_array.pointer; break;
+    case 0x8092: pointer = ctx->texcoord_array[ctx->client_active_texture].pointer; break;
+    case 0x8093: pointer = ctx->edge_flag_array.pointer; break;
+    case 0x845d: pointer = ctx->secondary_color_array.pointer; break;
+    case 0x0df3: pointer = ctx->selection_buffer_mac_ptr; break;
+    case 0x0df0: pointer = ctx->feedback_buffer_mac_ptr; break;
+    default: if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM; return;
+    }
+    WriteMacInt32(mac_ptr, pointer);
+}
 
 
 // ============================================================================
@@ -4939,7 +5085,10 @@ void NativeGLUnlockArraysEXT(GLContext *ctx)
 static inline void gl_set_texcoord(GLContext *ctx, uint32_t target, float s, float t, float r, float q)
 {
 	int unit = (int)(target - GL_TEXTURE0_ARB);
-	if (unit < 0 || unit >= 4) unit = 0;
+	if (unit < 0 || unit >= GL_RENDER_TEXTURE_UNITS) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_ENUM;
+		return;
+	}
 	ctx->current_texcoord[unit][0] = s;
 	ctx->current_texcoord[unit][1] = t;
 	ctx->current_texcoord[unit][2] = r;
@@ -5143,18 +5292,6 @@ void NativeGLLoadTransposeMatrixfARB(GLContext *ctx, uint32_t mac_ptr)
 	memcpy(m, transposed, sizeof(float)*16);
 }
 
-static void gl_mult_matrix_4x4(float *dst, const float *a, const float *b)
-{
-	float tmp[16];
-	for (int r = 0; r < 4; r++)
-		for (int c = 0; c < 4; c++) {
-			tmp[r*4+c] = 0;
-			for (int k = 0; k < 4; k++)
-				tmp[r*4+c] += a[r*4+k] * b[k*4+c];
-		}
-	memcpy(dst, tmp, sizeof(float)*16);
-}
-
 void NativeGLMultTransposeMatrixdARB(GLContext *ctx, uint32_t mac_ptr)
 {
 	if (!ctx) return;
@@ -5167,7 +5304,7 @@ void NativeGLMultTransposeMatrixdARB(GLContext *ctx, uint32_t mac_ptr)
 	float transposed[16];
 	gl_transpose_4x4(transposed, src);
 	float *m = gl_get_current_matrix(ctx);
-	gl_mult_matrix_4x4(m, m, transposed);
+	mat4_multiply(m, m, transposed);
 }
 
 void NativeGLMultTransposeMatrixfARB(GLContext *ctx, uint32_t mac_ptr)
@@ -5181,7 +5318,7 @@ void NativeGLMultTransposeMatrixfARB(GLContext *ctx, uint32_t mac_ptr)
 	float transposed[16];
 	gl_transpose_4x4(transposed, src);
 	float *m = gl_get_current_matrix(ctx);
-	gl_mult_matrix_4x4(m, m, transposed);
+	mat4_multiply(m, m, transposed);
 }
 
 
@@ -5189,7 +5326,6 @@ void NativeGLMultTransposeMatrixfARB(GLContext *ctx, uint32_t mac_ptr)
 //  ARB_texture_compression — DXT1/3/5 CPU decompression
 // ============================================================================
 
-// Decode one RGB565 value to R,G,B bytes
 static inline void dxt_rgb565_to_rgb(uint16_t c, uint8_t *r, uint8_t *g, uint8_t *b)
 {
 	*r = (uint8_t)(((c >> 11) & 0x1F) * 255 / 31);
@@ -5202,7 +5338,8 @@ static void dxt1_decompress_block(const uint8_t *src, uint8_t *dst, bool has_alp
 {
 	uint16_t c0 = src[0] | (src[1] << 8);
 	uint16_t c1 = src[2] | (src[3] << 8);
-	uint32_t indices = src[4] | (src[5] << 8) | (src[6] << 16) | (src[7] << 24);
+	uint32_t indices = uint32_t(src[4]) | (uint32_t(src[5]) << 8) |
+	    (uint32_t(src[6]) << 16) | (uint32_t(src[7]) << 24);
 
 	uint8_t colors[4][4]; // [index][B,G,R,A]
 	uint8_t r0, g0, b0, r1, g1, b1;
@@ -5239,10 +5376,9 @@ static void dxt3_decompress_block(const uint8_t *src, uint8_t *dst)
 	const uint8_t *alpha_block = src;
 	const uint8_t *color_block = src + 8;
 
-	// Decode color portion using DXT1 (no alpha transparency)
+	// Color block as DXT1, without 1-bit alpha
 	dxt1_decompress_block(color_block, dst, false);
 
-	// Override alpha with explicit 4-bit values
 	for (int i = 0; i < 16; i++) {
 		int byte_idx = i / 2;
 		uint8_t a4;
@@ -5284,11 +5420,9 @@ static void dxt5_decompress_block(const uint8_t *src, uint8_t *dst)
 		alpha_lut[7] = 255;
 	}
 
-	// Decode color portion
 	const uint8_t *color_block = src + 8;
 	dxt1_decompress_block(color_block, dst, false);
 
-	// Apply interpolated alpha
 	for (int i = 0; i < 16; i++) {
 		int aidx = (alpha_bits >> (i * 3)) & 7;
 		dst[i*4+3] = alpha_lut[aidx];
@@ -5296,11 +5430,16 @@ static void dxt5_decompress_block(const uint8_t *src, uint8_t *dst)
 }
 
 // Decompress a full DXT image to BGRA8
-static uint8_t *dxt_decompress_image(const uint8_t *src, int w, int h, uint32_t format, int *outLen)
+static uint8_t *dxt_decompress_image(uint32_t sourceAddress, int w, int h, uint32_t format,
+                                    size_t sourceSize, int *outLen)
 {
+	*outLen = 0;
+	if (!sourceAddress || !GLTextureImageSizeIsValid(0, w, h) || !w || !h ||
+	    (format != 0x83f0 && format != 0x83f2 && format != 0x83f3)) return nullptr;
 	int bw = (w + 3) / 4;  // block width
 	int bh = (h + 3) / 4;  // block height
 	int block_size = (format == 0x83F0) ? 8 : 16; // DXT1=8, DXT3/5=16
+	if (size_t(bw) * size_t(bh) * size_t(block_size) > sourceSize) return nullptr;
 
 	*outLen = w * h * 4;
 	uint8_t *dst = (uint8_t *)malloc(*outLen);
@@ -5310,7 +5449,13 @@ static uint8_t *dxt_decompress_image(const uint8_t *src, int w, int h, uint32_t 
 	for (int by = 0; by < bh; by++) {
 		for (int bx = 0; bx < bw; bx++) {
 			uint8_t block_pixels[16 * 4]; // 4x4 BGRA
-			const uint8_t *block_src = src + (by * bw + bx) * block_size;
+			// Guest RAM can cross separately mapped low-memory pages. Read
+			// through the memory accessors rather than assuming Mac2HostAddr
+			// yields one contiguous host allocation for the whole image.
+			uint8_t block_src[16];
+			const uint32_t offset = uint32_t((by * bw + bx) * block_size);
+			for (int i = 0; i < block_size; ++i)
+				block_src[i] = ReadMacInt8(sourceAddress + offset + uint32_t(i));
 
 			if (format == 0x83F0)      // GL_COMPRESSED_RGB_S3TC_DXT1_EXT
 				dxt1_decompress_block(block_src, block_pixels, true);
@@ -5319,7 +5464,6 @@ static uint8_t *dxt_decompress_image(const uint8_t *src, int w, int h, uint32_t 
 			else if (format == 0x83F3) // GL_COMPRESSED_RGBA_S3TC_DXT5_EXT
 				dxt5_decompress_block(block_src, block_pixels);
 
-			// Copy block pixels to destination image
 			for (int py = 0; py < 4; py++) {
 				int dy = by * 4 + py;
 				if (dy >= h) break;
@@ -5343,36 +5487,51 @@ void NativeGLCompressedTexImage3DARB(GLContext *ctx, uint32_t target, int32_t le
 	uint32_t ifmt, int32_t w, int32_t h, int32_t d, int32_t border, int32_t imageSize, uint32_t data_ptr)
 {
 	GL_LOG("CompressedTexImage3D fmt=0x%x %dx%dx%d size=%d (known limitation)", ifmt, w, h, d, imageSize);
-	// 3D compressed textures extremely rare in classic Mac games — known limitation
+	// Not implemented; unused by classic Mac games.
+}
+
+// Validate before translating a guest pointer, allocating, or changing texture
+// metadata. Compressed client storage must fit completely in mapped RAM/ROM;
+// checking only 32-bit address wrap does not make a host pointer readable.
+static bool GLValidateCompressedTextureUpload(GLContext *ctx, uint32_t target, int level,
+    int width, int height, int border, uint32_t format, int imageSize, uint32_t data)
+{
+    auto fail = [&](uint32_t error) { if (!ctx->last_error) ctx->last_error = error; return false; };
+    if (ctx->in_begin) return fail(GL_INVALID_OPERATION);
+    if (target != GL_TEXTURE_2D ||
+        (format != 0x83f0 && format != 0x83f2 && format != 0x83f3)) return fail(GL_INVALID_ENUM);
+    if (!GLTextureImageSizeIsValid(level, width, height) || border != 0 || imageSize < 0)
+        return fail(GL_INVALID_VALUE);
+    const uint64_t bytes = ((uint64_t(width) + 3) / 4) * ((uint64_t(height) + 3) / 4) *
+        (format == 0x83f0 ? 8 : 16);
+    if (uint64_t(imageSize) != bytes || uint64_t(data) + bytes > uint64_t(UINT32_MAX) + 1)
+        return fail(GL_INVALID_VALUE);
+    if (!bytes) return true;
+    auto fits = [&](uint32_t base, uint32_t size) {
+        return data >= base && uint64_t(data - base) + bytes <= size;
+    };
+    if (!data || (!fits(RAMBase, RAMSize) && !fits(ROMBase, ROM_SIZE))) return fail(GL_INVALID_VALUE);
+    return true;
 }
 
 void NativeGLCompressedTexImage2DARB(GLContext *ctx, uint32_t target, int32_t level,
 	uint32_t ifmt, int32_t w, int32_t h, int32_t border, int32_t imageSize, uint32_t data_ptr)
 {
 	GL_LOG("CompressedTexImage2D fmt=0x%x %dx%d size=%d", ifmt, w, h, imageSize);
-	if (!ctx || data_ptr == 0) return;
+	if (!ctx || !GLValidateCompressedTextureUpload(ctx, target, level, w, h, border,
+	                                                ifmt, imageSize, data_ptr)) return;
 
-	// Only handle DXT formats
-	if (ifmt != 0x83F0 && ifmt != 0x83F2 && ifmt != 0x83F3) {
-		GL_LOG("CompressedTexImage2D: unsupported format 0x%x", ifmt);
-		return;
-	}
-
-	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	if (texName == 0) return;
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
-	GLTextureObject &tex = it->second;
-
-	// Read compressed data from Mac memory
-	const uint8_t *mac_data = (const uint8_t *)Mac2HostAddr(data_ptr);
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
+	GLTextureObject &tex = *object;
+	if (!w || !h) { GLTextureDefineImage(tex, target, level, ifmt, w, h); return; }
 
 	int outLen = 0;
-	uint8_t *decompressed = dxt_decompress_image(mac_data, w, h, ifmt, &outLen);
-	if (!decompressed) return;
+	uint8_t *decompressed = dxt_decompress_image(data_ptr, w, h, ifmt, size_t(imageSize), &outLen);
+	if (!decompressed) { if (!ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY; return; }
 
-	tex.width = w;
-	tex.height = h;
+    if (!GLTextureDefineImage(tex, target, level, ifmt, w, h)) { free(decompressed); return; }
+    GLTextureApplyInternalFormatBGRA(decompressed, outLen, GLTextureLevelBaseFormat(tex, level));
 	if (level > 0) tex.has_mipmaps = true;
 	GLMetalUploadTexture(ctx, &tex, level, w, h, decompressed, outLen);
 	free(decompressed);
@@ -5382,7 +5541,7 @@ void NativeGLCompressedTexImage1DARB(GLContext *ctx, uint32_t target, int32_t le
 	uint32_t ifmt, int32_t w, int32_t border, int32_t imageSize, uint32_t data_ptr)
 {
 	GL_LOG("CompressedTexImage1D fmt=0x%x %d size=%d (known limitation)", ifmt, w, imageSize);
-	// 1D compressed textures essentially never used — known limitation
+	// Not implemented; unused by classic Mac games.
 }
 
 void NativeGLCompressedTexSubImage3DARB(GLContext *ctx, uint32_t target, int32_t level,
@@ -5397,24 +5556,21 @@ void NativeGLCompressedTexSubImage2DARB(GLContext *ctx, uint32_t target, int32_t
 	uint32_t fmt, int32_t imageSize, uint32_t data_ptr)
 {
 	GL_LOG("CompressedTexSubImage2D fmt=0x%x %dx%d at (%d,%d)", fmt, w, h, xoff, yoff);
-	if (!ctx || data_ptr == 0) return;
+	if (!ctx || !GLValidateCompressedTextureUpload(ctx, target, level, w, h, 0,
+	                                                fmt, imageSize, data_ptr)) return;
 
-	if (fmt != 0x83F0 && fmt != 0x83F2 && fmt != 0x83F3) {
-		GL_LOG("CompressedTexSubImage2D: unsupported format 0x%x", fmt);
-		return;
-	}
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
+	GLTextureObject &tex = *object;
+	const uint32_t error = GLTextureSubImageError(tex, level, xoff, yoff, 0, w, h);
+	if (error) { if (!ctx->last_error) ctx->last_error = error; return; }
+	if (!w || !h) return;
 
-	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_2d;
-	if (texName == 0) return;
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
-	GLTextureObject &tex = it->second;
-
-	const uint8_t *mac_data = (const uint8_t *)Mac2HostAddr(data_ptr);
 	int outLen = 0;
-	uint8_t *decompressed = dxt_decompress_image(mac_data, w, h, fmt, &outLen);
-	if (!decompressed) return;
+	uint8_t *decompressed = dxt_decompress_image(data_ptr, w, h, fmt, size_t(imageSize), &outLen);
+	if (!decompressed) { if (!ctx->last_error) ctx->last_error = GL_OUT_OF_MEMORY; return; }
 
+    GLTextureApplyInternalFormatBGRA(decompressed, outLen, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUploadSubTexture(ctx, &tex, level, xoff, yoff, w, h, decompressed, w * 4);
 	free(decompressed);
 }
@@ -5535,7 +5691,6 @@ void NativeGLSecondaryColorPointerEXT(GLContext *ctx, int32_t size, uint32_t typ
 //  OpenGL 1.2 imaging subset — CPU state storage
 // ============================================================================
 
-// Helper: resolve color table target to index (0-2)
 static int gl_color_table_index(uint32_t target) {
 	switch (target) {
 		case 0x80D0: return 0; // GL_COLOR_TABLE
@@ -5545,7 +5700,6 @@ static int gl_color_table_index(uint32_t target) {
 	}
 }
 
-// Helper: resolve convolution target to index (0-1)
 static int gl_convolution_index(uint32_t target) {
 	switch (target) {
 		case 0x8010: return 0; // GL_CONVOLUTION_1D
@@ -5554,23 +5708,10 @@ static int gl_convolution_index(uint32_t target) {
 	}
 }
 
-// --- Imaging subset (GL 1.2): Color tables, convolution, histogram, minmax ---
-// NOTE: The COLOR TABLE family (GL_COLOR_TABLE / glColorTable / glColorSubTable /
-// glCopyColorTable / glCopyColorSubTable, sub-ops 469-477) IS now applied to the pixel
-// pipeline: when GL_COLOR_TABLE is enabled the stored LUT is
-// folded into the CPU texture-upload path via GLApplyColorTableLUT (no new
-// compute pass; color_table_enabled is now a READ), and glCopyColorTable/glCopyColorSubTable
-// read the framebuffer via GLMetalReadFramebufferRect with overflow-safe bounds.
-// The CONVOLUTION (478-490) and HISTOGRAM/MINMAX (491-500)
-// handlers still store state only and do NOT apply their transforms in the Metal pipeline (a
-// full convolution/histogram pass is DELIBERATELY not built — owned by later work; classic
-// Mac games do not use imaging convolution/histogram). Those families are
-// honestly DE-ADVERTISED: the ARB imaging umbrella token is NOT in the GL_EXTENSIONS string
-// (over-advertising would be the silent-wrong-output the Core Value forbids), and each
-// handler LOGS its known limitation so the disposition is visible at runtime,
-// never a silent claim of success. (The umbrella token is intentionally not
-// spelled out as a literal so the GLARBExtensionTests source-scan absence assertion stays
-// robust — same discipline as the COMBINE de-advertisement.)
+// --- Imaging subset (GL 1.2) ---
+// Color tables are applied on texture upload (GLApplyColorTableLUT).
+// Convolution and histogram/minmax only store state, so ARB_imaging is not
+// advertised.
 
 // --- Color table operations (9 functions) ---
 
@@ -5584,7 +5725,6 @@ void NativeGLColorTable(GLContext *ctx, uint32_t target, uint32_t ifmt, int32_t 
 	ct.width = w;
 	ct.internal_format = ifmt;
 	ct.defined = true;
-	// Read pixel data from Mac memory, convert to float RGBA
 	if (data != 0 && w > 0) {
 		for (int i = 0; i < w; i++) {
 			if (fmt == GL_RGBA && type == GL_UNSIGNED_BYTE) {
@@ -5598,7 +5738,7 @@ void NativeGLColorTable(GLContext *ctx, uint32_t target, uint32_t ifmt, int32_t 
 				ct.data[i][2] = ReadMacInt8(data + i*3 + 2) / 255.0f;
 				ct.data[i][3] = 1.0f;
 			} else {
-				// Default: opaque white for unsupported formats
+				// Unsupported format: opaque white
 				ct.data[i][0] = ct.data[i][1] = ct.data[i][2] = ct.data[i][3] = 1.0f;
 			}
 		}
@@ -5606,10 +5746,7 @@ void NativeGLColorTable(GLContext *ctx, uint32_t target, uint32_t ifmt, int32_t 
 }
 
 void NativeGLColorTableParameterfv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t params) {
-	// The color-table scale/bias params are NOT consumed by the implemented
-	// single-channel LUT apply; the knob is honestly inert — a
-	// conformant app gets no scale/bias transform rather than a silent partial
-	// one. Logging-only, no state mutation (additive marker only).
+	// Scale/bias are not applied by the LUT path; log only.
 	GL_LOG("ColorTableParameterfv target=0x%x pname=0x%x (known limitation — color-table scale/bias not consumed by the single-channel LUT apply; honestly inert)", target, pname);
 }
 
@@ -5623,30 +5760,26 @@ void NativeGLCopyColorTable(GLContext *ctx, uint32_t target, uint32_t ifmt, int3
 	int idx = gl_color_table_index(target);
 	if (idx < 0) return;
 	GLColorTable &ct = ctx->color_tables[idx];
-	// ASVS-V5 bounds: the guest controls x/y/w. Reject non-positive or
-	// over-ceiling widths BEFORE any framebuffer read / LUT write. The hard ceiling is the
-	// GLColorTable.data[256][4] array. x/y must be non-negative (the readback rect origin).
+	// Guest-controlled; bound by GLColorTable.data[256] before any read.
 	if (w <= 0 || w > 256) return;
 	if (x < 0 || y < 0) return;
-	// Read a 1-row strip of width w from the framebuffer (BGRA8). NULL return == no
-	// framebuffer / blit failure -> honest failure (log + return), never silent success.
+	// One BGRA8 row from the framebuffer
 	int outLen = 0;
 	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, w, 1, &outLen);
 	if (!bgra) {
 		GL_LOG("CopyColorTable: framebuffer read failed (no overlay) — not stored");
 		return;
 	}
-	// Store the strip into color_tables[idx] as float RGBA (BGRA8: B@+0,G@+1,R@+2,A@+3).
-	// Bound the copy by both the requested w and the actual bytes returned (outLen/4).
+	// Bound by both w and the bytes actually returned.
 	int avail = (outLen >= 0) ? outLen / 4 : 0;
 	int n = (w < avail) ? w : avail;
 	if (n > 256) n = 256;
 	for (int i = 0; i < n; i++) {
 		uint8_t *px = bgra + i * 4;
-		ct.data[i][0] = px[2] / 255.0f;   // R
-		ct.data[i][1] = px[1] / 255.0f;   // G
-		ct.data[i][2] = px[0] / 255.0f;   // B
-		ct.data[i][3] = px[3] / 255.0f;   // A
+		ct.data[i][0] = px[2] / 255.0f;
+		ct.data[i][1] = px[1] / 255.0f;
+		ct.data[i][2] = px[0] / 255.0f;
+		ct.data[i][3] = px[3] / 255.0f;
 	}
 	ct.width = n;
 	ct.internal_format = ifmt;
@@ -5661,7 +5794,6 @@ void NativeGLGetColorTable(GLContext *ctx, uint32_t target, uint32_t fmt, uint32
 	if (idx < 0) return;
 	const GLColorTable &ct = ctx->color_tables[idx];
 	if (!ct.defined) return;
-	// Write stored float RGBA data back to Mac memory as unsigned bytes
 	if (type == GL_UNSIGNED_BYTE && (fmt == GL_RGBA || fmt == GL_RGB)) {
 		int bpp = (fmt == GL_RGBA) ? 4 : 3;
 		for (int i = 0; i < ct.width; i++) {
@@ -5718,32 +5850,22 @@ void NativeGLColorSubTable(GLContext *ctx, uint32_t target, int32_t start, int32
 	if (idx < 0) return;
 	GLColorTable &ct = ctx->color_tables[idx];
 	if (!ct.defined) return;
-	// ASVS-V5 bounds: start and count are guest-controlled and index into the
-	// fixed GLColorTable.data[256][4] array embedded in the GLContext. Use the SAME
-	// OVERFLOW-SAFE headroom comparison `count > 256 - start` as the hardened
-	// NativeGLCopyColorSubTable twin. The previous loop-guard sum form
-	// (start-plus-index compared against the table width, with no prior range check)
-	// 32-bit-overflows when the guest supplies a large start, letting di = start + i
-	// index out of bounds (the DSp CLUT integer-overflow -> stack-OOB precedent).
-	// Reject start out of range, a zero/negative count, or a strip that would not fit in
-	// the headroom BEFORE any write.
+	// Guest-controlled start/count. Compare against headroom (256 - start)
+	// rather than summing, which could overflow.
 	if (start < 0 || start > 255) return;
 	if (count <= 0) return;
-	if (count > 256 - start) return;        // overflow-safe headroom check (NOT the naive sum)
-	// Core Value: no silent no-op — the loop below only handles
-	// GL_RGBA + GL_UNSIGNED_BYTE. Any other format/type combination would silently
-	// do nothing after the bounds pass; log the known limitation and fail honestly
-	// instead (mirrors the de-advertised imaging-family known-limitation logs).
+	if (count > 256 - start) return;
+	// Only GL_RGBA / GL_UNSIGNED_BYTE is handled; log anything else.
 	if (fmt != GL_RGBA || type != GL_UNSIGNED_BYTE) {
 		GL_LOG("ColorSubTable: unhandled fmt=0x%x type=0x%x (known limitation — only GL_RGBA/GL_UNSIGNED_BYTE applied)", fmt, type);
 		return;
 	}
 	int n = count;
-	if (start + n > ct.width) n = ct.width - start;  // clamp to the existing LUT size
+	if (start + n > ct.width) n = ct.width - start;
 	if (n <= 0) return;
 	for (int i = 0; i < n; i++) {
 		int di = start + i;
-		if (di >= 256) break;               // hard ceiling guard (di already <= start+count <= 256)
+		if (di >= 256) break;
 		ct.data[di][0] = ReadMacInt8(data + i*4 + 0) / 255.0f;
 		ct.data[di][1] = ReadMacInt8(data + i*4 + 1) / 255.0f;
 		ct.data[di][2] = ReadMacInt8(data + i*4 + 2) / 255.0f;
@@ -5758,17 +5880,12 @@ void NativeGLCopyColorSubTable(GLContext *ctx, uint32_t target, int32_t start, i
 	if (idx < 0) return;
 	GLColorTable &ct = ctx->color_tables[idx];
 	if (!ct.defined) return;
-	// ASVS-V5 bounds (HIGH): start and w are guest-controlled and index into the
-	// fixed GLColorTable.data[256][4] array. Use the OVERFLOW-SAFE headroom comparison
-	// `w > 256 - start` rather than the naive sum-then-compare form — the naive sum
-	// 32-bit-overflows when the guest supplies a large start (the DSp CLUT
-	// integer-overflow -> stack-OOB precedent). Reject start out of range, a zero/negative
-	// width, or a strip that would not fit in the headroom BEFORE any framebuffer read / write.
+	// Guest-controlled start/w. Compare against headroom (256 - start)
+	// rather than summing, which could overflow.
 	if (start < 0 || start > 255) return;
 	if (w <= 0) return;
-	if (w > 256 - start) return;            // overflow-safe headroom check (NOT the naive sum)
+	if (w > 256 - start) return;
 	if (x < 0 || y < 0) return;
-	// Read a 1-row strip of width w from the framebuffer (BGRA8). NULL return -> honest fail.
 	int outLen = 0;
 	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, w, 1, &outLen);
 	if (!bgra) {
@@ -5779,12 +5896,12 @@ void NativeGLCopyColorSubTable(GLContext *ctx, uint32_t target, int32_t start, i
 	int n = (w < avail) ? w : avail;
 	for (int i = 0; i < n; i++) {
 		int di = start + i;
-		if (di >= 256) break;               // hard ceiling guard (di already <= start+w <= 256)
+		if (di >= 256) break;
 		uint8_t *px = bgra + i * 4;
-		ct.data[di][0] = px[2] / 255.0f;    // R
-		ct.data[di][1] = px[1] / 255.0f;    // G
-		ct.data[di][2] = px[0] / 255.0f;    // B
-		ct.data[di][3] = px[3] / 255.0f;    // A
+		ct.data[di][0] = px[2] / 255.0f;    // BGRA8 -> RGBA
+		ct.data[di][1] = px[1] / 255.0f;
+		ct.data[di][2] = px[0] / 255.0f;
+		ct.data[di][3] = px[3] / 255.0f;
 	}
 	free(bgra);
 }
@@ -5792,18 +5909,8 @@ void NativeGLCopyColorSubTable(GLContext *ctx, uint32_t target, int32_t start, i
 
 // --- Convolution operations (13 functions) ---
 
-// DELIBERATE de-advertisement: the ARB imaging
-// CONVOLUTION family (sub-ops 478-490) stores its kernel/params honestly but is
-// NOT applied to any pixel — a convolution pass is DELIBERATELY not built (classic
-// Mac games do not use imaging convolution).
-// Over-advertising the capability would be the silent-wrong-output the Core Value
-// forbids: a conformant app that sees the imaging umbrella token would call this
-// path and silently get an un-convolved result. The honest fix is capability-gating
-// — the umbrella token is ABSENT from the GL_EXTENSIONS string (see the glGetString
-// switch above) and each handler LOGS its known limitation so the disposition is
-// visible. State is kept for API completeness (glGet* round-trips), never claimed
-// as applied. Real apply path is owned by later work. (The umbrella token is not
-// spelled out as a literal so the source-scan absence assertion stays robust.)
+// State is stored for glGet* round-trips but never applied to pixels; classic
+// Mac games do not use convolution. Handlers log the limitation.
 void NativeGLConvolutionFilter1D(GLContext *ctx, uint32_t target, uint32_t ifmt, int32_t w, uint32_t fmt, uint32_t type, uint32_t data) {
 	GL_LOG("ConvolutionFilter1D target=0x%x width=%d (known limitation — kernel stored, NOT applied; imaging umbrella de-advertised)", target, w);
 	if (!ctx) return;
@@ -5869,7 +5976,7 @@ void NativeGLConvolutionFilter2D(GLContext *ctx, uint32_t target, uint32_t ifmt,
 
 void NativeGLConvolutionParameterf(GLContext *ctx, uint32_t target, uint32_t pname, float param) {
 	GL_LOG("ConvolutionParameterf target=0x%x pname=0x%x val=%f (known limitation — convolution de-advertised)", target, pname, param);
-	// Border mode parameter — stored but not applied in Metal pipeline (DELIBERATE)
+	// Border mode is stored, not applied
 }
 
 void NativeGLConvolutionParameterfv(GLContext *ctx, uint32_t target, uint32_t pname, uint32_t params) {
@@ -6034,20 +6141,8 @@ void NativeGLSeparableFilter2D(GLContext *ctx, uint32_t target, uint32_t ifmt, i
 
 // --- Histogram/Minmax operations (10 functions) ---
 
-// DELIBERATE de-advertisement: the ARB imaging
-// HISTOGRAM / MINMAX family (sub-ops 491-500) tracks its bins/min-max state
-// honestly but is NOT fed by the actual pixel pipeline — a real histogram/minmax
-// pass is DELIBERATELY not built (classic Mac games do not use imaging
-// histogram/minmax). Advertising the
-// capability would be the silent-wrong-output the Core Value forbids: a conformant
-// app that sees the imaging umbrella token would read GetHistogram/GetMinmax
-// expecting collected pixel statistics and silently get the un-collected defaults.
-// The honest fix is capability-gating — the umbrella token is ABSENT from the
-// GL_EXTENSIONS string (see the glGetString switch above) and each handler LOGS its
-// known limitation so the disposition is visible. State is kept for API
-// completeness, never claimed as collected. Real collection path is owned by
-// later work. (The umbrella token is not spelled out as a literal so the source-scan
-// absence assertion stays robust.)
+// State is stored, but no pixel statistics are collected; classic Mac games do
+// not use histogram/minmax. Handlers log the limitation.
 void NativeGLHistogram(GLContext *ctx, uint32_t target, int32_t width, uint32_t ifmt, uint32_t sink) {
 	GL_LOG("Histogram target=0x%x width=%d fmt=0x%x sink=%d (known limitation — bins tracked, NOT collected from pixels; imaging umbrella de-advertised)", target, width, ifmt, sink);
 	if (!ctx) return;
@@ -6180,63 +6275,91 @@ void NativeGLGetMinmaxParameteriv(GLContext *ctx, uint32_t target, uint32_t pnam
 //  3D texture operations (EXT_texture3D via Metal MTLTextureType3D)
 // ============================================================================
 
+static bool gl_texture_3d_layout(GLContext *ctx, uint32_t &data, int w, int h, int d,
+    uint32_t format, uint32_t type, uint64_t &sliceBytes)
+{
+    const int bpp=GLPixelSourceBytesPerPixel(format,type);
+    if(!bpp){if(!ctx->last_error)ctx->last_error=GL_INVALID_ENUM;return false;}
+    const GLPixelStore &ps=ctx->pixel_store;
+    if(ps.unpack_image_height<0 || ps.unpack_skip_images<0)return GLPixelUploadInvalid(ctx);
+    GLPixelUnpackLayout layout;
+    if(!GLPixelGetUnpackLayout(ctx,ps,data,w,h,unsigned(bpp)*8,layout))return false;
+    sliceBytes=uint64_t(layout.rowStride)*(ps.unpack_image_height?ps.unpack_image_height:h);
+    // Keep arithmetic checked even when skip_images and image_height are both INT_MAX.
+    const uint64_t available=0x100000000ull-data;
+    const uint64_t images=uint64_t(ps.unpack_skip_images)+uint64_t(d-1);
+    if(images && sliceBytes>available/images)return GLPixelUploadInvalid(ctx);
+    const uint64_t first=uint64_t(data)+uint64_t(ps.unpack_skip_images)*sliceBytes;
+    const uint64_t last=uint64_t(data)+images*sliceBytes;
+    if(first>UINT32_MAX || last>UINT32_MAX ||
+       !GLPixelGetUnpackLayout(ctx,ps,uint32_t(last),w,h,unsigned(bpp)*8,layout))return GLPixelUploadInvalid(ctx);
+    const uint64_t begin=first+layout.start;
+    const uint64_t end=last+layout.start+uint64_t(h-1)*layout.rowStride+uint64_t(w)*bpp;
+    auto fits=[&](uint32_t base,uint32_t size){return begin>=base && end>=begin && end-base<=size;};
+    if(!fits(RAMBase,RAMSize) && !fits(ROMBase,ROM_SIZE))return GLPixelUploadInvalid(ctx);
+    data=uint32_t(first);
+    return true;
+}
+
 void NativeGLTexImage3DEXT(GLContext *ctx, uint32_t target, int32_t level, int32_t ifmt,
 	int32_t w, int32_t h, int32_t d, int32_t border, uint32_t fmt, uint32_t type, uint32_t data)
 {
 	GL_LOG("TexImage3D %dx%dx%d fmt=0x%x type=0x%x level=%d", w, h, d, fmt, type, level);
 	if (!ctx) return;
+    if(ctx->in_begin){if(!ctx->last_error)ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(target!=0x806f || !GLPixelSourceBytesPerPixel(fmt,type)){
+        if(!ctx->last_error)ctx->last_error=GL_INVALID_ENUM;
+        return;
+    }
+	if (!GLTextureImageSizeIsValid(level, w, h, d)) {
+		if (!ctx->last_error) ctx->last_error = GL_INVALID_VALUE;
+		return;
+	}
 
-	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_3d;
-	if (texName == 0) return;
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
-	GLTextureObject &tex = it->second;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
+	GLTextureObject &tex = *object;
 
-	tex.width = w;
-	tex.height = h;
-	tex.depth = d;
+    uint64_t srcSliceBytes=0;
+    if(data && w && h && d && !gl_texture_3d_layout(ctx,data,w,h,d,fmt,type,srcSliceBytes))return;
+    if (!GLTextureDefineImage(tex, target, level, ifmt, w, h, d)) {
+        if (!ctx->last_error) ctx->last_error = GL_INVALID_VALUE;
+        return;
+    }
+	if (!w || !h || !d) return;
 	if (level > 0) tex.has_mipmaps = true;
 
 	if (data == 0) {
-		// Allocate storage only (no data)
+		// No data: allocate storage only
 		int emptyLen = w * h * d * 4;
 		uint8_t *emptyData = (uint8_t *)calloc(1, emptyLen);
 		if (emptyData) {
+            GLTextureApplyInternalFormatBGRA(emptyData, emptyLen, GLTextureLevelBaseFormat(tex, level));
 			GLMetalUpload3DTexture(ctx, &tex, level, w, h, d, emptyData, emptyLen);
 			free(emptyData);
 		}
 		return;
 	}
 
-	// Convert each slice and assemble into a single buffer
 	int sliceSize = w * h * 4;
 	int totalSize = sliceSize * d;
 	uint8_t *converted = (uint8_t *)malloc(totalSize);
 	if (!converted) return;
 
-	// Compute source slice stride
-	int srcBpp = 0;
-	switch (fmt) {
-		case GL_RGBA: case 0x80E1: srcBpp = 4; break; // GL_BGRA_EXT
-		case GL_RGB: srcBpp = 3; break;
-		case GL_LUMINANCE: case GL_ALPHA_FORMAT: srcBpp = 1; break;
-		case GL_LUMINANCE_ALPHA: srcBpp = 2; break;
-		default: srcBpp = 4; break;
-	}
-	int srcSliceBytes = w * h * srcBpp;
 
 	for (int z = 0; z < d; z++) {
-		uint32_t sliceSrc = data + z * srcSliceBytes;
+		uint32_t sliceSrc = data + uint32_t(uint64_t(z) * srcSliceBytes);
 		int outLen = 0;
 		uint8_t *sliceData = ConvertPixelsToBGRA8(sliceSrc, w, h, fmt, type, ctx->pixel_store, ctx, &outLen);
 		if (sliceData) {
 			memcpy(converted + z * sliceSize, sliceData, sliceSize);
 			free(sliceData);
 		} else {
-			memset(converted + z * sliceSize, 0xFF, sliceSize); // magenta fallback
+			memset(converted + z * sliceSize, 0xFF, sliceSize); // opaque white
 		}
 	}
 
+    GLTextureApplyInternalFormatBGRA(converted, totalSize, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUpload3DTexture(ctx, &tex, level, w, h, d, converted, totalSize);
 	free(converted);
 }
@@ -6246,32 +6369,30 @@ void NativeGLTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level,
 	uint32_t fmt, uint32_t type, uint32_t data)
 {
 	GL_LOG("TexSubImage3D offset=(%d,%d,%d) size=%dx%dx%d", xoff, yoff, zoff, w, h, d);
-	if (!ctx || data == 0) return;
+    if(!ctx)return;
+    if(ctx->in_begin){if(!ctx->last_error)ctx->last_error=GL_INVALID_OPERATION;return;}
+    if(target!=0x806f || !GLPixelSourceBytesPerPixel(fmt,type)){
+        if(!ctx->last_error)ctx->last_error=GL_INVALID_ENUM;
+        return;
+    }
 
-	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_3d;
-	if (texName == 0) return;
-	auto it = ctx->texture_objects.find(texName);
-	if (it == ctx->texture_objects.end()) return;
-	GLTextureObject &tex = it->second;
-	if (!tex.metal_texture) return;
+	GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+	if (!object) return;
+	GLTextureObject &tex = *object;
+	const uint32_t error = GLTextureSubImageError(tex, level, xoff, yoff, zoff, w, h, d);
+	if (error) { if (!ctx->last_error) ctx->last_error = error; return; }
+	if (!w || !h || !d || !data) return;
 
-	// Convert source pixels slice by slice
-	int srcBpp = 0;
-	switch (fmt) {
-		case GL_RGBA: case 0x80E1: srcBpp = 4; break;
-		case GL_RGB: srcBpp = 3; break;
-		case GL_LUMINANCE: case GL_ALPHA_FORMAT: srcBpp = 1; break;
-		case GL_LUMINANCE_ALPHA: srcBpp = 2; break;
-		default: srcBpp = 4; break;
-	}
-	int srcSliceBytes = w * h * srcBpp;
+    uint64_t srcSliceBytes=0;
+    if(!gl_texture_3d_layout(ctx,data,w,h,d,fmt,type,srcSliceBytes))return;
+
 	int sliceSize = w * h * 4;
 	int totalSize = sliceSize * d;
 	uint8_t *converted = (uint8_t *)malloc(totalSize);
 	if (!converted) return;
 
 	for (int z = 0; z < d; z++) {
-		uint32_t sliceSrc = data + z * srcSliceBytes;
+		uint32_t sliceSrc = data + uint32_t(uint64_t(z) * srcSliceBytes);
 		int outLen = 0;
 		uint8_t *sliceData = ConvertPixelsToBGRA8(sliceSrc, w, h, fmt, type, ctx->pixel_store, ctx, &outLen);
 		if (sliceData) {
@@ -6282,6 +6403,7 @@ void NativeGLTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level,
 		}
 	}
 
+    GLTextureApplyInternalFormatBGRA(converted, totalSize, GLTextureLevelBaseFormat(tex, level));
 	GLMetalUploadSubTexture3D(ctx, &tex, level, xoff, yoff, zoff, w, h, d,
 	                          converted, w * 4, sliceSize);
 	free(converted);
@@ -6290,18 +6412,16 @@ void NativeGLTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level,
 void NativeGLCopyTexSubImage3DEXT(GLContext *ctx, uint32_t target, int32_t level,
 	int32_t xoff, int32_t yoff, int32_t zoff, int32_t x, int32_t y, int32_t w, int32_t h)
 {
-	// 3D texture sub-copy: read framebuffer, upload as a single slice
+	// Read the framebuffer rect and upload it as one slice
 	if (!ctx || w <= 0 || h <= 0) return;
 	int bufLen = 0;
 	uint8_t *bgra = GLMetalReadFramebufferRect(ctx, x, y, w, h, &bufLen);
 	if (!bgra) return;
 
-	uint32_t texName = ctx->tex_units[ctx->active_texture].bound_texture_3d;
-	if (texName != 0) {
-		auto it = ctx->texture_objects.find(texName);
-		if (it != ctx->texture_objects.end()) {
-			GLMetalUploadSubTexture3D(ctx, &it->second, level, xoff, yoff, zoff, w, h, 1, bgra, w * 4, w * h * 4);
-		}
-	}
+    GLTextureObject *object = GLBoundTextureObject(ctx, ctx->active_texture, target);
+    if (object) {
+        GLTextureApplyInternalFormatBGRA(bgra, bufLen, GLTextureLevelBaseFormat(*object, level));
+        GLMetalUploadSubTexture3D(ctx, object, level, xoff, yoff, zoff, w, h, 1, bgra, w * 4, w * h * 4);
+    }
 	free(bgra);
 }

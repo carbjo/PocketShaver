@@ -103,8 +103,10 @@ static inline void GLMetalBuildPixelQuadVertices(
 	GLMetalPixelQuadVertex out[4],
 	float ndc_x0, float ndc_y0, float ndc_x1, float ndc_y1)
 {
-	const float v_at_origin = (ndc_y1 < ndc_y0) ? 0.0f : 1.0f;
-	const float v_at_extent = 1.0f - v_at_origin;
+	// CPU uploads retain GL's source-row order. Row zero belongs at the
+	// raster origin, including when negative pixel zoom reverses geometry.
+	const float v_at_origin = 0.0f;
+	const float v_at_extent = 1.0f;
 
 	out[0] = {ndc_x0, ndc_y0, 0.0f, v_at_origin};
 	out[1] = {ndc_x1, ndc_y0, 1.0f, v_at_origin};

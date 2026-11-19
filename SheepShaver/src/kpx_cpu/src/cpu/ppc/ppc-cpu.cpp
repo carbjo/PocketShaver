@@ -641,8 +641,7 @@ void * powerpc_cpu::call_compile_chain_block(powerpc_cpu * the_cpu, block_info *
 void * PF_CONVENTION powerpc_cpu::compile_chain_block(block_info *sbi)
 {
 #ifdef KPX_JIT_INSTRUMENT
-	// Differential-harness hook: proves direct block chaining resolved links
-	// at run time (never defined in shipping builds)
+	// Differential-harness hook (not defined in shipping builds)
 	extern unsigned long kpx_jit_chain_count;
 	kpx_jit_chain_count++;
 #endif
@@ -784,12 +783,10 @@ void powerpc_cpu::execute(uint32 entry)
 				}
 			} while ((ii->cflow & CFLOW_END_BLOCK) == 0);
 			bi->end_pc = dpc;
-			// min_pc is this block's OWN start (bi->pc), not the execute()
-			// entry argument: a block predecoded below the entry PC would
-			// otherwise get min_pc > max_pc, inverting its range so that
-			// clear_range's intersect misses it and leaves a stale block
-			// live on self-modifying code (matches the JIT translate path,
-			// which uses the block's entry_point as min_pc).
+			// min_pc is the block's own start (bi->pc), not the execute() entry:
+			// a block predecoded below the entry PC would get min_pc > max_pc, and
+			// clear_range would miss it on self-modifying code. The JIT translate
+			// path likewise uses the block's entry_point.
 			bi->min_pc = bi->pc;
 			bi->max_pc = dpc;
 			bi->size = di - bi->di;

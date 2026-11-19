@@ -43,8 +43,7 @@ class PreferencesModel {
 			NetworkSettings.initIfNeeded()
 			objc_update_sdl_ipad_mouse_setting(MiscellaneousSettings.current.iPadMousePassthrough)
 			UNUserNotificationCenter.current().removeAllDeliveredNotifications()
-			// The on-screen gamepad (and its expensive, full-window, main-thread
-			// thumbnail rendering) is not shown on Mac, so skip the preload there.
+			// No on-screen gamepad on Mac, so skip the costly thumbnail preload.
 			if UIDevice.deviceType != .mac {
 				GamepadThumbnailCache.shared.preloadImages()
 			}
