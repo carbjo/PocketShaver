@@ -186,8 +186,6 @@
 		C7B04B902F77B6F900A36842 /* MemoryDumpObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7B04B8F2F77B6EF00A36842 /* MemoryDumpObjC.mm */; };
 		C7B23CC32F58122100B784E7 /* TableViewDiffableDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B23CC22F58121C00B784E7 /* TableViewDiffableDataSource.swift */; };
 		C7B23CC62F5C772B00B784E7 /* PreferencesTwoFingerSteeringDetailsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B23CC52F5C771C00B784E7 /* PreferencesTwoFingerSteeringDetailsViewController.swift */; };
-		C7B4E21A2F33962400246FBE /* Fonts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B4E2192F33962200246FBE /* Fonts.swift */; };
-		C7B4E21E2F33982800246FBE /* Fonts.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C7B4E21D2F33982800246FBE /* Fonts.xcassets */; };
 		C7BC1A622E25779B006F95CB /* HiddenInputFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */; };
 		C7BC1A642E2A84B2006F95CB /* MonitorResolutionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */; };
 		C7BC1A672E2A878E006F95CB /* MonitorResolutionsObjC.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7BC1A662E2A878B006F95CB /* MonitorResolutionsObjC.mm */; };
@@ -338,13 +336,14 @@
 		E204B98228BC3EBE0081FDCA /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E447066F25D904D500EA2C14 /* Metal.framework */; };
 		E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */; };
 		E204B9CE28BC7BF10081FDCA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E204B9A428BC7BF10081FDCA /* Assets.xcassets */; };
+		F4C38619B12E4A3EAD267C59 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F4C38619B12E4A3EAD267C58 /* PrivacyInfo.xcprivacy */; };
 		E204B9D628BC7BF10081FDCA /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9AE28BC7BF10081FDCA /* main.mm */; };
 		E204B9E828BC7CE80081FDCA /* clip_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9E728BC7CE80081FDCA /* clip_ios.mm */; };
 		E204B9EC28BC7CF20081FDCA /* prefs_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9EB28BC7CF20081FDCA /* prefs_ios.mm */; };
 		E204B9F228BC7D020081FDCA /* utils_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = E204B9EF28BC7D010081FDCA /* utils_ios.mm */; };
 		E204B9F328BC7D020081FDCA /* sys_darwin_ios.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E204B9F028BC7D010081FDCA /* sys_darwin_ios.cpp */; };
 		E204BA0028BC816E0081FDCA /* SDL2.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204B92128BC3D640081FDCA /* SDL2.xcframework */; };
-		E204BA0128BC816E0081FDCA /* SDL2.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E204B92128BC3D640081FDCA /* SDL2.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E204BA0128BC816E0081FDCA /* SDL2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 286FA9AC3B4D4CC7BEABC331 /* SDL2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E204BA0928BC83620081FDCA /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA0828BC83620081FDCA /* AVFoundation.framework */; };
 		E204BA0B28BC83700081FDCA /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA0A28BC83700081FDCA /* GameController.framework */; };
 		E204BA0D28BC837D0081FDCA /* CoreAudioKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E204BA0C28BC837D0081FDCA /* CoreAudioKit.framework */; };
@@ -475,7 +474,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				E204BA0128BC816E0081FDCA /* SDL2.xcframework in Embed Frameworks */,
+				E204BA0128BC816E0081FDCA /* SDL2.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -834,8 +833,6 @@
 		C7B04B922F77B8FA00A36842 /* MemoryDumpObjCCpp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MemoryDumpObjCCpp.h; sourceTree = "<group>"; };
 		C7B23CC22F58121C00B784E7 /* TableViewDiffableDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableViewDiffableDataSource.swift; sourceTree = "<group>"; };
 		C7B23CC52F5C771C00B784E7 /* PreferencesTwoFingerSteeringDetailsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesTwoFingerSteeringDetailsViewController.swift; sourceTree = "<group>"; };
-		C7B4E2192F33962200246FBE /* Fonts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Fonts.swift; sourceTree = "<group>"; };
-		C7B4E21D2F33982800246FBE /* Fonts.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Fonts.xcassets; sourceTree = "<group>"; };
 		C7B616CF2E9D374800483010 /* hfs-ios.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "hfs-ios.h"; sourceTree = "<group>"; };
 		C7BC1A612E257794006F95CB /* HiddenInputFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenInputFieldDelegate.swift; sourceTree = "<group>"; };
 		C7BC1A632E2A84AA006F95CB /* MonitorResolutionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorResolutionManager.swift; sourceTree = "<group>"; };
@@ -902,11 +899,13 @@
 		DMC10A1B2C3D4E5F60002 /* display_mode_controller.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = display_mode_controller.h; sourceTree = "<group>"; };
 		E204B91C28BC3B640081FDCA /* libkpx_cpu_ios.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libkpx_cpu_ios.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B92128BC3D640081FDCA /* SDL2.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = SDL2.xcframework; sourceTree = "<group>"; };
+		286FA9AC3B4D4CC7BEABC331 /* SDL2.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; name = SDL2.framework; path = SDL2WithPrivacy/SDL2.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B98A28BC3EBE0081FDCA /* PocketShaver.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketShaver.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; path = "iOS Launch Screen.storyboard"; sourceTree = "<group>"; };
 		E204B9A428BC7BF10081FDCA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E204B9AE28BC7BF10081FDCA /* main.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		E204B9C128BC7BF10081FDCA /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F4C38619B12E4A3EAD267C58 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E204B9E728BC7CE80081FDCA /* clip_ios.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = clip_ios.mm; sourceTree = "<group>"; };
 		E204B9EB28BC7CF20081FDCA /* prefs_ios.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = prefs_ios.mm; sourceTree = "<group>"; };
 		E204B9EF28BC7D010081FDCA /* utils_ios.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = utils_ios.mm; sourceTree = "<group>"; };
@@ -1848,8 +1847,6 @@
 				C7A0EC152F4307B40016533F /* Assets.swift */,
 				C74B222B2ED767BC003D0F71 /* Colors.xcassets */,
 				C7699F142EC464930083B3B3 /* Colors.swift */,
-				C7B4E2192F33962200246FBE /* Fonts.swift */,
-				C7B4E21D2F33982800246FBE /* Fonts.xcassets */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -2284,6 +2281,7 @@
 				C7E2AFBE2E19629100CF50D4 /* Swift */,
 				C74B222D2ED78079003D0F71 /* sheepicon.png */,
 				E204B9C128BC7BF10081FDCA /* Info.plist */,
+				F4C38619B12E4A3EAD267C58 /* PrivacyInfo.xcprivacy */,
 				E204B99E28BC7BF00081FDCA /* iOS Launch Screen.storyboard */,
 				E2F38C2228C470CC00FB98B4 /* Localizable.strings */,
 				E204B9AE28BC7BF10081FDCA /* main.mm */,
@@ -2301,6 +2299,7 @@
 			isa = PBXGroup;
 			children = (
 				E420260A2412540D000508DF /* etherhelpertool */,
+				286FA9AC3B4D4CC7BEABC331 /* SDL2.framework */,
 			);
 			name = Generated;
 			sourceTree = "<group>";
@@ -2413,6 +2412,7 @@
 				E204B93228BC3EBE0081FDCA /* Sources */,
 				E204B97D28BC3EBE0081FDCA /* Frameworks */,
 				E204B92B28BC3EBE0081FDCA /* Resources */,
+				286FA9AC3B4D4CC7BEABC332 /* Prepare SDL2 Framework */,
 				E204B98528BC3EBE0081FDCA /* Embed Frameworks */,
 			);
 			buildRules = (
@@ -2481,8 +2481,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				E204B9CE28BC7BF10081FDCA /* Assets.xcassets in Resources */,
+				F4C38619B12E4A3EAD267C59 /* PrivacyInfo.xcprivacy in Resources */,
 				E2F38C2328C470CC00FB98B4 /* Localizable.strings in Resources */,
-				C7B4E21E2F33982800246FBE /* Fonts.xcassets in Resources */,
 				E204B9C928BC7BF10081FDCA /* iOS Launch Screen.storyboard in Resources */,
 				E204B92E28BC3EBE0081FDCA /* SheepShaver.icns in Resources */,
 				C74B222C2ED767BD003D0F71 /* Colors.xcassets in Resources */,
@@ -2494,6 +2494,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		286FA9AC3B4D4CC7BEABC332 /* Prepare SDL2 Framework */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/SDL2.framework",
+				"$(SRCROOT)/PocketShaver/SDL2 Packaging/PrivacyInfo-iOS.xcprivacy",
+				"$(SRCROOT)/PocketShaver/SDL2 Packaging/PrivacyInfo-MacCatalyst.xcprivacy",
+				"$(SRCROOT)/PocketShaver/SDL2 Packaging/stage-framework.sh",
+			);
+			name = "Prepare SDL2 Framework";
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/SDL2WithPrivacy/SDL2.framework",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"$SCRIPT_INPUT_FILE_3\"\n";
+		};
 		08CD3F3214B665E1009CA2A2 /* Preprocess Info.plist */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -2826,7 +2845,6 @@
 				C7699F152EC464990083B3B3 /* Colors.swift in Sources */,
 				C7C3D26E2E76F3BC0018DB8B /* GamepadAssignButtonViewController.swift in Sources */,
 				C790E8742F055D5200B784A6 /* ADBObjC.mm in Sources */,
-				C7B4E21A2F33962400246FBE /* Fonts.swift in Sources */,
 				E204B95A28BC3EBE0081FDCA /* timer.cpp in Sources */,
 				C790E8772F055ECC00B784A6 /* InputInteractionModel.swift in Sources */,
 				C73660F42E37B5C80055AA91 /* Gamepad.swift in Sources */,
