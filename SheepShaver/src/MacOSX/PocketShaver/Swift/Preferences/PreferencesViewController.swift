@@ -107,6 +107,7 @@ public class PreferencesViewController: UIViewController {
 	private var lockInterfaceOrientationsToLandscape = false
 	private var pendingBoot: (() -> Void)?
 	private var bootRotationRequestID = UUID()
+	private var activeSizeTransition: ObjectIdentifier?
 
 	public override var shouldAutorotate: Bool {
 		return true
@@ -208,10 +209,14 @@ public class PreferencesViewController: UIViewController {
 	}
 
 	public override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+		let transition = ObjectIdentifier(coordinator)
+		activeSizeTransition = transition
 		super.viewWillTransition(to: size, with: coordinator)
 		coordinator.animate(alongsideTransition: nil) { [weak self] _ in
-			self?.updateBottomButton()
-			self?.finishBootAfterRotationIfReady(afterTransition: true)
+			guard let self, activeSizeTransition == transition else { return }
+			activeSizeTransition = nil
+			updateBottomButton()
+			finishBootAfterRotationIfReady()
 		}
 	}
 
@@ -220,11 +225,12 @@ public class PreferencesViewController: UIViewController {
 		finishBootAfterRotationIfReady()
 	}
 
-	private func finishBootAfterRotationIfReady(afterTransition: Bool = false) {
+	private func finishBootAfterRotationIfReady() {
+		// Layout can reach landscape during rotation even when transitionCoordinator is nil.
 		guard let pendingBoot,
+			  activeSizeTransition == nil,
 			  view.window?.windowScene?.interfaceOrientation.isLandscape == true,
-			  view.bounds.width > view.bounds.height,
-			  afterTransition || transitionCoordinator == nil else { return }
+			  view.bounds.width > view.bounds.height else { return }
 		self.pendingBoot = nil
 		// Leave UIKit's layout callback before removing the preferences window.
 		DispatchQueue.main.async(execute: pendingBoot)
