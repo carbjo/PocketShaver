@@ -248,12 +248,29 @@ void enterMacCatalystFullscreenIfEligible(void) {
 #endif
 }
 
+void enableIOSJitIfEligible(void) {
+	if(!MiscellaneousSettingsObjC.enableJitIfSkipPreferencesScreenAtLaunch) {
+		return;
+	}
+
+	StikDebugJitEnablerObjC *stikDebugJitEnablerObjC = [StikDebugJitEnablerObjC new];
+	while (!stikDebugJitEnablerObjC.isDone) {
+		[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
+	}
+
+	if (!stikDebugJitEnablerObjC.result) {
+		[PreferencesViewController relaunchFromStikDebugIfEligible];
+	}
+}
+
 void objc_displayPreferencesStartup(void) {
 	@autoreleasepool {
 		if (MiscellaneousSettingsObjC.shouldSkipPreferencesScreenAtLaunch &&
 			[PreferencesViewController writePreferencesIfEligible]) {
 #if TARGET_OS_MACCATALYST
 			enterMacCatalystFullscreenIfEligible();
+#else
+			enableIOSJitIfEligible();
 #endif
 			return;
 		}

@@ -414,16 +414,9 @@ public class PreferencesViewController: UIViewController {
 
 	@MainActor
 	private func quitAndRelaunchFromStikDebug() async {
-		let block = {
-			let url = StikDebugJitManager.shared.stikDebugUrl(withPid: false)!
-			await UIApplication.shared.open(url)
-
-			exit(0)
-		}
-
 		switch model.mode {
 		case .startup:
-			await block()
+			await StikDebugJitManager.relaunchFromStikDebug()
 		case .duringEmulation:
 			let alertVC = UIAlertController(
 				title: "Restart needed",
@@ -432,7 +425,7 @@ public class PreferencesViewController: UIViewController {
 			)
 			alertVC.addAction(.init(title: "Quit & relaunch from StikDebug", style: .default, handler: { _ in
 				Task { @MainActor in
-					await block()
+					await StikDebugJitManager.relaunchFromStikDebug()
 				}
 			}))
 			alertVC.addAction(.init(title: "Cancel", style: .cancel))
@@ -505,6 +498,17 @@ public class PreferencesViewController: UIViewController {
 		writePreferences()
 
 		return true
+	}
+
+	@objc
+	public static func relaunchFromStikDebugIfEligible() {
+		guard StikDebugJitManager.isStikDebugInstalled else {
+			return
+		}
+
+		Task {
+			await StikDebugJitManager.relaunchFromStikDebug()
+		}
 	}
 }
 

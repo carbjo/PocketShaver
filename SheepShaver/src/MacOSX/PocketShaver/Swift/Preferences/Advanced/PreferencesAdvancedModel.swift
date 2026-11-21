@@ -62,6 +62,16 @@ class PreferencesAdvancedModel {
 	}
 
 	@MainActor
+	var enableJitIfSkipPreferencesScreenAtLaunch: Bool {
+		get {
+			miscSettings.enableJitIfSkipPreferencesScreenAtLaunch
+		}
+		set {
+			miscSettings.set(enableJitIfSkipPreferencesScreenAtLaunch: newValue)
+		}
+	}
+
+	@MainActor
 	var keysJoystickDeadZone: CGFloat {
 		get {
 			miscSettings.keysJoystickDeadZone

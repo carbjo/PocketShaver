@@ -106,6 +106,7 @@ class MiscellaneousSettings: Codable {
 	private(set) var keysJoystickHapticFeedback: Bool
 	private(set) var keysJoystickDeadZone: CGFloat
 	private(set) var skipPreferencesScreenAtLaunch: Bool
+	private(set) var enableJitIfSkipPreferencesScreenAtLaunch: Bool
 
 	var secondFingerClick: Bool {
 		twoFingerSteeringSetting != .off
@@ -185,6 +186,7 @@ class MiscellaneousSettings: Codable {
 		keysJoystickHapticFeedback = true
 		keysJoystickDeadZone = 0.25
 		skipPreferencesScreenAtLaunch = false
+		enableJitIfSkipPreferencesScreenAtLaunch = false
 	}
 
 	@MainActor
@@ -442,6 +444,13 @@ class MiscellaneousSettings: Codable {
 
 		saveAsCurrent()
 	}
+
+	@MainActor
+	func set(enableJitIfSkipPreferencesScreenAtLaunch: Bool) {
+		self.enableJitIfSkipPreferencesScreenAtLaunch = enableJitIfSkipPreferencesScreenAtLaunch
+
+		saveAsCurrent()
+	}
 }
 
 class MiscellaneousCachedSettings {
@@ -519,5 +528,10 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func shouldSkipPreferencesScreenAtLaunch() -> Bool {
 		MiscellaneousSettings.current.skipPreferencesScreenAtLaunch
+	}
+
+	@MainActor
+	static func enableJitIfSkipPreferencesScreenAtLaunch() -> Bool {
+		MiscellaneousSettings.current.enableJitIfSkipPreferencesScreenAtLaunch
 	}
 }

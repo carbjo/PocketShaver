@@ -52,6 +52,8 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		case uiOptionsKeysJoystickDeadZone
 		case uiOptionsShowPreferencesAtLaunch
 		case uiOptionsShowPreferencesAtLaunchOffInfo
+		case uiOptionsEnableJitIfSkipPreferencesScreenAtLaunch
+		case uiOptionsEnableJitIfSkipPreferencesScreenAtLaunchInfo
 
 		// hapticFeedback
 		case hapticFeedbackSwipeGesturesToggle
@@ -298,6 +300,18 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 				return PreferencesCardInformationCell(
 					text: "PocketShaver boots immidiately upon launch. If boot is not possible due to the current configuration, preferences will be shown instead."
 				)
+			case .uiOptionsEnableJitIfSkipPreferencesScreenAtLaunch:
+				return PreferencesEnabledSettingCell(
+					title: "Always launch with JIT enabled",
+					isOn: model.enableJitIfSkipPreferencesScreenAtLaunch
+				) { [weak self] isOn in
+					self?.model.enableJitIfSkipPreferencesScreenAtLaunch = isOn
+					self?.reloadData()
+				}
+			case .uiOptionsEnableJitIfSkipPreferencesScreenAtLaunchInfo:
+				return PreferencesCardInformationCell(
+					text: "If PocketShaver is launched without JIT, PocketShaver will try to re-launch itself through StikDebug in order to boot with JIT enabled."
+				)
 			case .hapticFeedbackSwipeGesturesToggle:
 				return PreferencesEnabledSettingCell(
 					title: "Two / three finger swipe gestures",
@@ -463,7 +477,17 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		}
 		snapshot.appendItems([.uiOptionsShowPreferencesAtLaunch])
 		if model.skipPreferencesScreenAtLaunch {
-			snapshot.appendItems([.uiOptionsShowPreferencesAtLaunchOffInfo])
+			snapshot.appendItems([
+				.uiOptionsShowPreferencesAtLaunchOffInfo
+			])
+
+			if UIDevice.deviceType != .mac {
+				snapshot.appendItems([.uiOptionsEnableJitIfSkipPreferencesScreenAtLaunch])
+
+				if model.enableJitIfSkipPreferencesScreenAtLaunch {
+					snapshot.appendItems([.uiOptionsEnableJitIfSkipPreferencesScreenAtLaunchInfo])
+				}
+			}
 		}
 
 		if model.supportsHaptics {

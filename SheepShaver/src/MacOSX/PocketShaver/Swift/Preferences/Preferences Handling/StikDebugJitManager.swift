@@ -149,4 +149,50 @@ class StikDebugJitManager {
 		components.queryItems = queryItems
 		return components.url
 	}
+
+	@MainActor
+	static var isStikDebugInstalled: Bool {
+		var components = URLComponents()
+		components.scheme = "stikdebug"
+		let url = components.url!
+		return UIApplication.shared.canOpenURL(url)
+	}
+
+	static func relaunchFromStikDebug() async {
+		let url = StikDebugJitManager.shared.stikDebugUrl(withPid: false)!
+		await UIApplication.shared.open(url)
+
+		exit(0)
+	}
+}
+
+// Only used when MiscellaneousSettings.current.enableJitIfSkipPreferencesScreenAtLaunch == true
+@objc
+public class StikDebugJitEnablerObjC: NSObject {
+	@objc private(set) var isDone: Bool = false
+	@objc private(set) var result = false
+
+	private var anyCancellables = Set<AnyCancellable>()
+
+	@MainActor
+	override init() {
+		super.init()
+
+		listenToChanges()
+
+		StikDebugJitManager.shared.acquireIfLaunchedByDebugger()
+	}
+
+	@MainActor
+	private func listenToChanges() {
+		StikDebugJitManager.shared.changeSubject.sink { [weak self] change in
+			guard let self else { return }
+
+			switch change {
+			case .statusChanged(let status):
+				result = status == .enabled
+				isDone = true
+			}
+		}.store(in: &anyCancellables)
+	}
 }

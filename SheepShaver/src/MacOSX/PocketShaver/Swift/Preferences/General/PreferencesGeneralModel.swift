@@ -162,12 +162,8 @@ class PreferencesGeneralModel {
 
 	@MainActor
 	var isStikDebugInstalled: Bool {
-		var components = URLComponents()
-		components.scheme = "stikdebug"
-		let url = components.url!
-		return UIApplication.shared.canOpenURL(url)
+		StikDebugJitManager.isStikDebugInstalled
 	}
-
 
 	// MARK: - Initializer
 
