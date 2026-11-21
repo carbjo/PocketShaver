@@ -50,6 +50,8 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		case uiOptionsReportIpAddressAssignment
 		case uiOptionsReportClipboardSharingActivity
 		case uiOptionsKeysJoystickDeadZone
+		case uiOptionsShowPreferencesAtLaunch
+		case uiOptionsShowPreferencesAtLaunchOffInfo
 
 		// hapticFeedback
 		case hapticFeedbackSwipeGesturesToggle
@@ -284,6 +286,18 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 				) { [weak self] value in
 					self?.model.keysJoystickDeadZone = value
 				}
+			case .uiOptionsShowPreferencesAtLaunch:
+				return PreferencesEnabledSettingCell(
+					title: "Show preferences screen at launch",
+					isOn: !model.skipPreferencesScreenAtLaunch
+				) { [weak self] isOn in
+					self?.model.skipPreferencesScreenAtLaunch = !isOn
+					self?.reloadData()
+				}
+			case .uiOptionsShowPreferencesAtLaunchOffInfo:
+				return PreferencesCardInformationCell(
+					text: "PocketShaver boots immidiately upon launch. If boot is not possible due to the current configuration, preferences will be shown instead."
+				)
 			case .hapticFeedbackSwipeGesturesToggle:
 				return PreferencesEnabledSettingCell(
 					title: "Two / three finger swipe gestures",
@@ -446,6 +460,10 @@ class PreferencesAdvancedViewController: PreferencesTableViewController {
 		snapshot.appendItems([.uiOptionsReportClipboardSharingActivity])
 		if UIDevice.deviceType != .mac {
 			snapshot.appendItems([.uiOptionsKeysJoystickDeadZone])
+		}
+		snapshot.appendItems([.uiOptionsShowPreferencesAtLaunch])
+		if model.skipPreferencesScreenAtLaunch {
+			snapshot.appendItems([.uiOptionsShowPreferencesAtLaunchOffInfo])
 		}
 
 		if model.supportsHaptics {
