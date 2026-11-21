@@ -105,6 +105,7 @@ class MiscellaneousSettings: Codable {
 	private(set) var reportClipboardSharingActivity: Bool
 	private(set) var keysJoystickHapticFeedback: Bool
 	private(set) var keysJoystickDeadZone: CGFloat
+	private(set) var skipPreferencesScreenAtLaunch: Bool
 
 	var secondFingerClick: Bool {
 		twoFingerSteeringSetting != .off
@@ -183,6 +184,7 @@ class MiscellaneousSettings: Codable {
 		#endif
 		keysJoystickHapticFeedback = true
 		keysJoystickDeadZone = 0.25
+		skipPreferencesScreenAtLaunch = false
 	}
 
 	@MainActor
@@ -433,6 +435,13 @@ class MiscellaneousSettings: Codable {
 
 		saveAsCurrent()
 	}
+
+	@MainActor
+	func set(skipPreferencesScreenAtLaunch: Bool) {
+		self.skipPreferencesScreenAtLaunch = skipPreferencesScreenAtLaunch
+
+		saveAsCurrent()
+	}
 }
 
 class MiscellaneousCachedSettings {
@@ -505,5 +514,10 @@ public class MiscellaneousSettingsObjC: NSObject {
 	@MainActor
 	static func isClipboardSharingAutomatic() -> Bool {
 		MiscellaneousSettings.current.clipboardSharing == .automatic
+	}
+
+	@MainActor
+	static func shouldSkipPreferencesScreenAtLaunch() -> Bool {
+		MiscellaneousSettings.current.skipPreferencesScreenAtLaunch
 	}
 }

@@ -231,8 +231,33 @@ void objc_resize_catalyst_window_for_guest(int guest_w, int guest_h) {
 
 __weak __typeof(PreferencesViewController) *vc;
 
+void enterMacCatalystFullscreenIfEligible(void) {
+#if TARGET_OS_MACCATALYST
+		// Apply the launch Windowed/Full Screen choice. For full screen, run the
+		// loop until the transition lands (max ~2s): once the emulator owns the
+		// main thread, its NSEvent pump is too coarse to finish the animation.
+		bool wantFullscreen = objc_findBool(@"catalystfullscreen");
+		catalyst_set_fullscreen(wantFullscreen);
+		for (int i = 0; wantFullscreen && i < 120 && !catalyst_front_window_is_fullscreen(); i++) {
+			catalyst_pump_appkit_events();
+			[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
+									 beforeDate:[NSDate dateWithTimeIntervalSinceNow:(1.0 / 60.0)]];
+		}
+		// Enable sync for emulation. Its first tick seeds from the state just applied.
+		s_fullscreen_sync_active = true;
+#endif
+}
+
 void objc_displayPreferencesStartup(void) {
 	@autoreleasepool {
+		if (MiscellaneousSettingsObjC.shouldSkipPreferencesScreenAtLaunch &&
+			[PreferencesViewController writePreferencesIfEligible]) {
+#if TARGET_OS_MACCATALYST
+			enterMacCatalystFullscreenIfEligible();
+#endif
+			return;
+		}
+
 #if TARGET_OS_MACCATALYST
 		// Stop macOS restoring the window to full screen on the next launch, so the
 		// startup menu comes up windowed without an exit animation.
@@ -263,18 +288,7 @@ void objc_displayPreferencesStartup(void) {
 		[PreferencesViewController resetPrefsWindow];
 
 #if TARGET_OS_MACCATALYST
-		// Apply the launch Windowed/Full Screen choice. For full screen, run the
-		// loop until the transition lands (max ~2s): once the emulator owns the
-		// main thread, its NSEvent pump is too coarse to finish the animation.
-		bool wantFullscreen = objc_findBool(@"catalystfullscreen");
-		catalyst_set_fullscreen(wantFullscreen);
-		for (int i = 0; wantFullscreen && i < 120 && !catalyst_front_window_is_fullscreen(); i++) {
-			catalyst_pump_appkit_events();
-			[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
-									 beforeDate:[NSDate dateWithTimeIntervalSinceNow:(1.0 / 60.0)]];
-		}
-		// Enable sync for emulation. Its first tick seeds from the state just applied.
-		s_fullscreen_sync_active = true;
+		enterMacCatalystFullscreenIfEligible();
 #endif
 	}
 }

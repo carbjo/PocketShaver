@@ -328,9 +328,7 @@ public class PreferencesViewController: UIViewController {
 			let bootBlock = { [weak self] in
 				guard let self else { return }
 
-				PreferencesManager.shared.writePreferences()
-				objc_set_emulation_orientation(MonitorResolutionManager.shared.willLaunchInPortraitMode)
-				DiskManager.shared.reportWillBoot()
+				Self.writePreferences()
 
 				removeFromParent()
 				prefsWindow.rootViewController = nil
@@ -486,6 +484,27 @@ public class PreferencesViewController: UIViewController {
 	public static func resetPrefsWindow() {
 		prefsWindow.rootViewController = nil
 		prefsWindow.isHidden = true
+	}
+
+	static func writePreferences() {
+		PreferencesManager.shared.writePreferences()
+		objc_set_emulation_orientation(MonitorResolutionManager.shared.willLaunchInPortraitMode)
+		DiskManager.shared.reportWillBoot()
+	}
+
+	@objc
+	public static func writePreferencesIfEligible() -> Bool {
+		let model = PreferencesModel(mode: .startup)
+
+		do {
+			try model.validate()
+		} catch {
+			return false
+		}
+
+		writePreferences()
+
+		return true
 	}
 }
 
