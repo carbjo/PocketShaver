@@ -15,6 +15,8 @@
 
 
 extern "C" int main_ios(int argc, char* argv[]);
+// Defined in PreferencesViewControllerObjC.mm. No-op off Catalyst.
+extern "C" void catalyst_pump_appkit_events(void);
 
 
 /* UIScene adoption. The iOS 27 SDK requires the scene life cycle, but the
@@ -140,10 +142,14 @@ int main(int argc, char * argv[]) {
 	/* Must be installed before the first DSp context goes active. */
 	[DSpIdleTimerService.shared install];
 
-	/* The scene normally connects before SDL calls this. If not, pump briefly
-	 * so the emulator's windows can attach as they are created. */
-	for (int i = 0; i < 500 && !g_window_scene; i++)
+
+	for (int i = 0; i < 500 && !g_window_scene; i++) {
+#if TARGET_OS_MACCATALYST
+		/* Workaround for getting right tint color on UISwitch directly after app launch */
+		catalyst_pump_appkit_events();
+#endif
 		CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, true);
+	}
 	if (!g_window_scene)
 		fprintf(stderr, "main: no UIWindowScene connected after 5s; windows will attach when it does\n");
 
