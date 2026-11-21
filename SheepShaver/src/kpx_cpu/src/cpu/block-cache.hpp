@@ -123,12 +123,10 @@ int block_cache< block_info, block_allocator >::clear_range(uintptr start, uintp
 	if (!active)
 		return 0;
 
-	// Walk the full active list. Blocks are registered in cache_tags[]
-	// under their entry pc only, so a bucket scan over the words in
-	// [start, end) cannot see a block that spans into the range from a
-	// lower entry pc -- it would miss e.g. an icbi flush of a cache line
-	// strictly interior to an already-decoded block.
-	int removed = 0;
+	// Walk the full active list. Blocks are tagged by entry pc only, so a
+	// bucket scan over [start, end) would miss a block spanning into the
+	// range from a lower pc (e.g. an icbi of a line inside a decoded block).
+    int removed = 0;
 	entry *p = active, *q;
 	while (p) {
 		q = p;

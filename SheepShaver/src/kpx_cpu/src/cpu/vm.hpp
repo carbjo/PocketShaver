@@ -213,23 +213,16 @@ static inline uint8 * vm_do_get_real_address(vm_addr_t addr)
 #ifndef MEM_BULK
 	if (a < 0x3000) return &gZeroPage[a];
 #endif
-	// Coarse pre-filter so the hot translation is a bare VMBaseDiff add
-	// behind one branch with no constant materialization: 0xbff << 19 ==
-	// 0x5ff80000, the lowest 512 KB-aligned bound below both kernel
-	// windows, and guest allocations top out well under it (reserved video
-	// ends near 0x5558'0000). Addresses past the mapped guest space also
-	// land here and fall through to the same flat mapping they always had.
-	// Deliberately not a separate noinline function: a call would de-leaf
-	// every memory handler (LR save + spills on the hot path).
+	// Coarse pre-filter so the hot path is a bare VMBaseDiff add behind one
+	// branch with no constant materialization. 0xbff << 19 == 0x5ff80000, the
+	// lowest 512 KB-aligned bound below both kernel windows; guest allocations
+	// end well under it (reserved video ends near 0x5558'0000). Keep inline:
+	// a call would de-leaf every memory handler.
 	if (__builtin_expect((a >> 19) >= 0xbff, 0)) {
-		// 16 KB kernel-data window: KernelData struct in the upper 8 KB
-		// (0x68ffe000 / 0x5fffe000); the lower 8 KB is the stack slack the
-		// nanokernel dips into below KERNEL_DATA_BASE. Platforms that map the
-		// kernel area as a SHMLBA-rounded shm segment get that slack for free;
-		// without it those pushes land in unmapped memory and get silently
-		// skipped under ignoresegv, leaving stale registers on interrupt
-		// return (wild-jump crashes: StarCraft post-splash, DII container
-		// clobbers).
+		// 16 KB kernel-data window: KernelData in the upper 8 KB (0x68ffe000 /
+		// 0x5fffe000); the lower 8 KB is stack slack the nanokernel pushes into
+		// below KERNEL_DATA_BASE. Without it those pushes are silently skipped
+		// under ignoresegv, leaving stale registers on interrupt return.
 		if ((a & ~0x3fff) == 0x68ffc000 || (a & ~0x3fff) == 0x5fffc000) return &gKernelData[a & 0x3fff];
 	}
 #endif

@@ -3,16 +3,11 @@
 #
 # Disassembly gate for the kpx_cpu hot memory paths.
 #
-# Compiles the two translation-critical TUs (ppc-execute.cpp for the
-# interpreter handlers, arm64-helpers.cpp for the JIT memory helpers) with
-# app-matching flags (-O3, macabi, no harness instrumentation), extracts the
-# hot symbols, and normalizes the disassembly. "capture" records a baseline;
-# "compare" diffs the current tree against it and fails on ANY change.
-#
-# Static instruction counting misses codegen regressions like a leaf handler
-# gaining a stack frame; a byte-level shape diff does not. Baselines are
-# machine+toolchain-local by design (never commit them): capture from a
-# pristine checkout, compare from the working tree.
+# Compiles ppc-execute.cpp (interpreter handlers) and arm64-helpers.cpp (JIT
+# memory helpers) with app flags, and normalizes the hot symbols' disassembly.
+# "capture" records a baseline; "compare" fails on any change, catching
+# regressions like a leaf handler gaining a stack frame. Baselines are
+# machine- and toolchain-local; don't commit them.
 #
 # Usage:
 #   tools/kpx-disasm-gate.sh capture [baseline-file]
@@ -27,8 +22,7 @@ OUT=$(mktemp -d /tmp/kpx-disasm-gate.XXXXXX)
 trap "rm -rf $OUT" EXIT
 SDK=$(xcrun --sdk macosx --show-sdk-path)
 
-# App-UI bridge headers pulled in by ppc-execute.cpp under TARGET_OS_IPHONE
-# (same stubs the lockstep harness uses)
+# Stub app-UI bridge headers needed by ppc-execute.cpp (same as the lockstep harness)
 mkdir -p "$OUT/stubs"
 cat > "$OUT/stubs/FatalErrorAlertViewControllerObjCCppHeader.h" <<'EOF'
 #pragma once
@@ -61,16 +55,14 @@ FLAGS=(-target arm64-apple-ios15.2-macabi -isysroot "$SDK" -O3 -std=gnu++14
 clang++ $FLAGS $INCS -c "$K/cpu/ppc/ppc-execute.cpp"     -o "$OUT/ppc-execute.o"
 clang++ $FLAGS $INCS -c "$K/cpu/jit/arm64/arm64-helpers.cpp" -o "$OUT/arm64-helpers.o"
 
-# Hot-path symbols: JIT memory/FP helpers plus the interpreter load/store
-# handler template instantiations
+# JIT memory/FP helpers plus interpreter load/store handler instantiations
 PATTERN='kpx_vm_|kpx_op_|kpx_fp_|execute_loadstore|execute_fp_loadstore'
 
 normalize() {
-	# symbol blocks in sorted order for layout stability; strip addresses and
-	# raw branch-target offsets, keep <sym+off> anchors and #imm operands.
-	# adrp annotations are normalized wholesale (greedy, to end of line —
-	# demangled template names contain '>'): in an unlinked .o the page
-	# anchor resolves against arbitrary neighboring symbols, pure layout noise
+	# Sort symbol blocks for layout stability; strip addresses and raw branch
+	# offsets, keep <sym+off> anchors and #imm operands. adrp annotations are
+	# replaced to end of line (template names contain '>'); in an unlinked .o
+	# they name arbitrary neighbors.
 	xcrun llvm-objdump -d --demangle --no-show-raw-insn "$1" |
 	sed -E 's/^[[:space:]]*[0-9a-f]+:[[:space:]]*/  /; s/[[:space:]]0x[0-9a-f]+[[:space:]]</ </; s/(adrp[[:space:]]+x[0-9]+,) <.*$/\1 <PAGE>/' |
 	awk -v pat="$PATTERN" '
@@ -81,10 +73,8 @@ normalize() {
 	awk -F $'\x01' '{ if ($1 != prev) { print $1; prev = $1 } print $3 }'
 }
 
-# Disassembly of unlinked objects is relocation-blind (external call targets
-# and GOT references all print as zeros), so a change that only repoints a
-# symbol reference would slip past the shape diff. Capture the relocation
-# multiset (type + symbol, counted) alongside it to pin symbol identity.
+# Unlinked disassembly prints external targets as zeros, so also capture the
+# relocation multiset (type + symbol, counted) to catch repointed references.
 relocs() {
 	xcrun llvm-objdump -r "$1" |
 	awk '/^[0-9a-f]+/ { print $2, $3 }' | LC_ALL=C sort | uniq -c | sed -E 's/^[[:space:]]+//'

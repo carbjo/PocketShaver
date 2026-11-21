@@ -300,10 +300,9 @@ void sheepshaver_cpu::execute_sheep(uint32 opcode)
 int sheepshaver_cpu::compile1(codegen_context_t & cg_context)
 {
 #if defined(__aarch64__)
-	// Threaded-code bring-up: SHEEP goes through the generic interpreter
-	// invoke like everything else. The specialized emission below leans on
-	// GPR/PC micro-ops (and, with PPC_REENTRANT_JIT, the EmulOp
-	// trampolines) that the arm64 backend does not implement yet.
+	// SHEEP uses the generic interpreter invoke: the specialized emission
+	// below needs GPR/PC micro-ops (and, with PPC_REENTRANT_JIT, EmulOp
+	// trampolines) that the arm64 backend does not implement.
 	return COMPILE_FAILURE;
 #endif
 	const instr_info_t *ii = cg_context.instr_info;
@@ -810,9 +809,8 @@ static void dump_disassembly(const uint32 pc, const int prefix_count, const int 
 	}
 }
 
-// Crash-context diagnostics (StarCraft post-splash SIGSEGV investigation):
-// validated guest reads only -- a wild pc/sp must not re-fault inside the
-// signal handler (dump_disassembly previously died reading unmapped memory).
+// Crash-context diagnostics. Validated guest reads only: a wild pc/sp must
+// not re-fault inside the signal handler.
 static bool guest_addr_ok(uint32 a, uint32 len)
 {
 	if (a >= RAMBase && a - RAMBase < RAMSize && RAMSize - (a - RAMBase) >= len)
@@ -828,6 +826,9 @@ static bool guest_addr_ok(uint32 a, uint32 len)
 
 static void dump_crash_context(sheepshaver_cpu *cpu)
 {
+	// The guest PC may be a corrupt call target. LR still identifies the caller.
+	cpu->dump_call_context();
+
 	// Guest stack crawl. PowerOpen ABI: back chain at [sp], saved LR at [sp+8].
 	uint32 sp = cpu->cur_gpr(1);
 	fprintf(stderr, "guest stack crawl (r1=%08x):\n", sp);
@@ -844,9 +845,8 @@ static void dump_crash_context(sheepshaver_cpu *cpu)
 		sp = back;
 	}
 
-	// Window around the kernel-data interrupt stack. The StarCraft dump showed
-	// this region holding little-endian copies of its own guest addresses;
-	// flag any word still matching that signature.
+	// Window around the kernel-data interrupt stack. Flag words that hold
+	// little-endian copies of their own guest address (seen in a StarCraft crash).
 	const uint32 lo = (uint32)KERNEL_DATA_BASE - 0x200;
 	const uint32 hi = (uint32)KERNEL_DATA_BASE + 0x40;
 	fprintf(stderr, "kernel-area dump [%08x..%08x) ('<' = LE self-address):\n", lo, hi);
@@ -1302,7 +1302,7 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		uint32 saved_r2 = gpr(2);
 		uint32 saved_pc = pc();
 
-		// Read sub-opcode BEFORE dispatch for targeted logging
+		// Read sub-opcode before dispatch for targeted logging
 		uint32 pre_subop = ReadMacInt32(rave_scratch_addr);
 
 		// For hook sub-opcodes (200-207), log full PPC state
@@ -1318,10 +1318,8 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 			}
 		}
 
-		// PPC calling convention: float arguments go in FPR, not GPR.
-		// SetFloat(drawContext, tag, value) has value as a float in fpr(1).
-		// We must extract the float bits and place them in r5 so the
-		// dispatch handler receives the correct value via gpr(5).
+		// PPC passes float args in FPRs: move SetFloat's value (fpr1) into r5
+		// for the dispatch handler.
 		if (pre_subop == 0) {  // kRaveDrawSetFloat
 			float fval = (float)fpr(1);
 			uint32 fbits;
@@ -1370,8 +1368,7 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		break;
 	}
 	case NATIVE_OPENGL_DISPATCH: {
-		// Save critical PPC registers (same pattern as RAVE -- Metal/SDL init
-		// can trigger re-entrant PPC execution that corrupts these).
+		// Save registers that re-entrant PPC code can corrupt, as for RAVE.
 		uint32 saved_lr = lr();
 		uint32 saved_ctr = ctr();
 		uint32 saved_sp = gpr(1);
@@ -1390,12 +1387,12 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		uint32 arg_r3, arg_r4, arg_r5, arg_r6, arg_r7, arg_r8, arg_r9, arg_r10;
 		if (dt_flag) {
 			// Dispatch-table path: skip context index in R3, shift args.
-			// r4-r10 become args 0-6. Arg 7 (r10) is set to 0 for now;
-			// functions with 9+ args (like glTexImage2D) read additional
-			// args from the PPC stack via gl_ppc_stack_arg().
+			// r4-r10 become args 0-6. Arg 7 is the first stack word of the
+			// parameter area (sp+24+8*4), the slot gl_ppc_stack_arg(-1)
+			// reads; functions with 9+ args read the rest from the stack.
 			arg_r3 = gpr(4);  arg_r4 = gpr(5);  arg_r5 = gpr(6);
 			arg_r6 = gpr(7);  arg_r7 = gpr(8);  arg_r8 = gpr(9);
-			arg_r9 = gpr(10); arg_r10 = 0;
+			arg_r9 = gpr(10); arg_r10 = ReadMacInt32(saved_sp + 56);
 		} else {
 			// Stub-patching path: args in normal positions
 			arg_r3 = gpr(3);  arg_r4 = gpr(4);  arg_r5 = gpr(5);
@@ -1403,11 +1400,9 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 			arg_r9 = gpr(9);  arg_r10 = gpr(10);
 		}
 
-		// Generic FPR extraction based on function signature table.
-		// PPC ABI passes float/double args in FPR1-FPR13. We extract them
-		// into a uint32 array so GLDispatch can reconstruct float values.
-		// Dispatch-table calls shift GPR args only; FPR numbering is unchanged
-		// because the context index is an integer argument.
+		// Extract float/double args from FPR1-FPR13 per the signature table so
+		// GLDispatch can rebuild them. Dispatch-table calls shift GPR args only;
+		// the context index is an integer, so FPR numbering is unchanged.
 		const GLFuncSignature& sig = gl_func_signatures[sub_opcode < GL_MAX_SUBOPCODE ? sub_opcode : 0];
 		const int max_ppc_fpr_args = 13;
 		const int max_float_mask_bits = (int)(sizeof(sig.float_mask) * 8);
@@ -1415,17 +1410,15 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		int fpr_idx = 0;
 		for (int i = 0; i < sig.num_args && i < max_float_mask_bits && fpr_idx < max_ppc_fpr_args; i++) {
 			if (sig.float_mask & (1u << i)) {
-				// This arg position is a float/double -- extract from next FPR.
-				// PPC ABI: floats are promoted to double in FPR, cast back to float.
+				// Float arg: take the next FPR (floats arrive promoted to double).
 				float fval = (float)fpr(1 + fpr_idx);
 				memcpy(&float_bits[fpr_idx], &fval, 4);
 				fpr_idx++;
 			}
 		}
 
-		// Save PPC stack pointer for functions with 9+ args (e.g., glTexImage2D)
-		// When dt_flag is set, stack args are shifted by 1 position because
-		// the context arg consumed one GPR slot, pushing all subsequent args.
+		// Save sp for functions with 9+ args (e.g. glTexImage2D). With dt_flag
+		// set, stack args shift by one slot.
 		{
 			extern uint32_t gl_ppc_sp;
 			extern int gl_ppc_stack_arg_offset;
@@ -1447,21 +1440,17 @@ void sheepshaver_cpu::execute_native_op(uint32 selector)
 		break;
 	}
 	case NATIVE_DSP_DISPATCH: {
-		// No Metal resources, so no @autoreleasepool wrapper is needed
-		// here; the context-lifecycle path wraps in @autoreleasepool once
-		// GPU calls (GetBackBuffer vending a MTLTexture) land. Register-
-		// preservation pattern mirrors RAVE/GL for re-entrant PPC safety.
+		// No Metal resources here, so no @autoreleasepool. Register
+		// preservation mirrors RAVE/GL for re-entrant PPC safety.
 		uint32 saved_lr = lr();
 		uint32 saved_ctr = ctr();
 		uint32 saved_sp = gpr(1);
 		uint32 saved_r2 = gpr(2);
 
-		/* Stash caller LR + r11
-		 * for the one-shot DSpDispatch diagnostic on unresolved sub-opcodes
-		 * 400/401/501/502/600. r11 carries the CFM TVECT address under the
-		 * CFM ABI, so it identifies WHICH DSp symbol the caller jumped
-		 * through. Globals are defined in dsp_dispatch.cpp; single-thread
-		 * (emul) read+write so no synchronisation required. */
+		/* Stash caller LR and r11 for the one-shot DSpDispatch diagnostic on
+		 * unresolved sub-opcodes (400/401/501/502/600). Under the CFM ABI r11
+		 * holds the TVECT, identifying which DSp symbol was called. Globals live
+		 * in dsp_dispatch.cpp; emul thread only. */
 		{
 			extern uint32_t dsp_caller_lr;
 			extern uint32_t dsp_caller_r11;

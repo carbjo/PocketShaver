@@ -24,17 +24,15 @@
 #define DYNGEN_TARGET_EXEC_H
 
 /*
- *  Unlike the other backends these are not consumed by dyngen-compiled op
- *  templates (there are none on arm64); they document and centralize the
- *  register plan of the hand emitters in *-dyngen-ops-arm64.hpp:
+ *  Register plan of the hand emitters (*-dyngen-ops-arm64.hpp). No
+ *  dyngen-compiled op templates consume these on arm64.
  *    x19 = CPU (powerpc_cpu *), x20 = T0/A0, x21 = T1/A1, x22 = T2/A2.
- *  All four are AAPCS64 callee-saved, so C helper calls made from inside
- *  generated code preserve them; op_execute saves/restores them around
- *  block execution.
+ *  All are AAPCS64 callee-saved, so they survive C helper calls;
+ *  op_execute saves/restores them around block execution.
  *
- *  AREG4 is deliberately NOT defined: defining it would make dyngen-exec.h
- *  define REG_T3, which toggles an optional powerpc_dyngen data member on
- *  and off per translation unit depending on include order.
+ *  Do not define AREG4: dyngen-exec.h would then define REG_T3, which
+ *  toggles an optional powerpc_dyngen member per translation unit
+ *  depending on include order.
  */
 
 #define AREG0 "x19"
@@ -50,11 +48,10 @@ enum {
 };
 
 /*
- *  DYNGEN_FAST_DISPATCH arms direct block chaining in the translator
+ *  DYNGEN_FAST_DISPATCH enables direct block chaining in the translator
  *  (direct_chaining_possible, ppc-translate.cpp). On arm64 only its
- *  definedness is consumed — the dyngen op template sources that expand
- *  the macro body are never compiled here (gen_op_branch_chain_1/2 are
- *  hand-emitted in ppc-dyngen-ops-arm64.hpp instead).
+ *  definedness matters: gen_op_branch_chain_1/2 are hand-emitted in
+ *  ppc-dyngen-ops-arm64.hpp.
  */
 #define DYNGEN_FAST_DISPATCH(TARGET) do { } while (0)
 

@@ -1,23 +1,19 @@
 #!/usr/bin/env python3
 # Generate MEM_BULK flavors of the precompiled x86_64 macOS dyngen ops.
 #
-# The stock *_macos.hpp files (produced by patch_jit.pl) wrap every guest
-# memory access in a three-way translation stub (TRANS_RAX / TRANS_RDX)
-# matching upstream's real-addressing layout: zero page -> gZeroPage[],
-# kernel-data window -> gKernelData[], everything else dereferenced raw.
-#
-# PocketShaver's Catalyst build defines MEM_BULK instead, and the guest
-# address model lives in vm_do_get_real_address() (kpx_cpu/src/cpu/vm.hpp):
+# The stock *_macos.hpp files (from patch_jit.pl) wrap guest memory accesses
+# in translation stubs (TRANS_RAX / TRANS_RDX) for upstream's real-addressing
+# layout. The Catalyst build uses MEM_BULK, whose address model is
+# vm_do_get_real_address() (kpx_cpu/src/cpu/vm.hpp):
 #
 #     host = VMBaseDiff + guest                        // flat bulk arena
 #     except the two aliased 16 KB kernel windows:
 #     (guest & ~0x3fff) == 0x68ffc000 || == 0x5fffc000
 #         -> &gKernelData[guest & 0x3fff]
 #
-# (No zero-page special case: MEM_BULK maps guest 0 inside the arena.)
-#
-# This script rewrites each stub with a byte sequence replicating exactly
-# that logic, patching VMBaseDiff and &gKernelData as imm64 at emit time:
+# There is no zero-page case: guest 0 is inside the arena. Each stub is
+# replaced with this, with VMBaseDiff and &gKernelData patched as imm64 at
+# emit time:
 #
 #     push  rcx
 #     mov   ecx, e<R>            ; R = rax or rdx (stub flavor)
@@ -33,17 +29,13 @@
 #     add:  add r<R>, rcx
 #     pop   rcx
 #
-# The replacement is longer than the original stub, so every copy_block()/
-# inc_code_ptr() byte count and every emit-time patch offset downstream of a
-# stub is rewritten to match.
+# The new stub is longer, so every copy_block()/inc_code_ptr() size and
+# emit-time patch offset after a stub is shifted to match.
 #
-# patch_jit.pl only instrumented ops named load/store — sufficient upstream,
-# where mid-range guest addresses are identity-mapped and lmw/stmw/lwarx/
-# stwcx/dcbz to the redirected windows never happen in practice.  Under
-# MEM_BULK nothing is identity-mapped, so this script first re-runs
-# patch_jit.pl (in a temp dir; the checked-in *_macos.hpp stay pristine)
-# with the name filter widened to every guest-memory-touching op, then
-# applies the stub replacement to that widened output.
+# patch_jit.pl only stubs ops named load/store, which relies on upstream's
+# identity mapping. Under MEM_BULK every guest-memory op needs a stub, so
+# patch_jit.pl is re-run in a temp dir with a widened name filter (the
+# checked-in *_macos.hpp are untouched) and that output is transformed.
 #
 # Usage: python3 patch_jit_membulk.py   (run from this directory)
 # Inputs:  basic-dyngen-ops-x86_64.hpp, ppc-dyngen-ops-x86_64.hpp,
@@ -227,9 +219,9 @@ def widened_patch_jit(tmpdir):
     if needle not in perl:
         sys.exit("error: patch_jit.pl name filter not found — script needs updating")
     perl = perl.replace(needle, f'$valid = $name =~ /{WIDE_FILTER}/;')
-    # lmw's final word loads through rdx (mov eax,(rdx) = 8b 02), a pattern
-    # absent from load/store-named ops and hence from the stock key set.  It
-    # is always the op's last access, so translating rdx in place is safe.
+    # lmw's final word loads through rdx (mov eax,(rdx) = 8b 02), which the
+    # stock key set lacks. It is always the op's last access, so translating
+    # rdx in place is safe.
     for needle, extra in (
             ('"8902", "0fb620", "8820",', '"8902", "8b02", "0fb620", "8820",'),
             ('@keys_trans_rdx = ("890a", "8902", "890411");',
@@ -243,13 +235,10 @@ def widened_patch_jit(tmpdir):
         shutil.copy(src, tmpdir)
     subprocess.run(["perl", "patch_jit_wide.pl"], cwd=tmpdir, check=True)
 
-# dcbz zeroes a 32-byte cache line as four 8-byte stores off one address
-# computation; the byte-pattern keys cannot express "translate once, then
-# four derefs", so it gets a hand-inserted stub after the address masking
+# dcbz does four 8-byte stores off one address, which the byte-pattern keys
+# can't express, so it gets a hand-inserted stub after the address masking
 # prologue (mov eax,r12d / and eax,~0x1f / mov r12d,eax / mov eax,eax).
-# Emitted in patch_jit.pl's own output format (TRANS_RAX token + imm32
-# patch lines + adjusted sizes) so transform() below reshapes it like any
-# other stub.
+# Written in patch_jit.pl's output format so transform() reshapes it too.
 DCBZ_OLD = """    static const uint8 op_dcbz_T0_code[] = {
        0x44, 0x89, 0xe0, 0x83, 0xe0, 0xe0, 0x41, 0x89, 0xc4, 0x89, 0xc0, 0x48,
        0xc7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0xc7, 0x40, 0x08, 0x00, 0x00,
@@ -281,17 +270,13 @@ def patch_dcbz(path):
     with open(path, "w") as f:
         f.write(text.replace(DCBZ_OLD, DCBZ_NEW, 1))
 
-# Three ops in the widened set have internal control flow whose rel8
-# displacements cross an inserted stub; patch_jit.pl never adjusts branch
-# displacements (no load/store-named op has any), so they go stale:
-#   - stwcx: the two reservation-check branches (je/jne) jump forward
-#     across the guarded store to the epilogue.
-#   - lmw_T0_im / stmw_T0_im: the loop forms jump forward over the loop
-#     body to the condition check, and loop back across the body.
-# Compensate by the FINAL stub size: transform() later grows the
-# perl-inserted 36/41-byte stub to NEW[reg]["len"] bytes, and each listed
-# branch brackets exactly one stub.  (The stub preserves rcx, so the loop
-# ops' guest address register survives each iteration.)
+# patch_jit.pl never adjusts branch displacements, so rel8 branches that
+# cross an inserted stub go stale in three ops:
+#   - stwcx: the reservation-check je/jne jump forward across the store.
+#   - lmw_T0_im / stmw_T0_im: the loops jump forward over the body to the
+#     condition check, and back across it.
+# Each listed branch brackets exactly one stub, so adjust by the final stub
+# size NEW[reg]["len"]. The stub preserves rcx, which the loops rely on.
 BRANCH_FIXES = {
     "gen_op_stwcx_T0_T1": ("RAX", [(0x74, 0x24, +1), (0x75, 0x0f, +1)]),
     "gen_op_lmw_T0_im":   ("RAX", [(0xeb, 0x11, +1), (0x76, 0xea, -1)]),
@@ -325,13 +310,10 @@ def patch_branch_displacements(path):
     with open(path, "w") as f:
         f.write(text)
 
-# The FP ops route results through the FD scratch (powerpc_dyngen::reg_F3,
-# see the FD macro in ppc-dyngen-ops.cpp) at a displacement frozen when the
-# headers were generated against the upstream-era powerpc_cpu layout
-# (0x1008a8).  This fork's layout drifted — that offset now lands on
-# codegen.parent_cpu, so every FP instruction corrupted the dyngen object.
-# Zero the frozen displacement and patch the real offset at emit time,
-# where &reg_F3 and cpu() are both in scope.
+# FP ops address the FD scratch (powerpc_dyngen::reg_F3, see the FD macro in
+# ppc-dyngen-ops.cpp) at a displacement baked in at generation time
+# (0x1008a8). It doesn't match this build's powerpc_cpu layout (it lands on
+# codegen.parent_cpu), so zero it and patch the real offset at emit time.
 FD_OLD_DISP = [0xa8, 0x08, 0x10, 0x00]        # little-endian 0x1008a8
 FD_MODRM = {0x85, 0x8d, 0x95, 0x9d, 0xa5, 0xad, 0xb5, 0xbd}   # [rbp]+disp32
 FD_PATCH = ("    *(uint32_t *)(code_ptr() + {off}) = "
@@ -416,9 +398,8 @@ def fix_fd_temp(path):
         f.writelines(out)
     print(f"{path}: repointed {total} FD-temp displacements to reg_F3")
 
-# Two guest stores use byte patterns patch_jit.pl's key table cannot
-# express, so they never got stubs (latent upstream: raw mid-range derefs
-# were identity-mapped there):
+# Two guest stores use byte patterns patch_jit.pl's key table can't express,
+# so they get stubs here:
 #   - op_store_vect_VD_T0's fourth word stores through rcx (89 01).  A
 #     dedicated rcx-flavor stub (scratch rdx; rax holds the store value and
 #     must survive) goes in front of it.

@@ -195,11 +195,9 @@ class MiscellaneousSettings: Codable {
 			settings = MiscellaneousSettings()
 		}
 
-		// Macs have no touch input, so mouse passthrough must always be on
-		// there — but it is persisted state and its toggle is iPad-only UI, so
-		// a stale `false` (e.g. settings written by a pre-Mac build) would
-		// silently leave ADB in touch semantics (delayed clicks, post-click
-		// move suppression) with no way to recover from Preferences.
+		// Macs have no touch input, so mouse passthrough is always on there.
+		// The toggle is iPad-only UI, so a stale persisted `false` would leave
+		// ADB in touch semantics with no way to fix it from Preferences.
 		if UIDevice.deviceType == .mac {
 			settings.iPadMousePassthrough = true
 		}
@@ -211,11 +209,9 @@ class MiscellaneousSettings: Codable {
 
 	/// The `.osDefined` correction lifts midtones (classic-Mac 1.8 -> sRGB 2.2)
 	/// and reads as too bright / washed-out at launch on modern displays
-	/// One-time migration for the gamma-ramp default change (`.osDefined` ->
-	/// `.linear`). Installs that pre-date the change still hold the old default
-	/// in their persisted settings, so flipping `init()` alone would not reach
-	/// them. We move them once; the marker is set unconditionally so any later
-	/// explicit `.osDefined` choice in Preferences is preserved.
+	/// One-time migration of the persisted gamma-ramp default from `.osDefined`
+	/// to `.linear`. The marker is set unconditionally so a later explicit
+	/// `.osDefined` choice is preserved.
 	@MainActor
 	private func migrateGammaRampDefaultIfNeeded() {
 		let marker = "MiscellaneousSettings.gammaRampDefaultLinearMigration.v1"

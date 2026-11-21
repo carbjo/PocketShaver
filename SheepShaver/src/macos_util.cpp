@@ -296,7 +296,6 @@ uint32 FindLibSymbol(const char *lib_str, const char *sym_str)
 		Execute68k(proc1, &r);
 		D(bug("FindLibSymbol: GetSharedLibrary returned %d (connID=%ld, main=0x%lx)\n",
 			   (int16)r.d[0], (long)conn_id.value(), (unsigned long)main_addr.value()));
-		// Log error message if GetSharedLibrary failed
 		if (r.d[0]) {
 			uint8 errLen = ReadMacInt8(err.addr());
 			if (errLen > 0 && errLen < 256) {

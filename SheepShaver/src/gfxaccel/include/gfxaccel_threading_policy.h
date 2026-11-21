@@ -8,33 +8,22 @@
 #define GFXACCEL_THREADING_POLICY_H
 
 /*
- * Current iOS ground truth:
- *   SDL_main runs on the UIKit main thread and main_unix.cpp runs the PPC
- *   emulator inline from that call path. Therefore the UIKit main thread is
- *   the emul thread for PocketShaver's iOS build.
+ * On iOS, SDL_main runs on the UIKit main thread and runs the PPC emulator
+ * inline, so the main thread is the emul thread. "Main vs emul thread" races
+ * are really same-thread re-entry: the emulator pumps the runloop and guest
+ * callbacks can re-enter gfxaccel before the outer handler returns.
  *
- * Consequence:
- *   Historical comments that say "main thread vs emul thread" usually do
- *   not describe parallel execution today. They describe same-thread
- *   re-entry: the emulator pumps the UIKit runloop and guest callbacks can
- *   run code that re-enters gfxaccel before the outer handler has returned.
+ * Re-entry points: HandleInterrupt -> SDL_PumpEvents, CallMacOS* guest
+ * trampolines, CADisplayLink VBL callback fan-out, and UIKit notifications
+ * delivered during a pump.
  *
- * Important pump/re-entry points:
- *   - HandleInterrupt -> SDL_PumpEvents
- *   - CallMacOS* / call_macos* guest callback trampolines
- *   - CADisplayLink VBL primary and secondary callback fan-out
- *   - UIKit lifecycle notifications delivered while the runloop is pumped
+ * Don't add locks for state that is single-threaded only because main==emul.
+ * Defer work to a known drain point, guard nested fan-out, and revalidate
+ * handles after any guest callback or runloop pump.
  *
- * Rule for new code:
- *   Do not add locks just to protect state that is single-threaded only
- *   because main==emul today. Instead, make re-entry explicit: defer work to
- *   a known drain point, guard nested callback fan-out, and revalidate
- *   handles after any guest callback or runloop pump.
- *
- * If emulation ever moves off the UIKit main thread, every translation unit
- * that includes this header is an audit site. Plain statics and pointer
- * tables guarded only by this policy must be marshaled or protected by real
- * synchronization before the split ships.
+ * If emulation ever leaves the main thread, every file including this header
+ * is an audit site: statics guarded only by this policy need real
+ * synchronization.
  */
 
 #endif /* GFXACCEL_THREADING_POLICY_H */

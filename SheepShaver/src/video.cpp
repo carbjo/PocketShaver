@@ -293,9 +293,8 @@ static void publish_gamma_lut_to_display_controller(VidLocals *csSave)
 	}
 
 	int32_t err = dmc_record_driver_gamma_change(lut);
-	/* kDMCDriverGammaDeferred: a DSp fade is in progress — the fade's
-	 * end-state push delivers this table, so do NOT pop it onto the
-	 * faded screen here. */
+	/* kDMCDriverGammaDeferred: a DSp fade is running and its end-state push
+	 * delivers this table, so don't apply it to the faded screen. */
 	if (err == kDMCNoErr || err == kDMCErrNotInitialized) {
 		MetalCompositorUpdateGammaLUT(lut);
 	}
@@ -304,12 +303,10 @@ static void publish_gamma_lut_to_display_controller(VidLocals *csSave)
 
 static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 {
-	/* The Linear gamma pref must not bypass user-supplied tables here: games
-	 * install functional ramps (e.g. overbright brightness doubling) that the
-	 * compositor composes through the display policy. The pref only controls
-	 * that display-side composition — verbatim in OS-defined mode, inverse of
-	 * the Mac Standard curve in Linear mode (see gfx_color_policy.h). */
-	if (gamma == 0) { // nil table: install the driver's DEFAULT gamma
+	/* The Linear gamma pref must not bypass guest tables: games install
+	 * functional ramps (e.g. overbright). The pref only changes display-side
+	 * composition (see gfx_color_policy.h). */
+	if (gamma == 0) { // nil table: install the driver's default gamma
 
 		// Allocate new table, if necessary
 		if (!allocate_gamma_table(csSave, SIZEOF_GammaTbl + 256))
@@ -327,15 +324,9 @@ static int16 set_gamma(VidLocals *csSave, uint32 gamma)
 
 		for (int i=0; i<256; i++) {
 #if TARGET_OS_IPHONE
-			/* Real video card ROMs install their 'gama' resource ("Mac
-			 * Standard Gamma") as the power-on default; the Display Manager
-			 * trusts that at boot and only pushes the display profile's
-			 * table during a resolution/depth switch. A linear default here
-			 * therefore leaves the screen uncorrected from boot until the
-			 * first mode switch — which never comes when the guest boots at
-			 * the panel-native resolution in full screen. Default to the
-			 * same classic-Mac standard curve the profile table carries so
-			 * boot matches the post-switch presentation. */
+			/* Real card ROMs default to "Mac Standard Gamma"; the Display
+			 * Manager only pushes the profile table on a mode switch, which
+			 * may never happen. Use the same curve so boot matches. */
 			const uint8 v = GfxColorClassicMacToSRGBByte((uint8)i);
 #else
 			const uint8 v = (uint8)i; // linear ramp (legacy host gamma path)
@@ -452,12 +443,9 @@ static int16 VideoControl(uint32 pb, VidLocals *csSave)
 				// Windows are gamma-corrected by BeOS
 				const bool can_do_gamma = (display_type == DIS_SCREEN);
 #elif TARGET_OS_IPHONE
-				/* The compositor gamma LUT is the single owner of driver
-				 * gamma on iOS: publish_gamma_lut_to_display_controller
-				 * delivers the guest table to the GPU present path, and
-				 * compositor_fragment_indexed applies it after the palette
-				 * lookup. Baking it into mac_pal here as well would apply
-				 * the table twice on indexed paths (see gfx_color_policy.h). */
+				/* The compositor gamma LUT owns driver gamma on iOS (applied
+				 * after the palette lookup); baking it into mac_pal too
+				 * would apply it twice. */
 				const bool can_do_gamma = false;
 #else
 				const bool can_do_gamma = true;
@@ -750,13 +738,11 @@ static bool has_mode(uint32 id)
 }
 
 /*
- *  DepthMode translation at the driver ABI. The Display Manager numbers a
- *  display's depth modes RELATIVE to what the driver supports: kDepthMode1
- *  (0x80, firstVidMode) is always the LOWEST supported depth. VModes stores
- *  absolute APPLE_*_BIT constants; while the driver advertised every depth
- *  1..32bpp the two numberings coincided, but with a trimmed depth set the
- *  relative names must be translated. Absolute values are still accepted on
- *  input for back-compat with guest state saved by older builds.
+ *  DepthMode translation at the driver ABI. The Display Manager numbers depth
+ *  modes relative to what the driver supports: kDepthMode1 (0x80,
+ *  firstVidMode) is the lowest supported depth. VModes stores absolute
+ *  APPLE_*_BIT constants, which only coincide when every depth is offered.
+ *  video_mode_change still accepts absolute values from older guest state.
  */
 static int video_depth_list(uint32 depths[6])
 {
@@ -1003,13 +989,11 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 					break;
 			}
 			WriteMacInt32(param + csRIDisplayModeID, work_id);
-			/* csMaxDepthMode is a RELATIVE depth mode (kDepthModeN). */
+			/* csMaxDepthMode is relative (kDepthModeN). */
 			WriteMacInt16(param + csMaxDepthMode, video_rel_max_depth_mode());
-			/* Zero csResolutionFlags + csReserved: the guest Display Manager
-			 * copies the whole VDResolutionInfoRec into its mode-list
-			 * entries, and stale guest RAM here (e.g. a stray
-			 * kResolutionHasMultipleDepthSizes bit) changes the entry layout
-			 * apps parse. */
+			/* Zero csResolutionFlags + csReserved: the Display Manager copies
+			 * the whole record into its mode list, and stale bits (e.g.
+			 * kResolutionHasMultipleDepthSizes) change the layout apps parse. */
 			WriteMacInt16(param + csResolutionFlags, 0);
 			WriteMacInt32(param + csResolutionFlags + 2, 0);	// csReserved
 #ifdef TARGET_OS_IPHONE
@@ -1101,12 +1085,9 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 #endif
 
 			if (!mode_is_absolute) {
-				/* csDepthMode is a RELATIVE kDepthModeN selector; translate
-				 * STRICTLY (no absolute fallback) so the Display Manager's
-				 * probe loop terminates after exactly the supported depth
-				 * count — dual-accepting absolute values here made every
-				 * depth answer twice (once relative, once absolute) and
-				 * doubled each resolution's depth records. */
+				/* csDepthMode is relative (kDepthModeN). Translate strictly, no
+				 * absolute fallback: accepting both makes every depth answer
+				 * twice and doubles each resolution's depth records. */
 				uint32 abs = video_abs_depth_from_rel(requested_mode);
 				if (abs == 0)
 					return paramErr;
@@ -1175,9 +1156,8 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 							break;
 					}
 					WriteMacInt32(param + csPageCount, 1);
-					/* Zero csReserved (packed 68k layout: csDeviceType@14 is
-					 * 4 bytes, csReserved@18) — same stale-guest-RAM hazard
-					 * as csResolutionFlags in cscGetNextResolution. */
+					/* Zero csReserved (packed 68k: csDeviceType@14, 4 bytes;
+					 * csReserved@18), same stale-RAM hazard as above. */
 					WriteMacInt32(param + csDeviceType + 4, 0);	// csReserved
 					return noErr;
 				}
@@ -1194,15 +1174,10 @@ static int16 VideoStatus(uint32 pb, VidLocals *csSave)
 				if (ReadMacInt32(param + csTimingMode) == VModes[i].viAppleID) {
 					uint32 timing = timingUnknown;
 					uint32 flags = (1<<kModeValid) | (1<<kShowModeNow) | (1<<kModeSafe);
-					/* Key the timing constant off the mode's actual pixel
-					 * size. viAppleID values are assigned sequentially from
-					 * the enabled-resolution prefs, NOT the classic fixed
-					 * APPLE_* id-to-resolution table, so switching on the id
-					 * (as this code originally did) reported a shuffled
-					 * timing constant for every mode — e.g. the native-panel
-					 * mode carried timingVESA_640x480_75hz. The Display
-					 * Manager cross-references these constants when it
-					 * builds mode-list entries for apps. */
+					/* Key timing off pixel size, not viAppleID: IDs are assigned
+					 * sequentially from the enabled-resolution prefs, not the
+					 * classic APPLE_* table. The Display Manager uses these
+					 * constants when building mode lists for apps. */
 					const uint32 tw = VModes[i].viXsize;
 					const uint32 th = VModes[i].viYsize;
 					if (tw == 640 && th == 480)

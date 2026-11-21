@@ -398,14 +398,14 @@ extension SDLKey {
 	}
 }
 
-// MARK: - UIKeyboardHIDUsage → SDLKey mapping (for physical keyboard interception on DFiP)
+// MARK: - UIKeyboardHIDUsage → SDLKey mapping
 
 import UIKit
 
 extension SDLKey {
 
 	/// Map a `UIKeyboardHIDUsage` value from a physical key press to the
-	/// corresponding `SDLKey`.  Returns `nil` for unmapped HID codes.
+	/// corresponding `SDLKey`. Returns `nil` for unmapped HID codes.
 	init?(fromHIDUsage usage: UIKeyboardHIDUsage) {
 		switch usage {
 		// Letters

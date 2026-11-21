@@ -9,9 +9,7 @@
 #include "utils_ios.h"
 
 const char *objc_romPath(void) {
-	// Derive from document_directory() so the ROM follows the same relocation
-	// as the prefs/disks (the container's Documents on iOS, ~/PocketShaver
-	// Home/Documents on Mac Catalyst).
+	// Derive from document_directory() so the ROM lives with the prefs and disks.
 	NSString* docsDirectory = [NSString stringWithUTF8String:document_directory()];
 	NSString *romPath = [docsDirectory stringByAppendingPathComponent:@".rom"];
 	const char *returnString = [romPath cStringUsingEncoding:NSISOLatin1StringEncoding];

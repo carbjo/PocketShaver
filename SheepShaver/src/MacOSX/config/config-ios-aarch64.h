@@ -8,11 +8,8 @@
 /* Define if building universal (internal helper macro) */
 /* #undef AC_APPLE_UNIVERSAL_BUILD */
 
-/* Define if using a PowerPC CPU emulator.
- *
- * #ifndef so any pre-existing command-line/target definition is
- * respected instead of hard-overridden here.
- */
+/* Define if using a PowerPC CPU emulator. #ifndef respects a command-line
+ * definition. */
 #ifndef EMULATED_PPC
 #define EMULATED_PPC 1
 #endif
@@ -424,15 +421,12 @@
    ordering is the same as for multi-word integers. */
 /* #undef HOST_FLOAT_WORDS_BIG_ENDIAN */
 
-/* Use bulk memory allocation on iOS to avoid ASLR-related fixed-address
-   failures.  vm_init() reserves one contiguous region and sets VMBaseDiff
-   at runtime, so every Mac address maps reliably into host memory.  */
+/* Bulk memory allocation: fixed addresses fail under ASLR, so vm_init()
+   reserves one contiguous region and sets VMBaseDiff at runtime.  */
 #define MEM_BULK 1
 
-/* Use 64-bit Mach exception codes so that SIGSEGV fault addresses are not
-   truncated to 32 bits.  Required for MEM_BULK where VMBaseDiff is a
-   runtime value and the bottom 32 bits of a host address are not the
-   Mac address.  */
+/* 64-bit Mach exception codes so fault addresses aren't truncated. Required
+   for MEM_BULK, where a host address's low 32 bits aren't the Mac address.  */
 #define HAVE_MACH64_VM 1
 
 /* Define to the address where bug reports for this package should be sent. */

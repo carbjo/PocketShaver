@@ -8,22 +8,13 @@
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- *  Wraps CAMetalDisplayLink (iOS 17+) and CADisplayLink (13.4-16) behind
- *  the C-callable API declared in vbl_source.h.  The iOS 17+ path
- *  delivers the drawable and target presentation timestamp directly in
- *  the callback; the legacy path delivers timing only.
- *
- *  Design notes:
- *    - @available(iOS 17, *) branch inside vbl_source_init().
- *    - Cadence derived from inter-callback delta (17+) or
- *      CADisplayLink.duration (13.4-16).
- *    - Monotonic uint64 tick count incremented per VBL callback.
- *    - Per-engine 3D deadline pacing via mach_wait_until.
+ *  VBL tick source behind the C API in vbl_source.h, driven by CADisplayLink
+ *  (the CAMetalDisplayLink path is disabled, see vbl_source_init), plus
+ *  per-engine 3D deadline pacing via mach_wait_until.
  *
  *  Threading: VBL callbacks fire on the UIKit main RunLoop, which is also
- *  the emul thread in the current iOS build. They can therefore re-enter
- *  gfxaccel at runloop pump points rather than racing in parallel. Tick and
- *  cadence counters remain C11 _Atomic for read-mostly/future-thread-split
+ *  the emul thread, so they re-enter gfxaccel at runloop pump points rather
+ *  than racing. Tick and cadence counters are C11 _Atomic for read-mostly
  *  access; see gfxaccel_threading_policy.h.
  */
 
@@ -41,9 +32,7 @@
 #include <mach/kern_return.h>
 #include <mach/mach_time.h>
 
-// ---------------------------------------------------------------------------
 // Logging macros
-// ---------------------------------------------------------------------------
 
 #define VBL_LOG(fmt, ...) \
 	do { printf("[gfxaccel-vbl] " fmt "\n", ##__VA_ARGS__); } while (0)
@@ -51,22 +40,15 @@
 #define VBL_ERR(fmt, ...) \
 	do { printf("[gfxaccel-vbl ERROR] " fmt "\n", ##__VA_ARGS__); } while (0)
 
-// ---------------------------------------------------------------------------
 // File-scope static state
-// ---------------------------------------------------------------------------
 
 static VBLSourceCallbackFn s_callback     = NULL;
 static void               *s_callback_ctx = NULL;
 static int                 s_callback_depth = 0;
 
-/* Up to 4 secondary callbacks, invoked AFTER the
- * primary callback in every VBL tick path (CADisplayLink displayLinkFired:
- * AND the iOS 17+ metalDisplayLink:needsUpdate: delegate).
- *
- * Threading: No _Atomic is needed on the secondary-callback array.
- * Registration happens at DSpInit time on the main==emul thread BEFORE any
- * VBL tick fires; deregistration at DSpShutdown; no in-flight mutations.
- * This matches the existing s_callback non-atomic pattern. */
+/* Up to 4 secondary callbacks, run after the primary in every VBL tick path.
+ * Not atomic: registered at DSpInit on the emul thread before any tick fires
+ * and removed at DSpShutdown, same as s_callback. */
 static VBLSourceCallbackFn s_secondary_cb[VBL_SECONDARY_CALLBACK_MAX]  = {NULL};
 static void               *s_secondary_ctx[VBL_SECONDARY_CALLBACK_MAX] = {NULL};
 
@@ -82,10 +64,8 @@ static inline void DrainSecondaryCallbacks(void *drawable, double ts)
 static inline void FireVBLCallbackChain(void *drawable, double ts)
 {
 	if (s_callback_depth != 0) {
-		/* Potentially per-tick for titles whose guest VBL/fade procs pump
-		 * the runloop across a vsync boundary — rate-limit to the first
-		 * skip plus one summary per 600 skips (~10 s at 60 Hz) so the
-		 * always-on VBL_LOG cannot become per-frame stdout spam. */
+		/* Can recur every tick when guest VBL/fade procs pump the runloop across
+		 * vsync: log the first skip, then one summary per 600 skips (~10 s). */
 		static uint64_t s_nested_skip_count = 0;
 		s_nested_skip_count++;
 		if (s_nested_skip_count == 1 || (s_nested_skip_count % 600u) == 0) {
@@ -102,14 +82,10 @@ static inline void FireVBLCallbackChain(void *drawable, double ts)
 	DrainSecondaryCallbacks(drawable, ts);
 	s_callback_depth--;
 
-	// FPS tally for the Preferences overlay. Counted here — after the chain
-	// completes — rather than at the MetalCompositorPresent site, because that
-	// site sits inside the present -> nift-drain window whose timing is frozen
-	// for the Diablo II bisection (see the NOTE in MetalCompositorPresent).
-	// One completed chain corresponds to one serviced VBL and hence one
-	// compositor present in steady state; when emulation stalls, this thread
-	// stops pumping and the count (correctly) falls to zero. Exact
-	// present-site accounting can return once the nift bisection concludes.
+	// FPS tally for the Preferences overlay. One completed chain is one serviced
+	// VBL and, in steady state, one compositor present; the count drops to zero
+	// when emulation stalls. Counted here, not at MetalCompositorPresent, to
+	// leave the present -> nift-drain window's timing untouched.
 	objc_reportFrameRender();
 }
 
@@ -118,9 +94,8 @@ extern "C" int vbl_source_in_callback_chain(void)
 	return s_callback_depth != 0;
 }
 
-// C11 _Atomic for read-mostly counters -- minimal threading exception;
-// no mutex needed. Written once per VBL callback on the main==emul thread;
-// read by the same thread today and by tests/future split code.
+// Read-mostly C11 _Atomic counters, no mutex. Written once per VBL on the
+// emul thread.
 static _Atomic uint64_t    s_tick_count   = 0;
 static _Atomic uint64_t    s_cadence_usec = GFX_FRAME_PACING_DEFAULT_USEC;
 static _Atomic uint64_t    s_cadence_abs  = 0;
@@ -171,9 +146,7 @@ static void vbl_source_reset_deadlines(void)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// iOS 17+ delegate: CAMetalDisplayLinkDelegate
-// ---------------------------------------------------------------------------
+// iOS 17+ CAMetalDisplayLinkDelegate
 
 API_AVAILABLE(ios(17))
 @interface VBLMetalDisplayLinkDelegate : NSObject <CAMetalDisplayLinkDelegate>
@@ -184,7 +157,6 @@ API_AVAILABLE(ios(17))
 - (void)metalDisplayLink:(CAMetalDisplayLink *)link
              needsUpdate:(CAMetalDisplayLinkUpdate *)update
 {
-	// Increment tick count
 	atomic_fetch_add_explicit(&s_tick_count, 1, memory_order_relaxed);
 
 	// Update cadence from inter-callback delta (more accurate
@@ -213,9 +185,7 @@ API_AVAILABLE(ios(17))
 
 static VBLMetalDisplayLinkDelegate *s_delegate = nil;
 
-// ---------------------------------------------------------------------------
-// iOS 13.4-16 target: CADisplayLink callback
-// ---------------------------------------------------------------------------
+// CADisplayLink callback
 
 @interface VBLDisplayLinkTarget : NSObject
 - (void)displayLinkFired:(CADisplayLink *)link;
@@ -225,7 +195,6 @@ static VBLMetalDisplayLinkDelegate *s_delegate = nil;
 
 - (void)displayLinkFired:(CADisplayLink *)link
 {
-	// Increment tick count
 	atomic_fetch_add_explicit(&s_tick_count, 1, memory_order_relaxed);
 
 	// Update cadence from link.duration
@@ -246,9 +215,7 @@ static VBLMetalDisplayLinkDelegate *s_delegate = nil;
 
 static VBLDisplayLinkTarget *s_link_target = nil;
 
-// ---------------------------------------------------------------------------
 // Public API: lifecycle
-// ---------------------------------------------------------------------------
 
 extern "C"
 int32_t vbl_source_init(void *cametal_layer,
@@ -266,16 +233,11 @@ int32_t vbl_source_init(void *cametal_layer,
 	vbl_source_store_cadence_usec(GFX_FRAME_PACING_DEFAULT_USEC);
 	vbl_source_reset_deadlines();
 
-	// CAMetalDisplayLink (iOS 17+) is disabled: it forbids
-	// [layer nextDrawable] and requires all rendering to happen inside the
-	// delegate callback. PocketShaver's current iOS model runs PPC emulation,
-	// UIKit pumping, and presentation on the same main==emul thread, so moving
-	// rendering wholly inside the delegate would require a major architectural
-	// refactor. ProMotion is already honored
-	// via CADisplayLink's preferredFrameRateRange = (60,120) — there is no
-	// pacing benefit to the revive. Using CADisplayLink for timing for ALL iOS
-	// versions; nextDrawable for drawables. vbl_source_uses_metal_display_link()
-	// returns 0 by design.
+	// CAMetalDisplayLink (iOS 17+) is deliberately unused: it forbids
+	// [layer nextDrawable] and requires rendering inside its delegate, but
+	// emulation, UIKit pumping and presentation share the main==emul thread.
+	// CADisplayLink's preferredFrameRateRange (60,120) already covers
+	// ProMotion. vbl_source_uses_metal_display_link() returns 0 by design.
 	{
 		// --- CADisplayLink path (all iOS versions) ---
 		if (cametal_layer == NULL) {
@@ -345,9 +307,7 @@ void vbl_source_shutdown(void)
 	VBL_LOG("vbl_source_shutdown: done");
 }
 
-// ---------------------------------------------------------------------------
 // Public API: queries
-// ---------------------------------------------------------------------------
 
 extern "C"
 uint64_t vbl_source_get_cadence_usec(void)
@@ -387,9 +347,7 @@ void vbl_source_set_paused(int paused)
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Public API: 3D deadline pacing
-// ---------------------------------------------------------------------------
 
 extern "C"
 int32_t vbl_source_sync_3d_pacing_for_engine(int32_t engine_id)
@@ -427,25 +385,20 @@ int32_t vbl_source_sync_3d_pacing_for_engine(int32_t engine_id)
 		}
 	} else if (deadline == 0 ||
 	           deadline > last_tick_abs + 2u * period_abs) {
-		/* First sync for this engine, or its deadline chain ran
-		 * implausibly far ahead of the live tick grid (cadence change /
-		 * long idle): re-anchor to the first boundary after the latest
-		 * tick. NOTE: deliberately NOT re-anchored on every new tick —
-		 * doing so discarded the engine's own already-crossed boundary
-		 * and forced a full period wait per call, which made co-resident
-		 * engines (DSp+GL) pace to CONSECUTIVE boundaries: two periods
-		 * per guest frame, the CORE-10 half-rate symptom. */
+		/* First sync for this engine, or its deadline ran implausibly far ahead
+		 * of the tick grid (cadence change, long idle): re-anchor to the first
+		 * boundary after the latest tick. Do not re-anchor on every tick: that
+		 * discards an already-crossed boundary and makes co-resident engines
+		 * (DSp+GL) pace to consecutive boundaries, i.e. half rate. */
 		deadline = last_tick_abs + period_abs;
 	}
 
 	if (tick_is_fresh && deadline <= now) {
-		/* A vblank boundary already passed since this engine's last
-		 * sync (frame took >= one period, or another engine's wait on
-		 * this shared thread carried us across the boundary). The
-		 * boundary is consumed WITHOUT sleeping so every co-resident
-		 * engine paces to the SAME vblank, and a slow frame under the
-		 * DSP-06 throttle counts its render time toward the cap instead
-		 * of stacking full waits on top of it. */
+		/* A boundary already passed since this engine's last sync (slow frame, or
+		 * another engine's wait on this thread crossed it). Consume it without
+		 * sleeping so co-resident engines pace to the same vblank, and a slow
+		 * throttled frame counts its render time toward the cap instead of
+		 * stacking a full wait on top. */
 		while (deadline <= now) {
 			deadline += period_abs;
 		}
@@ -485,9 +438,7 @@ void vbl_source_signal_3d_pacing(void)
 	                      memory_order_relaxed);
 }
 
-// ---------------------------------------------------------------------------
-// Secondary-callback fan-out registration API
-// ---------------------------------------------------------------------------
+// Secondary-callback registration
 
 extern "C"
 int32_t vbl_source_register_secondary_callback(VBLSourceCallbackFn cb,

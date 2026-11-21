@@ -28,11 +28,8 @@ using std::string;
 #ifdef __APPLE__
 #include "TargetConditionals.h"
 #if TARGET_OS_MACCATALYST
-// Defined in utils_ios.mm. On Mac Catalyst the NVRAM lives under the app's
-// container Data directory (~/Library/Containers/<bundle-id>/Data) rather than
-// $HOME (which is the real user home there, since the build is unsandboxed).
-// Forward-declared to avoid coupling this shared BasiliskII source to the
-// PocketShaver-only utils_ios.h.
+// Defined in utils_ios.mm. On Catalyst the NVRAM lives in the app container's
+// Data directory, not $HOME (the real user home, since the build is unsandboxed).
 extern const char* pocketshaver_home_directory();
 #endif
 #endif

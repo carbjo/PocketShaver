@@ -59,6 +59,32 @@ static uint32 MakeExecutableTvec;
 
 
 /*
+ *  SynchIdleTime sleep. Games yield here between frames and streamed reads,
+ *  so sleeping to the next 60Hz tick costs up to 16.7 ms per yield. While a
+ *  3D or DrawSprocket context owns the screen the sleep is capped; the
+ *  desktop keeps the full power-saving sleep.
+ */
+
+#ifdef __APPLE__
+// Overridden by the gfxaccel display mode controller where it is linked in
+extern "C" __attribute__((weak)) int gfx_idle_latency_sensitive(void) { return 0; }
+#endif
+
+static const uint32 IDLE_WAIT_3D_USEC = 1000;
+
+static void synch_idle_wait(void)
+{
+#ifdef __APPLE__
+	if (gfx_idle_latency_sensitive()) {
+		idle_wait_usec(IDLE_WAIT_3D_USEC);
+		return;
+	}
+#endif
+	idle_wait();
+}
+
+
+/*
  *  Execute EMUL_OP opcode (called by 68k emulator)
  */
 
@@ -315,7 +341,7 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 			if (HasMacStarted()) {
 				if (InterruptFlags & INTFLAG_RSRC) {
 					ClearInterruptFlag(INTFLAG_RSRC);
-					DrainPendingResourceLocks();	// DII fix: lock sound-component PEF handles ASAP after load (before CFM prepare can purge them)
+					DrainPendingResourceLocks();	// lock sound-component PEF handles before CFM prepare can purge them
 				}
 				if (InterruptFlags & INTFLAG_VIA) {
 					ClearInterruptFlag(INTFLAG_VIA);
@@ -324,7 +350,7 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 #endif
 					ExecuteNative(NATIVE_VIDEO_VBL);
 
-					DrainPendingResourceLocks();	// DII fix: lock queued sound-component PEF handles (safe VBL context)
+					DrainPendingResourceLocks();	// safe VBL context
 
 					static int tick_counter = 0;
 					if (++tick_counter >= 60) {
@@ -478,20 +504,16 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 				break;
 			uint16 *p = (uint16 *)Mac2HostAddr(adr);
 			uint32 size = ReadMacInt32(adr - 8) & 0xffffff;
-			maybe_queue_nift_lock(type, r->a[0]);	// DII fix: schedule sound-component PEF lock
+			maybe_queue_nift_lock(type, r->a[0]);	// schedule sound-component PEF lock
 			CheckLoad(type, id, p, size);
 			break;
 		}
 
 		case OP_DISPOSE_NIFT_GUARD:	// _DisposHandle head-patch: A0 = handle
-			// Keep a live monitored 'nift' sound-component fragment ALIVE.  If the
-			// handle being disposed is one we lock, report SKIP so the thunk RTSs
-			// without freeing (intentional bounded leak), leaving CFM's prepared
-			// cross-TOC TVectors valid -> no use-after-free regardless of timing.
-			// Otherwise report CHAIN and hand the thunk the stock _DisposHandle
-			// entry in A1 (captured at install via GetOSTrapAddress) so it tail-
-			// jumps there.  A0 (handle) is preserved for the chain; A1/D1 are
-			// scratch for _DisposHandle (it consumes only A0, returns D0=MemError).
+			// Never free a locked 'nift' sound-component fragment: report SKIP so
+			// the thunk RTSs (a deliberate bounded leak) and CFM's cross-TOC
+			// TVectors stay valid. Otherwise CHAIN to the stock _DisposHandle in
+			// A1. A0 is preserved; A1/D1 are scratch for _DisposHandle.
 			if (RsrcLockIsLiveNift(r->a[0])) {
 				r->d[1] = 1;					// verdict: SKIP (keep the block alive)
 				r->d[0] = 0;					// MemError() = noErr for the skipped dispose
@@ -502,14 +524,11 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 			break;
 
 		case OP_GESTALT_VM:		// _Gestalt head-patch: report VM present to selected apps
-			// Some apps check Gestalt('vm  ') (gestaltVMAttr) and refuse to run when
-			// virtual memory is off, but SheepShaver has no MMU so VM is always off.
-			// For those apps (matched by current-app name) return a synthesized "VM
-			// present" response; everything else chains to the stock _Gestalt.  The
-			// verdict is WHICH address A1 gets, not a guest register: spoof -> A1
-			// = the thunk's trailing rts (with A0/D0 set here); chain -> A1 = stock
-			// _Gestalt.  The chain path MUST clobber only A1 -- writing D1/D0/A0
-			// before entering the real _Gestalt corrupts it and crashes the guest OS.
+			// Some apps refuse to run without VM, which SheepShaver can't provide.
+			// For those (matched by app name) spoof Gestalt('vm  '). The verdict is
+			// the A1 address: the thunk's rts to spoof, stock _Gestalt to chain.
+			// The chain path must clobber only A1; touching D1/D0/A0 before the
+			// real _Gestalt crashes the guest OS.
 			if (r->d[0] == 0x766d2020 && GestaltFakeVMForCurrentApp()) {	// 'vm  '
 				r->a[0] = 0x00000001;			// gestaltVMPresent
 				r->d[0] = 0;					// noErr
@@ -530,14 +549,14 @@ void EmulOp(M68kRegisters *r, uint32 pc, int selector)
 		case OP_IDLE_TIME:
 			// Sleep if no events pending
 			if (ReadMacInt32(0x14c) == 0)
-				idle_wait();
+				synch_idle_wait();
 			r->a[0] = ReadMacInt32(0x2b6);
 			break;
 
 		case OP_IDLE_TIME_2:
 			// Sleep if no events pending
 			if (ReadMacInt32(0x14c) == 0)
-				idle_wait();
+				synch_idle_wait();
 			r->d[0] = (uint32)-2;
 			break;
 
