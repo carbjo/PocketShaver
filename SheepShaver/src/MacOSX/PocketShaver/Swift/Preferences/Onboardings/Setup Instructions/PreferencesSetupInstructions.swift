@@ -36,7 +36,7 @@ class PreferencesSetupInstructionsCell: UITableViewCell {
 """.withTagsReplaced(
 	by: .init(
 		highlightedAppearance: .init(
-			font: Fonts.geneva.ofSize(14)!,
+			font: .systemFont(ofSize: 14),
 			color: Colors.primaryText
 		),
 		images: [

@@ -117,7 +117,7 @@ class PreferencesNetworkViewController: PreferencesTableViewController {
 					text: "It might take a while before Mac OS assigns the new IP address. You can force this by restarting or changing configuration inside the <mark>TCP/IP</mark> app.",
 					tagConfig: .init(
 						highlightedAppearance: .init(
-							font: Fonts.geneva.ofSize(14)!,
+							font: .systemFont(ofSize: 14),
 							color: Colors.primaryText
 						)
 					)
